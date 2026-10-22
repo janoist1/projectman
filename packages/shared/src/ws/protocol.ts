@@ -74,6 +74,8 @@ export const ServerEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('feedback_changed'), projectKey: z.string(), markId: z.string() }),
   /** System feedback changed (PM-472); `projectKey` null: the forwarding setting changed. Names no text. */
   z.object({ type: z.literal('system_feedback_changed'), projectKey: z.string().nullable() }),
+  /** Owner/admin connections only; contains no email text. */
+  z.object({ type: z.literal('email_changed'), projectKey: z.string() }),
   z.object({ type: z.literal('error'), message: z.string() }),
 ]);
 export type ServerEvent = z.infer<typeof ServerEvent>;

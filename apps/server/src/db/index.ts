@@ -1,4 +1,6 @@
 import { createAttachmentRepository } from './attachments';
+import { createEmailChannelRepository } from './email-channel';
+export type { EmailMessageRecord, EmailContactRecord, EmailContactEventRecord } from './email-channel';
 import { createWebPushRepository } from './web-push';
 export { pushDeviceView } from './web-push';
 export type { PushDeviceRecord, PushItemRecord } from './web-push';
@@ -205,6 +207,7 @@ export function createRepositories(db: Db) {
     memberState: createMemberStateRepository(db),
     feedback: createFeedbackRepository(db),
     systemFeedback: createSystemFeedbackRepository(db),
+    emailChannel: createEmailChannelRepository(db),
     history: createHistoryRepository(db),
     historySearches: createHistorySearchRepository(db),
     /** Runs `fn` in a single SQLite transaction. */

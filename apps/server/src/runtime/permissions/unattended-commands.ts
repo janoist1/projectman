@@ -17,7 +17,15 @@ import {
   READ_ONLY_GIT,
   READ_ONLY_PROGRAMS,
 } from './read-only-commands';
-import { ADD_FLAGS, COMMIT_FLAGS, FORMAT_WRITE_FLAGS, INSTALL_FLAGS, MERGE_FLAGS } from './worktree-commands';
+import {
+  ADD_FLAGS,
+  CHECKOUT_FLAGS,
+  COMMIT_FLAGS,
+  FORMAT_WRITE_FLAGS,
+  INSTALL_FLAGS,
+  MERGE_FLAGS,
+  RESTORE_FLAGS,
+} from './worktree-commands';
 
 /**
  * What the server lets an AI member run without asking a human, worded for the member's system
@@ -244,9 +252,9 @@ export function describeUnattendedCommands(input: UnattendedCommandsInput): stri
     // The rule takes the default branch, its remote branch or a commit id, and no other ref.
     const merge = `${code(`git merge --ff-only ${defaultBranch ?? '<commit id>'}`)}${
       defaultBranch ? ' (or a commit id)' : ''
-    } with ${flagList(MERGE_FLAGS)} if you like`;
+    } (${flagList(MERGE_FLAGS)})`;
     lines.push(
-      `- Your routine steps in your own worktree: ${code('npm ci')} or ${code('npm install')} (only with ${flagList(INSTALL_FLAGS)}), ${code('git add')} (${flagList(ADD_FLAGS)} or paths inside the worktree), ${code('git commit -m "message"')} (also ${flagList(COMMIT_FLAGS)}; a message of several lines inside the quotes is fine, so is a second ${code('-m')}; no ${code('--amend')}, ${code('--no-verify')} or ${code('-F')}), ${merge}. Each is one command. It may be followed by ${code('2>&1')} and a pipe into readers that only filter its output (${code('npm install --prefer-offline --no-audit --no-fund 2>&1 | tail -3')}), but a ${code('tee')} or any other writer after the pipe waits for a human. Readers may stand between them in a chain. A chain with a routine step may start with ${code('cd')} to the working directory itself and has no other ${code('cd')}: ${code('cd apps/server && npx vitest run && git add -A')} waits for a human.`,
+      `- Routine steps in your worktree: ${code('npm ci')} or ${code('npm install')} (only ${flagList(INSTALL_FLAGS)}), ${code('git add')} (${flagList(ADD_FLAGS)} or worktree paths), ${code('git commit -m "message"')} (${flagList(COMMIT_FLAGS)}; multiline/repeated ${code('-m')} allowed; no ${code('--amend')}, ${code('--no-verify')} or ${code('-F')}), ${code('git checkout -- <path>')} or ${code('git checkout HEAD -- <path>')} (${flagList(CHECKOUT_FLAGS)}), ${code('git restore <path>')} (${flagList(RESTORE_FLAGS)} and ${code('--source=HEAD')}), ${merge}. Checkout/restore: named worktree paths only; no root (${code('.')}), patterns or ${code(':')} pathspecs. Other sources, ${code('git checkout <branch>')} and ${code('git switch')} need a decision. Pipes allow readers only (${code('tee')} waits); ${code('2>&1')} is allowed. Chains allow readers and only an initial ${code('cd')} to the working directory: ${code('cd apps/server && npx vitest run && git add -A')} waits for a human.`,
     );
   }
   lines.push(

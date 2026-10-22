@@ -4,6 +4,15 @@
  * raises no other code.
  */
 export const ERROR_CODES = [
+  'email_not_configured',
+  'email_channel_off',
+  'email_sender_not_enabled',
+  'email_recipient_refused',
+  'email_content_refused',
+  'email_rate_limited',
+  'email_contact_refused',
+  'email_unknown',
+  'email_send_failed',
   'web_push_unavailable',
   'web_push_endpoint_invalid',
   'web_push_device_limit',

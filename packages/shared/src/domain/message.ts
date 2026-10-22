@@ -76,6 +76,7 @@ export type StaleReason = z.infer<typeof StaleReason>;
 
 /** A message between team members (human or AI), optionally about a task. */
 export const TeamMessage = z.object({
+  email: z.object({ emailId: z.string(), subject: z.string() }).optional(),
   via: z.literal('integrator').optional(),
   /**
    * The full origin of a message sent in the Operator's super mode (PM-757); absent on every other message.

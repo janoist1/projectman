@@ -5,6 +5,7 @@ import Fastify from 'fastify';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { startFakeCloud } from '../../test/helpers/fake-cloud';
 import type { FakeCloud } from '../../test/helpers/fake-cloud';
+import { waitFor } from '../../test/helpers/wait';
 import {
   createEngineClient,
   ENGINE_BACKOFF_MAX_MS,
@@ -52,14 +53,6 @@ const pendingInput = (sessionId: string): EngineEvent => ({
   sessionId,
   pending: true,
 });
-
-async function waitFor(check: () => boolean, what: string, ms = 10_000): Promise<void> {
-  const until = Date.now() + ms;
-  while (!check()) {
-    if (Date.now() > until) throw new Error(`timed out waiting for ${what}`);
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-}
 
 describe('engine link client', () => {
   let dir: string;

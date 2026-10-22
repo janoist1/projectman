@@ -121,18 +121,7 @@ export function tempDirs() {
   };
 }
 
-export async function waitFor<T>(
-  check: () => T | undefined | null | false,
-  { timeoutMs = 10_000, intervalMs = 20, what = 'condition' } = {},
-): Promise<T> {
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    const value = check();
-    if (value) return value;
-    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
-    await new Promise((resolve) => setTimeout(resolve, intervalMs));
-  }
-}
+export { waitFor } from '../../test/helpers/wait';
 
 /** A TCP port that was free a moment ago. */
 export function freePort(): Promise<number> {

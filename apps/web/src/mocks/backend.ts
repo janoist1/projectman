@@ -3336,6 +3336,7 @@ export class MockBackend {
         input.instructions !== undefined ||
         input.permissionMode !== undefined ||
         input.outboundNetwork !== undefined ||
+        input.email !== undefined ||
         input.approver !== undefined)
     )
       return error(400, 'not_ai_member', 'Not an AI member');
@@ -3350,6 +3351,12 @@ export class MockBackend {
       if (input.permissionMode !== undefined) nextMember.permissionMode = input.permissionMode;
       if (input.approver !== undefined) nextMember.approver = input.approver;
       if (input.outboundNetwork !== undefined) nextMember.outboundNetwork = input.outboundNetwork;
+      if (input.email !== undefined)
+        nextMember.email = {
+          enabled: nextMember.email?.enabled ?? false,
+          ...nextMember.email,
+          ...input.email,
+        };
     }
     if (input.access !== undefined && nextMember.kind !== 'human')
       return error(400, 'not_human_member', 'Access is for humans');
@@ -3402,6 +3409,13 @@ export class MockBackend {
       if (input.permissionMode !== undefined) config.permissionMode = input.permissionMode;
       if (input.approver !== undefined) config.approver = input.approver;
       if (input.outboundNetwork !== undefined) config.outboundNetwork = input.outboundNetwork;
+      if (input.email !== undefined) {
+        config.email = { enabled: config.email?.enabled ?? false, ...config.email, ...input.email };
+        member.email = {
+          enabled: config.email.enabled,
+          sendWithoutApproval: config.email.sendWithoutApproval ?? false,
+        };
+      }
       if (input.onLeave !== undefined) {
         if (input.onLeave) {
           config.onLeave = member.onLeave = true;

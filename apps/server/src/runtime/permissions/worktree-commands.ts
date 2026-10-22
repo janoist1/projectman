@@ -1,13 +1,14 @@
 import path from 'node:path';
 import { isWithin } from '../../kernel';
-import { namesDirectory, resolveWord, withoutOwnDirectory } from './command-paths';
+import { hasGlobCharacter, namesDirectory, resolveWord, withoutOwnDirectory } from './command-paths';
 import { isReadOnlyCommand } from './read-only-commands';
 import type { ShellCommand, ShellSegment } from './shell-words';
 
 /**
  * The routine steps of a developer in the task's own worktree, which the server allows without
  * asking (PM-77, PM-109): a lockfile install, formatting, `git add`, `git commit` with a message and a fast-forward
- * `git merge`. Codex's sandbox may write the repository's `.git` (the session makes it a writable
+ * `git merge`, plus `git checkout` and `git restore` of named paths from HEAD or the index.
+ * Codex's sandbox may write the repository's `.git` (the session makes it a writable
  * root), so the git steps run there on their own; the install needs the network, which is an
  * escalation for Codex members. Nothing here pushes, rewrites history or leaves the worktree.
  * Read-only commands may sit between them (`git status && git add -A && git commit -m x`).
@@ -17,6 +18,8 @@ export const INSTALL_FLAGS = new Set(['--prefer-offline', '--no-audit', '--no-fu
 export const FORMAT_WRITE_FLAGS = new Set(['--write', '-w']);
 export const ADD_FLAGS = new Set(['-A', '--all', '-u', '--update']);
 export const COMMIT_FLAGS = new Set(['-a', '--all', '-q', '--quiet']);
+export const CHECKOUT_FLAGS = new Set(['-q', '--quiet']);
+export const RESTORE_FLAGS = new Set(['-q', '--quiet', '-S', '--staged', '-W', '--worktree']);
 /** Options that take the commit message as the next word. */
 const COMMIT_MESSAGE_FLAGS = new Set(['-m', '-am', '--message']);
 export const MERGE_FLAGS = new Set(['-q', '--quiet']);
@@ -110,6 +113,10 @@ function isRoutineStep(words: readonly string[], context: WorktreeRoutineContext
       return isAdd(args, context.cwd);
     case 'commit':
       return isCommit(args);
+    case 'checkout':
+      return isCheckoutPaths(args, context.cwd);
+    case 'restore':
+      return isRestore(args, context.cwd);
     case 'merge':
       if (
         context.mergeFixBase &&
@@ -180,6 +187,56 @@ function isCommit(args: readonly string[]): boolean {
     }
   }
   return messages > 0;
+}
+
+/** A named path inside the worktree, excluding its root, patterns and pathspec magic. */
+function isRestorablePath(root: string, word: string): boolean {
+  if (word === '' || word.startsWith(':') || hasGlobCharacter(word) || namesDirectory(root, word))
+    return false;
+  const resolved = resolveWord(root, word);
+  return resolved !== null && isWithin(root, resolved);
+}
+
+/** `git checkout [HEAD] -- <paths>`, or `git checkout HEAD <paths>`; never switch branches. */
+function isCheckoutPaths(args: readonly string[], cwd: string): boolean {
+  let fromHead = false;
+  let onlyPaths = false;
+  let paths = 0;
+  for (const arg of args) {
+    if (!onlyPaths && arg === '--') {
+      onlyPaths = true;
+    } else if (!onlyPaths && arg.startsWith('-')) {
+      if (!CHECKOUT_FLAGS.has(arg)) return false;
+    } else if (!onlyPaths && !fromHead) {
+      if (arg !== 'HEAD') return false;
+      fromHead = true;
+    } else {
+      if (!isRestorablePath(cwd, arg)) return false;
+      paths += 1;
+    }
+  }
+  return paths > 0;
+}
+
+/** `git restore` of named paths, with only HEAD or the default index as the source. */
+function isRestore(args: readonly string[], cwd: string): boolean {
+  let onlyPaths = false;
+  let paths = 0;
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i]!;
+    if (!onlyPaths && arg === '--') {
+      onlyPaths = true;
+    } else if (!onlyPaths && (arg === '-s' || arg === '--source')) {
+      if (args[i + 1] !== 'HEAD') return false;
+      i += 1;
+    } else if (!onlyPaths && arg.startsWith('-')) {
+      if (!RESTORE_FLAGS.has(arg) && arg !== '--source=HEAD') return false;
+    } else {
+      if (!isRestorablePath(cwd, arg)) return false;
+      paths += 1;
+    }
+  }
+  return paths > 0;
 }
 
 /** `git merge --ff-only <ref>` where the ref is the default branch, its remote branch or a commit id. */

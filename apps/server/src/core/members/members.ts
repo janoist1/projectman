@@ -191,6 +191,10 @@ export class MemberService {
         displayName: m.displayName,
         githubLogin: m.githubLogin,
         kind: 'ai',
+        email: {
+          enabled: m.email?.enabled ?? false,
+          sendWithoutApproval: m.email?.sendWithoutApproval ?? false,
+        },
         outage: this.outageOf?.(projectKey, m.handle),
         role: m.role,
         roles: memberRoles(m),
@@ -410,11 +414,12 @@ export class MemberService {
         req.capacity !== undefined ||
         req.role !== undefined ||
         req.approver !== undefined ||
-        req.outboundNetwork !== undefined
+        req.outboundNetwork !== undefined ||
+        req.email !== undefined
       ) {
         throw invalid(
           'not_ai_member',
-          'specialty, provider, model, effort, compaction window, cheap subagent, schedule, leave, instructions, permission mode, approver and outbound network apply to AI members only',
+          'specialty, provider, model, effort, compaction window, cheap subagent, schedule, leave, instructions, permission mode, approver, outbound network and email settings apply to AI members only',
         );
       }
       if (req.roles !== undefined) {
@@ -499,6 +504,10 @@ export class MemberService {
       if (req.outboundNetwork !== undefined) {
         member.outboundNetwork = req.outboundNetwork;
         fields.push('outbound network');
+      }
+      if (req.email !== undefined) {
+        member.email = { enabled: member.email?.enabled ?? false, ...member.email, ...req.email };
+        fields.push('email');
       }
       if (req.onLeave !== undefined) {
         if (req.onLeave) member.onLeave = true;

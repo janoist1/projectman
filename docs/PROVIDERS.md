@@ -1030,8 +1030,12 @@ the timeline like any other answer):
 - publishing from a local-only repository (no GitHub in its config) is denied, whatever else
   the command says and even when it cannot be parsed;
 - a developer's routine steps in the task's own worktree are allowed: a lockfile install,
-  `git add`, `git commit` with a message and `git merge --ff-only` of the default branch or a
-  commit, each one command, which may carry `2>&1` and be piped into readers that filter its
+  `git add`, `git commit` with a message, `git checkout -- <path>` or `git checkout HEAD [--] <path>`,
+  `git restore <path>` (optionally `--source=HEAD`, `--staged` or `--worktree`), and
+  `git merge --ff-only` of the default branch or a commit. Checkout and restore accept only named
+  paths inside the worktree, excluding the worktree root, patterns and `:`-prefixed pathspecs;
+  branch switches and sources other than HEAD or the index still require a decision (PM-893).
+  Each is one command, which may carry `2>&1` and be piped into readers that filter its
   output (`npm install … 2>&1 | tail -3`; a `tee` or any other writer after the pipe still goes
   to a human, PM-105). They may be joined with `&&`, `||`
   or `;` and mixed with read-only steps, which may be whole pipelines, as long as those stay

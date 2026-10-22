@@ -172,7 +172,10 @@ export function queueItemWaiting(item: StoredMemberQueueItem): TaskStartWaiting 
   return waiting.success ? waiting.data : { reason: reason.data, since: item.wait.at, member: item.member };
 }
 
-/** Where the deferrals are kept besides memory (the `deferred_starts` table). */
+/**
+ * Where the deferrals no member's queue can hold are kept besides memory (the `deferred_starts`
+ * table): the starts that wait for no chosen AI member yet. The others are queue items (PM-927).
+ */
 export interface DeferredStartStore {
   save(record: DeferredStartRecord): void;
   remove(key: string): void;

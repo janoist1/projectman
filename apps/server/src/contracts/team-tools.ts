@@ -999,6 +999,7 @@ export interface OperatorToolsHandler {
       answer?: string;
       forwardTo?: MemberHandle;
       todo?: ScreeningTodo;
+      feedbackId?: string;
     },
   ): Promise<{
     inboxItemId: string;

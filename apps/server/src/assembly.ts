@@ -1721,6 +1721,7 @@ export function createDomain(opts: DomainOptions) {
       feedback: new FeedbackTools({ calls: toolCaller, ctx, projects, feedback }),
       github: new GithubTools({ calls: toolCaller, ctx, github: opts.github, tasks, sync: githubSync }),
       operator: new OperatorTools({
+        systemFeedback,
         structuralReviews,
         operatorPreferences,
         operatorKnowledge: sharedOperatorKnowledge,

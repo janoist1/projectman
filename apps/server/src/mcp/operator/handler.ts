@@ -24,6 +24,7 @@ import type {
   OperatorToolsHandler,
   MemberStartResult,
   ToolContext,
+  SystemFeedbackLookup,
 } from '../../contracts';
 import type { DomainContext } from '../../core/base';
 import { DomainError } from '../../kernel';
@@ -60,6 +61,7 @@ export class OperatorTools implements OperatorToolsHandler {
   private readonly projects: ProjectService;
   private readonly tasks: TaskService;
   private readonly inbox: InboxService;
+  private readonly systemFeedback: SystemFeedbackLookup;
   private readonly obligations: Pick<ObligationsService, 'listOpen'>;
   private readonly messaging: Pick<Messaging, 'answer' | 'forwardQuestion' | 'sendReporting'>;
   private readonly projectState: ProjectState;
@@ -78,6 +80,7 @@ export class OperatorTools implements OperatorToolsHandler {
     projects: ProjectService;
     tasks: TaskService;
     inbox: InboxService;
+    systemFeedback: SystemFeedbackLookup;
     obligations: Pick<ObligationsService, 'listOpen'>;
     messaging: Pick<Messaging, 'answer' | 'forwardQuestion' | 'sendReporting'>;
     projectState: ProjectState;
@@ -96,6 +99,7 @@ export class OperatorTools implements OperatorToolsHandler {
     this.projects = deps.projects;
     this.tasks = deps.tasks;
     this.inbox = deps.inbox;
+    this.systemFeedback = deps.systemFeedback;
     this.obligations = deps.obligations;
     this.messaging = deps.messaging;
     this.projectState = deps.projectState;
@@ -436,6 +440,7 @@ export class OperatorTools implements OperatorToolsHandler {
       answer?: string;
       forwardTo?: string;
       todo?: ScreeningTodo;
+      feedbackId?: string;
     },
   ): Promise<{
     inboxItemId: string;
@@ -466,6 +471,13 @@ export class OperatorTools implements OperatorToolsHandler {
         );
       if (args.todo && !ScreeningTodoSchema.safeParse(args.todo).success)
         throw fieldError('todo needs valid what, where, expected and recipient fields.');
+      if (
+        args.feedbackId !== undefined &&
+        (outcome !== 'todo' ||
+          !args.feedbackId.trim() ||
+          !this.systemFeedback.belongsToProject(ctx.projectKey, args.feedbackId))
+      )
+        throw fieldError('feedback_id must identify system feedback in this project, only with todo.');
       const item = this.ctx.repos.inbox.get(args.itemId);
       if (!item || item.projectKey !== ctx.projectKey || item.kind !== 'question')
         throw new TeamToolError('not_found', `No question ${args.itemId} in this project.`);
@@ -500,6 +512,7 @@ export class OperatorTools implements OperatorToolsHandler {
               by,
               note,
               ...(args.todo ? { todo: args.todo } : {}),
+              ...(args.feedbackId !== undefined ? { feedbackId: args.feedbackId } : {}),
             })
           : await this.inbox.settleScreened(
               item.id,

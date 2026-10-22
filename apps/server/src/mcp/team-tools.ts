@@ -420,6 +420,7 @@ export class TeamToolsService implements TeamToolsHandler {
       answer?: string;
       forwardTo?: string;
       todo?: ScreeningTodo;
+      feedbackId?: string;
     },
   ): Promise<{
     inboxItemId: string;

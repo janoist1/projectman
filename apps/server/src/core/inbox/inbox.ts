@@ -181,6 +181,7 @@ export interface ScreeningRelease {
   by?: string;
   note?: string;
   todo?: ScreeningTodo;
+  feedbackId?: string;
   fallback?: 'timeout' | 'unavailable';
 }
 
@@ -1852,6 +1853,7 @@ export class InboxService {
         ...(release.by ? { by: release.by } : {}),
         ...(release.note ? { note: release.note } : {}),
         ...(todo ? { todo } : {}),
+        ...(release.feedbackId !== undefined ? { feedbackId: release.feedbackId } : {}),
         ...('recipientRefusal' in selected ? { recipientRefusal: selected.recipientRefusal } : {}),
         ...(fallback ? { fallback } : {}),
       },
@@ -1972,6 +1974,7 @@ export class InboxService {
             by: release.by,
             note: release.note ?? '',
             ...(todo ? { todo } : {}),
+            ...(release.feedbackId !== undefined ? { feedbackId: release.feedbackId } : {}),
           });
         } else if (fallback) {
           this.timeline.append({
@@ -2068,6 +2071,7 @@ export class InboxService {
     outcome: Pick<ScreeningSettlement, 'by' | 'note' | 'answer' | 'forwardedTo'> & {
       outcome: TimelineEventData['question_screened']['outcome'];
       todo?: QuestionTodo;
+      feedbackId?: string;
     },
   ): void {
     this.timeline.append({
@@ -2084,6 +2088,7 @@ export class InboxService {
         ...(outcome.forwardedTo ? { forwardedTo: outcome.forwardedTo } : {}),
         ...(outcome.answer ? { answer: outcome.answer } : {}),
         ...(outcome.todo ? { todo: outcome.todo } : {}),
+        ...(outcome.feedbackId !== undefined ? { feedbackId: outcome.feedbackId } : {}),
         ...(outcome.outcome === 'todo'
           ? {
               recipient: questionPayloadOf(item)?.recipient ?? 'owner',

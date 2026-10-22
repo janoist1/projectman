@@ -10,7 +10,7 @@ export const SYSTEM_FEEDBACK_TOOL_GROUP: TeamToolGroup = {
       title: 'List the recorded system feedback',
       readOnly: true,
       description:
-        "Only the Operator; needs no open owner request. The gaps in projectman itself that this project's Operator " +
+        "Only the Operator or the selected PM in its internal coordination session, never an approval continuation; needs no open owner request. The gaps in projectman itself that this project's team " +
         'recorded earlier, in any state, the latest 50: id, state (new, forwarded, dismissed), title, how many times ' +
         'it occurred and when it was last seen. Look here before record_system_feedback, so the same gap is not ' +
         'recorded twice.',
@@ -24,7 +24,7 @@ export const SYSTEM_FEEDBACK_TOOL_GROUP: TeamToolGroup = {
       title: 'Record a gap in projectman',
       readOnly: false,
       description:
-        'Only the Operator; needs no open owner request. Record ONE gap in projectman itself (a missing tool, a ' +
+        'Only the Operator or the selected PM in its internal coordination session, never an approval continuation; needs no open owner request. Record ONE gap in projectman itself (a missing tool, a ' +
         'refusal that made no sense, a flow that could not do what the owner asked) that you had to work around. ' +
         'The owner decides what happens to it. Write it in English, without secrets, passwords, tokens, file ' +
         'paths, e-mail addresses or the names of people, projects or clients: describe the gap in general terms ' +

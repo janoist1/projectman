@@ -1333,6 +1333,15 @@ describe('system prompt', () => {
         expect(operator).not.toContain(old);
     });
 
+    it('includes the system feedback path for screened todos', () => {
+      for (const prompt of [
+        operatorPrompt('en'),
+        roleOf(builder.build(input({ handle: 'pm' })).appendSystemPrompt),
+      ])
+        for (const key of ['list_system_feedback', 'record_system_feedback', 'same_as', 'feedback_id'])
+          expect(prompt).toContain(key);
+    });
+
     it('tells only the PM how to screen AI questions while leaving human approvals to people', () => {
       const operator = roleOf(builder.build(input({ handle: 'pm' })).appendSystemPrompt);
       expect(operatorPrompt('en')).not.toContain('Call screen_question for every question');

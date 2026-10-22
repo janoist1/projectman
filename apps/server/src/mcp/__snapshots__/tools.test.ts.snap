@@ -3961,7 +3961,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": true,
       "title": "List the recorded system feedback",
     },
-    "description": "Only the Operator; needs no open owner request. The gaps in projectman itself that this project's Operator recorded earlier, in any state, the latest 50: id, state (new, forwarded, dismissed), title, how many times it occurred and when it was last seen. Look here before record_system_feedback, so the same gap is not recorded twice.",
+    "description": "Only the Operator or the selected PM in its internal coordination session, never an approval continuation; needs no open owner request. The gaps in projectman itself that this project's team recorded earlier, in any state, the latest 50: id, state (new, forwarded, dismissed), title, how many times it occurred and when it was last seen. Look here before record_system_feedback, so the same gap is not recorded twice.",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,
@@ -7335,7 +7335,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": false,
       "title": "Record a gap in projectman",
     },
-    "description": "Only the Operator; needs no open owner request. Record ONE gap in projectman itself (a missing tool, a refusal that made no sense, a flow that could not do what the owner asked) that you had to work around. The owner decides what happens to it. Write it in English, without secrets, passwords, tokens, file paths, e-mail addresses or the names of people, projects or clients: describe the gap in general terms (what is covered is replaced by a marker, and the owner reads the text before anything leaves the installation). If list_system_feedback shows the same gap, pass its id as same_as instead: it only adds an occurrence and the other fields are ignored. At most 10 new items per project in 24 hours.",
+    "description": "Only the Operator or the selected PM in its internal coordination session, never an approval continuation; needs no open owner request. Record ONE gap in projectman itself (a missing tool, a refusal that made no sense, a flow that could not do what the owner asked) that you had to work around. The owner decides what happens to it. Write it in English, without secrets, passwords, tokens, file paths, e-mail addresses or the names of people, projects or clients: describe the gap in general terms (what is covered is replaced by a marker, and the owner reads the text before anything leaves the installation). If list_system_feedback shows the same gap, pass its id as same_as instead: it only adds an occurrence and the other fields are ignored. At most 10 new items per project in 24 hours.",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,
@@ -7488,6 +7488,11 @@ exports[`team tool definitions > preserves the public tool definitions across mo
         "answer": {
           "description": "The answer; only with answered.",
           "maxLength": 10000,
+          "minLength": 1,
+          "type": "string",
+        },
+        "feedback_id": {
+          "description": "The system feedback id returned by record_system_feedback; only with todo.",
           "minLength": 1,
           "type": "string",
         },

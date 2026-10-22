@@ -215,15 +215,18 @@ A second, separate door for the integrator's MCP client: a bearer `pmi_` key, no
   card route. A withdrawn primary still represents the others, and combining never adds screening time.
   `answered`, `forwarded` and `todo` screening outcomes refuse groups; `decision` opens the representative,
   while `moot` closes just the named original membership. Linked items never fall back separately.
-- `screen_question { item_id, outcome, note, answer?, forward_to?, todo? }` (PM-558, PM-707) is the PM's tool for
+- `screen_question { item_id, outcome, note, answer?, forward_to?, todo?, feedback_id? }` (PM-558, PM-707, PM-562) is the PM's tool for
   the questions AI members ask people (`ask_human` puts them in the inbox state `screening` first). Outcomes:
   `answered` (needs `answer`), `forwarded` (needs `forward_to`), `moot`, `decision`, `todo` (needs `todo`
   `{ what, where, expected }`); `note` is always required, a field the outcome does not take is refused
   (`invalid_outcome_fields`). Only the selected PM, not in guest conversations, no open request needed; a question
   no longer in screening answers `question_not_screening` (moot still works). `ask_human` answers
   `{ screening: true }` for a screened question and takes `reask_of` + `reask_reason` (together) to ask a settled
-  question again unscreened (`reask_not_allowed` otherwise). Handler method: `screenQuestion(ctx, { itemId,
-outcome, note, answer?, forwardTo?, todo? })`. See ARCHITECTURE.md, "The Operator".
+  question again unscreened (`reask_not_allowed` otherwise). Optional `feedback_id` is accepted only for
+  `todo` and must identify existing system feedback in the same project (`invalid_outcome_fields` otherwise).
+  The reference is stored atomically in the screening payload and `question_screened` event. Recording failure
+  must not delay a todo or its fallback: omit the reference in that case. Handler method: `screenQuestion(ctx, { itemId,
+outcome, note, answer?, forwardTo?, todo?, feedbackId? })`. See ARCHITECTURE.md, "The Operator".
 - `hand_off` (PM-342) is for the member a card is being handed over from, after the system told it to
   write the handoff note: only that member, while the handoff is open (`handoff_not_open` otherwise,
   also when the time ran out and the summary stands in). It records the note and the state of the

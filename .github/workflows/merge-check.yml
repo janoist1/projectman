@@ -12,6 +12,11 @@ on:
         required: false
         default: ''
         type: string
+      all:
+        description: run the whole tree's tests (a review pin), not the merge diff's scope
+        required: false
+        default: false
+        type: boolean
 permissions:
   contents: read
 jobs:
@@ -44,6 +49,7 @@ jobs:
       - name: merge-test
         env:
           MERGE_TEST_FILES: ${{ inputs.files }}
+          MERGE_TEST_ALL: ${{ inputs.all }}
           SHARD: ${{ matrix.shard }}/4
           VITEST_MAX_FORKS: '3'
           VITEST_MAX_THREADS: '3'
@@ -53,4 +59,8 @@ jobs:
           bash --version
           node --version
           mkdir -p "$RUNNER_TEMP/h" "$RUNNER_TEMP/t"
-          HOME="$RUNNER_TEMP/h" TMPDIR="$RUNNER_TEMP/t" npm run merge-test -- --no-cache --shard "$SHARD" --files-from-env
+          if [ "$MERGE_TEST_ALL" = "true" ]; then
+            HOME="$RUNNER_TEMP/h" TMPDIR="$RUNNER_TEMP/t" npm run merge-test -- --no-cache --shard "$SHARD" --all
+          else
+            HOME="$RUNNER_TEMP/h" TMPDIR="$RUNNER_TEMP/t" npm run merge-test -- --no-cache --shard "$SHARD" --files-from-env
+          fi

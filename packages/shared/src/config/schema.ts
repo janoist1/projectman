@@ -278,6 +278,13 @@ export const ReviewTestConfig = z.object({
    * a review-time full test stays on the engine.
    */
   runner: MergeCheckRunner.optional(),
+  /**
+   * Where the full test runs before review (PM-909). Absent: the old rule (`reviewTestRunnerBeforeReview`):
+   * on the engine when `fullTestAtMerge` is not true, else off. 'off': no check before review; 'engine':
+   * the engine's full test sandbox; 'github_actions': the repository's merge-check workflow on the review
+   * pin, also with `fullTestAtMerge`. Independent of `runner`, which picks the merge check's runner.
+   */
+  beforeReview: z.enum(['off', 'engine', 'github_actions']).optional(),
 });
 export type ReviewTestConfig = z.infer<typeof ReviewTestConfig>;
 

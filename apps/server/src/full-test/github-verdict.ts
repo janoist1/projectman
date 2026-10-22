@@ -119,6 +119,28 @@ function flakyLines(finished: FinishedRun): string[] {
   return files.map((file) => mergeTestMarkerLine('flaky', file));
 }
 
+/** The shard jobs of the workflow's matrix (`merge-test (k/4)`). */
+export const MERGE_TEST_SHARD_JOBS: readonly string[] = [1, 2, 3, 4].map((k) => `merge-test (${k}/4)`);
+
+/**
+ * Why a green full-tree check (`all`, PM-909) is not proven, or null: each of the four shard jobs must be
+ * there once, succeeded, and its own log must say the scope was `all` (a branch that carries an older
+ * workflow would run the narrower merge scope and still pass).
+ */
+export function fullScopeProblem(finished: FinishedRun): string | null {
+  for (const name of MERGE_TEST_SHARD_JOBS) {
+    const entries = finished.jobs.filter(({ job }) => job.name === name);
+    if (entries.length !== 1)
+      return `The run has ${entries.length} jobs named "${name}", not one: the full check is not proven.`;
+    const { job, log } = entries[0]!;
+    if (!succeeded(job)) return `The job "${name}" did not succeed.`;
+    const scope = mergeTestReport(log, null)?.scope ?? null;
+    if (scope !== 'all')
+      return `The job "${name}" ran the scope ${scope ?? 'unknown'}, not all: the workflow on the branch is older than the full check.`;
+  }
+  return null;
+}
+
 export function passedResult(finished: FinishedRun): FullTestResult {
   return {
     outcome: 'passed',

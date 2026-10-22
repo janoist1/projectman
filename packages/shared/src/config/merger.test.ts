@@ -9,6 +9,7 @@ import {
   moveMerge,
   requiresMerge,
   reviewTestBeforeReview,
+  reviewTestRunnerBeforeReview,
   unresolvedMerger,
 } from './merger';
 import { ProjectConfig } from './schema';
@@ -101,6 +102,40 @@ describe('reviewTestBeforeReview', () => {
   it('is false without a reviewTest', () => {
     expect(reviewTestBeforeReview({})).toBe(false);
     expect(reviewTestBeforeReview({ fullTestAtMerge: true })).toBe(false);
+  });
+});
+
+describe('reviewTestRunnerBeforeReview (PM-909)', () => {
+  const reviewTest = { command: 'npm test', maxWorkers: 2, timeoutMinutes: 15 };
+  const withBefore = (beforeReview: 'off' | 'engine' | 'github_actions') => ({
+    ...reviewTest,
+    beforeReview,
+  });
+
+  it('keeps the old rule when beforeReview is absent', () => {
+    expect(reviewTestRunnerBeforeReview({ reviewTest })).toBe('engine');
+    expect(reviewTestRunnerBeforeReview({ reviewTest, fullTestAtMerge: true })).toBe(undefined);
+    // the merge runner alone never publishes branches
+    expect(reviewTestRunnerBeforeReview({ reviewTest: { ...reviewTest, runner: 'github_actions' } })).toBe(
+      'engine',
+    );
+  });
+
+  it('follows an explicit beforeReview, also with fullTestAtMerge', () => {
+    expect(reviewTestRunnerBeforeReview({ reviewTest: withBefore('off') })).toBe(undefined);
+    expect(reviewTestRunnerBeforeReview({ reviewTest: withBefore('engine'), fullTestAtMerge: true })).toBe(
+      'engine',
+    );
+    expect(
+      reviewTestRunnerBeforeReview({ reviewTest: withBefore('github_actions'), fullTestAtMerge: true }),
+    ).toBe('github_actions');
+    expect(reviewTestBeforeReview({ reviewTest: withBefore('github_actions'), fullTestAtMerge: true })).toBe(
+      true,
+    );
+  });
+
+  it('is undefined without a reviewTest', () => {
+    expect(reviewTestRunnerBeforeReview({})).toBe(undefined);
   });
 });
 

@@ -2191,4 +2191,12 @@ migrations.push({
   CREATE INDEX email_messages_project ON email_messages(project_key, created_at);
   CREATE INDEX email_contact_events_project ON email_contact_events(project_key, at);`,
 });
+migrations.push({
+  version: 103,
+  name: 'full test runner and external url',
+  // PM-909: where a full test of a pinned commit ran (the engine's sandbox or GitHub Actions) and the Actions
+  // run page. An existing row is an engine result.
+  sql: `ALTER TABLE full_test_runs ADD COLUMN runner TEXT NOT NULL DEFAULT 'engine' CHECK (runner IN ('engine','github_actions'));
+    ALTER TABLE full_test_runs ADD COLUMN external_url TEXT;`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

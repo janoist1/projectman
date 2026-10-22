@@ -53,12 +53,22 @@ export function fullTestLine(project: ProjectConfig, task: Pick<Task, 'repo' | '
   const test = task.reviewPin?.fullTest;
   if (!test) return null;
   const command = repoOf(project, effectiveRepo(project, task))?.reviewTest?.command ?? 'the full test';
+  const reason = test.reason ? code(test.reason) : 'unknown reason';
+  if (test.runner === 'github_actions') {
+    // The Actions run is the whole full test, and a failure to run it asks for no local full test (PM-909).
+    const page = test.externalUrl ? ` The run: ${test.externalUrl}.` : '';
+    if (test.status === 'passed')
+      return `The full test (${code(command)}) passed on GitHub Actions on this commit at ${test.at}: you need not run the tests or the type check again.${page}`;
+    if (test.status === 'error')
+      return `The full test could not run on GitHub Actions on this commit (${reason}): run only targeted checks if needed for this review. Do not run the whole test suite, locally or by asking someone to: ${mergeStepCheckLine(project, task) ?? 'the integrator or merge step runs the full check before merge'}.${page}`;
+    return null;
+  }
   if (test.status === 'passed')
     return `The full test (${code(command)}, PTY tests included) passed on this commit at ${test.at}: you need not run the tests or the type check again.`;
   if (test.status === 'error')
     return repoOf(project, effectiveRepo(project, task))?.fullTestAtMerge
-      ? `The full test could not run on this commit (${test.reason ? code(test.reason) : 'unknown reason'}): run only targeted checks if needed for this review. Do not run the whole test suite: ${mergeStepCheckLine(project, task) ?? 'the integrator or merge step runs the full check before merge'}.`
-      : `The full test could not run on this commit (${test.reason ? code(test.reason) : 'unknown reason'}): run the checks yourself as usual; your sandbox leaves out the PTY tests.`;
+      ? `The full test could not run on this commit (${reason}): run only targeted checks if needed for this review. Do not run the whole test suite: ${mergeStepCheckLine(project, task) ?? 'the integrator or merge step runs the full check before merge'}.`
+      : `The full test could not run on this commit (${reason}): run the checks yourself as usual; your sandbox leaves out the PTY tests.`;
   return null;
 }
 

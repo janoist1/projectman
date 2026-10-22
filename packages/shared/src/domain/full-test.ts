@@ -36,5 +36,8 @@ export const FullTestCancelReason = z.enum([
   'branch_moved',
   'interrupted',
   'shutdown',
+  // The repository's review test setting changed (runner switched or switched off) while the run waited or
+  // ran (PM-909); it is no verdict, and the pin is brought in line with the new setting.
+  'configuration_changed',
 ]);
 export type FullTestCancelReason = z.infer<typeof FullTestCancelReason>;

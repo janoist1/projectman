@@ -1454,6 +1454,14 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                                       {
                                         "additionalProperties": false,
                                         "properties": {
+                                          "beforeReview": {
+                                            "enum": [
+                                              "off",
+                                              "engine",
+                                              "github_actions",
+                                            ],
+                                            "type": "string",
+                                          },
                                           "command": {
                                             "maxLength": 500,
                                             "minLength": 1,
@@ -5020,6 +5028,14 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                               {
                                 "additionalProperties": false,
                                 "properties": {
+                                  "beforeReview": {
+                                    "enum": [
+                                      "off",
+                                      "engine",
+                                      "github_actions",
+                                    ],
+                                    "type": "string",
+                                  },
                                   "command": {
                                     "maxLength": 500,
                                     "minLength": 1,
@@ -6623,6 +6639,14 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                                 {
                                   "additionalProperties": false,
                                   "properties": {
+                                    "beforeReview": {
+                                      "enum": [
+                                        "off",
+                                        "engine",
+                                        "github_actions",
+                                      ],
+                                      "type": "string",
+                                    },
                                     "command": {
                                       "maxLength": 500,
                                       "minLength": 1,

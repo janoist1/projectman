@@ -308,7 +308,12 @@ export class AgentSession {
       this.deps.emit({ type: 'terminal_data', sessionId: this.id, data });
       // PTY chunks may split the error from its reset duration. Read the rendered screen
       // after the burst, including for providers whose startup watcher has already stopped.
-      if (this.adapter.detectRateLimitScreen && !this.rateLimitFailure && !this.quotaScreenPending) {
+      if (
+        this.lastPromptAt > 0 &&
+        this.adapter.detectRateLimitScreen &&
+        !this.rateLimitFailure &&
+        !this.quotaScreenPending
+      ) {
         this.quotaScreenPending = true;
         this.clock.once(100, () => {
           this.quotaScreenPending = false;

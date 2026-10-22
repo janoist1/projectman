@@ -8,8 +8,7 @@ const BLOCKING: Array<[RegExp, string]> = [
 
 /** A quota error displayed by agy, including its relative reset time when supplied. */
 export function detectGeminiQuota(text: string): { message: string; resetsInMs: number | null } | null {
-  const error =
-    /^\s*(?:Error:\s*)?RESOURCE_EXHAUSTED\s*\(code\s+429\)\s*:\s*Individual\s+quota\s+reached/im.exec(text);
+  const error = /^(?![ \t]*>)(?=[^\n]*\bRESOURCE_EXHAUSTED\b)(?=[^\n]*\b429\b)[^\n]+/im.exec(text);
   if (!error) return null;
   const message = text.slice(error.index).trim();
   const reset = /Resets\s+in\s+(?:(\d+)h\s*)?(?:(\d+)m\s*)?(?:(\d+)s)?/i.exec(message);

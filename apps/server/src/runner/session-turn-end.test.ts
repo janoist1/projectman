@@ -39,7 +39,7 @@ afterEach(async () => {
   await dirs.cleanup();
 });
 
-async function start(graceMs = GRACE_MS, gemini = false, nanogpt = false) {
+async function start(graceMs = GRACE_MS, gemini = false, nanogpt = false, submit = true) {
   const home = await dirs.make();
   const transcript = path.join(home, 'conversation.jsonl');
   await writeFile(transcript, '');
@@ -115,7 +115,7 @@ async function start(graceMs = GRACE_MS, gemini = false, nanogpt = false) {
       .filter((e): e is Extract<RunnerEvent, { type: 'state' }> => e.type === 'state')
       .map((e) => e.state);
   await hook({ hook_event_name: 'SessionStart', source: 'startup' });
-  await hook({ hook_event_name: 'UserPromptSubmit', prompt: 'go' });
+  if (submit) await hook({ hook_event_name: 'UserPromptSubmit', prompt: 'go' });
   const quota = (at: Date = new Date()) =>
     appendFile(
       transcript,
@@ -144,6 +144,13 @@ const ENDING = [{ type: 'text', text: 'Done.' }];
 const lateTool = { hook_event_name: 'PreToolUse', tool_name: 'ToolSearch', tool_use_id: 'late' };
 
 describe('a turn the transcript ended (PM-343)', () => {
+  it('ignores a restored Gemini quota screen before this process submits its first prompt', async () => {
+    const { session, output, events } = await start(GRACE_MS, true, false, false);
+    output('RESOURCE_EXHAUSTED (code 429): Individual quota reached.\r\nResets in 65h10m58s.\r\n');
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(events.some((event) => event.type === 'rate_limited')).toBe(false);
+    expect(session.state.state).not.toBe('failed');
+  });
   it('fails a Gemini quota shown in split terminal chunks without a Stop hook or transcript error', async () => {
     const { session, output, events } = await start(GRACE_MS, true);
     const before = Date.now();

@@ -26,6 +26,7 @@ export interface ProviderLimitsDeps {
 }
 
 type QuotaResume = (session: Session, stageId: string, after: 'quota' | 'login') => Promise<void>;
+const GEMINI_QUOTA_FALLBACK_MS = 30 * 60_000;
 
 /**
  * What a session's provider limits: the tokens it used and the warning limit (PM-187), the hold on a
@@ -123,7 +124,7 @@ export class ProviderLimits {
       const until =
         reported && Number.isFinite(reported.getTime()) && reported > now
           ? reported
-          : new Date(now.getTime() + 30 * 60_000);
+          : new Date(now.getTime() + GEMINI_QUOTA_FALLBACK_MS);
       const started = this.providerHolds.until('gemini', until, now);
       // Persist each later reset before deferring or releasing any work. The latest alert
       // restores the hold even after its original card has been reassigned or closed.

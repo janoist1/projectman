@@ -22,8 +22,14 @@ describe('Gemini screens', () => {
       resetsInMs: null,
     });
   });
-  it('ignores unrelated resource and request errors', () => {
-    expect(detectGeminiQuota('RESOURCE_EXHAUSTED (code 429): Server overloaded.')).toBeNull();
+  it.each(['429 Too Many Requests', 'RESOURCE_EXHAUSTED (code 503): Server overloaded.'])(
+    'ignores an error without both quota signals: %s',
+    (text) => expect(detectGeminiQuota(text)).toBeNull(),
+  );
+  it('recognizes quota errors without depending on the provider message wording', () => {
+    expect(detectGeminiQuota('Error: 429 RESOURCE_EXHAUSTED: Quota exhausted. Resets in 10m.')).toMatchObject(
+      { resetsInMs: 10 * 60_000 },
+    );
   });
   it('does not treat a quota error quoted in the input prompt as a provider failure', () => {
     expect(

@@ -8,12 +8,12 @@ import {
 } from './dto';
 
 describe('integrator credential contracts', () => {
-  it('keeps legacy issuance defaults and adds bounded explicit modes', () => {
+  it('keeps issuance defaults and supports long-lived and non-expiring explicit modes', () => {
     expect(CreateIntegratorKeyRequest.parse({})).toEqual({ expiresInDays: 90 });
     expect(CreateIntegratorKeyRequest.parse({ expiresInDays: null })).toEqual({ expiresInDays: null });
     for (const mode of ['super', 'read']) {
       expect(CreateIntegratorAccessKeyRequest.parse({ mode })).toEqual({ mode, expiresInDays: 7 });
-      for (const expiresInDays of [1, 7, 30])
+      for (const expiresInDays of [1, 7, 30, 365, null])
         expect(CreateIntegratorAccessKeyRequest.parse({ mode, expiresInDays })).toEqual({
           mode,
           expiresInDays,
@@ -22,8 +22,10 @@ describe('integrator credential contracts', () => {
     for (const input of [
       {},
       { mode: 'legacy' },
-      { mode: 'super', expiresInDays: null },
-      { mode: 'read', expiresInDays: 365 },
+      { mode: 'super', expiresInDays: 0 },
+      { mode: 'read', expiresInDays: 90 },
+      { mode: 'super', expiresInDays: '365' },
+      { mode: 'read', expiresInDays: 'never' },
     ])
       expect(CreateIntegratorAccessKeyRequest.safeParse(input).success).toBe(false);
   });

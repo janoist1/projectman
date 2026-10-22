@@ -3,7 +3,7 @@ import { useRef } from 'react';
 import { useProject } from '../../app/contexts';
 import { Avatar } from '../../components/Avatar';
 import { t } from '../../i18n/t';
-import { operatorDotOf, operatorStatusText } from './operatorChannel';
+import { operatorDotOf, operatorStatusWithQueue } from './operatorChannel';
 import { useOperator } from './useOperator';
 import styles from './OperatorButton.module.css';
 
@@ -18,15 +18,19 @@ const NAME_MAX = 18;
  */
 export function OperatorButton({ variant }: { variant: 'bar' | 'phone' | 'drawer' }) {
   const { myHandle, operatorOpen, openOperator, closeOperator } = useProject();
-  const { state, member, handle, unread, openSignals } = useOperator();
+  const { state, member, handle, unread, openSignals, grant } = useOperator();
   const button = useRef<HTMLButtonElement>(null);
   if (!myHandle) return null;
 
   const displayName = state?.member?.displayName ?? t('operator.name');
   const shortName = displayName.length > NAME_MAX ? `${displayName.slice(0, NAME_MAX - 1)}…` : displayName;
   const dot = operatorDotOf(state);
-  const status = operatorStatusText(state);
-  const newReply = unread > 0 && !operatorOpen && openSignals === 0;
+  const queued = state?.queue.open ?? 0;
+  const superOn = grant?.active === true;
+  const status = [operatorStatusWithQueue(state), superOn ? t('operator.button.super') : '']
+    .filter(Boolean)
+    .join(' · ');
+  const newReply = unread > 0 && !operatorOpen && openSignals === 0 && queued === 0;
   const extra =
     openSignals > 0
       ? t('operator.button.signals', { count: openSignals })
@@ -54,11 +58,18 @@ export function OperatorButton({ variant }: { variant: 'bar' | 'phone' | 'drawer
     >
       <span className={styles.avatar}>
         <Avatar member={member} handle={handle ?? 'operator'} size="sm" />
+        {superOn ? (
+          <span className={styles.ring} aria-hidden="true" data-testid="operator-super-ring" />
+        ) : null}
         <span className={clsx(styles.dot, styles[`dot_${dot}`])} aria-hidden="true" />
         {newReply ? <span className={styles.newReply} aria-hidden="true" /> : null}
         {openSignals > 0 ? (
           <span className={styles.signals} aria-hidden="true" data-testid="operator-signals-count">
             {openSignals}
+          </span>
+        ) : queued > 0 ? (
+          <span className={styles.queued} aria-hidden="true" data-testid="operator-queue-count">
+            {queued}
           </span>
         ) : null}
       </span>

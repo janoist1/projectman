@@ -530,15 +530,23 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
     case 'task_stage_changed': {
       const names = { from: stageName(ctx, str(d.from)), to: stageName(ctx, str(d.to)) };
       const partsClosed = record(d.partsClosed);
-      if (partsClosed)
+      if (partsClosed) {
+        const trigger = str(partsClosed.trigger);
         return normal(
-          t('timeline.events.task_stage_changed_parts_closed', {
-            ...names,
-            parts: [...strings(partsClosed.done), ...strings(partsClosed.cancelled)].join(
-              t('common.listSeparator'),
-            ),
-          }),
+          t(
+            trigger
+              ? 'timeline.events.task_stage_changed_parts_closed_by'
+              : 'timeline.events.task_stage_changed_parts_closed',
+            {
+              ...names,
+              parts: [...strings(partsClosed.done), ...strings(partsClosed.cancelled)].join(
+                t('common.listSeparator'),
+              ),
+              trigger,
+            },
+          ),
         );
+      }
       const moved = record(d.branchMoved);
       if (moved)
         return normal(
@@ -869,7 +877,9 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
         text: t(
           d.cause === 'timeout'
             ? 'timeline.events.permission_escalated_timeout'
-            : 'timeline.events.permission_escalated_lead',
+            : d.cause === 'undelivered' || d.cause === 'unavailable'
+              ? 'timeline.events.permission_escalated_unreached'
+              : 'timeline.events.permission_escalated_lead',
         ),
         emphasis: ctx.openInboxIds.has(str(d.inboxItemId)) ? 'needs' : 'normal',
         ...(str(d.reason) ? { detail: str(d.reason) } : {}),
@@ -889,8 +899,18 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
       };
     }
     case 'question_recipient_escalated':
-      return normal(t('timeline.events.question_recipient_escalated'));
+      if (d.reason === 'integrator_unavailable')
+        return normal(t('timeline.events.question_recipient_escalated_unavailable'));
+      return d.reason === 'integrator_passed_on'
+        ? normal(
+            t('timeline.events.question_recipient_escalated_passed_on', {
+              note: str(d.note) ? t('fixLimit.events.note', { note: str(d.note) }) : '',
+            }),
+          )
+        : normal(t('timeline.events.question_recipient_escalated'));
     case 'fix_limit_recipient_escalated':
+      if (d.reason === 'integrator_unavailable')
+        return normal(t('timeline.events.fix_limit_recipient_escalated_unavailable'));
       return d.reason === 'integrator_passed_on'
         ? normal(
             t('timeline.events.fix_limit_recipient_escalated_passed_on', {
@@ -898,6 +918,8 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
             }),
           )
         : normal(t('timeline.events.fix_limit_recipient_escalated_timeout'));
+    case 'member_queue_item_closed':
+      return normal(t('timeline.events.member_queue_item_closed'));
     case 'obligation_woken':
     case 'obligation_handed_over': {
       const kind = ObligationKind.safeParse(d.kind);
@@ -1048,6 +1070,8 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
           state: tDynamic(`superMode.states.${str(d.state)}`, str(d.state)),
         }),
       );
+    case 'workspace_released':
+      return normal(t('timeline.events.workspace_released', { reason: str(d.reason) }));
     case 'focus_changed':
       return normal(
         t(`timeline.events.focus_${d.action === 'added' || d.action === 'removed' ? d.action : 'moved'}`, {

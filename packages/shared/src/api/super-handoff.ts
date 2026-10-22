@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AdministrationCommandSchema } from './administration';
+import { AdministrationCommandSchema, OwnerCommandText } from './administration';
 import { Actor } from '../domain/event';
 import { MemberHandle } from '../domain/member';
 import { TaskKey } from '../domain/task';
@@ -23,6 +23,8 @@ import {
  * what was asked, by whom and why, so that the integrator can pick it up later, even after a restart.
  */
 
+export const SUPER_REASON_MAX = 2000;
+
 /** The closed, versioned set of commands a handoff and its operation can carry. */
 export const SuperCommand = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('operate'), operation: OperatorOperation }),
@@ -42,6 +44,12 @@ export const SuperCommand = z.discriminatedUnion('kind', [
     request: ResolveInboxRequest,
   }),
   z.strictObject({ kind: z.literal('credential_revoke'), keyId: z.string().min(1) }),
+  /** Frees the workspace a failed process-scope cleanup keeps reserved, without proof that it stopped (PM-935). */
+  z.strictObject({
+    kind: z.literal('workspace_release'),
+    scopeId: z.string().min(1).max(200),
+    reason: OwnerCommandText.trim().min(1).max(SUPER_REASON_MAX),
+  }),
 ]);
 export type SuperCommand = z.infer<typeof SuperCommand>;
 
@@ -60,8 +68,6 @@ export type SuperState = z.infer<typeof SuperState>;
 /** A state nothing moves on from by itself: the record is finished (`unknown` waits for a human to look). */
 export const SUPER_TERMINAL_STATES: readonly SuperState[] = ['succeeded', 'failed', 'cancelled', 'unknown'];
 export const SUPER_OPEN_STATES: readonly SuperState[] = ['pending', 'waiting_owner', 'running'];
-
-export const SUPER_REASON_MAX = 2000;
 
 export const SuperHandoff = z.strictObject({
   id: z.string(),

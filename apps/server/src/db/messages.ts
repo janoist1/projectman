@@ -11,7 +11,6 @@ import type { Statement } from 'better-sqlite3';
 import type { Db } from './database';
 import { originMetaJson } from './actor-meta';
 import { parseJson, toJson } from './json';
-import { PENDING_MESSAGE_RECIPIENTS } from './message-pending';
 
 interface MessageRow {
   seq: number;
@@ -120,21 +119,25 @@ export function createMessageRepository(db: Db) {
        AND NOT EXISTS (SELECT 1 FROM json_each(receipts) WHERE json_extract(value, '$.handle') = ?
          AND json_extract(value, '$.readAt') IS NOT NULL)`,
     ),
-    pending: db.prepare(`SELECT m.* FROM team_message_pending AS p
-      JOIN team_messages AS m ON m.id = p.message_id
-      WHERE p.project_key = ? AND p.handle = ? ORDER BY p.seq`),
-    pendingObligationReminders: db.prepare(`SELECT m.* FROM team_message_pending AS p
-      JOIN team_messages AS m ON m.id = p.message_id
-      WHERE p.project_key = ? AND CASE WHEN json_valid(m.subject) THEN json_extract(m.subject, '$.type') ELSE NULL END = 'obligation'
+    // A waiting message is the member queue's open item of it (PM-925): the queue is the one place it lives.
+    pending: db.prepare(`SELECT m.* FROM member_queue_items AS q
+      JOIN team_messages AS m ON m.id = q.source_id
+      WHERE q.project_key = ? AND q.member = ? AND q.source_type = 'message' AND q.state IN ('queued','processing')
+      ORDER BY m.seq`),
+    pendingObligationReminders: db.prepare(`SELECT m.* FROM member_queue_items AS q
+      JOIN team_messages AS m ON m.id = q.source_id
+      WHERE q.project_key = ? AND q.source_type = 'message' AND q.state IN ('queued','processing')
+        AND CASE WHEN json_valid(m.subject) THEN json_extract(m.subject, '$.type') ELSE NULL END = 'obligation'
       GROUP BY m.id ORDER BY m.seq`),
     pendingHandles: db.prepare(
-      'SELECT handle FROM team_message_pending WHERE message_id = ? ORDER BY handle',
+      `SELECT member FROM member_queue_items
+       WHERE source_type = 'message' AND source_id = ? AND state IN ('queued','processing') ORDER BY member`,
     ),
-    pendingCount: db.prepare(`SELECT COUNT(*) AS n FROM team_message_pending
-      WHERE project_key = ? AND handle = ?`),
-    clearPending: db.prepare('DELETE FROM team_message_pending WHERE message_id = ?'),
-    derivePending: db.prepare(`INSERT INTO team_message_pending (message_id, project_key, handle, seq)
-      ${PENDING_MESSAGE_RECIPIENTS} AND m.id = ?`),
+    pendingCount: db.prepare(`SELECT COUNT(*) AS n FROM member_queue_items
+      WHERE project_key = ? AND member = ? AND source_type = 'message' AND state IN ('queued','processing')`),
+    undelivered: db.prepare(
+      `SELECT id FROM team_messages WHERE COALESCE(delivered_at, '') = '' ORDER BY seq`,
+    ),
     involving: db.prepare(
       `SELECT id, from_handle, to_handles, receipts FROM team_messages WHERE project_key = ?
        AND (from_handle = ? OR EXISTS (SELECT 1 FROM json_each(to_handles) WHERE value = ?)) ORDER BY seq`,
@@ -160,8 +163,6 @@ export function createMessageRepository(db: Db) {
   // these as savepoints, so the enclosing domain unitOfWork can still roll back both tables.
   const pendingListeners: Array<(message: TeamMessage) => void> = [];
   const refreshPending = (id: string): void => {
-    statements.clearPending.run(id);
-    statements.derivePending.run(id);
     if (pendingListeners.length === 0) return;
     const message = get(id);
     if (message) for (const listener of pendingListeners) listener(message);
@@ -171,8 +172,8 @@ export function createMessageRepository(db: Db) {
     get,
     /**
      * `listener` runs inside the transaction of every write that may change who a message is still pending
-     * for (a new message, a receipt change, a delivery), after the pending rows are derived anew (the member
-     * queue keeps its message items equal to them, PM-894). It must be idempotent.
+     * for (a new message, a receipt change, a delivery), after the write (the member queue keeps its message
+     * items equal to `pendingRecipientsOf`, PM-894). It must be idempotent.
      */
     onPendingChange(listener: (message: TeamMessage) => void): void {
       pendingListeners.push(listener);
@@ -302,7 +303,7 @@ export function createMessageRepository(db: Db) {
     countUnread(projectKey: string, handle: string): number {
       return (statements.countUnread.get(projectKey, handle, handle) as { n: number }).n;
     },
-    /** Messages to an AI recipient that were not typed into one of its sessions yet, oldest first. */
+    /** Messages to an AI recipient that were not typed into one of its sessions yet (its open queue items), oldest first. */
     pending(projectKey: string, handle: string): TeamMessage[] {
       return (statements.pending.all(projectKey, handle) as MessageRow[]).map(toMessage);
     },
@@ -313,14 +314,14 @@ export function createMessageRepository(db: Db) {
     pendingObligationReminders(projectKey: string): { message: TeamMessage; handles: string[] }[] {
       return (statements.pendingObligationReminders.all(projectKey) as MessageRow[]).map((row) => ({
         message: toMessage(row),
-        handles: (statements.pendingHandles.all(row.id) as { handle: string }[]).map((h) => h.handle),
+        handles: (statements.pendingHandles.all(row.id) as { member: string }[]).map((h) => h.member),
       }));
     },
-    /** The handles one message is still pending for (`team_message_pending`). */
-    pendingHandlesOf(messageId: string): string[] {
-      return (statements.pendingHandles.all(messageId) as { handle: string }[]).map((h) => h.handle);
+    /** The ids of the messages not delivered to everyone yet, oldest first: the member queue's recovery reads them. */
+    undeliveredIds(): string[] {
+      return (statements.undelivered.all() as { id: string }[]).map((row) => row.id);
     },
-    /** The same recipient set without reading or decoding message rows. */
+    /** The number of messages waiting in the member's queue, without reading message rows. */
     pendingCount(projectKey: string, handle: string): number {
       return (statements.pendingCount.get(projectKey, handle) as { n: number }).n;
     },

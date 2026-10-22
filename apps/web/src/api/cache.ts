@@ -100,6 +100,8 @@ export function invalidateAttachments(client: QueryClient, key: string, taskKey:
  * data that is not in the cache are ignored; it is fetched fresh when a screen needs it.
  */
 export function applyServerEvent(client: QueryClient, event: ServerEvent): void {
+  // System feedback (PM-472) is the installation's, not a project's: its screen reads it fresh.
+  if (event.type === 'system_feedback_changed') return;
   if (
     'projectKey' in event &&
     [
@@ -292,8 +294,15 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       return;
     }
     case 'member_queue_changed': {
-      // An item came, was taken or was closed: the Operator's corner shows its count (PM-894).
+      // An item came, was taken or was closed: the Operator's corner shows its count (PM-894), its panel the list.
       void client.invalidateQueries({ queryKey: queryKeys.operator(event.projectKey) });
+      void client.invalidateQueries({ queryKey: queryKeys.operatorQueueAll(event.projectKey) });
+      return;
+    }
+    case 'operator_grant_changed': {
+      // The grant was given, replaced, revoked or expired (PM-881): the button's ring and the panel's line.
+      void client.invalidateQueries({ queryKey: queryKeys.operatorGrant });
+      void client.invalidateQueries({ queryKey: queryKeys.operatorGrantAudit });
       return;
     }
     case 'operator_signal': {
@@ -323,8 +332,6 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       return;
     // The focus panel (PM-427 4/4) reads it; nothing in the cache holds the focus yet.
     case 'project_focus_changed':
-    // The Settings section of the Operator's grant (PM-881) reads it when the interface card lands.
-    case 'operator_grant_changed':
     case 'hello':
     case 'terminal_data':
     case 'terminal_snapshot':

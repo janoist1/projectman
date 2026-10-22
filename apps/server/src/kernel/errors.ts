@@ -39,6 +39,7 @@ const OWNER_LOGIN_MESSAGES: Record<IntegratorRefusal, string> = {
   members:
     'Only the owner may manage members, using their own login; the integrator key may only send members on leave and call them back',
   invitations: 'Only the owner may create invitations, using their own login',
+  system_feedback: 'Only the owner may manage system feedback forwarding, using their own login',
 };
 
 /** The integrator key tried something only the owner may do with their own login (PM-418). */

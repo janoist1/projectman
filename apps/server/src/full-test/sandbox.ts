@@ -1,4 +1,5 @@
 import { realpathSync } from 'node:fs';
+import { lstat, readdir, rm } from 'node:fs/promises';
 import path from 'node:path';
 
 type SandboxSpec = { sandbox: { denyRead: string[]; allowRead: string[] } };
@@ -55,6 +56,37 @@ export function runDirOf(tmpRoot: string, shortRoot: string, runId: string): str
   if (root === undefined)
     throw new Error(`no root leaves ${SOCKET_SUFFIX_MIN} bytes for a socket below the run directory`);
   return path.join(root, name);
+}
+
+/** The name of a run directory (`runDirOf`): `pmft-` and up to 8 characters of the run id. */
+const RUN_DIR_NAME = /^pmft-[A-Za-z0-9]{1,8}$/;
+
+/**
+ * Removes the run directories a crash left behind (PM-837): the direct children of `roots` named like
+ * `runDirOf`'s, real directories of this user (the shared `SHORT_ROOT` may hold another instance's), not
+ * touched for `olderThanMs`. Links are never followed or removed. Returns how many it removed.
+ */
+export async function sweepStaleRunDirs(
+  roots: readonly string[],
+  olderThanMs: number,
+  now: number = Date.now(),
+): Promise<number> {
+  const uid = process.getuid?.();
+  let removed = 0;
+  for (const root of new Set(roots.map(canonicalRoot))) {
+    const names = await readdir(root).catch(() => []);
+    for (const name of names) {
+      if (!RUN_DIR_NAME.test(name)) continue;
+      const target = path.join(root, name);
+      const info = await lstat(target).catch(() => null);
+      if (!info?.isDirectory() || info.isSymbolicLink()) continue;
+      if (uid !== undefined && info.uid !== uid) continue;
+      if (now - info.mtimeMs <= olderThanMs) continue;
+      await rm(target, { recursive: true, force: true });
+      removed += 1;
+    }
+  }
+  return removed;
 }
 
 /** The directories of one run: only `sandbox` is writable for the command. */

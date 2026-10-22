@@ -457,9 +457,20 @@ export const en: TemplateLocale = {
     },
     footer: {
       integrator:
-        'This item is for the integrator: it picks one of the options above, or passes it to the owner with a reason. After 24 hours it goes to the owner by itself.',
+        'This item is for the integrator: it picks one of the options above, or passes it to the owner with a reason.',
       owner: 'This item is for the owner.',
     },
+  },
+  operatorQueue: {
+    failedAction: (title) => `Take a look: ${title}`,
+    failedSummary: 'The Operator did not finish the item.',
+  },
+  systemFeedback: {
+    what: 'What happened',
+    workaround: 'How it was worked around',
+    fix: 'What the fix would be',
+    version: 'projectman version',
+    occurrences: 'Occurrences',
   },
   stageApproval: (stageName) => `${stageName}: approved`,
   specialist: (specialty, roleName) => `${specialty} ${lowerFirstWord(roleName)}`,

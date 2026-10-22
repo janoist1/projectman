@@ -1,8 +1,11 @@
 import { useRef, useState } from 'react';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { IntegratorAccessKeyInfo } from '@projectman/shared';
+import type { CreateIntegratorAccessKeyRequest, IntegratorAccessKeyInfo } from '@projectman/shared';
 import { Link } from 'react-router';
 import { api } from '../../../api/endpoints';
+import { useOperatorGrant } from '../../../api/queries';
+import { queryKeys } from '../../../api/queryKeys';
+import { isApiError } from '../../../api/client';
 import { useProject } from '../../../app/contexts';
 import { Button } from '../../../components/Button';
 import { Chip } from '../../../components/Chip';
@@ -12,11 +15,12 @@ import { Dialog } from '../../../components/Dialog';
 import { Fold } from '../../../components/Fold';
 import { SelectField } from '../../../components/Field';
 import { ErrorState, LoadingState } from '../../../components/States';
-import { formatAgo, formatStamp } from '../../../i18n/format';
+import { formatStamp } from '../../../i18n/format';
 import { t } from '../../../i18n/t';
 import { errorMessage } from '../../../lib/errors';
 import { SettingsSection } from './SettingsSection';
 import styles from './IntegratorSection.module.css';
+import { OperatorGrantCard } from './OperatorGrantCard';
 
 export function IntegratorSection() {
   const { key, me } = useProject();
@@ -27,23 +31,24 @@ export function IntegratorSection() {
   const ownLogin = me.hostOwner === true && !me.via;
   const queryKey = ['integrator-keys', me.userId];
   const query = useQuery({ queryKey, queryFn: api.integratorKeys, enabled: ownLogin });
-  const handoffs = useQuery({
-    queryKey: ['project', key, 'super-handoffs', 'pending'],
-    queryFn: () => api.superHandoffs(key, true),
-    enabled: ownLogin,
+  const grant = useOperatorGrant();
+  const grantAudit = useQuery({
+    queryKey: queryKeys.operatorGrantAudit,
+    queryFn: api.operatorGrantAudit,
+    enabled: me.hostOwner === true,
+    retry: false,
   });
   const [dialog, setDialog] = useState<'create' | 'revoke' | null>(null);
   const [mode, setMode] = useState<'super' | 'read'>('super');
-  const [days, setDays] = useState<1 | 7 | 30>(7);
+  const [days, setDays] = useState<CreateIntegratorAccessKeyRequest['expiresInDays']>(7);
   const [target, setTarget] = useState<IntegratorAccessKeyInfo | null>(null);
   const [secret, setSecret] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
   const [addressCopied, setAddressCopied] = useState(false);
-  const [auditOpen, setAuditOpen] = useState(false);
   const audit = useInfiniteQuery({
     queryKey: ['integrator-key-audit', me.userId],
-    enabled: ownLogin && auditOpen,
+    enabled: ownLogin,
     initialPageParam: undefined as number | undefined,
     queryFn: ({ pageParam }) => api.integratorKeyAudit(pageParam),
     getNextPageParam: (page) => page.nextBefore ?? undefined,
@@ -173,122 +178,137 @@ export function IntegratorSection() {
       </li>
     );
   };
-  const waiting = handoffs.data?.handoffs ?? [];
-  const oldest = waiting.reduce<string | null>(
-    (date, item) => (!date || item.createdAt < date ? item.createdAt : date),
-    null,
-  );
+  const grantEntries = grantAudit.data?.entries ?? [];
+  const log = [
+    ...grantEntries
+      .filter((entry) => entry.action !== 'replaced')
+      .map((entry) => ({
+        id: `${entry.grantId}-${entry.action}`,
+        at: entry.at,
+        text:
+          entry.action === 'expired'
+            ? t('operatorGrant.auditExpired')
+            : entry.action === 'revoked'
+              ? t('operatorGrant.auditRevoked', { by: entry.by })
+              : t(
+                  grantEntries.some((other) => other.action === 'replaced' && other.at === entry.at)
+                    ? 'operatorGrant.auditExtended'
+                    : 'operatorGrant.auditGranted',
+                  {
+                    by: entry.by,
+                    expiry: entry.expiresAt
+                      ? t('operatorGrant.until', { time: formatStamp(entry.expiresAt) })
+                      : t('operatorGrant.untilRevoked'),
+                  },
+                ),
+      })),
+    ...(audit.data?.pages.flatMap((page) => page.entries) ?? []).map((entry) => ({
+      id: `key-${entry.seq}`,
+      at: entry.at,
+      text: `${entry.prefix}… · ${t(`integratorKey.auditActions.${entry.action}`)}`,
+    })),
+  ].sort((a, b) => b.at.localeCompare(a.at));
   return (
-    <SettingsSection id="settings-integrator" title={t('integratorKey.title')}>
+    <SettingsSection id="settings-integrator" title={t('operatorGrant.title')}>
       <div ref={root} className={styles.content}>
-        <p>{t('integratorKey.intro')}</p>
-        <div className={styles.rights}>
-          <strong>{t('integratorKey.rights')}</strong>
-          <p>{t('integratorKey.rightsBody')}</p>
-          <Fold summary={t('integratorKey.details')}>
-            <ul>
-              {(['allowed', 'forbidden', 'askFirst'] as const).map((part) => (
-                <li key={part}>
-                  <strong>{t(`integratorKey.${part}`)}</strong>
-                  <p>{t(`integratorKey.${part}Body`)}</p>
+        <p>{t('operatorGrant.intro')}</p>
+        <OperatorGrantCard />
+        <div className={styles.keyRow}>
+          <h3>{t('operatorGrant.clientTitle')}</h3>
+          <p>{t('integratorKey.intro')}</p>
+          {grant.data?.active === false && active.some((info) => info.mode === 'super') ? (
+            <p className={styles.info}>{t('operatorGrant.clientInactive')}</p>
+          ) : null}
+          {!ownLogin ? <p role="status">{t('integratorKey.ownerOnly')}</p> : null}
+          {ownLogin && query.isPending ? <LoadingState /> : null}
+          {query.isError ? (
+            <ErrorState
+              error={query.error}
+              message={t('integratorKey.error')}
+              onRetry={() => void query.refetch()}
+            />
+          ) : null}
+          {query.data ? (
+            <>
+              {!active.length ? (
+                <div className={styles.empty}>
+                  <strong>{t(keys.length ? 'integratorKey.noValid' : 'integratorKey.none')}</strong>
+                  <p>{t('integratorKey.emptyHint')}</p>
+                </div>
+              ) : null}
+              {active.length ? <ul className={styles.keys}>{active.map(row)}</ul> : null}
+              <Button
+                variant="primary"
+                onClick={() => {
+                  rememberTrigger();
+                  openCreate();
+                }}
+              >
+                {t(keys.length ? 'integratorKey.new' : 'integratorKey.create')}
+              </Button>
+              {past.length ? (
+                <Fold summary={t('integratorKey.past', { n: past.length })}>
+                  <ul className={styles.keys}>{past.map(row)}</ul>
+                </Fold>
+              ) : null}
+            </>
+          ) : null}
+          <Fold summary={t('integratorKey.connection')}>
+            <p>{t('integratorKey.connectionBody')}</p>
+            <p>
+              {t('integratorKey.mcpAddress')}: <code>{window.location.origin}/mcp</code>
+            </p>
+            <Button
+              variant="secondary"
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(`${window.location.origin}/mcp`);
+                  setAddressCopied(true);
+                } catch {
+                  toast.show(t('integratorKey.copyFailed'), 'error');
+                }
+              }}
+            >
+              {t(addressCopied ? 'integratorKey.copied' : 'integratorKey.copy')}
+            </Button>
+          </Fold>
+        </div>
+        <div className={styles.keyRow}>
+          <h3>{t('operatorGrant.audit')}</h3>
+          {grantAudit.isError && !(isApiError(grantAudit.error) && grantAudit.error.status === 403) ? (
+            <ErrorState error={grantAudit.error} onRetry={() => void grantAudit.refetch()} />
+          ) : null}
+          {!log.length && !audit.isLoading && !grantAudit.isLoading ? (
+            <p>{t('operatorGrant.auditEmpty')}</p>
+          ) : null}
+          {log.length ? (
+            <ul className={styles.audit}>
+              {log.map((entry) => (
+                <li key={entry.id}>
+                  <time dateTime={entry.at}>{formatStamp(entry.at)}</time> · {entry.text}
                 </li>
               ))}
             </ul>
+          ) : null}
+          {ownLogin ? (
+            <div>
+              {audit.isLoading ? <LoadingState /> : null}
+              {audit.isError ? <ErrorState error={audit.error} onRetry={() => void audit.refetch()} /> : null}
+              {audit.hasNextPage ? (
+                <Button
+                  variant="secondary"
+                  loading={audit.isFetchingNextPage}
+                  onClick={() => void audit.fetchNextPage()}
+                >
+                  {t('superMode.more')}
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
+          <Fold summary={t('superMode.activity')}>
+            <Link to={activity()}>{t('superMode.activity')}</Link>
           </Fold>
         </div>
-        {!ownLogin ? <p role="status">{t('integratorKey.ownerOnly')}</p> : null}
-        {waiting.length ? (
-          <p className={styles.warning} role="status">
-            {t('integratorKey.pending', { n: waiting.length, ago: oldest ? formatAgo(oldest) : '' })}{' '}
-            <Link to={activity()}>{t('integratorKey.view')}</Link>
-          </p>
-        ) : null}
-        {handoffs.isError ? (
-          <ErrorState error={handoffs.error} onRetry={() => void handoffs.refetch()} />
-        ) : null}
-        {ownLogin && query.isPending ? <LoadingState /> : null}
-        {query.isError ? (
-          <ErrorState
-            error={query.error}
-            message={t('integratorKey.error')}
-            onRetry={() => void query.refetch()}
-          />
-        ) : null}
-        {query.data ? (
-          <>
-            {!active.length ? (
-              <div className={styles.empty}>
-                <strong>{t(keys.length ? 'integratorKey.noValid' : 'integratorKey.none')}</strong>
-                <p>{t('integratorKey.emptyHint')}</p>
-              </div>
-            ) : null}
-            {active.length ? <ul className={styles.keys}>{active.map(row)}</ul> : null}
-            <Button
-              variant="primary"
-              onClick={() => {
-                rememberTrigger();
-                openCreate();
-              }}
-            >
-              {t(keys.length ? 'integratorKey.new' : 'integratorKey.create')}
-            </Button>
-            {past.length ? (
-              <Fold summary={t('integratorKey.past', { n: past.length })}>
-                <ul className={styles.keys}>{past.map(row)}</ul>
-              </Fold>
-            ) : null}
-          </>
-        ) : null}
-        <Fold summary={t('integratorKey.connection')}>
-          <p>{t('integratorKey.connectionBody')}</p>
-          <p>
-            {t('integratorKey.mcpAddress')}: <code>{window.location.origin}/mcp</code>
-          </p>
-          <Button
-            variant="secondary"
-            onClick={async () => {
-              try {
-                await navigator.clipboard.writeText(`${window.location.origin}/mcp`);
-                setAddressCopied(true);
-              } catch {
-                toast.show(t('integratorKey.copyFailed'), 'error');
-              }
-            }}
-          >
-            {t(addressCopied ? 'integratorKey.copied' : 'integratorKey.copy')}
-          </Button>
-        </Fold>
-        {ownLogin ? (
-          <Fold summary={t('integratorKey.audit')} open={auditOpen} onToggle={setAuditOpen}>
-            {auditOpen ? (
-              <div>
-                {audit.isPending ? <LoadingState /> : null}
-                {audit.isError ? (
-                  <ErrorState error={audit.error} onRetry={() => void audit.refetch()} />
-                ) : null}
-                <ol>
-                  {audit.data?.pages
-                    .flatMap((page) => page.entries)
-                    .map((entry) => (
-                      <li key={entry.seq}>
-                        <time dateTime={entry.at}>{formatStamp(entry.at)}</time> ·{' '}
-                        <code>{entry.prefix}…</code> · {t(`integratorKey.auditActions.${entry.action}`)}
-                      </li>
-                    ))}
-                </ol>
-                {audit.hasNextPage ? (
-                  <Button
-                    variant="secondary"
-                    loading={audit.isFetchingNextPage}
-                    onClick={() => void audit.fetchNextPage()}
-                  >
-                    {t('superMode.more')}
-                  </Button>
-                ) : null}
-              </div>
-            ) : null}
-          </Fold>
-        ) : null}
       </div>
       <Dialog
         open={dialog !== null}
@@ -347,15 +367,23 @@ export function IntegratorSection() {
             </fieldset>
             <SelectField
               label={t('integratorKey.expiry')}
-              value={days}
+              value={days ?? 'never'}
+              hint={days === null ? t('integratorKey.noExpiryHint') : undefined}
               disabled={pending}
-              onChange={(event) => setDays(Number(event.target.value) as 1 | 7 | 30)}
+              onChange={(event) =>
+                setDays(
+                  event.target.value === 'never'
+                    ? null
+                    : (Number(event.target.value) as CreateIntegratorAccessKeyRequest['expiresInDays']),
+                )
+              }
             >
-              {([1, 7, 30] as const).map((value) => (
+              {([1, 7, 30, 365] as const).map((value) => (
                 <option key={value} value={value}>
                   {t(`integratorKey.days${value}`)}
                 </option>
               ))}
+              <option value="never">{t('integratorKey.never')}</option>
             </SelectField>
             {replacing ? (
               <p className={styles.warning} role="status">

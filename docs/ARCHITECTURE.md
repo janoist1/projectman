@@ -252,7 +252,9 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   path. A workspace serves one task session at a time, for the life of its process group, idle or
   not (the reservation in `member_workspaces`): every start (admission, a person's resume, a
   message wake-up) checks it, a session of another task gives way only when it idles on a task it
-  no longer works on (it is stopped; its conversation stays), and otherwise the start waits
+  no longer works on (it is stopped; its conversation stays). It also yields after two idle minutes
+  when its member has no open queue item on that card and a queued item needs another card (PM-927).
+  Otherwise the start waits
   (`workspace_busy`). A branch switch needs a clean workspace with no unfinished git operation
   (`workspace_dirty`); nothing is stashed, reset, cleaned or removed, and done or cancelled tasks
   leave the workspace, its branches and dependencies in place. A conversation of an older
@@ -898,8 +900,8 @@ the server refuses a database a newer build migrated.
 ## Member queue (PM-894)
 
 Every AI member has one durable queue of what is waiting for them: a message, an Operator todo, a fix limit decision
-(later slices add permission requests, signals, obligations and starts). Slice A (this one) stores and shows; waking
-and delivery are unchanged and move onto the queue in PM-925.
+(later slices add permission requests, signals, obligations and starts). Slice A (PM-894) stores and shows; slice B
+(PM-925) adds the driver that wakes members from the queue (see "Driver" below).
 
 - **Storage**: `member_queue_items` (`apps/server/src/db/member-queue.ts`). One row per (project, member, source type,
   source id), unique, so enqueueing twice is a no-op. Columns: `kind` (`message`, `todo`, `fix_limit`, ...), the `place`
@@ -909,14 +911,28 @@ and delivery are unchanged and move onto the queue in PM-925.
   `MemberQueuesView`, `nominalMessagePlace`, `memberQueueSourceId`).
 - **Enqueue**: `core/member-queue` (`MemberQueue`). The two source repositories run listeners inside the transaction of
   every write (`messages.onPendingChange`, `inbox.onChange`), so a row commits with its source and no call site has to
-  remember it. A message gets an item for each AI recipient it is pending for (`team_message_pending`); the item closes
-  `done`/`delivered` on delivery and `cancelled`/`source_closed` when the pending row goes away any other way. An open
+  remember it. A message gets an item for each AI recipient it is pending for (a receipt without `deliveredAt`; the
+  `team_message_pending` table is gone since migration 99); the item closes
+  `done`/`delivered` on delivery and `cancelled`/`source_closed` when the receipt is settled any other way. An open
   inbox item that is addressed to the integrator (`isIntegratorInboxItem`: a todo or the narrow fix limit decision)
   gets an Operator item with `wake: true`; it closes `done`/`resolved` when the integrator answered, else
   `cancelled`/`source_closed` (escalation to the owner included). Both reconcilers are idempotent and a failure is
   logged and never changes what the source write does.
-- **Invariant**: the open message items are exactly the `team_message_pending` rows. `recover()` runs at startup (after
-  `messageAttachments.recover()`) and fills in what is missing or closes what is stale; running it again changes nothing.
+- **Invariant**: the open message items are exactly the messages pending for an AI recipient. `recover()` runs at
+  startup (after `messageAttachments.recover()`) and fills in what is missing or closes what is stale; running it again
+  changes nothing. The pending counts, `get_project_state` and the diagnostics read the queue.
+- **Driver** (PM-925, `apps/server/src/runtime/member-queue/`): `MemberQueueDriver` exposes `ensure(projectKey, member)`,
+  `sweep()` and `register(lane)`. Everything that could give a member work (an item queued, a turn over, a hold lifted, a limit gone)
+  calls `ensure`, which works the member's queue by level under a keyed mutex (idempotent, one run at a time): items
+  whose source no longer owes them are cancelled, items on a closed card go to the desk or end (`place_closed`), a hold
+  puts its code on the item, a live session gets its items at the turn boundary, and the first waking item without a
+  session starts one through `admission.start`. A refused start leaves the items queued with `wait` (code plus
+  `wait_details`); there is no deferred-start row for it. The sweep (`DomainOptions.memberQueueSweepMs`, default 30 s,
+  in the kernel's sweep list) calls `ensure` for every member with an open item, so a lost wake or a limit that lifted
+  without an event is found at the next sweep. A lane (`MemberQueueLane`) says what its items are; the message lane
+  delivers as before (receipt and item close together). Items a session works (`processing`) return to the queue
+  when the session is gone, after `MEMBER_QUEUE_MAX_ATTEMPTS` they are handed off, and after 45 minutes the session is
+  stopped. An old `message_wake` deferred-start row is read once (`ensure`) and deleted.
 - **API** (`apps/server/src/api/member-queue.ts`): `GET /api/projects/:key/member-queues` (every AI member in
   configuration order, zeros included), `GET /api/projects/:key/members/:handle/queue?closedSince=` (open items and the
   items closed since; default 24 hours; an unknown or non-AI handle is 404 `unknown_member`, a bad date 400
@@ -924,8 +940,9 @@ and delivery are unchanged and move onto the queue in PM-925.
   an integrator read or super key; the legacy integrator key is refused (`insufficient_access`, on the Operator route
   `operator_owner_only`). The Operator channel (`OperatorChannel.queue`) carries the open count and the item in work.
 - **WebSocket**: `member_queue_changed {projectKey, member}`, once per member per unit of work. Clients do not see it.
-- **Remote engine**: no machine-dependent part is added. The queue lives in the server's database and is written by
-  the server; nothing crosses to an engine.
+- **Remote engine**: no machine-dependent part is added. The queue, the driver and the sweep live on the hub with the
+  database; only the session start crosses to an engine, as before. A member whose engine is offline waits with
+  `engine_offline` as the item's wait, and the sweep starts it when the engine is back.
 
 ## Durable super-mode handoff (PM-762, part of the super mode PM-757)
 
@@ -1373,7 +1390,7 @@ the runner of this pre-review test independently of `reviewTest.runner`, which s
 `engine`, or nothing when `fullTestAtMerge` is set (`reviewTestRunnerBeforeReview`, `reviewTestBeforeReview` in
 shared). `github_actions` needs the repository's `github` (`review_test_runner_github`, at the path `reviewTest.beforeReview`; at run time the lack
 of it ends the run as `github_unavailable`) and, like `runner`, changing it is an owner-only `review_test` change.
-`FullTestRuns` stores the run's `runner` (migration 99) and its `external_url`; a GitHub Actions run needs only an
+`FullTestRuns` stores the run's `runner` (migration 103) and its `external_url`; a GitHub Actions run needs only an
 engine with a full test executor (no sandbox, no `srt`, no heavy-run queue, no local checkout) and builds the same
 `full_test.run` spec as the merge check with `githubActions.all = true`: the workflow's `all` input runs the whole
 suite on four shards (`merge-test -- --all --shard k/4`) and the verdict is judged by `fullScopeProblem`, which
@@ -1644,6 +1661,14 @@ workers follow the machine's size.
   command with exit status 78 and a four-line message; it does not run without the queue (decision 33,
   PM-346). `PROJECTMAN_HEAVY_LOCK_HELD=1` (set for everything the CLI runs) makes a nested call run
   without queueing. Runs inside one workspace (`npm test -w …`, `npx vitest related …`) do not queue.
+  **Direct runs (PM-869).** A member's own `npx vitest run` / `related` is not under the guard, and an
+  interrupted one used to leave its forked workers (about 4 GB each in `apps/server`). Every vitest config
+  lists `scripts/lib/vitest-parent-guard.setup.mjs` in `setupFiles` (`PARENT_GUARD_SETUP`): a forked worker
+  ends itself with SIGKILL (vitest replaces `process.exit` in a worker with a throwing function) when the
+  IPC channel to its parent closes (`disconnect`) or its parent pid changes
+  (`scripts/lib/worker-parent-guard.mjs`, polled every 2 s). Worker threads die with their process and are
+  left alone. A worker stuck in a synchronous loop cannot run the handler; the heavy CLI's process-group
+  kill is the only thing that reaches it.
 - **The server's full test** (`createFullTestExecutor({ heavyLockDir })`) takes the lock before it prepares the
   run directory; the wait is not part of `durationMs` and `timeoutMs`, and an abort while waiting ends as
   `killed`. `fullTestEnv` sets `PROJECTMAN_HEAVY_LOCK_HELD=1`, so the scripts inside do not queue again. With an
@@ -1819,6 +1844,33 @@ workers follow the machine's size.
   markers have the same candidate-code trust boundary as the script and its exit code.
 
 ## Machine-dependent parts (PM-341)
+
+- **Member queue driver (PM-925)** — `apps/server/src/runtime/member-queue/` (driver, message lane), the sweep in
+  the kernel's sweep list (`DomainOptions.memberQueueSweepMs`), `member_queue_items` with the wait columns
+  (migration 99). It wakes members from their queue through `admission.start`. **Machine assumptions:** none of its
+  own; it runs in the server process and reads only the database. **Remote engine:** the driver, the sweep and the
+  database run on the hub; the session start crosses the server/engine boundary as it did, and an offline engine
+  becomes the item's wait (`engine_offline`), retried by the sweep.
+  **Start lane and workspace yielding (PM-927):** known-member deferred starts live in the queue;
+  their specifications are rebuilt and retried through admission. `runtime/sessions/workspaces.ts`
+  also stops a holder idle for two minutes when its card has no open item and its member's queue
+  needs another card. The hub decides from persisted session and queue state; the existing session
+  RPC stops the process on its engine, whose workspace manager still refuses dirty checkouts.
+  No new path, process or transport assumption is introduced.
+
+- **Startup sweep of crash leftovers (PM-837)** — when the engine host is created (the server in local mode,
+  the engine process in hybrid mode) two one-shot background sweeps remove what a crash left behind, each
+  logging a warning on failure and never throwing: `sweepStaleChecks` (`engine-host/merge-check.ts`, called by
+  `createLocalEngine`) over the direct children of `<worktreesRoot>/_merge` named like a merge id, and
+  `sweepStaleRunDirs` (`full-test/sandbox.ts`, called by `createFullTestExecutor`) over the direct children of
+  `os.tmpdir()` and `SHORT_ROOT` named `pmft-<up to 8 alphanumerics>` (full test and screenshot runs). Only
+  entries older than `STALE_LEFTOVER_MS` (24 h by mtime, `contracts/engine.ts`) go; links are judged by `lstat`
+  and never followed (a `_merge` link is unlinked, a `pmft-*` link is left); a `pmft-*` directory must also be
+  owned by the engine's uid. The git worktree entry of a removed check is pruned by the next `releaseCheck`.
+  **Machine assumptions:** the engine's local temp and worktrees roots, the shared `/tmp` (`/private/tmp` on
+  macOS), which another instance of the same user may use (hence the uid and age checks), and POSIX `getuid`.
+  **Remote engine:** the same code runs on the engine over its own directories; the cloud takes no part and
+  nothing crosses the server/engine boundary.
 
 - **One-shot external commands (PM-903)** — `apps/server/src/exec/` runs short commands through
   execa without a shell, preserving the supplied environment and final newlines. Timeouts,
@@ -2757,7 +2809,8 @@ workers follow the machine's size.
   (a read-only sandbox root; never a working directory).
   **Module:** `engine-link`
 
-- **Cloud deployment and backup** — `deploy/cloud/{Dockerfile,entrypoint.sh,backup.sh,litestream.yml,fly.toml,smoke.sh,memory-probe.mjs,memory-profile.mjs,heap-summary.mjs,history-semantic-profile.mjs}`,
+- **Cloud deployment and backup** — `deploy/cloud/{Dockerfile,entrypoint.sh,backup.sh,litestream.yml,fly.toml,smoke.sh,memory-probe.mjs,memory-profile.mjs,heap-summary.mjs,history-semantic-profile.mjs,history-semantic-fixture.mjs,history-semantic-image-check.mjs}`,
+  `.github/workflows/history-semantic-profile.yml` (the release measurement on a GitHub-hosted `ubuntu-24.04-arm` runner, PM-913),
   `.dockerignore`, `auth/setup-code.ts`, `auth/index.ts` (the first setup), `apps/server/test/deploy-cloud.test.ts` (PM-317).
   PM-719's trial reset (admin `scripts/cloud/trial-reset.ts`, EC2 `deploy/aws/host.sh`) refuses
   active unit/container/backup writers, bucket versioning including Suspended, Object Lock,
@@ -2863,8 +2916,10 @@ workers follow the machine's size.
   The host owner creates a separately attributed bearer key; the server stores only its hash.
   Authentication accepts it only on a local connection or HTTPS, using the existing loopback
   proxy protocol rules in `kernel` (`clientAddress`, `requestProtocol`).
-  The host owner's own login manages explicit `super`/`read` keys with 1/7/30-day expiry
-  (default 7); existing keys and the singular API remain `legacy`. Replacement revokes only
+  The host owner's own login manages explicit `super`/`read` keys with 1/7/30/365-day expiry
+  or no expiry (`expiresInDays: null`, PM-825; default 7 days). The hub already stores a null
+  `expires_at` and authenticates it until revocation; no migration or engine operation is needed.
+  Existing keys and the singular API remain `legacy`. Replacement revokes only
   the same mode, with a database uniqueness constraint and transactional lifecycle audit.
   The shared credential resolver returns the stored mode and key id; `assertActive` rechecks
   that row and its owner without updating usage. Authentication records `mcp`, `cli` or `rest`
@@ -3430,10 +3485,16 @@ assumption or remote-engine RPC.
   The optional `sinceAgeMs` lower bound is an age derived from stored server-side start/failure
   times. The engine computes `clock.now() - sinceAgeMs - SCOPE_SINCE_MARGIN_MS` on its own clock;
   differing server/engine wall clocks therefore do not affect attribution. The 60 s margin covers
-  transport delay and process-list time precision. Older unrelated unreadable processes cannot hold
-  the workspace forever; newer unreadable candidates stay unverified. Without an age (an older
-  server), every unreadable recovery candidate remains unverified. Explicit marker matches are
-  checked regardless of age.
+  transport delay and process-list time precision. PM-933 restricts unreadable candidates to those
+  potentially related to the scope: they share the known leader's or an identified member's process
+  group, or their parent chain reaches an identified member before a different scope marker or an
+  ancestor older than the bound. Readable ancestors without markers are traversed. Parent chains
+  use the same process snapshot, with cycle detection and a 256-ancestor limit; unresolved cycles
+  or depth limits remain unverified. Unrelated orphans (launchd/XPC helpers on macOS included) and
+  missing parents outside the scope's groups do not block best-effort cleanup. Without an age
+  (an older server), ancestry has no time bound. Explicit marker matches are checked regardless of
+  age. Failed and unverified closes retain known identities and the leader group for later retries;
+  only clean closes discard them. Entire process/environment probe failures remain unverified.
   Dismissing an Operator notification cannot clear this fact. Session folders and task worktrees
   stay while cleanup is unresolved.
   Resume is refused while cleanup failed; only a matching clean generation releases the holder.
@@ -3443,10 +3504,26 @@ assumption or remote-engine RPC.
   Exit carries `SessionCleanup` only after closure; failed cleanup holds the workspace and raises an
   owner-facing Operator signal, later `scope_recovered` releases it. Old engines without cleanup
   retain the process-probe fallback. A remote pid is never signalled on the server.
+  **Audited release (PM-935):** when a cleanup cannot be proven clean, the owner, or the
+  Operator on the owner's explicit request, runs the `workspace_release` super command
+  (`scopeId`, mandatory `reason` without hidden or control characters; a routine mutation with no
+  owner-reserved effect, reachable only through the integrator/owner super path, never by members).
+  The Operator's `execute_operation` enforces the owner's request on the server: it runs only when
+  the open request is the owner's own message or answer, never a queue item (`operator_owner_only`). `SessionOrchestrator.releaseCleanupScope`
+  calls `CleanupFailures.release`, which in one transaction frees the member workspaces held under
+  that scope and deletes the `session_cleanups` row, then appends the append-only
+  `workspace_released` timeline event (scope, session, workspaces, reason, actor) and emits
+  `session_cleanup_released`, which resolves the Operator signal. The minute retry skips a
+  `closeScopes` result for a scope whose row is gone, so a late failed result cannot re-insert it;
+  startup recovery is not guarded. **Remote engine:** only server-side SQLite state changes. No
+  engine call is made, and the retry stops because `closeScopes` is sent only server rows, so any
+  surviving process on the engine is left running and unmanaged.
   Lifecycle tests use `runner/test-helpers.ts` (`fixtureScopeProcesses`) and identity records from
   `test/fixtures/fake-tui.mjs`, with null-signal liveness checks limited to disposable fixture pids.
   This keeps pipe and PTY tests independent of host-wide `ps` permissions; production inspection
-  and the remote-engine boundary remain unchanged (PM-698).
+  and the remote-engine boundary remain unchanged (PM-698). The fake-CLI app harness
+  (`test/helpers/app-harness.ts`) uses the same fixture process source for its runner, so
+  conversation/resume tests do not depend on inspecting unrelated host processes (PM-928).
   **Module:** `runner`
 - **Conversation transcripts and resume** — `runner/transcript/{reader,tailer,confined}.ts`,
   `runner/session.ts`, `runtime/sessions` (`SessionOrchestrator`, `SessionLauncher` in `launch.ts`), `runner/providers/{claude,codex}/transcript.ts`
@@ -3900,7 +3977,22 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   PM-909: the review test before review uses the same path (`all: true`, `engine-link/methods.ts` accepts the
   optional field; an engine older than PM-909 refuses it with `invalid_params`, shown as `github_unavailable`).
   The server side (`FullTestRuns`) needs only an engine with a full test executor, not a sandbox.
-  Related tasks: PM-900, PM-906, PM-907, PM-909, PM-923.
+  Real dependency-clone integration tests (`worktree/{worktree-manager,dependencies}.test.ts`)
+  use `test/helpers/apfs.ts` to check that the test temp volume is APFS, rather than assuming
+  every macOS temp volume supports cloning (PM-928). The injected dependency-clone unit tests
+  still run on other filesystems; clone failures on APFS remain failures. The process-group
+  timeout tests leave 5 s for the Node guard and shell to start on slower CI hosts; the
+  TERM-resistant case checks its readiness output and retains the grace-period KILL assertion
+  (PM-947). The background-grandchild cleanup test in `full-test/run-sandboxed-core.test.ts`
+  polls for POSIX `ESRCH` every 50 ms for up to 5 s, allowing asynchronous reaping on loaded
+  hosts (PM-948). After run completion the executor re-reads empty or nonterminal shard job states
+  for up to 120 s, bounded by the original check deadline, before reporting a missing verdict;
+  cancellation still stops the wait. This uses the existing engine-local GitHub client without
+  a new dispatch or server/engine contract. The `runner/cli.test.ts` output-preservation timeout test gives Node startup
+  and initial pipe writes 5 s; `test/permission-delegation.integration.test.ts` polls each fake-CLI
+  phase for up to 30 s within a 150 s test budget (PM-936). These are test-host assumptions only;
+  remote engines need no new capability or server/engine messages.
+  Related tasks: PM-900, PM-906, PM-907, PM-909, PM-923, PM-928, PM-936, PM-947, PM-948.
   **Module:** `full-test`, `engine-host`, `services/github`
 - **Merge conflict fix worktrees** — `services/merges/`, `runtime/sessions` (`SessionOrchestrator`, `SessionLauncher` in `launch.ts`), `runtime/watchers` (`WorktreeSweep`),
   `worktree/worktree-manager.ts`, `runtime/sessions` (`session policy`), `engine-link` (PM-471).
@@ -4763,6 +4855,14 @@ listAnsweredQuestions`). `list_decision_candidates { limit? }` (1..50, default 2
   a race with `config_conflict`. Legacy pending map-deletion previews whose rows differ become stale and allow
   dismissal only. No migration or machine-dependent operation is added: configuration and locks stay on the
   server; the existing team-tools relay carries the read and patch for remote engines.
+
+- **Targeted label edit (PM-880).** Operator `config_patch.labels` is a map keyed by label id with `name`,
+  `color` and `meaning` (`null` removes the color or meaning); no other label field is editable this way. A label
+  without a definition is added (its name defaults to its id). `prepareOperatorConfigPatch` merges the entries into
+  the current `pipeline.labels` (or the patch's own `pipeline`) before preview and execution, so stages, columns,
+  gates and the other labels stay unchanged. The rows are the ordinary `label` rows at the `approval` level, with
+  the old and new value. Same boundary as the role patch: configuration stays on the server, nothing
+  machine-dependent is added.
 
 - **System signals** (PM-476, migration 50, `services/operator/signals.ts`). Provider/engine outages,
   cards whose `TaskWaits` reason is `nobody`, input stalls and working sessions silent for 30 minutes

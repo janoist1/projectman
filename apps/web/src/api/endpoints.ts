@@ -1,4 +1,5 @@
 import {
+  OperatorGrantAuditPage,
   PushDeviceView,
   PushOverview,
   PushSettings,
@@ -14,6 +15,8 @@ import {
   OperatorKnowledgeDocument,
   OperatorPreferenceDocument,
   OperatorApprovalWaiverResponse,
+  OperatorGrantResponse,
+  MemberQueueView,
   EmailLoginCodeRequested,
   CreateEngineResponse,
   EngineStatusResponse,
@@ -70,6 +73,8 @@ import {
   CreatedIntegratorKey,
 } from '@projectman/shared';
 import type {
+  CreateIntegratorAccessKeyRequest,
+  OperatorGrantDuration,
   OperatorApprovalWaiverRequest,
   CloseFeedbackRequest,
   CreateTaskFromFeedbackRequest,
@@ -121,6 +126,11 @@ import { apiRequest } from './client';
  * refetch instead of relying on the body.
  */
 export const api = {
+  operatorGrantAudit: () => apiRequest(routes.operatorGrantAudit(), { schema: OperatorGrantAuditPage }),
+  createOperatorGrant: (duration: OperatorGrantDuration) =>
+    apiRequest(routes.operatorGrant(), { method: 'POST', body: { duration }, schema: OperatorGrantResponse }),
+  revokeOperatorGrant: () =>
+    apiRequest(routes.operatorGrant(), { method: 'DELETE', schema: OperatorGrantResponse }),
   /** Web push (PM-815): the signed-in person's own devices and settings. */
   push: () => apiRequest(routes.push(), { schema: PushOverview }),
   savePushSettings: (body: PushSettings) =>
@@ -139,7 +149,10 @@ export const api = {
   superOperation: (key: string, id: string) =>
     apiRequest(routes.superOperation(key, id), { schema: SuperOperationDetail }),
   integratorKeys: () => apiRequest(routes.integratorKeys(), { schema: IntegratorAccessKeysResponse }),
-  createIntegratorAccessKey: (mode: 'super' | 'read', expiresInDays: 1 | 7 | 30) =>
+  createIntegratorAccessKey: (
+    mode: 'super' | 'read',
+    expiresInDays: CreateIntegratorAccessKeyRequest['expiresInDays'],
+  ) =>
     apiRequest(routes.integratorKeys(), {
       method: 'POST',
       body: { mode, expiresInDays },
@@ -338,6 +351,13 @@ export const api = {
   projectManager: (key: string) => apiRequest(routes.projectManager(key), { schema: ProjectManagerChannel }),
   /** The viewer's own conversation with the Operator: its state, requests with steps and signals (PM-463, PM-475). */
   operator: (key: string) => apiRequest(routes.operator(key), { schema: OperatorChannel }),
+  /** The Operator's member queue: the open items and those closed since `closedSince` (PM-894). */
+  operatorQueue: (key: string, closedSince: string) =>
+    apiRequest(`${routes.operatorQueue(key)}?closedSince=${encodeURIComponent(closedSince)}`, {
+      schema: MemberQueueView,
+    }),
+  /** The owner's grant of machine operations to the Operator, as the viewer may see it (PM-881). */
+  operatorGrant: () => apiRequest(routes.operatorGrant(), { schema: OperatorGrantResponse }),
   operatorKnowledge: (key: string) =>
     apiRequest(routes.operatorKnowledge(key), { schema: OperatorKnowledgeDocument }),
   operatorPreferenceMe: (key: string) =>

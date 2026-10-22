@@ -76,6 +76,7 @@ export type StaleReason = z.infer<typeof StaleReason>;
 
 /** A message between team members (human or AI), optionally about a task. */
 export const TeamMessage = z.object({
+  email: z.object({ emailId: z.string(), subject: z.string() }).optional(),
   via: z.literal('integrator').optional(),
   /**
    * The full origin of a message sent in the Operator's super mode (PM-757); absent on every other message.
@@ -188,6 +189,22 @@ export function messageRoute(
   handle: string,
 ): WorkItemRef {
   return message.receipts?.find((r) => r.handle === handle)?.route ?? routeFor(message.taskKey);
+}
+
+/**
+ * The AI handles a message is still to be delivered to (PM-925). A message with receipts: each addressed
+ * handle whose AI receipt has no `deliveredAt`. A legacy message without receipts: every addressed handle,
+ * while the message itself has no `deliveredAt`. Whether the handle is an AI member is the caller's to check
+ * for the legacy ones; the member queue only creates items for AI members.
+ */
+export function pendingRecipientsOf(message: Pick<TeamMessage, 'to' | 'receipts' | 'deliveredAt'>): string[] {
+  const addressed = [...new Set(message.to)].sort();
+  if (!message.receipts) return message.deliveredAt ? [] : addressed;
+  return addressed
+    .filter((handle) =>
+      message.receipts!.some((r) => r.handle === handle && r.kind === 'ai' && !r.deliveredAt),
+    )
+    .sort();
 }
 
 export function sameWorkItem(a: WorkItemRef, b: WorkItemRef): boolean {

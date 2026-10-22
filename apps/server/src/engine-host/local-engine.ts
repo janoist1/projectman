@@ -1,6 +1,7 @@
 import os from 'node:os';
 import { LOCAL_ENGINE_ID } from '@projectman/shared';
 import type { FastifyBaseLogger } from 'fastify';
+import { STALE_LEFTOVER_MS } from '../contracts';
 import type {
   EngineHost,
   EnginePaths,
@@ -12,6 +13,7 @@ import type {
 } from '../contracts';
 import { createLocalBranchMerger } from './branch-merger';
 import { createLocalEngineHost } from './local-host';
+import { sweepStaleChecks } from './merge-check';
 
 /** The real probe: signal 0 to the process group, then to the process; EPERM still means it exists. */
 const processExists: ProcessProbe = (pid) => {
@@ -76,6 +78,14 @@ export function createLocalEngine(opts: LocalEngineOptions, logger: FastifyBaseL
   );
   const { claudeTmpRoots, gitExcludesFile, ...operations } = disk;
   const alive = opts.processExists ?? processExists;
+  // The check checkouts a crash left behind, once and in the background (PM-837).
+  if (opts.worktreesRootDir)
+    void sweepStaleChecks(opts.worktreesRootDir, STALE_LEFTOVER_MS).then(
+      (removed) => {
+        if (removed > 0) logger.info({ removed }, 'removed merge check checkouts left by a crash');
+      },
+      (err: unknown) => logger.warn({ err }, 'sweeping the left merge check checkouts failed'),
+    );
   return {
     id: LOCAL_ENGINE_ID,
     paths(): EnginePaths {

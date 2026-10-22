@@ -120,17 +120,21 @@ const input = {
 const verdict = (command: string) => commandVerdict({ ...input, toolInput: { command } });
 
 describe('automatic command policy', () => {
-  it.each(['git status', 'cat README.md', 'npm ci', 'git add -A', 'git commit -m "Example"'])(
-    'requires an explicit NanoGPT decision for %s',
-    (command) => {
-      const request = { ...input, readableRoots: [cwd], toolInput: { command } };
-      for (const provider of ['claude', 'codex'] as const)
-        expect(commandVerdict({ ...request, session: { ...input.session, provider } })).toEqual({
-          behavior: 'allow',
-        });
-      expect(commandVerdict({ ...request, session: { ...input.session, provider: 'nanogpt' } })).toBeNull();
-    },
-  );
+  it.each([
+    'git status',
+    'cat README.md',
+    'npm ci',
+    'git add -A',
+    'git commit -m "Example"',
+    'git checkout HEAD apps/server/test/session-policy.test.ts',
+  ])('requires an explicit NanoGPT decision for %s', (command) => {
+    const request = { ...input, readableRoots: [cwd], toolInput: { command } };
+    for (const provider of ['claude', 'codex', 'gemini'] as const)
+      expect(commandVerdict({ ...request, session: { ...input.session, provider } })).toEqual({
+        behavior: 'allow',
+      });
+    expect(commandVerdict({ ...request, session: { ...input.session, provider: 'nanogpt' } })).toBeNull();
+  });
 
   it.each(['git push', 'gh pr create', 'gh pr merge 12', 'sed -i s/a/b/ README.md'])(
     'retains automatic NanoGPT denials for %s',
@@ -405,6 +409,20 @@ describe('routine git steps in the developer worktree (PM-77)', () => {
     'git commit -m "Run git push next"',
     "git commit -m 'Cost: $5, `x`, (y), {z}, ~w, #v, !u, \\t, <s>'",
     'git commit -m "Update the \\"history\\" section"',
+    // Restore named paths from HEAD or the index without switching branches (PM-893).
+    'git checkout -- a.ts',
+    'git checkout -q HEAD -- a.ts b.ts',
+    'git checkout --quiet HEAD a.ts',
+    'git checkout -- -odd.txt',
+    `git -C ${cwd} checkout HEAD -- ${cwd}/src`,
+    'git restore a.ts',
+    'git restore -q --quiet -S --staged -W --worktree a.ts',
+    'git restore -s HEAD -- -odd.txt',
+    'git restore --source HEAD a.ts',
+    'git restore --source=HEAD a.ts',
+    'git restore -- --source=main',
+    'git checkout HEAD -- a.ts && git status',
+    `cd ${cwd} && git restore a.ts 2>&1 | tail -3`,
     'git merge --ff-only abcdef0123456789abcdef0123456789abcdef01',
     'git merge --quiet --ff-only ABCDEF0',
     'git merge --ff-only -q origin/main',
@@ -434,6 +452,36 @@ describe('routine git steps in the developer worktree (PM-77)', () => {
   });
 
   it.each([
+    // Branch switches, other sources and ambiguous checkout spellings (PM-893).
+    'git checkout main',
+    'git checkout a.ts',
+    'git checkout main -- a.ts',
+    'git checkout HEAD~1 -- a.ts',
+    'git checkout HEAD',
+    'git checkout --',
+    'git checkout -b x',
+    'git checkout -p -- a.ts',
+    'git checkout HEAD a.ts --detach',
+    'git restore --source=main a.ts',
+    'git restore -s main a.ts',
+    'git restore --source HEAD~1 a.ts',
+    'git restore -s',
+    'git restore --source=HEAD',
+    'git restore -SW a.ts',
+    'git restore a.ts --pathspec-from-file=paths.txt',
+    'git restore',
+    'git switch main',
+    // Whole-worktree restores, patterns, pathspec magic and paths outside the worktree.
+    'git checkout -- .',
+    `git checkout HEAD -- ${cwd}`,
+    "git checkout -- 'src/*.ts'",
+    "git checkout -- ':/'",
+    "git checkout HEAD -- ''",
+    'git checkout -- ../other/a.ts',
+    `git -C ${cwd}/src checkout -- a.ts`,
+    'git restore .',
+    'git restore src/../a.ts',
+    'git restore /worktrees/AR/AR-2-local/a.ts',
     // Rewriting, skipping checks, an editor, other sources of a message, empty commits.
     'git commit --amend -m x',
     'git commit --amend --no-edit',

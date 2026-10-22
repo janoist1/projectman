@@ -4,6 +4,7 @@ import path from 'node:path';
 import type { FastifyBaseLogger } from 'fastify';
 import { mergeTestReport } from '@projectman/shared';
 import type { FullTestErrorReason } from '@projectman/shared';
+import { STALE_LEFTOVER_MS } from '../contracts';
 import type { FullTestExecutor, FullTestResult, FullTestSpec } from '../contracts';
 import { acquireHeavyLock, HeavyLockError } from './heavy-lock';
 import type { HeavyLock } from './heavy-lock';
@@ -18,6 +19,7 @@ import {
   runPaths,
   srtSettings,
   SHORT_ROOT,
+  sweepStaleRunDirs,
 } from './sandbox';
 import type { RunPaths } from './sandbox';
 import { assertNpmCiCheckout, DependencyPreparationError, prepareNpmCi } from './npm-ci';
@@ -78,6 +80,15 @@ export function createFullTestExecutor(options: FullTestExecutorOptions): FullTe
   const { logger } = options;
   const baseEnv = options.env ?? process.env;
   const tmpRoot = options.tmpDir ?? os.tmpdir();
+
+  // The run directories (and the screenshot runs', which share the names) a crash left behind, once and
+  // in the background (PM-837). A given `tmpDir` is swept alone: only the default one shares `SHORT_ROOT`.
+  void sweepStaleRunDirs(options.tmpDir ? [tmpRoot] : [tmpRoot, SHORT_ROOT], STALE_LEFTOVER_MS).then(
+    (removed) => {
+      if (removed > 0) logger.info({ removed }, 'removed run directories left by a crash');
+    },
+    (err: unknown) => logger.warn({ err }, 'sweeping the left run directories failed'),
+  );
 
   /** One sandboxed command; the process group is stopped on abort and after `timeoutMs`. */
   const execute = (

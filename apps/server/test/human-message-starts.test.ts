@@ -103,7 +103,7 @@ describe('human messages wake idle AI members', () => {
             usage: 'plan_usage_paused',
           }[reason],
         }),
-        'team message start deferred',
+        'a queued start is deferred',
       );
       await flush();
       expect(h.runner.started).toHaveLength(before);

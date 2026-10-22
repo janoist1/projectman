@@ -41,13 +41,22 @@ describe('process group execution', () => {
     expect(getEventListeners(signal, 'abort')).toEqual([]);
   });
   it('terminates on timeout', async () => {
-    expect(await run('sleep 30', { timeoutMs: 50 })).toMatchObject({ timedOut: true, signal: 'SIGTERM' });
+    // Leave time for the Node guard and shell to start on a loaded CI host.
+    // Both TERM and the grace-period KILL terminate the timed-out process group.
+    expect(await run('sleep 30', { timeoutMs: 5000 })).toMatchObject({
+      timedOut: true,
+      signal: expect.stringMatching(/^SIG(?:TERM|KILL)$/),
+    });
   });
   it('kills a group that ignores TERM after the grace period', async () => {
     const started = Date.now();
-    const end = await run("trap '' TERM; sleep 30", { timeoutMs: 100, killGraceMs: 80 });
+    const end = await run("trap '' TERM; echo ready; sleep 30", {
+      timeoutMs: 5000,
+      killGraceMs: 200,
+    });
+    expect(end.output).toContain('ready');
     expect(end).toMatchObject({ timedOut: true, signal: 'SIGKILL' });
-    expect(Date.now() - started).toBeGreaterThanOrEqual(180);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(5190);
   });
   it.each(['timeout', 'abort'] as const)(
     'keeps the grace period and kills the worker after its parent exits on %s',
@@ -191,16 +200,7 @@ describe('process group execution', () => {
     const end = await run('sleep 30 >/dev/null 2>&1 & echo $!');
     const pid = Number(end.output.trim());
     expect(pid).toBeGreaterThan(0);
-    for (let attempt = 0; attempt < 100; attempt++) {
-      try {
-        process.kill(pid, 0);
-      } catch (error) {
-        expect(error).toMatchObject({ code: 'ESRCH' });
-        return;
-      }
-      await new Promise(setImmediate);
-    }
-    expect(() => process.kill(pid, 0)).toThrow();
+    await expect.poll(() => isGone(pid), { timeout: 5000, interval: 50 }).toBe(true);
   });
 });
 

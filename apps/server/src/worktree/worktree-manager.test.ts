@@ -9,6 +9,7 @@ import type { ProjectConfig, RepoConfig } from '@projectman/shared';
 import { getTemplate } from '@projectman/templates';
 import { createWorktreeManager } from './index';
 import { createGitSeed } from '../../test/helpers/git-seed';
+import { hasApfsTemporaryFilesystem } from '../../test/helpers/apfs';
 
 /*
  * Every test copies independent repositories into a temp directory: a bare "remote" and a clone
@@ -512,7 +513,7 @@ describe('worktree manager', { timeout: 30_000 }, () => {
 });
 
 /* PM-332: node_modules cloned into the worktree from an installed checkout (APFS, macOS). */
-describe.skipIf(process.platform !== 'darwin')(
+describe.skipIf(!hasApfsTemporaryFilesystem)(
   'worktree manager: dependency clone',
   { timeout: 30_000 },
   () => {

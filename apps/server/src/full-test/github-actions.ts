@@ -35,6 +35,8 @@ export const RUN_APPEAR_POLL_MS = 5_000;
 export const RUN_APPEAR_MAX_MS = 120_000;
 /** How often a running workflow is looked at. */
 export const RUN_POLL_MS = 10_000;
+/** GitHub may finish the run before its shard jobs expose their terminal states. */
+export const JOB_WAIT_MAX_MS = 120_000;
 /** How long the logs of a finished run are waited for (GitHub has them a little later). */
 export const LOG_WAIT_MAX_MS = 30_000;
 export const LOG_POLL_MS = 5_000;
@@ -319,7 +321,7 @@ export function withGithubActions(local: FullTestExecutor, deps: GithubActionsDe
       const finishedRun = run;
 
       // The verdict, from the jobs and their logs.
-      const logStarted = now();
+      let logStarted = now();
       const read = async <T>(what: string, call: () => Promise<T>): Promise<T> => {
         for (;;) {
           try {
@@ -338,10 +340,25 @@ export function withGithubActions(local: FullTestExecutor, deps: GithubActionsDe
         }
       };
       try {
-        const jobs = await read('The jobs', () => actions.listJobs(check.repo, finishedRun.id, signal));
+        let jobs = await read('The jobs', () => actions.listJobs(check.repo, finishedRun.id, signal));
+        const jobsDeadline = Math.min(deadline, now() + JOB_WAIT_MAX_MS);
+        // A completed run can temporarily expose queued/running shards, or no jobs at all.
+        // Wait for the job view to settle before treating a missing test verdict as an error.
+        while (
+          finishedRun.headSha.toLowerCase() === check.commit.toLowerCase() &&
+          (jobs.length === 0 || jobs.some((job) => job.status !== 'completed' || job.conclusion === null)) &&
+          now() < jobsDeadline
+        ) {
+          if (signal.aborted) return killed();
+          await sleep(Math.min(LOG_POLL_MS, jobsDeadline - now()), signal);
+          if (signal.aborted) return killed();
+          jobs = await read('The jobs', () => actions.listJobs(check.repo, finishedRun.id, signal));
+        }
+        if (signal.aborted) return killed();
         const judgement = judge(finishedRun, check.commit, jobs);
         if (judgement.kind === 'error') return error('github_run_error', judgement.message);
         if (judgement.kind === 'timeout') return error('timeout', 'A job of the run timed out on GitHub.');
+        logStarted = now();
         const withLogs: FinishedRun['jobs'][number][] = [];
         for (const job of jobs) {
           const log = await read(`The log of "${job.name}"`, () =>

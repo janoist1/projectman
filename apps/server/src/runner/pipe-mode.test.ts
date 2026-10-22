@@ -338,7 +338,8 @@ describe('the private launch files of a Claude Code session (PM-156)', () => {
     'sweeps the folder of a runner that is gone and leaves the running session alone',
     { timeout: 30_000 },
     async () => {
-      await mkdir(configRoot, { mode: 0o700 });
+      // Finish the first runner's startup sweep before publishing an orphan for the second one.
+      await runner.runner.shutdown();
       const orphan = path.join(configRoot, 'ses_orphan.0123456789abcdef');
       await mkdir(orphan, { mode: 0o700 });
       await writeFile(

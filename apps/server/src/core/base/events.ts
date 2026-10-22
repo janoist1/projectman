@@ -12,7 +12,7 @@ import type {
 } from '@projectman/shared';
 import type { ConfigChange } from '../projects';
 import type { StageChange } from '../tasks';
-import type { SessionCleanupFailed, SessionCleanupRecovered } from '../../contracts';
+import type { SessionCleanupFailed, SessionCleanupRecovered, SessionCleanupReleased } from '../../contracts';
 
 /** A relation a card got, as that card sees it (`kind`), pointing at the card `ref`. */
 export interface AddedRelation {
@@ -28,6 +28,7 @@ export interface AddedRelation {
 export interface DomainEventMap {
   session_cleanup_failed: SessionCleanupFailed;
   session_cleanup_recovered: SessionCleanupRecovered;
+  session_cleanup_released: SessionCleanupReleased;
   work_outage_started: { projectKey: string; outageId: string; inboxItemId: string };
   work_outage_ended: { projectKey: string; outageId: string };
   session_input_stalled: { projectKey: string; sessionId: string; inboxItemId: string };
@@ -38,8 +39,6 @@ export interface DomainEventMap {
   inbox_resolved: InboxItem;
   /** Open items of a retired member were cancelled without a decision (questions among them). */
   inbox_cancelled: InboxItem;
-  /** A member's tool question went to its AI decider (PM-169): the decider is woken to answer it. */
-  permission_delegated: InboxItem;
   /** A release was proposed (PM-497), after its record and approval request committed. */
   release_proposed: { release: Release };
   /** A task entered another stage (after the change committed). */

@@ -1,16 +1,17 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { LOCAL_ENGINE_ID, questionPayloadOf } from '@projectman/shared';
 import type { EngineId, ProjectConfig } from '@projectman/shared';
 import type { EngineHost } from '../src/contracts';
 import { createLocalEngine } from '../src/engine-host';
 import { LocalEngineDirectory } from '../src/runtime/sessions';
-import { aiActor } from '../src/kernel';
+import { aiActor, conflict } from '../src/kernel';
 import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { capturingLogger, FakeWorktreeManager, flush } from './helpers/fakes';
+import { obligationReminders } from './helpers/deferred-starts';
 
 /**
  * PM-806: an open step of an AI member has a responsible and a deadline. At the first deadline the
@@ -41,6 +42,7 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
   /** A round of the sweep; the wake message starts its session a moment later, at the clock of the round. */
   const sweep = async () => {
     await h.domain.obligations.sweep();
+    await h.domain.memberQueueDriver.sweep();
     await flush();
   };
   const create = async (title = 'A card') => (await h.domain.tasks.create('AR', { title }, OWNER_ACTOR)).key;
@@ -83,8 +85,7 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
   };
   const rows = (key: string) => h.repos.obligations.listLive('AR', key);
   const events = (type: string) => h.domain.timeline.list('AR').filter((e) => e.type === type);
-  const reminders = (key: string) =>
-    h.repos.messages.list('AR').filter((m) => m.taskKey === key && m.body.startsWith('projectman reminder'));
+  const reminders = (key: string) => obligationReminders(h.repos, 'AR', key);
   const todos = () =>
     h.domain.inbox.list('AR', {}).filter((i) => questionPayloadOf(i)?.obligation !== undefined);
   const ownerCount = () => h.domain.inbox.countOpenFor('AR', 'owner');
@@ -104,7 +105,7 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
     minutes(2);
     await sweep();
     expect(reminders(key)).toHaveLength(1);
-    expect(reminders(key)[0]).toMatchObject({ from: 'system', to: ['cr'], kind: 'action' });
+    expect(reminders(key)[0]).toMatchObject({ from: null, member: 'cr', kind: 'start', wake: true });
     expect(events('obligation_woken')).toHaveLength(1);
     expect(events('obligation_woken')[0]).toMatchObject({
       actor: { kind: 'system' },
@@ -214,7 +215,33 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
       await sweep();
       minutes(31);
       await sweep();
-      expect(reminders(key)[0]!.subject).toEqual({ type: 'obligation', obligationId: rows(key)[0]!.id });
+      expect(reminders(key)[0]!.source).toEqual({ type: 'obligation', id: rows(key)[0]!.id });
+    });
+
+    it('cancels an unstarted queued reminder when its obligation closes', async () => {
+      await harness();
+      const key = await create();
+      await requestMerge(key);
+      await sweep();
+      const start = vi
+        .spyOn(h.domain.admission, 'start')
+        .mockRejectedValue(conflict('ai_limit_reached', 'All AI slots are occupied'));
+      minutes(31);
+      await sweep();
+      const reminder = reminders(key)[0]!;
+      expect(reminder).toMatchObject({ state: 'queued', wait: { code: 'ai_limit_reached' } });
+      expect(
+        h.repos.messages.list('AR').filter((message) => message.subject?.type === 'obligation'),
+      ).toHaveLength(0);
+      finishMerge(key, 'merged');
+      start.mockRestore();
+      await sweep();
+      expect(h.repos.memberQueue.get(reminder.id)).toMatchObject({
+        state: 'cancelled',
+        closeReason: 'source_closed',
+      });
+      expect(events('member_queue_item_closed')).toHaveLength(0);
+      expect(h.runner.started).toHaveLength(0);
     });
 
     it('starts no session for the reminder of a step that is done, and drops it from the queue', async () => {
@@ -223,6 +250,8 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
       await requestMerge(key);
       await sweep();
       const row = rows(key)[0]!;
+      // The queue wakes a recipient as soon as a message is stored: hold the reminder back so it stays waiting.
+      vi.spyOn(h.domain.messaging, 'holdNameOf').mockReturnValue('handoff');
       const message = waitingReminder(key, row.id);
       const config = await h.domain.projects.config('AR');
 
@@ -455,7 +484,7 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
     minutes(31);
     await sweep();
     expect(reminders(key)).toHaveLength(1);
-    expect(reminders(key)[0]).toMatchObject({ from: 'system', to: [responsible], kind: 'action' });
+    expect(reminders(key)[0]).toMatchObject({ from: null, member: responsible, kind: 'start' });
     expect(todos()).toHaveLength(0);
     await endTurns(key);
     minutes(31);
@@ -636,7 +665,7 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
       minutes(120);
       await sweep();
       // Only the pm's start offer (PM-804) is left to remind; the analyst's turn is over.
-      expect(reminders(key).filter((m) => m.to.includes('ana'))).toHaveLength(0);
+      expect(reminders(key).filter((m) => m.member === 'ana')).toHaveLength(0);
     });
 
     it('opens no review step for a card of a queue stage that waits for the analyst’s label', async () => {
@@ -706,8 +735,7 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
         },
       ]);
       await oneReminderOneTodo(key, 'cr');
-      expect(reminders(key)[0]!.body).toContain('the Code review step of');
-      expect(reminders(key)[0]!.body).toContain('(code-review-ok or code-review-changes)');
+      expect(reminders(key)[0]!.text).toContain('code-review-ok');
       expect(questionPayloadOf(todos()[0]!)).toMatchObject({
         obligation: { kind: 'review_step', responsible: 'cr' },
       });
@@ -749,7 +777,7 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
       minutes(31);
       await sweep();
       expect(reminders(key)).toHaveLength(1);
-      expect(reminders(key)[0]).toMatchObject({ to: ['cr'], kind: 'action' });
+      expect(reminders(key)[0]).toMatchObject({ member: 'cr', kind: 'start', closeReason: 'started' });
       expect(crSessions(key).map((s) => s.id)).toEqual(sessions);
     });
 
@@ -805,7 +833,7 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
       await sweep();
       await sweep();
       expect(review(key)).toEqual([]);
-      expect(reminders(key).filter((m) => m.to.includes('cr'))).toHaveLength(0);
+      expect(reminders(key).filter((m) => m.member === 'cr')).toHaveLength(0);
       expect(todos()).toHaveLength(0);
     });
 
@@ -946,7 +974,7 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
         minutes(120);
         await sweep();
         // The decider's own `fix_limit` step is woken (PM-807); the review step stays silent.
-        expect(reminders(key).filter((message) => message.to.includes('cr'))).toHaveLength(0);
+        expect(reminders(key).filter((item) => item.member === 'cr')).toHaveLength(0);
         expect(todos().filter((item) => questionPayloadOf(item)?.obligation?.kind === 'review_step')).toEqual(
           [],
         );

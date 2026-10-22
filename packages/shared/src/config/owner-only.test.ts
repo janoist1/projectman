@@ -77,6 +77,39 @@ const ai = (config: ProjectConfig, handle: string) => {
 };
 
 describe('ownerOnlyChanges', () => {
+  it.each([
+    [undefined, true, ['email_send_policy']],
+    [true, false, ['email_send_policy']],
+    [false, undefined, []],
+    [false, false, []],
+  ] as const)('checks effective email approval policy %#', (before, after, expected) => {
+    const previous = config();
+    ai(previous, 'dev-1').email = { enabled: true, sendWithoutApproval: before };
+    const next = structuredClone(previous);
+    ai(next, 'dev-1').email = { enabled: true, sendWithoutApproval: after };
+    expect(ownerOnlyChanges(previous, next)).toEqual(expected);
+  });
+  it('requires an owner for a new sender starting without approval', () => {
+    expect(
+      changed((c) => {
+        c.team.members.push({
+          ...ai(c, 'dev-1'),
+          handle: 'dev-2',
+          permissionMode: 'auto',
+          approver: 'none',
+          email: { enabled: true, sendWithoutApproval: true },
+        });
+      }),
+    ).toEqual(['email_send_policy']);
+  });
+  it('allows admins to change project and sender enablement', () => {
+    expect(
+      changed((c) => {
+        c.project.email = { enabled: true };
+        ai(c, 'dev-1').email = { enabled: true };
+      }),
+    ).toEqual([]);
+  });
   it.each<[string, (next: ProjectConfig) => void, OwnerOnlyChange[]]>([
     ['no change', () => {}, []],
     ['a display name', (c) => void (human(c, 'ann').displayName = 'Anna'), []],

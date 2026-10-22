@@ -1,1 +1,1 @@
-export { BoundaryService } from './service';
+export { BoundaryService, boundaryNotice } from './service';

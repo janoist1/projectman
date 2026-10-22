@@ -4,6 +4,7 @@ import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from '.
 import type { DomainHarness } from './helpers/domain-harness';
 import { StartSpec } from '../src/runtime/admission';
 import { waitFor } from '../src/runner/test-helpers';
+import { deferredStartRecords } from './helpers/deferred-starts';
 
 describe('NanoGPT provider quota recovery', () => {
   let h: DomainHarness;
@@ -78,7 +79,7 @@ describe('NanoGPT provider quota recovery', () => {
       taskKey: task.key,
       text: 'Wait for the reset',
     });
-    await waitFor(() => h.repos.deferredStarts.list().length >= 2);
+    await waitFor(() => h.repos.memberQueue.listOpen('AR', 'dev-2')[0]?.wait);
     expect(h.runner.started).toHaveLength(started);
     now = new Date(reset);
     await h.domain.admission.retryDeferred();
@@ -144,7 +145,7 @@ describe('NanoGPT provider quota recovery', () => {
     await fail(session);
     expect(await waitFor(() => waiting(task.key))).toMatchObject({ reason: 'provider_rate_limited' });
     expect(
-      h.repos.deferredStarts.list().some((row) => StartSpec.parse(row.spec).kind === 'provider_resume'),
+      deferredStartRecords(h.repos).some((row) => StartSpec.parse(row.spec).kind === 'provider_resume'),
     ).toBe(true);
     complete(usage(100));
     await waitFor(() => waiting(task.key)?.until === reset);
@@ -176,7 +177,7 @@ describe('NanoGPT provider quota recovery', () => {
       await waitFor(() => waiting(task.key));
       await waitFor(() => waiting(otherTask.key));
       expect(
-        h.repos.deferredStarts.list().filter((row) => StartSpec.parse(row.spec).kind === 'provider_resume'),
+        deferredStartRecords(h.repos).filter((row) => StartSpec.parse(row.spec).kind === 'provider_resume'),
       ).toHaveLength(2);
       h = await restartDomainHarness(h, { now: () => now });
       // The restarted fake source is unknown: persisted continuations must not launch inference.
@@ -216,7 +217,7 @@ describe('NanoGPT provider quota recovery', () => {
     await h.domain.admission.retryDeferred();
     expect(h.runner.started).toHaveLength(started);
     expect(
-      h.repos.deferredStarts.list().some((row) => StartSpec.parse(row.spec).kind === 'provider_resume'),
+      deferredStartRecords(h.repos).some((row) => StartSpec.parse(row.spec).kind === 'provider_resume'),
     ).toBe(false);
   });
 });

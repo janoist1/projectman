@@ -704,11 +704,15 @@ process scope before reporting exit or releasing its folder/workspace: TERM for 
 then KILL for at most 2 s, with fresh uid, pid/start-time and scope generation checks. This also
 stops background tests and development servers at session end; an idle turn is not session end.
 The process-group driver is explicitly `best_effort`: a process that leaves its group and clears
-its marker can escape attribution. Environment read failures instead remain `unverified`; a recent
-unreadable process is never treated as proof of an empty scope. Previously verified pid/start-time
-pairs remain tracked. Recovery uses a server-derived age and the engine's own clock, with a 60 s
-transport margin, to exclude unrelated older unreadable processes. A missing age keeps the strict
-unverified fallback. A TERM that finds an empty unverified group (ESRCH) never schedules a later KILL.
+its marker can escape attribution. Entire process/environment probe failures remain `unverified`.
+Since PM-933, unreadable processes block cleanup only if they share a known scope group or their
+parent chain reaches an identified scope member before a foreign scope marker or an older ancestor.
+Readable unmarked ancestors are traversed; cycles and the 256-ancestor limit remain unverified.
+Unrelated orphans and missing parents outside scope groups do not block best-effort cleanup.
+Previously verified pid/start-time pairs and leader groups remain tracked across failed and
+unverified retries until clean. Recovery uses a server-derived age and the engine's own clock,
+with a 60 s transport margin, to exclude older unreadable processes. A missing age removes only
+the ancestry time bound. A TERM that finds an empty unverified group (ESRCH) never schedules a later KILL.
 It is not a containment guarantee; PM-701 supplies
 that with Linux cgroup v2. Failed cleanup reserves the workspace and raises an owner-facing
 Operator signal; the Operator never stops another member's process on its own.
@@ -1407,7 +1411,12 @@ frame-ancestors 'none'`) for uploads shown inline: a Set rule would replace it a
   and board bare `/mcp` is 404. The same guard is enabled during private staging; a public cloud with
   no machine hostname has no bearer fallback. Forwarded-host headers and the tunnel's loopback source
   cannot bypass it. Legacy private installations without a configured hostname retain their previous
-  transport. Keep the expiry short, revoke on suspicion and read the `mcp_<tool>` super audit rows.
+  transport. The host owner's own login can issue `super` and `read` keys for 1, 7, 30 or 365 days,
+  or without expiry (PM-825); the default remains 7 days. A non-expiring key has `expiresAt: null`
+  and stays valid until revoked or replaced. The creation dialog warns that a leaked key remains
+  usable until revocation and can be revoked at any time; no imminent-expiry warning is shown
+  for it. Store the key only on the client's machine, in a mode-600 file inside a mode-700
+  directory. Prefer a short expiry, revoke on suspicion and read the `mcp_<tool>` super audit rows.
   The member door `/mcp/<token>` is unchanged and stays closed at the tunnel.
 - A mistake in the Access policy (a wildcard rule, an extra policy) opens the second lock; the
   login and the origin and attempt limits are then the only barrier. Re-read the policy after

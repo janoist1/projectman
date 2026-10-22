@@ -9,6 +9,7 @@ import { LOCAL_ENGINE_ID, MessageKind, TaskDeveloperLevel } from '@projectman/sh
 import type { ProjectConfig, Task, TeamMessage, TimelineEvent } from '@projectman/shared';
 import { describe, expect, it, vi } from 'vitest';
 import { migrate, migrations } from '../src/db';
+import { MemberQueueWorker } from '../src/runtime/member-queue';
 import { createDomainHarness, OWNER } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { settle } from './helpers/fakes';
@@ -462,10 +463,15 @@ async function structuralFixture(
   // Long cases must invoke only the explicitly measured rounds. The real 30/60-second tickers
   // otherwise overlap the experiment; production timer intervals remain unchanged.
   const sweeps = vi.spyOn(kernel, 'startSweeps').mockReturnValue({ stop: async () => {} });
+  // The seeded history waits in the member queues; the member queue's driver would start the sessions it asks for.
+  const driver = vi.spyOn(MemberQueueWorker.prototype, 'ensure').mockResolvedValue();
   let h: Awaited<ReturnType<typeof fixture>>;
   try {
     h = await fixture(historyMessages, historyTasks, true);
     expect(sweeps).toHaveBeenCalledTimes(1);
+  } catch (error) {
+    driver.mockRestore();
+    throw error;
   } finally {
     sweeps.mockRestore();
   }
@@ -564,9 +570,15 @@ async function structuralFixture(
         ),
       )
       .digest('hex');
-    const starts = PROJECTS.map((projectKey) =>
-      h.domain.operatorSignals.rebuild({ kind: 'operator_signals', projectKey })!,
-    );
+    // The member queue's signal items: the lane asks `holdsBack` before a delivery and `noticeText` builds its input.
+    const starts = PROJECTS.map((projectKey) => {
+      const ids = signals.filter((signal) => signal.projectKey === projectKey).map((signal) => signal.id);
+      return {
+        // One evaluation, as the lane's hold asks it once for the batch.
+        stillValid: () => h.domain.operatorSignals.holdsBack(projectKey, ids[0]!),
+        run: async () => h.domain.operatorSignals.noticeText(projectKey, ids),
+      };
+    });
     const markerIds: string[] = [];
     if (hold === 'budget')
       for (const projectKey of PROJECTS) {
@@ -629,12 +641,14 @@ async function structuralFixture(
         held?.mockRestore();
         start.mockRestore();
         now.mockRestore();
+        driver.mockRestore();
         await h.cleanup();
       },
     };
   } catch (error) {
     attempt.mockRestore();
     now.mockRestore();
+    driver.mockRestore();
     await h.cleanup();
     throw error;
   }
@@ -676,7 +690,9 @@ function migrationMeasurement(history: number) {
     migrate(db);
     const wallMs = performance.now() - started;
     const used = process.cpuUsage(cpu);
-    expect(db.prepare('SELECT COUNT(*) AS n FROM team_message_pending').get()).toEqual({ n: 20 });
+    expect(
+      db.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE name = 'team_message_pending'").get(),
+    ).toEqual({ n: 0 });
     return { wallMs, cpuMs: (used.user + used.system) / 1000, beforeBytes, afterBytes: size() };
   } finally {
     db.close();

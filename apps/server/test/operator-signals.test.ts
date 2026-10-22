@@ -57,7 +57,7 @@ it('raises a failed process cleanup signal and resolves it on confirmed recovery
   const signal = h.repos.operatorSignals.list('AR').find((s) => s.kind === 'process_cleanup_failed');
   expect(signal).toMatchObject({
     caseKey: `cleanup:${cleanup.scopeId}`,
-    subject: sessionId,
+    subject: cleanup.scopeId,
     taskKey: 'AR-1',
     resolvedAt: null,
   });
@@ -298,11 +298,13 @@ describe('Operator system signals', () => {
   });
   it('keeps a failed notice pending and retries without spending the wake interval', async () => {
     await setup();
-    await h.domain.sessions.ensureSession('AR', 'pm', { type: 'general' });
+    const { session } = await h.domain.sessions.ensureSession('AR', 'pm', { type: 'general' });
+    h.runner.setState(session.id, 'idle');
     const signal = raise();
     vi.spyOn(h.runner, 'sendUserMessage').mockRejectedValueOnce(new Error('Delivery failed'));
-    await expect(h.domain.operatorSignals.deliver('AR')).rejects.toThrow('delivery failed');
+    await h.domain.operatorSignals.deliver('AR');
     expect(get(signal.id)).toMatchObject({ state: 'pending', deliveredAt: null });
+    expect(h.repos.memberQueue.listOpen('AR', 'pm')).toMatchObject([{ kind: 'signal', state: 'queued' }]);
     expect(h.domain.operatorSignals.channel('AR').signals).toEqual([]);
     await deliver();
     expect(get(signal.id).state).toBe('open');
@@ -313,14 +315,28 @@ describe('Operator system signals', () => {
     h.runner.holdFirstInput = true;
     const signal = raise();
     const wake = h.domain.operatorSignals.deliver('AR');
-    const failure = expect(wake).rejects.toThrow('first input was not delivered');
     await flush();
     expect(get(signal.id).deliveredAt).toBeNull();
     await expect(h.domain.admission.exclusive(async () => true)).resolves.toBe(true);
     h.runner.setState((await tool()).sessionId, 'failed');
-    await failure;
+    await wake;
+    await flush();
     expect(get(signal.id)).toMatchObject({ state: 'pending', deliveredAt: null });
     expect(h.domain.operatorSignals.channel('AR').signals).toEqual([]);
+  });
+  it('keeps the signal item queued when the coordinator session fails to start, and delivers it later', async () => {
+    await setup();
+    const signal = raise();
+    h.runner.failNextStart = new Error('Start failed');
+    await h.domain.operatorSignals.deliver('AR');
+    await flush();
+    expect(h.repos.memberQueue.listOpen('AR', 'pm')).toMatchObject([{ kind: 'signal', state: 'queued' }]);
+    expect(get(signal.id)).toMatchObject({ state: 'pending', deliveredAt: null });
+
+    await h.domain.memberQueueDriver.ensure('AR', 'pm', { net: true });
+    await flush();
+
+    expect(get(signal.id).deliveredAt).not.toBeNull();
   });
   it('starts one owner conversation without a request and suppresses duplicates until resolution', async () => {
     await setup();
@@ -509,6 +525,52 @@ describe('Operator system signals', () => {
     await deliver();
     expect(get(waiting.id).state).toBe('open');
     expect(h.runner.started).toHaveLength(1);
+  });
+
+  it('makes a due follow-up a new queue item of the same signal', async () => {
+    await setup();
+    const signal = raise();
+    await deliver();
+    const queueItems = () =>
+      h.repos.db
+        .prepare("SELECT id, state FROM member_queue_items WHERE kind = 'signal' AND member = 'pm'")
+        .all() as Array<{ id: string; state: string }>;
+    expect(queueItems()).toHaveLength(1);
+
+    now = new Date(now.getTime() + 60_000);
+    h.repos.operatorSignals.followUp(signal.id, now.toISOString());
+    await deliver();
+
+    expect(queueItems()).toHaveLength(2);
+    expect(get(signal.id).followUpAt).toBe(now.toISOString());
+  });
+
+  it('drops the old deferred rows of signals and screening at a restart and works the PM queue', async () => {
+    now = new Date('2026-10-11T10:00:00Z');
+    h = await createDomainHarness({
+      persistent: true,
+      now: () => now,
+      adjust: (config) => {
+        const pm = config.team.members.find((m) => m.handle === 'pm')!;
+        if (pm.kind === 'ai') pm.onLeave = false;
+      },
+    });
+    const signal = raise();
+    for (const kind of ['operator_signals', 'question_screening'] as const)
+      h.repos.deferredStarts.save({
+        key: `${kind}:AR`,
+        projectKey: 'AR',
+        taskKey: null,
+        spec: { kind, projectKey: 'AR' },
+        waiting: null,
+      });
+
+    h = await restartDomainHarness(h, { now: () => now });
+
+    await vi.waitFor(() => expect(h.repos.deferredStarts.list()).toEqual([]));
+    await deliver();
+    expect(h.runner.started).toHaveLength(1);
+    expect(get(signal.id)).toMatchObject({ state: 'open', deliveredTo: 'pm' });
   });
 
   it('detects a card with no eligible label setter and resolves it when the label arrives', async () => {

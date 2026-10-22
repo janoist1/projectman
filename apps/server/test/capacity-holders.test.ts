@@ -48,9 +48,10 @@ describe('what holds the places of a member', () => {
         lastActivityAt: expect.any(String),
       },
     ]);
-    // Nothing of it is stored with the deferred start: it is read again each time.
-    const stored = h.repos.deferredStarts.list().find((record) => record.taskKey === 'AR-2');
-    expect(stored?.waiting).not.toHaveProperty('holders');
+    // Nothing of it is stored with the wait: it is read again each time.
+    const stored = h.repos.memberQueue.listOpen('AR', 'cr').find((item) => item.taskKey === 'AR-2');
+    expect(stored?.wait).toMatchObject({ code: 'member_at_capacity' });
+    expect(stored?.waitDetails ?? {}).not.toHaveProperty('holders');
   });
 
   it('shows the present situation: the other places that fill up, and the profile says the same', async () => {

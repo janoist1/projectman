@@ -90,6 +90,7 @@ import { SessionLifecycle } from './lifecycle';
 import { MESSAGE_SEPARATOR, providerNotLoggedIn, SessionLauncher } from './launch';
 import { INPUT_STALL_MS, InputWaits } from './input-waits';
 import { LiveSessions } from './live-sessions';
+import { LiveSessionSweep } from './live-reconcile';
 import { ProviderLimits } from './provider-limits';
 import { SessionTimers } from './session-timers';
 import { TurnFinishes } from './turn-finish';
@@ -247,6 +248,8 @@ export class SessionOrchestrator {
   private readonly launcher: SessionLauncher;
   /** What the provider limits: token usage, the request quota and a lost login (`provider-limits.ts`). */
   private readonly limits: ProviderLimits;
+  /** Compares live rows with the runner between restarts (`live-reconcile.ts`). */
+  private readonly liveSweep: LiveSessionSweep;
   /** The member workspaces (PM-138) of each engine that has them, made when first used. */
   private readonly workspaceSets = new Map<
     EngineId,
@@ -257,6 +260,16 @@ export class SessionOrchestrator {
     this.mergeCards = deps.mergeCards ?? new MergeCardLock();
     this.deps = deps;
     this.ctx = deps.ctx;
+    this.liveSweep = new LiveSessionSweep({
+      listLive: () => this.ctx.repos.sessions.listInStates(LIVE_SESSION_STATES),
+      isRunning: (sessionId) => this.isRunning(sessionId),
+      engineConnected: (engineId) => deps.engines.get(engineId) !== null,
+      end: (sessionId) => {
+        this.markEnded(sessionId, null, null, { kind: 'exited' });
+      },
+      now: () => this.ctx.now().getTime(),
+      logger: this.ctx.logger,
+    });
     this.cleanupFailures = new CleanupFailures(this.ctx);
     this.lifecycle = new SessionLifecycle({
       subscribe: () => deps.runner.onEvent((event) => this.handleRunnerEvent(event)),
@@ -392,8 +405,18 @@ export class SessionOrchestrator {
             for (let offset = 0; offset < scopes.length; offset += 50) {
               const batch = scopes.slice(offset, offset + 50);
               for (const scope of batch) this.cleanupFailures.attempted(scope.scopeId);
-              for (const result of await this.deps.runner.closeScopes(batch))
+              for (const result of await this.deps.runner.closeScopes(batch)) {
+                // A result that returns after the owner released the scope must not bring its record back.
+                const session = this.find(result.sessionId);
+                if (!session || !this.cleanupFailures.find(session.projectKey, result.cleanup.scopeId)) {
+                  this.ctx.logger.debug(
+                    { sessionId: result.sessionId, scopeId: result.cleanup.scopeId },
+                    'process scope result ignored: the record was released',
+                  );
+                  continue;
+                }
                 this.handleRunnerEvent({ type: 'scope_recovered', ...result });
+              }
             }
           } catch (err) {
             this.ctx.logger.warn(
@@ -1014,6 +1037,37 @@ export class SessionOrchestrator {
     return this.markEnded(session.id, null, null, stop) ?? this.get(projectKey, sessionId);
   }
 
+  /**
+   * The audited override of an unresolved process-scope cleanup (PM-935): the record is closed and the
+   * workspaces it reserves are freed although the engine could not prove that every process stopped.
+   * Who did it and why stays on the timeline; the Operator signal of the scope is closed by the event.
+   */
+  releaseCleanupScope(projectKey: string, scopeId: string, release: { actor: Actor; reason: string }): void {
+    const record = this.cleanupFailures.find(projectKey, scopeId);
+    if (!record) throw notFound('cleanup_scope', scopeId);
+    this.ctx.repos.transaction(() => {
+      const { memberWorkspaces } = this.cleanupFailures.release(record);
+      this.deps.timeline.append({
+        projectKey,
+        taskKey: record.taskKey,
+        sessionId: record.sessionId,
+        actor: release.actor,
+        type: 'workspace_released',
+        data: {
+          scopeId,
+          sessionId: record.sessionId,
+          workspaceIds: memberWorkspaces,
+          reason: release.reason,
+        },
+      });
+    });
+    void this.ctx.events.emit('session_cleanup_released', {
+      projectKey,
+      sessionId: record.sessionId,
+      scopeId,
+    });
+  }
+
   // ---------------------------------------------------------------- closing idle sessions (PM-288)
 
   /**
@@ -1232,6 +1286,11 @@ export class SessionOrchestrator {
           by: change.actor,
         });
     }
+  }
+
+  /** Periodically ends live rows whose processes are gone, after consecutive missing rounds. */
+  async sweepLive(): Promise<void> {
+    this.liveSweep.sweep();
   }
 
   /** Startup: sessions do not survive a restart (their conversations do, via --resume). */

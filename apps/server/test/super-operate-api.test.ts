@@ -208,7 +208,7 @@ describe('the wired operate executor in super mode (PM-831)', () => {
     handle: 'operator',
     via: 'integrator',
     operatorMode: 'super',
-  };
+  } as const;
 
   it('sends a message as the Operator, about a card', async () => {
     const task = (
@@ -283,6 +283,104 @@ describe('the wired operate executor in super mode (PM-831)', () => {
     });
   });
 
+  describe('workspace_release (PM-935)', () => {
+    const scopeId = 'scp_0123456789abcdef';
+    const release = (id = scopeId, reason = 'The processes are gone; checked by hand') =>
+      ({ kind: 'workspace_release', scopeId: id, reason }) satisfies SuperCommand;
+    /** A failed cleanup of an ended session that still holds its member's workspace. */
+    async function failedCleanup() {
+      const { domain, repos } = app.app.projectman;
+      const task = await domain.tasks.create('AR', { title: 'Held workspace', repo: 'web' }, operator);
+      const now = new Date().toISOString();
+      repos.sessions.insert({
+        id: 'ses_held',
+        projectKey: 'AR',
+        member: 'dev-1',
+        workItem: { type: 'task', taskKey: task.key },
+        claudeSessionId: 'claude-ses_held',
+        cwd: '/tmp/work',
+        branch: null,
+        transcriptPath: null,
+        state: 'exited',
+        activity: null,
+        startedAt: now,
+        lastActivityAt: now,
+        endedAt: now,
+      });
+      repos.memberWorkspaces.insert({
+        id: 'mws_held',
+        projectKey: 'AR',
+        member: 'dev-1',
+        repo: 'web',
+        path: '/tmp/work',
+        generation: 1,
+        createdAt: now,
+      });
+      repos.memberWorkspaces.hold('mws_held', {
+        sessionId: 'ses_held',
+        taskKey: task.key,
+        pid: 4242,
+        since: now,
+        scopeId,
+        cleanupFailed: true,
+      });
+      repos.sessionCleanups.failed({
+        scopeId,
+        sessionId: 'ses_held',
+        projectKey: 'AR',
+        taskKey: task.key,
+        kind: 'process_group',
+        survivors: 1,
+        failedAt: now,
+        lastAttemptAt: null,
+        attempts: 0,
+      });
+      return task;
+    }
+
+    it('closes the record, frees the workspace and writes the timeline event', async () => {
+      const { domain, repos } = app.app.projectman;
+      const task = await failedCleanup();
+      expect(await submit(release())).toMatchObject({ state: 'succeeded', errorCode: null });
+      expect(repos.sessionCleanups.get(scopeId)).toBeNull();
+      expect(repos.memberWorkspaces.heldBy('ses_held')).toEqual([]);
+      expect(
+        domain.timeline
+          .list('AR', { taskKey: task.key })
+          .find((event) => event.type === 'workspace_released'),
+      ).toMatchObject({
+        actor: operator,
+        data: {
+          scopeId,
+          sessionId: 'ses_held',
+          workspaceIds: ['mws_held'],
+          reason: 'The processes are gone; checked by hand',
+        },
+      });
+    });
+
+    it('fails with not_found for a scope that has no record', async () => {
+      expect(await submit(release('scp_missing'))).toMatchObject({ state: 'failed', errorCode: 'not_found' });
+    });
+
+    it('is refused for a login that is not the integrator’s key and for a member', async () => {
+      const { repos } = app.app.projectman;
+      await failedCleanup();
+      const admin = await addHumanAndLogin(app.app, { handle: 'ada', access: 'admin' });
+      for (const headers of [{ cookie }, { cookie: admin }]) {
+        const response = await app.app.inject({
+          method: 'POST',
+          url: routes.superOperations('AR'),
+          headers,
+          payload: { requestId: randomUUID(), command: release() },
+        });
+        expect(response.statusCode).toBe(403);
+      }
+      expect(repos.sessionCleanups.get(scopeId)).not.toBeNull();
+      expect(repos.memberWorkspaces.heldBy('ses_held')).toHaveLength(1);
+    });
+  });
+
   it('executes a config revert through the shared configuration path', async () => {
     const before = (await app.app.projectman.domain.projects.load('AR')).version;
     expect(await operate({ op: 'config_revert', version: before })).toMatchObject({
@@ -336,6 +434,34 @@ describe('the wired operate executor in super mode (PM-831)', () => {
       .list('AR', { taskKey: created.taskKey! })
       .find((event) => event.type === 'task_updated');
     expect(event?.actor).toMatchObject(operator);
+  });
+
+  it('clears the assignee and moves a card back in one update', async () => {
+    const created = await submit({ kind: 'task_create', request: { title: 'A card' } });
+    const taskKey = created.taskKey!;
+    await submit({ kind: 'task_start', taskKey, request: { assignee: 'dev-1' } });
+    const operation = await submit({
+      kind: 'task_update',
+      taskKey,
+      request: { assignee: null, stageId: 'backlog' },
+    });
+    expect(operation.state).toBe('succeeded');
+    expect(app.app.projectman.domain.tasks.get('AR', taskKey)).toMatchObject({
+      assignee: null,
+      stageId: 'backlog',
+    });
+  });
+
+  it('fails an update whose move became a hand-on request instead of reporting success', async () => {
+    await edit((draft) => {
+      draft.team.cardMover = { kind: 'human', handle: 'owner' };
+    });
+    const created = await submit({ kind: 'task_create', request: { title: 'A card' } });
+    const taskKey = created.taskKey!;
+    await submit({ kind: 'task_start', taskKey, request: { assignee: 'dev-1' } });
+    const operation = await submit({ kind: 'task_update', taskKey, request: { stageId: 'code_review' } });
+    expect(operation).toMatchObject({ state: 'failed', errorCode: 'hand_on_requested' });
+    expect(app.app.projectman.domain.tasks.get('AR', taskKey).stageId).toBe('development');
   });
 
   it('sets a scope label and an approval label on the owner’s delegated authority', async () => {

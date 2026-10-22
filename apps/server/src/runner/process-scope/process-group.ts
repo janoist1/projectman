@@ -72,6 +72,39 @@ export function createProcessScopeDriver(opts: {
       return null;
     }
   };
+  function unreadableMembers(
+    records: ProcessRecord[],
+    candidates: ProcessRecord[],
+    marks: Map<number, Record<string, string>>,
+    identified: ProcessRecord[],
+    scopeId: string,
+    lowerBound: number,
+    leaderPid: number | null = null,
+  ): ProcessRecord[] {
+    const byPid = new Map(records.map((p) => [p.pid, p]));
+    const owned = new Set(identified.map((p) => p.pid));
+    const groups = new Set(identified.map((p) => p.pgid).filter((pgid) => pgid !== null && pgid > 1));
+    if (leaderPid !== null && leaderPid > 1) groups.add(leaderPid);
+    return candidates.filter((p) => {
+      if (marks.has(p.pid) || owned.has(p.pid)) return false;
+      if (p.pgid !== null && groups.has(p.pgid)) return true;
+      const visited = new Set<number>([p.pid]);
+      let parentPid = p.ppid;
+      for (let depth = 0; depth < 256; depth++) {
+        if (parentPid <= 1) return false;
+        const parent = byPid.get(parentPid);
+        if (!parent) return false;
+        const mark = marks.get(parent.pid)?.PROJECTMAN_SCOPE_ID;
+        if (parent.startedAt < lowerBound || (mark !== undefined && mark !== scopeId)) return false;
+        if (owned.has(parent.pid)) return true;
+        // A malformed or excessively deep tree cannot establish that the process is unrelated.
+        if (visited.has(parent.pid)) return true;
+        visited.add(parent.pid);
+        parentPid = parent.ppid;
+      }
+      return true;
+    });
+  }
   function open(sessionId: string, scopeId: string, openedAt: number): OpenScope {
     let leaderPid: number | null = null;
     let leader: ProcessRecord | undefined;
@@ -112,7 +145,15 @@ export function createProcessScopeDriver(opts: {
         if (own) known.set(p.pid, p.startedAt);
         return own;
       });
-      const unreadable = candidates.filter((p) => !marks.has(p.pid) && !owned(p));
+      const unreadable = unreadableMembers(
+        records,
+        candidates,
+        marks,
+        identified,
+        scopeId,
+        openedAt - 1000,
+        leaderPid,
+      );
       if (unreadable.length) {
         const fresh = await list(closeDeadline);
         if (
@@ -244,7 +285,7 @@ export function createProcessScopeDriver(opts: {
     const trackedClose = async (reason: ScopeCloseReason, force: boolean) => {
       const cleanup = await close(reason, force);
       active.delete(scopeId);
-      if (cleanup.outcome === 'failed')
+      if (cleanup.outcome !== 'clean')
         retained.set(scopeId, { sessionId, retry: () => trackedClose('recovery', false) });
       else retained.delete(scopeId);
       return cleanup;
@@ -335,7 +376,7 @@ export function createProcessScopeDriver(opts: {
           const marks = await env(candidates.map((p) => p.pid));
           if (marks === null) return { sessionId, cleanup: unverified };
           // Compute the bound on the engine's clock; the server sends an age, not its wall time.
-          // Older servers supply no bound, so unreadable candidates remain unverified.
+          // Older servers supply no bound, so ancestry cannot exclude older processes.
           const bound = clock.now() - (sinceAgeMs ?? NaN) - SCOPE_SINCE_MARGIN_MS;
           const lowerBound =
             typeof sinceAgeMs === 'number' &&
@@ -344,8 +385,22 @@ export function createProcessScopeDriver(opts: {
             Number.isFinite(bound)
               ? bound
               : null;
-          const unreadable = candidates.filter(
-            (p) => (lowerBound === null || p.startedAt >= lowerBound) && !marks.has(p.pid),
+          const own = candidates.filter((p) => {
+            const m = marks.get(p.pid);
+            return (
+              m !== undefined &&
+              m.PROJECTMAN_INSTANCE === opts.instanceTag &&
+              m.PROJECTMAN_SCOPE_ID === scopeId &&
+              m.PROJECTMAN_SESSION_ID === sessionId
+            );
+          });
+          const unreadable = unreadableMembers(
+            records,
+            candidates.filter((p) => lowerBound === null || p.startedAt >= lowerBound),
+            marks,
+            own,
+            scopeId,
+            lowerBound ?? -Infinity,
           );
           if (unreadable.length) {
             const fresh = await list();
@@ -357,15 +412,6 @@ export function createProcessScopeDriver(opts: {
             )
               return { sessionId, cleanup: unverified };
           }
-          const own = candidates.filter((p) => {
-            const m = marks.get(p.pid);
-            return (
-              m !== undefined &&
-              m.PROJECTMAN_INSTANCE === opts.instanceTag &&
-              m.PROJECTMAN_SCOPE_ID === scopeId &&
-              m.PROJECTMAN_SESSION_ID === sessionId
-            );
-          });
           if (!own.length) return { sessionId, cleanup: { ...unverified, outcome: 'clean' } };
           const scope = open(sessionId, scopeId, Math.min(...own.map((p) => p.startedAt)));
           return { sessionId, cleanup: await scope.close('recovery', { force: false }) };

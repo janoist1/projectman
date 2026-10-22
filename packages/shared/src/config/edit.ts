@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { FeedbackConfig } from '../domain/feedback';
 import { normalizeFeedbackOrigin } from '../domain/feedback-origin';
+import { LabelColor, LabelDefinition, LabelId } from '../domain/label';
 import { Pipeline } from '../domain/pipeline';
 import { BuiltInRoleId, RoleBundle } from '../domain/role';
 import { RepoDocs } from './project-docs';
@@ -26,6 +27,7 @@ export type ReviewTestPatch = z.infer<typeof ReviewTestPatch>;
 export const PatchConfigRequest = z
   .object({
     baseVersion: z.string().min(1),
+    email: z.strictObject({ enabled: z.boolean() }).optional(),
     message: z.string().trim().min(1).max(500).optional(),
     project: ProjectConfig.shape.project
       .pick({ name: true, language: true, timezone: true })
@@ -102,10 +104,46 @@ export type PatchConfigRequest = z.infer<typeof PatchConfigRequest>;
 export const OperatorRoleOverridesPatch = z.partialRecord(BuiltInRoleId, RoleBundle.nullable());
 export type OperatorRoleOverridesPatch = z.infer<typeof OperatorRoleOverridesPatch>;
 
+/**
+ * Operator edits of one pipeline label (PM-880): only the name, color and meaning are editable, and the
+ * label's other fields (who may set it, gates, clearing rules) stay as they are. `null` removes the color
+ * or the meaning. A label without a definition gets one; its name then defaults to its id.
+ */
+export const OperatorLabelPatch = z
+  .object({
+    name: LabelDefinition.shape.name.optional(),
+    color: LabelColor.nullable().optional(),
+    meaning: LabelDefinition.shape.meaning.unwrap().nullable().optional(),
+  })
+  .strict();
+export type OperatorLabelPatch = z.infer<typeof OperatorLabelPatch>;
+
+/** Keyed by label id; the other labels, stages and columns of the pipeline stay unchanged. */
+export const OperatorLabelsPatch = z.record(LabelId, OperatorLabelPatch);
+export type OperatorLabelsPatch = z.infer<typeof OperatorLabelsPatch>;
+
 export const OperatorConfigPatch = PatchConfigRequest.omit({ baseVersion: true, message: true }).extend({
   roleOverrides: OperatorRoleOverridesPatch.optional(),
+  labels: OperatorLabelsPatch.optional(),
 });
 export type OperatorConfigPatch = z.infer<typeof OperatorConfigPatch>;
+
+function patchedLabels(labels: readonly LabelDefinition[], changes: OperatorLabelsPatch): LabelDefinition[] {
+  const result = [...labels];
+  for (const [id, change] of Object.entries(changes)) {
+    const index = result.findIndex((label) => label.id === id);
+    const { color, meaning, name, ...rest } =
+      index >= 0 ? result[index]! : { id, name: id, setBy: 'anyone' as const };
+    const next: LabelDefinition = { ...rest, name: change.name ?? name };
+    const nextColor = change.color === undefined ? color : (change.color ?? undefined);
+    const nextMeaning = change.meaning === undefined ? meaning : (change.meaning ?? undefined);
+    if (nextColor !== undefined) next.color = nextColor;
+    if (nextMeaning !== undefined) next.meaning = nextMeaning;
+    if (index >= 0) result[index] = next;
+    else result.push(next);
+  }
+  return result;
+}
 
 /** Expand against the same configuration version that the normal PATCH will check under its lock. */
 export function prepareOperatorConfigPatch(
@@ -113,7 +151,12 @@ export function prepareOperatorConfigPatch(
   baseVersion: string,
   patch: OperatorConfigPatch,
 ): PatchConfigRequest {
-  const { roleOverrides: changes, ...rest } = patch;
+  const { roleOverrides: changes, labels: labelChanges, ...withoutTargeted } = patch;
+  let rest: Omit<PatchConfigRequest, 'baseVersion'> = withoutTargeted;
+  if (labelChanges && Object.keys(labelChanges).length > 0) {
+    const pipeline = rest.pipeline ?? config.pipeline;
+    rest = { ...rest, pipeline: { ...pipeline, labels: patchedLabels(pipeline.labels, labelChanges) } };
+  }
   if (!changes || Object.keys(changes).length === 0) return { ...rest, baseVersion };
   const roleOverrides = { ...config.team.roleOverrides };
   for (const role of BuiltInRoleId.options) {
@@ -186,6 +229,7 @@ export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigReques
     project: {
       ...config.project,
       ...patch.project,
+      ...(patch.email ? { email: patch.email } : {}),
       ...(feedback ? { feedback } : {}),
       repos:
         repoMerge || repoDocs || repoReviewTest || repoFullTestAtMerge

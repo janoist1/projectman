@@ -124,9 +124,7 @@ describe('loop watch', () => {
       await h.domain.pauses.pause({ scope: 'project', projectKey: 'AR' }, by);
       await goRound();
       await vi.waitFor(() =>
-        expect(
-          h.repos.deferredStarts.list().map((record) => (record.spec as { kind: string }).kind),
-        ).toContain('operator_signals'),
+        expect(h.repos.memberQueue.listOpen('AR', 'pm').map((queued) => queued.kind)).toContain('signal'),
       );
       expect(h.runner.started).toEqual([]);
       await h.domain.pauses.resume({ scope: 'project', projectKey: 'AR' }, by);

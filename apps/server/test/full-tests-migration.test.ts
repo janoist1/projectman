@@ -61,8 +61,8 @@ describe('full test runs migration', () => {
   it('keeps an old run as an engine result, and stores the runner and the run page of a new one (PM-909)', () => {
     const db = new Database(':memory:');
     try {
-      for (const migration of migrations.filter((item) => item.version <= 98)) db.exec(migration.sql);
-      db.pragma('user_version = 98');
+      for (const migration of migrations.filter((item) => item.version <= 102)) db.exec(migration.sql);
+      db.pragma('user_version = 102');
       db.exec(`INSERT INTO projects VALUES ('AR', 'Example', NULL, 'v1', '2026-01-01', '2026-01-01');
         INSERT INTO tasks (id, project_key, key, seq, title, description, stage_id, status, visibility, created_by, created_at, updated_at)
         VALUES ('tsk_example', 'AR', 'AR-1', 1, 'Example task', 'An example', 'code_review', 'active', 'internal', 'owner', '2026-01-01', '2026-01-01');

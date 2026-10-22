@@ -26,6 +26,8 @@ export const SessionStartCauseKind = z.enum([
   'handoff',
   /** The Operator is asked to screen an AI member's question (PM-556). */
   'question_screening',
+  /** The member's work queue woke it (PM-925): an item of a lane other than the messages. */
+  'member_queue',
 ]);
 export const SessionStartCause = z.object({
   kind: SessionStartCauseKind,

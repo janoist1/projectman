@@ -356,6 +356,14 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
         text: '',
       };
     },
+    async listSystemFeedback(ctx) {
+      await enter('listSystemFeedback', ctx, {});
+      return { items: [] };
+    },
+    async recordSystemFeedback(ctx, args) {
+      await enter('recordSystemFeedback', ctx, args);
+      return { id: 'sf_fake', state: 'new' as const, created: args.sameAs === undefined, occurrences: 1 };
+    },
     async searchHistory(ctx, args) {
       await enter('searchHistory', ctx, args);
       return { projectKey: args.projectKey ?? ctx.projectKey, matches: [], hasMore: false, documents: [] };
@@ -457,6 +465,10 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
     async decideFixLimit(ctx, args) {
       await enter('decideFixLimit', ctx, args);
       throw new TeamToolError('not_found', 'Unknown fix round limit hold.');
+    },
+    async finishQueueItem(ctx, args) {
+      await enter('finishQueueItem', ctx, args);
+      throw new TeamToolError('not_found', 'Unknown work queue item.');
     },
     async handOff(ctx, args) {
       await enter('handOff', ctx, args);

@@ -134,6 +134,11 @@ export const V92_CHANGE_TRIGGER_TABLES: readonly ChangeTriggerTable[] = [
   ofProject('merge_check_runs', 'operation', 'id', WRITES),
 ];
 
+/** Migration 100 (PM-885) rebuilds these two tables of migration 81, which drops their triggers: it creates them again. */
+export const V100_REBUILT_TRIGGER_TABLES: readonly ChangeTriggerTable[] = V81_CHANGE_TRIGGER_TABLES.filter(
+  (entry) => entry.table === 'operator_requests' || entry.table === 'operator_steps',
+);
+
 export const CHANGE_TRIGGER_TABLES: readonly ChangeTriggerTable[] = [
   ...V81_CHANGE_TRIGGER_TABLES,
   ...V83_CHANGE_TRIGGER_TABLES,
@@ -157,6 +162,9 @@ export const UNJOURNALED_TABLES: Readonly<Record<string, string>> = {
   egress_operations: 'runner permission bookkeeping of a session, not a reader view',
   email_login_codes: 'credentials, not project state',
   email_login_events: 'credentials audit, not project state',
+  email_contacts: 'owner/admin email read model with its own email_changed event (PM-940)',
+  email_contact_events: 'owner/admin email audit with its own email_changed event (PM-940)',
+  email_messages: 'owner/admin email log with its own email_changed event (PM-940)',
   engines: 'written with the project fan-out by the engine registry, in its own transaction',
   feedback_events: 'the feedback tool has its own read model',
   feedback_launch_codes: 'the feedback tool has its own read model',
@@ -164,6 +172,11 @@ export const UNJOURNALED_TABLES: Readonly<Record<string, string>> = {
   feedback_marks: 'the feedback tool has its own read model',
   feedback_reads: 'the feedback tool has its own read model',
   feedback_sessions: 'the feedback tool has its own read model',
+  system_feedback_items:
+    'the system feedback page has its own live event (PM-479), not a project reader view',
+  system_feedback_occurrences:
+    'the system feedback page has its own live event (PM-479), not a project reader view',
+  system_feedback_forwarding: 'an instance setting with its own live event (PM-479), not project state',
   history_doc_state: 'derived history index state (PM-786), not project state',
   history_dirty: 'derived history index queue (PM-786), not project state',
   history_documents: 'derived history index (PM-786), not project state',
@@ -202,7 +215,6 @@ export const UNJOURNALED_TABLES: Readonly<Record<string, string>> = {
   sessions: 'terminal and activity pattern; no durability is promised',
   sqlite_sequence: 'SQLite internal',
   task_workspace_bindings: 'machine-local workspace bookkeeping of the runner',
-  team_message_pending: 'delivery queue; the message row records the delivery',
   token_usage: 'usage statistics, not a reader view',
   users: 'accounts, not project state',
 };

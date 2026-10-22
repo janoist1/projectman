@@ -1,4 +1,4 @@
-import type { WaitingStarts, OperatorPauses } from './ports';
+import type { OperatorPauses } from './ports';
 import {
   isOnLeave,
   OPERATOR_SIGNAL_ROUND_FROM,
@@ -6,6 +6,8 @@ import {
   operatorOf,
   ownerHandles,
   projectManagerOf,
+  sessionWorkItemOf,
+  TaskStartWaiting,
 } from '@projectman/shared';
 import type { AiMemberConfig, OperatorChannel, ProjectManagerChannel, WorkItemRef } from '@projectman/shared';
 import { encodeWorkItem } from '../../db';
@@ -19,7 +21,6 @@ export class ProjectManagerChannels {
   private readonly deps: {
     ctx: DomainContext;
     projects: ProjectService;
-    deferred: WaitingStarts;
     pauses: Pick<OperatorPauses, 'projectView'>;
     operatorRequests: OperatorRequests;
     operatorSignals: OperatorSignals;
@@ -68,7 +69,7 @@ export class ProjectManagerChannels {
     manager: AiMemberConfig | null,
     conversation: WorkItemRef = { type: 'general' },
   ): Promise<ProjectManagerChannel> {
-    const { ctx, deferred, pauses } = this.deps;
+    const { ctx, pauses } = this.deps;
     if (!manager) return { member: null, state: 'missing', sessionId: null };
     const session = ctx.repos.sessions.findByWorkItem(projectKey, manager.handle, conversation);
     const base = {
@@ -76,11 +77,23 @@ export class ProjectManagerChannels {
       sessionId: session?.id ?? null,
     };
     if (isOnLeave(manager)) return { ...base, state: 'on_leave' };
+    // What the queue holds for this conversation and cannot start yet carries the code of what stops it.
     const wi = encodeWorkItem(conversation);
-    const waiting = deferred
-      .list()
-      .filter((entry) => entry.start.key === `message:${projectKey}:${manager.handle}:${wi.type}:${wi.ref}`)
-      .sort((a, b) => a.waiting.since.localeCompare(b.waiting.since))[0]?.waiting;
+    const waiting = ctx.repos.memberQueue
+      .listOpen(projectKey, manager.handle)
+      .flatMap((item) => {
+        const encoded = encodeWorkItem(sessionWorkItemOf(manager, item.place));
+        const reason = item.wait ? TaskStartWaiting.shape.reason.safeParse(item.wait.code) : null;
+        return item.state === 'queued' &&
+          item.wake &&
+          item.wait &&
+          reason?.success &&
+          encoded.type === wi.type &&
+          encoded.ref === wi.ref
+          ? [{ reason: reason.data, since: item.wait.at }]
+          : [];
+      })
+      .sort((a, b) => a.since.localeCompare(b.since))[0];
     if (waiting) return { ...base, state: 'waiting', waiting };
     const pause = pauses.projectView(projectKey);
     const since = [pause.project?.requestedAt, pause.instance?.requestedAt]

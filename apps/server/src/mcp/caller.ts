@@ -30,6 +30,7 @@ import type { ApprovalRequirement, UnmetCondition } from '@projectman/shared';
 import {
   OPERATOR_GUEST_TOOLS,
   OPERATOR_NEVER_TOOLS,
+  OPERATOR_NO_REQUEST_WRITE_TOOLS,
   OPERATOR_READ_TOOLS,
   OPERATOR_SCREENING_TOOLS,
   OPERATOR_TOOL_ACTIONS,
@@ -109,7 +110,14 @@ export function isOwner(config: ProjectConfig, handle: string): boolean {
 
 export function toToolError(err: unknown): unknown {
   if (err instanceof TeamToolError || !(err instanceof DomainError)) return err;
-  if (['question_group_incompatible', 'question_not_screening', 'operator_signal_closed'].includes(err.code))
+  if (
+    [
+      'question_group_incompatible',
+      'question_not_screening',
+      'operator_signal_closed',
+      'queue_item_not_processing',
+    ].includes(err.code)
+  )
     return new TeamToolError('invalid', `${err.code}: ${err.message}`);
   if (err.code === 'not_found') return new TeamToolError('not_found', err.message);
   if (err.status === 403) return new TeamToolError('forbidden', err.message);
@@ -205,6 +213,18 @@ export class ToolCaller {
     operation?: OperatorOperation,
   ): Promise<CallerWithRequest> {
     const config = await this.projects.config(ctx.projectKey);
+    if (
+      (tool === 'list_system_feedback' || tool === 'record_system_feedback') &&
+      !isOperator(memberOf(config, ctx.member))
+    ) {
+      this.assertCoordinationSession(ctx, config);
+      if (this.operatorRequests.openFor(ctx.sessionId)?.source === 'approval')
+        throw new TeamToolError(
+          'forbidden',
+          'operator_no_request: system feedback is not allowed in an approval continuation.',
+        );
+      return { config, request: null, guest: null };
+    }
     if (
       [
         'combine_questions',
@@ -321,7 +341,7 @@ export class ToolCaller {
         'forbidden',
         `operator_never: ${tool} is not for the Operator. Decisions of other members, hand-overs and publishing outside are not its to do; tell the owner what you found.`,
       );
-    if (!request && !OPERATOR_READ_TOOLS.has(tool) && !signal) {
+    if (!request && !OPERATOR_READ_TOOLS.has(tool) && !OPERATOR_NO_REQUEST_WRITE_TOOLS.has(tool) && !signal) {
       throw new TeamToolError(
         'forbidden',
         `operator_no_request: ${tool} writes, and the Operator writes only for an open request of an owner. ` +
@@ -394,6 +414,8 @@ export class ToolCaller {
       madeMember?: (result: T) => string | null;
       /** The super operation the call started and whether it still waits for the owner's yes (PM-888). */
       madeOperation?: (result: T) => { id: string; awaitsOwner: boolean };
+      /** The system feedback the call recorded (PM-479). */
+      madeSystemFeedback?: (result: T) => { id: string; title: string; occurrence: number };
     } | null,
     run: () => Promise<T>,
     /** A refusal that is no refusal: the change waits for a human's approval. */
@@ -426,6 +448,7 @@ export class ToolCaller {
         ...(step.madeTask ? { taskKey: step.madeTask(result) } : {}),
         ...(step.madeMember ? { member: step.madeMember(result) } : {}),
         ...(operation ? { operationId: operation.id } : {}),
+        ...(step.madeSystemFeedback ? { systemFeedback: step.madeSystemFeedback(result) } : {}),
         status: operation?.awaitsOwner ? 'awaiting_approval' : 'done',
       });
       // An own step on a signal: the signal is shown to the Operator again if its case still stands later (PM-545).

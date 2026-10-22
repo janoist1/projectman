@@ -3,7 +3,6 @@ import { createDomainHarness, OWNER_ACTOR, type DomainHarness } from './helpers/
 import { flush, planUsage } from './helpers/fakes';
 import { TEAM_TOOLS } from '../src/mcp';
 import { formatProjectState } from '../src/mcp/format';
-import { waitFor } from '../src/runner/test-helpers';
 
 let h: DomainHarness;
 afterEach(async () => {
@@ -271,6 +270,18 @@ describe('project state from server records', () => {
     expect((await h.domain.projectState.overview('AR')).openOwnerItems).toEqual([]);
   });
 
+  it('counts only open cards per stage, leaving out themes and closed cards', async () => {
+    h = await createDomainHarness();
+    await h.domain.tasks.create('AR', { title: 'Open' }, OWNER_ACTOR);
+    await h.domain.tasks.create('AR', { title: 'Theme', kind: 'theme' }, OWNER_ACTOR);
+    const done = await h.domain.tasks.create('AR', { title: 'Done' }, OWNER_ACTOR);
+    const cancelled = await h.domain.tasks.create('AR', { title: 'Cancelled' }, OWNER_ACTOR);
+    h.repos.tasks.update(done.id, { status: 'done' });
+    h.repos.tasks.update(cancelled.id, { status: 'cancelled' });
+    const overview = await h.domain.projectState.overview('AR');
+    expect(overview.stages.find((s) => s.stageId === 'backlog')?.count).toBe(1);
+  });
+
   it('has no release block when this instance does not release the project', async () => {
     h = await createDomainHarness();
     const overview = await h.domain.projectState.overview('AR');
@@ -286,8 +297,8 @@ describe('project state from server records', () => {
       text: 'First general note.',
     });
     await h.domain.messaging.send('AR', 'owner', { to: ['dev-1'], text: 'Second general note.' });
-    await waitFor(async () =>
-      (await h.domain.projectState.overview('AR')).waitingStarts.find((s) => s.taskKey === null),
+    await vi.waitFor(async () =>
+      expect((await h.domain.projectState.overview('AR')).waitingStarts).toHaveLength(1),
     );
     const overview = await h.domain.projectState.overview('AR');
     expect(overview.waitingStarts).toEqual([{ taskKey: null, member: 'dev-1', reason: 'ai_disabled' }]);

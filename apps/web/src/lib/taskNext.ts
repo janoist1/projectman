@@ -7,6 +7,7 @@ import { nameOf } from './members';
 import type { MemberIndex } from './members';
 import { failureKind } from './merge';
 import { nextStage } from './pipeline';
+import { isOperatorInboxRequest } from './inbox';
 import type { PipelineIndex } from './pipeline';
 
 /**
@@ -236,7 +237,11 @@ export function deriveNext(task: Task, wait: TaskWait, ctx: TaskNextContext): Ta
       const kind = wait.inboxKind ?? ctx.item?.kind ?? 'decision';
       const known = ['question', 'permission', 'decision', 'approval', 'boundary', 'alert'] as const;
       const key = (known as readonly string[]).includes(kind) ? (kind as (typeof known)[number]) : 'other';
-      const asker = ctx.item ? nameOf(ctx.item.source, members, myHandle) : '';
+      const asker = ctx.item
+        ? isOperatorInboxRequest(ctx.item)
+          ? t('superMode.name')
+          : nameOf(ctx.item.source, members, myHandle)
+        : '';
       const you = meNext;
       let waiting: string;
       if (!you) waiting = t(`taskStatus.next.short.inbox.${key}`);

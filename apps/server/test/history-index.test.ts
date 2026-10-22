@@ -359,8 +359,19 @@ describe('history index', () => {
         'web_push_settings',
         'web_push_items',
         'member_queue_items',
+        'email_contacts',
+        'email_contact_events',
+        'email_messages',
       ])
         old.exec(`DROP TABLE ${table}`);
+      // Migration 99 (PM-925) dropped the pending recipients table, which version 83 still has and 84 to 98 read.
+      old.exec(`CREATE TABLE team_message_pending (
+        message_id TEXT NOT NULL REFERENCES team_messages(id) ON DELETE CASCADE,
+        project_key TEXT NOT NULL,
+        handle TEXT NOT NULL,
+        seq INTEGER NOT NULL,
+        PRIMARY KEY (message_id, handle)
+      )`);
       // The hot read indexes (migration 91) do not exist at version 83 either; migrating recreates them.
       for (const index of [
         'inbox_open',
@@ -372,6 +383,14 @@ describe('history index', () => {
         old.exec(`DROP INDEX ${index}`);
       // Migration 96 (PM-888) added a column; migrating adds it again.
       old.exec('ALTER TABLE operator_steps DROP COLUMN operation_id');
+      // Migration 101 (PM-479) added a column and three tables; migrating creates them again.
+      old.exec('ALTER TABLE operator_steps DROP COLUMN system_feedback');
+      for (const table of [
+        'system_feedback_forwarding',
+        'system_feedback_occurrences',
+        'system_feedback_items',
+      ])
+        old.exec(`DROP TABLE ${table}`);
       old.pragma('user_version = 83');
       expect(old.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE name LIKE 'history%'").get()).toEqual(
         { n: 0 },

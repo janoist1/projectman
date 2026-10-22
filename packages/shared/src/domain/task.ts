@@ -96,7 +96,7 @@ export type CapacityHolder = z.infer<typeof CapacityHolder>;
 
 export const TaskStartWaiting = z.object({
   /**
-   * The admission refusals a retry can overcome (the start waits for them), and `repo_required`:
+   * The admission refusals a retry can overcome, a question hold, and `repo_required`:
    * the task's AI developer cannot start until a person chooses the task's repository, which no
    * retry does (see the deferrable refusals in the server's admission rules).
    */
@@ -127,6 +127,8 @@ export const TaskStartWaiting = z.object({
     // The gate before the work stage asks for labels an AI member sets (PM-236): that member's session
     // started on the card, and the developer's start continues once the labels are on it.
     'label_missing',
+    // A hold, not an admission refusal: the card waits for an answer to an open question (PM-927).
+    'waiting_answer',
     // The server's full test of the pinned commit (PM-217) has not ended: the reviewer's start
     // continues once it has.
     'full_test_pending',

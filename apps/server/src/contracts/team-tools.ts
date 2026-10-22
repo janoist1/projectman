@@ -16,6 +16,7 @@ import type {
   HistorySourceRead,
   HistoryStatsInput,
   MemberHandle,
+  MemberQueueItem,
   MergeCheckRun,
   MergeCheckRunKind,
   OperatorDiagnostics,
@@ -636,11 +637,13 @@ export interface TeamToolsHandler
     ReleaseToolsHandler,
     OperatorToolsHandler,
     ProjectDocToolsHandler,
+    SystemFeedbackToolsHandler,
     HistoryToolsHandler,
     InboxToolsHandler,
     MessageToolsHandler,
     AdmissionToolsHandler,
     WatcherToolsHandler,
+    OperatorQueueToolsHandler,
     SessionToolsHandler {}
 
 /** What read_history_source takes: one source of the project's history, read in lines (PM-787). */
@@ -785,6 +788,30 @@ export interface WatcherToolsHandler {
   ): Promise<{ phase: 'released' | 'replan' | 'owner' }>;
 }
 
+export interface OperatorQueueToolsHandler {
+  /**
+   * finish_queue_item (PM-885): the Operator ends the item of its work queue it is working on (the session's
+   * own, `processing`): done, or handed to the owner with a reason and the action to take. 409
+   * `queue_item_not_processing` when the item is not this session's open one.
+   */
+  finishQueueItem(
+    ctx: ToolContext,
+    args: {
+      itemId: string;
+      outcome: 'done' | 'handed_off';
+      summary: string;
+      operationIds: string[];
+      fixLimitOption?: 'replan' | 'reassign' | 'another_round';
+      handoff?: {
+        reason: 'owner_reserved' | 'no_typed_operation' | 'no_grant';
+        action: string;
+        detail?: string;
+        operationId?: string;
+      };
+    },
+  ): Promise<{ item: MemberQueueItem }>;
+}
+
 export interface SessionToolsHandler {
   /**
    * set_current_work (PM-238): what the calling session's member does on its own card now. It has no
@@ -817,6 +844,29 @@ export interface McpModuleOptions {
 export interface McpModule {
   /** Registers the MCP endpoints: /mcp/:token (localhost only) and, with `external`, the bearer POST /mcp. */
   registerRoutes(app: FastifyInstance): void;
+}
+
+/** One row of `list_system_feedback`: the owner's decisions and reasons are not part of it. */
+export interface SystemFeedbackToolRow {
+  id: string;
+  state: 'new' | 'forwarded' | 'dismissed';
+  title: string;
+  occurrences: number;
+  last_seen_at: string;
+}
+
+/** The tools of services/feedback/system (PM-472, PM-479). Only the Operator calls them. */
+export interface SystemFeedbackToolsHandler {
+  /** list_system_feedback: the project's own items in any state, the latest 50. A look; needs no open request. */
+  listSystemFeedback(ctx: ToolContext): Promise<{ items: SystemFeedbackToolRow[] }>;
+  /**
+   * record_system_feedback: a gap in projectman the Operator worked around. `sameAs` adds an occurrence to an
+   * item of this project instead of opening a new one.
+   */
+  recordSystemFeedback(
+    ctx: ToolContext,
+    args: { title: string; what: string; workaround: string; fix: string; sameAs?: string },
+  ): Promise<{ id: string; state: 'new' | 'forwarded' | 'dismissed'; created: boolean; occurrences: number }>;
 }
 
 /** The tools of services/project-docs (PM-495, PM-496). */
@@ -949,6 +999,7 @@ export interface OperatorToolsHandler {
       answer?: string;
       forwardTo?: MemberHandle;
       todo?: ScreeningTodo;
+      feedbackId?: string;
     },
   ): Promise<{
     inboxItemId: string;

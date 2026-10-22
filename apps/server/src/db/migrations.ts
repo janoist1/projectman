@@ -1,6 +1,7 @@
 import {
   V83_CHANGE_TRIGGER_TABLES,
   V92_CHANGE_TRIGGER_TABLES,
+  V100_REBUILT_TRIGGER_TABLES,
   changeTriggerSql,
   changeTriggersSql,
 } from './change-triggers';
@@ -2097,6 +2098,101 @@ migrations.push({
 });
 migrations.push({
   version: 99,
+  name: 'drop the message pending index',
+  // PM-925: the member queue (version 98) is the one place a waiting message lives; the index it replaces is
+  // no longer written or read. The queue is brought true from the messages themselves at startup. A wait
+  // keeps what the refusal said besides its code (`wait_details`: the provider, the engine, a time), as a
+  // deferred start did, so a card shows the same.
+  sql: `DROP TABLE IF EXISTS team_message_pending;
+    ALTER TABLE member_queue_items ADD COLUMN wait_details TEXT;`,
+});
+migrations.push({
+  version: 100,
+  name: 'operator requests from the member queue',
+  // PM-885: the Operator's queue item is a request source of its own ('queue'), linked to the item by
+  // `queue_item_id`. The source CHECK grows, so both tables are rebuilt as in version 65, and their change
+  // triggers (version 81) are created again.
+  sql: `CREATE TABLE operator_requests_next (
+      id TEXT PRIMARY KEY, project_key TEXT NOT NULL, session_id TEXT NOT NULL,
+      source TEXT NOT NULL CHECK (source IN ('message', 'answer', 'signal', 'approval', 'queue')),
+      message_id TEXT, inbox_item_id TEXT, from_handle TEXT NOT NULL, quote TEXT NOT NULL,
+      opened_at TEXT NOT NULL, closed_at TEXT, queue_item_id TEXT
+    );
+    CREATE TABLE operator_steps_next (
+      id TEXT PRIMARY KEY, request_id TEXT NOT NULL REFERENCES operator_requests_next(id),
+      at TEXT NOT NULL, action TEXT NOT NULL, status TEXT NOT NULL, task_key TEXT, member TEXT,
+      changes TEXT NOT NULL DEFAULT '[]', config_version TEXT, inbox_item_id TEXT, refusal TEXT, signal_id TEXT,
+      agreement_version INTEGER NULL, approval_mode TEXT NULL, operation_id TEXT NULL
+    );
+    INSERT INTO operator_requests_next (id, project_key, session_id, source, message_id, inbox_item_id, from_handle, quote, opened_at, closed_at)
+      SELECT id, project_key, session_id, source, message_id, inbox_item_id, from_handle, quote, opened_at, closed_at FROM operator_requests;
+    INSERT INTO operator_steps_next (id, request_id, at, action, status, task_key, member, changes, config_version, inbox_item_id, refusal, signal_id, agreement_version, approval_mode, operation_id)
+      SELECT id, request_id, at, action, status, task_key, member, changes, config_version, inbox_item_id, refusal, signal_id, agreement_version, approval_mode, operation_id FROM operator_steps;
+    DROP TABLE operator_steps;
+    DROP TABLE operator_requests;
+    ALTER TABLE operator_requests_next RENAME TO operator_requests;
+    ALTER TABLE operator_steps_next RENAME TO operator_steps;
+    CREATE INDEX operator_requests_project ON operator_requests(project_key, opened_at);
+    CREATE INDEX operator_requests_session ON operator_requests(session_id) WHERE closed_at IS NULL;
+    CREATE INDEX operator_steps_request ON operator_steps(request_id, at);
+    CREATE INDEX operator_steps_signal ON operator_steps(signal_id) WHERE signal_id IS NOT NULL;
+    ${V100_REBUILT_TRIGGER_TABLES.map(changeTriggerSql).join('\n')}`,
+});
+migrations.push({
+  version: 101,
+  name: 'system feedback',
+  // PM-479 (PM-472): the gaps in projectman the Operator found, per installation. The text is stored already
+  // filtered; an item's occurrences keep the first one; the forwarding setting is append-only (the latest row
+  // counts, none means `manual`). A `system_feedback` Operator step keeps what it recorded in its own column.
+  sql: `CREATE TABLE system_feedback_items (
+      id TEXT PRIMARY KEY,
+      project_key TEXT NOT NULL REFERENCES projects(key),
+      title TEXT NOT NULL, what TEXT NOT NULL, workaround TEXT NOT NULL, fix TEXT NOT NULL,
+      state TEXT NOT NULL CHECK (state IN ('new', 'forwarded', 'dismissed')),
+      created_at TEXT NOT NULL, last_seen_at TEXT NOT NULL, version TEXT NOT NULL,
+      session_id TEXT,
+      forwarded_kind TEXT CHECK (forwarded_kind IN ('card', 'issue')),
+      forwarded_project TEXT, forwarded_task TEXT, forwarded_url TEXT,
+      forwarded_by TEXT,
+      forwarded_at TEXT,
+      dismissed_reason TEXT, dismissed_by TEXT, dismissed_at TEXT,
+      card_error TEXT
+    );
+    CREATE INDEX system_feedback_items_project ON system_feedback_items(project_key, last_seen_at);
+    CREATE TABLE system_feedback_occurrences (
+      item_id TEXT NOT NULL REFERENCES system_feedback_items(id),
+      at TEXT NOT NULL, version TEXT NOT NULL, session_id TEXT
+    );
+    CREATE INDEX system_feedback_occurrences_item ON system_feedback_occurrences(item_id, at);
+    CREATE TABLE system_feedback_forwarding (
+      id TEXT PRIMARY KEY,
+      mode TEXT NOT NULL CHECK (mode IN ('manual', 'card', 'off')),
+      project_key TEXT REFERENCES projects(key),
+      changed_by TEXT NOT NULL, changed_at TEXT NOT NULL,
+      CHECK ((mode = 'card') = (project_key IS NOT NULL))
+    );
+    ALTER TABLE operator_steps ADD COLUMN system_feedback TEXT;`,
+});
+migrations.push({
+  version: 102,
+  name: 'email channel',
+  sql: `CREATE TABLE email_contacts (project_key TEXT NOT NULL, handle TEXT NOT NULL, wants INTEGER NOT NULL,
+    changed_by TEXT NOT NULL, changed_at TEXT NOT NULL, requested_by TEXT, source TEXT NOT NULL,
+    PRIMARY KEY (project_key, handle));
+  CREATE TABLE email_contact_events (id TEXT PRIMARY KEY, project_key TEXT NOT NULL, handle TEXT NOT NULL,
+    wants INTEGER NOT NULL, "by" TEXT NOT NULL, requested_by TEXT, source TEXT NOT NULL, source_ref TEXT,
+    quote TEXT, at TEXT NOT NULL);
+  CREATE TABLE email_messages (id TEXT PRIMARY KEY, project_key TEXT NOT NULL, direction TEXT NOT NULL,
+    member TEXT, contact TEXT, task_key TEXT, subject TEXT NOT NULL, text TEXT NOT NULL, status TEXT NOT NULL,
+    park_reason TEXT, note TEXT, from_address TEXT, attachment_names TEXT NOT NULL DEFAULT '[]',
+    reply_token_hash TEXT UNIQUE, reply_expires_at TEXT, in_reply_to TEXT, provider_id TEXT UNIQUE,
+    inbox_item_id TEXT, message_id TEXT, decided_by TEXT, decided_at TEXT,
+    created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+  CREATE INDEX email_messages_project ON email_messages(project_key, created_at);
+  CREATE INDEX email_contact_events_project ON email_contact_events(project_key, at);`,
+});
+migrations.push({
+  version: 103,
   name: 'full test runner and external url',
   // PM-909: where a full test of a pinned commit ran (the engine's sandbox or GitHub Actions) and the Actions
   // run page. An existing row is an engine result.

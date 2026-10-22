@@ -655,6 +655,16 @@ const dataSteward = {
  * sections read together. Details of each section are covered by the focused tests below.
  */
 describe('context pack snapshots', () => {
+  it('communication member with system-enforced email approval', async () => {
+    const project = buildProject();
+    addMember(project, 'liaison', 'communication');
+    const pack = builder.build(
+      input({ project, handle: 'liaison', workItem: { type: 'general' }, task: null, stage: null }),
+    );
+    await expect(
+      `${section(pack.appendSystemPrompt, '# Your role instructions').trimEnd()}\n`,
+    ).toMatchFileSnapshot('__snapshots__/communication.role-instructions.txt');
+  });
   it('developer starting development', async () => {
     const pack = builder.build(
       input({
@@ -1338,6 +1348,15 @@ describe('system prompt', () => {
         'Never: you do not change a person',
       ])
         expect(operator).not.toContain(old);
+    });
+
+    it('includes the system feedback path for screened todos', () => {
+      for (const prompt of [
+        operatorPrompt('en'),
+        roleOf(builder.build(input({ handle: 'pm' })).appendSystemPrompt),
+      ])
+        for (const key of ['list_system_feedback', 'record_system_feedback', 'same_as', 'feedback_id'])
+          expect(prompt).toContain(key);
     });
 
     it('tells only the PM how to screen AI questions while leaving human approvals to people', () => {

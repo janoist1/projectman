@@ -18,7 +18,13 @@ const actor: Actor = {
 it('distinguishes super and historical owner actors and exposes only the credential prefix', () => {
   renderUi(
     <>
-      <ActorName actor={actor} members={new Map()} myHandle="actual-operator" projectKey="AC" />
+      <ActorName
+        actor={actor}
+        members={new Map()}
+        myHandle="actual-operator"
+        projectKey="AC"
+        machineOperation
+      />
       <Avatar actor={actor} member={undefined} via="integrator" label="operator" />
       <ActorName
         actor={{ kind: 'human', handle: 'owner', via: 'integrator' }}

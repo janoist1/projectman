@@ -88,6 +88,7 @@ const waitingExplanations: Record<NonNullable<TaskStateReport['startWaiting']>['
   prerequisite_open: 'A prerequisite is still open.',
   no_free_member: 'No eligible member is free.',
   label_missing: 'The start waits for labels.',
+  waiting_answer: 'The card waits for an answer to an open question.',
   full_test_pending: 'The pinned commit full test has not finished.',
   provider_not_logged_in: 'The provider is not logged in.',
   nanogpt_key_missing: 'The managed NanoGPT key is missing.',
@@ -248,7 +249,7 @@ function signalLine(signal: OperatorSignal): string {
     loop_suspected:
       'A suspected loop awaits PM assessment with triage_loop; report only, no stop or approval authority.',
     process_cleanup_failed:
-      "An ended session still has running processes; its workspace remains reserved. Bring this to the owners; never stop another member's processes yourself.",
+      "An ended session still has running processes; its workspace remains reserved (subject: the process scope). Bring this to the owners; never stop another member's processes yourself. Only if an owner explicitly asks to free the workspace, run workspace_release with the subject as scopeId and the owner's reason.",
     outage: 'A provider or engine outage needs attention.',
     nobody: 'Nobody can take the card on.',
     stalled: 'The session is stalled.',

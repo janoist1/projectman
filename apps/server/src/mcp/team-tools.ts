@@ -5,6 +5,7 @@ import type {
   MessageToolsHandler,
   AdmissionToolsHandler,
   WatcherToolsHandler,
+  OperatorQueueToolsHandler,
   SessionToolsHandler,
   MemberToolsHandler,
   TaskToolsHandler,
@@ -17,6 +18,7 @@ import type {
   ReleaseToolsHandler,
   OperatorToolsHandler,
   ProjectDocToolsHandler,
+  SystemFeedbackToolsHandler,
   HistoryToolsHandler,
   AttachmentPage,
   ListMergeChecksInput,
@@ -106,11 +108,13 @@ export class TeamToolsService implements TeamToolsHandler {
     releases: ReleaseToolsHandler;
     operator: OperatorToolsHandler;
     projectDocs: ProjectDocToolsHandler;
+    systemFeedback: SystemFeedbackToolsHandler;
     history: HistoryToolsHandler;
     inbox: InboxToolsHandler;
     messages: MessageToolsHandler;
     admission: AdmissionToolsHandler;
     watchers: WatcherToolsHandler;
+    operatorQueue: OperatorQueueToolsHandler;
     sessions: SessionToolsHandler;
   };
 
@@ -160,6 +164,9 @@ export class TeamToolsService implements TeamToolsHandler {
   ) {
     return this.tools.watchers.decideFixLimit(ctx, args);
   }
+  async finishQueueItem(ctx: ToolContext, args: Parameters<OperatorQueueToolsHandler['finishQueueItem']>[1]) {
+    return this.tools.operatorQueue.finishQueueItem(ctx, args);
+  }
   async handOff(ctx: ToolContext, args: { taskKey: string; note: string }): Promise<{ recorded: true }> {
     return this.tools.admission.handOff(ctx, args);
   }
@@ -176,11 +183,13 @@ export class TeamToolsService implements TeamToolsHandler {
       releases: ReleaseToolsHandler;
       operator: OperatorToolsHandler;
       projectDocs: ProjectDocToolsHandler;
+      systemFeedback: SystemFeedbackToolsHandler;
       history: HistoryToolsHandler;
       inbox: InboxToolsHandler;
       messages: MessageToolsHandler;
       admission: AdmissionToolsHandler;
       watchers: WatcherToolsHandler;
+      operatorQueue: OperatorQueueToolsHandler;
       sessions: SessionToolsHandler;
     };
   }) {
@@ -411,6 +420,7 @@ export class TeamToolsService implements TeamToolsHandler {
       answer?: string;
       forwardTo?: string;
       todo?: ScreeningTodo;
+      feedbackId?: string;
     },
   ): Promise<{
     inboxItemId: string;
@@ -486,6 +496,17 @@ export class TeamToolsService implements TeamToolsHandler {
     },
   ): Promise<ProjectDocWrite> {
     return this.tools.projectDocs.writeProjectDocs(ctx, args);
+  }
+
+  async listSystemFeedback(ctx: ToolContext) {
+    return this.tools.systemFeedback.listSystemFeedback(ctx);
+  }
+
+  async recordSystemFeedback(
+    ctx: ToolContext,
+    args: Parameters<SystemFeedbackToolsHandler['recordSystemFeedback']>[1],
+  ) {
+    return this.tools.systemFeedback.recordSystemFeedback(ctx, args);
   }
 
   async listDecisionCandidates(ctx: ToolContext, args: { limit?: number }) {

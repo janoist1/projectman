@@ -18,6 +18,12 @@ type Row = Omit<OperatorSignalRecord, 'actionable'> & { actionable: number };
 const record = (row: Row): OperatorSignalRecord => ({ ...row, actionable: !!row.actionable });
 
 export function createOperatorSignalRepository(db: Db) {
+  const list = db.prepare(
+    `SELECT ${columns} FROM operator_signals WHERE project_key = ? ORDER BY raised_at, rowid`,
+  );
+  const listOpen = db.prepare(
+    `SELECT ${columns} FROM operator_signals WHERE project_key = ? AND resolved_at IS NULL ORDER BY raised_at, rowid`,
+  );
   const openByCase = db.prepare(`SELECT ${columns} FROM operator_signals
     WHERE project_key = ? AND case_key = ? AND resolved_at IS NULL`);
   return {
@@ -53,11 +59,10 @@ export function createOperatorSignalRepository(db: Db) {
       return row ? record(row) : null;
     },
     list(projectKey: string): OperatorSignalRecord[] {
-      return (
-        db
-          .prepare(`SELECT ${columns} FROM operator_signals WHERE project_key = ? ORDER BY raised_at, rowid`)
-          .all(projectKey) as Row[]
-      ).map(record);
+      return (list.all(projectKey) as Row[]).map(record);
+    },
+    listOpen(projectKey: string): OperatorSignalRecord[] {
+      return (listOpen.all(projectKey) as Row[]).map(record);
     },
     insert(signal: OperatorSignalRecord): void {
       db.prepare(

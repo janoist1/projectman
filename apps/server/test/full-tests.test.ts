@@ -159,8 +159,10 @@ describe('the full test before review', () => {
     expect(reviewerStarted()).toBe(false);
 
     executor.finish(passed);
-    await vi.waitFor(() => expect(heldFor('cr')).toEqual([]));
     await vi.waitFor(() => expect(reviewerStarted()).toBe(true));
+    // The reviewer takes the released message at its turn boundary.
+    h.runner.setState(h.repos.sessions.findByWorkItem('AR', 'cr', TASK)!.id, 'idle');
+    await vi.waitFor(() => expect(heldFor('cr')).toEqual([]));
   });
 
   it('keeps a running reviewer’s idle input held until the full test passes', async () => {

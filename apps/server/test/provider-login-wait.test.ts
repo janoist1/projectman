@@ -7,6 +7,7 @@ import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from '.
 import type { DomainHarness } from './helpers/domain-harness';
 import { rejection } from './helpers/errors';
 import { settle } from './helpers/fakes';
+import { deferredStartRecords } from './helpers/deferred-starts';
 
 /**
  * An automatic start of a member whose provider is not logged in waits (`provider_not_logged_in`,
@@ -150,7 +151,7 @@ describe('a start while the provider is not logged in', () => {
 
   describe('a task session that loses its login (PM-467)', () => {
     const resumes = () =>
-      h.repos.deferredStarts.list().filter((row) => StartSpec.parse(row.spec).kind === 'provider_resume');
+      deferredStartRecords(h.repos).filter((row) => StartSpec.parse(row.spec).kind === 'provider_resume');
 
     async function setup(opts: { persistent?: boolean } = {}) {
       h = await createDomainHarness({ adjust: codexDev1, ...opts });

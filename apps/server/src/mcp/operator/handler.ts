@@ -24,6 +24,7 @@ import type {
   OperatorToolsHandler,
   MemberStartResult,
   ToolContext,
+  SystemFeedbackLookup,
 } from '../../contracts';
 import type { DomainContext } from '../../core/base';
 import { DomainError } from '../../kernel';
@@ -46,7 +47,7 @@ import type {
 import type { ObligationsService } from '../../services/obligations';
 import { appRequestId } from '../../services/super-operator';
 import type { OperatorAppOperations, SuperAdministration } from '../../services/super-operator';
-import { toToolError, toMessageToolError, type ToolCaller } from '../caller';
+import { isOwner, toToolError, toMessageToolError, type ToolCaller } from '../caller';
 
 /** What the Operator's super-operation tools stand on (PM-888). */
 export interface SuperPath {
@@ -60,6 +61,7 @@ export class OperatorTools implements OperatorToolsHandler {
   private readonly projects: ProjectService;
   private readonly tasks: TaskService;
   private readonly inbox: InboxService;
+  private readonly systemFeedback: SystemFeedbackLookup;
   private readonly obligations: Pick<ObligationsService, 'listOpen'>;
   private readonly messaging: Pick<Messaging, 'answer' | 'forwardQuestion' | 'sendReporting'>;
   private readonly projectState: ProjectState;
@@ -78,6 +80,7 @@ export class OperatorTools implements OperatorToolsHandler {
     projects: ProjectService;
     tasks: TaskService;
     inbox: InboxService;
+    systemFeedback: SystemFeedbackLookup;
     obligations: Pick<ObligationsService, 'listOpen'>;
     messaging: Pick<Messaging, 'answer' | 'forwardQuestion' | 'sendReporting'>;
     projectState: ProjectState;
@@ -96,6 +99,7 @@ export class OperatorTools implements OperatorToolsHandler {
     this.projects = deps.projects;
     this.tasks = deps.tasks;
     this.inbox = deps.inbox;
+    this.systemFeedback = deps.systemFeedback;
     this.obligations = deps.obligations;
     this.messaging = deps.messaging;
     this.projectState = deps.projectState;
@@ -314,8 +318,8 @@ export class OperatorTools implements OperatorToolsHandler {
 
   /**
    * The Operator's own call on the shared super-operation path (PM-888): the base Operator, in its own general
-   * conversation, during a direct internal owner request (a message or an answer; not an approval continuation,
-   * a signal or a guest). Returns the caller whose request the credential of the call stands on.
+   * conversation, during a direct internal owner request (a message or an answer) or a queue item (PM-885); not an
+   * approval continuation, a signal or a guest. Returns the caller whose request the credential of the call stands on.
    */
   private async appCaller(ctx: ToolContext, tool: string) {
     const caller = await this.calls.callerWithRequest(ctx, tool);
@@ -325,7 +329,9 @@ export class OperatorTools implements OperatorToolsHandler {
     if (
       !caller.request ||
       caller.guest ||
-      (caller.request.source !== 'message' && caller.request.source !== 'answer') ||
+      (caller.request.source !== 'message' &&
+        caller.request.source !== 'answer' &&
+        caller.request.source !== 'queue') ||
       !session ||
       session.projectKey !== ctx.projectKey ||
       session.member !== ctx.member ||
@@ -355,6 +361,19 @@ export class OperatorTools implements OperatorToolsHandler {
           'invalid',
           `super_operation_unsupported: a ${args.command.kind} command is not run here; use operate.`,
         );
+      // Releasing a workspace carries no owner approval step, so the request itself must be the owner's own
+      // message or answer: a queue item opened by a member's message or an integrator todo is not enough (PM-935).
+      if (args.command.kind === 'workspace_release') {
+        const request = caller.request!;
+        if (
+          (request.source !== 'message' && request.source !== 'answer') ||
+          !isOwner(caller.config, request.fromHandle)
+        )
+          throw new TeamToolError(
+            'forbidden',
+            'operator_owner_only: a workspace release needs a direct message or answer of an owner.',
+          );
+      }
       const taskKey = args.taskKey ? this.calls.validTaskKey(ctx, args.taskKey) : undefined;
       const requestId = appRequestId(caller.request!.id, args.requestKey);
       return await this.calls.recorded(
@@ -434,6 +453,7 @@ export class OperatorTools implements OperatorToolsHandler {
       answer?: string;
       forwardTo?: string;
       todo?: ScreeningTodo;
+      feedbackId?: string;
     },
   ): Promise<{
     inboxItemId: string;
@@ -464,6 +484,13 @@ export class OperatorTools implements OperatorToolsHandler {
         );
       if (args.todo && !ScreeningTodoSchema.safeParse(args.todo).success)
         throw fieldError('todo needs valid what, where, expected and recipient fields.');
+      if (
+        args.feedbackId !== undefined &&
+        (outcome !== 'todo' ||
+          !args.feedbackId.trim() ||
+          !this.systemFeedback.belongsToProject(ctx.projectKey, args.feedbackId))
+      )
+        throw fieldError('feedback_id must identify system feedback in this project, only with todo.');
       const item = this.ctx.repos.inbox.get(args.itemId);
       if (!item || item.projectKey !== ctx.projectKey || item.kind !== 'question')
         throw new TeamToolError('not_found', `No question ${args.itemId} in this project.`);
@@ -498,6 +525,7 @@ export class OperatorTools implements OperatorToolsHandler {
               by,
               note,
               ...(args.todo ? { todo: args.todo } : {}),
+              ...(args.feedbackId !== undefined ? { feedbackId: args.feedbackId } : {}),
             })
           : await this.inbox.settleScreened(
               item.id,

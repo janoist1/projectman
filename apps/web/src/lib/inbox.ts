@@ -37,6 +37,12 @@ import type { PipelineIndex } from './pipeline';
 import { releaseFailedWords } from './release';
 import { relationKindLabel } from './timeline';
 
+/** Operator-origin requests use the same sender in the inbox and in task status lines. */
+export function isOperatorInboxRequest(item: Pick<InboxItem, 'payload'>): boolean {
+  const payload = questionPayloadOf(item);
+  return !!payload?.operatorHandoff || !!payload?.superOperation;
+}
+
 /** Option id used for a free-text answer to a question (the text goes in `note`). */
 export const FREE_ANSWER_OPTION_ID = 'answer';
 
@@ -89,6 +95,8 @@ export function inboxHeading(item: InboxItem): string {
   if (seniorWaitDecisionOf(item)) return t('inbox.seniorWait.heading');
   if (item.kind === 'alert') {
     const alert = alertPayloadOf(item);
+    // The email-specific presentation is supplied by the email UI slice (PM-942).
+    if (alert?.alert === 'email_parked') return item.title;
     if (alert?.alert === 'merge_blocked') return t('inbox.mergeBlocked.title', { key: alert.taskKey });
     if (alert?.alert === 'work_outage') return outageHeading(alert.outage);
     if (alert?.alert === 'release_failed')
@@ -269,6 +277,7 @@ export function alertText(
 ): string | null {
   const alert = alertPayloadOf(item);
   if (!alert) return null;
+  if (alert.alert === 'email_parked') return null;
   // The merge alert says why in the words of its card (MergeInboxBody), with the raw message folded.
   if (alert.alert === 'merge_blocked') return null;
   if (alert.alert === 'work_outage') return null;
@@ -749,8 +758,8 @@ export function resolutionNote(item: InboxItem): string | null {
     return note
       ? t(
           item.resolution.optionId === 'todo_cannot'
-            ? 'inbox.integrator.reasonNote'
-            : 'inbox.integrator.resultNote',
+            ? 'inbox.handedOff.reasonNote'
+            : 'inbox.handedOff.resultNote',
           { note },
         )
       : null;
@@ -816,7 +825,10 @@ export function screeningOf(item: InboxItem): QuestionScreening | null {
 
 /** A question the Operator made a todo of: "Teendő", not "Kérdés" (PM-556), also after it closed. */
 export function isTodo(item: InboxItem): boolean {
-  return item.kind === 'question' && screeningOf(item)?.outcome === 'todo';
+  return (
+    item.kind === 'question' &&
+    (screeningOf(item)?.outcome === 'todo' || !!questionPayloadOf(item)?.operatorHandoff)
+  );
 }
 
 /** The kind a card shows: a todo is its own kind. */

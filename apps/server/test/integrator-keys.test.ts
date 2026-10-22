@@ -215,6 +215,19 @@ describe('integrator key modes and lifecycle', () => {
     },
   );
 
+  it('keeps a non-expiring explicit key active until revocation', () => {
+    const created = auth.createIntegratorAccessKey('owner', { mode: 'super', expiresInDays: null });
+    advance(2 * 365 * 86_400_000);
+    expect(list()[0]).toMatchObject({ state: 'active', expiresAt: null });
+    const principal = auth.resolveIntegratorCredential(created.secret, 'mcp')!;
+    expect(principal).not.toBeNull();
+    expect(auth.integratorKeyExpiresInMs(principal.keyId)).toBeNull();
+    expect(() => auth.assertActive(principal)).not.toThrow();
+    auth.revokeIntegratorAccessKey('owner', principal.keyId);
+    expect(auth.resolveIntegratorCredential(created.secret, 'mcp')).toBeNull();
+    expect(() => auth.assertActive(principal)).toThrow(/invalid/);
+  });
+
   it('rejects keys whose owner is no longer a password account or is not the host owner', () => {
     const created = create('super');
     const principal = auth.resolveIntegratorCredential(created.secret, 'cli')!;

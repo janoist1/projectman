@@ -198,6 +198,17 @@ it('shows the AI decider reason as a detail, and an escalation to a person', () 
       open,
     ),
   ).toMatchObject({ text: t('timeline.events.permission_escalated_timeout'), emphasis: 'needs' });
+  for (const cause of ['undelivered', 'unavailable'] as const)
+    expect(
+      describeEvent(
+        {
+          ...escalated,
+          actor: { kind: 'system', handle: null },
+          data: { ...escalated.data, cause },
+        },
+        open,
+      ),
+    ).toMatchObject({ text: t('timeline.events.permission_escalated_unreached'), emphasis: 'needs' });
 });
 
 it('describes checks recorded before labels replaced them', () => {
@@ -283,6 +294,15 @@ describe('open-step reminders on the timeline (PM-806)', () => {
         minutes: 30,
         reason: 'integrator_unavailable',
       }),
+    );
+  });
+});
+
+describe('a released workspace on the timeline (PM-935)', () => {
+  it('shows the reason the owner gave', () => {
+    const data = { scopeId: 'scp_1', sessionId: 'ses_1', workspaceIds: ['mws_1'], reason: 'Checked by hand' };
+    expect(describeEvent({ ...creation, type: 'workspace_released', data }, context).text).toBe(
+      t('timeline.events.workspace_released', { reason: 'Checked by hand' }),
     );
   });
 });
@@ -438,6 +458,20 @@ describe('review pins on the timeline (PM-183)', () => {
         parts: 'AC-2, AC-4, AC-3',
       }),
     );
+  });
+
+  it('names the subtask that triggered the automatic close, when there is one (PM-373)', () => {
+    const closed = { done: ['AC-2', 'AC-4'], cancelled: [] };
+    const triggered = describeEvent(move({ partsClosed: { ...closed, trigger: 'AC-4' } }), context).text;
+    expect(triggered).toBe(
+      t('timeline.events.task_stage_changed_parts_closed_by', {
+        from: 'dev',
+        to: 'review',
+        parts: 'AC-2, AC-4',
+        trigger: 'AC-4',
+      }),
+    );
+    expect(describeEvent(move({ partsClosed: closed }), context).text).not.toBe(triggered);
   });
 
   it('describes a send-back after a failed full test and the full test results (PM-217)', () => {

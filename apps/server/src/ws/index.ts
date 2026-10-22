@@ -1,4 +1,4 @@
-import type { Me } from '@projectman/shared';
+import type { Me, Task } from '@projectman/shared';
 import { randomUUID } from 'node:crypto';
 import type { RunnerModule, EventBus } from '../contracts';
 import type { TaskService } from '../core/tasks';
@@ -7,7 +7,7 @@ import type { MessageService } from '../core/messages';
 import type { MemberService, PresenceService, ProjectAccess } from '../core/members';
 
 import type { FastifyInstance } from 'fastify';
-import { canSeeOperatorSessions, ClientCommand, routes } from '@projectman/shared';
+import { canSeeOperatorSessions, ClientCommand, routes, systemFeedbackAccess } from '@projectman/shared';
 import type { ErrorCode, HumanAccess, ServerEvent } from '@projectman/shared';
 import { sameOrigin } from '../kernel';
 import type { AuthService, AuthUser } from '../auth';
@@ -114,6 +114,11 @@ export function registerWebsocket(
     delivery = delivery
       .then(async () => {
         if (event.type === 'hello' || event.type === 'error') return;
+        const tasks = new Map<string, Task | null>();
+        const taskOf = (projectKey: string, taskKey: string) => {
+          if (!tasks.has(taskKey)) tasks.set(taskKey, domain.tasks.find(projectKey, taskKey));
+          return tasks.get(taskKey) ?? null;
+        };
         for (const client of clients) {
           // Not bound to a project: every logged-in client reads the grant's state again.
           if (event.type === 'operator_grant_changed') {
@@ -126,6 +131,16 @@ export function registerWebsocket(
               deps.auth.isHostOwner(client.user.id) ||
               memberships.some((project) => project.access !== 'client')
             )
+              send(client, event);
+            continue;
+          }
+          // System feedback (PM-472) belongs to the installation: the instance owner, and an owner of the
+          // project the item is for. The event names no text; a client that may not read it is skipped.
+          if (event.type === 'system_feedback_changed') {
+            const access = event.projectKey
+              ? await domain.accessFor(event.projectKey, client.user.email).catch(() => null)
+              : null;
+            if (systemFeedbackAccess(deps.auth.isHostOwner(client.user.id), access?.access ?? null))
               send(client, event);
             continue;
           }
@@ -143,11 +158,15 @@ export function registerWebsocket(
             const access = await domain.accessFor(event.projectKey, client.user.email).catch(() => null);
             if (!access) client.projects.delete(event.projectKey);
             else {
-              const taskOf = (taskKey: string) => domain.tasks.find(event.projectKey, taskKey);
-              if (canSeeProjectEvent(access, event, taskOf, (id) => domain.sessions.isOperatorSession(id)))
+              const projectTaskOf = (taskKey: string) => taskOf(event.projectKey, taskKey);
+              if (
+                canSeeProjectEvent(access, event, projectTaskOf, (id) =>
+                  domain.sessions.isOperatorSession(id),
+                )
+              )
                 send(
                   client,
-                  visibleProjectEvent(access, event, taskOf, (id) => domain.messages.get(id)),
+                  visibleProjectEvent(access, event, projectTaskOf, (id) => domain.messages.get(id)),
                 );
             }
           }

@@ -13,6 +13,8 @@ export interface SessionCleanupRecovered {
   sessionId: string;
   scopeId: string;
 }
+/** The owner's override closed the scope's record without proof that its processes stopped (PM-935). */
+export type SessionCleanupReleased = SessionCleanupRecovered;
 
 /** In-process pub/sub that feeds the websocket broadcaster. */
 export interface EventBus {

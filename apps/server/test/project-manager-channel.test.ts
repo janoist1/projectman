@@ -136,6 +136,10 @@ describe('the permanent project manager channel', () => {
   it('collects legacy task receipts in creation order and leaves other members routing intact', async () => {
     await harness();
     const task = await h.domain.tasks.create('AR', { title: 'Legacy card' }, OWNER_ACTOR);
+    // The queue wakes every recipient of a stored message: keep the other member's copy waiting.
+    vi.spyOn(h.domain.messaging, 'holdNameOf').mockImplementation((_config, _task, _from, member) =>
+      member === 'dev-1' ? 'handoff' : null,
+    );
     const legacy = h.domain.messages.record({
       projectKey: 'AR',
       from: 'owner',
@@ -232,9 +236,7 @@ describe('the permanent project manager channel', () => {
     await vi.waitFor(async () =>
       expect(await view()).toMatchObject({ state: 'waiting', waiting: { reason: 'ai_disabled' } }),
     );
-    expect(
-      h.repos.deferredStarts.list().filter((entry) => entry.key.startsWith('message:AR:pm:')),
-    ).toHaveLength(1);
+    expect(h.repos.deferredStarts.list()).toEqual([]);
     expect(h.repos.messages.pending('AR', 'pm')).toHaveLength(2);
   });
 

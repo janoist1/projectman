@@ -4,6 +4,15 @@
  * raises no other code.
  */
 export const ERROR_CODES = [
+  'email_not_configured',
+  'email_channel_off',
+  'email_sender_not_enabled',
+  'email_recipient_refused',
+  'email_content_refused',
+  'email_rate_limited',
+  'email_contact_refused',
+  'email_unknown',
+  'email_send_failed',
   'web_push_unavailable',
   'web_push_endpoint_invalid',
   'web_push_device_limit',
@@ -36,6 +45,7 @@ export const ERROR_CODES = [
   'integrator_read_only',
   'merge_queue_conflict',
   'owner_login_required',
+  'queue_item_not_processing',
   // Requests, login and access
   'bad_request',
   'invalid_json',
@@ -145,6 +155,9 @@ export const ERROR_CODES = [
   'theme_closed',
   'gate_blocked',
   'approval_requested',
+  // A super-mode card update left the requested stage or assignee unchanged (PM-929).
+  'hand_on_requested',
+  'update_not_applied',
   'label_not_allowed',
   'comment_required',
   // The recommended developer of a card (PM-347)
@@ -354,6 +367,17 @@ export const ERROR_CODES = [
   'history_source_changed',
   // The private search statistics are not for this caller or this request (403, PM-787).
   'history_stats_forbidden',
+  // System feedback (PM-472).
+  // The item is not in the state the action needs (409).
+  'system_feedback_wrong_state',
+  // The forwarding mode does not allow the action (409).
+  'system_feedback_forwarding_mode',
+  // The project already recorded the most new items a day allows (409).
+  'system_feedback_limit',
+  // The address is not an issue of the public projectman repository (400).
+  'system_feedback_issue_url',
+  // Only the Operator records system feedback (403).
+  'system_feedback_operator_only',
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];

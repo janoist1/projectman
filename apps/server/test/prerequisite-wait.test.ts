@@ -4,6 +4,7 @@ import { aiActor } from '../src/kernel';
 import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
+import { deferredStartRecords } from './helpers/deferred-starts';
 
 /**
  * PM-204: a card moved into the work stage with an open prerequisite waits, durably, and starts
@@ -22,7 +23,7 @@ describe('work start of a card with open prerequisites', () => {
   };
   const task = (key: string) => h.domain.tasks.get('AR', key);
   const waiting = (key: string) => task(key).startWaiting;
-  const storedKeys = () => h.repos.deferredStarts.list().map((record) => record.key);
+  const storedKeys = () => deferredStartRecords(h.repos).map((record) => record.key);
   const sessionsOf = (key: string) => h.domain.sessions.list('AR', { taskKey: key });
   const move = (key: string, stage = 'development') =>
     h.domain.tasks.moveToStage('AR', key, stage, OWNER_ACTOR);

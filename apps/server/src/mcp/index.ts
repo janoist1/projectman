@@ -24,12 +24,14 @@ export { BoundaryTools } from './boundary';
 export { GithubTools } from './github';
 export { ScreenshotTools } from './full-tests';
 export { ProjectDocTools } from './project-docs';
+export { SystemFeedbackTools } from './system-feedback';
 export { HistoryTools } from './history';
 export { TeamToolsService } from './team-tools';
 export { InboxTools } from './inbox';
 export { MessageTools } from './messages';
 export { AdmissionTools } from './admission';
 export { WatcherTools } from './watchers';
+export { OperatorQueueTools } from './operator-queue';
 export { SessionTools } from './sessions';
 export { ExternalTools } from './super-operator/handler';
 

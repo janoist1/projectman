@@ -3,6 +3,7 @@ import { ProjectConfig } from '../config/schema';
 import {
   DELEGATED_INPUT_LIMIT,
   canDecidePermission,
+  deliveredLeadDeadline,
   permissionDelegationOf,
   permissionDelegationState,
   permissionDeciders,
@@ -148,5 +149,21 @@ describe('the delegation of an item', () => {
     expect(canDecidePermission(config(), 'dev-1', delegation, 'owner', early)).toBe(false);
     expect(canDecidePermission(config(), 'lead', delegation, 'lead', early)).toBe(false);
     expect(canDecidePermission(config({ onLeave: true }), 'dev-1', delegation, 'lead', early)).toBe(false);
+  });
+});
+
+describe('deliveredLeadDeadline', () => {
+  const cap = '2026-10-01T10:08:00.000Z';
+
+  it('counts the decider time from the delivery', () => {
+    expect(
+      deliveredLeadDeadline({ deliveredAt: '2026-10-01T10:04:00.000Z', leadTimeoutSeconds: 120, capAt: cap }),
+    ).toBe('2026-10-01T10:06:00.000Z');
+  });
+
+  it('never goes past the cap', () => {
+    expect(
+      deliveredLeadDeadline({ deliveredAt: '2026-10-01T10:07:00.000Z', leadTimeoutSeconds: 120, capAt: cap }),
+    ).toBe(cap);
   });
 });

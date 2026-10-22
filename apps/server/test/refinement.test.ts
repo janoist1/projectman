@@ -5,6 +5,7 @@ import { aiActor } from '../src/kernel';
 import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush, planUsage } from './helpers/fakes';
+import { deferredStartRecords } from './helpers/deferred-starts';
 
 /**
  * Decision 31: a card that is being refined (label `refine`, or standing in the refinement stage
@@ -146,8 +147,8 @@ describe('Refinement line', () => {
       'AR',
       'owner',
       { to: ['ana'], text: 'Status?', taskKey: 'AR-1' },
-      // A message for a member who has no turn waits otherwise.
-      { duringRefinement: true },
+      // A message for a member who has no turn waits otherwise, but an answer does not.
+      { duringRefinement: true, origin: { kind: 'answer', inboxItemId: 'inb_status' } },
     );
     await vi.waitFor(() => expect(h.runner.started.length).toBeGreaterThan(before));
     expect(h.runner.started.at(-1)).toMatchObject({ sessionId: ana.id });
@@ -302,7 +303,7 @@ describe('Refinement line', () => {
     expect(h.domain.sessions.list('AR', { member: 'pm' })[0]?.workItem).toEqual({ type: 'general' });
   });
 
-  it('delivers the Operator completion notice with the next owner message', async () => {
+  it('wakes the Operator with the completion notice through its work queue', async () => {
     h = await createDomainHarness({ adjust: setup() });
     const config = structuredClone(await h.domain.projects.config('AR'));
     config.team.members = config.team.members.filter(
@@ -312,9 +313,6 @@ describe('Refinement line', () => {
     await h.domain.tasks.create('AR', { title: 'Ready card', labels: ['scope-ok'] }, OWNER_ACTOR);
     await label({ add: ['refine'] });
     await vi.waitFor(() => expect(turn()?.data.reason).toBe('done'));
-    await flush();
-    expect(h.runner.started).toEqual([]);
-    await h.domain.messaging.send('AR', 'owner', { to: ['operator'], text: 'Review the ready cards' });
     await vi.waitFor(() =>
       expect(h.runner.started.some((start) => start.initialMessage?.includes('Can start now: AR-1'))).toBe(
         true,
@@ -519,7 +517,7 @@ describe('Refinement line', () => {
       await h.domain.sessions.ensureSession('AR', 'ana2', { type: 'task', taskKey: 'AR-3' });
       await label({ add: ['refine'] });
       await vi.waitFor(() =>
-        expect(h.repos.deferredStarts.list().map((record) => record.spec)).toEqual([refineSpec]),
+        expect(deferredStartRecords(h.repos).map((record) => record.spec)).toEqual([refineSpec]),
       );
       expect(sessionsOf()).toEqual([]);
       expect(turn()).toBeNull();
@@ -538,12 +536,12 @@ describe('Refinement line', () => {
       h.runnerModule.planUsage.value = planUsage(95);
       await label({ add: ['refine'] });
       await vi.waitFor(() =>
-        expect(h.repos.deferredStarts.list().map((record) => record.spec)).toEqual([refineSpec]),
+        expect(deferredStartRecords(h.repos).map((record) => record.spec)).toEqual([refineSpec]),
       );
       expect(members()).toEqual([]);
 
       h = await restartDomainHarness(h, { planUsagePercent: 95 });
-      expect(h.repos.deferredStarts.list().map((record) => record.key)).toEqual(['refinement:AR:AR-1']);
+      expect(deferredStartRecords(h.repos).map((record) => record.key)).toEqual(['refinement:AR:AR-1']);
       await h.domain.admission.retryDeferred();
       expect(members()).toEqual([]);
 
@@ -566,7 +564,7 @@ describe('Refinement line', () => {
       await h.domain.pauses.pause(PAUSED_PROJECT, BY);
       await label({ add: ['refine'] });
       await vi.waitFor(() =>
-        expect(h.repos.deferredStarts.list().map((record) => record.spec)).toEqual([
+        expect(deferredStartRecords(h.repos).map((record) => record.spec)).toEqual([
           {
             kind: 'refinement_turn',
             projectKey: 'AR',
@@ -784,7 +782,7 @@ describe('Refinement line', () => {
     await label({ add: ['refine'] });
 
     await vi.waitFor(() =>
-      expect(h.repos.deferredStarts.list().map((record) => record.spec)).toEqual([
+      expect(deferredStartRecords(h.repos).map((record) => record.spec)).toEqual([
         { kind: 'refinement_turn', projectKey: 'AR', taskKey: 'AR-1', stageId: 'backlog', label: 'scope-ok' },
       ]),
     );
@@ -806,10 +804,10 @@ describe('Refinement line', () => {
       return 'Switch AI off';
     });
     await label({ add: ['refine'] });
-    await vi.waitFor(() => expect(h.repos.deferredStarts.list()).toHaveLength(1));
+    await vi.waitFor(() => expect(deferredStartRecords(h.repos)).toHaveLength(1));
 
     h = await restartDomainHarness(h);
-    expect(h.repos.deferredStarts.list().map((record) => record.key)).toEqual(['refinement:AR:AR-1']);
+    expect(deferredStartRecords(h.repos).map((record) => record.key)).toEqual(['refinement:AR:AR-1']);
     await h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (draft) => {
       draft.team.limits.aiEnabled = true;
       return 'Switch AI on';
@@ -1046,7 +1044,7 @@ describe('Refinement line', () => {
       expect(firstInputs()[0]).toContain('Please look at the header.');
     });
 
-    it('leaves a deferred wake-up alone when a card that was never refined moves on', async () => {
+    it('keeps a deferred wake-up when a card that was never refined moves on', async () => {
       h = await createDomainHarness({
         persistent: true,
         adjust: (config) => {
@@ -1069,10 +1067,9 @@ describe('Refinement line', () => {
       await flush();
       expect(members()).toEqual(['ana']);
 
-      // Capacity frees up: the obsolete wake-up is not made again.
+      // Capacity frees up: the person's message still waits for the designer, and wakes it (it is queued, not deferred).
       await h.domain.sessions.stop('AR', sessionsOf()[0]!.id);
-      await flush();
-      expect(members()).toEqual(['ana']);
+      await vi.waitFor(() => expect(members()).toEqual(['ana', 'des']));
     });
   });
 });

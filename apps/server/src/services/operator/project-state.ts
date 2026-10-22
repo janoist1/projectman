@@ -1,10 +1,4 @@
-import type {
-  OperatorPauses,
-  OperatorReleases,
-  WaitingStarts,
-  OperatorMessageStarts,
-  OperatorDiagnosticSources,
-} from './ports';
+import type { OperatorPauses, OperatorReleases, WaitingStarts, OperatorDiagnosticSources } from './ports';
 import {
   conditionHolds,
   isOpenTask,
@@ -22,6 +16,7 @@ import {
   isProjectManager,
   coordinationActorRefusal,
   LOCAL_ENGINE_ID,
+  TaskStartWaiting,
 } from '@projectman/shared';
 import type { Session, OperatorDiagnostics } from '@projectman/shared';
 import { z } from 'zod';
@@ -46,7 +41,6 @@ export class ProjectState {
     deferred: WaitingStarts;
     taskWaits: Pick<TaskWaits, 'ofCard'>;
     operatorSignals: Pick<OperatorSignals, 'active'>;
-    messageStarts: OperatorMessageStarts;
     releases: Pick<OperatorReleases, 'overview'>;
     requests: Pick<OperatorRequests, 'openFor'>;
     diagnostics: OperatorDiagnosticSources;
@@ -214,7 +208,7 @@ export class ProjectState {
    * admission deferral and the last failed start on the route, and why the message wakes nobody.
    */
   async message(projectKey: string, messageId: string): Promise<MessageStateReport> {
-    const { ctx, projects, tasks, deferred, messageStarts } = this.deps;
+    const { ctx, projects } = this.deps;
     const config = await projects.config(projectKey);
     const message = ctx.repos.messages.get(messageId);
     if (!message || message.projectKey !== projectKey) throw notFound('message', messageId);
@@ -244,9 +238,12 @@ export class ProjectState {
             stale: null,
           };
         const live = ctx.repos.sessions.findByWorkItem(projectKey, handle, sessionWorkItemOf(member, route));
-        const key = messageStarts.wakeKey(projectKey, handle, route);
-        const entry = deferred.list().find(({ start }) => start.key === key);
-        const card = route.type === 'task' ? tasks.find(projectKey, route.taskKey) : null;
+        // The member queue says why the message has not started its session (PM-925): a limit, a pause, a login...
+        const wait =
+          ctx.repos.memberQueue
+            .listOpenOfSource(projectKey, { type: 'message', id: message.id })
+            .find((item) => item.member === handle)?.wait ?? null;
+        const reason = wait ? TaskStartWaiting.shape.reason.safeParse(wait.code) : null;
         const stale = staleReasonFor(ctx, config, message, handle);
         return {
           ...base,
@@ -255,11 +252,8 @@ export class ProjectState {
             live && LIVE_SESSION_STATES.includes(live.state)
               ? { id: live.id, state: live.state, since: live.lastActivityAt }
               : null,
-          waiting:
-            entry && entry.start.stillValid(card ?? null)
-              ? { reason: entry.waiting.reason, since: entry.waiting.since }
-              : null,
-          lastStartFailure: messageStarts.lastFailure(projectKey, handle, route),
+          waiting: wait && reason?.success ? { reason: reason.data, since: wait.at } : null,
+          lastStartFailure: wait && !reason?.success ? { code: wait.code, at: wait.at } : null,
           noWake: info
             ? ('info' as const)
             : messageWakeBlock(message, wakeFactsFor(ctx, config, message, handle), stale),
@@ -297,6 +291,15 @@ export class ProjectState {
           reason: card.startWaiting.reason,
         });
     }
+    // A queued item that waits to wake its member's session says why in its wait code (PM-925).
+    for (const wait of this.deps.deferred.queueWaits()) {
+      const member = wait.waiting.member ?? null;
+      if (
+        wait.projectKey === projectKey &&
+        !waitingStarts.some((s) => s.taskKey === wait.taskKey && s.member === member)
+      )
+        waitingStarts.push({ taskKey: wait.taskKey, member, reason: wait.waiting.reason });
+    }
     const waitingMessages: ProjectStateReport['waitingMessages'] = [];
     for (const member of config.team.members) {
       if (member.kind !== 'ai') continue;
@@ -314,7 +317,8 @@ export class ProjectState {
       signals: this.deps.operatorSignals.active(projectKey),
       stages: config.pipeline.stages.map((s) => ({
         stageId: s.id,
-        count: cards.filter((t) => t.stageId === s.id).length,
+        // The board shows only open cards; done and cancelled ones stay in their last stage.
+        count: cards.filter((t) => isOpenTask(t) && t.stageId === s.id).length,
       })),
       sessions: ctx.repos.sessions
         .list(projectKey)

@@ -1,5 +1,6 @@
 import {
   FeedbackTools,
+  SystemFeedbackTools,
   OperatorTools,
   MemberTools,
   TaskTools,
@@ -17,6 +18,7 @@ import {
   MessageTools,
   AdmissionTools,
   WatcherTools,
+  OperatorQueueTools,
   SessionTools,
   ExternalTools,
 } from './mcp';
@@ -60,7 +62,6 @@ import {
   operatorOf,
   operatorKnowledgeApprovalOf,
   operatorKnowledgeContinuationMessageId,
-  permissionDelegationOf,
   pullSourceStage,
   reviewTestRunnerBeforeReview,
   routeFor,
@@ -70,6 +71,7 @@ import {
 } from '@projectman/shared';
 import path from 'node:path';
 import type {
+  Actor,
   EngineId,
   HybridReleaseTarget,
   Me,
@@ -105,7 +107,7 @@ import type {
   RunnerModule,
   WorktreeManager,
 } from './contracts';
-import type { Repositories } from './db';
+import type { Repositories, StoredMemberQueueItem } from './db';
 import type { DocWriteExternalRunner, EmailCodeMailer, ProcessProbe } from './contracts';
 import { createEmailLoginService } from './services/email-login';
 import { createHistoryDocumentSync, createHistoryService } from './services/history';
@@ -115,16 +117,18 @@ import type { ProjectAccess } from './core/members';
 import {
   Admission,
   DeferredStarts,
+  StartQueue,
   FocusPull,
   StartRound,
   MessageStarts,
+  queueItemWaiting,
   RefinementSteps,
   SeniorWaits,
   StageHandOver,
   TaskStarts,
   WorkStarts,
 } from './runtime/admission';
-import type { StartSpec } from './runtime/admission';
+import type { QueueWait, StartSpec } from './runtime/admission';
 import { AttachmentService } from './core/attachments';
 import { MessageAttachmentService } from './core/attachments';
 import { BackgroundTasks } from './kernel';
@@ -141,13 +145,13 @@ import { QuestionScreening } from './core/inbox';
 import { ProjectManagerChannels } from './services/operator';
 import { ProjectState } from './services/operator';
 import { PmReplyRelay } from './services/operator';
-import { BoundaryService } from './services/boundary';
+import { BoundaryService, boundaryNotice } from './services/boundary';
 import { CardQuestions } from './core/inbox';
 import { createDomainContext, defaultTemplateRegistry, isoNow } from './core/base';
 import type { DomainContext, TemplateRegistry } from './core/base';
 import { createEventBus } from './core/base';
 import { GithubSync } from './services/github';
-import { InboxService, delegatedPermissionPrompt } from './core/inbox';
+import { InboxService } from './core/inbox';
 import { OperatorActions, OperatorApprovals } from './services/operator';
 import { FixLimitWatch } from './runtime/watchers';
 import { FullTestRuns, ScreenshotRuns } from './services/full-tests';
@@ -170,8 +174,18 @@ import { QuestionClosing } from './core/inbox';
 import { InvitationService } from './core/members';
 import { MemberProfiles, MemberService } from './core/members';
 import { MessageService, Messaging, RelationNotices } from './core/messages';
-import { MemberQueue } from './core/member-queue';
+import { MemberQueue, OperatorQueueFinisher } from './core/member-queue';
 import { MessageDelivery } from './runtime/delivery';
+import {
+  MemberQueueWorker,
+  decisionLane,
+  messageLane,
+  operatorLane,
+  screeningLane,
+  signalLane,
+  startLane,
+  OperatorQueueReminder,
+} from './runtime/member-queue';
 import { PlanUsageMonitor } from './runtime/usage';
 import { PresenceService } from './core/members';
 import { OWNER_HANDLE, ProjectService } from './core/projects';
@@ -199,6 +213,8 @@ import {
   FeedbackScreenshotStore,
   FeedbackService,
   FeedbackWidgetService,
+  SystemFeedbackContext,
+  SystemFeedbackService,
 } from './services/feedback';
 import { ProjectFocusService } from './core/tasks';
 import { AgentQuestions } from './core/inbox';
@@ -391,8 +407,12 @@ export interface DomainOptions {
   closedWorktreeKeepMs?: number;
   /** How often the idle sessions are looked at for a close (default 1 min, PM-295). */
   idleCloseSweepMs?: number;
+  /** How often the live sessions are compared with the running processes (default 1 min). */
+  liveSessionSweepMs?: number;
   /** How often the open assignee handoffs are looked at for a late note (default 15 s, PM-342). */
   handoffSweepMs?: number;
+  /** How often the member queues are worked through for what an event missed (default 30 s, PM-925). */
+  memberQueueSweepMs?: number;
   /**
    * Makes what the machine display measures with (PM-320); default: the operating system's
    * (`createMachineProbe`). It gets the pids of the running sessions' CLIs, for the fixed-data probe
@@ -507,7 +527,9 @@ export function createDomain(opts: DomainOptions) {
   // The journal itself is written by triggers inside the changing transactions (db/change-triggers.ts); an
   // event that goes out after a commit only wakes the readers waiting on the project, which read the database.
   const unsubscribeJournalWake = bus.subscribe((event) => {
-    if ('projectKey' in event && !QUIET_EVENTS.has(event.type)) ctx.journal.notify(event.projectKey);
+    // `system_feedback_changed` has a null project when the forwarding setting changed: no project to wake.
+    if ('projectKey' in event && event.projectKey !== null && !QUIET_EVENTS.has(event.type))
+      ctx.journal.notify(event.projectKey);
   });
   const templates = opts.templates ?? defaultTemplateRegistry;
   const background = new BackgroundTasks();
@@ -589,7 +611,7 @@ export function createDomain(opts: DomainOptions) {
       ),
     );
   // Registers itself with the message and inbox repositories: every write of a source reaches it (PM-894).
-  const memberQueue = new MemberQueue({ ctx, projects });
+  const memberQueue = new MemberQueue({ ctx, projects, timeline });
   const inbox = createInboxService({
     ctx,
     timeline,
@@ -599,6 +621,8 @@ export function createDomain(opts: DomainOptions) {
     engines,
     attachmentDirectory,
   });
+  // The Operator ends its queue items here (`finish_queue_item`, and the hand-off of one it could not finish).
+  const operatorQueueFinisher = new OperatorQueueFinisher({ ctx, projects, queue: memberQueue, inbox });
   // `agentQuestions` is built once the team tools exist; the callback only runs during a session.
   const runnerModule = opts.createRunner(
     {
@@ -630,7 +654,8 @@ export function createDomain(opts: DomainOptions) {
       );
     });
   // The deferred automatic starts live in SQLite too: a restart loads them back (see `start`).
-  const deferredStarts = new DeferredStarts(opts.repos.deferredStarts);
+  const startQueue = new StartQueue({ ctx, projects, queue: memberQueue });
+  const deferredStarts = new DeferredStarts(opts.repos.deferredStarts, startQueue);
   const operatorRequests = new OperatorRequests({ ctx });
   const coordinationRequests = new CoordinationRequests({ ctx, projects });
   const operatorPreferences = new OperatorPreferences({
@@ -718,6 +743,18 @@ export function createDomain(opts: DomainOptions) {
     publicBaseUrl: opts.feedbackPublicUrl ?? null,
   });
   const feedbackWidget = new FeedbackWidgetService({ ctx, projects, feedback });
+  const systemFeedback = new SystemFeedbackService({
+    ctx,
+    projects,
+    tasks,
+    version: opts.appVersion ?? 'dev',
+    context: new SystemFeedbackContext({
+      ctx,
+      projects,
+      secrets: async () => [await providerKeys?.nanogptKey()],
+      paths: [opts.appHome, opts.userHome, opts.workspacesRootDir],
+    }),
+  });
   const messageAttachments = new MessageAttachmentService({
     ctx,
     projects,
@@ -825,6 +862,26 @@ export function createDomain(opts: DomainOptions) {
       ? { holders: admission.holders(config, handle), capacity: member.capacity }
       : undefined;
   });
+  // A wake-up the member queue cannot start yet waits on its queue item (PM-925), and the card shows it like a deferral.
+  const queueWaitOf = (item: StoredMemberQueueItem): QueueWait[] => {
+    const waiting = queueItemWaiting(item);
+    return waiting
+      ? [
+          {
+            projectKey: item.projectKey,
+            taskKey: item.place.type === 'task' ? item.place.taskKey : item.taskKey,
+            waiting,
+          },
+        ]
+      : [];
+  };
+  deferredStarts.useQueueWaits({
+    ofTask: (task) =>
+      ctx.repos.memberQueue
+        .listWaitingOfTask(task.projectKey, task.key)
+        .flatMap((item) => queueWaitOf(item).map((wait) => wait.waiting)),
+    all: () => ctx.repos.memberQueue.listWaiting().flatMap(queueWaitOf),
+  });
   const refinement = new RefinementSteps({
     projects,
     tasks,
@@ -881,7 +938,7 @@ export function createDomain(opts: DomainOptions) {
               {
                 to: agents,
                 taskKey: request.taskKey,
-                text: `Boundary request ${request.id}: ${request.state}. Operation: ${request.target.operation}; resource: ${request.target.resource}. Inspect with get_boundary_request. Delegated approvers use decide_boundary_request; owner exceptions require the owner's inbox decision.`,
+                text: boundaryNotice(request),
               },
               { actor: SYSTEM_ACTOR },
             )
@@ -889,24 +946,6 @@ export function createDomain(opts: DomainOptions) {
         () => opts.logger.warn({ requestId: request.id }, 'boundary notification failed'),
       );
     },
-  });
-  // A member's tool question went to its AI decider: wake it like a boundary request's lead. The
-  // sponsor and owners are not told; they hear of it only if it comes to them.
-  events.on('permission_delegated', (item) => {
-    const leads = permissionDelegationOf(item)?.leads ?? [];
-    if (!leads.length) return;
-    background.run(
-      () =>
-        messaging
-          .send(
-            item.projectKey,
-            'system',
-            { to: leads, taskKey: item.taskKey, text: delegatedPermissionPrompt(item) },
-            { actor: SYSTEM_ACTOR, kind: 'action', subject: { type: 'permission', inboxItemId: item.id } },
-          )
-          .then(() => undefined),
-      () => opts.logger.warn({ itemId: item.id }, 'permission decider notification failed'),
-    );
   });
   // The wait of a card recommended for the Senior (PM-348); an answer tries the deferred starts again.
   const seniorWaits = new SeniorWaits({
@@ -962,14 +1001,106 @@ export function createDomain(opts: DomainOptions) {
     admission,
     delivery,
     starts: taskStarts,
+    queue: memberQueue,
   });
   messaging.registerCardHold('fix_limit', { holds: (task, config) => fixLimit.heldFor(task, config) });
   taskStarts.useFixLimit(fixLimit);
   handOver.useFixLimit(fixLimit);
   startRound.useFixLimit(fixLimit);
   const autoAdvance = new AutoAdvance({ ctx, projects, tasks, sessions });
-  const messageStarts = new MessageStarts({ ctx, projects, tasks, admission, messages, delivery });
-  messaging.registerWaker(messageStarts);
+  const messageStarts = new MessageStarts({ ctx, projects, tasks, admission });
+  // The member queue's driver (PM-925) wakes the members whose queues hold work; the messages are its first lane.
+  const memberQueueDriver = new MemberQueueWorker({
+    ctx,
+    projects,
+    queue: memberQueue,
+    admission,
+    sessions,
+    // The screening and the signals are projectman's own notices: the asker of a question is no sender of them.
+    type: (session, item, text) =>
+      item.kind === 'screening' || item.kind === 'signal'
+        ? delivery.notice(session, 'projectman', text, null)
+        : delivery.notice(session, item.from ?? SYSTEM_SENDER, text, item.taskKey),
+  });
+  // The Operator's lane goes before the messages': it takes the AI and system action messages it applies to.
+  memberQueueDriver.register(
+    operatorLane({
+      ctx,
+      projects,
+      messages,
+      requests: operatorRequests,
+      sessions,
+      finisher: operatorQueueFinisher,
+    }),
+  );
+  // What an AI member decides at its desk (PM-926): the lane never waits for a workspace, and the time to decide
+  // counts from the delivery. Each source tells what its request needs of the lane. It owns the lead's fix
+  // limit decisions only; the Operator's fix limit items (an inbox source) are the Operator lane's above.
+  const heldAtOf = (item: { source: { id: string } }): string =>
+    item.source.id.slice(item.source.id.lastIndexOf('@') + 1);
+  memberQueueDriver.register(
+    decisionLane({
+      ctx,
+      permission: {
+        prompt: (item) => inbox.delegatedPromptOf(item.source.id),
+        owed: (item) => inbox.delegationWaitsFor(item.source.id, item.member),
+        delivered: (item, at) => inbox.recordDelegationDelivered(item.source.id, at),
+        unreachable: (item) => inbox.escalateUnreached(item.projectKey, item.source.id, 'unavailable'),
+        exhausted: (item) => inbox.escalateUnreached(item.projectKey, item.source.id, 'timeout'),
+      },
+      boundary: {
+        prompt: (item) => boundary.decisionPromptOf(item.source.id),
+        owed: (item) => boundary.waitsFor(item.source.id, item.member),
+        delivered: (item, at) => boundary.recordDelivered(item.source.id, at),
+        unreachable: (item) => boundary.escalateUnreached(item.projectKey, item.source.id),
+        exhausted: (item) => boundary.escalateUnreached(item.projectKey, item.source.id),
+      },
+      fixLimit: {
+        prompt: (item) => fixLimit.leadPromptOf(item.taskKey ?? '', heldAtOf(item), item.member),
+        owed: (item) => fixLimit.leadWaitsFor(item.taskKey ?? '', heldAtOf(item), item.member),
+        delivered: () => undefined,
+        unreachable: async (item) => {
+          await fixLimit.timeOut(item.projectKey, item.taskKey ?? '', item.member, 'no_ai_decider');
+        },
+        exhausted: async (item) => {
+          await fixLimit.timeOut(item.projectKey, item.taskKey ?? '', item.member);
+        },
+      },
+    }),
+  );
+  memberQueueDriver.register(messageLane({ ctx, projects, tasks, messages, messaging, delivery }));
+  memberQueueDriver.register(
+    startLane({
+      ctx,
+      projects,
+      queue: startQueue,
+      deferred: deferredStarts,
+      admission,
+      rebuild: (spec) => rebuildDeferredStart(spec),
+    }),
+  );
+  // An Operator turn that ends with its item open is reminded once, then the item goes to the owner.
+  const operatorQueueReminder = new OperatorQueueReminder({
+    ctx,
+    projects,
+    requests: operatorRequests,
+    delivery,
+    finisher: operatorQueueFinisher,
+  });
+  events.on('session_idle', (session) => {
+    operatorQueueReminder.turnEnded(session).catch((err: unknown) => {
+      opts.logger.warn(
+        { err, sessionId: session.id },
+        'reminding the Operator of its open queue item failed',
+      );
+    });
+  });
+  messaging.registerWaker({
+    wake: (projectKey, handle, workItem) => memberQueueDriver.wake(projectKey, handle, workItem),
+    // A hold lifted by the messaging (a release, a resumed session) is no turn boundary of its own: the lane
+    // delivers to the live session as well.
+    ensure: (projectKey, handle) => memberQueueDriver.ensure(projectKey, handle, { net: true }),
+  });
   inbox.registerAskerStarts({
     answerWorkItem: (item) => messaging.answerWorkItem(item),
     waitingReason: (projectKey, handle, workItem) =>
@@ -1244,10 +1375,23 @@ export function createDomain(opts: DomainOptions) {
     messaging,
     messages,
     timeline,
+    memberQueue,
     refinement,
     fixLimit,
     startOffers: { stateOf: (projectKey, taskKey) => startRound.offerState(projectKey, taskKey) },
     sessions: {
+      atWork: (sessionId) => {
+        const session = sessions.find(sessionId);
+        return (
+          !!session &&
+          sessions.isRunning(sessionId) &&
+          isSessionAtWork(session, {
+            awaitsFirstTurn: false,
+            pendingInput: false,
+            messageOnItsWay: false,
+          })
+        );
+      },
       ofMember: (projectKey, taskKey, member) =>
         sessions.list(projectKey, { member, taskKey }).map((session) => {
           const running = sessions.isRunning(session.id);
@@ -1289,7 +1433,8 @@ export function createDomain(opts: DomainOptions) {
     projects,
     sessions,
     admission,
-    delivery,
+    queue: memberQueue,
+    wake: (projectKey, member) => memberQueueDriver.ensure(projectKey, member),
     taskWaits,
     activeOutageIds: (projectKey) => outages.activeIds(projectKey),
     releases,
@@ -1322,10 +1467,9 @@ export function createDomain(opts: DomainOptions) {
   const questionScreening = new QuestionScreening({
     ctx,
     projects,
-    sessions,
-    admission,
-    delivery,
     inbox,
+    queue: memberQueue,
+    wake: (projectKey, member) => memberQueueDriver.ensure(projectKey, member),
     // The PM's machine from the engine directory; the last confirmed online moment is the registry's own
     // record (`last_seen_at`, written on connect and on every pong), which survives a restart of this server.
     engine: {
@@ -1338,6 +1482,9 @@ export function createDomain(opts: DomainOptions) {
     },
     enabled: opts.screenQuestions ?? true,
   });
+  // The project manager's lanes (PM-885): the questions it screens and the system signals it is given.
+  memberQueueDriver.register(screeningLane({ screening: questionScreening }));
+  memberQueueDriver.register(signalLane({ signals: operatorSignals }));
   const finishOperatorSignals = (session: Session) => {
     const config = projects.cachedConfig(session.projectKey);
     if (config && session.member === coordinationMemberOf(config)?.handle)
@@ -1366,12 +1513,15 @@ export function createDomain(opts: DomainOptions) {
       projectKey,
       kind: 'process_cleanup_failed',
       caseKey: `cleanup:${scopeId}`,
-      subject: sessionId,
+      subject: scopeId,
       taskKey: session?.workItem.type === 'task' ? session.workItem.taskKey : null,
     });
     wakeOperatorSignals(projectKey);
   });
   events.on('session_cleanup_recovered', ({ projectKey, scopeId }) =>
+    operatorSignals.resolve(projectKey, `cleanup:${scopeId}`),
+  );
+  events.on('session_cleanup_released', ({ projectKey, scopeId }) =>
     operatorSignals.resolve(projectKey, `cleanup:${scopeId}`),
   );
   events.on('work_outage_ended', ({ projectKey, outageId }) =>
@@ -1477,7 +1627,6 @@ export function createDomain(opts: DomainOptions) {
     deferred: deferredStarts,
     taskWaits,
     operatorSignals,
-    messageStarts,
     releases,
     requests: operatorRequests,
     diagnostics: {
@@ -1584,9 +1733,11 @@ export function createDomain(opts: DomainOptions) {
         docWrites,
         decisionCandidates,
       }),
+      systemFeedback: new SystemFeedbackTools({ calls: toolCaller, projects, systemFeedback }),
       feedback: new FeedbackTools({ calls: toolCaller, ctx, projects, feedback }),
       github: new GithubTools({ calls: toolCaller, ctx, github: opts.github, tasks, sync: githubSync }),
       operator: new OperatorTools({
+        systemFeedback,
         structuralReviews,
         operatorPreferences,
         operatorKnowledge: sharedOperatorKnowledge,
@@ -1638,6 +1789,7 @@ export function createDomain(opts: DomainOptions) {
       messages: new MessageTools({ calls: toolCaller, ctx, messaging, operatorRequests, messageAttachments }),
       admission: new AdmissionTools({ calls: toolCaller, handoffs }),
       watchers: new WatcherTools({ calls: toolCaller, fixLimit }),
+      operatorQueue: new OperatorQueueTools({ projects, finisher: operatorQueueFinisher }),
       sessions: new SessionTools({ calls: toolCaller, ctx, sessions }),
     },
   });
@@ -1685,11 +1837,14 @@ export function createDomain(opts: DomainOptions) {
     fixRounds: (task, config) => fixLimit.fixRounds(task, config),
   });
 
-  const retryDeferredStarts = () =>
+  // What frees a place, a limit or a hold for a deferred start does so for a queued one too (PM-925).
+  if (!opts.standby) admission.useQueueRetry(() => memberQueueDriver.sweep({ respectPause: true }));
+  const retryDeferredStarts = () => {
     background.run(
       () => admission.retryDeferred(),
       (err) => opts.logger.warn({ err }, 'deferred start retry failed'),
     );
+  };
   const outages = new WorkOutages({
     ctx,
     projects,
@@ -1745,15 +1900,27 @@ export function createDomain(opts: DomainOptions) {
       case 'refinement_turn':
         return refinement.rebuild(spec);
       case 'message_wake':
-        return messageStarts.rebuild(spec);
+        // Stored by an older build: the member queue wakes the member now, and the row is dropped (PM-925).
+        background.run(
+          () => memberQueueDriver.ensure(spec.projectKey, spec.handle),
+          (err) => opts.logger.warn({ err, member: spec.handle }, 'working the member queue failed'),
+        );
+        return null;
       case 'provider_resume':
         return messageStarts.rebuildQuota(spec);
       case 'loop_notice':
         return loopWatch.rebuild(spec);
       case 'operator_signals':
-        return operatorSignals.rebuild(spec);
       case 'question_screening':
-        return questionScreening.rebuild(spec);
+        // Stored by an older build: the PM's queue holds these items now; the row is dropped (PM-885).
+        background.run(
+          () =>
+            spec.kind === 'operator_signals'
+              ? operatorSignals.deliver(spec.projectKey)
+              : questionScreening.enqueue(spec.projectKey),
+          (err) => opts.logger.warn({ err, projectKey: spec.projectKey }, 'working the PM queue failed'),
+        );
+        return null;
       case 'handoff_takeover':
         return handoffs.rebuild(spec);
     }
@@ -1868,7 +2035,7 @@ export function createDomain(opts: DomainOptions) {
       projects,
       hasOpenRequest: (sessionId) => {
         const source = operatorRequests.openFor(sessionId)?.source;
-        return source === 'message' || source === 'answer';
+        return source === 'message' || source === 'answer' || source === 'queue';
       },
     }),
     user: (id) => ctx.repos.users.get(id),
@@ -1900,6 +2067,8 @@ export function createDomain(opts: DomainOptions) {
     merges,
     user: (id: string) => ctx.repos.users.get(id),
     revokeCredential: opts.revokeIntegratorAccessKey,
+    releaseWorkspace: (projectKey: string, scopeId: string, release: { actor: Actor; reason: string }) =>
+      sessions.releaseCleanupScope(projectKey, scopeId, release),
   };
   const commandExecutor = createCommandExecutor(commandDeps);
   for (const kind of [
@@ -1913,6 +2082,7 @@ export function createDomain(opts: DomainOptions) {
     'member_update',
     'invite_create',
     'credential_revoke',
+    'workspace_release',
     'inbox_resolve',
   ] as const)
     superHandoffs.registerExecutor(kind, commandExecutor);
@@ -2128,6 +2298,7 @@ export function createDomain(opts: DomainOptions) {
   // Later stages owned by AI members (review, QA, release, …) get their owner started, in the
   // background so a session start does not hold up the move.
   events.on('task_stage_changed', (change) => {
+    if (taskStarts.ownsMove(change)) return;
     background.run(
       () => handOver.handOff(change),
       (err) => opts.logger.warn({ err }, 'stage hand-over failed'),
@@ -2264,16 +2435,59 @@ export function createDomain(opts: DomainOptions) {
   events.on('task_session_joined', (joined) => messaging.joinedNotice(joined));
   events.on('session_ended', (session) => delivery.dropHeld(session.id));
   events.on('session_input_released', (session) => delivery.deliverWaiting(session));
-  events.on('message_waiting', ({ projectKey, handle, workItem, messageId }) => {
+  // The member queue's driver works a member's queue through whenever something could give the member
+  // something to do; the sweep is the net under every one of these (PM-925). Never awaited: some of them
+  // run under the admission lock the driver takes. The messages of a live session keep their own hooks at the
+  // turn boundary above; a change of the queue alone does not type into a session.
+  const ensureMember = (projectKey: string, member: string, deliver = true): void => {
+    if (opts.standby) return;
     background.run(
-      async () => {
-        // A failed start is logged (warn) and remembered by `wake` itself.
-        await messageStarts.wake(projectKey, handle, workItem);
-      },
-      (err) =>
-        opts.logger.warn({ err, projectKey, member: handle, messageId }, 'team message session start failed'),
+      () => memberQueueDriver.ensure(projectKey, member, { deliver }),
+      (err) => opts.logger.warn({ err, projectKey, member }, 'working the member queue failed'),
     );
+  };
+  const ensureMembersOfCard = (projectKey: string, taskKey: string): void => {
+    const members = new Set(
+      ctx.repos.memberQueue
+        .listOpenMembers()
+        .filter(
+          (open) =>
+            open.projectKey === projectKey &&
+            ctx.repos.memberQueue
+              .listOpen(projectKey, open.member)
+              .some(
+                (item) =>
+                  item.taskKey === taskKey || (item.place.type === 'task' && item.place.taskKey === taskKey),
+              ),
+        )
+        .map((open) => open.member),
+    );
+    for (const member of members) ensureMember(projectKey, member);
+  };
+  /** Every member of the project (all projects: none given) that has an open item. */
+  const ensureMembers = (projectKey?: string): void => {
+    for (const open of ctx.repos.memberQueue.listOpenMembers())
+      if (projectKey === undefined || open.projectKey === projectKey)
+        ensureMember(open.projectKey, open.member);
+  };
+  // A pause ended, an outage ended or the configuration changed (leave, limits, the provider): holds may have lifted.
+  events.on('pause_changed', ({ projectKey }) => ensureMembers(projectKey));
+  events.on('work_outage_ended', ({ projectKey }) => ensureMembers(projectKey));
+  events.on('config_changed', ({ projectKey }) => ensureMembers(projectKey));
+  engines.onChange((_id, online) => {
+    if (online) ensureMembers();
   });
+  providerKeys?.onChange(() => ensureMembers());
+  memberQueue.onChange((projectKey, member) => ensureMember(projectKey, member, false));
+  events.on('message_waiting', ({ projectKey, handle }) => ensureMember(projectKey, handle));
+  events.on('session_started', (session) => ensureMember(session.projectKey, session.member));
+  events.on('session_idle', (session) => ensureMember(session.projectKey, session.member));
+  events.on('session_ended', (session) => ensureMember(session.projectKey, session.member));
+  events.on('session_input_released', (session) => ensureMember(session.projectKey, session.member));
+  // A card that closed, moved or was relabelled changes what its queued messages are worth and hold for.
+  events.on('task_cancelled', (task) => ensureMembersOfCard(task.projectKey, task.key));
+  events.on('task_stage_changed', ({ task }) => ensureMembersOfCard(task.projectKey, task.key));
+  events.on('task_labels_changed', ({ task }) => ensureMembersOfCard(task.projectKey, task.key));
 
   let sweeps: RunningSweeps | undefined;
   let stopMessageSweep: (() => void) | undefined;
@@ -2311,7 +2525,6 @@ export function createDomain(opts: DomainOptions) {
     projectManagerChannels: new ProjectManagerChannels({
       ctx,
       projects,
-      deferred: deferredStarts,
       pauses,
       operatorRequests,
       operatorSignals,
@@ -2339,6 +2552,7 @@ export function createDomain(opts: DomainOptions) {
     attachments,
     feedback,
     feedbackWidget,
+    systemFeedback,
     messageAttachments,
     members,
     roles,
@@ -2352,6 +2566,7 @@ export function createDomain(opts: DomainOptions) {
     handOver,
     workStarts,
     messageStarts,
+    memberQueueDriver,
     refinement,
     schedules,
     githubSync,
@@ -2506,6 +2721,14 @@ export function createDomain(opts: DomainOptions) {
           run: () => admission.retryDeferred(),
           onError: (err) => opts.logger.warn({ err }, 'deferred start retry failed'),
         },
+        // Whatever an event missed (a hold lifted, a limit gone, a lost wake-up) is picked up from the queues.
+        {
+          name: 'member-queue',
+          everyMs: opts.memberQueueSweepMs ?? 30_000,
+          atStart: true,
+          run: () => memberQueueDriver.sweep(),
+          onError: (err) => opts.logger.warn({ err }, 'member queue sweep failed'),
+        },
         {
           name: 'outages',
           everyMs: opts.outageCheckMs ?? 30_000,
@@ -2554,8 +2777,8 @@ export function createDomain(opts: DomainOptions) {
           run: async () => operatorApprovals.sweep(),
           onError: (err) => opts.logger.warn({ err }, 'operator approval sweep failed'),
         },
-        // The Operator looks at the AI members' questions first; the ones it does not settle in time go to the
-        // people (PM-558). A question that waited through a restart is looked at now.
+        // An Operator that cannot process its queue any more leaves no one to look at its todos and held
+        // decisions: they go to the owners (PM-885). No timeout otherwise — the Operator's queue is the clock.
         {
           name: 'integrator-todos',
           everyMs: 30_000,
@@ -2563,6 +2786,8 @@ export function createDomain(opts: DomainOptions) {
           run: () => inbox.sweepIntegratorTodos(),
           onError: (err) => opts.logger.warn({ err }, 'integrator todo sweep failed'),
         },
+        // The Operator looks at the AI members' questions first; the ones it does not settle in time go to the
+        // people (PM-558). A question that waited through a restart is looked at now.
         {
           name: 'question-screening',
           everyMs: opts.questionScreeningMs ?? 30_000,
@@ -2609,6 +2834,12 @@ export function createDomain(opts: DomainOptions) {
           everyMs: opts.idleCloseSweepMs ?? 60_000,
           run: () => sessionCloser.sweep(),
           onError: (err) => opts.logger.warn({ err }, 'idle session close sweep failed'),
+        },
+        {
+          name: 'live-sessions',
+          everyMs: opts.liveSessionSweepMs ?? 60_000,
+          run: () => sessions.sweepLive(),
+          onError: (err) => opts.logger.warn({ err }, 'live session sweep failed'),
         },
       ]);
     },

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { EmailParkReason } from './email-channel';
 import { AttachmentId, AttachmentPreview } from './attachment';
 import { BoardPlacement } from './board-order';
 import { Actor } from './event';
@@ -10,6 +11,7 @@ import {
   MAX_FIX_EXTRA_ROUNDS,
 } from './fix-limit';
 import { LabelId } from './label';
+import { OperatorHandoffReason } from './member-queue';
 import { MergeBlockReason, MergeFailure } from './merge';
 import { AgentProvider, MemberHandle } from './member';
 import { ObligationRef } from './obligation';
@@ -45,6 +47,34 @@ export const InboxKind = z.enum([
   'release',
 ]);
 export type InboxKind = z.infer<typeof InboxKind>;
+
+/** Approval options are approve (primary) and reject (danger); a note is optional. */
+export const EmailApprovalPayload = z.object({
+  emailId: z.string(),
+  member: MemberHandle,
+  contact: MemberHandle,
+  contactName: z.string(),
+  taskKey: TaskKey.nullable(),
+  subject: z.string(),
+  text: z.string(),
+});
+export type EmailApprovalPayload = z.infer<typeof EmailApprovalPayload>;
+export function emailApprovalOf(item: Pick<InboxItem, 'kind' | 'payload'>): EmailApprovalPayload | null {
+  if (item.kind !== 'approval') return null;
+  const parsed = EmailApprovalPayload.safeParse(item.payload.email);
+  return parsed.success ? parsed.data : null;
+}
+
+export const EmailParkedAlert = z.object({
+  alert: z.literal('email_parked'),
+  emailId: z.string(),
+  reason: EmailParkReason,
+  fromAddress: z.string(),
+  subject: z.string().max(200),
+  excerpt: z.string().max(1000),
+  attachmentNames: z.array(z.string()),
+});
+export type EmailParkedAlert = z.infer<typeof EmailParkedAlert>;
 
 /**
  * `payload.release` of a `release` item: the release an owner approves or rejects. The options are
@@ -127,6 +157,7 @@ export function isPendingQuestion(
  * repository, lockfile installs in a task worktree). The UI names the rule via i18n.
  */
 export const InboxResolutionRule = z.enum([
+  'email_not_allowed',
   'outage_ended',
   'command_policy',
   /** The loop a decision was about ended by itself (PM-261): nothing is left to decide. */
@@ -207,6 +238,8 @@ export const InboxItem = z.object({
       integratorTodo: z.literal(true).optional(),
       /** The integrator decided a fix round limit item through the dedicated endpoint (PM-714). */
       integratorFixLimit: z.literal(true).optional(),
+      /** The Operator closed it from its queue item (PM-885): `by` is the Operator member, no person decided. */
+      operatorQueue: z.literal(true).optional(),
       optionId: z.string(),
       by: MemberHandle,
       at: z.string(),
@@ -544,6 +577,7 @@ export const ReleaseFailedAlert = z.object({
 export type ReleaseFailedAlert = z.infer<typeof ReleaseFailedAlert>;
 
 export const AlertPayload = z.discriminatedUnion('alert', [
+  EmailParkedAlert,
   ReleaseFailedAlert,
   WorkOutageAlert,
   MergeBlockedAlert,
@@ -885,6 +919,7 @@ export function isRelayableQuestion(
 
 /** The payload keys of the approvals the server builds; an item that carries one is never a plain question. */
 export const APPROVAL_PAYLOAD_KEYS = [
+  'email',
   'gate',
   'release',
   'permission',
@@ -904,6 +939,16 @@ export function isRelayableQuestionItem(item: Pick<InboxItem, 'kind' | 'payload'
     (option) => option.id === TODO_DONE_OPTION.id || option.id === TODO_CANNOT_OPTION.id,
   );
 }
+
+/** `payload.operatorHandoff` of an item the Operator passed on (PM-885). */
+export const OperatorHandoff = z.object({
+  queueItemId: z.string(),
+  reason: OperatorHandoffReason,
+  action: z.string().max(300),
+  detail: z.string().max(2000).nullable(),
+  operationId: z.string().nullable(),
+});
+export type OperatorHandoff = z.infer<typeof OperatorHandoff>;
 
 export const QuestionPayload = z.object({
   requestedRecipient: QuestionRecipient.optional(),
@@ -951,6 +996,8 @@ export const QuestionPayload = z.object({
   externalAnswerMessageId: z.string().optional(),
   /** The obligation this integrator todo hands over (PM-806): the system opened it, no member asked. */
   obligation: ObligationRef.optional(),
+  /** Why the Operator gave this item to the owner (PM-885): its queue item, the reason and the action left for the owner. */
+  operatorHandoff: OperatorHandoff.optional(),
 });
 export type QuestionPayload = z.infer<typeof QuestionPayload>;
 
@@ -977,7 +1024,7 @@ export function superDecisionRefusal(
     item.kind === 'permission' ||
     item.kind === 'boundary' ||
     ['superOperation', 'operatorApproval', 'operatorKnowledge'].some((key) => key in item.payload) ||
-    (item.kind === 'approval' && 'operator' in item.payload) ||
+    (item.kind === 'approval' && ('operator' in item.payload || 'email' in item.payload)) ||
     item.source === facts.operatorHandle ||
     facts.sessionMember === facts.operatorHandle
   )
@@ -1051,7 +1098,12 @@ export function wasIntegratorTodo(item: InboxItem): boolean {
 }
 
 /** Why a fix limit decision item went from the integrator to the owners (PM-714). */
-export const IntegratorEscalationReason = z.enum(['integrator_timeout', 'integrator_passed_on']);
+export const IntegratorEscalationReason = z.enum([
+  'integrator_timeout',
+  'integrator_passed_on',
+  // The Operator cannot process its queue any more (on leave, AI off, role gone): the item goes to the owners (PM-885).
+  'integrator_unavailable',
+]);
 export type IntegratorEscalationReason = z.infer<typeof IntegratorEscalationReason>;
 
 /**
@@ -1066,6 +1118,7 @@ const FIX_LIMIT_ITEM_PAYLOAD_KEYS: readonly string[] = [
   'integratorOpenedAt',
   'integratorEscalatedAt',
   'integratorEscalationReason',
+  'operatorHandoff',
 ];
 
 const FIX_LIMIT_OPTION_IDS: readonly string[] = FixLimitOptionId.options;
@@ -1172,7 +1225,18 @@ export function planIntegratorInboxEscalation(
 ): Pick<InboxItem, 'payload' | 'assignees'> | null {
   if (item.state !== 'open' || !owners.length) return null;
   if (isIntegratorTodo(item)) {
-    return reason === 'integrator_timeout' ? planIntegratorTodoEscalation(item, now, owners) : null;
+    // The Operator passes a todo on at once (PM-885); the 24-hour timeout is no longer run by the server.
+    return reason === 'integrator_timeout'
+      ? planIntegratorTodoEscalation(item, now, owners)
+      : {
+          payload: {
+            ...item.payload,
+            recipient: 'owner',
+            integratorEscalatedAt: now,
+            integratorEscalationReason: reason,
+          },
+          assignees: [...owners],
+        };
   }
   if (!isIntegratorFixLimitDecision(item)) return null;
   const openedAt = item.payload.integratorOpenedAt as string;

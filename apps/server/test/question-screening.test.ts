@@ -3,7 +3,7 @@ import { QUESTION_SCREENING_MINUTES, questionPayloadOf, routes } from '@projectm
 import type { ProjectConfig, ScreenedQuestionsResponse, Session } from '@projectman/shared';
 import { TeamToolError } from '../src/contracts';
 import type { ToolContext } from '../src/contracts';
-import { DomainError } from '../src/kernel';
+import { conflict, DomainError } from '../src/kernel';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { addHumanAndLogin, createAppHarness, createProject, setupOwner } from './helpers/app-harness';
@@ -96,6 +96,145 @@ describe('the Operator screens AI members’ questions', () => {
   const screen = (args: Parameters<typeof h.domain.teamTools.screenQuestion>[1]) =>
     h.domain.teamTools.screenQuestion(operatorTool(), args);
 
+  const todo = {
+    what: 'Sign in',
+    where: 'Vendor console',
+    expected: 'Access enabled',
+    recipient: 'owner' as const,
+  };
+  function feedback(projectKey = 'AR') {
+    if (projectKey !== 'AR') h.repos.projects.insert({ ...h.repos.projects.get('AR')!, key: projectKey });
+    h.repos.systemFeedback.insert({
+      id: 'fb_gap',
+      projectKey,
+      title: 'Missing tool',
+      what: 'A member needed a person',
+      workaround: 'Sent a todo',
+      fix: 'Add the tool',
+      createdAt: now.toISOString(),
+      version: 'dev',
+      sessionId: null,
+    });
+    return 'fb_gap';
+  }
+
+  it('stores a todo feedback reference in the payload and timeline', async () => {
+    const { inboxItemId } = await ask();
+    const { id: feedbackId } = await h.domain.teamTools.recordSystemFeedback(operatorTool(), {
+      title: 'Missing tool',
+      what: 'A member needed a person',
+      workaround: 'Sent a todo to the owner',
+      fix: 'Add the tool',
+    });
+    expect((await h.domain.teamTools.listSystemFeedback(operatorTool())).items).toEqual([
+      expect.objectContaining({ id: feedbackId }),
+    ]);
+    await screen({ itemId: inboxItemId, outcome: 'todo', todo, note: 'Missing tool', feedbackId });
+    expect(item(inboxItemId).state).toBe('open');
+    expect(questionPayloadOf(item(inboxItemId))?.screening).toMatchObject({ feedbackId, outcome: 'todo' });
+    expect(timelineOf('question_screened')[0]?.data).toMatchObject({
+      inboxItemId,
+      feedbackId,
+      outcome: 'todo',
+    });
+  });
+
+  it.each(['guest', 'task', 'approval'])('refuses system feedback in the PM %s context', async (variant) => {
+    await ask();
+    const ctx = operatorTool();
+    if (variant === 'approval') {
+      h.repos.operatorRequests.insert({
+        id: 'opr_pm_approval',
+        projectKey: 'AR',
+        sessionId: ctx.sessionId,
+        source: 'approval',
+        messageId: null,
+        inboxItemId: null,
+        fromHandle: 'owner',
+        quote: 'Approved',
+        openedAt: now.toISOString(),
+      });
+    } else {
+      const session = h.repos.sessions.get(ctx.sessionId)!;
+      h.repos.sessions.insert({
+        ...session,
+        id: 'ses_pm_other',
+        workItem: variant === 'guest' ? { type: 'general', with: 'dana' } : { type: 'task', taskKey: 'AR-1' },
+      });
+      ctx.sessionId = 'ses_pm_other';
+    }
+    await expect(h.domain.teamTools.listSystemFeedback(ctx)).rejects.toBeInstanceOf(TeamToolError);
+    await expect(
+      h.domain.teamTools.recordSystemFeedback(ctx, {
+        title: 'Missing tool',
+        what: 'Needs a person',
+        workaround: 'Todo',
+        fix: 'Add a tool',
+      }),
+    ).rejects.toBeInstanceOf(TeamToolError);
+    expect(h.repos.systemFeedback.list({ projectKey: 'AR', limit: 50 })).toEqual([]);
+  });
+
+  it.each(['foreign', 'missing', 'empty', 'other outcome'])(
+    'refuses %s feedback without changing the inbox or timeline',
+    async (variant) => {
+      const { inboxItemId } = await ask();
+      const feedbackId =
+        variant === 'empty'
+          ? ''
+          : variant === 'missing'
+            ? 'fb_missing'
+            : feedback(variant === 'foreign' ? 'BR' : 'AR');
+      const before = item(inboxItemId);
+      const timeline = h.domain.timeline.list('AR', { taskKey: 'AR-1' });
+      const err = await refusal(
+        screen({
+          itemId: inboxItemId,
+          note: 'Missing tool',
+          feedbackId,
+          ...(variant === 'other outcome'
+            ? { outcome: 'decision' as const }
+            : { outcome: 'todo' as const, todo }),
+        }),
+      );
+      expect(err.code).toBe('invalid');
+      expect(err.message).toContain('invalid_outcome_fields');
+      expect(item(inboxItemId)).toEqual(before);
+      expect(h.domain.timeline.list('AR', { taskKey: 'AR-1' })).toEqual(timeline);
+    },
+  );
+
+  it('rolls back the feedback reference and release if the timeline write fails', async () => {
+    const { inboxItemId } = await ask();
+    const feedbackId = feedback();
+    const before = item(inboxItemId);
+    const append = vi.spyOn(h.domain.timeline, 'append').mockImplementation(() => {
+      throw new Error('Timeline unavailable');
+    });
+    try {
+      await expect(
+        screen({ itemId: inboxItemId, outcome: 'todo', todo, note: 'Missing tool', feedbackId }),
+      ).rejects.toThrow();
+      expect(item(inboxItemId)).toEqual(before);
+    } finally {
+      append.mockRestore();
+    }
+    expect(timelineOf('question_screened')).toEqual([]);
+  });
+
+  it('does not attach feedback to a question already released', async () => {
+    const { inboxItemId } = await ask();
+    const feedbackId = feedback();
+    await screen({ itemId: inboxItemId, outcome: 'decision', note: 'Owner decides' });
+    const before = item(inboxItemId);
+    const err = await refusal(
+      screen({ itemId: inboxItemId, outcome: 'todo', todo, note: 'Missing tool', feedbackId }),
+    );
+    expect(err.message).toContain('question_not_screening');
+    expect(item(inboxItemId)).toEqual(before);
+    expect(timelineOf('question_screened')).toHaveLength(1);
+  });
+
   it('refuses a new todo without a recipient at the direct handler boundary without writing', async () => {
     const { inboxItemId } = await ask();
     const before = item(inboxItemId);
@@ -168,19 +307,12 @@ describe('the Operator screens AI members’ questions', () => {
   });
 
   describe('screening delivery acknowledgements', () => {
-    it('waits for the first input while admitting other work and delivering concurrent questions once', async () => {
-      h.runner.holdFirstInput = true;
+    it('admits other work and delivers concurrent questions once', async () => {
       const questions = await Promise.all([ask('Which font?'), ask('Which colour?')]);
       await vi.waitFor(() => expect(sessionsOf('pm')).toHaveLength(1));
       const operator = sessionsOf('pm')[0]!;
-      for (const { inboxItemId } of questions)
-        expect(questionPayloadOf(item(inboxItemId))?.screening?.deliveredAt).toBeUndefined();
 
-      // The old persisted spec still rebuilds while the CLI has not acknowledged its notice.
-      const spec = { kind: 'question_screening', projectKey: 'AR' } as const;
-      expect(h.domain.questionScreening.rebuild(spec)?.spec()).toEqual(spec);
-
-      // An unrelated automatic message start must acquire admission while screening waits for input.
+      // An unrelated automatic message start is admitted next to the screening.
       await h.domain.messaging.sendReporting(
         'AR',
         'owner',
@@ -189,7 +321,6 @@ describe('the Operator screens AI members’ questions', () => {
       );
       expect(sessionsOf('dev-2')).toHaveLength(1);
 
-      h.runner.emit({ type: 'first_input_sent', sessionId: operator.id });
       await vi.waitFor(() => {
         for (const { inboxItemId } of questions)
           expect(questionPayloadOf(item(inboxItemId))?.screening?.deliveredAt).toBeTruthy();
@@ -197,22 +328,23 @@ describe('the Operator screens AI members’ questions', () => {
       const notices = typedInto(operator.id).join('\n');
       for (const { inboxItemId } of questions) expect(notices.split(inboxItemId)).toHaveLength(2);
       expect(h.runner.started.filter((start) => start.member === 'pm')).toHaveLength(1);
-      expect(h.domain.questionScreening.rebuild(spec)).toBeNull();
       expect(humanQueue()).toEqual([]);
     });
 
-    it('releases the question without marking it delivered when the first input resolves false', async () => {
-      h.runner.holdFirstInput = true;
+    it('keeps the question as the project manager’s queue item until the screening is settled', async () => {
       const { inboxItemId } = await ask();
-      await vi.waitFor(() => expect(sessionsOf('pm')).toHaveLength(1));
-      const operator = sessionsOf('pm')[0]!;
-      expect(questionPayloadOf(item(inboxItemId))?.screening?.deliveredAt).toBeUndefined();
+      const source = { type: 'inbox', id: inboxItemId } as const;
+      expect(h.repos.memberQueue.findBySource('AR', 'pm', source)).toMatchObject({
+        kind: 'screening',
+        state: 'processing',
+      });
 
-      await h.domain.sessions.stop('AR', operator.id);
+      await screen({ itemId: inboxItemId, outcome: 'decision', note: 'The owner decides.' });
 
-      await vi.waitFor(() => expect(item(inboxItemId).state).toBe('open'));
-      expect(questionPayloadOf(item(inboxItemId))?.screening).toMatchObject({ fallback: 'unavailable' });
-      expect(questionPayloadOf(item(inboxItemId))?.screening?.deliveredAt).toBeUndefined();
+      expect(h.repos.memberQueue.findBySource('AR', 'pm', source)).toMatchObject({
+        state: 'done',
+        closeReason: 'resolved',
+      });
     });
   });
 
@@ -594,12 +726,8 @@ describe('the Operator screens AI members’ questions', () => {
     });
 
     it('opens it for the people when the admission defers the Operator’s start', async () => {
-      const original = h.domain.admission.attempt.bind(h.domain.admission);
-      // Whatever holds the start back (capacity, plan usage, a full disk): only the kind matters here.
-      h.domain.admission.attempt = async (start) =>
-        start.key.startsWith('question-screening:')
-          ? ({ kind: 'deferred' } as unknown as Awaited<ReturnType<typeof original>>)
-          : original(start);
+      // Whatever holds the start back (capacity, plan usage, a full disk): only that it defers matters here.
+      vi.spyOn(h.domain.admission, 'start').mockRejectedValue(conflict('ai_limit_reached', 'limit'));
 
       const { screening, stored } = await askAtOnce();
       await settle();

@@ -1020,6 +1020,7 @@ describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
 
     runner.runner.writeTerminal(s.sessionId, '\r');
     await assistantSaid(s.sessionId, 'Echo: brief after dialog');
+    await waitState(s.sessionId, 'idle');
     expect(statesOf(s.sessionId)).toEqual(['starting', 'idle', 'waiting_input', 'idle', 'working', 'idle']);
   });
 

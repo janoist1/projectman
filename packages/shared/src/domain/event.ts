@@ -14,6 +14,7 @@ import type {
   QuestionRecipientRefusal,
 } from './inbox';
 import type { ObligationKind } from './obligation';
+import type { MemberQueueCloseReason, MemberQueueItemKind } from './member-queue';
 import type { SessionStop } from './involvement';
 import type { LabelChangeReason } from './label';
 import type { HandoffFallbackReason, HandoffReason, PreviousConversationReason } from './handoff';
@@ -124,7 +125,9 @@ export const TimelineEventType = z.enum([
   'super_handoff_changed',
   'super_operation_changed',
   'obligation_woken',
+  'member_queue_item_closed',
   'obligation_handed_over',
+  'workspace_released',
 ]);
 export type TimelineEventType = z.infer<typeof TimelineEventType>;
 
@@ -148,6 +151,8 @@ export type TimelineEvent = z.infer<typeof TimelineEvent>;
 export interface TimelineEventData {
   super_handoff_changed: { handoffId: string; state: string };
   super_operation_changed: { operationId: string; state: string; resultKind: string | null };
+  /** The owner's override freed the workspaces a failed process-scope cleanup kept reserved (PM-935). */
+  workspace_released: { scopeId: string; sessionId: string; workspaceIds: string[]; reason: string };
   task_hand_on_requested: {
     fromStageId: string;
     toStageId: string;
@@ -407,11 +412,12 @@ export interface TimelineEventData {
   };
   /**
    * An AI decider passed a request to a person (PM-169): it chose to (`cause: 'lead'`, with its
-   * `reason`) or it did not answer in time (`cause: 'timeout'`, by the system).
+   * `reason`) or it did not answer in time (`cause: 'timeout'`, by the system). A decider that was never
+   * started in time (`undelivered`) or cannot be started at all (`unavailable`) is the system's too (PM-926).
    */
   permission_escalated: {
     inboxItemId: string;
-    cause: 'lead' | 'timeout';
+    cause: 'lead' | 'timeout' | 'undelivered' | 'unavailable';
     assignees: string[];
     reason?: string;
   };
@@ -438,7 +444,9 @@ export interface TimelineEventData {
     from: 'integrator';
     to: 'owner';
     openedAt: string;
-    reason: 'integrator_timeout';
+    reason: 'integrator_timeout' | 'integrator_passed_on' | 'integrator_unavailable';
+    /** The Operator's hand-off action (PM-885). */
+    note?: string;
   };
   /**
    * A fix round limit decision item went from the integrator to the owners (PM-714): after 24 hours
@@ -450,7 +458,7 @@ export interface TimelineEventData {
     from: 'integrator';
     to: 'owner';
     openedAt: string;
-    reason: 'integrator_timeout' | 'integrator_passed_on';
+    reason: 'integrator_timeout' | 'integrator_passed_on' | 'integrator_unavailable';
     note?: string;
   };
   question_grouped: { primaryItemId: string; itemIds: string[]; by: MemberHandle };
@@ -477,6 +485,12 @@ export interface TimelineEventData {
     subject: string;
     openedAt: string;
     minutes: number;
+  };
+  /** An automatic start no longer applies, or failed for a reason retrying cannot clear (PM-927). */
+  member_queue_item_closed: {
+    itemId: string;
+    kind: MemberQueueItemKind;
+    reason: MemberQueueCloseReason;
   };
   /** The step stayed open after the reminder, so the system gave it to `recipient` as a todo (PM-806, actor system). */
   obligation_handed_over: {
@@ -655,6 +669,8 @@ export interface TimelineEventData {
 export interface PartsClosed {
   done: string[];
   cancelled: string[];
+  /** The subtask whose close triggered the system's automatic close (PM-373); absent on older events, on a person's move and when the card lost its last blocking label. */
+  trigger?: string;
 }
 
 /**

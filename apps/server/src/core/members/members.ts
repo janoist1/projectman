@@ -26,6 +26,7 @@ import {
   stagesToJoin,
   taskSeq,
   taskWorkOf,
+  LIVE_SESSION_STATES,
 } from '@projectman/shared';
 import type {
   Actor,
@@ -126,10 +127,13 @@ export class MemberService {
   }
 
   rosterForViewer(config: ProjectConfig, viewer: Viewer): MemberView[] {
-    const tasks = new Map(this.ctx.repos.tasks.list(config.project.key).map((t) => [t.key, t]));
+    const tasks = new Map<string, boolean>();
     const canSeeKey = (key: string) => {
-      const task = tasks.get(key);
-      return !!task && canSeeTask(viewer, task);
+      if (!tasks.has(key)) {
+        const task = this.ctx.repos.tasks.get(key);
+        tasks.set(key, !!task && task.projectKey === config.project.key && canSeeTask(viewer, task));
+      }
+      return tasks.get(key)!;
     };
     return this.rosterFor(config).map((member) => memberForViewer(viewer, member, canSeeKey));
   }
@@ -145,7 +149,9 @@ export class MemberService {
         .filter((t) => isOpenTask(t) && !isTheme(t))
         .map((t) => [t.key, t]),
     );
-    const sessions = this.ctx.repos.sessions.list(projectKey);
+    const sessions = this.ctx.repos.sessions
+      .listInStates([...LIVE_SESSION_STATES])
+      .filter((s) => s.projectKey === projectKey);
     const states = new Map(this.ctx.repos.memberState.list(projectKey).map((s) => [s.handle, s]));
 
     return config.team.members.map((m): MemberView => {
@@ -185,6 +191,10 @@ export class MemberService {
         displayName: m.displayName,
         githubLogin: m.githubLogin,
         kind: 'ai',
+        email: {
+          enabled: m.email?.enabled ?? false,
+          sendWithoutApproval: m.email?.sendWithoutApproval ?? false,
+        },
         outage: this.outageOf?.(projectKey, m.handle),
         role: m.role,
         roles: memberRoles(m),
@@ -404,11 +414,12 @@ export class MemberService {
         req.capacity !== undefined ||
         req.role !== undefined ||
         req.approver !== undefined ||
-        req.outboundNetwork !== undefined
+        req.outboundNetwork !== undefined ||
+        req.email !== undefined
       ) {
         throw invalid(
           'not_ai_member',
-          'specialty, provider, model, effort, compaction window, cheap subagent, schedule, leave, instructions, permission mode, approver and outbound network apply to AI members only',
+          'specialty, provider, model, effort, compaction window, cheap subagent, schedule, leave, instructions, permission mode, approver, outbound network and email settings apply to AI members only',
         );
       }
       if (req.roles !== undefined) {
@@ -493,6 +504,10 @@ export class MemberService {
       if (req.outboundNetwork !== undefined) {
         member.outboundNetwork = req.outboundNetwork;
         fields.push('outbound network');
+      }
+      if (req.email !== undefined) {
+        member.email = { enabled: member.email?.enabled ?? false, ...member.email, ...req.email };
+        fields.push('email');
       }
       if (req.onLeave !== undefined) {
         if (req.onLeave) member.onLeave = true;

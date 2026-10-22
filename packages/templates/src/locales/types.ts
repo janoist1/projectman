@@ -1,4 +1,4 @@
-import type { BuiltInRoleId, DutyId } from '@projectman/shared';
+import type { BuiltInRoleId, DutyId, SystemFeedbackTextLabels } from '@projectman/shared';
 
 /** Board column keys used by the factory templates (also used as column ids). */
 export type ColumnKey =
@@ -172,6 +172,10 @@ export interface TemplateLocale {
   webPush: WebPushText;
   /** The fix round limit decision item the server makes (PM-714). */
   fixLimitItem: FixLimitItemText;
+  /** What the owner's todo says when the Operator could not finish a queue item (PM-885). */
+  operatorQueue: { failedAction(title: string): string; failedSummary: string };
+  /** The headings of a system feedback sent as a card or an issue (PM-472). */
+  systemFeedback: SystemFeedbackTextLabels;
   /** Name of an approval label generated for a stage, e.g. "Merge: approved". */
   stageApproval: (stageName: string) => string;
   /** Display name of a specialist, e.g. ("Frontend", "Developer") -> "Frontend developer". */

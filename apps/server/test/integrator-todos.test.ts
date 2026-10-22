@@ -10,7 +10,7 @@ import {
 import type { InboxItem } from '@projectman/shared';
 import { createAppHarness, createProject, setupOwner, addHumanAndLogin } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
-import { createDomainHarness, restartDomainHarness } from './helpers/domain-harness';
+import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 
 const START = '2026-10-18T10:00:00.000Z';
 const step = {
@@ -338,17 +338,27 @@ describe('integrator todo REST and durable lifecycle', () => {
     );
   });
 
-  it('falls back to owner when no active super access exists', async () => {
-    h.app.projectman.auth.revokeIntegratorAccessKey(
-      h.app.projectman.repos.users.list()[0]!.id,
-      superKey.key.id,
-    );
+  it('falls back to owner when the Operator queue is unavailable', async () => {
+    await h.app.projectman.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (draft) => {
+      draft.team.limits.aiEnabled = false;
+      return 'Switch AI work off';
+    });
     const item = await opened();
     expect(item.payload).toMatchObject({
       recipient: 'owner',
       screening: { recipientRefusal: 'integrator_unavailable' },
     });
-    expect((await resolve(item.id)).statusCode).toBe(401);
+    expect((await resolve(item.id)).json().error.code).toBe('super_relay_refused');
+  });
+
+  it('keeps a todo for the Operator without any super access key', async () => {
+    h.app.projectman.auth.revokeIntegratorAccessKey(
+      h.app.projectman.repos.users.list()[0]!.id,
+      superKey.key.id,
+    );
+    const item = await opened();
+    expect(item.payload).toMatchObject({ recipient: 'integrator' });
+    expect(item.payload.screening).not.toHaveProperty('recipientRefusal');
   });
 
   it('never delivers an integrator-origin item to other humans in REST or websocket projection', async () => {
@@ -382,23 +392,6 @@ describe('integrator todo REST and durable lifecycle', () => {
     expect(events('question_answered')).toHaveLength(0);
   });
 
-  it('continues the sweep after a failed item, then retries it without duplicate events', async () => {
-    const first = await opened();
-    const second = await opened();
-    const { repos, domain } = h.app.projectman;
-    now = new Date(now.getTime() + INTEGRATOR_TODO_TIMEOUT_MS);
-    const update = repos.inbox.updateOpen.bind(repos.inbox);
-    const failed = vi.spyOn(repos.inbox, 'updateOpen').mockImplementationOnce(() => {
-      throw new Error('injected sweep failure');
-    });
-    await domain.inbox.sweepIntegratorTodos();
-    failed.mockImplementation(update);
-    expect(current(first.id).payload.recipient).toBe('integrator');
-    expect(current(second.id).payload.recipient).toBe('owner');
-    await domain.inbox.sweepIntegratorTodos();
-    expect(events('question_recipient_escalated')).toHaveLength(2);
-  });
-
   it('refuses old, plain information, decision and escalated todos with the original codes', async () => {
     for (const payload of [{}, { responsePurpose: 'information' }]) {
       const item = asked(payload);
@@ -417,52 +410,10 @@ describe('integrator todo REST and durable lifecycle', () => {
     expect((await resolve(item.id)).json().error.code).toBe('owner_approval_required');
   });
 
-  it('checks the deadline at late acceptance even before the next sweep, and commits the handoff despite refusal', async () => {
+  it('does not escalate a todo to the owners after a day: the Operator’s queue has no timeout', async () => {
     const item = await opened();
     now = new Date(now.getTime() + INTEGRATOR_TODO_TIMEOUT_MS);
-    expect((await resolve(item.id)).json().error.code).toBe('super_relay_refused');
-    expect(current(item.id).payload).toMatchObject({
-      recipient: 'owner',
-      integratorOpenedAt: START,
-      integratorEscalatedAt: now.toISOString(),
-    });
-    expect(h.app.projectman.domain.inbox.countOpenFor('AR', 'owner')).toBe(1);
-    expect(events('question_recipient_escalated')).toHaveLength(1);
-    expect(events('question_recipient_escalated')[0]).toMatchObject({
-      actor: { kind: 'system', handle: null },
-      createdAt: now.toISOString(),
-    });
-    await h.app.projectman.domain.inbox.sweepIntegratorTodos();
-    expect(events('question_recipient_escalated')).toHaveLength(1);
-    expect(events('question_answered')).toHaveLength(0);
-  });
-
-  it('serializes two resolutions and a sweep so a before-deadline accepted answer wins exactly once', async () => {
-    const item = await opened();
-    const inbox = h.app.projectman.domain.inbox;
-    let entered!: () => void;
-    const ready = new Promise<void>((r) => {
-      entered = r;
-    });
-    let release!: () => void;
-    const gate = new Promise<void>((r) => {
-      release = r;
-    });
-    inbox.registerQuestionAnswer(async (_item, _attachments, close) => {
-      entered();
-      await gate;
-      return close();
-    });
-    const first = resolve(item.id);
-    await ready;
-    now = new Date(now.getTime() + INTEGRATOR_TODO_TIMEOUT_MS);
-    const sweep = inbox.sweepIntegratorTodos();
-    const second = resolve(item.id);
-    release();
-    expect((await first).statusCode).toBe(200);
-    await sweep;
-    expect((await second).json().error.code).toBe('inbox_item_closed');
-    expect(events('question_answered')).toHaveLength(1);
+    expect((await resolve(item.id)).statusCode).toBe(200);
     expect(events('question_recipient_escalated')).toHaveLength(0);
   });
 
@@ -512,46 +463,6 @@ it('defaults to unavailable when no integrator access adapter was provided', asy
     expect(result!.payload).toMatchObject({
       recipient: 'owner',
       screening: { recipientRefusal: 'integrator_unavailable' },
-    });
-  } finally {
-    await h.cleanup();
-  }
-});
-
-it('reconstructs the 24-hour deadline after a database restart without an online engine or active AI', async () => {
-  let now = new Date(START);
-  let h = await createDomainHarness({
-    now: () => now,
-    persistent: true,
-    adjust: (config) => {
-      config.team.limits.aiEnabled = false;
-    },
-  });
-  try {
-    const item = h.domain.inbox.create({
-      projectKey: 'AR',
-      kind: 'question',
-      source: 'dev-1',
-      assignees: ['owner'],
-      title: 'Measure',
-      payload: {
-        question: 'Measure',
-        recipient: 'integrator',
-        integratorOpenedAt: START,
-        screening: { until: START, outcome: 'todo', todo: step },
-      },
-      options: [TODO_DONE_OPTION, TODO_CANNOT_OPTION],
-    });
-    now = new Date(now.getTime() + INTEGRATOR_TODO_TIMEOUT_MS - 1);
-    await h.domain.inbox.sweepIntegratorTodos();
-    expect(h.domain.inbox.get('AR', item.id).payload.recipient).toBe('integrator');
-    h = await restartDomainHarness(h, { now: () => now });
-    now = new Date(now.getTime() + 1);
-    await h.domain.inbox.sweepIntegratorTodos();
-    expect(h.domain.inbox.get('AR', item.id).payload).toMatchObject({
-      recipient: 'owner',
-      integratorOpenedAt: START,
-      integratorEscalatedAt: now.toISOString(),
     });
   } finally {
     await h.cleanup();

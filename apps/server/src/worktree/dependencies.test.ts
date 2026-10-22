@@ -21,6 +21,7 @@ import { promisify } from 'node:util';
 import type { FastifyBaseLogger } from 'fastify';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cloneDependencies } from './dependencies';
+import { hasApfsTemporaryFilesystem } from '../../test/helpers/apfs';
 
 /*
  * Temp repositories only. The tests inject `platform`, `probe` and `copyTree` so they run
@@ -668,7 +669,7 @@ describe('cloneDependencies', { timeout: 30_000 }, () => {
     expect(warnings).toHaveLength(1);
   });
 
-  it.skipIf(process.platform !== 'darwin')(
+  it.skipIf(!hasApfsTemporaryFilesystem)(
     'clones with the real cp -c and keeps workspace links relative, pointing at the target',
     async () => {
       await install(reference);

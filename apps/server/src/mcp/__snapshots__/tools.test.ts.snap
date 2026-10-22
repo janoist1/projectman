@@ -655,7 +655,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": false,
       "title": "Execute one command as the Operator",
     },
-    "description": "Only the Operator, in its own general conversation during an open owner message or answer. Starts ONE command on the shared operation path, logged as you: {operation}. command is {kind: task_create, request} | {kind: task_update, taskKey, request} | {kind: task_labels, taskKey, request} | {kind: task_start, taskKey, request} | {kind: task_cancel, taskKey, request} | {kind: invite_create, request} | {kind: merge, taskKey, request} | {kind: merge_order, repo, expectedRevision, taskKeys, reason} | {kind: administration, request} | {kind: credential_revoke, keyId}. Configuration, member, session, message and project-pause changes stay with operate (kinds operate and member_update are refused with super_operation_unsupported). A K3 effect (deletion, security, cost, boundary and permission decisions) is not run: the operation waits in waiting_owner and the owner answers with their own login; after the owner’s yes the server runs it by itself, so do not repeat the call. Machine operations (administration) need the owner’s grant: without one the call fails with operator_grant_inactive, and you hand the matter over to the owner. request_key (1–100 characters of A-Z a-z 0-9 . _ -) names this call within the request: the same key is the same operation and never runs twice; the same key with another command is refused (super_request_conflict). Follow it with get_operation until the state is final.",
+    "description": "Only the Operator, in its own general conversation during an open owner message or answer. Starts ONE command on the shared operation path, logged as you: {operation}. command is {kind: task_create, request} | {kind: task_update, taskKey, request} | {kind: task_labels, taskKey, request} | {kind: task_start, taskKey, request} | {kind: task_cancel, taskKey, request} | {kind: invite_create, request} | {kind: merge, taskKey, request} | {kind: merge_order, repo, expectedRevision, taskKeys, reason} | {kind: administration, request} | {kind: credential_revoke, keyId} | {kind: workspace_release, scopeId, reason}. workspace_release frees the workspace an unresolved process cleanup keeps reserved without proof that the processes stopped: only on the owner’s explicit request in that conversation, never on a signal by itself; the server refuses it unless the open request is the owner’s own message or answer (operator_owner_only), not a queue item; reason is the owner’s stated reason. Configuration, member, session, message and project-pause changes stay with operate (kinds operate and member_update are refused with super_operation_unsupported). A K3 effect (deletion, security, cost, boundary and permission decisions) is not run: the operation waits in waiting_owner and the owner answers with their own login; after the owner’s yes the server runs it by itself, so do not repeat the call. Machine operations (administration) need the owner’s grant: without one the call fails with operator_grant_inactive, and you hand the matter over to the owner. request_key (1–100 characters of A-Z a-z 0-9 . _ -) names this call within the request: the same key is the same operation and never runs twice; the same key with another command is refused (super_request_conflict). Follow it with get_operation until the state is final.",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,
@@ -741,6 +741,18 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                                 },
                               ],
                             },
+                            "email": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "enabled": {
+                                  "type": "boolean",
+                                },
+                              },
+                              "required": [
+                                "enabled",
+                              ],
+                              "type": "object",
+                            },
                             "feedback": {
                               "additionalProperties": false,
                               "properties": {
@@ -778,6 +790,57 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                                   "maxItems": 20,
                                   "type": "array",
                                 },
+                              },
+                              "type": "object",
+                            },
+                            "labels": {
+                              "additionalProperties": {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "color": {
+                                    "anyOf": [
+                                      {
+                                        "enum": [
+                                          "gray",
+                                          "blue",
+                                          "teal",
+                                          "green",
+                                          "yellow",
+                                          "orange",
+                                          "red",
+                                          "pink",
+                                          "purple",
+                                        ],
+                                        "type": "string",
+                                      },
+                                      {
+                                        "type": "null",
+                                      },
+                                    ],
+                                  },
+                                  "meaning": {
+                                    "anyOf": [
+                                      {
+                                        "maxLength": 500,
+                                        "type": "string",
+                                      },
+                                      {
+                                        "type": "null",
+                                      },
+                                    ],
+                                  },
+                                  "name": {
+                                    "maxLength": 60,
+                                    "minLength": 1,
+                                    "type": "string",
+                                  },
+                                },
+                                "type": "object",
+                              },
+                              "propertyNames": {
+                                "maxLength": 40,
+                                "minLength": 1,
+                                "type": "string",
                               },
                               "type": "object",
                             },
@@ -1696,6 +1759,18 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                                 },
                               ],
                             },
+                            "email": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "enabled": {
+                                  "type": "boolean",
+                                },
+                                "sendWithoutApproval": {
+                                  "type": "boolean",
+                                },
+                              },
+                              "type": "object",
+                            },
                             "instructions": {
                               "type": "string",
                             },
@@ -2069,6 +2144,18 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                           "type": "null",
                         },
                       ],
+                    },
+                    "email": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "enabled": {
+                          "type": "boolean",
+                        },
+                        "sendWithoutApproval": {
+                          "type": "boolean",
+                        },
+                      },
+                      "type": "object",
                     },
                     "instructions": {
                       "type": "string",
@@ -3045,6 +3132,32 @@ exports[`team tool definitions > preserves the public tool definitions across mo
               ],
               "type": "object",
             },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "workspace_release",
+                  "type": "string",
+                },
+                "reason": {
+                  "maxLength": 2000,
+                  "minLength": 1,
+                  "pattern": "^[^\\0\\u0080-\\u009f\\p{Cf}]*$",
+                  "type": "string",
+                },
+                "scopeId": {
+                  "maxLength": 200,
+                  "minLength": 1,
+                  "type": "string",
+                },
+              },
+              "required": [
+                "kind",
+                "scopeId",
+                "reason",
+              ],
+              "type": "object",
+            },
           ],
         },
         "request_key": {
@@ -3068,6 +3181,92 @@ exports[`team tool definitions > preserves the public tool definitions across mo
     },
     "name": "execute_operation",
     "title": "Execute one command as the Operator",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "End an item of your work queue",
+    },
+    "description": "The Operator ends the work queue item it was given (the message names its id). outcome "done": you did what it asked; summary says what you did, and operation_ids names the operations you ran (execute_operation). A held fix round decision also needs fix_limit_option (replan, reassign or another_round); a todo is closed as done with your summary. outcome "handed_off": the owner has to do it; handoff.reason is owner_reserved (the action is reserved to the owner; with operation_id when the operation already asks the owner), no_typed_operation (no typed operation does this) or no_grant (you have no grant for it), handoff.action is the imperative step the owner takes (one sentence), handoff.detail the context. Nothing waits for the owner here: the item ends at once and the owner gets a todo. Only the item your session is working on can be ended (409 queue_item_not_processing otherwise).",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "fix_limit_option": {
+          "enum": [
+            "replan",
+            "reassign",
+            "another_round",
+          ],
+          "type": "string",
+        },
+        "handoff": {
+          "properties": {
+            "action": {
+              "maxLength": 300,
+              "minLength": 1,
+              "type": "string",
+            },
+            "detail": {
+              "maxLength": 2000,
+              "type": "string",
+            },
+            "operation_id": {
+              "maxLength": 100,
+              "type": "string",
+            },
+            "reason": {
+              "enum": [
+                "owner_reserved",
+                "no_typed_operation",
+                "no_grant",
+              ],
+              "type": "string",
+            },
+          },
+          "required": [
+            "reason",
+            "action",
+          ],
+          "type": "object",
+        },
+        "item_id": {
+          "maxLength": 100,
+          "minLength": 1,
+          "type": "string",
+        },
+        "operation_ids": {
+          "items": {
+            "maxLength": 100,
+            "type": "string",
+          },
+          "maxItems": 20,
+          "type": "array",
+        },
+        "outcome": {
+          "enum": [
+            "done",
+            "handed_off",
+          ],
+          "type": "string",
+        },
+        "summary": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "item_id",
+        "outcome",
+        "summary",
+      ],
+      "type": "object",
+    },
+    "name": "finish_queue_item",
+    "title": "End an item of your work queue",
   },
   {
     "annotations": {
@@ -3822,6 +4021,23 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "destructiveHint": false,
       "openWorldHint": false,
       "readOnlyHint": true,
+      "title": "List the recorded system feedback",
+    },
+    "description": "Only the Operator or the selected PM in its internal coordination session, never an approval continuation; needs no open owner request. The gaps in projectman itself that this project's team recorded earlier, in any state, the latest 50: id, state (new, forwarded, dismissed), title, how many times it occurred and when it was last seen. Look here before record_system_feedback, so the same gap is not recorded twice.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object",
+    },
+    "name": "list_system_feedback",
+    "title": "List the recorded system feedback",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
       "title": "List tasks",
     },
     "description": "Read the project board as a compact list, newest update first. Defaults to open tasks (active, waiting or blocked). Filter by status, stage or assignee; use get_task for details. A theme (a card that groups other cards) is marked kind "theme"; it is in no stage, so a stage filter leaves themes out. A card in the project focus (what the team works on now) carries its place as "focus" (position, and via: the theme or card that covers it).",
@@ -3966,7 +4182,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": false,
       "title": "Open a todo for the integrator",
     },
-    "description": "Only the selected PM in its internal general conversation; needs no owner request. When a stalled, silent, outage or nobody signal needs someone to act, open a todo in the integrator's queue instead of asking the owners: what to do, where, and what is expected. The integrator's answer (done, or cannot do it) comes back to you as the asker. When the integrator is not available the owners get it and the result says so. A card projectman already follows (an open or handed-over obligation) is refused with obligation_tracked: projectman wakes the responsible and hands the step over itself. A decision only the owners make (cost, deletion, publishing, direction, approval) is not a todo: use ask_human.",
+    "description": "Only the selected PM in its internal general conversation; needs no owner request. When a stalled, silent, outage or nobody signal needs someone to act, open a todo in the integrator's queue instead of asking the owners: what to do, where, and what is expected. The Operator takes the todos from its queue one at a time and wakes for each; use this tool, not a message to the Operator, for a step that needs its hands. Its answer (done, or handed to the owners with the reason) comes back to you as the asker. When the integrator is not available the owners get it and the result says so. A card projectman already follows (an open or handed-over obligation) is refused with obligation_tracked: projectman wakes the responsible and hands the step over itself. A decision only the owners make (cost, deletion, publishing, direction, approval) is not a todo: use ask_human.",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,
@@ -4014,7 +4230,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": false,
       "title": "Operate the project",
     },
-    "description": "Only the Operator, during an open owner request. Propose a configuration, member, session, message or project pause operation. The server executes immediate changes, requests owner approval for restricted changes, and refuses forbidden changes. Before changing a built-in role, use get_role_configuration, preserve existing instructions and other bundle fields, and send only the affected role in config_patch.roleOverrides. Each supplied bundle replaces that role completely; omitted roles stay unchanged. Set a role to null to reset only that role to built-in defaults; an empty map changes no roles. session_stop and message_send require plan (why, impact, reversible). message_send is for non-owner humans, with the exact text the owner approves. Title describes the result in the project language (1–120 characters).",
+    "description": "Only the Operator, during an open owner request. Propose a configuration, member, session, message or project pause operation. The server executes immediate changes, requests owner approval for restricted changes, and refuses forbidden changes. Before changing a built-in role, use get_role_configuration, preserve existing instructions and other bundle fields, and send only the affected role in config_patch.roleOverrides. Each supplied bundle replaces that role completely; omitted roles stay unchanged. Set a role to null to reset only that role to built-in defaults; an empty map changes no roles. To add or change one pipeline label (name, color, meaning) send only that label in config_patch.labels, keyed by label id, e.g. {"bug": {"color": "red"}}; omitted fields and all other labels, stages and columns stay unchanged, and null removes the color or meaning. session_stop and message_send require plan (why, impact, reversible). message_send is for non-owner humans, with the exact text the owner approves. Title describes the result in the project language (1–120 characters).",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,
@@ -4091,6 +4307,18 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                         },
                       ],
                     },
+                    "email": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "enabled": {
+                          "type": "boolean",
+                        },
+                      },
+                      "required": [
+                        "enabled",
+                      ],
+                      "type": "object",
+                    },
                     "feedback": {
                       "additionalProperties": false,
                       "properties": {
@@ -4128,6 +4356,57 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                           "maxItems": 20,
                           "type": "array",
                         },
+                      },
+                      "type": "object",
+                    },
+                    "labels": {
+                      "additionalProperties": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "color": {
+                            "anyOf": [
+                              {
+                                "enum": [
+                                  "gray",
+                                  "blue",
+                                  "teal",
+                                  "green",
+                                  "yellow",
+                                  "orange",
+                                  "red",
+                                  "pink",
+                                  "purple",
+                                ],
+                                "type": "string",
+                              },
+                              {
+                                "type": "null",
+                              },
+                            ],
+                          },
+                          "meaning": {
+                            "anyOf": [
+                              {
+                                "maxLength": 500,
+                                "type": "string",
+                              },
+                              {
+                                "type": "null",
+                              },
+                            ],
+                          },
+                          "name": {
+                            "maxLength": 60,
+                            "minLength": 1,
+                            "type": "string",
+                          },
+                        },
+                        "type": "object",
+                      },
+                      "propertyNames": {
+                        "maxLength": 40,
+                        "minLength": 1,
+                        "type": "string",
                       },
                       "type": "object",
                     },
@@ -5046,6 +5325,18 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                         },
                       ],
                     },
+                    "email": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "enabled": {
+                          "type": "boolean",
+                        },
+                        "sendWithoutApproval": {
+                          "type": "boolean",
+                        },
+                      },
+                      "type": "object",
+                    },
                     "instructions": {
                       "type": "string",
                     },
@@ -5619,6 +5910,18 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                           },
                         ],
                       },
+                      "email": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "enabled": {
+                            "type": "boolean",
+                          },
+                        },
+                        "required": [
+                          "enabled",
+                        ],
+                        "type": "object",
+                      },
                       "feedback": {
                         "additionalProperties": false,
                         "properties": {
@@ -5656,6 +5959,57 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                             "maxItems": 20,
                             "type": "array",
                           },
+                        },
+                        "type": "object",
+                      },
+                      "labels": {
+                        "additionalProperties": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "color": {
+                              "anyOf": [
+                                {
+                                  "enum": [
+                                    "gray",
+                                    "blue",
+                                    "teal",
+                                    "green",
+                                    "yellow",
+                                    "orange",
+                                    "red",
+                                    "pink",
+                                    "purple",
+                                  ],
+                                  "type": "string",
+                                },
+                                {
+                                  "type": "null",
+                                },
+                              ],
+                            },
+                            "meaning": {
+                              "anyOf": [
+                                {
+                                  "maxLength": 500,
+                                  "type": "string",
+                                },
+                                {
+                                  "type": "null",
+                                },
+                              ],
+                            },
+                            "name": {
+                              "maxLength": 60,
+                              "minLength": 1,
+                              "type": "string",
+                            },
+                          },
+                          "type": "object",
+                        },
+                        "propertyNames": {
+                          "maxLength": 40,
+                          "minLength": 1,
+                          "type": "string",
                         },
                         "type": "object",
                       },
@@ -6574,6 +6928,18 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                           },
                         ],
                       },
+                      "email": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "enabled": {
+                            "type": "boolean",
+                          },
+                          "sendWithoutApproval": {
+                            "type": "boolean",
+                          },
+                        },
+                        "type": "object",
+                      },
                       "instructions": {
                         "type": "string",
                       },
@@ -7077,6 +7443,60 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "destructiveHint": false,
       "openWorldHint": false,
       "readOnlyHint": false,
+      "title": "Record a gap in projectman",
+    },
+    "description": "Only the Operator or the selected PM in its internal coordination session, never an approval continuation; needs no open owner request. Record ONE gap in projectman itself (a missing tool, a refusal that made no sense, a flow that could not do what the owner asked) that you had to work around. The owner decides what happens to it. Write it in English, without secrets, passwords, tokens, file paths, e-mail addresses or the names of people, projects or clients: describe the gap in general terms (what is covered is replaced by a marker, and the owner reads the text before anything leaves the installation). If list_system_feedback shows the same gap, pass its id as same_as instead: it only adds an occurrence and the other fields are ignored. At most 10 new items per project in 24 hours.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "fix": {
+          "description": "What change in projectman would remove the need for the workaround.",
+          "maxLength": 2000,
+          "minLength": 1,
+          "type": "string",
+        },
+        "same_as": {
+          "description": "The id (fb_…) of an item of this project that this is another occurrence of.",
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string",
+        },
+        "title": {
+          "description": "A short title naming the gap, not the symptom.",
+          "maxLength": 120,
+          "minLength": 1,
+          "type": "string",
+        },
+        "what": {
+          "description": "What happened and what projectman could not do.",
+          "maxLength": 2000,
+          "minLength": 1,
+          "type": "string",
+        },
+        "workaround": {
+          "description": "How you worked around it.",
+          "maxLength": 2000,
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "title",
+        "what",
+        "workaround",
+        "fix",
+      ],
+      "type": "object",
+    },
+    "name": "record_system_feedback",
+    "title": "Record a gap in projectman",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
       "title": "Reply to a feedback mark",
     },
     "description": "Answer in a feedback mark's thread, in your name; the marker reads it in the app. It does not decide the mark: use it for a question to the marker or a status. Only for members who process feedback. Write in the marker language.",
@@ -7178,6 +7598,11 @@ exports[`team tool definitions > preserves the public tool definitions across mo
         "answer": {
           "description": "The answer; only with answered.",
           "maxLength": 10000,
+          "minLength": 1,
+          "type": "string",
+        },
+        "feedback_id": {
+          "description": "The system feedback id returned by record_system_feedback; only with todo.",
           "minLength": 1,
           "type": "string",
         },

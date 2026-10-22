@@ -16,8 +16,8 @@ import type { AutomaticStart, StartSpec } from './deferred-starts';
  * the stage rules. An owner already working the task is told instead; the task's assignee never
  * takes over a later stage (no self-review). Back in the work stage, the assignee's live
  * session is told, and an AI assignee with no session is started unless it moved the card itself
- * or the fix round limit holds the card (PM-420); going forward into the work stage is the Start
- * button's (PM-119). A refused hand-over waits and is retried while the task stays in that stage.
+ * or the fix round limit holds the card (PM-420). The same applies to an assigned card moving
+ * forward into work (PM-927). A refused hand-over waits while the task stays in that stage.
  */
 export class StageHandOver {
   private readonly projects: ProjectService;
@@ -70,7 +70,15 @@ export class StageHandOver {
 
   private startFor(change: StageChange): AutomaticStart {
     const { projectKey, key: taskKey } = change.task;
-    let waitsFor: string | undefined;
+    const config = this.projects.cachedConfig(projectKey);
+    const stage = config && stageOf(config, change.to);
+    const owners = config && stage ? stageOwners(config, stage) : [];
+    let waitsFor =
+      stage?.kind === 'work'
+        ? (change.task.assignee ?? undefined)
+        : owners.length === 1
+          ? owners[0]
+          : undefined;
     return {
       key: `hand-over:${projectKey}:${taskKey}`,
       projectKey,
@@ -110,11 +118,10 @@ export class StageHandOver {
           const workItem = { type: 'task', taskKey } as const;
           if (this.sessions.findRunning(projectKey, task.assignee, workItem))
             return this.notify(current, stage, task.assignee);
-          // A card sent back to its assignee, who has no session on it, starts it (PM-420). Going forward
-          // into the work stage is the Start button's business (PM-119), and a member who moved the card
-          // itself needs no start.
           const wentBack = stageIndex(config.pipeline, change.to) < stageIndex(config.pipeline, change.from);
-          if (assignee?.kind !== 'ai' || !wentBack) return;
+          if (assignee?.kind !== 'ai' || (!wentBack && isOnLeave(assignee))) return;
+          // A forward hand-over applies to the assignment at the move, not to a later assignment.
+          if (!wentBack && change.task.assignee !== task.assignee) return;
           if (change.actor.kind === 'ai' && change.actor.handle === assignee.handle) return;
           waitsFor = assignee.handle;
           // The messages that waited for the start (a send-back's label message) go in its first input.

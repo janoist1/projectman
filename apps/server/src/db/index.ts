@@ -1,4 +1,6 @@
 import { createAttachmentRepository } from './attachments';
+import { createEmailChannelRepository } from './email-channel';
+export type { EmailMessageRecord, EmailContactRecord, EmailContactEventRecord } from './email-channel';
 import { createWebPushRepository } from './web-push';
 export { pushDeviceView } from './web-push';
 export type { PushDeviceRecord, PushItemRecord } from './web-push';
@@ -23,6 +25,13 @@ export type {
 } from './super-handoffs';
 import { createBoundaryRepository } from './boundary';
 import { createFeedbackRepository } from './feedback';
+import { createSystemFeedbackRepository } from './system-feedback';
+export type {
+  SystemFeedbackForwardedRecord,
+  SystemFeedbackForwardingRecord,
+  SystemFeedbackItemRecord,
+  SystemFeedbackOccurrenceRecord,
+} from './system-feedback';
 export type {
   FeedbackEventRecord,
   FeedbackLaunchCodeRecord,
@@ -82,6 +91,7 @@ import { createMemberQueueRepository } from './member-queue';
 export type {
   MemberQueueClose,
   MemberQueueSourceKey,
+  MemberQueueWaitDetails,
   NewMemberQueueItem,
   StoredMemberQueueItem,
 } from './member-queue';
@@ -196,6 +206,8 @@ export function createRepositories(db: Db) {
     boundary: createBoundaryRepository(db),
     memberState: createMemberStateRepository(db),
     feedback: createFeedbackRepository(db),
+    systemFeedback: createSystemFeedbackRepository(db),
+    emailChannel: createEmailChannelRepository(db),
     history: createHistoryRepository(db),
     historySearches: createHistorySearchRepository(db),
     /** Runs `fn` in a single SQLite transaction. */

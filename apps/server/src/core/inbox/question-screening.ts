@@ -1,6 +1,5 @@
 import {
   QUESTION_SCREENING_MS,
-  formatInjectedTeamMessage,
   isOnLeave,
   isWorkPaused,
   coordinationMemberOf,
@@ -9,17 +8,21 @@ import {
   screeningFrozenRemainingMs,
 } from '@projectman/shared';
 import type { InboxItem, ProjectConfig, QuestionScreening as ScreeningRecord } from '@projectman/shared';
-import type { ScreeningAdmission, ScreeningAttempt, ScreeningEngineState, ScreeningSessions } from './ports';
+import type { ScreeningEngineState } from './ports';
 import { isoNow } from '../base';
 import type { DomainContext } from '../base';
 import type { InboxService } from './inbox';
-import type { MessageDeliveryPort } from '../messages';
+import type { MemberQueue } from '../member-queue';
 import type { ProjectService } from '../projects';
 
 /** The first lines of the notice the PM gets for the questions it screens. */
 const SCREENING_NOTICE =
   'Projectman question screening. AI members asked questions meant for people. Handle every one of them now ' +
   'with screen_question (item_id, outcome, note; answered also needs answer, forwarded forward_to, todo todo). ' +
+  'Before todo use list_system_feedback then record_system_feedback: describe why the member needed a person, ' +
+  'the workaround of sending the step to the owner as a todo, and the suggested fix. For a repeated gap use same_as. ' +
+  'Pass the returned id as screen_question feedback_id. If recording fails, send the todo without feedback_id; ' +
+  'never invent an id or delay the todo or the ten-minute fallback. ' +
   'First combine substantively equivalent owner decisions with combine_questions (item_ids, question, note); ' +
   'screen only the primary as decision. A group never takes a separate fallback for each linked question. ' +
   'Your instructions say which outcome fits. Start or move nothing on the board while you screen. ' +
@@ -29,9 +32,10 @@ const SCREENING_NOTICE =
 
 /**
  * The PM looks at an AI member's question before any person sees it (PM-558, PM-556). A new question
- * waits in the inbox state `screening`; this wakes the PM for it, through admission like every
- * server-started session, and gives the question to the people (`fallback`) when the PM cannot take
- * it (`unavailable`, at once) or does not settle it in time (`timeout`, `payload.screening.until`).
+ * waits in the inbox state `screening`; the member queue holds it for the PM as a `screening` item (PM-885;
+ * the queue's reconciler makes the item with the question, the driver delivers it to the PM through admission
+ * like every server-started session). This gives the question to the people (`fallback`) when the PM cannot
+ * take it (`unavailable`, at once) or does not settle it in time (`timeout`, `payload.screening.until`).
  *
  * The ten minutes run only after the PM got the question (the delivery receipt) and only while the machine
  * the PM runs on is online (PM-708). A question that waits for an offline machine is held in
@@ -39,16 +43,14 @@ const SCREENING_NOTICE =
  * machine is back the held time runs again. Any other refusal still gives the question to the people at once.
  */
 export class QuestionScreening {
-  private readonly waking = new Set<string>();
-  private readonly again = new Set<string>();
-  private readonly firstDeliveries = new Map<string, Promise<void>>();
   private readonly deps: {
     ctx: DomainContext;
     projects: ProjectService;
-    sessions: ScreeningSessions;
-    admission: ScreeningAdmission;
-    delivery: Pick<MessageDeliveryPort, 'notice' | 'startAndDeliver'>;
     inbox: InboxService;
+    /** The member queue keeps the PM's item of each screened question true (a PM that changed gets the item). */
+    queue: Pick<MemberQueue, 'syncInbox'>;
+    /** Works the member's queue (the driver's `ensure`): the PM takes the questions it has not got. */
+    wake: (projectKey: string, member: string) => Promise<void>;
     /** Whether the PM's machine is reachable (PM-708). */
     engine: ScreeningEngineState;
     /** False: no question is screened (tests that are not about screening). */
@@ -78,9 +80,23 @@ export class QuestionScreening {
     );
   }
 
-  /** A question was put into screening: the PM gets it, or the people do at once when it cannot. */
+  /**
+   * A question was put into screening: the PM is woken for what it has not got, or the people get the
+   * questions at once when it cannot take them.
+   */
   async enqueue(projectKey: string): Promise<void> {
-    await this.deliver(projectKey);
+    const undelivered = this.undelivered(projectKey);
+    if (!undelivered.length) return;
+    if (await this.unavailable(projectKey)) {
+      await this.releaseAll(projectKey);
+      return;
+    }
+    // The PM's machine is away: the questions wait for it, held with their time; its return wakes this again.
+    if (!this.applyEngineState(projectKey)) return;
+    // A PM that changed since the question was asked gets the item now.
+    for (const item of undelivered) this.deps.queue.syncInbox(item);
+    const member = coordinationMemberOf(await this.deps.projects.config(projectKey));
+    if (member) await this.deps.wake(projectKey, member.handle);
   }
 
   /**
@@ -105,14 +121,71 @@ export class QuestionScreening {
             now,
             engineOnline: online,
           }).timeout;
-        if (timeout) await this.release(item, 'timeout');
+        if (timeout) await this.release(item.id, 'timeout');
       }
-      await this.deliver(key);
+      await this.enqueue(key);
     }
   }
 
-  rebuild(spec: { kind: 'question_screening'; projectKey: string }): ScreeningAttempt | null {
-    return this.undelivered(spec.projectKey).length ? this.start(spec.projectKey) : null;
+  /** The text the PM is given for these questions (the queue items of the screening lane). */
+  noticeText(inboxItemIds: string[]): string {
+    const { ctx, inbox } = this.deps;
+    const nowMs = ctx.now().getTime();
+    const items = inboxItemIds.flatMap((id) => {
+      const item = ctx.repos.inbox.get(id);
+      return item ? [inbox.withQuestionGroup(item)] : [];
+    });
+    return `${SCREENING_NOTICE}\n${items.map((item) => JSON.stringify(noticeOf(item, nowMs))).join('\n')}`;
+  }
+
+  /** Whether the question is still in screening and is the one the PM screens (a group has its primary only). */
+  isScreened(inboxItemId: string): boolean {
+    const { ctx } = this.deps;
+    const item = ctx.repos.inbox.get(inboxItemId);
+    if (item?.kind !== 'question' || item.state !== 'screening') return false;
+    const group = ctx.repos.inbox.groupOf(item.id);
+    return !group || group.primaryItemId === item.id;
+  }
+
+  /**
+   * The PM got the question: the ten minutes start from the receipt (a held question keeps the time it had);
+   * the machine decides right after whether they run or stay held.
+   */
+  markDelivered(inboxItemId: string, at: string): void {
+    const { ctx } = this.deps;
+    ctx.unitOfWork(() => {
+      const current = ctx.repos.inbox.get(inboxItemId);
+      if (current?.state !== 'screening') return;
+      const group = ctx.repos.inbox.groupOf(current.id);
+      if (group && group.primaryItemId !== current.id) return;
+      // The PM got it once: a repeated delivery (a requeued item) does not give it more time.
+      if (questionPayloadOf(current)?.screening?.deliveredAt) return;
+      const screening = (current.payload.screening ?? {}) as Record<string, unknown>;
+      const held = questionPayloadOf(current)?.screening?.queue;
+      ctx.repos.inbox.updatePayload(
+        current.id,
+        {
+          ...current.payload,
+          screening: {
+            ...screening,
+            deliveredAt: at,
+            until: new Date(Date.parse(at) + (held?.remainingMs ?? QUESTION_SCREENING_MS)).toISOString(),
+          },
+        },
+        at,
+      );
+    });
+    this.applyEngineState(this.deps.ctx.repos.inbox.get(inboxItemId)?.projectKey ?? '');
+  }
+
+  /** A start was refused for the PM's machine: the questions are held for it, and nobody is asked. */
+  holdForEngine(projectKey: string): void {
+    this.applyEngineState(projectKey, true);
+  }
+
+  /** The people get the question now: the PM cannot take it. */
+  releaseUnavailable(inboxItemId: string): Promise<void> {
+    return this.release(inboxItemId, 'unavailable');
   }
 
   private screening(projectKey: string): InboxItem[] {
@@ -198,151 +271,18 @@ export class QuestionScreening {
     });
   }
 
-  private async release(item: InboxItem, fallback: 'timeout' | 'unavailable'): Promise<void> {
-    await this.deps.inbox.releaseScreened(item.id, { fallback }).catch((err: unknown) => {
-      this.deps.ctx.logger.warn({ err, inboxItemId: item.id }, 'could not release a screened question');
+  private async release(inboxItemId: string, fallback: 'timeout' | 'unavailable'): Promise<void> {
+    await this.deps.inbox.releaseScreened(inboxItemId, { fallback }).catch((err: unknown) => {
+      this.deps.ctx.logger.warn({ err, inboxItemId }, 'could not release a screened question');
     });
   }
 
   private async releaseAll(projectKey: string): Promise<void> {
-    for (const item of this.screening(projectKey)) await this.release(item, 'unavailable');
-  }
-
-  /**
-   * Wakes the PM for the questions it has not got. When it cannot be woken now (nobody to ask, AI work
-   * off, on leave, the team paused, admission defers the start, or the start fails), the questions go to the
-   * people at once: nothing waits ten minutes for a PM that is not coming.
-   */
-  private async deliver(projectKey: string): Promise<void> {
-    if (this.waking.has(projectKey)) {
-      this.again.add(projectKey);
-      return;
-    }
-    this.waking.add(projectKey);
-    try {
-      do {
-        this.again.delete(projectKey);
-        if (!this.undelivered(projectKey).length) continue;
-        if (await this.unavailable(projectKey)) {
-          await this.releaseAll(projectKey);
-          continue;
-        }
-        // The PM's machine is away: the questions wait for it, held with their time; its return wakes this again.
-        if (!this.applyEngineState(projectKey)) continue;
-        try {
-          const outcome = await this.deps.admission.attempt(this.start(projectKey));
-          // The CLI may still wait for its first input; admission's lock is free by now.
-          await this.firstDeliveries.get(projectKey);
-          if (outcome.kind === 'deferred') {
-            if (outcome.waiting.reason === 'engine_offline') this.applyEngineState(projectKey, true);
-            else await this.releaseAll(projectKey);
-          }
-        } catch (err) {
-          // A machine that dropped meanwhile is not a failure of the PM: the questions wait for it.
-          if (this.applyEngineState(projectKey)) {
-            this.deps.ctx.logger.warn({ err, projectKey }, 'could not give the PM the screened questions');
-            await this.releaseAll(projectKey);
-          }
-        } finally {
-          this.firstDeliveries.delete(projectKey);
-        }
-      } while (this.again.has(projectKey));
-    } finally {
-      this.waking.delete(projectKey);
-    }
+    for (const item of this.screening(projectKey)) await this.release(item.id, 'unavailable');
   }
 
   private async unavailable(projectKey: string): Promise<boolean> {
     return this.cannotScreen(projectKey, await this.deps.projects.config(projectKey));
-  }
-
-  private start(projectKey: string): ScreeningAttempt {
-    const { ctx, projects, sessions, admission, delivery } = this.deps;
-    return {
-      key: `question-screening:${projectKey}`,
-      projectKey,
-      taskKey: null,
-      spec: () => ({ kind: 'question_screening', projectKey }),
-      stillValid: () => this.undelivered(projectKey).length > 0,
-      waitsFor: () => coordinationMemberOf(projects.cachedConfig(projectKey)!)?.handle,
-      retry: () => this.deliver(projectKey),
-      log: {
-        deferred: 'question screening start deferred',
-        retryFailed: 'question screening retry failed',
-        fields: () => ({ projectKey }),
-      },
-      run: async () => {
-        const config = await projects.config(projectKey);
-        const member = coordinationMemberOf(config);
-        if (!member) return;
-        const items = this.undelivered(projectKey);
-        if (!items.length) return;
-        const nowMs = ctx.now().getTime();
-        const text = `${SCREENING_NOTICE}\n${items.map((item) => JSON.stringify(noticeOf(item, nowMs))).join('\n')}`;
-        const workItem = { type: 'general' } as const;
-        // The receipt starts the ten minutes (a held question keeps the time it had); the machine decides
-        // right after whether they run or stay held.
-        const markDelivered = () => {
-          ctx.unitOfWork(() => {
-            const at = isoNow(ctx);
-            for (const item of items) {
-              const current = ctx.repos.inbox.get(item.id);
-              if (current?.state !== 'screening') continue;
-              const group = ctx.repos.inbox.groupOf(current.id);
-              if (group && group.primaryItemId !== current.id) continue;
-              // A group that was delivered before combining keeps its earliest deadline.
-              if (group && questionPayloadOf(current)?.screening?.deliveredAt) continue;
-              const screening = (current.payload.screening ?? {}) as Record<string, unknown>;
-              const held = questionPayloadOf(current)?.screening?.queue;
-              ctx.repos.inbox.updatePayload(
-                item.id,
-                {
-                  ...current.payload,
-                  screening: {
-                    ...screening,
-                    deliveredAt: at,
-                    until: new Date(
-                      Date.parse(at) + (held?.remainingMs ?? QUESTION_SCREENING_MS),
-                    ).toISOString(),
-                  },
-                },
-                at,
-              );
-            }
-          });
-          this.applyEngineState(projectKey);
-        };
-        const running = sessions.findRunning(projectKey, member.handle, workItem);
-        if (running && !sessions.isPaused(running)) {
-          if (!(await delivery.notice(running, 'projectman', text, null)))
-            throw new Error('question screening delivery failed');
-        } else {
-          let firstInput: Promise<boolean> | undefined;
-          await delivery.startAndDeliver(projectKey, member.handle, workItem, async (messages) => {
-            const result = await admission.start({
-              config,
-              member,
-              workItem,
-              cause: { kind: 'question_screening' },
-              // The PM's conversation with the owners is not a card's work: it takes no capacity.
-              capacity: false,
-              messages: [...messages, formatInjectedTeamMessage('projectman', text, null)],
-            });
-            firstInput = result.firstInput;
-            return result;
-          });
-          const delivered = firstInput!.then((typed) => {
-            if (!typed) throw new Error('question screening first input was not delivered');
-            markDelivered();
-          });
-          // A rejection handler goes on before the admission attempt releases its lock.
-          void delivered.catch(() => undefined);
-          this.firstDeliveries.set(projectKey, delivered);
-          return;
-        }
-        markDelivered();
-      },
-    };
   }
 }
 

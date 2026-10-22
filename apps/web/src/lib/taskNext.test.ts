@@ -1,7 +1,7 @@
 import type { Task, TaskWait } from '@projectman/shared';
 import { describe, expect, it } from 'vitest';
 import { t } from '../i18n/t';
-import { tasks } from '../mocks/fixtures';
+import { tasks, plainLanguageQuestion } from '../mocks/fixtures';
 import { mockIndexes } from '../test/render';
 import { deriveNext } from './taskNext';
 import type { TaskNextContext } from './taskNext';
@@ -36,6 +36,36 @@ const human = (handle: string) => ({ handle, kind: 'human' as const });
 const ai = (handle: string) => ({ handle, kind: 'ai' as const });
 
 describe('deriveNext: the card row of "Miért áll?" (PM-461)', () => {
+  it.each([
+    {
+      operatorHandoff: {
+        queueItemId: 'queue',
+        reason: 'no_grant',
+        action: 'Complete work',
+        detail: null,
+        operationId: null,
+      },
+    },
+    {
+      superOperation: {
+        operationId: 'command',
+        commandHash: 'hash',
+        expectedConfigVersion: null,
+        expiresAt: '2026-10-22T12:00:00.000Z',
+      },
+    },
+  ])('attributes an Operator request to the Operator in task status', (payload) => {
+    const item = plainLanguageQuestion({
+      source: 'system',
+      payload: { question: 'Complete work', ...payload },
+    });
+    const next = deriveNext(
+      task,
+      wait({ reason: 'inbox', inboxKind: 'question', next: [human('owner')] }),
+      ctx({ item }),
+    )!;
+    expect(next.waiting).toBe(t('taskStatus.next.short.inboxYou.question', { asker: t('superMode.name') }));
+  });
   it.each([{ nextActors: [] }, { nextActors: [human('owner')] }])(
     'names the integrator with current or legacy next actors $nextActors',
     ({ nextActors }) => {

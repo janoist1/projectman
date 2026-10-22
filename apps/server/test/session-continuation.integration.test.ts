@@ -53,7 +53,7 @@ it.each(['missing', 'empty'] as const)(
         headers: { cookie },
         payload: { assignee: 'dev-1' },
       });
-      expect(res.statusCode).toBe(200);
+      expect(res.statusCode, res.body).toBe(200);
       return res.json<TaskDetail>().sessions[0]!;
     };
     const idle = (id: string) =>
@@ -136,7 +136,7 @@ it.each(PROVIDERS)(
         headers,
         payload: { assignee: member },
       });
-      expect(res.statusCode).toBe(200);
+      expect(res.statusCode, res.body).toBe(200);
       return res.json<TaskDetail>().sessions[0]!;
     };
     const chatOf = async (id: string) => (await domain.sessions.detail('AR', id)).chat;

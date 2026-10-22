@@ -55,19 +55,10 @@ describe('question answer delivery (PM-560)', () => {
     const task = h.repos.tasks.get('AR-1')!;
     h.repos.tasks.update(task.id, { stageId: 'development' });
     expect(h.repos.tasks.get(task.key)?.stageId).toBe('development');
-    const rebuilt = h.domain.messageStarts.rebuild({
-      kind: 'message_wake',
-      projectKey: 'AR',
-      handle: 'dev-1',
-      workItem: { type: 'task', taskKey: task.key },
-      stageId: task.stageId,
-    });
-    expect(rebuilt.stillValid(h.domain.tasks.get('AR', task.key))).toBe(true);
-    expect(rebuilt.spec()).toMatchObject({ stageId: 'development' });
-    h.domain.admission.discardStale(h.domain.tasks.get('AR', task.key));
-    expect(h.repos.deferredStarts.list()).toHaveLength(1);
+    await h.domain.memberQueueDriver.ensure('AR', 'dev-1');
+    expect(h.repos.memberQueue.listOpen('AR', 'dev-1')).toHaveLength(1);
     await leave(false);
-    await h.domain.admission.retryDeferred();
+    await h.domain.memberQueueDriver.ensure('AR', 'dev-1');
     await vi.waitFor(() =>
       expect(h.domain.inbox.get('AR', id).payload.answerDelivery).toMatchObject({ state: 'delivered' }),
     );
@@ -87,7 +78,13 @@ describe('question answer delivery (PM-560)', () => {
       await gate;
       await check(request);
     });
-    h.domain.messaging.registerWaker(h.domain.messageStarts, 1);
+    h.domain.messaging.registerWaker(
+      {
+        wake: (projectKey, handle, workItem) => h.domain.memberQueueDriver.wake(projectKey, handle, workItem),
+        ensure: (projectKey, handle) => h.domain.memberQueueDriver.ensure(projectKey, handle),
+      },
+      1,
+    );
     const resolved = await answer(id);
     expect(resolved.payload.answerDelivery).toBeUndefined();
     release();
@@ -134,16 +131,14 @@ describe('question answer delivery (PM-560)', () => {
         },
       );
       h.repos.tasks.update(h.repos.tasks.get('AR-1')!.id, { stageId: 'development' });
-      h.domain.admission.discardStale(h.domain.tasks.get('AR', 'AR-1'));
-      expect(h.repos.deferredStarts.list()).toHaveLength(kind === 'question_forward' ? 1 : 0);
+      await h.domain.memberQueueDriver.ensure('AR', 'dev-1');
+      expect(h.repos.deferredStarts.list()).toHaveLength(0);
       await leave(false);
-      await h.domain.admission.retryDeferred();
+      await h.domain.memberQueueDriver.ensure('AR', 'dev-1');
       await flush();
-      const running = h.domain.sessions.findRunning('AR', 'dev-1', { type: 'task', taskKey: 'AR-1' });
-      if (kind === 'question_forward') {
-        expect(running).not.toBeNull();
-        expect(h.runner.lastStarted().initialMessage).toContain('Follow up');
-      } else expect(running).toBeNull();
+      // A person's message is still owed after the card moved on, whatever its origin (PM-925).
+      expect(h.domain.sessions.findRunning('AR', 'dev-1', { type: 'task', taskKey: 'AR-1' })).not.toBeNull();
+      expect(h.runner.lastStarted().initialMessage).toContain('Follow up');
     },
   );
 

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { InboxItem, ProjectConfig } from '@projectman/shared';
 import type { PermissionDecision, ToolContext } from '../src/contracts';
-import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
+import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush, planUsage } from './helpers/fakes';
 
@@ -75,13 +75,15 @@ describe('permission questions delegated to the AI decider (PM-169)', () => {
     decision: 'allow' | 'deny' | 'escalate',
     reason = 'Routine step of the task.',
   ) => h.domain.teamTools.decidePermissionRequest(tool(member), { requestId: item.id, decision, reason });
+  /** The decider's queue: what the driver owes it, open. */
+  const deciderQueue = (member = 'cr') => h.repos.memberQueue.listOpen('AR', member);
   const permissionEvents = () =>
     h.domain.timeline.list('AR', { taskKey: 'AR-1' }).filter((e) => e.type.startsWith('permission_'));
 
   describe('the decider', () => {
     beforeEach(() => start());
 
-    it('keeps two different permission subjects actionable and wakes their decider once', async () => {
+    it('keeps two different permission subjects actionable and starts one desk session for their decider', async () => {
       h.runnerModule.planUsage.value = planUsage(95);
       const first = new AbortController();
       const second = new AbortController();
@@ -90,17 +92,17 @@ describe('permission questions delegated to the AI decider (PM-169)', () => {
         ask('curl https://example.com/two', second.signal),
       ];
       await flush();
-      expect(openPermissions()).toHaveLength(2);
-      const messages = h.repos.messages.pending('AR', 'cr');
-      expect(messages).toHaveLength(2);
-      const config = await h.domain.projects.config('AR');
-      for (const message of messages) expect(h.domain.messages.wakes(config, message, 'cr')).toBe(true);
+      const open = openPermissions();
+      expect(open).toHaveLength(2);
+      expect(deciderQueue()).toHaveLength(2);
+      expect(h.domain.sessions.list('AR', { member: 'cr' })).toHaveLength(0);
       h.runnerModule.planUsage.value = planUsage(30);
       await h.domain.admission.retryDeferred();
       await flush();
-      expect(h.domain.sessions.list('AR', { member: 'cr' })).toHaveLength(1);
-      expect(h.runner.lastStarted().initialMessage).toContain('2 messages waited for you.');
-      expect(h.runner.lastStarted().initialMessage).not.toContain('do not act');
+      const sessions = h.domain.sessions.list('AR', { member: 'cr' });
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0]!.workItem).toEqual({ type: 'general' });
+      for (const item of open) expect(h.runner.lastStarted().initialMessage).toContain(item.id);
       await h.domain.admission.retryDeferred();
       expect(h.domain.sessions.list('AR', { member: 'cr' })).toHaveLength(1);
       first.abort();
@@ -174,25 +176,24 @@ describe('permission questions delegated to the AI decider (PM-169)', () => {
       expect(answers).toBe(1);
     });
 
-    it('does not wake a deferred decider after its permission subject escalates', async () => {
+    it('does not start a deferred decider after its permission subject escalates unreached', async () => {
       h.runnerModule.planUsage.value = planUsage(95);
       const controller = new AbortController();
       const pending = ask('curl https://example.com/data.json', controller.signal);
       await flush();
       const item = onlyOpen();
-      now = new Date(now.getTime() + 121_000);
+      now = new Date(now.getTime() + 301_000);
       await h.domain.inbox.sweepDelegations();
-      const config = await h.domain.projects.config('AR');
-      const message = h.repos.messages
-        .list('AR', { member: 'cr' })
-        .find((m) => m.subject?.type === 'permission' && m.subject.inboxItemId === item.id)!;
-      expect(h.domain.messages.wakes(config, message, 'cr')).toBe(false);
+      expect(h.domain.inbox.get('AR', item.id).payload).toMatchObject({
+        delegation: { state: 'pending_owner', escalation: { cause: 'undelivered' } },
+      });
+      expect(h.repos.memberQueue.get(deciderQueue()[0]?.id ?? '')).toBeNull();
       expect(h.domain.sessions.list('AR', { member: 'cr' })).toHaveLength(0);
       controller.abort();
       await pending;
     });
 
-    it('gets the question, with the exact input, instead of the owner, and is woken to answer it', async () => {
+    it('gets the question, with the exact input, instead of the owner, at the desk and without the card workspace', async () => {
       const controller = new AbortController();
       const pending = ask('curl https://example.com/data.json', controller.signal);
       await flush();
@@ -201,17 +202,25 @@ describe('permission questions delegated to the AI decider (PM-169)', () => {
       expect(item.payload).toMatchObject({
         toolName: 'Bash',
         toolInput: { command: 'curl https://example.com/data.json' },
-        delegation: { state: 'pending_lead', leads: ['cr'], leadDeadline: '2026-10-01T11:02:00.000Z' },
+        // The deadline counts from the delivery to the decider's desk, not from the request.
+        delegation: {
+          state: 'pending_lead',
+          leads: ['cr'],
+          deliveredAt: '2026-10-01T11:00:00.000Z',
+          leadDeadline: '2026-10-01T11:02:00.000Z',
+        },
       });
       expect(item.payload).not.toHaveProperty('ownerCategory');
       // Nothing for a person to do while the decider has the question.
       expect(h.domain.inbox.countOpenFor('AR', 'owner')).toBe(0);
-      expect(h.domain.sessions.list('AR', { member: 'cr', taskKey: 'AR-1' })).toHaveLength(1);
-      const message = h.repos.messages.list('AR', { member: 'cr' }).at(-1)!;
-      expect(message.body).toContain(`Permission request ${item.id}`);
-      expect(message.body).toContain('curl https://example.com/data.json');
-      expect(message.body).toContain('decide_permission_request');
-      expect(message.body).toContain('2026-10-01T11:02:00.000Z');
+      expect(h.domain.sessions.list('AR', { member: 'cr', taskKey: 'AR-1' })).toHaveLength(0);
+      const desk = h.domain.sessions.list('AR', { member: 'cr' });
+      expect(desk).toHaveLength(1);
+      expect(desk[0]!.workItem).toEqual({ type: 'general' });
+      const prompt = h.runner.lastStarted().initialMessage;
+      expect(prompt).toContain(`Permission request ${item.id}`);
+      expect(prompt).toContain('curl https://example.com/data.json');
+      expect(prompt).toContain('decide_permission_request');
       controller.abort();
       expect((await pending).behavior).toBe('deny');
     });
@@ -322,6 +331,121 @@ describe('permission questions delegated to the AI decider (PM-169)', () => {
       await decide('cr', item, 'allow');
       expect(await pending).toEqual({ behavior: 'allow' });
       await expect(decide('cr', item, 'deny')).rejects.toMatchObject({ code: 'invalid' });
+    });
+  });
+
+  describe('the decision lane at the desk (PM-926)', () => {
+    beforeEach(() => start());
+    const queueRows = () =>
+      h.repos.db
+        .prepare(
+          "SELECT member, state, close_reason AS reason FROM member_queue_items WHERE kind = 'permission' ORDER BY member",
+        )
+        .all();
+    const deskTool = (member: string): ToolContext => ({
+      projectKey: 'AR',
+      member,
+      sessionId: h.domain.sessions.list('AR', { member })[0]!.id,
+      taskKey: null,
+    });
+
+    it('reaches a decider with no running session, while the requester holds the card workspace, and closes the item with its decision', async () => {
+      const pending = ask('curl https://example.com/data.json');
+      await flush();
+      const item = onlyOpen();
+      // The card has no session of the decider and its workspace is the requester's, yet the question is at its desk.
+      expect(h.domain.sessions.list('AR', { member: 'cr', taskKey: 'AR-1' })).toHaveLength(0);
+      expect(item.assignees).toEqual(['cr']);
+      expect(deciderQueue()).toMatchObject([{ kind: 'permission', state: 'processing' }]);
+      await h.domain.teamTools.decidePermissionRequest(deskTool('cr'), {
+        requestId: item.id,
+        decision: 'allow',
+        reason: 'Routine step of the task.',
+      });
+      expect(await pending).toEqual({ behavior: 'allow' });
+      expect(deciderQueue()).toEqual([]);
+      expect(queueRows()).toEqual([{ member: 'cr', state: 'done', reason: 'resolved' }]);
+    });
+
+    it('starts the decider even when the team and the decider are at capacity', async () => {
+      await h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (config) => {
+        config.team.limits.maxConcurrentAi = 1;
+        return 'One AI slot';
+      });
+      const controller = new AbortController();
+      const pending = ask('curl https://example.com/data.json', controller.signal);
+      await flush();
+      expect(onlyOpen().assignees).toEqual(['cr']);
+      expect(h.domain.sessions.list('AR', { member: 'cr' }).map((s) => s.workItem)).toEqual([
+        { type: 'general' },
+      ]);
+      controller.abort();
+      await pending;
+    });
+
+    it('counts the deadline from the delivery, so a late start still gives the decider its time', async () => {
+      h.runnerModule.planUsage.value = planUsage(95);
+      const controller = new AbortController();
+      const pending = ask('curl https://example.com/data.json', controller.signal);
+      await flush();
+      const item = onlyOpen();
+      expect(item.payload).toMatchObject({ delegation: { leadDeadline: '2026-10-01T11:05:00.000Z' } });
+      now = new Date('2026-10-01T11:04:00.000Z');
+      h.runnerModule.planUsage.value = planUsage(30);
+      await h.domain.admission.retryDeferred();
+      await flush();
+      expect(h.domain.inbox.get('AR', item.id).payload).toMatchObject({
+        delegation: {
+          deliveredAt: '2026-10-01T11:04:00.000Z',
+          leadDeadline: '2026-10-01T11:06:00.000Z',
+        },
+      });
+      now = new Date('2026-10-01T11:05:30.000Z');
+      await h.domain.inbox.sweepDelegations();
+      expect(onlyOpen().assignees).toEqual(['cr']);
+      now = new Date('2026-10-01T11:06:00.000Z');
+      await h.domain.inbox.sweepDelegations();
+      expect(onlyOpen().assignees).toEqual(['owner']);
+      expect(permissionEvents().at(-1)).toMatchObject({
+        type: 'permission_escalated',
+        data: { cause: 'timeout' },
+      });
+      controller.abort();
+      await pending;
+    });
+
+    it('gives the question to two deciders and closes the other one’s item when one decides', async () => {
+      await h.cleanup();
+      await start((config) => {
+        const other = config.team.members.find((m) => m.handle === 'dev-2')!;
+        if (other.kind === 'ai') other.role = 'custom_lead';
+      });
+      const pending = ask('curl https://example.com/data.json');
+      await flush();
+      const item = onlyOpen();
+      expect([...item.assignees].sort()).toEqual(['cr', 'dev-2']);
+      expect(deciderQueue('dev-2')).toMatchObject([{ kind: 'permission' }]);
+      await h.domain.teamTools.decidePermissionRequest(deskTool('cr'), {
+        requestId: item.id,
+        decision: 'allow',
+        reason: 'Routine step of the task.',
+      });
+      expect(await pending).toEqual({ behavior: 'allow' });
+      expect(queueRows()).toEqual([
+        { member: 'cr', state: 'done', reason: 'resolved' },
+        { member: 'dev-2', state: 'cancelled', reason: 'source_closed' },
+      ]);
+    });
+
+    it('closes the item of a decider as handed off when the request goes to a person', async () => {
+      const controller = new AbortController();
+      const pending = ask('curl https://example.com/data.json', controller.signal);
+      await flush();
+      const item = onlyOpen();
+      await decide('cr', item, 'escalate', 'Needs a person.');
+      expect(queueRows()).toEqual([{ member: 'cr', state: 'handed_off', reason: 'handed_off' }]);
+      controller.abort();
+      await pending;
     });
   });
 
@@ -522,7 +646,7 @@ describe('permission questions delegated to the AI decider (PM-169)', () => {
         expect(onlyOpen().assignees).toEqual(['owner']);
         expect(permissionEvents().at(-1)).toMatchObject({
           type: 'permission_escalated',
-          data: { cause: 'timeout' },
+          data: { cause: 'unavailable' },
         });
         controller.abort();
         await pending;
@@ -626,7 +750,7 @@ describe('permission questions delegated to the AI decider (PM-169)', () => {
       expect(onlyOpen().assignees).toEqual(['owner']);
       expect(permissionEvents().at(-1)).toMatchObject({
         type: 'permission_escalated',
-        data: { cause: 'timeout' },
+        data: { cause: 'unavailable' },
       });
       controller.abort();
       await pending;

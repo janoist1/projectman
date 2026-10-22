@@ -152,10 +152,13 @@ describe('the Operator talks with every person in a conversation of their own (P
 
   it('does not wake for an AI member or the integrator key', async () => {
     await setup();
-    const sent = await h.domain.messaging.sendReporting('AR', 'dev-1', { to: ['operator'], text: 'FYI' });
-    expect(sent.recipients).toEqual([
-      { handle: 'operator', delivery: 'next_input', noWake: 'operator_owner_only' },
-    ]);
+    const sent = await h.domain.messaging.sendReporting(
+      'AR',
+      'dev-1',
+      { to: ['operator'], text: 'FYI' },
+      { kind: 'info' },
+    );
+    expect(sent.recipients).toEqual([{ handle: 'operator', delivery: 'next_input', info: true }]);
     expect(
       await rejection(
         h.domain.messaging.sendReporting(

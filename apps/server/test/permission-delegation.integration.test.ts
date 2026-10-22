@@ -13,6 +13,11 @@ import type { CliAppHarness } from './helpers/app-harness';
  */
 
 let h: CliAppHarness | undefined;
+// Each phase includes fake CLI/hooks starting on the test host. Poll conditions rather than sleeping.
+const PHASE_TIMEOUT_MS = 30_000;
+// Startup, question, decider wake-up and transcript delivery each have their own phase budget.
+const TEST_TIMEOUT_MS = 5 * PHASE_TIMEOUT_MS;
+
 afterEach(async () => {
   await h?.close();
   h = undefined;
@@ -56,7 +61,10 @@ async function startAsking(command: string) {
   });
   expect(started.statusCode, started.body).toBe(200);
   const session = started.json<TaskDetail>().sessions[0]!;
-  await waitFor(() => domain.sessions.get('AR', session.id).state === 'idle', { what: 'dev-1 idle' });
+  await waitFor(() => domain.sessions.get('AR', session.id).state === 'idle', {
+    what: 'dev-1 idle',
+    timeoutMs: PHASE_TIMEOUT_MS,
+  });
   const written = await app.inject({
     method: 'POST',
     url: routes.sessionMessages('AR', session.id),
@@ -65,7 +73,10 @@ async function startAsking(command: string) {
   });
   expect(written.statusCode).toBe(202);
   const open = (): InboxItem | undefined => domain.inbox.list('AR', { kind: 'permission', state: 'open' })[0];
-  await waitFor(() => open() !== undefined, { what: 'the permission question' });
+  await waitFor(() => open() !== undefined, {
+    what: 'the permission question',
+    timeoutMs: PHASE_TIMEOUT_MS,
+  });
   const chat = async () => text((await domain.sessions.detail('AR', session.id)).chat);
   return { app, cookie, domain, key, session, item: open()!, chat };
 }
@@ -73,52 +84,63 @@ async function startAsking(command: string) {
 it.each([
   ['allow', 'Everything up-to-date'],
   ['deny', 'Denied by cr: The task does not need this download.'],
-] as const)('gives the decider’s %s to the fake CLI', { timeout: 90_000 }, async (decision, seen) => {
-  const { domain, key, session, item, chat } = await startAsking('curl https://example.com/data.json');
-  expect(item).toMatchObject({ source: 'dev-1', assignees: ['cr'], taskKey: key });
-  expect(item.payload).toMatchObject({
-    toolInput: { command: 'curl https://example.com/data.json' },
-    delegation: { state: 'pending_lead', leads: ['cr'] },
-  });
-  expect(domain.inbox.countOpenFor('AR', 'owner')).toBe(0);
-  // The decider is woken for the task: it has a session of its own.
-  await waitFor(() => domain.sessions.list('AR', { member: 'cr', taskKey: key }).length > 0, {
-    what: 'the decider’s session',
-  });
-  const tool = TEAM_TOOLS.find((t) => t.name === 'decide_permission_request')!;
-  const reason =
-    decision === 'allow' ? 'A plain download inside the task.' : 'The task does not need this download.';
-  await tool.run({
-    ctx: { projectKey: 'AR', member: 'cr', sessionId: 'cr-session', taskKey: key },
-    args: { request_id: item.id, decision, reason },
-    handler: h!.app.projectman.domain.teamTools,
-  });
-  await vi.waitFor(async () => expect(await chat()).toContain(seen), { timeout: 15_000 });
-  const timeline = domain.timeline.list('AR', { taskKey: key });
-  expect(timeline.filter((e) => e.type.startsWith('permission_')).map((e) => e.type)).toEqual([
-    'permission_requested',
-    'permission_resolved',
-  ]);
-  expect(timeline.find((e) => e.type === 'permission_resolved')).toMatchObject({
-    actor: { kind: 'ai', handle: 'cr' },
-    sessionId: session.id,
-    data: { decision, delegated: true, reason },
-  });
-  expect(domain.inbox.get('AR', item.id).resolution).toMatchObject({
-    optionId: decision,
-    by: 'cr',
-    note: reason,
-  });
-});
+] as const)(
+  'gives the decider’s %s to the fake CLI',
+  { timeout: TEST_TIMEOUT_MS },
+  async (decision, seen) => {
+    const { domain, key, session, item, chat } = await startAsking('curl https://example.com/data.json');
+    expect(item).toMatchObject({ source: 'dev-1', assignees: ['cr'], taskKey: key });
+    expect(item.payload).toMatchObject({
+      toolInput: { command: 'curl https://example.com/data.json' },
+      delegation: { state: 'pending_lead', leads: ['cr'] },
+    });
+    expect(domain.inbox.countOpenFor('AR', 'owner')).toBe(0);
+    // The decider is woken at the desk, with no card and no workspace: it has a session of its own.
+    await waitFor(
+      () => domain.sessions.list('AR', { member: 'cr' }).some((s) => s.workItem.type === 'general'),
+      {
+        what: 'the decider’s desk session',
+        timeoutMs: PHASE_TIMEOUT_MS,
+      },
+    );
+    expect(domain.sessions.list('AR', { member: 'cr', taskKey: key })).toHaveLength(0);
+    const tool = TEAM_TOOLS.find((t) => t.name === 'decide_permission_request')!;
+    const reason =
+      decision === 'allow' ? 'A plain download inside the task.' : 'The task does not need this download.';
+    await tool.run({
+      ctx: { projectKey: 'AR', member: 'cr', sessionId: 'cr-session', taskKey: key },
+      args: { request_id: item.id, decision, reason },
+      handler: h!.app.projectman.domain.teamTools,
+    });
+    await vi.waitFor(async () => expect(await chat()).toContain(seen), { timeout: PHASE_TIMEOUT_MS });
+    const timeline = domain.timeline.list('AR', { taskKey: key });
+    expect(timeline.filter((e) => e.type.startsWith('permission_')).map((e) => e.type)).toEqual([
+      'permission_requested',
+      'permission_resolved',
+    ]);
+    expect(timeline.find((e) => e.type === 'permission_resolved')).toMatchObject({
+      actor: { kind: 'ai', handle: 'cr' },
+      sessionId: session.id,
+      data: { decision, delegated: true, reason },
+    });
+    expect(domain.inbox.get('AR', item.id).resolution).toMatchObject({
+      optionId: decision,
+      by: 'cr',
+      note: reason,
+    });
+    expect(domain.memberQueue.view('AR', 'cr').closed).toMatchObject([{ kind: 'permission', state: 'done' }]);
+  },
+);
 
 it(
   'sends a question in one of the owner’s categories to the owner, who answers it',
-  { timeout: 90_000 },
+  { timeout: TEST_TIMEOUT_MS },
   async () => {
     const { app, cookie, domain, key, item, chat } = await startAsking('git push origin main');
     expect(item).toMatchObject({ assignees: ['owner'], payload: { ownerCategory: 'production' } });
     expect(item.payload).not.toHaveProperty('delegation');
-    expect(domain.sessions.list('AR', { member: 'cr', taskKey: key })).toHaveLength(0);
+    expect(domain.sessions.list('AR', { member: 'cr' })).toHaveLength(0);
+    expect(domain.memberQueue.view('AR', 'cr').items).toEqual([]);
     const resolved = await app.inject({
       method: 'POST',
       url: routes.resolveInbox('AR', item.id),
@@ -127,7 +149,7 @@ it(
     });
     expect(resolved.statusCode, resolved.body).toBe(200);
     await vi.waitFor(async () => expect(await chat()).toContain('Everything up-to-date'), {
-      timeout: 15_000,
+      timeout: PHASE_TIMEOUT_MS,
     });
     expect(
       domain.timeline.list('AR', { taskKey: key }).find((e) => e.type === 'permission_resolved'),

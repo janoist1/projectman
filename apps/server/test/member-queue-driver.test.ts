@@ -239,6 +239,26 @@ describe('the member queue driver', () => {
       expect(h.repos.memberQueue.get('probe-2')).toMatchObject({ state: 'queued' });
     });
 
+    it('does not hold the run until the started session takes its first input, and leaves the item alone meanwhile', async () => {
+      h.runner.holdFirstInput = true;
+      enqueue('probe-1', true);
+      await driver().ensure('AR', 'dev-1');
+
+      expect(h.runner.started.map((spec) => spec.member)).toEqual(['dev-1']);
+      await driver().ensure('AR', 'dev-1', { net: true });
+      expect(h.runner.started).toHaveLength(1);
+      expect(h.runner.messages).toHaveLength(0);
+      expect(h.repos.memberQueue.get('probe-1')).toMatchObject({ state: 'queued' });
+
+      h.runner.emit({ type: 'first_input_sent', sessionId: h.runner.started[0]!.sessionId });
+      await vi.waitFor(() =>
+        expect(h.repos.memberQueue.get('probe-1')).toMatchObject({
+          state: 'processing',
+          sessionId: h.runner.started[0]!.sessionId,
+        }),
+      );
+    });
+
     it('puts an item back whose session is gone, and hands it off after the last attempt', async () => {
       enqueue('probe-1');
       for (let attempt = 1; attempt < MEMBER_QUEUE_MAX_ATTEMPTS; attempt++) {

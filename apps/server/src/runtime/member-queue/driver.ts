@@ -91,6 +91,8 @@ export class MemberQueueWorker implements MemberQueueDriver {
    */
   private readonly failures = new Map<string, { at: number; code: string }>();
   private readonly forced = new Set<string>();
+  /** The items that went in with a session start whose first input was not typed yet. */
+  private readonly awaitingFirstInput = new Set<string>();
   /** The members whose next run is at a turn boundary: it types into their live sessions. */
   private readonly boundaries = new Set<string>();
   private begun = false;
@@ -208,7 +210,7 @@ export class MemberQueueWorker implements MemberQueueDriver {
     let entries: Entry[] = [];
     for (const item of repo.listOpenByUrgency(projectKey, member)) {
       const lane = this.laneOf(item, config);
-      if (!lane || item.state !== 'queued') continue;
+      if (!lane || item.state !== 'queued' || this.awaitingFirstInput.has(item.id)) continue;
       if (!lane.stillOwed(item)) {
         this.close(item, 'cancelled', 'source_closed', at);
         changed = true;
@@ -478,6 +480,38 @@ export class MemberQueueWorker implements MemberQueueDriver {
     return true;
   }
 
+  /** Marks the items delivered once the session they went in with took its first input; until then the runs leave them be. */
+  private settleAfterFirstInput(
+    firstInput: Promise<boolean>,
+    sessionId: string,
+    entries: Entry[],
+    at: string,
+  ): void {
+    const { ctx } = this.deps;
+    const repo = ctx.repos.memberQueue;
+    for (const entry of entries) this.awaitingFirstInput.add(entry.item.id);
+    firstInput
+      .catch(() => false)
+      .then((typed) => {
+        for (const entry of entries) this.awaitingFirstInput.delete(entry.item.id);
+        if (!typed) return;
+        for (const entry of entries) {
+          const claims = entry.lane.completion === 'source' || entry.lane.completion === 'finish';
+          if (claims && !repo.claim(entry.item.id, sessionId, at)) continue;
+          ctx.unitOfWork(() => {
+            entry.lane.delivered?.(entry.item, sessionId, at);
+            if (!claims)
+              this.close(entry.item, 'done', entry.lane.completion === 'start' ? 'started' : 'delivered', at);
+          });
+        }
+        const [first] = entries;
+        if (first) this.deps.queue.publish(first.item.projectKey, first.item.member);
+      })
+      .catch((err: unknown) => {
+        ctx.logger.warn({ err, sessionId }, 'marking the items of a started session delivered failed');
+      });
+  }
+
   /**
    * One attempt to start the session `first` asks for, with the items of its place that go in with it. A
    * refusal a later attempt can overcome is the answer `refused`: the code every waking item waits with.
@@ -530,19 +564,11 @@ export class MemberQueueWorker implements MemberQueueDriver {
         started.firstInput = result.firstInput;
         started.sessionId = result.session.id;
       });
-      // Outside the admission lock: a first input that does not arrive keeps the items queued.
-      if (started.firstInput && started.sessionId && (await started.firstInput.catch(() => false))) {
-        const sessionId = started.sessionId;
-        for (const entry of entries) {
-          const claims = entry.lane.completion === 'source' || entry.lane.completion === 'finish';
-          if (claims && !repo.claim(entry.item.id, sessionId, at)) continue;
-          ctx.unitOfWork(() => {
-            entry.lane.delivered?.(entry.item, sessionId, at);
-            if (!claims)
-              this.close(entry.item, 'done', entry.lane.completion === 'start' ? 'started' : 'delivered', at);
-          });
-        }
-      }
+      // The run does not wait for the first input (it arrives with the session's process, or never, and a stop of
+      // the instance would wait for it): the items are marked delivered when it was typed, and are left alone
+      // until then; one that does not arrive keeps them queued for the sweep.
+      if (started.firstInput && started.sessionId)
+        this.settleAfterFirstInput(started.firstInput, started.sessionId, entries, at);
     } catch (err) {
       const code = err instanceof DomainError ? err.code : 'start_failed';
       if (isDeferrable(err)) {

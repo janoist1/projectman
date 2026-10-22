@@ -2,7 +2,7 @@ import type { Actor, Attachment, AttachmentPreview } from '@projectman/shared';
 import type { Db } from './database';
 
 /** Where an attachment is in its life; only `ready` ones are readable. */
-export type AttachmentState = 'pending' | 'ready' | 'deleting';
+type AttachmentState = 'pending' | 'ready' | 'deleting';
 
 /** An attachment row: the web's DTO plus the durable operation state. */
 export interface AttachmentRecord extends Attachment {

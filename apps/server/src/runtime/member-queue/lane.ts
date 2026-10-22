@@ -7,7 +7,7 @@ import type { EnsureSessionResult, SessionStartCause } from '../sessions';
  * close together), `start` when the session it asked for started, `source` when whatever made the item says
  * so (the item stays `processing` until then), `finish` when the member's turn on it ends.
  */
-export type MemberQueueCompletion = 'delivery' | 'source' | 'finish' | 'start';
+type MemberQueueCompletion = 'delivery' | 'source' | 'finish' | 'start';
 
 /** What a lane tells the driver about its items; the driver works them (PM-925). */
 export interface MemberQueueLane {

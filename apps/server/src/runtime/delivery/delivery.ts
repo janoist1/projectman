@@ -52,10 +52,10 @@ export interface DeliveryDeps {
 }
 
 /** The session did not take the typed text (PM-571), or it ended. */
-export class TypeIntoFailed extends Data.TaggedError('TypeIntoFailed')<{ readonly cause: unknown }> {}
+class TypeIntoFailed extends Data.TaggedError('TypeIntoFailed')<{ readonly cause: unknown }> {}
 
 /** The session for the waiting messages could not be started. */
-export class StartFailed extends Data.TaggedError('StartFailed')<{ readonly cause: unknown }> {}
+class StartFailed extends Data.TaggedError('StartFailed')<{ readonly cause: unknown }> {}
 
 export interface DeliveryEffects {
   /** Types a stored message into its recipient's session, once; forks and returns at once. */

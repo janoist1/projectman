@@ -3,7 +3,7 @@ import type { ExternalToolOrigin } from '@projectman/shared';
 import type { Db } from './database';
 import { parseJson, toJson } from './json';
 
-export type DocWriteState = 'queued' | 'running' | 'published' | 'stale' | 'failed';
+type DocWriteState = 'queued' | 'running' | 'published' | 'stale' | 'failed';
 
 /** One text replacement in one file; an empty `old_text` appends. */
 export interface DocWriteEdit {

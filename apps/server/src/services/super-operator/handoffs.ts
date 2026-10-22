@@ -79,7 +79,7 @@ export type SuperCommandExecutor = (
  * What an executor returns when the work goes on elsewhere (a supervisor job that outlives the request): the
  * operation stays `running` and the kind's settler finishes it from the recorded result, never by running it again.
  */
-export interface SuperExecutorPending {
+interface SuperExecutorPending {
   pending: true;
 }
 

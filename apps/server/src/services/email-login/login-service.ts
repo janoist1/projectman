@@ -37,7 +37,7 @@ export const EMAIL_LOGIN_LIMITS = {
 } as const;
 
 /** The constant answer of a code request. */
-export const EMAIL_LOGIN_CODE_REQUESTED = { expiresInSeconds: 600, resendAfterSeconds: 60 } as const;
+const EMAIL_LOGIN_CODE_REQUESTED = { expiresInSeconds: 600, resendAfterSeconds: 60 } as const;
 
 export interface EmailLoginService {
   /**

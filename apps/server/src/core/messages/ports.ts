@@ -67,7 +67,7 @@ export interface MessageRefinement {
   turnMember(projectKey: string, taskKey: string): string | null;
 }
 
-export interface MessageRequestInput {
+interface MessageRequestInput {
   projectKey: string;
   sessionId: string;
   source: 'message' | 'answer' | 'approval';

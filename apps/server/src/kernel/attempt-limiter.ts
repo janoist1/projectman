@@ -22,7 +22,7 @@ interface AttemptLimiterOptions {
   now?: () => number;
 }
 
-export interface AttemptLimiter {
+interface AttemptLimiter {
   /**
    * Reserves an attempt for `key` (the client's address) before the expensive or guessable work,
    * so concurrent attempts count too; throws 429 `too_many_attempts` once the window's budget of

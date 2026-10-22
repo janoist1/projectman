@@ -88,7 +88,7 @@ export const TEAM_TOOL_NAMES = [
 ] as const;
 export type TeamToolName = (typeof TEAM_TOOL_NAMES)[number];
 
-export interface ToolRun<Args> {
+interface ToolRun<Args> {
   ctx: ToolContext;
   args: Args;
   handler: TeamToolsHandler;
@@ -101,7 +101,7 @@ interface ToolImage {
 }
 
 /** A tool answer with images; a plain string is a text-only answer. */
-export interface ToolOutput {
+interface ToolOutput {
   text: string;
   images: ToolImage[];
 }

@@ -40,11 +40,7 @@ export {
   nonLocalReason,
 } from './local-guard';
 export { isLocalRequest, clientAddress, ipRateLimitKey, requestProtocol, sameOrigin } from './local-request';
-export {
-  createAttemptLimiter,
-  MAX_FAILED_ATTEMPTS_ALL_CLIENTS,
-  type AttemptLimiter,
-} from './attempt-limiter';
+export { createAttemptLimiter, MAX_FAILED_ATTEMPTS_ALL_CLIENTS } from './attempt-limiter';
 export {
   runIntegratorExecution,
   integratorExecution,

@@ -166,7 +166,7 @@ export async function receiveImage(
 }
 
 /** What an image build needs of its environment: running a command and piping two. */
-export interface ImageBuildTools {
+interface ImageBuildTools {
   deps: Pick<CloudDeps, 'run' | 'pipe'>;
 }
 
@@ -182,7 +182,7 @@ async function checked(
 }
 
 /** The exported tracked sources hold no symlink and no runtime data, whatever the commit tracked. */
-export function inspectSource(directory: string): void {
+function inspectSource(directory: string): void {
   for (const name of fs.readdirSync(directory)) {
     const file = path.join(directory, name);
     const stat = fs.lstatSync(file);

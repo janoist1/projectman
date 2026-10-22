@@ -11,7 +11,7 @@ import Database from 'better-sqlite3';
  * that nothing has the database open.
  */
 
-export const DB_FILE = 'db.sqlite';
+const DB_FILE = 'db.sqlite';
 const DB_SIDE_FILES = ['-wal', '-shm'] as const;
 
 /** The database files of a home that exist (the main file, then `-wal` and `-shm`). */
@@ -51,7 +51,7 @@ export function databaseInUse(home: string): boolean {
   }
 }
 
-export interface DatabaseSnapshot {
+interface DatabaseSnapshot {
   /** The scratch copy, opened read-write (it is deleted by `dispose`). */
   db: Database.Database;
   dispose(): void;

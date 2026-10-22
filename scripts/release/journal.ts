@@ -21,10 +21,10 @@ import { releaseIdSchema } from './receipt';
  */
 
 export const JOURNAL_FILE = 'journal.json';
-export const LOCK_FILE = 'watch.lock';
+const LOCK_FILE = 'watch.lock';
 export const JOURNAL_ARCHIVE_DIR = 'journals';
 
-export const LOCAL_PHASES = [
+const LOCAL_PHASES = [
   'claim',
   'prepare',
   'bind',
@@ -49,7 +49,7 @@ export const LocalPhase = z.enum(LOCAL_PHASES);
 export type LocalPhase = z.infer<typeof LocalPhase>;
 
 /** Why the attempt goes back, as the coordinator's own fixed vocabulary (it never carries a raw error). */
-export const LOCAL_FAILURE_CODES = [
+const LOCAL_FAILURE_CODES = [
   'prepare_failed',
   'quiesce_refused',
   'drain_timeout',
@@ -81,7 +81,6 @@ const pendingRequestSchema = z.discriminatedUnion('op', [
   ReleaseDeployBegin.extend({ op: z.literal('release_deploy_begin') }),
   ReleaseDeployChange.extend({ op: z.literal('release_deploy_change') }),
 ]);
-export type PendingRequest = z.output<typeof pendingRequestSchema>;
 
 export const hybridReleaseJournalSchema = z.strictObject({
   version: z.literal(1),
@@ -123,7 +122,7 @@ export const hybridReleaseJournalSchema = z.strictObject({
 export type HybridReleaseJournal = z.output<typeof hybridReleaseJournalSchema>;
 
 /** Phases from which nothing is left to do: the journal may be archived. */
-export const TERMINAL_PHASES: readonly LocalPhase[] = ['complete'];
+const TERMINAL_PHASES: readonly LocalPhase[] = ['complete'];
 
 export type JournalRead = { kind: 'none' } | { kind: 'ok'; journal: HybridReleaseJournal };
 
@@ -289,14 +288,14 @@ export function hasActiveJournal(stateDir: string): boolean {
 // The local exclusion: one watcher per state directory.
 // ---------------------------------------------------------------------------------------------
 
-export interface LockDeps {
+interface LockDeps {
   pid: number;
   /** Whether a process with this id runs (a process of another user counts as running). */
   isAlive(pid: number): boolean;
   now(): Date;
 }
 
-export const processLockDeps: LockDeps = {
+const processLockDeps: LockDeps = {
   pid: process.pid,
   isAlive(pid) {
     try {
@@ -311,7 +310,7 @@ export const processLockDeps: LockDeps = {
 
 const lockContent = z.strictObject({ pid: z.number().int().positive(), nonce: z.string(), at: timestamp });
 
-export interface HeldLocalLock {
+interface HeldLocalLock {
   release(): void;
 }
 

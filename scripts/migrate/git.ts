@@ -6,7 +6,7 @@ import { execCommand, ExecCommandError } from '../../apps/server/src/exec';
  * says it writes (the new machine's repositories, the copy of the customization repository). Hooks
  * never run, nothing prompts, and the output is in the C locale so it can be parsed.
  */
-export interface GitResult {
+interface GitResult {
   stdout: string;
   stderr: string;
   code: number;

@@ -31,7 +31,7 @@ import { readEnvFile } from './secrets';
  * (PM-510: the machine answers the unknown hostname with 404 on both `Host` shapes).
  */
 
-export interface PublishOptions {
+interface PublishOptions {
   dryRun: boolean;
   feedback: boolean;
 }
@@ -39,7 +39,7 @@ export interface PublishOptions {
 const guardCheckSchema = z.looseObject({ plain: z.string(), port: z.string() });
 
 /** What `host.sh guard-check` reports: the status codes the board gives to the feedback hostname. */
-export async function readGuardCheck(
+async function readGuardCheck(
   context: CloudContext,
   hostname: string,
 ): Promise<{ plain: string; port: string }> {
@@ -61,10 +61,10 @@ const publicCheckSchema = z.looseObject({
   crossOriginStatus: z.number(),
   integratorHostIsolated: z.boolean().optional(),
 });
-export type PublicCheck = z.output<typeof publicCheckSchema>;
+type PublicCheck = z.output<typeof publicCheckSchema>;
 
 /** What `host.sh public-check` reports: the running board as the public board (PM-672). */
-export async function readPublicCheck(context: CloudContext, hostname: string): Promise<PublicCheck> {
+async function readPublicCheck(context: CloudContext, hostname: string): Promise<PublicCheck> {
   return withHost(context, async (host) => {
     const text = await host.call('public-check', [
       hostname,
@@ -79,7 +79,7 @@ export async function readPublicCheck(context: CloudContext, hostname: string): 
 }
 
 /** The public board runs only on exactly this answer: the flag, the e-mail login, an owner, 401 and 403. */
-export function publicCheckProblems(answer: PublicCheck): string[] {
+function publicCheckProblems(answer: PublicCheck): string[] {
   const problems: string[] = [];
   if (!answer.publicBoard) problems.push('the running server does not run as the public board (publicBoard)');
   if (!answer.emailLoginEnabled) problems.push('the running server has no working e-mail login');

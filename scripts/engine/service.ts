@@ -66,7 +66,7 @@ export function servicePathEnv(pathEnv: string): string {
 const xml = (value: string): string =>
   value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-export interface PlistValues {
+interface PlistValues {
   label: string;
   node: string;
   root: string;
@@ -206,7 +206,7 @@ export function uninstallService(options: ServiceOptions): void {
   options.out(had ? `engine service removed: ${paths.plist}` : 'no engine service was installed');
 }
 
-export interface ServiceState {
+interface ServiceState {
   installed: boolean;
   loaded: boolean;
   running: boolean;

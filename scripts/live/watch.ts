@@ -44,7 +44,7 @@ import { installedExitTimeout } from './plist';
  * lock (`deps.chdir`), every child process gets an explicit `cwd`, and only absolute paths are used.
  */
 
-export interface WatchOptions {
+interface WatchOptions {
   /** The live checkout (`~/projectman-live`). */
   root: string;
   /** The app home (`~/.projectman`). */

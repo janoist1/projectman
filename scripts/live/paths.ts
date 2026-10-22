@@ -59,7 +59,7 @@ export const plistFile = (homeDir: string, label: string) => path.join(agentsDir
 export const domainTarget = (uid: number, label: string) => `gui/${uid}/${label}`;
 
 /** The last `max` characters of some output, for a failure message the server stores (at most 2000). */
-export function tail(text: string, max: number): string {
+function tail(text: string, max: number): string {
   const trimmed = text.trim();
   return trimmed.length <= max ? trimmed : trimmed.slice(trimmed.length - max);
 }

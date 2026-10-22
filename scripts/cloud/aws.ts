@@ -13,7 +13,7 @@ import { checkSecretsDir, inspectSecrets, newResticPassword, readEnvFile, update
  * run changes nothing; `--dry-run` runs only reading calls and prints what it would change.
  */
 
-export interface AwsOptions {
+interface AwsOptions {
   dryRun: boolean;
   rotateKeys: boolean;
 }

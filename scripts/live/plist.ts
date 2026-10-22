@@ -119,14 +119,14 @@ export interface ServerPlistInput {
   logFile: string;
 }
 
-export interface BuiltPlist {
+interface BuiltPlist {
   text: string;
   /** The names (never the values) of the variables the file carries. */
   variables: string[];
 }
 
 /** The environment of the live server: an allowlist, built from the installing shell's. */
-export function serverEnvironment(input: ServerPlistInput): Record<string, string> {
+function serverEnvironment(input: ServerPlistInput): Record<string, string> {
   const mode = input.env.PROJECTMAN_MODE?.trim();
   if (mode !== undefined && mode !== '' && mode !== 'single')
     throw new LiveError(

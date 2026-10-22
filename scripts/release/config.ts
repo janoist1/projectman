@@ -55,7 +55,7 @@ export const DEFAULT_TIMEOUTS = {
   smoke: 10 * 60_000,
 };
 
-export const forbiddenPathCharacters = /[\0\r\n,]/;
+const forbiddenPathCharacters = /[\0\r\n,]/;
 
 export function isWithin(parent: string, child: string): boolean {
   const relative = path.relative(parent, child);
@@ -172,7 +172,7 @@ function isHttpsOrigin(value: string): boolean {
   }
 }
 
-export const hybridReleaseConfigSchema = z.strictObject({
+const hybridReleaseConfigSchema = z.strictObject({
   version: z.literal(1),
   controllerId: z.uuid(),
   cloudConfig: hybridPath,
@@ -187,7 +187,7 @@ export const hybridReleaseConfigSchema = z.strictObject({
 export type HybridReleaseConfig = z.output<typeof hybridReleaseConfigSchema>;
 
 /** What the target hash stands for: where the two targets are, and nothing that could be a secret. */
-export interface HybridTargetDescription {
+interface HybridTargetDescription {
   accountId: string;
   instanceId: string;
   region: string;
@@ -203,7 +203,7 @@ export interface HybridTargetDescription {
  * server compares what the coordinator sends with its own copy, so a coordinator for another account,
  * instance, origin, project or engine can never claim this server's release.
  */
-export function hybridTargetHash(target: HybridTargetDescription): string {
+function hybridTargetHash(target: HybridTargetDescription): string {
   return createHash('sha256')
     .update(
       canonicalJson({

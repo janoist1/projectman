@@ -36,7 +36,7 @@ const ROLLBACK_PHASES: readonly LocalPhase[] = [
 ];
 
 /** What a plan shows: read-only, no claim, no state. */
-export interface PlanReport {
+interface PlanReport {
   state: 'idle' | 'resume' | 'ready' | 'blocked';
   releaseId: string | null;
   commit: string | null;

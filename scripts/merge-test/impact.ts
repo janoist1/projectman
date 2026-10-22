@@ -4,7 +4,7 @@ import type { ModuleEntry } from '../../apps/server/test/architecture/module-map
 import { RUNTIME_ENTRIES } from './runtime-entries';
 
 export type MergeTestFile = { path: string; source: string };
-export type ServerTestImpact = { modules: string[]; tests: string[]; fallback?: string };
+type ServerTestImpact = { modules: string[]; tests: string[]; fallback?: string };
 const src = 'apps/server/src/';
 const isCode = (path: string): boolean => /\.[cm]?[jt]sx?$/.test(path);
 export const isRuntimeImport = (specifier: string): boolean =>

@@ -10,19 +10,18 @@ import {
 import type { HeavyLock, HeavyLockEntry } from '../../apps/server/src/full-test/heavy-lock';
 
 /** Exit status of a `--max-wait` that ran out (EX_TEMPFAIL). */
-export const EXIT_QUEUE_TIMEOUT = 75;
+const EXIT_QUEUE_TIMEOUT = 75;
 /** Exit status of a command that did not run because the queue folder cannot be used (EX_CONFIG, PM-346). */
 export const EXIT_QUEUE_UNAVAILABLE = 78;
 const EXIT_USAGE = 2;
 const LABEL_MAX = 120;
 const CHILD_GUARD = fileURLToPath(new URL('../lib/child-guard.mjs', import.meta.url));
 /** Set for everything the CLI runs: a nested call, and the server's full test, run without the lock. */
-export const HELD_VARIABLE = 'PROJECTMAN_HEAVY_LOCK_HELD';
+const HELD_VARIABLE = 'PROJECTMAN_HEAVY_LOCK_HELD';
 
-export const USAGE =
-  'usage: npm run heavy -- [--label <text>] [--max-wait <seconds>] [--] <command> [args...]\n';
+const USAGE = 'usage: npm run heavy -- [--label <text>] [--max-wait <seconds>] [--] <command> [args...]\n';
 
-export interface HeavyArgs {
+interface HeavyArgs {
   label?: string;
   maxWaitSeconds?: number;
   command: string[];
@@ -60,7 +59,7 @@ export function parseHeavyArgs(argv: readonly string[]): HeavyArgs | { error: st
 }
 
 /** `3m05s`. */
-export function formatDuration(ms: number): string {
+function formatDuration(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000));
   return `${Math.floor(total / 60)}m${String(total % 60).padStart(2, '0')}s`;
 }
@@ -79,7 +78,7 @@ function waitingLine(wait: { holder: HeavyLockEntry | null; ahead: number; waite
   return `heavy: waiting for the machine's heavy-run queue: ${who}, ${wait.ahead} ahead of you (waited ${formatDuration(wait.waitedMs)})\n`;
 }
 
-export interface HeavyRun {
+interface HeavyRun {
   argv: readonly string[];
   env: NodeJS.ProcessEnv;
   cwd: string;

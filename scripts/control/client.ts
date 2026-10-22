@@ -14,7 +14,7 @@ import type { ControlRequest, PausedSession, PauseStatus } from '@projectman/sha
 /** Nobody answers on the socket: the server does not run (or has no control socket). */
 export class ControlUnreachable extends Error {}
 /** The command line is wrong. */
-export class ControlUsageError extends Error {}
+class ControlUsageError extends Error {}
 /** The server understood the request and refused it. */
 class ControlRefused extends Error {
   readonly code: string;
@@ -78,10 +78,9 @@ const workItemLabel = (item: PausedSession['workItem']): string => {
 };
 
 /** The sessions that have not come to a stop yet. */
-export const stragglers = (pause: PauseStatus): PausedSession[] =>
-  pause.sessions.filter((s) => s.point === null);
+const stragglers = (pause: PauseStatus): PausedSession[] => pause.sessions.filter((s) => s.point === null);
 
-export function describeStragglers(pause: PauseStatus): string[] {
+function describeStragglers(pause: PauseStatus): string[] {
   return stragglers(pause).map(
     (s) =>
       `  still working: ${s.member} (${s.projectKey}, ${workItemLabel(s.workItem)})` +
@@ -89,7 +88,7 @@ export function describeStragglers(pause: PauseStatus): string[] {
   );
 }
 
-export function formatPause(pause: PauseStatus | null): string {
+function formatPause(pause: PauseStatus | null): string {
   if (!pause) return 'No pause is open.';
   const stopped = pause.sessions.length - stragglers(pause).length;
   return [
@@ -121,7 +120,7 @@ function seconds(name: string, value: string, max: number): number {
   return Math.round(n * 1000);
 }
 
-export function parseControlArgs(argv: string[]): Options {
+function parseControlArgs(argv: string[]): Options {
   const positional: string[] = [];
   const flags = new Map<string, string>();
   for (let i = 0; i < argv.length; i += 1) {
@@ -161,7 +160,7 @@ export function parseControlArgs(argv: string[]): Options {
   };
 }
 
-export interface ControlDeps {
+interface ControlDeps {
   env?: Record<string, string | undefined>;
   /** Where to connect instead of the home's socket file (tests serve the protocol on a loopback port). */
   target?: net.NetConnectOpts;

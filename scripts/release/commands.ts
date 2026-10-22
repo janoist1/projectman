@@ -20,7 +20,7 @@ import { clearLastError, readStatus, sanitizeMessage, writeLastError } from './s
  * failure (also a release that was rolled back and verified), 2 a safety, precondition or recovery refusal, 64 bad usage.
  */
 
-export const USAGE = `usage: npm run release -- <command> --config <file>
+const USAGE = `usage: npm run release -- <command> --config <file>
 commands:
   plan        read the state and print what a round would do; writes nothing, builds nothing
   watch       run one foreground round (the LaunchAgent runs this every minute)
@@ -32,8 +32,8 @@ options:
 exit status: 0 done or nothing to do, 1 failed (also a verified rollback), 2 refused (a precondition is missing or recovery is needed), 64 bad usage
 `;
 
-export const COMMANDS = ['plan', 'watch', 'install', 'status', 'uninstall'] as const;
-export type ReleaseCommand = (typeof COMMANDS)[number];
+const COMMANDS = ['plan', 'watch', 'install', 'status', 'uninstall'] as const;
+type ReleaseCommand = (typeof COMMANDS)[number];
 
 export interface PortsInput {
   loaded: LoadedHybridConfig;

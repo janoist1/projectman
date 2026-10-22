@@ -1,5 +1,5 @@
 /** Exit status: 0 done, 1 failed, 2 refused (a precondition is missing or the state is dangerous), 64 bad usage. */
-export type CloudExitCode = 1 | 2 | 64;
+type CloudExitCode = 1 | 2 | 64;
 
 export class CloudError extends Error {
   readonly exitCode: CloudExitCode;
@@ -13,7 +13,7 @@ export class CloudError extends Error {
   }
 }
 
-export type CloudTransportCode =
+type CloudTransportCode =
   'cloud_ssh_auth_timeout' | 'cloud_ssh_unavailable' | 'cloud_host_busy' | 'cloud_host_identity_mismatch';
 
 /**

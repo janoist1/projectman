@@ -18,7 +18,7 @@ const MAX_PAGES = 100;
 
 export type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 
-export interface CloudflareMessage {
+interface CloudflareMessage {
   code?: number;
   message?: string;
 }
@@ -46,7 +46,7 @@ export class CloudflareError extends CloudError {
   }
 }
 
-export interface PageInfo {
+interface PageInfo {
   page?: number;
   per_page?: number;
   total_pages?: number;
@@ -61,9 +61,9 @@ interface Envelope {
   result_info?: PageInfo;
 }
 
-export type Query = Record<string, string | number | boolean>;
+type Query = Record<string, string | number | boolean>;
 
-export interface CallOptions {
+interface CallOptions {
   query?: Query;
   body?: Json;
 }

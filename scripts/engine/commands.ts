@@ -30,7 +30,7 @@ import type { ServiceOptions } from './service';
  * a fake terminal. Exit status: 0 done, 1 refused or not healthy, 2 wrong usage.
  */
 
-export class UsageError extends Error {}
+class UsageError extends Error {}
 
 export interface EngineCliIo {
   env: NodeJS.ProcessEnv;

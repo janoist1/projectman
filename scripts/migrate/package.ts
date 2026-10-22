@@ -42,7 +42,7 @@ import type { Finding, Inventory, RepoInventory, WorktreeInfo } from './inventor
 export const PACKAGE_VERSION = 1;
 
 /** Not carried from the home: old worktrees and workspaces (their work is captured separately), the publishing identity, the old role marker and temporary files. */
-export const EXCLUDED_ENTRIES = [
+const EXCLUDED_ENTRIES = [
   'worktrees',
   'workspaces',
   'github-publish',
@@ -57,7 +57,7 @@ const isTemporary = (name: string) => name.startsWith('.secret-') || name.endsWi
  * (`apply`); `hybrid_cloud` (PM-318) is the cloud's side of the hybrid mode only, uploaded to the cloud's
  * volume (`hybrid package`, never `apply`).
  */
-export const PACKAGE_KINDS = ['full', 'hybrid_cloud'] as const;
+const PACKAGE_KINDS = ['full', 'hybrid_cloud'] as const;
 export type PackageKind = (typeof PACKAGE_KINDS)[number];
 
 export interface PackageManifest {
@@ -156,7 +156,7 @@ export function walkFiles(root: string): string[] {
 }
 
 /** The files a dirty checkout would lose: everything changed, staged or untracked, and the deleted ones. */
-export async function changedFiles(dir: string): Promise<{ present: string[]; deleted: string[] }> {
+async function changedFiles(dir: string): Promise<{ present: string[]; deleted: string[] }> {
   const { stdout } = await git(dir, ['status', '--porcelain=v1', '-z', '-uall']);
   const entries = stdout.split('\0').filter(Boolean);
   const present: string[] = [];
@@ -234,13 +234,13 @@ async function bundleRepository(repo: RepoInventory, destination: string): Promi
   }
 }
 
-export interface PackageOptions {
+interface PackageOptions {
   home: string;
   out: string;
   now?: () => Date;
 }
 
-export interface PackageResult {
+interface PackageResult {
   manifest: PackageManifest;
   inventory: Inventory;
 }

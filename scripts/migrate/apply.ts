@@ -31,12 +31,12 @@ import { MigrationRefused } from './package';
  */
 
 export const MIGRATED_DIR = 'migrated';
-export const PENDING_WORK_FILE = 'pending-work.json';
+const PENDING_WORK_FILE = 'pending-work.json';
 export const APPLY_REPORT_FILE = 'report.json';
 /** Written by `instance activate` into a migrated home: the missing role marker is then a person's decision. */
 export const ACTIVATED_FILE = 'activated.json';
 
-export interface ApplyOptions {
+interface ApplyOptions {
   packageDir: string;
   targetHome: string;
   /** Explicit `FROM=TO` translations of the old machine's absolute paths. */
@@ -44,12 +44,12 @@ export interface ApplyOptions {
   now?: () => Date;
 }
 
-export interface RewriteCounts {
+interface RewriteCounts {
   rewritten: number;
   unchanged: number;
 }
 
-export interface ApplyReport {
+interface ApplyReport {
   version: 1;
   appliedAt: string;
   sourceHome: string;
@@ -66,7 +66,7 @@ export interface ApplyReport {
   findings: Finding[];
 }
 
-export interface PendingWork extends PackagedWork {
+interface PendingWork extends PackagedWork {
   /** `pending` until a person applies it into a clean checkout of the same commit; never automatic. */
   state: 'pending' | 'applied';
   appliedInto?: string;

@@ -33,7 +33,7 @@ export interface ClientCredentials {
   protectedDirectories: string[];
 }
 
-export interface LoadOptions {
+interface LoadOptions {
   home: string;
   /** `--config`; the default is `~/.config/projectman/client.json`. */
   configFile?: string | undefined;

@@ -15,7 +15,7 @@ import { secretFileProblem } from './secrets';
  * the browser check deliberately presents a valid owner cookie there without an application bearer.
  */
 
-export interface CheckOptions {
+interface CheckOptions {
   loginJson: string;
 }
 

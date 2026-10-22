@@ -123,7 +123,7 @@ export interface Inventory {
   findings: Finding[];
 }
 
-export interface InventoryOptions {
+interface InventoryOptions {
   home: string;
   /** For tests: whatever finds the sizes cheaply (default: walk the files). */
   now?: () => Date;
@@ -132,7 +132,7 @@ export interface InventoryOptions {
 const LIVE_STATES: readonly string[] = LIVE_SESSION_STATES;
 const MAX_PATHS = 50;
 
-export function dirSize(dir: string): { bytes: number; files: number } {
+function dirSize(dir: string): { bytes: number; files: number } {
   let bytes = 0;
   let files = 0;
   const stack = [dir];

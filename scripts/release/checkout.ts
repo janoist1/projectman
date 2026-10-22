@@ -5,7 +5,7 @@ import { CloudError, refused } from '../cloud/errors';
 /** Git never asks anything on a terminal while a release is prepared: a missing credential is a failure. */
 const GIT_ENV = { GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' };
 
-export async function git(
+async function git(
   context: CloudContext,
   directory: string,
   args: string[],

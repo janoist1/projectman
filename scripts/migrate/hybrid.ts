@@ -76,7 +76,7 @@ const isDirectory = (path: string): boolean => {
 // ---------------------------------------------------------------------------------------------------
 // engine.json from the projects
 
-export interface EngineProjects {
+interface EngineProjects {
   projects: EngineConfig['projects'];
   repos: EngineConfig['repos'];
   /** What was left out of the engine's configuration, and why. */
@@ -88,7 +88,7 @@ export interface EngineProjects {
  * A workspace or repository that does not exist here, or a repository outside its workspace, is left
  * out with a warning (the engine would refuse it at its start).
  */
-export function engineProjects(home: string): EngineProjects {
+function engineProjects(home: string): EngineProjects {
   const projects: EngineProjects['projects'] = [];
   const repos: EngineProjects['repos'] = [];
   const warnings: string[] = [];
@@ -135,7 +135,7 @@ export function engineProjects(home: string): EngineProjects {
 // ---------------------------------------------------------------------------------------------------
 // plan
 
-export interface HybridPlan {
+interface HybridPlan {
   inventory: Inventory;
   /** What goes into the cloud's home, with the sizes. */
   carried: { name: string; bytes: number }[];
@@ -221,7 +221,7 @@ export function renderHybridPlan(plan: HybridPlan): string {
 // ---------------------------------------------------------------------------------------------------
 // package
 
-export interface HybridPackageOptions {
+interface HybridPackageOptions {
   home: string;
   out: string;
   engineName: string;
@@ -399,7 +399,7 @@ export async function createHybridPackage(options: HybridPackageOptions): Promis
 // ---------------------------------------------------------------------------------------------------
 // back
 
-export interface HybridBackOptions {
+interface HybridBackOptions {
   home: string;
   /** The cloud's data directory as downloaded (its `/data`). */
   from: string;
@@ -412,7 +412,7 @@ export interface HybridBackOptions {
   agentsDir?: string;
 }
 
-export interface HybridBackReport {
+interface HybridBackReport {
   engineId: string;
   /** The folder the Mac's former entries were moved into. */
   archive: string;

@@ -8,12 +8,12 @@ import { CloudError } from './errors';
  * only secrets that pass here come back on the standard output of `iam create-access-key`.
  */
 
-export interface AwsTarget {
+interface AwsTarget {
   profile: string;
   region: string;
 }
 
-export interface AwsCallOptions {
+interface AwsCallOptions {
   /** Conditional trial deletes must never be retried, even by the AWS CLI. */
   singleAttempt?: boolean;
   signal?: AbortSignal;

@@ -34,7 +34,7 @@ export const MERGE_TEST_WORKSPACES = [
 ] as const;
 
 /** A failed test step is rerun once only when at most this many files failed (PM-842). */
-export const RERUN_FILES_MAX = 5;
+const RERUN_FILES_MAX = 5;
 
 /** How `npm` ended: its exit code (128 + the signal number when a signal stopped it) and its output. */
 export interface StepRun {
@@ -43,7 +43,7 @@ export interface StepRun {
   output: string;
 }
 
-export interface MergeTestDeps {
+interface MergeTestDeps {
   /** Runs `npm <args>`, passing its output through, and returns what it printed. Rejects when npm cannot start. */
   spawn(args: string[]): Promise<StepRun>;
   /**

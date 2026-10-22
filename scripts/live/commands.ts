@@ -6,7 +6,7 @@ import { DEFAULT_PORT, DEFAULT_TARGET, LiveError } from './paths';
 import { runReleaseTest } from './release-test';
 import { runWatch } from './watch';
 
-export const USAGE = `usage:
+const USAGE = `usage:
   npm run live -- install [--root <dir>] [--home <dir>] [--port 4800] [--target PM/projectman] [--remote <url>]
   npm run live -- uninstall | status [--home <dir>]
   npm run live -- watch --root <dir> --home <dir> --port <port> --remote <url>   (launchd runs this)

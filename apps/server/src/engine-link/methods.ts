@@ -95,6 +95,7 @@ const fullSpec: z.ZodType<FullTestSpec> = z.strictObject({
       commit: z.string().regex(/^[0-9a-f]{40}$/),
       workflow: text.max(100),
       files: z.array(text.max(500)).min(1).max(20).optional(),
+      all: z.boolean().optional(),
     })
     .optional(),
 });

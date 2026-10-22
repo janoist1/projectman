@@ -1,12 +1,15 @@
 import {
   commentMentions,
   coverAttachmentId,
+  effectiveRepo,
   FullTestErrorReason,
   isOpenTask,
   isTheme,
   LIVE_SESSION_STATES,
   memberOf,
+  repoOf,
   repoRequired,
+  reviewTestRunnerBeforeReview,
   stageOf,
   stageOwners,
 } from '@projectman/shared';
@@ -213,8 +216,17 @@ export class TaskStore {
     if (!isOpenTask(task)) return undefined;
     const pin = this.ctx.repos.reviewPins.get(task.key);
     if (!pin || pin.stageId !== task.stageId) return undefined;
-    // The server's full test of the pinned commit (PM-217): the latest run that was not cancelled.
-    const run = this.ctx.repos.fullTestRuns.forPin(pin).find((r) => r.status !== 'cancelled');
+    // The server's full test of the pinned commit (PM-217): the latest run that was not cancelled, of the
+    // runner the repository's setting asks for now (PM-909); with the check off, none.
+    const config = this.projects.cachedConfig(task.projectKey);
+    const repo = config ? repoOf(config, effectiveRepo(config, task)) : undefined;
+    const runner = repo ? reviewTestRunnerBeforeReview(repo) : undefined;
+    const run =
+      repo && !runner
+        ? undefined
+        : this.ctx.repos.fullTestRuns
+            .forPin(pin, runner ? { runner } : undefined)
+            .find((r) => r.status !== 'cancelled');
     let fullTest: TaskReviewPin['fullTest'];
     if (run && run.status !== 'cancelled') {
       const reason = FullTestErrorReason.safeParse(run.reason);
@@ -222,6 +234,8 @@ export class TaskStore {
         status: run.status,
         at: run.finishedAt ?? run.startedAt ?? run.createdAt,
         ...(run.status === 'error' && reason.success ? { reason: reason.data } : {}),
+        runner: run.runner,
+        ...(run.externalUrl ? { externalUrl: run.externalUrl } : {}),
       };
     }
     return {

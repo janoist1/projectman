@@ -4,6 +4,7 @@ import type { Task } from '../domain/task';
 import { isCodeReviewStage, stageOwners } from './duties';
 import { evaluateMove, stageIndex } from './gates';
 import type { UnmetCondition, ApprovalRequirement } from './gates';
+import type { MergeCheckRunner } from '../domain/merge-test';
 import { isHandleOnLeave } from './leave';
 import { memberOf } from './lookup';
 import { isOperator } from './operator-member';
@@ -24,9 +25,30 @@ export function requiresMerge(repo: Pick<RepoConfig, 'requireMerge' | 'fullTestA
   return repo.requireMerge ?? repo.fullTestAtMerge !== true;
 }
 
-/** Whether the repository's reviewTest runs before review; with fullTestAtMerge it runs only at the merge (decision 40, PM-386). */
+/**
+ * Where the repository's reviewTest runs before review (PM-909); undefined: nowhere. Without a reviewTest or
+ * with `beforeReview: 'off'` nowhere; an explicit `engine` or `github_actions` runs there, also with
+ * fullTestAtMerge; absent: the old rule, on the engine unless fullTestAtMerge runs it only at the merge
+ * (decision 40, PM-386). The merge check's `runner` is independent of it.
+ */
+export function reviewTestRunnerBeforeReview(
+  repo: Pick<RepoConfig, 'reviewTest' | 'fullTestAtMerge'>,
+): MergeCheckRunner | undefined {
+  if (!repo.reviewTest) return undefined;
+  switch (repo.reviewTest.beforeReview) {
+    case 'off':
+      return undefined;
+    case 'engine':
+    case 'github_actions':
+      return repo.reviewTest.beforeReview;
+    default:
+      return repo.fullTestAtMerge === true ? undefined : 'engine';
+  }
+}
+
+/** Whether the repository's reviewTest runs before review, on either runner (`reviewTestRunnerBeforeReview`). */
 export function reviewTestBeforeReview(repo: Pick<RepoConfig, 'reviewTest' | 'fullTestAtMerge'>): boolean {
-  return repo.reviewTest !== undefined && repo.fullTestAtMerge !== true;
+  return reviewTestRunnerBeforeReview(repo) !== undefined;
 }
 
 /** The stage a card enters with its work merged: the first release stage, else the done stage; null: none. */

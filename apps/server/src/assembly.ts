@@ -62,6 +62,7 @@ import {
   operatorKnowledgeContinuationMessageId,
   permissionDelegationOf,
   pullSourceStage,
+  reviewTestRunnerBeforeReview,
   routeFor,
   seniorWaitMinutesOf,
   stageOf,
@@ -1061,6 +1062,17 @@ export function createDomain(opts: DomainOptions) {
       opts.logger.warn({ err, taskKey }, 'could not queue the full test of the new round');
     }),
   );
+  // A repository's review test runner switched or was switched off: the waiting runs follow the new setting (PM-909).
+  const reviewRunners = (config: ProjectConfig | null | undefined) =>
+    JSON.stringify(
+      (config?.project.repos ?? []).map((repo) => [repo.name, reviewTestRunnerBeforeReview(repo)]),
+    );
+  events.on('config_changed', (change) => {
+    if (reviewRunners(change.previous) === reviewRunners(change.next)) return;
+    return fullTests.syncAll(change.projectKey).catch((err: unknown) => {
+      opts.logger.warn({ err, projectKey: change.projectKey }, 'could not bring the full tests in line');
+    });
+  });
   messaging.registerCardHold('full_test', fullTests);
   const merges = new Merges({
     work: releaseWork,

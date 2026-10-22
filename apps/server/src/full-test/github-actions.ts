@@ -13,6 +13,7 @@ import {
 } from '../contracts';
 import {
   failedResult,
+  fullScopeProblem,
   judge,
   passedResult,
   stripGithubTimestamps,
@@ -95,6 +96,8 @@ function problemOf(spec: FullTestSpec, check: GithubActionsCheck): string | null
     (check.files.length < 1 || check.files.length > FILES_MAX || !check.files.every(isRepoFilePath))
   )
     return `The files are not 1 to ${FILES_MAX} repository paths.`;
+  if (check.all && check.files && check.files.length > 0)
+    return 'A full check of the whole tree cannot take a list of files.';
   return null;
 }
 
@@ -224,7 +227,12 @@ export function withGithubActions(local: FullTestExecutor, deps: GithubActionsDe
       };
 
       // Dispatch: temporary failures are tried again a few times.
-      const inputs = { check_id: spec.runId, files: check.files ? JSON.stringify(check.files) : '' };
+      const inputs: Record<string, string> = {
+        check_id: spec.runId,
+        files: check.files ? JSON.stringify(check.files) : '',
+        // Left out of merge calls, so that a workflow without the input still accepts them.
+        ...(check.all ? { all: 'true' } : {}),
+      };
       for (let attempt = 0; ; attempt += 1) {
         try {
           await actions.dispatchWorkflow(check.repo, check.workflow, { ref: branch, inputs }, signal);
@@ -346,9 +354,11 @@ export function withGithubActions(local: FullTestExecutor, deps: GithubActionsDe
           jobs: withLogs,
           durationMs: Math.max(0, now() - (runningSince ?? pushedAt)),
         };
-        return judgement.kind === 'passed'
-          ? passedResult(finished)
-          : failedResult(finished, judgement.failed);
+        if (judgement.kind === 'passed') {
+          const unproven = check.all ? fullScopeProblem(finished) : null;
+          return unproven ? error('github_run_error', unproven) : passedResult(finished);
+        }
+        return failedResult(finished, judgement.failed);
       } catch (err) {
         if (err instanceof ReadFailure) return error(err.reason, err.message);
         throw err;

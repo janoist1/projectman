@@ -9,6 +9,7 @@ import { FullTestErrorReason, FullTestStatus } from './full-test';
 import { TaskHandoff, TaskHandoffRef } from './handoff';
 import { LabelId } from './label';
 import { TaskMergeState, TaskMerged } from './merge';
+import { MergeCheckRunner } from './merge-test';
 import { AgentProvider, MemberHandle } from './member';
 import type { HumanAccess } from './member';
 import { StageId } from './pipeline';
@@ -184,6 +185,10 @@ export const TaskReviewPin = z.object({
       /** `finishedAt`, else `startedAt`, else `createdAt`. */
       at: z.string(),
       reason: FullTestErrorReason.optional(),
+      /** Where it ran (PM-909); absent on a result from before runners. */
+      runner: MergeCheckRunner.optional(),
+      /** The GitHub Actions run page of a `github_actions` result. */
+      externalUrl: z.string().url().max(500).optional(),
     })
     .optional(),
 });

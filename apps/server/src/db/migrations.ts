@@ -2095,4 +2095,12 @@ migrations.push({
       WHERE state IN ('queued','processing');
     CREATE INDEX member_queue_items_closed ON member_queue_items(project_key, member, closed_at);`,
 });
+migrations.push({
+  version: 99,
+  name: 'full test runner and external url',
+  // PM-909: where a full test of a pinned commit ran (the engine's sandbox or GitHub Actions) and the Actions
+  // run page. An existing row is an engine result.
+  sql: `ALTER TABLE full_test_runs ADD COLUMN runner TEXT NOT NULL DEFAULT 'engine' CHECK (runner IN ('engine','github_actions'));
+    ALTER TABLE full_test_runs ADD COLUMN external_url TEXT;`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

@@ -13,7 +13,16 @@ const workflow = parse(source) as {
   permissions: Record<string, string>;
   jobs: Record<
     string,
-    { if?: string; steps: { name?: string; uses?: string; run?: string; with?: Record<string, unknown> }[] }
+    {
+      if?: string;
+      steps: {
+        name?: string;
+        uses?: string;
+        run?: string;
+        env?: Record<string, string>;
+        with?: Record<string, unknown>;
+      }[];
+    }
   >;
 };
 const steps = Object.values(workflow.jobs).flatMap((job) => job.steps);
@@ -53,6 +62,20 @@ describe('the merge-check workflow', () => {
 
   it('has the step the engine follows', () => {
     expect(steps.some((step) => step.name === 'merge-test')).toBe(true);
+  });
+
+  it('takes the whole-tree scope from an input through the environment, in a branch exclusive of the files list', () => {
+    const step = steps.find((candidate) => candidate.name === 'merge-test');
+    const command = step?.run ?? '';
+    const allBranch = command.indexOf('--all');
+    const filesBranch = command.indexOf('--files-from-env');
+    expect(workflow.on['workflow_dispatch']).toMatchObject({ inputs: { all: { type: 'boolean' } } });
+    expect(step).toMatchObject({ env: { MERGE_TEST_ALL: '${{ inputs.all }}' } });
+    expect(command).toContain('if [ "$MERGE_TEST_ALL" = "true" ]');
+    expect(allBranch).toBeGreaterThan(0);
+    expect(filesBranch).toBeGreaterThan(allBranch);
+    expect(command.slice(allBranch, filesBranch)).toContain('else');
+    expect(command.match(/--all/g)).toHaveLength(1);
   });
 
   it('installs Homebrew Bash on PATH before the tests run', () => {

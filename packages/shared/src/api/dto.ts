@@ -327,7 +327,7 @@ export const IntegratorAccessKeyResponse = z.object({ key: IntegratorAccessKeyIn
 export type IntegratorAccessKeyResponse = z.infer<typeof IntegratorAccessKeyResponse>;
 export const CreateIntegratorAccessKeyRequest = z.object({
   mode: z.enum(['super', 'read']),
-  expiresInDays: z.union([z.literal(1), z.literal(7), z.literal(30)]).default(7),
+  expiresInDays: z.union([z.literal(1), z.literal(7), z.literal(30), z.literal(365), z.null()]).default(7),
 });
 export type CreateIntegratorAccessKeyRequest = z.infer<typeof CreateIntegratorAccessKeyRequest>;
 export const CreatedIntegratorAccessKey = z.object({ key: IntegratorAccessKeyInfo, secret: z.string() });

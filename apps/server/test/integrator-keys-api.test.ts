@@ -5,6 +5,7 @@ import {
   IntegratorKeyAuditPage,
   routes,
 } from '@projectman/shared';
+import type { CreateIntegratorAccessKeyRequest } from '@projectman/shared';
 import { integratorChannel } from '../src/auth';
 import { addHumanAndLogin, createAppHarness, createProject, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
@@ -19,7 +20,10 @@ describe('explicit integrator access key API', () => {
     cookie = await setupOwner(h.app);
   });
   afterEach(async () => h.close());
-  const create = async (mode: 'super' | 'read' = 'super', expiresInDays?: 1 | 7 | 30) => {
+  const create = async (
+    mode: 'super' | 'read' = 'super',
+    expiresInDays?: CreateIntegratorAccessKeyRequest['expiresInDays'],
+  ) => {
     const response = await h.app.inject({
       method: 'POST',
       url: routes.integratorKeys(),
@@ -147,6 +151,23 @@ describe('explicit integrator access key API', () => {
     }
   });
 
+  it.each([
+    { days: 365, expiresAt: '2027-10-17T10:00:00.000Z' },
+    { days: null, expiresAt: null },
+  ] as const)('issues and persists keys with a $days-day lifetime', async ({ days, expiresAt }) => {
+    const created = await create('super', days);
+    expect(created.key).toMatchObject({ state: 'active', expiresAt });
+    h.app = await h.relaunch({});
+    const response = await h.app.inject({ url: routes.integratorKeys(), headers: { cookie } });
+    expect(response.statusCode).toBe(200);
+    expect(IntegratorAccessKeysResponse.parse(response.json()).keys).toEqual([created.key]);
+    const authenticated = await h.app.inject({
+      url: '/api/projects',
+      headers: { authorization: `Bearer ${created.secret}` },
+    });
+    expect(authenticated.statusCode).toBe(200);
+  });
+
   it('revokes by id idempotently, returns 404 for unknown or foreign keys, and persists audit over restart', async () => {
     const created = await create();
     const revoke = (id: string) =>
@@ -182,7 +203,7 @@ describe('explicit integrator access key API', () => {
     {},
     { mode: 'legacy' },
     { mode: 'unknown' },
-    { mode: 'read', expiresInDays: null },
+    { mode: 'read', expiresInDays: 'never' },
     { mode: 'super', expiresInDays: 90 },
     { mode: 'super', expiresInDays: 0 },
   ])('rejects invalid issuance parameters: %j', async (payload) => {

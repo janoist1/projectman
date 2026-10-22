@@ -73,6 +73,7 @@ import {
   CreatedIntegratorKey,
 } from '@projectman/shared';
 import type {
+  CreateIntegratorAccessKeyRequest,
   OperatorGrantDuration,
   OperatorApprovalWaiverRequest,
   CloseFeedbackRequest,
@@ -148,7 +149,10 @@ export const api = {
   superOperation: (key: string, id: string) =>
     apiRequest(routes.superOperation(key, id), { schema: SuperOperationDetail }),
   integratorKeys: () => apiRequest(routes.integratorKeys(), { schema: IntegratorAccessKeysResponse }),
-  createIntegratorAccessKey: (mode: 'super' | 'read', expiresInDays: 1 | 7 | 30) =>
+  createIntegratorAccessKey: (
+    mode: 'super' | 'read',
+    expiresInDays: CreateIntegratorAccessKeyRequest['expiresInDays'],
+  ) =>
     apiRequest(routes.integratorKeys(), {
       method: 'POST',
       body: { mode, expiresInDays },

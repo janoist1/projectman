@@ -2891,8 +2891,10 @@ workers follow the machine's size.
   The host owner creates a separately attributed bearer key; the server stores only its hash.
   Authentication accepts it only on a local connection or HTTPS, using the existing loopback
   proxy protocol rules in `kernel` (`clientAddress`, `requestProtocol`).
-  The host owner's own login manages explicit `super`/`read` keys with 1/7/30-day expiry
-  (default 7); existing keys and the singular API remain `legacy`. Replacement revokes only
+  The host owner's own login manages explicit `super`/`read` keys with 1/7/30/365-day expiry
+  or no expiry (`expiresInDays: null`, PM-825; default 7 days). The hub already stores a null
+  `expires_at` and authenticates it until revocation; no migration or engine operation is needed.
+  Existing keys and the singular API remain `legacy`. Replacement revokes only
   the same mode, with a database uniqueness constraint and transactional lifecycle audit.
   The shared credential resolver returns the stored mode and key id; `assertActive` rechecks
   that row and its owner without updating usage. Authentication records `mcp`, `cli` or `rest`

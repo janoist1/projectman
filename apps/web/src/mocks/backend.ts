@@ -1982,7 +1982,10 @@ export class MockBackend {
           prefix: `pmi_mock_${this.integratorKeys.length + 1}`,
           state: 'active',
           createdAt: at,
-          expiresAt: new Date(Date.parse(at) + input.data.expiresInDays * 86_400_000).toISOString(),
+          expiresAt:
+            input.data.expiresInDays === null
+              ? null
+              : new Date(Date.parse(at) + input.data.expiresInDays * 86_400_000).toISOString(),
           lastUsedAt: null,
           lastUsedChannel: null,
           revokedAt: null,

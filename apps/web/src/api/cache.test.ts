@@ -25,6 +25,14 @@ import { appendUnique, applyServerEvent, upsertBy, writeTaskDetail } from './cac
 import { queryKeys } from './queryKeys';
 
 const KEY = 'AC';
+it('refreshes grant state and audit after an owner changes machine access', () => {
+  const client = new QueryClient();
+  client.setQueryData(queryKeys.operatorGrant, {});
+  client.setQueryData(queryKeys.operatorGrantAudit, {});
+  applyServerEvent(client, { type: 'operator_grant_changed' });
+  expect(client.getQueryState(queryKeys.operatorGrant)?.isInvalidated).toBe(true);
+  expect(client.getQueryState(queryKeys.operatorGrantAudit)?.isInvalidated).toBe(true);
+});
 it('refreshes super DTOs when their timeline changes without executing an operation', () => {
   const client = new QueryClient();
   const keys = [

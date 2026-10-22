@@ -17,6 +17,7 @@ export const queryKeys = {
     ['project', key, 'operator-queue', closedSince] as const,
   /** The Operator's grant for machine operations (PM-881); one for the whole instance. */
   operatorGrant: ['operator-grant'] as const,
+  operatorGrantAudit: ['operator-grant-audit'] as const,
   operatorPreferenceMeAll: (key: string) => ['project', key, 'operator-preference'] as const,
   operatorPreferenceMe: (key: string, handle: string | null) =>
     ['project', key, 'operator-preference', handle] as const,

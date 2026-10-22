@@ -1,5 +1,9 @@
 import clsx from 'clsx';
-import { Fragment, useEffect, useId, useRef, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { ProjectContext } from '../../app/contexts';
+import { api } from '../../api/endpoints';
+import { useOperatorGrant } from '../../api/queries';
+import { Fragment, useContext, useEffect, useId, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import type { InboxItem, InboxOption, LabelView, ResolveInboxRequest } from '@projectman/shared';
 import {
@@ -12,6 +16,7 @@ import {
   operatorKnowledgeApprovalOf,
   releaseApprovalOf,
   questionPayloadOf,
+  OperatorHandoff as OperatorHandoffSchema,
 } from '@projectman/shared';
 import { Avatar } from '../../components/Avatar';
 import { Button, ButtonLink } from '../../components/Button';
@@ -34,6 +39,7 @@ import {
   inboxHeading,
   inboxItemDomId,
   isTodo,
+  isOperatorInboxRequest,
   loopDecisionText,
   operatorFallbackOf,
   operatorNoteOf,
@@ -63,7 +69,9 @@ import { FoldedCommand, PermissionActions } from './PermissionParts';
 import { ApprovalHintNote, QuestionBody, QuestionChoices, QuestionDetails, showInboxItem } from './Question';
 import { generalQuestionSources, QuestionSources, QuestionSourcesLine } from './QuestionSources';
 import { QuestionAttachments } from './QuestionAttachments';
-import { IntegratorTodoClock } from './IntegratorTodos';
+import { OperatorHandoff } from './OperatorHandoff';
+import { OwnerCommandBody } from './OwnerCommand';
+import { ownerCommandOf } from './commandPresentation';
 import { FixLimitDetails } from './FixLimitDetails';
 import type { QuestionChoice } from './Question';
 import { MessageAttachmentTray } from '../messages/MessageAttachmentTray';
@@ -204,6 +212,23 @@ export function InboxCard({
   const operatorApproval = operatorApprovalOf(item);
   const operatorKnowledge = operatorKnowledgeApprovalOf(item);
   const question = questionPayloadOf(item);
+  const project = useContext(ProjectContext);
+  const operationPayload = question?.superOperation;
+  const operation = useQuery({
+    queryKey: ['project', item.projectKey, 'super-operation', operationPayload?.operationId],
+    queryFn: () => api.superOperation(item.projectKey, operationPayload!.operationId),
+    enabled: !!operationPayload && project?.isOwner === true && !project.me.via,
+  });
+  const ownerCommand = ownerCommandOf(operation.data?.operation);
+  const handoffResult = OperatorHandoffSchema.safeParse(item.payload.operatorHandoff);
+  const handoff = handoffResult.success ? handoffResult.data : null;
+  const fromOperator = isOperatorInboxRequest(item);
+  const repeatedCardLink = handoff?.reason === 'processing_failed' && cardHref === detailsHref;
+  const handoffGrant = useOperatorGrant(!!handoff);
+  const handoffPrimary =
+    handoff &&
+    ((handoff.reason === 'processing_failed' && !!cardHref) ||
+      (handoff.reason === 'no_grant' && handoffGrant.data?.canManage && !handoffGrant.data.active));
   const group = question?.group;
   const grouped = !!group?.sources && group.primaryItemId === item.id;
   const groupAskers = [...new Set(group?.sources?.map((source) => source.asker) ?? [])];
@@ -274,6 +299,7 @@ export function InboxCard({
   );
   const resolveAnswer = (body: ResolveInboxRequest) => {
     if (answerBlocked) return;
+    if (operationPayload && body.optionId === 'yes' && !operation.isSuccess) return;
     onResolve(item, { ...body, ...(attachmentIds.length ? { attachmentIds } : {}) });
   };
   const hasDraft = answer.trim() !== '' || uploads.items.length > 0;
@@ -311,7 +337,9 @@ export function InboxCard({
   const code = payloadCode(item);
   const gateMove = item.kind === 'decision' ? gateMoveText(item, pipeline, labels) : null;
   const questionTitle = grouped ? group.combinedQuestion : item.title;
-  const heading = gateMove ?? inboxHeading({ ...item, title: questionTitle });
+  const heading = ownerCommand
+    ? t('ownerCommand.title')
+    : (handoff?.action ?? gateMove ?? inboxHeading({ ...item, title: questionTitle }));
   // An approval a merge follows says that one click is enough (PM-484).
   const thenMerge = gateMove ? gateThenMergeText(item, pipeline, members, myHandle) : null;
   // What follows the short heading of a long question.
@@ -337,7 +365,7 @@ export function InboxCard({
   const displayKind = displayKindOf(item);
   const open = item.state === 'open';
   const operatorNote = open ? operatorNoteOf(item) : null;
-  const steps = todo ? todoRows(item) : [];
+  const steps = todo && !handoff ? todoRows(item) : [];
   const fallback = open ? operatorFallbackOf(item) : null;
   const rerouted = open ? rerouteReasonOf(item) : null;
   const startNote = open && !assignedToOthers && !grouped ? askerStartNote(item, members, myHandle) : null;
@@ -395,9 +423,13 @@ export function InboxCard({
   const headRow = (
     <div className={styles.head}>
       <Chip tone="kind">{t(`inbox.kinds.${displayKind}`)}</Chip>
-      {isIntegratorInboxItem(item) ? (
+      {handoff ? (
+        <Chip tone="needs">{t('inbox.handedOff.chip')}</Chip>
+      ) : ownerCommand ? (
+        <Chip tone="accent">{t('ownerCommand.chip')}</Chip>
+      ) : isIntegratorInboxItem(item) ? (
         <Chip tone="outline" icon="terminal">
-          {t('inbox.integrator.chip')}
+          {t('superMode.name')}
         </Chip>
       ) : null}
       <span className={styles.requester}>
@@ -407,6 +439,10 @@ export function InboxCard({
               <Avatar key={asker} member={members.get(asker)} handle={asker} size="sm" />
             ))}
             {groupAskers.length > 3 ? <span>+{groupAskers.length - 3}</span> : null}
+          </span>
+        ) : fromOperator ? (
+          <span className={styles.operatorIcon} aria-hidden="true">
+            <Icon name="sparkle" size={13} strokeWidth={2} />
           </span>
         ) : fromSystem ? (
           <span className={styles.systemIcon} aria-hidden="true">
@@ -418,9 +454,11 @@ export function InboxCard({
         <span className={styles.source}>
           {grouped
             ? joinNames(namesOf(groupAskers, members, myHandle))
-            : fromSystem
-              ? t('common.system')
-              : nameOf(item.source, members, myHandle)}
+            : fromOperator
+              ? t('superMode.name')
+              : fromSystem
+                ? t('common.system')
+                : nameOf(item.source, members, myHandle)}
         </span>
       </span>
       <span className={styles.spacer} />
@@ -593,23 +631,42 @@ export function InboxCard({
       id={inboxItemDomId(item.id)}
       className={clsx(styles.card, compact && styles.compact, mobile && styles.mobile)}
       data-kind={displayKind}
+      data-handoff={handoff ? 'operator' : undefined}
       data-alert={outageAlert ? 'work_outage' : releaseAlert ? 'release_failed' : undefined}
       data-recipient={isIntegratorInboxItem(item) ? 'integrator' : undefined}
       data-severity={releaseAlert && isReleaseDown(releaseAlert) ? 'down' : undefined}
     >
       {headRow}
       {taskRow}
-      {question?.integratorEscalatedAt || (fixLimit && item.payload.integratorEscalatedAt) ? (
+      {!handoff && (question?.integratorEscalatedAt || (fixLimit && item.payload.integratorEscalatedAt)) ? (
         <p className={styles.integratorMoved}>
           <Icon name="handoff" size={16} />
-          {t('inbox.integrator.moved')}
+          {t('inbox.handedOff.legacy')}
         </p>
       ) : null}
       <Heading className={styles.title} tabIndex={-1} data-inbox-title="">
         {heading}
       </Heading>
       {thenMerge ? <p className={styles.body}>{thenMerge}</p> : null}
-      {questionBody ? <QuestionBody text={questionBody} mobile={mobile} /> : null}
+      {operationPayload &&
+      project?.isOwner &&
+      !project.me.via &&
+      (ownerCommand || operation.isPending || operation.isError) ? (
+        <OwnerCommandBody
+          command={ownerCommand}
+          payload={operationPayload}
+          projectKey={item.projectKey}
+          loading={operation.isPending}
+          failed={operation.isError}
+          retry={() => void operation.refetch()}
+        />
+      ) : null}
+      {handoff ? (
+        <OperatorHandoff handoff={handoff} projectKey={item.projectKey} cardHref={cardHref} />
+      ) : null}
+      {questionBody && !handoff && !ownerCommand ? (
+        <QuestionBody text={questionBody} mobile={mobile} />
+      ) : null}
       {approvalHint ? (
         <ApprovalHintNote
           hint={approvalHint}
@@ -667,6 +724,8 @@ export function InboxCard({
         <OutageAlert alert={outageAlert} members={members} myHandle={myHandle} mobile={mobile} />
       ) : null}
       {item.body &&
+      !handoff &&
+      !ownerCommand &&
       !mergeItem &&
       !releaseItem &&
       !releaseAlert &&
@@ -696,7 +755,6 @@ export function InboxCard({
           </dl>
         </section>
       ) : null}
-      {isIntegratorInboxItem(item) ? <IntegratorTodoClock item={item} /> : null}
       {grouped && group.note ? (
         <p className={styles.operatorNote}>
           <span aria-hidden="true">
@@ -895,6 +953,8 @@ export function InboxCard({
             </ButtonLink>
           ) : null}
         </div>
+      ) : operationPayload && (!project?.isOwner || project.me.via) ? (
+        <p role="status">{t('errors.codes.owner_approval_required')}</p>
       ) : (
         <div
           role={grouped ? 'group' : undefined}
@@ -935,21 +995,29 @@ export function InboxCard({
                   variant={
                     todo
                       ? option.id === 'todo_done'
-                        ? 'primary'
+                        ? handoffPrimary
+                          ? 'secondary'
+                          : 'primary'
                         : 'ghost'
                       : answering || alertPayload?.alert === 'feedback_forwarded'
                         ? 'secondary'
                         : variantFor[option.style]
                   }
                   size={buttonSize}
-                  disabled={answerBlocked}
+                  disabled={
+                    answerBlocked || (!!operationPayload && option.id === 'yes' && !operation.isSuccess)
+                  }
                   onClick={() =>
                     todo
                       ? pickTodo(option)
                       : resolveAnswer({ optionId: option.id, ...(boundary ? { note: boundaryReason } : {}) })
                   }
                 >
-                  {optionLabel(option)}
+                  {handoff && option.id === 'todo_cannot'
+                    ? t('inbox.handedOff.cannot')
+                    : ownerCommand
+                      ? t(option.id === 'yes' ? 'ownerCommand.yes' : 'ownerCommand.no')
+                      : optionLabel(option)}
                 </Button>
               ))}
             </>
@@ -963,7 +1031,7 @@ export function InboxCard({
               {answerOption ? optionLabel(answerOption) : t('inbox.answerOwn')}
             </Button>
           ) : null}
-          {detailsHref && !mobile ? (
+          {detailsHref && !mobile && !repeatedCardLink ? (
             <>
               <span className={styles.spacer} />
               <Link to={detailsHref} className={styles.details}>
@@ -979,7 +1047,7 @@ export function InboxCard({
           {error}
         </p>
       ) : null}
-      {detailsHref && mobile && !handOn && !mergeItem ? (
+      {detailsHref && mobile && !handOn && !mergeItem && !repeatedCardLink ? (
         <Link to={detailsHref} className={styles.details}>
           <span>{t('inbox.details')}</span>
           <Icon name="arrowRight" size={14} strokeWidth={2.2} />

@@ -191,7 +191,7 @@ export default async ({ instance, open, shoot, step }) => {
       await route.fulfill({ response, json: body });
     });
     await page.goto(`${new URL(page.url()).origin}/p/AC/tasks/AC-1/timeline`);
-    await page.getByRole('button', { name: hu.superMode.badge, exact: true }).first().click();
+    await page.getByRole('button', { name: hu.integratorKey.prefix, exact: true }).first().click();
     await page.getByText('pmi_super_demo…', { exact: true }).first().waitFor();
     await page.locator('#timeline-handoff_event').scrollIntoViewIfNeeded();
     await shoot(page, 'super-timeline', options);

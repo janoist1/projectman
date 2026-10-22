@@ -300,6 +300,7 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
     case 'operator_grant_changed': {
       // The grant was given, replaced, revoked or expired (PM-881): the button's ring and the panel's line.
       void client.invalidateQueries({ queryKey: queryKeys.operatorGrant });
+      void client.invalidateQueries({ queryKey: queryKeys.operatorGrantAudit });
       return;
     }
     case 'operator_signal': {

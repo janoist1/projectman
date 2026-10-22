@@ -1,4 +1,5 @@
 import clsx from 'clsx';
+import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent, ReactNode } from 'react';
 import { Outlet, useLocation, useMatch, useNavigate } from 'react-router';
@@ -13,7 +14,7 @@ import {
   isIntegratorInboxItem,
   wasIntegratorInboxItem,
 } from '@projectman/shared';
-import type { InboxItem } from '@projectman/shared';
+import type { InboxItem, SuperOperationDetail } from '@projectman/shared';
 import { useBoard, useConfig, useInbox, useResolveInbox, useRevokeBoundary } from '../../api/queries';
 import { Button } from '../../components/Button';
 import { ActorName } from '../../components/ActorName';
@@ -61,11 +62,11 @@ import type { DrawerBase } from '../board/drawerBase';
 import { moveErrorText } from '../board/moveTask';
 import { isStaleError, operatorDecisionToast } from '../operator/OperatorApproval';
 import { InboxCard } from './InboxCard';
-import { IntegratorTodos } from './IntegratorTodos';
 import { OperatorTrail } from './OperatorTrail';
 import { FoldedCommand } from './PermissionParts';
 import { QuestionSources } from './QuestionSources';
 import { ReleaseSubject } from './ReleaseInbox';
+import { ownerCommandOf } from './commandPresentation';
 import styles from './InboxPage.module.css';
 
 type KindFilter = 'all' | DisplayKind;
@@ -147,7 +148,9 @@ function RecentRow({
           ) : (
             formatAgo(item.createdAt)
           )}
-          {wasIntegratorInboxItem(item) ? ` · ${t('inbox.integrator.wasForIntegrator')}` : null}
+          {wasIntegratorInboxItem(item) && !item.payload.operatorHandoff
+            ? ` · ${t('inbox.handedOff.legacy')}`
+            : null}
           {group?.sources && item.state === 'resolved'
             ? ` · ${t('inbox.group.answeredCount', { count: group.answeredCount ?? group.sources.filter((s) => s.state === 'live').length })}`
             : null}
@@ -238,6 +241,7 @@ export function InboxPage() {
   const resolve = useResolveInbox(key, myHandle);
   const revoke = useRevokeBoundary(key);
   const toast = useToast();
+  const queryClient = useQueryClient();
   const onRevoke = isOwner
     ? (id: string) => revoke.mutate(id, { onError: () => toast.show(t('boundary.revokeFailed'), 'error') })
     : undefined;
@@ -479,8 +483,18 @@ export function InboxPage() {
           { item: target, body },
           {
             onSuccess: () => {
-              const text =
-                operatorApprovalOf(target) !== null || operatorKnowledgeApprovalOf(target) !== null
+              const operationId = questionPayloadOf(target)?.superOperation?.operationId;
+              const operation = operationId
+                ? queryClient.getQueryData<SuperOperationDetail>([
+                    'project',
+                    target.projectKey,
+                    'super-operation',
+                    operationId,
+                  ])?.operation
+                : undefined;
+              const text = ownerCommandOf(operation)
+                ? t(body.optionId === 'yes' ? 'ownerCommand.approved' : 'ownerCommand.refused')
+                : operatorApprovalOf(target) !== null || operatorKnowledgeApprovalOf(target) !== null
                   ? operatorDecisionToast(target, body.optionId)
                   : target.kind === 'hand_on'
                     ? handOnToast(target, pipeline)
@@ -570,15 +584,6 @@ export function InboxPage() {
             />
           ) : null}
         </div>
-        {isOwner && (filter === 'all' || filter === 'todo') ? (
-          <IntegratorTodos
-            items={items ?? []}
-            lingering={displayedLingering}
-            renderCard={renderCard}
-            members={members}
-            myHandle={myHandle}
-          />
-        ) : null}
         {isMobile ? (
           <>
             <RecentDecisions

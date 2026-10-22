@@ -14,6 +14,9 @@
 .card[data-recipient='integrator'] {
   background: var(--c-subtle);
 }
+.card[data-handoff='operator'] {
+  box-shadow: inset 3px 0 0 var(--c-needs);
+}
 .integratorMoved {
   display: flex;
   gap: 8px;
@@ -89,6 +92,17 @@
   justify-content: center;
   background: var(--role-system-bg);
   color: var(--role-system-fg);
+}
+.operatorIcon {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  border-radius: var(--radius-sm);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--c-accent-soft);
+  color: var(--c-accent-text);
 }
 
 .source {

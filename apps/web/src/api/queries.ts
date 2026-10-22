@@ -1091,7 +1091,7 @@ export function useOperatorQueue(key: string, closedSince: string, enabled: bool
 }
 
 /** The grant of machine operations to the Operator (PM-881): whether it is active, until when, who manages it. */
-export function useOperatorGrant(enabled: boolean) {
+export function useOperatorGrant(enabled = true) {
   return useQuery({
     queryKey: queryKeys.operatorGrant,
     queryFn: () => api.operatorGrant(),

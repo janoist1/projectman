@@ -37,6 +37,12 @@ import type { PipelineIndex } from './pipeline';
 import { releaseFailedWords } from './release';
 import { relationKindLabel } from './timeline';
 
+/** Operator-origin requests use the same sender in the inbox and in task status lines. */
+export function isOperatorInboxRequest(item: Pick<InboxItem, 'payload'>): boolean {
+  const payload = questionPayloadOf(item);
+  return !!payload?.operatorHandoff || !!payload?.superOperation;
+}
+
 /** Option id used for a free-text answer to a question (the text goes in `note`). */
 export const FREE_ANSWER_OPTION_ID = 'answer';
 
@@ -749,8 +755,8 @@ export function resolutionNote(item: InboxItem): string | null {
     return note
       ? t(
           item.resolution.optionId === 'todo_cannot'
-            ? 'inbox.integrator.reasonNote'
-            : 'inbox.integrator.resultNote',
+            ? 'inbox.handedOff.reasonNote'
+            : 'inbox.handedOff.resultNote',
           { note },
         )
       : null;
@@ -816,7 +822,10 @@ export function screeningOf(item: InboxItem): QuestionScreening | null {
 
 /** A question the Operator made a todo of: "Teendő", not "Kérdés" (PM-556), also after it closed. */
 export function isTodo(item: InboxItem): boolean {
-  return item.kind === 'question' && screeningOf(item)?.outcome === 'todo';
+  return (
+    item.kind === 'question' &&
+    (screeningOf(item)?.outcome === 'todo' || !!questionPayloadOf(item)?.operatorHandoff)
+  );
 }
 
 /** The kind a card shows: a todo is its own kind. */

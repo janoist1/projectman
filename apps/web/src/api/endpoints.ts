@@ -1,4 +1,5 @@
 import {
+  OperatorGrantAuditPage,
   PushDeviceView,
   PushOverview,
   PushSettings,
@@ -72,6 +73,7 @@ import {
   CreatedIntegratorKey,
 } from '@projectman/shared';
 import type {
+  OperatorGrantDuration,
   OperatorApprovalWaiverRequest,
   CloseFeedbackRequest,
   CreateTaskFromFeedbackRequest,
@@ -123,6 +125,11 @@ import { apiRequest } from './client';
  * refetch instead of relying on the body.
  */
 export const api = {
+  operatorGrantAudit: () => apiRequest(routes.operatorGrantAudit(), { schema: OperatorGrantAuditPage }),
+  createOperatorGrant: (duration: OperatorGrantDuration) =>
+    apiRequest(routes.operatorGrant(), { method: 'POST', body: { duration }, schema: OperatorGrantResponse }),
+  revokeOperatorGrant: () =>
+    apiRequest(routes.operatorGrant(), { method: 'DELETE', schema: OperatorGrantResponse }),
   /** Web push (PM-815): the signed-in person's own devices and settings. */
   push: () => apiRequest(routes.push(), { schema: PushOverview }),
   savePushSettings: (body: PushSettings) =>

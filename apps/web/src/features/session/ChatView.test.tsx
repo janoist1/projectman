@@ -45,7 +45,7 @@ it('shows a stored super origin beside a historical owner message', async () => 
     />,
   );
   expect(screen.getByText(t('superMode.name'))).toBeTruthy();
-  fireEvent.click(screen.getByRole('button', { name: t('superMode.badge') }));
+  fireEvent.click(screen.getByRole('button', { name: t('integratorKey.prefix') }));
   expect(screen.getByText('pmi_test…')).toBeTruthy();
   expect(screen.getByText(t('involvement.integrator'))).toBeTruthy();
   expect(screen.queryByText(t('common.you'))).toBeNull();

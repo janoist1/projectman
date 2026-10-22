@@ -1,5 +1,6 @@
 import type { ProviderLoginStatus } from '@projectman/shared';
 import {
+  CreateOperatorGrantRequest,
   superAccessVerdict,
   superDecisionRefusal,
   externalQuestionAnswerRefusal,
@@ -461,6 +462,7 @@ function mockCommit(task: Pick<Task, 'key'>, salt: string): string {
  * real server would, so the UI runs through its normal data path.
  */
 export class MockBackend {
+  operatorGrantAudits: import('@projectman/shared').OperatorGrantAuditEntry[] = [];
   auth: MockAuthState;
   /** Cloud mode before the first setup (PM-317): the setup asks for this code; null is single-machine mode. */
   setupCode: string | null = null;
@@ -484,6 +486,7 @@ export class MockBackend {
   superAudits: import('@projectman/shared').SuperOperationAudit[] = [];
   superHandoffs: import('@projectman/shared').SuperHandoff[] = [];
   superOperations: import('@projectman/shared').SuperOperation[] = [];
+  superResults = new Map<string, import('@projectman/shared').SuperAdministrationResult>();
   private viewerAccess(): import('@projectman/shared').HumanAccess {
     const member = memberOf(this.config, this.viewerHandle);
     return member?.kind === 'human' ? member.access : 'viewer';
@@ -1883,6 +1886,55 @@ export class MockBackend {
     if (this.auth !== 'ready') return error(401, 'unauthorized', 'Login required');
 
     if (path === '/api/me') return ok(this.me());
+    if (path === '/api/auth/operator-grant' || path === '/api/auth/operator-grant/audit') {
+      const canManage = this.operatorGrant.canManage && this.me().hostOwner === true && !this.integratorMode;
+      const at = nowIso();
+      const grant = this.operatorGrant;
+      const record = (action: import('@projectman/shared').OperatorGrantAuditEntry['action']) => {
+        this.operatorGrantAudits.unshift({
+          grantId: grant.grantId!,
+          action,
+          at,
+          expiresAt: grant.expiresAt,
+          by: this.user.name,
+        });
+      };
+      if (grant.active && grant.expiresAt && grant.expiresAt <= at) {
+        record('expired');
+        grant.active = false;
+      }
+      if (path.endsWith('/audit')) {
+        if (!canManage) return error(403, 'operator_grant_owner_only', 'Own owner login required');
+        return ok({ entries: clone(this.operatorGrantAudits) });
+      }
+      if (method !== 'GET' && !canManage)
+        return error(403, 'operator_grant_owner_only', 'Own owner login required');
+      if (method === 'POST') {
+        const input = CreateOperatorGrantRequest.safeParse(body);
+        if (!input.success) return error(400, 'invalid_request', 'Invalid grant duration');
+        if (grant.active) record('replaced');
+        Object.assign(grant, {
+          active: true,
+          grantId: `grant-${this.operatorGrantAudits.length + 1}`,
+          grantedAt: at,
+          grantedBy: this.user.name,
+          lastUsedAt: null,
+          expiresAt:
+            input.data.duration === 'until_revoked'
+              ? null
+              : new Date(
+                  Date.parse(at) + (input.data.duration === '12h' ? 43_200_000 : 604_800_000),
+                ).toISOString(),
+        });
+        record('granted');
+      }
+      if (method === 'DELETE') {
+        if (!grant.active) return error(404, 'not_found', 'Grant inactive');
+        record('revoked');
+        grant.active = false;
+      }
+      return ok({ grant: { ...clone(grant), canManage } });
+    }
     if (path === '/api/me/push' || path.startsWith('/api/me/push/'))
       return (
         this.push.handle(method, path.slice('/api/me/push'.length), body) ??
@@ -1963,8 +2015,6 @@ export class MockBackend {
       }
       return ok({ keys: clone(this.integratorKeys) });
     }
-    if (path === '/api/auth/operator-grant' && method === 'GET')
-      return ok({ grant: clone(this.operatorGrant) });
     if (path === '/api/auth/integrator-key') {
       if (!this.me().hostOwner) return error(403, 'owner_only', 'Only the host owner may manage the key');
       if (method === 'POST') {
@@ -2326,7 +2376,7 @@ export class MockBackend {
       if (this.viewerAccess() !== 'owner') return error(403, 'owner_only', 'Owner access required');
       const operation = this.superOperations.find((entry) => entry.id === m![1]);
       return operation
-        ? ok({ operation: clone(operation), result: null })
+        ? ok({ operation: clone(operation), result: clone(this.superResults.get(operation.id) ?? null) })
         : error(404, 'not_found', 'Operation not found');
     }
     if (rest === '/merge-queue/order') {

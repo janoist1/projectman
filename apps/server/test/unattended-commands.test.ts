@@ -87,6 +87,9 @@ describe('commands that run without asking: the rules the section lists', () => 
     'git commit -m "Subject" -m "A second paragraph"',
     'git commit -m "Subject\n\nBody line one\nBody line two"',
     "git commit -m 'Subject with a `backtick`'",
+    'git checkout -- src/a.ts',
+    'git checkout HEAD -- src/a.ts',
+    'git restore src/a.ts',
     'git merge --ff-only main',
     'git merge --ff-only -q main',
     'git status && git add -A && git commit -m "Done" && git log -1',
@@ -183,6 +186,8 @@ describe('commands that run without asking: the section', () => {
   it('names the routine steps and the default branch for a role in a worktree only', () => {
     expect(section().join('\n')).toContain('`git merge --ff-only main`');
     expect(section().join('\n')).toContain('`git commit -m "message"`');
+    expect(section().join('\n')).toContain('`git checkout -- <path>`');
+    expect(section().join('\n')).toContain('`git restore <path>`');
     const reviewer = section({ worktree: false }).join('\n');
     expect(reviewer).not.toContain('git commit');
     expect(reviewer).toContain("your working directory and the task's own worktree");

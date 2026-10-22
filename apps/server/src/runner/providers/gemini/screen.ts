@@ -17,6 +17,9 @@ export function detectGeminiQuota(text: string): { message: string; resetsInMs: 
   const seconds = reset
     ? Number(reset[1] ?? 0) * 3600 + Number(reset[2] ?? 0) * 60 + Number(reset[3] ?? 0)
     : 0;
+  // A transient request-level 429 may be retried by agy itself. Only a quota message
+  // or an explicit reset duration parks the provider and releases its cards.
+  if (!/Individual\s+quota/i.test(message) && seconds <= 0) return null;
   return {
     message,
     resetsInMs: seconds > 0 && Number.isSafeInteger(seconds * 1000) ? seconds * 1000 : null,

@@ -31,6 +31,11 @@ describe('Gemini screens', () => {
       { resetsInMs: 10 * 60_000 },
     );
   });
+  it('leaves transient resource exhaustion to the CLI retry loop', () => {
+    expect(
+      detectGeminiQuota('RESOURCE_EXHAUSTED (code 429): Server overloaded. Please retry shortly.'),
+    ).toBeNull();
+  });
   it('does not treat a quota error quoted in the input prompt as a provider failure', () => {
     expect(
       detectGeminiQuota('> RESOURCE_EXHAUSTED (code 429): Individual quota reached. Resets in 65h10m58s.'),

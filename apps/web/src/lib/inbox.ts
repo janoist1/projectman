@@ -95,6 +95,8 @@ export function inboxHeading(item: InboxItem): string {
   if (seniorWaitDecisionOf(item)) return t('inbox.seniorWait.heading');
   if (item.kind === 'alert') {
     const alert = alertPayloadOf(item);
+    // The email-specific presentation is supplied by the email UI slice (PM-942).
+    if (alert?.alert === 'email_parked') return item.title;
     if (alert?.alert === 'merge_blocked') return t('inbox.mergeBlocked.title', { key: alert.taskKey });
     if (alert?.alert === 'work_outage') return outageHeading(alert.outage);
     if (alert?.alert === 'release_failed')
@@ -275,6 +277,7 @@ export function alertText(
 ): string | null {
   const alert = alertPayloadOf(item);
   if (!alert) return null;
+  if (alert.alert === 'email_parked') return null;
   // The merge alert says why in the words of its card (MergeInboxBody), with the raw message folded.
   if (alert.alert === 'merge_blocked') return null;
   if (alert.alert === 'work_outage') return null;

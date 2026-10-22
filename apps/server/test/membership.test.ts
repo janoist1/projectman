@@ -15,6 +15,22 @@ describe('memberships and member snapshots', () => {
   afterEach(async () => h.close());
 
   const by = { actor: OWNER_ACTOR, author: OWNER, sponsor: 'owner' };
+  it('returns effective email settings and preserves omitted values during AI member updates', async () => {
+    const members = h.app.projectman.domain.members;
+    expect(
+      members
+        .rosterFor(await h.app.projectman.domain.projects.config('AR'))
+        .find((member) => member.handle === 'dev-1')?.email,
+    ).toEqual({ enabled: false, sendWithoutApproval: false });
+    await members.update('AR', 'dev-1', { email: { enabled: true, sendWithoutApproval: true } }, by);
+    const updated = await members.update('AR', 'dev-1', { email: { enabled: false } }, by);
+    expect(updated.email).toEqual({ enabled: false, sendWithoutApproval: true });
+  });
+  it('refuses AI email settings on a human member', async () => {
+    await expect(
+      h.app.projectman.domain.members.update('AR', 'owner', { email: { enabled: true } }, by),
+    ).rejects.toMatchObject({ code: 'not_ai_member' });
+  });
   it('uses the new provider default unless the same request supplies a compatible model', async () => {
     const members = h.app.projectman.domain.members;
     const member = await members.hire('AR', { role: 'qa', provider: 'gemini' }, by);
@@ -72,7 +88,7 @@ describe('memberships and member snapshots', () => {
     ]);
   });
 
-  describe('the outbound network setting (PM-355)', () => {
+  describe('AI member delivery settings', () => {
     /** Invites a human with the given access and returns their login cookie. */
     async function inviteAs(access: 'admin' | 'developer', email: string): Promise<string> {
       const invite = await inject(h.app, 'POST', '/api/projects/AR/invites', cookie, {
@@ -90,6 +106,20 @@ describe('memberships and member snapshots', () => {
       const setCookie = accepted.headers['set-cookie'];
       return Array.isArray(setCookie) ? setCookie[0]! : setCookie!;
     }
+
+    it('allows an admin to enable email but reserves approval policy changes to the owner', async () => {
+      const admin = await inviteAs('admin', 'admin@example.test');
+      const enabled = await inject(h.app, 'PATCH', routes.member('AR', 'dev-1'), admin, {
+        email: { enabled: true },
+      });
+      expect(enabled.statusCode).toBe(200);
+      expect(enabled.json().email).toEqual({ enabled: true, sendWithoutApproval: false });
+      const denied = await inject(h.app, 'PATCH', routes.member('AR', 'dev-1'), admin, {
+        email: { sendWithoutApproval: true },
+      });
+      expect(denied.statusCode).toBe(403);
+      expect(denied.json().error.code).toBe('owner_only');
+    });
 
     it('is on for a new member unless the owner hires it with the network off', async () => {
       const defaulted = await inject(h.app, 'POST', routes.members('AR'), cookie, { role: 'developer' });

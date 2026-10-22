@@ -28,7 +28,8 @@ import type { AiMemberConfig, ProjectConfig } from './schema';
  * - `review_test`: a repository's full test, `reviewTest` (the shell command the server runs in the
  *   full test sandbox) or `fullTestAtMerge` (when it runs) (PM-538);
  * - `operator_watch`: how much the Operator does on its own on a system signal (PM-548);
- * - `operator_approval_waiver`: whether eligible Operator changes may skip the approval click (PM-691).
+ * - `operator_approval_waiver`: whether eligible Operator changes may skip the approval click (PM-691);
+ * - `email_send_policy`: whether an AI member can send email without human approval (PM-940).
  */
 export type OwnerOnlyChange =
   | 'locations'
@@ -39,7 +40,8 @@ export type OwnerOnlyChange =
   | 'permissions'
   | 'review_test'
   | 'operator_watch'
-  | 'operator_approval_waiver';
+  | 'operator_approval_waiver'
+  | 'email_send_policy';
 
 /** The owner-only changes from `previous` to `next`, in the order above; empty when there are none. */
 export function ownerOnlyChanges(
@@ -59,6 +61,16 @@ export function ownerOnlyChanges(
   if (operatorWatchOf(previous) !== operatorWatchOf(next)) changes.push('operator_watch');
   if ((previous.team.operatorApprovalWaiver ?? false) !== (next.team.operatorApprovalWaiver ?? false))
     changes.push('operator_approval_waiver');
+  const policy = (member: ProjectConfig['team']['members'][number] | undefined) =>
+    member?.kind === 'ai' && member.email?.sendWithoutApproval === true;
+  if (
+    next.team.members.some(
+      (member) =>
+        member.kind === 'ai' &&
+        policy(member) !== policy(previous.team.members.find((old) => old.handle === member.handle)),
+    )
+  )
+    changes.push('email_send_policy');
   return changes;
 }
 

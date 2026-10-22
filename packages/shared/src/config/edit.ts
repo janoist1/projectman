@@ -27,6 +27,7 @@ export type ReviewTestPatch = z.infer<typeof ReviewTestPatch>;
 export const PatchConfigRequest = z
   .object({
     baseVersion: z.string().min(1),
+    email: z.strictObject({ enabled: z.boolean() }).optional(),
     message: z.string().trim().min(1).max(500).optional(),
     project: ProjectConfig.shape.project
       .pick({ name: true, language: true, timezone: true })
@@ -228,6 +229,7 @@ export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigReques
     project: {
       ...config.project,
       ...patch.project,
+      ...(patch.email ? { email: patch.email } : {}),
       ...(feedback ? { feedback } : {}),
       repos:
         repoMerge || repoDocs || repoReviewTest || repoFullTestAtMerge

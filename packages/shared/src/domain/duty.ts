@@ -257,7 +257,7 @@ export const DUTIES: Record<DutyId, DutyDefinition> = {
     group: 'communication',
     holders: 'both',
     prompt:
-      'Draft concise client updates and test requests; obtain a human decision before sending anything outside the team.',
+      'Draft concise client updates and test requests; obtain a human decision before sending anything outside the team, except e-mail sent with send_email, whose approval the system enforces.',
     toolPolicy: 'read_only',
     meetings: [],
     events: [],

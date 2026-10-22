@@ -2,7 +2,7 @@ import clsx from 'clsx';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent, RefObject } from 'react';
 import { Link, useLocation, useMatch } from 'react-router';
-import { canSeeOperatorSessions, canReadOperatorKnowledge } from '@projectman/shared';
+import { canSeeOperatorSessions, canReadOperatorKnowledge, hasAccess } from '@projectman/shared';
 import { useBoard, useSendTeamMessage } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Avatar } from '../../components/Avatar';
@@ -16,6 +16,7 @@ import { useMessageAttachmentUploads } from '../messages/useMessageAttachmentUpl
 import { Composer } from '../session/Composer';
 import { OperatorThread } from './OperatorThread';
 import { OperatorKnowledgeView } from './OperatorKnowledgeView';
+import { OperatorQueueStrip, OperatorQueueView } from './OperatorQueueView';
 import type { FailedOperatorMessage } from './OperatorThread';
 import { OperatorWaitBanner } from './OperatorWaitBanner';
 import { operatorStatusText } from './operatorChannel';
@@ -46,7 +47,12 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
   const titleId = useId();
   const [knowledgeOpen, setKnowledgeOpen] = useState(false);
   const knowledgeButton = useRef<HTMLButtonElement>(null);
+  const [queueOpen, setQueueOpen] = useState(false);
+  const queueButton = useRef<HTMLButtonElement>(null);
   const access = me.projects.find((project) => project.key === key)?.access;
+  // The queue is for a person's own login with developer access (the server's rule), not for an integrator key.
+  const queueVisible = !me.via && access !== undefined && hasAccess(access, 'developer');
+  const queueLength = state?.queue.open ?? 0;
   const sessionVisible = access !== undefined && canSeeOperatorSessions({ access });
   const readOnly = state?.readOnly ?? false;
 
@@ -64,6 +70,7 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
   useEffect(() => {
     if (!operatorPrefill) return;
     setKnowledgeOpen(false);
+    setQueueOpen(false);
     setPrefill((previous) => ({ text: operatorPrefill.text, id: (previous?.id ?? 0) + 1 }));
   }, [operatorPrefill]);
 
@@ -185,6 +192,32 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
             <Icon name="external" size={13} strokeWidth={2.2} />
           </Link>
         ) : null}
+        {queueVisible ? (
+          <span className={styles.queueToggle}>
+            <Button
+              ref={queueButton}
+              className={styles.knowledgeButton}
+              variant="ghost"
+              size="lg"
+              iconOnly
+              icon="list"
+              aria-pressed={queueOpen}
+              aria-label={t(queueLength > 0 ? 'operator.queue.toggleCount' : 'operator.queue.toggle', {
+                count: queueLength,
+              })}
+              title={t('operator.queue.toggle')}
+              onClick={() => {
+                setQueueOpen(!queueOpen);
+                setKnowledgeOpen(false);
+              }}
+            />
+            {queueLength > 0 ? (
+              <span className={styles.queueCount} aria-hidden="true">
+                {queueLength}
+              </span>
+            ) : null}
+          </span>
+        ) : null}
         {!me.via ? (
           <Button
             ref={knowledgeButton}
@@ -196,7 +229,10 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
             aria-pressed={knowledgeOpen}
             aria-label={t(canReadOperatorKnowledge({ access }) ? 'knowledge.title' : 'knowledge.style')}
             title={t(canReadOperatorKnowledge({ access }) ? 'knowledge.title' : 'knowledge.style')}
-            onClick={() => setKnowledgeOpen(!knowledgeOpen)}
+            onClick={() => {
+              setKnowledgeOpen(!knowledgeOpen);
+              setQueueOpen(false);
+            }}
           />
         ) : null}
         <Button
@@ -209,7 +245,14 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
         />
       </header>
 
-      {knowledgeOpen ? (
+      {queueOpen && queueVisible ? (
+        <OperatorQueueView
+          onBack={() => {
+            setQueueOpen(false);
+            queueButton.current?.focus();
+          }}
+        />
+      ) : knowledgeOpen ? (
         <OperatorKnowledgeView
           onBack={() => {
             setKnowledgeOpen(false);
@@ -245,6 +288,15 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
         </div>
       ) : (
         <>
+          {queueVisible ? (
+            <OperatorQueueStrip
+              channel={state}
+              onOpen={() => {
+                setQueueOpen(true);
+                setKnowledgeOpen(false);
+              }}
+            />
+          ) : null}
           <OperatorThread
             handle={handle}
             channel={state}

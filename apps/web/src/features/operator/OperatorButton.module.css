@@ -110,6 +110,34 @@
   animation: operator-signals-shake 600ms ease-in-out 1;
 }
 
+/* The length of the Operator's queue, when no signal waits for the viewer: the signals' badge is theirs. */
+.queued {
+  position: absolute;
+  top: -6px;
+  right: -8px;
+  min-width: 16px;
+  height: 16px;
+  box-sizing: border-box;
+  padding: 0 4px;
+  border-radius: 8px;
+  border: 2px solid var(--c-surface);
+  background: var(--c-accent);
+  color: var(--c-surface);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 12px;
+  text-align: center;
+}
+
+/* The owner's grant for machine operations is active: a blue ring around the avatar. */
+.ring {
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  border: 2px solid var(--c-accent);
+  pointer-events: none;
+}
+
 .narrow {
   display: none;
 }

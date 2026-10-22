@@ -78,6 +78,30 @@
   text-decoration: underline;
 }
 
+/* The queue's toggle in the head, with the length of the queue on it. */
+.queueToggle {
+  position: relative;
+  display: inline-flex;
+}
+
+.queueCount {
+  position: absolute;
+  top: 2px;
+  right: 0;
+  min-width: 16px;
+  height: 16px;
+  box-sizing: border-box;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--c-accent);
+  color: var(--c-on-accent);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+  pointer-events: none;
+}
+
 .knowledgeButton[aria-pressed='true'] {
   background: var(--c-accent-bg);
   color: var(--c-accent-text);

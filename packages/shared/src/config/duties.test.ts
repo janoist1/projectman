@@ -155,6 +155,56 @@ describe('targeted Operator role patches', () => {
   });
 });
 
+describe('targeted Operator label patches', () => {
+  it('changes one label field, keeps the rest of the pipeline and never mutates inputs', () => {
+    const c = config();
+    const patch = OperatorConfigPatch.parse({ labels: { 'release-ok': { color: 'red' } } });
+    const before = structuredClone({ c, patch });
+    const prepared = prepareOperatorConfigPatch(c, 'v2', patch);
+    expect(prepared.pipeline).toEqual({
+      ...c.pipeline,
+      labels: [{ ...c.pipeline.labels[0], color: 'red' }],
+    });
+    expect(PatchConfigRequest.parse(prepared)).toEqual(prepared);
+    expect(applyConfigPatch(c, prepared).pipeline.stages).toEqual(c.pipeline.stages);
+    expect({ c, patch }).toEqual(before);
+  });
+
+  it('adds a plain tag as a defined label, named by its id until a name is given', () => {
+    const c = config();
+    const added = prepareOperatorConfigPatch(c, 'v1', { labels: { bug: { color: 'red' } } });
+    expect(added.pipeline?.labels).toEqual([
+      ...c.pipeline.labels,
+      { id: 'bug', name: 'bug', color: 'red', setBy: 'anyone' },
+    ]);
+    expect(
+      validateProjectConfig(applyConfigPatch(c, added)).filter((issue) => issue.severity === 'error'),
+    ).toEqual([]);
+    const named = prepareOperatorConfigPatch(c, 'v1', {
+      labels: { bug: { name: 'Hiba', meaning: 'A defect.' } },
+    });
+    expect(named.pipeline?.labels.at(-1)).toMatchObject({ id: 'bug', name: 'Hiba', meaning: 'A defect.' });
+  });
+
+  it('removes a color or meaning with null and refuses fields beyond name, color and meaning', () => {
+    const c = config();
+    c.pipeline.labels[0] = { ...c.pipeline.labels[0]!, color: 'red', meaning: 'Approved.' };
+    const reset = prepareOperatorConfigPatch(c, 'v1', {
+      labels: { 'release-ok': { color: null, meaning: null } },
+    });
+    expect(reset.pipeline?.labels[0]).not.toHaveProperty('color');
+    expect(reset.pipeline?.labels[0]).not.toHaveProperty('meaning');
+    expect(reset.pipeline?.labels[0]?.setBy).toEqual(c.pipeline.labels[0]!.setBy);
+    for (const label of [{ setBy: 'anyone' }, { color: 'chartreuse' }, { name: '' }])
+      expect(OperatorConfigPatch.safeParse({ labels: { bug: label } }).success).toBe(false);
+  });
+
+  it('omits an absent or empty label patch', () => {
+    const c = config();
+    expect(prepareOperatorConfigPatch(c, 'v1', { labels: {} })).toEqual({ baseVersion: 'v1' });
+  });
+});
+
 describe('duty bundles', () => {
   it('has a fixed catalogue, English fragments, integration metadata and derived eligibility', () => {
     expect(DUTY_IDS).toHaveLength(29);

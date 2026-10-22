@@ -140,6 +140,13 @@ const sesSchema = z.strictObject({
   region: z.string().regex(REGION, 'an explicit AWS SES region'),
   domain: z.string().max(253).regex(ZONE, 'a lowercase domain name'),
   from: z.email().max(254),
+  /** Receiving the replies of the e-mail channel with SES (PM-945); absent: the receiving commands are refused. */
+  inbound: z
+    .strictObject({
+      /** A subdomain of the Cloudflare zone that carries only the replies' MX record. */
+      replyDomain: z.string().max(253).regex(ZONE, 'a lowercase domain name'),
+    })
+    .optional(),
 });
 
 /**
@@ -178,6 +185,13 @@ const configSchema = z
         issue(['ses', 'from'], 'must be an address of exactly ses.domain');
       if (config.ses.domain !== cloudflare.zone && !config.ses.domain.endsWith(`.${cloudflare.zone}`))
         issue(['ses', 'domain'], 'must belong to the configured Cloudflare zone');
+      const replyDomain = config.ses.inbound?.replyDomain;
+      if (replyDomain !== undefined) {
+        const path = ['ses', 'inbound', 'replyDomain'];
+        if (!replyDomain.endsWith(`.${cloudflare.zone}`))
+          issue(path, 'must be a subdomain of the configured Cloudflare zone');
+        else if (replyDomain === config.ses.domain) issue(path, 'must differ from ses.domain');
+      }
     }
     if (aws.compute === 'ec2' && !aws.ec2)
       issue(['aws', 'ec2'], 'required for EC2; explicitly choose the type, AMI, VPC, subnet and disk size');

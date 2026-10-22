@@ -226,7 +226,13 @@ import { attributedActor, humanActor, SYSTEM_ACTOR } from './kernel';
 import { SYSTEM_SENDER, isSessionAtWork, questionPayloadOf } from '@projectman/shared';
 import { DomainError } from './kernel';
 import { ObligationsService } from './services/obligations';
-import { createEmailChannelService, type EmailChannelEnv } from './services/email-channel';
+import {
+  createAwsSqsClient,
+  createEmailChannelService,
+  createSqsInboundSource,
+  type EmailChannelEnv,
+  type SqsLike,
+} from './services/email-channel';
 import { EmailChannelTools } from './mcp';
 import type { EmailSender } from './services/email-channel';
 
@@ -301,6 +307,8 @@ export interface DomainOptions {
   /** The SES sender of the outgoing e-mail channel (PM-941); absent: not configured. */
   emailChannelSender?: EmailSender;
   emailChannelEnv?: EmailChannelEnv;
+  /** Reads the mail queue of SES receiving (PM-945); absent: the AWS client of `emailChannelEnv.queueUrl`. */
+  emailChannelQueue?: SqsLike;
   emailReplyKey?: Buffer;
   /** Root used to constrain automatic lockfile installs; unset means no install auto-approval. */
   worktreesRootDir?: string;
@@ -921,6 +929,22 @@ export function createDomain(opts: DomainOptions) {
     replyKey: opts.emailReplyKey,
     now,
   });
+  const emailQueueUrl = opts.emailChannelEnv?.queueUrl;
+  const emailQueue =
+    emailChannel.configured() && opts.emailChannelEnv && emailQueueUrl
+      ? createSqsInboundSource({
+          queueUrl: emailQueueUrl,
+          client:
+            opts.emailChannelQueue ??
+            createAwsSqsClient({
+              region: opts.emailChannelEnv.region,
+              credentials: opts.emailChannelEnv.credentials,
+            }),
+          inbound: emailChannel.inbound,
+          logger: opts.logger,
+          now,
+        })
+      : null;
   inbox.registerDecider('email', (item, by, optionId, note) =>
     emailChannel.decideApproval(item, by, optionId, note),
   );
@@ -2487,6 +2511,7 @@ export function createDomain(opts: DomainOptions) {
       }, 60_000);
       superHandoffSweep.unref();
       emailChannel.start();
+      emailQueue?.start();
       githubSync.start();
       background.start();
       // Restore quota holds before schedulers or background probes can admit inference.
@@ -2697,6 +2722,7 @@ export function createDomain(opts: DomainOptions) {
       stopMessageSweep?.();
       if (superHandoffSweep) clearInterval(superHandoffSweep);
       emailChannel.stop();
+      await emailQueue?.stop();
       const drained = schedules.stop();
       githubSync.stop();
       await fullTests.stop();

@@ -217,6 +217,8 @@ export interface BuildAppOptions {
   emailChannelSender?: import('./services/email-channel').EmailSender;
   /** The parsed outgoing channel environment (PM-941). */
   emailChannelEnv?: import('./services/email-channel').EmailChannelEnv;
+  /** Reads the mail queue (PM-945); absent: the AWS client of the environment's queue URL. */
+  emailChannelQueue?: import('./services/email-channel').SqsLike;
   /**
    * The board is public: no Cloudflare Access in front of its pages, only the application's own login
    * (PM-672). Absent: false. It starts only in cloud mode, with an owner set up and a working e-mail login.
@@ -632,6 +634,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
         ? {
             emailChannelSender: options.emailChannelSender,
             emailChannelEnv: options.emailChannelEnv,
+            ...(options.emailChannelQueue ? { emailChannelQueue: options.emailChannelQueue } : {}),
             emailReplyKey: deriveEmailReplyKey(secret),
           }
         : {}),

@@ -25,6 +25,7 @@ import { runReleaseControl } from './release-control';
 import { platformSchema, runImageBuild, selectedImage, sourceShaSchema, targetPlatform } from './images';
 import { ENV_FILE_NAME, secretsDir } from './secrets';
 import { runSesCheck, runSesConfigure, runSesPlan, runSesRequestProduction } from './ses';
+import { runSesReceiveCheck, runSesReceiveConfigure, runSesReceivePlan } from './ses-receive';
 import { runTrialResetApply, runTrialResetPlan } from './trial-reset';
 
 export const USAGE = `usage: npm run cloud -- <command> [options]
@@ -62,6 +63,9 @@ commands:
   ses configure [--dry-run]          configure SES DKIM, sending-only IAM and protected cloud.env
   ses request-production [--dry-run] request production access separately after owner approval
   ses check                          verify SES production, DKIM, DNS and the sender scope without sending mail
+  ses receive-plan                   read what receiving the e-mail replies needs (SES rule, SNS, SQS, MX) and the cost
+  ses receive-configure [--dry-run]  set up receiving: reply domain, MX, receipt rule, SNS, SQS, sender policy, cloud.env
+  ses receive-check                  verify the receiving setup without sending mail
   up [--login-json <file>] [--dry-run] run preflight, aws, edge, deploy, publish, then check with a login file
   release-control                    relay one control request (one JSON line on stdin) to the board's local control
                                      socket; the response is the only line on stdout (docs/AWS.md "Release control")
@@ -198,6 +202,13 @@ export const COMMANDS: Record<string, CommandSpec> = {
     run: (context, invocation) => runSesRequestProduction(context, invocation.dryRun),
   },
   'ses check': { summary: 'verify SES readiness', flags: [], run: runSesCheck },
+  'ses receive-plan': { summary: 'preview SES receiving', flags: [], run: runSesReceivePlan },
+  'ses receive-configure': {
+    summary: 'configure SES receiving of the replies',
+    flags: ['dry-run'],
+    run: (context, invocation) => runSesReceiveConfigure(context, invocation.dryRun),
+  },
+  'ses receive-check': { summary: 'verify SES receiving', flags: [], run: runSesReceiveCheck },
   'dns plan': { summary: 'plan DNS migration', flags: [], run: (context) => runDnsPlan(context) },
   'dns import': {
     summary: 'import DNS records without deleting',

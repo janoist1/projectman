@@ -73,6 +73,13 @@ async function turn(prompt) {
   const injected = await hook('PreInvocation', { invocationNum: 0, initialNumSteps: step });
   for (const item of injected?.injectSteps ?? [])
     if (item.ephemeralMessage) entry('EPHEMERAL_MESSAGE', { content: item.ephemeralMessage });
+  if (prompt === 'quota') {
+    // Only the terminal reports this failure; no Stop hook or transcript completion follows.
+    line('RESOURCE_EXHAUSTED (code 429): Individual quota reached.');
+    line('Resets in 65h10m58s.');
+    busy = false;
+    return;
+  }
   if (prompt === 'credits') {
     line('Your AI credits balance is too low to continue.');
     busy = false;

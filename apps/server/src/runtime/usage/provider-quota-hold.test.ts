@@ -12,6 +12,16 @@ describe('ProviderQuotaHolds', () => {
     weeklyResetsAt: until,
     fetchedAt: at.toISOString(),
   });
+  it('keeps the latest reported reset when concurrent CLI failures disagree', () => {
+    const holds = new ProviderQuotaHolds();
+    expect(holds.until('gemini', reset, at)).toBe(true);
+    expect(holds.until('gemini', new Date(reset.getTime() - 1000), at)).toBe(false);
+    expect(holds.check('gemini', at)?.until).toEqual(reset);
+    const later = new Date(reset.getTime() + 1000);
+    expect(holds.until('gemini', later, at)).toBe(false);
+    expect(holds.check('gemini', reset)?.until).toEqual(later);
+    expect(holds.check('gemini', later)).toBeNull();
+  });
   it('holds a quota through its reset and preserves it across concurrent failures', () => {
     const holds = new ProviderQuotaHolds();
     expect(holds.start('nanogpt', at)).toBe(true);

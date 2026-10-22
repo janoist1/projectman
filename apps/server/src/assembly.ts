@@ -1054,7 +1054,13 @@ export function createDomain(opts: DomainOptions) {
   handOver.useFixLimit(fixLimit);
   startRound.useFixLimit(fixLimit);
   const autoAdvance = new AutoAdvance({ ctx, projects, tasks, sessions });
-  const messageStarts = new MessageStarts({ ctx, projects, tasks, admission });
+  const messageStarts = new MessageStarts({
+    ctx,
+    projects,
+    tasks,
+    admission,
+    workStarts,
+  });
   // The member queue's driver (PM-925) wakes the members whose queues hold work; the messages are its first lane.
   const memberQueueDriver = new MemberQueueWorker({
     ctx,
@@ -1152,8 +1158,10 @@ export function createDomain(opts: DomainOptions) {
     waitingReason: (projectKey, handle, workItem) =>
       messageStarts.waitingReason(projectKey, handle, workItem),
   });
-  sessions.useQuotaRecovery(planUsage, (session, stageId, after) =>
-    messageStarts.resumeAfter(session, stageId, after),
+  sessions.useQuotaRecovery(
+    planUsage,
+    (session, stageId, after) => messageStarts.resumeAfter(session, stageId, after),
+    (session, stageId) => messageStarts.reassignAfterQuota(session, stageId),
   );
   const schedules = new ScheduleService({
     ctx,

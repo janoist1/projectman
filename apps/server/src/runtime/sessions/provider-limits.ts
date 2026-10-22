@@ -26,6 +26,7 @@ export interface ProviderLimitsDeps {
 }
 
 type QuotaResume = (session: Session, stageId: string, after: 'quota' | 'login') => Promise<void>;
+const GEMINI_QUOTA_FALLBACK_MS = 30 * 60_000;
 
 /**
  * What a session's provider limits: the tokens it used and the warning limit (PM-187), the hold on a
@@ -37,17 +38,25 @@ export class ProviderLimits {
   private readonly providerHolds = new ProviderQuotaHolds();
   private quotaUsage: Pick<PlanUsageCache, 'get' | 'invalidate'> | undefined;
   private quotaResume: QuotaResume | undefined;
+  private quotaReassign: ((session: Session, stageId: string) => Promise<void>) | undefined;
   /** Sessions whose CLI reported a lost login, and of which provider, until they end (PM-467). */
   private readonly lostLogins = new Map<string, AgentProvider>();
   private quotaProbe: Promise<PlanUsage | null> | null = null;
 
   constructor(deps: ProviderLimitsDeps) {
     this.deps = deps;
+    const reset = deps.ctx.repos.inbox.latestProviderQuota('gemini')?.payload.until;
+    if (typeof reset === 'string') this.providerHolds.until('gemini', new Date(reset), deps.ctx.now());
   }
 
-  useQuotaRecovery(usage: Pick<PlanUsageCache, 'get' | 'invalidate'>, resume: QuotaResume): void {
+  useQuotaRecovery(
+    usage: Pick<PlanUsageCache, 'get' | 'invalidate'>,
+    resume: QuotaResume,
+    reassign?: (session: Session, stageId: string) => Promise<void>,
+  ): void {
     this.quotaUsage = usage;
     this.quotaResume = resume;
+    this.quotaReassign = reassign;
   }
 
   observeProviderUsage(provider: AgentProvider, usage: PlanUsage | null): void {
@@ -106,9 +115,48 @@ export class ProviderLimits {
     if (session.state !== 'working' || alerted) this.deps.publish(ctx.repos.sessions.get(session.id)!);
   }
 
-  /** The provider's request limit was reached (a NanoGPT quota holds every session of the provider). */
+  /** A shared-provider request limit holds admission until recovery or the reported reset. */
   rateLimited(session: Session, event: Extract<RunnerEvent, { type: 'rate_limited' }>): void {
     const { background, ctx } = this.deps;
+    if (event.provider === 'gemini') {
+      const now = ctx.now();
+      const reported = event.resetsAt ? new Date(event.resetsAt) : null;
+      const until =
+        reported && Number.isFinite(reported.getTime()) && reported > now
+          ? reported
+          : new Date(now.getTime() + GEMINI_QUOTA_FALLBACK_MS);
+      const started = this.providerHolds.until('gemini', until, now);
+      // Small reset differences between concurrent failures update the durable hold without
+      // creating another owner alert. A material extension starts a new alert.
+      const previous = ctx.repos.inbox.latestProviderQuota('gemini');
+      const heldUntil = this.providerHolds.check('gemini', now)!.until!.toISOString();
+      const previousReset =
+        typeof previous?.payload.until === 'string' ? Date.parse(previous.payload.until) : NaN;
+      if (
+        started ||
+        !previous ||
+        !Number.isFinite(previousReset) ||
+        Date.parse(heldUntil) - previousReset >= 60_000
+      )
+        this.quotaAlert(session, 'gemini', event.message, null);
+      else if (previous.payload.until !== heldUntil) {
+        const updated = ctx.repos.inbox.updatePayload(
+          previous.id,
+          { ...previous.payload, until: heldUntil },
+          now.toISOString(),
+        );
+        if (updated)
+          ctx.bus.publish({ type: 'inbox_upserted', projectKey: updated.projectKey, item: updated });
+      }
+      const stageId =
+        session.workItem.type === 'task' ? ctx.repos.tasks.get(session.workItem.taskKey)?.stageId : undefined;
+      if (stageId)
+        void background(() => this.quotaReassign?.(session, stageId) ?? Promise.resolve()).catch(
+          (err: unknown) =>
+            ctx.logger.error({ err, sessionId: session.id }, 'provider quota reassignment failed'),
+        );
+      return;
+    }
     if (event.provider !== 'nanogpt') return;
     const started = this.providerHolds.start(event.provider, ctx.now());
     if (started) {
@@ -162,30 +210,40 @@ export class ProviderLimits {
     if (started) {
       this.providerHolds.settle('nanogpt', usage, ctx.now());
       this.quotaProbe = null;
-      const hold = this.providerHolds.check('nanogpt', ctx.now());
-      const config = this.deps.projects.cachedConfig(session.projectKey);
-      const owners = config ? ownerHandles(config) : [];
-      if (owners.length > 0)
-        this.deps.inbox?.create({
-          projectKey: session.projectKey,
-          kind: 'alert',
-          assignees: owners,
-          source: session.member,
-          sessionId: session.id,
-          taskKey: session.workItem.type === 'task' ? session.workItem.taskKey : null,
-          title: 'NanoGPT request limit reached',
-          payload: {
-            alert: 'provider_rate_limited',
-            provider: 'nanogpt',
-            until: hold?.until?.toISOString() ?? null,
-            weeklyPercent: usage?.weeklyPercent ?? null,
-            message,
-            workItem: session.workItem,
-          },
-          options: [ALERT_SEEN_OPTION],
-        });
+      this.quotaAlert(session, 'nanogpt', message, usage);
     }
     if (session.workItem.type === 'task' && stageId) await this.quotaResume?.(session, stageId, 'quota');
+  }
+
+  private quotaAlert(
+    session: Session,
+    provider: AgentProvider,
+    message: string,
+    usage: PlanUsage | null,
+  ): void {
+    const { ctx } = this.deps;
+    const hold = this.providerHolds.check(provider, ctx.now());
+    const config = this.deps.projects.cachedConfig(session.projectKey);
+    const owners = config ? ownerHandles(config) : [];
+    if (owners.length > 0)
+      this.deps.inbox?.create({
+        projectKey: session.projectKey,
+        kind: 'alert',
+        assignees: owners,
+        source: session.member,
+        sessionId: session.id,
+        taskKey: session.workItem.type === 'task' ? session.workItem.taskKey : null,
+        title: `${provider === 'gemini' ? 'Gemini' : 'NanoGPT'} request limit reached`,
+        payload: {
+          alert: 'provider_rate_limited',
+          provider,
+          until: hold?.until?.toISOString() ?? null,
+          weeklyPercent: usage?.weeklyPercent ?? null,
+          message,
+          workItem: session.workItem,
+        },
+        options: [ALERT_SEEN_OPTION],
+      });
   }
 
   /**

@@ -3129,6 +3129,22 @@ workers follow the machine's size.
   (PM-874). It maps `read_file`, `write_file` and `edit_file` with `Path` as well as the
   older file tool names to the same permission checks (`runner/providers/gemini/hooks.ts`).
   This normalization runs on the engine using its session policy; no new boundary data is needed.
+  **Quota exhaustion (PM-954):** `screen.ts` recognizes the agy terminal's
+  `RESOURCE_EXHAUSTED (code 429): Individual quota reached` and `Resets in …` duration.
+  `runner/session.ts` stops the failed process and sends `rate_limited` with an optional
+  absolute `resetsAt` through `engine-link/protocol.ts`. The server's
+  `runtime/sessions/provider-limits.ts` holds every Gemini member until that reset (30 minutes
+  when no usable duration is available), records an owner alert and restores the hold from the
+  latest Gemini quota alert on startup, including acknowledged alerts. Automatic developer
+  selection skips the held provider; explicit starts wait with `provider_rate_limited`.
+  An interrupted implementer's card is released through the existing handoff and work-start
+  paths (`provider_quota`), so another provider can take it and an unassigned card waits if
+  nobody is available. Expiry releases admission automatically, without changing leave settings.
+  The hold is server-wide, matching the shared keychain login assumption; separate accounts
+  on multiple engines would require a future `(provider, engine)` scope.
+  On a remote engine terminal recognition and relative-to-absolute time conversion run on
+  the engine; only the existing runner event and its additive `resetsAt` field cross to the
+  server. Persistence, selection and expiry stay on the server; engine clocks must be synchronized.
   This does not contain code executed by allowed tests/builds; PM-361 investigates isolation.
   **Remote engine (engine mode, PM-314: runs in the engine process):** the binary, login/keychain, private directories, PTY, forwarder and
   transcript reader must run on the engine. Hook/MCP requests cross authenticated URLs;

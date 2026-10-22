@@ -1,4 +1,4 @@
-import type { InboxItem, InboxKind, InboxState } from '@projectman/shared';
+import type { AgentProvider, InboxItem, InboxKind, InboxState } from '@projectman/shared';
 import type { Statement } from 'better-sqlite3';
 import type { Db } from './database';
 import { parseJson, toJson } from './json';
@@ -67,6 +67,9 @@ export function createInboxRepository(db: Db) {
     ),
     listOpen: db.prepare(`SELECT * FROM inbox_items WHERE state = 'open' ORDER BY seq`),
     listOpenOfKind: db.prepare(`SELECT * FROM inbox_items WHERE state = 'open' AND kind = ? ORDER BY seq`),
+    latestProviderQuota: db.prepare(`SELECT * FROM inbox_items
+      WHERE kind = 'alert' AND json_extract(payload, '$.alert') = 'provider_rate_limited'
+        AND json_extract(payload, '$.provider') = ? ORDER BY seq DESC LIMIT 1`),
     gateRequest: db.prepare(
       `SELECT * FROM inbox_items WHERE project_key = ? AND kind = 'decision' AND task_key = ?
          AND json_extract(payload, '$.gate.requestId') = ? ORDER BY seq`,
@@ -282,6 +285,11 @@ export function createInboxRepository(db: Db) {
           () => statements.release.run(toJson(change.payload), toJson(change.options), change.at, id).changes,
         ) > 0
       );
+    },
+    /** Includes resolved alerts: acknowledging a quota alert does not end its hold. */
+    latestProviderQuota(provider: AgentProvider): InboxItem | null {
+      const row = statements.latestProviderQuota.get(provider) as InboxRow | undefined;
+      return row ? toItem(row) : null;
     },
     /** Items of a project, oldest first. */
     list(projectKey: string, filter: InboxFilter = {}): InboxItem[] {

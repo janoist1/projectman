@@ -510,8 +510,9 @@ export class SessionOrchestrator {
   useQuotaRecovery(
     usage: Pick<PlanUsageCache, 'get' | 'invalidate'>,
     resume: (session: Session, stageId: string, after: 'quota' | 'login') => Promise<void>,
+    reassign?: (session: Session, stageId: string) => Promise<void>,
   ): void {
-    this.limits.useQuotaRecovery(usage, resume);
+    this.limits.useQuotaRecovery(usage, resume, reassign);
   }
 
   observeProviderUsage(provider: AgentProvider, usage: PlanUsage | null): void {

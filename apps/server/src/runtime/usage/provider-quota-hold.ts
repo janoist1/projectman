@@ -5,11 +5,20 @@ type Hold = { since: Date; until: Date | null; kind: 'quota' | 'rate' | 'unknown
 
 /**
  * Shared credentials require an instance-wide hold. The state lives only in memory: a
- * server restart loses it. Persisted quota deferrals restore an unknown hold, so only usage
- * is probed before inference resumes; a new 429 also arms it for sessions without a deferral.
+ * server restart loses it. The caller restores NanoGPT's unknown hold from persisted quota
+ * deferrals (probing usage before inference), and Gemini's timed hold from its quota alert.
  */
 export class ProviderQuotaHolds {
   private readonly entries = new Map<AgentProvider, Hold>();
+
+  /** A reset reported by the CLI; concurrent failures retain the later reset. */
+  until(provider: AgentProvider, until: Date, at: Date): boolean {
+    const previous = this.check(provider, at);
+    if (!Number.isFinite(until.getTime()) || until <= at) return false;
+    if (!previous?.until || previous.until < until)
+      this.entries.set(provider, { since: new Date(at), until: new Date(until), kind: 'quota' });
+    return previous === null;
+  }
 
   start(provider: AgentProvider, at: Date): boolean {
     if (this.check(provider, at)) return false;

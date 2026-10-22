@@ -14,6 +14,12 @@
 }
 
 /* The note under a checkbox: the `.hint` pull-up is for notes under a field, not under a label of its own. */
+/* The switch that depends on the one above it. */
+.nested {
+  margin-left: 26px;
+  margin-top: 8px;
+}
+
 .toggleHint {
   margin: 4px 0 0;
   color: var(--c-ink-3);

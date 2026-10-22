@@ -13,6 +13,7 @@ import {
   isLinkedQuestion,
   releaseApprovalOf,
   seniorWaitDecisionOf,
+  emailApprovalOf,
 } from '@projectman/shared';
 import type {
   AnswerDelivery,
@@ -90,13 +91,13 @@ export function inboxHeading(item: InboxItem): string {
       key: merge.taskKey,
     });
   if (releaseApprovalOf(item)) return t('inbox.release.title');
+  if (emailApprovalOf(item)) return t('inbox.email.title');
   if (loopDecisionOf(item)) return t('inbox.loop.heading');
   if (fixLimitDecisionOf(item)) return t('inbox.fixLimit.heading');
   if (seniorWaitDecisionOf(item)) return t('inbox.seniorWait.heading');
   if (item.kind === 'alert') {
     const alert = alertPayloadOf(item);
-    // The email-specific presentation is supplied by the email UI slice (PM-942).
-    if (alert?.alert === 'email_parked') return item.title;
+    if (alert?.alert === 'email_parked') return t('inbox.email.parkedTitle');
     if (alert?.alert === 'merge_blocked') return t('inbox.mergeBlocked.title', { key: alert.taskKey });
     if (alert?.alert === 'work_outage') return outageHeading(alert.outage);
     if (alert?.alert === 'release_failed')
@@ -549,6 +550,9 @@ export function decisionSubject(item: InboxItem): string {
   const seniorWait = seniorWaitDecisionOf(item);
   if (seniorWait) return t('inbox.seniorWait.subject', { key: seniorWait.taskKey });
   if (item.kind === 'question') return inboxHeading(item);
+  // A decided e-mail is listed by its subject; a parked one by what the mail was about.
+  const email = emailApprovalOf(item);
+  if (email) return email.subject;
   const outage = outageOfItem(item);
   if (outage) return outageHeading(outage);
   return item.title;
@@ -678,9 +682,13 @@ export function resolutionLabel(item: InboxItem): string {
   if (item.resolution?.rule === 'senior_took') return t('inbox.resolutions.senior_took');
   if (item.resolution?.rule === 'senior_wait_ended') return t('inbox.resolutions.senior_wait_ended');
   if (item.resolution?.rule === 'approval_given') return t('inbox.resolutions.approval_given');
+  // The system took an e-mail back (the channel was switched off, or the sender lost the right): no person decided.
+  if (item.resolution?.rule === 'email_not_allowed') return t('inbox.email.revoked');
   if (item.resolution?.rule === 'feedback_handled') return t('inbox.resolutions.feedback_handled');
   const optionId = item.resolution?.optionId;
   if (!optionId) return t('inbox.resolutions.answer');
+  if (emailApprovalOf(item) && (optionId === 'approve' || optionId === 'reject'))
+    return optionId === 'approve' ? t('inbox.email.sent') : t('inbox.email.notSent');
   if (isAutomaticDecision(item) && (optionId === 'allow' || optionId === 'deny'))
     return t(`inbox.resolutions.automatic_${optionId}`);
   if (isBuiltIn(optionId)) return t(`inbox.resolutions.${optionId}`);
@@ -778,6 +786,7 @@ export function isPositiveResolution(item: InboxItem): boolean {
     optionId !== 'deny' &&
     optionId !== 'reject' &&
     optionId !== 'todo_cannot' &&
+    item.resolution?.rule !== 'email_not_allowed' &&
     !isClosedWithoutAnswer(item)
   );
 }

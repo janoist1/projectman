@@ -1,8 +1,11 @@
+import clsx from 'clsx';
 import { useEffect, useId, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
+import { Link } from 'react-router';
 import {
   DEFAULT_AGENT_PROVIDER,
   effortForProvider,
+  emailChannelOn,
   DEFAULT_PROVIDER_MODELS,
   holdersAllow,
   HumanAccess,
@@ -45,7 +48,7 @@ function EditMemberForm({
   roles: readonly RoleView[];
   onDone: () => void;
 }) {
-  const { key } = useProject();
+  const { key, isOwner } = useProject();
   const { members } = useProjectIndexes(key);
   const board = useBoard(key);
   const update = useUpdateMember(key);
@@ -72,6 +75,17 @@ function EditMemberForm({
   // The Senior (PM-347) is an AI member that is no stand-in; the choice is the form's own, saved with it.
   const canBeSenior = member.kind === 'ai' && !member.temp;
   const [senior, setSenior] = useState(member.senior === true);
+  // The e-mail channel (PM-942): whether the member may write, and whether its mail goes out unapproved
+  // (that one is the owner's alone).
+  const [emailEnabled, setEmailEnabled] = useState(member.email?.enabled === true);
+  const [emailAuto, setEmailAuto] = useState(member.email?.sendWithoutApproval === true);
+  const emailChange = {
+    ...(emailEnabled !== (member.email?.enabled === true) ? { enabled: emailEnabled } : {}),
+    ...(isOwner && emailAuto !== (member.email?.sendWithoutApproval === true)
+      ? { sendWithoutApproval: emailAuto }
+      : {}),
+  };
+  const channelOff = config !== undefined && !emailChannelOn(config);
   const [model, setModel] = useState(ai?.model ?? member.model ?? DEFAULT_PROVIDER_MODELS[provider]);
   const [instructions, setInstructions] = useState(ai?.instructions ?? '');
   const [schedule, setSchedule] = useState<ScheduleDraft>({
@@ -114,6 +128,7 @@ function EditMemberForm({
                 specialty: specialty.trim(),
                 // Sent only when it changes: a stand-in has none, and the server refuses it for one.
                 ...(canBeSenior && senior !== (member.senior === true) ? { senior } : {}),
+                ...(Object.keys(emailChange).length > 0 ? { email: emailChange } : {}),
                 provider,
                 effort: effort ?? null,
                 autoCompactWindowTokens: compactWindow.trim() ? Number(compactWindow) : null,
@@ -219,6 +234,43 @@ function EditMemberForm({
                 </p>
               </div>
             ) : null}
+            <div>
+              <label className={styles.toggle}>
+                <input
+                  type="checkbox"
+                  checked={emailEnabled}
+                  aria-describedby={`${formId}-email`}
+                  onChange={(event) => setEmailEnabled(event.target.checked)}
+                />
+                {t('memberEdit.emailEnabled')}
+              </label>
+              <p id={`${formId}-email`} className={styles.toggleHint}>
+                {t('memberEdit.emailEnabledHint')}
+              </p>
+              {emailEnabled && channelOff ? (
+                <p role="status" className={styles.toggleHint}>
+                  {t('memberEdit.emailChannelOff')}{' '}
+                  <Link to={`/p/${key}/settings/email`}>{t('memberEdit.emailChannelOffLink')}</Link>
+                </p>
+              ) : null}
+              <label className={clsx(styles.toggle, styles.nested)}>
+                <input
+                  type="checkbox"
+                  checked={emailEnabled && emailAuto}
+                  disabled={!emailEnabled || !isOwner}
+                  aria-describedby={`${formId}-email-auto`}
+                  onChange={(event) => setEmailAuto(event.target.checked)}
+                />
+                {t('memberEdit.emailSendWithoutApproval')}
+              </label>
+              <p id={`${formId}-email-auto`} className={clsx(styles.toggleHint, styles.nested)}>
+                {!isOwner
+                  ? t('memberEdit.emailOwnerOnly')
+                  : emailEnabled && emailAuto
+                    ? t('memberEdit.emailAutoHint')
+                    : t('memberEdit.emailApprovalHint')}
+              </p>
+            </div>
             <ProviderFields
               provider={provider}
               model={model}

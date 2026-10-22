@@ -14,6 +14,7 @@ import {
   handOnRequestOf,
   operatorApprovalOf,
   operatorKnowledgeApprovalOf,
+  emailApprovalOf,
   releaseApprovalOf,
   questionPayloadOf,
   OperatorHandoff as OperatorHandoffSchema,
@@ -64,6 +65,7 @@ import { OperatorKnowledgeBody, OperatorKnowledgeActions } from '../operator/Ope
 import styles from './InboxCard.module.css';
 import { MergeInboxActions, MergeInboxBody } from './MergeInbox';
 import { OutageAlert, OutageCheck } from './OutageAlert';
+import { EmailApprovalBody, EmailParkedBody, emailApprovalWords } from './EmailInbox';
 import { ReleaseAlertBody, ReleaseInboxActions, ReleaseInboxBody, isReleaseDown } from './ReleaseInbox';
 import { FoldedCommand, PermissionActions } from './PermissionParts';
 import { ApprovalHintNote, QuestionBody, QuestionChoices, QuestionDetails, showInboxItem } from './Question';
@@ -385,6 +387,9 @@ export function InboxCard({
   // The proposed release of the instance (PM-492) and the alert of one that failed: both lead to the release card.
   const releaseItem = releaseApprovalOf(item) !== null;
   const releaseAlert = alertPayload?.alert === 'release_failed' ? alertPayload : null;
+  // An AI member's e-mail waiting for approval and a mail the channel set aside (PM-942).
+  const emailItem = emailApprovalOf(item) !== null;
+  const emailParked = alertPayload?.alert === 'email_parked' ? alertPayload : null;
   const [boundaryReason, setBoundaryReason] = useState<BoundaryReason>('scope_verified');
   // A question that recommends an option or describes what each one does lists its options with
   // that text, and so do a loop, a fix round limit and a Senior wait decision; every other item keeps
@@ -718,6 +723,8 @@ export function InboxCard({
       {mergeItem ? <MergeInboxBody item={item} /> : null}
       {releaseItem ? <ReleaseInboxBody item={item} /> : null}
       {releaseAlert ? <ReleaseAlertBody alert={releaseAlert} /> : null}
+      {emailItem ? <EmailApprovalBody item={item} /> : null}
+      {emailParked ? <EmailParkedBody alert={emailParked} /> : null}
       {alert ? <p className={styles.body}>{alert}</p> : null}
       {fixLimit ? <FixLimitDetails limit={fixLimit} members={members} myHandle={myHandle} /> : null}
       {outageAlert ? (
@@ -729,6 +736,8 @@ export function InboxCard({
       !mergeItem &&
       !releaseItem &&
       !releaseAlert &&
+      !emailItem &&
+      !emailParked &&
       loopText === null &&
       fixLimitText === null &&
       seniorWaitText === null ? (
@@ -919,13 +928,14 @@ export function InboxCard({
       {seniorWaitText !== null && !assignedToOthers ? (
         <p className={styles.others}>{t('inbox.seniorWait.footer')}</p>
       ) : null}
-      {assignedToOthers ? null : releaseItem ? (
+      {assignedToOthers ? null : releaseItem || emailItem ? (
         <ReleaseInboxActions
           item={item}
           size={buttonSize}
           pending={pending}
           detailsHref={detailsHref}
           onResolve={onResolve}
+          words={emailItem ? emailApprovalWords() : undefined}
         />
       ) : mergeItem ? (
         <MergeInboxActions

@@ -1,8 +1,8 @@
 import { useEffect, useRef } from 'react';
 import { Link, Navigate, NavLink, useLocation, useParams } from 'react-router';
-import { validateProjectConfig } from '@projectman/shared';
+import { emailChannelOn, validateProjectConfig } from '@projectman/shared';
 import type { ConfigView, EngineStatusView } from '@projectman/shared';
-import { useConfig, useEngineStatus } from '../../api/queries';
+import { useConfig, useEmailChannel, useEngineStatus } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Chip } from '../../components/Chip';
 import { Icon } from '../../components/Icon';
@@ -28,6 +28,7 @@ import { ProjectSection } from './sections/ProjectSection';
 import { ReposSection } from './sections/ReposSection';
 import { TeamSection } from './sections/TeamSection';
 import { EnginesSection } from './sections/EnginesSection';
+import { EmailSection } from './sections/EmailSection';
 import { FeedbackSection } from './sections/FeedbackSection';
 import { ProvidersSection } from './sections/ProvidersSection';
 import { IntegratorSection } from './sections/IntegratorSection';
@@ -37,6 +38,7 @@ function summary(
   view: ConfigView | undefined,
   name: string,
   engines: readonly EngineStatusView[] = [],
+  emailHumans = 0,
 ): string {
   if (section === 'account') return t('settings.summary.account', { name });
   if (section === 'engines')
@@ -82,6 +84,13 @@ function summary(
       return config.project.feedback?.surfaces.length
         ? t('settings.summary.feedback', { count: config.project.feedback.surfaces.length })
         : t('settings.summary.feedbackEmpty');
+    case 'email':
+      return emailChannelOn(config)
+        ? t('settings.summary.emailOn', {
+            ai: config.team.members.filter((member) => member.kind === 'ai' && member.email?.enabled).length,
+            humans: emailHumans,
+          })
+        : t('settings.summary.emailOff');
     case 'history':
       return history[0]
         ? t('settings.summary.history', {
@@ -103,6 +112,12 @@ export function SettingsPage() {
   const config = useConfig(key);
   // Engines exist in cloud mode only, and only the host owner manages them (PM-316).
   const engineStatus = useEngineStatus();
+  // The summary counts the people who ask for e-mail; only the channel view knows them.
+  const emailChannel = useEmailChannel(
+    key,
+    can.manageTeam && config.data !== undefined && emailChannelOn(config.data.config),
+  );
+  const emailHumans = emailChannel.data?.contacts.filter((contact) => contact.wants).length ?? 0;
   const enginesShown = me.hostOwner && engineStatus.data?.mode === 'cloud';
   const wide = useMediaQuery(SETTINGS_WIDE_QUERY);
   const { section: routeSection } = useParams();
@@ -150,7 +165,8 @@ export function SettingsPage() {
   if (section === 'engines' && !enginesShown && !(me.hostOwner && engineStatus.isPending))
     return <Navigate replace to={base} />;
   // The feedback tool's settings are for owners and admins.
-  if (section === 'feedback' && !can.manageTeam) return <Navigate replace to={base} />;
+  if ((section === 'feedback' || section === 'email') && !can.manageTeam)
+    return <Navigate replace to={base} />;
   if (!section && wide)
     return <Navigate replace to={{ pathname: `${base}/pipeline`, search: location.search }} />;
 
@@ -165,7 +181,7 @@ export function SettingsPage() {
     (id) =>
       (id !== 'integrator' || me.hostOwner) &&
       (id !== 'engines' || enginesShown) &&
-      (id !== 'feedback' || can.manageTeam),
+      ((id !== 'feedback' && id !== 'email') || can.manageTeam),
   );
   // The divider before the sections that are not the project's: the first of engines and providers.
   const accountStart = shownSections.find((id) => id === 'engines' || id === 'providers');
@@ -201,7 +217,7 @@ export function SettingsPage() {
               <span
                 className={`${styles.summary} ${id === 'limits' && config.data?.config.team.limits.aiEnabled === false ? styles.disabled : ''}`}
               >
-                {summary(id, config.data, me.name, engineStatus.data?.engines)}
+                {summary(id, config.data, me.name, engineStatus.data?.engines, emailHumans)}
               </span>
             ) : null}
           </span>
@@ -240,6 +256,9 @@ export function SettingsPage() {
         break;
       case 'feedback':
         content = <FeedbackSection config={view.config} version={view.version} />;
+        break;
+      case 'email':
+        content = <EmailSection config={view.config} version={view.version} />;
         break;
       case 'history':
         content = <HistorySection history={view.history} current={view.version} canRevert={isOwner} />;

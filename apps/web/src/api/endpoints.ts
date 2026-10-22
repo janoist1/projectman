@@ -1,4 +1,6 @@
 import {
+  EmailChannelView,
+  EmailLogResponse,
   OperatorGrantAuditPage,
   PushDeviceView,
   PushOverview,
@@ -81,6 +83,7 @@ import type {
   CreateTaskFromFeedbackResponse,
   FeedbackCommentRequest,
   FeedbackInboxResponse,
+  SetEmailContactRequest,
   FeedbackLaunchRequest,
   FeedbackLaunchResponse,
   FeedbackMarkDetail,
@@ -448,6 +451,15 @@ export const api = {
     apiRequest<FeedbackMarkDetail>(routes.feedbackClose(key, markId), { method: 'POST', body }),
   feedbackReopen: (key: string, markId: string) =>
     apiRequest<FeedbackMarkDetail>(routes.feedbackReopen(key, markId), { method: 'POST', body: {} }),
+
+  /** The e-mail channel (PM-942): owner and admin only; `before` is the cursor of the log's older page. */
+  emailChannel: (key: string) => apiRequest(routes.emailChannel(key), { schema: EmailChannelView }),
+  emailLog: (key: string, before?: string) =>
+    apiRequest(`${routes.emailLog(key)}${before ? `?before=${encodeURIComponent(before)}` : ''}`, {
+      schema: EmailLogResponse,
+    }),
+  setEmailContact: (key: string, handle: string, body: SetEmailContactRequest) =>
+    apiRequest(routes.emailContact(key, handle), { method: 'PUT', body, schema: EmailChannelView }),
 
   config: (key: string) => apiRequest(routes.config(key), { schema: ConfigView }),
   patchConfig: (key: string, body: PatchConfigRequest) =>

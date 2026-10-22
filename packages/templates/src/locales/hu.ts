@@ -470,6 +470,13 @@ export const hu: TemplateLocale = {
     failedAction: (title) => `Nézd meg: ${title}`,
     failedSummary: 'Az Operátor nem fejezte be a tételt.',
   },
+  systemFeedback: {
+    what: 'Mi történt',
+    workaround: 'Hogyan hidalta át',
+    fix: 'Mi lenne a javítás',
+    version: 'projectman-változat',
+    occurrences: 'Előfordulások',
+  },
   stageApproval: (stageName) => `${stageName}: jóváhagyva`,
   specialist: (specialty, roleName) => `${specialty} ${lowerFirstWord(roleName)}`,
 };

@@ -8,6 +8,15 @@ import { AutoCompactWindowTokens, MemberSchedule, ProjectConfig, RepoConfig } fr
 import { ConfigChangeRow } from '../config/operator';
 import { canonical } from '../config/canonical';
 import { OperatorKnowledgeChange } from '../domain/operator-knowledge';
+import {
+  RedactionCounts,
+  SYSTEM_FEEDBACK_BODY_MAX,
+  SYSTEM_FEEDBACK_REASON_MAX,
+  SYSTEM_FEEDBACK_TITLE_MAX,
+  SystemFeedbackAccess,
+  SystemFeedbackForwardingMode,
+  SystemFeedbackState,
+} from '../domain/system-feedback';
 import { OperatorConfigPatch } from '../config/edit';
 import { ERROR_CODES } from './error-codes';
 import { TaskWait } from '../config/task-wait';
@@ -131,6 +140,7 @@ export const OperatorAction = z.enum([
   'structural_review',
   'super_handoff',
   'operation',
+  'system_feedback',
 ]);
 export type OperatorAction = z.infer<typeof OperatorAction>;
 export const OperatorStepStatus = z.enum([
@@ -160,6 +170,11 @@ export const OperatorStep = z.object({
   signalId: z.string().nullable(),
   /** The super operation an `operation` step started on the shared path (PM-888). */
   operationId: z.string().nullable().optional(),
+  /** The system feedback a `system_feedback` step recorded; `occurrence` 1 is a new item, more a known gap seen again (PM-472). */
+  systemFeedback: z
+    .object({ id: z.string(), title: z.string(), occurrence: z.number().int() })
+    .nullable()
+    .optional(),
   refusal: z.object({ code: z.enum(ERROR_CODES), message: z.string() }).nullable(),
 });
 export type OperatorStep = z.infer<typeof OperatorStep>;
@@ -1435,3 +1450,100 @@ export const AcceptInviteRequest = z.object({
   password: SetupRequest.shape.password.optional(),
 });
 export type AcceptInviteRequest = z.infer<typeof AcceptInviteRequest>;
+
+/* ---------- system feedback (PM-472): the Operator's findings about projectman itself ---------- */
+
+export const SystemFeedbackOccurrence = z.object({ at: z.string(), version: z.string() });
+export type SystemFeedbackOccurrence = z.infer<typeof SystemFeedbackOccurrence>;
+export const SystemFeedbackForwarded = z.object({
+  kind: z.enum(['card', 'issue']),
+  projectKey: z.string().nullable(),
+  taskKey: TaskKey.nullable(),
+  url: z.string().nullable(),
+  /** The name of whoever sent it; null: sent automatically. */
+  by: z.string().nullable(),
+  at: z.string(),
+});
+export type SystemFeedbackForwarded = z.infer<typeof SystemFeedbackForwarded>;
+export const SystemFeedbackItem = z.object({
+  /** `fb_…` */
+  id: z.string(),
+  projectKey: z.string(),
+  title: z.string(),
+  what: z.string(),
+  workaround: z.string(),
+  fix: z.string(),
+  state: SystemFeedbackState,
+  createdAt: z.string(),
+  lastSeenAt: z.string(),
+  version: z.string(),
+  /** Oldest first, the first one included. */
+  occurrences: z.array(SystemFeedbackOccurrence),
+  /** What the filter covered when the item was recorded. */
+  counts: RedactionCounts,
+  forwarded: SystemFeedbackForwarded.nullable(),
+  dismissed: z.object({ reason: z.string(), by: z.string(), at: z.string() }).nullable(),
+  cardError: z.object({ code: z.string(), message: z.string(), at: z.string() }).nullable(),
+});
+export type SystemFeedbackItem = z.infer<typeof SystemFeedbackItem>;
+export const SystemFeedbackForwardingChange = z.object({
+  mode: SystemFeedbackForwardingMode,
+  projectKey: z.string().nullable(),
+  /** The name of whoever changed it. */
+  by: z.string(),
+  at: z.string(),
+});
+export type SystemFeedbackForwardingChange = z.infer<typeof SystemFeedbackForwardingChange>;
+export const SystemFeedbackForwardingView = z.object({
+  mode: SystemFeedbackForwardingMode,
+  projectKey: z.string().nullable(),
+  /** Newest first, at most 20; empty means the default, manual. */
+  history: z.array(SystemFeedbackForwardingChange),
+});
+export type SystemFeedbackForwardingView = z.infer<typeof SystemFeedbackForwardingView>;
+export const SystemFeedbackList = z.object({
+  access: SystemFeedbackAccess,
+  /** At most 200, the most recently seen first. */
+  items: z.array(SystemFeedbackItem),
+  newCount: z.number().int(),
+  /** Only for `manage`. */
+  forwarding: SystemFeedbackForwardingView.nullable(),
+  repository: z.string(),
+});
+export type SystemFeedbackList = z.infer<typeof SystemFeedbackList>;
+export const SystemFeedbackSummary = z.object({ newCount: z.number().int() });
+export type SystemFeedbackSummary = z.infer<typeof SystemFeedbackSummary>;
+export const SetSystemFeedbackForwardingRequest = z
+  .object({ mode: SystemFeedbackForwardingMode, projectKey: z.string().optional() })
+  .refine((request) => (request.mode === 'card') === (request.projectKey !== undefined));
+export type SetSystemFeedbackForwardingRequest = z.infer<typeof SetSystemFeedbackForwardingRequest>;
+export const DismissSystemFeedbackRequest = z.object({
+  reason: z.string().trim().min(1).max(SYSTEM_FEEDBACK_REASON_MAX),
+});
+export type DismissSystemFeedbackRequest = z.infer<typeof DismissSystemFeedbackRequest>;
+export const SystemFeedbackPreview = z.object({
+  title: z.string(),
+  body: z.string(),
+  counts: RedactionCounts,
+  repository: z.string(),
+});
+export type SystemFeedbackPreview = z.infer<typeof SystemFeedbackPreview>;
+export const PrepareSystemFeedbackRequest = z.object({
+  title: z.string().trim().min(1).max(SYSTEM_FEEDBACK_TITLE_MAX),
+  body: z.string().trim().min(1).max(SYSTEM_FEEDBACK_BODY_MAX),
+});
+export type PrepareSystemFeedbackRequest = z.infer<typeof PrepareSystemFeedbackRequest>;
+export const SystemFeedbackPrepared = z.discriminatedUnion('result', [
+  z.object({ result: z.literal('ready'), url: z.string(), bodyInUrl: z.boolean() }),
+  z.object({
+    result: z.literal('refiltered'),
+    title: z.string(),
+    body: z.string(),
+    counts: RedactionCounts,
+  }),
+]);
+export type SystemFeedbackPrepared = z.infer<typeof SystemFeedbackPrepared>;
+export const MarkSystemFeedbackForwardedRequest = z.object({
+  issueUrl: z.string().trim().min(1).optional(),
+});
+export type MarkSystemFeedbackForwardedRequest = z.infer<typeof MarkSystemFeedbackForwardedRequest>;

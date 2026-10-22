@@ -252,6 +252,25 @@ export const routes = {
   /** GET: the widget script the customer's page embeds. */
   feedbackWidgetScript: () => '/feedback/widget.js',
 
+  /** GET (`?project=KEY`; `SystemFeedbackList`) the installation's system feedback (PM-472). */
+  systemFeedback: () => '/api/system-feedback',
+  /** GET `SystemFeedbackSummary`. */
+  systemFeedbackSummary: () => '/api/system-feedback/summary',
+  /** PUT (`SetSystemFeedbackForwardingRequest` -> `SystemFeedbackForwardingView`, the instance owner). */
+  systemFeedbackForwarding: () => '/api/system-feedback/forwarding',
+  /** GET `SystemFeedbackPreview`: the filtered text of an item. */
+  systemFeedbackPreview: (id: string) => `/api/system-feedback/${id}/preview`,
+  /** POST (`PrepareSystemFeedbackRequest` -> `SystemFeedbackPrepared`). */
+  systemFeedbackPrepare: (id: string) => `/api/system-feedback/${id}/prepare`,
+  /** POST (`MarkSystemFeedbackForwardedRequest` -> `SystemFeedbackItem`). */
+  systemFeedbackForwarded: (id: string) => `/api/system-feedback/${id}/forwarded`,
+  /** POST (`DismissSystemFeedbackRequest` -> `SystemFeedbackItem`). */
+  systemFeedbackDismiss: (id: string) => `/api/system-feedback/${id}/dismiss`,
+  /** POST (-> `SystemFeedbackItem`): a dismissed item is new again. */
+  systemFeedbackRestore: (id: string) => `/api/system-feedback/${id}/restore`,
+  /** POST (-> `SystemFeedbackItem`): the item is sent as a card. */
+  systemFeedbackCard: (id: string) => `/api/system-feedback/${id}/card`,
+
   websocket: () => '/ws',
   mcp: (token: string) => `/mcp/${token}`,
 } as const;

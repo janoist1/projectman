@@ -7,7 +7,7 @@ import type { MessageService } from '../core/messages';
 import type { MemberService, PresenceService, ProjectAccess } from '../core/members';
 
 import type { FastifyInstance } from 'fastify';
-import { canSeeOperatorSessions, ClientCommand, routes } from '@projectman/shared';
+import { canSeeOperatorSessions, ClientCommand, routes, systemFeedbackAccess } from '@projectman/shared';
 import type { ErrorCode, HumanAccess, ServerEvent } from '@projectman/shared';
 import { sameOrigin } from '../kernel';
 import type { AuthService, AuthUser } from '../auth';
@@ -131,6 +131,16 @@ export function registerWebsocket(
               deps.auth.isHostOwner(client.user.id) ||
               memberships.some((project) => project.access !== 'client')
             )
+              send(client, event);
+            continue;
+          }
+          // System feedback (PM-472) belongs to the installation: the instance owner, and an owner of the
+          // project the item is for. The event names no text; a client that may not read it is skipped.
+          if (event.type === 'system_feedback_changed') {
+            const access = event.projectKey
+              ? await domain.accessFor(event.projectKey, client.user.email).catch(() => null)
+              : null;
+            if (systemFeedbackAccess(deps.auth.isHostOwner(client.user.id), access?.access ?? null))
               send(client, event);
             continue;
           }

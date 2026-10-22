@@ -81,6 +81,15 @@ function StepNote({ step, ownerHandle }: { step: OperatorStep; ownerHandle: stri
 }
 
 /** One step: its icon (with a text label for screen readers), the title and what it touched. */
+/** A recorded system feedback names itself; an older step or any other action has its action's name. */
+function stepTitle(step: OperatorStep): string {
+  const feedback = step.action === 'system_feedback' ? step.systemFeedback : null;
+  if (!feedback) return t(`operator.steps.actions.${step.action}`);
+  return feedback.occurrence > 1
+    ? t('operator.steps.systemFeedbackKnown', { title: feedback.title, n: feedback.occurrence })
+    : t('operator.steps.systemFeedbackNew', { title: feedback.title });
+}
+
 function StepRow({
   step,
   ownerHandle,
@@ -106,7 +115,7 @@ function StepRow({
       </span>
       <div className={styles.stepBody}>
         <div className={styles.stepLine}>
-          <span className={styles.stepTitle}>{t(`operator.steps.actions.${step.action}`)}</span>
+          <span className={styles.stepTitle}>{stepTitle(step)}</span>
           {step.taskKey ? (
             <TaskChip projectKey={key} taskKey={step.taskKey} title={titles.get(step.taskKey)} />
           ) : null}

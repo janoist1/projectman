@@ -11,3 +11,5 @@ export {
 export { createSesEmailSender, EmailSendError } from './ses-sender';
 export type { EmailSender, OutboundMail, SesEmailSenderOptions } from './ses-sender';
 export { renderEmail } from './render';
+export { createAwsSqsClient, createSqsInboundSource, parseSesNotification } from './sqs-source';
+export type { SesNotification, SqsInboundSource, SqsLike } from './sqs-source';

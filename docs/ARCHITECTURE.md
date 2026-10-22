@@ -1644,6 +1644,13 @@ workers follow the machine's size.
   command with exit status 78 and a four-line message; it does not run without the queue (decision 33,
   PM-346). `PROJECTMAN_HEAVY_LOCK_HELD=1` (set for everything the CLI runs) makes a nested call run
   without queueing. Runs inside one workspace (`npm test -w …`, `npx vitest related …`) do not queue.
+  **Direct runs (PM-869).** A member's own `npx vitest run` / `related` is not under the guard, and an
+  interrupted one used to leave its forked workers (about 4 GB each in `apps/server`). Every vitest config
+  lists `scripts/lib/vitest-parent-guard.setup.mjs` in `setupFiles` (`PARENT_GUARD_SETUP`): a forked worker
+  exits when the IPC channel to its parent closes (`disconnect`) or its parent pid changes
+  (`scripts/lib/worker-parent-guard.mjs`, polled every 2 s). Worker threads die with their process and are
+  left alone. A worker stuck in a synchronous loop cannot run the handler; the heavy CLI's process-group
+  kill is the only thing that reaches it.
 - **The server's full test** (`createFullTestExecutor({ heavyLockDir })`) takes the lock before it prepares the
   run directory; the wait is not part of `durationMs` and `timeoutMs`, and an abort while waiting ends as
   `killed`. `fullTestEnv` sets `PROJECTMAN_HEAVY_LOCK_HELD=1`, so the scripts inside do not queue again. With an

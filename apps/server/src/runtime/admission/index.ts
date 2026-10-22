@@ -28,3 +28,4 @@ export { TaskStarts } from './task-starts';
 export type { StartTaskOptions, StartTaskResult } from './task-starts';
 export { WorkStarts } from './work-starts';
 export { HandoffService } from './handoffs';
+export { createDeferredStartRebuilder } from './rebuild';

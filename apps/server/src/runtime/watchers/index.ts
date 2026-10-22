@@ -10,3 +10,4 @@ export { WorkOutages } from './outages';
 export { ReviewWatch } from './review-watch';
 export { CLOSED_WORKTREE_KEEP_MS, WorktreeSweep } from './worktree-sweep';
 export type { WorktreeSweepReport } from './worktree-sweep';
+export { wireCardAdvance } from './advance-events';

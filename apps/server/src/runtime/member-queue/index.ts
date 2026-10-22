@@ -13,3 +13,4 @@ export type { SignalLaneSignals } from './signal-lane';
 export { OperatorQueueReminder } from './operator-reminder';
 export type { OperatorQueueReminderDeps } from './operator-reminder';
 export { startLane } from './start-lane';
+export { wireMemberQueue } from './events';

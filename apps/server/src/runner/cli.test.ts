@@ -59,9 +59,15 @@ describe('runQuietly', () => {
         script,
         'console.log(process.pid); console.error("running"); setInterval(() => {}, 1000);',
       );
-      const out = await runQuietly(script, [], { PATH: process.env.PATH ?? '' }, 200);
-      expect(out).toMatchObject({ code: null, error: 'timed out after 200 ms', stderr: 'running\n' });
+      // Include Node startup and its first pipe writes on a loaded CI host in the budget.
+      const timeoutMs = 5_000;
+      const out = await runQuietly(script, [], { PATH: process.env.PATH ?? '' }, timeoutMs);
       pid = Number(out.stdout.trim());
+      expect(out).toMatchObject({
+        code: null,
+        error: `timed out after ${timeoutMs} ms`,
+        stderr: 'running\n',
+      });
       expect(pid).toBeGreaterThan(0);
       await vi.waitFor(() => {
         expect(() => process.kill(pid!, 0)).toThrow(expect.objectContaining({ code: 'ESRCH' }));

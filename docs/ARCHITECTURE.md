@@ -3936,9 +3936,11 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   every macOS temp volume supports cloning (PM-928). The injected dependency-clone unit tests
   still run on other filesystems; clone failures on APFS remain failures. The process-group
   timeout test accepts TERM or the grace-period KILL when the guard cannot start within its
-  50 ms budget. These are test-host assumptions only; remote engines need no new capability
-  or server/engine messages.
-  Related tasks: PM-900, PM-906, PM-907, PM-923, PM-928.
+  50 ms budget. The `runner/cli.test.ts` output-preservation timeout test gives Node startup
+  and initial pipe writes 5 s; `test/permission-delegation.integration.test.ts` polls each fake-CLI
+  phase for up to 30 s within a 150 s test budget (PM-936). These are test-host assumptions only;
+  remote engines need no new capability or server/engine messages.
+  Related tasks: PM-900, PM-906, PM-907, PM-923, PM-928, PM-936.
   **Module:** `full-test`, `engine-host`, `services/github`
 - **Merge conflict fix worktrees** — `services/merges/`, `runtime/sessions` (`SessionOrchestrator`, `SessionLauncher` in `launch.ts`), `runtime/watchers` (`WorktreeSweep`),
   `worktree/worktree-manager.ts`, `runtime/sessions` (`session policy`), `engine-link` (PM-471).

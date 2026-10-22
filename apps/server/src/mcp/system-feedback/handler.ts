@@ -1,4 +1,4 @@
-import { ERROR_CODES, isOperator, memberOf } from '@projectman/shared';
+import { ERROR_CODES, isOperator, coordinationMemberOf, memberOf } from '@projectman/shared';
 import { TeamToolError } from '../../contracts';
 import type { SystemFeedbackToolsHandler, ToolContext } from '../../contracts';
 import { DomainError } from '../../kernel';
@@ -37,17 +37,17 @@ export class SystemFeedbackTools implements SystemFeedbackToolsHandler {
     this.systemFeedback = deps.systemFeedback;
   }
 
-  private async requireOperator(ctx: ToolContext, tool: string): Promise<void> {
+  private async requireRecorder(ctx: ToolContext, tool: string): Promise<void> {
     const config = await this.projects.config(ctx.projectKey);
-    if (!isOperator(memberOf(config, ctx.member)))
+    if (!isOperator(memberOf(config, ctx.member)) && coordinationMemberOf(config)?.handle !== ctx.member)
       throw new TeamToolError(
         'forbidden',
-        `system_feedback_operator_only: only the Operator may use ${tool}.`,
+        `system_feedback_operator_only: only the Operator or the selected PM may use ${tool}.`,
       );
   }
 
   async listSystemFeedback(ctx: ToolContext) {
-    await this.requireOperator(ctx, 'list_system_feedback');
+    await this.requireRecorder(ctx, 'list_system_feedback');
     await this.calls.callerWithRequest(ctx, 'list_system_feedback');
     return {
       items: this.systemFeedback.listForOperator(ctx.projectKey).map((row) => ({
@@ -64,7 +64,7 @@ export class SystemFeedbackTools implements SystemFeedbackToolsHandler {
     ctx: ToolContext,
     args: { title: string; what: string; workaround: string; fix: string; sameAs?: string },
   ) {
-    await this.requireOperator(ctx, 'record_system_feedback');
+    await this.requireRecorder(ctx, 'record_system_feedback');
     const caller = await this.calls.callerWithRequest(ctx, 'record_system_feedback');
     return this.calls
       .recorded(

@@ -214,6 +214,18 @@ export class ToolCaller {
   ): Promise<CallerWithRequest> {
     const config = await this.projects.config(ctx.projectKey);
     if (
+      (tool === 'list_system_feedback' || tool === 'record_system_feedback') &&
+      !isOperator(memberOf(config, ctx.member))
+    ) {
+      this.assertCoordinationSession(ctx, config);
+      if (this.operatorRequests.openFor(ctx.sessionId)?.source === 'approval')
+        throw new TeamToolError(
+          'forbidden',
+          'operator_no_request: system feedback is not allowed in an approval continuation.',
+        );
+      return { config, request: null, guest: null };
+    }
+    if (
       [
         'combine_questions',
         'screen_question',

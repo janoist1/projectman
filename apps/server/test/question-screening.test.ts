@@ -120,7 +120,15 @@ describe('the Operator screens AI members’ questions', () => {
 
   it('stores a todo feedback reference in the payload and timeline', async () => {
     const { inboxItemId } = await ask();
-    const feedbackId = feedback();
+    const { id: feedbackId } = await h.domain.teamTools.recordSystemFeedback(operatorTool(), {
+      title: 'Missing tool',
+      what: 'A member needed a person',
+      workaround: 'Sent a todo to the owner',
+      fix: 'Add the tool',
+    });
+    expect((await h.domain.teamTools.listSystemFeedback(operatorTool())).items).toEqual([
+      expect.objectContaining({ id: feedbackId }),
+    ]);
     await screen({ itemId: inboxItemId, outcome: 'todo', todo, note: 'Missing tool', feedbackId });
     expect(item(inboxItemId).state).toBe('open');
     expect(questionPayloadOf(item(inboxItemId))?.screening).toMatchObject({ feedbackId, outcome: 'todo' });
@@ -129,6 +137,42 @@ describe('the Operator screens AI members’ questions', () => {
       feedbackId,
       outcome: 'todo',
     });
+  });
+
+  it.each(['guest', 'task', 'approval'])('refuses system feedback in the PM %s context', async (variant) => {
+    await ask();
+    const ctx = operatorTool();
+    if (variant === 'approval') {
+      h.repos.operatorRequests.insert({
+        id: 'opr_pm_approval',
+        projectKey: 'AR',
+        sessionId: ctx.sessionId,
+        source: 'approval',
+        messageId: null,
+        inboxItemId: null,
+        fromHandle: 'owner',
+        quote: 'Approved',
+        openedAt: now.toISOString(),
+      });
+    } else {
+      const session = h.repos.sessions.get(ctx.sessionId)!;
+      h.repos.sessions.insert({
+        ...session,
+        id: 'ses_pm_other',
+        workItem: variant === 'guest' ? { type: 'general', with: 'dana' } : { type: 'task', taskKey: 'AR-1' },
+      });
+      ctx.sessionId = 'ses_pm_other';
+    }
+    await expect(h.domain.teamTools.listSystemFeedback(ctx)).rejects.toBeInstanceOf(TeamToolError);
+    await expect(
+      h.domain.teamTools.recordSystemFeedback(ctx, {
+        title: 'Missing tool',
+        what: 'Needs a person',
+        workaround: 'Todo',
+        fix: 'Add a tool',
+      }),
+    ).rejects.toBeInstanceOf(TeamToolError);
+    expect(h.repos.systemFeedback.list({ projectKey: 'AR', limit: 50 })).toEqual([]);
   });
 
   it.each(['foreign', 'missing', 'empty', 'other outcome'])(

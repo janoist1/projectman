@@ -122,7 +122,9 @@ folder to the YAML as well (`structure-map.test.ts` checks it).
   - **A card's tests are the card's behavior.** Add tests only for new or changed behavior,
     and one regression test for a bug fix. Prefer extending an existing test over a new file.
   - **Review.** Code review checks this too: a substantial amount of per-variant duplication
-    and verbatim wording tests are changes to fix.
+    and verbatim wording tests are changes to fix. So is logic added to `assembly.ts`
+    (it only wires modules; `test/architecture/assembly-wiring.test.ts` caps it) and a copy
+    of a helper that already exists: ask for the fix.
 
 ## Commands
 

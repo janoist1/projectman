@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { INTEGRATOR_TODO_TIMEOUT_MS, routes } from '@projectman/shared';
+import { routes } from '@projectman/shared';
 import type { InboxItem, ProjectConfig } from '@projectman/shared';
 import { getLocale } from '@projectman/templates';
 import { aiActor, humanActor } from '../src/kernel';
@@ -356,7 +356,7 @@ describe('integrator fix limit decision', () => {
 
   it('keeps the item for the integrator after 24 hours: the Operator’s queue has no escalation', async () => {
     const created = await passedOn();
-    now = new Date(now.getTime() + INTEGRATOR_TODO_TIMEOUT_MS);
+    now = new Date(now.getTime() + 86_400_000);
     expect(item(created.id).payload).toMatchObject({ recipient: 'integrator' });
     expect(escalations()).toHaveLength(0);
     expect((await decide(created.id, 'another_round')).statusCode).toBe(200);

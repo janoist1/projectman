@@ -1195,56 +1195,21 @@ export function humanInboxAssignment(item: InboxItem, handle: string | null): bo
   return inboxRecipientOf(item) === 'owner' && (handle === null || item.assignees.includes(handle));
 }
 
-export const INTEGRATOR_TODO_TIMEOUT_MS = 86_400_000;
-
-export function planIntegratorTodoEscalation(
-  item: InboxItem,
-  now: string,
-  owners: readonly string[],
-): Pick<InboxItem, 'payload' | 'assignees'> | null {
-  if (item.state !== 'open' || !isIntegratorTodo(item) || !owners.length) return null;
-  const openedAt = questionPayloadOf(item)!.integratorOpenedAt!;
-  if (!(Date.parse(now) >= Date.parse(openedAt) + INTEGRATOR_TODO_TIMEOUT_MS)) return null;
-  return {
-    payload: { ...item.payload, recipient: 'owner', integratorEscalatedAt: now },
-    assignees: [...owners],
-  };
-}
-
 /**
- * The change that gives an open integrator item to the owners (PM-714), or null when it stays. A todo
- * follows `planIntegratorTodoEscalation`. A fix limit decision goes after 24 hours (`integrator_timeout`) or at
- * once when the integrator passes it on (`integrator_passed_on`); the payload and options are kept, only the
- * addressing changes, so no second decision item is made. `assignees` are the people who then decide.
+ * The change that gives an open integrator item to the owners (PM-714), or null when it stays. An open
+ * Operator todo or a fix limit decision held by the Operator goes at once, when the Operator passes it on
+ * (`integrator_passed_on`) or does not work its queue (`integrator_unavailable`); there is no clock. The payload
+ * and options are kept, only the addressing changes, so no second decision item is made. `assignees` are the
+ * people who then decide.
  */
 export function planIntegratorInboxEscalation(
   item: InboxItem,
   now: string,
   owners: readonly string[],
-  reason: IntegratorEscalationReason = 'integrator_timeout',
+  reason: 'integrator_passed_on' | 'integrator_unavailable',
 ): Pick<InboxItem, 'payload' | 'assignees'> | null {
   if (item.state !== 'open' || !owners.length) return null;
-  if (isIntegratorTodo(item)) {
-    // The Operator passes a todo on at once (PM-885); the 24-hour timeout is no longer run by the server.
-    return reason === 'integrator_timeout'
-      ? planIntegratorTodoEscalation(item, now, owners)
-      : {
-          payload: {
-            ...item.payload,
-            recipient: 'owner',
-            integratorEscalatedAt: now,
-            integratorEscalationReason: reason,
-          },
-          assignees: [...owners],
-        };
-  }
-  if (!isIntegratorFixLimitDecision(item)) return null;
-  const openedAt = item.payload.integratorOpenedAt as string;
-  if (
-    reason === 'integrator_timeout' &&
-    !(Date.parse(now) >= Date.parse(openedAt) + INTEGRATOR_TODO_TIMEOUT_MS)
-  )
-    return null;
+  if (!isIntegratorTodo(item) && !isIntegratorFixLimitDecision(item)) return null;
   return {
     payload: {
       ...item.payload,

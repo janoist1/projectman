@@ -2684,11 +2684,12 @@ workers follow the machine's size.
     since only the link state crosses the boundary. Signals and team messages already queue on
     `engine_offline` (`releaseForEngine`, `retryDeferredStarts`). Real Mac, sleep and network
     trials belong to PM-664.
-    Integrator todo handoff (PM-782, `core/inbox/inbox.ts`, assembly maintenance) uses a separate
-    durable 24-hour wall clock from `integratorOpenedAt`: unlike screening's ten minutes, it keeps
-    running when engines are offline or AI is disabled. The hub alone persists and publishes the handoff;
+    Integrator todo handoff (PM-782, `core/inbox/inbox.ts`, assembly maintenance) has no clock since
+    PM-885 and PM-938: an Operator todo goes to the owners when the Operator passes it on
+    (`integrator_passed_on`) or does not work its queue (`integrator_unavailable`, swept by
+    `sweepIntegratorTodos` whatever the engine or AI state). The hub alone persists and publishes the handoff;
     no engine operation or credential crosses the boundary. PM-801 puts the integrator's fix-limit
-    decisions on the same clock and sweep (`planIntegratorInboxEscalation`): hub-side only.
+    decisions on the same sweep (`planIntegratorInboxEscalation`): hub-side only.
     PM-712 applies the same server-owned queue and receipt pattern to suspected loops:
     `runtime/watchers/loop-watch.ts` stores generation, assessment and the remaining ten-minute
     online budget in `task_loops.triage_json`; `services/operator/loop-triage.ts` sends a
@@ -4378,9 +4379,9 @@ extras have been given, the lead decides at every limit reach (a card that reach
 round goes back to the lead, reason `again`); once three extras are used, and the card reaches the limit again, the
 decision has reason `extra_exhausted`. The decision item goes to the integrator (the PM-782 queue, `recipient:
 'integrator'`) when extras are exhausted, when the lead passes it on with `to_owner`, or when no AI member can
-decide; it falls back to the owners when no integrator is available, after the same durable 24-hour clock as an
-integrator todo, or when the integrator passes it on (timeline event `fix_limit_recipient_escalated`, reasons
-`integrator_timeout` and `integrator_passed_on`). `decide_fix_limit` with `to_owner` requires an `assessment`
+decide; it falls back to the owners when the Operator does not work its queue or passes it on (no clock;
+timeline event `fix_limit_recipient_escalated`, reasons `integrator_unavailable` and `integrator_passed_on`;
+older events keep `integrator_timeout`). `decide_fix_limit` with `to_owner` requires an `assessment`
 (`recurrence`, `currentState`, `recommendation { optionId, reason }`; errors `fix_limit_assessment_required`,
 `fix_limit_invalid_recommendation`). The item carries the whole text (body, round history `fixRoundHistory`, extras,
 assessment, each option's label and consequence), written in the project language by `core/inbox/fix-limit-text.ts`

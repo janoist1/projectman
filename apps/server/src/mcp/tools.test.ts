@@ -3,39 +3,119 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import Fastify from 'fastify';
 import { describe, expect, it } from 'vitest';
 import { createTeamMcpServer, DEFAULT_TOOL_TIMEOUT_MS } from './server';
-import { createFakeTeamToolsHandler, devContext } from './testing';
+import { createFakeTeamToolsHandler, devContext, operatorAudience } from './testing';
+import type { MemberAudience } from '../contracts';
+import { toolVisible, type ToolAudience } from './kit';
 import { TEAM_TOOL_GROUPS, TEAM_TOOL_NAMES, TEAM_TOOLS } from './tools';
+
+const developerAudience: MemberAudience = { ...operatorAudience, operator: false };
+
+async function listToolsFor(audience: MemberAudience) {
+  const app = Fastify();
+  const server = createTeamMcpServer(devContext, {
+    handler: createFakeTeamToolsHandler(),
+    logger: app.log,
+    toolTimeoutMs: DEFAULT_TOOL_TIMEOUT_MS,
+    audienceOf: () => audience,
+  });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: 'audience-test', version: '1.0.0' });
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    return await client.listTools();
+  } finally {
+    await client.close();
+    await server.close();
+    await app.close();
+  }
+}
+
+describe('tool audience', () => {
+  it.each<{ audience: ToolAudience | undefined; member: MemberAudience; visible: boolean }>([
+    { audience: undefined, member: developerAudience, visible: true },
+    { audience: {}, member: operatorAudience, visible: true },
+    { audience: {}, member: developerAudience, visible: false },
+    { audience: { roles: ['operator'] }, member: developerAudience, visible: false },
+    {
+      audience: { roles: ['project_manager'] },
+      member: { ...developerAudience, projectManager: true },
+      visible: true,
+    },
+    { audience: { roles: ['merger'] }, member: { ...developerAudience, merger: true }, visible: true },
+    { audience: { duties: ['deployment'] }, member: developerAudience, visible: false },
+    {
+      audience: { duties: ['deployment', 'code_review'] },
+      member: { ...developerAudience, duties: new Set(['code_review']) },
+      visible: true,
+    },
+    {
+      audience: { roles: ['merger'], duties: ['deployment'] },
+      member: { ...developerAudience, duties: new Set(['deployment']) },
+      visible: true,
+    },
+    {
+      audience: { roles: ['project_manager'], duties: ['deployment'] },
+      member: { ...developerAudience, projectManager: true },
+      visible: true,
+    },
+  ])('resolves audience $audience with member $member to $visible', ({ audience, member, visible }) => {
+    expect(toolVisible(audience, member)).toBe(visible);
+  });
+
+  it('lists all tools for the Operator and hides restricted tools from a developer', async () => {
+    const before = await listToolsFor(operatorAudience);
+    const after = await listToolsFor(developerAudience);
+    expect(before.tools.map((tool) => tool.name).sort()).toEqual([...TEAM_TOOL_NAMES].sort());
+    expect(after.tools.map((tool) => tool.name)).not.toContain('check_release');
+    expect(after.tools.map((tool) => tool.name)).toContain('get_guide');
+    console.info('tools/list JSON bytes', {
+      before: Buffer.byteLength(JSON.stringify(before)),
+      after: Buffer.byteLength(JSON.stringify(after)),
+      beforeCount: before.tools.length,
+      afterCount: after.tools.length,
+    });
+  });
+
+  it.each([false, true])('lists deployment tools only for their duty holder (%s)', async (holdsDuty) => {
+    const result = await listToolsFor({
+      ...developerAudience,
+      duties: new Set(holdsDuty ? ['deployment'] : []),
+    });
+    for (const name of ['propose_release', 'publish_release']) {
+      expect(result.tools.some((tool) => tool.name === name)).toBe(holdsDuty);
+    }
+  });
+
+  it.each([
+    { audience: { ...developerAudience, projectManager: true }, present: 'start_task', absent: 'operate' },
+    {
+      audience: { ...developerAudience, duties: new Set(['feedback_processing'] as const) },
+      present: 'get_feedback',
+      absent: 'start_task',
+    },
+  ])('lists the tools for the matching role or duty ($present)', async ({ audience, present, absent }) => {
+    const result = await listToolsFor(audience);
+    const names = result.tools.map((tool) => tool.name);
+    expect(names).toContain(present);
+    expect(names).not.toContain(absent);
+  });
+});
 
 describe('team tool definitions', () => {
   it('preserves the public tool definitions across module moves', async () => {
-    const app = Fastify();
-    const server = createTeamMcpServer(devContext, {
-      handler: createFakeTeamToolsHandler(),
-      logger: app.log,
-      toolTimeoutMs: DEFAULT_TOOL_TIMEOUT_MS,
-    });
-    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-    const client = new Client({ name: 'tool-snapshot-test', version: '1.0.0' });
-    try {
-      await server.connect(serverTransport);
-      await client.connect(clientTransport);
-      const { tools } = await client.listTools();
-      expect(
-        tools
-          .map(({ name, title, description, inputSchema, annotations }) => ({
-            name,
-            title,
-            description,
-            inputSchema,
-            annotations,
-          }))
-          .sort((a, b) => a.name.localeCompare(b.name)),
-      ).toMatchSnapshot();
-    } finally {
-      await client.close();
-      await server.close();
-      await app.close();
-    }
+    const { tools } = await listToolsFor(operatorAudience);
+    expect(
+      tools
+        .map(({ name, title, description, inputSchema, annotations }) => ({
+          name,
+          title,
+          description,
+          inputSchema,
+          annotations,
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    ).toMatchSnapshot();
   });
 });
 

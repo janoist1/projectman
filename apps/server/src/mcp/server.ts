@@ -2,7 +2,8 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { AjvJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/ajv';
 import type { FastifyBaseLogger } from 'fastify';
-import { TeamToolError, type TeamToolsHandler, type ToolContext } from '../contracts';
+import { TeamToolError, type TeamToolsHandler, type ToolContext, type MemberAudience } from '../contracts';
+import { toolVisible } from './kit';
 import { TEAM_INSTRUCTIONS, TEAM_TOOLS, type TeamTool } from './tools';
 
 export const SERVER_INFO = { name: 'projectman-team', version: '1.0.0' } as const;
@@ -15,6 +16,7 @@ export const SERVER_INFO = { name: 'projectman-team', version: '1.0.0' } as cons
 export const DEFAULT_TOOL_TIMEOUT_MS = 60_000;
 
 export interface TeamServerDeps {
+  audienceOf(ctx: ToolContext): MemberAudience;
   handler: TeamToolsHandler;
   logger: FastifyBaseLogger;
   toolTimeoutMs: number;
@@ -40,7 +42,9 @@ export const jsonSchemaValidator = new AjvJsonSchemaValidator();
  */
 export function createTeamMcpServer(ctx: ToolContext, deps: TeamServerDeps): McpServer {
   const server = new McpServer(SERVER_INFO, { instructions: TEAM_INSTRUCTIONS, jsonSchemaValidator });
+  const audience = deps.audienceOf(ctx);
   for (const tool of TEAM_TOOLS) {
+    if (!toolVisible(tool.audience, audience)) continue;
     server.registerTool(
       tool.name,
       {

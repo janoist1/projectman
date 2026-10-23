@@ -7,6 +7,7 @@ export const PROJECT_DOC_TOOL_GROUP: TeamToolGroup = {
   tools: [
     defineTool({
       name: 'read_project_doc',
+      audience: { roles: ['operator'] },
       title: 'Read a project document',
       readOnly: true,
       description:
@@ -47,6 +48,7 @@ export const PROJECT_DOC_TOOL_GROUP: TeamToolGroup = {
     }),
     defineTool({
       name: 'write_project_docs',
+      audience: { roles: ['operator'] },
       title: 'Write the project documents',
       readOnly: false,
       description:
@@ -103,6 +105,7 @@ export const PROJECT_DOC_TOOL_GROUP: TeamToolGroup = {
     }),
     defineTool({
       name: 'list_decision_candidates',
+      audience: { roles: ['operator'] },
       title: 'List the owners’ answers that may be decisions',
       readOnly: true,
       description:
@@ -116,6 +119,7 @@ export const PROJECT_DOC_TOOL_GROUP: TeamToolGroup = {
     }),
     defineTool({
       name: 'mark_decision_candidates',
+      audience: { roles: ['operator'] },
       title: 'Mark the offered decision candidates',
       readOnly: false,
       description:

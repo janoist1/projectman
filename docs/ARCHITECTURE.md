@@ -274,6 +274,16 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   humans, save memories and work with attachments (list, read by local path, attach a file of
   their own working directory, delete their own; PM-113, see [SECURITY.md](SECURITY.md)). Text
   an agent writes in its own session reaches nobody.
+  Tool definitions may declare an optional audience of roles (Operator, project manager,
+  named merger) or duties (`mcp/kit.ts`, PM-973). `runtime/sessions` derives the member audience
+  from the current project configuration for every stateless MCP request; registration keeps
+  tools with no audience or any matching role/duty. The Operator always sees all tools.
+  This is list visibility only: handlers remain the permission authority. Tools whose access
+  depends on a particular request, decision maker or conversation remain visible unless a role/duty
+  is also a necessary condition; further session/request checks stay in the handler.
+  External/super registration is unchanged.
+  A client that caches its tool list sees new tools on the next session. Filtering runs on the
+  server and adds no machine-dependent operation or remote-engine boundary.
   The context pack builds each guide from the same section builders as its short prompt index.
   Guides stay in server memory per live session, are rebuilt on start/resume and removed on exit
   or failed start. Only the shortened prompt crosses to a remote engine; no database storage is needed.

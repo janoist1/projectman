@@ -1,4 +1,4 @@
-import { TaskKey } from '@projectman/shared';
+import { TaskKey, type DutyId } from '@projectman/shared';
 
 import type { ToolAnnotations } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
@@ -7,6 +7,7 @@ import type {
   ExternalToolContext,
   ExternalToolsHandler,
   IntegratorPrincipal,
+  MemberAudience,
   TeamToolsHandler,
   ToolContext,
 } from '../contracts';
@@ -116,7 +117,29 @@ export function toolOutputText(output: string | ToolOutput): string {
   return typeof output === 'string' ? output : output.text;
 }
 
+/** Session-list visibility only; handlers remain the authority for permission checks. */
+export interface ToolAudience {
+  roles?: readonly ('operator' | 'project_manager' | 'merger')[];
+  duties?: readonly DutyId[];
+}
+
+export function toolVisible(audience: ToolAudience | undefined, member: MemberAudience): boolean {
+  if (!audience || member.operator) return true;
+  return (
+    (audience.roles?.some((role) =>
+      role === 'operator'
+        ? member.operator
+        : role === 'project_manager'
+          ? member.projectManager
+          : member.merger,
+    ) ??
+      false) ||
+    (audience.duties?.some((duty) => member.duties.has(duty)) ?? false)
+  );
+}
+
 export interface TeamTool {
+  readonly audience?: ToolAudience;
   readonly name: TeamToolName;
   readonly title: string;
   readonly description: string;
@@ -287,6 +310,7 @@ export function defineProjectlessTool<Shape extends z.core.$ZodLooseShape>(
 }
 
 export function defineTool<Shape extends z.core.$ZodLooseShape>(def: {
+  audience?: ToolAudience;
   name: TeamToolName;
   title: string;
   description: string;
@@ -346,6 +370,7 @@ export function defineTool<Shape extends z.core.$ZodLooseShape>(def: {
         ? { external: externalTool }
         : {}),
     name: def.name,
+    ...(def.audience ? { audience: def.audience } : {}),
     title: def.title,
     description: def.description,
     inputSchema: check

@@ -666,6 +666,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       handler: domain.teamTools,
       // O(1) in-memory lookup: runs on every MCP request.
       resolveContext: (token) => domain.sessions.resolveToken(token),
+      audienceOf: (ctx) => domain.sessions.audienceOf(ctx),
       logger: log,
       external: domain.externalMcp(),
     });

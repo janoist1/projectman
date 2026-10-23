@@ -16,7 +16,6 @@ import {
   wasIntegratorInboxItem,
   questionRecipientOf,
   selectTodoRecipient,
-  planIntegratorTodoEscalation,
   wasIntegratorTodo,
 } from './inbox';
 
@@ -112,22 +111,23 @@ describe('durable integrator todo rules', () => {
       for (const access of ['owner', 'admin', 'developer', 'client', 'viewer'] as const)
         expect(canSeeInboxItem({ access, handle: 'owner' }, { ...todo(), payload })).toBe(access === 'owner');
   });
-  it('uses the integrator opening time and escalates at exactly 24 hours, once', () => {
+  it('gives the todo to the owners at once with the reason, and only once', () => {
     const item = todo();
-    expect(planIntegratorTodoEscalation(item, '2026-10-18T09:59:59.999Z', ['new-owner'])).toBeNull();
-    const patch = planIntegratorTodoEscalation(item, '2026-10-18T10:00:00.000Z', ['new-owner'])!;
+    const now = '2026-10-17T10:05:00.000Z';
+    const patch = planIntegratorInboxEscalation(item, now, ['new-owner'], 'integrator_unavailable')!;
     const moved = { ...item, ...patch };
     expect(moved.assignees).toEqual(['new-owner']);
     expect(moved.payload).toMatchObject({
       recipient: 'owner',
       integratorOpenedAt: opened,
-      integratorEscalatedAt: '2026-10-18T10:00:00.000Z',
+      integratorEscalatedAt: now,
+      integratorEscalationReason: 'integrator_unavailable',
     });
     expect(wasIntegratorTodo(moved)).toBe(true);
     expect(humanInboxAssignment(moved, 'new-owner')).toBe(true);
-    expect(planIntegratorTodoEscalation(moved, '2026-10-19T10:00:00.000Z', ['owner'])).toBeNull();
+    expect(planIntegratorInboxEscalation(moved, now, ['owner'], 'integrator_unavailable')).toBeNull();
     expect(
-      planIntegratorTodoEscalation({ ...item, state: 'resolved' }, '2026-10-19T10:00:00.000Z', ['owner']),
+      planIntegratorInboxEscalation({ ...item, state: 'resolved' }, now, ['owner'], 'integrator_unavailable'),
     ).toBeNull();
   });
 });
@@ -206,15 +206,8 @@ describe('integrator fix limit decision rules (PM-714)', () => {
     expect(wasIntegratorInboxItem({ ...decision(), payload: { fixLimit } })).toBe(false);
   });
 
-  it('gives the item to the owners at exactly 24 hours, or at once when the integrator passes it on', () => {
+  it('gives the item to the owners at once when the integrator passes it on, and only once', () => {
     const item = decision();
-    expect(planIntegratorInboxEscalation(item, '2026-10-18T09:59:59.999Z', ['owner'])).toBeNull();
-    const timedOut = planIntegratorInboxEscalation(item, '2026-10-18T10:00:00.000Z', ['owner'])!;
-    expect(timedOut.assignees).toEqual(['owner']);
-    expect(timedOut.payload).toMatchObject({
-      recipient: 'owner',
-      integratorEscalatedAt: '2026-10-18T10:00:00.000Z',
-    });
     const early = planIntegratorInboxEscalation(
       item,
       '2026-10-17T11:00:00.000Z',
@@ -223,16 +216,25 @@ describe('integrator fix limit decision rules (PM-714)', () => {
     )!;
     expect(early.payload).toMatchObject({ recipient: 'owner', integratorOpenedAt: opened });
     expect(
-      planIntegratorInboxEscalation({ ...item, ...early }, '2026-10-19T00:00:00.000Z', ['owner']),
+      planIntegratorInboxEscalation(
+        { ...item, ...early },
+        '2026-10-19T00:00:00.000Z',
+        ['owner'],
+        'integrator_passed_on',
+      ),
     ).toBeNull();
     expect(
-      planIntegratorInboxEscalation({ ...item, state: 'resolved' }, '2026-10-19T00:00:00.000Z', ['owner']),
+      planIntegratorInboxEscalation(
+        { ...item, state: 'resolved' },
+        '2026-10-19T00:00:00.000Z',
+        ['owner'],
+        'integrator_passed_on',
+      ),
     ).toBeNull();
     // The Operator hands a todo on at once (PM-885).
     expect(
       planIntegratorInboxEscalation(todo(), '2026-10-17T11:00:00.000Z', ['owner'], 'integrator_passed_on')
         ?.payload,
     ).toMatchObject({ recipient: 'owner', integratorEscalationReason: 'integrator_passed_on' });
-    expect(planIntegratorInboxEscalation(todo(), '2026-10-18T10:00:00.000Z', ['owner'])).not.toBeNull();
   });
 });

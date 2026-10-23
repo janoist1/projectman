@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  INTEGRATOR_TODO_TIMEOUT_MS,
   TODO_DONE_OPTION,
   TODO_CANNOT_OPTION,
   questionPayloadOf,
@@ -412,7 +411,7 @@ describe('integrator todo REST and durable lifecycle', () => {
 
   it('does not escalate a todo to the owners after a day: the Operator’s queue has no timeout', async () => {
     const item = await opened();
-    now = new Date(now.getTime() + INTEGRATOR_TODO_TIMEOUT_MS);
+    now = new Date(now.getTime() + 86_400_000);
     expect((await resolve(item.id)).statusCode).toBe(200);
     expect(events('question_recipient_escalated')).toHaveLength(0);
   });

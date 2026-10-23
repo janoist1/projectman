@@ -9,6 +9,7 @@ import {
   humanInboxAssignment,
   isIntegratorTodo,
   planIntegratorInboxEscalation,
+  operatorQueueAvailable,
   ownerHandles,
   superActorOf,
   ownerReservedEffect,
@@ -1801,8 +1802,15 @@ export class MockBackend {
   }
 
   sweepIntegratorTodos(now: string): void {
+    // Like the server: the Operator's items go to the owners only when it does not work its queue (no clock).
+    if (operatorQueueAvailable(this.config)) return;
     for (const item of this.inbox) {
-      const patch = planIntegratorInboxEscalation(item, now, ownerHandles(this.config));
+      const patch = planIntegratorInboxEscalation(
+        item,
+        now,
+        ownerHandles(this.config),
+        'integrator_unavailable',
+      );
       if (!patch) continue;
       this.upsertInbox({ ...item, ...patch });
       if (fixLimitDecisionOf(item)) {
@@ -1819,7 +1827,7 @@ export class MockBackend {
             inboxItemId: item.id,
             from: 'integrator',
             to: 'owner',
-            reason: 'integrator_timeout',
+            reason: 'integrator_unavailable',
             openedAt: item.payload.integratorOpenedAt as string,
           },
           null,
@@ -1837,7 +1845,7 @@ export class MockBackend {
           from: 'integrator',
           to: 'owner',
           openedAt: questionPayloadOf(item)!.integratorOpenedAt!,
-          reason: 'integrator_timeout',
+          reason: 'integrator_unavailable',
         },
         item.sessionId,
         now,

@@ -69,7 +69,7 @@ Question addressing is durable payload data (`requestedRecipient`, `recipient`,
 New `screen_question.todo` input requires a recipient; decisions, fallback and unscreened reasks
 always remain owner work. Shared rules select the recipient, protect approvals even with malformed
 raw payload fields, restrict human visibility to owners, exclude integrator work from human counts
-and plan the exact 24-hour handoff. Assignees remain real human handles.
+and plan the handoff to the owners (no clock: on a pass-on or an unavailable Operator). Assignees remain real human handles.
 
 `IntegratorTodoAccess` is a boolean port, defaulting to unavailable. `app.ts` checks current owners,
 users, active explicit super credentials and `superAccessVerdict`; assembly passes it to inbox.
@@ -83,8 +83,8 @@ cleanup outside the caller's execution scope; generic label edits keep all crede
 
 The hub's `integrator-todos` maintenance job sweeps at startup and every 30 seconds, independently
 of AI availability or engine connectivity. Handoff and resolution serialize on the same lock.
-At or after the deadline, a super resolution first commits the handoff, then refuses. A resolution
-accepted under the lock before the deadline can finish while the sweep waits. Handoff records
+The sweep hands an item over only when the Operator does not work its queue (`integrator_unavailable`);
+there is no 24-hour clock. A resolution accepted under the lock finishes first. Handoff records
 `question_recipient_escalated` atomically with owner addressing and current owner assignees;
 it sends no answer and does not release the waiting label. Existing inbox change triggers journal
 opening, handoff and closure. No new machine operation or engine-boundary method is needed.
@@ -94,7 +94,7 @@ opening, handoff and closure. No new machine operation or engine-boundary method
 A fix-limit decision (`payload.fixLimit`, source `system`, only fix-limit options) can be addressed to the
 integrator by `selectFixLimitRecipient` when the three extra rounds are used up, the lead passed it on, or no AI
 member can decide; any other shape stays with the owners. `isIntegratorInboxItem` covers todos and these
-decisions, so the sweep escalates both at 24 hours (`planIntegratorInboxEscalation`, event
+decisions, so the sweep escalates both when the Operator is unavailable (`planIntegratorInboxEscalation`, event
 `fix_limit_recipient_escalated`). The integrator resolves only through `resolveIntegratorFixLimit` (same question
 lock, `integratorExecution()` and owner access checked again): `replan`, `reassign`, `another_round`, or passing
 the same item to the owners with a reason. The text is built by `fix-limit-text.ts` in the project language.
@@ -105,7 +105,7 @@ Hub-side only; no engine-boundary method.
 `ObligationsService` (`services/obligations`) hands a step whose responsible did not act to the
 integrator through two inbox operations. `openIntegratorTodo` opens a question item that carries
 `payload.obligation` (`kind`, `responsible`, `subject`) and the same `integratorOpenedAt` clock as any
-integrator todo, so the 24-hour owner handoff applies to it too; with no integrator available the owners
+integrator todo, so the owner handoff applies to it too; with no integrator available the owners
 get it directly, which the `IntegratorTodoAccess` port decides. The item has no asker to answer: the
 system is its source, so `resolveIntegratorTodo` and `resolve` record the result and send no message
 (`answeredNotice` skips obligation todos).

@@ -303,7 +303,10 @@
     margin-left: 0;
   }
   .sender button,
-  .noAddress button {
+  .noAddress button,
+  .pendingLink {
+    display: inline-flex;
+    align-items: center;
     min-height: 44px;
   }
 }

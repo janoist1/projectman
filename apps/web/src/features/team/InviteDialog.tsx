@@ -17,20 +17,31 @@ export function InviteDialog({
   open,
   onClose,
   member,
+  intro,
 }: {
   open: boolean;
   onClose: () => void;
   member?: MemberView;
+  /** A paragraph before the form; shown until the link is created. */
+  intro?: string;
 }) {
   return (
     <Dialog open={open} onClose={onClose} title={t('invites.title')}>
-      <InviteForm key={member?.handle ?? 'new'} member={member} onClose={onClose} />
+      <InviteForm key={member?.handle ?? 'new'} member={member} intro={intro} onClose={onClose} />
     </Dialog>
   );
 }
 
 /** The invitation form and, once created, its link. "Add colleague" shows it as one of its two ways. */
-export function InviteForm({ member, onClose }: { member?: MemberView; onClose: () => void }) {
+export function InviteForm({
+  member,
+  intro,
+  onClose,
+}: {
+  member?: MemberView;
+  intro?: string;
+  onClose: () => void;
+}) {
   const formId = useId();
   const { key, isOwner } = useProject();
   const roles = useRoles(key);
@@ -91,6 +102,7 @@ export function InviteForm({ member, onClose }: { member?: MemberView; onClose: 
 
   return (
     <form id={formId} className={styles.form} onSubmit={submit}>
+      {intro ? <p>{intro}</p> : null}
       <TextField
         label={t('invites.email')}
         type="email"

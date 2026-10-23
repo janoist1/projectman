@@ -323,6 +323,11 @@ export function IntegratorSection() {
             ? t('integratorKey.revokeTitle', { prefix: target?.prefix ?? '' })
             : t('integratorKey.new')
         }
+        description={
+          dialog === 'revoke'
+            ? t(target?.mode === 'read' ? 'integratorKey.revokeReadBody' : 'integratorKey.revokeBody')
+            : undefined
+        }
         footer={
           <>
             <Button variant="secondary" disabled={pending} onClick={() => setDialog(null)}>
@@ -338,9 +343,6 @@ export function IntegratorSection() {
           </>
         }
       >
-        {dialog === 'revoke' ? (
-          <p>{t(target?.mode === 'read' ? 'integratorKey.revokeReadBody' : 'integratorKey.revokeBody')}</p>
-        ) : null}
         {create.isError || revoke.isError ? (
           <ErrorBanner>{errorMessage(create.error ?? revoke.error)}</ErrorBanner>
         ) : null}

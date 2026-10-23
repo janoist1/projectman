@@ -1,4 +1,5 @@
 import type { AgentProvider, CardMover, ChecklistCondition, Merger, ProjectConfig } from '@projectman/shared';
+import type { ChecklistItemKey } from './locales/types';
 
 export interface TemplateOwner {
   handle: string;
@@ -21,7 +22,7 @@ export interface BuildTemplateInput {
 
 /** A checklist item a template adds to the project's startup checklist; title and hint come from the locale. */
 export interface TemplateChecklistItem {
-  id: string;
+  id: ChecklistItemKey;
   condition: ChecklistCondition | null;
 }
 

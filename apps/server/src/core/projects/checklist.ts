@@ -11,7 +11,6 @@ import type {
   SetChecklistItemStateRequest,
 } from '@projectman/shared';
 import { BASE_CHECKLIST, getLocale, getTemplate, summarizeTemplate, templates } from '@projectman/templates';
-import type { ChecklistItemKey } from '@projectman/templates';
 import type { OperatorKnowledgeStore } from '../../contracts';
 import { conflict, DomainError, KeyedMutex } from '../../kernel';
 import { isoNow } from '../base';
@@ -293,7 +292,7 @@ export class ChecklistService {
       const at = isoNow(this.deps.ctx);
       this.deps.ctx.unitOfWork(() => {
         missing.forEach((entry, offset) => {
-          const text = locale.checklist.items[entry.id as ChecklistItemKey];
+          const text = locale.checklist.items[entry.id];
           this.write(
             key,
             ChecklistItem.parse({

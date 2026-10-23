@@ -180,6 +180,53 @@ describe('publish_release', () => {
     expect(second.tag).toBe(`${first.tag}.2`);
   });
 
+  it('starts from the latest live release of the instance when nothing was published yet', async () => {
+    await setup();
+    const at = '2026-01-05T00:00:00.000Z';
+    h.repos.releases.insert(
+      {
+        id: 'rel_1',
+        projectKey: 'AR',
+        repo: 'web',
+        taskKey: 'AR-1',
+        state: 'live',
+        commit: sha(1),
+        baseCommit: null,
+        tasks: ['AR-1'],
+        summary: 'Summary',
+        proposedBy: 'dev-1',
+        proposedAt: at,
+        decidedBy: null,
+        decidedAt: null,
+        deployStartedAt: null,
+        previousCommit: null,
+        liveAt: at,
+        tag: null,
+        url: null,
+        publishedAt: null,
+        failure: null,
+        publishError: null,
+      },
+      at,
+    );
+
+    const result = await publish();
+
+    expect(result.baseCommit).toBe(sha(1));
+    expect(result.tasks.map((task) => task.key)).toEqual(['AR-2', 'AR-3']);
+  });
+
+  it('reuses a date tag that the remote already has on this commit', async () => {
+    await setup();
+    git.remote.set('v2026.1.1', sha(3));
+
+    const result = await publish();
+
+    expect(result.tag).toBe('v2026.1.1');
+    expect(git.merger.pushTag).not.toHaveBeenCalled();
+    expect(h.github.published[0]).toMatchObject({ tag: 'v2026.1.1' });
+  });
+
   it('finishes an interrupted publication on a repeated call, without pushing the tag again', async () => {
     await setup();
     h.github.releaseFailure = new Error('gh is down');

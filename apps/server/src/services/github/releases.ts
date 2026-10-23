@@ -4,8 +4,8 @@ import { GithubError } from './errors';
 import { isValidRepo } from './refs';
 
 /** The longest release notes and title `publishRelease` takes (GitHub's own limit for the body is 125000). */
-export const MAX_RELEASE_NOTES = 20_000;
-export const MAX_RELEASE_TITLE = 200;
+const MAX_RELEASE_NOTES = 20_000;
+const MAX_RELEASE_TITLE = 200;
 
 type RunGh = (args: readonly string[]) => Promise<string>;
 

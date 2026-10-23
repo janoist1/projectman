@@ -60,7 +60,6 @@ import { createProjectFocusRepository } from './project-focus';
 import { createProjectChangeEventRepository } from './project-change-events';
 import { createReleaseDeploymentRepository } from './release-deployments';
 import { createReleasePublicationRepository } from './release-publications';
-export type { ReleasePublication } from './release-publications';
 import { createReleaseRepository } from './releases';
 import { createReviewPinRepository } from './review-pins';
 import { createTaskMergeRepository, createTaskHandoverRepository } from './task-merges';

@@ -307,7 +307,14 @@ async function main() {
   const scenario = JSON.parse(readFileSync(scenarioPath, 'utf8'));
   const argv = process.argv.slice(2);
   const { positional, flags } = parseArgs(argv);
-  const { key, fields, response: entry, create, merge, release } = resolve(scenario, positional, flags, logPath);
+  const {
+    key,
+    fields,
+    response: entry,
+    create,
+    merge,
+    release,
+  } = resolve(scenario, positional, flags, logPath);
   let response = pick(entry, key, logPath);
 
   const env = Object.fromEntries(

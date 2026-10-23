@@ -364,6 +364,8 @@ describe('history index', () => {
         'email_messages',
         // Migration 105 (PM-968) created it.
         'release_publications',
+        'project_checklist_items',
+        'project_checklists',
       ])
         old.exec(`DROP TABLE ${table}`);
       // Migration 99 (PM-925) dropped the pending recipients table, which version 83 still has and 84 to 98 read.

@@ -15,7 +15,7 @@ import type {
   TaskService,
   TaskWaits,
 } from '../core/tasks';
-import type { ProjectService, RoleService } from '../core/projects';
+import type { ProjectService, RoleService, ChecklistService } from '../core/projects';
 import type { InvitationService, MemberService, MemberProfiles, ProjectAccess } from '../core/members';
 import type { MessageService, Messaging } from '../core/messages';
 import type { InboxService } from '../core/inbox';
@@ -38,6 +38,7 @@ import type {
 } from '../services/operator';
 
 export interface ApiDomain extends AuthDomain {
+  readonly checklist: ChecklistService;
   readonly releases: ReleaseService;
   readonly webPush: WebPushService;
   readonly superOperator: SuperOperator;

@@ -228,6 +228,8 @@ export function canSeeProjectEvent(
   isOperatorSession?: (sessionId: string) => boolean,
 ): boolean {
   // A team message reaches only those it concerns (and an owner and an admin), whatever their access.
+  if (event.type === 'project_checklist_changed')
+    return viewer.access === 'owner' || viewer.access === 'admin';
   if (event.type === 'operator_signal')
     return viewer.access === 'owner' && !isCoordinatorOnlySignal(event.signal.kind);
   if (event.type === 'inbox_upserted') return canSeeInboxItem(viewer, event.item);

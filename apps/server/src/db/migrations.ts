@@ -2227,4 +2227,15 @@ migrations.push({
     UNIQUE (project_key, repo, tag)
   );`,
 });
+migrations.push({
+  version: 106,
+  name: 'project checklists',
+  sql: `CREATE TABLE project_checklists (project_key TEXT PRIMARY KEY, base_template_id TEXT, created_at TEXT NOT NULL);
+  CREATE TABLE project_checklist_items (
+    project_key TEXT NOT NULL, id TEXT NOT NULL, position INTEGER NOT NULL, title TEXT NOT NULL, hint TEXT,
+    source TEXT NOT NULL CHECK (source IN ('base','template','operator')), template_id TEXT, condition TEXT,
+    state TEXT NOT NULL CHECK (state IN ('open','done','not_needed')), reason TEXT,
+    reopened TEXT CHECK (reopened IN ('condition','owner')), updated_at TEXT NOT NULL, updated_by TEXT NOT NULL,
+    PRIMARY KEY (project_key, id));`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

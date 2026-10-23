@@ -405,6 +405,10 @@ export class ProjectService {
         },
         message,
       );
+      await this.ctx.events.emit('project_created', {
+        projectKey: req.key,
+        providerReady: req.provider !== undefined,
+      });
       return toSummary(record);
     });
   }

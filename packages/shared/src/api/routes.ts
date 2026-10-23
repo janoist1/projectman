@@ -30,6 +30,9 @@ export const routes = {
   memberQueue: (key: string, handle: string) => `/api/projects/${key}/members/${handle}/queue`,
   operatorPreferences: (key: string) => `/api/projects/${key}/operator/preferences`,
   operatorKnowledge: (key: string) => `/api/projects/${key}/operator/knowledge`,
+  projectChecklist: (key: string) => `/api/projects/${key}/checklist`,
+  projectChecklistItemState: (key: string, itemId: string) =>
+    `/api/projects/${key}/checklist/items/${itemId}/state`,
   operatorApprovalWaiver: (key: string) => `/api/projects/${key}/operator/approval-waiver`,
   /** GET the super mode's audit (`SuperAuditPage`, PM-757), newest first; the owner's own login only. */
   operatorSuperAudit: (key: string) => `/api/projects/${key}/operator-super/audit`,

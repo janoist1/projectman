@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { CreateProjectRequest, routes } from '@projectman/shared';
+import { CreateProjectRequest, SetChecklistItemStateRequest, routes } from '@projectman/shared';
 import type { BoardView, ProjectPreview, ProjectSummary, TemplateSummary } from '@projectman/shared';
 import { summarizeTemplate } from '@projectman/templates';
 import type { AuthService } from '../auth';
@@ -15,6 +15,20 @@ export function registerProjectRoutes(
   deps: { domain: ApiDomain; auth: AuthService },
 ): void {
   const { domain, auth } = deps;
+  app.get<ProjectParams>(routes.projectChecklist(':key'), async (request) => {
+    const key = request.params.key;
+    const access = await requireAccess(domain, request, key, { minimum: 'admin' });
+    return { checklist: await domain.checklist.get(key), canEdit: access.access === 'owner' };
+  });
+  app.post<{ Params: { key: string; itemId: string } }>(
+    routes.projectChecklistItemState(':key', ':itemId'),
+    async (request) => {
+      const { key, itemId } = request.params;
+      const access = await requireAccess(domain, request, key, { minimum: 'owner' });
+      const body = parseBody(SetChecklistItemStateRequest, request.body);
+      return { checklist: await domain.checklist.setState(key, itemId, body, access.handle), canEdit: true };
+    },
+  );
   app.get(routes.templates(), async (): Promise<TemplateSummary[]> =>
     domain.templates.list().map(summarizeTemplate),
   );

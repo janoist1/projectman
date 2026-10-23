@@ -2,6 +2,20 @@ import { lowerFirstWord, type TemplateLocale } from './types';
 
 /** English default display names and role texts. */
 export const en: TemplateLocale = {
+  checklist: {
+    items: {
+      goal: { title: 'Project goal', hint: 'Agree on the goal and what success means.' },
+      code: { title: 'Source code', hint: 'Connect the project repository.' },
+      providers: { title: 'AI providers', hint: 'Check the subscriptions used by the team.' },
+      team: { title: 'Team', hint: 'Choose the members and their responsibilities.' },
+      process: { title: 'Workflow', hint: 'Agree on the stages and review requirements.' },
+      labels: { title: 'Labels', hint: 'Choose labels that describe work and approvals.' },
+      clients: { title: 'Clients', hint: 'Decide who participates from the client side.' },
+      release: { title: 'Release', hint: 'Agree on how changes reach users.' },
+      agreement: { title: 'Working agreement', hint: 'Approve how the Operator works with you.' },
+      first_task: { title: 'First task', hint: 'Create the first task.' },
+    },
+  },
   webPush: {
     title: {
       question: 'A new question awaits you',

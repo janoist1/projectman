@@ -150,6 +150,8 @@ export const CHANGE_TRIGGER_TABLES: readonly ChangeTriggerTable[] = [
  * (`project-change-journal.test.ts`), so a new table makes someone decide.
  */
 export const UNJOURNALED_TABLES: Readonly<Record<string, string>> = {
+  project_checklists: 'Private owner/admin checklist; announced through project_checklist_changed.',
+  project_checklist_items: 'Private owner/admin checklist; announced through project_checklist_changed.',
   web_push_devices: 'personal notification settings, not project state',
   web_push_settings: 'personal notification settings, not project state',
   web_push_items: 'personal notification settings, not project state',

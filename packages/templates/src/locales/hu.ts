@@ -2,6 +2,20 @@ import { lowerFirstWord, type TemplateLocale } from './types';
 
 /** Hungarian default display names and role texts (the only place for Hungarian text in this package). */
 export const hu: TemplateLocale = {
+  checklist: {
+    items: {
+      goal: { title: 'A projekt célja', hint: 'Egyeztessétek a célt és a siker feltételeit.' },
+      code: { title: 'Forráskód', hint: 'Kapcsold hozzá a projekt kódtárát.' },
+      providers: { title: 'AI-szolgáltatók', hint: 'Ellenőrizd a csapat előfizetéseit.' },
+      team: { title: 'Csapat', hint: 'Válassz tagokat és felelősségeket.' },
+      process: { title: 'Munkafolyamat', hint: 'Egyeztessétek a szakaszokat és az átnézés feltételeit.' },
+      labels: { title: 'Címkék', hint: 'Válassz címkéket a munkához és a jóváhagyásokhoz.' },
+      clients: { title: 'Ügyfelek', hint: 'Döntsétek el, ki vesz részt az ügyfél oldaláról.' },
+      release: { title: 'Kiadás', hint: 'Egyeztessétek, hogyan jutnak el a változások a felhasználókhoz.' },
+      agreement: { title: 'Megállapodás', hint: 'Hagyd jóvá, hogyan dolgozzon veled az Operátor.' },
+      first_task: { title: 'Első feladat', hint: 'Hozd létre az első feladatot.' },
+    },
+  },
   webPush: {
     title: {
       question: 'Új kérdés vár rád',

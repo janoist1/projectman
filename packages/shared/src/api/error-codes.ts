@@ -4,6 +4,11 @@
  * raises no other code.
  */
 export const ERROR_CODES = [
+  'checklist_missing',
+  'checklist_item_not_found',
+  'checklist_condition_unmet',
+  'checklist_full',
+  'checklist_exists',
   'email_not_configured',
   'email_channel_off',
   'email_sender_not_enabled',

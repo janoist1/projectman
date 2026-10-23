@@ -79,7 +79,7 @@ const ai = (config: ProjectConfig, handle: string) => {
 describe('ownerOnlyChanges', () => {
   it.each([
     [undefined, true, ['email_send_policy']],
-    [true, false, ['email_send_policy']],
+    [true, false, []],
     [false, undefined, []],
     [false, false, []],
   ] as const)('checks effective email approval policy %#', (before, after, expected) => {

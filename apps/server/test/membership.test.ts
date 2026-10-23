@@ -129,6 +129,21 @@ describe('memberships and member snapshots', () => {
       expect(denied.json().error.code).toBe('owner_only');
     });
 
+    it('allows an admin to switch off a sender that sends without approval', async () => {
+      const admin = await inviteAs('admin', 'admin@example.test');
+      await h.app.projectman.domain.members.update(
+        'AR',
+        'dev-1',
+        { email: { enabled: true, sendWithoutApproval: true } },
+        by,
+      );
+      const off = await inject(h.app, 'PATCH', routes.member('AR', 'dev-1'), admin, {
+        email: { enabled: false },
+      });
+      expect(off.statusCode).toBe(200);
+      expect(off.json().email).toEqual({ enabled: false, sendWithoutApproval: false });
+    });
+
     it('is on for a new member unless the owner hires it with the network off', async () => {
       const defaulted = await inject(h.app, 'POST', routes.members('AR'), cookie, { role: 'developer' });
       expect(defaulted.statusCode).toBe(201);

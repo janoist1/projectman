@@ -29,7 +29,8 @@ import type { AiMemberConfig, ProjectConfig } from './schema';
  *   full test sandbox) or `fullTestAtMerge` (when it runs) (PM-538);
  * - `operator_watch`: how much the Operator does on its own on a system signal (PM-548);
  * - `operator_approval_waiver`: whether eligible Operator changes may skip the approval click (PM-691);
- * - `email_send_policy`: whether an AI member can send email without human approval (PM-940).
+ * - `email_send_policy`: letting an AI member send email without human approval (PM-940); withdrawing
+ *   it is not owner-only.
  */
 export type OwnerOnlyChange =
   | 'locations'
@@ -67,7 +68,9 @@ export function ownerOnlyChanges(
     next.team.members.some(
       (member) =>
         member.kind === 'ai' &&
-        policy(member) !== policy(previous.team.members.find((old) => old.handle === member.handle)),
+        // Only granting sending without approval is the owner's; withdrawing it tightens the policy (PM-956).
+        policy(member) &&
+        !policy(previous.team.members.find((old) => old.handle === member.handle)),
     )
   )
     changes.push('email_send_policy');

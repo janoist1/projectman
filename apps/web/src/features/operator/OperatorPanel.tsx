@@ -50,6 +50,8 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
   const knowledgeButton = useRef<HTMLButtonElement>(null);
   const [queueOpen, setQueueOpen] = useState(false);
   const queueButton = useRef<HTMLButtonElement>(null);
+  // Keep handled checklist requests across the conversation view's unmounts.
+  const appliedChecklistRequest = useRef<number | null>(null);
   useEffect(() => {
     if (!operatorChecklistRequest) return;
     setKnowledgeOpen(false);
@@ -261,7 +263,9 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
         />
       </header>
 
-      {!queueOpen && !knowledgeOpen ? <OperatorChecklist key={key} /> : null}
+      {!queueOpen && !knowledgeOpen ? (
+        <OperatorChecklist key={key} appliedRequest={appliedChecklistRequest} />
+      ) : null}
 
       {queueOpen && queueVisible ? (
         <OperatorQueueView

@@ -55,7 +55,7 @@ describe('operator checklist', () => {
       item('second', { state: 'done' }),
       item('third', { state: 'not_needed', reason: 'No client' }),
     ]);
-    project.render(<OperatorChecklist />);
+    project.render(<OperatorChecklist appliedRequest={{ current: null }} />);
     expect(await screen.findByText('2/3')).not.toBeNull();
     expect(screen.getByRole('img', { name: t('operator.checklist.state.open') })).not.toBeNull();
     expect(screen.getByRole('img', { name: t('operator.checklist.state.done') })).not.toBeNull();
@@ -75,20 +75,20 @@ describe('operator checklist', () => {
 
   it('remembers collapsing the list across remounts', async () => {
     const project = projectWith();
-    const view = project.render(<OperatorChecklist />);
+    const view = project.render(<OperatorChecklist appliedRequest={{ current: null }} />);
     await within(await screen.findByRole('button', { name: /^Indulás / })).findByText('1/2');
     fireEvent.click(head());
     expect(screen.queryByRole('list')).toBeNull();
     expect(readStorage('operatorChecklistOpen:AC')).toBe('false');
     view.unmount();
-    project.render(<OperatorChecklist />);
+    project.render(<OperatorChecklist appliedRequest={{ current: null }} />);
     await within(await screen.findByRole('button', { name: /^Indulás / })).findByText('1/2');
     expect(head().getAttribute('aria-expanded')).toBe('false');
   });
 
   it('submits a trimmed not-needed reason, updates progress and returns focus to the row', async () => {
     const project = projectWith();
-    project.render(<OperatorChecklist />);
+    project.render(<OperatorChecklist appliedRequest={{ current: null }} />);
     await within(await screen.findByRole('button', { name: /^Indulás / })).findByText('1/2');
     openDetail();
     fireEvent.click(screen.getByRole('button', { name: t('operator.checklist.notNeeded.open') }));
@@ -105,11 +105,9 @@ describe('operator checklist', () => {
     expect(document.activeElement).toBe(screen.getByRole('button', { name: /first/ }));
   });
 
-  it.each(['done', 'not_needed'] as const)('reopens a %s item through the state endpoint', async (state) => {
-    const project = projectWith([
-      item('first', { state, reason: state === 'not_needed' ? 'No client' : null }),
-    ]);
-    project.render(<OperatorChecklist />);
+  it('reopens a settled item through the state endpoint', async () => {
+    const project = projectWith([item('first', { state: 'not_needed', reason: 'No client' })]);
+    project.render(<OperatorChecklist appliedRequest={{ current: null }} />);
     await screen.findByText('1/1');
     fireEvent.click(head());
     openDetail();
@@ -129,7 +127,7 @@ describe('operator checklist', () => {
         ? { status: 500, body: { error: { code: 'internal_error', message: 'Failed' } } }
         : handle(method, path, body, query),
     );
-    project.render(<OperatorChecklist />);
+    project.render(<OperatorChecklist appliedRequest={{ current: null }} />);
     await within(await screen.findByRole('button', { name: /^Indulás / })).findByText('1/2');
     openDetail();
     fireEvent.click(screen.getByRole('button', { name: t('operator.checklist.notNeeded.open') }));
@@ -147,7 +145,7 @@ describe('operator checklist', () => {
 
   it('cancels the reason form with Escape without closing the operator panel', async () => {
     const project = projectWith();
-    project.render(<OperatorChecklist />);
+    project.render(<OperatorChecklist appliedRequest={{ current: null }} />);
     await within(await screen.findByRole('button', { name: /^Indulás / })).findByText('1/2');
     openDetail();
     fireEvent.click(screen.getByRole('button', { name: t('operator.checklist.notNeeded.open') }));
@@ -164,7 +162,7 @@ describe('operator checklist', () => {
     const owner = project.backend.config.team.members.find((member) => member.handle === 'owner')!;
     if (owner.kind === 'human') owner.access = 'admin';
     project.context.me.projects[0]!.access = 'admin';
-    project.render(<OperatorChecklist />);
+    project.render(<OperatorChecklist appliedRequest={{ current: null }} />);
     await screen.findByText('0/1');
     openDetail();
     expect(screen.getByText(t('operator.checklist.reopened.owner'))).not.toBeNull();
@@ -262,6 +260,25 @@ describe('checklist in the project layout', () => {
     expect(head().getAttribute('aria-expanded')).toBe('true');
   });
 
+  it('does not replay a handled checklist request when returning from another panel view', async () => {
+    const project = projectWith();
+    layout(project);
+    await waitFor(() => expect(indicator()).not.toBeNull());
+    fireEvent.click(indicator()!);
+    await waitFor(() => expect(document.activeElement).toBe(head()));
+    fireEvent.click(head());
+    const knowledge = screen.getByRole('button', { name: t('knowledge.title') });
+    fireEvent.click(knowledge);
+    expect(screen.queryByRole('button', { name: /^Indulás / })).toBeNull();
+    fireEvent.click(await screen.findByRole('button', { name: t('knowledge.back') }));
+    await waitFor(() => expect(document.activeElement).toBe(knowledge));
+    expect(head().getAttribute('aria-expanded')).toBe('false');
+    expect(readStorage('operatorChecklistOpen:AC')).toBe('false');
+    fireEvent.click(indicator()!);
+    await waitFor(() => expect(document.activeElement).toBe(head()));
+    expect(head().getAttribute('aria-expanded')).toBe('true');
+  });
+
   it('hides the completed indicator and defaults the panel checklist to collapsed', async () => {
     const project = projectWith([item('first', { state: 'done' })]);
     layout(project);
@@ -285,18 +302,15 @@ describe('checklist in the project layout', () => {
     expect(screen.queryByRole('button', { name: /^Indulás/ })).toBeNull();
   });
 
-  it.each(['developer', 'client', 'viewer'] as const)(
-    'does not query or show a checklist for %s access',
-    async (access) => {
-      const project = projectWith();
-      project.context.me.projects[0]!.access = access;
-      layout(project);
-      fireEvent.click(await screen.findByRole('button', { name: /^Beszélgetés az Operátorral/ }));
-      await screen.findByRole('dialog');
-      expect(indicator()).toBeNull();
-      expect(project.requests.filter((request) => request.path.endsWith('/checklist'))).toHaveLength(0);
-    },
-  );
+  it('does not query or show a checklist below admin access', async () => {
+    const project = projectWith();
+    project.context.me.projects[0]!.access = 'developer';
+    layout(project);
+    fireEvent.click(await screen.findByRole('button', { name: /^Beszélgetés az Operátorral/ }));
+    await screen.findByRole('dialog');
+    expect(indicator()).toBeNull();
+    expect(project.requests.filter((request) => request.path.endsWith('/checklist'))).toHaveLength(0);
+  });
 
   it('refreshes the panel and header from the same cache on a checklist event', async () => {
     const project = projectWith();

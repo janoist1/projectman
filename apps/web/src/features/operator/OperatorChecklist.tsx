@@ -1,5 +1,6 @@
 import clsx from 'clsx';
 import { useEffect, useId, useRef, useState } from 'react';
+import type { RefObject } from 'react';
 import type { ChecklistItem, SetChecklistItemStateRequest } from '@projectman/shared';
 import { useChecklist, useSetChecklistItemState } from '../../api/queries';
 import { useProject } from '../../app/contexts';
@@ -10,7 +11,7 @@ import { t } from '../../i18n/t';
 import { readStorage, writeStorage } from '../../lib/hooks';
 import styles from './OperatorChecklist.module.css';
 
-export function OperatorChecklist() {
+export function OperatorChecklist({ appliedRequest }: { appliedRequest: RefObject<number | null> }) {
   const { key, me, operatorChecklistRequest } = useProject();
   const access = me.projects.find((project) => project.key === key)?.access;
   const enabled = access === 'owner' || access === 'admin';
@@ -25,7 +26,6 @@ export function OperatorChecklist() {
   const head = useRef<HTMLButtonElement>(null);
   const listId = useId();
   const [intro, setIntro] = useState(false);
-  const appliedRequest = useRef<number | null>(null);
   useEffect(() => {
     if (checklist) setChoice((previous) => previous ?? !checklist.progress.complete);
   }, [checklist]);
@@ -41,7 +41,7 @@ export function OperatorChecklist() {
     writeStorage(storageKey, 'true');
     setIntro(operatorChecklistRequest.intro);
     if (operatorChecklistRequest.focus) head.current?.focus();
-  }, [operatorChecklistRequest, checklist, storageKey]);
+  }, [operatorChecklistRequest, checklist, storageKey, appliedRequest]);
 
   if (!enabled) return null;
   if (query.isPending)

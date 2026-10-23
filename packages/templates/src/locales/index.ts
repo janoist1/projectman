@@ -3,6 +3,7 @@ import { hu } from './hu';
 import type { TemplateLocale } from './types';
 
 export type {
+  ChecklistItemKey,
   ColumnKey,
   RoleText,
   SpecialtyKey,

@@ -41,6 +41,7 @@ export const OPERATOR_READ_TOOLS: ReadonlySet<string> = new Set([
   'get_role_configuration',
   'get_operator_preference',
   'get_operator_knowledge',
+  'get_checklist',
   'get_task',
   'list_tasks',
   'list_members',
@@ -64,7 +65,10 @@ export const OPERATOR_READ_TOOLS: ReadonlySet<string> = new Set([
  * recorded when it is found, not only while an owner is waiting. Under an approval continuation they stay
  * refused, and a guest conversation never reaches them (`OPERATOR_GUEST_TOOLS`).
  */
-export const OPERATOR_NO_REQUEST_WRITE_TOOLS: ReadonlySet<string> = new Set(['record_system_feedback']);
+export const OPERATOR_NO_REQUEST_WRITE_TOOLS: ReadonlySet<string> = new Set([
+  'record_system_feedback',
+  'update_checklist',
+]);
 
 /**
  * The PM's standing screening tools (legacy constant name), with no owner request or step logged:

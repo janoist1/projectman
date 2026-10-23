@@ -1,6 +1,7 @@
 import { TEMPLATE_COLUMN_COLORS } from './templates/draft';
 import { describe, expect, it } from 'vitest';
 import {
+  ChecklistCondition,
   isHumanOnlyLabel,
   isOperator,
   isReleaseApprovalLabel,
@@ -20,6 +21,7 @@ import {
 } from '@projectman/shared';
 import {
   aiMemberDefaults,
+  BASE_CHECKLIST,
   DAILY_WORKER_SCHEDULE,
   en,
   getLocale,
@@ -250,8 +252,36 @@ describe('every template', () => {
           ai: config.team.members.filter((m) => m.kind === 'ai').length,
         },
         stageCount: config.pipeline.stages.length,
+        checklist: template.checklist.map((item) => item.id),
       });
     });
+  });
+});
+
+describe('template checklists', () => {
+  it.each(templates.map((t) => [t.id, t] as const))(
+    '%s items have a title in every locale and a known condition',
+    (_id, template) => {
+      for (const item of template.checklist) {
+        for (const locale of [hu, en])
+          expect(locale.checklist.items[item.id as keyof typeof en.checklist.items]?.title).toBeTruthy();
+        if (item.condition) expect(ChecklistCondition.safeParse(item.condition).success).toBe(true);
+      }
+      expect(new Set(template.checklist.map((item) => item.id)).size).toBe(template.checklist.length);
+      const baseIds = BASE_CHECKLIST.map((item) => item.id);
+      for (const item of template.checklist) expect(baseIds).not.toContain(item.id);
+    },
+  );
+
+  it('gives the web client project its client items and the starter none', () => {
+    expect(getTemplate('web-client-project')?.checklist.map((item) => item.id)).toEqual([
+      'guests',
+      'feedback_marks',
+      'qa',
+      'client_test',
+      'code_review',
+    ]);
+    expect(getTemplate('starter')?.checklist).toEqual([]);
   });
 });
 

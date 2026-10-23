@@ -234,6 +234,7 @@ export const templates: TemplateSummary[] = [
     descriptionKey: 'templates.web-client-project.description',
     memberCount: { human: 1, ai: 7 },
     stageCount: 9,
+    checklist: ['guests', 'feedback_marks', 'qa', 'client_test', 'code_review'],
   },
   {
     id: 'small-team',
@@ -241,6 +242,7 @@ export const templates: TemplateSummary[] = [
     descriptionKey: 'templates.small-team.description',
     memberCount: { human: 1, ai: 2 },
     stageCount: 5,
+    checklist: ['code_review'],
   },
   {
     id: 'internal-tool',
@@ -248,6 +250,7 @@ export const templates: TemplateSummary[] = [
     descriptionKey: 'templates.internal-tool.description',
     memberCount: { human: 1, ai: 4 },
     stageCount: 6,
+    checklist: ['code_review', 'deploy'],
   },
   {
     id: 'daily-routine',
@@ -255,6 +258,7 @@ export const templates: TemplateSummary[] = [
     descriptionKey: 'templates.daily-routine.description',
     memberCount: { human: 1, ai: 1 },
     stageCount: 3,
+    checklist: ['schedule'],
   },
 ];
 

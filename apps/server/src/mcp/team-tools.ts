@@ -142,6 +142,13 @@ export class TeamToolsService implements TeamToolsHandler {
     return this.tools.operator.getOperatorDiagnostics(ctx, args);
   }
 
+  async getChecklist(ctx: ToolContext) {
+    return this.tools.operator.getChecklist(ctx);
+  }
+  async updateChecklist(ctx: ToolContext, args: Parameters<OperatorToolsHandler['updateChecklist']>[1]) {
+    return this.tools.operator.updateChecklist(ctx, args);
+  }
+
   async getProjectState(ctx: ToolContext, args: { taskKey?: string; messageId?: string }) {
     return this.tools.operator.getProjectState(ctx, args);
   }

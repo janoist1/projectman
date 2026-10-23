@@ -241,6 +241,20 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       await enter('requestStructuralReview', ctx, args);
       return { status: 'awaiting_approval', member: null, message_id: null, inbox_item_id: 'inb_fake' };
     },
+    async getChecklist(ctx) {
+      await enter('getChecklist', ctx, {});
+      return { checklist: null, templates: [{ id: 'small-team', checklist: ['code_review'] }] };
+    },
+    async updateChecklist(ctx, args) {
+      await enter('updateChecklist', ctx, args);
+      return {
+        checklist: {
+          baseTemplateId: null,
+          items: [],
+          progress: { settled: 0, total: 0, complete: true },
+        },
+      };
+    },
     async getOperatorKnowledge(ctx) {
       await enter('getOperatorKnowledge', ctx, {});
       return { schemaVersion: 1, revision: 0, agreement: null, principles: [], appliedProposalIds: [] };

@@ -26,6 +26,26 @@ export type StageKey =
 
 export type SpecialtyKey = 'frontend' | 'backend';
 
+/** The base startup checklist items, then the items the templates add (PM-977). */
+export type ChecklistItemKey =
+  | 'goal'
+  | 'code'
+  | 'providers'
+  | 'team'
+  | 'process'
+  | 'labels'
+  | 'clients'
+  | 'release'
+  | 'agreement'
+  | 'first_task'
+  | 'code_review'
+  | 'guests'
+  | 'feedback_marks'
+  | 'qa'
+  | 'client_test'
+  | 'deploy'
+  | 'schedule';
+
 /** Members a template hires under a display name of their own (not the role's name). */
 export type TemplateMemberKey = 'daily_worker';
 
@@ -134,19 +154,7 @@ export interface FixLimitItemText {
  */
 export interface TemplateLocale {
   checklist: {
-    items: Record<
-      | 'goal'
-      | 'code'
-      | 'providers'
-      | 'team'
-      | 'process'
-      | 'labels'
-      | 'clients'
-      | 'release'
-      | 'agreement'
-      | 'first_task',
-      { title: string; hint: string }
-    >;
+    items: Record<ChecklistItemKey, { title: string; hint: string }>;
   };
   structuralReview: { question: string; details: string; approve: string; reject: string };
   /** Primary language subtag (BCP 47), e.g. "hu". */

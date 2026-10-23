@@ -228,6 +228,7 @@ describe('REST API', () => {
           descriptionKey: 'templates.test.description',
           memberCount: { human: 1, ai: 5 },
           stageCount: 6,
+          checklist: [],
         },
       ]);
       const projects = await call<ProjectSummary[]>('GET', '/api/projects', cookie);

@@ -31,6 +31,7 @@ export {
   en,
   getLocale,
   hu,
+  type ChecklistItemKey,
   type ColumnKey,
   type RoleText,
   type SpecialtyKey,
@@ -69,5 +70,6 @@ export function summarizeTemplate(template: ProjectTemplate): TemplateSummary {
       ai: sample.team.members.filter((m) => m.kind === 'ai').length,
     },
     stageCount: sample.pipeline.stages.length,
+    checklist: template.checklist.map((item) => item.id),
   };
 }

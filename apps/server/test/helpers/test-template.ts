@@ -199,5 +199,6 @@ export const testTemplate: ProjectTemplate = {
   id: 'test',
   nameKey: 'templates.test.name',
   descriptionKey: 'templates.test.description',
+  checklist: [],
   build: (input) => ProjectConfig.parse(testConfigInput(input)),
 };

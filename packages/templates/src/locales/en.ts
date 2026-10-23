@@ -14,6 +14,16 @@ export const en: TemplateLocale = {
       release: { title: 'Release', hint: 'Agree on how changes reach users.' },
       agreement: { title: 'Working agreement', hint: 'Approve how the Operator works with you.' },
       first_task: { title: 'First task', hint: 'Create the first task.' },
+      code_review: {
+        title: 'Code review',
+        hint: 'Have a review stage that asks for the code review approval.',
+      },
+      guests: { title: 'Client guests', hint: 'Invite the people from the client side who follow the work.' },
+      feedback_marks: { title: 'Feedback marks', hint: 'Set up a surface where the client can leave marks.' },
+      qa: { title: 'Quality assurance', hint: 'Have a member who tests the acceptance criteria.' },
+      client_test: { title: 'Client test', hint: 'Agree on how the client tries out finished work.' },
+      deploy: { title: 'Deployment', hint: 'Agree on where and how a finished version is deployed.' },
+      schedule: { title: 'Schedule', hint: 'Set when and how often the daily work runs.' },
     },
   },
   webPush: {

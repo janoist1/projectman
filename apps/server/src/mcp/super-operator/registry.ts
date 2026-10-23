@@ -31,6 +31,8 @@ const PRIVATE_STATS =
  * A test checks that every shared tool is either bound or named here, and never both.
  */
 export const EXTERNAL_DENIED: Partial<Record<TeamToolName, string>> = {
+  get_checklist: OPERATOR,
+  update_checklist: OPERATOR,
   get_operator_preference: OPERATOR,
   get_operator_knowledge: OPERATOR,
   propose_operator_knowledge: OPERATOR,

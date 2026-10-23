@@ -1,6 +1,8 @@
 import {
   MemberHandle,
   BuiltInRoleId,
+  CHECKLIST_ITEM_STATES,
+  ChecklistCondition,
   CombineQuestionsRequest,
   OperatorOperation,
   OperatorPreferenceData,
@@ -146,6 +148,77 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       async run({ ctx, args, handler }) {
         return JSON.stringify(
           await handler.getOperatorDiagnostics(ctx, { taskKey: args.task_key, limit: args.limit }),
+        );
+      },
+    }),
+    defineTool({
+      name: 'get_checklist',
+      audience: { roles: ['operator', 'project_manager'] },
+      title: 'Read the project startup checklist',
+      readOnly: true,
+      description:
+        'Only the Operator or the project manager in their internal general session, never a guest. Needs no owner request. Returns the startup checklist (items with state, reason, condition and whether the condition holds now; progress; the base template) and, for each template, the item ids it would add. When there is no list yet, the answer says so; the Operator creates it with update_checklist op init.',
+      input: {},
+      async run({ ctx, handler }) {
+        const view = await handler.getChecklist(ctx);
+        return view.checklist
+          ? JSON.stringify(view)
+          : `There is no checklist for this project yet. Templates and the item ids they add: ${JSON.stringify(view.templates)}`;
+      },
+    }),
+    defineTool({
+      name: 'update_checklist',
+      audience: { roles: ['operator'] },
+      title: 'Change the project startup checklist',
+      readOnly: false,
+      description:
+        'Only the Operator in its internal general session, never a guest; it is your own tool, so it needs no owner request. One operation per call. init: create the base list for a project that has none. add: a new item (title, optional hint and condition); the server gives it a custom_<n> id. edit: item_id with a new title and/or hint. set_condition: item_id and condition (null takes it off); a done item can get only a condition that holds. set_state: item_id and state open, done or not_needed; not_needed always needs a reason, and done is refused while the item condition does not hold (checklist_condition_unmet). apply_template: template_id adds the template items the list does not have yet and sets the base template; it deletes and overwrites nothing. Nothing is deleted: to override the owner, apply another template or set items to not_needed with a reason. The system, not you, keeps the rule that a conditional item is done only while its condition holds.',
+      input: {
+        op: z.enum(['init', 'add', 'edit', 'set_condition', 'set_state', 'apply_template']),
+        item_id: z
+          .string()
+          .regex(/^[a-z][a-z0-9_]{0,39}$/)
+          .optional(),
+        title: z.string().trim().min(1).max(120).optional(),
+        hint: z.string().max(500).nullable().optional(),
+        condition: ChecklistCondition.nullable().optional(),
+        state: z.enum(CHECKLIST_ITEM_STATES).optional(),
+        reason: z.string().trim().min(1).max(500).optional(),
+        template_id: z.string().min(1).max(64).optional(),
+      },
+      check(args, issue) {
+        const need = (field: keyof typeof args, name: string) => {
+          if (args[field] === undefined) issue(name, `${name} is required for op ${args.op}.`);
+        };
+        if (args.op === 'add') need('title', 'title');
+        if (args.op === 'edit') {
+          need('item_id', 'item_id');
+          if (args.title === undefined && args.hint === undefined)
+            issue('title', 'edit needs a title and/or a hint.');
+        }
+        if (args.op === 'set_condition') {
+          need('item_id', 'item_id');
+          need('condition', 'condition');
+        }
+        if (args.op === 'set_state') {
+          need('item_id', 'item_id');
+          need('state', 'state');
+          if (args.state === 'not_needed') need('reason', 'reason');
+        }
+        if (args.op === 'apply_template') need('template_id', 'template_id');
+      },
+      async run({ ctx, args, handler }) {
+        return JSON.stringify(
+          await handler.updateChecklist(ctx, {
+            op: args.op,
+            ...(args.item_id !== undefined ? { itemId: args.item_id } : {}),
+            ...(args.title !== undefined ? { title: args.title } : {}),
+            ...(args.hint !== undefined ? { hint: args.hint } : {}),
+            ...(args.condition !== undefined ? { condition: args.condition } : {}),
+            ...(args.state !== undefined ? { state: args.state } : {}),
+            ...(args.reason !== undefined ? { reason: args.reason } : {}),
+            ...(args.template_id !== undefined ? { templateId: args.template_id } : {}),
+          }),
         );
       },
     }),

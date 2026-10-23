@@ -7,6 +7,7 @@ import { vi } from 'vitest';
 import { routes } from '@projectman/shared';
 import type { HumanAccess, ProjectConfig } from '@projectman/shared';
 import { buildApp } from '../../src/app';
+import { withoutOnboarding } from './onboarding';
 import type { AppModules, BuildAppOptions } from '../../src/app';
 import type { BoundaryOperationAdapter } from '../../src/contracts';
 import { createTemplateRegistry } from '../../src/core/base';
@@ -301,18 +302,20 @@ export async function setupOwner(app: FastifyInstance): Promise<string> {
 
 /** Creates project AR from the test template (workspace + one repo). */
 export async function createProject(h: HarnessBase, cookie: string): Promise<void> {
-  const res = await h.app.inject({
-    method: 'POST',
-    url: '/api/projects',
-    headers: { cookie },
-    payload: {
-      key: 'AR',
-      name: 'acme',
-      workspacePath: h.workspace,
-      templateId: 'test',
-      repos: [{ name: 'web', path: '.', github: 'acme/web' }],
-    },
-  });
+  const res = await withoutOnboarding(h.app.projectman.domain, () =>
+    h.app.inject({
+      method: 'POST',
+      url: '/api/projects',
+      headers: { cookie },
+      payload: {
+        key: 'AR',
+        name: 'acme',
+        workspacePath: h.workspace,
+        templateId: 'test',
+        repos: [{ name: 'web', path: '.', github: 'acme/web' }],
+      },
+    }),
+  );
   if (res.statusCode !== 201) throw new Error(`project creation failed: ${res.statusCode} ${res.body}`);
 }
 

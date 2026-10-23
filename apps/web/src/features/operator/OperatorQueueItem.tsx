@@ -19,6 +19,7 @@ const KIND_ICONS: Record<MemberQueueItemKind, IconName> = {
   screening: 'filter',
   signal: 'bell',
   start: 'play',
+  checklist: 'taskList',
 };
 
 /** One row of the queue: the kind's icon, the title and who sent it, for which card, and how long ago. */

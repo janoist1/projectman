@@ -43,6 +43,7 @@ import { readEntries, seedCustomizationRepository, writeEntries } from './custom
 import type { SeedEntry } from './customization-seed';
 import { openMigratedMemoryDatabase, seedDatabaseFile } from './database-seed';
 import { testTemplate } from './test-template';
+import { withoutOnboarding } from './onboarding';
 
 export const OWNER = { name: 'Owner', email: 'owner@example.com' };
 
@@ -109,6 +110,8 @@ export async function createDomainHarness(
      * (gone by then): use it for tests that do not read the workspace through the configuration.
      */
     snapshot?: HarnessSnapshot;
+    /** Exercise project creation's automatic Operator greeting; other tests start after onboarding. */
+    onboarding?: boolean;
     /** Wraps the real attachment storage (fault injection); default: the storage as it is. */
     attachmentStorage?: (inner: AttachmentStorage) => AttachmentStorage;
     /**
@@ -346,10 +349,13 @@ export async function createDomainHarness(
   });
   await domain.start();
   if (!restarted && !snapshot) {
-    await domain.projects.create(
-      { key: 'AR', name: 'acme', workspacePath: workspace, templateId: 'test' },
-      OWNER,
-    );
+    const create = () =>
+      domain.projects.create(
+        { key: 'AR', name: 'acme', workspacePath: workspace, templateId: 'test' },
+        OWNER,
+      );
+    if (opts.onboarding) await create();
+    else await withoutOnboarding(domain, create);
   }
   if (opts.adjust && !restarted && !snapshot) {
     await domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (draft) => {

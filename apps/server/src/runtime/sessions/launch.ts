@@ -575,9 +575,11 @@ export class SessionLauncher {
         this.ctx.logger.warn({ err, member: member.handle }, 'could not read operator preference');
         return undefined;
       });
+    const checklist = isOperator(acting) ? this.ctx.repos.checklists.get(projectKey) : null;
     const pack = this.deps.contextBuilder.build({
       ...(task && this.host.fullTests()?.runsFor(task, config) ? { serverFullTest: true } : {}),
       project: config,
+      ...(checklist ? { checklist } : {}),
       // The settings that apply to this session: the system prompt tells the agent who answers.
       member: acting,
       workItem,

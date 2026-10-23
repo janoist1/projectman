@@ -235,6 +235,27 @@ describe('merge signals', () => {
     expect(open('merge_waiting')).toEqual([]);
   });
 
+  it('a card with an open merge request is not idle, one without still is (PM-578)', async () => {
+    await setup();
+    const idle = await place({ stageId: 'code_review', status: 'waiting' });
+    const at = now.toISOString();
+    const requests: (Pick<MergeRecord, 'state'> &
+      Partial<Pick<MergeRecord, 'startedBy' | 'startedAt' | 'failure' | 'block'>>)[] = [
+      { state: 'requested' },
+      { state: 'queued', startedBy: 'dev-1', startedAt: at },
+      { state: 'running', startedBy: 'dev-1', startedAt: at },
+      { state: 'failed', failure: { reason: 'conflict', at, base: sha(1) } },
+      { state: 'blocked', block: { reason: 'push_rejected', message: 'rejected', at } },
+    ];
+    for (const request of requests) {
+      const card = await place({ stageId: 'code_review', status: 'waiting' });
+      h.repos.taskMerges.save(merge({ ...request, taskKey: card.key }));
+    }
+    later(OPERATOR_IDLE_MINUTES * 2);
+    await sweep();
+    expect(open('idle').map((s) => s.taskKey)).toEqual([idle.key]);
+  });
+
   it('merge_blocked rises at once for failed and blocked, not for fixing, and closes when the request moves on', async () => {
     await setup();
     const failed = await place({ stageId: 'code_review', status: 'waiting' });

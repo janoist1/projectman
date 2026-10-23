@@ -172,7 +172,7 @@ import { InvitationService } from './core/members';
 import { MemberProfiles, MemberService } from './core/members';
 import { MessageService, Messaging, RelationNotices } from './core/messages';
 import { MemberQueue, OperatorQueueFinisher } from './core/member-queue';
-import { MessageDelivery } from './runtime/delivery';
+import { MessageDelivery, MessageRouter } from './runtime/delivery';
 import {
   MemberQueueWorker,
   decisionLane,
@@ -910,6 +910,15 @@ export function createDomain(opts: DomainOptions) {
     inbox,
     timeline,
   });
+  const messageRouter = new MessageRouter({
+    ctx,
+    projects,
+    tasks,
+    sessions,
+    delivery,
+    refinement,
+    engines,
+  });
   const messaging = createMessaging({
     ctx,
     projects,
@@ -917,8 +926,7 @@ export function createDomain(opts: DomainOptions) {
     sessions,
     messages,
     delivery,
-    refinement,
-    engines,
+    routing: messageRouter,
     messageAttachments,
   });
   const emailChannel = createEmailChannelService({
@@ -956,7 +964,7 @@ export function createDomain(opts: DomainOptions) {
   sessions.useProjectManagerStarts((projectKey, handle, taskKey, cause) =>
     messaging.projectManagerStart(projectKey, handle, taskKey, cause),
   );
-  delivery.useMessageHolds((session) => messaging.holdsMessagesOf(session));
+  delivery.useMessageHolds((session) => messageRouter.holdsMessagesOf(session));
   const sessionCloser = new SessionCloser({
     ctx,
     engines,
@@ -964,7 +972,7 @@ export function createDomain(opts: DomainOptions) {
     tasks,
     sessions,
     refinement,
-    messaging,
+    messageRouter,
     delivery,
   });
   const boundary = new BoundaryService({
@@ -1049,12 +1057,13 @@ export function createDomain(opts: DomainOptions) {
     inbox,
     timeline,
     messaging,
+    messageRouter,
     admission,
     delivery,
     starts: taskStarts,
     queue: memberQueue,
   });
-  messaging.registerCardHold('fix_limit', { holds: (task, config) => fixLimit.heldFor(task, config) });
+  messageRouter.registerCardHold('fix_limit', { holds: (task, config) => fixLimit.heldFor(task, config) });
   taskStarts.useFixLimit(fixLimit);
   handOver.useFixLimit(fixLimit);
   startRound.useFixLimit(fixLimit);
@@ -1125,7 +1134,7 @@ export function createDomain(opts: DomainOptions) {
       },
     }),
   );
-  memberQueueDriver.register(messageLane({ ctx, projects, tasks, messages, messaging, delivery }));
+  memberQueueDriver.register(messageLane({ ctx, projects, tasks, messages, messageRouter, delivery }));
   memberQueueDriver.register(
     startLane({
       ctx,
@@ -1152,7 +1161,7 @@ export function createDomain(opts: DomainOptions) {
       );
     });
   });
-  messaging.registerWaker({
+  messageRouter.registerWaker({
     wake: (projectKey, handle, workItem) => memberQueueDriver.wake(projectKey, handle, workItem),
     // A hold lifted by the messaging (a release, a resumed session) is no turn boundary of its own: the lane
     // delivers to the live session as well.
@@ -1199,6 +1208,7 @@ export function createDomain(opts: DomainOptions) {
     runner: runnerModule.runner,
     delivery,
     messaging,
+    messageRouter,
     timeline,
     fixLimit,
     schedules,
@@ -1241,7 +1251,10 @@ export function createDomain(opts: DomainOptions) {
     projects,
     tasks,
     sessions,
-    messaging,
+    messaging: {
+      send: (...args) => messaging.send(...args),
+      releaseWaiting: (...args) => messageRouter.releaseWaiting(...args),
+    },
     timeline,
     engines,
     released: () => retryDeferredStarts(),
@@ -1263,7 +1276,7 @@ export function createDomain(opts: DomainOptions) {
       opts.logger.warn({ err, projectKey: change.projectKey }, 'could not bring the full tests in line');
     });
   });
-  messaging.registerCardHold('full_test', fullTests);
+  messageRouter.registerCardHold('full_test', fullTests);
   const merges = new Merges({
     work: releaseWork,
     cards: mergeCards,
@@ -1587,7 +1600,7 @@ export function createDomain(opts: DomainOptions) {
   events.on('inbox_resolved', (item) => {
     const payload = operatorKnowledgeApprovalOf(item);
     if (payload && item.resolution?.optionId === 'approve' && payload.operations.length)
-      return messaging.wakeWaiting({
+      return messageRouter.wakeWaiting({
         projectKey: item.projectKey,
         member: payload.proposedBy,
         workItem: { type: 'general' },
@@ -1837,7 +1850,7 @@ export function createDomain(opts: DomainOptions) {
     engines,
     runner: runnerModule.runner,
     deferred: deferredStarts,
-    messaging,
+    messageRouter,
     members,
     tasks,
     retry: retryDeferredStarts,
@@ -1948,7 +1961,7 @@ export function createDomain(opts: DomainOptions) {
     if (!isOpenTask(task) || isTheme(task)) return;
     background.run(
       () =>
-        messaging.wakeWaiting({
+        messageRouter.wakeWaiting({
           projectKey: task.projectKey,
           member: assignee,
           workItem: routeFor(task.key),
@@ -2271,11 +2284,11 @@ export function createDomain(opts: DomainOptions) {
   });
   // The messages that waited for their turn on a card reach their members once it is out of refinement.
   events.on('task_labels_changed', ({ task, previousLabels }) => {
-    refine(() => messaging.releaseHeld(task.projectKey, task.key, { ...task, labels: previousLabels }));
+    refine(() => messageRouter.releaseHeld(task.projectKey, task.key, { ...task, labels: previousLabels }));
   });
   events.on('task_stage_changed', (change) => {
     refine(() =>
-      messaging.releaseHeld(change.task.projectKey, change.task.key, {
+      messageRouter.releaseHeld(change.task.projectKey, change.task.key, {
         ...change.task,
         stageId: change.from,
       }),
@@ -2372,7 +2385,7 @@ export function createDomain(opts: DomainOptions) {
     waitingStarts: deferredStarts
       .list()
       .filter((entry) => entry.waiting.reason === 'engine_offline' && entry.waiting.engine === id).length,
-    waitingMessages: messaging.waitingForEngine(id),
+    waitingMessages: messageRouter.waitingForEngine(id),
   });
 
   return {
@@ -2417,6 +2430,7 @@ export function createDomain(opts: DomainOptions) {
     messages,
     memberQueue,
     messaging,
+    messageRouter,
     sessionCloser,
     operatorActions,
     operatorApprovals,
@@ -2552,7 +2566,7 @@ export function createDomain(opts: DomainOptions) {
           )
             background.run(
               () =>
-                messaging.wakeWaiting({
+                messageRouter.wakeWaiting({
                   projectKey: project.key,
                   member: operator.handle,
                   workItem: { type: 'general' },

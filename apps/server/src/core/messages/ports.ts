@@ -1,5 +1,4 @@
 import type {
-  AgentProvider,
   ProjectConfig,
   Session,
   SessionStartCause,
@@ -7,15 +6,19 @@ import type {
   TeamMessage,
   WorkItemRef,
 } from '@projectman/shared';
-import type { CardWorker, EnsureSessionOptions, EnsureSessionResult, SourceHead } from '../../contracts';
+import type {
+  EnsureSessionOptions,
+  EnsureSessionResult,
+  SentMessageRecipient,
+  SourceHead,
+} from '../../contracts';
 
-/** The sessions a message is sent to, woken or held for: what `Messaging` and `RelationNotices` read and start. */
+/** The session operations used by `Messaging` and `RelationNotices`. */
 export interface MessageSessions {
   get(projectKey: string, sessionId: string): Session;
   find(sessionId: string): Session | null;
   list(projectKey: string, filter?: { member?: string; taskKey?: string }): Session[];
   isRunning(sessionId: string): boolean;
-  findRunning(projectKey: string, member: string, workItem: WorkItemRef): Session | null;
   isPaused(session: Pick<Session, 'id' | 'projectKey'>): boolean;
   ensureSession(
     projectKey: string,
@@ -33,13 +36,10 @@ export interface MessageSessions {
   requestReviewRound(projectKey: string, taskKey: string, member?: string): void;
   sourceHead(config: ProjectConfig, task: Task, opts?: { strict?: boolean }): Promise<SourceHead | null>;
   cardWorkers(projectKey: string, task: Task, config: ProjectConfig): Session[];
-  waitingPermissionFor(config: ProjectConfig, session: Session): CardWorker['waitingPermission'];
-  reviewRoundDue(session: Session): boolean;
   permissionRestartDue(session: Session): boolean;
-  assertProviderCooldown(provider: AgentProvider): void;
 }
 
-/** How a message reaches a session: typed in, held until a turn, a pause or an input, or started with it. */
+/** Session writes and notices that remain in `Messaging`. */
 export interface MessageDeliveryPort {
   deliver(session: Session, message: TeamMessage, text?: string): void;
   deliverWithFirstInput(
@@ -48,18 +48,10 @@ export interface MessageDeliveryPort {
     firstInput: Promise<boolean>,
     session?: Session,
   ): void;
-  startAndDeliver(
-    projectKey: string,
-    handle: string,
-    workItem: WorkItemRef,
-    start: (messages: string[]) => Promise<EnsureSessionResult>,
-  ): Promise<void>;
   holdAsWritten(session: Session, message: TeamMessage): void;
   holdForPause(session: Session, message: TeamMessage): void;
-  deliverWaiting(session: Session): void;
   notice(session: Session, from: string, text: string, taskKey: string | null): Promise<boolean>;
   noticeOrHold(session: Session, from: string, text: string, taskKey: string | null): void;
-  holdUntilInput(session: Session, message: TeamMessage): void;
 }
 
 /** Whose turn it is on a card that is being refined. */
@@ -80,4 +72,52 @@ interface MessageRequestInput {
 /** The owner's requests to the Operator that a message or an answer opens (PM-463). */
 export interface MessageRequests {
   open(input: MessageRequestInput): void;
+}
+
+export type MessageHoldName = 'handoff' | 'refinement_turn' | 'fix_limit' | 'full_test' | 'engine';
+
+export interface MessagePlace {
+  readonly workItem: WorkItemRef;
+  readonly running: Session | null;
+}
+
+export interface MessagePlacement extends MessagePlace {
+  readonly handle: string;
+  readonly hold: MessageHoldName | null;
+}
+
+export type RecipientDelivery = Omit<SentMessageRecipient, 'handle'>;
+
+/** Runtime placement, holds and delivery of recorded team messages. */
+export interface MessageRouting {
+  /** Where an AI recipient gets a message meant for `workItem`, and the running session there. */
+  place(
+    projectKey: string,
+    config: ProjectConfig,
+    handle: string,
+    workItem: WorkItemRef,
+    ownCard?: boolean,
+    from?: string,
+  ): MessagePlace;
+  /** Why a message to AI member `handle` is held back when it is sent, in today's order of checks. */
+  holdOf(
+    config: ProjectConfig,
+    task: Task | null,
+    from: string,
+    handle: string,
+    opts: { readonly duringRefinement?: boolean },
+  ): MessageHoldName | null;
+  /**
+   * Types the recorded message in, holds it or wakes each placed recipient. Synchronous unless
+   * `awaitWake` is set and a waker is registered; then it resolves once each wake-up result is known
+   * (at most WAKE_REPLY_WAIT_MS).
+   */
+  deliver(input: {
+    config: ProjectConfig;
+    projectKey: string;
+    message: TeamMessage;
+    placements: readonly MessagePlacement[];
+    untilInput: boolean;
+    awaitWake: boolean;
+  }): ReadonlyMap<string, RecipientDelivery> | Promise<ReadonlyMap<string, RecipientDelivery>>;
 }

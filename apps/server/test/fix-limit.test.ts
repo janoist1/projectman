@@ -453,7 +453,7 @@ describe('fix round limit', () => {
     it('logs a rejected message release after continuing without an unhandled rejection', async () => {
       await held();
       const error = new Error('Message release failed');
-      vi.spyOn(h.domain.messaging, 'releaseWaiting').mockRejectedValueOnce(error);
+      vi.spyOn(h.domain.messageRouter, 'releaseWaiting').mockRejectedValueOnce(error);
       await tool('lead', 'continue');
       await vi.waitFor(() =>
         expect(h.log.warnings).toContainEqual([

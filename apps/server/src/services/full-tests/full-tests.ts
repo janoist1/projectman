@@ -28,11 +28,10 @@ import type {
 import type { FullTestRunRecord, ReviewPinRecord } from '../../db';
 import type { DomainContext } from '../../core/base';
 import { isoNow } from '../../core/base';
-import type { Messaging } from '../../core/messages';
 import type { ProjectService } from '../../core/projects';
 import { Effect, Exit, Scope } from 'effect';
 import { runFork, runPromise } from '../../kernel';
-import type { FullTestSessions, FullTestRunSandbox } from './ports';
+import type { FullTestMessages, FullTestSessions, FullTestRunSandbox } from './ports';
 import { makeFullTestQueue } from './queue';
 import type { FullTestQueueEffects } from './queue';
 import { stopStageReviewers, workStageBefore } from '../../core/projects';
@@ -101,7 +100,7 @@ interface FullTestRunsDeps {
   projects: ProjectService;
   tasks: TaskService;
   sessions: FullTestSessions;
-  messaging: Messaging;
+  messaging: FullTestMessages;
   timeline: TimelineService;
   /** The engines (PM-311): a card's full test runs on its own engine's executor, with its places. */
   engines: EngineDirectory;
@@ -127,7 +126,7 @@ export class FullTestRuns {
   private readonly projects: ProjectService;
   private readonly tasks: TaskService;
   private readonly sessions: FullTestSessions;
-  private readonly messaging: Messaging;
+  private readonly messaging: FullTestMessages;
   private readonly timeline: TimelineService;
   private readonly engines: EngineDirectory;
   private readonly released: () => void;

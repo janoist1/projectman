@@ -29,7 +29,7 @@ import type { DomainContext } from '../../core/base';
 import { conflict, forbidden } from '../../kernel';
 import type { InboxService } from '../../core/inbox';
 import type { MemberService } from '../../core/members';
-import type { Messaging } from '../../core/messages';
+import type { MessageRouter } from '../delivery';
 import type { ProjectService } from '../../core/projects';
 import type { TaskService } from '../../core/tasks';
 import { waitForStatus } from './provider-status-wait';
@@ -46,7 +46,7 @@ interface OutageDependencies {
   engines: EngineDirectory;
   runner: SessionRunner;
   deferred: DeferredStarts;
-  messaging: Messaging;
+  messageRouter: Pick<MessageRouter, 'releaseForEngine' | 'pendingTaskKeys'>;
   members: MemberService;
   tasks: TaskService;
   retry: () => void;
@@ -124,7 +124,7 @@ export class WorkOutages {
         // Reconnect releases work even when publishing an outage update fails.
         if (online && this.deps.engines.get(id) && !ended) {
           try {
-            await this.deps.messaging.releaseForEngine(id);
+            await this.deps.messageRouter.releaseForEngine(id);
           } finally {
             this.deps.retry();
           }
@@ -211,7 +211,7 @@ export class WorkOutages {
     // Card-by-card work awaits between cards, so the keys live for a short window instead of one
     // pass; an outage mark a moment late is harmless.
     if (cached && now >= cached.readAt && now - cached.readAt < PENDING_KEYS_TTL_MS) return cached.keys;
-    const keys = new Set(this.deps.messaging.pendingTaskKeys(projectKey, handle));
+    const keys = new Set(this.deps.messageRouter.pendingTaskKeys(projectKey, handle));
     this.pendingKeys.set(key, { readAt: now, keys });
     return keys;
   }
@@ -547,7 +547,7 @@ export class WorkOutages {
         }
         if (payload.outage.kind === 'engine')
           for (const handle of payload.members)
-            for (const taskKey of this.deps.messaging.pendingTaskKeys(key, handle)) keys.add(taskKey);
+            for (const taskKey of this.deps.messageRouter.pendingTaskKeys(key, handle)) keys.add(taskKey);
         payload.tasks = [...keys].sort((a, b) => taskSeq(a) - taskSeq(b));
       }
       const open = this.deps.inbox.list(key, { state: 'open', kind: 'alert' }).flatMap((item) => {
@@ -647,7 +647,7 @@ export class WorkOutages {
         )
       )
         this.since.delete(id);
-    for (const engineId of recoveredEngines) await this.deps.messaging.releaseForEngine(engineId);
+    for (const engineId of recoveredEngines) await this.deps.messageRouter.releaseForEngine(engineId);
     if (ended) this.deps.retry();
     return ended;
   }

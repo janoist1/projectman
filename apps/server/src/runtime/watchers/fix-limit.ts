@@ -45,7 +45,7 @@ import { conflict, forbidden, invalid } from '../../kernel';
 import type { InboxService } from '../../core/inbox';
 import type { MemberQueue } from '../../core/member-queue';
 import type { Messaging } from '../../core/messages';
-import type { MessageDelivery } from '../delivery';
+import type { MessageDelivery, MessageRouter } from '../delivery';
 import type { ProjectService } from '../../core/projects';
 import type { SessionOrchestrator } from '../sessions';
 import type { TaskService } from '../../core/tasks';
@@ -84,7 +84,8 @@ export class FixLimitWatch {
   private readonly sessions: SessionOrchestrator;
   private readonly inbox: InboxService;
   private readonly timeline: TimelineService;
-  private readonly messaging: Pick<Messaging, 'send' | 'releaseWaiting'>;
+  private readonly messaging: Pick<Messaging, 'send'>;
+  private readonly messageRouter: Pick<MessageRouter, 'releaseWaiting'>;
   private readonly admission: Admission;
   private readonly delivery: MessageDelivery;
   private readonly starts: Pick<TaskStarts, 'start'>;
@@ -99,7 +100,8 @@ export class FixLimitWatch {
     sessions: SessionOrchestrator;
     inbox: InboxService;
     timeline: TimelineService;
-    messaging: Pick<Messaging, 'send' | 'releaseWaiting'>;
+    messaging: Pick<Messaging, 'send'>;
+    messageRouter: Pick<MessageRouter, 'releaseWaiting'>;
     admission: Admission;
     delivery: MessageDelivery;
     starts: Pick<TaskStarts, 'start'>;
@@ -112,6 +114,7 @@ export class FixLimitWatch {
     this.inbox = deps.inbox;
     this.timeline = deps.timeline;
     this.messaging = deps.messaging;
+    this.messageRouter = deps.messageRouter;
     this.admission = deps.admission;
     this.delivery = deps.delivery;
     this.starts = deps.starts;
@@ -262,7 +265,7 @@ export class FixLimitWatch {
   /** The messages that waited on a card whose hold ended reach their assignee. */
   releaseMessages(task: Task): void {
     if (task.assignee)
-      void this.messaging
+      void this.messageRouter
         .releaseWaiting(task.projectKey, task.key, task.assignee)
         .catch((err: unknown) =>
           this.ctx.logger.warn(

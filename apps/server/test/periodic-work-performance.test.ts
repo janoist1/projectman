@@ -340,7 +340,7 @@ function paths(h: DomainHarness) {
     for (const project of PROJECTS)
       for (const handle of HANDLES) count += h.repos.messages.pending(project, handle).length;
     // This is the engine settings/outage count path, separately from message hydration.
-    const engineCount = h.domain.messaging.waitingForEngine(LOCAL_ENGINE_ID);
+    const engineCount = h.domain.messageRouter.waitingForEngine(LOCAL_ENGINE_ID);
     return { count, engineCount };
   };
   const thirty = async () => {

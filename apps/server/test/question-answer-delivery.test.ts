@@ -78,7 +78,7 @@ describe('question answer delivery (PM-560)', () => {
       await gate;
       await check(request);
     });
-    h.domain.messaging.registerWaker(
+    h.domain.messageRouter.registerWaker(
       {
         wake: (projectKey, handle, workItem) => h.domain.memberQueueDriver.wake(projectKey, handle, workItem),
         ensure: (projectKey, handle) => h.domain.memberQueueDriver.ensure(projectKey, handle),

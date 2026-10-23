@@ -177,8 +177,8 @@ describe('closing finished and idle sessions', () => {
       const dev = await setup();
       h.runner.setState(dev.id, 'idle');
       await waitingMessage(dev);
-      vi.spyOn(h.domain.messaging, 'holdsMessagesOf').mockResolvedValue(true);
-      vi.spyOn(h.domain.messaging, 'holdNameOf').mockReturnValue('fix_limit');
+      vi.spyOn(h.domain.messageRouter, 'holdsMessagesOf').mockResolvedValue(true);
+      vi.spyOn(h.domain.messageRouter, 'holdNameOf').mockReturnValue('fix_limit');
       await handOver();
       await vi.waitFor(() => expect(h.runner.isRunning(dev.id)).toBe(false));
       await flush();

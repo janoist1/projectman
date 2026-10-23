@@ -159,7 +159,7 @@ describe('same-role card workers before sending', () => {
       noWake: 'no_card_role',
     });
     h.domain.tasks.assign('AR', 'AR-1', 'dev-2', OWNER_ACTOR);
-    h.domain.messaging.registerCardHold('fix_limit', { holds: () => true });
+    h.domain.messageRouter.registerCardHold('fix_limit', { holds: () => true });
     expect((await send(['dev-2'], { actor: aiActor('cr') }, 'cr')).recipients[0]).toMatchObject({
       delivery: 'held',
       hold: 'fix_limit',

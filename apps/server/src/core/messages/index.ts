@@ -9,3 +9,11 @@ export {
   staleReasonFor,
   senderResultLabelFor,
 } from './staleness';
+export type {
+  MessageHoldName,
+  MessagePlace,
+  MessagePlacement,
+  MessageRefinement,
+  MessageRouting,
+  RecipientDelivery,
+} from './ports';

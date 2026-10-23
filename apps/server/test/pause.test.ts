@@ -386,7 +386,7 @@ describe('pause of the team', () => {
     it('stores the nudge and starts nothing when the card holds the member’s messages back', async () => {
       const session = await cutAndGone('before_tool');
       exit(session.id);
-      vi.spyOn(h.domain.messaging, 'holdsMessagesOf').mockResolvedValue(true);
+      vi.spyOn(h.domain.messageRouter, 'holdsMessagesOf').mockResolvedValue(true);
       vi.spyOn(h.domain.messaging, 'send');
       await h.domain.pauses.resume(PROJECT, BY);
       expect(h.runner.started).toHaveLength(1);

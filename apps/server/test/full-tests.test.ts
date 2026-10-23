@@ -178,7 +178,7 @@ describe('the full test before review', () => {
     });
     expect(sent.recipients).toEqual([{ handle: 'cr', delivery: 'held', hold: 'full_test' }]);
     h.runner.setState(session.id, 'idle');
-    await vi.waitFor(async () => expect(await h.domain.messaging.holdsMessagesOf(session)).toBe(true));
+    await vi.waitFor(async () => expect(await h.domain.messageRouter.holdsMessagesOf(session)).toBe(true));
     // Give the idle flush time to run; receipt and full text remain waiting.
     await new Promise((resolve) => setTimeout(resolve, 25));
     expect(
@@ -201,7 +201,7 @@ describe('the full test before review', () => {
     await handOver();
     await vi.waitFor(() => expect(executor.specs).toHaveLength(1));
     const error = new Error('Message release failed');
-    vi.spyOn(h.domain.messaging, 'releaseWaiting').mockRejectedValueOnce(error);
+    vi.spyOn(h.domain.messageRouter, 'releaseWaiting').mockRejectedValueOnce(error);
     executor.finish(passed);
     await vi.waitFor(() =>
       expect(h.log.warnings).toContainEqual([

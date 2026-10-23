@@ -10,11 +10,11 @@ import {
 } from '@projectman/shared';
 import type { StoredMemberQueueItem } from '../../db';
 import type { DomainContext } from '../../core/base';
-import type { MessageService, Messaging } from '../../core/messages';
+import type { MessageService } from '../../core/messages';
 import { wakeFactsFor, wakesFor } from '../../core/messages';
 import type { ProjectService } from '../../core/projects';
 import type { TaskService } from '../../core/tasks';
-import type { MessageDelivery } from '../delivery';
+import type { MessageDelivery, MessageRouter } from '../delivery';
 import type { SessionStartCause } from '../sessions';
 import type { MemberQueueLane } from './lane';
 
@@ -27,7 +27,7 @@ interface MessageLaneDeps {
   projects: Pick<ProjectService, 'cachedConfig'>;
   tasks: Pick<TaskService, 'find'>;
   messages: Pick<MessageService, 'recordAnswerDelivery' | 'rerouteRecipient'>;
-  messaging: Pick<Messaging, 'holdNameOf'>;
+  messageRouter: Pick<MessageRouter, 'holdNameOf'>;
   delivery: Pick<MessageDelivery, 'deliverWaiting' | 'startAndDeliver'>;
 }
 
@@ -97,7 +97,7 @@ export function messageLane(deps: MessageLaneDeps): MemberQueueLane {
       const config = deps.projects.cachedConfig(item.projectKey);
       if (!message || !config) return null;
       const task = item.taskKey ? deps.tasks.find(item.projectKey, item.taskKey) : null;
-      const held = deps.messaging.holdNameOf(config, task, message.from, item.member);
+      const held = deps.messageRouter.holdNameOf(config, task, message.from, item.member);
       // The answer to a member's own question is never held back by the refinement line.
       const answers = message.origin?.kind === 'answer' || message.origin?.kind === 'question_forward';
       const name = held === 'refinement_turn' && answers ? null : held;

@@ -77,7 +77,7 @@ describe('work outage watch', () => {
       engines: directory,
       runner: h.runner,
       deferred,
-      messaging: h.domain.messaging,
+      messageRouter: h.domain.messageRouter,
       members: h.domain.members,
       tasks: h.domain.tasks,
       retry,
@@ -245,7 +245,7 @@ describe('work outage watch', () => {
     });
     online = true;
     probe.mockImplementation(async (provider) => status(provider, null));
-    const release = vi.spyOn(h.domain.messaging, 'releaseForEngine');
+    const release = vi.spyOn(h.domain.messageRouter, 'releaseForEngine');
     await watch.recheck({ kind: 'engine', engineId: remote });
     expect(alerts()[0]).toMatchObject({ state: 'resolved', resolution: { rule: 'outage_ended' } });
     expect(release).toHaveBeenCalledWith(remote);
@@ -280,7 +280,7 @@ describe('work outage watch', () => {
       engines: directory,
       runner: h.runner,
       deferred,
-      messaging: h.domain.messaging,
+      messageRouter: h.domain.messageRouter,
       members: h.domain.members,
       tasks: h.domain.tasks,
       retry,
@@ -295,7 +295,7 @@ describe('work outage watch', () => {
     online = false;
     await watch.check();
     online = true;
-    const release = vi.spyOn(h.domain.messaging, 'releaseForEngine').mockResolvedValue(undefined);
+    const release = vi.spyOn(h.domain.messageRouter, 'releaseForEngine').mockResolvedValue(undefined);
     vi.spyOn(h.domain.members, 'publishMembers').mockRejectedValueOnce(new Error('Publication failed'));
     await expect(watch.engineChanged(remote, true)).rejects.toThrow('Publication failed');
     expect(release).toHaveBeenCalledWith(remote);
@@ -336,7 +336,7 @@ describe('work outage watch', () => {
       taskKey: task.key,
       text: 'Please read this task',
     });
-    expect(h.domain.messaging.pendingTaskKeys('AR', 'dev-1')).toEqual([task.key]);
+    expect(h.domain.messageRouter.pendingTaskKeys('AR', 'dev-1')).toEqual([task.key]);
     await watch.check();
     expect(alerts()[0]!.payload.tasks).toEqual([task.key]);
     expect(watch.forTask(task)).toMatchObject({ kind: 'engine', engine: { id: remote } });
@@ -367,7 +367,7 @@ describe('work outage watch', () => {
 
     it('reads each outage member once per window, across awaited card work', async () => {
       const tasks = await waitingCards();
-      const read = vi.spyOn(h.domain.messaging, 'pendingTaskKeys');
+      const read = vi.spyOn(h.domain.messageRouter, 'pendingTaskKeys');
       expect(await markAll(tasks)).toEqual([true, true, false, false, false]);
       const members = read.mock.calls.map(([project, handle]) => `${project}:${handle}`);
       expect(members.length).toBeGreaterThan(0);
@@ -384,7 +384,7 @@ describe('work outage watch', () => {
         await h.domain.tasks.create('AR', { title: 'Second' }, OWNER_ACTOR),
       ];
       await watch.check();
-      const read = vi.spyOn(h.domain.messaging, 'pendingTaskKeys');
+      const read = vi.spyOn(h.domain.messageRouter, 'pendingTaskKeys');
       expect(await markAll([first!, second!])).toEqual([false, false]);
       const reads = read.mock.calls.length;
       const members = read.mock.calls.map(([project, handle]) => `${project}:${handle}`);
@@ -576,7 +576,7 @@ describe('work outage watch', () => {
       engines: directory,
       runner: h.runner,
       deferred,
-      messaging: h.domain.messaging,
+      messageRouter: h.domain.messageRouter,
       members: h.domain.members,
       tasks: h.domain.tasks,
       retry,

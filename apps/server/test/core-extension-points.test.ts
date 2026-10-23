@@ -147,7 +147,7 @@ describe('inbox and messaging extension points', () => {
   });
 
   it('holds a reviewer and replaces the full-test hold on re-registration', async () => {
-    h.domain.messaging.registerCardHold('full_test', { holds: () => true });
+    h.domain.messageRouter.registerCardHold('full_test', { holds: () => true });
     const held = await h.domain.messaging.sendReporting(
       'AR',
       'dev-2',
@@ -160,7 +160,7 @@ describe('inbox and messaging extension points', () => {
     );
     expect(held.recipients[0]?.hold).toBe('full_test');
 
-    h.domain.messaging.registerCardHold('full_test', { holds: () => false });
+    h.domain.messageRouter.registerCardHold('full_test', { holds: () => false });
     const released = await h.domain.messaging.sendReporting(
       'AR',
       'dev-2',

@@ -47,7 +47,7 @@ import { createMessaging } from './core/messages';
 import { createSuperAuditService, createTimelineService } from './core/timeline';
 import { createMemberService } from './core/members';
 import { createTaskService } from './core/tasks';
-import { createProjectService } from './core/projects';
+import { createProjectService, ChecklistService } from './core/projects';
 import {
   canManageInstancePause,
   HISTORY_DOC_PATHS,
@@ -743,6 +743,7 @@ export function createDomain(opts: DomainOptions) {
     handoff: (input) => handoffs.begin(input),
   });
   const projectFocus = new ProjectFocusService({ ctx, projects, tasks, timeline });
+  const checklist = new ChecklistService({ ctx, projects, tasks, knowledge: opts.operatorKnowledge });
   const attachments = new AttachmentService({
     ctx,
     projects,
@@ -2400,6 +2401,7 @@ export function createDomain(opts: DomainOptions) {
 
   return {
     engineCounters,
+    checklist,
     webPush,
     superOperator,
     superHandoffs,

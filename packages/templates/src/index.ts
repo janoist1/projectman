@@ -1,4 +1,5 @@
 import type { TemplateSummary } from '@projectman/shared';
+export { BASE_CHECKLIST } from './checklist';
 import { dailyRoutine } from './templates/daily-routine';
 import { internalTool } from './templates/internal-tool';
 import { smallTeam } from './templates/small-team';

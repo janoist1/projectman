@@ -133,6 +133,21 @@ export interface FixLimitItemText {
  * app (`TemplateSummary.nameKey` / `descriptionKey`).
  */
 export interface TemplateLocale {
+  checklist: {
+    items: Record<
+      | 'goal'
+      | 'code'
+      | 'providers'
+      | 'team'
+      | 'process'
+      | 'labels'
+      | 'clients'
+      | 'release'
+      | 'agreement'
+      | 'first_task',
+      { title: string; hint: string }
+    >;
+  };
   structuralReview: { question: string; details: string; approve: string; reject: string };
   /** Primary language subtag (BCP 47), e.g. "hu". */
   language: string;

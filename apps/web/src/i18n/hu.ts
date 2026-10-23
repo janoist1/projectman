@@ -1173,6 +1173,11 @@ export const hu = {
       email_rate_limited: 'Elérted az e-mail küldési korlátot.',
       email_contact_refused: 'A címzett beállítása nem módosítható.',
       email_unknown: 'A levél nem található.',
+      checklist_missing: 'A projektnek még nincs indulási listája.',
+      checklist_item_not_found: 'A lista tétele nem található.',
+      checklist_condition_unmet: 'A tétel feltétele még nem teljesül.',
+      checklist_full: 'A lista megtelt.',
+      checklist_exists: 'A projektnek már van indulási listája.',
       email_send_failed: 'Az e-mail küldése sikertelen.',
       web_push_endpoint_invalid:
         'Ez az értesítési eszköz nem használható. Kapcsold be újra az értesítéseket.',

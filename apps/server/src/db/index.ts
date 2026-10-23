@@ -1,4 +1,5 @@
 import { createAttachmentRepository } from './attachments';
+import { createChecklistRepository } from './checklist';
 import { createEmailChannelRepository } from './email-channel';
 export type { EmailMessageRecord } from './email-channel';
 import { createWebPushRepository } from './web-push';
@@ -107,6 +108,7 @@ export { encodeWorkItem, decodeWorkItem } from './sessions';
 /** All repositories over one database connection. */
 export function createRepositories(db: Db) {
   return {
+    checklists: createChecklistRepository(db),
     db,
     webPush: createWebPushRepository(db),
     engines: createEngineRepository(db),

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ProjectChecklistView,
   ProvidersView,
   effectiveSessionPermissions,
   operatorOf,
@@ -16,6 +17,37 @@ const role = {
   instructions: 'Check reference records.',
 };
 const base = '/api/projects/AC';
+
+it('serves checklist state changes and computes conditions and progress in the fake', () => {
+  const backend = new MockBackend();
+  backend.checklist = {
+    baseTemplateId: null,
+    items: [
+      {
+        id: 'agreement',
+        title: 'Agreement',
+        hint: null,
+        source: 'base',
+        templateId: null,
+        condition: 'agreement_approved',
+        conditionHolds: null,
+        state: 'done',
+        reason: null,
+        reopened: null,
+        updatedAt: new Date().toISOString(),
+        updatedBy: 'system',
+      },
+    ],
+    progress: { settled: 1, total: 1, complete: true },
+  };
+  const url = `${base}/checklist/items/agreement/state`;
+  expect(backend.handle('POST', url, { state: 'not_needed' }).status).toBe(400);
+  const response = backend.handle('POST', url, { state: 'open' });
+  expect(response.status).toBe(200);
+  const view = ProjectChecklistView.parse(response.body);
+  expect(view.checklist?.items[0]).toMatchObject({ state: 'open', reopened: 'owner', conditionHolds: false });
+  expect(view.checklist?.progress).toEqual({ settled: 0, total: 1, complete: false });
+});
 
 describe('integrator credential policy in the fake (PM-759)', () => {
   it('records a super inbox decision with the principal and Operator attribution', () => {

@@ -1,5 +1,9 @@
 import type { ProviderLoginStatus, ServerVersionView } from '@projectman/shared';
 import {
+  checklistConditionHolds,
+  checklistProgress,
+  SetChecklistItemStateRequest,
+  type ProjectChecklist,
   applyMemberEmailChange,
   CreateOperatorGrantRequest,
   superAccessVerdict,
@@ -586,6 +590,7 @@ export class MockBackend {
   readonly push = new MockPush();
   /** What the owner asked the Operator for, with its steps (PM-447); a test or a scenario fills it. */
   operatorRequests: OperatorRequestView[] = [];
+  checklist: ProjectChecklist | null = null;
   operatorKnowledge: OperatorKnowledgeDocument = {
     schemaVersion: 1,
     revision: 0,
@@ -2531,6 +2536,38 @@ export class MockBackend {
       return ok(clone(this.structure));
     }
     if (rest === '/project-manager' && method === 'GET') return this.projectManagerChannel();
+    const checklistState = /^\/checklist\/items\/([a-z][a-z0-9_]{0,39})\/state$/.exec(rest);
+    if ((rest === '/checklist' && method === 'GET') || (checklistState && method === 'POST')) {
+      const access = this.viewerAccess();
+      if (access !== 'owner' && (access !== 'admin' || method !== 'GET'))
+        return error(403, 'insufficient_access', 'Checklist access required');
+      if (checklistState) {
+        const parsed = SetChecklistItemStateRequest.safeParse(body);
+        if (!parsed.success) return error(400, 'invalid_request', 'Invalid checklist state');
+        if (!this.checklist) return error(404, 'checklist_missing', 'Checklist does not exist');
+        const item = this.checklist.items.find((item) => item.id === checklistState[1]);
+        if (!item) return error(404, 'checklist_item_not_found', 'Checklist item does not exist');
+        if (!(parsed.data.state === 'open' && item.state === 'open')) {
+          item.state = parsed.data.state;
+          item.reason = parsed.data.state === 'not_needed' ? parsed.data.reason : null;
+          item.reopened = parsed.data.state === 'open' ? 'owner' : null;
+          item.updatedBy = this.viewerHandle;
+          item.updatedAt = nowIso();
+          this.emit({ type: 'project_checklist_changed', projectKey: this.config.project.key });
+        }
+      }
+      if (this.checklist) {
+        for (const item of this.checklist.items)
+          item.conditionHolds = item.condition
+            ? checklistConditionHolds(item.condition, this.config, {
+                agreementApproved: this.operatorKnowledge.agreement !== null,
+                taskCount: this.tasks.filter((task) => task.status !== 'cancelled').length,
+              })
+            : null;
+        this.checklist.progress = checklistProgress(this.checklist.items);
+      }
+      return ok({ checklist: clone(this.checklist), canEdit: access === 'owner' });
+    }
     if (rest === '/operator' && method === 'GET') return this.operatorChannel();
     if (rest === '/member-queues' && method === 'GET') return this.memberQueue(null, query);
     if (rest === '/operator/queue' && method === 'GET')

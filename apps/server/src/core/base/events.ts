@@ -26,6 +26,8 @@ export interface AddedRelation {
  * clients see goes out through the event bus (the websocket) instead.
  */
 export interface DomainEventMap {
+  project_created: { projectKey: string; providerReady: boolean };
+  checklist_item_reopened: { projectKey: string; itemId: string; cause: 'condition' | 'owner'; at: string };
   session_cleanup_failed: SessionCleanupFailed;
   session_cleanup_recovered: SessionCleanupRecovered;
   session_cleanup_released: SessionCleanupReleased;

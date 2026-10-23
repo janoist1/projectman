@@ -13,6 +13,7 @@ import { Task, TaskKey } from '../domain/task';
 
 /** Server -> browser events over the /ws websocket (JSON text frames). */
 export const ServerEvent = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('project_checklist_changed'), projectKey: z.string() }),
   z.object({ type: z.literal('operator_signal'), projectKey: z.string(), signal: OperatorSignal }),
   z.object({ type: z.literal('engine_changed'), engine: EngineStatusView }),
   /** The Operator's grant for machine operations was given, replaced or revoked (PM-881); not project-bound. */

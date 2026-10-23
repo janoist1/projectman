@@ -10,12 +10,11 @@ import {
 } from '@projectman/shared';
 import type { PartsLeftAlert, ProjectConfig, Session, Task, TimelineEventData } from '@projectman/shared';
 import { partsLeftText } from '../../agent-text';
-import type { DomainContext } from '../base';
-import type { InboxService } from '../inbox';
-import type { Messaging } from '../messages';
-import type { ProjectService } from '../projects';
-import type { TaskPauseReader } from './ports';
-import type { TimelineService } from '../timeline';
+import type { DomainContext } from '../../core/base';
+import type { InboxService } from '../../core/inbox';
+import type { Messaging } from '../../core/messages';
+import type { ProjectService } from '../../core/projects';
+import type { TimelineService } from '../../core/timeline';
 import { KeyedMutex, SYSTEM_ACTOR, unique } from '../../kernel';
 
 /** How many `task_parts_left` events of a card are read back. */
@@ -32,7 +31,7 @@ const EVENTS = 100;
 export class LeftParts {
   private readonly ctx: DomainContext;
   private readonly projects: ProjectService;
-  private readonly sessions: TaskPauseReader;
+  private readonly sessions: { isPaused(session: Pick<Session, 'id' | 'projectKey'>): boolean };
   private readonly messaging: Messaging;
   private readonly inbox: InboxService;
   private readonly timeline: TimelineService;
@@ -41,7 +40,7 @@ export class LeftParts {
   constructor(deps: {
     ctx: DomainContext;
     projects: ProjectService;
-    sessions: TaskPauseReader;
+    sessions: { isPaused(session: Pick<Session, 'id' | 'projectKey'>): boolean };
     messaging: Messaging;
     inbox: InboxService;
     timeline: TimelineService;

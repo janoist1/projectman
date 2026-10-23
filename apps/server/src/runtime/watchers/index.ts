@@ -3,6 +3,7 @@ export { DiskGuard } from './disk-guard';
 export { FixLimitWatch } from './fix-limit';
 export type { FixLimitDecision } from './fix-limit';
 export { InputStallAlerts } from './input-stall-alert';
+export { LeftParts } from './left-parts';
 export { LoopWatch } from './loop-watch';
 export { MachineMonitor } from './machine';
 export { WorkOutages } from './outages';

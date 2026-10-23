@@ -439,8 +439,8 @@ export type PermissionDecision =
   | { behavior: 'deny'; message?: string };
 
 /**
- * Decides tool permission requests. Implemented by the domain (it creates a "Rád vár"
- * inbox item and waits for a human). The runner answers the hook with the decision.
+ * Decides tool permission requests. Implemented by runtime/sessions (it creates a "Rád vár"
+ * inbox item through core/inbox and waits for a decision). The runner answers the hook with it.
  * When `signal` aborts (timeout or session exit) the broker must stop waiting.
  */
 export interface PermissionBroker {

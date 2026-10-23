@@ -2,24 +2,33 @@
 
 ## Responsibility
 
-Human questions, approvals, permission decisions, question screening/closing and the open-question label.
+Human questions, approvals, permission inbox items, question screening/closing and the open-question label.
 
 ## Facade
 
-`core/inbox/index.ts` is the sealed entry point. It exports `InboxService` with `createInboxService`, the `PERMISSION_OPTIONS`, `DECISION_OPTIONS` and `ANSWER_OPTION` constants, `sponsorOrOwners`, `delegatedPermissionPrompt`, `answerText`, the `Resolver` and `InboxDecider` types, `ApprovalQuestions`, `CardQuestions` with `QUESTION_LIMIT`, `AgentQuestions` with `agentQuestionsOf`, `QuestionClosing`, `QuestionScreening`, `OpenQuestionLabel` and the port types below. The implementation moved here unchanged (PM-643); no question or approval contract changed.
+`core/inbox/index.ts` is the sealed entry point. It exports `InboxService` with `createInboxService`, the `DECISION_OPTIONS` and `ANSWER_OPTION` constants, `sponsorOrOwners`, `answerText`, the `Resolver` and `InboxDecider` types, `ApprovalQuestions`, `HumanQuestions`, `CardQuestions` with `QUESTION_LIMIT`, `AgentQuestions` with `agentQuestionsOf`, `QuestionClosing`, `QuestionScreening`, `OpenQuestionLabel` and `IntegratorTodoAccess`. The implementation moved here unchanged (PM-643); no question or approval contract changed.
+
+`InboxService.waitForClose(id, signal)` registers the waiter synchronously and resolves with the closed
+item. An abort drops the waiter, expires the item and resolves null. CLI permission decisions live in
+`runtime/sessions/permission-broker.ts` (PM-960): the broker creates an inbox item, resolves command-rule
+verdicts through `resolveByRule` and waits through `waitForClose`. Inbox creation, closure, publication,
+waiters and permission delegation (including `delegatedPermissionPrompt`) remain here.
 
 ## Ports
 
 `core/inbox/ports.ts` defines the consumer-owned interfaces (PM-635):
 
-- `InboxPermissionPolicy` supplies `engineIdOf`, `readableRootsFor` and `commandVerdict`. Assembly injects the existing functions from the `runtime/sessions` facade once; engine defaults and command rules remain defined there.
 - `ScreeningAttempt` is the narrow automatic start for question screening, with the unchanged persisted spec `{ kind: 'question_screening', projectKey }` and the existing validity, run, retry, waiting and logging callbacks.
 - `ScreeningAdmission` admits that attempt and starts the Operator's general conversation. `EnsureSessionResult` comes from the contracts facade; all other data shapes come from shared.
 - `ScreeningSessions` exposes only `findRunning` and `isPaused`. Delivery uses `Pick<MessageDeliveryPort, 'notice' | 'startAndDeliver'>` from the messaging facade.
 
 Assembly passes the existing session orchestrator, admission and delivery instances without casts. The waking/again/firstDeliveries maps, admission lock boundary, first-input rejection handler and delivered-at transaction order are unchanged, as are the screening option and 30-second sweep.
 
-The inbox also receives the domain context, projects, timeline, `EngineDirectory` and an optional attachment-directory callback. Existing `InboxDecider`, `QuestionAnswerer` and `AskerStarts` hooks connect decisions and answering work. The permission broker and engine contracts are unchanged. No runtime module is imported by this module; its two dependency exceptions are removed.
+The inbox receives the domain context, projects, timeline and optional `IntegratorTodoAccess`.
+Existing `InboxDecider`, `QuestionAnswerer` and `AskerStarts` hooks connect decisions and answering work.
+The runtime broker receives `EngineDirectory` and the optional attachment-directory callback directly;
+the former `InboxPermissionPolicy` port is removed (PM-960). The permission broker and engine contracts
+are unchanged. No runtime module is imported by this module; its two dependency exceptions are removed.
 
 ## Files
 
@@ -119,7 +128,7 @@ engine-boundary method is added.
 
 ## Remote engine (existing permission requests)
 
-Questions, approval records and rules remain on the server. Permission requests retain the session engine's paths, and the existing broker/engine contracts carry decisions to that engine. `InboxService` still checks a tool's canonical working directory through that engine's `realpath` before consulting its injected policy. Server paths must not replace engine paths; PM-635 adds no boundary method or payload.
+Questions, approval records and rules remain on the server. Permission requests retain the session engine's paths, and the existing broker/engine contracts carry decisions to that engine. The runtime permission broker checks a tool's canonical working directory through that engine's `realpath` before consulting the command policy. Server paths must not replace engine paths; PM-960 changes no boundary method or payload.
 
 PM-631 prepares file ownership; PM-635 introduces these ports. Neither changes a
 shared contract, database schema, configuration or timeline event.

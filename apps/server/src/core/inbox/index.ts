@@ -1,4 +1,11 @@
-export { InboxService, createInboxService, DECISION_OPTIONS, ANSWER_OPTION, answerText } from './inbox';
+export {
+  InboxService,
+  createInboxService,
+  DECISION_OPTIONS,
+  ANSWER_OPTION,
+  answerText,
+  sponsorOrOwners,
+} from './inbox';
 export type { Resolver, InboxDecider } from './inbox';
 export { ApprovalQuestions } from './approval-questions';
 export { HumanQuestions } from './human-questions';

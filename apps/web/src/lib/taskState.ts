@@ -172,9 +172,9 @@ function workerVerb(member: MemberView, task: Task, pipeline: PipelineIndex): Wo
 /**
  * Who works on this card now, in the order the card names them: the owner of the card's current step
  * (e.g. the reviewer) first, then the assignee, then the rest by when they began. Only a member with a working session on
- * the card itself counts. A member's status and activity describe the member as a whole (the member
- * may work on another card), and the command a session runs is never part of this: it lives in the
- * session view.
+ * the card itself counts. An idle or retired member cannot be working, even if an earlier work entry
+ * remains. Otherwise the member's status and activity cannot identify the card (the member may work
+ * on another card). The command a session runs lives in the session view.
  */
 function findWorkers(
   task: Task,
@@ -186,6 +186,7 @@ function findWorkers(
   const rank = (member: MemberView) =>
     stepOwners.includes(member.handle) ? 0 : member.handle === task.assignee ? 1 : 2;
   const working = [...ctx.members.values()].flatMap((member) => {
+    if (member.status === 'idle' || member.status === 'retired') return [];
     const work = member.taskWork?.find((entry) => entry.taskKey === task.key);
     return work ? [{ member, work }] : [];
   });

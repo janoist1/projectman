@@ -12,6 +12,7 @@ import type {
 import {
   useEmailChannel,
   useEmailLog,
+  useInvitations,
   useMembers,
   usePatchConfig,
   useRoles,
@@ -30,7 +31,9 @@ import { useToast } from '../../../components/toastContext';
 import { formatAgo, formatStamp } from '../../../i18n/format';
 import { t } from '../../../i18n/t';
 import { errorMessage } from '../../../lib/errors';
+import { isPendingInvite } from '../../invites/pendingInvites';
 import { EditMemberDialog } from '../../team/EditMemberDialog';
+import { InviteDialog } from '../../team/InviteDialog';
 import shared from '../settings.module.css';
 import styles from './EmailSection.module.css';
 import { SettingsSection } from './SettingsSection';
@@ -221,14 +224,21 @@ function SendersBlock({
 function ContactsBlock({
   view,
   names,
-  onEdit,
+  onInvite,
 }: {
   view: EmailChannelView;
   names: Names;
-  onEdit: (handle: string) => void;
+  onInvite: (handle: string) => void;
 }) {
-  const { key, myHandle } = useProject();
+  const { key, myHandle, can } = useProject();
   const set = useSetEmailContact(key);
+  // While the list loads or fails, nobody shows as invited; the server refuses a second invitation anyway.
+  const invitations = useInvitations(key, can.manageTeam);
+  const invitedHandles = new Set(
+    (invitations.data?.invitations ?? [])
+      .filter(isPendingInvite)
+      .flatMap((invite) => (invite.memberHandle ? [invite.memberHandle] : [])),
+  );
   const toast = useToast();
   const nobody = view.enabled && !view.contacts.some((contact) => contact.wants);
   return (
@@ -279,15 +289,30 @@ function ContactsBlock({
                     <span className={styles.address}>{contact.address}</span>
                   ) : (
                     <span className={styles.noAddress}>
-                      <span className={shared.muted}>{t('settings.email.contacts.noAddress')}</span>
-                      <Button
-                        variant="ghost"
-                        size="md"
-                        aria-label={t('settings.email.contacts.setAddressOf', { name: contact.displayName })}
-                        onClick={() => onEdit(contact.handle)}
-                      >
-                        {t('settings.email.contacts.setAddress')}
-                      </Button>
+                      {invitedHandles.has(contact.handle) ? (
+                        <>
+                          <span className={shared.muted}>{t('settings.email.contacts.invited')}</span>
+                          <Link
+                            className={styles.pendingLink}
+                            to={`/p/${key}/team`}
+                            data-invited-link={contact.handle}
+                          >
+                            {t('settings.email.contacts.pendingLink')}
+                          </Link>
+                        </>
+                      ) : (
+                        <>
+                          <span className={shared.muted}>{t('settings.email.contacts.noAddress')}</span>
+                          <Button
+                            variant="ghost"
+                            size="md"
+                            aria-label={t('settings.email.contacts.inviteOf', { name: contact.displayName })}
+                            onClick={() => onInvite(contact.handle)}
+                          >
+                            {t('settings.email.contacts.invite')}
+                          </Button>
+                        </>
+                      )}
                     </span>
                   )}
                 </td>
@@ -523,6 +548,8 @@ export function EmailSection({ config, version }: { config: ProjectConfig; versi
   const members = useMembers(key);
   const roles = useRoles(key);
   const [editing, setEditing] = useState<string | null>(null);
+  const [inviting, setInviting] = useState<string | null>(null);
+  const invitee = memberOf(members.data, inviting);
   const title = t('settings.sections.email');
   if (channel.isPending)
     return (
@@ -553,7 +580,7 @@ export function EmailSection({ config, version }: { config: ProjectConfig; versi
             <SendersBlock view={view} members={members.data} onEdit={setEditing} />
           </SettingsSection>
           <SettingsSection title={t('settings.email.contacts.title')}>
-            <ContactsBlock view={view} names={names} onEdit={setEditing} />
+            <ContactsBlock view={view} names={names} onInvite={setInviting} />
           </SettingsSection>
           <SettingsSection title={t('settings.email.log.title')}>
             <LogBlock names={names} />
@@ -565,6 +592,16 @@ export function EmailSection({ config, version }: { config: ProjectConfig; versi
         config={config}
         roles={roles.data?.roles ?? []}
         onClose={() => setEditing(null)}
+      />
+      <InviteDialog
+        open={invitee !== null}
+        member={invitee ?? undefined}
+        intro={invitee ? t('settings.email.contacts.inviteIntro', { name: invitee.displayName }) : undefined}
+        onClose={() => setInviting(null)}
+        // The invitation turns the row's button into a link; focus goes to that link.
+        returnFocusFallback={() =>
+          document.querySelector<HTMLElement>(`[data-invited-link="${invitee?.handle ?? ''}"]`)
+        }
       />
     </>
   );

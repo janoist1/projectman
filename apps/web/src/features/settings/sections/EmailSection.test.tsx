@@ -190,13 +190,13 @@ describe('the e-mail settings section', () => {
     expect((await screen.findByRole('status')).textContent).toContain(t('settings.email.contacts.nobody'));
   });
 
-  it('points to the member editing for a person without an address', async () => {
+  it('invites a person without an address and then shows the invitation as pending', async () => {
     const p = mailProject();
     const kata = p.backend.config.team.members.find((member) => member.handle === 'kata');
     if (kata?.kind === 'human') delete kata.email;
     await open(p);
     const button = await screen.findByRole('button', {
-      name: t('settings.email.contacts.setAddressOf', { name: 'Kata' }),
+      name: t('settings.email.contacts.inviteOf', { name: 'Kata' }),
     });
     expect(
       (
@@ -206,7 +206,30 @@ describe('the e-mail settings section', () => {
       ).disabled,
     ).toBe(true);
     fireEvent.click(button);
-    expect(await screen.findByRole('dialog')).toBeTruthy();
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText(t('settings.email.contacts.inviteIntro', { name: 'Kata' }))).toBeTruthy();
+    fireEvent.change(within(dialog).getByLabelText(t('invites.email')), {
+      target: { value: 'kata@example.com' },
+    });
+    await waitFor(() =>
+      expect(
+        (within(dialog).getByRole('button', { name: t('invites.create') }) as HTMLButtonElement).disabled,
+      ).toBe(false),
+    );
+    fireEvent.click(within(dialog).getByRole('button', { name: t('invites.create') }));
+    fireEvent.click(await within(dialog).findByRole('button', { name: t('common.close') }));
+    expect(await screen.findByText(t('settings.email.contacts.invited'))).toBeTruthy();
+    const link = screen.getByRole('link', { name: t('settings.email.contacts.pendingLink') });
+    // The button that opened the dialog is gone; focus goes to the link that took its place.
+    expect(document.activeElement).toBe(link);
+    expect(
+      screen.queryByRole('button', { name: t('settings.email.contacts.inviteOf', { name: 'Kata' }) }),
+    ).toBeNull();
+    const invites = p.requests.filter(
+      (request) => request.method === 'POST' && request.path.endsWith('/invites'),
+    );
+    expect(invites).toHaveLength(1);
+    expect(invites[0]!.body).toMatchObject({ memberHandle: 'kata' });
   });
 
   it('lists the log a page at a time and loads the earlier rows on request', async () => {

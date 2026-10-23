@@ -59,6 +59,7 @@ import { createPauseRepository } from './pauses';
 import { createProjectFocusRepository } from './project-focus';
 import { createProjectChangeEventRepository } from './project-change-events';
 import { createReleaseDeploymentRepository } from './release-deployments';
+import { createReleasePublicationRepository } from './release-publications';
 import { createReleaseRepository } from './releases';
 import { createReviewPinRepository } from './review-pins';
 import { createTaskMergeRepository, createTaskHandoverRepository } from './task-merges';
@@ -132,6 +133,7 @@ export function createRepositories(db: Db) {
     mergeTrains: createMergeTrainRepository(db),
     releases: createReleaseRepository(db),
     releaseDeployments: createReleaseDeploymentRepository(db),
+    releasePublications: createReleasePublicationRepository(db),
     taskHandovers: createTaskHandoverRepository(db),
     taskCovers: createTaskCoverRepository(db),
     taskLoops: createTaskLoopRepository(db),

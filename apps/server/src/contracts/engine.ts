@@ -283,6 +283,18 @@ export interface BranchMerger {
   releaseCheck(ref: MergeRepoRef, input: { mergeId: string }): Promise<void>;
   /** Pushes `mergeCommit` to `base` of the upstream remote, never forced; the remote is read here, not taken from the call. */
   push(ref: MergeRepoRef, input: { base: string; mergeCommit: string }): Promise<MergePushResult>;
+  /**
+   * The tags of `base`'s upstream remote (`git ls-remote --tags`), at most 5000: the commit a tag points at
+   * (the peeled one for an annotated tag). no_remote when `base` has no upstream. For `publish_release` (PM-968).
+   */
+  remoteTags(ref: MergeRepoRef, input: { base: string }): Promise<{ name: string; commit: string }[]>;
+  /**
+   * Makes the annotated tag `tag` on `commit` with the repository's git identity and pushes it to `base`'s
+   * upstream remote, never forced: a tag that exists there already is refused (`rejected`). An old local tag
+   * of that name is replaced. invalid_input for a name that is not a release tag name; no_remote without an
+   * upstream. For `publish_release` (PM-968).
+   */
+  pushTag(ref: MergeRepoRef, input: { base: string; tag: string; commit: string }): Promise<MergePushResult>;
   /** Moves the local `base` from `from` to `to`, a descendant of `from`. */
   advance(ref: MergeRepoRef, input: { base: string; from: string; to: string }): Promise<MergeAdvanceResult>;
   /**

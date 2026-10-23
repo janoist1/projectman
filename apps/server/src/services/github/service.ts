@@ -3,6 +3,7 @@ import { GithubError, toGithubError } from './errors';
 import { createGhRunner } from './gh';
 import { createPullRequestPoller } from './poller';
 import { PULL_REQUEST_JSON_FIELDS, parsePullRequestJson, parsePullRequestListJson } from './pull-request';
+import { createReleasePublisher } from './releases';
 import { isValidBranch, isValidPullRequestNumber, isValidRepo, parsePullRequestUrl } from './refs';
 
 /** Optional tuning on top of the contract options; the defaults suit production. */
@@ -24,8 +25,8 @@ const DEFAULT_RATE_LIMIT_BACKOFF_MS = 60_000;
 const BRANCH_PULL_REQUEST_LIMIT = 30;
 
 /**
- * Read-only GitHub access through the gh CLI and the owner's existing `gh auth login`.
- * Nothing on GitHub is ever changed. Errors are GithubError instances with a `code`.
+ * GitHub access through the gh CLI and the owner's existing `gh auth login`. It reads; the only thing it
+ * writes is a release (`publishRelease`, PM-968). Errors are GithubError instances with a `code`.
  */
 export function createGithubService(opts: GithubServiceOptions): GithubService {
   if (!(opts.pollIntervalMs > 0) || !Number.isFinite(opts.pollIntervalMs)) {
@@ -100,6 +101,7 @@ export function createGithubService(opts: GithubServiceOptions): GithubService {
     getPullRequest: (repo, number) => getPullRequest(repo, number),
     findPullRequestsForBranch,
     parsePullRequestUrl,
+    publishRelease: createReleasePublisher(run),
     watch: (targets, onChange) => poller.watch(targets, onChange),
   };
 }

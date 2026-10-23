@@ -34,6 +34,14 @@ export interface GithubService {
   getPullRequest(repo: string, number: number): Promise<PullRequestInfo>;
   findPullRequestsForBranch(repo: string, branch: string): Promise<PullRequestInfo[]>;
   parsePullRequestUrl(url: string): { repo: string; number: number } | null;
+  /**
+   * The public GitHub release of `tag`, which must be on the remote already (PM-968). A release that exists
+   * is returned as is, so a repeated call is safe. The only write of this service.
+   */
+  publishRelease(
+    repo: string,
+    input: { tag: string; title: string; notes: string },
+  ): Promise<{ url: string }>;
   /** Polls the given PRs and reports every change; returns an unsubscribe function. */
   watch(
     targets: Array<{ repo: string; number: number }>,

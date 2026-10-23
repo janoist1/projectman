@@ -96,6 +96,20 @@ export function createRemoteGithub(options: { hub: RemoteHub; logger: FastifyBas
     findPullRequestsForBranch: (repo, branch) =>
       call((id) => hub.call(id, 'github.find_pull_requests_for_branch', { repo, branch })),
     parsePullRequestUrl,
+    publishRelease: (repo, input) =>
+      call(async (id) => {
+        try {
+          return await hub.call(id, 'github.publish_release', { repo, ...input });
+        } catch (error) {
+          // An engine from before `publish_release` (PM-968) does not know the method.
+          if (error instanceof EngineCallError && error.linkCode === 'unknown_method')
+            throw new GithubError(
+              'failed',
+              'the engine does not support release publishing; update the engine',
+            );
+          throw error;
+        }
+      }),
     watch(targets, onChange) {
       counter += 1;
       const watchId = `w${counter}`;

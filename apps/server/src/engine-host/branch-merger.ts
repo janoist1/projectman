@@ -13,6 +13,7 @@ import { createMergeChecks } from './merge-check';
 import { NETWORK_GIT_TIMEOUT_MS, outputTail, runGit } from './merge-git';
 import { invalidInput, isCommitId, isMergeMessage, mergeArgs } from './merge-input';
 import { createPathReads } from './path-reads';
+import { createReleaseTags } from './release-tags';
 import {
   dirtyPaths,
   fetchUpstream,
@@ -281,6 +282,7 @@ export function createLocalBranchMerger(options: LocalBranchMergerOptions): Bran
       ...(options.copyTimeoutMs !== undefined ? { copyTimeoutMs: options.copyTimeoutMs } : {}),
     }),
     ...createDocFiles({ args, networkTimeoutMs: networkTimeout }),
+    ...createReleaseTags({ args, networkTimeoutMs: networkTimeout }),
     ...createPathReads({
       args,
       ...(options.maxListedPaths !== undefined ? { maxListedPaths: options.maxListedPaths } : {}),

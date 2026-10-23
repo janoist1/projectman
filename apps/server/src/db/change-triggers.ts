@@ -210,6 +210,8 @@ export const UNJOURNALED_TABLES: Readonly<Record<string, string>> = {
   question_group_items: 'written with its group, which is journaled',
   release_deployment_requests: 'deploy controller bookkeeping; the release row is journaled',
   release_deployments: 'deploy controller bookkeeping; the release row is journaled',
+  release_publications:
+    'publish_release bookkeeping of a tag and a GitHub release; the repository and GitHub hold them',
   schedule_runs: 'scheduler bookkeeping',
   session_cleanups: 'machine-local cleanup bookkeeping of the runner',
   sessions: 'terminal and activity pattern; no durability is promised',

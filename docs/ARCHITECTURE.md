@@ -501,7 +501,7 @@ included, is refused until they are fixed (`isToleratedOnLoad`).
 browser (React) ── REST /api, websocket /ws ──▶ server (Fastify, Node, 127.0.0.1:4700)
                                                  ├─ core and services ─▶ SQLite (runtime state)
                                                  ├─ config store ────▶ customization git repo (YAML)
-                                                 ├─ github ──────────▶ gh CLI (owner's login, read-only)
+                                                 ├─ github ──────────▶ gh CLI (owner's login; read-only, but a release, PM-968)
                                                  └─ runner ──▶ node-pty ──▶ claude | codex (interactive TUI)
 claude ── HTTP hooks  POST /hooks/:token ─────▶ runner (state machine, permission gate)
 codex ─── command hooks ─▶ forwarder ─▶ POST /hooks/:token ─▶ runner
@@ -654,7 +654,7 @@ construction order; the factories return the existing classes without changing b
 | `context`                                         | Agent context packs, prompts and member memory through two factories.       |
 | `services/merges`                                 | Card merge orchestration, queue and locks.                                  |
 | `services/full-tests`                             | Full-test and screenshot-run orchestration.                                 |
-| `services/releases`                               | Release proposals and release roadmap notices.                              |
+| `services/releases`                               | Release proposals, release roadmap notices and `publish_release` (PM-968).  |
 | `services/structure`                              | Repository structure descriptors, module sizes and card file placement.     |
 | `services/github`                                 | GitHub synchronization, pull requests and publishing.                       |
 | `services/obligations`                            | Open-step deadlines, one reminder and one integrator todo (PM-806).         |
@@ -3771,6 +3771,14 @@ assumption or remote-engine RPC.
   reports on this same local socket, so it must run on the server's host; the instance's repository is on
   the engine of the target project, and only `BranchMerger.isAncestor/prepare` cross the engine link
   (see "Release of the instance"); no new boundary.
+  `publish_release` (PM-968, `services/releases/publications.ts`; the durable row is `release_publications`):
+  the tag is made and pushed on the engine that holds the repository (`merge.remote_tags` lists the tags of the base's
+  upstream, `merge.push_tag` makes an annotated tag on a commit and pushes it, never forced, `--no-verify`; checked in
+  `engine-limit.ts` like `merge.push`), and the GitHub release on the `github.*` engine (`github.publish_release`:
+  `gh release view`, then `gh release create --verify-tag`, the owner's gh login; `engine-limit.ts` binds no
+  repository for it, like the other `github.*` calls). Only the commit, the tag name, the notes and the URL cross the
+  boundary; an engine from before PM-968 answers `unknown_method`, which the publication reports as
+  `release_publish_failed`. The engine of the call is `engines.engineFor(projectKey, member)`, local when there is none.
   **Hybrid deployment (PM-752):** with `PROJECTMAN_RELEASE_ENGINE_ID` and `PROJECTMAN_RELEASE_TARGET_HASH` the
   cloud server keeps the durable deployment attempt (`release_deployments`, `services/releases/deployments.ts`)
   and the maintenance fence (`ReleaseWorkGate`), and the `release_deploy_*` ops read and change them over this
@@ -4130,7 +4138,9 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   and the shared helper hands the preparation to the executor under the required heavy-run lock
   (see "Server full test before review"). Checkout creation and sandboxed installation run on the
   selected engine through the existing contracts; no new server/engine boundary field is needed. `merge.push`
-  (never forced, `--no-verify`) and `merge.advance` (a
+  (never forced, `--no-verify`), `merge.remote_tags` and `merge.push_tag` (PM-968, the release tag: listed with
+  `ls-remote --tags`, made with `tag -a --no-sign` and pushed without force, so a tag the remote has is never moved)
+  and `merge.advance` (a
   fast-forward of the local branch, or an `update-ref` with the old value when it is checked out nowhere).
   Every git call is an argument array with no shell, with hooks, signing and the filesystem monitor switched
   off, no terminal prompt and the billing variables removed; the output is scrubbed of credentials. The

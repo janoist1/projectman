@@ -9,6 +9,9 @@
 //   gh pr create --repo=<owner/name> --head=<branch> --base=<branch> --title=<t> --body=<b>
 //   gh pr merge <number> --repo=<owner/name>            refused for an identity that may not merge
 //   gh api --method=PUT repos/<owner/name>/pulls/<n>/merge   the same refusal through the API
+// and, for `publish_release` (PM-968), the releases:
+//   gh release view <tag> --repo <owner/name> --json url      a release made before, or the scenario's "releases"
+//   gh release create <tag> --repo <owner/name> --title <t> --notes <n> --verify-tag   prints the release's URL
 // and any other `gh api` call (the Actions endpoints, PM-907) from the scenario's "api".
 //
 // Environment:
@@ -24,6 +27,8 @@
 //     "pullRequests": { "owner/name#12": Response | Response[] }, default: "Could not resolve" error
 //     "branches":     { "owner/name@branch": Response | Response[] } default: []
 //     "create":       { "owner/name@branch": Response | Response[] } default: a created pull request
+//     "releases":     { "owner/name@tag": Response | Response[] }  `release view`, default: "release not found"
+//     "releaseCreate": { "owner/name@tag": Response | Response[] } default: a release made in the state, its URL printed
 //     "api":          { "GET repos/o/n/actions/runs/7": Response | Response[] }  key: method + endpoint without
 //                                                                default: an error   its query; the argv is in the call log
 //     "identities":   { "<token>": { "login": "bot", "canMerge": false } }   default: login "bot", no merge
@@ -64,7 +69,7 @@ const PR_FIELDS = new Set([
   'updatedAt',
   'url',
 ]);
-const BOOLEAN_FLAGS = new Set(['active', 'allow-escape-sequences']);
+const BOOLEAN_FLAGS = new Set(['active', 'allow-escape-sequences', 'verify-tag']);
 
 function parseArgs(argv) {
   const positional = [];
@@ -184,6 +189,24 @@ function resolve(scenario, positional, flags, logPath) {
   if (command === 'pr merge') {
     return { key: 'pr merge', merge: { number: positional[2], repo: flags.repo }, response: { stdout: '' } };
   }
+  if (command === 'release view') {
+    const key = `${flags.repo}@${positional[2]}`;
+    const made = (readState(logPath).releases ?? []).find(
+      (release) => release.repo === flags.repo && release.tag === positional[2],
+    );
+    const fallback = { stderr: 'release not found', exitCode: 1 };
+    const response = made ? { json: { url: made.url } } : (scenario.releases?.[key] ?? fallback);
+    return { key: `release view ${key}`, fields: flags.json?.split(','), response };
+  }
+  if (command === 'release create') {
+    const key = `${flags.repo}@${positional[2]}`;
+    const scripted = scenario.releaseCreate?.[key];
+    return {
+      key: `release create ${key}`,
+      response: scripted ?? { stdout: '' },
+      release: scripted ? null : { repo: flags.repo, tag: positional[2] },
+    };
+  }
   if (positional[0] === 'api') {
     const endpoint = positional[1] ?? '';
     const merge = /^repos\/([^/]+\/[^/]+)\/pulls\/(\d+)\/merge$/.exec(endpoint);
@@ -241,6 +264,20 @@ function createPullRequest(scenario, logPath, flags) {
   return { stdout: `${pr.url}\n` };
 }
 
+/** A release made by `gh release create` (PM-968): kept in the state, so that a later `release view` finds it. */
+function createRelease(logPath, made, flags) {
+  const path = statePath(logPath);
+  if (!path) return { stderr: 'the fake needs FAKE_GH_STATE or FAKE_GH_CALL_LOG to create', exitCode: 1 };
+  const state = readState(logPath);
+  state.releases ??= [];
+  if (state.releases.some((release) => release.repo === made.repo && release.tag === made.tag))
+    return { stderr: `a release with the tag "${made.tag}" already exists`, exitCode: 1 };
+  const url = `https://github.com/${made.repo}/releases/tag/${made.tag}`;
+  state.releases.push({ ...made, title: flags.title ?? '', notes: flags.notes ?? '', url });
+  writeState(logPath, state);
+  return { stdout: `${url}\n` };
+}
+
 function mergePullRequest(scenario, logPath, merge) {
   const identity = identityOf(scenario);
   if (!identity.canMerge) {
@@ -270,7 +307,14 @@ async function main() {
   const scenario = JSON.parse(readFileSync(scenarioPath, 'utf8'));
   const argv = process.argv.slice(2);
   const { positional, flags } = parseArgs(argv);
-  const { key, fields, response: entry, create, merge } = resolve(scenario, positional, flags, logPath);
+  const {
+    key,
+    fields,
+    response: entry,
+    create,
+    merge,
+    release,
+  } = resolve(scenario, positional, flags, logPath);
   let response = pick(entry, key, logPath);
 
   const env = Object.fromEntries(
@@ -292,6 +336,7 @@ async function main() {
   if (response.delayMs) await new Promise((done) => setTimeout(done, response.delayMs));
   if (create && !scenario.create?.[create.key]) response = createPullRequest(scenario, logPath, flags);
   if (merge) response = mergePullRequest(scenario, logPath, merge);
+  if (release) response = createRelease(logPath, release, flags);
 
   if ('json' in response) process.stdout.write(`${JSON.stringify(onlyFields(response.json, fields))}\n`);
   if (typeof response.stdout === 'string') process.stdout.write(response.stdout);

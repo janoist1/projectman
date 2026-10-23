@@ -2205,4 +2205,26 @@ migrations.push({
   // PM-943: the e-mail a team message carries (the reply of a contact); NULL on every other message.
   sql: `ALTER TABLE team_messages ADD COLUMN email TEXT;`,
 });
+migrations.push({
+  version: 105,
+  name: 'release publications',
+  // PM-968: the tag and GitHub release the deployment duty's holder made of a merged commit (`publish_release`).
+  // `url` is NULL until the GitHub release exists: a row without it is an unfinished publication, resumed by a repeat.
+  sql: `CREATE TABLE release_publications (
+    id TEXT PRIMARY KEY,
+    project_key TEXT NOT NULL,
+    repo TEXT NOT NULL,
+    "commit" TEXT NOT NULL,
+    base_commit TEXT,
+    tag TEXT NOT NULL,
+    tasks_json TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    published_by TEXT NOT NULL,
+    tagged_at TEXT NOT NULL,
+    url TEXT,
+    published_at TEXT,
+    UNIQUE (project_key, repo, "commit"),
+    UNIQUE (project_key, repo, tag)
+  );`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

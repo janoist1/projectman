@@ -266,6 +266,61 @@ describe('parsePullRequestUrl', () => {
   });
 });
 
+describe('publishRelease', () => {
+  const input = { tag: 'v2026.1.2', title: 'v2026.1.2', notes: 'Things changed' };
+
+  it('creates the release of a tag with gh and returns its URL', async () => {
+    const github = await service({});
+
+    const result = await github.publishRelease('acme/app', input);
+
+    expect(result.url).toBe('https://github.com/acme/app/releases/tag/v2026.1.2');
+    const calls = await fake.calls();
+    expect(calls.at(-1)?.argv).toEqual([
+      'release',
+      'create',
+      'v2026.1.2',
+      '--repo=acme/app',
+      '--title=v2026.1.2',
+      '--notes=Things changed',
+      '--verify-tag',
+    ]);
+  });
+
+  it('returns the release that exists already, without creating another', async () => {
+    const github = await service({});
+    const first = await github.publishRelease('acme/app', input);
+
+    const again = await github.publishRelease('acme/app', input);
+
+    expect(again).toEqual(first);
+    const creates = (await fake.calls()).filter((call) => call.argv[1] === 'create');
+    expect(creates).toHaveLength(1);
+  });
+
+  it('reports a gh failure as a GithubError', async () => {
+    const github = await service({
+      releaseCreate: { 'acme/app@v2026.1.2': { stderr: 'HTTP 422: tag not pushed', exitCode: 1 } },
+    });
+
+    await githubError(github.publishRelease('acme/app', input));
+  });
+
+  it.each([
+    ['repository', 'not a repo', input],
+    ['tag', 'acme/app', { ...input, tag: '--title=x' }],
+    ['title', 'acme/app', { ...input, title: '' }],
+    ['notes', 'acme/app', { ...input, notes: 'x'.repeat(20_001) }],
+  ])('refuses an invalid %s before calling gh', async (_what, repo, args) => {
+    const github = await service({});
+
+    const error = await githubError(github.publishRelease(repo, args));
+
+    expect(error.code).toBe('invalid_argument');
+    expect(await fake.calls()).toEqual([]);
+  });
+});
+
 describe('watch', () => {
   it('reports each change once, polling with one gh call at a time', async () => {
     const open = ghPullRequestJson({ statusCheckRollup: [checkRun('build', 'IN_PROGRESS', '')] });

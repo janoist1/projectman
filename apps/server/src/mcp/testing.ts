@@ -263,6 +263,19 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
         ? { commit, baseCommit: null, tasks }
         : { releaseId: 'rel_fake', taskKey: 'FAKE-2', commit, baseCommit: null, tasks };
     },
+    async publishRelease(ctx, args) {
+      await enter('publishRelease', ctx, args);
+      const commit = args.commit ?? '0'.repeat(40);
+      const tag = args.tag ?? 'v2026.10.23';
+      return {
+        repo: args.repo ?? 'fake',
+        commit,
+        baseCommit: null,
+        tag,
+        url: args.preview ? null : `https://github.com/fake/fake/releases/tag/${tag}`,
+        tasks: [{ key: 'FAKE-1', title: 'A merged card' }],
+      };
+    },
     async checkRelease(ctx, args) {
       await enter('checkRelease', ctx, args);
       return {

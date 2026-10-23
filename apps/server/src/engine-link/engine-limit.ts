@@ -1,7 +1,7 @@
 import { realpathSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { ProjectConfig } from '@projectman/shared';
+import { isReleaseTagName, type ProjectConfig } from '@projectman/shared';
 import type { AgentSandbox, EnginePaths, MachineProbe, ProcessRecord } from '../contracts';
 import {
   OPEN_OUTBOUND_DOMAINS,
@@ -627,6 +627,16 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
     'merge.push': async (params) => {
       await mergeBase(params.ref, params.base);
       commitIds(params.mergeCommit);
+      return params;
+    },
+    'merge.remote_tags': async (params) => {
+      await mergeBase(params.ref, params.base);
+      return params;
+    },
+    'merge.push_tag': async (params) => {
+      await mergeBase(params.ref, params.base);
+      commitIds(params.commit);
+      if (!isReleaseTagName(params.tag)) refuse('invalid_params', 'Not a release tag name');
       return params;
     },
     'merge.advance': async (params) => {

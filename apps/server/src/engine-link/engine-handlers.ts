@@ -351,6 +351,9 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
     async 'github.find_pull_requests_for_branch'({ repo, branch }) {
       return github.findPullRequestsForBranch(repo, branch);
     },
+    async 'github.publish_release'({ repo, ...input }) {
+      return github.publishRelease(repo, input);
+    },
     async 'github.watch'({ watchId, targets }) {
       if (targets.length > MAX_WATCH_TARGETS)
         throw new EngineRpcError('invalid_params', 'Too many pull requests');
@@ -558,6 +561,12 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
     },
     async 'merge.push'({ ref, ...input }) {
       return merger().push(ref, input);
+    },
+    async 'merge.remote_tags'({ ref, ...input }) {
+      return merger().remoteTags(ref, input);
+    },
+    async 'merge.push_tag'({ ref, ...input }) {
+      return merger().pushTag(ref, input);
     },
     async 'merge.advance'({ ref, ...input }) {
       return merger().advance(ref, input);

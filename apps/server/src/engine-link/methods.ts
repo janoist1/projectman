@@ -237,6 +237,7 @@ type ContractResults = {
   'github.is_available': GithubService['isAvailable'];
   'github.get_pull_request': GithubService['getPullRequest'];
   'github.find_pull_requests_for_branch': GithubService['findPullRequestsForBranch'];
+  'github.publish_release': GithubService['publishRelease'];
   'machine.snapshot': MachineProbe['machine'];
   'machine.processes': MachineProbe['processes'];
   'machine.signal': MachineProbe['signal'];
@@ -261,6 +262,8 @@ type ContractResults = {
   'merge.checkout_for_check': BranchMerger['checkoutForCheck'];
   'merge.release_check': BranchMerger['releaseCheck'];
   'merge.push': BranchMerger['push'];
+  'merge.remote_tags': BranchMerger['remoteTags'];
+  'merge.push_tag': BranchMerger['pushTag'];
   'merge.advance': BranchMerger['advance'];
   'merge.read_file': BranchMerger['readFile'];
   'merge.commit_files': BranchMerger['commitFiles'];
@@ -302,6 +305,8 @@ type ContractParams = {
   'merge.checkout_for_check': { ref: MergeRepoRef } & Parameters<BranchMerger['checkoutForCheck']>[1];
   'merge.release_check': { ref: MergeRepoRef } & Parameters<BranchMerger['releaseCheck']>[1];
   'merge.push': { ref: MergeRepoRef } & Parameters<BranchMerger['push']>[1];
+  'merge.remote_tags': { ref: MergeRepoRef } & Parameters<BranchMerger['remoteTags']>[1];
+  'merge.push_tag': { ref: MergeRepoRef } & Parameters<BranchMerger['pushTag']>[1];
   'merge.advance': { ref: MergeRepoRef } & Parameters<BranchMerger['advance']>[1];
   'merge.read_file': { ref: MergeRepoRef } & Parameters<BranchMerger['readFile']>[1];
   'merge.commit_files': { ref: MergeRepoRef } & Parameters<BranchMerger['commitFiles']>[1];
@@ -535,6 +540,10 @@ export const methods = {
     z.strictObject({ repo: text, branch: text }),
     z.array(PullRequest),
   ),
+  'github.publish_release': method(
+    z.strictObject({ repo: text, tag: text.max(64), title: text.max(200), notes: text.max(20_000) }),
+    z.strictObject({ url: text }),
+  ),
   'github.watch': method(
     z.strictObject({ watchId: text, targets: z.array(z.strictObject({ repo: text, number: int.min(1) })) }),
     done,
@@ -638,6 +647,11 @@ export const methods = {
   ),
   'merge.release_check': method(mergeCall({ mergeId: mergeText }), done),
   'merge.push': method(mergeCall({ base: mergeText, mergeCommit: mergeText }), mergePushed),
+  'merge.remote_tags': method(
+    mergeCall({ base: mergeText }),
+    z.array(z.strictObject({ name: text, commit: text })).max(5000),
+  ),
+  'merge.push_tag': method(mergeCall({ base: mergeText, tag: mergeText, commit: mergeText }), mergePushed),
   'merge.advance': method(mergeCall({ base: mergeText, from: mergeText, to: mergeText }), mergeAdvanced),
   'merge.read_file': method(
     mergeCall({

@@ -6,6 +6,7 @@ import type { DomainHarness } from './helpers/domain-harness';
 import { flush, planUsage, settle } from './helpers/fakes';
 import { deferredStartRecords } from './helpers/deferred-starts';
 import { conflict } from '../src/kernel';
+import { withoutOnboarding } from './helpers/onboarding';
 
 /**
  * The automatic session starts admission refused (a stage hand-over, a message wake-up) are kept
@@ -504,9 +505,11 @@ describe('the retry timer', () => {
 
   it('retries queued refusals without repeating their logs', async () => {
     h = await createDomainHarness();
-    await h.domain.projects.create(
-      { key: 'BR', name: 'Fictional second project', workspacePath: h.workspace, templateId: 'test' },
-      OWNER,
+    await withoutOnboarding(h.domain, () =>
+      h.domain.projects.create(
+        { key: 'BR', name: 'Fictional second project', workspacePath: h.workspace, templateId: 'test' },
+        OWNER,
+      ),
     );
     // AR: the switch is off, so its hand-over waits for it.
     await setEnabled(h, false, 'AR');

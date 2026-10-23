@@ -7,6 +7,7 @@ import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harnes
 import type { DomainHarness } from './helpers/domain-harness';
 import { createAppHarness, createProject, setupOwner } from './helpers/app-harness';
 import { waitFor } from '../src/runner/test-helpers';
+import { withoutOnboarding } from './helpers/onboarding';
 
 const disabled = { code: 'ai_disabled', status: 409 };
 
@@ -38,9 +39,11 @@ describe('project AI switch', () => {
         config.pipeline.stages.find((stage) => stage.kind === 'work')!.owners!.push('owner');
       },
     });
-    await h.domain.projects.create(
-      { key: 'BR', name: 'Fictional enabled project', workspacePath: h.workspace, templateId: 'test' },
-      OWNER,
+    await withoutOnboarding(h.domain, () =>
+      h.domain.projects.create(
+        { key: 'BR', name: 'Fictional enabled project', workspacePath: h.workspace, templateId: 'test' },
+        OWNER,
+      ),
     );
     expect((await h.domain.sessions.ensureSession('BR', 'dev-1', { type: 'general' })).started).toBe(true);
     const task = await h.domain.tasks.create('AR', { title: 'Fictional human work' }, OWNER_ACTOR);

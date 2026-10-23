@@ -200,6 +200,8 @@ function parseArgs(argv: readonly string[]): Parsed {
 }
 
 interface MergeTestIo {
+  /** Runs the repository-wide dead-code check, once on the first shard. */
+  deadCode?: () => Promise<StepRun>;
   /** Whether a repository file exists in the checkout. */
   exists?: (file: string) => boolean;
   /** Runs `npm <args>`. */
@@ -329,6 +331,7 @@ export async function runMergeTest(argv: readonly string[], io: MergeTestIo = {}
   }
   console.log(line);
   if ('dryRun' in parsed) {
+    if (!shard || shard.index === 1) console.log('merge-test step: npm run dead-code');
     for (const step of steps) console.log(`merge-test step: npm ${step.args.join(' ')}`);
     return 0;
   }
@@ -336,6 +339,10 @@ export async function runMergeTest(argv: readonly string[], io: MergeTestIo = {}
   const workers = process.env.VITEST_MAX_FORKS ?? '';
   console.log(`${MERGE_TEST_WORKERS_PREFIX}${/^[1-9][0-9]{0,5}$/.test(workers) ? workers : 'unset'}`);
   try {
+    if (!shard || shard.index === 1) {
+      const checked = await (io.deadCode ?? (() => runNpm(['run', 'dead-code'])))();
+      if (checked.signaled || checked.code !== 0) return checked.code || 1;
+    }
     for (const file of absent) console.log(`merge-test skipped (absent): ${file}`);
     return await runSteps(steps, {
       spawn: io.npm ?? runNpm,

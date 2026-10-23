@@ -19,6 +19,7 @@ export const RUNTIME_ENTRIES: Readonly<Record<string, readonly string[]>> = {
   'scripts/full-test/cli.ts': [], // Only git; command execution has a separate dependency.
   'scripts/load-probe/load-probe.mjs': [],
   'scripts/merge-test/run.ts': [], // Only git; npm execution is behind its own graph dependency.
+  'scripts/merge-test/dead-code-cli.ts': [], // Starts the installed knip package only.
   'scripts/release/cli.ts': [],
 
   // Tests that only start git. Their imported production dependencies still determine selection.

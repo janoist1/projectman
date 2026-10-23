@@ -1,0 +1,42 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "include": ["files", "exports", "types"],
+  "workspaces": {
+    ".": {
+      "entry": [
+        "scripts/**/cli.ts",
+        "scripts/administration/builder.ts",
+        "scripts/administration/supervisor.ts",
+        "scripts/*.mjs",
+        "scripts/scenarios/*.mjs",
+        "scripts/load-probe/*.mjs",
+        "deploy/cloud/*.mjs",
+        "scripts/lib/*guard*.mjs",
+        "scripts/merge-test/dead-code-cli.ts"
+      ],
+      "project": ["scripts/**/*.{ts,mjs}", "deploy/**/*.mjs"]
+    },
+    "apps/server": {
+      "entry": [
+        "src/index.ts",
+        "src/control/cli.ts",
+        "src/history-semantic-profile.ts",
+        "src/history-semantic-profile-control.ts",
+        "scripts/*.mjs",
+        "test/fixtures/*.mjs",
+        "test/setup/*.ts",
+        "src/services/github/test-fixtures/*.mjs"
+      ],
+      "project": ["src/**/*.{ts,mjs}", "test/**/*.{ts,mjs}", "scripts/*.mjs"]
+    },
+    "apps/web": {
+      "entry": ["index.html", "public/sw.js"],
+      "project": ["src/**/*.{ts,tsx}", "public/sw.js"]
+    },
+    "apps/feedback-widget": {
+      "entry": ["src/main.ts", "vite.dev.config.ts", "shots/*.mjs"]
+    },
+    "packages/shared": {},
+    "packages/templates": {}
+  }
+}

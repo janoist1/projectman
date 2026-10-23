@@ -733,6 +733,7 @@ links:
     to: assembly
 
 ignore:
+  - knip.json
   - package.json
   - package-lock.json
   - tsconfig.base.json

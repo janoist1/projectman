@@ -15,8 +15,10 @@ import {
   moveMerge,
   partsClosedWaiver,
   isOpenTask,
+  isProjectManagerActor,
   isTheme,
   noApproverReason,
+  openPrerequisites,
   stageHandsOverForReview,
   stageIndex,
   stageOf,
@@ -38,7 +40,7 @@ import type {
   TaskHandOn,
   TimelineEventData,
 } from '@projectman/shared';
-import type { SourceHead } from '../../contracts';
+import type { SourceHead, TaskSchedulingQuery } from '../../contracts';
 import type { TaskPatch } from '../../db';
 import { isoNow } from '../base';
 import { requireHuman } from '../members';
@@ -48,6 +50,7 @@ import type { InboxService } from '../inbox';
 import { actorHandle, attributedActor, humanActor, newId, SYSTEM_ACTOR, unique } from '../../kernel';
 import type { BoardOrder } from './board-order';
 import type { TaskLabels } from './labels';
+import { prerequisiteCards } from './scheduling-context';
 import { requireStage, runEffects } from './store';
 import type { Effect, TaskStore } from './store';
 
@@ -291,6 +294,27 @@ export class TaskMoves {
     return { handover: await this.readHandover(config, task, target), mergeChecked };
   }
 
+  /**
+   * A project manager does not start a card into the work stage while a prerequisite of it is open
+   * (PM-722): the card would sit there with nobody working on it. Refused with `prerequisite_open` and
+   * the open keys; the card stays where it is. A person's move after the warning (PM-204), and the
+   * system's own moves, are not affected.
+   */
+  assertWorkEntryPrerequisites(config: ProjectConfig, task: Task, target: Stage, actor: Actor): void {
+    if (target.kind !== 'work' || task.stageId === target.id || !isProjectManagerActor(config, actor)) return;
+    const repo = this.store.ctx.repos.tasks;
+    const reader = {
+      readSchedulingTasks: (key: string, query: TaskSchedulingQuery) => repo.readScheduling(key, query),
+    };
+    const open = openPrerequisites(task, prerequisiteCards(reader, task.projectKey, task)).map(
+      (card) => card.key,
+    );
+    if (open.length > 0)
+      throw conflict('prerequisite_open', `task ${task.key} waits for ${open.join(', ')}`, {
+        prerequisites: open,
+      });
+  }
+
   /** The waiver of a move into the done stage (PM-647), from the card's subtasks as they stand now. */
   private partsClosedOf(config: ProjectConfig, task: Task, targetId: string): PartsClosed | null {
     return partsClosedWaiver(
@@ -411,6 +435,7 @@ export class TaskMoves {
       return { task, moved: false, pendingApproval: [] };
     // Every move path checks the project manager's configured stage-move rights.
     if (actorMoveRefusal(config, actor, task.stageId, target.id)) throw projectManagerMoveRefused();
+    this.assertWorkEntryPrerequisites(config, task, target, actor);
     // A collecting card whose subtasks are all closed goes to the done stage without the gates (PM-647).
     const waiver = this.partsClosedOf(config, task, target.id);
     // The system's automatic close is valid only while the waiver holds: it never falls back to the gates.

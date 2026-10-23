@@ -106,6 +106,31 @@ describe('the project manager’s rights on the server', () => {
       expect(['dev-1', 'dev-2']).toContain(card().assignee);
     });
 
+    it('does not start a card into the work stage while a prerequisite is open (PM-722)', async () => {
+      await h.domain.tasks.create('AR', { title: 'Prerequisite' }, OWNER_ACTOR);
+      await h.domain.tasks.update(
+        'AR',
+        'AR-1',
+        { relations: { add: [{ kind: 'prerequisite', key: 'AR-2' }] }, addLabels: ['ready-ok'] },
+        OWNER_ACTOR,
+      );
+      // Both ways in are refused, and the update records nothing of its own change.
+      await expect(
+        h.domain.tasks.update('AR', 'AR-1', { stageId: 'development', priority: 'low' }, aiActor('pm')),
+      ).rejects.toMatchObject({
+        status: 409,
+        code: 'prerequisite_open',
+        details: { prerequisites: ['AR-2'] },
+      });
+      await expect(
+        h.domain.tasks.moveToStage('AR', 'AR-1', 'development', aiActor('pm')),
+      ).rejects.toMatchObject({ code: 'prerequisite_open' });
+      expect(card()).toMatchObject({ stageId: 'ready', priority: null });
+      await h.domain.tasks.cancel('AR', 'AR-2', {}, OWNER_ACTOR);
+      await h.domain.tasks.update('AR', 'AR-1', { stageId: 'development' }, aiActor('pm'));
+      expect(card().stageId).toBe('development');
+    });
+
     it('refuses every other move and records nothing of the same call', async () => {
       // A step stage, back to the first stage, and back from the work stage afterwards.
       for (const stageId of ['code_review', 'merge', 'done', 'backlog']) {

@@ -91,6 +91,7 @@ export function TaskHeader({
         members={members}
         myHandle={myHandle}
         pipeline={pipeline}
+        workers={state.workers}
       />
     ) : null;
   const stage = pipeline.stageById.get(task.stageId);

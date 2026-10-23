@@ -48,7 +48,9 @@ service module is imported by this module.
 
 All files live under `apps/server/src/core/messages/` (PM-642): `index.ts`, `ports.ts`, `messages.ts`
 (stored messages), `messaging.ts` (sending, recording and notices), `relation-notices.ts`, `staleness.ts`
-(wake and stale rules) and `tests/`. The old `domain/messaging/` folder and its re-exporting index are gone.
+(wake and stale rules) and `answer-evidence.ts`. The wake-up result test lives beside the runtime
+router in `runtime/delivery/message-start-result.test.ts` (PM-961). The old `domain/messaging/`
+folder and its re-exporting index are gone.
 The authoritative descriptor is
 [`core-messages.ts`](../../apps/server/test/architecture/modules/core-messages.ts),
 imported by the single [module map](../../apps/server/test/architecture/module-map.ts).

@@ -40,7 +40,7 @@ export const WAKE_REPLY_WAIT_MS = 5000;
  * What the send needs to wake a recipient and learn the result, and what the end of a hold calls (the member
  * queue's driver, PM-925): the member's queue is worked through, whatever the reason it is looked at again.
  */
-export interface MessageWaker {
+interface MessageWaker {
   wake(projectKey: string, handle: string, workItem: WorkItemRef): Promise<WakeStart>;
   ensure(projectKey: string, handle: string): Promise<void>;
 }

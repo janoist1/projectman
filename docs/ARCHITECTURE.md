@@ -642,12 +642,12 @@ construction order; the factories return the existing classes without changing b
 | [`core/tasks`](modules/core-tasks.md)             | Tasks, PR records, board state, focus, involvement and card measures.       |
 | [`core/members`](modules/core-members.md)         | Member access, invitations, presence and naming.                            |
 | [`core/timeline`](modules/core-timeline.md)       | Append-only task and project timeline access.                               |
-| [`core/messages`](modules/core-messages.md)       | Stored messages, sending rules and runtime routing port.                   |
+| [`core/messages`](modules/core-messages.md)       | Stored messages, sending rules and runtime routing port.                    |
 | [`core/inbox`](modules/core-inbox.md)             | Human questions, approvals, permission inbox items and question lifecycle.  |
 | [`core/attachments`](modules/core-attachments.md) | Task and message attachment storage and processing.                         |
 | `runtime/admission`                               | Admission, deferred starts, handovers and refinement.                       |
 | `runtime/sessions`                                | Session lifecycle, rounds, compaction, policy, pause and workspaces.        |
-| `runtime/delivery`                                | Message routing, holds, wake-ups and session delivery.                     |
+| `runtime/delivery`                                | Message routing, holds, wake-ups and session delivery.                      |
 | `runtime/permissions`                             | Command parsing and execution permission rules.                             |
 | `runtime/watchers`                                | Runtime health, machine, outage, review, left parts and cleanup watches.    |
 | `runtime/usage`                                   | Provider quota, plan usage and managed provider keys.                       |

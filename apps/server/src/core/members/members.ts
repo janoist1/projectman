@@ -45,7 +45,7 @@ import type {
 import { aiMemberDefaults } from '@projectman/templates';
 import type { MemberCapacity, MemberProfileSessions } from './ports';
 import { findHumanByEmail, requireAiMember, requireHuman } from './access';
-import { ownerHandles } from '@projectman/shared';
+import { applyMemberEmailChange, ownerHandles } from '@projectman/shared';
 import type { ProjectAccess } from './access';
 import { isoNow } from '../base';
 import type { DomainContext } from '../base';
@@ -506,7 +506,7 @@ export class MemberService {
         fields.push('outbound network');
       }
       if (req.email !== undefined) {
-        member.email = { enabled: member.email?.enabled ?? false, ...member.email, ...req.email };
+        member.email = applyMemberEmailChange(member.email, req.email);
         fields.push('email');
       }
       if (req.onLeave !== undefined) {

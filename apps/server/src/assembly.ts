@@ -156,7 +156,7 @@ import { outputTail, withGithubActions } from './full-test';
 import { DecisionCandidates, DocWrites } from './services/project-docs';
 import { Merges } from './services/merges';
 import { MergeCardLock, startSweeps, type RunningSweeps } from './kernel';
-import { commandVerdict, engineIdOf, fullTestSandbox, readableRootsFor } from './runtime/sessions';
+import { createPermissionBroker, engineIdOf, fullTestSandbox } from './runtime/sessions';
 import {
   ReleaseDeployments,
   ReleaseRoadmapNotices,
@@ -269,7 +269,7 @@ export interface DomainOptions {
   logger: FastifyBaseLogger;
   /** Base URL the claude CLI reaches this server at (MCP endpoint), e.g. http://127.0.0.1:4700. */
   publicBaseUrl: string;
-  /** Creates the runner module once the permission broker (the inbox) exists. */
+  /** Creates the runner module once the runtime permission broker exists. */
   createRunner: (broker: PermissionBroker, nanogptKey?: () => Promise<string | null>) => RunnerModule;
   github: GithubService;
   /**
@@ -629,8 +629,13 @@ export function createDomain(opts: DomainOptions) {
     ctx,
     timeline,
     projects,
-    policy: { engineIdOf, readableRootsFor, commandVerdict },
     integratorTodoAccess: opts.integratorTodoAccess,
+  });
+  const permissionBroker = createPermissionBroker({
+    ctx,
+    projects,
+    inbox,
+    timeline,
     engines,
     attachmentDirectory,
   });
@@ -639,7 +644,7 @@ export function createDomain(opts: DomainOptions) {
   // `agentQuestions` is built once the team tools exist; the callback only runs during a session.
   const runnerModule = opts.createRunner(
     {
-      ...inbox.broker,
+      ...permissionBroker,
       forwardQuestion: ({ sessionId, toolName, toolInput }) =>
         agentQuestions.forward(sessionId, toolName, toolInput),
     },

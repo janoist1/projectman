@@ -643,13 +643,13 @@ construction order; the factories return the existing classes without changing b
 | [`core/members`](modules/core-members.md)         | Member access, invitations, presence and naming.                            |
 | [`core/timeline`](modules/core-timeline.md)       | Append-only task and project timeline access.                               |
 | [`core/messages`](modules/core-messages.md)       | Stored messages, routing and conversation rules.                            |
-| [`core/inbox`](modules/core-inbox.md)             | Human questions, approvals, permission decisions and question lifecycle.    |
+| [`core/inbox`](modules/core-inbox.md)             | Human questions, approvals, permission inbox items and question lifecycle.  |
 | [`core/attachments`](modules/core-attachments.md) | Task and message attachment storage and processing.                         |
 | `runtime/admission`                               | Admission, deferred starts, handovers and refinement.                       |
 | `runtime/sessions`                                | Session lifecycle, rounds, compaction, policy, pause and workspaces.        |
 | `runtime/delivery`                                | Message delivery to member sessions.                                        |
 | `runtime/permissions`                             | Command parsing and execution permission rules.                             |
-| `runtime/watchers`                                | Runtime health, machine, outage, review, left parts and cleanup watches.       |
+| `runtime/watchers`                                | Runtime health, machine, outage, review, left parts and cleanup watches.    |
 | `runtime/usage`                                   | Provider quota, plan usage and managed provider keys.                       |
 | `context`                                         | Agent context packs, prompts and member memory through two factories.       |
 | `services/merges`                                 | Card merge orchestration, queue and locks.                                  |
@@ -1167,7 +1167,7 @@ its decider drops out. The timeline events `permission_refused` (PM-165) and
 `permission_escalated` (PM-169), and `delegated`/`reason` on `permission_resolved` (PM-169), are
 part of the contract and render from PM-164 on.
 
-For Claude members (PM-165) the mode goes to the CLI as it is, and `InboxService.decide` answers
+For Claude members (PM-165) the mode goes to the CLI as it is, and the runtime permission broker answers
 what the CLI still asks: `commandVerdict`, then the approver (`human`: the inbox; `none`: an
 immediate refusal with no inbox item, a `permission_refused` event `by: 'approver_none'`; `ai`: the
 AI decider of PM-169, below). The auto mode's own refusals arrive as the
@@ -1176,11 +1176,14 @@ AI decider of PM-169, below). The auto mode's own refusals arrive as the
 publishing) are deny rules computed in `runtime/sessions` (`session policy`) and rendered in `--settings` by
 the Claude adapter; see `PROVIDERS.md` for the server-side decisions and their reasons.
 
-`core/inbox` owns `InboxPermissionPolicy` (PM-635): `InboxService` receives
-`engineIdOf`, `readableRootsFor` and `commandVerdict` from the `runtime/sessions` facade
-through assembly. The rules and engine-id default remain in runtime; core still checks
-the tool working directory's canonical paths on the session's engine before applying
-the command verdict. The permission broker, engine contracts and decision order are unchanged.
+`runtime/sessions/permission-broker.ts` owns CLI permission decisions (PM-960).
+Assembly creates it with the inbox, projects, timeline, domain context, engine directory and
+attachment-directory callback. It uses `engineIdOf`, `readableRootsFor` and `commandVerdict`
+directly within runtime, checking the tool working directory's canonical paths on the session's
+engine before applying the command verdict. `core/inbox` owns item creation, closure, publication,
+waiters (`waitForClose`) and delegation; the former `InboxPermissionPolicy` port is removed.
+The permission broker and engine contracts, decision order and synchronous waiter registration
+are unchanged.
 
 **The AI decider on the host (PM-169).** With approver `ai` (and the owner's `team.boundary.enabled`) a
 question the CLI still asks goes to the AI members holding `boundary_authorization`, not to the sponsor:
@@ -3328,8 +3331,8 @@ assumption or remote-engine RPC.
   `engine-host/session-roots.ts` (`defaultSessionTmpRoot`, `sharedClaudeTmpRoots`, the roots'
   preparation), `engine-host/local-host.ts` (opening the folders, the overlap check with the queue's
   folder), `runtime/sessions` (`SessionOrchestrator`, `SessionLauncher` in `launch.ts`, `session policy`) (PM-268, PM-333, PM-339, PM-312).
-  `core/inbox/ports.ts` exposes the existing readable-root calculation through `InboxPermissionPolicy`
-  (PM-635); policy rendering and folder operations remain in runtime and on the engine. Legacy Claude
+  `runtime/sessions/permission-broker.ts` uses the existing readable-root calculation directly
+  (PM-960); policy rendering and folder operations remain in runtime and on the engine. Legacy Claude
   sessions, and Codex sessions whose sandbox writes (`workspace-write`), receive a per-process
   writable folder below the server's real `tmpdir`; the server makes, sweeps and removes it. Since
   PM-522 Gemini, NanoGPT and read-only Codex sessions get one too (`sessionFolderAccess`):
@@ -3620,8 +3623,8 @@ assumption or remote-engine RPC.
   diagnostic payload crosses the server/engine boundary.
   **Remote engine (engine mode, PM-314: runs in the engine process):** use `permission.decide/cancel/forward_question`, `refused` events and `mcp.relay` (PM-313), plan an authenticated engine transport/local relay for hooks, decisions
   and MCP while preserving token isolation and the internal endpoint guard.
-  `core/inbox` keeps the existing broker and receives the command policy
-  through `InboxPermissionPolicy` (`core/inbox`, PM-635); no hook payload or transport changes.
+  `runtime/sessions/permission-broker.ts` owns the broker and uses the command policy
+  directly (PM-960); no hook payload or transport changes.
   **Cloud mode (PM-315):** the cloud registers no hook routes (`registerHookRoutes` is empty) and listens
   on no loopback for the CLIs. `permission.*` and `mcp.relay` are handled by `engine-link/remote/handlers.ts`;
   the relay runs the request through the cloud's own `/mcp/<token>` route and answers 404 for a token whose
@@ -3805,14 +3808,14 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   home keeps the other members' worktrees unreadable; the engine limit's session roots name
   `<workRoot>/worktrees` and `<workRoot>/workspaces`)
   (PM-87, PM-333, PM-355, PM-312; the canonical-path and directory checks of the domain are the
-  engine's `realpath`, `isDirectory`, `isRealDirectory`). `core/inbox` (PM-635)
-  uses `EngineHost.realpath` to validate the tool's working directory and receives the runtime's
-  policy functions through `InboxPermissionPolicy` (`core/inbox`); path validation still
+  engine's `realpath`, `isDirectory`, `isRealDirectory`). `runtime/sessions/permission-broker.ts` (PM-960)
+  uses `EngineHost.realpath` to validate the tool's working directory and uses the runtime's
+  policy functions directly; path validation still
   runs on the session's engine and requires no new RPC.
   PM-691 fixes the Operator's effective approver to `human` on the server through
   `packages/shared/src/config/permission-level.ts`, including historical session overrides.
   `runtime/sessions/{sessions,launch}.ts` checks updates and carries the effective member into
-  the existing start/context path; `core/inbox` uses it for human routing. Local and remote
+  the existing start/context path; `runtime/sessions/permission-broker.ts` uses it for human routing. Local and remote
   engines consume the same start intent. This changes no OS assumption or RPC and never
   turns a CLI escalation into boundary authorization.
   Legacy Claude execution uses the CLI's native sandbox (macOS Seatbelt); allow/deny paths

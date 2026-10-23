@@ -2,7 +2,6 @@ export function createInboxService(deps: ConstructorParameters<typeof InboxServi
   return new InboxService(deps);
 }
 
-import { isAbsolute, resolve, sep } from 'node:path';
 import {
   assertIntegratorAccess,
   assertOwnApproval,
@@ -27,11 +26,9 @@ import {
   approvalRefusal,
   canSeeInboxItem,
   DELEGATED_INPUT_LIMIT,
-  DELEGATION_DELIVERY_TIMEOUT_MS,
   PERMISSION_LEAD_CAP_MS,
   canDecidePermission,
   deliveredLeadDeadline,
-  effectiveSessionPermissions,
   emailApprovalOf,
   externalQuestionAnswerRefusal,
   superDecisionRefusal,
@@ -55,7 +52,6 @@ import {
   questionGroupCompatible,
   questionGroupLiveItemIds,
   QUESTION_SCREENING_MS,
-  routePermissionRequest,
   TODO_CANNOT_OPTION,
   TODO_DONE_OPTION,
   withQuestionAttachmentGone,
@@ -85,25 +81,16 @@ import type {
   ResolveIntegratorTodoRequest,
   ScreeningTodo,
   ScreenedQuestionsResponse,
-  Session,
   SuperActor,
   TimelineEventData,
   TaskStartWaiting,
   WorkItemRef,
 } from '@projectman/shared';
-import { APPROVER_NONE_REFUSAL } from '../../contracts';
-import type {
-  EngineDirectory,
-  PermissionBroker,
-  PermissionDecision,
-  PermissionRefusedInfo,
-  PermissionRequestInfo,
-} from '../../contracts';
 import { fixLimitDeciders, ownerHandles } from '@projectman/shared';
 import { isoNow } from '../base';
 import type { DomainContext } from '../base';
 import { bodyForOwners, formatFixLimitItem } from './fix-limit-text';
-import type { InboxPermissionPolicy, QuestionGroupAnswerer, IntegratorTodoAccess } from './ports';
+import type { QuestionGroupAnswerer, IntegratorTodoAccess } from './ports';
 import { conflict, forbidden, invalid, notFound } from '../../kernel';
 import type { ProjectService } from '../projects';
 import type { TimelineService } from '../timeline';
@@ -113,15 +100,6 @@ import { SYSTEM_ACTOR, aiActor, attributedActor, excerpt, humanActor, newId, Key
 const SCREENED_QUESTIONS_LIMIT = 20;
 
 /** Built-in option ids; the web app translates them (labels repeat the id). */
-const GUEST_CONVERSATION_REFUSAL =
-  'This conversation has the team tools only: you read what the person can see and answer them. Nothing else is allowed, and nobody is asked.';
-
-const PERMISSION_OPTIONS: InboxOption[] = [
-  { id: 'allow', label: 'allow', style: 'primary' },
-  { id: 'allow_session', label: 'allow_session', style: 'secondary' },
-  { id: 'deny', label: 'deny', style: 'danger' },
-];
-
 export const DECISION_OPTIONS: InboxOption[] = [
   { id: 'approve', label: 'approve', style: 'primary' },
   { id: 'reject', label: 'reject', style: 'danger' },
@@ -244,35 +222,6 @@ interface AskerStarts {
   ): Promise<TaskStartWaiting['reason'] | null>;
 }
 
-/** One-line summary of a tool call for humans, e.g. the Bash command or the edited file. */
-function summarizeToolInput(input: unknown, sessionCwd?: string | null): string {
-  const obj = input && typeof input === 'object' ? (input as Record<string, unknown>) : {};
-  for (const key of [
-    'command',
-    'file_path',
-    'notebook_path',
-    'path',
-    'url',
-    'pattern',
-    'description',
-    'prompt',
-  ]) {
-    const value = obj[key];
-    if (typeof value === 'string' && value.trim()) {
-      const prefix =
-        key === 'command' && typeof obj.cwd === 'string' && isAbsolute(obj.cwd) && obj.cwd !== sessionCwd
-          ? `${obj.cwd}$ `
-          : '';
-      return excerpt(`${prefix}${value}`, 200);
-    }
-  }
-  try {
-    return excerpt(JSON.stringify(input) ?? '', 200);
-  } catch {
-    return '';
-  }
-}
-
 /** Human assignees for requests raised by an AI member: its sponsor, else the owners. */
 export function sponsorOrOwners(config: ProjectConfig, memberHandle: string): string[] {
   const member = memberOf(config, memberHandle);
@@ -285,18 +234,13 @@ export function sponsorOrOwners(config: ProjectConfig, memberHandle: string): st
 
 /**
  * Everything waiting for a human ("Rád vár"): tool permissions, gate decisions, questions.
- * Implements the runner's PermissionBroker: a permission request becomes an inbox item and
- * the hook waits until a human resolves it (or the request is aborted, then it expires).
+ * Owns inbox items and their lifecycle, including waiting for an item to close.
  */
 export class InboxService {
-  readonly broker: PermissionBroker;
   private readonly ctx: DomainContext;
   private readonly timeline: TimelineService;
   private readonly projects: ProjectService;
-  private readonly policy: InboxPermissionPolicy;
   private readonly integratorTodoAccess?: IntegratorTodoAccess;
-  private readonly engines: EngineDirectory;
-  private readonly attachmentDirectory?: (projectKey: string, taskKey: string) => Promise<string>;
   private readonly waiters = new Map<string, (item: InboxItem) => void>();
   private readonly deciders = new Map<InboxDeciderKey, InboxDecider>();
   private readonly resolvingGates = new Map<string, { projectKey: string; gate: GateRequestPayload }>();
@@ -634,27 +578,12 @@ export class InboxService {
     ctx: DomainContext;
     timeline: TimelineService;
     projects: ProjectService;
-    policy: InboxPermissionPolicy;
     integratorTodoAccess?: IntegratorTodoAccess;
-    /**
-     * The engines (PM-311): a session's worktrees root, and where its member workspaces live (PM-138:
-     * routine steps there run without asking, as in a worktree), are its engine's.
-     */
-    engines: EngineDirectory;
-    /** The attachment directory of a task: read-only commands there are allowed for its sessions. */
-    attachmentDirectory?: (projectKey: string, taskKey: string) => Promise<string>;
   }) {
     this.ctx = deps.ctx;
     this.timeline = deps.timeline;
     this.projects = deps.projects;
-    this.policy = deps.policy;
     this.integratorTodoAccess = deps.integratorTodoAccess;
-    this.engines = deps.engines;
-    this.attachmentDirectory = deps.attachmentDirectory;
-    this.broker = {
-      decide: (request, signal) => this.decide(request, signal),
-      refused: (request) => this.classifierRefused(request),
-    };
   }
 
   create(input: CreateInboxItemInput): InboxItem {
@@ -2178,204 +2107,20 @@ export class InboxService {
   }
 
   /**
-   * The agent's own auto mode refused a tool call (Claude Code's PermissionDenied hook): there is
-   * nothing to decide, the timeline shows it (PM-165).
+   * Waits until the item closes and resolves with it. When `signal` aborts first, it drops the waiter,
+   * expires the item and resolves null.
    */
-  private classifierRefused(request: PermissionRefusedInfo): void {
-    const session = this.ctx.repos.sessions.get(request.sessionId);
-    if (!session) return;
-    this.refused(session, {
-      toolName: request.toolName,
-      summary: summarizeToolInput(request.toolInput) || request.toolName,
-      by: 'classifier',
-      ...(request.reason ? { reason: excerpt(request.reason, 500) } : {}),
-    });
-  }
-
-  private refused(session: Session, data: TimelineEventData['permission_refused']): void {
-    this.timeline.append({
-      projectKey: session.projectKey,
-      taskKey: session.workItem.type === 'task' ? session.workItem.taskKey : null,
-      sessionId: session.id,
-      actor: SYSTEM_ACTOR,
-      type: 'permission_refused',
-      data,
-    });
-  }
-
-  private async decide(request: PermissionRequestInfo, signal: AbortSignal): Promise<PermissionDecision> {
-    const session = this.ctx.repos.sessions.get(request.sessionId);
-    if (!session) return { behavior: 'deny', message: 'Unknown session.' };
-    // The Operator's conversation with someone who is not an owner has the team tools alone (PM-475):
-    // anything else is refused at once, and never becomes an item for the owner to approve.
-    if (session.workItem.type === 'general' && session.workItem.with !== undefined) {
-      this.refused(session, {
-        toolName: request.toolName,
-        summary: summarizeToolInput(request.toolInput, session.cwd) || request.toolName,
-        by: 'approver_none',
-      });
-      return { behavior: 'deny', message: GUEST_CONVERSATION_REFUSAL };
-    }
-    const config = await this.projects.config(session.projectKey);
-    const summary = summarizeToolInput(request.toolInput, session.cwd);
-    const taskKey = session.workItem.type === 'task' ? session.workItem.taskKey : null;
-    const member = memberOf(config, session.member);
-    const task = taskKey ? this.ctx.repos.tasks.get(taskKey) : null;
-    const attachmentsDir =
-      task && task.projectKey === session.projectKey
-        ? await this.attachmentDirectory?.(session.projectKey, task.key).catch(() => null)
-        : null;
-    const parentAttachmentsDir =
-      task?.parentKey && task.projectKey === session.projectKey
-        ? await this.attachmentDirectory?.(session.projectKey, task.parentKey).catch(() => null)
-        : null;
-    // The places of the engine the session runs on (an engine that is gone has none).
-    const engine = this.engines.get(this.policy.engineIdOf(session));
-    const worktreesRootDir = engine?.paths().worktreesRoot ?? undefined;
-    const workspacesRootDir = (engine?.memberWorkspaces ? engine.paths().workspacesRoot : null) ?? undefined;
-    const readableRoots = this.policy.readableRootsFor({
-      config,
-      cwd: session.cwd,
-      projectKey: session.projectKey,
-      task,
-      worktreesRootDir,
-      attachmentsDir,
-      parentAttachmentsDir,
-    });
-    const input = request.toolInput;
-    const toolCwd = input && typeof input === 'object' && 'cwd' in input ? input.cwd : undefined;
-    let validToolCwd = toolCwd === undefined;
-    if (typeof toolCwd === 'string' && isAbsolute(toolCwd) && session.cwd) {
-      const under = (p: string, root: string) => p === root || p.startsWith(`${root}${sep}`);
-      // The canonical paths are the engine's (the directories are on its disk); a path that is not
-      // there, or an engine that is gone, makes the directory invalid.
-      try {
-        const real = engine
-          ? await Promise.all([engine.realpath(toolCwd), engine.realpath(session.cwd)])
-          : null;
-        validToolCwd =
-          under(resolve(toolCwd), resolve(session.cwd)) &&
-          real !== null &&
-          real[0] !== null &&
-          real[1] !== null &&
-          under(real[0], real[1]);
-      } catch {
-        validToolCwd = false;
-      }
-    }
-    const verdict =
-      member?.kind === 'ai' && validToolCwd
-        ? this.policy.commandVerdict({
-            config,
-            session: {
-              cwd: typeof toolCwd === 'string' ? toolCwd : session.cwd,
-              role: member.role,
-              provider: session.provider,
-              member: session.member,
-              branch: session.branch,
-            },
-            task,
-            toolName: request.toolName,
-            toolInput: request.toolInput,
-            worktreesRootDir,
-            workspacesRootDir,
-            readableRoots,
-          })
-        : null;
-    // Nobody approves this member's questions (PM-165): refused at once, without an inbox item. The
-    // command rules above still come first (a routine step is allowed, publishing is denied); only a
-    // request they leave open is refused here. The approver is the one that applies to the session:
-    // its own, set by an owner, from the next question on (PM-170), else the member's.
-    const approver = member?.kind === 'ai' ? effectiveSessionPermissions(member, session).approver : null;
-    if (!verdict && approver === 'none') {
-      this.refused(session, { toolName: request.toolName, summary, by: 'approver_none' });
-      return { behavior: 'deny', message: APPROVER_NONE_REFUSAL };
-    }
-    // The approver `ai` (PM-169): the member's AI decider answers, unless the request is one of the
-    // owner's categories or there is no decider at work, and then a person does, as for `human`.
-    // The session's own directories, not the read-only attachments, are where it may write.
-    const route =
-      !verdict && member?.kind === 'ai' && approver
-        ? routePermissionRequest(config, session.member, {
-            toolName: request.toolName,
-            toolInput: request.toolInput,
-            roots: readableRoots.filter((root) => root !== attachmentsDir && root !== parentAttachmentsDir),
-            approver,
-          })
-        : null;
-    const delegation =
-      route?.to === 'ai'
-        ? {
-            state: 'pending_lead' as const,
-            leads: route.leads,
-            // The decider's own time counts from the first delivery (`recordDelegationDelivered`).
-            leadDeadline: new Date(this.ctx.now().getTime() + DELEGATION_DELIVERY_TIMEOUT_MS).toISOString(),
-          }
-        : null;
-    const item = this.create({
-      projectKey: session.projectKey,
-      kind: 'permission',
-      assignees: delegation ? delegation.leads : sponsorOrOwners(config, session.member),
-      source: session.member,
-      sessionId: session.id,
-      taskKey,
-      title: summary ? `${request.toolName}: ${summary}` : request.toolName,
-      payload: {
-        toolName: request.toolName,
-        toolInput: request.toolInput ?? null,
-        summary,
-        ...(delegation ? { delegation } : {}),
-        ...(route?.to === 'human' && route.category ? { ownerCategory: route.category } : {}),
-      },
-      options: PERMISSION_OPTIONS,
-    });
-    this.timeline.append({
-      projectKey: session.projectKey,
-      taskKey,
-      sessionId: session.id,
-      actor: aiActor(session.member),
-      type: 'permission_requested',
-      data: { inboxItemId: item.id, toolName: request.toolName, summary },
-    });
-
-    if (verdict) {
-      const at = isoNow(this.ctx);
-      const resolved = this.ctx.repos.inbox.close(
-        item.id,
-        'resolved',
-        {
-          optionId: verdict.behavior,
-          by: 'system',
-          at,
-          note: null,
-          rule: 'command_policy',
-        },
-        at,
-      )!;
-      this.publish(resolved);
-      this.timeline.append({
-        projectKey: session.projectKey,
-        taskKey,
-        sessionId: session.id,
-        actor: SYSTEM_ACTOR,
-        type: 'permission_resolved',
-        data: { inboxItemId: item.id, decision: verdict.behavior, optionId: verdict.behavior },
-      });
-      return verdict;
-    }
-
-    // The AI decider's queue item came with the inbox item (the member queue); the hook below waits for its
-    // answer like for a person's.
-    return new Promise<PermissionDecision>((resolve) => {
+  waitForClose(id: string, signal: AbortSignal): Promise<InboxItem | null> {
+    return new Promise<InboxItem | null>((resolve) => {
       const onAbort = () => {
-        this.waiters.delete(item.id);
-        this.expire(item.id);
-        resolve({ behavior: 'deny', message: 'No human decided in time; the request expired.' });
+        this.waiters.delete(id);
+        this.expire(id);
+        resolve(null);
       };
-      this.waiters.set(item.id, (closed) => {
+      this.waiters.set(id, (closed) => {
         signal.removeEventListener('abort', onAbort);
-        this.waiters.delete(item.id);
-        resolve(toPermissionDecision(closed));
+        this.waiters.delete(id);
+        resolve(closed);
       });
       if (signal.aborted) onAbort();
       else signal.addEventListener('abort', onAbort, { once: true });
@@ -2408,17 +2153,6 @@ function delegatedPermissionPrompt(item: InboxItem, deadline?: string): string {
   ]
     .filter(Boolean)
     .join('\n');
-}
-
-function toPermissionDecision(item: InboxItem): PermissionDecision {
-  const resolution = item.resolution;
-  if (item.state === 'resolved' && resolution) {
-    if (resolution.optionId === 'allow') return { behavior: 'allow' };
-    if (resolution.optionId === 'allow_session') return { behavior: 'allow', rememberForSession: true };
-    const reason = resolution.note ? `: ${resolution.note}` : '.';
-    return { behavior: 'deny', message: `Denied by ${resolution.by}${reason}` };
-  }
-  return { behavior: 'deny', message: `The permission request was ${item.state}.` };
 }
 
 /** The answer text of a resolved question: the chosen option's label and/or the note. */

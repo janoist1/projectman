@@ -3,6 +3,7 @@ export type { EngineCounters, EngineHelloMetadata } from './engine-registry';
 export { engineIdOf, engineOption, LocalEngineDirectory } from './engines';
 export { PauseService } from './pause';
 export type { PauseRequester } from './pause';
+export { createPermissionBroker } from './permission-broker';
 export { SessionCloser } from './session-closer';
 export { HYBRID_ARCHIVE_DIR, HYBRID_STAGING_DIR } from './session-policy';
 export {

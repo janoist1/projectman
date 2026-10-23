@@ -323,13 +323,14 @@ export class ProjectService {
    * repositories and card mover. Reads no disk and changes nothing.
    */
   buildConfig(req: CreateProjectRequest, creator: Author): ProjectConfig {
-    const template = this.templates.get(req.templateId);
+    const template = this.templates.get(req.templateId ?? 'starter');
     if (!template) throw invalid('unknown_template', `unknown template: ${req.templateId}`);
     const built = template.build({
       key: req.key,
       name: req.name,
       workspacePath: req.workspacePath,
-      language: DEFAULT_PROJECT_LANGUAGE,
+      language: req.language ?? DEFAULT_PROJECT_LANGUAGE,
+      provider: req.provider,
       owner: { handle: OWNER_HANDLE, displayName: creator.name, email: creator.email },
       cardMover: cardMoverOfRequest(req.cardMover),
     });
@@ -340,7 +341,7 @@ export class ProjectService {
         key: req.key,
         name: req.name,
         workspacePath: req.workspacePath,
-        templateId: req.templateId,
+        templateId: req.templateId ?? 'starter',
         ...(req.repos ? { repos: req.repos } : {}),
       },
     });
@@ -379,7 +380,7 @@ export class ProjectService {
         });
       }
 
-      const message = `Create project ${req.key} from template ${req.templateId}`;
+      const message = `Create project ${req.key} from template ${config.project.templateId}`;
       const { version } = await this.configStore
         .save(req.key, config, { author: creator, message })
         .catch(fromConfigError);
@@ -387,7 +388,7 @@ export class ProjectService {
       const record: ProjectRecord = {
         key: req.key,
         name: req.name,
-        templateId: req.templateId,
+        templateId: config.project.templateId ?? 'starter',
         configVersion: version,
         createdAt: at,
         updatedAt: at,

@@ -543,7 +543,9 @@ export const CreateProjectRequest = z.object({
   key: z.string().regex(/^[A-Z][A-Z0-9]{0,9}$/),
   name: z.string().min(1),
   workspacePath: z.string().min(1),
-  templateId: z.string(),
+  templateId: z.string().optional(),
+  language: z.enum(['hu', 'en']).optional(),
+  provider: AgentProvider.optional(),
   /** Repositories of the workspace; templates start without any (they can also be added later in the config). */
   repos: z.array(RepoConfig).optional(),
   /** Who moves the cards on; absent means `worker`. `creator` makes the creating human the mover. */

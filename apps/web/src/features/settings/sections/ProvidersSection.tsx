@@ -5,14 +5,14 @@ import type { ProjectConfig } from '@projectman/shared';
 import { useProviders } from '../../../api/queries';
 import { Button } from '../../../components/Button';
 import { t } from '../../../i18n/t';
-import { ProviderLoginSteps } from '../../team/ProviderWarning';
 import { SettingsSection } from './SettingsSection';
 import styles from './ProvidersSection.module.css';
 import { NanogptKeyDialog, NanogptDeleteDialog } from '../NanogptKeyDialog';
+import { ProviderTodo, providerStatusText } from '../ProviderStatus';
 import { useToast } from '../../../components/toastContext';
 import { formatDate } from '../../../i18n/format';
 
-/** Slot-based row so provider-specific status, instructions and actions can evolve independently. */
+/** Slot-based row for provider-specific status, instructions and actions. */
 export function ProviderRow({
   provider,
   count,
@@ -91,9 +91,8 @@ export function ProvidersSection({ config }: { config: ProjectConfig }) {
               (member) => member.kind === 'ai' && (member.provider ?? DEFAULT_AGENT_PROVIDER) === provider,
             ).length;
             const entry = query.data?.providers.find((row) => row.provider === provider);
-            const missing = entry?.loggedIn === false;
-            const needsLogin = missing && entry.problem === 'not_logged_in';
-            const tone = entry?.loggedIn === true ? 'ready' : missing && count ? 'needs' : 'neutral';
+            const tone =
+              entry?.loggedIn === true ? 'ready' : entry?.loggedIn === false && count ? 'needs' : 'neutral';
             return (
               <ProviderRow
                 key={provider}
@@ -107,65 +106,34 @@ export function ProvidersSection({ config }: { config: ProjectConfig }) {
                   ) : (
                     <span className={styles.state} data-tone={tone}>
                       <span className={styles.dot} aria-hidden="true" />
-                      {provider === 'nanogpt'
-                        ? entry?.loggedIn === true
-                          ? query.data?.keys.nanogpt.setAt
-                            ? t('providerSettings.nanogptSetAt', {
-                                date: formatDate(query.data.keys.nanogpt.setAt),
-                              })
-                            : t('providerSettings.nanogptSet')
-                          : t(
-                              entry?.loggedIn === null || !entry
-                                ? 'providerSettings.unknown'
-                                : entry.problem === 'no_key'
-                                  ? 'providerSettings.nanogptNoKeyState'
-                                  : 'providerSettings.nanogptIncompleteState',
-                            )
-                        : t(
-                            entry?.loggedIn === true
-                              ? 'providerSettings.ready'
-                              : needsLogin
-                                ? 'providerSettings.notLoggedIn'
-                                : missing
-                                  ? 'providerSettings.notReady'
-                                  : 'providerSettings.unknown',
-                          )}
+                      {provider === 'nanogpt' && entry?.loggedIn && query.data?.keys.nanogpt.setAt
+                        ? t('providerSettings.nanogptSetAt', {
+                            date: formatDate(query.data.keys.nanogpt.setAt),
+                          })
+                        : providerStatusText(provider, entry)}
                     </span>
                   )
                 }
                 todo={
-                  provider === 'nanogpt' && !query.isPending ? (
-                    <>
-                      {entry?.loggedIn === false &&
-                      entry.problem &&
-                      entry.problem !== 'no_key' &&
-                      entry.problem !== 'not_logged_in' ? (
-                        <span className={count ? styles.needs : undefined}>
-                          {t(`providerSettings.nanogptFixes.${entry.problem}`, {
-                            cliVersion: entry.cliVersion ?? t('common.dash'),
-                            minCliVersion: entry.minCliVersion ?? t('common.dash'),
-                          })}
-                          {entry.problem === 'chatgpt_login' ? (
-                            <>
-                              {' '}
-                              <code>providers/nanogpt/codex-home/auth.json</code>
-                            </>
-                          ) : null}
-                        </span>
-                      ) : null}
-                      {!hasKey && (!query.data?.canManageKeys || !count) ? (
+                  !query.isPending ? (
+                    <span className={count ? styles.needs : undefined}>
+                      <ProviderTodo
+                        provider={provider}
+                        entry={entry}
+                        canManageKeys={query.data?.canManageKeys === true}
+                      />
+                      {provider === 'nanogpt' &&
+                      !hasKey &&
+                      entry?.problem !== 'no_key' &&
+                      (!query.data?.canManageKeys || !count) ? (
                         <p>
                           {t(
-                            !query.data?.canManageKeys
-                              ? 'providerSettings.nanogptOwner'
-                              : 'providerSettings.nanogptFirstUse',
+                            query.data?.canManageKeys
+                              ? 'providerSettings.nanogptFirstUse'
+                              : 'providerSettings.nanogptOwner',
                           )}
                         </p>
                       ) : null}
-                    </>
-                  ) : needsLogin && provider !== 'nanogpt' ? (
-                    <span className={count ? styles.needs : undefined}>
-                      <ProviderLoginSteps provider={provider} />
                     </span>
                   ) : undefined
                 }

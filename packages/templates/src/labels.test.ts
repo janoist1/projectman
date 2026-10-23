@@ -9,12 +9,12 @@ import {
 import { describe, expect, it } from 'vitest';
 import { legacyCheckLabels, migrateLegacyConfig, standardLabelsFor } from './labels';
 import { getLocale } from './locales';
-import { templates } from './index';
+import { getTemplate } from './index';
 
 function legacyConfig() {
   const config = JSON.parse(
     JSON.stringify(
-      templates[0]!.build({
+      getTemplate('web-client-project')!.build({
         key: 'AC',
         name: 'Acme',
         workspacePath: '/tmp/acme',

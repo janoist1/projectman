@@ -2233,11 +2233,15 @@ export class MockBackend {
           return error(422, 'invalid_config', 'configuration violates the team invariants', {
             issues: blocking,
           });
-        this.extraProjects.push({ key: input.key, name: input.name, templateId: input.templateId });
+        this.extraProjects.push({
+          key: input.key,
+          name: input.name,
+          templateId: input.templateId ?? 'starter',
+        });
         return ok({
           key: input.key,
           name: input.name,
-          templateId: input.templateId,
+          templateId: input.templateId ?? 'starter',
           configVersion: '0000000',
         });
       }
@@ -2978,13 +2982,14 @@ export class MockBackend {
 
   /** The configuration a create would save: the template's, with the request's name, workspace, repos and mover. */
   private projectDraft(input: CreateProjectRequest): ProjectConfig | MockResponse {
-    const template = getTemplate(input.templateId);
+    const template = getTemplate(input.templateId ?? 'starter');
     if (!template) return error(400, 'unknown_template', `unknown template: ${input.templateId}`);
     const built = template.build({
       key: input.key,
       name: input.name,
       workspacePath: input.workspacePath,
-      language: DEFAULT_PROJECT_LANGUAGE,
+      language: input.language ?? DEFAULT_PROJECT_LANGUAGE,
+      provider: input.provider,
       owner: { handle: 'owner', displayName: 'Owner', email: 'owner@example.com' },
       cardMover:
         input.cardMover === 'creator'
@@ -2998,7 +3003,7 @@ export class MockBackend {
         key: input.key,
         name: input.name,
         workspacePath: input.workspacePath,
-        templateId: input.templateId,
+        templateId: input.templateId ?? 'starter',
         ...(input.repos ? { repos: input.repos } : {}),
       },
     });

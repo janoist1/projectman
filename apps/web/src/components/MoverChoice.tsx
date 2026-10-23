@@ -4,7 +4,7 @@ import { ChoiceCard } from './Field';
 import { Chip } from './Chip';
 import styles from './MoverChoice.module.css';
 
-export type MoverKind = 'worker' | 'project_manager' | 'human';
+type MoverKind = 'worker' | 'project_manager' | 'human';
 
 const KINDS: readonly MoverKind[] = ['worker', 'project_manager', 'human'];
 
@@ -13,14 +13,14 @@ interface MoverChoiceProps {
   name: string;
   value: MoverKind;
   onChange: (kind: MoverKind) => void;
-  /** Shown under the "one person" card while it is chosen (who it is, or why the wizard has no picker). */
+  /** Shown under the "one person" card while it is chosen. */
   humanExtra?: ReactNode;
   disabled?: boolean;
   /** The group's name for assistive technology; the screen shows its own heading. */
   legend?: string;
 }
 
-/** "Who moves the cards on": the three choices of the new-project wizard and of the settings (PM-439). */
+/** The three choices for who moves cards on in the team settings. */
 export function MoverChoice({ name, value, onChange, humanExtra, disabled, legend }: MoverChoiceProps) {
   return (
     <fieldset className={styles.group} disabled={disabled}>

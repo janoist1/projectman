@@ -53,7 +53,7 @@ export type StandardLabelId =
   | 'waiting-answer'
   | 'refine';
 
-export type TemplateId = 'web-client-project' | 'small-team' | 'internal-tool' | 'daily-routine';
+export type TemplateId = 'starter' | 'web-client-project' | 'small-team' | 'internal-tool' | 'daily-routine';
 
 /** How a built-in role is presented to people. */
 export interface RoleText {

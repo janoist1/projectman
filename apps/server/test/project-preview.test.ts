@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { stringify } from 'yaml';
 import { ProjectConfig, ProjectPreview, routes } from '@projectman/shared';
 import type { ConfigView } from '@projectman/shared';
-import type { ProjectTemplate } from '@projectman/templates';
+import { getTemplate, type ProjectTemplate } from '@projectman/templates';
 import { parseYamlFile } from '../src/config/layout';
 import { addHumanAndLogin, createAppHarness, createProject, inject, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
@@ -25,7 +25,7 @@ describe('project preview and creation with a card mover (PM-459)', () => {
   let h: AppHarness;
   let cookie: string;
   beforeEach(async () => {
-    h = await createAppHarness({ extraTemplates: [ownerlessTemplate] });
+    h = await createAppHarness({ extraTemplates: [ownerlessTemplate, getTemplate('starter')!] });
     cookie = await setupOwner(h.app);
   });
   afterEach(async () => h.close());
@@ -98,6 +98,25 @@ describe('project preview and creation with a card mover (PM-459)', () => {
     expect(res.statusCode, res.body).toBe(201);
     const { config } = await h.app.projectman.configStore.load('BB');
     expect(config.team.cardMover).toEqual({ kind: 'human', handle: 'owner' });
+  });
+
+  it('creates a starter without a template id in the requested language and provider', async () => {
+    const res = await inject(h.app, 'POST', routes.projects(), cookie, {
+      key: 'BB',
+      name: 'Starter',
+      workspacePath: h.workspace,
+      language: 'en',
+      provider: 'codex',
+    });
+    expect(res.statusCode, res.body).toBe(201);
+    const { config } = await h.app.projectman.configStore.load('BB');
+    expect(config.project).toMatchObject({ templateId: 'starter', language: 'en' });
+    expect(config.team.members.filter((member) => member.kind === 'ai')).toHaveLength(3);
+    expect(
+      config.team.members
+        .filter((member) => member.kind === 'ai')
+        .every((member) => member.provider === 'codex'),
+    ).toBe(true);
   });
 
   it('refuses a combination that does not work, with the issues, and creates nothing', async () => {

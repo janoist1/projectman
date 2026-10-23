@@ -119,6 +119,7 @@ function draftProject(templateId: TemplateId, input: BuildTemplateInput): Templa
         : defaultMemberName(role, input.language, index, { specialty: specialtyName });
       members.push(
         newAiMember({
+          provider: input.provider,
           role,
           handle,
           displayName,
@@ -162,13 +163,19 @@ function draftProject(templateId: TemplateId, input: BuildTemplateInput): Templa
       // Every project has a project manager (PM-429), whether or not the template hired one.
       if (!members.some(isProjectManager)) {
         members.push(
-          projectManagerMember({ language: input.language, sponsor: input.owner.handle, taken: [...taken] }),
+          projectManagerMember({
+            provider: input.provider,
+            language: input.language,
+            sponsor: input.owner.handle,
+            taken: [...taken],
+          }),
         );
       }
       // So does it have an Operator (PM-447), next to the project manager.
       if (!members.some(isOperator)) {
         members.push(
           operatorMember({
+            provider: input.provider,
             language: input.language,
             sponsor: input.owner.handle,
             taken: members.map((m) => m.handle),

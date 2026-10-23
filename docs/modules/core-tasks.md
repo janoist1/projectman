@@ -6,7 +6,7 @@ Task lifecycle, labels, moves, relations, themes, board ordering, focus, involve
 
 ## Facade
 
-`core/tasks/index.ts` is the sealed entry point. It exports `TaskService`, `createTaskService`, `prerequisiteCards`, `startContext`, `PrerequisiteClosures`, `TaskWaits`, `LeftParts`, `approvalRequestedError`, `gateBlockedError`, `BoardService`, `ProjectFocusService`, `InvolvementService` and `CardMeasure`. Public types are `HandoffTrigger`, `TaskUpdate`, `MergeGate`, `MoveResult`, `StageChange`, `TaskPauseReader`, `BoardPlanUsage` and `BoardPauses`. The factory dependency shape and all public signatures are unchanged from PM-636.
+`core/tasks/index.ts` is the sealed entry point. It exports `TaskService`, `createTaskService`, `prerequisiteCards`, `startContext`, `PrerequisiteClosures`, `TaskWaits`, `approvalRequestedError`, `gateBlockedError`, `BoardService`, `ProjectFocusService`, `InvolvementService` and `CardMeasure`. Public types are `HandoffTrigger`, `TaskUpdate`, `MergeGate`, `MoveResult`, `StageChange`, `BoardPlanUsage` and `BoardPauses`. The factory dependency shape and all public signatures are unchanged from PM-636.
 
 ## Targeted scheduling reads (PM-770)
 
@@ -14,11 +14,11 @@ Task lifecycle, labels, moves, relations, themes, board ordering, focus, involve
 
 ## Ports
 
-`TaskService` receives the domain context, timeline, projects and inbox. Existing contracts include `StartWaitingReader` and `SourceHeadReader`; callbacks provide hand-on notifications, outage/fix-limit state and handoffs. `core/tasks/ports.ts` defines the consumer-owned `TaskPauseReader` for `LeftParts` and `BoardPlanUsage` / `BoardPauses` for `BoardService`. Assembly supplies the existing runtime objects without casts. Live session states come directly from shared contracts. `TaskService` owns one internal `PullRequestRecords` instance; GitHub synchronization calls the existing task methods to record snapshots and apply link updates. No runtime or GitHub service import remains in this module (PM-632).
+`TaskService` receives the domain context, timeline, projects and inbox. Existing contracts include `StartWaitingReader` and `SourceHeadReader`; callbacks provide hand-on notifications, outage/fix-limit state and handoffs. `core/tasks/ports.ts` defines the consumer-owned `BoardPlanUsage` / `BoardPauses` for `BoardService`. Assembly supplies the existing runtime objects without casts. Live session states come directly from shared contracts. `TaskService` owns one internal `PullRequestRecords` instance; GitHub synchronization calls the existing task methods to record snapshots and apply link updates. No runtime or GitHub service import remains in this module (PM-632).
 
 ## Files
 
-All implementations live directly under `apps/server/src/core/tasks/`: `service.ts`, `store.ts`, `moves.ts`, `labels.ts`, `relations.ts`, `themes.ts`, `developer-level.ts`, `board-order.ts`, `group-move.ts`, `prerequisites.ts`, `task-wait.ts`, `left-parts.ts`, `pull-request-records.ts`, `board.ts`, `project-focus.ts`, `involvements.ts`, `card-measure.ts` and `scheduling-context.ts`. `index.ts` provides the facade, `ports.ts` retains the consumer-owned ports, and `tests/merges.test.ts` retains the merge-gate tests. Internal dependencies use direct relative imports; no legacy domain shim remains. AutoAdvance belongs to `runtime/watchers`.
+All implementations live directly under `apps/server/src/core/tasks/`: `service.ts`, `store.ts`, `moves.ts`, `labels.ts`, `relations.ts`, `themes.ts`, `developer-level.ts`, `board-order.ts`, `group-move.ts`, `prerequisites.ts`, `task-wait.ts`, `pull-request-records.ts`, `board.ts`, `project-focus.ts`, `involvements.ts`, `card-measure.ts` and `scheduling-context.ts`. `index.ts` provides the facade, `ports.ts` retains the consumer-owned ports, and `tests/merges.test.ts` retains the merge-gate tests. Internal dependencies use direct relative imports; no legacy domain shim remains. AutoAdvance and LeftParts belong to `runtime/watchers`. LeftParts moved there in PM-959; its session pause reader is local to the watcher.
 The authoritative descriptor is
 [`core-tasks.ts`](../../apps/server/test/architecture/modules/core-tasks.ts),
 imported by the single [module map](../../apps/server/test/architecture/module-map.ts).

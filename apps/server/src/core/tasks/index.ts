@@ -2,7 +2,6 @@ export { TaskService, createTaskService } from './service';
 export type { HandoffTrigger } from './service';
 export { PrerequisiteClosures } from './prerequisites';
 export { TaskWaits } from './task-wait';
-export { LeftParts } from './left-parts';
 export { CollectingCloser } from './collecting-close';
 export { approvalRequestedError, gateBlockedError } from './moves';
 export type { MergeGate, StageChange } from './moves';

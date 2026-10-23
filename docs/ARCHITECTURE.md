@@ -649,7 +649,7 @@ construction order; the factories return the existing classes without changing b
 | `runtime/sessions`                                | Session lifecycle, rounds, compaction, policy, pause and workspaces.        |
 | `runtime/delivery`                                | Message delivery to member sessions.                                        |
 | `runtime/permissions`                             | Command parsing and execution permission rules.                             |
-| `runtime/watchers`                                | Runtime health, machine sampling, outage, review and cleanup watches.       |
+| `runtime/watchers`                                | Runtime health, machine, outage, review, left parts and cleanup watches.       |
 | `runtime/usage`                                   | Provider quota, plan usage and managed provider keys.                       |
 | `context`                                         | Agent context packs, prompts and member memory through two factories.       |
 | `services/merges`                                 | Card merge orchestration, queue and locks.                                  |

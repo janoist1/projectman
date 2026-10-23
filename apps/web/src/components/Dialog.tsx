@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { createContext, useContext, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { Children, createContext, useContext, useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { ReactNode, RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { t } from '../i18n/t';
@@ -244,7 +244,7 @@ function DialogInner({
           ) : null}
         </header>
         <SlotsContext.Provider value={slots}>
-          {children ? <div className={styles.body}>{children}</div> : null}
+          {Children.toArray(children).length ? <div className={styles.body}>{children}</div> : null}
           <div ref={setErrorSlot} className={styles.error} />
           <footer ref={setFooterSlot} className={styles.footer} />
           {footer || error ? <DialogActions error={error}>{footer}</DialogActions> : null}

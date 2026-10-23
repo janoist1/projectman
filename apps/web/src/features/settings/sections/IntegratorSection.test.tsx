@@ -6,6 +6,7 @@ import { mockProject } from '../../../test/mockProject';
 import { IntegratorSection } from './IntegratorSection';
 import { OPERATOR_MACHINE_OPERATIONS } from '@projectman/shared';
 import { hu } from '../../../i18n/hu';
+import dialogStyles from '../../../components/Dialog.module.css';
 
 afterEach(() => {
   setFetchImplementation((input, init) => globalThis.fetch(input, init));
@@ -193,6 +194,32 @@ describe('integrator key settings', () => {
     fireEvent.click(await screen.findByText(t('integratorKey.past', { n: 1 })));
     expect(await screen.findByText(t('integratorKey.states.revoked'), { exact: true })).toBeTruthy();
   });
+  it.each(['super', 'read'] as const)(
+    'describes %s key revocation without an empty dialog body',
+    async (mode) => {
+      const project = mockProject();
+      project.context.me.hostOwner = true;
+      project.backend.integratorKeys = [
+        {
+          id: 'key',
+          mode,
+          prefix: 'pmi_test',
+          state: 'active',
+          createdAt: new Date().toISOString(),
+          expiresAt: null,
+          revokedAt: null,
+          lastUsedAt: null,
+          lastUsedChannel: null,
+        },
+      ];
+      project.render(<IntegratorSection />);
+      fireEvent.click(await screen.findByRole('button', { name: t('integratorKey.revoke') }));
+      const dialog = screen.getByRole('dialog', {
+        description: t(mode === 'read' ? 'integratorKey.revokeReadBody' : 'integratorKey.revokeBody'),
+      });
+      expect(dialog.querySelector(`.${dialogStyles.body}`)).toBeNull();
+    },
+  );
   it('creates a key lasting 365 days', async () => {
     const project = mockProject();
     project.context.me.hostOwner = true;

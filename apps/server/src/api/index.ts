@@ -30,6 +30,7 @@ import { registerScheduleRoutes } from './schedules';
 import { registerSessionRoutes } from './sessions';
 import { registerTaskRoutes } from './tasks';
 import { registerMergeRoutes } from './merges';
+import { registerVersionRoutes } from './version';
 import { forbidden } from '../kernel';
 
 export type { ApiDomain } from './ports';
@@ -85,6 +86,7 @@ export function registerApiRoutes(app: FastifyInstance, services: ApiServices): 
     };
   });
   registerEngineRoutes(app, services);
+  registerVersionRoutes(app, domain);
   registerWebPushRoutes(app, domain);
   registerProviderRoutes(app, domain);
   registerProjectRoutes(app, services);

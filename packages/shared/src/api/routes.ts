@@ -5,6 +5,8 @@
  * per-session token.
  */
 export const routes = {
+  /** GET the running server version for any authenticated user. */
+  serverVersion: () => '/api/version',
   /** Owner/admin: GET EmailChannelView. */
   emailChannel: (key: string) => `/api/projects/${key}/email`,
   /** Owner/admin: PUT SetEmailContactRequest -> EmailContact. */

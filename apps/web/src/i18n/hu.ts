@@ -936,6 +936,7 @@ export const hu = {
   },
 
   nav: {
+    version: 'Verzió: {version}',
     main: 'Fő navigáció',
     board: 'Folyamat',
     map: 'Térkép',

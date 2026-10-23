@@ -60,6 +60,16 @@ import {
   Visibility,
 } from '../domain/task';
 
+export const ServerVersionView = z.object({
+  /** What the server reports: a commit id, dev, or a version override. */
+  version: z.string(),
+  /** The 40/64-hex commit when version is one; otherwise null. */
+  commit: z.string().nullable(),
+  /** The release tag of that commit; null when it was not released. */
+  tag: z.string().nullable(),
+});
+export type ServerVersionView = z.infer<typeof ServerVersionView>;
+
 /** Empty starts or retries; fixConflict creates a checkout; resolution submits its committed fix (PM-481). */
 export const StartMergeRequest = z.object({
   fixConflict: z.boolean().optional(),

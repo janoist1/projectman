@@ -67,6 +67,7 @@ export const TEAM_TOOL_NAMES = [
   'prioritize_merge',
   'list_merge_checks',
   'propose_release',
+  'publish_release',
   'check_release',
   'update_task',
   'create_task',

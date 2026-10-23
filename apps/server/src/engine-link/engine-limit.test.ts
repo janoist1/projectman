@@ -1232,6 +1232,8 @@ describe('engine local limit', () => {
         ],
         ['merge.release_check', { ref, mergeId }],
         ['merge.push', { ref, base: 'main', mergeCommit: sha }],
+        ['merge.remote_tags', { ref, base: 'main' }],
+        ['merge.push_tag', { ref, base: 'main', tag: 'v2026.1.2', commit: sha }],
         ['merge.advance', { ref, base: 'main', from: sha, to: other }],
         ['merge.read_file', { ref, at: { commit: sha }, path: 'docs/decisions.md' }],
         ['merge.read_file', { ref, at: { base: 'main' }, path: 'ROADMAP.md' }],
@@ -1346,6 +1348,8 @@ describe('engine local limit', () => {
         ['merge.checkout_for_check', { ref, mergeId, mergeCommit: sha, depsFrom: null }],
         ['merge.release_check', { ref, mergeId }],
         ['merge.push', { ref, base: 'main', mergeCommit: sha }],
+        ['merge.remote_tags', { ref, base: 'main' }],
+        ['merge.push_tag', { ref, base: 'main', tag: 'v1', commit: sha }],
         ['merge.advance', { ref, base: 'main', from: sha, to: other }],
         ['merge.read_file', { ref, at: { base: 'main' }, path: 'a.md' }],
         ['merge.read_file', { ref, at: { commit: sha }, path: 'a.md' }],
@@ -1386,6 +1390,14 @@ describe('engine local limit', () => {
       const limit = merging();
       await refused(limit, 'merge.prepare', { ref, base: 'main', commit: 'main' }, 'invalid_params');
       await refused(limit, 'merge.push', { ref, base: 'main', mergeCommit: '--force' }, 'invalid_params');
+      for (const tag of ['--force', 'a b', '', 'v1..2'])
+        await refused(limit, 'merge.push_tag', { ref, base: 'main', tag, commit: sha }, 'invalid_params');
+      await refused(
+        limit,
+        'merge.push_tag',
+        { ref, base: 'main', tag: 'v1', commit: 'main' },
+        'invalid_params',
+      );
       await refused(limit, 'merge.advance', { ref, base: 'main', from: sha, to: 'HEAD' }, 'invalid_params');
       await refused(limit, 'merge.is_ancestor', { ref, ancestor: 'x', commit: sha }, 'invalid_params');
       await refused(

@@ -566,6 +566,7 @@ const DUTY_STEPS: Partial<Record<DutyId, StepRule>> = {
     return [
       'Do the deployment or operations work you were asked for and report to the sender with send_message. Production changes need an approved human decision.',
       'If you are asked to prepare a release of this instance: call propose_release with preview: true to see the commit and the cards, write a short English summary of the cards with their keys, then call propose_release with the title and the summary. Your session ends with that call; an owner approves and the release watcher deploys. Never tag, push or touch the live instance yourself.',
+      'If you are asked for a release of a repository (a git tag and a GitHub release): call publish_release with preview: true to see the tag, the commit and the cards, write a short English summary with the card keys, then call publish_release with the summary. It only tags and publishes; it deploys nothing. If it ends with release_publish_failed after the tag was pushed, call it again to finish.',
     ];
   },
 

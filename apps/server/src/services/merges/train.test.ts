@@ -65,6 +65,8 @@ function fakeMerger(remote = true) {
       base.remote = { name: 'origin', commit: input.mergeCommit };
       return { ok: true };
     }),
+    remoteTags: vi.fn(),
+    pushTag: vi.fn(),
     advance: vi.fn<BranchMerger['advance']>(async (_ref, input) => {
       base.local = input.to;
       return { ok: true };

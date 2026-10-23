@@ -159,6 +159,7 @@ import { MergeCardLock, startSweeps, type RunningSweeps } from './kernel';
 import { createPermissionBroker, engineIdOf, fullTestSandbox } from './runtime/sessions';
 import {
   ReleaseDeployments,
+  ReleasePublishService,
   ReleaseRoadmapNotices,
   ReleaseService,
   ReleaseWorkGate,
@@ -1354,6 +1355,14 @@ export function createDomain(opts: DomainOptions) {
     // The instance's own repository is on the machine the server runs on.
     engineId: () => LOCAL_ENGINE_ID,
   });
+  const releasePublications = new ReleasePublishService({
+    ctx,
+    projects,
+    engines,
+    github: opts.github,
+    // The repository is where the publishing member works.
+    engineId: (projectKey, member) => engines.engineFor(projectKey, member) ?? LOCAL_ENGINE_ID,
+  });
   inbox.registerDecider('release', (item, by, optionId, note) => releases.decide(item, by, optionId, note));
   const releaseDeployments = new ReleaseDeployments({
     ctx,
@@ -1756,7 +1765,7 @@ export function createDomain(opts: DomainOptions) {
         },
       }),
       members: new MemberTools({ calls: toolCaller, members, memory: opts.memory }),
-      releases: new ReleaseTools({ calls: toolCaller, releases }),
+      releases: new ReleaseTools({ calls: toolCaller, releases, publications: releasePublications }),
       tasks: new TaskTools({
         calls: toolCaller,
         ctx,
@@ -2463,6 +2472,7 @@ export function createDomain(opts: DomainOptions) {
     docWrites,
     decisionCandidates,
     releases,
+    releasePublications,
     releaseDeployments,
     administration,
     loopWatch,

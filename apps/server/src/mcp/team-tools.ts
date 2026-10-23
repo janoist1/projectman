@@ -28,6 +28,8 @@ import type {
   MergeCheckList,
   MessageAttachmentReading,
   ProposedRelease,
+  PublishedRelease,
+  PublishReleaseArgs,
   ReleaseCheckResult,
   ScreenshotRun,
   MemberStartResult,
@@ -351,6 +353,10 @@ export class TeamToolsService implements TeamToolsHandler {
     args: { title: string; summary: string; commit?: string; preview?: boolean },
   ): Promise<ProposedRelease> {
     return this.tools.releases.proposeRelease(ctx, args);
+  }
+
+  async publishRelease(ctx: ToolContext, args: PublishReleaseArgs): Promise<PublishedRelease> {
+    return this.tools.releases.publishRelease(ctx, args);
   }
 
   async checkRelease(ctx: ToolContext, args: { commit?: string }): Promise<ReleaseCheckResult> {

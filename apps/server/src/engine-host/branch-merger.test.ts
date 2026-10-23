@@ -682,6 +682,53 @@ describe('push', () => {
   });
 });
 
+describe('release tags', () => {
+  it('pushes an annotated tag on the commit and lists it with the commit it points at', async () => {
+    const { merger, repo, remote } = fixture();
+    const head = git(repo, 'rev-parse', 'HEAD');
+
+    expect(await merger.pushTag(REF, { base: 'main', tag: 'v2026.1.2', commit: head })).toEqual({ ok: true });
+
+    expect(git(remote, 'cat-file', '-t', 'v2026.1.2')).toBe('tag');
+    expect(await merger.remoteTags(REF, { base: 'main' })).toEqual([{ name: 'v2026.1.2', commit: head }]);
+  });
+
+  it('refuses a tag the remote has, never moving it', async () => {
+    const { merger, repo, remote } = fixture();
+    const first = git(repo, 'rev-parse', 'HEAD');
+    await merger.pushTag(REF, { base: 'main', tag: 'v1', commit: first });
+    const second = feature(repo, 'f.txt', 'x\n');
+
+    const result = await merger.pushTag(REF, { base: 'main', tag: 'v1', commit: second });
+
+    expect(result).toMatchObject({ ok: false, reason: 'rejected' });
+    expect(git(remote, 'rev-parse', 'v1^{commit}')).toBe(first);
+    expect(git(repo, 'tag', '--list', 'v1')).toBe('');
+  });
+
+  it('refuses a tag name that is no release tag and a commit the repository does not have', async () => {
+    const { merger, repo } = fixture();
+    const head = git(repo, 'rev-parse', 'HEAD');
+
+    await expect(merger.pushTag(REF, { base: 'main', tag: '-d', commit: head })).rejects.toMatchObject({
+      code: 'invalid_input',
+    });
+    await expect(
+      merger.pushTag(REF, { base: 'main', tag: 'v1', commit: 'a'.repeat(40) }),
+    ).rejects.toMatchObject({ code: 'unknown_object' });
+  });
+
+  it('refuses a branch with no upstream, for the listing and for the push', async () => {
+    const { merger, repo } = fixture({ withRemote: false });
+    const head = git(repo, 'rev-parse', 'HEAD');
+
+    await expect(merger.remoteTags(REF, { base: 'main' })).rejects.toMatchObject({ code: 'no_remote' });
+    await expect(merger.pushTag(REF, { base: 'main', tag: 'v1', commit: head })).rejects.toMatchObject({
+      code: 'no_remote',
+    });
+  });
+});
+
 describe('advance', () => {
   async function merged(f: Fixture) {
     const id = feature(f.repo, 'f.txt', 'x\n');

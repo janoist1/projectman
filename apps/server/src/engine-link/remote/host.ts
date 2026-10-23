@@ -443,6 +443,19 @@ export function createRemoteEngineDirectory(options: RemoteDirectoryOptions): Re
         throw error;
       }
     };
+    // An engine from before `publish_release` (PM-968) does not know the tag methods.
+    const releaseTagCall = async <T>(run: () => Promise<T>): Promise<T> => {
+      try {
+        return await run();
+      } catch (error) {
+        if (error instanceof EngineCallError && error.linkCode === 'unknown_method')
+          throw new MergeError(
+            'git_failed',
+            `engine ${id} does not support release publishing; update the engine`,
+          );
+        throw error;
+      }
+    };
     const merger: BranchMerger = {
       prepare: (ref, input) => merge('merge.prepare', { ref, ...input }, MERGE_NETWORK_WAIT_MS),
       isAncestor: (ref, input) => merge('merge.is_ancestor', { ref, ...input }, MERGE_WAIT_MS),
@@ -470,6 +483,10 @@ export function createRemoteEngineDirectory(options: RemoteDirectoryOptions): Re
         await merge('merge.release_check', { ref, ...input }, MERGE_WAIT_MS);
       },
       push: (ref, input) => merge('merge.push', { ref, ...input }, MERGE_NETWORK_WAIT_MS),
+      remoteTags: (ref, input) =>
+        releaseTagCall(() => merge('merge.remote_tags', { ref, ...input }, MERGE_NETWORK_WAIT_MS)),
+      pushTag: (ref, input) =>
+        releaseTagCall(() => merge('merge.push_tag', { ref, ...input }, MERGE_NETWORK_WAIT_MS)),
       advance: (ref, input) => merge('merge.advance', { ref, ...input }, MERGE_WAIT_MS),
       // A read of a base fetches its upstream first.
       readFile: (ref, input) => merge('merge.read_file', { ref, ...input }, MERGE_NETWORK_WAIT_MS),

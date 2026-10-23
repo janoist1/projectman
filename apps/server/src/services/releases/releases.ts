@@ -34,6 +34,7 @@ import type { ProjectService } from '../../core/projects';
 import type { TaskService } from '../../core/tasks';
 import type { TimelineService } from '../../core/timeline';
 import { aiActor, KeyedMutex, newId, SYSTEM_ACTOR } from '../../kernel';
+import { landedCards, landedCommit, landedMerges, resolveLandedCommit } from './landed-cards';
 
 /** The project and repository that are the instance itself (`PROJECTMAN_RELEASE_TARGET`, `<project key>/<repository>`). */
 export interface ReleaseTarget {
@@ -161,7 +162,7 @@ export class ReleaseService {
 
   /** The commit a merge left on the default branch: the merge commit, or the commit that was found merged. */
   private landed(row: MergeRecord): string | null {
-    return (row.startedBy ? row.mergeCommit : row.commit) ?? null;
+    return landedCommit(row);
   }
 
   /**
@@ -172,39 +173,26 @@ export class ReleaseService {
   async candidate(projectKey: string, commit?: string): Promise<ReleaseCandidate> {
     const { ctx } = this.deps;
     const target = this.requireTarget(projectKey);
-    const rows = ctx.repos.taskMerges.mergedOf(projectKey, target.repo);
-    const landed = rows.flatMap((row) => {
-      const id = this.landed(row);
-      return id ? [{ taskKey: row.taskKey, commit: id }] : [];
-    });
+    const landed = landedMerges(ctx.repos.taskMerges.mergedOf(projectKey, target.repo));
     const merger = this.merger(projectKey);
     const ref = { projectKey, repo: target.repo };
-    let chosen = commit;
-    if (!chosen) {
-      const newest = landed.at(-1);
-      if (!newest) throw conflict('release_empty', 'no merged card has landed in the repository yet');
-      const config = await this.deps.projects.config(projectKey);
-      const base = config.project.repos.find((repo) => repo.name === target.repo)?.defaultBranch;
-      if (!base)
-        throw conflict('release_not_configured', `project ${projectKey} has no repository ${target.repo}`);
-      chosen = (await merger.prepare(ref, { base, commit: newest.commit })).local;
-    }
-    if (!landed.some((entry) => entry.commit === chosen))
-      throw conflict('release_commit_unknown', `${chosen} is not the result of a recorded merge of a card`, {
-        commit: chosen,
-      });
+    const chosen = await resolveLandedCommit({
+      merger,
+      ref,
+      landed,
+      commit,
+      defaultBranch: async () => {
+        const config = await this.deps.projects.config(projectKey);
+        const base = config.project.repos.find((repo) => repo.name === target.repo)?.defaultBranch;
+        if (!base)
+          throw conflict('release_not_configured', `project ${projectKey} has no repository ${target.repo}`);
+        return base;
+      },
+    });
     const latest = ctx.repos.releases.latestLive(projectKey);
     const running = this.deps.appVersion();
     const baseCommit = latest?.commit ?? (COMMIT_ID.test(running) ? running : null);
-    const keys: TaskKey[] = [];
-    for (const entry of landed) {
-      if (keys.includes(entry.taskKey)) continue;
-      if (!(await merger.isAncestor(ref, { ancestor: entry.commit, commit: chosen }))) continue;
-      if (baseCommit && (await merger.isAncestor(ref, { ancestor: entry.commit, commit: baseCommit })))
-        continue;
-      keys.push(entry.taskKey);
-    }
-    if (keys.length === 0) throw conflict('release_empty', 'there is nothing new to release');
+    const keys = await landedCards({ merger, ref, landed, commit: chosen, baseCommit });
     return {
       repo: target.repo,
       commit: chosen,

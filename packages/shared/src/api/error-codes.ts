@@ -294,6 +294,12 @@ export const ERROR_CODES = [
   'release_empty',
   'release_commit_unknown',
   'release_state_conflict',
+  // The team tool `publish_release` (PM-968): the repository has no GitHub repository, the commit has its
+  // release already, the tag points at another commit, or the tag or the GitHub release could not be made.
+  'release_no_github',
+  'release_already_published',
+  'release_tag_taken',
+  'release_publish_failed',
   // The hybrid release's durable deployment (PM-752): another attempt or a different request holds the
   // slot, the target or the engine is not the configured one, a foreign pause is open, the work is not
   // drained, the deployment waits for a person's recovery, the protocol is not available for this

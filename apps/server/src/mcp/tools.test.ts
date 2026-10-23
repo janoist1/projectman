@@ -101,7 +101,7 @@ describe('team tool registration', () => {
       'core/member-queue': ['finish_queue_item'],
       'runtime/sessions': ['set_current_work'],
       'core/members': ['list_members', 'save_memory'],
-      'services/releases': ['propose_release', 'check_release'],
+      'services/releases': ['propose_release', 'publish_release', 'check_release'],
       'core/tasks': ['list_tasks', 'get_task', 'update_task', 'create_task'],
       'core/attachments': [
         'list_attachments',

@@ -62,6 +62,8 @@ function fakeDocsMerger(initial: Record<string, string> = { [DECISIONS]: LOG, [R
       state.remoteHas.add(input.mergeCommit);
       return { ok: true };
     }),
+    remoteTags: vi.fn(),
+    pushTag: vi.fn(),
     advance: vi.fn<BranchMerger['advance']>(async (_ref, input) => {
       state.local = input.to;
       state.localHas.add(input.to);

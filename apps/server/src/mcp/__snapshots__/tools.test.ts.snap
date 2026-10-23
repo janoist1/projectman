@@ -7336,6 +7336,53 @@ exports[`team tool definitions > preserves the public tool definitions across mo
     "annotations": {
       "destructiveHint": false,
       "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Publish a repository release",
+    },
+    "description": "Tag a merged commit and make its public GitHub release. Only a member with the deployment duty may call it. It deploys nothing and needs no approval: it pushes an annotated git tag and creates the GitHub release, whose notes are your \`summary\` and the cards merged since the previous release. The release is public and cannot be taken back quietly, so call it only when someone asked for a release. First call it with \`preview: true\`: nothing is recorded or sent, and the result lists the tag, the commit and the cards, so you can write the summary. If a call ends with release_publish_failed after the tag was pushed, call it again with the same arguments: it finishes the publication.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "commit": {
+          "description": "A merge commit of a merged card; default: the head of the default branch.",
+          "pattern": "^[0-9a-f]{40}$",
+          "type": "string",
+        },
+        "preview": {
+          "description": "Only show the tag, the commit and the cards; record and send nothing (default false).",
+          "type": "boolean",
+        },
+        "repo": {
+          "description": "The repository name in the project; default: the only repository (required with several).",
+          "maxLength": 100,
+          "minLength": 1,
+          "type": "string",
+        },
+        "summary": {
+          "description": "English markdown: what the release changes, as short bullets with the card keys. It starts the text of the GitHub release; the card list is added.",
+          "maxLength": 4000,
+          "minLength": 1,
+          "type": "string",
+        },
+        "tag": {
+          "description": "The tag name; default: vYYYY.M.D of today, with .2, .3 … when the day has more releases.",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "summary",
+      ],
+      "type": "object",
+    },
+    "name": "publish_release",
+    "title": "Publish a repository release",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
       "readOnlyHint": true,
       "title": "Read an attachment",
     },

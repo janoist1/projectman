@@ -184,6 +184,13 @@ A second, separate door for the integrator's MCP client: a bearer `pmi_` key, no
   not in guest conversations. It is the preview of `propose_release`: the same checks, the answer is either the
   candidate or the refusal (same code and message) `propose_release` would give now, plus the members with the
   deployment duty who may propose it. It records nothing; the Operator never proposes a release itself.
+- `publish_release { summary, repo?, commit?, tag?, preview? }` (PM-968) is the deployment duty holder's tool: it tags
+  a merged merge commit (default: the head of the default branch; `tag` default `vYYYY.M.D`, `.N` suffix on a taken
+  day) with an annotated tag and makes the public GitHub release, whose notes are the summary and the cards merged since
+  the previous publication. It runs on request only, with no owner approval. `preview: true` writes nothing. A repeat
+  call finishes an interrupted publication; a commit that is published already, a taken tag, a repository without
+  `github` and a caller without the duty are refused (`release_*` codes). `propose_release` and `cloud deploy` are
+  unchanged. Handler method: `publishRelease(ctx, args)`.
 - `read_project_doc { doc, from_line?, line_count? }` and `write_project_docs { base_commit, message, edits }`
   (PM-495) are Operator tools for the decision log and the roadmap: the first reads the file at the fresh head of
   the default branch (a read tool: no open request needed, not in guest conversations), the second replaces text

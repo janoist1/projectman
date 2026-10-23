@@ -450,6 +450,18 @@ export class FakeGithub implements GithubService {
   parsePullRequestUrl(): { repo: string; number: number } | null {
     return null;
   }
+  /** The calls of `publishRelease` that went through. */
+  readonly published: Array<{ repo: string; tag: string; title: string; notes: string }> = [];
+  /** Set: `publishRelease` fails with it. */
+  releaseFailure: Error | null = null;
+  async publishRelease(
+    repo: string,
+    input: { tag: string; title: string; notes: string },
+  ): Promise<{ url: string }> {
+    if (this.releaseFailure) throw this.releaseFailure;
+    this.published.push({ repo, ...input });
+    return { url: `https://github.com/${repo}/releases/tag/${input.tag}` };
+  }
   watch(
     targets: Array<{ repo: string; number: number }>,
     onChange: (pr: PullRequestInfo) => void,

@@ -1422,6 +1422,37 @@ describe('cloud mode remote parts', () => {
       expect(refused).toMatchObject({ code: 'merge_not_allowed' });
     });
 
+    it('sends the release tags and the GitHub release, and names an engine that is too old (PM-968)', async () => {
+      const merger = () => remote.directory.get('eng_a' as never)!.merger!;
+      const ref = { projectKey: 'AR', repo: 'ar' };
+      const sha = 'a'.repeat(40);
+      const input = { repo: 'acme/ar', tag: 'v1', title: 'v1', notes: 'n' };
+      const engine = await online();
+      // An older engine has no handler: its RPC responds unknown_method.
+      await expect(merger().remoteTags(ref, { base: 'main' })).rejects.toMatchObject({
+        code: 'git_failed',
+        message: expect.stringContaining('update the engine'),
+      });
+      await expect(remote.github.publishRelease(input.repo, input)).rejects.toMatchObject({ code: 'failed' });
+
+      engine.answer('merge.remote_tags', () => [{ name: 'v0', commit: sha }]);
+      engine.answer('merge.push_tag', () => ({ ok: true }));
+      engine.answer('github.publish_release', () => ({ url: 'https://github.com/acme/ar/releases/tag/v1' }));
+      expect(await merger().remoteTags(ref, { base: 'main' })).toEqual([{ name: 'v0', commit: sha }]);
+      expect(await merger().pushTag(ref, { base: 'main', tag: 'v1', commit: sha })).toEqual({ ok: true });
+      expect(engine.requests.at(-1)).toEqual({
+        method: 'merge.push_tag',
+        params: { ref, base: 'main', tag: 'v1', commit: sha },
+      });
+      expect(await remote.github.publishRelease(input.repo, input)).toEqual({
+        url: 'https://github.com/acme/ar/releases/tag/v1',
+      });
+      expect(engine.requests.at(-1)).toEqual({
+        method: 'github.publish_release',
+        params: input,
+      });
+    });
+
     it('sends the document read and commit with the repository named, and returns their results', async () => {
       const engine = await online();
       const ref = { projectKey: 'AR', repo: 'ar' };

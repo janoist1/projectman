@@ -380,6 +380,27 @@ export interface ProposedRelease {
   tasks: { key: string; title: string }[];
 }
 
+/** What publish_release answers (PM-968): the tag and the GitHub release of a merged commit. */
+export interface PublishedRelease {
+  repo: string;
+  commit: string;
+  baseCommit: string | null;
+  /** In a preview: the tag that would be used. */
+  tag: string;
+  /** The GitHub release page; null in a preview. */
+  url: string | null;
+  tasks: { key: string; title: string }[];
+}
+
+/** What publish_release takes (PM-968). */
+export interface PublishReleaseArgs {
+  summary: string;
+  repo?: string;
+  commit?: string;
+  tag?: string;
+  preview?: boolean;
+}
+
 /**
  * What check_release answers (PM-542): the rehearsal of propose_release. Either the candidate, or the refusal
  * propose_release would give now. Nothing is recorded.
@@ -620,6 +641,12 @@ export interface ReleaseToolsHandler {
     ctx: ToolContext,
     args: { title: string; summary: string; commit?: string; preview?: boolean },
   ): Promise<ProposedRelease>;
+  /**
+   * publish_release (PM-968): the member with the deployment duty tags a merged commit of a project repository
+   * and makes its public GitHub release, with the merged cards since the previous release in the notes. No
+   * approval; `preview` records nothing. Repeating a call finishes an interrupted publication.
+   */
+  publishRelease(ctx: ToolContext, args: PublishReleaseArgs): Promise<PublishedRelease>;
   /** check_release (PM-542): only the Operator; the same checks as propose_release, nothing recorded. */
   checkRelease(ctx: ToolContext, args: { commit?: string }): Promise<ReleaseCheckResult>;
 }

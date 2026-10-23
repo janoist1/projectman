@@ -50,6 +50,7 @@ import type {
   AttachmentOperations,
   CardWorker,
   ContextPackBuilder,
+  ContextPack,
   ContextPackInput,
   MemberMemoryStore,
   MemberWorkspaceManager,
@@ -1379,6 +1380,10 @@ export class SessionOrchestrator {
    */
   screenshotScope(sessionId: string): ScreenshotScope | undefined {
     return this.screenshotScopes.get(sessionId);
+  }
+
+  guide(sessionId: string): ContextPack['guide'] | undefined {
+    return this.live.guides.get(sessionId);
   }
 
   /** The engine the session runs on (PM-311); the local one for an unknown session. */

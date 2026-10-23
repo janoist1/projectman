@@ -74,6 +74,9 @@ import type {
  * mcp/<module>/handler.ts, never in this collector.
  */
 export class TeamToolsService implements TeamToolsHandler {
+  async getGuide(ctx: ToolContext, args: Parameters<SessionToolsHandler['getGuide']>[1]) {
+    return this.tools.sessions.getGuide(ctx, args);
+  }
   async requestStructuralReview(ctx: ToolContext, args: { signalId: string; note: string }) {
     return this.tools.operator.requestStructuralReview(ctx, args);
   }

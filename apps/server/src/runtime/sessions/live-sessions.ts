@@ -1,5 +1,5 @@
 import type { AgentProvider, Session, SessionStop } from '@projectman/shared';
-import type { ToolContext } from '../../contracts';
+import type { ContextPack, ToolContext } from '../../contracts';
 import { newToken } from '../../kernel';
 
 /**
@@ -9,6 +9,7 @@ import { newToken } from '../../kernel';
  * orchestrator reads and sets where it starts, restarts and stops a process.
  */
 export class LiveSessions {
+  readonly guides = new Map<string, ContextPack['guide']>();
   /** The provider each session's current process runs, for the transcript it reports. */
   readonly providers = new Map<string, AgentProvider>();
   /** Sessions whose current process resumes a conversation: one that exits before it is ready gives it up (PM-340). */
@@ -77,6 +78,7 @@ export class LiveSessions {
    * progress may still want it.
    */
   startFailed(sessionId: string): void {
+    this.guides.delete(sessionId);
     this.settleFirstInput(sessionId, false);
     this.awaitingFirstTurn.delete(sessionId);
     this.revokeToken(sessionId);

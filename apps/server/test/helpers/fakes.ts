@@ -290,6 +290,7 @@ export class FakeContextBuilder implements ContextPackBuilder {
     this.inputs.push(input);
     return {
       appendSystemPrompt: `You are ${input.member.handle}. Memory: ${input.memory}`,
+      guide: { rules: `# Team rules\nRules for ${input.member.handle}` },
       initialMessage:
         input.workItem.type === 'schedule'
           ? (input.member.schedule?.prompt ?? null)

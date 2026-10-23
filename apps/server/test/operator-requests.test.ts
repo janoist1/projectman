@@ -200,6 +200,7 @@ describe('the Operator’s write guard (PM-463)', () => {
     for (const call of calls) expect(await refusal(call())).toMatch(/^operator_no_request:/);
     await expect(h.domain.teamTools.getTask(tool(), { taskKey: 'AR-1' })).resolves.toBeTruthy();
     await expect(h.domain.teamTools.listTasks(tool(), {})).resolves.toBeTruthy();
+    await expect(h.domain.teamTools.getGuide(tool(), { topic: 'rules' })).resolves.toContain('# Team rules');
     expect(h.domain.tasks.find('AR', 'AR-1')?.title).toBe('Login page');
     expect(requests()[0]!.closedAt).not.toBeNull();
     expect(h.repos.operatorRequests.steps(requests()[0]!.id)).toEqual([]);

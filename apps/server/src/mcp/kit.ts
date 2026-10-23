@@ -76,6 +76,7 @@ export const TEAM_TOOL_NAMES = [
   'withdraw_question',
   'save_memory',
   'set_current_work',
+  'get_guide',
   'list_attachments',
   'read_attachment',
   'read_message_attachment',

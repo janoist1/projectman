@@ -742,6 +742,12 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       return { recorded: true };
     },
 
+    async getGuide(ctx, args) {
+      await enter('getGuide', ctx, args);
+      if (args.topic !== 'rules') throw new TeamToolError('not_found', 'No guide topic.');
+      return '# Team rules\nSession rules';
+    },
+
     async listAttachments(ctx, args) {
       await enter('listAttachments', ctx, args);
       findTask(args.taskKey);

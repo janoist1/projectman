@@ -35,6 +35,21 @@ describe('session orchestrator', () => {
 
   const task = { type: 'task' as const, taskKey: 'AR-1' };
 
+  it('serves the current session guide, rejects missing topics and rebuilds it on resume', async () => {
+    const { session } = await h.domain.sessions.ensureSession('AR', 'cr', task);
+    const ctx = { sessionId: session.id, projectKey: 'AR', member: 'cr', taskKey: 'AR-1' };
+    await expect(h.domain.teamTools.getGuide(ctx, { topic: 'rules' })).resolves.toContain('# Team rules');
+    await expect(h.domain.teamTools.getGuide(ctx, { topic: 'commands' })).rejects.toMatchObject({
+      code: 'not_found',
+    });
+    h.runner.emit({ type: 'exit', sessionId: session.id, exitCode: 0, signal: null });
+    await expect(h.domain.teamTools.getGuide(ctx, { topic: 'rules' })).rejects.toMatchObject({
+      code: 'not_found',
+    });
+    await h.domain.sessions.ensureSession('AR', 'cr', task);
+    await expect(h.domain.teamTools.getGuide(ctx, { topic: 'rules' })).resolves.toContain('# Team rules');
+  });
+
   it('reuses a running session, resumes an exited one in the same directory', async () => {
     const first = await h.domain.sessions.ensureSession('AR', 'cr', task);
     expect(first).toMatchObject({ created: true, resumed: false, started: true });

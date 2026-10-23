@@ -182,7 +182,12 @@ export interface RelatedSession {
   state: SessionState;
 }
 
+export const GUIDE_TOPICS = ['commands', 'rules'] as const;
+export type GuideTopic = (typeof GUIDE_TOPICS)[number];
+
 export interface ContextPack {
+  /** On-demand details for topics indexed in the prompt (get_guide). */
+  guide: Partial<Record<GuideTopic, string>>;
   /**
    * Identity, team, how the team works, pipeline and labels, the current work item and its
    * steps, guardrails, role instructions, memory. English prompt text, rebuilt on every start

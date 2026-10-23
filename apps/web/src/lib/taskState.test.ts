@@ -123,6 +123,7 @@ function contextWith(
         handle,
         {
           ...member,
+          status: found ? 'working' : member.status,
           ...(found?.role ? { role: found.role, roles: [found.role] } : {}),
           taskWork: found ? [work(handle, found.taskKey, found.since, found.doing)] : [],
         },
@@ -147,6 +148,17 @@ const sentence = (verb: string, who: string) =>
   t(`taskStatus.worker.${verb}` as 'taskStatus.worker.working', { name: who });
 
 describe('who works on a card (PM-237)', () => {
+  it('ignores a stale work entry after the member becomes idle (PM-964)', () => {
+    const ctx = contextWith([{ handle: 'be-1', taskKey: 'AC-20', since: '2026-10-01T10:00:00.000Z' }]);
+    const members = new Map(ctx.members);
+    members.set('be-1', { ...members.get('be-1')!, status: 'idle' });
+
+    const state = deriveTaskState(card('AC-20'), { ...ctx, members });
+    expect(state.phase).not.toBe('working');
+    expect(state.workers).toEqual([]);
+    expect(state.worker).toBeNull();
+  });
+
   it('names a developer in a work stage as working on it, with the session the command runs in', () => {
     const ctx = contextWith([{ handle: 'be-1', taskKey: 'AC-20', since: '2026-10-01T10:00:00.000Z' }]);
     const state = deriveTaskState(card('AC-20'), ctx);

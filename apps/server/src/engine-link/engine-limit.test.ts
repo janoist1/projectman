@@ -934,6 +934,10 @@ describe('engine local limit', () => {
         ],
       });
       await expect(limit.check('full_test.run', check() as never)).resolves.toBeDefined();
+      // A review pin's full mode (PM-909) is the same one commit to the same one branch.
+      await expect(
+        limit.check('full_test.run', check({ githubActions: { ...githubActions, all: true } }) as never),
+      ).resolves.toBeDefined();
       await refused(
         limit,
         'full_test.run',

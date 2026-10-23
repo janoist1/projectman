@@ -153,6 +153,9 @@ export class AgentSession {
   private providerSessionId: string | null = null;
   private authFailure: string | null = null;
   private rateLimitFailure: string | null = null;
+  private quotaScreenPending = false;
+  private quotaScreenNeedsFlush = false;
+  private quotaScreenBeforePrompt = new Map<string, number>();
 
   /** The compaction the server asked for, until PostCompact or until it is given up (PM-213). */
   private compaction: Compaction | null = null;
@@ -304,7 +307,39 @@ export class AgentSession {
     if (proc.pid <= 1 && this.scope) this.cleanup ??= this.scope.close('start_failed', { force: true });
     proc.onData((data) => {
       this.screen.write(data);
+      this.quotaScreenNeedsFlush = true;
       this.deps.emit({ type: 'terminal_data', sessionId: this.id, data });
+      // PTY chunks may split the error from its reset duration. Read the rendered screen
+      // after the burst, including for providers whose startup watcher has already stopped.
+      if (
+        this.lastPromptAt > 0 &&
+        this.adapter.detectRateLimitScreen &&
+        !this.rateLimitFailure &&
+        !this.quotaScreenPending
+      ) {
+        this.quotaScreenPending = true;
+        this.clock.once(100, () => {
+          this.quotaScreenPending = false;
+          if (this.hasExited || this.rateLimitFailure) return;
+          const text = this.screen.screenText();
+          const failure = this.adapter.detectRateLimitScreen?.(text);
+          if (!failure) return;
+          // A resumed TUI may redraw the previous failure while generating a healthy turn.
+          // Ignore occurrences already visible at submission, even when later output changes.
+          const header = failure.message.split('\n')[0]!.trim();
+          const count = text.split('\n').filter((line) => line.trim() === header).length;
+          if (count <= (this.quotaScreenBeforePrompt.get(header) ?? 0)) return;
+          const at = new Date();
+          const until = failure.resetsInMs === null ? NaN : at.getTime() + failure.resetsInMs;
+          this.rateLimited({
+            message: failure.message,
+            at: at.toISOString(),
+            ...(Number.isFinite(until) && until <= 8.64e15
+              ? { resetsAt: new Date(until).toISOString() }
+              : {}),
+          });
+        });
+      }
     });
     proc.onExit(({ exitCode, signal }) => void this.onExit(exitCode, signal ?? null));
     if (this.initialMessageSent) {
@@ -782,6 +817,7 @@ export class AgentSession {
           this.current.state !== 'waiting_permission' &&
           this.current.state !== 'waiting_input'
         ) {
+          if (this.adapter.detectRateLimitScreen) await this.rememberQuotaScreen();
           this.markReady();
           this.promptSeen = true;
           this.lastPromptAt = Date.now();
@@ -790,6 +826,7 @@ export class AgentSession {
         }
         return this.adapter.turnStartOutput?.(this.spec) ?? null;
       case 'UserPromptSubmit':
+        if (this.adapter.detectRateLimitScreen) await this.rememberQuotaScreen();
         this.markReady();
         this.promptSeen = true;
         this.lastPromptAt = Date.now();
@@ -1123,17 +1160,7 @@ export class AgentSession {
       return;
     }
     if (rateLimit && Date.parse(rateLimit.at) >= this.lastPromptAt) {
-      if (!this.rateLimitFailure) {
-        this.rateLimitFailure = rateLimit.message;
-        this.deps.emit({
-          type: 'rate_limited',
-          sessionId: this.id,
-          provider: this.adapter.provider,
-          ...rateLimit,
-        });
-        this.apply({ kind: 'rate_limited', message: rateLimit.message });
-        void this.stop(false);
-      }
+      this.rateLimited(rateLimit);
       return;
     }
     // Esc during a turn ends it without a Stop hook; the transcript records the interruption.
@@ -1238,6 +1265,28 @@ export class AgentSession {
   }
 
   // ---------------------------------------------------------------- login failures
+
+  private async rememberQuotaScreen(): Promise<void> {
+    if (!this.adapter.detectRateLimitScreen) return;
+    // PTY writes are parsed asynchronously; include every row received before the prompt hook.
+    if (this.quotaScreenNeedsFlush) {
+      this.quotaScreenNeedsFlush = false;
+      await this.screen.flush();
+    }
+    this.quotaScreenBeforePrompt.clear();
+    for (const line of this.screen.screenText().split('\n')) {
+      const key = line.trim();
+      this.quotaScreenBeforePrompt.set(key, (this.quotaScreenBeforePrompt.get(key) ?? 0) + 1);
+    }
+  }
+
+  private rateLimited(failure: { message: string; at: string; resetsAt?: string }): void {
+    if (this.rateLimitFailure) return;
+    this.rateLimitFailure = failure.message;
+    this.deps.emit({ type: 'rate_limited', sessionId: this.id, provider: this.adapter.provider, ...failure });
+    this.apply({ kind: 'rate_limited', message: failure.message });
+    void this.stop(false);
+  }
 
   /**
    * The CLI lost its login mid-session: it can only sit idle now. The session is reported,

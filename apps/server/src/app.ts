@@ -15,6 +15,7 @@ import {
   AuthService,
   createSetupCode,
   deriveEmailLoginKey,
+  deriveEmailReplyKey,
   loadOrCreateSecret,
   MAX_SETUP_CODE_FAILURES,
   registerAuth,
@@ -212,6 +213,12 @@ export interface BuildAppOptions {
    * Delivers the one-time e-mail login code (PM-669). Absent: the e-mail login is off (PM-670).
    */
   emailCodeMailer?: EmailCodeMailer;
+  /** Sends an outgoing channel e-mail (PM-941). Absent: the channel is not configured. */
+  emailChannelSender?: import('./services/email-channel').EmailSender;
+  /** The parsed outgoing channel environment (PM-941). */
+  emailChannelEnv?: import('./services/email-channel').EmailChannelEnv;
+  /** Reads the mail queue (PM-945); absent: the AWS client of the environment's queue URL. */
+  emailChannelQueue?: import('./services/email-channel').SqsLike;
   /**
    * The board is public: no Cloudflare Access in front of its pages, only the application's own login
    * (PM-672). Absent: false. It starts only in cloud mode, with an owner set up and a working e-mail login.
@@ -622,6 +629,14 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       accounts: auth,
       ...(options.emailCodeMailer
         ? { emailCodeMailer: options.emailCodeMailer, emailLoginKey: deriveEmailLoginKey(secret) }
+        : {}),
+      ...(options.emailChannelSender && options.emailChannelEnv
+        ? {
+            emailChannelSender: options.emailChannelSender,
+            emailChannelEnv: options.emailChannelEnv,
+            ...(options.emailChannelQueue ? { emailChannelQueue: options.emailChannelQueue } : {}),
+            emailReplyKey: deriveEmailReplyKey(secret),
+          }
         : {}),
       worktreesRootDir: roots.worktrees,
       appHome: home,

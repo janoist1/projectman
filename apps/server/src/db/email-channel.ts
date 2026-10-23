@@ -145,6 +145,10 @@ export function createEmailChannelRepository(db: Db) {
         ).run({ ...record, attachmentNames: toJson(record.attachmentNames) });
         return record;
       },
+      /** Drops a row whose work failed, so the same provider id can be tried again. */
+      remove(id: string): void {
+        db.prepare('DELETE FROM email_messages WHERE id = ?').run(id);
+      },
       get: (id: string) => getMessage('id', id),
       byTokenHash: (hash: string) => getMessage('reply_token_hash', hash),
       byProviderId: (id: string) => getMessage('provider_id', id),
@@ -168,18 +172,42 @@ export function createEmailChannelRepository(db: Db) {
         return getMessage('id', id);
       },
     },
+    listOutbound(projectKey: string, status: EmailOutboundStatus): EmailMessageRecord[] {
+      return (
+        db
+          .prepare(
+            `SELECT ${messageSelect} FROM email_messages
+            WHERE project_key = ? AND direction = 'outbound' AND status = ? ORDER BY created_at, id`,
+          )
+          .all(projectKey, status) as MessageRow[]
+      ).map((row) => messageOf(row)!);
+    },
     countOutboundSince(
       projectKey: string,
       filter: { member: string } | { contact: string },
       since: string,
+      statuses?: readonly EmailOutboundStatus[],
     ): number {
       const [column, value] = 'member' in filter ? ['member', filter.member] : ['contact', filter.contact];
+      const statusPlaceholders = statuses?.length ? statuses.map(() => '?').join(', ') : null;
       return (
         db
           .prepare(
-            `SELECT COUNT(*) AS count FROM email_messages WHERE project_key = ? AND direction = 'outbound' AND ${column} = ? AND created_at >= ?`,
+            `SELECT COUNT(*) AS count FROM email_messages WHERE project_key = ? AND direction = 'outbound'
+            AND ${column} = ? AND created_at >= ?${statusPlaceholders ? ` AND status IN (${statusPlaceholders})` : ''}`,
           )
-          .get(projectKey, value, since) as { count: number }
+          .get(projectKey, value, since, ...(statuses ?? [])) as { count: number }
+      ).count;
+    },
+    /** Parked mails since `since` that raised an alert (the daily limit counts these). */
+    countAlertedSince(projectKey: string, since: string): number {
+      return (
+        db
+          .prepare(
+            `SELECT COUNT(*) AS count FROM email_messages WHERE project_key = ? AND direction = 'inbound'
+            AND status = 'parked' AND inbox_item_id IS NOT NULL AND created_at >= ?`,
+          )
+          .get(projectKey, since) as { count: number }
       ).count;
     },
     /** Cursor is the last (timestamp,id) pair, so equal timestamps never skip a row. */

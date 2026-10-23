@@ -1,0 +1,29 @@
+/* The e-mail items of the inbox (PM-942) use the card's frame and the release item's text box. */
+.facts {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 2px 10px;
+  margin: 0;
+  font-size: var(--text-sm);
+}
+
+.facts dt {
+  color: var(--c-ink-3);
+}
+
+.facts dd {
+  margin: 0;
+  color: var(--c-ink);
+  overflow-wrap: anywhere;
+}
+
+/* The mail's own line breaks stay: it is plain text. */
+.text {
+  white-space: pre-wrap;
+}
+
+.hint {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--c-ink-3);
+}

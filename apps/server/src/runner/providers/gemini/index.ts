@@ -8,7 +8,12 @@ import { buildGeminiArgs } from './args';
 import { prepareGeminiDir } from './config-dir';
 import { decideGeminiToolCall, parseGeminiHook } from './hooks';
 import { checkGeminiLogin, geminiLoginCommand, parseGeminiLogin } from './login';
-import { detectGeminiBlockingScreen, geminiPromptVisible, geminiWorkingVisible } from './screen';
+import {
+  detectGeminiBlockingScreen,
+  detectGeminiQuota,
+  geminiPromptVisible,
+  geminiWorkingVisible,
+} from './screen';
 import { GeminiTranscriptParser } from './transcript';
 
 export function createGeminiAdapter(opts: {
@@ -58,6 +63,7 @@ export function createGeminiAdapter(opts: {
     hookAuthError: (payload) =>
       typeof payload.error === 'string' && /Please sign in/i.test(payload.error) ? payload.error : null,
     detectBlockingScreen: detectGeminiBlockingScreen,
+    detectRateLimitScreen: detectGeminiQuota,
     promptVisible: geminiPromptVisible,
     workingVisible: geminiWorkingVisible,
     createTranscriptParser: (opts) => new GeminiTranscriptParser(opts),

@@ -179,6 +179,25 @@ describe('describeEvent', () => {
     expect(describeEvent(event('task_full_test', { ...run, outcome: 'error', reason: 'timeout' }), 100)).toBe(
       `the full test could not run on commit ${'a'.repeat(12)} (timeout)`,
     );
+    // A GitHub Actions run names its runner and the run page (PM-909).
+    const externalUrl = 'https://github.com/acme/web/actions/runs/7';
+    expect(
+      describeEvent(
+        event('task_full_test', { ...run, outcome: 'passed', runner: 'github_actions', externalUrl }),
+        100,
+      ),
+    ).toBe(`the GitHub Actions full test passed on commit ${'a'.repeat(12)} (${externalUrl})`);
+    expect(
+      describeEvent(
+        event('task_full_test', {
+          ...run,
+          outcome: 'error',
+          reason: 'github_unavailable',
+          runner: 'github_actions',
+        }),
+        100,
+      ),
+    ).toBe(`the GitHub Actions full test could not run on commit ${'a'.repeat(12)} (github_unavailable)`);
     expect(
       describeEvent(
         event('task_stage_changed', {
@@ -302,6 +321,16 @@ describe('describeEvent', () => {
     expect(
       describeEvent(event('team_message', { to: ['fe-1', 'owner'], excerpt: 'Ready' }), 100, named),
     ).toBe('message to `fe-1`, `owner` [action]: Ready');
+  });
+
+  it('marks the excerpt of an e-mail reply as outside data', () => {
+    const text = describeEvent(
+      event('team_message', { to: ['fe-1'], excerpt: 'Ready', email: true }),
+      100,
+      named,
+    );
+    expect(text).toContain('data from outside the team');
+    expect(text.endsWith(': Ready')).toBe(true);
   });
 
   it('shows the data of event types without their own wording', () => {

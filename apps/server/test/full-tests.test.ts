@@ -89,13 +89,26 @@ describe('the full test before review', () => {
   const reviewerStarted = () => h.runner.started.some((s) => s.member === 'cr');
   const heldFor = (handle: string) => h.domain.messages.waiting('AR', handle, TASK).map((m) => m.body);
 
-  async function setup(opts: { reviewTest?: boolean; executor?: FakeExecutor; atMerge?: boolean } = {}) {
+  async function setup(
+    opts: {
+      reviewTest?: boolean;
+      executor?: FakeExecutor;
+      atMerge?: boolean;
+      beforeReview?: 'off' | 'engine' | 'github_actions';
+    } = {},
+  ) {
     executor = opts.executor ?? new FakeExecutor();
     h = await createDomainHarness({
       fullTestExecutor: executor,
       adjust: (config) => {
-        if (opts.reviewTest !== false) config.project.repos[0]!.reviewTest = REVIEW_TEST;
-        if (opts.atMerge) config.project.repos[0]!.fullTestAtMerge = true;
+        const repo = config.project.repos[0]!;
+        if (opts.reviewTest !== false)
+          repo.reviewTest = {
+            ...REVIEW_TEST,
+            ...(opts.beforeReview ? { beforeReview: opts.beforeReview } : {}),
+          };
+        if (opts.beforeReview === 'github_actions') repo.github = 'acme/web';
+        if (opts.atMerge) repo.fullTestAtMerge = true;
       },
     });
     await h.domain.tasks.create('AR', { title: 'Login page' }, OWNER_ACTOR);
@@ -515,6 +528,121 @@ describe('the full test before review', () => {
     await vi.waitFor(() => expect(reviewerStarted()).toBe(true));
     expect(off.specs).toHaveLength(0);
     expect(runs()).toEqual([]);
+  });
+
+  describe('on GitHub Actions (PM-909)', () => {
+    const RUN_PAGE = 'https://github.com/acme/web/actions/runs/7';
+    const setBeforeReview = (beforeReview: 'off' | 'engine' | 'github_actions') =>
+      h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (config) => {
+        config.project.repos[0]!.reviewTest!.beforeReview = beforeReview;
+        return 'Change the review test runner';
+      });
+
+    it('tests the pinned commit in full mode with no local sandbox, and shows the run page', async () => {
+      const noSandbox = new FakeExecutor();
+      noSandbox.available_ = { ok: false, reason: 'no srt' };
+      await setup({ executor: noSandbox, beforeReview: 'github_actions' });
+      const config = await h.domain.projects.config('AR');
+      await handOver();
+      await vi.waitFor(() => expect(executor.specs).toHaveLength(1));
+      const spec = executor.specs[0]!;
+      expect(spec).toMatchObject({
+        command: REVIEW_TEST.command,
+        cwd: 'github-actions:acme/web',
+        sandbox: { denyRead: [], allowRead: [] },
+        githubActions: {
+          ref: { projectKey: 'AR', repo: 'web' },
+          repo: 'acme/web',
+          base: 'main',
+          commit: 'c1',
+          all: true,
+        },
+      });
+      expect(spec.githubActions!.mergeId).toMatch(/^mrg_[a-z0-9]{8,40}$/);
+      expect(spec.requireHeavyLock).toBeUndefined();
+      expect(spec.npmCi).toBeUndefined();
+      expect(h.domain.fullTests.holds(task(), config)).toBe(true);
+      await h.domain.reviewWatch.check();
+      expect(reviewerStarted()).toBe(false);
+
+      executor.finish({ ...passed, externalUrl: RUN_PAGE });
+      await vi.waitFor(() => expect(reviewerStarted()).toBe(true));
+      expect(runs()).toMatchObject([{ runner: 'github_actions', status: 'passed', externalUrl: RUN_PAGE }]);
+      expect(task().reviewPin?.fullTest).toMatchObject({
+        status: 'passed',
+        runner: 'github_actions',
+        externalUrl: RUN_PAGE,
+      });
+      expect(events().map((e) => e.data)).toMatchObject([
+        { outcome: 'passed', runner: 'github_actions', externalUrl: RUN_PAGE },
+      ]);
+    });
+
+    it('sends the task back with the run page when GitHub Actions finds a failure', async () => {
+      await setup({ beforeReview: 'github_actions' });
+      await handOver();
+      await vi.waitFor(() => expect(executor.specs).toHaveLength(1));
+      executor.finish({ ...failed, externalUrl: RUN_PAGE });
+      await vi.waitFor(() => expect(task().stageId).toBe('development'));
+      await vi.waitFor(() =>
+        expect(heldFor('dev-1').some((text) => text.includes(RUN_PAGE) && text.includes('came back'))).toBe(
+          true,
+        ),
+      );
+      expect(reviewerStarted()).toBe(false);
+    });
+
+    it('lets the reviewer start after an error and never falls back to a local run', async () => {
+      await setup({ beforeReview: 'github_actions' });
+      await handOver();
+      await vi.waitFor(() => expect(executor.specs).toHaveLength(1));
+      executor.finish({ ...passed, outcome: 'error', reason: 'github_unavailable', exitCode: null });
+      await vi.waitFor(() => expect(reviewerStarted()).toBe(true));
+      expect(task().reviewPin?.fullTest).toMatchObject({
+        status: 'error',
+        reason: 'github_unavailable',
+        runner: 'github_actions',
+      });
+      expect(runs()).toHaveLength(1);
+      expect(executor.specs).toHaveLength(1);
+    });
+
+    it('drops the running run when the runner is switched off, and lets the reviewer in', async () => {
+      await setup({ beforeReview: 'github_actions' });
+      await handOver();
+      await vi.waitFor(() => expect(executor.specs).toHaveLength(1));
+      await setBeforeReview('off');
+      await vi.waitFor(() => expect(executor.signals[0]!.aborted).toBe(true));
+      await vi.waitFor(() =>
+        expect(runs()).toMatchObject([{ status: 'cancelled', reason: 'configuration_changed' }]),
+      );
+      // Nothing is asked for any more: the reviewer is let in, with no full test result on the pin.
+      await vi.waitFor(() => expect(reviewerStarted()).toBe(true));
+      expect(task().reviewPin?.fullTest).toBeUndefined();
+    });
+
+    it('queues a new run of the other runner and does not count the first runner’s pass', async () => {
+      await setup({ beforeReview: 'github_actions' });
+      await handOver();
+      await vi.waitFor(() => expect(executor.specs).toHaveLength(1));
+      executor.finish({ ...passed, externalUrl: RUN_PAGE });
+      await vi.waitFor(() => expect(reviewerStarted()).toBe(true));
+
+      await setBeforeReview('engine');
+      const config = await h.domain.projects.config('AR');
+      await vi.waitFor(() => expect(executor.specs).toHaveLength(2));
+      expect(executor.specs[1]!.githubActions).toBeUndefined();
+      expect(h.domain.fullTests.holds(task(), config)).toBe(true);
+      expect(
+        runs()
+          .map((run) => [run.runner, run.status])
+          .sort(),
+      ).toEqual([
+        ['engine', 'running'],
+        ['github_actions', 'passed'],
+      ]);
+      expect(task().reviewPin?.fullTest).toMatchObject({ runner: 'engine', status: 'running' });
+    });
   });
 });
 

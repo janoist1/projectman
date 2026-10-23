@@ -28,6 +28,7 @@ import {
   parseEmailLoginEnv,
   scrubEmailLoginEnv,
 } from './services/email-login';
+import { createSesEmailSender, parseEmailChannelEnv, scrubEmailChannelEnv } from './services/email-channel';
 
 /**
  * Server entry point. The environment is read here, once, into the app's options (defaults:
@@ -216,10 +217,13 @@ async function configFromEnv(
   const administrationSocket = parseAdministrationSocket(env.PROJECTMAN_ADMIN_SOCKET);
   // The e-mail login mailer (PM-669): off unless switched on; a wrong or incomplete setting stops the start.
   const emailLogin = parseEmailLoginEnv(env);
+  // The outgoing e-mail channel (PM-941): off unless switched on; a wrong setting stops the start.
+  const emailChannel = parseEmailChannelEnv(env);
   // The public board (PM-672): off unless switched on; buildApp refuses it where its conditions do not hold.
   const publicBoard = parsePublicBoardEnv(env);
   // Keep the keys in the mailer options only, before even the version lookup can start a child process.
   scrubEmailLoginEnv(env);
+  scrubEmailChannelEnv(env);
   const { defaultHeavyLockDir } = await import('./full-test');
   return {
     port,
@@ -231,6 +235,12 @@ async function configFromEnv(
       publicBoard,
       integratorHostname,
       ...(emailLogin ? { emailCodeMailer: createSesEmailCodeMailer(emailLogin) } : {}),
+      ...(emailChannel
+        ? {
+            emailChannelEnv: emailChannel,
+            emailChannelSender: createSesEmailSender(emailChannel),
+          }
+        : {}),
       appVersion: await resolveAppVersion(installDir, env.PROJECTMAN_VERSION),
       appTag: createAppTagReader(installDir, env.PROJECTMAN_VERSION),
       ...(releaseTarget ? { releaseTarget } : {}),

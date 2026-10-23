@@ -60,6 +60,7 @@ import {
   operatorKnowledgeApprovalOf,
   operatorKnowledgeContinuationMessageId,
   pullSourceStage,
+  reviewTestRunnerBeforeReview,
   routeFor,
   stageOf,
   TaskMerged,
@@ -225,6 +226,15 @@ import { attributedActor, humanActor, SYSTEM_ACTOR } from './kernel';
 import { SYSTEM_SENDER, isSessionAtWork, questionPayloadOf } from '@projectman/shared';
 import { DomainError } from './kernel';
 import { ObligationsService } from './services/obligations';
+import {
+  createAwsSqsClient,
+  createEmailChannelService,
+  createSqsInboundSource,
+  type EmailChannelEnv,
+  type SqsLike,
+} from './services/email-channel';
+import { EmailChannelTools } from './mcp';
+import type { EmailSender } from './services/email-channel';
 
 import { ProviderKeys } from './runtime/usage';
 
@@ -294,6 +304,12 @@ export interface DomainOptions {
    */
   emailCodeMailer?: EmailCodeMailer;
   emailLoginKey?: Buffer;
+  /** The SES sender of the outgoing e-mail channel (PM-941); absent: not configured. */
+  emailChannelSender?: EmailSender;
+  emailChannelEnv?: EmailChannelEnv;
+  /** Reads the mail queue of SES receiving (PM-945); absent: the AWS client of `emailChannelEnv.queueUrl`. */
+  emailChannelQueue?: SqsLike;
+  emailReplyKey?: Buffer;
   /** Root used to constrain automatic lockfile installs; unset means no install auto-approval. */
   worktreesRootDir?: string;
   /**
@@ -740,17 +756,18 @@ export function createDomain(opts: DomainOptions) {
     publicBaseUrl: opts.feedbackPublicUrl ?? null,
   });
   const feedbackWidget = new FeedbackWidgetService({ ctx, projects, feedback });
+  const systemFeedbackContext = new SystemFeedbackContext({
+    ctx,
+    projects,
+    secrets: async () => [await providerKeys?.nanogptKey()],
+    paths: [opts.appHome, opts.userHome, opts.workspacesRootDir],
+  });
   const systemFeedback = new SystemFeedbackService({
     ctx,
     projects,
     tasks,
     version: opts.appVersion ?? 'dev',
-    context: new SystemFeedbackContext({
-      ctx,
-      projects,
-      secrets: async () => [await providerKeys?.nanogptKey()],
-      paths: [opts.appHome, opts.userHome, opts.workspacesRootDir],
-    }),
+    context: systemFeedbackContext,
   });
   const messageAttachments = new MessageAttachmentService({
     ctx,
@@ -899,6 +916,38 @@ export function createDomain(opts: DomainOptions) {
     engines,
     messageAttachments,
   });
+  const emailChannel = createEmailChannelService({
+    ctx,
+    repo: opts.repos.emailChannel,
+    inbox,
+    messaging,
+    projects,
+    tasks,
+    redactionContext: () => systemFeedbackContext.current(),
+    sender: opts.emailChannelSender,
+    env: opts.emailChannelEnv,
+    replyKey: opts.emailReplyKey,
+    now,
+  });
+  const emailQueueUrl = opts.emailChannelEnv?.queueUrl;
+  const emailQueue =
+    emailChannel.configured() && opts.emailChannelEnv && emailQueueUrl
+      ? createSqsInboundSource({
+          queueUrl: emailQueueUrl,
+          client:
+            opts.emailChannelQueue ??
+            createAwsSqsClient({
+              region: opts.emailChannelEnv.region,
+              credentials: opts.emailChannelEnv.credentials,
+            }),
+          inbound: emailChannel.inbound,
+          logger: opts.logger,
+          now,
+        })
+      : null;
+  inbox.registerDecider('email', (item, by, optionId, note) =>
+    emailChannel.decideApproval(item, by, optionId, note),
+  );
   sessions.useProjectManagerStarts((projectKey, handle, taskKey, cause) =>
     messaging.projectManagerStart(projectKey, handle, taskKey, cause),
   );
@@ -1005,7 +1054,13 @@ export function createDomain(opts: DomainOptions) {
   handOver.useFixLimit(fixLimit);
   startRound.useFixLimit(fixLimit);
   const autoAdvance = new AutoAdvance({ ctx, projects, tasks, sessions });
-  const messageStarts = new MessageStarts({ ctx, projects, tasks, admission });
+  const messageStarts = new MessageStarts({
+    ctx,
+    projects,
+    tasks,
+    admission,
+    workStarts,
+  });
   // The member queue's driver (PM-925) wakes the members whose queues hold work; the messages are its first lane.
   const memberQueueDriver = new MemberQueueWorker({
     ctx,
@@ -1103,8 +1158,10 @@ export function createDomain(opts: DomainOptions) {
     waitingReason: (projectKey, handle, workItem) =>
       messageStarts.waitingReason(projectKey, handle, workItem),
   });
-  sessions.useQuotaRecovery(planUsage, (session, stageId, after) =>
-    messageStarts.resumeAfter(session, stageId, after),
+  sessions.useQuotaRecovery(
+    planUsage,
+    (session, stageId, after) => messageStarts.resumeAfter(session, stageId, after),
+    (session, stageId) => messageStarts.reassignAfterQuota(session, stageId),
   );
   const schedules = new ScheduleService({
     ctx,
@@ -1190,6 +1247,17 @@ export function createDomain(opts: DomainOptions) {
       opts.logger.warn({ err, taskKey }, 'could not queue the full test of the new round');
     }),
   );
+  // A repository's review test runner switched or was switched off: the waiting runs follow the new setting (PM-909).
+  const reviewRunners = (config: ProjectConfig | null | undefined) =>
+    JSON.stringify(
+      (config?.project.repos ?? []).map((repo) => [repo.name, reviewTestRunnerBeforeReview(repo)]),
+    );
+  events.on('config_changed', (change) => {
+    if (reviewRunners(change.previous) === reviewRunners(change.next)) return;
+    return fullTests.syncAll(change.projectKey).catch((err: unknown) => {
+      opts.logger.warn({ err, projectKey: change.projectKey }, 'could not bring the full tests in line');
+    });
+  });
   messaging.registerCardHold('full_test', fullTests);
   const merges = new Merges({
     work: releaseWork,
@@ -1702,6 +1770,7 @@ export function createDomain(opts: DomainOptions) {
       watchers: new WatcherTools({ calls: toolCaller, fixLimit }),
       operatorQueue: new OperatorQueueTools({ projects, finisher: operatorQueueFinisher }),
       sessions: new SessionTools({ calls: toolCaller, ctx, sessions }),
+      email: new EmailChannelTools({ calls: toolCaller, projects, email: emailChannel }),
     },
   });
   const agentQuestions = new AgentQuestions({
@@ -1844,6 +1913,7 @@ export function createDomain(opts: DomainOptions) {
   events.on('config_changed', (change) => sessions.handleConfigChange(change));
   events.on('config_changed', () => boundary.sweep());
   events.on('config_changed', () => inbox.sweepDelegations());
+  events.on('config_changed', (change) => emailChannel.onConfigChanged(change.projectKey));
   events.on('task_cancelled', () => boundary.sweep());
   // AI work switched back on: the deferred starts continue.
   events.on('config_changed', (change) => {
@@ -2391,6 +2461,7 @@ export function createDomain(opts: DomainOptions) {
     board,
     profiles,
     invitations,
+    emailChannel,
     emailLogin,
     history,
     cardMeasure,
@@ -2447,6 +2518,8 @@ export function createDomain(opts: DomainOptions) {
         });
       }, 60_000);
       superHandoffSweep.unref();
+      emailChannel.start();
+      emailQueue?.start();
       githubSync.start();
       background.start();
       // Restore quota holds before schedulers or background probes can admit inference.
@@ -2656,6 +2729,8 @@ export function createDomain(opts: DomainOptions) {
       usage.stop();
       stopMessageSweep?.();
       if (superHandoffSweep) clearInterval(superHandoffSweep);
+      emailChannel.stop();
+      await emailQueue?.stop();
       const drained = schedules.stop();
       githubSync.stop();
       await fullTests.stop();

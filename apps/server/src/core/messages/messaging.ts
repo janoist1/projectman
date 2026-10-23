@@ -84,6 +84,8 @@ interface SendOptions {
   duringRefinement?: boolean;
   /** Marks the message as the answer to an AI member's question (PM-249): the card thread shows it as one. */
   answer?: TeamMessageAnswer;
+  /** Marks the message as the reply of an e-mail contact (PM-943): its text reaches the recipient as data. */
+  email?: TeamMessage['email'];
   /**
    * Only with `kind: 'info'` (PM-421): an idle running session gets the message before its next input,
    * not at once (a busy one at the end of its turn, as any message). Internal, not a contract.
@@ -460,6 +462,7 @@ export class Messaging {
           delivered: recipients.every((handle) => humans.includes(handle)),
           routes,
           answer: opts.answer,
+          email: opts.email,
           origin: opts.origin,
           kind: opts.kind ?? 'action',
           subject: opts.subject,

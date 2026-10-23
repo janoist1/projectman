@@ -374,6 +374,7 @@ export const makeMessageDelivery = (deps: DeliveryDeps): Effect.Effect<DeliveryE
               taskKey: m.taskKey,
               body: m.body,
               attachments: m.attachments,
+              email: m.email,
               kind: m.kind ?? 'action',
               sentAt: m.createdAt,
               version: m.version,

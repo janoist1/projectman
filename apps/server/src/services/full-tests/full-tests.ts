@@ -3,8 +3,9 @@ import {
   effectiveRepo,
   isOpenTask,
   isTheme,
+  MERGE_CHECK_WORKFLOW,
   repoOf,
-  reviewTestBeforeReview,
+  reviewTestRunnerBeforeReview,
   stageOf,
   stageOwners,
 } from '@projectman/shared';
@@ -12,11 +13,18 @@ import type {
   EngineId,
   FullTestCancelReason,
   FullTestErrorReason,
+  MergeCheckRunner,
   ProjectConfig,
   RepoConfig,
   Task,
 } from '@projectman/shared';
-import type { EngineDirectory, EngineHost, FullTestResult, ReleaseWorkAdmission } from '../../contracts';
+import type {
+  EngineDirectory,
+  EngineHost,
+  FullTestResult,
+  FullTestSpec,
+  ReleaseWorkAdmission,
+} from '../../contracts';
 import type { FullTestRunRecord, ReviewPinRecord } from '../../db';
 import type { DomainContext } from '../../core/base';
 import { isoNow } from '../../core/base';
@@ -38,12 +46,29 @@ const MESSAGE_OUTPUT_CHARS = 3000;
 type ReviewTest = NonNullable<RepoConfig['reviewTest']>;
 
 /**
- * The full test the task's repository asks for before review (PM-217); none when it is not asked for,
- * and none when it runs only at the merge (`fullTestAtMerge`, PM-386).
+ * Where the task's repository runs the full test before review (PM-217, PM-909): none when it is not
+ * asked for, and none when it runs only at the merge (`fullTestAtMerge`, PM-386) or `beforeReview` is off.
  */
-function reviewTestOf(config: ProjectConfig, task: Pick<Task, 'repo'>): ReviewTest | undefined {
+function reviewRunnerOf(config: ProjectConfig, task: Pick<Task, 'repo'>): MergeCheckRunner | undefined {
   const repo = repoOf(config, effectiveRepo(config, task));
-  return repo && reviewTestBeforeReview(repo) ? repo.reviewTest : undefined;
+  return repo ? reviewTestRunnerBeforeReview(repo) : undefined;
+}
+
+/** The full test the task's repository asks for before review; none when `reviewRunnerOf` is none. */
+function reviewTestOf(config: ProjectConfig, task: Pick<Task, 'repo'>): ReviewTest | undefined {
+  return reviewRunnerOf(config, task) ? repoOf(config, effectiveRepo(config, task))?.reviewTest : undefined;
+}
+
+/**
+ * The check id of a GitHub Actions review run: a merge-style id, because the engine accepts no other
+ * (`merge.release_check` and the check branch use it). Derived from the run id, so it stays unique.
+ */
+function reviewCheckId(runId: string): string {
+  return `mrg_${runId
+    .replace(/^ftr_/, '')
+    .replace(/[^a-z0-9]/g, '')
+    .slice(0, 40)
+    .padEnd(8, '0')}`;
 }
 
 /**
@@ -108,6 +133,8 @@ export class FullTestRuns {
   private readonly released: () => void;
   /** The engines whose sandbox can run a full test (checked at the start). */
   private readonly availableOn = new Set<EngineId>();
+  /** The engines with a full test executor: an engine run needs its sandbox too, a GitHub Actions run does not (PM-909). */
+  private readonly executorOn = new Set<EngineId>();
   private stopped = false;
   private scope = Scope.makeUnsafe();
   private core: FullTestQueueEffects;
@@ -127,20 +154,34 @@ export class FullTestRuns {
     this.core = this.makeCore();
   }
 
-  /** Whether any engine can run a full test. */
+  /** Whether any engine can run a full test, here or on GitHub Actions. */
   private get available(): boolean {
-    return this.availableOn.size > 0;
+    return this.executorOn.size > 0;
   }
 
   /**
-   * Startup: asks the executor whether the sandbox can run here (the feature is off when it cannot),
+   * Where the task's full test runs now: its repository's runner, and only when the card's engine can
+   * run it (an engine run needs the sandbox; a GitHub Actions run only the engine's executor, PM-909).
+   */
+  private runnerFor(task: Task, config: ProjectConfig): MergeCheckRunner | undefined {
+    const runner = reviewRunnerOf(config, task);
+    if (!runner) return undefined;
+    const engineId = this.sessions.cardEngineId(config.project.key, task);
+    const usable = runner === 'engine' ? this.availableOn.has(engineId) : this.executorOn.has(engineId);
+    return usable ? runner : undefined;
+  }
+
+  /**
+   * Startup: asks the executor whether the sandbox can run here (the engine run is off when it cannot),
    * ends the runs the last server left (`interrupted`) and queues the pins that still need one.
    */
   async init(): Promise<void> {
     this.availableOn.clear();
+    this.executorOn.clear();
     for (const engineId of this.engines.ids()) {
       const executor = this.engines.get(engineId)?.fullTestExecutor;
       if (!executor) continue;
+      this.executorOn.add(engineId);
       const state = await executor.available().catch((err: unknown) => ({
         ok: false as const,
         reason: err instanceof Error ? err.message : String(err),
@@ -170,27 +211,27 @@ export class FullTestRuns {
     if (this.stopped || this.availableOn.has(engineId)) return;
     const executor = this.engines.get(engineId)?.fullTestExecutor;
     if (!executor) return;
+    const newExecutor = !this.executorOn.has(engineId);
+    this.executorOn.add(engineId);
     const state = await executor.available().catch((err: unknown) => ({
       ok: false as const,
       reason: err instanceof Error ? err.message : String(err),
     }));
-    if (!state.ok) {
+    if (state.ok) this.availableOn.add(engineId);
+    else {
       this.ctx.logger.warn(
         { reason: state.reason, engineId },
         'the full test before review is off: no sandbox',
       );
-      return;
+      // A GitHub Actions run needs no sandbox: only a first sight of the executor changes what can run.
+      if (!newExecutor) return;
     }
-    this.availableOn.add(engineId);
     await this.syncAll();
   }
 
-  /** Whether a full test runs on the task's handed-over commits: the feature is on and its repository asks for one. */
+  /** Whether a full test runs on the task's handed-over commits: the runner is usable and its repository asks for one. */
   runsFor(task: Task, config: ProjectConfig): boolean {
-    return (
-      this.availableOn.has(this.sessions.cardEngineId(config.project.key, task)) &&
-      reviewTestOf(config, task) !== undefined
-    );
+    return this.runnerFor(task, config) !== undefined;
   }
 
   /** Server stop: the running run ends (`shutdown`) and nothing new starts. */
@@ -211,15 +252,19 @@ export class FullTestRuns {
    */
   holds(task: Task, config: ProjectConfig): boolean {
     if (!this.available || !isOpenTask(task) || isTheme(task) || task.status !== 'active') return false;
-    if (!reviewTestOf(config, task)) return false;
-    if (!this.availableOn.has(this.sessions.cardEngineId(config.project.key, task))) return false;
+    const runner = this.runnerFor(task, config);
+    if (!runner) return false;
     const pin = this.ctx.repos.reviewPins.get(task.key);
     if (!pin || pin.stageId !== task.stageId) return false;
-    return !this.ctx.repos.fullTestRuns.forPin(pin).some(settled);
+    // Only a result of the current runner counts: another runner's older pass does not let the reviewer in.
+    return !this.ctx.repos.fullTestRuns.forPin(pin, { runner }).some(settled);
   }
 
-  /** Queues a run for every pin that needs one, and drops the runs of pins that are gone. */
-  async syncAll(): Promise<void> {
+  /**
+   * Queues a run for every pin that needs one, and drops the runs of pins that are gone; one project's
+   * only (the review test setting of it changed) when `onlyProject` is given.
+   */
+  async syncAll(onlyProject?: string): Promise<void> {
     if (!this.available) return;
     const runs = this.ctx.repos.fullTestRuns;
     const keys = new Map<string, string>();
@@ -227,6 +272,7 @@ export class FullTestRuns {
     for (const run of [...runs.list('queued'), ...runs.list('running')])
       keys.set(run.taskKey, run.projectKey);
     for (const [taskKey, projectKey] of keys) {
+      if (onlyProject !== undefined && projectKey !== onlyProject) continue;
       try {
         await this.sync(projectKey, taskKey);
       } catch (err) {
@@ -245,17 +291,27 @@ export class FullTestRuns {
     const pin = this.ctx.repos.reviewPins.get(taskKey);
     const config = task ? await this.projects.config(projectKey) : null;
     const runs = this.ctx.repos.fullTestRuns;
-    const wanted = task && config && pin && this.pinApplies(task, config, pin) ? { task, config, pin } : null;
+    const runner =
+      task && config && pin && this.pinApplies(task, pin) ? this.runnerFor(task, config) : undefined;
+    const wanted = task && config && pin && runner ? { task, config, pin, runner } : null;
+    let settingChanged = false;
     for (const run of runs.forTask(taskKey)) {
       if (run.status !== 'queued' && run.status !== 'running') continue;
-      if (wanted && wanted.pin.commit === run.commit && run.createdAt >= wanted.pin.pinnedAt) continue;
-      // A run of a pin that no longer applies (the stage left, the card closed or paused): "repinned" is only a newer commit.
-      this.cancel(run, wanted ? 'repinned' : 'stage_left');
+      if (
+        wanted &&
+        wanted.pin.commit === run.commit &&
+        run.createdAt >= wanted.pin.pinnedAt &&
+        run.runner === wanted.runner
+      )
+        continue;
+      const reason = this.dropReason(task, pin, run);
+      if (reason === 'configuration_changed') settingChanged = true;
+      this.cancel(run, reason);
     }
     if (
       wanted &&
       !runs
-        .forPin(wanted.pin)
+        .forPin(wanted.pin, { runner: wanted.runner })
         .some((run) => run.status === 'queued' || run.status === 'running' || settled(run))
     ) {
       runs.queue({
@@ -265,27 +321,37 @@ export class FullTestRuns {
         repo: effectiveRepo(wanted.config, wanted.task) ?? '',
         branch: wanted.pin.branch,
         commit: wanted.pin.commit,
+        runner: wanted.runner,
         createdAt: isoNow(this.ctx),
       });
       this.ctx.logger.info(
-        { taskKey, commit: wanted.pin.commit },
+        { taskKey, commit: wanted.pin.commit, runner: wanted.runner },
         'the full test of a pinned commit is queued',
       );
       this.tasks.publish(wanted.task);
     }
+    // The setting dropped a run the reviewers waited for and asks for no other: they may start now.
+    if (settingChanged && task && config && !this.holds(task, config)) this.release(task, config);
     this.pump();
   }
 
-  /** Whether a full test is asked for the task's current pin. */
-  private pinApplies(task: Task, config: ProjectConfig, pin: ReviewPinRecord): boolean {
-    return (
-      isOpenTask(task) &&
-      !isTheme(task) &&
-      task.status === 'active' &&
-      pin.stageId === task.stageId &&
-      reviewTestOf(config, task) !== undefined &&
-      this.availableOn.has(this.sessions.cardEngineId(config.project.key, task))
-    );
+  /** Whether the task is still in the stage of its pin, open and active: the pin can be waited for. */
+  private pinApplies(task: Task, pin: ReviewPinRecord): boolean {
+    return isOpenTask(task) && !isTheme(task) && task.status === 'active' && pin.stageId === task.stageId;
+  }
+
+  /**
+   * Why a run that is no longer wanted is dropped: the task left the stage of its pin (or was closed or
+   * paused), a newer commit was pinned, or else the repository's review test setting changed (PM-909).
+   */
+  private dropReason(
+    task: Task | null | undefined,
+    pin: ReviewPinRecord | null | undefined,
+    run: FullTestRunRecord,
+  ): FullTestCancelReason {
+    if (!task || !pin || !this.pinApplies(task, pin)) return 'stage_left';
+    if (pin.commit !== run.commit || run.createdAt < pin.pinnedAt) return 'repinned';
+    return 'configuration_changed';
   }
 
   /** Ends a queued or running run without a verdict; a running one is stopped. */
@@ -359,13 +425,22 @@ export class FullTestRuns {
     const task = this.tasks.find(projectKey, taskKey);
     const pin = this.ctx.repos.reviewPins.get(taskKey);
     const config = task ? await this.projects.config(projectKey) : null;
-    const applies = !!task && !!config && !!pin && this.pinApplies(task, config, pin);
-    if (!task || !config || !pin || !applies || pin.commit !== run.commit) {
-      this.cancel(run, applies ? 'repinned' : 'stage_left');
+    // 'configuration_changed' means the pin itself still applies; then only the setting can drop the run
+    // (runner switched or off, or its runner became unusable since it was queued).
+    const dropped = this.dropReason(task, pin, run);
+    if (
+      !task ||
+      !config ||
+      !pin ||
+      dropped !== 'configuration_changed' ||
+      this.runnerFor(task, config) !== run.runner
+    ) {
+      this.cancel(run, dropped);
       return;
     }
     const reviewTest = reviewTestOf(config, task)!;
     const command = reviewTest.command;
+    if (run.runner === 'github_actions') return this.executeOnGithub(run, task, config, command, signal);
     const head = await this.sessions.sourceHead(config, task);
     if (runs.get(run.id)?.status !== 'queued') return;
     // The server stopped while the checkout was read: nothing starts after the shutdown.
@@ -426,6 +501,7 @@ export class FullTestRuns {
     }
     // Dropped while it ran (new pin, stage left, shutdown): the result is of no use.
     if (runs.get(run.id)?.status !== 'running') return;
+    if (await this.droppedWhileRunning(run)) return;
 
     // The branch must not have moved or become dirty while the command ran.
     const after = await this.sessions.sourceHead(config, task).catch(() => null);
@@ -433,6 +509,84 @@ export class FullTestRuns {
     if (after && after.commit !== run.commit) return this.cancel(run, 'branch_moved');
     if (after?.dirty)
       return this.end(run, task, config, { outcome: 'error', reason: 'checkout_dirty' }, '', command);
+    await this.end(run, task, config, result, result.outputTail, command);
+  }
+
+  /**
+   * Cancels a run whose pin or setting changed while the executor was busy and no sync dropped it yet
+   * (PM-909): its verdict belongs to a commit or a runner nobody asks for any more. True: it was dropped.
+   */
+  private async droppedWhileRunning(run: FullTestRunRecord): Promise<boolean> {
+    const task = this.tasks.find(run.projectKey, run.taskKey);
+    const pin = this.ctx.repos.reviewPins.get(run.taskKey);
+    const config = task ? await this.projects.config(run.projectKey).catch(() => null) : null;
+    // The run may have been ended by someone else while the configuration was read.
+    if (this.ctx.repos.fullTestRuns.get(run.id)?.status !== 'running') return true;
+    const reason = this.dropReason(task, pin, run);
+    if (task && config && reason === 'configuration_changed' && this.runnerFor(task, config) === run.runner)
+      return false;
+    this.cancel(run, reason);
+    return true;
+  }
+
+  /**
+   * One run on GitHub Actions (PM-909): the card's engine pushes the pinned commit to a temporary check
+   * branch and dispatches the merge check workflow in full mode (`all`); no local checkout, sandbox or
+   * heavy-run lock is used, and a failure to reach GitHub is an error result, never a local run.
+   */
+  private async executeOnGithub(
+    run: FullTestRunRecord,
+    task: Task,
+    config: ProjectConfig,
+    command: string,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const runs = this.ctx.repos.fullTestRuns;
+    const { projectKey } = run;
+    const reviewTest = reviewTestOf(config, task)!;
+    const repo = repoOf(config, effectiveRepo(config, task));
+    // The server stopped before the run started: nothing starts after the shutdown.
+    if (this.stopped) return this.cancel(run, 'shutdown');
+    const executor = this.engines.get(this.sessions.cardEngineId(projectKey, task))?.fullTestExecutor;
+    if (!executor)
+      return this.end(run, task, config, { outcome: 'error', reason: 'engine_offline' }, '', command);
+    if (!repo?.github)
+      return this.end(run, task, config, { outcome: 'error', reason: 'github_unavailable' }, '', command);
+    runs.start(run.id, isoNow(this.ctx));
+    this.tasks.publish(task);
+    const spec: FullTestSpec = {
+      runId: run.id,
+      cwd: `github-actions:${repo.github}`,
+      command,
+      maxWorkers: reviewTest.maxWorkers,
+      timeoutMs: reviewTest.timeoutMinutes * 60_000,
+      sandbox: { denyRead: [], allowRead: [] },
+      githubActions: {
+        ref: { projectKey, repo: repo.name },
+        mergeId: reviewCheckId(run.id),
+        repo: repo.github,
+        base: repo.defaultBranch,
+        commit: run.commit,
+        workflow: MERGE_CHECK_WORKFLOW,
+        all: true,
+      },
+    };
+    let result: FullTestResult;
+    try {
+      result = await executor.run(spec, signal);
+    } catch (err) {
+      this.ctx.logger.warn({ err, runId: run.id }, 'the full test executor threw');
+      result = {
+        outcome: 'error',
+        reason: 'spawn_failed',
+        exitCode: null,
+        durationMs: 0,
+        failedFiles: [],
+        outputTail: '',
+      };
+    }
+    if (runs.get(run.id)?.status !== 'running') return;
+    if (await this.droppedWhileRunning(run)) return;
     await this.end(run, task, config, result, result.outputTail, command);
   }
 
@@ -457,6 +611,7 @@ export class FullTestRuns {
         exitCode,
         failedFiles,
         durationMs,
+        externalUrl: result.externalUrl ?? null,
         finishedAt: isoNow(this.ctx),
       });
       this.timeline.append({
@@ -471,6 +626,8 @@ export class FullTestRuns {
           repo: run.repo,
           branch: run.branch,
           commit: run.commit,
+          runner: run.runner,
+          ...(result.externalUrl ? { externalUrl: result.externalUrl } : {}),
           durationMs,
           exitCode,
           ...(result.outcome === 'failed' ? { failedFiles } : {}),
@@ -485,7 +642,8 @@ export class FullTestRuns {
     );
     const current = this.tasks.find(projectKey, taskKey);
     if (current) this.tasks.publish(current);
-    if (result.outcome === 'failed') await this.sendBack(run, task, config, failedFiles, outputTail);
+    if (result.outcome === 'failed')
+      await this.sendBack(run, task, config, failedFiles, outputTail, result.externalUrl);
     else this.release(task, config);
   }
 
@@ -518,6 +676,7 @@ export class FullTestRuns {
     config: ProjectConfig,
     failedFiles: string[],
     outputTail: string,
+    externalUrl?: string,
   ): Promise<void> {
     const { projectKey, taskKey } = run;
     const current = this.tasks.find(projectKey, taskKey);
@@ -555,6 +714,7 @@ export class FullTestRuns {
           run,
           failedFiles,
           outputTail,
+          ...(externalUrl ? { externalUrl } : {}),
           defaultBranch: repoOf(config, effectiveRepo(config, current))?.defaultBranch ?? 'main',
         }),
       },
@@ -570,12 +730,17 @@ function failureMessage(input: {
   /** The stage it was sent back to; null when it stayed. */
   to: string | null;
   command: string;
-  run: Pick<FullTestRunRecord, 'branch' | 'commit'>;
+  run: Pick<FullTestRunRecord, 'branch' | 'commit' | 'runner'>;
   failedFiles: string[];
   outputTail: string;
+  /** The GitHub Actions run page of a `github_actions` run. */
+  externalUrl?: string;
   defaultBranch: string;
 }): string {
-  const { task, from, to, command, run, failedFiles, outputTail, defaultBranch } = input;
+  const { task, from, to, command, run, failedFiles, outputTail, externalUrl, defaultBranch } = input;
+  const github = run.runner === 'github_actions';
+  const test = github ? 'GitHub Actions full test' : "server's full test";
+  const where = github ? '' : ', PTY tests included';
   const output =
     outputTail.length > MESSAGE_OUTPUT_CHARS
       ? outputTail.startsWith('⎯') || outputTail.startsWith('## ')
@@ -584,12 +749,13 @@ function failureMessage(input: {
       : outputTail;
   return [
     to
-      ? `Task ${task.key} came back from ${from} to ${to}: the server's full test (\`${command}\`, PTY tests included) failed on commit ${run.commit} of your branch ${run.branch}.`
-      : `The server's full test (\`${command}\`, PTY tests included) failed on commit ${run.commit} of your branch ${run.branch}, but task ${task.key} could not be sent back from ${from}.`,
+      ? `Task ${task.key} came back from ${from} to ${to}: the ${test} (\`${command}\`${where}) failed on commit ${run.commit} of your branch ${run.branch}.`
+      : `The ${test} (\`${command}\`${where}) failed on commit ${run.commit} of your branch ${run.branch}, but task ${task.key} could not be sent back from ${from}.`,
+    ...(externalUrl ? [`The GitHub Actions run: ${externalUrl}`] : []),
     failedFiles.length > 0
       ? `Failed test files: ${failedFiles.join(', ')}.`
       : 'No test file is named (for example the type check failed).',
     ...(output ? ['The end of the output:', '```', output, '```'] : []),
-    `The PTY tests do not run in your own sandbox. Fix the failure, commit, and move the task to ${from} again: the server runs the full test again. If the same failure is on ${defaultBranch} too, do not touch code that is not yours: ask the owner with ask_human.`,
+    `${github ? 'The full test runs on GitHub Actions, not in your own sandbox.' : 'The PTY tests do not run in your own sandbox.'} Fix the failure, commit, and move the task to ${from} again: ${github ? 'GitHub Actions' : 'the server'} runs the full test again. If the same failure is on ${defaultBranch} too, do not touch code that is not yours: ask the owner with ask_human.`,
   ].join('\n');
 }

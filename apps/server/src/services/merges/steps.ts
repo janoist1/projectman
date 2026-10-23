@@ -454,7 +454,12 @@ export class MergeSteps {
         const passed = ctx.repos.fullTestRuns
           .forCommit(task.key, commit)
           .find(
-            (run) => run.status === 'passed' && run.projectKey === row.projectKey && run.repo === row.repo,
+            // A GitHub Actions review result (PM-909) never stands in for the merge candidate's own check.
+            (run) =>
+              run.status === 'passed' &&
+              run.runner === 'engine' &&
+              run.projectKey === row.projectKey &&
+              run.repo === row.repo,
           );
         if (!row.diagnostic && passed && (await merger.isAncestor(ref, { ancestor: onto, commit: commit }))) {
           this.save(row, {

@@ -25,7 +25,7 @@ export { AuthService, SESSION_TTL_MS } from './auth-service';
 export type { AuthUser } from './auth-service';
 export { clientAddress, isLocalRequest, requestProtocol } from '../kernel';
 export { createSetupCode, MAX_SETUP_CODE_FAILURES } from './setup-code';
-export { deriveEmailLoginKey, loadOrCreateSecret } from './secret';
+export { deriveEmailLoginKey, deriveEmailReplyKey, loadOrCreateSecret } from './secret';
 export {
   assertPublicBoardReady,
   parsePublicBoardEnv,

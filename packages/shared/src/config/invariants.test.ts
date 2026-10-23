@@ -942,6 +942,17 @@ describe('review_test_runner_github (PM-900)', () => {
     ]);
   });
 
+  it('reports a GitHub Actions beforeReview on a repository without a github owner/name (PM-909)', () => {
+    expect(
+      issuesOf('review_test_runner_github', (input) => {
+        input.project.repos[0]!.github = undefined;
+        input.project.repos[0]!.reviewTest = { command: 'npm test', beforeReview: 'github_actions' };
+      }),
+    ).toEqual([
+      { code: 'review_test_runner_github', path: 'project.repos[0].reviewTest.beforeReview', detail: 'web' },
+    ]);
+  });
+
   it('accepts the runner with a github owner/name and the engine runner without one', () => {
     expect(issuesOf('review_test_runner_github', runner('acme/web'))).toEqual([]);
     expect(

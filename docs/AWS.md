@@ -1228,6 +1228,93 @@ message or approval request. Read the protected store only on the owner's admini
 (the cloud server); the engine, the engine link and the engine protocol do not change, and the board
 sends the mail whether the engine is connected or not.
 
+## Receiving e-mail replies (SES receiving → SNS → SQS, PM-945)
+
+The e-mail channel (PM-941, PM-943) lets an AI member write to a consenting human; this part lets the human
+answer by mail. The reply goes to a reply address on a **subdomain of its own**, so the zone's and the
+login sender's normal mail (MX, SPF, DMARC) stays untouched:
+
+```
+reply to <token>@reply.istvan.io
+ → MX 10 inbound-smtp.<ses.region>.amazonaws.com (DNS-only, Cloudflare)
+ → SES receipt rule set "<instanceName>-email" (spam and virus scan on, TLS optional)
+ → SNS topic "<instanceName>-email-in" (the mail as base64 in the message)
+ → SQS queue "<instanceName>-email-in" (dead-letter queue "<instanceName>-email-in-dlq", after 5 tries)
+ → the hub's queue reader (long poll, 20 s) → the e-mail channel's inbound handling
+```
+
+Bounces, complaints and deliveries of the mails the hub sends arrive on the same topic: the hub sends
+through the configuration set `<instanceName>-email`, whose event destination publishes BOUNCE, COMPLAINT,
+DELIVERY and REJECT to it.
+
+**Settings.** Add the optional field to the `ses` block (the old configuration stays valid; without it the
+three receiving commands refuse with exit 2 and the sending side is unchanged):
+
+```json
+"ses": { "profile": "i", "region": "eu-west-1", "domain": "istvan.io", "from": "login@istvan.io",
+         "inbound": { "replyDomain": "reply.istvan.io" } }
+```
+
+`replyDomain` must be a proper subdomain of `cloudflare.zone` and must differ from `ses.domain`. The
+receiving commands use the same profile and region as `ses`; SES receiving is available only in some
+regions, `ses.region` must be one of them. `receive-configure` writes these lines to the protected
+`cloud.env` (no secret among them): `PROJECTMAN_EMAIL_CHANNEL_ENABLED=1`, `PROJECTMAN_EMAIL_REPLY_DOMAIN`,
+`PROJECTMAN_EMAIL_QUEUE_URL`, `PROJECTMAN_EMAIL_CONFIGURATION_SET`. The hub starts its queue reader when the
+queue URL is set and uses the `PROJECTMAN_SES_*` key it already has (no new key).
+
+**The owner's steps** (each live change approved separately; the AI members run only the first, and the
+tests use stateful fakes of `aws` and Cloudflare):
+
+1. `npm run cloud -- ses receive-plan`: read only. Prints, for each resource below, `would create`,
+   `would update` or `unchanged`, and the cost estimate. It refuses (exit 2) on a conflict.
+2. `npm run cloud -- ses receive-configure --dry-run`, then, after the owner approves the preview,
+   `npm run cloud -- ses receive-configure`. Idempotent; creates in this order: the SES identity of the
+   reply domain and its DKIM CNAMEs, the SNS topic and its policy, the dead-letter queue, the queue (its
+   policy, the redrive to the dead-letter queue after 5 receives, 14 days retention on the dead-letter queue),
+   the raw SNS→SQS subscription, the configuration set and its event destination, the receipt rule set
+   and rule (recipient: the reply domain), the active rule set, the sender's IAM policy, the `cloud.env`
+   lines, and **last the MX record**, so no mail arrives before everything behind it is ready.
+3. `npm run cloud -- ses receive-check`: sends no mail. Checks that the reply identity is verified with DKIM
+   SUCCESS, the MX, that the active rule set is ours, and that rule, topic, queue, dead-letter queue,
+   subscription, policies and `cloud.env` match; prints the number of messages in the dead-letter queue.
+   A deviation exits 1, a missing precondition 2. Wait for DKIM to turn SUCCESS (DNS), then run it.
+4. Approve `npm run cloud -- deploy` to carry the new `cloud.env` lines to the hub. Approve the first real
+   reply trial separately.
+
+**What is refused (exit 2, nothing changed, also in `--dry-run` and `receive-plan`).** Another active
+receipt rule set in the region (an account has one active rule set; this command will not replace or change a
+foreign one); an existing topic, queue or other resource of the name that does not carry the tag
+`projectman=cloud`, or a foreign subscription or rule; a CNAME or a different MX at the reply name; no sender
+yet (run `ses configure` first). The sender's IAM user `<instanceName>-ses` gets two more statements next to the
+existing one: `ses:SendEmail` on the configuration set (same `ses:FromAddress` condition), and
+`sqs:ReceiveMessage`, `sqs:DeleteMessage`, `sqs:ChangeMessageVisibility` on the one queue; there is no
+wildcard and no `SendRawEmail`. `ses configure` and `ses check` recognise that extended policy and keep it.
+The topic admits only `ses.amazonaws.com` of this account (`aws:SourceAccount`), the queue only this topic
+(`aws:SourceArn`).
+
+**Cost** (printed by the plan; check [SES pricing](https://aws.amazon.com/ses/pricing/) for the current
+figures): receiving about 0.10 USD per 1000 mails plus about 0.09 USD per 1000 chunks of 256 kB of incoming
+mail; the SNS and SQS requests of a few hundred mails stay inside the free tier. Sending is unchanged.
+
+**Rollback.** Stop the intake first: delete the MX record of the reply domain (or disable the active receipt
+rule set with `aws ses set-active-receipt-rule-set` without a name). Then, if wanted, clear
+`PROJECTMAN_EMAIL_QUEUE_URL` from `cloud.env` and `deploy`. The commands delete nothing; the resources are
+cheap and can be removed by hand in the owner's account.
+
+**Known limit.** SNS messages are at most 150 kB in the SES action, so a larger incoming mail (attachments)
+does not reach the queue: SES bounces such a mail. Replies are short text, so this is accepted; a later card
+can switch the rule to an S3 action and read the mail from the bucket if it proves too small.
+
+**The reader.** `createSqsInboundSource` (`apps/server/src/services/email-channel/sqs-source.ts`) long-polls
+the queue (up to 10 messages, 20 s wait, 60 s visibility), hands a mail or a delivery event to the channel
+and deletes the message when it is handled, a duplicate, ignored or dropped. When handling throws, the message
+stays and SQS delivers it again (the dead-letter queue takes it after 5 tries). On an SQS error the reader
+waits 1 s, doubling to 60 s, and logs only the error name, never the key or the queue URL. Shutdown waits
+for the batch being processed.
+
+**Does this work on a remote engine?** Yes. Everything runs in the hub (the cloud board) and in the owner's
+provisioning CLI; the engine gets no key, no queue and no protocol change.
+
 ## What this does not cover
 
 - A live trial: nothing here was run against a real AWS account by the team. The first real run is

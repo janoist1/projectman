@@ -284,13 +284,18 @@ describe('team rules in the system prompt', () => {
     }
   });
 
-  it.each(['merge', 'review', 'none'] as const)(
+  it.each(['merge', 'review', 'github', 'none'] as const)(
     'describes %s testing for checks that cannot run here',
     (mode) => {
       const project = buildProject();
       const repo = project.project.repos.find((entry) => entry.name === 'app')!;
       if (mode !== 'none') {
-        repo.reviewTest = { command: 'npm test', maxWorkers: 4, timeoutMinutes: 5 };
+        repo.reviewTest = {
+          command: 'npm test',
+          maxWorkers: 4,
+          timeoutMinutes: 5,
+          ...(mode === 'github' ? { beforeReview: 'github_actions' as const } : {}),
+        };
       }
       repo.fullTestAtMerge = mode === 'merge';
       const text = section(
@@ -304,6 +309,8 @@ describe('team rules in the system prompt', () => {
       } else {
         expect(text).toContain(mode === 'merge' ? 'full test at the merge' : 'full test before the review');
         expect(text).toContain("outside the members' sandboxes");
+        // The Actions runner is named; the server is not the one running the test.
+        expect(text.includes('GitHub Actions runs')).toBe(mode === 'github');
       }
     },
   );
@@ -1112,6 +1119,26 @@ describe('system prompt', () => {
         expect(prompt).not.toContain(HEADING);
       }
     });
+  });
+
+  it('includes the e-mail channel only for an enabled sender in an enabled project', () => {
+    const heading = '# E-mail channel';
+    const project = buildProject();
+    project.project.email = { enabled: true };
+    aiMember(project, 'fe-1').email = { enabled: true };
+    expect(builder.build(input({ project, handle: 'fe-1' })).appendSystemPrompt).toContain(heading);
+
+    const projectOff = buildProject();
+    aiMember(projectOff, 'fe-1').email = { enabled: true };
+    expect(builder.build(input({ project: projectOff, handle: 'fe-1' })).appendSystemPrompt).not.toContain(
+      heading,
+    );
+
+    const senderOff = buildProject();
+    senderOff.project.email = { enabled: true };
+    expect(builder.build(input({ project: senderOff, handle: 'fe-1' })).appendSystemPrompt).not.toContain(
+      heading,
+    );
   });
 
   it('describes a temporary stand-in and leaves retired members out', () => {
@@ -2195,6 +2222,20 @@ describe('expected steps', () => {
       expect(fallback).not.toContain('Do not run the whole test suite');
     },
   );
+
+  it('names GitHub Actions to the developer when it runs the full test before review (PM-909)', () => {
+    const project = buildProject();
+    project.project.repos[0]!.reviewTest = {
+      command: 'custom-check --all',
+      maxWorkers: 2,
+      timeoutMinutes: 15,
+      beforeReview: 'github_actions',
+    };
+    const source = input({ project, handle: 'fe-1', task: makeTask({ stageId: 'dev', assignee: 'fe-1' }) });
+    const steps = doneSteps(builder.build({ ...source, serverFullTest: true }).appendSystemPrompt);
+    expect(steps).toContain('GitHub Actions runs `custom-check --all` once on the commit you hand over');
+    expect(steps).not.toContain('PTY tests included');
+  });
 
   it('keeps code review steps unchanged by the server full test flag', () => {
     const source = input({ handle: 'code-review', task: makeTask({ stageId: 'code_review' }) });
@@ -3580,6 +3621,36 @@ describe('member workspaces (PM-138)', () => {
       const mergePassed = pack({ status: 'passed', at });
       expect(mergePassed.initialMessage).toBe(passed.initialMessage);
       expect(mergePassed.continueMessage).toBe(passed.continueMessage);
+    });
+
+    it('names the Actions runner and run page in the reviewer’s brief, and asks for no local full test after an error (PM-909)', () => {
+      const project = buildLocalOnlyProject('.');
+      project.project.repos.find((r) => r.name === 'app')!.reviewTest = {
+        command: 'npm run typecheck && npm test',
+        maxWorkers: 2,
+        timeoutMinutes: 15,
+        beforeReview: 'github_actions',
+      };
+      const at = '2026-10-01T10:05:00.000Z';
+      const externalUrl = 'https://github.com/acme/app/actions/runs/7';
+      const pack = (fullTest: NonNullable<Task['reviewPin']>['fullTest']) =>
+        builder.build(
+          input({
+            project,
+            handle: 'code-review',
+            task: makeTask({ repo: 'app', reviewPin: { ...pin, fullTest } }),
+          }),
+        );
+      const passed = pack({ status: 'passed', at, runner: 'github_actions', externalUrl });
+      for (const message of [passed.initialMessage, passed.continueMessage]) {
+        expect(message).toContain('passed on GitHub Actions on this commit');
+        expect(message).toContain(externalUrl);
+        expect(message).toContain('you need not run the tests or the type check again');
+      }
+      const error = pack({ status: 'error', at, reason: 'github_unavailable', runner: 'github_actions' });
+      expect(error.initialMessage).toContain('could not run on GitHub Actions on this commit');
+      expect(error.initialMessage).toContain('Do not run the whole test suite');
+      expect(error.initialMessage).not.toContain('run the checks yourself as usual');
     });
 
     it("tells the task's developer nothing about it", () => {

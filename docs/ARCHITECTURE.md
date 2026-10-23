@@ -1388,6 +1388,22 @@ wording. Reviewers without a server result receive instructions to run only targ
 No machine boundary changes: the check runs where the integrator or the merge runs. Dependencies are
 installed only when missing from the working directory.
 
+**Where the review test runs (PM-909).** `reviewTest.beforeReview` (`off`, `engine` or `github_actions`) chooses
+the runner of this pre-review test independently of `reviewTest.runner`, which stays the merge check's. Absent:
+`engine`, or nothing when `fullTestAtMerge` is set (`reviewTestRunnerBeforeReview`, `reviewTestBeforeReview` in
+shared). `github_actions` needs the repository's `github` (`review_test_runner_github`, at the path `reviewTest.beforeReview`; at run time the lack
+of it ends the run as `github_unavailable`) and, like `runner`, changing it is an owner-only `review_test` change.
+`FullTestRuns` stores the run's `runner` (migration 103) and its `external_url`; a GitHub Actions run needs only an
+engine with a full test executor (no sandbox, no `srt`, no heavy-run queue, no local checkout) and builds the same
+`full_test.run` spec as the merge check with `githubActions.all = true`: the workflow's `all` input runs the whole
+suite on four shards (`merge-test -- --all --shard k/4`) and the verdict is judged by `fullScopeProblem`, which
+refuses a run whose shards did not cover the full suite. The queue stays sequential: one run at a time, GitHub
+runs included. The result, the run page (`TaskReviewPin.fullTest.externalUrl`, the `task_full_test` event) and
+the reviewer's brief carry the runner; an error (`github_unavailable`, `engine_offline`, `github_run_error`)
+releases the review with no local fallback. A change of the runner cancels the run (`configuration_changed`;
+`config_changed` triggers `syncAll`) and queues a new one for the new runner. The merge never reuses a GitHub
+Actions review result: its reuse is limited to `engine` runs, so the merge runs its own check.
+
 ## Merge (PM-452)
 
 The system requests a merge; the member selected by `cardMerger` starts it with `merge_task`,
@@ -1429,7 +1445,8 @@ wait or repeated losses block with `engine_offline`; no database migration is ne
 
 **Where the check runs (PM-900, PM-906).** `reviewTest.runner` (`MergeCheckRunner`: `engine`, the default,
 or `github_actions`) chooses it per repository; the merge check only (the review test is untouched), and
-changing it is an owner-only `review_test` change. `github_actions` needs the repository's `github`
+changing it is an owner-only `review_test` change; the pre-review test has its own `beforeReview`
+(see "Full test before review", PM-909). `github_actions` needs the repository's `github`
 owner/name (`review_test_runner_github`; at run time the lack of it blocks `check_unavailable`). In that
 mode the hub makes **no local check checkout, takes no heavy-run lock and prepares no dependencies**: the
 one helper `prepareMergeCheck` (`services/merges/check-preparation.ts`), used by the single-card merge
@@ -2322,7 +2339,9 @@ workers follow the machine's size.
   `ses request-production [--dry-run]` is a separately approved transactional invited-customer OTP
   request, not configure/up side effect; acceptance of the request is not production approval.
   `ses check` reads verification/DKIM, production/sending, exact DNS/IAM and local sender config;
-  no command sends mail. Cloudflare list responses are shape-checked so malformed reads cannot
+  no command sends mail. With the optional `ses.inbound.replyDomain` (PM-945) the same `ses-send` policy
+  also carries `ses:SendEmail` on the configuration set and the SQS read on one queue; `ses configure` and
+  `ses check` keep that extended policy when it is already in place. Cloudflare list responses are shape-checked so malformed reads cannot
   be mistaken for missing records. **Machine assumptions:** AWS CLI v2/profiles on the owner's
   POSIX administration machine; every AWS call explicitly targets `ses.profile` and the SES region,
   and the key is handed over only through the protected `cloud.env` (no profile env, the backend sends
@@ -2373,6 +2392,35 @@ workers follow the machine's size.
   are also local assumptions. **Does this
   work on a remote engine?** Yes: everything runs in the cloud board (hub); no engine request is made,
   and no engine protocol or payload changes.
+
+- **E-mail channel sender (SES) (PM-941)** —
+  `apps/server/src/services/email-channel/{service,ses-sender,render,config}.ts`,
+  `apps/server/src/mcp/email-channel/`, `apps/server/src/api/email-channel.ts`,
+  `apps/server/src/auth/secret.ts` (`deriveEmailReplyKey`). **What it does:** an enabled AI member sends a
+  filtered, rate-limited e-mail to a consenting human, immediately or after owner approval; the hub stores
+  only a hash of the reply token. **Machine assumptions:** the hub reads `PROJECTMAN_EMAIL_CHANNEL_ENABLED`,
+  `PROJECTMAN_SES_*`, `PROJECTMAN_EMAIL_*` from `cloud.env` in `index.ts`, deletes them before starting a
+  child process, and makes the outgoing HTTPS call to the region's SES v2 endpoint with explicit keys.
+  **Does this work on a remote engine?** Yes: sending, filtering, approval and token generation all run on
+  the hub; an engine receives no AWS credentials, no SES request and no protocol change.
+
+- **E-mail channel inbound (SES receiving → SNS → SQS) (PM-945)** —
+  `apps/server/src/services/email-channel/sqs-source.ts` (reader, `createAwsSqsClient`), its wiring in
+  `apps/server/src/assembly.ts`, `scripts/cloud/{ses-receive,ses,config,commands}.ts`,
+  `deploy/aws/config.example.json`, `apps/server/test/cloud-ses-receive.test.ts`,
+  `apps/server/test/helpers/fake-ses.ts`, `docs/AWS.md` ("Receiving e-mail replies"). **What it does:** SES
+  receives the replies on the reply subdomain and publishes them (and the bounce, complaint and delivery
+  events of the configuration set) to an SNS topic; an SQS queue with a dead-letter queue holds them; the
+  hub's reader long-polls the queue and hands each mail or event to the e-mail channel (PM-943), deleting
+  the message only when it was handled. `ses receive-plan|receive-configure [--dry-run]|receive-check` of the
+  provisioning CLI create and verify the MX record, the reply identity, the topic, queues, subscription,
+  configuration set, receipt rule set and the extension of the sender's IAM policy (the SQS read on one queue
+  and `ses:SendEmail` on the configuration set). **Machine assumptions:** the hub makes outgoing HTTPS calls
+  to the region's SQS endpoint with the existing `PROJECTMAN_SES_*` key and reads
+  `PROJECTMAN_EMAIL_QUEUE_URL`, `PROJECTMAN_EMAIL_REPLY_DOMAIN`, `PROJECTMAN_EMAIL_CONFIGURATION_SET` from
+  `cloud.env` (read in `index.ts` only); the CLI runs on the owner's POSIX administration machine with AWS CLI
+  v2 profiles and the Cloudflare DNS token, like the SES provisioning entry. **Does this work on a remote
+  engine?** Yes: the reader runs on the hub only; an engine gets no queue, no key and no protocol change.
 
 - **Feedback widget public entrance and screenshot store (PM-506, PM-508)** —
   `apps/server/src/services/feedback/{service,screenshots,notices,widget}.ts`, `apps/server/src/api/feedback.ts`,
@@ -3081,6 +3129,22 @@ workers follow the machine's size.
   (PM-874). It maps `read_file`, `write_file` and `edit_file` with `Path` as well as the
   older file tool names to the same permission checks (`runner/providers/gemini/hooks.ts`).
   This normalization runs on the engine using its session policy; no new boundary data is needed.
+  **Quota exhaustion (PM-954):** `screen.ts` recognizes the agy terminal's
+  `RESOURCE_EXHAUSTED (code 429): Individual quota reached` and `Resets in …` duration.
+  `runner/session.ts` stops the failed process and sends `rate_limited` with an optional
+  absolute `resetsAt` through `engine-link/protocol.ts`. The server's
+  `runtime/sessions/provider-limits.ts` holds every Gemini member until that reset (30 minutes
+  when no usable duration is available), records an owner alert and restores the hold from the
+  latest Gemini quota alert on startup, including acknowledged alerts. Automatic developer
+  selection skips the held provider; explicit starts wait with `provider_rate_limited`.
+  An interrupted implementer's card is released through the existing handoff and work-start
+  paths (`provider_quota`), so another provider can take it and an unassigned card waits if
+  nobody is available. Expiry releases admission automatically, without changing leave settings.
+  The hold is server-wide, matching the shared keychain login assumption; separate accounts
+  on multiple engines would require a future `(provider, engine)` scope.
+  On a remote engine terminal recognition and relative-to-absolute time conversion run on
+  the engine; only the existing runner event and its additive `resetsAt` field cross to the
+  server. Persistence, selection and expiry stay on the server; engine clocks must be synchronized.
   This does not contain code executed by allowed tests/builds; PM-361 investigates isolation.
   **Remote engine (engine mode, PM-314: runs in the engine process):** the binary, login/keychain, private directories, PTY, forwarder and
   transcript reader must run on the engine. Hook/MCP requests cross authenticated URLs;
@@ -3833,7 +3897,9 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   **Remote engine (engine mode, PM-314: runs in the engine process):** trust is part of `session.start` (PM-313); prepare trust on the engine as the executing account, for the actual
   canonical checkout path; changing the server account's trust cannot unblock a remote CLI.
   **Module:** `runner`
-- **Server full test before review** — `services/full-tests/full-tests.ts`, `engine-host/disk.ts`
+- **Server full test before review** — PM-909: with `reviewTest.beforeReview: github_actions` the run is not
+  local: no sandbox, `srt` or local checkout; see "GitHub Actions merge check" for its machine assumptions and
+  for the remote engine (the run needs only an engine with a full test executor and `gh`). `services/full-tests/full-tests.ts`, `engine-host/disk.ts`
   (`resolveGitDir`: the checkout's real `.git`, asked of the engine), PM-846: with a work root the
   executor gets only `worktreesRoot`; the `pmft-*` run directories stay in `os.tmpdir()`, outside the home (PM-848),
   `full-test/{index,sandbox,run-sandboxed,run-sandboxed-core}.ts` (PM-217, PM-336, PM-312; PM-351 shares the spawn with the
@@ -3945,7 +4011,7 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   `engine-app.ts` (engine process), and the repository's `.github/workflows/merge-check.yml`. For a
   `full_test.run` that carries `githubActions`, the engine pushes the merge commit to a check branch
   `pm-check/<time36>/<runId>` of the base's upstream remote (never forced), dispatches the workflow with
-  the inputs `check_id` and `files`, follows the run (`gh api`), and builds the `FullTestResult` from the
+  the inputs `check_id` and `files` (PM-909: or `all`, for the review test, with a four-shard scope check), follows the run (`gh api`), and builds the `FullTestResult` from the
   jobs' conclusions and logs (the `merge-test` marker lines and timing report the local run prints).
   A timeout or an abort cancels the run; the check branch is deleted at every end, and a run sweeps a few
   check branches older than two hours. **Machine assumptions:** `gh` installed and logged in on the executing
@@ -3958,6 +4024,9 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   explicitly to handle its `cpSync` regression (nodejs/node#65488, PM-923). **Remote engine:**
   the same on the engine's machine with its own `gh` login and remote; the server sends only the existing
   `full_test.run` request and receives the result (the run page in `externalUrl`); nothing else crosses.
+  PM-909: the review test before review uses the same path (`all: true`, `engine-link/methods.ts` accepts the
+  optional field; an engine older than PM-909 refuses it with `invalid_params`, shown as `github_unavailable`).
+  The server side (`FullTestRuns`) needs only an engine with a full test executor, not a sandbox.
   Real dependency-clone integration tests (`worktree/{worktree-manager,dependencies}.test.ts`)
   use `test/helpers/apfs.ts` to check that the test temp volume is APFS, rather than assuming
   every macOS temp volume supports cloning (PM-928). The injected dependency-clone unit tests
@@ -3973,7 +4042,7 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   and initial pipe writes 5 s; `test/permission-delegation.integration.test.ts` polls each fake-CLI
   phase for up to 30 s within a 150 s test budget (PM-936). These are test-host assumptions only;
   remote engines need no new capability or server/engine messages.
-  Related tasks: PM-900, PM-906, PM-907, PM-923, PM-928, PM-936, PM-947, PM-948.
+  Related tasks: PM-900, PM-906, PM-907, PM-909, PM-923, PM-928, PM-936, PM-947, PM-948.
   **Module:** `full-test`, `engine-host`, `services/github`
 - **Merge conflict fix worktrees** — `services/merges/`, `runtime/sessions` (`SessionOrchestrator`, `SessionLauncher` in `launch.ts`), `runtime/watchers` (`WorktreeSweep`),
   `worktree/worktree-manager.ts`, `runtime/sessions` (`session policy`), `engine-link` (PM-471).

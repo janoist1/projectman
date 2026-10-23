@@ -232,6 +232,8 @@ import {
 } from '@projectman/shared';
 import type {
   CardBusyDetails,
+  EmailApprovalPayload,
+  EmailParkedAlert,
   MemberQueueItem,
   OperatorGrantState,
   TaskDetail,
@@ -315,6 +317,7 @@ import {
 import * as fixtures from './fixtures';
 import { t } from '../i18n/t';
 import { MockEmailLogin } from './email-login';
+import { MockEmail } from './email';
 import { MockFeedback } from './feedback';
 import { MockPauses } from './pauses';
 import { MockPush } from './push';
@@ -568,6 +571,12 @@ export class MockBackend {
     findTask: (key) => this.findTask(key),
     createCard: (input) => this.createTask(input),
     addTimeline: (taskKey, who, type, data) => void this.addTimeline(taskKey, who, type, data),
+    emit: (event) => this.emit(event),
+  });
+  /** The e-mail channel (PM-942): its contacts' choices and its log; a test or a scenario fills the log. */
+  readonly email: MockEmail = new MockEmail({
+    config: () => this.config,
+    viewerHandle: () => this.viewerHandle,
     emit: (event) => this.emit(event),
   });
   /** The viewer's web push devices and settings (PM-815); a test fills the device list. */
@@ -1612,6 +1621,73 @@ export class MockBackend {
     return item;
   }
 
+  /** A mail of an AI member waiting for the owners' approval (PM-942): the `approval` item for the owners. */
+  proposeEmail(input: Partial<EmailApprovalPayload> = {}): InboxItem {
+    const email: EmailApprovalPayload = {
+      emailId: mockId('mail'),
+      member: 'fe-1',
+      contact: 'kata',
+      contactName: 'Kata',
+      taskKey: null,
+      subject: 'Weekly summary',
+      text: 'Hi Kata,\n\nThe login is done this week.',
+      ...input,
+    };
+    const item: InboxItem = {
+      id: mockId('inb'),
+      projectKey: fixtures.PROJECT_KEY,
+      kind: 'approval',
+      assignees: boundaryOwners(this.config),
+      source: email.member,
+      sessionId: null,
+      taskKey: email.taskKey,
+      title: email.subject,
+      body: null,
+      payload: { email },
+      options: [
+        { id: 'approve', label: 'approve', style: 'primary' },
+        { id: 'reject', label: 'reject', style: 'danger' },
+      ],
+      state: 'open',
+      resolution: null,
+      createdAt: nowIso(),
+    };
+    this.upsertInbox(item);
+    return item;
+  }
+
+  /** A mail set aside by the inbound check (PM-942): the `email_parked` alert for the owners. */
+  parkEmail(input: Partial<EmailParkedAlert> = {}): InboxItem {
+    const payload: EmailParkedAlert = {
+      alert: 'email_parked',
+      emailId: mockId('mail'),
+      reason: 'unknown_sender',
+      fromAddress: 'someone@example.org',
+      subject: 'Re: offer',
+      excerpt: 'Thanks for the offer. <b>Look here</b> https://example.org/x',
+      attachmentNames: [],
+      ...input,
+    };
+    const item: InboxItem = {
+      id: mockId('inb'),
+      projectKey: fixtures.PROJECT_KEY,
+      kind: 'alert',
+      assignees: boundaryOwners(this.config),
+      source: 'system',
+      sessionId: null,
+      taskKey: null,
+      title: payload.subject,
+      body: null,
+      payload,
+      options: [ALERT_SEEN_OPTION],
+      state: 'open',
+      resolution: null,
+      createdAt: nowIso(),
+    };
+    this.upsertInbox(item);
+    return item;
+  }
+
   /** The release watcher reports a state of the release on its card (a deploy step, `live`, `published`). */
   releaseChanged(
     taskKey: string,
@@ -2415,6 +2491,11 @@ export class MockBackend {
         return error(403, 'insufficient_access', 'Developer access required');
     }
     if (rest.startsWith('/invites')) return this.handleInvitations(method, rest, body);
+    if (rest === '/email' || rest.startsWith('/email/'))
+      return (
+        this.email.handle(method, rest.slice('/email'.length), body, query) ??
+        error(404, 'not_found', 'Unknown route')
+      );
     if (rest === '/feedback' || rest.startsWith('/feedback/'))
       return (
         this.feedback.handle(method, rest.slice('/feedback'.length), body, query) ??
@@ -2937,11 +3018,14 @@ export class MockBackend {
     }
     if (unknownPatchRepo(this.config, input) !== null)
       return error(400, 'unknown_repo', 'Unknown repository');
+    if (input.email?.enabled && !this.email.configured)
+      return error(409, 'email_not_configured', 'E-mail sending is not configured');
     const next = applyConfigPatch(this.config, input);
     const failure = this.configChangeFailure(next);
     if (failure) return failure;
     if (JSON.stringify(next) !== JSON.stringify(this.config)) {
       this.config = next;
+      if (input.email) this.emit({ type: 'email_changed', projectKey: next.project.key });
       const message =
         input.message ??
         (input.pipeline ? 'Update pipeline' : input.limits ? 'Update limits' : 'Update project');
@@ -3415,6 +3499,7 @@ export class MockBackend {
           enabled: config.email.enabled,
           sendWithoutApproval: config.email.sendWithoutApproval ?? false,
         };
+        this.emit({ type: 'email_changed', projectKey: this.config.project.key });
       }
       if (input.onLeave !== undefined) {
         if (input.onLeave) {

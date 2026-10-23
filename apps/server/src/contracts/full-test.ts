@@ -39,6 +39,11 @@ export interface GithubActionsCheck {
   workflow: string;
   /** Lone diagnosis only: the test files to run (1–20 repository paths); absent: the full merge check. */
   files?: string[];
+  /**
+   * true: the full test and type check of the whole tree, whatever the commit's merge diff is (PM-909; a
+   * review pin). Absent or false: the merge's own scope. Together with a non-empty `files` it is invalid.
+   */
+  all?: boolean;
 }
 
 export interface FullTestSpec {

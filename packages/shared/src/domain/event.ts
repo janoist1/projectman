@@ -5,6 +5,7 @@ import type { DeveloperLevel } from './developer-level';
 import type { FixLimitAssessment } from './fix-limit';
 import type { FullTestErrorReason } from './full-test';
 import type { MergeBlockReason, MergeFailure, TaskMerged } from './merge';
+import type { MergeCheckRunner } from './merge-test';
 import type {
   QuestionCloseRule,
   QuestionTodo,
@@ -627,6 +628,10 @@ export interface TimelineEventData {
     failedFiles?: string[];
     /** `error` only. */
     reason?: FullTestErrorReason;
+    /** Where the run went (PM-909); absent on events from before runners (the engine). */
+    runner?: MergeCheckRunner;
+    /** The GitHub Actions run page of a `github_actions` run. */
+    externalUrl?: string;
     /** `failed`/`error`: vitest's "Failed Tests" section from its start if present, else the end of the output. */
     outputTail?: string;
   };

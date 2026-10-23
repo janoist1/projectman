@@ -20,6 +20,17 @@
   font-size: var(--text-sm);
 }
 
+/* The switch that depends on the one above it, and its note. */
+.nested {
+  margin-left: 26px;
+  margin-top: 8px;
+}
+
+/* After `.toggleHint`, so the indent is not reset by its margin shorthand. */
+.nestedHint {
+  margin-left: 26px;
+}
+
 /* The fixed facts of the built-in Operator: read, not edited (PM-447). */
 .fixed {
   display: grid;
@@ -59,6 +70,10 @@
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.toggle:has(input:disabled) {
+  color: var(--c-ink-4);
 }
 
 .warning {

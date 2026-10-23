@@ -1,4 +1,10 @@
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  keepPreviousData,
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
 import type { QueryClient } from '@tanstack/react-query';
 import type {
   CloseFeedbackRequest,
@@ -479,6 +485,41 @@ export function useUpdateSession(key: string) {
 
 export function useTeamMessages(key: string) {
   return useQuery({ queryKey: queryKeys.messages(key), queryFn: () => api.teamMessages(key) });
+}
+
+/* ---------- e-mail channel (PM-942) ---------- */
+
+export function useEmailChannel(key: string, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.emailChannel(key),
+    queryFn: () => api.emailChannel(key),
+    enabled,
+    retry: false,
+  });
+}
+
+/** The log, a page at a time: `fetchNextPage` is the "Korábbiak" button. */
+export function useEmailLog(key: string, enabled = true) {
+  return useInfiniteQuery({
+    queryKey: queryKeys.emailLog(key),
+    queryFn: ({ pageParam }) => api.emailLog(key, pageParam),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (page) => page.nextCursor ?? undefined,
+    enabled,
+    retry: false,
+  });
+}
+
+export function useSetEmailContact(key: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ handle, wants }: { handle: string; wants: boolean }) =>
+      api.setEmailContact(key, handle, { wants }),
+    onSuccess: (view) => {
+      client.setQueryData(queryKeys.emailChannel(key), view);
+      void client.invalidateQueries({ queryKey: queryKeys.emailLog(key) });
+    },
+  });
 }
 
 /* ---------- feedback marks (PM-511) ---------- */

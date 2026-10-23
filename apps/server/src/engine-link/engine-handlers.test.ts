@@ -107,6 +107,25 @@ describe('engine handlers', () => {
       }).success,
     ).toBe(false);
   });
+  it('carries the full-mode flag of a GitHub Actions check over the RPC boundary (PM-909)', () => {
+    const spec = githubSpec('github', 'mrg_12345678');
+    const parse = (all: boolean | undefined) =>
+      methods['full_test.run'].params.safeParse({
+        spec: { ...spec, githubActions: { ...spec.githubActions!, ...(all === undefined ? {} : { all }) } },
+      });
+    for (const all of [true, false, undefined]) {
+      const parsed = parse(all);
+      expect(parsed.success).toBe(true);
+      if (parsed.success) expect(parsed.data.spec.githubActions?.all).toBe(all);
+    }
+    // The schema is strict: an engine built before the flag refuses it, which the host reports as github_unavailable.
+    expect(
+      methods['full_test.run'].params.safeParse({
+        spec: { ...spec, githubActions: { ...spec.githubActions!, other: true } },
+      }).success,
+    ).toBe(false);
+  });
+
   const registered = () => {
     const names: string[] = [];
     const rpc = {

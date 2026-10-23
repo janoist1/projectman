@@ -158,6 +158,12 @@ export function validateProjectConfig(config: ProjectConfig): ConfigIssue[] {
         path: `project.repos[${i}].reviewTest.runner`,
         detail: repo.name,
       });
+    if (repo.reviewTest?.beforeReview === 'github_actions' && !repo.github)
+      issues.push({
+        code: 'review_test_runner_github',
+        path: `project.repos[${i}].reviewTest.beforeReview`,
+        detail: repo.name,
+      });
   });
 
   const surfaceIds = new Set<string>();

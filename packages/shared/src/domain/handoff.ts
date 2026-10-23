@@ -40,7 +40,13 @@ export const HANDOFF_CLOSE_GRACE_MS = 2 * 60_000;
 export const HANDOFF_NOTE_MAX = 10_000;
 
 /** What set a handoff off: a person's change, the fix round limit, a removed member, or an automatic assignment. */
-export const HandoffReason = z.enum(['manual', 'fix_limit_reassign', 'member_removed', 'auto_assign']);
+export const HandoffReason = z.enum([
+  'manual',
+  'fix_limit_reassign',
+  'member_removed',
+  'auto_assign',
+  'provider_quota',
+]);
 export type HandoffReason = z.infer<typeof HandoffReason>;
 
 /**

@@ -7,6 +7,7 @@ import type {
   WatcherToolsHandler,
   OperatorQueueToolsHandler,
   SessionToolsHandler,
+  EmailToolsHandler,
   MemberToolsHandler,
   TaskToolsHandler,
   AttachmentToolsHandler,
@@ -116,6 +117,7 @@ export class TeamToolsService implements TeamToolsHandler {
     watchers: WatcherToolsHandler;
     operatorQueue: OperatorQueueToolsHandler;
     sessions: SessionToolsHandler;
+    email: EmailToolsHandler;
   };
 
   async searchHistory(ctx: ToolContext, args: Parameters<HistoryToolsHandler['searchHistory']>[1]) {
@@ -191,6 +193,7 @@ export class TeamToolsService implements TeamToolsHandler {
       watchers: WatcherToolsHandler;
       operatorQueue: OperatorQueueToolsHandler;
       sessions: SessionToolsHandler;
+      email: EmailToolsHandler;
     };
   }) {
     this.tools = deps.tools;
@@ -219,6 +222,23 @@ export class TeamToolsService implements TeamToolsHandler {
     operator: boolean;
   }> {
     return this.tools.messages.sendMessage(ctx, args);
+  }
+  async sendEmail(
+    ctx: ToolContext,
+    args: Parameters<EmailToolsHandler['sendEmail']>[1],
+  ): Promise<{ emailId: string; status: 'pending_approval' | 'sent' }> {
+    return this.tools.email.sendEmail(ctx, args);
+  }
+  async setEmailContact(
+    ctx: ToolContext,
+    args: Parameters<EmailToolsHandler['setEmailContact']>[1],
+  ): Promise<{ handle: string; wants: boolean }> {
+    return this.tools.email.setEmailContact(ctx, args);
+  }
+  async listEmailContacts(
+    ctx: ToolContext,
+  ): Promise<Awaited<ReturnType<EmailToolsHandler['listEmailContacts']>>> {
+    return this.tools.email.listEmailContacts(ctx);
   }
   async listMembers(ctx: ToolContext): Promise<MemberView[]> {
     return this.tools.members.listMembers(ctx);

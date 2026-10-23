@@ -40,19 +40,22 @@ afterEach(async () => {
   await dirs.cleanup();
 });
 
-async function start(graceMs = GRACE_MS, gemini = false, nanogpt = false) {
+async function start(graceMs = GRACE_MS, gemini = false, nanogpt = false, submit = true) {
   const home = await dirs.make();
   const transcript = path.join(home, 'conversation.jsonl');
   await writeFile(transcript, '');
   const events: RunnerEvent[] = [];
   const writes: string[] = [];
   let exit: ((event: { exitCode: number }) => void) | null = null;
+  let output: ((data: string) => void) | undefined;
   const pty: PtyProcess = {
     pid: process.pid,
     write: (data) => writes.push(data),
     resize: () => undefined,
     kill: () => exit?.({ exitCode: 0 }),
-    onData: () => undefined,
+    onData: (listener) => {
+      output = listener;
+    },
     onExit: (listener) => {
       exit = listener;
     },
@@ -113,19 +116,69 @@ async function start(graceMs = GRACE_MS, gemini = false, nanogpt = false) {
       .filter((e): e is Extract<RunnerEvent, { type: 'state' }> => e.type === 'state')
       .map((e) => e.state);
   await hook({ hook_event_name: 'SessionStart', source: 'startup' });
-  await hook({ hook_event_name: 'UserPromptSubmit', prompt: 'go' });
+  if (submit) await hook({ hook_event_name: 'UserPromptSubmit', prompt: 'go' });
   const quota = (at: Date = new Date()) =>
     appendFile(
       transcript,
       `${JSON.stringify({ timestamp: at.toISOString(), type: 'event_msg', payload: { type: 'task_complete', error: { message: '429 Too Many Requests' } } })}\n`,
     );
-  return { session, hook, assistant, quota, pty, writes, events, states };
+  return {
+    session,
+    hook,
+    assistant,
+    quota,
+    pty,
+    writes,
+    events,
+    states,
+    output: (data: string) => output?.(data),
+  };
 }
 
 const ENDING = [{ type: 'text', text: 'Done.' }];
 const lateTool = { hook_event_name: 'PreToolUse', tool_name: 'ToolSearch', tool_use_id: 'late' };
 
 describe('a turn the transcript ended (PM-343)', () => {
+  it('ignores a restored Gemini quota screen before and during a healthy resumed turn', async () => {
+    const { session, output, events, hook, assistant } = await start(GRACE_MS, true, false, false);
+    const old = 'RESOURCE_EXHAUSTED (code 429): Individual quota reached.\r\nResets in 65h10m58s.\r\n';
+    output(old);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(events.some((event) => event.type === 'rate_limited')).toBe(false);
+    expect(session.state.state).not.toBe('failed');
+    await hook({ hook_event_name: 'UserPromptSubmit', prompt: 'continue' });
+    output(`\x1b[2J\x1b[H${old}> continue\r\nGenerating...\r\n`);
+    await assistant('healthy-resume', 'end_turn', ENDING);
+    await hook({ hook_event_name: 'Stop' });
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(events.some((event) => event.type === 'rate_limited')).toBe(false);
+    expect(session.state.state).toBe('idle');
+  });
+  it('detects a new identical quota header after a historical quota error and uses the new reset', async () => {
+    const { output, events, hook } = await start(GRACE_MS, true, false, false);
+    output('RESOURCE_EXHAUSTED (code 429): Individual quota reached.\r\nResets in 65h10m58s.\r\n');
+    await hook({ hook_event_name: 'UserPromptSubmit', prompt: 'continue' });
+    const before = Date.now();
+    output('\r\nRESOURCE_EXHAUSTED (code 429): Individual quota reached.\r\nResets in 10m.\r\n');
+    expect(await waitUntil(() => events.some((event) => event.type === 'exit'))).toBe(true);
+    const failure = events.find((event) => event.type === 'rate_limited')!;
+    expect(Date.parse(failure.resetsAt!) - before).toBeGreaterThanOrEqual(10 * 60_000);
+    expect(Date.parse(failure.resetsAt!) - Date.now()).toBeLessThanOrEqual(10 * 60_000);
+  });
+  it('fails a Gemini quota shown in split terminal chunks without a Stop hook or transcript error', async () => {
+    const { session, output, events } = await start(GRACE_MS, true);
+    const before = Date.now();
+    output('RESOURCE_EXHAUSTED (code 429): Individual quota reached.\r\n');
+    output('Resets in 65h10m58s.\r\n');
+    expect(await waitUntil(() => events.some((event) => event.type === 'exit'))).toBe(true);
+    const failures = events.filter((event) => event.type === 'rate_limited');
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toMatchObject({ provider: 'gemini', resetsAt: expect.any(String) });
+    const until = Date.parse(failures[0]!.resetsAt!);
+    expect(until - before).toBeGreaterThanOrEqual((65 * 3600 + 10 * 60 + 58) * 1000);
+    expect(until - Date.now()).toBeLessThanOrEqual((65 * 3600 + 10 * 60 + 58) * 1000);
+    expect(session.state.state).toBe('failed');
+  });
   it('ignores a stale NanoGPT quota failure from before the latest prompt', async () => {
     const { session, quota, events } = await start(GRACE_MS, false, true);
     await quota(new Date(Date.now() - 60_000));

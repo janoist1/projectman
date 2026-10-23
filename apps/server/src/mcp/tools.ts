@@ -15,6 +15,7 @@ import { RELEASE_TOOL_GROUP } from './releases';
 import { OPERATOR_TOOL_GROUP } from './operator';
 import { INBOX_TOOL_GROUP } from './inbox';
 import { MESSAGE_TOOL_GROUP } from './messages';
+import { EMAIL_CHANNEL_TOOL_GROUP } from './email-channel';
 import { ADMISSION_TOOL_GROUP } from './admission';
 import { WATCHER_TOOL_GROUP } from './watchers';
 import { OPERATOR_QUEUE_TOOL_GROUP } from './operator-queue';
@@ -46,6 +47,7 @@ export const TEAM_TOOL_GROUPS: readonly TeamToolGroup[] = [
   HISTORY_TOOL_GROUP,
   INBOX_TOOL_GROUP,
   MESSAGE_TOOL_GROUP,
+  EMAIL_CHANNEL_TOOL_GROUP,
   ADMISSION_TOOL_GROUP,
   WATCHER_TOOL_GROUP,
   OPERATOR_QUEUE_TOOL_GROUP,

@@ -90,6 +90,7 @@ const job = (
 });
 const greenJob = (id = 11) =>
   job(id, 'success', [step('checkout', 'success'), step('merge-test', 'success')]);
+const greenJobNamed = (id: number, name: string) => ({ ...greenJob(id), name });
 const redJob = (id = 12) => job(id, 'failure', [step('checkout', 'success'), step('merge-test', 'failure')]);
 
 interface Setup {
@@ -435,6 +436,55 @@ describe('withGithubActions', () => {
     const unsafe = await runIt(s, { spec: spec({ runId: '../x' }) });
     expect(unsafe).toMatchObject({ outcome: 'error', reason: 'github_run_error' });
     expect(s.branches.upstreamRepo).not.toHaveBeenCalled();
+  });
+
+  describe('the full check of the whole tree (all, PM-909)', () => {
+    const shards = [1, 2, 3, 4].map((k) => greenJobNamed(10 + k, `merge-test (${k}/4)`));
+    const logs = (scope: string): Record<number, string> =>
+      Object.fromEntries(shards.map((j) => [j.id, `merge-test scope: ${scope}\n`]));
+    const fullSetup = (jobs: WorkflowJobInfo[], byId: Record<number, string>) =>
+      setup({
+        listJobs: vi.fn(async () => jobs),
+        jobLog: vi.fn(async (_repo: string, id: number) => byId[id] ?? ''),
+      });
+    const fullSpec = () => spec({}, check({ all: true }));
+
+    it('dispatches the all input, and only then', async () => {
+      const s = fullSetup(shards, logs('all'));
+      await expect(runIt(s, { spec: fullSpec() })).resolves.toMatchObject({ outcome: 'passed' });
+      expect(s.actions.dispatchWorkflow.mock.calls[0]?.[2]).toMatchObject({
+        inputs: { check_id: 'run-1', files: '', all: 'true' },
+      });
+      const merge = setup();
+      await runIt(merge);
+      expect(merge.actions.dispatchWorkflow.mock.calls[0]?.[2].inputs).not.toHaveProperty('all');
+    });
+
+    it('refuses all together with files before it pushes anything', async () => {
+      const s = setup();
+      const result = await runIt(s, { spec: spec({}, check({ all: true, files: ['a.test.ts'] })) });
+      expect(result).toMatchObject({ outcome: 'error', reason: 'github_run_error' });
+      expect(s.branches.push).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['a missing shard', shards.slice(0, 3), logs('all')],
+      ['a duplicated shard', [...shards, shards[0]!], logs('all')],
+      ['a shard that ran a narrower scope', shards, { ...logs('all'), 12: 'merge-test scope: modules\n' }],
+      ['a shard whose log has no scope', shards, { ...logs('all'), 13: 'ok\n' }],
+    ])('does not turn green with %s', async (_name, jobs, byId) => {
+      const s = fullSetup(jobs, byId);
+      await expect(runIt(s, { spec: fullSpec() })).resolves.toMatchObject({
+        outcome: 'error',
+        reason: 'github_run_error',
+      });
+    });
+
+    it('still reports a real test failure as failed', async () => {
+      const failing = [...shards.slice(0, 3), { ...redJob(14), name: 'merge-test (4/4)' }];
+      const s = fullSetup(failing, logs('all'));
+      await expect(runIt(s, { spec: fullSpec() })).resolves.toMatchObject({ outcome: 'failed' });
+    });
   });
 
   it('survives a branch that cannot be removed', async () => {

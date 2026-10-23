@@ -187,6 +187,8 @@ export interface ProviderAdapter {
   hookAuthError(payload: HookPayload): string | null;
   /** A dialog that blocks the session (trust, login, ...) in the given screen text, or null. */
   detectBlockingScreen(text: string): string | null;
+  /** A provider quota failure displayed only in the terminal. */
+  detectRateLimitScreen?(text: string): { message: string; resetsInMs: number | null } | null;
   /** Whether the screen shows the input prompt, i.e. no dialog covers it. */
   promptVisible(text: string): boolean;
   /**

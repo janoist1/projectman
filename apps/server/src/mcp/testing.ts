@@ -214,6 +214,18 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
   }
 
   return {
+    async sendEmail(ctx, args) {
+      await enter('sendEmail', ctx, args);
+      return { emailId: 'ema_fake', status: 'pending_approval' };
+    },
+    async setEmailContact(ctx, args) {
+      await enter('setEmailContact', ctx, args);
+      return { handle: args.handle, wants: args.wants };
+    },
+    async listEmailContacts(ctx) {
+      await enter('listEmailContacts', ctx, {});
+      return [];
+    },
     async mergeTask(ctx, args) {
       await enter('mergeTask', ctx, args);
       return { task: findTask(args.taskKey).task };

@@ -15,6 +15,7 @@ import { dragHasFiles, droppedFiles } from '../../lib/attachmentInput';
 import { useMessageAttachmentUploads } from '../messages/useMessageAttachmentUploads';
 import { Composer } from '../session/Composer';
 import { OperatorThread } from './OperatorThread';
+import { OperatorChecklist } from './OperatorChecklist';
 import { OperatorKnowledgeView } from './OperatorKnowledgeView';
 import { OperatorQueueStrip, OperatorQueueView } from './OperatorQueueView';
 import type { FailedOperatorMessage } from './OperatorThread';
@@ -33,7 +34,7 @@ const PANEL_WIDTH = 440;
  * Operator only reads and answers.
  */
 export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTMLElement | null> }) {
-  const { key, me, closeOperator, operatorPrefill } = useProject();
+  const { key, me, closeOperator, operatorPrefill, operatorChecklistRequest } = useProject();
   const isMobile = useIsMobile();
   const { pathname } = useLocation();
   const openedAt = useRef(pathname);
@@ -49,6 +50,11 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
   const knowledgeButton = useRef<HTMLButtonElement>(null);
   const [queueOpen, setQueueOpen] = useState(false);
   const queueButton = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!operatorChecklistRequest) return;
+    setKnowledgeOpen(false);
+    setQueueOpen(false);
+  }, [operatorChecklistRequest]);
   const access = me.projects.find((project) => project.key === key)?.access;
   // The queue is for a person's own login with developer access (the server's rule), not for an integrator key.
   const queueVisible = !me.via && access !== undefined && hasAccess(access, 'developer');
@@ -255,6 +261,8 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
         />
       </header>
 
+      {!queueOpen && !knowledgeOpen ? <OperatorChecklist key={key} /> : null}
+
       {queueOpen && queueVisible ? (
         <OperatorQueueView
           onBack={() => {
@@ -334,7 +342,7 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
           ) : null}
           <div className={styles.composer}>
             <Composer
-              autoFocus
+              autoFocus={!operatorChecklistRequest?.focus}
               label={t('operator.composer.label')}
               placeholder={
                 readOnly ? t('operator.composer.placeholderOther') : t('operator.composer.placeholder')

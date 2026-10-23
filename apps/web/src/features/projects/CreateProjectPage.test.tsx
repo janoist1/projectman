@@ -1,4 +1,5 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { Route, Routes, useLocation } from 'react-router';
 import { afterEach, expect, it } from 'vitest';
 import type { CreateProjectRequest } from '@projectman/shared';
 import { setFetchImplementation } from '../../api/client';
@@ -8,10 +9,22 @@ import { createMockFetch, mockProject } from '../../test/mockProject';
 import { CreateProjectPage } from './CreateProjectPage';
 
 afterEach(() => setFetchImplementation((input, init) => globalThis.fetch(input, init)));
+function CreatedProjectProbe() {
+  const location = useLocation();
+  return (
+    <output data-testid="created-project">
+      {JSON.stringify({ path: location.pathname, state: location.state })}
+    </output>
+  );
+}
+
 function renderForm(project = mockProject()) {
   project.render(
     <MeContext.Provider value={project.context.me}>
-      <CreateProjectPage />
+      <Routes>
+        <Route path="/projects/new" element={<CreateProjectPage />} />
+        <Route path="/p/:projectKey" element={<CreatedProjectProbe />} />
+      </Routes>
     </MeContext.Provider>,
     '/projects/new',
   );
@@ -62,6 +75,10 @@ it('submits the chosen provider, language, suggested key and repos without a tem
     language: 'en',
     provider: 'gemini',
     repos: [{ name: 'app', path: '.', defaultBranch: 'main' }],
+  });
+  expect(JSON.parse((await screen.findByTestId('created-project')).textContent!)).toEqual({
+    path: '/p/AW',
+    state: { operatorChecklist: true },
   });
 });
 

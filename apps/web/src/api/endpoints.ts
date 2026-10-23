@@ -1,4 +1,5 @@
 import {
+  ProjectChecklistView,
   ServerVersionView,
   EmailChannelView,
   EmailLogResponse,
@@ -74,6 +75,7 @@ import {
   CreatedIntegratorKey,
 } from '@projectman/shared';
 import type {
+  SetChecklistItemStateRequest,
   CreateIntegratorAccessKeyRequest,
   OperatorGrantDuration,
   OperatorApprovalWaiverRequest,
@@ -128,6 +130,13 @@ import { apiRequest } from './client';
  * refetch instead of relying on the body.
  */
 export const api = {
+  checklist: (key: string) => apiRequest(routes.projectChecklist(key), { schema: ProjectChecklistView }),
+  setChecklistItemState: (key: string, itemId: string, body: SetChecklistItemStateRequest) =>
+    apiRequest(routes.projectChecklistItemState(key, itemId), {
+      method: 'POST',
+      body,
+      schema: ProjectChecklistView,
+    }),
   serverVersion: () => apiRequest(routes.serverVersion(), { schema: ServerVersionView }),
   operatorGrantAudit: () => apiRequest(routes.operatorGrantAudit(), { schema: OperatorGrantAuditPage }),
   createOperatorGrant: (duration: OperatorGrantDuration) =>

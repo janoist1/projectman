@@ -1,6 +1,6 @@
 import clsx from 'clsx';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Outlet, useMatch, useParams } from 'react-router';
+import { Outlet, useLocation, useNavigate, useMatch, useParams } from 'react-router';
 import { isApiError } from '../api/client';
 import { useBoard, useConfig, useInbox } from '../api/queries';
 import { useProjectSubscription } from '../api/socketHooks';
@@ -23,6 +23,8 @@ import styles from './Shell.module.css';
 export function ProjectLayout() {
   const { projectKey = '' } = useParams();
   const me = useMeContext();
+  const location = useLocation();
+  const navigate = useNavigate();
   const isMobile = useIsMobile();
   const boardIndex = useMatch('/p/:projectKey');
   const boardTask = useMatch('/p/:projectKey/tasks/:taskKey/*');
@@ -48,6 +50,11 @@ export function ProjectLayout() {
   const [pauseDetailsSignal, setPauseDetailsSignal] = useState(0);
   // The Operator's conversation (PM-429, PM-447): one panel for the whole project, opened from the header.
   const [operatorOpen, setOperatorOpen] = useState(false);
+  const [operatorChecklistRequest, setOperatorChecklistRequest] = useState<{
+    id: number;
+    focus: boolean;
+    intro: boolean;
+  } | null>(null);
   const [operatorPrefill, setOperatorPrefill] = useState<{ text: string; id: number } | null>(null);
   const operatorTrigger = useRef<HTMLElement | null>(null);
   // The pause this viewer asked for: its details open by themselves.
@@ -79,7 +86,16 @@ export function ProjectLayout() {
     setRequestedPauseId(null);
     setOperatorOpen(false);
     setOperatorPrefill(null);
+    setOperatorChecklistRequest(null);
   }, [projectKey]);
+
+  useEffect(() => {
+    if (!location.state?.operatorChecklist) return;
+    setOperatorOpen(true);
+    setOperatorChecklistRequest((previous) => ({ id: (previous?.id ?? 0) + 1, focus: false, intro: true }));
+    const { operatorChecklist: _, ...rest } = location.state;
+    void navigate(location.pathname + location.search + location.hash, { replace: true, state: rest });
+  }, [location, navigate]);
 
   const value = useMemo<ProjectContextValue>(
     () => ({
@@ -94,8 +110,15 @@ export function ProjectLayout() {
       openPauseDetails: () => setPauseDetailsSignal((count) => count + 1),
       operatorOpen,
       operatorPrefill,
-      openOperator: (trigger, prefill) => {
+      operatorChecklistRequest,
+      openOperator: (trigger, prefill, options) => {
         operatorTrigger.current = trigger ?? null;
+        if (options?.checklist)
+          setOperatorChecklistRequest((previous) => ({
+            id: (previous?.id ?? 0) + 1,
+            focus: true,
+            intro: false,
+          }));
         if (prefill !== undefined)
           setOperatorPrefill((previous) => ({ text: prefill, id: (previous?.id ?? 0) + 1 }));
         setOperatorOpen(true);
@@ -103,6 +126,7 @@ export function ProjectLayout() {
       closeOperator: () => {
         setOperatorOpen(false);
         setOperatorPrefill(null);
+        setOperatorChecklistRequest(null);
       },
       openNewTask: (options) => setNewTask({ kind: options?.kind ?? 'task' }),
       themeFilter,
@@ -119,6 +143,7 @@ export function ProjectLayout() {
       search,
       operatorOpen,
       operatorPrefill,
+      operatorChecklistRequest,
       themeFilter,
       boardFilters,
     ],

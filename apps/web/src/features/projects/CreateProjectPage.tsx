@@ -80,7 +80,7 @@ export function CreateProjectPage() {
     create.mutate(request, {
       onSuccess: () => {
         toast.show(t('projects.create.created', { name: name.trim() }));
-        navigate(`/p/${effectiveKey}`, { replace: true });
+        navigate(`/p/${effectiveKey}`, { replace: true, state: { operatorChecklist: true } });
       },
       onError: (error) => {
         if (errorCode(error) === 'workspace_not_found') {

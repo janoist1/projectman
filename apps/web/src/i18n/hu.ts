@@ -3104,6 +3104,47 @@ export const hu = {
 
   /** The Operator's panel in the top right corner (PM-429, PM-447): the conversation of every person of the project. */
   operator: {
+    checklist: {
+      title: 'Indulás',
+      next: 'Következő: {title}',
+      complete: 'Minden megvan',
+      intro: 'Ezt nézzük végig együtt. Amit elintézünk, azt az Operátor kipipálja.',
+      state: { open: 'hátra', done: 'kész', not_needed: 'nem kell' },
+      reason: 'Nem kell: {reason}',
+      condition: {
+        holds: 'Teljesül: {condition}',
+        unmet: 'Még nem teljesül: {condition}',
+        reviewer_member: 'van kódátnéző tag',
+        review_stage: 'van kódátnézés-szakasz',
+        qa_member: 'van tesztelő tag',
+        merger_resolves: 'egyértelmű, ki fésüli össze',
+        client_member: 'van megrendelő',
+        feedback_surface: 'van visszajelzés-felület',
+        agreement_approved: 'a megállapodás jóvá van hagyva',
+        task_exists: 'van legalább egy kártya',
+      },
+      reopened: {
+        condition: 'Visszanyílt: a feltétel már nem teljesül',
+        ownerSelf: 'Visszanyitottad',
+        owner: 'A tulajdonos visszanyitotta',
+      },
+      notNeeded: {
+        open: 'Nem kell…',
+        label: 'Miért nem kell?',
+        placeholder: 'Pl. ehhez a projekthez nem lesz megrendelő.',
+        save: 'Nem kell',
+        cancel: 'Mégse',
+      },
+      reopen: 'Visszanyitom',
+      ownerOnly: 'Ezt csak a tulajdonos állíthatja.',
+      saveFailed: 'Nem sikerült menteni. Próbáld újra.',
+      loadFailed: 'Az indulási lista most nem töltődött be.',
+      indicator: {
+        text: 'Indulás {settled}/{total}',
+        label: 'Indulási lista: {total} tételből {settled} rendben. Megnyitás az Operátor paneljén.',
+        title: 'Indulási lista',
+      },
+    },
     name: 'Operátor',
     short: 'Op',
     button: {

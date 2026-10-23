@@ -40,7 +40,8 @@ export interface ProjectContextValue {
   /** Whether the Operator's conversation panel is open (PM-429, PM-447). */
   operatorOpen: boolean;
   /** Opens the panel; `trigger` is the control the focus returns to when it closes. */
-  openOperator: (trigger?: HTMLElement | null, prefill?: string) => void;
+  openOperator: (trigger?: HTMLElement | null, prefill?: string, options?: { checklist: true }) => void;
+  operatorChecklistRequest?: { id: number; focus: boolean; intro: boolean } | null;
   operatorPrefill?: { text: string; id: number } | null;
   closeOperator: () => void;
   /** Opens the new-card dialog; `kind: 'theme'` opens it for a theme (PM-192). */

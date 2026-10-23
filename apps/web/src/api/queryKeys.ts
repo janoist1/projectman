@@ -10,6 +10,7 @@ export interface AllMessagesFilter {
  * ['project', key] so a reconnect can refetch a whole project at once.
  */
 export const queryKeys = {
+  checklist: (key: string) => ['project', key, 'checklist'] as const,
   serverVersion: ['server-version'] as const,
   operatorKnowledge: (key: string) => ['project', key, 'operator-knowledge'] as const,
   /** The Operator's queue (PM-894); the shorter key is every `closedSince` of it. */

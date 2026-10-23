@@ -5,7 +5,7 @@ export { TaskWaits } from './task-wait';
 export { LeftParts } from './left-parts';
 export { CollectingCloser } from './collecting-close';
 export { approvalRequestedError, gateBlockedError } from './moves';
-export type { MergeGate, StageChange } from './moves';
+export type { MergeGate, StageChange, WorkEntryCheck } from './moves';
 export { BoardService } from './board';
 export { ProjectFocusService } from './project-focus';
 export { prerequisiteCards, startContext } from './scheduling-context';

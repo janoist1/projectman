@@ -100,6 +100,15 @@ export interface StageChange {
   despitePrerequisites?: boolean;
 }
 
+/**
+ * What a project manager's move into the work stage asks the module that starts work (PM-722), the way
+ * `MergeGate` asks the merge module: the runtime knows who is free, the core does not.
+ */
+export interface WorkEntryCheck {
+  /** Throws `senior_busy` or `no_free_member` when no developer could take the card, which has no assignee; writes nothing. */
+  assertMemberFree(config: ProjectConfig, task: Task, target: Stage): void;
+}
+
 /** The head of the developer's branch, read before a move that hands the task over for review or testing. */
 export interface Handover {
   head: SourceHead;
@@ -136,7 +145,7 @@ export interface MoveOptions {
   partsClosedTrigger?: string;
   /**
    * `start_task` moves the card (PM-722): it chooses the assignee by its own rules (or waits for one on
-   * purpose, PM-348), so the project manager's "no move into work without an assignee" does not apply.
+   * purpose, PM-348), so the project manager's "a developer must be free for the move" check does not apply.
    */
   viaStart?: true;
   /**
@@ -182,6 +191,10 @@ export class TaskMoves {
   /** A later registration replaces the earlier one (PM-591). */
   registerMergeGate(gate: MergeGate): void {
     this.mergeGate = gate;
+  }
+  private workEntryCheck: WorkEntryCheck | undefined;
+  registerWorkEntryCheck(check: WorkEntryCheck): void {
+    this.workEntryCheck = check;
   }
   cancelMerge(projectKey: string, taskKey: string, effects: Effect[]): void {
     this.mergeGate?.cancel(projectKey, taskKey, effects);
@@ -306,11 +319,12 @@ export class TaskMoves {
   }
 
   /**
-   * A project manager does not move a card into the work stage without an assignee, or while a
-   * prerequisite of it is open (PM-722): the card would sit there with nobody working on it. Refused
-   * with `assignee_required` (`start_task` picks a free developer first) or `prerequisite_open` and the
-   * open keys; the card stays where it is. A person's move (after the warning, PM-204), and the
-   * system's and every other member's moves, are not affected.
+   * A project manager does not move a card into the work stage when nobody could take it, or while a
+   * prerequisite of it is open (PM-722): the card would sit there with nobody working on it. A card
+   * without an assignee needs a developer the start would pick (`senior_busy` or `no_free_member`
+   * otherwise); an open prerequisite is refused with `prerequisite_open` and the open keys. The card
+   * stays where it is. A person's move (after the warning, PM-204), and the system's and every other
+   * member's moves, are not affected; `start_task` (`viaStart`) chooses or waits by its own rules.
    */
   assertProjectManagerWorkEntry(
     config: ProjectConfig,
@@ -320,11 +334,7 @@ export class TaskMoves {
     viaStart = false,
   ): void {
     if (target.kind !== 'work' || task.stageId === target.id || !isProjectManagerActor(config, actor)) return;
-    if (!task.assignee && !viaStart)
-      throw conflict(
-        'assignee_required',
-        `task ${task.key} has no assignee: start it with start_task, which picks a free developer`,
-      );
+    if (!task.assignee && !viaStart) this.workEntryCheck?.assertMemberFree(config, task, target);
     const repo = this.store.ctx.repos.tasks;
     const reader = {
       readSchedulingTasks: (key: string, query: TaskSchedulingQuery) => repo.readScheduling(key, query),

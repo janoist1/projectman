@@ -1369,6 +1369,7 @@ export function createDomain(opts: DomainOptions) {
   events.on('session_idle', (session) => feedbackNotices.settle(session));
   events.on('session_ended', (session) => feedbackNotices.settle(session));
   tasks.registerMergeGate(merges);
+  tasks.registerWorkEntryCheck(taskStarts);
   events.on('task_cancelled', (task) => {
     merges.cancel(task.projectKey, task.key);
   });

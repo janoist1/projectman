@@ -44,7 +44,7 @@ import type { MemberService } from '../../core/members';
 import type { Author, ProjectService } from '../../core/projects';
 import type { SessionOrchestrator } from '../sessions';
 import { approvalRequestedError, gateBlockedError, prerequisiteCards } from '../../core/tasks';
-import type { StageChange, TaskService } from '../../core/tasks';
+import type { StageChange, TaskService, WorkEntryCheck } from '../../core/tasks';
 import { actorHandle, SYSTEM_ACTOR, SYSTEM_AUTHOR } from '../../kernel';
 import type { Admission } from './admission';
 import { assertPrerequisitesClosed } from './rules';
@@ -173,7 +173,7 @@ function startsAsPerson(config: ProjectConfig, actor: Actor): boolean {
  * the developer's session (the context pack's brief is its first message). A temp worker is
  * retired once its task is done.
  */
-export class TaskStarts {
+export class TaskStarts implements WorkEntryCheck {
   private readonly projects: ProjectService;
   private readonly tasks: TaskService;
   private readonly members: MemberService;
@@ -211,6 +211,20 @@ export class TaskStarts {
     // The card is started: an automatic start of it that waited has nothing left to do.
     this.admission.discardStale(result.task);
     return result;
+  }
+
+  /**
+   * The project manager's move of a card without an assignee into the work stage (PM-722): it passes
+   * only when the start the move triggers would find a developer, now: a free one, or a temp worker the
+   * limits let it hire. Refused like that start would be (`senior_busy`, `no_free_member`); nothing is
+   * chosen, hired or written.
+   */
+  assertMemberFree(config: ProjectConfig, task: Task, target: Stage): void {
+    const chosen = this.chooseMember(config, task, target, undefined, []);
+    if (chosen.kind === 'senior_busy')
+      throw conflict('senior_busy', `task ${task.key} waits for a Senior`, { seniors: chosen.seniors });
+    if (!chosen.member && !this.mayHireTempWorker(config, target, chosen.tempAllowed))
+      throw conflict('no_free_member', 'every developer is at capacity');
   }
 
   /** The shared rule (`canAutomaticallyStartTask`), on all this card's subtasks read from fresh state (PM-818). */
@@ -516,6 +530,21 @@ export class TaskStarts {
     );
   }
 
+  private tempWorkerCount(config: ProjectConfig): number {
+    return config.team.members.filter((m) => m.kind === 'ai' && m.temp).length;
+  }
+
+  /** Whether a temp worker for the work stage may be hired now: the card allows it, and the limits and the role's duty do. */
+  private mayHireTempWorker(config: ProjectConfig, workStage: Stage, tempAllowed: boolean): boolean {
+    const temp = config.team.limits.tempWorkers;
+    return (
+      tempAllowed &&
+      temp.enabled &&
+      this.tempWorkerCount(config) < temp.max &&
+      !(workStage.duty && !roleBundle(config, temp.role).duties.includes(workStage.duty))
+    );
+  }
+
   /** A temp worker of the configured role for the work stage, if the limits allow one. */
   private async hireTempWorker(
     config: ProjectConfig,
@@ -524,13 +553,8 @@ export class TaskStarts {
     tempAllowed: boolean,
   ): Promise<AiMemberConfig> {
     const temp = config.team.limits.tempWorkers;
-    const tempCount = config.team.members.filter((m) => m.kind === 'ai' && m.temp).length;
-    if (
-      !tempAllowed ||
-      !temp.enabled ||
-      tempCount >= temp.max ||
-      (workStage.duty && !roleBundle(config, temp.role).duties.includes(workStage.duty))
-    ) {
+    const tempCount = this.tempWorkerCount(config);
+    if (!this.mayHireTempWorker(config, workStage, tempAllowed)) {
       throw conflict('no_free_member', 'every developer is at capacity', {
         tempWorkersEnabled: temp.enabled,
         tempWorkers: tempCount,

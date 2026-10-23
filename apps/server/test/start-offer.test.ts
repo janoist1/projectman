@@ -72,9 +72,8 @@ describe('the start offer to the project manager', () => {
     await h.domain.obligations.sweep();
     await flush();
   };
-  // The pm's own move into work needs an assignee (PM-722): it starts a card with start_task, which picks one.
-  const pmStart = (key: string) =>
-    h.domain.taskStarts.start('AR', key, { actor: aiActor('pm'), author: SYSTEM_AUTHOR });
+  const pmMove = (key: string, stage = 'development') =>
+    h.domain.tasks.moveToStage('AR', key, stage, aiActor('pm'));
   const urgent = (key: string) => h.domain.tasks.update('AR', key, { priority: 'urgent' }, OWNER_ACTOR);
 
   /** The system's start messages to a member, newest last. */
@@ -106,7 +105,7 @@ describe('the start offer to the project manager', () => {
     return keys;
   };
 
-  it('sends one action message and opens a start obligation; the pm start picks the right developer', async () => {
+  it('sends one action message and opens a start obligation; the pm move starts the right developer', async () => {
     await harness();
     const key = await create('Runner work', { developerLevel: { level: 'senior', reason: 'The runner' } });
     await settle();
@@ -123,7 +122,7 @@ describe('the start offer to the project manager', () => {
     expect(task(key).assignee).toBeNull();
     expect(offers()).toHaveLength(1);
 
-    await pmStart(key);
+    await pmMove(key);
     await vi.waitFor(() => expect(task(key).assignee).toBe('dev-2'));
     await sweep();
     expect(startRows(key)).toEqual([]);
@@ -367,13 +366,13 @@ describe('the start offer to the project manager', () => {
     const key = await create('Contested card');
     await settle();
     expect(offers()).toHaveLength(1);
-    await Promise.allSettled([
+    const results = await Promise.allSettled([
+      pmMove(key),
       h.domain.tasks.moveToStage('AR', key, 'development', OWNER_ACTOR),
       urgent(key),
       h.domain.admission.retryDeferred(),
     ]);
-    // The pm's start comes once the others have settled (a start that lost the race to a move is refused).
-    await pmStart(key).catch(() => undefined);
+    expect(results[0]!.status).toBe('fulfilled');
     await flush();
     await vi.waitFor(() => expect(task(key).assignee).not.toBeNull());
     await settle();

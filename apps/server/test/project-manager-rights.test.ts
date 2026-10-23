@@ -4,7 +4,7 @@ import { TeamToolError } from '../src/contracts';
 import type { ToolContext } from '../src/contracts';
 import { aiActor } from '../src/kernel';
 import { TEAM_TOOL_NAMES } from '../src/mcp';
-import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
+import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { rejection } from './helpers/errors';
 import { flush } from './helpers/fakes';
@@ -85,36 +85,46 @@ describe('the project manager’s rights on the server', () => {
     });
 
     it('moves a card waiting in a queue stage after the first into its work stage, gate included', async () => {
-      // Only a card with an assignee: the pm cannot assign (PM-722).
-      await h.domain.tasks.update('AR', 'AR-1', { assignee: 'dev-2' }, OWNER_ACTOR);
       const blocked = await toolError(
         h.domain.teamTools.updateTask(pm, { taskKey: 'AR-1', stageId: 'development' }),
       );
       expect(blocked.code).toBe('gate_blocked');
       expect(card().stageId).toBe('ready');
-      // The pm's own, non-approval label in the same call opens the gate.
+      // The pm's own, non-approval label in the same call opens the gate; the system picks the member.
       await h.domain.teamTools.updateTask(pm, {
         taskKey: 'AR-1',
         addLabels: ['ready-ok'],
         stageId: 'development',
       });
-      expect(card()).toMatchObject({ stageId: 'development', labels: ['ready-ok'], assignee: 'dev-2' });
+      expect(card()).toMatchObject({ stageId: 'development', labels: ['ready-ok'] });
       const moved = h.domain.tasks
         .detail('AR', 'AR-1')
         .timeline.filter((event) => event.type === 'task_stage_changed')
         .at(-1);
       expect(moved?.actor).toEqual({ kind: 'ai', handle: 'pm' });
+      await flush();
+      expect(['dev-1', 'dev-2']).toContain(card().assignee);
     });
 
-    it('does not move a card without an assignee into the work stage (PM-722)', async () => {
+    it('does not move a card without an assignee into the work stage when no developer is free (PM-722)', async () => {
       await h.domain.tasks.update('AR', 'AR-1', { addLabels: ['ready-ok'] }, OWNER_ACTOR);
+      for (const handle of ['dev-1', 'dev-2'])
+        await h.domain.members.update(
+          'AR',
+          handle,
+          { onLeave: true },
+          {
+            actor: OWNER_ACTOR,
+            author: OWNER,
+          },
+        );
       const refused = await toolError(
         h.domain.teamTools.updateTask(pm, { taskKey: 'AR-1', stageId: 'development', priority: 'low' }),
       );
-      expect(refused.message).toContain('has no assignee');
+      expect(refused.message).toContain('every developer is at capacity');
       await expect(
         h.domain.tasks.moveToStage('AR', 'AR-1', 'development', aiActor('pm')),
-      ).rejects.toMatchObject({ status: 409, code: 'assignee_required' });
+      ).rejects.toMatchObject({ status: 409, code: 'no_free_member' });
       expect(card()).toMatchObject({ stageId: 'ready', priority: null, assignee: null });
       // A person's move is not bound by it.
       await h.domain.tasks.update('AR', 'AR-1', { stageId: 'development' }, OWNER_ACTOR);

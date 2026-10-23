@@ -76,7 +76,14 @@ import { planDeveloperLevel } from './developer-level';
 import type { DeveloperLevelChange } from './developer-level';
 import { labelsChange, planLabelsOrThrow, TaskLabels } from './labels';
 import { approvalRequestedError, gateBlockedError, TaskMoves } from './moves';
-import type { MergeGate, MoveOptions, MoveResult, PreparedMove, SourceHeadReader } from './moves';
+import type {
+  MergeGate,
+  MoveOptions,
+  MoveResult,
+  PreparedMove,
+  SourceHeadReader,
+  WorkEntryCheck,
+} from './moves';
 import { SUBTASK_PARENT_REFUSALS, TaskRelations } from './relations';
 import { requireStage, runEffects, TaskStore } from './store';
 import type { Effect, StartWaitingReader } from './store';
@@ -142,6 +149,9 @@ interface TaskUpdate {
 export class TaskService implements TaskSchedulingReader {
   registerMergeGate(gate: MergeGate): void {
     this.moves.registerMergeGate(gate);
+  }
+  registerWorkEntryCheck(check: WorkEntryCheck): void {
+    this.moves.registerWorkEntryCheck(check);
   }
   private readonly ctx: DomainContext;
   private readonly timeline: TimelineService;

@@ -19,6 +19,8 @@
     "heavy": "node --import tsx scripts/heavy/cli.ts",
     "merge-test": "node --import tsx scripts/merge-test/cli.ts",
     "dead-code": "node --import tsx scripts/merge-test/dead-code-cli.ts",
+    "knip": "knip --config knip.json --no-progress --no-config-hints --reporter json --no-exit-code",
+    "dead-code:update": "node --import tsx scripts/merge-test/dead-code-cli.ts --update-baseline",
     "full-test": "node --import tsx scripts/full-test/cli.ts",
     "browsers": "node scripts/browsers.mjs",
     "dev": "concurrently -k -n server,web -c blue,magenta \"npm:dev:server\" \"npm:dev:web\"",
@@ -44,7 +46,7 @@
   "devDependencies": {
     "@types/node": "^26.6.3",
     "concurrently": "^10.0.5",
-    "knip": "^6.42.1",
+    "knip": "6.42.1",
     "playwright-core": "1.63.0",
     "prettier": "^3.9.9",
     "typescript": "^7.0.2",

@@ -1,6 +1,8 @@
 # Dead-code merge check
 
 `npm run dead-code` runs the locally installed, pinned Knip against `knip.json`.
+`npm run knip` prints its raw JSON report. `npm run dead-code:update` explicitly writes
+the current findings to the baseline; review that diff before committing.
 The merge runner runs it before workspace checks, including when the selected test scope
 is empty. Sharded runs execute it only on shard 1. Dry runs print the command without
 executing it. The check is not covered by the workspace step cache.
@@ -13,7 +15,8 @@ this check does not attempt to detect code used exclusively by tests.
 `dead-code-baseline.json` records the initial debt as sorted JSON-encoded tuples of
 issue kind, repository-relative file and exported name (empty for unused files).
 Positions are excluded. Removing old debt is allowed; any identity outside the baseline
-fails with its file, exported name and issue kind. Analyzer errors also fail the merge.
+fails with its file, exported name and issue kind. Missing old entries produce a warning.
+Analyzer errors also fail the merge.
 
 Fix a new finding by removing unused code or its unnecessary export. If a file is loaded
 externally or dynamically, add the precise entrypoint to `knip.json`. Review configuration

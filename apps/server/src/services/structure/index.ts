@@ -27,10 +27,10 @@ import type { TaskService } from '../../core/tasks';
 export interface StructureService {
   view(projectKey: string): Promise<StructureView>;
 }
-export interface StructureSessions {
+interface StructureSessions {
   cardEngineId(projectKey: string, task: Task): EngineId;
 }
-export interface StructureDeps {
+interface StructureDeps {
   projects: Pick<ProjectService, 'config'>;
   tasks: Pick<TaskService, 'list'>;
   engines: EngineDirectory;

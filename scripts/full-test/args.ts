@@ -1,4 +1,4 @@
-export interface FullTestArgs {
+interface FullTestArgs {
   workers: number;
   timeoutMinutes: number;
   command: string[];

@@ -1,7 +1,7 @@
 import type { InvitationView } from '@projectman/shared';
 import type { Db } from './database';
 
-export interface InvitationRecord extends InvitationView {
+interface InvitationRecord extends InvitationView {
   tokenHash: string;
 }
 

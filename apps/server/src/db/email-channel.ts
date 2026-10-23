@@ -11,7 +11,7 @@ import type {
 import type { Db } from './database';
 import { parseJson, toJson } from './json';
 
-export interface EmailContactRecord {
+interface EmailContactRecord {
   projectKey: string;
   handle: string;
   wants: boolean;
@@ -20,7 +20,7 @@ export interface EmailContactRecord {
   requestedBy: string | null;
   source: EmailContactSource;
 }
-export interface EmailContactEventRecord {
+interface EmailContactEventRecord {
   id: string;
   projectKey: string;
   handle: string;

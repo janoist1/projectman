@@ -4,11 +4,11 @@ import type { IncomingMessage, Server } from 'node:http';
 import type { HistorySearchResult, HistoryViewer } from '@projectman/shared';
 
 /** The part of the history service the measurement calls: the normal search facade, never the engine. */
-export interface ProfileSearchFacade {
+interface ProfileSearchFacade {
   search(projectKey: string, viewer: HistoryViewer, input: { query: string }): Promise<HistorySearchResult>;
 }
 
-export const PROFILE_SECRET_HEADER = 'x-profile-secret';
+const PROFILE_SECRET_HEADER = 'x-profile-secret';
 export const PROFILE_SECRET_MIN_LENGTH = 16;
 const MAX_BODY_BYTES = 8 * 1024;
 const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);

@@ -2,7 +2,7 @@ import type { HistorySemanticStatus } from '@projectman/shared';
 import type { Db } from './database';
 
 /** One measured search (PM-787): who asked what, with which filters, and how it ended. Never a hit's text. */
-export interface HistorySearchRecord {
+interface HistorySearchRecord {
   id: string;
   at: string;
   member: string;
@@ -24,14 +24,14 @@ export interface HistorySearchRecord {
 }
 
 /** The period and the member the statistics are read for; both ends are inclusive UTC ISO times. */
-export interface HistorySearchPeriod {
+interface HistorySearchPeriod {
   projectKey: string;
   since: string;
   until: string;
   member?: string;
 }
 
-export interface HistorySearchCursorKey {
+interface HistorySearchCursorKey {
   at: string;
   id: string;
 }
@@ -147,5 +147,3 @@ export function createHistorySearchRepository(db: Db) {
     },
   };
 }
-
-export type HistorySearchRepository = ReturnType<typeof createHistorySearchRepository>;

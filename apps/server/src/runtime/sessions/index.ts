@@ -2,7 +2,7 @@ export { EngineRegistry, machineKeyHash, newMachineKey } from './engine-registry
 export type { EngineCounters, EngineHelloMetadata } from './engine-registry';
 export { engineIdOf, engineOption, LocalEngineDirectory } from './engines';
 export { PauseService } from './pause';
-export type { PauseOptions, PauseRequester, PauseTarget } from './pause';
+export type { PauseRequester } from './pause';
 export { SessionCloser } from './session-closer';
 export { HYBRID_ARCHIVE_DIR, HYBRID_STAGING_DIR } from './session-policy';
 export {
@@ -35,7 +35,6 @@ export {
 } from './session-policy';
 export type { SessionFolderAccess } from './session-policy';
 export {
-  BUSY_SESSION_STATES,
   COMPACT_MIN_CONTEXT_TOKENS,
   LIVE_SESSION_STATES,
   MAX_FIRST_INPUT_CHARS,

@@ -77,7 +77,7 @@ export const waitForLock = (
     }),
   ).pipe(Effect.onError(() => Effect.promise(deps.removeTicket)));
 
-export interface HolderBeatDeps {
+interface HolderBeatDeps {
   /** Touches the owner only while it is ours; never rejects. */
   beat: () => Promise<boolean>;
   /** Called once when the lock no longer belongs to this holder. */

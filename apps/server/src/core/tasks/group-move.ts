@@ -21,7 +21,7 @@ import type { Effect, TaskStore } from './store';
 type BlockedItem = Extract<BoardGroupItem, { outcome: 'blocked' }>;
 
 /** What was read about a card before the unit of work (the one thing that needs an await). */
-export type PreparedCard = PreparedMove | { blocked: BoardGroupItem };
+type PreparedCard = PreparedMove | { blocked: BoardGroupItem };
 
 /**
  * A collecting card dragged to another column with the subtasks that stand in its column (PM-121).

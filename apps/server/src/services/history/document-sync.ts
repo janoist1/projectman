@@ -6,7 +6,7 @@ import { HistoryDocumentReadSuperseded } from '../../contracts';
 export const HISTORY_DOC_POLL_MS = 600_000;
 export const HISTORY_DOC_RETRY_MS = 60_000;
 
-export interface HistoryDocumentSyncDeps {
+interface HistoryDocumentSyncDeps {
   projects: { keys: () => Promise<string[]>; config: (projectKey: string) => Promise<ProjectConfig> };
   reader: HistoryDocumentReader;
   history: Pick<
@@ -18,7 +18,7 @@ export interface HistoryDocumentSyncDeps {
   timers?: { setTimeout: typeof setTimeout; clearTimeout: typeof clearTimeout };
 }
 
-export interface HistoryDocumentSync {
+interface HistoryDocumentSync {
   init(): Promise<void>;
   refresh(projectKey: string): Promise<void>;
   mainMoved(event: HistoryMainMoved): void;

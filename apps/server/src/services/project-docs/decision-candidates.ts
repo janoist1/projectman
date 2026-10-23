@@ -6,8 +6,8 @@ import type { DomainContext } from '../../core/base';
 import { DomainError } from '../../kernel';
 
 /** The most characters of a question (title and body) a candidate carries. */
-export const MAX_CANDIDATE_QUESTION_CHARS = 2000;
-export const DEFAULT_CANDIDATE_LIMIT = 20;
+const MAX_CANDIDATE_QUESTION_CHARS = 2000;
+const DEFAULT_CANDIDATE_LIMIT = 20;
 
 /**
  * Owner answers on cards that may be decisions (PM-496). A question is a candidate when an owner of the

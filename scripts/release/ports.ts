@@ -1,7 +1,6 @@
 import type {
   HybridDeployment,
   Release,
-  ReleaseArtifact,
   ReleaseDeployBegin,
   ReleaseDeployChange,
   ReleaseDrainStatus,
@@ -226,5 +225,3 @@ export interface FixedFailure {
   step: ReleaseStep;
   message: string;
 }
-
-export type { ReleaseArtifact };

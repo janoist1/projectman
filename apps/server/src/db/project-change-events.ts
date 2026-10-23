@@ -1,7 +1,7 @@
 import type { ProjectChangeKind } from '@projectman/shared';
 import type { Db } from './database';
 
-export interface ProjectChangeRow {
+interface ProjectChangeRow {
   seq: number;
   projectKey: string;
   kind: ProjectChangeKind;

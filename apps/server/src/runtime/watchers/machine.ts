@@ -34,8 +34,8 @@ const SESSION_ID_VAR = 'PROJECTMAN_SESSION_ID';
 const INSTANCE_VAR = 'PROJECTMAN_INSTANCE';
 
 /** How often it measures: while a panel polls, while anything polls; otherwise it does not measure. */
-export const MACHINE_PANEL_INTERVAL_MS = 5000;
-export const MACHINE_IDLE_INTERVAL_MS = 15_000;
+const MACHINE_PANEL_INTERVAL_MS = 5000;
+const MACHINE_IDLE_INTERVAL_MS = 15_000;
 const PANEL_DEMAND_MS = 15_000;
 const ANY_DEMAND_MS = 45_000;
 /** A sample older than this many intervals is measured again for the request that asks. */
@@ -81,7 +81,7 @@ interface Classification {
   others: ProcessRecord[];
 }
 
-export interface MachineMonitorOptions {
+interface MachineMonitorOptions {
   probe: MachineProbe;
   runner: { list(): RunningSessionInfo[] };
   sessions: { get(id: string): Session | null; countResumable(): number };

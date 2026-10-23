@@ -108,9 +108,9 @@ export const recordSchema = z.looseObject({
 const verifySchema = z.looseObject({ status: z.string().optional() });
 
 export type Zone = z.output<typeof zoneSchema>;
-export type AccessApp = z.output<typeof appSchema>;
-export type AccessPolicy = z.output<typeof policySchema>;
-export type ServiceToken = z.output<typeof serviceTokenSchema>;
+type AccessApp = z.output<typeof appSchema>;
+type AccessPolicy = z.output<typeof policySchema>;
+type ServiceToken = z.output<typeof serviceTokenSchema>;
 export type Tunnel = z.output<typeof tunnelSchema>;
 export type DnsRecord = z.output<typeof recordSchema>;
 
@@ -122,7 +122,7 @@ export function shape<S extends z.ZodType>(schema: S, value: unknown, what: stri
 
 // ---- the names of everything this makes ----
 
-export interface Names {
+interface Names {
   app: string;
   engineApp: string;
   integratorApp: string;
@@ -153,19 +153,18 @@ export function namesOf(config: CloudConfig): Names {
 
 export const ENGINE_TOKEN_FILE = 'engine-access-token.json';
 export const INTEGRATOR_TOKEN_FILE = 'integrator-access-token.json';
-export const TRANSFORM_PHASE = 'http_response_headers_transform';
+const TRANSFORM_PHASE = 'http_response_headers_transform';
 const TRANSFORM_REF = 'projectman_frame_headers';
 const AUTH_DOMAIN_SUFFIX = '.cloudflareaccess.com';
 /** The server's switch for the public board (PM-672); `cloud.env` holds it only in public mode. */
 export const PUBLIC_BOARD_ENV = 'PROJECTMAN_PUBLIC_BOARD';
 export const INTEGRATOR_HOSTNAME_ENV = 'PROJECTMAN_INTEGRATOR_HOSTNAME';
 const TOKEN_DURATION = '8760h';
-export const TOKEN_WARNING_DAYS = 30;
 const DAY_MS = 86_400_000;
 
 // ---- lookups shared by the commands ----
 
-export interface Account {
+interface Account {
   id: string;
   name: string | undefined;
 }
@@ -195,7 +194,7 @@ const MANUAL_ZERO_TRUST =
   'turn Zero Trust on in the dashboard (Zero Trust, Free plan, choose a team name); see docs/AWS.md';
 
 /** The Zero Trust team name (the `auth_domain` without `.cloudflareaccess.com`); refuses when there is none. */
-export async function teamNameOf(api: CloudflareApi, accountId: string): Promise<string> {
+async function teamNameOf(api: CloudflareApi, accountId: string): Promise<string> {
   let value: unknown;
   try {
     value = await api.get(`/accounts/${accountId}/access/organizations`);
@@ -245,23 +244,15 @@ async function listNamed<S extends z.ZodType<{ name: string }>>(
   return found[0] ?? null;
 }
 
-export function findPolicy(
-  api: CloudflareApi,
-  accountId: string,
-  name: string,
-): Promise<AccessPolicy | null> {
+function findPolicy(api: CloudflareApi, accountId: string, name: string): Promise<AccessPolicy | null> {
   return listNamed(api, `/accounts/${accountId}/access/policies`, policySchema, 'Access policy', name);
 }
 
-export function findApp(api: CloudflareApi, accountId: string, name: string): Promise<AccessApp | null> {
+function findApp(api: CloudflareApi, accountId: string, name: string): Promise<AccessApp | null> {
   return listNamed(api, `/accounts/${accountId}/access/apps`, appSchema, 'Access application', name);
 }
 
-export function findServiceToken(
-  api: CloudflareApi,
-  accountId: string,
-  name: string,
-): Promise<ServiceToken | null> {
+function findServiceToken(api: CloudflareApi, accountId: string, name: string): Promise<ServiceToken | null> {
   return listNamed(
     api,
     `/accounts/${accountId}/access/service_tokens`,
@@ -279,14 +270,14 @@ export function findTunnel(api: CloudflareApi, accountId: string, name: string):
 }
 
 /** What an Access policy has to be, per name (the exact lists; no group, no domain; `everyone` only in the one bypass policy of the public board, PM-672). */
-export interface PolicySpec {
+interface PolicySpec {
   name: string;
   decision: 'allow' | 'non_identity' | 'bypass';
   include: Json[];
 }
 
 /** Public board (PM-672): the main application lets everybody through to the board's own login. */
-export function publicPolicySpec(names: Names): PolicySpec {
+function publicPolicySpec(names: Names): PolicySpec {
   return { name: names.publicPolicy, decision: 'bypass', include: [{ everyone: {} }] };
 }
 
@@ -294,7 +285,7 @@ export function isPublicBoard(config: CloudConfig): boolean {
   return config.access.boardMode === 'public';
 }
 
-export function allowPolicySpec(config: CloudConfig, names: Names): PolicySpec {
+function allowPolicySpec(config: CloudConfig, names: Names): PolicySpec {
   return {
     name: names.allowPolicy,
     decision: 'allow',
@@ -302,7 +293,7 @@ export function allowPolicySpec(config: CloudConfig, names: Names): PolicySpec {
   };
 }
 
-export function servicePolicySpec(name: string, tokenId: string): PolicySpec {
+function servicePolicySpec(name: string, tokenId: string): PolicySpec {
   return { name, decision: 'non_identity', include: [{ service_token: { token_id: tokenId } }] };
 }
 
@@ -338,7 +329,7 @@ function sortKeys(value: unknown): unknown {
 }
 
 /** The ids of the policies of an app, in precedence order. */
-export function appPolicyIds(app: AccessApp): string[] {
+function appPolicyIds(app: AccessApp): string[] {
   return (app.policies ?? []).map((policy) => (typeof policy === 'string' ? policy : policy.id));
 }
 
@@ -402,7 +393,7 @@ export function ingressRules(
   ];
 }
 
-export function frameRule(hostname: string): Record<string, Json> {
+function frameRule(hostname: string): Record<string, Json> {
   return {
     ref: TRANSFORM_REF,
     description: 'projectman: no framing (PM-532)',
@@ -557,7 +548,7 @@ export async function cloudflarePreflight(context: CloudContext): Promise<void> 
 
 // ---- edge ----
 
-export interface EdgeOptions {
+interface EdgeOptions {
   dryRun: boolean;
   rotateEngineToken: boolean;
   rotateIntegratorToken: boolean;
@@ -754,7 +745,7 @@ async function ensureIdentityProvider(state: EdgeState): Promise<void> {
   });
 }
 
-export interface TokenFile {
+interface TokenFile {
   clientId: string;
   clientSecret: string;
 }

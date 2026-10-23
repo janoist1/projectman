@@ -339,7 +339,7 @@ export interface BuildAppOptions {
 }
 
 /** What `app.projectman` exposes (tests and tooling reach the services through it). */
-export interface AppContext {
+interface AppContext {
   engineRegistry?: EngineRegistry;
   engineLinks?: EngineLinks;
   home: string;

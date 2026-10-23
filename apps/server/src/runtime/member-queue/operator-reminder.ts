@@ -11,7 +11,7 @@ import type { OperatorQueueRequests } from './operator-lane';
 const OPERATOR_KINDS = ['todo', 'fix_limit', 'message'] as const;
 
 /** What the reminder needs of the rest of the server. */
-export interface OperatorQueueReminderDeps {
+interface OperatorQueueReminderDeps {
   ctx: DomainContext;
   projects: Pick<ProjectService, 'cachedConfig'>;
   requests: Pick<OperatorQueueRequests, 'open'>;

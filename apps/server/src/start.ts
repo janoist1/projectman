@@ -400,11 +400,11 @@ async function engineMain(env: NodeJS.ProcessEnv): Promise<void> {
 }
 
 /** What `main` hands to the measurement entry once the server listens (PM-910); the app is the running server. */
-export interface StartedServer {
+interface StartedServer {
   app: Awaited<ReturnType<typeof buildApp>>;
 }
 
-export interface MainOptions {
+interface MainOptions {
   /** Called after the server is ready; the measurement entry (`history-semantic-profile.ts`) is the only user. */
   afterStart?: (started: StartedServer) => Promise<void> | void;
 }

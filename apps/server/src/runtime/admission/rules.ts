@@ -68,7 +68,7 @@ export function assertPrerequisitesClosed(task: Task, tasks: readonly Task[]): v
 }
 
 /** Why a start waits, as a task shows it. */
-export type WaitingReason = TaskStartWaiting['reason'];
+type WaitingReason = TaskStartWaiting['reason'];
 
 /**
  * The reasons every automatic start waits for that a later retry can overcome. Every reason the

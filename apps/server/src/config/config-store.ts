@@ -19,12 +19,12 @@ import { mergeProjectFiles, parseYamlFile, PROJECT_FILES, splitProjectConfig } f
 import type { ProjectFileName } from './layout';
 import { migrateProjectConfig } from './migrations';
 
-export interface GitIdentity {
+interface GitIdentity {
   name: string;
   email: string;
 }
 
-export interface ConfigStoreOptions {
+interface ConfigStoreOptions {
   /** Directory of the customization repository, e.g. ~/.projectman/customization. */
   rootDir: string;
   logger?: Pick<FastifyBaseLogger, 'warn'>;

@@ -6,37 +6,11 @@
  */
 export { loadSupervisorConfig, expectedServiceKind } from './config';
 export { administrationRefusal, isErrorCode } from './errors';
-export {
-  AdministrationAccepted,
-  AdministrationCommandSchema,
-  AdministrationJobSchema,
-  AdministrationMachineSnapshotSchema,
-  AdministrationRequestId,
-  AdministrationResultSchema,
-  AdministrationStatusSchema,
-  AdministrationSubmitSchema,
-  AdministrationTargetSchema,
-  DiagnosticLogsSchema,
-  LogsLimit,
-  OperationId,
-  SOCKET_PATH_MAX,
-  SocketParams,
-  SocketValues,
-  SupervisorConfig,
-} from './schemas';
-export { createBuilderExecutors, FULL_TEST_COMMANDS } from './executors';
-export type { BuilderImage, BuilderTestRun, BuilderToolbox } from './executors';
+export { SOCKET_PATH_MAX, SocketParams, SocketValues, SupervisorConfig } from './schemas';
+export { createBuilderExecutors } from './executors';
+export type { BuilderToolbox } from './executors';
 export { startSupervisor } from './run';
-export type { RunningSupervisor, StartSupervisorOptions } from './run';
 export { AdministrationSetupError, ensurePrivateDir, writeFileAtomic } from './secure-fs';
 export { createAdministrationService } from './service';
-export type { AdministrationService, AdministrationServiceOptions, EngineAdministration } from './service';
-export { createServiceController, runCommand } from './service-control';
-export type { RunCommand, RunResult, ServiceController, ServiceProbe } from './service-control';
+export type { EngineAdministration } from './service';
 export { createSocketClient } from './socket-client';
-export { startSocketServer } from './socket-server';
-export type { SocketServer } from './socket-server';
-export { createSupervisor } from './supervisor';
-export type { Supervisor, SupervisorDeps } from './supervisor';
-export { createDiagnosticsJournal, createOperationStore } from './store';
-export type { DiagnosticsJournal, OperationStore } from './store';

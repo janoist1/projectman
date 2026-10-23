@@ -37,7 +37,7 @@ import { wakeFactsFor } from '../messages';
 import type { TimelineService } from '../timeline';
 
 /** What the queue reads of the projects: the loaded configuration, and the loading of every project's. */
-export interface MemberQueueProjects {
+interface MemberQueueProjects {
   cachedConfig(key: string): ProjectConfig | undefined;
   config(key: string): Promise<ProjectConfig>;
   summaries(): Array<{ key: string }>;

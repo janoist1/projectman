@@ -2,9 +2,9 @@ import { Data, Duration, Effect } from 'effect';
 import { abortable, runPromise } from '../kernel';
 
 /** One copying step; it must stop and settle soon after `signal` aborts. */
-export type CopyStep = (signal: AbortSignal) => Promise<void>;
+type CopyStep = (signal: AbortSignal) => Promise<void>;
 
-export class CopyStepFailed extends Data.TaggedError('CopyStepFailed')<{ cause: unknown }> {}
+class CopyStepFailed extends Data.TaggedError('CopyStepFailed')<{ cause: unknown }> {}
 export class CopyBudgetExceeded extends Data.TaggedError('CopyBudgetExceeded')<{}> {}
 
 /** Runs steps sequentially within one budget, aborting and awaiting the running step on expiry. */

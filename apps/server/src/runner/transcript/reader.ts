@@ -50,7 +50,7 @@ export async function readTranscriptText(path: string, confineTo?: string): Prom
  * Whether a transcript is a file with something in it; a missing file is not. With `confineTo` (a
  * worker home, PM-140) it must also be a regular file whose real path lies in it (`openConfined`).
  */
-export async function transcriptHasContent(path: string, confineTo?: string): Promise<boolean> {
+async function transcriptHasContent(path: string, confineTo?: string): Promise<boolean> {
   try {
     if (!confineTo) {
       const info = await stat(path);

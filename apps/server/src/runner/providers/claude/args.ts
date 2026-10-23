@@ -61,7 +61,7 @@ const DECIDING_EVENTS: ReadonlySet<string> = new Set([
 /** SessionEnd hooks share a small budget; this raises it slightly (max 60s). */
 const SESSION_END_TIMEOUT_S = 3;
 
-export interface HookSettingsInput {
+interface HookSettingsInput {
   /**
    * POST target of the hooks. It holds the session's token: it goes into the settings file (a
    * private file, PM-156) for the direct HTTP hooks, and never into a command's text.
@@ -82,7 +82,7 @@ export interface HookSettingsInput {
 }
 
 /** Claude Code's `sandbox` settings (Claude Code 2.1.219 or later, probed with 2.1.284). */
-export interface ClaudeSandboxSettings {
+interface ClaudeSandboxSettings {
   enabled: true;
   /** Sandboxed commands run without a permission prompt (not in a team-tools-only session, PM-475). */
   autoAllowBashIfSandboxed: boolean;
@@ -119,12 +119,12 @@ interface HookHandler {
  * "auto-mode-config"; `$defaults` keeps the built-in entries). It only steers the classifier: the
  * deny rules are what hold, in every mode (PM-165).
  */
-export interface ClaudeAutoModeSettings {
+interface ClaudeAutoModeSettings {
   environment: string[];
   hard_deny: string[];
 }
 
-export const AUTO_MODE_SETTINGS: ClaudeAutoModeSettings = {
+const AUTO_MODE_SETTINGS: ClaudeAutoModeSettings = {
   environment: [
     '$defaults',
     "This is a development machine of an AI team's member. The work is done in the task's own working directory; the repository is local-only and nothing is published from it.",
@@ -138,7 +138,7 @@ export const AUTO_MODE_SETTINGS: ClaudeAutoModeSettings = {
   ],
 };
 
-export interface ClaudeSettings {
+interface ClaudeSettings {
   permissions: { allow: string[]; deny?: string[] };
   autoMode?: ClaudeAutoModeSettings;
   hooks: Record<string, Array<{ hooks: HookHandler[] }>>;
@@ -172,7 +172,7 @@ export interface ClaudeSettings {
  * The sandbox settings for `sandbox`. The settings reference names `allowUnsandboxedCommands` a
  * string, but Claude Code 2.1.284 asks for every command given "deny"; the boolean works.
  */
-export function buildSandboxSettings(
+function buildSandboxSettings(
   sandbox: AgentSandbox,
   options: { autoAllowBash?: boolean } = {},
 ): ClaudeSandboxSettings {
@@ -233,7 +233,7 @@ export function denyWriteRules(sandbox: AgentSandbox | undefined): string[] {
  * a chain, a pipe, `$(...)` or `> file` around it stays inside (read in 2.1.284's code; the manual
  * run in docs/SANDBOX-PROBE.md checks it).
  */
-export function excludedCommandPattern(command: string): string {
+function excludedCommandPattern(command: string): string {
   return `${command}:*`;
 }
 
@@ -338,7 +338,7 @@ export function buildMcpConfig(mcpUrl: string): { mcpServers: { team: { type: 'h
 }
 
 /** A subagent as Claude Code's `--agents` takes it. */
-export interface ClaudeAgentDefinition {
+interface ClaudeAgentDefinition {
   description: string;
   prompt: string;
   tools: string[];
@@ -350,7 +350,7 @@ export interface ClaudeAgentDefinition {
  * `mcpServers` and `hooks` (PM-179): the subagent works within the session's own rules, sandbox
  * and hooks, never with more.
  */
-export function buildAgents(subagents: StartSessionSpec['subagents']): Record<string, ClaudeAgentDefinition> {
+function buildAgents(subagents: StartSessionSpec['subagents']): Record<string, ClaudeAgentDefinition> {
   const agents: Record<string, ClaudeAgentDefinition> = {};
   for (const { name, description, prompt, tools, model } of subagents ?? []) {
     agents[name] = { description, prompt, tools: [...tools], model };
@@ -359,7 +359,7 @@ export function buildAgents(subagents: StartSessionSpec['subagents']): Record<st
 }
 
 /** The private files (PM-156) the command line names: the settings and the MCP configuration. */
-export interface ClaudeConfigFiles {
+interface ClaudeConfigFiles {
   settingsPath: string;
   mcpConfigPath: string;
 }

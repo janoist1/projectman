@@ -98,7 +98,7 @@ const instanceStateSchema = z.looseObject({
 
 // ---- what to deploy ----
 
-export interface Target {
+interface Target {
   sha: string;
   /** The tag, or the commit id when a commit id was asked for. */
   ref: string;
@@ -135,7 +135,7 @@ function compareRelease(a: number[], b: number[]): number {
 }
 
 /** The commit and ref to deploy: `--ref` (a tag or a 40-digit commit id) or the newest release tag. */
-export async function resolveTarget(context: CloudContext, ref: string | null): Promise<Target> {
+async function resolveTarget(context: CloudContext, ref: string | null): Promise<Target> {
   const { deps, config, report } = context;
   return report.guard('ref', async () => {
     let target: Target;
@@ -199,15 +199,15 @@ function cloudEnvText(context: CloudContext): string {
   return withHybridTarget(withReleaseTarget(text, context.config.releaseTarget), context.config.hybrid);
 }
 
-export const RELEASE_TARGET_ENV = 'PROJECTMAN_RELEASE_TARGET';
-export const RELEASE_ENGINE_ENV = 'PROJECTMAN_RELEASE_ENGINE_ID';
-export const RELEASE_TARGET_HASH_ENV = 'PROJECTMAN_RELEASE_TARGET_HASH';
+const RELEASE_TARGET_ENV = 'PROJECTMAN_RELEASE_TARGET';
+const RELEASE_ENGINE_ENV = 'PROJECTMAN_RELEASE_ENGINE_ID';
+const RELEASE_TARGET_HASH_ENV = 'PROJECTMAN_RELEASE_TARGET_HASH';
 
 /**
  * The hybrid binding of the release (PM-752): the configured engine and target hash replace any such line of the
  * file, both together. Without one the text is left as it is. The server refuses a lone value at start.
  */
-export function withHybridTarget(
+function withHybridTarget(
   text: string,
   hybrid: { engineId: string; targetHash: string } | undefined,
 ): string {
@@ -226,10 +226,7 @@ export function withHybridTarget(
  * configuration, already validated) replaces any `PROJECTMAN_RELEASE_TARGET` line of the file. Without one the
  * text is left as it is, so a board that does not release behaves as before. The local file is not changed.
  */
-export function withReleaseTarget(
-  text: string,
-  target: { projectKey: string; repo: string } | undefined,
-): string {
+function withReleaseTarget(text: string, target: { projectKey: string; repo: string } | undefined): string {
   if (!target) return text;
   const kept = text.split('\n').filter((line) => !line.startsWith(`${RELEASE_TARGET_ENV}=`));
   const body = kept.join('\n').replace(/\n*$/, '\n');
@@ -274,7 +271,7 @@ async function showLogs(context: CloudContext, host: HostSession, lines: number)
   for (const line of text.replace(/\n$/, '').split('\n')) context.report.line(`  | ${line}`);
 }
 
-export interface HealthResult {
+interface HealthResult {
   healthy: boolean;
   status: HostStatus;
 }
@@ -319,7 +316,7 @@ const releaseImageProbeSchema = z.strictObject({
   imageLockHeld: z.boolean(),
   databaseSchemaVersion: z.number().int().nonnegative().nullable(),
 });
-export type ReleaseImageProbe = z.output<typeof releaseImageProbeSchema>;
+type ReleaseImageProbe = z.output<typeof releaseImageProbeSchema>;
 
 /**
  * Starts an image that is already on the machine and verified there (the coordinator received it earlier).
@@ -446,7 +443,7 @@ async function deployOnHost(
   throw reportedFailure(`${target.ref} did not become healthy`);
 }
 
-export interface DeployOptions {
+interface DeployOptions {
   ref: string | null;
   dryRun: boolean;
 }
@@ -641,7 +638,7 @@ async function readSeedCheck(host: HostSession): Promise<z.output<typeof seedChe
   }
 }
 
-export interface SeedOptions {
+interface SeedOptions {
   from: string;
   ref: string | null;
   dryRun: boolean;
@@ -757,7 +754,7 @@ export async function runSeed(context: CloudContext, options: SeedOptions): Prom
   });
 }
 
-export interface PullOptions {
+interface PullOptions {
   to: string;
   dryRun: boolean;
 }

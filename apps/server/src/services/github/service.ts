@@ -5,9 +5,6 @@ import { createPullRequestPoller } from './poller';
 import { PULL_REQUEST_JSON_FIELDS, parsePullRequestJson, parsePullRequestListJson } from './pull-request';
 import { isValidBranch, isValidPullRequestNumber, isValidRepo, parsePullRequestUrl } from './refs';
 
-export { GithubError, type GithubErrorCode } from './errors';
-export { parsePullRequestUrl, pullRequestLink, taskKeyFromBranch } from './refs';
-
 /** Optional tuning on top of the contract options; the defaults suit production. */
 export interface GithubServiceOptions extends GithubModuleOptions {
   /** gh is killed when a call takes longer than this. Default 20 s. */

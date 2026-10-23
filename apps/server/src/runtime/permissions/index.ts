@@ -11,5 +11,4 @@ export {
   preApprovedPrefixes,
   PROJECT_CHECK_COMMANDS,
 } from './unattended-commands';
-export type { UnattendedCommandsInput } from './unattended-commands';
 export { isWorktreeRoutine } from './worktree-commands';

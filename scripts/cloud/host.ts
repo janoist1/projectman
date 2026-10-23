@@ -74,7 +74,7 @@ export const READ_ONLY_SUBCOMMANDS: ReadonlySet<HostSubcommand> = new Set([
   'release-probe',
 ]);
 /** The only subcommand the transport may repeat after a lost connection; a new subcommand is not retried. */
-export const RETRYABLE_READS: ReadonlySet<HostSubcommand> = new Set(['status']);
+const RETRYABLE_READS: ReadonlySet<HostSubcommand> = new Set(['status']);
 
 /** What a transport adds to a session (the EC2 one: bounded retries, load check, failure diagnosis). */
 export interface HostTransport {
@@ -148,11 +148,11 @@ export function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
-export function hostScriptPath(repoRoot: string): string {
+function hostScriptPath(repoRoot: string): string {
   return path.join(repoRoot, 'deploy', 'aws', 'host.sh');
 }
 
-export function unitFilePath(repoRoot: string): string {
+function unitFilePath(repoRoot: string): string {
   return path.join(repoRoot, 'deploy', 'aws', 'projectman-cloud.service');
 }
 
@@ -170,7 +170,7 @@ function readRepoFile(file: string): string {
 }
 
 /** The command that puts the firewall back by hand. */
-export function firewallRestoreCommand(context: CloudContext): string {
+function firewallRestoreCommand(context: CloudContext): string {
   const { aws } = context.config;
   const ports = JSON.stringify(FIREWALL_PORTS);
   return `aws --profile ${aws.profile} --region ${aws.region} lightsail put-instance-public-ports --instance-name ${aws.instanceName} --port-infos '${ports}'`;

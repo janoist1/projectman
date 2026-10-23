@@ -55,7 +55,7 @@ interface InstanceState {
   ports: PortState[];
 }
 
-export interface AwsCall {
+interface AwsCall {
   /** The argv after `--profile … --region … --output json`. */
   args: string[];
   /** The whole argv. */
@@ -81,7 +81,7 @@ function ok(value: unknown = {}): RunResult {
   return { code: 0, stdout: `${JSON.stringify(value, null, 2)}\n`, stderr: '' };
 }
 
-export class FakeAws {
+class FakeAws {
   readonly ec2 = new FakeEc2();
   readonly accounts = new Map([['i', ACCOUNT]]);
   version = 'aws-cli/2.17.1 Python/3.11.9 Darwin/23.6.0 exe/arm64';

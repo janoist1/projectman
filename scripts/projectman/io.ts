@@ -15,7 +15,7 @@ export interface CliIo {
   delay(ms: number, signal: AbortSignal): Promise<void>;
 }
 
-export function delay(ms: number, signal: AbortSignal): Promise<void> {
+function delay(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
     if (signal.aborted) return resolve();
     const timer = setTimeout(done, ms);

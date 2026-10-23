@@ -61,7 +61,7 @@ export function suffixStem(folded: string): string | null {
   return null;
 }
 
-export interface TranslatedQuery {
+interface TranslatedQuery {
   /** The bound MATCH expression: quoted terms only, OR between the variants of a token, AND between tokens. */
   match: string;
   /** Every accent-free term the expression can match at the start of a word (for the excerpt and the line). */

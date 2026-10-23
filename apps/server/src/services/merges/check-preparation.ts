@@ -37,7 +37,7 @@ export async function mergeCheckExecutor(
   return { ok: true, executor };
 }
 
-export interface MergeCheckPreparation {
+interface MergeCheckPreparation {
   ref: MergeRepoRef;
   /** The check id: `checkoutForCheck`/`releaseCheck` and the GitHub check branch use it. */
   mergeId: string;
@@ -54,13 +54,13 @@ export interface MergeCheckPreparation {
   paths: ReturnType<EngineHost['paths']>;
 }
 
-export interface MergeCheckSpecInput {
+interface MergeCheckSpecInput {
   runId: string;
   command: string;
   reviewTest: Pick<ReviewTestConfig, 'maxWorkers' | 'timeoutMinutes'>;
 }
 
-export interface PreparedMergeCheck {
+interface PreparedMergeCheck {
   /** The full test spec of the run: the three merge-check call sites build it here. */
   spec(input: MergeCheckSpecInput): FullTestSpec;
 }

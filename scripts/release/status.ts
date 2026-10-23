@@ -13,15 +13,15 @@ import type { WatcherDeps } from './service';
  * no path, no host, no raw error and no id of the cloud ever reaches it.
  */
 
-export const LAST_ERROR_FILE = 'last-error.json';
+const LAST_ERROR_FILE = 'last-error.json';
 const MESSAGE_LIMIT = 200;
 
-export interface LastError {
+interface LastError {
   code: string;
   message: string;
 }
 
-export interface WatcherStatus {
+interface WatcherStatus {
   installed: boolean;
   loaded: boolean;
   running: boolean;

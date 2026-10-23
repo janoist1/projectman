@@ -21,12 +21,10 @@ import { acquireLocalLock, hasActiveJournal } from './journal';
  */
 
 export const WATCHER_LABEL = 'com.projectman.hybrid-release-watcher';
-export const WATCHER_LAUNCHER = 'projectman-hybrid-release-watcher';
-export const WATCHER_LOG = 'watcher.log';
+const WATCHER_LAUNCHER = 'projectman-hybrid-release-watcher';
+const WATCHER_LOG = 'watcher.log';
 /** One round a minute. */
 export const START_INTERVAL_SECONDS = 60;
-/** The only variables of the job's environment, taken from the installing shell when they are set there. */
-export const PLIST_ENVIRONMENT_NAMES = ['HOME', 'PATH', 'LANG', 'TZ'] as const;
 
 export const watcherLauncher = (root: string) =>
   path.join(root, 'scripts', 'release', 'bin', WATCHER_LAUNCHER);
@@ -41,7 +39,7 @@ export interface WatcherDeps extends LaunchdDeps {
   out(text: string): void;
 }
 
-export interface WatcherPlistInput {
+interface WatcherPlistInput {
   root: string;
   nodePath: string;
   env: NodeJS.ProcessEnv;
@@ -127,7 +125,7 @@ function writeAtomic(file: string, text: string): void {
   fs.renameSync(temporary, file);
 }
 
-export interface WatcherState {
+interface WatcherState {
   installed: boolean;
   loaded: boolean;
   running: boolean;

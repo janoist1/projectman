@@ -116,7 +116,7 @@ const SCREENED_QUESTIONS_LIMIT = 20;
 const GUEST_CONVERSATION_REFUSAL =
   'This conversation has the team tools only: you read what the person can see and answer them. Nothing else is allowed, and nobody is asked.';
 
-export const PERMISSION_OPTIONS: InboxOption[] = [
+const PERMISSION_OPTIONS: InboxOption[] = [
   { id: 'allow', label: 'allow', style: 'primary' },
   { id: 'allow_session', label: 'allow_session', style: 'secondary' },
   { id: 'deny', label: 'deny', style: 'danger' },
@@ -136,7 +136,7 @@ const APPROVAL_REFUSALS = {
 /** Free-text answer to a question (the text is the resolution note). */
 export const ANSWER_OPTION: InboxOption = { id: 'answer', label: 'answer', style: 'secondary' };
 
-export interface CreateInboxItemInput {
+interface CreateInboxItemInput {
   id?: string;
   projectKey: string;
   kind: InboxKind;
@@ -153,7 +153,7 @@ export interface CreateInboxItemInput {
 }
 
 /** A new fix round limit decision (PM-714): the counted rounds and the options that can be carried out now. */
-export interface CreateFixLimitDecisionInput {
+interface CreateFixLimitDecisionInput {
   projectKey: string;
   taskKey: string;
   /** The people who decide when the item is for the owners (`fixLimitDeciders`). */
@@ -164,7 +164,7 @@ export interface CreateFixLimitDecisionInput {
 }
 
 /** What the Operator settled about a question it screens, with no person involved (PM-558). */
-export interface ScreeningSettlement {
+interface ScreeningSettlement {
   outcome: 'answered' | 'forwarded' | 'moot';
   by: string;
   /** The reason; the owner and the timeline see it. */
@@ -176,7 +176,7 @@ export interface ScreeningSettlement {
 }
 
 /** What the Operator decided to send on to the people, or why the system did (PM-558). */
-export interface ScreeningRelease {
+interface ScreeningRelease {
   /** The Operator's outcome; none when the system released the question (`fallback`). */
   outcome?: 'decision' | 'todo';
   by?: string;
@@ -201,7 +201,7 @@ function withScreening(
  * Runs inside the transaction that closes the owner's question about a super operation (PM-762): it checks the
  * answer against the operation and moves it, or throws to leave both unchanged.
  */
-export type SuperOperationAnswer = (item: InboxItem, optionId: string, at: string, handle: string) => void;
+type SuperOperationAnswer = (item: InboxItem, optionId: string, at: string, handle: string) => void;
 
 export interface Resolver {
   via?: 'integrator';
@@ -212,7 +212,7 @@ export interface Resolver {
 }
 
 /** Who decides an inbox item another module owns (PM-593). Operator approvals are recognized by operatorApprovalOf. */
-export type InboxDeciderKey =
+type InboxDeciderKey =
   | 'merge_request'
   | 'release'
   | 'hand_on'
@@ -229,13 +229,13 @@ export type InboxDecider = (
   note: string | null,
 ) => void | Promise<void>;
 /** Answers an AI member's question. */
-export type QuestionAnswerer = (
+type QuestionAnswerer = (
   item: InboxItem,
   attachmentIds: readonly string[],
   close: () => InboxItem,
 ) => Promise<InboxItem | null>;
 /** The start of an AI asker that the visible inbox shows. */
-export interface AskerStarts {
+interface AskerStarts {
   answerWorkItem(item: InboxItem): Promise<WorkItemRef>;
   waitingReason(
     projectKey: string,
@@ -2390,7 +2390,7 @@ const MAX_DELEGATED_INPUT_CHARS = DELEGATED_INPUT_LIMIT;
  * The agent prompt that wakes an AI decider (PM-169): who asks, the exact input of the tool call and how
  * to answer. English, like every prompt for AI members; the decider writes to people in their language.
  */
-export function delegatedPermissionPrompt(item: InboxItem, deadline?: string): string {
+function delegatedPermissionPrompt(item: InboxItem, deadline?: string): string {
   const delegation = permissionDelegationOf(item);
   const toolName = typeof item.payload.toolName === 'string' ? item.payload.toolName : 'unknown';
   let input: string;

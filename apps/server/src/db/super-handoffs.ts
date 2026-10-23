@@ -94,13 +94,13 @@ const toOperation = (r: OperationRow): StoredSuperOperation => ({
   updatedAt: r.updated_at,
 });
 
-export interface SuperHandoffPatch {
+interface SuperHandoffPatch {
   state: SuperState;
   operationId?: string | null;
   updatedAt: string;
 }
 
-export interface SuperOperationPatch {
+interface SuperOperationPatch {
   state: SuperState;
   taskKey?: string;
   ownerQuestionId?: string | null;

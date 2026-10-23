@@ -24,7 +24,7 @@ export interface PushDeviceRecord {
   created_at: string;
   updated_at: string;
 }
-export interface PushItemRecord {
+interface PushItemRecord {
   user_id: string;
   inbox_item_id: string;
   project_key: string;

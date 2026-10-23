@@ -18,14 +18,14 @@ import type { SessionOrchestrator } from '../sessions';
 import { MergeCardLock } from '../../kernel';
 
 /** A closed card's worktree stays this long: a done card may come back, and the developer may look again. */
-export const CLOSED_WORKTREE_KEEP_MS = 3 * 24 * 60 * 60 * 1000;
+const CLOSED_WORKTREE_KEEP_MS = 3 * 24 * 60 * 60 * 1000;
 
 const MB = 1024 ** 2;
 
 /** Closed cards read per page by a sweep. */
 const SWEEP_PAGE_SIZE = 100;
 
-export interface WorktreeSweepReport {
+interface WorktreeSweepReport {
   removed: string[];
   /** Worktrees with uncommitted changes, left in place. */
   kept: string[];

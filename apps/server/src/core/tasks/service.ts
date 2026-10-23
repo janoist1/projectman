@@ -104,7 +104,7 @@ function unknownRepo(config: ProjectConfig, repo: string) {
  * A change of a task in one step. The REST PATCH sends the fields, the assignee and the whole
  * label set; the update_task team tool sends labels to add and remove and a note.
  */
-export interface TaskUpdate {
+interface TaskUpdate {
   priority?: TaskPriority | null;
   title?: string;
   description?: string;

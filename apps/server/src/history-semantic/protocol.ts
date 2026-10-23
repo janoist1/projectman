@@ -3,7 +3,7 @@ import { HISTORY_SEMANTIC_STATUSES, HISTORY_SOURCE_TYPES } from '@projectman/sha
 import { EMBEDDING_DIMENSION } from './model';
 
 /** The statuses a failed request ends in (`used` and `not_run` are not failures). */
-export const FAILURE_STATUSES = HISTORY_SEMANTIC_STATUSES.filter(
+const FAILURE_STATUSES = HISTORY_SEMANTIC_STATUSES.filter(
   (status): status is Exclude<(typeof HISTORY_SEMANTIC_STATUSES)[number], 'used' | 'not_run'> =>
     status !== 'used' && status !== 'not_run',
 );

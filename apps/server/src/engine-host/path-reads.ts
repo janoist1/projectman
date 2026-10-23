@@ -19,7 +19,7 @@ import { must, requireCommit, resolveCommit } from './merge-repo';
  * engine, never content.
  */
 
-export interface PathReadOptions {
+interface PathReadOptions {
   args: MergeArgs;
   /** Test only: a smaller `listPaths` cap (default MAX_LISTED_PATHS). */
   maxListedPaths?: number;

@@ -2,7 +2,7 @@ import { Duration, Effect, Exit, FiberMap, FiberSet, Scope } from 'effect';
 import { runFork, runPromise } from '../kernel';
 
 /** The session's replaceable timers; an interrupt waits on its own key per call. */
-export type SessionTimerKey =
+type SessionTimerKey =
   | 'startup-watch'
   | 'process-probe'
   | 'compaction'
@@ -10,7 +10,7 @@ export type SessionTimerKey =
   | 'pause-stop-check'
   | `interrupt-${number}`;
 
-export interface SessionClockEffects {
+interface SessionClockEffects {
   /** Calls once after the delay; only closing the clock drops this call. */
   readonly once: (delayMs: number, callback: () => void) => Effect.Effect<void>;
   /** Replaces the key's pending call, or preserves it with `ifMissing`. */
@@ -28,44 +28,42 @@ export interface SessionClockEffects {
 
 const delay = (ms: number) => Duration.millis(Math.max(1, ms));
 
-export const makeSessionClock: Effect.Effect<SessionClockEffects, never, Scope.Scope> = Effect.gen(
-  function* () {
-    const map = yield* FiberMap.make<SessionTimerKey, void>();
-    const set = yield* FiberSet.make<void>();
-    const every: SessionClockEffects['every'] = (key, periodMs, callback) =>
-      Effect.gen(function* () {
-        if (FiberMap.hasUnsafe(map, key)) return;
-        const fiber = yield* FiberMap.run(map, key, Effect.sleep(delay(periodMs)));
-        fiber.addObserver((exit) => {
-          if (!Exit.isSuccess(exit)) return;
-          // Arm first: cancellation or replacement from the callback also drops the next tick.
-          runFork(every(key, periodMs, callback));
-          callback();
-        });
+const makeSessionClock: Effect.Effect<SessionClockEffects, never, Scope.Scope> = Effect.gen(function* () {
+  const map = yield* FiberMap.make<SessionTimerKey, void>();
+  const set = yield* FiberSet.make<void>();
+  const every: SessionClockEffects['every'] = (key, periodMs, callback) =>
+    Effect.gen(function* () {
+      if (FiberMap.hasUnsafe(map, key)) return;
+      const fiber = yield* FiberMap.run(map, key, Effect.sleep(delay(periodMs)));
+      fiber.addObserver((exit) => {
+        if (!Exit.isSuccess(exit)) return;
+        // Arm first: cancellation or replacement from the callback also drops the next tick.
+        runFork(every(key, periodMs, callback));
+        callback();
       });
-    return {
-      once: (delayMs, callback) =>
-        Effect.gen(function* () {
-          const fiber = yield* FiberSet.run(set, Effect.sleep(delay(delayMs)));
-          fiber.addObserver((exit) => {
-            if (Exit.isSuccess(exit)) callback();
-          });
-        }),
-      after: (key, delayMs, callback, options) =>
-        Effect.gen(function* () {
-          const fiber = yield* FiberMap.run(map, key, Effect.sleep(delay(delayMs)), {
-            onlyIfMissing: options?.ifMissing,
-          });
-          // The map's observer releases the key before a callback can reuse it (PM-621).
-          fiber.addObserver((exit) => {
-            if (Exit.isSuccess(exit)) callback();
-          });
-        }),
-      every,
-      cancel: (key) => FiberMap.remove(map, key),
-    };
-  },
-);
+    });
+  return {
+    once: (delayMs, callback) =>
+      Effect.gen(function* () {
+        const fiber = yield* FiberSet.run(set, Effect.sleep(delay(delayMs)));
+        fiber.addObserver((exit) => {
+          if (Exit.isSuccess(exit)) callback();
+        });
+      }),
+    after: (key, delayMs, callback, options) =>
+      Effect.gen(function* () {
+        const fiber = yield* FiberMap.run(map, key, Effect.sleep(delay(delayMs)), {
+          onlyIfMissing: options?.ifMissing,
+        });
+        // The map's observer releases the key before a callback can reuse it (PM-621).
+        fiber.addObserver((exit) => {
+          if (Exit.isSuccess(exit)) callback();
+        });
+      }),
+    every,
+    cancel: (key) => FiberMap.remove(map, key),
+  };
+});
 
 /** Waits for `run()` at most `timeoutMs`; never rejects (`run` must not reject). */
 export const waitAtMost = (run: () => Promise<unknown>, timeoutMs: number): Promise<void> =>

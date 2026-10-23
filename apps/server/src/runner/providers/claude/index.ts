@@ -130,7 +130,7 @@ function claudeTranscriptParser(opts: {
   };
 }
 
-export interface ClaudeAdapterOptions {
+interface ClaudeAdapterOptions {
   bin: string;
   logger: FastifyBaseLogger;
   /** Default: `$CLAUDE_CONFIG_DIR/.claude.json` of `env`, else `~/.claude.json`. */

@@ -1,5 +1,4 @@
 export { createGithubService, type GithubServiceOptions } from './service';
 export { createGithubActionsClient } from './actions';
-export { GithubError, type GithubErrorCode } from './errors';
-export { parsePullRequestUrl, pullRequestLink, taskKeyFromBranch } from './refs';
+export { GithubError } from './errors';
 export { GithubSync } from './sync';

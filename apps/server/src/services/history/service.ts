@@ -53,7 +53,7 @@ type HistoryLogger = {
   error(obj: object, msg?: string): void;
 };
 
-export interface HistoryServiceDeps {
+interface HistoryServiceDeps {
   repos: HistorySourceRepos;
   /** The project's current configuration: the roster and the registered repositories. */
   config: HistoryConfigSource;

@@ -18,42 +18,26 @@ import {
 } from '@projectman/shared';
 import type { Actor, HumanMemberConfig, ProjectConfig, SuperMutationInput } from '@projectman/shared';
 
-export {
-  SUPER_OWNER_YES,
-  SuperHandoffService,
-  createSuperHandoffService,
-  superCommandHash,
-} from './handoffs';
-export type {
-  SuperCommandExecutor,
-  SuperCommandSettler,
-  SuperExecutorJob,
-  SuperExecutorPending,
-  SuperSettlement,
-} from './handoffs';
-export { cardCommits, createAdministrationExecutor, createAdministrationSettler } from './administration';
+export { SUPER_OWNER_YES, SuperHandoffService, createSuperHandoffService } from './handoffs';
+export type { SuperCommandExecutor, SuperExecutorJob } from './handoffs';
+export { createAdministrationExecutor, createAdministrationSettler } from './administration';
 export type { SuperAdministrationDeps } from './administration';
 export { createOperateExecutor } from './operate';
-export type { OperateExecutorDeps } from './operate';
 export { createCommandExecutor } from './commands';
-export type { SuperCommandDeps } from './commands';
 export { createSuperDiagnostics } from './diagnostics';
-export type { SuperDiagnostics } from './diagnostics';
 export {
   appRequestId,
   createOperatorAppCredentials,
   createOperatorAppOperations,
   createOperatorAppSessions,
-  isAppOperation,
 } from './app';
-export type { AppOperationInput, OperatorAppCredentials, OperatorAppOperations } from './app';
+export type { OperatorAppOperations } from './app';
 export { createSuperAdministration } from './facade';
 export type { SuperAdministration } from './facade';
 export { relayOwnerAnswer } from './relay';
 export { resolveIntegratorTodo } from './todo';
 export { listIntegratorInbox, resolveIntegratorFixLimit } from './fix-limit';
 export { createSuperRights } from './rights';
-export type { SuperRights } from './rights';
 
 /** Authenticated execution shared by REST and bearer MCP. The composition supplies domain ports. */
 export function createSuperOperator(deps: {

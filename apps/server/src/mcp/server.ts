@@ -21,7 +21,7 @@ export interface TeamServerDeps {
 }
 
 /** Error codes seen by the model: the TeamToolError codes plus our own. */
-export type ToolErrorCode = TeamToolError['code'] | 'timeout' | 'internal';
+type ToolErrorCode = TeamToolError['code'] | 'timeout' | 'internal';
 
 export class ToolTimeoutError extends Error {
   constructor(ms: number) {
@@ -56,7 +56,7 @@ export function createTeamMcpServer(ctx: ToolContext, deps: TeamServerDeps): Mcp
   return server;
 }
 
-export function toolError(code: ToolErrorCode, message: string): CallToolResult {
+function toolError(code: ToolErrorCode, message: string): CallToolResult {
   return { content: [{ type: 'text', text: `Error [${code}]: ${message}` }], isError: true };
 }
 

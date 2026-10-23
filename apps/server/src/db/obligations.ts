@@ -38,7 +38,7 @@ const toRecord = (row: ObligationRow): Obligation => ({
 });
 
 /** The fields of an obligation a step changes; the rest of the row is fixed when it opens. */
-export interface ObligationPatch {
+interface ObligationPatch {
   dueAt?: string;
   pausedSince?: string | null;
   pauseReason?: ObligationPauseReason | null;

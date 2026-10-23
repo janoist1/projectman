@@ -1,15 +1,11 @@
 import { createAttachmentRepository } from './attachments';
 import { createEmailChannelRepository } from './email-channel';
-export type { EmailMessageRecord, EmailContactRecord, EmailContactEventRecord } from './email-channel';
+export type { EmailMessageRecord } from './email-channel';
 import { createWebPushRepository } from './web-push';
 export { pushDeviceView } from './web-push';
-export type { PushDeviceRecord, PushItemRecord } from './web-push';
+export type { PushDeviceRecord } from './web-push';
 import { createMessageAttachmentRepository } from './message-attachments';
-export type {
-  MessageAttachmentRecord,
-  MessageAttachmentState,
-  StoredMessageAttachment,
-} from './message-attachments';
+export type { MessageAttachmentRecord, MessageAttachmentState } from './message-attachments';
 import { createEngineRepository } from './engines';
 export type { EngineRecord } from './engines';
 import { createIntegratorKeyRepository } from './integrator-keys';
@@ -17,79 +13,39 @@ import { createIntegratorKeyAuditRepository } from './integrator-key-audit';
 import { createOperatorGrantRepository } from './operator-grants';
 import { createSuperAuditRepository } from './super-audit';
 import { createSuperHandoffRepository } from './super-handoffs';
-export type {
-  StoredSuperHandoff,
-  StoredSuperOperation,
-  SuperHandoffPatch,
-  SuperOperationPatch,
-} from './super-handoffs';
+export type { StoredSuperHandoff, StoredSuperOperation } from './super-handoffs';
 import { createBoundaryRepository } from './boundary';
 import { createFeedbackRepository } from './feedback';
 import { createSystemFeedbackRepository } from './system-feedback';
-export type {
-  SystemFeedbackForwardedRecord,
-  SystemFeedbackForwardingRecord,
-  SystemFeedbackItemRecord,
-  SystemFeedbackOccurrenceRecord,
-} from './system-feedback';
+export type { SystemFeedbackItemRecord } from './system-feedback';
 export type {
   FeedbackEventRecord,
-  FeedbackLaunchCodeRecord,
-  FeedbackMarkPatch,
   FeedbackMarkRecord,
   FeedbackMarkStats,
-  FeedbackSessionRecord,
   StoredFeedbackScreenshot,
 } from './feedback';
 import { createHistoryRepository } from './history';
 export { HISTORY_INDEX_VERSION, historyDocumentEntityId, historySourceId } from './history';
-export type {
-  HistoryCandidateQuery,
-  HistoryDirtyRow,
-  HistoryDocStateRow,
-  HistoryDocumentRow,
-  HistoryDocumentWrite,
-  HistoryIndexStateRow,
-  HistoryRepository,
-} from './history';
+export type { HistoryDirtyRow, HistoryDocStateRow, HistoryDocumentRow } from './history';
 export { createHistorySemanticRepository, historyContentHash, historyFullText } from './history-semantic';
-export type {
-  HistorySemanticBackfillState,
-  HistorySemanticChunkWrite,
-  HistorySemanticDirtyRow,
-  HistorySemanticDocument,
-  HistorySemanticRepository,
-  HistorySemanticScanQuery,
-  HistorySemanticScanRow,
-  HistorySemanticSourceState,
-} from './history-semantic';
 import { createHistorySearchRepository } from './history-searches';
-export type {
-  HistorySearchCursorKey,
-  HistorySearchPeriod,
-  HistorySearchRecord,
-  HistorySearchRepository,
-} from './history-searches';
 import { createFullTestRunRepository } from './full-test-runs';
 import { createMergeCheckRunRepository } from './merge-check-runs';
 import { createEmailLoginRepository } from './email-login';
 export { EMAIL_LOGIN_MAX_FAILED_ATTEMPTS } from './email-login';
 export type { EmailLoginCodeRecord, EmailLoginEventKind } from './email-login';
 import { createInvitationRepository } from './invitations';
-export type { InvitationRecord } from './invitations';
 import type { Db } from './database';
 import { createDeferredStartRepository } from './deferred-starts';
 import { createDecisionOfferRepository } from './decision-offers';
-export type { DecisionCandidateState, DecisionOfferRecord, DecisionVerdict } from './decision-offers';
 import { createDocWriteRepository } from './doc-writes';
-export type { DocWriteEdit, DocWritePatch, DocWriteRecord, DocWriteState } from './doc-writes';
+export type { DocWriteEdit, DocWritePatch, DocWriteRecord } from './doc-writes';
 import { createMemberWorkspaceRepository } from './member-workspaces';
 import { createInboxRepository } from './inbox';
 import { createMemberStateRepository } from './member-state';
 import { createMessageRepository } from './messages';
 import { createMemberQueueRepository } from './member-queue';
 export type {
-  MemberQueueClose,
   MemberQueueSourceKey,
   MemberQueueWaitDetails,
   NewMemberQueueItem,
@@ -102,7 +58,6 @@ export type { OperatorSignalRecord } from './operator-signals';
 import { createPauseRepository } from './pauses';
 import { createProjectFocusRepository } from './project-focus';
 import { createProjectChangeEventRepository } from './project-change-events';
-export type { ProjectChangeRow } from './project-change-events';
 import { createReleaseDeploymentRepository } from './release-deployments';
 import { createReleaseRepository } from './releases';
 import { createReviewPinRepository } from './review-pins';
@@ -130,25 +85,22 @@ import { createAuthSessionRepository, createUserRepository } from './users';
 export { openAuxiliaryDatabase, openDatabase, migrate, schemaVersion } from './database';
 export type { Db } from './database';
 export { LATEST_SCHEMA_VERSION, migrations } from './migrations';
-export type { AttachmentRecord, AttachmentState, StoredAttachment } from './attachments';
+export type { AttachmentRecord } from './attachments';
 export type { DeferredStartRecord } from './deferred-starts';
 export type { StoredSuperAudit } from './super-audit';
 export type { MemberWorkspaceRecord, TaskWorkspaceBinding, WorkspaceHolder } from './member-workspaces';
 export type { OperatorRequestRecord, OperatorStepRecord } from './operator-requests';
-export type { PauseRecord, SessionPauseRecord, SessionPausePatch } from './pauses';
+export type { PauseRecord, SessionPauseRecord } from './pauses';
 export type { ReviewPinRecord } from './review-pins';
-export type { DeploymentRequestRecord } from './release-deployments';
-export type { TaskCoverRecord } from './task-covers';
 export type { TaskFixLimitRecord } from './fix-limits';
 export type { FullTestRunRecord } from './full-test-runs';
-export type { MergeCheckRunEnd, MergeCheckRunQuery, MergeCheckRunStart } from './merge-check-runs';
+export type { MergeCheckRunQuery, MergeCheckRunStart } from './merge-check-runs';
 export type { TaskLoopRecord } from './task-loops';
 export type { TaskHandoffRow } from './task-handoffs';
-export type { SeniorWaitDecision, SeniorWaitEndReason, SeniorWaitRecord } from './senior-waits';
-export type { UserRecord, AuthSessionRecord } from './users';
+export type { SeniorWaitEndReason, SeniorWaitRecord } from './senior-waits';
+export type { UserRecord } from './users';
 export type { ProjectRecord } from './projects';
-export type { MemberStateRecord } from './member-state';
-export type { PullRequestLinkRef, TaskPatch } from './tasks';
+export type { TaskPatch } from './tasks';
 export { encodeWorkItem, decodeWorkItem } from './sessions';
 
 /** All repositories over one database connection. */

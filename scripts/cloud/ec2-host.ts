@@ -230,7 +230,7 @@ async function readHostKey(context: CloudContext, instanceId: string, signal: Ab
  * commands only: no caller-chosen command, credential, environment or raw journal text leaves the machine.
  * `oomKills` is the kernel's counter since boot: it shows that the kernel killed something, not when or why.
  */
-export const ec2HostDiagnosticsSchema = z.strictObject({
+const ec2HostDiagnosticsSchema = z.strictObject({
   sampledAt: z.iso.datetime(),
   cpuCount: z.number().int().positive(),
   load1: z.number().nonnegative(),
@@ -240,7 +240,7 @@ export const ec2HostDiagnosticsSchema = z.strictObject({
   /** Journal lines of the last 10 minutes that report an `eic_run_authorized_keys` failure with status 124. */
   eicTimeouts10m: z.number().int().nonnegative(),
 });
-export type Ec2HostDiagnostics = z.output<typeof ec2HostDiagnosticsSchema>;
+type Ec2HostDiagnostics = z.output<typeof ec2HostDiagnosticsSchema>;
 
 export const DIAGNOSTICS_COMMANDS = [
   'echo "at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"',

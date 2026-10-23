@@ -1,7 +1,7 @@
 import { CHUNK_OVERLAP_TOKENS, CHUNK_TOKENS, PASSAGE_PREFIX } from './model';
 
 /** Counts the tokens of a text as the model reads it, the special tokens included. */
-export type TokenCounter = (text: string) => number;
+type TokenCounter = (text: string) => number;
 
 export interface ChunkPlan {
   /** UTF-16 offsets into the text; `endChar` is exclusive. */

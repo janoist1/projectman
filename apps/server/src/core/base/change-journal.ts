@@ -8,7 +8,7 @@ const SAFETY_POLL_MS = 1000;
 /** A key that expires is checked this long after its expiry instant. */
 const EXPIRY_MARGIN_MS = 5;
 
-export interface ChangeJournalPoll {
+interface ChangeJournalPoll {
   projectKey: string;
   /** The cursor of the last entry the reader has; absent: from the start of the journal. */
   after?: string;

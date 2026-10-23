@@ -11,7 +11,7 @@ type TableSource = (typeof TABLE_SOURCES)[number];
 
 const DIRTY_BATCH = 200;
 
-export const BACKFILL_PAGE = 500;
+const BACKFILL_PAGE = 500;
 
 /**
  * Keeps the index equal to the project: it reads each changed source as it is now and writes or removes its
@@ -127,5 +127,3 @@ export function createHistoryIndexer(deps: {
 
   return { indexEntity, drain, needsBackfill, backfillStep, markEmptyProjectComplete };
 }
-
-export type HistoryIndexer = ReturnType<typeof createHistoryIndexer>;

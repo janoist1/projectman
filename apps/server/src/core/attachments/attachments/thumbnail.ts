@@ -4,7 +4,7 @@ import type Sharp from 'sharp';
 import type { AttachmentWriter } from '../../../contracts';
 
 /** The longest side of a thumbnail, in pixels. */
-export const THUMBNAIL_MAX_SIDE = 640;
+const THUMBNAIL_MAX_SIDE = 640;
 
 /** An uploaded image above this many pixels (width x height) is not decoded. */
 export const MAX_INPUT_PIXELS = 100_000_000;
@@ -12,7 +12,7 @@ const MAX_CONCURRENT = 2;
 export const TIMEOUT_SECONDS = 15;
 
 /** Where a thumbnail is read from and written to: the card attachments' and the message files' storage both fit. */
-export interface ThumbnailStorage<Ref extends { id: string }> {
+interface ThumbnailStorage<Ref extends { id: string }> {
   openRead(ref: Ref, size: number): Promise<Readable>;
   createThumbnail(ref: Ref): Promise<AttachmentWriter>;
 }

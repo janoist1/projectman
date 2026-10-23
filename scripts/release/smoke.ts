@@ -24,7 +24,7 @@ const FIXTURE_HOME = '/fixture';
  * The fixed entrypoint of the smoke. Values the image decides (versions, architecture) are read inside and
  * printed as one `SMOKE_RESULT` JSON line; the host checks them against the manifest. It has no secret.
  */
-export const SMOKE_SCRIPT = `set -euo pipefail
+const SMOKE_SCRIPT = `set -euo pipefail
 cd /app
 native="$(node -e 'const Database = require("better-sqlite3"); const db = new Database("${FIXTURE_HOME}/probe.sqlite"); db.exec("create table probe (value text)"); db.prepare("insert into probe values (?)").run("ok"); console.log(JSON.stringify({ arch: process.arch, node: process.version, sqlite: db.prepare("select sqlite_version() as version").get().version, rows: db.prepare("select count(*) as count from probe").get().count })); db.close()')"
 cloudflared_version="$(cloudflared --version 2>&1)"
@@ -73,7 +73,7 @@ const resultSchema = z.strictObject({
 const NODE_ARCH = { 'linux/arm64': 'arm64', 'linux/amd64': 'x64' } as const;
 
 /** The whole `docker run` of one smoke: no mount, no port, no network, no host variable, no pull. */
-export function smokeRunArgs(name: string, image: Pick<BundleImage, 'platform' | 'imageId'>): string[] {
+function smokeRunArgs(name: string, image: Pick<BundleImage, 'platform' | 'imageId'>): string[] {
   return [
     'run',
     '--rm',
@@ -110,7 +110,7 @@ export function smokeRunArgs(name: string, image: Pick<BundleImage, 'platform' |
   ];
 }
 
-export interface SmokeRequest {
+interface SmokeRequest {
   image: Pick<BundleImage, 'platform' | 'imageId'>;
   commit: string;
   signal: AbortSignal;

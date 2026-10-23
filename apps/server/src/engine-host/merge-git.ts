@@ -24,7 +24,7 @@ const REPOSITORY_OVERRIDES = [
 ];
 
 /** Config set on every call: hooks off, nothing signed, no filesystem monitor program. */
-export const SAFE_GIT_CONFIG = [
+const SAFE_GIT_CONFIG = [
   '-c',
   'core.hooksPath=/dev/null',
   '-c',
@@ -38,10 +38,10 @@ export const SAFE_GIT_CONFIG = [
   'core.useReplaceRefs=false',
 ] as const;
 
-export const MERGE_GIT_TIMEOUT_MS = 120_000;
+const MERGE_GIT_TIMEOUT_MS = 120_000;
 export const NETWORK_GIT_TIMEOUT_MS = 120_000;
 
-export interface GitResult {
+interface GitResult {
   code: number | null;
   stdout: string;
   stderr: string;
@@ -56,7 +56,7 @@ export interface GitRunOptions {
   env?: Record<string, string>;
 }
 
-export function mergeGitEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
+function mergeGitEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
   for (const name of REPOSITORY_OVERRIDES) delete env[name];
   for (const name of BILLING_ENV_VARS) delete env[name];

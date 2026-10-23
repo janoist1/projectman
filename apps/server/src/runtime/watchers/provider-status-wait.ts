@@ -2,7 +2,7 @@ import { Data, Effect } from 'effect';
 import { runPromise } from '../../kernel';
 
 /** How long an outage check waits for a provider's status (PM-449). */
-export const PROVIDER_STATUS_WAIT_MS = 20_000;
+const PROVIDER_STATUS_WAIT_MS = 20_000;
 
 class StatusFailed extends Data.TaggedError('StatusFailed')<{ cause: unknown }> {}
 

@@ -32,7 +32,7 @@ import type { DiagnosticsJournal, OperationRecord, OperationStore } from './stor
  * forwarded to the executors the installation provides.
  */
 
-export interface SupervisorDeps {
+interface SupervisorDeps {
   config: Pick<SupervisorConfig, 'target'>;
   /** Null: this host's service manager does not match the configured service; nothing can be restarted. */
   controller: ServiceController | null;

@@ -22,7 +22,7 @@ interface InboxRow {
   updated_at: string;
 }
 
-export interface InboxFilter {
+interface InboxFilter {
   /** One state, or any of several (a question is pending while `open` or `screening`). */
   state?: InboxState | readonly InboxState[];
   kind?: InboxKind;

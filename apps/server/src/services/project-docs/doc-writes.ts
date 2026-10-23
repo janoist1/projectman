@@ -42,15 +42,13 @@ import type { Messaging } from '../../core/messages';
 import type { ProjectService } from '../../core/projects';
 import { newId, SYSTEM_ACTOR } from '../../kernel';
 
-export type { DocWriteFailure };
-
 /** How long `request` waits for a write that runs at once before it answers `running`. */
-export const DOC_WRITE_WAIT_MS = 60_000;
+const DOC_WRITE_WAIT_MS = 60_000;
 /** How long a bearer-MCP write waits for one that runs at once: its caller polls `get_project_doc_write`. */
-export const EXTERNAL_DOC_WRITE_WAIT_MS = 5_000;
+const EXTERNAL_DOC_WRITE_WAIT_MS = 5_000;
 
 /** A write made through the bearer MCP (PM-784); the origin and the author come from the live scope. */
-export interface ExternalDocWriteRequest {
+interface ExternalDocWriteRequest {
   projectKey: string;
   baseCommit: string;
   /** One line: the commit subject. */
@@ -58,7 +56,7 @@ export interface ExternalDocWriteRequest {
   edits: { doc: ProjectDoc; old_text: string; new_text: string }[];
 }
 
-export interface DocWriteRequest {
+interface DocWriteRequest {
   projectKey: string;
   /** The Operator's handle: the write runs on its engine. */
   author: string;
@@ -71,7 +69,7 @@ export interface DocWriteRequest {
   edits: { doc: ProjectDoc; old_text: string; new_text: string }[];
 }
 
-export type DocWriteOutcome =
+type DocWriteOutcome =
   | { id: string; state: 'published'; commit: string; paths: string[]; warning?: 'local_checkout' }
   | { id: string; state: 'queued'; waitingFor: string }
   | { id: string; state: 'running' }

@@ -25,7 +25,7 @@ const COMMIT_MESSAGE_FLAGS = new Set(['-m', '-am', '--message']);
 export const MERGE_FLAGS = new Set(['-q', '--quiet']);
 const COMMIT_ID = /^[0-9a-f]{7,40}$/i;
 
-export interface WorktreeRoutineContext {
+interface WorktreeRoutineContext {
   /** The session's working directory: the task's worktree. */
   cwd: string;
   /** The task repository's default branch, when it is configured. */

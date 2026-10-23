@@ -60,7 +60,7 @@ type Phase = NonNullable<TaskFixLimitRecord['holdPhase']>;
 export type FixLimitDecision = 'continue' | 'replan' | 'to_owner';
 
 /** Where a decision left the card: let go on, with a planner, or with the people. */
-export type FixLimitPhase = 'released' | 'replan' | 'owner';
+type FixLimitPhase = 'released' | 'replan' | 'owner';
 
 /**
  * The fix round limit (PM-262). A card whose fix rounds (`countFixRounds` in `packages/shared`) reached the

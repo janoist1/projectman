@@ -1,5 +1,4 @@
 import { hasAccess, memberOf, superActorOf } from '@projectman/shared';
-export { hasAccess, ownerHandles } from '@projectman/shared';
 import type {
   Actor,
   AiMemberConfig,
@@ -29,7 +28,7 @@ export interface ProjectAccess {
 }
 
 /** A refusal other than the default 403 insufficient_access "requires <minimum> access". */
-export interface AccessRefusal {
+interface AccessRefusal {
   code?: ErrorCode;
   message?: string;
 }

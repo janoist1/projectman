@@ -10,13 +10,13 @@ import type { DomainContext } from '../base';
 import type { ProjectService } from '../projects';
 
 /** A card's fix rounds and the limit that holds it now (PM-262). */
-export interface FixRoundsMeasure {
+interface FixRoundsMeasure {
   rounds: number;
   limit: number;
 }
 
 /** A card's review rounds and send-backs, counted from its whole timeline (PM-222). */
-export function cardRounds(
+function cardRounds(
   ctx: Pick<DomainContext, 'repos'>,
   config: Pick<ProjectConfig, 'team' | 'pipeline'>,
   projectKey: string,

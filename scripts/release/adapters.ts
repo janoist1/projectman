@@ -253,7 +253,7 @@ function plistString(plist: string, key: string): string | null {
   return match ? unescapeXml(match[1]!) : null;
 }
 
-export interface EngineOptions {
+interface EngineOptions {
   engineHome: string;
   stateDir: string;
 }
@@ -369,7 +369,7 @@ const errorText = (error: unknown): string =>
 
 // ---- preparation, publishing, the heavy-run queue --------------------------------------------------
 
-export function preparePort(
+function preparePort(
   world: HybridWorld,
   loaded: Pick<LoadedHybridConfig, 'config'>,
   signal: AbortSignal,
@@ -403,7 +403,7 @@ export function preparePort(
   };
 }
 
-export function heavyPort(signal: AbortSignal): HeavyLockPort {
+function heavyPort(signal: AbortSignal): HeavyLockPort {
   return {
     async acquire(label, waitMs) {
       try {
@@ -417,7 +417,7 @@ export function heavyPort(signal: AbortSignal): HeavyLockPort {
   };
 }
 
-export interface PublishOptions {
+interface PublishOptions {
   stateDir: string;
   engineReleasesDir: string;
 }
@@ -504,7 +504,7 @@ export function publishPort(world: HybridWorld, options: PublishOptions): Publis
 
 // ---- the clock and the whole set --------------------------------------------------------------------
 
-export const realClock: Clock = {
+const realClock: Clock = {
   now: () => new Date(),
   sleep: (ms, signal) =>
     new Promise((resolve, reject) => {
@@ -521,7 +521,7 @@ export const realClock: Clock = {
     }),
 };
 
-export interface BuildPortsInput {
+interface BuildPortsInput {
   world: HybridWorld;
   loaded: LoadedHybridConfig;
   journal: JournalPort;

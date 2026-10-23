@@ -25,13 +25,13 @@ interface DeployEntry {
   platform?: 'linux/amd64' | 'linux/arm64';
 }
 
-export interface DeployState {
+interface DeployState {
   current: DeployEntry | null;
   previous: DeployEntry | null;
   lastStoppedAt: string | null;
 }
 
-export interface HostCall {
+interface HostCall {
   subcommand: string;
   args: string[];
   input: string | undefined;
@@ -73,7 +73,7 @@ export function unquoteWords(text: string): string[] {
   return words;
 }
 
-export class FakeMachine {
+class FakeMachine {
   // What the machine holds.
   bootstrapped = 0;
   unitText: string | null = null;
@@ -261,7 +261,7 @@ export class FakeMachine {
   }
 }
 
-export interface Tag {
+interface Tag {
   name: string;
   sha: string;
   peeled?: string;

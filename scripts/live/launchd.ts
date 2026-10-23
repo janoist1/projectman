@@ -6,10 +6,10 @@ import { domainTarget, LiveError, plistFile } from './paths';
 
 /** The pieces the install and the watcher share: launchctl, the control socket and the checks that a server came up. */
 
-export const POLL_MS = 2_000;
-export const VERIFY_TIMEOUT_MS = 120_000;
+const POLL_MS = 2_000;
+const VERIFY_TIMEOUT_MS = 120_000;
 /** The pause waits for the sessions to stop (the forced stop comes after `DEFAULT_PAUSE_FORCE_AFTER_MS`). */
-export const PAUSE_WAIT_MS = DEFAULT_PAUSE_FORCE_AFTER_MS + 60_000;
+const PAUSE_WAIT_MS = DEFAULT_PAUSE_FORCE_AFTER_MS + 60_000;
 
 /** launchctl's "5: Input/output error" can persist while the old job is being torn down. */
 const BOOTSTRAP_BUSY = 5;

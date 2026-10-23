@@ -41,7 +41,7 @@ export interface FeedbackMarkRecord {
 }
 
 /** What may change on a mark after it was made. */
-export type FeedbackMarkPatch = Partial<
+type FeedbackMarkPatch = Partial<
   Pick<
     FeedbackMarkRecord,
     | 'status'
@@ -73,7 +73,7 @@ export interface FeedbackMarkStats {
   unread: boolean;
 }
 
-export interface FeedbackLaunchCodeRecord {
+interface FeedbackLaunchCodeRecord {
   codeHash: string;
   projectKey: string;
   member: string;
@@ -86,7 +86,7 @@ export interface FeedbackLaunchCodeRecord {
   usedAt: string | null;
 }
 
-export interface FeedbackSessionRecord {
+interface FeedbackSessionRecord {
   id: string;
   tokenHash: string;
   projectKey: string;

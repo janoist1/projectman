@@ -29,7 +29,7 @@ interface Values {
   inspect: AdministrationJob;
 }
 
-export interface SocketClientOptions {
+interface SocketClientOptions {
   socketPath: string;
   ioTimeoutMs?: number;
 }

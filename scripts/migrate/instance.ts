@@ -98,7 +98,7 @@ function databaseHasEngines(home: string): boolean {
   }
 }
 
-export interface ActivateOptions {
+interface ActivateOptions {
   home: string;
   /** Another home on this machine that must be retired (its marker is read). */
   otherHome?: string;

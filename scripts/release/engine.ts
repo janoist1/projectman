@@ -50,7 +50,7 @@ const LOCAL_INSTALL_HOOKS = [
 const SERVER_BUNDLE = 'apps/server/dist/index.js';
 const NO_CONFIG = 'projectman engine: No engine configuration at';
 
-export interface EngineCandidate {
+interface EngineCandidate {
   root: string;
   lockfileSha256: string;
 }

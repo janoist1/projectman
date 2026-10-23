@@ -22,7 +22,7 @@ import type { PreparedHybridRelease, SmokeEvidence } from './receipt';
 import { assertImageLoaded, smokeImage } from './smoke';
 import { HYBRID_PLATFORM } from './verify';
 
-export type { PrepareOptions, PrepareReleaseInput } from './config';
+export type { PrepareOptions } from './config';
 export type { PreparedHybridRelease } from './receipt';
 
 /**

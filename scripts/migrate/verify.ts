@@ -17,7 +17,7 @@ import type { Finding } from './inventory';
  * blocker. The server must not be running on the home (the database is read from a scratch copy).
  */
 
-export interface VerifyOptions {
+interface VerifyOptions {
   home: string;
   /** Also require that every project's workspace and repositories exist at their stored paths. */
   checkPaths: boolean;
@@ -31,7 +31,7 @@ export interface VerifyOptions {
   cloudData?: boolean;
 }
 
-export interface VerifyResult {
+interface VerifyResult {
   home: string;
   ok: boolean;
   role: string;

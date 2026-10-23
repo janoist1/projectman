@@ -20,7 +20,7 @@ import {
   unlinkIfThere,
 } from './files';
 
-export { TEMPORARY_SUFFIX, THUMBNAIL_SUFFIX };
+export { TEMPORARY_SUFFIX };
 
 /**
  * The attachment id of the name of a thumbnail (`<id>.thumb`) or of its temporary file
@@ -55,7 +55,7 @@ export function viewOwner(name: string): string | null {
   return AttachmentId.safeParse(id).success ? id : null;
 }
 
-export const PROJECT_KEY = /^[A-Z][A-Z0-9]{0,9}$/;
+const PROJECT_KEY = /^[A-Z][A-Z0-9]{0,9}$/;
 
 /** A path component that is not what storage creates itself: a bug, never a user's input. */
 function checkRef(ref: AttachmentRef): void {

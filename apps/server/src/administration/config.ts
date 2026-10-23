@@ -8,7 +8,7 @@ import { AdministrationSetupError, assertPrivateDir, readPrivateFile } from './s
  * restart; nothing a caller sends can replace any part of it.
  */
 
-export const MAX_CONFIG_BYTES = 8 * 1024;
+const MAX_CONFIG_BYTES = 8 * 1024;
 
 export async function loadSupervisorConfig(file: string): Promise<SupervisorConfig> {
   if (!path.isAbsolute(file))

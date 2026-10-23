@@ -1,7 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import {
-  AdministrationSetupError,
   SOCKET_PATH_MAX,
   SupervisorConfig,
   ensurePrivateDir,
@@ -17,11 +16,11 @@ import {
  * a service file is checked against a narrow pattern first.
  */
 
-export const SUPERVISOR_LABEL = 'com.projectman.administration';
-export const SUPERVISOR_UNIT = 'projectman-administration.service';
-export const PLIST_TEMPLATE = path.join('deploy', 'mac', `${SUPERVISOR_LABEL}.plist`);
-export const UNIT_TEMPLATE = path.join('deploy', SUPERVISOR_UNIT);
-export const CONFIG_NAME = 'supervisor.json';
+const SUPERVISOR_LABEL = 'com.projectman.administration';
+const SUPERVISOR_UNIT = 'projectman-administration.service';
+const PLIST_TEMPLATE = path.join('deploy', 'mac', `${SUPERVISOR_LABEL}.plist`);
+const UNIT_TEMPLATE = path.join('deploy', SUPERVISOR_UNIT);
+const CONFIG_NAME = 'supervisor.json';
 /** The app-home folder `contracts/sandbox.ts` `sensitivePaths` denies to member sessions. */
 export const ADMINISTRATION_FOLDER = 'administration';
 
@@ -47,7 +46,7 @@ export interface PrepareInput {
   ownerCommandShell?: string;
 }
 
-export interface PreparedFile {
+interface PreparedFile {
   name: string;
   /** Written 0600 into a private folder, like every file of the adapter. */
   content: string;
@@ -184,5 +183,3 @@ export async function writePrepared(outDir: string, files: PreparedFile[]): Prom
   }
   return written;
 }
-
-export { AdministrationSetupError };

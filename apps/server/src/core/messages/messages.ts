@@ -34,7 +34,7 @@ import type { ProjectService } from '../../core/projects';
 import { forbidden, notFound } from '../../kernel';
 import { excerpt, newId, SYSTEM_ACTOR } from '../../kernel';
 
-export interface RecordMessageInput {
+interface RecordMessageInput {
   id?: string;
   kind?: TeamMessage['kind'];
   version?: TeamMessage['version'];

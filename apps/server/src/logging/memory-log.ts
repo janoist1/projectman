@@ -12,8 +12,8 @@ export interface MemoryLogFields {
   uptimeS: number;
 }
 
-export const MEMORY_LOG_MIN_SECONDS = 60;
-export const MEMORY_LOG_MAX_SECONDS = 86_400;
+const MEMORY_LOG_MIN_SECONDS = 60;
+const MEMORY_LOG_MAX_SECONDS = 86_400;
 
 /** A wrong `PROJECTMAN_MEMORY_LOG_SECONDS` stops the start; main() prints it as `projectman: <message>`. */
 export class MemoryLogSettingError extends Error {}

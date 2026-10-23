@@ -52,7 +52,7 @@ interface LinkRow {
   state: string | null;
 }
 
-export interface PullRequestLinkRef {
+interface PullRequestLinkRef {
   projectKey: string;
   taskKey: string;
   repo: string;

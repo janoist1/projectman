@@ -50,7 +50,7 @@ import type { Admission } from './admission';
 import { assertPrerequisitesClosed } from './rules';
 import type { SeniorWaits } from './senior-waits';
 
-export interface StartTaskOptions {
+interface StartTaskOptions {
   /** Explicit assignee; omitted = the current assignee, else a free developer, else a temp worker. */
   assignee?: string;
   actor: Actor;
@@ -95,7 +95,7 @@ export interface StartTaskOptions {
   pulled?: StagePull;
 }
 
-export interface StartTaskResult {
+interface StartTaskResult {
   task: Task;
   session: Session | null;
   /** Temp worker hired for this task, if any. */
@@ -148,7 +148,7 @@ export interface SeniorWait {
 }
 
 /** What a person's Start needs of the fix round limit (PM-262): to end the hold, then let the waiting messages through. */
-export interface FixLimitStart {
+interface FixLimitStart {
   humanStart(task: Task, actor: Actor): boolean;
   releaseMessages(task: Task): void;
 }

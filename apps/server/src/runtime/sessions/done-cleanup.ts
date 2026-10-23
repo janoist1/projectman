@@ -9,7 +9,7 @@ import type { TurnFinishes } from './turn-finish';
 /** Worktree removals that are refused on purpose (the worktree module's error codes). */
 const KEPT_WORKTREE_CODES = new Set(['dirty', 'outside_root', 'not_a_worktree', 'main_worktree']);
 
-export interface DoneCleanupDeps {
+interface DoneCleanupDeps {
   ctx: DomainContext;
   engines: Pick<EngineDirectory, 'get'>;
   runner: Pick<SessionRunner, 'stop'>;

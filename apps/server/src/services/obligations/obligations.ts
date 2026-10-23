@@ -45,7 +45,7 @@ import type { DerivedObligation, ObligationSource, ProjectView } from './sources
 const MINUTE_MS = 60_000;
 
 /** The input of `open`: one step that is open now. */
-export interface OpenObligation {
+interface OpenObligation {
   projectKey: string;
   taskKey: string;
   kind: ObligationKind;
@@ -54,7 +54,7 @@ export interface OpenObligation {
   openedAt: string;
 }
 
-export interface ObligationsDeps {
+interface ObligationsDeps {
   ctx: DomainContext;
   projects: Pick<ProjectService, 'summaries' | 'config' | 'cachedConfig'>;
   tasks: Pick<TaskService, 'find' | 'readSchedulingTasks'>;

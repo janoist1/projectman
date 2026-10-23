@@ -199,7 +199,7 @@ function parseArgs(argv: readonly string[]): Parsed {
     : { error: `merge-test: not a file of a known workspace: ${unknown}\n${USAGE}` };
 }
 
-export interface MergeTestIo {
+interface MergeTestIo {
   /** Whether a repository file exists in the checkout. */
   exists?: (file: string) => boolean;
   /** Runs `npm <args>`. */

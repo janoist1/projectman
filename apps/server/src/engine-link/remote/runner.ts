@@ -30,7 +30,7 @@ const PAUSE_TIMEOUT_MS = 10 * 60_000;
 const SHUTDOWN_STOP_MS = 10_000;
 const FIRE_AND_FORGET_MS = 10_000;
 
-export interface RemoteRunnerOptions {
+interface RemoteRunnerOptions {
   hub: RemoteHub;
   /** Where the database says a session ran, for a session the engine does not report any more. */
   recordedEngine: (sessionId: string) => EngineId | null;
@@ -57,14 +57,14 @@ export interface RemoteRunner extends SessionRunner {
 }
 
 /** The last segment of `/mcp/<token>`: the engine builds its own address around it. */
-export function mcpTokenOf(mcpUrl: string): string {
+function mcpTokenOf(mcpUrl: string): string {
   const segments = new URL(mcpUrl).pathname.split('/').filter((part) => part.length > 0);
   const token = segments[segments.length - 1];
   if (!token) throw new Error('The team tools address has no token');
   return token;
 }
 
-export function toEngineSpec(spec: StartSessionSpec): EngineStartSpec {
+function toEngineSpec(spec: StartSessionSpec): EngineStartSpec {
   const { mcpUrl, ...rest } = spec;
   return { ...rest, mcpToken: mcpTokenOf(mcpUrl) };
 }

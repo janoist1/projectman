@@ -45,7 +45,7 @@ export type HookPayload = z.infer<typeof HookPayload>;
 export const DENY_DEFAULT = 'A human denied this permission request.';
 
 /** What an "allow for this session" of a permission request covers (see sessionAllowScope). */
-export interface SessionAllowScope {
+interface SessionAllowScope {
   toolName: string;
   /** The exact Bash command; absent for other tools. */
   command?: string;

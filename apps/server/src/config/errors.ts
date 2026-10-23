@@ -1,4 +1,4 @@
-export type ConfigStoreErrorCode =
+type ConfigStoreErrorCode =
   /** Schema or invariant violation; details: { schemaIssues } or { issues: ConfigIssue[] }. */
   | 'invalid_config'
   /** A YAML file could not be parsed; details: { file }. */

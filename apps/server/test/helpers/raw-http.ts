@@ -1,6 +1,6 @@
 import { connect } from 'node:net';
 
-export interface RawResponse {
+interface RawResponse {
   status: number;
   headers: Record<string, string>;
   body: string;

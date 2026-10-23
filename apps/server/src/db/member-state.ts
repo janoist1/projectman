@@ -1,7 +1,7 @@
 import type { MemberStatus } from '@projectman/shared';
 import type { Db } from './database';
 
-export interface MemberStateRecord {
+interface MemberStateRecord {
   projectKey: string;
   handle: string;
   status: MemberStatus;

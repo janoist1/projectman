@@ -23,12 +23,12 @@ export type Resolution =
   | { place: 'lost' }
   | { place: 'located'; changed: boolean; element: Element | null; point: Point; rect: Rect | null };
 
-export interface DocumentSize {
+interface DocumentSize {
   width: number;
   height: number;
 }
 
-export const SNIPPET_LENGTH = 120;
+const SNIPPET_LENGTH = 120;
 /** A coordinate this far past the document's edge still counts as on the page (scrollbars, rounding). */
 const EDGE_TOLERANCE = 24;
 
@@ -186,7 +186,7 @@ export function isSamePage(pageUrl: string, current: Pick<Location, 'origin' | '
   }
 }
 
-export interface PanelGroups<M> {
+interface PanelGroups<M> {
   /** Marks about the whole page: no pin. */
   page: M[];
   /** Marks that have a place on the page (pinned). */

@@ -141,7 +141,7 @@ export interface DeferredStart {
 }
 
 /** A member's capacity and what holds its places now; none for a member that has no capacity (not AI). */
-export type CapacityReader = (
+type CapacityReader = (
   projectKey: string,
   handle: string,
 ) => { holders: CapacityHolder[]; capacity: number } | undefined;
@@ -154,7 +154,7 @@ export interface QueueWait {
 }
 
 /** What the member queue's wake-ups wait for: they carry the wait on the queue item, not a deferral. */
-export interface QueueWaitReader {
+interface QueueWaitReader {
   ofTask(task: Task): TaskStartWaiting[];
   all(): QueueWait[];
 }
@@ -176,7 +176,7 @@ export function queueItemWaiting(item: StoredMemberQueueItem): TaskStartWaiting 
  * Where the deferrals no member's queue can hold are kept besides memory (the `deferred_starts`
  * table): the starts that wait for no chosen AI member yet. The others are queue items (PM-927).
  */
-export interface DeferredStartStore {
+interface DeferredStartStore {
   save(record: DeferredStartRecord): void;
   remove(key: string): void;
   /** Oldest first. */

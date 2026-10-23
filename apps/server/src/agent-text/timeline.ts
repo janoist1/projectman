@@ -284,7 +284,7 @@ export function eventFullText(event: TimelineEvent): string | null {
 }
 
 /** How to read the whole text of an event with get_task. */
-export function eventReadHint(event: TimelineEvent): string {
+function eventReadHint(event: TimelineEvent): string {
   const task = event.taskKey ? `task_key ${event.taskKey}, ` : '';
   return `get_task ${task}event_id ${event.id}`;
 }
@@ -307,7 +307,7 @@ export function timelineLine(
   return length > textLimit ? `${line} (cut, ${length} chars; read it whole: ${eventReadHint(event)})` : line;
 }
 
-export interface TimelineOptions {
+interface TimelineOptions {
   /** How many of the most recent events are shown. */
   limit: number;
   /** Maximum length of free text (notes, messages, questions) in a line. */
@@ -321,7 +321,7 @@ export interface TimelineOptions {
   pendingSent?: ReadonlyMap<string, readonly string[]>;
 }
 
-export interface RecentTimeline {
+interface RecentTimeline {
   /** One line per shown event, oldest first. */
   lines: string[];
   /** Events after skipping, shown or not. */

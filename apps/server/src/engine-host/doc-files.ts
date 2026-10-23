@@ -17,7 +17,7 @@ import { fetchUpstream, identityOf, must, requireCommit, treeEntry, upstreamOf }
 
 /** Reading a document file of a repository and committing it again (PM-494), without touching its checkout. */
 
-export interface DocFileOptions {
+interface DocFileOptions {
   args: MergeArgs;
   /** The time limit of a fetch (the engine's network git timeout). */
   networkTimeoutMs: number;

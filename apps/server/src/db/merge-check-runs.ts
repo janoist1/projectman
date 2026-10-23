@@ -39,7 +39,7 @@ export type MergeCheckRunStart = Pick<
   | 'runner'
 >;
 
-export interface MergeCheckRunEnd {
+interface MergeCheckRunEnd {
   status: Exclude<MergeCheckRunStatus, 'running'>;
   reason: string | null;
   durationMs: number | null;

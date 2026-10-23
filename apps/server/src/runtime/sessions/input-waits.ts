@@ -7,7 +7,7 @@ import type { SessionTimers } from './session-timers';
 /** A session waiting for input at its terminal this long is reported to the owners (PM-199). */
 export const INPUT_STALL_MS = 10 * 60_000;
 
-export interface InputWaitsDeps {
+interface InputWaitsDeps {
   ctx: DomainContext;
   timers: Pick<SessionTimers, 'arm' | 'disarm'>;
   /** Tells the owners of a session that waits for input unseen; none: nobody is told. */

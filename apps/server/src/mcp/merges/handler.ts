@@ -9,7 +9,7 @@ import type { Merges } from '../../services/merges';
 import type { ToolCaller } from '../caller';
 
 /** The runs list_merge_checks returns when it is not told how many. */
-export const MERGE_CHECKS_DEFAULT_LIMIT = 30;
+const MERGE_CHECKS_DEFAULT_LIMIT = 30;
 
 export class MergeTools implements MergeToolsHandler {
   private readonly calls: ToolCaller;

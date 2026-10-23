@@ -50,7 +50,7 @@ const OwnerRecord = z
   .strict();
 export type OwnerRecord = z.infer<typeof OwnerRecord>;
 
-export type HookConfigEvent = 'PreInvocation' | 'PreToolUse' | 'PostToolUse' | 'Stop';
+type HookConfigEvent = 'PreInvocation' | 'PreToolUse' | 'PostToolUse' | 'Stop';
 
 function fileError(): SessionConfigError {
   return new SessionConfigError('Cannot write a private session file; refusing to start.');
@@ -137,7 +137,7 @@ export interface SessionConfigStore {
   sweep(): Promise<SweepResult>;
 }
 
-export interface SessionConfigStoreOptions {
+interface SessionConfigStoreOptions {
   root: string;
   logger: FastifyBaseLogger;
   instanceTag?: string;

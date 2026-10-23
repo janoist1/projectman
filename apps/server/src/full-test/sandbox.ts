@@ -18,13 +18,13 @@ export { quoteShellWord } from '@projectman/shared';
  * The longest Unix socket path the sandbox can open, in bytes (UTF-8), a little below macOS's limit
  * (104 bytes with the terminating NUL).
  */
-export const SOCKET_PATH_MAX = 100;
+const SOCKET_PATH_MAX = 100;
 /**
  * The room a run's own `tmp` and `home` must leave for the socket name that goes below them, separator
  * included: `srt`'s `srt-mux-<pid>-<n>.sock` (a pid of up to 7 digits) and the control socket's
  * `control.sock` both fit.
  */
-export const SOCKET_SUFFIX_MIN = 40;
+const SOCKET_SUFFIX_MIN = 40;
 
 /** `root` with its links resolved (macOS: `/var/folders` is `/private/var/folders`); a root that does not exist stays as it is. */
 export function canonicalRoot(root: string): string {

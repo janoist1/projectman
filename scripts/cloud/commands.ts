@@ -28,7 +28,7 @@ import { runSesCheck, runSesConfigure, runSesPlan, runSesRequestProduction } fro
 import { runSesReceiveCheck, runSesReceiveConfigure, runSesReceivePlan } from './ses-receive';
 import { runTrialResetApply, runTrialResetPlan } from './trial-reset';
 
-export const USAGE = `usage: npm run cloud -- <command> [options]
+const USAGE = `usage: npm run cloud -- <command> [options]
 commands:
   image-build --ref <SHA40> --out <new directory> [--all-platforms] [--dry-run]
                                      build and verify the target machine's image archive (--all-platforms: amd64 and arm64) on the admin builder

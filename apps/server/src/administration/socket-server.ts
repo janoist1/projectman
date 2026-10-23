@@ -27,7 +27,7 @@ export interface SocketServer {
   close(): Promise<void>;
 }
 
-export interface SocketServerOptions {
+interface SocketServerOptions {
   socketPath: string;
   port: AdministrationPort;
   ioTimeoutMs?: number;

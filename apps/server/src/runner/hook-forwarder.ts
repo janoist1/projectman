@@ -22,7 +22,7 @@ export const TOOL_PREPARE_HOOK_TIMEOUT_S = 120;
  */
 export const DEPENDENCY_GATE_WAIT_S = 80;
 /** Extra time the CLI waits beyond our own permission timeout, so we always answer first. */
-export const PERMISSION_TIMEOUT_MARGIN_S = 30;
+const PERMISSION_TIMEOUT_MARGIN_S = 30;
 
 /** Hook timeout (seconds) of a PermissionRequest hook, for our own permission timeout. */
 export function permissionHookTimeoutS(permissionTimeoutMs: number): number {
@@ -86,7 +86,7 @@ const NODE_FORWARDER_FALLBACK =
   's.on("end",()=>finish(s.statusCode>=200&&s.statusCode<300?b:f));s.on("error",()=>finish(f));s.on("aborted",()=>finish(f));});' +
   'r.on("error",()=>finish(f));process.stdin.on("end",()=>r.end(Buffer.concat(c)));}';
 
-export interface ForwarderOptions {
+interface ForwarderOptions {
   fallbackOutput?: string;
   /** Print the server's answer (a PermissionRequest decision) instead of discarding it. */
   printResponse?: boolean;

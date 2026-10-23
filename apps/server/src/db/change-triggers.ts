@@ -15,7 +15,7 @@ type Statement = 'INSERT' | 'UPDATE' | 'DELETE';
  * triggers; `project-change-journal.test.ts` fails until the rebuild creates them again, and also when
  * a table is in neither this list nor `UNJOURNALED_TABLES`.
  */
-export interface ChangeTriggerTable {
+interface ChangeTriggerTable {
   table: string;
   kind: ProjectChangeKind;
   /** Which statements announce. */

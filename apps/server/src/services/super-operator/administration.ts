@@ -33,7 +33,7 @@ export interface SuperAdministrationDeps {
 }
 
 /** The commits of a card that a test or a build may be pinned to: its review pin, its merge and its merged commit. */
-export function cardCommits(ctx: DomainContext, task: Task): string[] {
+function cardCommits(ctx: DomainContext, task: Task): string[] {
   const pin = ctx.repos.reviewPins.get(task.key);
   return [...new Set([pin?.commit, task.merge?.commit, task.merged?.commit].filter(isString))];
 }

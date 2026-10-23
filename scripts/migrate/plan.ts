@@ -10,7 +10,7 @@ import type { PathMapping } from './paths';
  * source; the output is what the owner approves or changes, and it names facts, never file contents.
  */
 
-export interface PlanOptions {
+interface PlanOptions {
   /** Where the VM keeps the project repositories (the new workspace paths), e.g. /var/lib/projectman/repos. */
   vmRepoRoot: string;
   /** PROJECTMAN_HOME on the VM. */
@@ -20,7 +20,7 @@ export interface PlanOptions {
   packageDirVm: string;
 }
 
-export interface SuggestedMappings {
+interface SuggestedMappings {
   mappings: PathMapping[];
   notes: string[];
 }

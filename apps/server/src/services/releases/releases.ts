@@ -42,7 +42,7 @@ export interface ReleaseTarget {
 }
 
 /** What a release would contain: the merged cards between the base and the commit. */
-export interface ReleaseCandidate {
+interface ReleaseCandidate {
   repo: string;
   commit: string;
   baseCommit: string | null;
@@ -50,7 +50,7 @@ export interface ReleaseCandidate {
 }
 
 /** What `ReleaseService.check` answers (PM-542): the rehearsal of a proposal, which records nothing. */
-export interface ReleaseCheck {
+interface ReleaseCheck {
   /** The candidate, when the check passed. */
   candidate: ReleaseCandidate | null;
   /** The refusal `propose` would give now, with the same code and message. */
@@ -60,12 +60,12 @@ export interface ReleaseCheck {
 }
 
 /** `ReleaseService.reporter`: the synchronous report and alert, to run inside the caller's unit of work. */
-export interface ReleaseReporter {
+interface ReleaseReporter {
   report(id: string, report: ReleaseReport): Release;
   alert(release: Release, failure: ReleaseFailure): void;
 }
 
-export interface ProposeReleaseInput {
+interface ProposeReleaseInput {
   title: string;
   summary: string;
   commit?: string | undefined;

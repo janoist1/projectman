@@ -31,7 +31,7 @@ function fail(code: string, message: string): never {
 }
 
 /** The directory holding a credential file: a real directory of the user, with no access for anyone else. */
-export function assertPrivateDirectory(dir: string, owner: FileOwner = currentOwner()): void {
+function assertPrivateDirectory(dir: string, owner: FileOwner = currentOwner()): void {
   let stat: fs.Stats;
   try {
     stat = fs.lstatSync(dir);
@@ -80,7 +80,7 @@ export function readPrivateFile(file: string, owner: FileOwner = currentOwner())
   }
 }
 
-export const MAX_INPUT_BYTES = 1024 * 1024;
+const MAX_INPUT_BYTES = 1024 * 1024;
 
 /** A path of the user's own text: a regular file, not a link; never one of the credential files. */
 export function readInputFile(file: string, protectedPaths: readonly string[]): string {
@@ -119,7 +119,7 @@ export function readInputFile(file: string, protectedPaths: readonly string[]): 
 }
 
 /** Whether `candidate` is the guarded path or lies below it (both already resolved). */
-export function isInside(candidate: string, guarded: string): boolean {
+function isInside(candidate: string, guarded: string): boolean {
   const relative = path.relative(guarded, candidate);
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
 }

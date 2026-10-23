@@ -14,7 +14,7 @@ const SKIPPED_DIRECTORIES = new Set(['node_modules', 'dist']);
 /** The variables the sandboxed run sets, which the release test must not inherit. */
 const SANDBOX_VARIABLES = ['PROJECTMAN_FULL_TEST_SANDBOX', 'PROJECTMAN_SKIP_PTY_TESTS', 'PROJECTMAN_HOME'];
 
-export interface WorkspaceFiles {
+interface WorkspaceFiles {
   /** Absolute path of the workspace. */
   workspace: string;
   /** Paths relative to the workspace, sorted. */

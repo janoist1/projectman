@@ -1,2 +1,2 @@
 export { createProcessScopeDriver } from './process-group';
-export type { OpenScope, ProcessScopeDriver, ScopeClock } from './types';
+export type { OpenScope, ProcessScopeDriver } from './types';

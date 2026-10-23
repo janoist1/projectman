@@ -28,7 +28,7 @@ const ModelManifest = z.object({
 });
 export type ModelManifest = z.infer<typeof ModelManifest>;
 
-export class ModelUnavailable extends Error {
+class ModelUnavailable extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'ModelUnavailable';

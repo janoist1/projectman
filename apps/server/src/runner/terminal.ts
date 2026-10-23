@@ -13,7 +13,7 @@ function terminalPackages() {
 }
 
 /** Lines of scrollback kept per session. */
-export const SCROLLBACK = 5000;
+const SCROLLBACK = 5000;
 
 /** DECSET modes xterm.js reads as a mouse report encoding (SGR and SGR pixels). */
 const MOUSE_ENCODINGS = [1006, 1016];

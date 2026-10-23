@@ -17,7 +17,7 @@ export function historyDocumentEntityId(repo: string, path: HistoryDocPath): str
 }
 
 /** What the index keeps of one source: its searchable text and the metadata of its hit. */
-export interface HistoryDocumentWrite {
+interface HistoryDocumentWrite {
   projectKey: string;
   sourceType: HistorySourceType;
   entityId: string;
@@ -53,7 +53,7 @@ export interface HistoryDirtyRow {
   revision: number;
 }
 
-export interface HistoryIndexStateRow {
+interface HistoryIndexStateRow {
   projectKey: string;
   version: number;
   complete: boolean;
@@ -72,7 +72,7 @@ export interface HistoryDocStateRow {
 }
 
 /** The filters of a candidate scan (project, types, card and time only: never access). */
-export interface HistoryCandidateQuery {
+interface HistoryCandidateQuery {
   match: string;
   projectKey: string;
   sourceTypes: readonly HistorySourceType[];
@@ -420,5 +420,3 @@ export function createHistoryRepository(db: Db) {
     },
   };
 }
-
-export type HistoryRepository = ReturnType<typeof createHistoryRepository>;

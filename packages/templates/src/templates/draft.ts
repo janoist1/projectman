@@ -35,7 +35,7 @@ export const DEFAULT_LIMITS: TeamLimits = TeamLimits.parse({});
 
 export { hasLabel } from '../labels';
 
-export interface HireOptions {
+interface HireOptions {
   specialty?: SpecialtyKey;
   /** A display name of its own instead of the role's name, e.g. the "daily worker". */
   name?: TemplateMemberKey;
@@ -45,7 +45,7 @@ export interface HireOptions {
 }
 
 /** Helpers a template uses to assemble a project configuration in the project's language. */
-export interface TemplateDraft {
+interface TemplateDraft {
   /** Handle of the human owner (the sponsor of every AI member). */
   owner: string;
   /** Adds an AI member with the role's defaults; returns its handle. */

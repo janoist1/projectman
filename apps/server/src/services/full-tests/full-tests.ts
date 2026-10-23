@@ -49,16 +49,13 @@ type ReviewTest = NonNullable<RepoConfig['reviewTest']>;
  * Where the task's repository runs the full test before review (PM-217, PM-909): none when it is not
  * asked for, and none when it runs only at the merge (`fullTestAtMerge`, PM-386) or `beforeReview` is off.
  */
-export function reviewRunnerOf(
-  config: ProjectConfig,
-  task: Pick<Task, 'repo'>,
-): MergeCheckRunner | undefined {
+function reviewRunnerOf(config: ProjectConfig, task: Pick<Task, 'repo'>): MergeCheckRunner | undefined {
   const repo = repoOf(config, effectiveRepo(config, task));
   return repo ? reviewTestRunnerBeforeReview(repo) : undefined;
 }
 
 /** The full test the task's repository asks for before review; none when `reviewRunnerOf` is none. */
-export function reviewTestOf(config: ProjectConfig, task: Pick<Task, 'repo'>): ReviewTest | undefined {
+function reviewTestOf(config: ProjectConfig, task: Pick<Task, 'repo'>): ReviewTest | undefined {
   return reviewRunnerOf(config, task) ? repoOf(config, effectiveRepo(config, task))?.reviewTest : undefined;
 }
 
@@ -99,7 +96,7 @@ function settled(run: FullTestRunRecord): boolean {
   return run.status === 'passed' || run.status === 'failed' || run.status === 'error';
 }
 
-export interface FullTestRunsDeps {
+interface FullTestRunsDeps {
   ctx: DomainContext;
   projects: ProjectService;
   tasks: TaskService;
@@ -727,7 +724,7 @@ export class FullTestRuns {
 }
 
 /** The system message to the developer of a task whose full test failed. */
-export function failureMessage(input: {
+function failureMessage(input: {
   task: Pick<Task, 'key'>;
   from: string;
   /** The stage it was sent back to; null when it stayed. */

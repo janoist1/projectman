@@ -16,7 +16,7 @@ import { resolveWorkRoots, WorkRootError } from '../../apps/server/src/engine-ho
  */
 
 /** The old directories keep this suffix until the owner deletes them. */
-export const OLD_SUFFIX = '.pre-PM-846';
+const OLD_SUFFIX = '.pre-PM-846';
 
 /** Runs a program without a shell; resolves with its standard output, rejects with its error text. */
 export type Exec = (file: string, args: string[]) => Promise<string>;
@@ -34,7 +34,7 @@ export const defaultExec: Exec = async (file, args) => {
   }
 };
 
-export interface MoveWorkRootDeps {
+interface MoveWorkRootDeps {
   home: string;
   config: EngineConfig;
   /** The path as the owner typed it. */
@@ -51,7 +51,7 @@ export interface MoveWorkRootDeps {
 const DIRECTORIES = ['worktrees', 'workspaces'] as const;
 
 /** Disk space in use below a path (blocks, so sparse files and clones are not under-counted); symlinks are not followed. */
-export function usedBytes(entry: string): number {
+function usedBytes(entry: string): number {
   const stat = lstatSync(entry);
   if (!stat.isDirectory()) return stat.blocks * 512;
   let total = stat.blocks * 512;

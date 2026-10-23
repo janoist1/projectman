@@ -17,7 +17,7 @@ export interface ClientHome {
   cleanup(): void;
 }
 
-export interface ClientHomeOptions {
+interface ClientHomeOptions {
   baseUrl?: string;
   access?: boolean;
   key?: string;
@@ -81,7 +81,7 @@ export type Handler = (request: Recorded, index: number) => Response | Promise<R
 export const jsonResponse = (body: unknown, status = 200, headers: Record<string, string> = {}): Response =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', ...headers } });
 
-export interface TestIo {
+interface TestIo {
   io: CliIo;
   requests: Recorded[];
   stdout: string[];

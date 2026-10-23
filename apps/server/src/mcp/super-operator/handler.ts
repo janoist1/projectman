@@ -76,7 +76,7 @@ import type { SuperAdministration, SuperHandoffService, SuperOperator } from '..
 const ATTACHMENTS_IN_TASK = 20;
 const MAX_ATTACHMENT_PAGE = 100;
 
-export interface ExternalToolsDeps {
+interface ExternalToolsDeps {
   credentials: IntegratorCredentialAuthority;
   superOperator: Pick<SuperOperator, 'access' | 'execute' | 'executeOwned'>;
   accessFor(projectKey: string, email: string): Promise<ProjectAccess | null>;

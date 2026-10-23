@@ -51,11 +51,11 @@ import {
 import { isAppOperation } from './app';
 
 /** How long the owner has to answer the question about a reserved effect. */
-export const SUPER_OWNER_QUESTION_TTL_MS = 24 * 60 * 60 * 1000;
+const SUPER_OWNER_QUESTION_TTL_MS = 24 * 60 * 60 * 1000;
 
 /** The owner's two answers to the question about a super operation. */
 export const SUPER_OWNER_YES = 'yes';
-export const SUPER_OWNER_NO = 'no';
+const SUPER_OWNER_NO = 'no';
 
 /** What an executor gets: the command, who runs it and the exact state it was checked against. */
 export interface SuperExecutorJob {
@@ -79,7 +79,7 @@ export type SuperCommandExecutor = (
  * What an executor returns when the work goes on elsewhere (a supervisor job that outlives the request): the
  * operation stays `running` and the kind's settler finishes it from the recorded result, never by running it again.
  */
-export interface SuperExecutorPending {
+interface SuperExecutorPending {
   pending: true;
 }
 
@@ -154,7 +154,7 @@ const publicOperation = (o: StoredSuperOperation): SuperOperation => ({
 const sha256 = (value: unknown): string => createHash('sha256').update(canonical(value)).digest('hex');
 
 /** The hash the owner's yes is given for: the exact command of one project. */
-export const superCommandHash = (projectKey: string, command: SuperCommand): string =>
+const superCommandHash = (projectKey: string, command: SuperCommand): string =>
   sha256({ projectKey, command });
 
 const isTerminal = (state: SuperState) => SUPER_TERMINAL_STATES.includes(state);

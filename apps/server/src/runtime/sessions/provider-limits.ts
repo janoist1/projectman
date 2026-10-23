@@ -11,7 +11,7 @@ import type { PlanUsageCache, UsageAlerts } from '../usage';
 import { engineIdOf, engineOption } from './engines';
 import type { SessionOrchestratorDeps } from './sessions';
 
-export interface ProviderLimitsDeps {
+interface ProviderLimitsDeps {
   ctx: DomainContext;
   projects: Pick<ProjectService, 'cachedConfig'>;
   runner: Pick<SessionRunner, 'providerStatus'>;

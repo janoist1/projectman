@@ -164,7 +164,7 @@ export function defaultCodexHome(env: NodeJS.ProcessEnv = process.env): string {
   return env.CODEX_HOME || path.join(os.homedir(), '.codex');
 }
 
-export interface CodexAdapterOptions {
+interface CodexAdapterOptions {
   bin: string;
   codexHome: string;
   logger: FastifyBaseLogger;

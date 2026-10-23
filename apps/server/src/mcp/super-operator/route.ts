@@ -10,7 +10,7 @@ import {
 } from '../http';
 import { createExternalMcpServer, type ExternalCallState } from './server';
 
-export interface ExternalRouteDeps {
+interface ExternalRouteDeps {
   backend: ExternalMcpBackend;
   logger: FastifyBaseLogger;
   toolTimeoutMs: number;

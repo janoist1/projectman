@@ -6,8 +6,7 @@ const ROOT = 'packages/shared/src/';
 const CONSUMERS = ['apps/server', 'apps/web', 'apps/feedback-widget', 'packages/templates'] as const;
 const CONSUMER_ROOTS = [...CONSUMERS, 'scripts'] as const;
 type Consumer = (typeof CONSUMERS)[number];
-export type SharedImpact =
-  { fallback: string } | { exports: string[]; consumers: Record<Consumer, string[]> };
+type SharedImpact = { fallback: string } | { exports: string[]; consumers: Record<Consumer, string[]> };
 const sorted = (values: Iterable<string>) => [...new Set(values)].sort();
 const SOURCE = /\.[cm]?[jt]sx?$/;
 const NAME = '[$A-Z_a-z][$\\w]*';

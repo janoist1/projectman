@@ -23,7 +23,7 @@ export interface EngineAdministration {
   ids(): EngineId[];
 }
 
-export interface AdministrationServiceOptions {
+interface AdministrationServiceOptions {
   /** The hub's own supervisor over its Unix socket; null where the hub has none installed. */
   hub: AdministrationPort | null;
   engines: EngineAdministration;
@@ -35,7 +35,7 @@ export interface AdministrationServiceOptions {
   builderEngine(): EngineId | null;
 }
 
-export type AdministrationService = AdministrationPort;
+type AdministrationService = AdministrationPort;
 
 const isNotFound = (error: unknown) => error instanceof DomainError && error.code === 'not_found';
 

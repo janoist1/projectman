@@ -56,11 +56,11 @@ import type { FeedbackScreenshotStore } from './screenshots';
 import type { AttachmentService } from '../../core/attachments';
 
 /** The most marks one list returns. */
-export const MAX_FEEDBACK_LIST = 1000;
+const MAX_FEEDBACK_LIST = 1000;
 /** The mark text an alert quotes at most. */
 const FORWARD_EXCERPT_LENGTH = 200;
 /** A launch code is good for this long. */
-export const FEEDBACK_LAUNCH_CODE_SECONDS = 120;
+const FEEDBACK_LAUNCH_CODE_SECONDS = 120;
 
 const REFUSALS = {
   feedback_closed: ['the mark is closed', 409],
@@ -89,7 +89,7 @@ interface ViewContext {
 const sha256 = (text: string) => createHash('sha256').update(text).digest('hex');
 
 /** The most marks one widget list returns. */
-export const MAX_FEEDBACK_WIDGET_LIST = 500;
+const MAX_FEEDBACK_WIDGET_LIST = 500;
 
 const encodeWidgetCursor = (updatedAt: string, id: string) =>
   Buffer.from(`${updatedAt}|${id}`).toString('base64url');

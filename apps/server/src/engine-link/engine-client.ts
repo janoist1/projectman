@@ -37,7 +37,7 @@ export interface LinkSocket {
 }
 export type LinkSocketFactory = (url: string, headers: Record<string, string>) => LinkSocket;
 
-export interface EngineClientOptions {
+interface EngineClientOptions {
   config: ResolvedEngineConfig;
   /** The facts the cloud learns at every connection; the client adds the protocol and `nextSeq`. */
   hello: () => Promise<Omit<Hello, 't' | 'protocol' | 'nextSeq'>>;

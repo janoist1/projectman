@@ -1,6 +1,6 @@
 import type { Db } from './database';
 
-export interface OperatorGrantRow {
+interface OperatorGrantRow {
   id: string;
   userId: string;
   grantedAt: string;

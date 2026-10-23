@@ -44,7 +44,7 @@ export type ToolDenyReason =
 export type ToolDecision =
   { decision: 'allow' } | { decision: 'ask' } | { decision: 'deny'; reason: ToolDenyReason };
 
-export interface ToolDecisionOptions {
+interface ToolDecisionOptions {
   /** Temporary agy exception (PM-326, owner T4); remove with PM-361 sandbox support. */
   shellRulesOutsideSandbox?: boolean;
   /** The user's home directory, for `~` and `$HOME`; defaults to the process user's. */

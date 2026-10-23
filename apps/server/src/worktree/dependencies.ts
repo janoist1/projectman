@@ -8,8 +8,8 @@ import { copyWithinBudget } from './copy-budget';
 import { tryGit } from './git';
 import { canonical, createKeyedLock } from './paths';
 
-export type DependencyCloneSkip = DependencySkip;
-export type DependencyCloneResult = DependencyRefreshResult;
+type DependencyCloneSkip = DependencySkip;
+type DependencyCloneResult = DependencyRefreshResult;
 
 /** Caches under node_modules that may hold absolute paths into the reference. */
 const CACHE_DIRS = ['.vite', '.vite-temp', '.cache'];

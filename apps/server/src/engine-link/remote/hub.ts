@@ -83,7 +83,7 @@ export interface RemoteHub {
   close(): void;
 }
 
-export interface RemoteHubOptions {
+interface RemoteHubOptions {
   links: EngineLinks;
   registry: {
     isOnline(id: EngineId): boolean;

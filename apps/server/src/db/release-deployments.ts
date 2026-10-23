@@ -6,7 +6,7 @@ interface DeploymentRow {
 }
 
 /** A request the deployment already took: a repeat of it is answered from this, never applied twice. */
-export interface DeploymentRequestRecord {
+interface DeploymentRequestRecord {
   requestId: string;
   releaseId: string;
   attemptId: string;

@@ -9,7 +9,7 @@ import type { PullRequestInfo } from '../../../contracts';
 
 /** Test helpers for the github module. Nothing here talks to GitHub. */
 
-export const FAKE_GH_BIN = fileURLToPath(new URL('./fake-gh.mjs', import.meta.url));
+const FAKE_GH_BIN = fileURLToPath(new URL('./fake-gh.mjs', import.meta.url));
 
 export interface FakeGhResponse {
   json?: unknown;
@@ -171,7 +171,7 @@ export function pullRequestInfo(overrides: Partial<PullRequestInfo> = {}): PullR
   };
 }
 
-export type TestLogger = FastifyBaseLogger & {
+type TestLogger = FastifyBaseLogger & {
   warn: ReturnType<typeof vi.fn>;
   error: ReturnType<typeof vi.fn>;
   info: ReturnType<typeof vi.fn>;

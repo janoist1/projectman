@@ -27,7 +27,7 @@ import type {
  * download endpoints. It does not authenticate: the tests read `authorizations` themselves.
  */
 
-export interface FakeCloudOptions {
+interface FakeCloudOptions {
   /** Reject the first N WebSocket upgrades with HTTP 503. */
   rejectUpgrades?: number;
   /** Do not acknowledge events by themselves (tests acknowledge with `ackUpTo`). */

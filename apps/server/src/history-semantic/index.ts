@@ -15,12 +15,12 @@ import type { WorkerData, WorkerRequest } from './protocol';
 
 type Failure = Exclude<HistorySemanticStatus, 'used' | 'not_run'>;
 
-export interface HistorySemanticLogger {
+interface HistorySemanticLogger {
   info(obj: object, msg?: string): void;
   warn(obj: object, msg?: string): void;
 }
 
-export interface HistorySemanticOptions {
+interface HistorySemanticOptions {
   /** The runtime database file; null for an in-memory one, which the worker cannot share. */
   databasePath: string | null;
   /** The directory with the pinned model files and their manifest. */

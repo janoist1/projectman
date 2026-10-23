@@ -35,7 +35,7 @@ export interface TranscriptParserOptions {
   firstUserOrigin?: 'brief' | 'human';
 }
 
-export interface ParseResult {
+interface ParseResult {
   items: ChatItem[];
   /** Timestamp of the latest "[Request interrupted by user]" entry, if any. */
   interruptedAt: string | null;

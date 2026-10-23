@@ -10,7 +10,7 @@ import { refused } from './errors';
  * that is renamed over the target.
  */
 
-export const SECRETS_DIR_PARTS = ['.config', 'projectman', 'cloud'] as const;
+const SECRETS_DIR_PARTS = ['.config', 'projectman', 'cloud'] as const;
 export const CONFIG_FILE_NAME = 'config.json';
 export const CLOUDFLARE_TOKEN_FILE_NAME = 'cloudflare-token';
 export const ENV_FILE_NAME = 'cloud.env';
@@ -130,7 +130,7 @@ export function inspectSecrets(dir: string, files: readonly string[]): string[] 
 
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
-export type EnvValues = Record<string, string>;
+type EnvValues = Record<string, string>;
 
 function assertEnvEntry(name: string, value: string): void {
   if (!ENV_NAME.test(name)) throw new Error(`"${name}" is not a valid env-file name`);

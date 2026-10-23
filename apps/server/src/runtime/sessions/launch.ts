@@ -120,7 +120,7 @@ export function providerNotLoggedIn(
 }
 
 /** A restart of a session for a new permission mode: what it drops. */
-export interface PermissionRestart {
+interface PermissionRestart {
   /** The process had permissions granted "for this session", which the CLI forgets with it. */
   grantsLost: boolean;
 }
@@ -136,7 +136,7 @@ function workItemLabel(item: WorkItemRef, member: AiMemberConfig): string {
  * stay there (the member workspaces, the publishing of a session, the grants, the folder removals)
  * and are shared with the rest of its life.
  */
-export interface LaunchHost {
+interface LaunchHost {
   readonly live: LiveSessions;
   readonly mergeCards: MergeCardLock;
   readonly screenshotScopes: Map<string, ScreenshotScope>;

@@ -4,7 +4,7 @@ import { invalid } from '../../kernel';
 import type { TaskStore } from './store';
 
 /** Why a card may not be given a theme: the message of each refusal of the shared rule. */
-export const THEME_REFUSALS: Record<ThemeRefusal, string> = {
+const THEME_REFUSALS: Record<ThemeRefusal, string> = {
   theme_on_theme: 'a theme cannot belong to a theme',
   theme_on_subtask: 'a subtask gets the theme of its parent: set the theme on the parent',
   theme_not_found: 'the theme does not exist',

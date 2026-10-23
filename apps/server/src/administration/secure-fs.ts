@@ -12,7 +12,7 @@ import path from 'node:path';
  * with an `AdministrationSetupError`; nothing is repaired silently.
  */
 
-export type SetupFailure =
+type SetupFailure =
   | 'symlink'
   | 'not_directory'
   | 'not_file'
@@ -34,8 +34,7 @@ export class AdministrationSetupError extends Error {
 }
 
 /** The uid files must belong to; null where the platform has none (the checks of the owner are skipped). */
-export const currentUid = (): number | null =>
-  typeof process.getuid === 'function' ? process.getuid() : null;
+const currentUid = (): number | null => (typeof process.getuid === 'function' ? process.getuid() : null);
 
 async function lstatOrNull(target: string): Promise<Stats | null> {
   try {
@@ -195,10 +194,10 @@ export async function assertSocketFile(socketPath: string, uid: number | null = 
 }
 
 /** `live`: something answers (or may answer) on the socket; `stale`: nothing listens, the file is a leftover. */
-export type SocketProbe = (socketPath: string) => Promise<'live' | 'stale'>;
+type SocketProbe = (socketPath: string) => Promise<'live' | 'stale'>;
 
 /** Connects once and hangs up. Only a refused or missing socket is stale; a timeout or any other error is live. */
-export const probeSocket: SocketProbe = (socketPath) =>
+const probeSocket: SocketProbe = (socketPath) =>
   new Promise((resolve) => {
     const socket = net.createConnection(socketPath);
     const finish = (result: 'live' | 'stale') => {

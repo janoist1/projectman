@@ -2,7 +2,7 @@ import type { Actor, TaskCoverChoice } from '@projectman/shared';
 import type { Db } from './database';
 
 /** A person's choice of a card's cover (PM-224); a card without a row has the automatic cover. */
-export interface TaskCoverRecord {
+interface TaskCoverRecord {
   projectKey: string;
   taskKey: string;
   choice: TaskCoverChoice;

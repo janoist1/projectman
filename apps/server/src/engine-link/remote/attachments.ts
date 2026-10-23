@@ -16,7 +16,7 @@ import type { FileTransfers } from './transfers';
  * rules grant (`attachmentDirectory`).
  */
 
-export interface AttachmentMaterializer {
+interface AttachmentMaterializer {
   /** The path of the attachment on the engine. Rejects with `engine_offline` when the engine is not reachable. */
   materialize(
     engineId: EngineId,
@@ -27,7 +27,7 @@ export interface AttachmentMaterializer {
 }
 
 /** The name an attachment has in the cache: the id keeps two files of the same name apart. */
-export function cachedName(id: string, fileName: string): string {
+function cachedName(id: string, fileName: string): string {
   return `${id}-${fileName}`.slice(0, 255);
 }
 

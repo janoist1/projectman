@@ -12,7 +12,7 @@ const review = {
   baseBranch: text.optional(),
   baseCommit: text.optional(),
 };
-export const Policy: z.ZodType<SessionPolicy> = z.strictObject({
+const Policy: z.ZodType<SessionPolicy> = z.strictObject({
   version: z.literal(1),
   enforcement: z.enum(['legacy', 'strict']),
   access: z.enum(['task_worktree', 'review_copy', 'read_only']),
@@ -64,7 +64,7 @@ export const Policy: z.ZodType<SessionPolicy> = z.strictObject({
     approval: z.enum(['never', 'on-request']),
   }),
 });
-export const Sandbox: z.ZodType<AgentSandbox> = z.strictObject({
+const Sandbox: z.ZodType<AgentSandbox> = z.strictObject({
   allowWrite: texts,
   allowedDomains: texts,
   deniedDomains: texts.optional(),

@@ -2,7 +2,7 @@
  * The action message that names the ready cards the system can start now (PM-804). It names what to do
  * and never does it: the member moves the cards, the system picks the developer (decision 3 of PM-427).
  */
-export interface StartOfferText {
+interface StartOfferText {
   /** The card, or for a collecting card the collector. */
   subjectKey: string;
   collector: boolean;

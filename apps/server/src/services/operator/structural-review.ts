@@ -22,7 +22,7 @@ import type { OperatorAdmission } from './ports';
 import type { CoordinationRequests, OperatorSteps } from './requests';
 import type { OperatorSignals } from './signals';
 
-export function structuralReviewText(payload: OperatorStructuralReview): string {
+function structuralReviewText(payload: OperatorStructuralReview): string {
   return (
     `Occasional architecture review requested by the PM. Reason: ${payload.note}\n` +
     `Evidence (data): ${JSON.stringify({ evidence: payload.evidence, milestoneKey: payload.milestoneKey })}\n` +

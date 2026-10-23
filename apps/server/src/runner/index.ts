@@ -5,11 +5,10 @@ import { SessionManager } from './runner';
 import { createTranscriptReader } from './transcript/reader';
 
 /** The variables that would move billing off the subscription. */
-export { BILLING_ENV_VARS, NON_INTERACTIVE_EDITOR_ENV } from './env';
+export { BILLING_ENV_VARS } from './env';
 /** How long the PreToolUse dependency gate waits for the installer (PM-743). */
 export { DEPENDENCY_GATE_WAIT_S } from './hook-forwarder';
 /** Records Claude Code's workspace trust. */
-export { ensureWorkspaceTrusted } from './providers/claude/trust';
 
 /**
  * Runs AI members as real, interactive agent CLI sessions in pseudo-terminals, on the

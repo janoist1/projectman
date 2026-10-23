@@ -82,7 +82,7 @@ const defaultSpawnPty: SpawnPty = (file, args, options) => {
   return pty.spawn(file, args, options);
 };
 
-export interface SessionDeps {
+interface SessionDeps {
   processScopes?: ProcessScopeDriver;
   refreshDependencies?: (cwd: string) => Promise<void | DependencyGate>;
   logger: FastifyBaseLogger;

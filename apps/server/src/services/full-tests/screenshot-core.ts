@@ -2,7 +2,7 @@ import { Data, Duration, Effect, FiberMap } from 'effect';
 import type { Scope } from 'effect';
 import { abortable } from '../../kernel';
 
-export interface ScreenshotCoreDeps {
+interface ScreenshotCoreDeps {
   readonly pollMs: number;
 }
 

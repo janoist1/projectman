@@ -1,8 +1,8 @@
 import path from 'node:path';
 import { createRotatingFile } from './rotating-file';
 
-export const SERVER_LOG_MAX_BYTES = 10 * 1024 * 1024;
-export const SERVER_LOG_KEEP_FILES = 5;
+const SERVER_LOG_MAX_BYTES = 10 * 1024 * 1024;
+const SERVER_LOG_KEEP_FILES = 5;
 
 /** `<home>/logs/<name>.log`: the server's (`server`) and the engine's (`engine`) log file (PM-444). */
 export function serverLogFile(home: string, name: 'server' | 'engine'): string {

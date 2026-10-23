@@ -13,7 +13,7 @@ import { jsonSchemaValidator, SERVER_INFO, ToolTimeoutError, withTimeout } from 
 import { TEAM_TOOL_NAMES } from '../tools';
 import { externalDenial, externalToolNamed, externalToolsFor } from './registry';
 
-export interface ExternalServerDeps {
+interface ExternalServerDeps {
   backend: ExternalMcpBackend;
   logger: FastifyBaseLogger;
   toolTimeoutMs: number;
@@ -52,12 +52,12 @@ function toolListing(tool: ExternalRegisteredTool): Tool {
 }
 
 /** The tools a credential mode is offered, as `tools/list` shows them. */
-export function externalToolListing(mode: ExternalCredentialMode): Tool[] {
+function externalToolListing(mode: ExternalCredentialMode): Tool[] {
   return externalToolsFor(mode).map(toolListing);
 }
 
 /** A refused or failed call: text for a reader, and the structured error code for the integrator. */
-export function externalError(code: string, message: string, details?: unknown): CallToolResult {
+function externalError(code: string, message: string, details?: unknown): CallToolResult {
   const structured = { errorCode: code, message, ...(details === undefined ? {} : { details }) };
   return {
     content: [{ type: 'text', text: `Error [${code}]: ${message}` }],

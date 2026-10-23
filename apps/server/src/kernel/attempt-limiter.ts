@@ -11,7 +11,7 @@ import { DomainError } from './errors';
  */
 export const MAX_FAILED_ATTEMPTS_ALL_CLIENTS = 50;
 
-export interface AttemptLimiterOptions {
+interface AttemptLimiterOptions {
   /** Attempts a key may use up per window. */
   max: number;
   /** Attempts all keys together may use up per window (default: no shared cap). */
@@ -22,7 +22,7 @@ export interface AttemptLimiterOptions {
   now?: () => number;
 }
 
-export interface AttemptLimiter {
+interface AttemptLimiter {
   /**
    * Reserves an attempt for `key` (the client's address) before the expensive or guessable work,
    * so concurrent attempts count too; throws 429 `too_many_attempts` once the window's budget of

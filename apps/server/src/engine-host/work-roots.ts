@@ -22,7 +22,7 @@ export interface WorkRoots {
   workspaces: string;
 }
 
-export type WorkRootProblem = 'not_absolute' | 'missing' | 'marker_missing' | 'outside_home';
+type WorkRootProblem = 'not_absolute' | 'missing' | 'marker_missing' | 'outside_home';
 
 /** The work root cannot be used; the start stops with the reason in the message (never a quiet fallback). */
 export class WorkRootError extends Error {

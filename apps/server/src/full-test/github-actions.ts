@@ -29,16 +29,16 @@ import {
  * tests.
  */
 
-export const CHECK_BRANCH_PREFIX = 'pm-check/';
+const CHECK_BRANCH_PREFIX = 'pm-check/';
 /** How often, and for how long, the dispatched run is looked for. */
-export const RUN_APPEAR_POLL_MS = 5_000;
+const RUN_APPEAR_POLL_MS = 5_000;
 export const RUN_APPEAR_MAX_MS = 120_000;
 /** How often a running workflow is looked at. */
-export const RUN_POLL_MS = 10_000;
+const RUN_POLL_MS = 10_000;
 /** GitHub may finish the run before its shard jobs expose their terminal states. */
 export const JOB_WAIT_MAX_MS = 120_000;
 /** How long the logs of a finished run are waited for (GitHub has them a little later). */
-export const LOG_WAIT_MAX_MS = 30_000;
+const LOG_WAIT_MAX_MS = 30_000;
 export const LOG_POLL_MS = 5_000;
 /** The most time a cancelling takes (best effort). */
 export const CANCEL_WAIT_MS = 15_000;
@@ -46,7 +46,7 @@ export const CANCEL_WAIT_MS = 15_000;
 export const STALE_BRANCH_MS = 7_200_000;
 export const STALE_BRANCHES_PER_SWEEP = 10;
 export const DISPATCH_RETRIES = 3;
-export const DISPATCH_RETRY_MS = 5_000;
+const DISPATCH_RETRY_MS = 5_000;
 
 const RUN_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const REPO = /^[\w.-]+\/[\w.-]+$/;

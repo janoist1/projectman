@@ -73,7 +73,7 @@ export class MemberWorkspaceError extends Error {
   }
 }
 
-export interface MemberWorkspaceManagerSettings extends MemberWorkspaceManagerOptions {
+interface MemberWorkspaceManagerSettings extends MemberWorkspaceManagerOptions {
   /** How workspaces are touched (default: here, as the server). */
   access?: WorkspaceAccess;
   /** The root of a member's workspaces (default: `rootDir` for every member). */

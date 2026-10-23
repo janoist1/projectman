@@ -27,7 +27,7 @@ export class ApiError extends Error {
   }
 }
 
-export interface ApiRequest {
+interface ApiRequest {
   method: 'GET' | 'POST' | 'PUT';
   /** The path with its query already encoded, starting with `/`. */
   path: string;
@@ -39,12 +39,12 @@ export interface ApiRequest {
   requestId?: string | undefined;
 }
 
-export interface ApiResponse {
+interface ApiResponse {
   status: number;
   json: unknown;
 }
 
-export interface ApiClientOptions {
+interface ApiClientOptions {
   credentials: ClientCredentials;
   fetch: typeof fetch;
   /** Debug lines (method, path, status only), already redacted. */

@@ -10,7 +10,7 @@ import { isLoopbackHostname } from '../kernel';
  * and the web app cannot be reached there.
  */
 
-export interface FeedbackPublicAddress {
+interface FeedbackPublicAddress {
   /** `https://jelolo.example.com`, without a trailing slash. */
   origin: string;
   /** The lowercase host name of requests to it, without any port (the guard ignores the port in `Host`). */

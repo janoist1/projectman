@@ -4,7 +4,7 @@ import { oneLine } from './text';
  * The input the Operator is given for one item of its work queue (PM-885). The frame names the item and says
  * how it ends; the body is the todo's, the decision's or the message's own text.
  */
-export interface OperatorQueueFrame {
+interface OperatorQueueFrame {
   itemId: string;
   kind: 'todo' | 'fix_limit' | 'message';
   /** Handle of the member who asked, or null for the system. */

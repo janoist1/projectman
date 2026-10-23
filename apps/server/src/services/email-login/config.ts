@@ -1,7 +1,7 @@
 import { isSesRegion } from './ses-mailer';
 import type { SesEmailCodeMailerOptions } from './ses-mailer';
 
-export const EMAIL_LOGIN_NOT_CONFIGURED = 'email_login_not_configured';
+const EMAIL_LOGIN_NOT_CONFIGURED = 'email_login_not_configured';
 
 /** Every variable of the e-mail login (PM-669); none of them reaches a child process. */
 export const EMAIL_LOGIN_ENV_NAMES = [

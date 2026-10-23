@@ -12,7 +12,7 @@ import { PENDING_MESSAGE_RECIPIENTS } from './message-pending';
  * each migration runs once, inside a transaction. Never edit a released migration: add a
  * new one instead.
  */
-export interface Migration {
+interface Migration {
   version: number;
   name: string;
   sql: string;

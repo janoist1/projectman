@@ -14,7 +14,7 @@ export const htmlBytes = (): Buffer => Buffer.from('<!doctype html><script>alert
 export const svgBytes = (): Buffer =>
   Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>');
 
-export interface MultipartPart {
+interface MultipartPart {
   name: string;
   /** Raw, as the browser would write it into the header (UTF-8 bytes). */
   filename?: string;
@@ -22,13 +22,13 @@ export interface MultipartPart {
   content: Buffer | string;
 }
 
-export interface MultipartBody {
+interface MultipartBody {
   payload: Buffer;
   headers: { 'content-type': string };
 }
 
 /** A multipart/form-data body, as one buffer, with its content-type header. */
-export function multipartBody(
+function multipartBody(
   parts: MultipartPart[],
   boundary = `----pmtest${randomBytes(8).toString('hex')}`,
 ): MultipartBody {
@@ -63,7 +63,7 @@ export function fileBody(
   return multipartBody([{ name: 'file', filename: fileName, contentType: declaredType, content }]);
 }
 
-export interface UploadOptions {
+interface UploadOptions {
   taskKey?: string;
   projectKey?: string;
   fileName?: string;
@@ -87,7 +87,7 @@ export function uploadFile(
   });
 }
 
-export interface ChunkedResult {
+interface ChunkedResult {
   status: number;
   headers: http.IncomingHttpHeaders;
   body: string;

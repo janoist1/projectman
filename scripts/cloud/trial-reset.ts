@@ -106,7 +106,7 @@ export const trialResetPlanSchema = z
           ).length === 1,
       ),
   );
-export type TrialResetPlan = z.output<typeof trialResetPlanSchema>;
+type TrialResetPlan = z.output<typeof trialResetPlanSchema>;
 
 export const trialResetResultSchema = z.strictObject({
   version: z.literal(1),

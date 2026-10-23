@@ -141,7 +141,7 @@ export interface CallerWithRequest {
 }
 
 /** The Operator's own step on a system signal, as the guard sees it (PM-545). */
-export interface SignalStep {
+interface SignalStep {
   signalId: string;
   tool: 'start_task' | 'start_member';
   member: string | null;

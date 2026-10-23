@@ -96,5 +96,3 @@ export const FAILURES: Record<JournalFailureCode, FixedFailure> = {
 /** The failure of a publish: the tag or the GitHub release could not be made. */
 export const PUBLISH_FAILED_MESSAGE =
   'The release is live, but the tag or the GitHub release could not be created; it is tried again later.';
-
-export const failureText = (code: JournalFailureCode): FixedFailure => FAILURES[code];

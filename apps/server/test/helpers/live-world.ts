@@ -27,9 +27,8 @@ export const OLD = 'a'.repeat(40);
 export const NEW = 'b'.repeat(40);
 export const REMOTE = 'git@github.com:owner/projectman.git';
 export const SERVER_LABEL = 'com.projectman.live';
-export const WATCHER_LABEL = 'com.projectman.live-watcher';
 
-export interface RunRecord {
+interface RunRecord {
   key: string;
   command: string;
   args: string[];
@@ -38,7 +37,7 @@ export interface RunRecord {
   unsetEnv: readonly string[] | undefined;
 }
 
-export function makeRelease(overrides: Partial<Release> = {}): Release {
+function makeRelease(overrides: Partial<Release> = {}): Release {
   return {
     id: 'rel_1',
     projectKey: 'PM',

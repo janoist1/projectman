@@ -8,7 +8,7 @@ import type { HostSystem } from './host';
  * machine snapshot nor the cleanup can see or touch anyone else's.
  */
 
-export interface ProcessRow {
+interface ProcessRow {
   pid: number;
   ppid: number;
   pgid: number;
@@ -28,7 +28,7 @@ const DARWIN_COLUMNS = 'pid=,ppid=,pgid=,uid=,pcpu=,rss=,etime=';
  * Two `ps` runs on macOS: `comm` (the executable path, spaces allowed) and `command` (the title and arguments)
  * each end a line, so they cannot share one run.
  */
-export function parseDarwinComm(output: string): Map<number, ProcessRow> {
+function parseDarwinComm(output: string): Map<number, ProcessRow> {
   const rows = new Map<number, ProcessRow>();
   for (const line of output.split('\n')) {
     const match = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+([\d.]+)\s+(\d+)\s+(\S+)\s+(.+?)\s*$/.exec(line);
@@ -50,7 +50,7 @@ export function parseDarwinComm(output: string): Map<number, ProcessRow> {
   return rows;
 }
 
-export function parseDarwinCommands(output: string): Map<number, string> {
+function parseDarwinCommands(output: string): Map<number, string> {
   const commands = new Map<number, string>();
   for (const line of output.split('\n')) {
     const match = /^\s*(\d+)\s+(.*?)\s*$/.exec(line);
@@ -60,7 +60,7 @@ export function parseDarwinCommands(output: string): Map<number, string> {
 }
 
 /** The fields of `/proc/<pid>/stat` that the rows need (the command name may hold spaces and brackets). */
-export function parseLinuxStat(stat: string): {
+function parseLinuxStat(stat: string): {
   name: string;
   ppid: number;
   pgid: number;
@@ -91,7 +91,7 @@ export function parseLinuxStat(stat: string): {
     : null;
 }
 
-export function parseLinuxStatus(status: string): { uid: number; rssBytes: number | null } | null {
+function parseLinuxStatus(status: string): { uid: number; rssBytes: number | null } | null {
   const uid = /^Uid:\s+(\d+)/m.exec(status)?.[1];
   if (uid === undefined) return null;
   const rss = /^VmRSS:\s+(\d+)\s+kB/m.exec(status)?.[1];
@@ -175,9 +175,9 @@ export interface ProcessCleanerOptions {
   pollMs?: number;
 }
 
-export const ORPHAN_MARKERS = ['vitest', 'tinypool'] as const;
-export const ORPHAN_MIN_AGE_SECONDS = 5 * 60;
-export const ORPHAN_GRACE_MS = 10_000;
+const ORPHAN_MARKERS = ['vitest', 'tinypool'] as const;
+const ORPHAN_MIN_AGE_SECONDS = 5 * 60;
+const ORPHAN_GRACE_MS = 10_000;
 const ORPHAN_POLL_MS = 500;
 
 export function createProcessCleaner(options: ProcessCleanerOptions): ProcessCleaner {

@@ -9,7 +9,7 @@ const KeyFile = z.object({
   privateKey: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
   createdAt: z.string().datetime(),
 });
-export type VapidKey = z.infer<typeof KeyFile>;
+type VapidKey = z.infer<typeof KeyFile>;
 export const vapidKeyId = (publicKey: string): string =>
   createHash('sha256').update(publicKey).digest('hex').slice(0, 16);
 

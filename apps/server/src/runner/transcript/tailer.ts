@@ -12,7 +12,7 @@ import { pollEvery } from './poll-ticker';
  * The incremental read follows agent-office (MIT, src/server/usage.ts).
  */
 
-export interface TailerOptions {
+interface TailerOptions {
   path: string;
   /** Begin at the start of the file, or at its current end (a resumed conversation). */
   from: 'start' | 'end';

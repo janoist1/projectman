@@ -1,7 +1,7 @@
 import type { ProjectConfig, SessionState } from '@projectman/shared';
 
 /** One session of a member on a card, as the obligation tracking reads it. */
-export interface ObligationSession {
+interface ObligationSession {
   state: SessionState;
   /** The process runs (or starts). */
   running: boolean;

@@ -15,7 +15,7 @@ import { imageIdSchema, noSymlinks, platformSchema, sourceShaSchema } from '../c
 export const RECEIPT_FILE = 'preparation.json';
 
 export const releaseIdSchema = z.string().regex(/^rel_[a-z0-9]{1,40}$/, 'a release id such as rel_…');
-export const sha256Schema = z.string().regex(/^[0-9a-f]{64}$/);
+const sha256Schema = z.string().regex(/^[0-9a-f]{64}$/);
 const timestampSchema = z.iso.datetime();
 const absolutePathSchema = z
   .string()

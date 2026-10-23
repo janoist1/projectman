@@ -31,7 +31,7 @@ export const LiveJournal = z.object({
 });
 export type LiveJournal = z.infer<typeof LiveJournal>;
 
-export type JournalRead =
+type JournalRead =
   { kind: 'none' } | { kind: 'ok'; journal: LiveJournal } | { kind: 'invalid'; reason: string };
 
 export function readJournal(home: string): JournalRead {

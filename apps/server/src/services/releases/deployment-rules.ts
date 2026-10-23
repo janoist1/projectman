@@ -32,7 +32,7 @@ export function sameArtifact(a: ReleaseArtifact, b: ReleaseArtifact): boolean {
 }
 
 /** The phases a deployment ended in; only the fence (`maintenance`) keeps one of them active. */
-export const SETTLED_PHASES: readonly HybridPhase[] = ['live', 'failed', 'published'];
+const SETTLED_PHASES: readonly HybridPhase[] = ['live', 'failed', 'published'];
 
 export function phaseConflict(deployment: HybridDeployment, what: string) {
   return conflict(

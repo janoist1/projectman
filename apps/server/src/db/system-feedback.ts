@@ -3,7 +3,7 @@ import type { Db } from './database';
 import { parseJson, toJson } from './json';
 
 /** Where an item went on: a card of this installation, or an issue of the public repository. */
-export interface SystemFeedbackForwardedRecord {
+interface SystemFeedbackForwardedRecord {
   kind: 'card' | 'issue';
   projectKey: string | null;
   taskKey: string | null;
@@ -30,13 +30,13 @@ export interface SystemFeedbackItemRecord {
   cardError: { code: string; message: string; at: string } | null;
 }
 
-export interface SystemFeedbackOccurrenceRecord {
+interface SystemFeedbackOccurrenceRecord {
   at: string;
   version: string;
   sessionId: string | null;
 }
 
-export interface SystemFeedbackForwardingRecord {
+interface SystemFeedbackForwardingRecord {
   id: string;
   mode: SystemFeedbackForwardingMode;
   projectKey: string | null;

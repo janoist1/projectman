@@ -86,10 +86,10 @@ function refusalError(refusal: RelationRefusal, key: string) {
 }
 
 /** A validated change of relations: what to write, with nothing written yet (`planRelations`). */
-export type RelationPlan = Extract<SharedRelationPlan, { ok: true }>;
+type RelationPlan = Extract<SharedRelationPlan, { ok: true }>;
 
 /** What the relations need of the task service, which owns the writes they share with other changes. */
-export interface RelationDeps {
+interface RelationDeps {
   /** The task has a session that has not ended, whoever runs it. */
   liveSession: (task: Task) => boolean;
   /** Records a task's change of parent on the timelines of both cards. */

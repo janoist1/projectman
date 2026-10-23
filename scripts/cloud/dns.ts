@@ -18,7 +18,7 @@ const sourceSchema = z.looseObject({
   MultiValueAnswer: z.boolean().optional(),
 });
 type Source = z.output<typeof sourceSchema>;
-export interface RecordSpec {
+interface RecordSpec {
   type: DnsRecordType;
   name: string;
   content?: string;
@@ -42,7 +42,7 @@ function brief(value: unknown): string {
   const text = JSON.stringify(value) ?? '';
   return text.length > 160 ? `${text.slice(0, 157)}...` : text;
 }
-export interface Mapping {
+interface Mapping {
   records: RecordSpec[];
   skipped: Source[];
   refusals: string[];
@@ -53,7 +53,7 @@ function unescape(value: string): string {
     /^[0-7]{3}$/.test(escaped) ? String.fromCharCode(parseInt(escaped, 8)) : escaped,
   );
 }
-export function dnsName(value: string): string {
+function dnsName(value: string): string {
   return unescape(value).replace(/\.$/, '').toLowerCase();
 }
 
@@ -170,7 +170,7 @@ async function sourceZone(context: CloudContext) {
   return { sources: answer.ResourceRecordSets, servers: detail.DelegationSet.NameServers };
 }
 
-export async function dnsZone(context: CloudContext, readOnly = true) {
+async function dnsZone(context: CloudContext, readOnly = true) {
   const api = cloudflareApi(context, readOnly);
   const account = await resolveAccount(api, context.config);
   const zone = await findZone(api, context.config, account.id);
@@ -374,7 +374,7 @@ const dohSchema = z.object({
   Status: z.number(),
   Answer: z.array(z.object({ type: z.number(), data: z.string() })).optional(),
 });
-export async function publicDns(context: CloudContext, type: 'NS' | 'DS') {
+async function publicDns(context: CloudContext, type: 'NS' | 'DS') {
   const answers: string[][] = [];
   for (const endpoint of ['https://cloudflare-dns.com/dns-query', 'https://dns.google/resolve']) {
     const url = new URL(endpoint);

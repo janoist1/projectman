@@ -91,20 +91,20 @@ export const TEAM_TOOL_NAMES = [
 ] as const;
 export type TeamToolName = (typeof TEAM_TOOL_NAMES)[number];
 
-export interface ToolRun<Args> {
+interface ToolRun<Args> {
   ctx: ToolContext;
   args: Args;
   handler: TeamToolsHandler;
 }
 
 /** An image a tool hands to the model, next to its text (PM-516). */
-export interface ToolImage {
+interface ToolImage {
   data: Buffer;
   mimeType: 'image/webp' | 'image/png' | 'image/jpeg' | 'image/gif';
 }
 
 /** A tool answer with images; a plain string is a text-only answer. */
-export interface ToolOutput {
+interface ToolOutput {
   text: string;
   images: ToolImage[];
 }
@@ -135,7 +135,7 @@ export const ProjectKeyArg = z
   .regex(/^[A-Z][A-Z0-9]{0,9}$/)
   .describe('Project key, e.g. "PM": the project this call is about. Every call names its project.');
 
-export interface ExternalToolRun<Args> {
+interface ExternalToolRun<Args> {
   ctx: ExternalToolContext;
   args: Args;
   handler: ExternalToolsHandler;
@@ -151,16 +151,16 @@ export interface ExternalStructured {
 }
 
 /** read: a read-only key may call it too; write: only the super and legacy keys. */
-export type ExternalAccess = 'read' | 'write';
+type ExternalAccess = 'read' | 'write';
 
 /** The credential modes that are offered, and may call, a tool of each access class. */
-export const EXTERNAL_MODES: Record<ExternalAccess, readonly ExternalCredentialMode[]> = {
+const EXTERNAL_MODES: Record<ExternalAccess, readonly ExternalCredentialMode[]> = {
   read: ['super', 'read', 'legacy'],
   write: ['super', 'legacy'],
 };
 
 /** The call of a tool that belongs to no project (`list_projects`): the key, not a project context. */
-export interface ExternalProjectlessRun<Args> {
+interface ExternalProjectlessRun<Args> {
   principal: IntegratorPrincipal;
   requestId: string;
   args: Args;
@@ -194,7 +194,7 @@ export interface ExternalProjectlessTool extends ExternalToolBase {
 export type ExternalRegisteredTool = ExternalTool | ExternalProjectlessTool;
 
 /** What a shared tool definition declares to be served externally; see `defineTool`. */
-export interface ExternalBinding<Args> {
+interface ExternalBinding<Args> {
   access: ExternalAccess;
   /** The description the bearer endpoint shows when the member one speaks of who may call it. */
   description?: string;

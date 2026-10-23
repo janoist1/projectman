@@ -15,6 +15,8 @@ import {
   stageOwners,
   validateProjectConfig,
   type Stage,
+  AgentProvider,
+  DEFAULT_PROVIDER_MODELS,
 } from '@projectman/shared';
 import {
   aiMemberDefaults,
@@ -81,8 +83,19 @@ function shape(stages: Stage[]) {
 }
 
 describe('every template', () => {
-  it('lists the four factory templates', () => {
+  it.each(AgentProvider.options)('builds a valid starter team on %s', (provider) => {
+    const config = getTemplate('starter')!.build({ ...input('en'), provider });
+    const members = config.team.members.filter((member) => member.kind === 'ai');
+    expect(members).toHaveLength(3);
+    for (const member of members)
+      expect(member).toMatchObject({ provider, model: DEFAULT_PROVIDER_MODELS[provider] });
+    expect(validateProjectConfig(config).filter((issue) => issue.severity !== 'warning')).toEqual([]);
+    expect(config.pipeline.stages.map((stage) => stage.id)).toEqual(['ready', 'dev', 'done']);
+    expect(stageOwners(config, config.pipeline.stages[1]!)).toEqual([members[0]!.handle]);
+  });
+  it('lists the starter before the existing factory templates', () => {
     expect(templates.map((t) => t.id)).toEqual([
+      'starter',
       'web-client-project',
       'small-team',
       'internal-tool',

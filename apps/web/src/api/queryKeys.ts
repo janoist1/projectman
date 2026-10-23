@@ -40,8 +40,6 @@ export const queryKeys = {
   /** The person's own web push devices and settings (PM-815): not tied to a project. */
   push: ['push'] as const,
   projects: ['projects'] as const,
-  templates: ['templates'] as const,
-  projectPreview: (body: unknown) => ['project-preview', body] as const,
   project: (key: string) => ['project', key] as const,
   board: (key: string) => ['project', key, 'board'] as const,
   task: (key: string, taskKey: string) => ['project', key, 'task', taskKey] as const,

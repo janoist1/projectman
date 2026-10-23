@@ -58,7 +58,6 @@ import {
   Me,
   MemberView,
   ProjectPauseView,
-  ProjectPreview,
   ProjectSummary,
   ScheduleRun,
   SchedulesView,
@@ -69,7 +68,6 @@ import {
   UpdateTaskResponse,
   TeamMessagesView,
   TeamThreadsView,
-  TemplateSummary,
   routes,
   InvolvementsResponse,
   IntegratorKeyResponse,
@@ -233,11 +231,7 @@ export const api = {
   acceptInvite: (token: string, body: AcceptInviteRequest) =>
     apiRequest(routes.acceptInvite(token), { method: 'POST', body, schema: Me }),
 
-  templates: () => apiRequest(routes.templates(), { schema: TemplateSummary.array() }),
   projects: () => apiRequest(routes.projects(), { schema: ProjectSummary.array() }),
-  /** What a create would make and what is wrong with it; nothing is saved. */
-  previewProject: (body: CreateProjectRequest) =>
-    apiRequest(routes.projectPreview(), { method: 'POST', body, schema: ProjectPreview }),
   createProject: (body: CreateProjectRequest) =>
     apiRequest<unknown>(routes.projects(), { method: 'POST', body }),
 

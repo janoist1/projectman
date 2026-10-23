@@ -1,4 +1,4 @@
-import type { CardMover, Merger, ProjectConfig } from '@projectman/shared';
+import type { AgentProvider, CardMover, Merger, ProjectConfig } from '@projectman/shared';
 
 export interface TemplateOwner {
   handle: string;
@@ -7,6 +7,7 @@ export interface TemplateOwner {
 }
 
 export interface BuildTemplateInput {
+  provider?: AgentProvider;
   cardMover?: CardMover;
   /** Who merges approved work into the default branch; absent: the one the pipeline implies (`defaultMerger`). */
   merger?: Merger;

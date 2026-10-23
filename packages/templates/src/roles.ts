@@ -5,6 +5,9 @@ import {
   DEFAULT_OUTBOUND_NETWORK,
   DEFAULT_PERMISSION_MODE,
   DEFAULT_PROVIDER_MODELS,
+  permissionModeFitsProvider,
+  FALLBACK_PERMISSION_MODE,
+  type AgentProvider,
   type AiBuiltInRoleId,
   type AiMemberConfig,
   type Approver,
@@ -65,6 +68,7 @@ export function aiRoleDefaults(role: AiBuiltInRoleId): AiRoleDefaults {
  * values are formed: a template's hire and the project manager helper both call it.
  */
 export function newAiMember(input: {
+  provider?: AgentProvider | undefined;
   role: AiBuiltInRoleId;
   handle: string;
   displayName: string;
@@ -79,9 +83,13 @@ export function newAiMember(input: {
     displayName: input.displayName,
     role: input.role,
     ...(input.specialty ? { specialty: input.specialty } : {}),
-    model: defaults.model,
-    permissionMode: defaults.permissionMode,
-    approver: defaults.approver,
+    ...(input.provider ? { provider: input.provider } : {}),
+    model: input.provider ? DEFAULT_PROVIDER_MODELS[input.provider] : defaults.model,
+    permissionMode:
+      input.provider && !permissionModeFitsProvider(input.provider, defaults.permissionMode)
+        ? FALLBACK_PERMISSION_MODE
+        : defaults.permissionMode,
+    approver: input.provider === 'nanogpt' ? 'human' : defaults.approver,
     capacity: defaults.capacity,
     instructions: defaults.instructions,
     sponsor: input.sponsor,

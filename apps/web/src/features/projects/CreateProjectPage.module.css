@@ -1,352 +1,164 @@
+.form,
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.form {
+  gap: 26px;
+}
+.section h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 800;
+}
+.nameGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 150px;
+  gap: 14px;
+}
+.muted,
+.help,
+.starter {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--c-ink-3);
+}
+.muted {
+  color: var(--c-ink-4);
+}
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
 .fieldset {
   border: 0;
   margin: 0;
   padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  min-width: 0;
 }
-
-.legend {
+.fieldset legend {
   padding: 0;
-  margin-bottom: 6px;
-  font-size: 12.5px;
-  font-weight: 800;
+  margin-bottom: 10px;
+  font-size: var(--text-sm);
   color: var(--c-ink-2);
 }
-
-.templates {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.muted {
-  font-size: var(--text-sm);
-  color: var(--c-ink-4);
-}
-
-.form {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.error {
-  font-size: 12.5px;
-  font-weight: 700;
-  color: var(--c-blocked-text);
-}
-
-.repo {
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
-  padding: 10px;
+.providerList {
+  border: 1px solid var(--c-line);
   border-radius: var(--radius-lg);
-  background: var(--c-subtle);
-  border: 1px solid var(--c-line-soft);
-}
-
-.repoGrid {
-  flex: 1 1 auto;
-  min-width: 0;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-/* The step bar: finished steps dark, the current one in the accent, the rest grey. */
-.steps {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 6px;
-}
-
-.stepItem {
-  min-width: 0;
-}
-
-.stepButton {
-  all: unset;
-  box-sizing: border-box;
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  cursor: pointer;
-  color: var(--c-ink-3);
-  font-size: 12.5px;
-  font-weight: 700;
-}
-
-.stepButton:disabled {
-  cursor: default;
-}
-
-.stepButton:focus-visible {
-  outline: 2px solid var(--c-accent);
-  outline-offset: 2px;
-  border-radius: var(--radius-sm);
-}
-
-.stepBar {
-  height: 4px;
-  border-radius: 2px;
-  background: var(--c-seg-todo);
-}
-
-.stepDone {
-  color: var(--c-ink-2);
-}
-
-.stepDone .stepBar {
-  background: var(--c-seg-done);
-}
-
-.stepNow {
-  color: var(--c-accent-text);
-}
-
-.stepNow .stepBar {
-  background: var(--c-accent);
-}
-
-.stepName {
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
-
-.stepCompact {
-  display: none;
-  margin: 8px 0 0;
-  font-size: var(--text-sm);
-  font-weight: 700;
-  color: var(--c-ink-3);
+.providerRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 5px 10px;
+  padding: 14px;
+  border-top: 1px solid var(--c-line-soft);
+  border-left: 3px solid transparent;
 }
-
-.panel {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  animation: pm-step-in 180ms ease-out;
+.providerRow:first-child {
+  border-top: 0;
 }
-
-@keyframes pm-step-in {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-  }
+.providerRow[data-selected] {
+  background: var(--c-subtle);
+  border-left-color: var(--c-ink);
 }
-
-@media (prefers-reduced-motion: reduce) {
-  .panel {
-    animation: none;
-  }
-}
-
-.stepTitle {
-  margin: 0;
-  font-size: 18px;
-  font-weight: 800;
-  color: var(--c-ink);
-}
-
-.stepTitle:focus {
-  outline: none;
-}
-
-.help {
-  margin: 0;
-  padding: 0;
-  font-size: var(--text-sm);
-  color: var(--c-ink-3);
-}
-
-/* A legend is outside the fieldset's flex gap: it keeps its own distance to the first card. */
-.legendHelp {
-  margin-bottom: 12px;
-}
-
-/* The members and steps of a kind, on a line of their own under its description. */
-.kindCounts {
-  display: block;
-  margin-top: 4px;
-  color: var(--c-ink-4);
-}
-
-.pmNote {
-  margin: 0;
+.providerName {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: var(--text-sm);
-  color: var(--c-ink-3);
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
 }
-
+.providerName input {
+  margin: 0;
+  accent-color: var(--c-ink);
+}
+.providerMeta {
+  grid-column: 1;
+  font-size: 12px;
+  color: var(--c-ink-4);
+  padding-left: 21px;
+}
+.providerState {
+  grid-column: 2;
+  grid-row: 1;
+}
+.todo {
+  grid-column: 1 / -1;
+  font-size: 12px;
+  color: var(--c-ink-3);
+  padding-left: 21px;
+}
+.todo:empty {
+  display: none;
+}
+.todo button {
+  display: block;
+  margin-top: 8px;
+}
+.todo code {
+  overflow-wrap: anywhere;
+}
+.state {
+  animation: state-in 150ms ease-out;
+}
+@keyframes state-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .state {
+    animation: none;
+  }
+}
+.warning,
+.queryError {
+  padding: 12px;
+  margin: 0;
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius-lg);
+  font-size: var(--text-sm);
+}
+.warning {
+  background: var(--c-needs-bg);
+  color: var(--c-needs-text);
+  border-color: var(--c-needs-border);
+}
 .repos > summary {
   cursor: pointer;
   font-size: 12.5px;
   font-weight: 800;
   color: var(--c-ink-2);
-  margin-bottom: 8px;
 }
-
 .repos[open] {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
-
-.repos[open] > summary {
-  margin-bottom: 0;
-}
-
-.loading {
+.repo {
   display: flex;
-  flex-direction: column;
-  gap: 8px;
-  font-size: var(--text-sm);
-  color: var(--c-ink-3);
-}
-
-.loading p {
-  margin: 0;
-}
-
-.skeleton {
-  height: 44px;
-  border-radius: var(--radius-lg);
-  background: var(--c-muted);
-}
-
-/* The summary: a line per column. */
-.summary {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.moverLine {
-  margin: 0;
-  font-size: var(--text-sm);
-  color: var(--c-ink-2);
-}
-
-.columns {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.columnRow {
-  display: grid;
-  grid-template-columns: 150px minmax(0, 1fr);
-  gap: 10px;
-  align-items: start;
+  align-items: flex-start;
+  gap: 6px;
   padding: 10px;
+  border: 1px solid var(--c-line-soft);
   border-radius: var(--radius-lg);
   background: var(--c-subtle);
-  border: 1px solid var(--c-line-soft);
 }
-
-.columnTag {
-  justify-self: start;
-  padding: 3px 9px;
-  border-radius: var(--radius-md);
-  background: var(--col-bg);
-  color: var(--col-fg);
-  font-size: 12px;
-  font-weight: 750;
+.repoGrid {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
 }
-
-.stageLines {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  font-size: var(--text-sm);
-  color: var(--c-ink-2);
-}
-
-.stageLine {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 10px;
-}
-
-.stageName {
-  color: var(--c-ink);
-}
-
-.person {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  margin-right: 6px;
-}
-
-.moved {
-  color: var(--c-ink-3);
-}
-
-.needs {
-  display: inline-flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 6px;
-  color: var(--c-ink-3);
-}
-
-.checkOk {
-  margin: 0;
-  padding: 10px 12px;
-  border-radius: var(--radius-lg);
-  background: var(--c-ok-bg);
-  color: var(--c-ok-text);
-  font-size: var(--text-sm);
-}
-
-.checkBad {
-  padding: 10px 12px;
-  border-radius: var(--radius-lg);
-  background: var(--c-blocked-bg);
-  border: 1px solid var(--c-blocked-border);
-  color: var(--c-blocked-text);
-  font-size: var(--text-sm);
-}
-
-.checkBad ul {
-  margin: 6px 0 0;
-  padding-left: 18px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.fixLink {
-  all: unset;
-  cursor: pointer;
-  font-weight: 750;
-  text-decoration: underline;
-}
-
-.fixLink:focus-visible {
-  outline: 2px solid var(--c-accent);
-  outline-offset: 2px;
-}
-
-/* The buttons stay in reach however long the step grows: a bar pinned to the bottom edge. */
 .bar {
   position: sticky;
   bottom: 0;
@@ -354,52 +166,47 @@
   flex-direction: column;
   gap: 10px;
   margin: 0 -28px;
-  padding: 12px 28px calc(12px + env(safe-area-inset-bottom));
+  padding: 14px 28px calc(14px + env(safe-area-inset-bottom));
   background: var(--c-surface);
   border-top: 1px solid var(--c-line-soft);
 }
-
-.blocked {
-  margin: 0;
-  font-size: var(--text-sm);
-  color: var(--c-blocked-text);
-}
-
 .actions {
   display: flex;
-  justify-content: flex-end;
-  gap: 8px;
+  align-items: center;
+  gap: 16px;
 }
-
+.starter {
+  flex: 1;
+  font-size: 12px;
+}
+.actions > button {
+  flex-shrink: 0;
+}
 .actions > button[aria-disabled='true'] {
   opacity: 0.55;
   cursor: not-allowed;
 }
-
 @media (max-width: 767px) {
   .bar {
-    margin: 0 -18px;
+    margin-inline: -18px;
     padding-inline: 18px;
   }
+  .actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
   .actions > button {
-    height: 44px;
-  }
-  .actions > button[type='submit'] {
-    flex: 1 1 auto;
-  }
-  .stepName {
-    display: none;
-  }
-  .stepCompact {
-    display: block;
-  }
-  .columnRow {
-    grid-template-columns: minmax(0, 1fr);
+    width: 100%;
+    min-height: 44px;
   }
 }
-
 @media (max-width: 520px) {
+  .nameGrid,
   .repoGrid {
     grid-template-columns: minmax(0, 1fr);
+  }
+  .providerRow {
+    padding: 12px 9px;
+    column-gap: 5px;
   }
 }

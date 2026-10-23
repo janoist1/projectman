@@ -1,19 +1,14 @@
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
-import type { CreateProjectRequest, ProjectPreview } from '@projectman/shared';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { afterEach, expect, it } from 'vitest';
+import type { CreateProjectRequest } from '@projectman/shared';
 import { setFetchImplementation } from '../../api/client';
 import { MeContext } from '../../app/contexts';
 import { t } from '../../i18n/t';
-import { issueMessage } from '../../lib/configIssues';
 import { createMockFetch, mockProject } from '../../test/mockProject';
 import { CreateProjectPage } from './CreateProjectPage';
 
-/** The new-project wizard (PM-439): the steps, the summary that checks it works, and a refused create. */
-
 afterEach(() => setFetchImplementation((input, init) => globalThis.fetch(input, init)));
-
-function renderWizard() {
-  const project = mockProject();
+function renderForm(project = mockProject()) {
   project.render(
     <MeContext.Provider value={project.context.me}>
       <CreateProjectPage />
@@ -22,163 +17,203 @@ function renderWizard() {
   );
   return project;
 }
-
-const next = () => fireEvent.click(screen.getByRole('button', { name: t('projects.create.next') }));
-const heading = (name: string) => screen.findByRole('heading', { name });
-const requestsTo = (project: ReturnType<typeof mockProject>, method: string, path: string) =>
-  project.requests.filter((request) => request.method === method && request.path === path);
-
-/** Fills the first three steps and arrives at the code step. */
-async function toCodeStep() {
-  fireEvent.change(await screen.findByLabelText(t('projects.create.name')), {
-    target: { value: 'Acme Web' },
-  });
-  next();
-  await heading(t('projects.create.kindTitle'));
-  await screen.findAllByRole('radio');
-  next();
-  await heading(t('projects.create.moverTitle'));
-  next();
-  await heading(t('projects.create.codeTitle'));
+const submit = () => fireEvent.click(screen.getByRole('button', { name: t('projects.create.submit') }));
+const creates = (project: ReturnType<typeof mockProject>) =>
+  project.requests.filter((request) => request.method === 'POST' && request.path === '/api/projects');
+function fill() {
+  fireEvent.change(screen.getByLabelText(t('projects.create.name')), { target: { value: 'Acme Web' } });
   fireEvent.change(screen.getByLabelText(t('projects.create.workspace')), {
     target: { value: '/work/acme' },
   });
 }
-
-describe('the new project wizard (PM-439)', () => {
-  it('goes through the steps and creates the project with the chosen card mover', async () => {
-    const project = renderWizard();
-    fireEvent.change(await screen.findByLabelText(t('projects.create.name')), {
-      target: { value: 'Acme Web' },
-    });
-    expect((screen.getByLabelText(t('projects.create.key')) as HTMLInputElement).value).toBe('AW');
-    next();
-    await heading(t('projects.create.kindTitle'));
-    await screen.findAllByRole('radio');
-    next();
-    await heading(t('projects.create.moverTitle'));
-    const worker = screen.getByRole('radio', { name: new RegExp(t('settings.team.mover.worker.title')) });
-    expect((worker as HTMLInputElement).checked).toBe(true);
-    fireEvent.click(screen.getByRole('radio', { name: new RegExp(t('settings.team.mover.human.title')) }));
-    expect(screen.getByText(t('settings.team.mover.youMove'))).toBeTruthy();
-    next();
-    await heading(t('projects.create.codeTitle'));
-    fireEvent.change(screen.getByLabelText(t('projects.create.workspace')), {
-      target: { value: '/work/acme' },
-    });
-    next();
-
-    await heading(t('projects.create.summaryTitle'));
-    expect(await screen.findByRole('status')).toBeTruthy();
-    const submit = screen.getByRole('button', { name: t('projects.create.submit') });
-    expect(submit.getAttribute('aria-disabled')).toBeNull();
-    fireEvent.click(submit);
-
-    await waitFor(() => expect(requestsTo(project, 'POST', '/api/projects')).toHaveLength(1));
-    const body = requestsTo(project, 'POST', '/api/projects')[0]!.body as CreateProjectRequest;
-    expect(body).toMatchObject({
-      key: 'AW',
-      name: 'Acme Web',
-      workspacePath: '/work/acme',
-      cardMover: 'creator',
-    });
-    // The summary came from the server's preview of the same request.
-    expect(requestsTo(project, 'POST', '/api/projects/preview').at(-1)?.body).toMatchObject({
-      key: 'AW',
-      cardMover: 'creator',
-    });
-  });
-
-  it('asks for the name and the key before the next step, and for the workspace before the summary', async () => {
-    renderWizard();
-    await screen.findByLabelText(t('projects.create.name'));
-    next();
-    expect(await screen.findByText(t('projects.validation.nameRequired'))).toBeTruthy();
-    expect(screen.queryByRole('heading', { name: t('projects.create.kindTitle') })).toBeNull();
-    fireEvent.change(screen.getByLabelText(t('projects.create.name')), { target: { value: 'Acme' } });
-    next();
-    await heading(t('projects.create.kindTitle'));
-    await screen.findAllByRole('radio');
-    next();
-    await heading(t('projects.create.moverTitle'));
-    next();
-    await heading(t('projects.create.codeTitle'));
-    next();
-    expect(await screen.findByText(t('projects.validation.workspaceRequired'))).toBeTruthy();
-    expect(screen.queryByRole('heading', { name: t('projects.create.summaryTitle') })).toBeNull();
-  });
-
-  it('shows what does not work in the summary, with a way to fix it, and does not create', async () => {
-    const project = renderWizard();
-    const base = createMockFetch(project.backend, project.requests);
-    const issue = { code: 'work_stage_without_worker', path: 'pipeline.stages[2]' } as const;
-    setFetchImplementation(async (path, init) => {
-      const response = await base(path, init);
-      if (path !== '/api/projects/preview') return response;
-      const preview = (await response.json()) as ProjectPreview;
-      return new Response(JSON.stringify({ ...preview, issues: [issue] }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      });
-    });
-    await toCodeStep();
-    next();
-    await heading(t('projects.create.summaryTitle'));
-
-    const bad = await screen.findByRole('alert');
-    expect(within(bad).getByText(t('projects.create.checkBad'))).toBeTruthy();
-    expect(bad.textContent).toContain(issueMessage(issue));
-    expect(screen.getByText(t('projects.create.cannotSubmit'))).toBeTruthy();
-    const submit = screen.getByRole('button', { name: t('projects.create.submit') });
-    expect(submit.getAttribute('aria-disabled')).toBe('true');
-    fireEvent.click(submit);
-    expect(requestsTo(project, 'POST', '/api/projects')).toHaveLength(0);
-
-    // The fix link goes to the step the issue is about.
-    fireEvent.click(within(bad).getByRole('button', { name: t('projects.create.fixKind') }));
-    await heading(t('projects.create.kindTitle'));
-  });
-
-  it('shows the reason of a refused create and keeps what was entered', async () => {
-    const project = renderWizard();
-    const base = createMockFetch(project.backend, project.requests);
-    const issue = { code: 'work_stage_without_worker', path: 'pipeline.stages[2]' } as const;
-    setFetchImplementation(async (path, init) => {
-      if (path === '/api/projects' && init?.method === 'POST') {
-        return new Response(
-          JSON.stringify({
-            error: { code: 'invalid_config', message: 'invalid', details: { issues: [issue] } },
-          }),
-          { status: 422, headers: { 'content-type': 'application/json' } },
-        );
-      }
-      return base(path, init);
-    });
-    await toCodeStep();
-    next();
-    await heading(t('projects.create.summaryTitle'));
-    fireEvent.click(await screen.findByRole('button', { name: t('projects.create.submit') }));
-
-    // The reason starts with the name of the stage it is about.
-    const reason = issueMessage(issue).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+async function ready() {
+  await waitFor(() =>
     expect(
-      await screen.findByText(
-        new RegExp(`^${t('projects.create.rejected', { reason: `[^:]+: ${reason}` })}$`),
+      screen.getByRole('group', { name: t('projects.create.providerLegend') }).getAttribute('aria-busy'),
+    ).toBe('false'),
+  );
+}
+
+it('shows provider status and login instructions and defaults to the first ready provider', async () => {
+  const project = mockProject();
+  project.backend.providerStatus.claude = { loggedIn: false, problem: 'not_logged_in' };
+  renderForm(project);
+  await ready();
+  expect(screen.getByText('claude auth login')).toBeTruthy();
+  expect((screen.getByRole('radio', { name: 'Codex' }) as HTMLInputElement).checked).toBe(true);
+});
+
+it('submits the chosen provider, language, suggested key and repos without a template or mover', async () => {
+  const project = renderForm();
+  await ready();
+  fill();
+  fireEvent.change(screen.getByLabelText(t('projects.create.language')), { target: { value: 'en' } });
+  fireEvent.click(screen.getByRole('radio', { name: 'Gemini' }));
+  fireEvent.click(screen.getByRole('button', { name: t('projects.create.addRepo') }));
+  const group = screen.getByRole('group', { name: t('projects.create.repoLabel', { index: 1 }) });
+  fireEvent.change(group.querySelectorAll('input')[0]!, { target: { value: 'app' } });
+  fireEvent.change(group.querySelectorAll('input')[1]!, { target: { value: '.' } });
+  submit();
+  await waitFor(() => expect(creates(project)).toHaveLength(1));
+  expect(creates(project)[0]!.body as CreateProjectRequest).toEqual({
+    key: 'AW',
+    name: 'Acme Web',
+    workspacePath: '/work/acme',
+    language: 'en',
+    provider: 'gemini',
+    repos: [{ name: 'app', path: '.', defaultBranch: 'main' }],
+  });
+});
+
+it('refetches on demand and preserves a manual selection', async () => {
+  const project = renderForm();
+  await ready();
+  fireEvent.click(screen.getByRole('radio', { name: 'Codex' }));
+  project.backend.providerStatus.codex = { loggedIn: false, problem: 'not_logged_in' };
+  fireEvent.click(screen.getByRole('button', { name: t('projects.create.recheck') }));
+  await screen.findByText('codex login');
+  expect((screen.getByRole('radio', { name: 'Codex' }) as HTMLInputElement).checked).toBe(true);
+  expect(project.requests.filter((request) => request.path === '/api/providers')).toHaveLength(2);
+  expect(screen.getByRole('note')).toBeTruthy();
+});
+
+it('keeps the recheck button focused and blocks duplicate requests while refreshing', async () => {
+  const project = renderForm();
+  await ready();
+  let release!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const fetch = createMockFetch(project.backend, project.requests);
+  setFetchImplementation(async (path, init) => {
+    if (path === '/api/providers') await pending;
+    return fetch(path, init);
+  });
+  const button = screen.getByRole('button', { name: t('projects.create.recheck') });
+  button.focus();
+  fireEvent.click(button);
+  await waitFor(() => expect(button.getAttribute('aria-busy')).toBe('true'));
+  expect(button.hasAttribute('disabled')).toBe(false);
+  expect(document.activeElement).toBe(button);
+  fireEvent.click(button);
+  release();
+  await waitFor(() => expect(button.getAttribute('aria-busy')).toBeNull());
+  expect(project.requests.filter((request) => request.path === '/api/providers')).toHaveLength(2);
+});
+
+it.each(['cli_missing', 'cli_too_old'] as const)(
+  'explains the %s provider setup problem',
+  async (problem) => {
+    const project = mockProject();
+    project.backend.providerStatus.gemini = {
+      loggedIn: false,
+      problem,
+      cliVersion: '1.0.0',
+      minCliVersion: '2.0.0',
+    };
+    renderForm(project);
+    await ready();
+    expect(
+      screen.getByText(
+        t(problem === 'cli_missing' ? 'projects.create.cliMissing' : 'projects.create.cliTooOld'),
       ),
     ).toBeTruthy();
-    // Back at the first step the name is still there.
-    fireEvent.click(
-      screen.getByRole('button', {
-        name: t('projects.create.stepButton', {
-          n: 1,
-          total: 5,
-          name: t('projects.create.stepsNames.name'),
-        }),
-      }),
-    );
-    expect((await screen.findByLabelText(t('projects.create.name'))) as HTMLInputElement).toHaveProperty(
-      'value',
-      'Acme Web',
-    );
+    expect(
+      screen.getByText(
+        problem === 'cli_missing'
+          ? t('projects.create.installProvider', { cli: t('projects.create.cliNames.gemini') })
+          : t('projects.create.updateProvider', {
+              cli: t('projects.create.cliNames.gemini'),
+              cliVersion: '1.0.0',
+              minCliVersion: '2.0.0',
+            }),
+      ),
+    ).toBeTruthy();
+  },
+);
+
+it('warns when none are ready while still allowing creation', async () => {
+  const project = mockProject();
+  for (const provider of ['claude', 'codex', 'gemini', 'nanogpt'] as const)
+    project.backend.providerStatus[provider] = { loggedIn: false, problem: 'not_logged_in' };
+  renderForm(project);
+  await ready();
+  expect(screen.getByRole('note')).toBeTruthy();
+  fill();
+  submit();
+  await waitFor(() => expect(creates(project)).toHaveLength(1));
+});
+
+it('blocks submission only during the first provider check', async () => {
+  const project = mockProject();
+  const fetch = createMockFetch(project.backend, project.requests);
+  let release!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
   });
+  setFetchImplementation(async (path, init) => {
+    if (path === '/api/providers') await pending;
+    return fetch(path, init);
+  });
+  renderForm(project);
+  fill();
+  submit();
+  expect(creates(project)).toHaveLength(0);
+  expect(
+    screen.getByRole('button', { name: t('projects.create.submit') }).getAttribute('aria-disabled'),
+  ).toBe('true');
+  release();
+  await ready();
+});
+
+it('allows creation when provider lookup fails without a not-ready warning', async () => {
+  const project = mockProject();
+  project.backend.providersFail = true;
+  renderForm(project);
+  await ready();
+  expect(screen.getByText(t('projects.create.providersError'))).toBeTruthy();
+  expect(screen.queryByRole('note')).toBeNull();
+  fill();
+  submit();
+  await waitFor(() => expect(creates(project)).toHaveLength(1));
+});
+
+it('focuses the first invalid field on submit', async () => {
+  renderForm();
+  await ready();
+  submit();
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText(t('projects.create.name'))));
+  expect(screen.getByText(t('projects.validation.workspaceRequired'))).toBeTruthy();
+});
+
+it('shows workspace_not_found under the field and focuses it', async () => {
+  const project = mockProject();
+  const fetch = createMockFetch(project.backend, project.requests);
+  setFetchImplementation(async (path, init) =>
+    path === '/api/projects' && init?.method === 'POST'
+      ? new Response(
+          JSON.stringify({ error: { code: 'workspace_not_found', message: 'Missing workspace' } }),
+          { status: 400 },
+        )
+      : fetch(path, init),
+  );
+  renderForm(project);
+  await ready();
+  fill();
+  submit();
+  await screen.findByText(t('errors.codes.workspace_not_found'));
+  await waitFor(() =>
+    expect(document.activeElement).toBe(screen.getByLabelText(t('projects.create.workspace'))),
+  );
+});
+
+it('saves a NanoGPT key, refreshes status and returns focus to its radio', async () => {
+  renderForm();
+  await ready();
+  fireEvent.click(screen.getByRole('radio', { name: 'NanoGPT' }));
+  fireEvent.click(screen.getByRole('button', { name: t('nanogptKey.add') }));
+  fireEvent.change(screen.getByLabelText(t('nanogptKey.field')), { target: { value: 'test-key' } });
+  fireEvent.click(screen.getByRole('button', { name: t('nanogptKey.save') }));
+  await screen.findByText(t('providerSettings.nanogptSet'));
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('radio', { name: 'NanoGPT' })));
 });

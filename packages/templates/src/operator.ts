@@ -1,4 +1,4 @@
-import { OPERATOR_ROLE, type AiMemberConfig } from '@projectman/shared';
+import { OPERATOR_ROLE, type AiMemberConfig, type AgentProvider } from '@projectman/shared';
 import { defaultMemberName, uniqueHandle } from './members';
 import { newAiMember } from './roles';
 
@@ -8,12 +8,14 @@ import { newAiMember } from './roles';
  * provider, model and permission mode as the project manager's), with a fixed human approver.
  */
 export function operatorMember(input: {
+  provider?: AgentProvider | undefined;
   language: string;
   sponsor: string;
   taken: readonly string[];
 }): AiMemberConfig {
   return {
     ...newAiMember({
+      provider: input.provider,
       role: OPERATOR_ROLE,
       handle: uniqueHandle('operator', new Set(input.taken)),
       displayName: defaultMemberName(OPERATOR_ROLE, input.language, 1),

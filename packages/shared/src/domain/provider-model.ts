@@ -1,5 +1,17 @@
 import { PermissionMode } from './member';
 import type { AgentProvider, Approver } from './member';
+import type { ProviderLoginStatus } from '../api/dto';
+
+/** The first ready provider in the starter team's preference order. */
+export function starterProvider(
+  statuses: readonly Pick<ProviderLoginStatus, 'provider' | 'loggedIn'>[],
+): AgentProvider | null {
+  return (
+    (['claude', 'codex', 'gemini', 'nanogpt'] as const).find((provider) =>
+      statuses.some((status) => status.provider === provider && status.loggedIn === true),
+    ) ?? null
+  );
+}
 
 /** Providers running through the Codex CLI share its sandbox and session metadata. */
 export function usesCodexCli(provider: AgentProvider | undefined): boolean {

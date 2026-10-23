@@ -31,12 +31,14 @@ function build(id: string, extra: Partial<BuildTemplateInput> = {}): ProjectConf
 }
 
 const target: Record<string, string> = {
+  starter: 'done',
   'web-client-project': 'release',
   'small-team': 'done',
   'internal-tool': 'done',
   'daily-routine': 'done',
 };
 const defaults: Record<string, Merger> = {
+  starter: { kind: 'developer' },
   'web-client-project': { kind: 'code_reviewer' },
   'small-team': { kind: 'code_reviewer' },
   'internal-tool': { kind: 'code_reviewer' },
@@ -44,7 +46,7 @@ const defaults: Record<string, Merger> = {
 };
 
 describe('the merger of the templates', () => {
-  it('has four templates, each with its merge target and default merger', () => {
+  it('gives each template its merge target and default merger', () => {
     expect(templates.map((t) => t.id).sort()).toEqual(Object.keys(defaults).sort());
     for (const { id } of templates) {
       const config = build(id);
@@ -72,7 +74,7 @@ describe('the merger of the templates', () => {
         config.project.repos = [{ name: 'web', path: '.', defaultBranch: 'main' }];
         const issues = validateProjectConfig(config).filter((i) => i.code === 'merger_unresolved');
         expect(issues, `${id} ${merger.kind}`).toEqual(
-          merger.kind === 'code_reviewer' && id === 'daily-routine'
+          merger.kind === 'code_reviewer' && (id === 'daily-routine' || id === 'starter')
             ? [{ code: 'merger_unresolved', path: 'team.merger', detail: 'code_reviewer' }]
             : [],
         );

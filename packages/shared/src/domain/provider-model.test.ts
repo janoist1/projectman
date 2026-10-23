@@ -13,9 +13,32 @@ import {
   cliVersionAtLeast,
   CODEX_PERMISSION_PROFILE_MIN_VERSION,
   NANOGPT_MIN_CODEX_VERSION,
+  starterProvider,
 } from './provider-model';
 
 describe('provider settings contracts', () => {
+  it('prefers Claude regardless of response order', () => {
+    expect(
+      starterProvider([
+        { provider: 'codex', loggedIn: true },
+        { provider: 'claude', loggedIn: true },
+      ]),
+    ).toBe('claude');
+  });
+  it('picks the first ready provider after unavailable providers', () => {
+    expect(
+      starterProvider([
+        { provider: 'claude', loggedIn: null },
+        { provider: 'nanogpt', loggedIn: true },
+        { provider: 'gemini', loggedIn: true },
+        { provider: 'codex', loggedIn: false },
+      ]),
+    ).toBe('gemini');
+  });
+  it('returns null without a ready provider', () => {
+    expect(starterProvider([{ provider: 'claude', loggedIn: false }])).toBeNull();
+    expect(starterProvider([])).toBeNull();
+  });
   it.each([
     ['0.159.1', true],
     ['0.159.0', false],

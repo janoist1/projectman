@@ -2,6 +2,7 @@ import type { TemplateSummary } from '@projectman/shared';
 import { dailyRoutine } from './templates/daily-routine';
 import { internalTool } from './templates/internal-tool';
 import { smallTeam } from './templates/small-team';
+import { starter } from './templates/starter';
 import { webClientProject } from './templates/web-client-project';
 import type { ProjectTemplate } from './types';
 
@@ -38,7 +39,13 @@ export {
   type TemplateMemberKey,
 } from './locales';
 
-export const templates: ProjectTemplate[] = [webClientProject, smallTeam, internalTool, dailyRoutine];
+export const templates: ProjectTemplate[] = [
+  starter,
+  webClientProject,
+  smallTeam,
+  internalTool,
+  dailyRoutine,
+];
 
 export function getTemplate(id: string): ProjectTemplate | undefined {
   return templates.find((t) => t.id === id);

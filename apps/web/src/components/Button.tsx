@@ -91,7 +91,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       ref={ref}
       type={type}
       className={buttonClass({ variant, size, fullWidth, iconOnly, className })}
-      disabled={disabled || loading}
+      disabled={disabled || (loading && !blocked)}
       aria-busy={loading || undefined}
       onClick={blocked ? (event) => event.preventDefault() : onClick}
       {...rest}

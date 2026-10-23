@@ -7,6 +7,7 @@ import { labelName } from '../../lib/labels';
 import { nameOf } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
 import type { PipelineIndex } from '../../lib/pipeline';
+import type { TaskWorker } from '../../lib/taskState';
 import styles from './RefinementRow.module.css';
 
 type StepState = 'done' | 'current' | 'held' | 'todo';
@@ -24,12 +25,14 @@ export function RefinementRow({
   members,
   myHandle,
   pipeline,
+  workers,
 }: {
   refinement: RefinementProgress;
   labels: readonly LabelView[];
   members: MemberIndex;
   myHandle: string | null;
   pipeline: PipelineIndex;
+  workers: readonly TaskWorker[];
 }) {
   const [open, setOpen] = useState(false);
   const listId = useId();
@@ -45,6 +48,10 @@ export function RefinementRow({
   const detailOf = (index: number): string | null => {
     const state = stateOf(index);
     if (state === 'current' && turn.kind === 'step') {
+      const worker = workers.find(({ member }) =>
+        [...turn.aiSetters, ...turn.humanSetters].includes(member.handle),
+      );
+      if (worker) return t('taskStatus.refinement.stepWorking', { name: worker.member.displayName });
       const setters = turn.aiSetters.length > 0 ? turn.aiSetters : turn.humanSetters;
       return setters.length > 0
         ? t('taskStatus.refinement.stepTurn', {

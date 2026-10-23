@@ -1097,8 +1097,32 @@ describe('the Kidolgozás button and the refused Start (decision 31)', () => {
     expect(step!.textContent).toContain('Követelmény kész');
     expect(step!.textContent).toContain(t('taskStatus.refinement.stepState.current'));
     expect(step!.getAttribute('aria-current')).toBe('step');
+    expect(step!.textContent).toContain(
+      t('taskStatus.refinement.stepTurn', { names: nameOf('owner', mockIndexes().members, 'owner') }),
+    );
     // The card stands in the last stage before the work stage already: nowhere to move on to.
     expect(screen.getByText(t('taskStatus.refinement.nextHere'))).toBeTruthy();
+  });
+
+  it('names only the eligible member working on the card in the current refinement step (PM-975)', async () => {
+    const project = gatedProject();
+    project.backend.findTask('AC-24')!.labels = ['refine'];
+    project.backend.config.pipeline.labels.find((label) => label.id === 'scope-ok')!.setBy = {
+      members: ['fe-1', 'be-1'],
+    };
+    const session = project.backend.sessions.find((entry) => entry.id === 'ses_ac20_be1')!;
+    session.workItem = { type: 'task', taskKey: 'AC-24' };
+    project.render(drawer, '/p/AC/tasks/AC-24');
+
+    fireEvent.click(await screen.findByRole('button', { name: t('taskStatus.refinement.steps') }));
+
+    const list = await screen.findByRole('list', { name: t('taskStatus.refinement.stepsList') });
+    expect(
+      within(list).getByText(t('taskStatus.refinement.stepWorking', { name: 'Backend fejlesztő' }), {
+        exact: false,
+      }),
+    ).toBeTruthy();
+    expect(list.textContent).not.toContain('Frontend fejlesztő');
   });
 
   it('says a step waits for the system when only the system sets its label (PM-291)', async () => {

@@ -6,6 +6,7 @@ export const OPERATOR_QUEUE_TOOL_GROUP: TeamToolGroup = {
   tools: [
     defineTool({
       name: 'finish_queue_item',
+      audience: { roles: ['operator'] },
       title: 'End an item of your work queue',
       readOnly: false,
       description:

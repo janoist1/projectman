@@ -2,6 +2,7 @@ import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
 import type {
   AddRelationRef,
   BuiltInRoleId,
+  DutyId,
   RoleConfigurationRead,
   Attachment,
   DeveloperLevelRequest,
@@ -183,6 +184,13 @@ export interface SentMessageRecipient {
   stale?: StaleReason;
   /** Only with delivery 'wake', and only when the send waited for the start (`awaitWake`). */
   start?: WakeStart;
+}
+
+export interface MemberAudience {
+  operator: boolean;
+  projectManager: boolean;
+  merger: boolean;
+  duties: ReadonlySet<DutyId>;
 }
 
 export interface ToolContext {
@@ -885,6 +893,7 @@ export class TeamToolError extends Error {
 
 export interface McpModuleOptions {
   handler: TeamToolsHandler;
+  audienceOf(ctx: ToolContext): MemberAudience;
   /** Maps the token in /mcp/:token to the calling session; null = reject. */
   resolveContext(token: string): ToolContext | null;
   logger: FastifyBaseLogger;

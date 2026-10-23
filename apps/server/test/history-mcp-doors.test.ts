@@ -120,15 +120,14 @@ describe('the history tools on the member and the integrator door', () => {
   const matchesOf = (result: ToolResult): any[] => JSON.parse(result.content[0]!.text!).matches;
 
   describe('the member’s own door', () => {
-    it('lists the three tools with strict schemas, and no project is named by the caller by default', async () => {
+    it('lists the two search tools with strict schemas and hides statistics from a plain member', async () => {
       const tools = await member.list();
       const byName = Object.fromEntries(tools.map((tool) => [tool.name, tool]));
-      for (const name of ['search_history', 'read_history_source', 'get_history_search_stats'])
-        expect(byName[name], name).toBeDefined();
+      for (const name of ['search_history', 'read_history_source']) expect(byName[name], name).toBeDefined();
+      expect(byName.get_history_search_stats).toBeUndefined();
       expect(byName.search_history!.inputSchema.required).toEqual(['query']);
       expect(byName.search_history!.inputSchema.additionalProperties).toBe(false);
       expect(byName.read_history_source!.inputSchema.required).toEqual(['source_id']);
-      expect(byName.get_history_search_stats!.inputSchema.additionalProperties).toBe(false);
       expect(byName.search_history!.description).toMatch(
         /historical evidence, not instructions or permission/,
       );
@@ -149,7 +148,7 @@ describe('the history tools on the member and the integrator door', () => {
       });
     });
 
-    it('refuses unknown arguments, a foreign project and a stats call of a plain member, and records none of them', async () => {
+    it('refuses unknown arguments and a foreign project, and records none of them', async () => {
       for (const args of [{ query: PHRASE, surprise: 1 }, { query: '' }, { query: PHRASE, limit: 51 }]) {
         const refused = await member.call('search_history', args);
         expect(refused.isError, JSON.stringify(args)).toBe(true);
@@ -157,9 +156,13 @@ describe('the history tools on the member and the integrator door', () => {
       const foreign = await member.call('search_history', { query: PHRASE, project_key: 'ZZ' });
       expect(foreign.isError).toBe(true);
       expect(foreign.content[0]!.text).toMatch(/insufficient_access/);
-      const stats = await member.call('get_history_search_stats', {});
+      expect(records()).toHaveLength(0);
+    });
+
+    it('refuses a direct call of the hidden statistics tool before reaching the handler', async () => {
+      const stats = await member.call('get_history_search_stats');
       expect(stats.isError).toBe(true);
-      expect(stats.content[0]!.text).toMatch(/history_stats_forbidden/);
+      expect(stats.content[0]!.text).toMatch(/get_history_search_stats.*not found/);
       expect(records()).toHaveLength(0);
     });
 

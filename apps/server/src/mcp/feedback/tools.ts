@@ -16,6 +16,7 @@ export const FEEDBACK_TOOL_GROUP: TeamToolGroup = {
   tools: [
     defineTool({
       name: 'get_feedback',
+      audience: { duties: ['feedback_processing'] },
       title: 'Read feedback marks',
       readOnly: true,
       description:
@@ -40,6 +41,7 @@ export const FEEDBACK_TOOL_GROUP: TeamToolGroup = {
     }),
     defineTool({
       name: 'reply_feedback',
+      audience: { duties: ['feedback_processing'] },
       title: 'Reply to a feedback mark',
       readOnly: false,
       description:
@@ -57,6 +59,7 @@ export const FEEDBACK_TOOL_GROUP: TeamToolGroup = {
     }),
     defineTool({
       name: 'create_task_from_feedback',
+      audience: { duties: ['feedback_processing'] },
       title: 'Open a card from a feedback mark',
       readOnly: false,
       description:
@@ -93,6 +96,7 @@ export const FEEDBACK_TOOL_GROUP: TeamToolGroup = {
     }),
     defineTool({
       name: 'link_feedback',
+      audience: { duties: ['feedback_processing'] },
       title: 'Link a feedback mark to a card',
       readOnly: false,
       description:
@@ -121,6 +125,7 @@ export const FEEDBACK_TOOL_GROUP: TeamToolGroup = {
     }),
     defineTool({
       name: 'forward_feedback',
+      audience: { duties: ['feedback_processing'] },
       title: 'Forward a feedback mark to the owner',
       readOnly: false,
       description:
@@ -149,6 +154,7 @@ export const FEEDBACK_TOOL_GROUP: TeamToolGroup = {
     }),
     defineTool({
       name: 'close_feedback',
+      audience: { duties: ['feedback_processing'] },
       title: 'Close a feedback mark',
       readOnly: false,
       description:

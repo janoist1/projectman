@@ -35,6 +35,29 @@ describe('session orchestrator', () => {
 
   const task = { type: 'task' as const, taskKey: 'AR-1' };
 
+  it('recomputes tool audience from the current configuration without restarting the session', async () => {
+    const ctx = { sessionId: 'ses_dev', projectKey: 'AR', member: 'dev-1', taskKey: 'AR-1' };
+    expect(h.domain.sessions.audienceOf(ctx)).toMatchObject({
+      operator: false,
+      projectManager: false,
+      merger: false,
+    });
+    expect(h.domain.sessions.audienceOf(ctx).duties.has('deployment')).toBe(false);
+    await h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (config) => {
+      config.team.merger = { kind: 'member', handle: 'dev-1' };
+      config.team.roleOverrides = {
+        ...config.team.roleOverrides,
+        developer: { duties: ['implementation', 'deployment'], instructions: '' },
+      };
+      return 'Change tool audience for the active member';
+    });
+    expect(h.domain.sessions.audienceOf(ctx).merger).toBe(true);
+    expect(h.domain.sessions.audienceOf(ctx).duties.has('deployment')).toBe(true);
+    expect(h.domain.sessions.audienceOf({ ...ctx, member: 'pm' }).projectManager).toBe(true);
+    expect(h.domain.sessions.audienceOf({ ...ctx, member: 'operator' }).operator).toBe(true);
+    expect(h.domain.sessions.audienceOf({ ...ctx, member: 'unknown' }).duties.size).toBe(0);
+  });
+
   it('serves the current session guide, rejects missing topics and rebuilds it on resume', async () => {
     const { session } = await h.domain.sessions.ensureSession('AR', 'cr', task);
     const ctx = { sessionId: session.id, projectKey: 'AR', member: 'cr', taskKey: 'AR-1' };

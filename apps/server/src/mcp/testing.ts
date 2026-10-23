@@ -7,7 +7,14 @@ import type {
   TimelineEventType,
 } from '@projectman/shared';
 import { BUILT_IN_ROLE_DUTIES, DEFAULT_OPERATOR_PREFERENCE } from '@projectman/shared';
-import { TeamToolError, type TeamToolsHandler, type ToolContext } from '../contracts';
+import { TeamToolError, type TeamToolsHandler, type ToolContext, type MemberAudience } from '../contracts';
+
+export const operatorAudience: MemberAudience = {
+  operator: true,
+  projectManager: false,
+  merger: false,
+  duties: new Set(),
+};
 
 /**
  * Test support: an in-memory TeamToolsHandler with a small team and one task, recording

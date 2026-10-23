@@ -7,6 +7,7 @@ export const RELEASE_TOOL_GROUP: TeamToolGroup = {
   tools: [
     defineTool({
       name: 'propose_release',
+      audience: { duties: ['deployment'] },
       title: 'Propose a release',
       readOnly: false,
       description:
@@ -66,6 +67,7 @@ export const RELEASE_TOOL_GROUP: TeamToolGroup = {
     }),
     defineTool({
       name: 'publish_release',
+      audience: { duties: ['deployment'] },
       title: 'Publish a repository release',
       readOnly: false,
       description:
@@ -125,6 +127,7 @@ export const RELEASE_TOOL_GROUP: TeamToolGroup = {
     }),
     defineTool({
       name: 'check_release',
+      audience: { roles: ['operator'] },
       title: 'Check a release',
       readOnly: true,
       description:

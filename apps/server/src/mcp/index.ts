@@ -55,6 +55,7 @@ interface CreateMcpModuleOptions extends McpModuleOptions {
 export function createMcpModule(opts: CreateMcpModuleOptions): McpModule {
   const logger = opts.logger.child({ module: 'mcp' });
   const deps: TeamServerDeps = {
+    audienceOf: opts.audienceOf,
     handler: opts.handler,
     logger,
     toolTimeoutMs: opts.toolTimeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS,

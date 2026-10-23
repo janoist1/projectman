@@ -14,6 +14,10 @@ import {
   sessionApproverChangeRefusal,
   isOnLeave,
   isOperator,
+  isProjectManager,
+  mergerOf,
+  dutyMembers,
+  DUTY_IDS,
   isWorkPaused,
   memberOf,
   permissionDecidersNow,
@@ -61,6 +65,7 @@ import type {
   SessionCleanup,
   SourceHead,
   ToolContext,
+  MemberAudience,
   TranscriptReader,
 } from '../../contracts';
 import { encodeWorkItem } from '../../db';
@@ -536,6 +541,25 @@ export class SessionOrchestrator {
   /** MCP: maps /mcp/:token to the calling session; null rejects the call. */
   resolveToken(token: string): ToolContext | null {
     return this.live.resolveToken(token);
+  }
+
+  /** Recomputed from the current project configuration for each MCP request. */
+  audienceOf(ctx: ToolContext): MemberAudience {
+    const config = this.deps.projects.cachedConfig(ctx.projectKey);
+    const member = config ? memberOf(config, ctx.member) : undefined;
+    const merger = config ? mergerOf(config) : undefined;
+    return {
+      operator: isOperator(member),
+      projectManager: isProjectManager(member),
+      merger: merger?.kind === 'member' && merger.handle === ctx.member,
+      duties: new Set(
+        config
+          ? DUTY_IDS.filter((duty) =>
+              dutyMembers(config, duty).some((holder) => holder.handle === ctx.member),
+            )
+          : [],
+      ),
+    };
   }
 
   /** A session of any project, or null. */

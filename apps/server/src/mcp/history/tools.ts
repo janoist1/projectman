@@ -169,6 +169,7 @@ export const HISTORY_TOOL_GROUP: TeamToolGroup = {
     }),
     defineTool({
       name: 'get_history_search_stats',
+      audience: { roles: ['operator'] },
       title: 'Read the private history search statistics',
       readOnly: true,
       description: STATS_DESCRIPTION,

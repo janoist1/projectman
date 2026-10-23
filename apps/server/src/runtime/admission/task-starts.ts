@@ -390,7 +390,9 @@ export class TaskStarts {
     if (evaluation.unmet.length > 0) throw gateBlockedError(evaluation);
     refuseOwnStageApproval(task, evaluation);
     if (evaluation.approvals.length > 0) {
-      const result = await this.tasks.moveToStage(task.projectKey, task.key, workStage.id, opts.actor);
+      const result = await this.tasks.moveToStage(task.projectKey, task.key, workStage.id, opts.actor, {
+        viaStart: true,
+      });
       throw approvalRequestedError(result.pendingApproval);
     }
   }
@@ -415,7 +417,9 @@ export class TaskStarts {
     if (needsMove) await this.passEntryGates(config, task, workStage, opts);
     this.admission.checkWait(config, task);
     if (needsMove) {
-      const result = await this.tasks.moveToStage(projectKey, task.key, workStage.id, opts.actor);
+      const result = await this.tasks.moveToStage(projectKey, task.key, workStage.id, opts.actor, {
+        viaStart: true,
+      });
       if (!result.moved) throw approvalRequestedError(result.pendingApproval);
     }
     const current = this.tasks.get(projectKey, task.key);

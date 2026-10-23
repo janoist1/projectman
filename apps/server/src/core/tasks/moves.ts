@@ -135,6 +135,11 @@ export interface MoveOptions {
   /** The subtask whose close triggered the system's automatic close (PM-373); recorded in the event's `partsClosed`. */
   partsClosedTrigger?: string;
   /**
+   * `start_task` moves the card (PM-722): it chooses the assignee by its own rules (or waits for one on
+   * purpose, PM-348), so the project manager's "no move into work without an assignee" does not apply.
+   */
+  viaStart?: true;
+  /**
    * Where the card goes in the target column when it is dropped on the board (PM-118). Without it a card
    * that enters another column takes the top of that column; one that stays in its column keeps its place.
    */
@@ -244,7 +249,13 @@ export class TaskMoves {
     actor: Actor,
     opts: Pick<
       MoveOptions,
-      'branchMoved' | 'testsFailed' | 'expectedFrom' | 'pulled' | 'partsClosed' | 'partsClosedTrigger'
+      | 'branchMoved'
+      | 'testsFailed'
+      | 'expectedFrom'
+      | 'pulled'
+      | 'partsClosed'
+      | 'partsClosedTrigger'
+      | 'viaStart'
     > = {},
   ): Promise<MoveResult> {
     const config = await this.store.projects.config(projectKey);
@@ -295,13 +306,25 @@ export class TaskMoves {
   }
 
   /**
-   * A project manager does not start a card into the work stage while a prerequisite of it is open
-   * (PM-722): the card would sit there with nobody working on it. Refused with `prerequisite_open` and
-   * the open keys; the card stays where it is. A person's move after the warning (PM-204), and the
-   * system's own moves, are not affected.
+   * A project manager does not move a card into the work stage without an assignee, or while a
+   * prerequisite of it is open (PM-722): the card would sit there with nobody working on it. Refused
+   * with `assignee_required` (`start_task` picks a free developer first) or `prerequisite_open` and the
+   * open keys; the card stays where it is. A person's move (after the warning, PM-204), and the
+   * system's and every other member's moves, are not affected.
    */
-  assertWorkEntryPrerequisites(config: ProjectConfig, task: Task, target: Stage, actor: Actor): void {
+  assertProjectManagerWorkEntry(
+    config: ProjectConfig,
+    task: Task,
+    target: Stage,
+    actor: Actor,
+    viaStart = false,
+  ): void {
     if (target.kind !== 'work' || task.stageId === target.id || !isProjectManagerActor(config, actor)) return;
+    if (!task.assignee && !viaStart)
+      throw conflict(
+        'assignee_required',
+        `task ${task.key} has no assignee: start it with start_task, which picks a free developer`,
+      );
     const repo = this.store.ctx.repos.tasks;
     const reader = {
       readSchedulingTasks: (key: string, query: TaskSchedulingQuery) => repo.readScheduling(key, query),
@@ -435,7 +458,7 @@ export class TaskMoves {
       return { task, moved: false, pendingApproval: [] };
     // Every move path checks the project manager's configured stage-move rights.
     if (actorMoveRefusal(config, actor, task.stageId, target.id)) throw projectManagerMoveRefused();
-    this.assertWorkEntryPrerequisites(config, task, target, actor);
+    this.assertProjectManagerWorkEntry(config, task, target, actor, opts.viaStart === true);
     // A collecting card whose subtasks are all closed goes to the done stage without the gates (PM-647).
     const waiver = this.partsClosedOf(config, task, target.id);
     // The system's automatic close is valid only while the waiver holds: it never falls back to the gates.

@@ -210,6 +210,8 @@ export const ERROR_CODES = [
   // A card whose prerequisite is not closed (PM-204): an automatic start waits, a person's start is
   // refused until the request says they start despite the warning.
   'prerequisite_open',
+  // The project manager moved a card into the work stage without an assignee (PM-722): start_task picks one.
+  'assignee_required',
   'no_free_member',
   // A card recommended for the Senior while every Senior is busy (PM-348): only the automatic start
   // gets it, and waits; a person's Start is answered with the waiting card instead.

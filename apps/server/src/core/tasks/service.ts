@@ -717,7 +717,7 @@ export class TaskService implements TaskSchedulingReader {
       if (moveRefusal) throw projectManagerMoveRefused();
       const prospective = { ...task, ...patch, labels: labels.labels };
       const target = requireStage(config, change.stageId!);
-      this.moves.assertWorkEntryPrerequisites(config, prospective, target, actor);
+      this.moves.assertProjectManagerWorkEntry(config, prospective, target, actor);
       // A collecting card whose subtasks are all closed goes to the done stage without the gates (PM-647).
       const waived = partsClosedWaiver(
         config,
@@ -1044,7 +1044,13 @@ export class TaskService implements TaskSchedulingReader {
     actor: Actor,
     opts?: Pick<
       MoveOptions,
-      'branchMoved' | 'testsFailed' | 'expectedFrom' | 'pulled' | 'partsClosed' | 'partsClosedTrigger'
+      | 'branchMoved'
+      | 'testsFailed'
+      | 'expectedFrom'
+      | 'pulled'
+      | 'partsClosed'
+      | 'partsClosedTrigger'
+      | 'viaStart'
     >,
   ): Promise<MoveResult> {
     return this.moves.moveToStage(projectKey, taskKey, stageId, actor, opts);

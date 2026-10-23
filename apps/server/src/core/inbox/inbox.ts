@@ -61,7 +61,6 @@ import type {
   DelegatedPermissionDecision,
   FixLimitDecisionPayload,
   GateRequestPayload,
-  IntegratorEscalationReason,
   HumanAccess,
   InboxItem,
   InboxKind,
@@ -771,15 +770,15 @@ export class InboxService {
     item: InboxItem,
     config: ProjectConfig,
     how: {
-      reason?: IntegratorEscalationReason;
+      reason: 'integrator_passed_on' | 'integrator_unavailable';
       actor?: Actor;
       note?: string;
       /** The Operator's hand-off (PM-885): kept on the payload for the owner who gets the item. */
       handoff?: OperatorHandoff;
-    } = {},
+    },
   ): boolean {
     const at = isoNow(this.ctx);
-    const reason = how.reason ?? 'integrator_timeout';
+    const reason = how.reason;
     // A fix limit decision goes to the people the card's hold names (the technical direction holders among the
     // owners and admins, else the owners), as it would have if no integrator had been asked.
     const people =
@@ -839,11 +838,11 @@ export class InboxService {
   /**
    * The integrator decides a fix round limit item addressed to it (PM-714), the one approval-free decision it
    * may make. It needs the explicit super credential of a current owner; the item must still be the narrow
-   * fix limit shape, addressed to the integrator and not timed out, and its card must still be held for exactly
+   * fix limit shape, addressed to the integrator, and its card must still be held for exactly
    * this item. `replan`, `reassign` and `another_round` close the item in the integrator's name and run the same
    * application as an owner's choice (`inbox_resolved` -> `FixLimitWatch.decided`); `to_owner` gives the
-   * same open item to the owners with the reason. Everything is decided under the item's lock, so a timeout, an
-   * owner and a double click cannot each decide.
+   * same open item to the owners with the reason. Everything is decided under the item's lock, so an
+   * owner, a sweep and a double click cannot each decide.
    */
   async resolveIntegratorFixLimit(
     projectKey: string,

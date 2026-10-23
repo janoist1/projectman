@@ -196,7 +196,8 @@ describe('fix limit decision details', () => {
       openInboxCount: number;
     };
     expect(board.openInboxCount).toBe(0);
-    f.project.backend.sweepIntegratorTodos(new Date(Date.now() + 25 * 3600000).toISOString());
+    f.project.backend.config.team.limits.aiEnabled = false;
+    f.project.backend.sweepIntegratorTodos(new Date().toISOString());
     expect(f.item.taskKey).toBe('AC-21');
     expect(f.project.backend.inbox[0]!.payload.recipient).toBe('owner');
     expect(f.project.backend.findTask('AC-21')!.fixLimit?.recipient).toBe('owner');

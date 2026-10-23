@@ -32,7 +32,10 @@ export function ChecklistIndicator() {
           strokeDashoffset={100 - (settled / total) * 100}
         />
       </svg>
-      <span>{t('operator.checklist.indicator.text', { settled, total })}</span>
+      <span className={styles.fullLabel}>{t('operator.checklist.indicator.text', { settled, total })}</span>
+      <span className={styles.shortLabel} aria-hidden="true">
+        {settled}/{total}
+      </span>
     </button>
   );
 }

@@ -52,12 +52,14 @@ export function OperatorChecklist() {
     );
   if (query.isError)
     return (
-      <ErrorState
-        compact
-        error={query.error}
-        message={t('operator.checklist.loadFailed')}
-        onRetry={() => void query.refetch()}
-      />
+      <div className={styles.loadError}>
+        <ErrorState
+          compact
+          error={query.error}
+          message={t('operator.checklist.loadFailed')}
+          onRetry={() => void query.refetch()}
+        />
+      </div>
     );
   if (!checklist?.items.length) return null;
   const { settled, total, complete } = checklist.progress;
@@ -196,6 +198,7 @@ function ChecklistActions({ item, onSaved }: { item: ChecklistItem; onSaved: () 
   const [editing, setEditing] = useState(false);
   const [reason, setReason] = useState('');
   const textarea = useRef<HTMLTextAreaElement>(null);
+  const actions = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const restoreFocus = useRef(false);
   const reasonId = useId();
@@ -206,6 +209,9 @@ function ChecklistActions({ item, onSaved }: { item: ChecklistItem; onSaved: () 
       restoreFocus.current = false;
     }
   }, [editing]);
+  useEffect(() => {
+    if (editing || mutation.isError) actions.current?.scrollIntoView({ block: 'nearest' });
+  }, [editing, mutation.isError]);
   const cancel = () => {
     restoreFocus.current = true;
     setEditing(false);
@@ -226,7 +232,7 @@ function ChecklistActions({ item, onSaved }: { item: ChecklistItem; onSaved: () 
     );
   };
   return (
-    <>
+    <div ref={actions} className={styles.actionContent}>
       {item.state !== 'open' ? (
         <Button
           variant="secondary"
@@ -292,6 +298,6 @@ function ChecklistActions({ item, onSaved }: { item: ChecklistItem; onSaved: () 
           {t('operator.checklist.saveFailed')}
         </p>
       ) : null}
-    </>
+    </div>
   );
 }

@@ -76,20 +76,20 @@ describe('operator checklist', () => {
   it('remembers collapsing the list across remounts', async () => {
     const project = projectWith();
     const view = project.render(<OperatorChecklist />);
-    await screen.findByText('1/2');
+    await within(await screen.findByRole('button', { name: /^Indulás / })).findByText('1/2');
     fireEvent.click(head());
     expect(screen.queryByRole('list')).toBeNull();
     expect(readStorage('operatorChecklistOpen:AC')).toBe('false');
     view.unmount();
     project.render(<OperatorChecklist />);
-    await screen.findByText('1/2');
+    await within(await screen.findByRole('button', { name: /^Indulás / })).findByText('1/2');
     expect(head().getAttribute('aria-expanded')).toBe('false');
   });
 
   it('submits a trimmed not-needed reason, updates progress and returns focus to the row', async () => {
     const project = projectWith();
     project.render(<OperatorChecklist />);
-    await screen.findByText('1/2');
+    await within(await screen.findByRole('button', { name: /^Indulás / })).findByText('1/2');
     openDetail();
     fireEvent.click(screen.getByRole('button', { name: t('operator.checklist.notNeeded.open') }));
     const input = screen.getByRole('textbox');
@@ -120,6 +120,7 @@ describe('operator checklist', () => {
   });
 
   it('keeps the entered reason after a save failure and permits retry', async () => {
+    const scroll = vi.spyOn(HTMLElement.prototype, 'scrollIntoView');
     const project = projectWith();
     const handle = project.backend.handle.bind(project.backend);
     let fail = true;
@@ -129,12 +130,15 @@ describe('operator checklist', () => {
         : handle(method, path, body, query),
     );
     project.render(<OperatorChecklist />);
-    await screen.findByText('1/2');
+    await within(await screen.findByRole('button', { name: /^Indulás / })).findByText('1/2');
     openDetail();
     fireEvent.click(screen.getByRole('button', { name: t('operator.checklist.notNeeded.open') }));
+    expect(scroll).toHaveBeenCalledWith({ block: 'nearest' });
+    scroll.mockClear();
     fireEvent.change(screen.getByRole('textbox'), { target: { value: 'No client' } });
     fireEvent.click(screen.getByRole('button', { name: t('operator.checklist.notNeeded.save') }));
     await screen.findByRole('alert');
+    expect(scroll).toHaveBeenCalledWith({ block: 'nearest' });
     expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('No client');
     fail = false;
     fireEvent.click(screen.getByRole('button', { name: t('operator.checklist.notNeeded.save') }));
@@ -144,7 +148,7 @@ describe('operator checklist', () => {
   it('cancels the reason form with Escape without closing the operator panel', async () => {
     const project = projectWith();
     project.render(<OperatorChecklist />);
-    await screen.findByText('1/2');
+    await within(await screen.findByRole('button', { name: /^Indulás / })).findByText('1/2');
     openDetail();
     fireEvent.click(screen.getByRole('button', { name: t('operator.checklist.notNeeded.open') }));
     fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Escape' });
@@ -220,7 +224,7 @@ describe('checklist in the project layout', () => {
     expect(screen.getAllByRole('status', { name: t('app.loading') }).length).toBeGreaterThan(0);
     expect(indicator()).toBeNull();
     release();
-    await screen.findByText('1/2');
+    await within(await screen.findByRole('button', { name: /^Indulás / })).findByText('1/2');
   });
 
   it('offers retry when the checklist fails while keeping the conversation available', async () => {
@@ -239,7 +243,7 @@ describe('checklist in the project layout', () => {
     expect(screen.getByRole('textbox', { name: t('operator.composer.label') })).not.toBeNull();
     fail = false;
     fireEvent.click(screen.getByRole('button', { name: t('app.retry') }));
-    await screen.findByText('1/2');
+    await within(await screen.findByRole('button', { name: /^Indulás / })).findByText('1/2');
   });
 
   it('opens the collapsed checklist from the header, focuses it and keeps an open panel open', async () => {
@@ -299,7 +303,7 @@ describe('checklist in the project layout', () => {
     const view = layout(project);
     await waitFor(() => expect(indicator()).not.toBeNull());
     fireEvent.click(indicator()!);
-    await screen.findByText('1/2');
+    await within(await screen.findByRole('button', { name: /^Indulás / })).findByText('1/2');
     const first = project.backend.checklist!.items[0]!;
     first.state = 'done';
     first.updatedAt = '2026-10-23T10:00:00.000Z';
@@ -315,7 +319,7 @@ describe('checklist in the project layout', () => {
         t('operator.checklist.indicator.label', { total: 2, settled: 1 }),
       ),
     );
-    expect(screen.getByText('1/2')).not.toBeNull();
+    expect(within(head()).getByText('1/2')).not.toBeNull();
   });
 
   it('opens after creation, shows the introduction, clears router state and leaves focus in the composer', async () => {

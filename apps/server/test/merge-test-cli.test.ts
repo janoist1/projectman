@@ -13,12 +13,14 @@ const spawn = vi.mocked(spawnSync);
 const ended = (stdout = '', status = 0) => ({ stdout, stderr: '', status, signal: null, pid: 1, output: [] });
 const done = (output = '', code = 0): StepRun => ({ code, signaled: false, output });
 const npm = vi.fn<(args: string[]) => Promise<StepRun>>();
+const deadCode = vi.fn<() => Promise<StepRun>>();
 const run = (argv: string[], exists: (file: string) => boolean = () => true) =>
-  runMergeTest(argv, { npm, exists });
+  runMergeTest(argv, { npm, exists, deadCode });
 const npmCalls = () => npm.mock.calls.map(([args]) => args);
 const gitCalls = () => spawn.mock.calls.map(([, args]) => args);
 
 beforeEach(() => {
+  deadCode.mockResolvedValue(done());
   // The members' sandboxes carry the PTY skip; the merge runs without it (PM-754).
   vi.stubEnv('PROJECTMAN_SKIP_PTY_TESTS', '');
   // The merge sandbox sets the worker count; the tests decide it themselves.
@@ -55,6 +57,26 @@ describe('merge test runner', () => {
       [expect.stringContaining('merge-test timing: {"index":0,"kind":"typecheck"')],
       ['merge-test scope: all (--all); modules: all; tests: all; fallback: --all'],
     ]);
+  });
+  it('stops the merge when the dead-code check fails', async () => {
+    output();
+    mockHead('first second');
+    deadCode.mockResolvedValue(done('', 1));
+    expect(await run(['--all'])).toBe(1);
+    expect(npm).not.toHaveBeenCalled();
+  });
+  it('checks repository-wide dead code even for an empty test scope', async () => {
+    output();
+    mockHead('first second', ['docs/example.md']);
+    expect(await run([])).toBe(0);
+    expect(deadCode).toHaveBeenCalledOnce();
+    expect(npm).not.toHaveBeenCalled();
+  });
+  it.each([1, 2])('checks dead code only on shard one (%s)', async (index) => {
+    output();
+    mockHead('first second');
+    expect(await run(['--all', '--shard', `${index}/2`])).toBe(0);
+    expect(deadCode).toHaveBeenCalledTimes(index === 1 ? 1 : 0);
   });
   it.each([
     ['2', '2'],
@@ -554,6 +576,7 @@ describe('merge test runner', () => {
       expect(npm).not.toHaveBeenCalled();
       expect(log.mock.calls.map(([line]) => line)).toEqual([
         expect.stringContaining('merge-test scope: modules (logging); tests: 2;'),
+        'merge-test step: npm run dead-code',
         'merge-test step: npm run typecheck -w apps/server',
         `merge-test step: npm test -w apps/server -- ${resolve('apps/server/src/logging/index.test.ts')} ${resolve('apps/server/test/golden-path-example.test.ts')}`,
       ]);
@@ -579,7 +602,7 @@ describe('merge test runner', () => {
     mockHead('');
     expect(await run(['--dry-run', 'root'])).toBe(0);
     expect(log.mock.calls[0]?.[0]).toContain('all (root has no second parent)');
-    expect(log.mock.calls.filter(([line]) => line.startsWith('merge-test step:'))).toHaveLength(10);
+    expect(log.mock.calls.filter(([line]) => line.startsWith('merge-test step:'))).toHaveLength(11);
     expect(npm).not.toHaveBeenCalled();
     expect(gitCalls().some((args) => args?.[0] === 'diff')).toBe(false);
   });

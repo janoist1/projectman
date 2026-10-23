@@ -1,5 +1,6 @@
 import type { ProviderLoginStatus, ServerVersionView } from '@projectman/shared';
 import {
+  applyMemberEmailChange,
   CreateOperatorGrantRequest,
   superAccessVerdict,
   superDecisionRefusal,
@@ -3446,11 +3447,7 @@ export class MockBackend {
       if (input.approver !== undefined) nextMember.approver = input.approver;
       if (input.outboundNetwork !== undefined) nextMember.outboundNetwork = input.outboundNetwork;
       if (input.email !== undefined)
-        nextMember.email = {
-          enabled: nextMember.email?.enabled ?? false,
-          ...nextMember.email,
-          ...input.email,
-        };
+        nextMember.email = applyMemberEmailChange(nextMember.email, input.email);
     }
     if (input.access !== undefined && nextMember.kind !== 'human')
       return error(400, 'not_human_member', 'Access is for humans');
@@ -3504,7 +3501,7 @@ export class MockBackend {
       if (input.approver !== undefined) config.approver = input.approver;
       if (input.outboundNetwork !== undefined) config.outboundNetwork = input.outboundNetwork;
       if (input.email !== undefined) {
-        config.email = { enabled: config.email?.enabled ?? false, ...config.email, ...input.email };
+        config.email = applyMemberEmailChange(config.email, input.email);
         member.email = {
           enabled: config.email.enabled,
           sendWithoutApproval: config.email.sendWithoutApproval ?? false,

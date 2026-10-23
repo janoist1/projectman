@@ -152,6 +152,23 @@ export function emailSenderOf(
     : null;
 }
 
+/**
+ * An AI member's email settings after a change (PM-956). Omitted fields stay, except that sending
+ * without approval never outlives the permission to send: switching sending off clears it, and
+ * switching it on starts from "needs approval" unless the same change says otherwise.
+ */
+export function applyMemberEmailChange(
+  current: { enabled: boolean; sendWithoutApproval?: boolean } | undefined,
+  change: { enabled?: boolean; sendWithoutApproval?: boolean },
+): { enabled: boolean; sendWithoutApproval?: boolean } {
+  const wasEnabled = current?.enabled === true;
+  const enabled = change.enabled ?? wasEnabled;
+  const rest = { ...current, ...change, enabled };
+  if (!enabled) return { ...rest, sendWithoutApproval: false };
+  if (!wasEnabled) return { ...rest, sendWithoutApproval: change.sendWithoutApproval ?? false };
+  return rest;
+}
+
 export function emailRecipientRefusal(
   member: MemberConfig | undefined,
   wants: boolean,

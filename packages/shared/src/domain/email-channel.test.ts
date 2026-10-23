@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { AiMemberConfig, HumanMemberConfig, ProjectConfig } from '../config/schema';
 import { applyConfigPatch, PatchConfigRequest } from '../config/edit';
 import {
+  applyMemberEmailChange,
   emailChannelOn,
   emailSenderOf,
   emailRecipientRefusal,
@@ -39,6 +40,37 @@ const project = ProjectConfig.parse({
     ],
     labels: [],
   },
+});
+
+describe('applyMemberEmailChange', () => {
+  it.each([
+    [
+      'switching off clears the approval bypass',
+      { enabled: true, sendWithoutApproval: true },
+      { enabled: false },
+      { enabled: false, sendWithoutApproval: false },
+    ],
+    [
+      'switching on starts with approval',
+      { enabled: false, sendWithoutApproval: true },
+      { enabled: true },
+      { enabled: true, sendWithoutApproval: false },
+    ],
+    [
+      'switching on can set the bypass in the same change',
+      undefined,
+      { enabled: true, sendWithoutApproval: true },
+      { enabled: true, sendWithoutApproval: true },
+    ],
+    [
+      'an omitted field stays',
+      { enabled: true, sendWithoutApproval: true },
+      { enabled: true },
+      { enabled: true, sendWithoutApproval: true },
+    ],
+  ] as const)('%s', (_name, current, change, expected) => {
+    expect(applyMemberEmailChange(current, change)).toEqual(expected);
+  });
 });
 
 describe('email configuration', () => {

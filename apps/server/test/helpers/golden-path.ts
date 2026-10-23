@@ -44,7 +44,13 @@ const system: Actor = { kind: 'system', handle: null };
 const REVIEW_TEMPLATES = new Set(['web-client-project', 'internal-tool', 'small-team']);
 
 /** The factory templates the golden-path files cover, one file each. */
-const GOLDEN_PATH_TEMPLATES = ['web-client-project', 'internal-tool', 'small-team', 'daily-routine'];
+const GOLDEN_PATH_TEMPLATES = [
+  'starter',
+  'web-client-project',
+  'internal-tool',
+  'small-team',
+  'daily-routine',
+];
 
 async function setup(templateId: string) {
   const harness = await createAppHarness({
@@ -214,8 +220,13 @@ async function startTask(h: Harness) {
   await assertState('ready');
   const config = (await h.configView()).config;
   const work = config.pipeline.stages.find((stage) => stage.kind === 'work')!;
-  expect(work.duty).toBe(config.project.templateId === 'daily-routine' ? 'maintenance' : 'implementation');
-  expect(work.owners).toBeUndefined();
+  if (config.project.templateId === 'starter') {
+    expect(work.duty).toBeUndefined();
+    expect(work.owners).toHaveLength(1);
+  } else {
+    expect(work.duty).toBe(config.project.templateId === 'daily-routine' ? 'maintenance' : 'implementation');
+    expect(work.owners).toBeUndefined();
+  }
   const started = await h.server.inject({
     method: 'POST',
     url: routes.startTask(projectKey, task.key),
@@ -712,8 +723,9 @@ export function describeGoldenPath(templateId: string): void {
     it('completes the pipeline with attributed tools and human decisions', { timeout: 60_000 }, async () => {
       const h = await start();
       const j = await startTask(h);
-      if (templateId === 'daily-routine') {
-        await refuseOrphan(h, j, j.developer, 'maintenance', 'pipeline.stages[1].duty');
+      if (templateId === 'daily-routine' || templateId === 'starter') {
+        if (templateId === 'daily-routine')
+          await refuseOrphan(h, j, j.developer, 'maintenance', 'pipeline.stages[1].duty');
         await move(h, j, j.developer, 'done');
         await cleanupTask(h, j);
       } else {

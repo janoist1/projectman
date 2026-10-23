@@ -1,4 +1,5 @@
 import {
+  ServerVersionView,
   EmailChannelView,
   EmailLogResponse,
   OperatorGrantAuditPage,
@@ -129,6 +130,7 @@ import { apiRequest } from './client';
  * refetch instead of relying on the body.
  */
 export const api = {
+  serverVersion: () => apiRequest(routes.serverVersion(), { schema: ServerVersionView }),
   operatorGrantAudit: () => apiRequest(routes.operatorGrantAudit(), { schema: OperatorGrantAuditPage }),
   createOperatorGrant: (duration: OperatorGrantDuration) =>
     apiRequest(routes.operatorGrant(), { method: 'POST', body: { duration }, schema: OperatorGrantResponse }),

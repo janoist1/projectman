@@ -2,7 +2,7 @@ import clsx from 'clsx';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { Link, useNavigate } from 'react-router';
-import { useLogout, useProjects } from '../api/queries';
+import { useLogout, useProjects, useServerVersion } from '../api/queries';
 import { Avatar } from '../components/Avatar';
 import { Icon } from '../components/Icon';
 import { t } from '../i18n/t';
@@ -107,6 +107,8 @@ export function AccountMenu({
   const refs = useMemo(() => [triggerRef, panelRef], []);
   const panelId = useId();
   const logout = useLogout();
+  const serverVersion = useServerVersion(open);
+  const version = serverVersion.isSuccess ? serverVersion.data : undefined;
   const navigate = useNavigate();
   useDismiss(open, () => setOpen(false), refs, triggerRef);
   useEffect(() => {
@@ -212,6 +214,16 @@ export function AccountMenu({
             <Icon name="logout" size={16} />
             <span className={styles.itemText}>{t('common.logout')}</span>
           </button>
+          {version ? (
+            <>
+              <div className={styles.separator} />
+              <div className={styles.version} title={version.commit ?? version.version}>
+                {t('nav.version', {
+                  version: version.tag ?? version.commit?.slice(0, 8) ?? version.version,
+                })}
+              </div>
+            </>
+          ) : null}
         </div>
       ) : null}
     </div>

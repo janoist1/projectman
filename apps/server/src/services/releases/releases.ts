@@ -20,6 +20,7 @@ import type {
   Release,
   ReleaseFailure,
   ReleaseReport,
+  ServerVersionView,
   TaskKey,
 } from '@projectman/shared';
 import type { BranchMerger, EngineDirectory, ReleaseStateReport } from '../../contracts';
@@ -79,7 +80,7 @@ type Deps = {
   inbox: InboxService;
   timeline: TimelineService;
   engines: EngineDirectory;
-  /** Null: this instance is not set up for releases; every operation is refused (`release_not_configured`). */
+  /** Null: this instance is not set up for deployments; version reads remain available. */
   target: ReleaseTarget | null;
   /** The commit the running server was started from (`resolveAppVersion`); not always a commit id. */
   appVersion: () => string;
@@ -110,6 +111,22 @@ export class ReleaseService {
   /** The commit the running server runs: the control socket answers with it. */
   appVersion(): string {
     return this.deps.appVersion();
+  }
+
+  /** The running build, even when this instance has no configured release target. */
+  async runningVersion(): Promise<ServerVersionView> {
+    const version = this.deps.appVersion();
+    const commit = COMMIT_ID.test(version) ? version : null;
+    let tag: string | null = null;
+    try {
+      const { releasePublications, releases } = this.deps.ctx.repos;
+      tag =
+        (commit && (releasePublications.tagOfCommit(commit) ?? releases.tagOfCommit(commit))) ||
+        (await this.deps.appTag());
+    } catch {
+      // A missing tag must not hide the running version.
+    }
+    return { version, commit, tag };
   }
 
   /** The releases of the project, newest first. */

@@ -60,6 +60,15 @@ export function createReleaseRepository(db: Db) {
   const read = (sql: string, ...args: string[]) =>
     (db.prepare(`${SELECT} ${sql}`).all(...args) as ReleaseRow[]).map(release);
   return {
+    /** The newest published tag of this commit, across release targets. */
+    tagOfCommit(commit: string): string | null {
+      return (
+        read(
+          `WHERE "commit" = ? AND state = 'published' ORDER BY published_at DESC, rowid DESC LIMIT 1`,
+          commit,
+        )[0]?.tag ?? null
+      );
+    },
     get(id: string): Release | null {
       return read('WHERE id = ?', id)[0] ?? null;
     },

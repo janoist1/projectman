@@ -61,6 +61,15 @@ import type { AllMessagesFilter } from './queryKeys';
 
 /* ---------- auth ---------- */
 
+export function useServerVersion(open: boolean) {
+  return useQuery({
+    queryKey: queryKeys.serverVersion,
+    queryFn: api.serverVersion,
+    enabled: open,
+    staleTime: 60_000,
+  });
+}
+
 export function useSetupStatus() {
   return useQuery({ queryKey: queryKeys.setupStatus, queryFn: api.setupStatus, staleTime: Infinity });
 }

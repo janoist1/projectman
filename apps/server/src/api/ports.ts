@@ -1,4 +1,5 @@
 import type { SessionMessages } from '../runtime/delivery';
+import type { ReleaseService } from '../services/releases';
 import type { AuthDomain } from '../auth';
 import type { WebPushService } from '../services/web-push';
 import type { SuperAdministration, SuperHandoffService, SuperOperator } from '../services/super-operator';
@@ -37,6 +38,7 @@ import type {
 } from '../services/operator';
 
 export interface ApiDomain extends AuthDomain {
+  readonly releases: ReleaseService;
   readonly webPush: WebPushService;
   readonly superOperator: SuperOperator;
   readonly superHandoffs: SuperHandoffService;

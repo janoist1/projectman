@@ -68,6 +68,7 @@ export interface AppHarnessOptions {
     | 'emailChannelSender'
     | 'emailChannelEnv'
     | 'appVersion'
+    | 'appTag'
     | 'claudeTmpRoots'
     | 'workRoot'
     | 'feedbackPublicUrl'

@@ -1,4 +1,4 @@
-import type { ProviderLoginStatus } from '@projectman/shared';
+import type { ProviderLoginStatus, ServerVersionView } from '@projectman/shared';
 import {
   CreateOperatorGrantRequest,
   superAccessVerdict,
@@ -466,6 +466,7 @@ function mockCommit(task: Pick<Task, 'key'>, salt: string): string {
  * real server would, so the UI runs through its normal data path.
  */
 export class MockBackend {
+  serverVersion: ServerVersionView = { version: 'dev', commit: null, tag: null };
   operatorGrantAudits: import('@projectman/shared').OperatorGrantAuditEntry[] = [];
   auth: MockAuthState;
   /** Cloud mode before the first setup (PM-317): the setup asks for this code; null is single-machine mode. */
@@ -1970,6 +1971,7 @@ export class MockBackend {
     if (this.auth !== 'ready') return error(401, 'unauthorized', 'Login required');
 
     if (path === '/api/me') return ok(this.me());
+    if (method === 'GET' && path === '/api/version') return ok(this.serverVersion);
     if (path === '/api/auth/operator-grant' || path === '/api/auth/operator-grant/audit') {
       const canManage = this.operatorGrant.canManage && this.me().hostOwner === true && !this.integratorMode;
       const at = nowIso();

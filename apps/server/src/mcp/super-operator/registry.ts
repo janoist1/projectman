@@ -66,6 +66,7 @@ export const EXTERNAL_DENIED: Partial<Record<TeamToolName, string>> = {
   link_pull_request: MEMBER_DUTY,
   save_memory: SESSION,
   set_current_work: SESSION,
+  get_guide: SESSION,
   read_message_attachment: FILES,
   attach_file: FILES,
   delete_attachment: UNBOUND,

@@ -3386,6 +3386,34 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "destructiveHint": false,
       "openWorldHint": false,
       "readOnlyHint": true,
+      "title": "Read a guide topic",
+    },
+    "description": "Read the full guide topic indexed in your prompt. Use only when the short index is not enough.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "topic": {
+          "enum": [
+            "commands",
+            "rules",
+          ],
+          "type": "string",
+        },
+      },
+      "required": [
+        "topic",
+      ],
+      "type": "object",
+    },
+    "name": "get_guide",
+    "title": "Read a guide topic",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
       "title": "Read the private history search statistics",
     },
     "description": "Only the Operator, in the general conversation of a human owner or admin, during that person's own open message or answer request; every other call is refused with history_stats_forbidden. The private statistics of the history search of this project: how many searches each member made, how many found nothing, and the searches without a result (their text and filters). The period defaults to the last 30 days; the log is kept for 90 days. limit is 1–200 (default 50) zero-result searches per page; pass next_cursor as cursor for the next page. The numbers are for the person you are talking with in this conversation only: do not copy them into a task, a note, a team message or another conversation.",

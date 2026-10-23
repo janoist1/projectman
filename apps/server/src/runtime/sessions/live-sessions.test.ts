@@ -20,6 +20,7 @@ function startProcess(live: LiveSessions, id: string) {
   live.modes.set(id, 'default');
   live.mergeFixes.set(id, { branch: 'fix', cwd: '/w' });
   live.grants.set(id, 2);
+  live.guides.set(id, { rules: '# Team rules' });
   live.stopReasons.set(id, { kind: 'restart', restartFor: 'permission' });
   return { token, firstInput: live.awaitFirstInput(id) };
 }
@@ -31,6 +32,7 @@ function holdsNothing(live: LiveSessions, id: string) {
   expect(live.modes.has(id)).toBe(false);
   expect(live.mergeFixes.has(id)).toBe(false);
   expect(live.grants.has(id)).toBe(false);
+  expect(live.guides.has(id)).toBe(false);
 }
 
 describe('LiveSessions tokens', () => {

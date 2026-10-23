@@ -37,6 +37,7 @@ function operatorQuoteOf(text: string): string {
 
 /** The team tools (MCP names) the Operator may call without an open request: they only read. */
 export const OPERATOR_READ_TOOLS: ReadonlySet<string> = new Set([
+  'get_guide',
   'get_role_configuration',
   'get_operator_preference',
   'get_operator_knowledge',
@@ -101,6 +102,7 @@ export const OPERATOR_NEVER_TOOLS: ReadonlySet<string> = new Set([
  * an admin's guest conversation reaches its own check; any other guest is refused `history_stats_forbidden`.
  */
 export const OPERATOR_GUEST_TOOLS: ReadonlySet<string> = new Set([
+  'get_guide',
   'get_operator_preference',
   'set_operator_preference',
   'get_task',

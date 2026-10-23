@@ -269,10 +269,14 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   a form that passes), the member's memory, and for tasks a kick-off brief (title,
   description, links, relations to other cards, attachments, recent timeline) sent as the first message.
 - **Team tools** — an MCP server (`/mcp/:token`) through which AI members message teammates,
+  read full `commands` and `rules` guide topics with the member-only `get_guide` tool (PM-972),
   read and update tasks (labels, notes, stage moves, subtasks), create tasks, link PRs, ask
   humans, save memories and work with attachments (list, read by local path, attach a file of
   their own working directory, delete their own; PM-113, see [SECURITY.md](SECURITY.md)). Text
   an agent writes in its own session reaches nobody.
+  The context pack builds each guide from the same section builders as its short prompt index.
+  Guides stay in server memory per live session, are rebuilt on start/resume and removed on exit
+  or failed start. Only the shortened prompt crosses to a remote engine; no database storage is needed.
 - **Team messages** — a message about a task goes to the recipient's session for that task
   (batched when idle; a stopped session is started or resumed through admission only for a valid
   action); messages to humans go to the web app. A message never goes to its sender.

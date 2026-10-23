@@ -715,6 +715,7 @@ export class SessionLauncher {
       session = this.ctx.repos.sessions.update(session.id, { usageSince: at })!;
     }
     const token = this.live.issueToken(session);
+    this.live.guides.set(session.id, pack.guide);
     this.live.providers.set(session.id, provider);
     if (resume) this.live.resuming.add(session.id);
     // Before the process starts: Codex reports its first input as it starts.

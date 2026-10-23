@@ -83,7 +83,7 @@ import type {
   DiagnosticLogEntry,
 } from './administration';
 import type { IntegratorPrincipal } from './integrator-principal';
-import type { CardQuestion, CardWorker } from './context';
+import type { CardQuestion, CardWorker, GuideTopic } from './context';
 import type { MessageStateReport, ProjectStateReport, TaskStateReport } from './project-state';
 
 /** What read_project_doc answers: the lines asked for of a project document at one commit. */
@@ -870,6 +870,7 @@ export interface SessionToolsHandler {
    * was not in a round, so nothing was written.
    */
   setCurrentWork(ctx: ToolContext, args: WorkDoing): Promise<{ recorded: boolean }>;
+  getGuide(ctx: ToolContext, args: { topic: GuideTopic }): Promise<string>;
 }
 
 /** Errors thrown by the handler; the MCP layer turns them into tool errors. */

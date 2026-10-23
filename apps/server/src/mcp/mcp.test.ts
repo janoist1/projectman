@@ -6,6 +6,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { ToolContext } from '../contracts';
 import { TeamToolError } from '../contracts';
+import { OPERATOR_GUEST_TOOLS, OPERATOR_READ_TOOLS } from '../services/operator';
 import { createMcpModule } from './index';
 import { createTeamMcpServer, DEFAULT_TOOL_TIMEOUT_MS } from './server';
 import {
@@ -362,6 +363,17 @@ describe('attachment tools', () => {
 /* ---------- tools ---------- */
 
 describe('team tools', () => {
+  it('get_guide returns markdown and preserves a missing topic refusal', async () => {
+    expect(OPERATOR_READ_TOOLS.has('get_guide')).toBe(true);
+    expect(OPERATOR_GUEST_TOOLS.has('get_guide')).toBe(true);
+    const { client } = await startTools();
+    const result = await call(client, 'get_guide', { topic: 'rules' });
+    expect(result.isError).toBeFalsy();
+    expect(text(result)).toContain('# Team rules');
+    const missing = await call(client, 'get_guide', { topic: 'commands' });
+    expect(missing.isError).toBe(true);
+    expect(text(missing)).toContain('[not_found]');
+  });
   it('forwards the arguments of the simple tools with the caller context', async () => {
     const { client, handler } = await startTools();
     const cases: Array<[string, Record<string, unknown>, string, Record<string, unknown>]> = [

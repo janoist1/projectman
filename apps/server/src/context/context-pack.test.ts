@@ -35,10 +35,33 @@ import { createContextPackBuilder } from './context-pack';
 import { stageLabel } from './format';
 import { formatMemoryEntry, MEMORY_LIMIT_BYTES } from './memory';
 import { roleLabel } from './system-prompt';
-import { describeTeamRule } from './team-rules';
+import { describeTeamRule, summarizeTeamRule } from './team-rules';
 import { dutyPrompt, handover } from './work-item';
 
 const builder = createContextPackBuilder();
+
+it.each(['claude', 'codex', 'gemini', 'nanogpt', 'sandbox'] as const)(
+  'indexes exactly the guide topics available to %s',
+  (provider) => {
+    const source = input();
+    if (provider === 'sandbox') {
+      source.sessionPolicy = buildSessionPolicy({
+        config: source.project,
+        role: source.member.role,
+        task: source.task!,
+        permissionMode: 'auto',
+        placement: { kind: 'read_only', path: '/work/acme' },
+      });
+      source.sandbox = sessionSandbox(source.sessionPolicy, { userHome: '/home/anna', appHome: '/pm' })!;
+    } else source.member = { ...source.member, provider };
+    const pack = builder.build(source);
+    const topics = [...pack.appendSystemPrompt.matchAll(/get_guide with topic `([^`]+)`/g)].map(
+      (match) => match[1],
+    );
+    expect(Object.keys(pack.guide).sort()).toEqual(topics.sort());
+    expect(pack.guide.commands !== undefined).toBe(provider === 'claude' || provider === 'codex');
+  },
+);
 
 describe('operating agreement and conversation guidance (PM-690)', () => {
   const knowledge = (involvement?: 'every_step' | 'minimal'): ContextPackInput['operatorKnowledge'] => ({
@@ -353,13 +376,18 @@ describe('team rules in the system prompt', () => {
   it('describes every applicable rule immediately after labels without duplicate guardrails', () => {
     const project = buildProject();
     project.pipeline.labels.push(LabelDefinition.parse({ id: 'refine', name: 'Refine' }));
-    const prompt = builder.build(input({ project })).appendSystemPrompt;
+    const pack = builder.build(input({ project }));
+    const prompt = pack.appendSystemPrompt;
     const rules = teamRules(project);
     expect(rules.map((rule) => rule.id)).toEqual([...TEAM_RULE_IDS]);
     expect(prompt.indexOf('# Team rules')).toBeGreaterThan(prompt.indexOf('# Labels'));
     expect(section(prompt, '# Labels')).not.toContain('# Team rules');
-    for (const rule of rules)
-      expect(section(prompt, '# Team rules')).toContain(`- ${describeTeamRule(rule, project)}`);
+    for (const rule of rules) {
+      expect(section(prompt, '# Team rules')).toContain(
+        `- ${summarizeTeamRule(rule, project) ?? describeTeamRule(rule, project)}`,
+      );
+      expect(pack.guide.rules).toContain(`- ${describeTeamRule(rule, project)}`);
+    }
     expect(prompt.match(/Approvals:/g)).toHaveLength(1);
     expect(prompt.match(/Nobody approves their own work:/g)).toHaveLength(1);
     expect(prompt).not.toContain('Approvals are labels only humans may set; the app asks them.');
@@ -676,6 +704,7 @@ describe('context pack snapshots', () => {
         timeline: timeline.slice(0, 4),
       }),
     );
+    expect(Buffer.byteLength(`${pack.appendSystemPrompt}\n`)).toBeLessThanOrEqual(14000);
     await expect(`${pack.appendSystemPrompt}\n`).toMatchFileSnapshot(
       '__snapshots__/developer-dev.system-prompt.txt',
     );
@@ -1091,7 +1120,7 @@ describe('system prompt', () => {
   describe('commands that run without asking', () => {
     const HEADING = '# Commands that run without asking';
     const commandsOf = (overrides: Parameters<typeof input>[0]) =>
-      section(builder.build(input(overrides)).appendSystemPrompt, HEADING);
+      builder.build(input(overrides)).guide.commands!;
 
     // The developer and reviewer texts are in the developer-dev and code-review snapshots.
     it('says publishing is refused in a local-only repository', () => {

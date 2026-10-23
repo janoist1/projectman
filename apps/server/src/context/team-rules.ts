@@ -2,6 +2,25 @@ import { developmentStage, stageOf } from '@projectman/shared';
 import type { ProjectConfig, TeamRule } from '@projectman/shared';
 import { code, codeList, labelRef, stageLabel } from './format';
 
+/** Short index entries; approval and self-review instructions remain complete. */
+export function summarizeTeamRule(rule: TeamRule, _project: ProjectConfig): string | null {
+  switch (rule.id) {
+    case 'approvals':
+    case 'self_review':
+      return null;
+    case 'new_card':
+      return `New tasks: AI or humans with ${code(rule.minimumAccess)} access; unassigned in ${code(rule.firstStageId)}.`;
+    case 'gates_in_order':
+      return `Moves: all forward gates apply; moving back clears ${codeList(rule.clearedOnMoveBack)}.`;
+    case 'fix_limit':
+      return `Fixes (${codeList(rule.labels)} / send-back): reaches ${rule.limit} rounds → ${rule.lead ? `${code(rule.lead)}, then ` : ''}humans (${codeList(rule.deciders)}) decide.`;
+    case 'refinement':
+      return `Refinement: ${codeList([...(rule.label ? [rule.label] : []), ...rule.stageIds])} → ${codeList(rule.steps)}, sequentially before ${code(rule.workStageId)}.`;
+    case 'waiting_answer':
+      return `Questions: ${code(rule.label)} blocks forward moves until the last open question is answered.`;
+  }
+}
+
 /** Describe every shared rule in the member's system instructions. */
 export function describeTeamRule(rule: TeamRule, project: ProjectConfig): string {
   const labels = (ids: string[], separator = ', ') =>

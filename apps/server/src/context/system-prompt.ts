@@ -26,7 +26,7 @@ import {
 import type { DutyId, OperatorWatch } from '@projectman/shared';
 import { getLocale } from '@projectman/templates';
 import { roleLabel } from '../agent-text';
-import type { ContextPackInput } from '../contracts';
+import type { ContextPack, ContextPackInput } from '../contracts';
 import {
   describeReadOnlySessionFolder,
   describeSandbox,
@@ -37,7 +37,7 @@ import {
 import { isHumanOnlyLabel, labelHolders } from '@projectman/shared';
 import { code, codeList, describeGate, labelRef, languageName, repoText, stageLabel } from './format';
 import { recentMemory } from './memory';
-import { describeTeamRule } from './team-rules';
+import { describeTeamRule, summarizeTeamRule } from './team-rules';
 import { cheapSubagentSection } from './subagents';
 import { dutyPrompt, expectedSteps, type Situation } from './work-item';
 
@@ -48,7 +48,11 @@ export { roleLabel };
  * The member's system prompt (Claude Code: `--append-system-prompt`; Codex:
  * `developer_instructions`): who, with whom, how, on what, within which limits.
  */
-export function buildSystemPrompt(input: ContextPackInput, situation: Situation): string {
+export function buildSystemPrompt(
+  input: ContextPackInput,
+  situation: Situation,
+  guide: ContextPack['guide'],
+): string {
   return [
     identitySection(input),
     teamSection(input),
@@ -57,11 +61,11 @@ export function buildSystemPrompt(input: ContextPackInput, situation: Situation)
     pipelineSection(input, situation),
     labelsSection(input),
     emailChannelSection(input),
-    teamRulesSection(input),
+    teamRulesSection(input, guide),
     workItemSection(input, situation),
     sessionPolicySection(input),
     workspaceSection(input),
-    unattendedCommandsSection(input),
+    unattendedCommandsSection(input, guide),
     heavyCommandsSection(input),
     untestedChecksSection(input),
     sessionFolderSection(input),
@@ -311,12 +315,22 @@ function emailChannelSection({ project, member }: ContextPackInput): string {
   ].join('\n');
 }
 
-/** The project's label vocabulary: what each label means and who may set it. */
-function teamRulesSection({ project }: ContextPackInput): string {
-  return [
+/** Build the short rule index and its full on-demand section together. */
+function teamRulesSection({ project }: ContextPackInput, guide: ContextPack['guide']): string {
+  const heading = [
     '# Team rules',
     'Rules the system enforces on every task, beyond the gates and labels above.',
+  ];
+  guide.rules = [
+    ...heading,
     ...teamRules(project).map((rule) => `- ${describeTeamRule(rule, project)}`),
+  ].join('\n');
+  return [
+    ...heading,
+    ...teamRules(project).map(
+      (rule) => `- ${summarizeTeamRule(rule, project) ?? describeTeamRule(rule, project)}`,
+    ),
+    'Read get_guide with topic `rules` for the full rules when this index is not enough.',
   ].join('\n');
 }
 
@@ -444,14 +458,10 @@ function sessionFolderSection({ member, sandbox, sessionPolicy }: ContextPackInp
  * member writes commands in a form that passes instead of waiting for approval. Only task work
  * items have such rules (`commandVerdict` gives no verdict without a task).
  */
-function unattendedCommandsSection({
-  project,
-  member,
-  task,
-  workItem,
-  sessionPolicy,
-  sandbox,
-}: ContextPackInput): string {
+function unattendedCommandsSection(
+  { project, member, task, workItem, sessionPolicy, sandbox }: ContextPackInput,
+  guide: ContextPack['guide'],
+): string {
   const repo = repoOf(project, effectiveRepo(project, task));
   if (member.provider === 'nanogpt') {
     return [
@@ -476,21 +486,27 @@ function unattendedCommandsSection({
   }
   if (workItem.type !== 'task') return '';
   const worktree = roleUsesWorktree(project, member.role);
+  const heading = '# Commands that run without asking';
+  const commands = describeUnattendedCommands({
+    worktree,
+    hasRepo: repo !== undefined,
+    defaultBranch: repo?.defaultBranch,
+    localOnly: repo !== undefined && !repo.github,
+    // Codex has no allow list of its own; Claude Code's comes from the role (session-policy).
+    codex: isCodex(member),
+    preApproved: isCodex(member)
+      ? []
+      : (sessionPolicy?.tools ?? roleSessionTools(project, member.role)).shell
+          .filter((rule) => rule.arguments === 'prefix')
+          .map((rule) => rule.command),
+  });
+  guide.commands = [heading, ...commands].join('\n');
   return [
-    '# Commands that run without asking',
-    ...describeUnattendedCommands({
-      worktree,
-      hasRepo: repo !== undefined,
-      defaultBranch: repo?.defaultBranch,
-      localOnly: repo !== undefined && !repo.github,
-      // Codex has no allow list of its own; Claude Code's comes from the role (session-policy).
-      codex: isCodex(member),
-      preApproved: isCodex(member)
-        ? []
-        : (sessionPolicy?.tools ?? roleSessionTools(project, member.role)).shell
-            .filter((rule) => rule.arguments === 'prefix')
-            .map((rule) => rule.command),
-    }),
+    heading,
+    'Reading, project checks, formatting and routine worktree commands run without asking in the supported forms; read get_guide with topic `commands` for the full list when needed.',
+    ...commands.filter(
+      (line) => line.startsWith('- Never without asking') || line.startsWith('- Refused without asking'),
+    ),
   ].join('\n');
 }
 

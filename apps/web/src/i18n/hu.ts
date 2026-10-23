@@ -1632,6 +1632,7 @@ export const hu = {
       namePlaceholder: 'pl. Acme webshop',
       key: 'Kulcs',
       keyHint: 'A kártyák kulcsa, pl. {example}.',
+      keyExample: '{key}‑1',
       workspace: 'Munkaterület útvonala',
       workspaceHint: 'Abszolút útvonal a szerver gépén; innen indulnak az AI-tagok munkamenetei.',
       workspacePlaceholder: '/Users/te/Dev/projekt',

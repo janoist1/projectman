@@ -115,7 +115,9 @@ export function CreateProjectPage() {
               />
               <TextField
                 label={t('projects.create.key')}
-                hint={t('projects.create.keyHint', { example: `${effectiveKey || 'AC'}-1` })}
+                hint={t('projects.create.keyHint', {
+                  example: t('projects.create.keyExample', { key: effectiveKey || 'AC' }),
+                })}
                 value={effectiveKey}
                 onChange={(event) => {
                   setKeyTouched(true);

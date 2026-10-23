@@ -139,7 +139,7 @@ describe('routing a message to a running session of the same family', () => {
   it('does not route what a human typed into a session', async () => {
     const child = await run('dev-2', task('AR-2'));
     await run('dev-2', task('AR-1'));
-    const message = await h.domain.messaging.sendToSession('AR', child.id, 'Plain words.', 'owner');
+    const message = await h.domain.sessionMessages.sendToSession('AR', child.id, 'Plain words.', 'owner');
     expect(messageRoute(message, 'dev-2')).toEqual(task('AR-2'));
   });
 });

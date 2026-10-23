@@ -1,3 +1,4 @@
+import type { SessionMessages } from '../runtime/delivery';
 import type { AuthDomain } from '../auth';
 import type { WebPushService } from '../services/web-push';
 import type { SuperAdministration, SuperHandoffService, SuperOperator } from '../services/super-operator';
@@ -61,6 +62,7 @@ export interface ApiDomain extends AuthDomain {
   readonly messages: MessageService;
   readonly memberQueue: MemberQueue;
   readonly messaging: Messaging;
+  readonly sessionMessages: SessionMessages;
   readonly operatorSignals: OperatorSignals;
   readonly operatorPreferences: OperatorPreferences;
   readonly sharedOperatorKnowledge: OperatorKnowledge;

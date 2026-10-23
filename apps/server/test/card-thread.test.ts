@@ -132,7 +132,7 @@ describe('the card’s thread: workers and questions', () => {
     const { session: worker } = await workerWithQuestions();
     const { session } = await h.domain.sessions.ensureSession('AR', 'cr', task);
     h.runner.emit({ type: 'exit', sessionId: session.id, exitCode: 0, signal: null });
-    await h.domain.messaging.sendToSession(
+    await h.domain.sessionMessages.sendToSession(
       'AR',
       session.id,
       'Private review instructions.',

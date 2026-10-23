@@ -173,7 +173,7 @@ import { InvitationService } from './core/members';
 import { MemberProfiles, MemberService } from './core/members';
 import { MessageService, Messaging, RelationNotices } from './core/messages';
 import { MemberQueue, OperatorQueueFinisher } from './core/member-queue';
-import { MessageDelivery, MessageRouter } from './runtime/delivery';
+import { MessageDelivery, MessageRouter, SessionMessages } from './runtime/delivery';
 import {
   MemberQueueWorker,
   decisionLane,
@@ -926,10 +926,10 @@ export function createDomain(opts: DomainOptions) {
     tasks,
     sessions,
     messages,
-    delivery,
     routing: messageRouter,
     messageAttachments,
   });
+  const sessionMessages = new SessionMessages({ ctx, projects, tasks, messaging, sessions, delivery });
   const emailChannel = createEmailChannelService({
     ctx,
     repo: opts.repos.emailChannel,
@@ -2117,13 +2117,13 @@ export function createDomain(opts: DomainOptions) {
   messages.registerQuestionProjection((item) => inbox.withQuestionGroup(item));
   // The card's other workers learn what was answered, so they do not ask it again (PM-249).
   events.on('inbox_resolved', (item) =>
-    item.kind === 'question' ? messaging.answeredNotice(item) : undefined,
+    item.kind === 'question' ? sessionMessages.answeredNotice(item) : undefined,
   );
   // An open AI question holds its card back with the waiting label; the last one closing frees it.
   events.on('inbox_resolved', (item) => openQuestionLabel.release(item));
   events.on('inbox_cancelled', (item) => openQuestionLabel.release(item));
   // A question closed without an answer (PM-556): its asking session, when it runs, is told not to wait.
-  events.on('inbox_cancelled', (item) => messaging.closedNotice(item));
+  events.on('inbox_cancelled', (item) => sessionMessages.closedNotice(item));
   // The selected PM filters suspected loops before a human decision (PM-712), including its own traffic.
   // A loop ends when the card makes progress or goes quiet.
   const loopWatch = new LoopWatch({
@@ -2319,7 +2319,7 @@ export function createDomain(opts: DomainOptions) {
   events.on('task_labels_notice', (notice) => messaging.labelNotice(notice));
   events.on('task_note_added', (note) => messaging.mentionNotice(note));
   // A changed description reaches the sessions working the card; a reviewer restarts on it (PM-184).
-  events.on('task_description_changed', (change) => messaging.descriptionNotice(change));
+  events.on('task_description_changed', (change) => sessionMessages.descriptionNotice(change));
   // New relations on a card that is being worked on reach its workers and, when they may change the work, its analyst (PM-421).
   const relationNotices = new RelationNotices({ ctx, projects, tasks, sessions, messaging, inbox });
   events.on('task_relations_added', (added) => relationNotices.added(added));
@@ -2367,7 +2367,7 @@ export function createDomain(opts: DomainOptions) {
   events.on('session_started', (session) => delivery.deliverWaiting(session));
   events.on('session_idle', (session) => delivery.deliverWaiting(session));
   // A member joining a card is told to the card's other workers; a notice kept for an ended session is dropped (PM-249).
-  events.on('task_session_joined', (joined) => messaging.joinedNotice(joined));
+  events.on('task_session_joined', (joined) => sessionMessages.joinedNotice(joined));
   events.on('session_ended', (session) => delivery.dropHeld(session.id));
   events.on('session_input_released', (session) => delivery.deliverWaiting(session));
   // The member queue's driver works a member's queue through whenever something could give the member
@@ -2439,6 +2439,7 @@ export function createDomain(opts: DomainOptions) {
     messages,
     memberQueue,
     messaging,
+    sessionMessages,
     messageRouter,
     sessionCloser,
     operatorActions,

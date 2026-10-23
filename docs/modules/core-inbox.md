@@ -18,11 +18,9 @@ waiters and permission delegation (including `delegatedPermissionPrompt`) remain
 
 `core/inbox/ports.ts` defines the consumer-owned interfaces (PM-635):
 
-- `ScreeningAttempt` is the narrow automatic start for question screening, with the unchanged persisted spec `{ kind: 'question_screening', projectKey }` and the existing validity, run, retry, waiting and logging callbacks.
-- `ScreeningAdmission` admits that attempt and starts the Operator's general conversation. `EnsureSessionResult` comes from the contracts facade; all other data shapes come from shared.
-- `ScreeningSessions` exposes only `findRunning` and `isPaused`. Delivery uses `Pick<MessageDeliveryPort, 'notice' | 'startAndDeliver'>` from the messaging facade.
+- `ScreeningEngineState` reports whether the screening member's engine is online and when it was last confirmed online.
 
-Assembly passes the existing session orchestrator, admission and delivery instances without casts. The waking/again/firstDeliveries maps, admission lock boundary, first-input rejection handler and delivered-at transaction order are unchanged, as are the screening option and 30-second sweep.
+Question screening synchronizes questions through `MemberQueue.syncInbox` and wakes the member queue's driver (PM-885). The runtime driver handles admission and delivery through `MessageDelivery` from `runtime/delivery`, using the screening lane to render questions and record delivery receipts.
 
 The inbox receives the domain context, projects, timeline and optional `IntegratorTodoAccess`.
 Existing `InboxDecider`, `QuestionAnswerer` and `AskerStarts` hooks connect decisions and answering work.

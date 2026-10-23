@@ -311,7 +311,7 @@ describe('session orchestrator', () => {
 
   it('delivers human messages into the session and records them as team messages', async () => {
     const { session } = await h.domain.sessions.ensureSession('AR', 'cr', task);
-    const message = await h.domain.messaging.sendToSession(
+    const message = await h.domain.sessionMessages.sendToSession(
       'AR',
       session.id,
       'Please check the tests',
@@ -325,7 +325,7 @@ describe('session orchestrator', () => {
     // A stopped session is resumed for the message.
     await h.domain.sessions.stop('AR', session.id);
     expect(h.domain.sessions.get('AR', session.id).state).toBe('exited');
-    await h.domain.messaging.sendToSession('AR', session.id, 'Are you there?', 'owner');
+    await h.domain.sessionMessages.sendToSession('AR', session.id, 'Are you there?', 'owner');
     expect(h.runner.started).toHaveLength(2);
   });
 

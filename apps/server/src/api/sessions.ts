@@ -66,7 +66,7 @@ export function registerSessionRoutes(app: FastifyInstance, domain: ApiDomain): 
     const access = await requireAccess(domain, request, key, { minimum: 'developer' });
     assertMaySeeSession(domain, access, sessionId);
     const body = parseBody(SendMessageRequest, request.body);
-    const message = await domain.messaging.sendToSession(
+    const message = await domain.sessionMessages.sendToSession(
       key,
       sessionId,
       body.text,

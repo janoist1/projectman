@@ -642,12 +642,12 @@ construction order; the factories return the existing classes without changing b
 | [`core/tasks`](modules/core-tasks.md)             | Tasks, PR records, board state, focus, involvement and card measures.       |
 | [`core/members`](modules/core-members.md)         | Member access, invitations, presence and naming.                            |
 | [`core/timeline`](modules/core-timeline.md)       | Append-only task and project timeline access.                               |
-| [`core/messages`](modules/core-messages.md)       | Stored messages, sending rules and runtime routing port.                    |
+| [`core/messages`](modules/core-messages.md)       | Stored messages, sending/session-chat rules and runtime routing port.       |
 | [`core/inbox`](modules/core-inbox.md)             | Human questions, approvals, permission inbox items and question lifecycle.  |
 | [`core/attachments`](modules/core-attachments.md) | Task and message attachment storage and processing.                         |
 | `runtime/admission`                               | Admission, deferred starts, handovers and refinement.                       |
 | `runtime/sessions`                                | Session lifecycle, rounds, compaction, policy, pause and workspaces.        |
-| `runtime/delivery`                                | Message routing, holds, wake-ups and session delivery.                      |
+| `runtime/delivery`                                | Message routing, holds, wake-ups, session chat and session notices.         |
 | `runtime/permissions`                             | Command parsing and execution permission rules.                             |
 | `runtime/watchers`                                | Runtime health, machine, outage, review, left parts and cleanup watches.    |
 | `runtime/usage`                                   | Provider quota, plan usage and managed provider keys.                       |
@@ -4973,10 +4973,9 @@ listAnsweredQuestions`). `list_decision_candidates { limit? }` (1..50, default 2
   **Question screening (PM-556, PM-558).** An AI member's `ask_human` question (the project manager's too, not
   the Operator's own and not a human's) is created in the inbox state `screening` with
   `payload.screening.until` = now + `QUESTION_SCREENING_MINUTES` (10); no person sees it. `QuestionScreening`
-  (`core/inbox`) wakes the Operator through the consumer-owned
-  `ScreeningAdmission` and `ScreeningSessions` ports (`core/inbox`, PM-635) and
-  `Pick<MessageDeliveryPort, 'notice' | 'startAndDeliver'>` from the messaging facade. Assembly
-  passes the existing admission, sessions and delivery instances, including for deferred restore.
+  (`core/inbox`) synchronizes screened questions into the member queue and wakes its driver
+  (PM-885). The runtime member queue driver delivers them through admission and `MessageDelivery`
+  from `runtime/delivery`; `ScreeningEngineState` reports the member's engine availability.
   It wakes the Operator like `operator_signals`
   (deferred start kind `question_screening`, no capacity, the Operator's general conversation, one notice with a
   JSON line per question; `deliveredAt` is written after the first input). The Operator settles each question with

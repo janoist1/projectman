@@ -137,7 +137,7 @@ describe('the permanent project manager channel', () => {
     await harness();
     const task = await h.domain.tasks.create('AR', { title: 'Legacy card' }, OWNER_ACTOR);
     // The queue wakes every recipient of a stored message: keep the other member's copy waiting.
-    vi.spyOn(h.domain.messaging, 'holdNameOf').mockImplementation((_config, _task, _from, member) =>
+    vi.spyOn(h.domain.messageRouter, 'holdNameOf').mockImplementation((_config, _task, _from, member) =>
       member === 'dev-1' ? 'handoff' : null,
     );
     const legacy = h.domain.messages.record({
@@ -151,7 +151,7 @@ describe('the permanent project manager channel', () => {
     });
     expect(h.domain.messages.waiting('AR', 'pm', { type: 'general' }).map((m) => m.id)).toEqual([legacy.id]);
     expect(h.domain.messages.waiting('AR', 'dev-1', { type: 'general' })).toEqual([]);
-    await h.domain.messaging.releaseWaiting('AR', task.key, 'pm');
+    await h.domain.messageRouter.releaseWaiting('AR', task.key, 'pm');
     await vi.waitFor(() => expect(h.runner.started).toHaveLength(1));
     await flush();
     expect(h.runner.lastStarted().initialMessage).toContain('Legacy pending request');
@@ -189,7 +189,7 @@ describe('the permanent project manager channel', () => {
     });
     h.repos.sessions.update(session.id, { state: 'idle' });
     expect(h.domain.sessions.messageWaiting(h.domain.sessions.find(session.id)!)).toBe(true);
-    await h.domain.messaging.releaseWaiting('AR', task.key, 'pm');
+    await h.domain.messageRouter.releaseWaiting('AR', task.key, 'pm');
     await flush();
     expect(h.runner.started).toHaveLength(1);
     expect(

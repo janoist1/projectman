@@ -2,7 +2,9 @@
 
 ## Responsibility
 
-Stored team messages, routing, recipient/card-role rules, stale-message checks and relation notices.
+Stored team messages, sending and recipient/card-role rules, stale-message checks and relation notices.
+Runtime placement, holds, delivery and wake-up decisions live in `runtime/delivery/MessageRouter`
+and are accessed through the consumer-owned `MessageRouting` port (PM-961).
 
 PM-662 adds an opt-in `SendOptions.workerCheck` to `sendReporting`. Before review-round requests,
 repinning, events or message records, `cardBusyOf` predicts recipients joining an open non-theme
@@ -20,25 +22,32 @@ its original position, so a newly queued full test still holds delivery.
 
 ## Facade
 
-`core/messages/index.ts` is the only entry point. It exports `MessageService`, `Messaging` with its factory `createMessaging`, `RelationNotices`, the staleness helpers (`wakesFor`, `wakeFactsFor`, `recipientHasCardRole`, `staleReasonFor`, `senderResultLabelFor`) and the port types below. It does not export `MessageDelivery`: the real delivery is `runtime/delivery`, which assembly and runtime callers import through its facade.
+`core/messages/index.ts` is the only entry point. It exports `MessageService`, `Messaging` with its factory `createMessaging`, `RelationNotices`, the staleness helpers (`wakesFor`, `wakeFactsFor`, `recipientHasCardRole`, `staleReasonFor`, `senderResultLabelFor`), `MessageRefinement` and the routing port types below. `MessageDelivery` and `MessageRouter` are exported by `runtime/delivery`, which assembly and runtime callers import through its facade.
 
 ## Ports
 
 `core/messages/ports.ts` defines the consumer-owned interfaces (PM-634):
 
-- `MessageSessions` reads and starts the sessions a message goes to: `get`, `find`, `list`, `isRunning`, `findRunning`, `isPaused`, `ensureSession`, `restartWithMessages`, `requestReviewRound`, `sourceHead`, `cardWorkers`, `waitingPermissionFor`, `reviewRoundDue`, `permissionRestartDue` and `assertProviderCooldown`. `RelationNotices` needs only `list` and `isRunning`.
-- `MessageDeliveryPort` types or holds a message: `deliver`, `deliverWithFirstInput`, `startAndDeliver`, `holdAsWritten`, `holdForPause`, `deliverWaiting`, `notice`, `noticeOrHold` and `holdUntilInput`. Question screening uses only `notice` and `startAndDeliver`.
+- `MessageRouting` decides `place` and `holdOf` before recording, then `deliver` types in, holds or wakes each placed AI recipient. `MessageHoldName`, `MessagePlace`, `MessagePlacement` and `RecipientDelivery` describe its inputs and results. `Messaging` builds the send report from the result; ordinary delivery stays synchronous, while `awaitWake` waits for the wake-up results with the existing timeout.
+- `MessageSessions` reads and starts the sessions used by the remaining writes and notices: `get`, `find`, `list`, `isRunning`, `isPaused`, `ensureSession`, `restartWithMessages`, `requestReviewRound`, `sourceHead`, `cardWorkers` and `permissionRestartDue`. `RelationNotices` needs only `list` and `isRunning`.
+- `MessageDeliveryPort` provides session writes and notices: `deliver`, `deliverWithFirstInput`, `holdAsWritten`, `holdForPause`, `notice` and `noticeOrHold`. These move in PM-962.
 - `MessageRefinement.turnMember` names the member whose refinement turn it is.
 - `MessageRequests.open` opens the Operator request an owner's message or answer causes (PM-463); `MessageRequestInput` is its input.
 
-`EnsureSessionOptions` and `EnsureSessionResult` live in `contracts/sessions.ts`; `SourceHead` and `CardWorker` in `contracts/context.ts`. `SessionStartCause` comes from `@projectman/shared`.
+`EnsureSessionOptions` and `EnsureSessionResult` live in `contracts/sessions.ts`; `SourceHead` in `contracts/context.ts`. `SessionStartCause` comes from `@projectman/shared`.
 
-Assembly passes the existing session orchestrator, delivery, refinement steps and Operator requests instances; the registered waker, signals and card holds and their order are unchanged. `Messaging` also receives the domain context, core services, message attachment validation/binding and optional engine availability. No runtime or service module is imported by this module; its four dependency exceptions are removed.
+Assembly passes the existing session orchestrator and delivery instances plus `MessageRouter` as
+`routing`. `Messaging` also receives the domain context, core services and message attachment
+validation/binding; refinement and engine availability are dependencies of the router. The router
+owns waker and card-hold registration and release; signal registration stays in `Messaging`.
+Placement and holds precede the message transaction, and delivery follows it. Hold order remains
+engine, manager/Operator exemption, handoff, refinement turn, fix limit, full test. No runtime or
+service module is imported by this module.
 
 ## Files
 
 All files live under `apps/server/src/core/messages/` (PM-642): `index.ts`, `ports.ts`, `messages.ts`
-(stored messages), `messaging.ts` (routing, holds, notices), `relation-notices.ts`, `staleness.ts`
+(stored messages), `messaging.ts` (sending, recording and notices), `relation-notices.ts`, `staleness.ts`
 (wake and stale rules) and `tests/`. The old `domain/messaging/` folder and its re-exporting index are gone.
 The authoritative descriptor is
 [`core-messages.ts`](../../apps/server/test/architecture/modules/core-messages.ts),
@@ -48,6 +57,6 @@ remain unchanged. The central architecture was finalized in PM-645.
 
 ## Remote engine
 
-Message records and routing rules stay on the server. Runtime delivery and engine availability use the existing transport to the recipient's engine. Session-folder message files remain covered by the machine-dependent inventory; no new delivery payload is introduced.
+Message records and the runtime router stay on the server. Runtime delivery and engine availability use the existing transport to the recipient's engine. Session-folder message files remain covered by the machine-dependent inventory; no new delivery payload or machine-dependent operation is introduced (PM-961).
 
 The ports are server-side interfaces over the existing instances and add no machine-dependent operation. CLI input still goes through the existing engine host and engine link; the 4 MiB frame limit, path handling and MCP replies are unchanged (PM-634).

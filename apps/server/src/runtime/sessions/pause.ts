@@ -28,7 +28,7 @@ import type { DomainContext } from '../../core/base';
 import type { FixLimitWatch } from '../watchers';
 import type { HandoffService } from '../admission';
 import type { Messaging } from '../../core/messages';
-import type { MessageDelivery } from '../delivery';
+import type { MessageDelivery, MessageRouter } from '../delivery';
 import type { ProjectService } from '../../core/projects';
 import type { SessionOrchestrator } from './sessions';
 import { waitForShutdownStops } from './shutdown-wait';
@@ -88,7 +88,8 @@ export class PauseService {
   private readonly admission: Pick<Admission, 'exclusive' | 'retryDeferred'>;
   private readonly runner: SessionRunner;
   private readonly delivery: MessageDelivery;
-  private readonly messaging: Pick<Messaging, 'holdsMessagesOf' | 'wakeWaiting' | 'send'>;
+  private readonly messaging: Pick<Messaging, 'send'>;
+  private readonly messageRouter: Pick<MessageRouter, 'holdsMessagesOf' | 'wakeWaiting'>;
   private readonly timeline: TimelineService;
   private readonly fixLimit: Pick<FixLimitWatch, 'afterResume'>;
   private readonly schedules: MissedRunCatchUp;
@@ -103,7 +104,8 @@ export class PauseService {
     admission: Pick<Admission, 'exclusive' | 'retryDeferred'>;
     runner: SessionRunner;
     delivery: MessageDelivery;
-    messaging: Pick<Messaging, 'holdsMessagesOf' | 'wakeWaiting' | 'send'>;
+    messaging: Pick<Messaging, 'send'>;
+    messageRouter: Pick<MessageRouter, 'holdsMessagesOf' | 'wakeWaiting'>;
     timeline: TimelineService;
     fixLimit: Pick<FixLimitWatch, 'afterResume'>;
     schedules: MissedRunCatchUp;
@@ -117,6 +119,7 @@ export class PauseService {
     this.runner = deps.runner;
     this.delivery = deps.delivery;
     this.messaging = deps.messaging;
+    this.messageRouter = deps.messageRouter;
     this.timeline = deps.timeline;
     this.fixLimit = deps.fixLimit;
     this.schedules = deps.schedules;
@@ -603,7 +606,7 @@ export class PauseService {
         else {
           // It stopped between turns and its process is gone: what came for it meanwhile wakes it as usual.
           this.delivery.dropPauseHeld(session.id);
-          await this.messaging.wakeWaiting(session);
+          await this.messageRouter.wakeWaiting(session);
         }
       } catch (err) {
         this.ctx.logger.warn({ err, sessionId: session.id }, 'could not resume the session');
@@ -655,7 +658,7 @@ export class PauseService {
       { sessionId: session.id, point: row.point, kind },
       'starting a paused session again',
     );
-    if (await this.messaging.holdsMessagesOf(session)) {
+    if (await this.messageRouter.holdsMessagesOf(session)) {
       await this.nudgeAsMessage(session, nudge);
       return;
     }

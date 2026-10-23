@@ -1,13 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AiMemberConfig, ProjectConfig } from '@projectman/shared';
-import { TeamToolError } from '../../../contracts';
-import type { MessageStateReport, ToolContext } from '../../../contracts';
-import { aiActor } from '../../../kernel';
-import { WAKE_REPLY_WAIT_MS } from '../messaging';
-import { formatProjectState, formatSentMessage } from '../../../mcp/format';
-import { createDomainHarness, OWNER_ACTOR, waitForSession } from '../../../../test/helpers/domain-harness';
-import type { DomainHarness } from '../../../../test/helpers/domain-harness';
-import { flush } from '../../../../test/helpers/fakes';
+import { TeamToolError } from '../../contracts';
+import type { MessageStateReport, ToolContext } from '../../contracts';
+import { aiActor } from '../../kernel';
+import { WAKE_REPLY_WAIT_MS } from './routing';
+import { formatProjectState, formatSentMessage } from '../../mcp/format';
+import { createDomainHarness, OWNER_ACTOR, waitForSession } from '../../../test/helpers/domain-harness';
+import type { DomainHarness } from '../../../test/helpers/domain-harness';
+import { flush } from '../../../test/helpers/fakes';
 
 let h: DomainHarness;
 afterEach(() => h?.cleanup());
@@ -218,7 +218,7 @@ describe('the Operator learns what became of its message (PM-543)', () => {
     await setup();
     let release!: () => void;
     const gate = new Promise<void>((resolve) => (release = resolve));
-    h.domain.messaging.registerWaker(
+    h.domain.messageRouter.registerWaker(
       {
         wake: async (projectKey, handle, workItem) => {
           await gate;
@@ -260,7 +260,7 @@ describe('another sender is not slowed by the start (PM-543)', () => {
     const waiting: string[] = [];
     h.domain.ctx.events.on('message_waiting', (e) => void waiting.push(e.handle));
     let calls = 0;
-    h.domain.messaging.registerWaker({
+    h.domain.messageRouter.registerWaker({
       wake: async () => {
         calls++;
         return { state: 'starting' };

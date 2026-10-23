@@ -16,8 +16,7 @@ import type { EngineId, ProjectConfig, Session, SessionStop, Task } from '@proje
 import type { EngineDirectory } from '../../contracts';
 import { engineIdOf } from './engines';
 import type { DomainContext } from '../../core/base';
-import type { Messaging } from '../../core/messages';
-import type { MessageDelivery } from '../delivery';
+import type { MessageDelivery, MessageRouter } from '../delivery';
 import type { ProjectService } from '../../core/projects';
 import type { RefinementSteps } from '../admission';
 import type { SessionOrchestrator } from './sessions';
@@ -42,7 +41,7 @@ export class SessionCloser {
   private readonly tasks: TaskService;
   private readonly sessions: SessionOrchestrator;
   private readonly refinement: Pick<RefinementSteps, 'turnMember'>;
-  private readonly messaging: Pick<Messaging, 'holdsMessagesOf' | 'wakeWaiting'>;
+  private readonly messageRouter: Pick<MessageRouter, 'holdsMessagesOf' | 'wakeWaiting'>;
   private readonly delivery: Pick<MessageDelivery, 'deliverWaiting'>;
 
   constructor(deps: {
@@ -52,7 +51,7 @@ export class SessionCloser {
     tasks: TaskService;
     sessions: SessionOrchestrator;
     refinement: Pick<RefinementSteps, 'turnMember'>;
-    messaging: Pick<Messaging, 'holdsMessagesOf' | 'wakeWaiting'>;
+    messageRouter: Pick<MessageRouter, 'holdsMessagesOf' | 'wakeWaiting'>;
     delivery: Pick<MessageDelivery, 'deliverWaiting'>;
   }) {
     this.ctx = deps.ctx;
@@ -61,7 +60,7 @@ export class SessionCloser {
     this.tasks = deps.tasks;
     this.sessions = deps.sessions;
     this.refinement = deps.refinement;
-    this.messaging = deps.messaging;
+    this.messageRouter = deps.messageRouter;
     this.delivery = deps.delivery;
   }
 
@@ -282,7 +281,7 @@ export class SessionCloser {
   /** Whether the session works, or a message that is not held back is on its way to it. */
   private async atWork(session: Session): Promise<boolean> {
     const messageOnItsWay =
-      this.sessions.messageWaiting(session) && !(await this.messaging.holdsMessagesOf(session));
+      this.sessions.messageWaiting(session) && !(await this.messageRouter.holdsMessagesOf(session));
     return isSessionAtWork(session, {
       awaitsFirstTurn: this.sessions.awaitsFirstTurn(session.id),
       pendingInput: this.sessions.hasPendingInput(session.id),
@@ -299,11 +298,11 @@ export class SessionCloser {
     const current = this.sessions.find(session.id);
     if (!current) return;
     if (await this.atWork(current)) {
-      if (this.sessions.messageWaiting(current) && !(await this.messaging.holdsMessagesOf(current)))
+      if (this.sessions.messageWaiting(current) && !(await this.messageRouter.holdsMessagesOf(current)))
         this.delivery.deliverWaiting(current);
       return;
     }
     const closed = await this.sessions.close(current.projectKey, current.id, stop);
-    if (closed) await this.messaging.wakeWaiting(closed);
+    if (closed) await this.messageRouter.wakeWaiting(closed);
   }
 }

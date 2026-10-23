@@ -1,5 +1,11 @@
 import type { EngineId, ProjectConfig, Session, SessionStop, Task } from '@projectman/shared';
 import type { FullTestSandbox, ScreenshotScope, SourceHead } from '../../contracts';
+import type { Messaging } from '../../core/messages';
+
+/** Message sending and hold release used by full test runs. */
+export interface FullTestMessages extends Pick<Messaging, 'send'> {
+  releaseWaiting(projectKey: string, taskKey: string, handle: string): Promise<void>;
+}
 
 /** The session operations used by full test runs. */
 export interface FullTestSessions {

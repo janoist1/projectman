@@ -38,7 +38,7 @@ it('keeps human reading, partial delivery, handoff and unitOfWork rollback consi
       });
     const info = record('info');
     const action = record('action');
-    const count = () => h.domain.messaging.waitingForEngine('local');
+    const count = () => h.domain.messageRouter.waitingForEngine('local');
     const pending = () => ['dev-1', 'dev-2'].map((handle) => h.repos.messages.pendingCount('AR', handle));
     const openItems = () =>
       ['dev-1', 'dev-2'].map((handle) =>

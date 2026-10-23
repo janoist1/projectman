@@ -251,7 +251,7 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
       await sweep();
       const row = rows(key)[0]!;
       // The queue wakes a recipient as soon as a message is stored: hold the reminder back so it stays waiting.
-      vi.spyOn(h.domain.messaging, 'holdNameOf').mockReturnValue('handoff');
+      vi.spyOn(h.domain.messageRouter, 'holdNameOf').mockReturnValue('handoff');
       const message = waitingReminder(key, row.id);
       const config = await h.domain.projects.config('AR');
 

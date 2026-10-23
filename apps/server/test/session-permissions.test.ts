@@ -241,7 +241,7 @@ describe('the permission settings of one session (PM-170)', () => {
     h.runner.setState(sessionId, 'working');
     await set(sessionId, { permissionMode: 'plan' });
     await h.domain.messaging.send('AR', 'owner', { to: ['dev-1'], text: 'Team note', taskKey: 'AR-1' });
-    await h.domain.messaging.sendToSession('AR', sessionId, 'Direct note', 'owner');
+    await h.domain.sessionMessages.sendToSession('AR', sessionId, 'Direct note', 'owner');
     await flush();
     expect(h.runner.messages).toEqual([]);
 
@@ -259,7 +259,7 @@ describe('the permission settings of one session (PM-170)', () => {
     const sessionId = await running();
     h.runner.setState(sessionId, 'working');
     await set(sessionId, { permissionMode: 'plan' });
-    await h.domain.messaging.sendToSession('AR', sessionId, 'Direct note', 'owner');
+    await h.domain.sessionMessages.sendToSession('AR', sessionId, 'Direct note', 'owner');
     await flush();
     expect(h.runner.messages).toEqual([]);
     const back = await set(sessionId, { permissionMode: null });

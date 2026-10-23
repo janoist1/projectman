@@ -196,9 +196,9 @@ describe('a task without a repository', () => {
       const started = h.runner.started.length;
 
       // A person writing to the stopped session resumes it, past admission: it still needs a repository.
-      expect(await code(h.domain.messaging.sendToSession('AR', first.session.id, 'Carry on', 'owner'))).toBe(
-        'repo_required',
-      );
+      expect(
+        await code(h.domain.sessionMessages.sendToSession('AR', first.session.id, 'Carry on', 'owner')),
+      ).toBe('repo_required');
       expect(await code(h.domain.sessions.ensureSession('AR', 'dev-1', onTask(task.key)))).toBe(
         'repo_required',
       );

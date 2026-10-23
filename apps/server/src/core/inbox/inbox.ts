@@ -1671,7 +1671,7 @@ export class InboxService {
    * Closes a question that still waits for its answer (open, or with the Operator for screening) because
    * nothing is left to answer (PM-556): `cancelled`, resolved by `by` with the rule. Null when the item is
    * not a pending question. The timeline records `question_closed`; the asking member's running session is
-   * told by the `inbox_cancelled` listener (`MessagingService.closedNotice`).
+   * told by the `inbox_cancelled` listener (`SessionMessages.closedNotice`).
    */
   closeQuestion(
     id: string,

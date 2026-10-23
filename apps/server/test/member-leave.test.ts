@@ -87,7 +87,7 @@ describe('members on leave (decision 23)', () => {
     await waitFor(() => !h.runner.isRunning(session.id));
     const messages = h.repos.messages.list('AR').length;
     await expect(
-      h.domain.messaging.sendToSession('AR', session.id, 'Fictional follow-up', 'owner'),
+      h.domain.sessionMessages.sendToSession('AR', session.id, 'Fictional follow-up', 'owner'),
     ).rejects.toMatchObject(onLeave);
     expect(h.repos.messages.list('AR')).toHaveLength(messages);
     expect(h.runner.started).toHaveLength(1);

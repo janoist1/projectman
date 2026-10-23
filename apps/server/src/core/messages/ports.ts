@@ -1,57 +1,14 @@
-import type {
-  ProjectConfig,
-  Session,
-  SessionStartCause,
-  Task,
-  TeamMessage,
-  WorkItemRef,
-} from '@projectman/shared';
-import type {
-  EnsureSessionOptions,
-  EnsureSessionResult,
-  SentMessageRecipient,
-  SourceHead,
-} from '../../contracts';
+import type { ProjectConfig, Session, Task, TeamMessage, WorkItemRef } from '@projectman/shared';
+import type { SentMessageRecipient, SourceHead } from '../../contracts';
 
 /** The session operations used by `Messaging` and `RelationNotices`. */
 export interface MessageSessions {
-  get(projectKey: string, sessionId: string): Session;
   find(sessionId: string): Session | null;
   list(projectKey: string, filter?: { member?: string; taskKey?: string }): Session[];
   isRunning(sessionId: string): boolean;
-  isPaused(session: Pick<Session, 'id' | 'projectKey'>): boolean;
-  ensureSession(
-    projectKey: string,
-    handle: string,
-    workItem: WorkItemRef,
-    opts?: EnsureSessionOptions,
-  ): Promise<EnsureSessionResult>;
-  /** Restarts a running session with the messages as its first input; false when it is no longer running. */
-  restartWithMessages(
-    projectKey: string,
-    sessionId: string,
-    messages: string[],
-    cause?: SessionStartCause,
-  ): Promise<boolean>;
   requestReviewRound(projectKey: string, taskKey: string, member?: string): void;
   sourceHead(config: ProjectConfig, task: Task, opts?: { strict?: boolean }): Promise<SourceHead | null>;
   cardWorkers(projectKey: string, task: Task, config: ProjectConfig): Session[];
-  permissionRestartDue(session: Session): boolean;
-}
-
-/** Session writes and notices that remain in `Messaging`. */
-export interface MessageDeliveryPort {
-  deliver(session: Session, message: TeamMessage, text?: string): void;
-  deliverWithFirstInput(
-    handle: string,
-    messages: TeamMessage[],
-    firstInput: Promise<boolean>,
-    session?: Session,
-  ): void;
-  holdAsWritten(session: Session, message: TeamMessage): void;
-  holdForPause(session: Session, message: TeamMessage): void;
-  notice(session: Session, from: string, text: string, taskKey: string | null): Promise<boolean>;
-  noticeOrHold(session: Session, from: string, text: string, taskKey: string | null): void;
 }
 
 /** Whose turn it is on a card that is being refined. */

@@ -176,7 +176,7 @@ describe('notices to the members working on a card', () => {
       await flush();
       const before = typedInto(dev1).length;
 
-      await h.domain.messaging.sendToSession('AR', session.id, 'Are you there?', 'owner');
+      await h.domain.sessionMessages.sendToSession('AR', session.id, 'Are you there?', 'owner');
 
       await vi.waitFor(() => expect(typedInto(dev1)).toHaveLength(before + 1));
       expect(typedInto(dev1).at(-1)).toBe(

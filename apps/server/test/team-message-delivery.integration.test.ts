@@ -97,7 +97,7 @@ it(
       for (const taskKey of [undefined, task.key]) {
         const domain = h.app.projectman.domain;
         if (phase === 'busy') {
-          await domain.messaging.sendToSession('AR', session.id, 'SLOW manager work', 'owner');
+          await domain.sessionMessages.sendToSession('AR', session.id, 'SLOW manager work', 'owner');
           await waitFor(() => domain.sessions.get('AR', session.id).state === 'working', {
             what: 'manager working',
           });

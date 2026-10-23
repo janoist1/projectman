@@ -292,7 +292,11 @@ function ContactsBlock({
                       {invitedHandles.has(contact.handle) ? (
                         <>
                           <span className={shared.muted}>{t('settings.email.contacts.invited')}</span>
-                          <Link className={styles.pendingLink} to={`/p/${key}/team`}>
+                          <Link
+                            className={styles.pendingLink}
+                            to={`/p/${key}/team`}
+                            data-invited-link={contact.handle}
+                          >
                             {t('settings.email.contacts.pendingLink')}
                           </Link>
                         </>
@@ -594,6 +598,10 @@ export function EmailSection({ config, version }: { config: ProjectConfig; versi
         member={invitee ?? undefined}
         intro={invitee ? t('settings.email.contacts.inviteIntro', { name: invitee.displayName }) : undefined}
         onClose={() => setInviting(null)}
+        // The invitation turns the row's button into a link; focus goes to that link.
+        returnFocusFallback={() =>
+          document.querySelector<HTMLElement>(`[data-invited-link="${invitee?.handle ?? ''}"]`)
+        }
       />
     </>
   );

@@ -219,7 +219,9 @@ describe('the e-mail settings section', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: t('invites.create') }));
     fireEvent.click(await within(dialog).findByRole('button', { name: t('common.close') }));
     expect(await screen.findByText(t('settings.email.contacts.invited'))).toBeTruthy();
-    expect(screen.getByRole('link', { name: t('settings.email.contacts.pendingLink') })).toBeTruthy();
+    const link = screen.getByRole('link', { name: t('settings.email.contacts.pendingLink') });
+    // The button that opened the dialog is gone; focus goes to the link that took its place.
+    expect(document.activeElement).toBe(link);
     expect(
       screen.queryByRole('button', { name: t('settings.email.contacts.inviteOf', { name: 'Kata' }) }),
     ).toBeNull();

@@ -18,15 +18,23 @@ export function InviteDialog({
   onClose,
   member,
   intro,
+  returnFocusFallback,
 }: {
   open: boolean;
   onClose: () => void;
   member?: MemberView;
   /** A paragraph before the form; shown until the link is created. */
   intro?: string;
+  /** Where focus goes on closing when the element that opened the dialog is gone. */
+  returnFocusFallback?: () => HTMLElement | null;
 }) {
   return (
-    <Dialog open={open} onClose={onClose} title={t('invites.title')}>
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title={t('invites.title')}
+      returnFocusFallback={returnFocusFallback}
+    >
       <InviteForm key={member?.handle ?? 'new'} member={member} intro={intro} onClose={onClose} />
     </Dialog>
   );

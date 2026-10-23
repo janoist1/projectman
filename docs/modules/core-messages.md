@@ -5,6 +5,11 @@
 Stored team messages, sending and recipient/card-role rules, stale-message checks and relation notices.
 Runtime placement, holds, delivery and wake-up decisions live in `runtime/delivery/MessageRouter`
 and are accessed through the consumer-owned `MessageRouting` port (PM-961).
+Direct session chat and the description/joined/answered/closed notices live in
+`runtime/delivery/SessionMessages` (PM-962). `Messaging.prepareSessionChat` keeps the checks
+and injected-message framing; `recordSessionChat` records the undelivered message after the
+runtime has ensured the session. Mentions and relation notices still use the core send path.
+Shared notice text lives in `agent-text/message-notices.ts`.
 
 PM-662 adds an opt-in `SendOptions.workerCheck` to `sendReporting`. Before review-round requests,
 repinning, events or message records, `cardBusyOf` predicts recipients joining an open non-theme
@@ -22,21 +27,20 @@ its original position, so a newly queued full test still holds delivery.
 
 ## Facade
 
-`core/messages/index.ts` is the only entry point. It exports `MessageService`, `Messaging` with its factory `createMessaging`, `RelationNotices`, the staleness helpers (`wakesFor`, `wakeFactsFor`, `recipientHasCardRole`, `staleReasonFor`, `senderResultLabelFor`), `MessageRefinement` and the routing port types below. `MessageDelivery` and `MessageRouter` are exported by `runtime/delivery`, which assembly and runtime callers import through its facade.
+`core/messages/index.ts` is the only entry point. It exports `MessageService`, `Messaging` with its factory `createMessaging`, `RelationNotices`, the staleness helpers (`wakesFor`, `wakeFactsFor`, `recipientHasCardRole`, `staleReasonFor`, `senderResultLabelFor`), `MessageRefinement` and the routing port types below. `MessageDelivery`, `MessageRouter` and `SessionMessages` are exported by `runtime/delivery`, which assembly and runtime callers import through its facade.
 
 ## Ports
 
 `core/messages/ports.ts` defines the consumer-owned interfaces (PM-634):
 
 - `MessageRouting` decides `place` and `holdOf` before recording, then `deliver` types in, holds or wakes each placed AI recipient. `MessageHoldName`, `MessagePlace`, `MessagePlacement` and `RecipientDelivery` describe its inputs and results. `Messaging` builds the send report from the result; ordinary delivery stays synchronous, while `awaitWake` waits for the wake-up results with the existing timeout.
-- `MessageSessions` reads and starts the sessions used by the remaining writes and notices: `get`, `find`, `list`, `isRunning`, `isPaused`, `ensureSession`, `restartWithMessages`, `requestReviewRound`, `sourceHead`, `cardWorkers` and `permissionRestartDue`. `RelationNotices` needs only `list` and `isRunning`.
-- `MessageDeliveryPort` provides session writes and notices: `deliver`, `deliverWithFirstInput`, `holdAsWritten`, `holdForPause`, `notice` and `noticeOrHold`. These move in PM-962.
+- `MessageSessions` reads the sessions needed by the core: `find`, `isRunning`, `requestReviewRound`, `sourceHead` and `cardWorkers`, plus `list` for `RelationNotices` (which needs only `list` and `isRunning`).
 - `MessageRefinement.turnMember` names the member whose refinement turn it is.
 - `MessageRequests.open` opens the Operator request an owner's message or answer causes (PM-463); `MessageRequestInput` is its input.
 
-`EnsureSessionOptions` and `EnsureSessionResult` live in `contracts/sessions.ts`; `SourceHead` in `contracts/context.ts`. `SessionStartCause` comes from `@projectman/shared`.
+`SourceHead` lives in `contracts/context.ts`; `SessionStartCause` comes from `@projectman/shared`.
 
-Assembly passes the existing session orchestrator and delivery instances plus `MessageRouter` as
+Assembly passes the existing session orchestrator plus `MessageRouter` as
 `routing`. `Messaging` also receives the domain context, core services and message attachment
 validation/binding; refinement and engine availability are dependencies of the router. The router
 owns waker and card-hold registration and release; signal registration stays in `Messaging`.

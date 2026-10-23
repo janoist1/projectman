@@ -67,7 +67,7 @@ describe('compaction window of a session', () => {
     });
     h.runner.emit({ type: 'exit', sessionId: session.id, exitCode: 0, signal: null });
     await h.domain.members.update('AR', 'dev-1', { autoCompactWindowTokens: 120_000 }, by);
-    await h.domain.messaging.sendToSession('AR', session.id, 'Fictional follow-up', 'owner');
+    await h.domain.sessionMessages.sendToSession('AR', session.id, 'Fictional follow-up', 'owner');
     expect(h.runner.lastStarted()).toMatchObject({
       sessionId: session.id,
       resume: true,

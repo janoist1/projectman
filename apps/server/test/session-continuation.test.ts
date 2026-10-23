@@ -109,7 +109,12 @@ describe('the first input of a resumed session', () => {
     'gives a %s session a human message as its first input, not the continue message, and types nothing after it',
     async (provider, member) => {
       const session = await stopped(member);
-      const message = await h.domain.messaging.sendToSession('AR', session.id, 'Please rename it.', 'owner');
+      const message = await h.domain.sessionMessages.sendToSession(
+        'AR',
+        session.id,
+        'Please rename it.',
+        'owner',
+      );
       await flush();
       expect(h.runner.lastStarted()).toMatchObject({
         sessionId: session.id,
@@ -129,7 +134,12 @@ describe('the first input of a resumed session', () => {
     // A session row without a conversation (it never reported a transcript): the brief goes first.
     const { session } = await h.domain.sessions.ensureSession('AR', 'dev-1', task);
     await h.domain.sessions.stop('AR', session.id);
-    const message = await h.domain.messaging.sendToSession('AR', session.id, 'Please rename it.', 'owner');
+    const message = await h.domain.sessionMessages.sendToSession(
+      'AR',
+      session.id,
+      'Please rename it.',
+      'owner',
+    );
     expect(h.runner.lastStarted()).toMatchObject({
       resume: false,
       initialMessage: `Brief for AR-1: Login page\n\n${WAITING_HEADER}\n\nPlease rename it.`,
@@ -142,7 +152,7 @@ describe('the first input of a resumed session', () => {
   it('types a message that is too long for a command line after the continue message', async () => {
     const session = await stopped('dev-2');
     const long = `Please read this log:\n${'x'.repeat(MAX_FIRST_INPUT_CHARS)}`;
-    await h.domain.messaging.sendToSession('AR', session.id, long, 'owner');
+    await h.domain.sessionMessages.sendToSession('AR', session.id, long, 'owner');
     await flush();
     expect(h.runner.lastStarted()).toMatchObject({
       sessionId: session.id,
@@ -154,7 +164,7 @@ describe('the first input of a resumed session', () => {
 
   it('types a human message into a running session as before', async () => {
     const { session } = await h.domain.sessions.ensureSession('AR', 'dev-1', task);
-    await h.domain.messaging.sendToSession('AR', session.id, 'Please rename it.', 'owner');
+    await h.domain.sessionMessages.sendToSession('AR', session.id, 'Please rename it.', 'owner');
     await flush();
     expect(h.runner.started).toHaveLength(1);
     expect(h.runner.messages).toEqual([{ sessionId: session.id, text: 'Please rename it.' }]);
@@ -170,10 +180,16 @@ describe('the first input of a resumed session', () => {
       const target = { scope: 'project', projectKey: 'AR' } as const;
       const system = { userId: null, source: 'system' } as const;
       if (mode === 'paused') await h.domain.pauses.pause(target, system);
-      const message = await h.domain.messaging.sendToSession('AR', session.id, 'Please rename it.', 'owner', {
-        ...OWNER_ACTOR,
-        via: 'integrator',
-      });
+      const message = await h.domain.sessionMessages.sendToSession(
+        'AR',
+        session.id,
+        'Please rename it.',
+        'owner',
+        {
+          ...OWNER_ACTOR,
+          via: 'integrator',
+        },
+      );
       if (mode === 'paused') await h.domain.pauses.resume(target, system);
       await flush();
       const text = '[team message from owner via integrator about AR-1]\nPlease rename it.';
@@ -347,7 +363,12 @@ describe('the first input of a resumed session', () => {
 
     it('keeps the message a person wrote into a stopped session waiting until it is typed', async () => {
       const session = await stopped('dev-1');
-      const message = await h.domain.messaging.sendToSession('AR', session.id, 'Please rename it.', 'owner');
+      const message = await h.domain.sessionMessages.sendToSession(
+        'AR',
+        session.id,
+        'Please rename it.',
+        'owner',
+      );
       await flush();
       expect(h.runner.lastStarted()).toMatchObject({ resume: true, initialMessage: 'Please rename it.' });
       expect(h.repos.messages.get(message.id)?.deliveredAt).toBeNull();
@@ -361,7 +382,12 @@ describe('the first input of a resumed session', () => {
 
     it('keeps the message a person wrote waiting when the session ends before it is typed', async () => {
       const session = await stopped('dev-1');
-      const message = await h.domain.messaging.sendToSession('AR', session.id, 'Please rename it.', 'owner');
+      const message = await h.domain.sessionMessages.sendToSession(
+        'AR',
+        session.id,
+        'Please rename it.',
+        'owner',
+      );
       h.runner.emit({ type: 'exit', sessionId: session.id, exitCode: 1, signal: null });
       await flush();
       expect(h.repos.messages.pending('AR', 'dev-1').map((m) => m.id)).toEqual([message.id]);

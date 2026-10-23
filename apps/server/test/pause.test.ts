@@ -70,7 +70,7 @@ describe('pause of the team', () => {
     ).rejects.toMatchObject(paused);
     await expect(h.domain.sessions.ensureSession('AR', 'dev-2', general)).rejects.toMatchObject(paused);
     await expect(
-      h.domain.messaging.sendToSession('AR', session.id, 'Fictional follow-up', 'owner'),
+      h.domain.sessionMessages.sendToSession('AR', session.id, 'Fictional follow-up', 'owner'),
     ).rejects.toMatchObject(paused);
     expect(h.repos.messages.list('AR')).toHaveLength(messages);
     expect(h.runner.started).toHaveLength(1);
@@ -81,7 +81,7 @@ describe('pause of the team', () => {
     const { session } = await h.domain.sessions.ensureSession('AR', 'dev-1', general);
     await h.domain.pauses.pause(PROJECT, BY);
     const message = await h.domain.messaging.send('AR', 'owner', { to: ['dev-1'], text: 'Fictional note.' });
-    await h.domain.messaging.sendToSession('AR', session.id, 'Fictional follow-up', 'owner');
+    await h.domain.sessionMessages.sendToSession('AR', session.id, 'Fictional follow-up', 'owner');
     expect(h.runner.messages).toEqual([]);
     expect(h.repos.messages.get(message.id)?.deliveredAt).toBeNull();
     await h.domain.pauses.resume(PROJECT, BY);

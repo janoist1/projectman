@@ -38,13 +38,7 @@ import type {
   TeamMessageAnswer,
   WorkItemRef,
 } from '@projectman/shared';
-import {
-  ANSWER_NOTICE_LIMIT,
-  QUESTION_NOTICE_LIMIT,
-  reaskHint,
-  startReason,
-  truncate,
-} from '../../agent-text';
+import { QUESTION_NOTICE_LIMIT, reaskHint, startReason, truncate } from '../../agent-text';
 import type { SentMessageRecipient } from '../../contracts';
 import type { MessageRouting, MessageSessions, RecipientDelivery } from './ports';
 import { isoNow } from '../../core/base';

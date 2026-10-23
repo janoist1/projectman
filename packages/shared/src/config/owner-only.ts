@@ -29,8 +29,8 @@ import type { AiMemberConfig, ProjectConfig } from './schema';
  *   full test sandbox) or `fullTestAtMerge` (when it runs) (PM-538);
  * - `operator_watch`: how much the Operator does on its own on a system signal (PM-548);
  * - `operator_approval_waiver`: whether eligible Operator changes may skip the approval click (PM-691);
- * - `email_send_policy`: letting an AI member send email without human approval (PM-940); withdrawing
- *   it is not owner-only.
+ * - `email_send_policy`: whether an AI member can send email without human approval (PM-940), except
+ *   that switching sending on or off clears the bypass with it (PM-956).
  */
 export type OwnerOnlyChange =
   | 'locations'
@@ -64,14 +64,16 @@ export function ownerOnlyChanges(
     changes.push('operator_approval_waiver');
   const policy = (member: ProjectConfig['team']['members'][number] | undefined) =>
     member?.kind === 'ai' && member.email?.sendWithoutApproval === true;
+  const sending = (member: ProjectConfig['team']['members'][number] | undefined) =>
+    member?.kind === 'ai' && member.email?.enabled === true;
   if (
-    next.team.members.some(
-      (member) =>
-        member.kind === 'ai' &&
-        // Only granting sending without approval is the owner's; withdrawing it tightens the policy (PM-956).
-        policy(member) &&
-        !policy(previous.team.members.find((old) => old.handle === member.handle)),
-    )
+    next.team.members.some((member) => {
+      if (member.kind !== 'ai') return false;
+      const old = previous.team.members.find((m) => m.handle === member.handle);
+      if (policy(member) === policy(old)) return false;
+      // Switching sending on or off clears the bypass with it (PM-956): not a policy decision.
+      return !(policy(old) && sending(old) !== sending(member));
+    })
   )
     changes.push('email_send_policy');
   return changes;

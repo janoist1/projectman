@@ -79,7 +79,7 @@ const ai = (config: ProjectConfig, handle: string) => {
 describe('ownerOnlyChanges', () => {
   it.each([
     [undefined, true, ['email_send_policy']],
-    [true, false, []],
+    [true, false, ['email_send_policy']],
     [false, undefined, []],
     [false, false, []],
   ] as const)('checks effective email approval policy %#', (before, after, expected) => {
@@ -88,6 +88,16 @@ describe('ownerOnlyChanges', () => {
     const next = structuredClone(previous);
     ai(next, 'dev-1').email = { enabled: true, sendWithoutApproval: after };
     expect(ownerOnlyChanges(previous, next)).toEqual(expected);
+  });
+  it.each([
+    ['switching sending off', true, false],
+    ['switching sending on over a stale bypass', false, true],
+  ])('lets an admin clear the bypass by %s', (_name, wasEnabled, enabled) => {
+    const previous = config();
+    ai(previous, 'dev-1').email = { enabled: wasEnabled, sendWithoutApproval: true };
+    const next = structuredClone(previous);
+    ai(next, 'dev-1').email = { enabled, sendWithoutApproval: false };
+    expect(ownerOnlyChanges(previous, next)).toEqual([]);
   });
   it('requires an owner for a new sender starting without approval', () => {
     expect(

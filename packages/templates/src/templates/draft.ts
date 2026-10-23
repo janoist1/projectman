@@ -28,7 +28,7 @@ import { standardLabelsFor } from '../labels';
 import { operatorMember } from '../operator';
 import { projectManagerMember } from '../project-manager';
 import { newAiMember } from '../roles';
-import type { BuildTemplateInput, ProjectTemplate } from '../types';
+import type { BuildTemplateInput, ProjectTemplate, TemplateChecklistItem } from '../types';
 
 /** Limits every factory template starts with: the schema defaults. */
 export const DEFAULT_LIMITS: TeamLimits = TeamLimits.parse({});
@@ -217,11 +217,13 @@ function draftProject(templateId: TemplateId, input: BuildTemplateInput): Templa
 export function defineTemplate(
   id: TemplateId,
   build: (draft: TemplateDraft) => ProjectConfig,
+  checklist: readonly TemplateChecklistItem[] = [],
 ): ProjectTemplate {
   return {
     id,
     nameKey: `templates.${id}.name`,
     descriptionKey: `templates.${id}.description`,
+    checklist,
     build: (input) => build(draftProject(id, input)),
   };
 }

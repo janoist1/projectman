@@ -147,6 +147,8 @@ describe('team tool registration', () => {
         'request_structural_review',
         'triage_loop',
         'get_operator_diagnostics',
+        'get_checklist',
+        'update_checklist',
         'get_operator_knowledge',
         'propose_operator_knowledge',
         'get_operator_preference',

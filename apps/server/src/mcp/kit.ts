@@ -22,6 +22,8 @@ import type {
  */
 export const TEAM_TOOL_NAMES = [
   'get_role_configuration',
+  'get_checklist',
+  'update_checklist',
   'get_operator_preference',
   'get_operator_knowledge',
   'propose_operator_knowledge',

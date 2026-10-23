@@ -23,6 +23,12 @@ export function createChecklistRepository(db: Db) {
         'INSERT INTO project_checklists (project_key, base_template_id, created_at) VALUES (?, ?, ?)',
       ).run(projectKey, baseTemplateId, at);
     },
+    setBaseTemplate(projectKey: string, baseTemplateId: string) {
+      db.prepare('UPDATE project_checklists SET base_template_id = ? WHERE project_key = ?').run(
+        baseTemplateId,
+        projectKey,
+      );
+    },
     put(projectKey: string, item: ChecklistItem, position: number) {
       db.prepare(
         `INSERT INTO project_checklist_items (project_key, id, position, title, hint, source, template_id, condition, state, reason, reopened, updated_at, updated_by)

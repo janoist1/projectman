@@ -1761,6 +1761,7 @@ export function createDomain(opts: DomainOptions) {
         taskStarts,
         operatorSignals,
         loopTriages,
+        checklist,
         superPath: () => {
           if (!superPath) throw new Error('the super-operation path is not composed yet');
           return superPath;

@@ -14,6 +14,25 @@ export const hu: TemplateLocale = {
       release: { title: 'Kiadás', hint: 'Egyeztessétek, hogyan jutnak el a változások a felhasználókhoz.' },
       agreement: { title: 'Megállapodás', hint: 'Hagyd jóvá, hogyan dolgozzon veled az Operátor.' },
       first_task: { title: 'Első feladat', hint: 'Hozd létre az első feladatot.' },
+      code_review: {
+        title: 'Kódátnézés',
+        hint: 'Legyen átnézési szakasz, amely a kódátnézés jóváhagyását kéri.',
+      },
+      guests: {
+        title: 'Ügyfél vendégek',
+        hint: 'Hívd meg az ügyfél oldaláról azokat, akik követik a munkát.',
+      },
+      feedback_marks: {
+        title: 'Visszajelzés-jelölők',
+        hint: 'Állíts be egy felületet, ahol az ügyfél jelölőkkel jelezhet.',
+      },
+      qa: { title: 'Minőségbiztosítás', hint: 'Legyen tag, aki az elfogadási feltételeket teszteli.' },
+      client_test: {
+        title: 'Ügyfélteszt',
+        hint: 'Egyeztessétek, hogyan próbálja ki az ügyfél a kész munkát.',
+      },
+      deploy: { title: 'Telepítés', hint: 'Egyeztessétek, hova és hogyan települ a kész változat.' },
+      schedule: { title: 'Ütemezés', hint: 'Állítsd be, mikor és milyen gyakran fusson a napi munka.' },
     },
   },
   webPush: {

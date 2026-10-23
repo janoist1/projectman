@@ -575,6 +575,8 @@ export const TemplateSummary = z.object({
   descriptionKey: z.string(),
   memberCount: z.object({ human: z.number().int(), ai: z.number().int() }),
   stageCount: z.number().int(),
+  /** The ids of the startup checklist items the template adds (PM-977). */
+  checklist: z.array(z.string()),
 });
 export type TemplateSummary = z.infer<typeof TemplateSummary>;
 

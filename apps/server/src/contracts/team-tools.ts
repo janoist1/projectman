@@ -2,7 +2,9 @@ import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
 import type {
   AddRelationRef,
   BuiltInRoleId,
+  ChecklistCondition,
   DutyId,
+  ProjectChecklist,
   RoleConfigurationRead,
   Attachment,
   DeveloperLevelRequest,
@@ -963,6 +965,31 @@ export interface ProjectDocToolsHandler {
   markDecisionCandidates(ctx: ToolContext, args: { items: DecisionMark[] }): Promise<{ marked: number }>;
 }
 
+/** What get_checklist answers: the list (null: none yet) and what each template would add to it. */
+export interface ChecklistToolView {
+  checklist: ProjectChecklist | null;
+  templates: { id: string; checklist: string[] }[];
+}
+
+/** The input of update_checklist, after the tool checked it per operation. */
+export interface UpdateChecklistInput {
+  op: 'init' | 'add' | 'edit' | 'set_condition' | 'set_state' | 'apply_template';
+  itemId?: string;
+  title?: string;
+  hint?: string | null;
+  condition?: ChecklistCondition | null;
+  state?: 'open' | 'done' | 'not_needed';
+  reason?: string;
+  templateId?: string;
+}
+
+/** What update_checklist answers: the list after the change, the item it made and the items a template added. */
+export interface UpdateChecklistResult {
+  checklist: ProjectChecklist;
+  itemId?: string;
+  added?: string[];
+}
+
 /** The tools of services/operator (PM-605). */
 export interface OperatorToolsHandler {
   getRoleConfiguration(ctx: ToolContext, args: { role: BuiltInRoleId }): Promise<RoleConfigurationRead>;
@@ -974,6 +1001,10 @@ export interface OperatorToolsHandler {
     ctx: ToolContext,
     args: { taskKey: string; limit?: number },
   ): Promise<OperatorDiagnostics>;
+  /** get_checklist (PM-977): the Operator and the PM, internal general session, never a guest. */
+  getChecklist(ctx: ToolContext): Promise<ChecklistToolView>;
+  /** update_checklist (PM-977): the Operator only, internal general session; needs no owner request. */
+  updateChecklist(ctx: ToolContext, args: UpdateChecklistInput): Promise<UpdateChecklistResult>;
   getOperatorKnowledge(ctx: ToolContext): Promise<OperatorKnowledgeDocument>;
   proposeOperatorKnowledge(
     ctx: ToolContext,

@@ -21,7 +21,10 @@ import type {
 import { TeamToolError } from '../../contracts';
 import type {
   AdministrationLogsOptions,
+  ChecklistToolView,
   OperatorToolsHandler,
+  UpdateChecklistInput,
+  UpdateChecklistResult,
   MemberStartResult,
   ToolContext,
   SystemFeedbackLookup,
@@ -31,7 +34,7 @@ import { DomainError } from '../../kernel';
 import type { InboxService } from '../../core/inbox';
 import type { Messaging } from '../../core/messages';
 import { recipientHasCardRole } from '../../core/messages';
-import type { ProjectService } from '../../core/projects';
+import type { ChecklistService, ProjectService } from '../../core/projects';
 import type { TaskService } from '../../core/tasks';
 import type { TaskStarts } from '../../runtime/admission';
 import { aiActor } from '../../kernel';
@@ -55,6 +58,12 @@ interface SuperPath {
   administration: Pick<SuperAdministration, 'status' | 'logs' | 'machine' | 'operation'>;
 }
 
+/** What the checklist tools stand on (PM-977): every write goes through the checklist service. */
+type OperatorToolsChecklist = Pick<
+  ChecklistService,
+  'get' | 'init' | 'add' | 'edit' | 'setCondition' | 'setStateByOperator' | 'applyTemplate' | 'templateBases'
+>;
+
 export class OperatorTools implements OperatorToolsHandler {
   private readonly calls: ToolCaller;
   private readonly ctx: DomainContext;
@@ -73,6 +82,7 @@ export class OperatorTools implements OperatorToolsHandler {
   private readonly structuralReviews: StructuralReviews;
   private readonly loopTriages: LoopTriages;
   private readonly superPath: () => SuperPath;
+  private readonly checklist: OperatorToolsChecklist;
 
   constructor(deps: {
     calls: ToolCaller;
@@ -91,6 +101,7 @@ export class OperatorTools implements OperatorToolsHandler {
     operatorKnowledge: OperatorKnowledge;
     structuralReviews: StructuralReviews;
     loopTriages: LoopTriages;
+    checklist: OperatorToolsChecklist;
     /** The shared super-operation path; read at the call, because it is composed after the tools. */
     superPath: () => SuperPath;
   }) {
@@ -110,6 +121,7 @@ export class OperatorTools implements OperatorToolsHandler {
     this.operatorKnowledge = deps.operatorKnowledge;
     this.structuralReviews = deps.structuralReviews;
     this.loopTriages = deps.loopTriages;
+    this.checklist = deps.checklist;
     this.superPath = deps.superPath;
   }
 
@@ -122,6 +134,113 @@ export class OperatorTools implements OperatorToolsHandler {
     });
   }
 
+  /** The caller's own internal general session: not a card's, and not a conversation with a guest. */
+  private ownInternalSession(ctx: ToolContext): boolean {
+    const session = this.ctx.repos.sessions.get(ctx.sessionId);
+    return (
+      !!session &&
+      session.projectKey === ctx.projectKey &&
+      session.member === ctx.member &&
+      session.workItem.type === 'general' &&
+      !session.workItem.with
+    );
+  }
+
+  async getChecklist(ctx: ToolContext): Promise<ChecklistToolView> {
+    return this.calls.guard(async () => {
+      const config = await this.calls.caller(ctx, 'get_checklist');
+      if (isOperator(memberOf(config, ctx.member))) {
+        if (!this.ownInternalSession(ctx))
+          throw new TeamToolError(
+            'forbidden',
+            'operator_owner_only: the checklist requires your own internal conversation.',
+          );
+      } else this.calls.assertCoordinationSession(ctx, config);
+      return {
+        checklist: await this.checklist.get(ctx.projectKey),
+        templates: this.checklist.templateBases(),
+      };
+    });
+  }
+
+  async updateChecklist(ctx: ToolContext, args: UpdateChecklistInput): Promise<UpdateChecklistResult> {
+    return this.calls.guard(async () => {
+      const config = await this.calls.caller(ctx, 'update_checklist');
+      if (!isOperator(memberOf(config, ctx.member)))
+        throw new TeamToolError('forbidden', 'operator_only: only the Operator may change the checklist.');
+      if (!this.ownInternalSession(ctx))
+        throw new TeamToolError(
+          'forbidden',
+          'operator_owner_only: the checklist requires your own internal conversation.',
+        );
+      try {
+        return await this.runChecklistOp(ctx.projectKey, ctx.member, args);
+      } catch (err) {
+        if (err instanceof DomainError)
+          throw new TeamToolError(
+            err.status === 403 ? 'forbidden' : err.status === 404 ? 'not_found' : 'invalid',
+            `${err.code}: ${err.message}`,
+          );
+        throw err;
+      }
+    });
+  }
+
+  /** `check` of the tool has made sure each operation has the fields it needs. */
+  private async runChecklistOp(
+    key: string,
+    handle: string,
+    args: UpdateChecklistInput,
+  ): Promise<UpdateChecklistResult> {
+    const { checklist } = this;
+    const itemId = args.itemId!;
+    switch (args.op) {
+      case 'init':
+        return { checklist: await checklist.init(key) };
+      case 'add': {
+        const added = await checklist.add(
+          key,
+          {
+            title: args.title!,
+            ...(args.hint !== undefined ? { hint: args.hint } : {}),
+            ...(args.condition !== undefined ? { condition: args.condition } : {}),
+          },
+          handle,
+        );
+        return { checklist: added.checklist, itemId: added.itemId };
+      }
+      case 'edit':
+        return {
+          checklist: await checklist.edit(
+            key,
+            itemId,
+            {
+              ...(args.title !== undefined ? { title: args.title } : {}),
+              ...(args.hint !== undefined ? { hint: args.hint } : {}),
+            },
+            handle,
+          ),
+          itemId,
+        };
+      case 'set_condition':
+        return { checklist: await checklist.setCondition(key, itemId, args.condition!, handle), itemId };
+      case 'set_state':
+        return {
+          checklist: await checklist.setStateByOperator(
+            key,
+            itemId,
+            args.state === 'not_needed'
+              ? { state: 'not_needed', reason: args.reason! }
+              : { state: args.state! },
+            handle,
+          ),
+          itemId,
+        };
+      case 'apply_template':
+        return await checklist.applyTemplate(key, args.templateId!, handle);
+    }
+  }
+
   async getRoleConfiguration(
     ctx: ToolContext,
     args: { role: BuiltInRoleId },
@@ -130,14 +249,7 @@ export class OperatorTools implements OperatorToolsHandler {
       const config = await this.calls.caller(ctx, 'get_role_configuration');
       if (!isOperator(memberOf(config, ctx.member)))
         throw new TeamToolError('forbidden', 'operator_only: only the Operator may read role configuration.');
-      const session = this.ctx.repos.sessions.get(ctx.sessionId);
-      if (
-        !session ||
-        session.projectKey !== ctx.projectKey ||
-        session.member !== ctx.member ||
-        session.workItem.type !== 'general' ||
-        session.workItem.with
-      )
+      if (!this.ownInternalSession(ctx))
         throw new TeamToolError(
           'forbidden',
           'operator_owner_only: role configuration requires your own owner general conversation.',

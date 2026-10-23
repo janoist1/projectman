@@ -942,6 +942,9 @@ export class OperatorSignals {
         const wait = waits.get(task.key);
         const stage = stageOf(config, task.stageId);
         if (!wait || !stage || (stage.kind !== 'work' && stage.kind !== 'step')) continue;
+        // The scheduling read leaves out the derived `merge`, so the wait cannot say `merge` here: a card
+        // with an open merge request waits for the merge, and `merge_waiting` / `merge_blocked` speak for it (PM-578).
+        if (ctx.repos.taskMerges.open(projectKey, task.key)) continue;
         const holders = this.idleHolders(config, stage, wait);
         const idleSince = Math.max(Date.parse(wait.since), activeAt.get(task.key) ?? 0);
         if (holders.length === 0 || now - idleSince < OPERATOR_IDLE_MINUTES * 60_000) continue;

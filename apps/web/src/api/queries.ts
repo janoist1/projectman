@@ -7,6 +7,7 @@ import {
 } from '@tanstack/react-query';
 import type { QueryClient } from '@tanstack/react-query';
 import type {
+  SetChecklistItemStateRequest,
   CloseFeedbackRequest,
   CreateTaskFromFeedbackRequest,
   CreateTaskFromFeedbackResponse,
@@ -60,6 +61,21 @@ import { queryKeys } from './queryKeys';
 import type { AllMessagesFilter } from './queryKeys';
 
 /* ---------- auth ---------- */
+
+export function useChecklist(key: string, enabled: boolean) {
+  return useQuery({ queryKey: queryKeys.checklist(key), queryFn: () => api.checklist(key), enabled });
+}
+
+export function useSetChecklistItemState(key: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ itemId, body }: { itemId: string; body: SetChecklistItemStateRequest }) =>
+      api.setChecklistItemState(key, itemId, body),
+    onSuccess: (data) => {
+      client.setQueryData(queryKeys.checklist(key), data);
+    },
+  });
+}
 
 export function useServerVersion(open: boolean) {
   return useQuery({

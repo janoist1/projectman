@@ -293,6 +293,10 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       void client.invalidateQueries({ queryKey: queryKeys.feedback(event.projectKey) });
       return;
     }
+    case 'project_checklist_changed': {
+      void client.invalidateQueries({ queryKey: queryKeys.checklist(event.projectKey) });
+      return;
+    }
     case 'email_changed': {
       // The channel, a contact or a mail changed: the settings section and the log read again, and the
       // member views (their `email` field) with them.

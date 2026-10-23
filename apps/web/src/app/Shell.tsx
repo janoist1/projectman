@@ -12,6 +12,7 @@ import type { IconName } from '../components/Icon';
 import { useFeedbackNav } from '../features/feedback/useFeedbackNav';
 import { openPauses } from '../features/pause/pauseView';
 import { OperatorButton } from '../features/operator/OperatorButton';
+import { ChecklistIndicator } from '../features/operator/ChecklistIndicator';
 import { joinNames, t } from '../i18n/t';
 import { nameOf } from '../lib/members';
 import { useMediaQuery } from '../lib/hooks';
@@ -372,6 +373,7 @@ export function TopBar({
           {t('pause.button')}
         </Button>
       ) : null}
+      <ChecklistIndicator />
       <OperatorButton variant="bar" />
       <InboxPill count={inboxCount} />
       {can.createTasks ? (
@@ -442,6 +444,7 @@ export function MobileHeader({
       />
       <EngineIndicator phone />
       <MachineIndicator phone />
+      <ChecklistIndicator />
       <OperatorButton variant="phone" />
       {can.createTasks ? (
         <Button

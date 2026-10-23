@@ -184,7 +184,12 @@ describe('worktrees of closed cards', () => {
     const report = await h.domain.worktreeSweep.run();
 
     expect(report.removed).toEqual([second.key]);
-    expect(h.log.warnings).toHaveLength(1);
+    expect(h.log.warnings).toEqual([
+      [
+        expect.objectContaining({ taskKey: first.key, err: expect.any(Error) }),
+        'could not clean up the worktree of a closed card',
+      ],
+    ]);
     h.log.warnings.length = 0;
   });
 

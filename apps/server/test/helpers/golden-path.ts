@@ -27,6 +27,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { ToolContext } from '../../src/contracts';
 import { waitFor } from '../../src/runner/test-helpers';
 import { createAppHarness, setupOwner } from './app-harness';
+import { withoutOnboarding } from './onboarding';
 
 /**
  * Golden paths: a task goes through a factory template's whole pipeline in the real server,
@@ -73,18 +74,20 @@ async function setup(templateId: string) {
   const server = harness.app;
   const cookie = await setupOwner(server);
   const headers = { cookie };
-  const created = await server.inject({
-    method: 'POST',
-    url: routes.projects(),
-    headers,
-    payload: {
-      key: projectKey,
-      name: 'Fictional workshop',
-      workspacePath: workspace,
-      templateId,
-      repos: [{ name: 'app', path: '.', defaultBranch: 'main', requireMerge: false }],
-    },
-  });
+  const created = await withoutOnboarding(server.projectman.domain, () =>
+    server.inject({
+      method: 'POST',
+      url: routes.projects(),
+      headers,
+      payload: {
+        key: projectKey,
+        name: 'Fictional workshop',
+        workspacePath: workspace,
+        templateId,
+        repos: [{ name: 'app', path: '.', defaultBranch: 'main', requireMerge: false }],
+      },
+    }),
+  );
   expect(created.statusCode, created.body).toBe(201);
   const domain = server.projectman.domain;
   const configView = async (): Promise<ConfigView> =>

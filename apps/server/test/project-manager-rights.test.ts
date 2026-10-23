@@ -4,7 +4,7 @@ import { TeamToolError } from '../src/contracts';
 import type { ToolContext } from '../src/contracts';
 import { aiActor } from '../src/kernel';
 import { TEAM_TOOL_NAMES } from '../src/mcp';
-import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
+import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { rejection } from './helpers/errors';
 import { flush } from './helpers/fakes';
@@ -104,6 +104,60 @@ describe('the project manager’s rights on the server', () => {
       expect(moved?.actor).toEqual({ kind: 'ai', handle: 'pm' });
       await flush();
       expect(['dev-1', 'dev-2']).toContain(card().assignee);
+    });
+
+    it('does not move a card without an assignee into the work stage when no developer is free (PM-722)', async () => {
+      await h.domain.tasks.update('AR', 'AR-1', { addLabels: ['ready-ok'] }, OWNER_ACTOR);
+      for (const handle of ['dev-1', 'dev-2'])
+        await h.domain.members.update(
+          'AR',
+          handle,
+          { onLeave: true },
+          {
+            actor: OWNER_ACTOR,
+            author: OWNER,
+          },
+        );
+      const refused = await toolError(
+        h.domain.teamTools.updateTask(pm, { taskKey: 'AR-1', stageId: 'development', priority: 'low' }),
+      );
+      expect(refused.message).toContain('every developer is at capacity');
+      await expect(
+        h.domain.tasks.moveToStage('AR', 'AR-1', 'development', aiActor('pm')),
+      ).rejects.toMatchObject({ status: 409, code: 'no_free_member' });
+      expect(card()).toMatchObject({ stageId: 'ready', priority: null, assignee: null });
+      // A person's move is not bound by it.
+      await h.domain.tasks.update('AR', 'AR-1', { stageId: 'development' }, OWNER_ACTOR);
+      expect(card().stageId).toBe('development');
+    });
+
+    it('does not start a card into the work stage while a prerequisite is open (PM-722)', async () => {
+      await h.domain.tasks.create('AR', { title: 'Prerequisite' }, OWNER_ACTOR);
+      await h.domain.tasks.update(
+        'AR',
+        'AR-1',
+        {
+          relations: { add: [{ kind: 'prerequisite', key: 'AR-2' }] },
+          addLabels: ['ready-ok'],
+          assignee: 'dev-2',
+        },
+        OWNER_ACTOR,
+      );
+      // Both ways in are refused, and the update records nothing of its own change.
+      await expect(
+        h.domain.tasks.update('AR', 'AR-1', { stageId: 'development', priority: 'low' }, aiActor('pm')),
+      ).rejects.toMatchObject({
+        status: 409,
+        code: 'prerequisite_open',
+        details: { prerequisites: ['AR-2'] },
+      });
+      await expect(
+        h.domain.tasks.moveToStage('AR', 'AR-1', 'development', aiActor('pm')),
+      ).rejects.toMatchObject({ code: 'prerequisite_open' });
+      expect(card()).toMatchObject({ stageId: 'ready', priority: null });
+      await h.domain.tasks.cancel('AR', 'AR-2', {}, OWNER_ACTOR);
+      await h.domain.tasks.update('AR', 'AR-1', { stageId: 'development' }, aiActor('pm'));
+      expect(card().stageId).toBe('development');
     });
 
     it('refuses every other move and records nothing of the same call', async () => {

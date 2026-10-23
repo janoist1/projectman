@@ -76,7 +76,14 @@ import { planDeveloperLevel } from './developer-level';
 import type { DeveloperLevelChange } from './developer-level';
 import { labelsChange, planLabelsOrThrow, TaskLabels } from './labels';
 import { approvalRequestedError, gateBlockedError, TaskMoves } from './moves';
-import type { MergeGate, MoveOptions, MoveResult, PreparedMove, SourceHeadReader } from './moves';
+import type {
+  MergeGate,
+  MoveOptions,
+  MoveResult,
+  PreparedMove,
+  SourceHeadReader,
+  WorkEntryCheck,
+} from './moves';
 import { SUBTASK_PARENT_REFUSALS, TaskRelations } from './relations';
 import { requireStage, runEffects, TaskStore } from './store';
 import type { Effect, StartWaitingReader } from './store';
@@ -142,6 +149,9 @@ interface TaskUpdate {
 export class TaskService implements TaskSchedulingReader {
   registerMergeGate(gate: MergeGate): void {
     this.moves.registerMergeGate(gate);
+  }
+  registerWorkEntryCheck(check: WorkEntryCheck): void {
+    this.moves.registerWorkEntryCheck(check);
   }
   private readonly ctx: DomainContext;
   private readonly timeline: TimelineService;
@@ -717,6 +727,7 @@ export class TaskService implements TaskSchedulingReader {
       if (moveRefusal) throw projectManagerMoveRefused();
       const prospective = { ...task, ...patch, labels: labels.labels };
       const target = requireStage(config, change.stageId!);
+      this.moves.assertProjectManagerWorkEntry(config, prospective, target, actor);
       // A collecting card whose subtasks are all closed goes to the done stage without the gates (PM-647).
       const waived = partsClosedWaiver(
         config,
@@ -1043,7 +1054,13 @@ export class TaskService implements TaskSchedulingReader {
     actor: Actor,
     opts?: Pick<
       MoveOptions,
-      'branchMoved' | 'testsFailed' | 'expectedFrom' | 'pulled' | 'partsClosed' | 'partsClosedTrigger'
+      | 'branchMoved'
+      | 'testsFailed'
+      | 'expectedFrom'
+      | 'pulled'
+      | 'partsClosed'
+      | 'partsClosedTrigger'
+      | 'viaStart'
     >,
   ): Promise<MoveResult> {
     return this.moves.moveToStage(projectKey, taskKey, stageId, actor, opts);

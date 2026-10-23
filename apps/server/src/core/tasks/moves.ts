@@ -15,8 +15,10 @@ import {
   moveMerge,
   partsClosedWaiver,
   isOpenTask,
+  isProjectManagerActor,
   isTheme,
   noApproverReason,
+  openPrerequisites,
   stageHandsOverForReview,
   stageIndex,
   stageOf,
@@ -38,7 +40,7 @@ import type {
   TaskHandOn,
   TimelineEventData,
 } from '@projectman/shared';
-import type { SourceHead } from '../../contracts';
+import type { SourceHead, TaskSchedulingQuery } from '../../contracts';
 import type { TaskPatch } from '../../db';
 import { isoNow } from '../base';
 import { requireHuman } from '../members';
@@ -48,6 +50,7 @@ import type { InboxService } from '../inbox';
 import { actorHandle, attributedActor, humanActor, newId, SYSTEM_ACTOR, unique } from '../../kernel';
 import type { BoardOrder } from './board-order';
 import type { TaskLabels } from './labels';
+import { prerequisiteCards } from './scheduling-context';
 import { requireStage, runEffects } from './store';
 import type { Effect, TaskStore } from './store';
 
@@ -97,6 +100,15 @@ export interface StageChange {
   despitePrerequisites?: boolean;
 }
 
+/**
+ * What a project manager's move into the work stage asks the module that starts work (PM-722), the way
+ * `MergeGate` asks the merge module: the runtime knows who is free, the core does not.
+ */
+export interface WorkEntryCheck {
+  /** Throws `senior_busy` or `no_free_member` when no developer could take the card, which has no assignee; writes nothing. */
+  assertMemberFree(config: ProjectConfig, task: Task, target: Stage): void;
+}
+
 /** The head of the developer's branch, read before a move that hands the task over for review or testing. */
 export interface Handover {
   head: SourceHead;
@@ -131,6 +143,11 @@ export interface MoveOptions {
   partsClosed?: true;
   /** The subtask whose close triggered the system's automatic close (PM-373); recorded in the event's `partsClosed`. */
   partsClosedTrigger?: string;
+  /**
+   * `start_task` moves the card (PM-722): it chooses the assignee by its own rules (or waits for one on
+   * purpose, PM-348), so the project manager's "a developer must be free for the move" check does not apply.
+   */
+  viaStart?: true;
   /**
    * Where the card goes in the target column when it is dropped on the board (PM-118). Without it a card
    * that enters another column takes the top of that column; one that stays in its column keeps its place.
@@ -174,6 +191,10 @@ export class TaskMoves {
   /** A later registration replaces the earlier one (PM-591). */
   registerMergeGate(gate: MergeGate): void {
     this.mergeGate = gate;
+  }
+  private workEntryCheck: WorkEntryCheck | undefined;
+  registerWorkEntryCheck(check: WorkEntryCheck): void {
+    this.workEntryCheck = check;
   }
   cancelMerge(projectKey: string, taskKey: string, effects: Effect[]): void {
     this.mergeGate?.cancel(projectKey, taskKey, effects);
@@ -241,7 +262,13 @@ export class TaskMoves {
     actor: Actor,
     opts: Pick<
       MoveOptions,
-      'branchMoved' | 'testsFailed' | 'expectedFrom' | 'pulled' | 'partsClosed' | 'partsClosedTrigger'
+      | 'branchMoved'
+      | 'testsFailed'
+      | 'expectedFrom'
+      | 'pulled'
+      | 'partsClosed'
+      | 'partsClosedTrigger'
+      | 'viaStart'
     > = {},
   ): Promise<MoveResult> {
     const config = await this.store.projects.config(projectKey);
@@ -289,6 +316,36 @@ export class TaskMoves {
       mergeChecked = true;
     }
     return { handover: await this.readHandover(config, task, target), mergeChecked };
+  }
+
+  /**
+   * A project manager does not move a card into the work stage when nobody could take it, or while a
+   * prerequisite of it is open (PM-722): the card would sit there with nobody working on it. A card
+   * without an assignee needs a developer the start would pick (`senior_busy` or `no_free_member`
+   * otherwise); an open prerequisite is refused with `prerequisite_open` and the open keys. The card
+   * stays where it is. A person's move (after the warning, PM-204), and the system's and every other
+   * member's moves, are not affected; `start_task` (`viaStart`) chooses or waits by its own rules.
+   */
+  assertProjectManagerWorkEntry(
+    config: ProjectConfig,
+    task: Task,
+    target: Stage,
+    actor: Actor,
+    viaStart = false,
+  ): void {
+    if (target.kind !== 'work' || task.stageId === target.id || !isProjectManagerActor(config, actor)) return;
+    if (!task.assignee && !viaStart) this.workEntryCheck?.assertMemberFree(config, task, target);
+    const repo = this.store.ctx.repos.tasks;
+    const reader = {
+      readSchedulingTasks: (key: string, query: TaskSchedulingQuery) => repo.readScheduling(key, query),
+    };
+    const open = openPrerequisites(task, prerequisiteCards(reader, task.projectKey, task)).map(
+      (card) => card.key,
+    );
+    if (open.length > 0)
+      throw conflict('prerequisite_open', `task ${task.key} waits for ${open.join(', ')}`, {
+        prerequisites: open,
+      });
   }
 
   /** The waiver of a move into the done stage (PM-647), from the card's subtasks as they stand now. */
@@ -411,6 +468,7 @@ export class TaskMoves {
       return { task, moved: false, pendingApproval: [] };
     // Every move path checks the project manager's configured stage-move rights.
     if (actorMoveRefusal(config, actor, task.stageId, target.id)) throw projectManagerMoveRefused();
+    this.assertProjectManagerWorkEntry(config, task, target, actor, opts.viaStart === true);
     // A collecting card whose subtasks are all closed goes to the done stage without the gates (PM-647).
     const waiver = this.partsClosedOf(config, task, target.id);
     // The system's automatic close is valid only while the waiver holds: it never falls back to the gates.

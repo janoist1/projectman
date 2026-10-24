@@ -23,6 +23,7 @@ export const MEMBER_QUEUE_ITEM_KINDS = [
   'screening',
   'signal',
   'start',
+  'checklist',
 ] as const;
 export const MemberQueueItemKind = z.enum(MEMBER_QUEUE_ITEM_KINDS);
 export type MemberQueueItemKind = z.infer<typeof MemberQueueItemKind>;
@@ -55,6 +56,7 @@ export const MemberQueueSource = z.discriminatedUnion('type', [
   z.object({ type: z.literal('fix_limit'), taskKey: TaskKey, heldAt: z.string() }),
   z.object({ type: z.literal('obligation'), obligationId: z.string() }),
   z.object({ type: z.literal('start'), startKey: z.string().max(300) }),
+  z.object({ type: z.literal('checklist'), noticeId: z.string() }),
 ]);
 export type MemberQueueSource = z.infer<typeof MemberQueueSource>;
 
@@ -75,6 +77,8 @@ export function memberQueueSourceId(source: MemberQueueSource): string {
       return source.obligationId;
     case 'start':
       return source.startKey;
+    case 'checklist':
+      return source.noticeId;
   }
 }
 
@@ -102,6 +106,8 @@ export function memberQueueSourceOf(type: MemberQueueSource['type'], id: string)
       return { type, obligationId: id };
     case 'start':
       return { type, startKey: id };
+    case 'checklist':
+      return { type, noticeId: id };
   }
 }
 
@@ -208,6 +214,7 @@ export function memberQueueUrgency(kind: MemberQueueItemKind): number {
     case 'todo':
       return 2;
     case 'start':
+    case 'checklist':
       return 3;
     case 'message':
     case 'signal':

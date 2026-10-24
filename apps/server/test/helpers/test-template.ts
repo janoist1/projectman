@@ -63,8 +63,8 @@ function testConfigInput(input: BuildTemplateInput): ProjectConfigInput {
           sponsor: input.owner.handle,
           onLeave: true,
         },
-        // Every project has an Operator (PM-447). It cannot go on leave (PM-473); only the owner's own
-        // message wakes it, so it starts no session unless a test sends one.
+        // Every project has an Operator (PM-447). It cannot go on leave (PM-473).
+        // The harness skips the automatic onboarding greeting unless a test opts in (PM-978).
         {
           kind: 'ai',
           handle: 'operator',

@@ -157,7 +157,7 @@ export function createMemberQueueRepository(db: Db) {
       `SELECT * FROM member_queue_items
        WHERE project_key = ? AND member = ? AND state IN ('queued','processing')
        ORDER BY CASE kind WHEN 'permission' THEN 0 WHEN 'boundary' THEN 0 WHEN 'fix_limit' THEN 1
-         WHEN 'screening' THEN 1 WHEN 'todo' THEN 2 WHEN 'start' THEN 3 ELSE 4 END, queued_at, rowid`,
+         WHEN 'screening' THEN 1 WHEN 'todo' THEN 2 WHEN 'start' THEN 3 WHEN 'checklist' THEN 3 ELSE 4 END, queued_at, rowid`,
     ),
     openMembers: db.prepare(
       `SELECT DISTINCT project_key AS projectKey, member FROM member_queue_items

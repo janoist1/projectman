@@ -5,6 +5,7 @@ import { createDomainHarness, restartDomainHarness, OWNER, OWNER_ACTOR } from '.
 import type { DomainHarness } from './helpers/domain-harness';
 import { FakeBoundaryAdapter, fakeBoundaryTarget } from './helpers/fake-boundary';
 import { flush, planUsage } from './helpers/fakes';
+import { withoutOnboarding } from './helpers/onboarding';
 
 const allow = { decision: 'allow', reason: 'scope_verified' } as const;
 const deny = { decision: 'deny', reason: 'unsafe_target' } as const;
@@ -568,9 +569,11 @@ describe('boundary requests', () => {
 
   it('starts and processes healthy project deadlines while another project configuration is unreadable, then recovers', async () => {
     const broken = await submit({}, 'broken');
-    await h.domain.projects.create(
-      { key: 'BR', name: 'Healthy', workspacePath: h.workspace, templateId: 'test' },
-      OWNER,
+    await withoutOnboarding(h.domain, () =>
+      h.domain.projects.create(
+        { key: 'BR', name: 'Healthy', workspacePath: h.workspace, templateId: 'test' },
+        OWNER,
+      ),
     );
     await h.domain.projects.update('BR', { actor: OWNER_ACTOR, author: OWNER }, (config) => {
       configure(config);

@@ -7,4 +7,5 @@ export { screeningLane } from './screening-lane';
 export { signalLane } from './signal-lane';
 export { OperatorQueueReminder } from './operator-reminder';
 export { startLane } from './start-lane';
+export { checklistLane } from './checklist-lane';
 export { wireMemberQueue } from './events';

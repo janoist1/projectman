@@ -184,7 +184,16 @@ describe('worktrees of closed cards', () => {
     const report = await h.domain.worktreeSweep.run();
 
     expect(report.removed).toEqual([second.key]);
-    expect(h.log.warnings).toHaveLength(1);
+    // History document sync can warn independently: this test checks only the sweep's warning.
+    const sweepWarnings = h.log.warnings.filter(
+      (entry) => Array.isArray(entry) && entry[1] === 'could not clean up the worktree of a closed card',
+    );
+    expect(sweepWarnings).toEqual([
+      [
+        expect.objectContaining({ taskKey: first.key, err: expect.any(Error) }),
+        'could not clean up the worktree of a closed card',
+      ],
+    ]);
     h.log.warnings.length = 0;
   });
 

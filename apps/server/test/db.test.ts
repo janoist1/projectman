@@ -17,6 +17,40 @@ import { migrations } from '../src/db/migrations';
 
 const now = '2026-09-29T10:00:00.000Z';
 
+it('preserves queue rows and indexes while adding checklist notices', () => {
+  const db = new Database(':memory:');
+  try {
+    for (const migration of migrations.filter((item) => item.version <= 106)) db.exec(migration.sql);
+    db.pragma('user_version = 106');
+    createRepositories(db).projects.insert({
+      key: 'AR',
+      name: 'Acme',
+      templateId: null,
+      configVersion: 'v1',
+      createdAt: now,
+      updatedAt: now,
+    });
+    db.prepare(
+      `INSERT INTO member_queue_items (id, project_key, member, kind, source_type, source_id, place, queued_at, payload, wait_details)
+      VALUES ('old', 'AR', 'operator', 'start', 'start', 'old-start', '{"type":"general"}', ?, '{"spec":1}', '{"provider":"claude"}')`,
+    ).run(now);
+    const before = db.prepare('SELECT * FROM member_queue_items').all();
+    migrate(db);
+    expect(db.prepare('SELECT * FROM member_queue_items').all()).toEqual(before);
+    db.prepare(
+      `INSERT INTO member_queue_items (id, project_key, member, kind, source_type, source_id, place, queued_at)
+      VALUES ('new', 'AR', 'operator', 'checklist', 'checklist', 'onboarding', '{"type":"general"}', ?)`,
+    ).run(now);
+    expect(
+      db
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name LIKE 'member_queue_items_%'")
+        .all(),
+    ).toHaveLength(3);
+  } finally {
+    db.close();
+  }
+});
+
 it('assigns a unique schema version to every migration', () => {
   const versions = migrations.map(({ version }) => version);
   expect(versions).toEqual([...new Set(versions)]);

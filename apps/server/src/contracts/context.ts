@@ -14,6 +14,7 @@ import type {
   PreviousConversationReason,
   FocusPlace,
   ProjectConfig,
+  ProjectChecklist,
   SessionState,
   Stage,
   Task,
@@ -29,6 +30,8 @@ import type {
  */
 
 export interface ContextPackInput {
+  /** Current checklist data for the Operator; absent for other members or older projects. */
+  checklist?: Pick<ProjectChecklist, 'items'>;
   /**
    * The server runs the full test before review on this task's handed-over commits (PM-217, PM-332): the
    * executor is available and the task's repository has a `reviewTest`. The developer's steps then ask

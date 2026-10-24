@@ -3213,6 +3213,7 @@ export const hu = {
         screening: 'Kérdésszűrés',
         signal: 'Jelzés',
         start: 'Indítás',
+        checklist: 'Indulási lista',
       },
       system: 'Rendszer',
       wait: {

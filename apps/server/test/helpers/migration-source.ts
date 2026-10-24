@@ -8,6 +8,7 @@ import type { Task } from '@projectman/shared';
 import { createAppHarness, OWNER_LOGIN, setupOwner } from './app-harness';
 import type { AppHarness } from './app-harness';
 import { pngBytes, uploadFile } from './attachments';
+import { withoutOnboarding } from './onboarding';
 
 /**
  * The owner's Mac as the move sees it (PM-143): a stopped PROJECTMAN_HOME with a project, a task with
@@ -98,18 +99,20 @@ export async function createSourceHome(): Promise<SourceHome> {
 
   // The server's own data.
   const cookie = await setupOwner(harness.app);
-  const created = await harness.app.inject({
-    method: 'POST',
-    url: '/api/projects',
-    headers: { cookie },
-    payload: {
-      key: 'AR',
-      name: 'acme',
-      workspacePath: workspace,
-      templateId: 'test',
-      repos: [{ name: 'web', path: '.', github: 'acme/web' }],
-    },
-  });
+  const created = await withoutOnboarding(harness.app.projectman.domain, () =>
+    harness.app.inject({
+      method: 'POST',
+      url: '/api/projects',
+      headers: { cookie },
+      payload: {
+        key: 'AR',
+        name: 'acme',
+        workspacePath: workspace,
+        templateId: 'test',
+        repos: [{ name: 'web', path: '.', github: 'acme/web' }],
+      },
+    }),
+  );
   if (created.statusCode !== 201) throw new Error(`project creation failed: ${created.body}`);
   const task = await harness.app.inject({
     method: 'POST',

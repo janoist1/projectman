@@ -40,6 +40,62 @@ import { dutyPrompt, handover } from './work-item';
 
 const builder = createContextPackBuilder();
 
+describe('Operator checklist onboarding', () => {
+  const checklist: NonNullable<ContextPackInput['checklist']> = {
+    items: [
+      {
+        id: 'agreement',
+        title: 'Working agreement',
+        hint: null,
+        source: 'base',
+        templateId: null,
+        condition: 'agreement_approved',
+        conditionHolds: false,
+        state: 'open',
+        reason: null,
+        reopened: null,
+        updatedAt: '2026-10-23T10:00:00.000Z',
+        updatedBy: 'system',
+      },
+    ],
+  };
+  const prompt = (overrides: Partial<ContextPackInput>) =>
+    builder.build(
+      input({
+        handle: 'operator',
+        task: null,
+        workItem: { type: 'general' },
+        ...overrides,
+      }),
+    ).appendSystemPrompt;
+
+  it('includes onboarding guidance and progress for a remaining checklist', async () => {
+    const text = prompt({ checklist });
+    expect(text).toContain('# Project onboarding checklist');
+    expect(text).toContain('0/1');
+    expect(text).toContain('apply_template');
+    const section = text.split('\n\n').find((part) => part.startsWith('# Project onboarding checklist'));
+    await expect(`${section}\n`).toMatchFileSnapshot('__snapshots__/operator-checklist.section.txt');
+  });
+  it.each(['missing', 'complete', 'other_member', 'guest'] as const)(
+    'omits onboarding guidance when %s',
+    (variant) => {
+      const overrides: Partial<ContextPackInput> =
+        variant === 'missing'
+          ? {}
+          : {
+              checklist:
+                variant === 'complete'
+                  ? { items: checklist.items.map((item) => ({ ...item, state: 'done' })) }
+                  : checklist,
+            };
+      if (variant === 'other_member') overrides.member = input().member;
+      if (variant === 'guest') overrides.workItem = { type: 'general', with: 'dana' };
+      expect(prompt(overrides)).not.toContain('# Project onboarding checklist');
+    },
+  );
+});
+
 it.each(['claude', 'codex', 'gemini', 'nanogpt', 'sandbox'] as const)(
   'indexes exactly the guide topics available to %s',
   (provider) => {

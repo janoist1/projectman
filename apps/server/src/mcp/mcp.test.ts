@@ -366,16 +366,27 @@ describe('attachment tools', () => {
 /* ---------- tools ---------- */
 
 describe('team tools', () => {
-  it('get_guide returns markdown and preserves a missing topic refusal', async () => {
+  it.each([
+    { topic: 'rules', heading: '# Team rules' },
+    { topic: 'role', heading: '# Role guide' },
+  ])('get_guide returns $topic markdown for the caller session', async ({ topic, heading }) => {
     expect(OPERATOR_READ_TOOLS.has('get_guide')).toBe(true);
     expect(OPERATOR_GUEST_TOOLS.has('get_guide')).toBe(true);
-    const { client } = await startTools();
-    const result = await call(client, 'get_guide', { topic: 'rules' });
+    const { client, handler } = await startTools();
+    const result = await call(client, 'get_guide', { topic });
     expect(result.isError).toBeFalsy();
-    expect(text(result)).toContain('# Team rules');
-    const missing = await call(client, 'get_guide', { topic: 'commands' });
+    expect(text(result)).toContain(heading);
+    expect(handler.calls.at(-1)).toEqual({ method: 'getGuide', ctx: devContext, args: { topic } });
+  });
+  it('get_guide preserves a missing session role refusal', async () => {
+    const { client, handler } = await startTools();
+    handler.failNext('getGuide', new TeamToolError('not_found', 'This session has no role guide.'));
+    const missing = await call(client, 'get_guide', { topic: 'role' });
     expect(missing.isError).toBe(true);
     expect(text(missing)).toContain('[not_found]');
+  });
+  it('get_guide refuses unknown topics before calling the handler', async () => {
+    await expectRefused(await startTools(), 'get_guide', [{ topic: 'unknown' }]);
   });
   it('forwards the arguments of the simple tools with the caller context', async () => {
     const { client, handler } = await startTools();

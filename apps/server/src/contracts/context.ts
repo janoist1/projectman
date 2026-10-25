@@ -185,7 +185,7 @@ export interface RelatedSession {
   state: SessionState;
 }
 
-export const GUIDE_TOPICS = ['commands', 'rules'] as const;
+export const GUIDE_TOPICS = ['commands', 'rules', 'role'] as const;
 export type GuideTopic = (typeof GUIDE_TOPICS)[number];
 
 export interface ContextPack {

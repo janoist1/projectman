@@ -763,6 +763,7 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
 
     async getGuide(ctx, args) {
       await enter('getGuide', ctx, args);
+      if (args.topic === 'role') return '# Role guide\nSession role procedures';
       if (args.topic !== 'rules') throw new TeamToolError('not_found', 'No guide topic.');
       return '# Team rules\nSession rules';
     },

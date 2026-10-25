@@ -3384,6 +3384,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
           "enum": [
             "commands",
             "rules",
+            "role",
           ],
           "type": "string",
         },

@@ -89,6 +89,7 @@ export function MemberContextPage() {
       </header>
       {forbidden ? (
         <EmptyState
+          icon="lock"
           className={styles.memberState}
           title={t('memberContext.ownerTitle')}
           body={t('memberContext.ownerOnly')}
@@ -208,6 +209,7 @@ export function MemberContextPage() {
           )}
           {missing ? (
             <EmptyState
+              icon="search"
               className={styles.memberState}
               title={t('memberContext.memberNotFound')}
               body={t('memberContext.chooseAi')}
@@ -219,6 +221,7 @@ export function MemberContextPage() {
             />
           ) : human ? (
             <EmptyState
+              icon="team"
               className={styles.memberState}
               title={t('memberContext.human', { name: member?.displayName ?? handle })}
               body={t('memberContext.chooseAi')}

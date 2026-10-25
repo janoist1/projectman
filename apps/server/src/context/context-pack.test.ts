@@ -577,7 +577,6 @@ function makeTask(overrides: Partial<Task> = {}): Task {
       { kind: 'prerequisite', ref: 'AR-19', title: 'Update mail templates', state: 'done' },
       { kind: 'url', ref: 'https://example.com/reports/42', title: 'Client report' },
     ],
-    visibility: 'shared',
     createdBy: 'owner',
     createdAt: '2026-09-28T08:00:00.000Z',
     updatedAt: '2026-09-29T10:00:00.000Z',

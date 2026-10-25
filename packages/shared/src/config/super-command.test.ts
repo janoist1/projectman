@@ -188,20 +188,15 @@ describe('super command classification (PM-762)', () => {
     expect(SuperCommandSchema.safeParse({ ...input, unexpected: true }).success).toBe(false);
   });
 
-  it('projects task visibility against the current card', () => {
-    expect(
-      superCommandMutations(
-        { kind: 'task_create', request: { title: 'A card', visibility: 'shared' } },
-        context(),
-      ),
-    ).toContainEqual({ kind: 'task_visibility', taskKey: null, before: 'internal', after: 'shared' });
-    const command: SuperCommand = { kind: 'task_update', taskKey: 'AC-1', request: { visibility: 'shared' } };
-    expect(superCommandMutations(command, { ...context(), taskVisibility: () => 'internal' })).toContainEqual(
-      { kind: 'task_visibility', taskKey: 'AC-1', before: 'internal', after: 'shared' },
-    );
-    expect(superCommandMutations(command, { ...context(), taskVisibility: () => 'shared' })).toEqual([
-      { kind: 'routine', operation: 'task_write' },
-    ]);
+  it.each([
+    ['task_create', 'task_create'],
+    ['task_update', 'task_write'],
+  ] as const)('classifies %s as routine', (kind, operation) => {
+    const command: SuperCommand =
+      kind === 'task_create'
+        ? { kind, request: { title: 'A card' } }
+        : { kind, taskKey: 'AC-1', request: { title: 'Updated' } };
+    expect(superCommandMutations(command, context())).toEqual([{ kind: 'routine', operation }]);
   });
 
   it('refuses a workspace release reason with hidden formatting characters', () => {

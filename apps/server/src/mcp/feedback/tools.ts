@@ -1,4 +1,4 @@
-import { FeedbackMarkId, Visibility } from '@projectman/shared';
+import { FeedbackMarkId } from '@projectman/shared';
 import { z } from 'zod';
 import {
   formatFeedbackList,
@@ -6,7 +6,7 @@ import {
   formatFeedbackResult,
   MAX_DESCRIPTION_CHARS,
 } from '../format';
-import { defineTool, type TeamToolGroup, taskKeyInput } from '../kit';
+import { defineTool, type TeamToolGroup, taskKeyInput, TASK_VISIBILITY_REMOVED } from '../kit';
 
 /** The longest reply or comment in a feedback mark's thread (as the app's API takes). */
 const MAX_FEEDBACK_TEXT_CHARS = 4000;
@@ -59,6 +59,7 @@ export const FEEDBACK_TOOL_GROUP: TeamToolGroup = {
     }),
     defineTool({
       name: 'create_task_from_feedback',
+      refused: { visibility: TASK_VISIBILITY_REMOVED },
       audience: { duties: ['feedback_processing'] },
       title: 'Open a card from a feedback mark',
       readOnly: false,
@@ -71,10 +72,6 @@ export const FEEDBACK_TOOL_GROUP: TeamToolGroup = {
         mark_id: FeedbackMarkId.describe('The mark, e.g. "fbm_…".'),
         title: z.string().trim().min(1).max(200),
         description: z.string().trim().max(MAX_DESCRIPTION_CHARS).describe('Markdown: what and why.'),
-        visibility: Visibility.optional().describe(
-          'internal: only the team sees the card; shared: client members see it too. Default: shared for a ' +
-            "client's mark, else internal.",
-        ),
         reply: z
           .string()
           .trim()
@@ -88,7 +85,6 @@ export const FEEDBACK_TOOL_GROUP: TeamToolGroup = {
           markId: args.mark_id,
           title: args.title,
           description: args.description,
-          ...(args.visibility ? { visibility: args.visibility } : {}),
           ...(args.reply ? { reply: args.reply } : {}),
         });
         return formatFeedbackResult('a card was opened from it', result);

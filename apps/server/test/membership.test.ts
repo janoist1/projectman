@@ -17,31 +17,28 @@ describe('memberships and member snapshots', () => {
 
   const by = { actor: OWNER_ACTOR, author: OWNER, sponsor: 'owner' };
 
-  it.each(['internal', 'shared'] as const)(
-    'shows a client the activity on a %s card on every member read, like any member (PM-79)',
-    async (visibility) => {
-      const domain = h.app.projectman.domain;
-      const client = await addHumanAndLogin(h.app, { handle: 'client', name: 'Client', access: 'client' });
-      const task = await domain.tasks.create('AR', { title: 'Work', visibility }, OWNER_ACTOR);
-      domain.members.setState('AR', 'dev-1', 'working', 'Read file', task.key);
-      const read = async (auth: string) => {
-        const members = (await inject(h.app, 'GET', routes.members('AR'), auth)).json<MemberView[]>();
-        const board = (await inject(h.app, 'GET', '/api/projects/AR/board', auth)).json<BoardView>();
-        const profile = (
-          await inject(h.app, 'GET', routes.memberProfile('AR', 'dev-1'), auth)
-        ).json<MemberProfile>();
-        return [
-          members.find((m) => m.handle === 'dev-1'),
-          board.members.find((m) => m.handle === 'dev-1'),
-          profile.member,
-        ];
-      };
-      for (const member of await read(cookie))
-        expect(member).toMatchObject({ activity: 'Read file', activityTaskKey: task.key });
-      for (const member of await read(client))
-        expect(member).toMatchObject({ activity: 'Read file', activityTaskKey: task.key });
-    },
-  );
+  it('shows a client card activity on every member read, like any member (PM-79)', async () => {
+    const domain = h.app.projectman.domain;
+    const client = await addHumanAndLogin(h.app, { handle: 'client', name: 'Client', access: 'client' });
+    const task = await domain.tasks.create('AR', { title: 'Work' }, OWNER_ACTOR);
+    domain.members.setState('AR', 'dev-1', 'working', 'Read file', task.key);
+    const read = async (auth: string) => {
+      const members = (await inject(h.app, 'GET', routes.members('AR'), auth)).json<MemberView[]>();
+      const board = (await inject(h.app, 'GET', '/api/projects/AR/board', auth)).json<BoardView>();
+      const profile = (
+        await inject(h.app, 'GET', routes.memberProfile('AR', 'dev-1'), auth)
+      ).json<MemberProfile>();
+      return [
+        members.find((m) => m.handle === 'dev-1'),
+        board.members.find((m) => m.handle === 'dev-1'),
+        profile.member,
+      ];
+    };
+    for (const member of await read(cookie))
+      expect(member).toMatchObject({ activity: 'Read file', activityTaskKey: task.key });
+    for (const member of await read(client))
+      expect(member).toMatchObject({ activity: 'Read file', activityTaskKey: task.key });
+  });
 
   it('publishes a source card change even when status and activity stay the same', () => {
     const domain = h.app.projectman.domain;

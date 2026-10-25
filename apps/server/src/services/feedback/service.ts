@@ -35,7 +35,6 @@ import type {
   HumanAccess,
   MemberConfig,
   ProjectConfig,
-  Visibility,
 } from '@projectman/shared';
 import type {
   FeedbackEventRecord,
@@ -410,13 +409,9 @@ export class FeedbackService {
     return this.marks.run(markId, async () => {
       const mark = this.requireMark(projectKey, markId);
       const plan = this.plan(mark, 'create_task', viewer);
-      const marker = memberOf(viewer.config, mark.author);
-      const visibility: Visibility =
-        request.visibility ??
-        (marker?.kind === 'human' && marker.access === 'client' ? 'shared' : 'internal');
       const task = await this.tasks.create(
         projectKey,
-        { title: request.title, description: request.description, visibility },
+        { title: request.title, description: request.description },
         actor,
       );
       if (mark.screenshot) await this.attachScreenshot(mark, mark.screenshot, task.key, actor);

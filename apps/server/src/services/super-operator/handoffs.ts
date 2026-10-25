@@ -741,7 +741,6 @@ export class SuperHandoffService {
         config,
         configVersion,
         configAt: (version: string) => (version === revertVersion ? target : null),
-        taskVisibility: (taskKey: string) => this.ctx.repos.tasks.get(taskKey)?.visibility ?? null,
       };
       let next = superCommandMutations(command, context).find((m) => m.kind === 'config_change')?.next;
       const operation = command.kind === 'operate' ? command.operation : null;

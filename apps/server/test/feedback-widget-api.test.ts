@@ -409,7 +409,7 @@ describe('feedback widget API (PM-509)', () => {
         method: 'POST',
         url: routes.feedbackTask('AR', made.id),
         headers: { cookie: owner },
-        payload: { title: 'Secret rework', description: '', visibility: 'internal' },
+        payload: { title: 'Secret rework', description: '' },
       });
       expect(created.statusCode, created.body).toBe(201);
       for (const response of [

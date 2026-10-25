@@ -29,7 +29,7 @@ describe('attachment uploads over a real connection', () => {
     developer = await addHumanAndLogin(h.app, { handle: 'robin', access: 'developer' });
     const { tasks } = h.app.projectman.domain;
     await tasks.create('AR', { title: 'Internal task' }, OWNER_ACTOR);
-    await tasks.create('AR', { title: 'Shared task', visibility: 'shared' }, OWNER_ACTOR);
+    await tasks.create('AR', { title: 'Shared task' }, OWNER_ACTOR);
     await h.app.listen({ host: '127.0.0.1', port: 0 });
     url = `http://127.0.0.1:${(h.app.server.address() as AddressInfo).port}`;
   });
@@ -147,7 +147,7 @@ describe('attachment websocket notifications', () => {
     client = await addHumanAndLogin(h.app, { handle: 'cleo', access: 'client' });
     const { tasks } = h.app.projectman.domain;
     await tasks.create('AR', { title: 'Internal task' }, OWNER_ACTOR);
-    await tasks.create('AR', { title: 'Shared task', visibility: 'shared' }, OWNER_ACTOR);
+    await tasks.create('AR', { title: 'Shared task' }, OWNER_ACTOR);
   });
   afterEach(async () => {
     for (const ws of sockets.splice(0)) ws.terminate();
@@ -173,7 +173,7 @@ describe('attachment websocket notifications', () => {
     const deadline = Date.now() + 3000;
     while (!events.some((e) => e.type === 'task_upserted')) {
       if (Date.now() > deadline) throw new Error('timed out waiting for the subscription');
-      await tasks.create('AR', { title: `Marker ${sockets.length}`, visibility: 'shared' }, OWNER_ACTOR);
+      await tasks.create('AR', { title: `Marker ${sockets.length}` }, OWNER_ACTOR);
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
     return events;

@@ -81,7 +81,6 @@ function card(over: Partial<Task> = {}): Task {
     priority: null,
     labels: [],
     links: [],
-    visibility: 'internal',
     createdBy: 'owner',
     createdAt: '2026-10-01T10:00:00.000Z',
     updatedAt: '2026-10-05T10:00:00.000Z',

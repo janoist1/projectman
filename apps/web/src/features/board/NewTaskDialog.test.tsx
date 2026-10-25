@@ -49,7 +49,6 @@ describe('new task description', () => {
       expect(project.backend.tasks.find((task) => task.title === 'Example task')).toMatchObject({
         description: '**Example** description',
         repo: 'example',
-        visibility: 'internal',
       }),
     );
   });
@@ -79,17 +78,14 @@ describe('the new task form', () => {
     expect(closed).toContain('closed');
   });
 
-  it('keeps the repo, theme and visibility under "More settings", showing their values while it is closed', async () => {
+  it('keeps the repo and theme under "More settings", showing their values while it is closed', async () => {
     const project = mockProject();
     project.backend.config.project.repos = [{ name: 'shop', path: 'shop', defaultBranch: 'main' }];
     project.render(<NewTaskDialog open onClose={() => {}} />);
     const summary = (await screen.findByText(t('newTask.more'))).closest('summary')!;
     expect(summary.getAttribute('aria-expanded')).toBe('false');
     await waitFor(() => expect(summary.textContent).toContain('shop'));
-    expect(summary.textContent).toContain(t('visibility.internal'));
     fireEvent.click(summary);
     expect(summary.getAttribute('aria-expanded')).toBe('true');
-    fireEvent.click(screen.getByRole('button', { name: t('visibility.shared') }));
-    expect(screen.getByText(t('visibility.sharedHint'))).toBeTruthy();
   });
 });

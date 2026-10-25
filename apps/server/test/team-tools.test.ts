@@ -524,11 +524,7 @@ describe('team tools', () => {
     h.repos.tasks.update(h.domain.tasks.get('AR', 'AR-1').id, { updatedAt: '2026-09-29T09:00:00.000Z' });
     const statuses: TaskStatus[] = ['active', 'waiting', 'blocked', 'done', 'cancelled'];
     for (const [index, status] of statuses.entries()) {
-      const task = await h.domain.tasks.create(
-        'AR',
-        { title: `Board task ${index}`, visibility: index % 2 ? 'shared' : 'internal' },
-        OWNER_ACTOR,
-      );
+      const task = await h.domain.tasks.create('AR', { title: `Board task ${index}` }, OWNER_ACTOR);
       h.repos.tasks.update(task.id, {
         status,
         stageId: 'backlog',
@@ -595,7 +591,6 @@ describe('team tools', () => {
       title: '  Signup form accepts an empty email ',
       description: 'Steps: open /signup, submit without an email.',
       labels: ['bug', ' bug', ''],
-      visibility: 'shared',
     });
     expect(task).toMatchObject({
       key: 'AR-2',
@@ -606,7 +601,6 @@ describe('team tools', () => {
       assignee: null,
       priority: null,
       labels: ['bug'],
-      visibility: 'shared',
       createdBy: 'dev-1',
     });
     const created = h.domain.timeline.list('AR', { taskKey: 'AR-2' });

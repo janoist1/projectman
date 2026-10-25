@@ -225,8 +225,6 @@ describe('projectman CLI (PM-765)', () => {
           'none',
           '--stage',
           'ready',
-          '--visibility',
-          'shared',
           '--add-relation',
           'related:PM-2',
           '--add-relation',
@@ -248,7 +246,6 @@ describe('projectman CLI (PM-765)', () => {
             themeKey: null,
             parentKey: null,
             stageId: 'ready',
-            visibility: 'shared',
             description: 'Details',
             relations: {
               add: [
@@ -373,6 +370,7 @@ describe('projectman CLI (PM-765)', () => {
     it.each([
       ['tasks', 'update', 'PM-1'],
       ['tasks', 'update', 'PM-1', '--priority', 'invalid'],
+      ['tasks', 'update', 'PM-1', '--visibility', 'shared'],
       ['tasks', 'update', 'PM-1', '--add-relation', 'invalid:PM-2'],
       ['tasks', 'update', 'PM-1', '--remove-relation', 'related:PM-2:extra'],
       ['config', 'set', '--project', 'PM', 'security', 'true'],

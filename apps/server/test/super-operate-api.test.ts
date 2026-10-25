@@ -420,7 +420,7 @@ describe('the wired operate executor in super mode (PM-831)', () => {
     const command: SuperCommand = {
       kind: 'task_update',
       taskKey: created.taskKey!,
-      request: { title: 'Shared card', visibility: 'shared' },
+      request: { title: 'Shared card' },
     };
     const requestId = randomUUID();
     const operation = await submit(command, requestId);
@@ -428,7 +428,6 @@ describe('the wired operate executor in super mode (PM-831)', () => {
     expect(await submit(command, requestId)).toEqual(operation);
     expect(app.app.projectman.domain.tasks.get('AR', created.taskKey!)).toMatchObject({
       title: 'Shared card',
-      visibility: 'shared',
     });
     const event = app.app.projectman.domain.timeline
       .list('AR', { taskKey: created.taskKey! })

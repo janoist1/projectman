@@ -218,7 +218,7 @@ interface ChoiceCardProps {
   leading?: ReactNode;
 }
 
-/** Radio input styled as a selectable card (templates, visibility, handover target). */
+/** Radio input styled as a selectable card (templates, handover target). */
 export function ChoiceCard({ name, value, checked, onChange, title, description, leading }: ChoiceCardProps) {
   const id = useId();
   return (

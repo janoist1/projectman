@@ -45,6 +45,11 @@ describe('merge queue timeline text (PM-576)', () => {
 });
 
 describe('creation timeline labels', () => {
+  it('renders the field label of a legacy visibility update', () => {
+    expect(
+      describeEvent({ ...creation, type: 'task_updated', data: { fields: ['visibility'] } }, context).text,
+    ).toContain(t('timeline.fields.visibility'));
+  });
   it('names previous and new priority, including setting and clearing', () => {
     for (const [previousPriority, priority] of [
       [null, 'urgent'],

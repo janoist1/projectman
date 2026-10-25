@@ -185,13 +185,13 @@ describe('feedback marks API (PM-506)', () => {
       expect(body.mark).toMatchObject({
         status: 'handled',
         outcome: 'card_created',
-        card: { visible: true, key: body.task.key, visibility: 'shared' },
+        card: { visible: true, key: body.task.key },
       });
       expect(body.mark.thread.map((e) => e.type)).toEqual(['comment', 'card_created', 'comment']);
 
       const { tasks, attachments } = h.app.projectman.domain;
       const task = tasks.find('AR', body.task.key)!;
-      expect(task.visibility).toBe('shared');
+      expect(task).not.toHaveProperty('visibility');
       expect(task.parentKey ?? null).toBeNull();
       const attached = await attachments.list('AR', task.key, humanActor('ada'));
       expect(attached).toHaveLength(1);
@@ -292,11 +292,7 @@ describe('feedback marks API (PM-506)', () => {
 
     it('links a mark to an existing card and refuses an unknown one', async () => {
       const { tasks } = h.app.projectman.domain;
-      const existing = await tasks.create(
-        'AR',
-        { title: 'Cart rework', visibility: 'internal' },
-        OWNER_ACTOR,
-      );
+      const existing = await tasks.create('AR', { title: 'Cart rework' }, OWNER_ACTOR);
       const made = await mark('robin');
       const unknown = await post(owner, routes.feedbackLink('AR', made.id), { taskKey: 'AR-999' });
       expect(unknown.statusCode).toBe(404);
@@ -321,14 +317,14 @@ describe('feedback marks API (PM-506)', () => {
   });
 
   describe('who sees what', () => {
-    it('shows a client the key and the title of the card of a mark, whatever its visibility (PM-79)', async () => {
+    it('shows a client the key and the title of the card of a mark, including its details (PM-79)', async () => {
       const made = await mark('robin');
       const created = await post(owner, routes.feedbackTask('AR', made.id), {
         title: 'Secret refactor',
         description: '',
       });
       const { task } = CreateTaskFromFeedbackResponse.parse(created.json());
-      expect(h.app.projectman.domain.tasks.find('AR', task.key)!.visibility).toBe('internal');
+      expect(h.app.projectman.domain.tasks.find('AR', task.key)).not.toHaveProperty('visibility');
 
       const listed = await get(cookies.client!, routes.feedback('AR'));
       expect(listed.statusCode).toBe(200);

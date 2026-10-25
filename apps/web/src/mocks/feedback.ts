@@ -38,7 +38,6 @@ import type {
   ServerEvent,
   Task,
   TimelineEventType,
-  Visibility,
 } from '@projectman/shared';
 import { mockId, nowIso } from './time';
 
@@ -53,7 +52,7 @@ export interface MockFeedbackHost {
   viewerHandle(): string;
   findTask(key: string): Task | undefined;
   /** Creates a card in the viewer's name (the backend's own task creation); its answer holds the task. */
-  createCard(input: { title: string; description: string; visibility: Visibility }): MockResponse;
+  createCard(input: { title: string; description: string }): MockResponse;
   addTimeline(taskKey: string, who: string, type: TimelineEventType, data: Record<string, unknown>): void;
   emit(event: ServerEvent): void;
 }
@@ -692,14 +691,9 @@ export class MockFeedback {
     if (!input.success) return error(400, 'invalid_request', 'Invalid card');
     const plan = this.plan(mark, viewer, 'create_task');
     if (isRefusal(plan)) return plan;
-    const marker = memberOf(viewer.config, mark.author);
-    const visibility: Visibility =
-      input.data.visibility ??
-      (marker?.kind === 'human' && marker.access === 'client' ? 'shared' : 'internal');
     const created = this.host.createCard({
       title: input.data.title,
       description: input.data.description,
-      visibility,
     });
     if (created.status >= 400) return created;
     const task = created.body as Task;

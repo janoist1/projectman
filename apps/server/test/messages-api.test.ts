@@ -236,17 +236,9 @@ describe('human team messages and member profiles', () => {
       expect((await send(['owner'], owner, payload)).statusCode).toBeGreaterThanOrEqual(400);
     }
     expect(h.app.projectman.repos.messages.list(key)).toHaveLength(before);
-    await h.app.projectman.domain.tasks.create(
-      key,
-      { title: 'Internal Acme work', visibility: 'internal' },
-      actor,
-    );
+    await h.app.projectman.domain.tasks.create(key, { title: 'Internal Acme work' }, actor);
     expect((await send(['owner'], kata, { taskKey: 'AR-1' })).statusCode).toBe(202);
-    await h.app.projectman.domain.tasks.create(
-      key,
-      { title: 'Shared Acme work', visibility: 'shared' },
-      actor,
-    );
+    await h.app.projectman.domain.tasks.create(key, { title: 'Shared Acme work' }, actor);
     expect((await send(['owner'], kata, { taskKey: 'AR-2' })).statusCode).toBe(202);
     expect(
       (

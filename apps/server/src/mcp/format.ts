@@ -389,9 +389,7 @@ export function formatTaskDetail(
     theme
       ? `Kind: theme · Status: ${themeState(task)} · Labels: ${task.labels.length > 0 ? task.labels.join(', ') : 'none'}`
       : taskStatusLine(task),
-    theme
-      ? `Visibility: ${task.visibility}`
-      : `Repo: ${repo} · Visibility: ${task.visibility} · Priority: ${task.priority ?? 'none'}`,
+    ...(!theme ? [`Repo: ${repo} · Priority: ${task.priority ?? 'none'}`] : []),
     ...(detail.wait ? [`Waiting: ${describeTaskWait(detail.wait)}`] : []),
     ...(detail.focus ? [`Focus: ${focusPlaceText(detail.focus)}`] : []),
     ...(task.developerLevel ? [`Recommended developer: ${developerLevelText(task.developerLevel)}`] : []),
@@ -723,11 +721,10 @@ export function formatTaskCreated(task: Task): string {
   if (isTheme(task))
     return (
       `Created the theme ${task.key} "${oneLine(task.title, 200)}" (open; a theme is in no stage and no ` +
-      `work starts on it; visibility ${task.visibility}${labels}). Put cards into it with theme_key.`
+      `work starts on it${labels}). Put cards into it with theme_key.`
     );
   return (
-    `Created ${task.key} "${oneLine(task.title, 200)}" in stage ${task.stageId}, unassigned ` +
-    `(visibility ${task.visibility}${labels}).` +
+    `Created ${task.key} "${oneLine(task.title, 200)}" in stage ${task.stageId}, unassigned${labels}.` +
     (task.developerLevel ? `\n${recommendedDeveloperLine(task)}` : '')
   );
 }
@@ -949,18 +946,13 @@ export function formatFeedbackMark(read: FeedbackToolMark): string {
         `${env.viewport.width}x${env.viewport.height}, scroll ${env.scroll.x},${env.scroll.y}, pixel ratio ${env.devicePixelRatio}`,
     );
   }
-  if (mark.card)
-    lines.push(
-      mark.card.visible
-        ? `Card: ${mark.card.key} "${mark.card.title}" (${mark.card.stageName}, ${mark.card.visibility})`
-        : 'Card: one the marker cannot see',
-    );
+  if (mark.card) lines.push(`Card: ${mark.card.key} "${mark.card.title}" (${mark.card.stageName})`);
   lines.push('', 'Text:', mark.body, '');
   if (mark.thread.length > 0) {
     lines.push('Thread:');
     for (const entry of mark.thread) {
       const what = entry.type === 'comment' ? 'wrote' : entry.type.replace(/_/g, ' ');
-      const card = entry.card?.visible ? ` ${entry.card.key}` : '';
+      const card = entry.card ? ` ${entry.card.key}` : '';
       lines.push(
         `- ${formatTimestamp(entry.createdAt)} ${entry.actor.name} (${entry.actor.handle}) ${what}${card}` +
           (entry.body ? `: ${entry.body}` : ''),

@@ -6,7 +6,6 @@ You are picking up this task at stage Development (`dev`).
 - Repo: `app`
 - Priority: high
 - Labels: `bug`, `email`
-- Visibility: shared
 
 ## Description
 The confirmation email shows the wrong room name.

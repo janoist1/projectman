@@ -63,16 +63,8 @@ describe('board API', () => {
   it('sends a client the keys of the cards an AI member works on, on the board, the member list and the profile (PM-79)', async () => {
     const { domain } = h.app.projectman;
     const member = await domain.members.hire('AR', { role: 'qa' }, by);
-    const internal = await domain.tasks.create(
-      'AR',
-      { title: 'Internal job', visibility: 'internal' },
-      OWNER_ACTOR,
-    );
-    const shared = await domain.tasks.create(
-      'AR',
-      { title: 'Shared job', visibility: 'shared' },
-      OWNER_ACTOR,
-    );
+    const internal = await domain.tasks.create('AR', { title: 'Internal job' }, OWNER_ACTOR);
+    const shared = await domain.tasks.create('AR', { title: 'Shared job' }, OWNER_ACTOR);
     for (const task of [internal, shared]) {
       const { session } = await domain.sessions.ensureSession('AR', member.handle, {
         type: 'task',

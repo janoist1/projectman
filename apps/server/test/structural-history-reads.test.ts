@@ -243,7 +243,6 @@ describe('reads that do not grow with the unrelated history', () => {
             labels: [],
             links: [],
             parentKey: i === 0 ? null : `AR-${base}`,
-            visibility: 'internal',
             createdBy: 'owner',
             createdAt: days(60).toISOString(),
             updatedAt: days(60).toISOString(),

@@ -972,7 +972,6 @@ describe('credential REST and domain access (PM-759)', () => {
       expect(repos.tasks.list('AR')).toHaveLength(before.tasks);
       expect(domain.tasks.get('AR', task.key)).toMatchObject({
         title: 'Internal task',
-        visibility: 'internal',
         labels: before.labels,
       });
     }

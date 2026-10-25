@@ -360,14 +360,6 @@ exports[`team tool definitions > preserves the public tool definitions across mo
           "minLength": 1,
           "type": "string",
         },
-        "visibility": {
-          "description": "internal (default): only the team sees it; shared: client members see it too.",
-          "enum": [
-            "internal",
-            "shared",
-          ],
-          "type": "string",
-        },
       },
       "required": [
         "title",
@@ -408,14 +400,6 @@ exports[`team tool definitions > preserves the public tool definitions across mo
         "title": {
           "maxLength": 200,
           "minLength": 1,
-          "type": "string",
-        },
-        "visibility": {
-          "description": "internal: only the team sees the card; shared: client members see it too. Default: shared for a client's mark, else internal.",
-          "enum": [
-            "internal",
-            "shared",
-          ],
           "type": "string",
         },
       },
@@ -2768,13 +2752,6 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                       "minLength": 1,
                       "type": "string",
                     },
-                    "visibility": {
-                      "enum": [
-                        "internal",
-                        "shared",
-                      ],
-                      "type": "string",
-                    },
                   },
                   "required": [
                     "title",
@@ -2954,13 +2931,6 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                     },
                     "title": {
                       "minLength": 1,
-                      "type": "string",
-                    },
-                    "visibility": {
-                      "enum": [
-                        "internal",
-                        "shared",
-                      ],
                       "type": "string",
                     },
                   },

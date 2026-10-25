@@ -365,7 +365,7 @@ describe('websocket', () => {
       method: 'POST',
       url: routes.tasks('AR'),
       headers: { cookie },
-      payload: { title: 'Shared', visibility: 'shared' },
+      payload: { title: 'Shared' },
     });
     const task = created.json<Task>();
     const connections = await Promise.all([

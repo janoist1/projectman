@@ -729,6 +729,14 @@ describe('team tools', () => {
     }
   });
 
+  it('create_task explains a removed visibility argument without creating a card', async () => {
+    const { client, handler } = await startTools();
+    const result = await call(client, 'create_task', { title: 'Legacy card', visibility: 'shared' });
+    expect(result.isError).toBe(true);
+    expect(text(result)).toContain('Omit visibility');
+    expect(handler.calls).toEqual([]);
+  });
+
   it('create_task refuses a priority and any other invalid field before the handler', async () => {
     const session = await startTools();
     const priority = await call(session.client, 'create_task', { title: 'New card', priority: null });
@@ -736,7 +744,6 @@ describe('team tools', () => {
     expect(text(priority)).toContain('priority is set by people only');
 
     await expectRefused(session, 'create_task', [
-      { title: 'x', visibility: 'public' },
       { title: 'Card', kind: 'epic' },
       { title: 'Card', developer_level_reason: 'why' },
     ]);

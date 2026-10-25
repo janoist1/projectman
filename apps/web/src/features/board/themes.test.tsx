@@ -380,7 +380,6 @@ describe('the theme of a card in its drawer', () => {
   it('has no theme row while the project has no theme', async () => {
     const project = mockProject();
     project.render(drawerRoutes, '/p/AC/tasks/AC-20');
-    await screen.findByText(t('newTask.fields.visibility'));
     expect(screen.queryByText(t('task.theme'))).toBeNull();
   });
 

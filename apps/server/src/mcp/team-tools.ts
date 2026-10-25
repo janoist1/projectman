@@ -53,7 +53,6 @@ import type {
   Task,
   TaskKind,
   TaskPriority,
-  Visibility,
   WorkDoing,
   AddRelationRef,
   DeveloperLevelRequest,
@@ -301,7 +300,7 @@ export class TeamToolsService implements TeamToolsHandler {
 
   async createTaskFromFeedback(
     ctx: ToolContext,
-    args: { markId: string; title: string; description: string; visibility?: Visibility; reply?: string },
+    args: { markId: string; title: string; description: string; reply?: string },
   ) {
     return this.tools.feedback.createTaskFromFeedback(ctx, args);
   }
@@ -399,7 +398,6 @@ export class TeamToolsService implements TeamToolsHandler {
       title: string;
       description?: string;
       labels?: string[];
-      visibility?: Visibility;
       parentKey?: string;
       relations?: AddRelationRef[];
       kind?: TaskKind;

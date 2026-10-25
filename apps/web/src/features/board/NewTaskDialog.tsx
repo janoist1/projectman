@@ -1,7 +1,7 @@
 import { useId, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { useNavigate } from 'react-router';
-import type { TaskKind, Visibility } from '@projectman/shared';
+import type { TaskKind } from '@projectman/shared';
 import { useBoard, useConfig, useCreateTask } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
@@ -57,7 +57,6 @@ function NewTaskForm({
   const [description, setDescription] = useState('');
   // null until the user picks one; a project with a single repo defaults to it.
   const [pickedRepo, setRepo] = useState<string | null>(null);
-  const [visibility, setVisibility] = useState<Visibility>('internal');
   const [titleError, setTitleError] = useState<string | null>(null);
   const repos = config.data?.config.project.repos ?? [];
   const repo = pickedRepo ?? (repos.length === 1 ? repos[0]!.name : '');
@@ -77,14 +76,12 @@ function NewTaskForm({
         ? {
             title: title.trim(),
             description: description.trim() || undefined,
-            visibility,
             kind: 'theme',
           }
         : {
             title: title.trim(),
             description: description.trim() || undefined,
             repo: repo || null,
-            visibility,
             ...(theme ? { themeKey: theme } : {}),
           },
       {
@@ -104,7 +101,6 @@ function NewTaskForm({
   const peek = [
     ...(isTheme ? [] : [repo || t('newTask.peekNoRepo')]),
     ...(isTheme || !themeTitle ? [] : [themeTitle]),
-    t(`visibility.${visibility}`),
   ].join(' · ');
 
   return (
@@ -137,52 +133,37 @@ function NewTaskForm({
         onChange={setDescription}
         disabled={create.isPending}
       />
-      <Fold summary={t('newTask.more')} plain peek={peek}>
-        {isTheme ? null : (
-          <>
+      {!isTheme ? (
+        <Fold summary={t('newTask.more')} plain peek={peek}>
+          <SelectField
+            label={t('newTask.fields.repo')}
+            value={repo}
+            onChange={(event) => setRepo(event.target.value)}
+          >
+            <option value="">{t('newTask.fields.repoNone')}</option>
+            {repos.map((entry) => (
+              <option key={entry.name} value={entry.name}>
+                {entry.github ? `${entry.name} · ${entry.github}` : entry.name}
+              </option>
+            ))}
+          </SelectField>
+          {themes.length > 0 ? (
             <SelectField
-              label={t('newTask.fields.repo')}
-              value={repo}
-              onChange={(event) => setRepo(event.target.value)}
+              label={t('newTask.fields.theme')}
+              hint={pickedTheme === null && filterTheme ? t('newTask.fields.themeFromFilter') : undefined}
+              value={theme}
+              onChange={(event) => setPickedTheme(event.target.value)}
             >
-              <option value="">{t('newTask.fields.repoNone')}</option>
-              {repos.map((entry) => (
-                <option key={entry.name} value={entry.name}>
-                  {entry.github ? `${entry.name} · ${entry.github}` : entry.name}
+              <option value="">{t('newTask.fields.themeNone')}</option>
+              {themes.map((entry) => (
+                <option key={entry.key} value={entry.key}>
+                  {entry.title}
                 </option>
               ))}
             </SelectField>
-            {themes.length > 0 ? (
-              <SelectField
-                label={t('newTask.fields.theme')}
-                hint={pickedTheme === null && filterTheme ? t('newTask.fields.themeFromFilter') : undefined}
-                value={theme}
-                onChange={(event) => setPickedTheme(event.target.value)}
-              >
-                <option value="">{t('newTask.fields.themeNone')}</option>
-                {themes.map((entry) => (
-                  <option key={entry.key} value={entry.key}>
-                    {entry.title}
-                  </option>
-                ))}
-              </SelectField>
-            ) : null}
-          </>
-        )}
-        <div className={styles.visibility}>
-          <span className={styles.legend}>{t('newTask.fields.visibility')}</span>
-          <SegmentedControl<Visibility>
-            label={t('newTask.fields.visibility')}
-            value={visibility}
-            onChange={setVisibility}
-            options={[
-              { value: 'internal', label: t('visibility.internal') },
-              { value: 'shared', label: t('visibility.shared') },
-            ]}
-          />
-          <p className={styles.hint}>{t(`visibility.${visibility}Hint`)}</p>
-        </div>
-      </Fold>
+          ) : null}
+        </Fold>
+      ) : null}
       <DialogActions error={create.isError ? <ErrorBanner>{errorMessage(create.error)}</ErrorBanner> : null}>
         <Button variant="secondary" size="md" onClick={onDone}>
           {t('common.cancel')}

@@ -258,18 +258,15 @@ describe('who processes and who marks', () => {
 });
 
 describe('feedbackCardRef', () => {
-  const internal = { key: 'AR-1', title: 'Secret plan', visibility: 'internal' as const };
-  const shared = { key: 'AR-2', title: 'Shared work', visibility: 'shared' as const };
+  const task = { key: 'AR-1', title: 'Example task' };
 
-  it('names the card whatever its visibility (PM-79)', () => {
-    expect(feedbackCardRef(internal, 'Fejlesztés')).toEqual({
+  it('names the card and retains the loaded widget compatibility flag', () => {
+    expect(feedbackCardRef(task, 'Fejlesztés')).toEqual({
       visible: true,
       key: 'AR-1',
-      title: 'Secret plan',
+      title: 'Example task',
       stageName: 'Fejlesztés',
-      visibility: 'internal',
     });
-    expect(feedbackCardRef(shared, 'Kész')).toMatchObject({ visible: true, key: 'AR-2' });
   });
 });
 

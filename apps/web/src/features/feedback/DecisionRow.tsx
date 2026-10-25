@@ -31,13 +31,11 @@ export function DecisionRow({
   projectKey,
   ownerName,
   isOwner,
-  clientAuthor,
 }: {
   mark: FeedbackMarkDetail;
   projectKey: string;
   ownerName: string;
   isOwner: boolean;
-  clientAuthor: boolean;
 }) {
   if (mark.status === 'waiting_owner') {
     const reason = forwardReason(mark);
@@ -56,14 +54,6 @@ export function DecisionRow({
     );
   }
   if (!mark.card || mark.outcome === 'answered' || mark.outcome === null) return null;
-  if (!mark.card.visible) {
-    return (
-      <p className={clsx(styles.row, styles.ok)}>
-        <Icon name="check" size={16} strokeWidth={2.4} />
-        <span>{t('feedback.decision.internalCard')}</span>
-      </p>
-    );
-  }
   const card = mark.card;
   const link = <CardLink projectKey={projectKey} cardKey={card.key} title={card.title} />;
   if (!mark.canProcess) {
@@ -76,18 +66,12 @@ export function DecisionRow({
       </p>
     );
   }
-  const visibility =
-    card.visibility === 'shared'
-      ? t('feedback.decision.shared')
-      : clientAuthor
-        ? t('feedback.decision.internalForClient')
-        : t('feedback.decision.internal');
   return (
     <p className={clsx(styles.row, styles.ok)}>
       <Icon name="check" size={16} strokeWidth={2.4} />
       <span>
         {mark.outcome === 'card_created' ? t('feedback.decision.created') : t('feedback.decision.linked')}{' '}
-        {link} · {visibility}
+        {link} · {card.stageName}
       </span>
     </p>
   );

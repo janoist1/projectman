@@ -25,9 +25,9 @@ const quoted = (messageId: string) =>
 describe('what a member sees of their project', () => {
   it('shows a client the whole card, as it shows a read-only member (PM-79)', () => {
     const detail = {
-      task: { key: 'AR-1', visibility: 'internal', links: [{ kind: 'prerequisite', ref: 'AR-2' }] },
-      parent: { key: 'AR-2', visibility: 'internal' },
-      subtasks: [{ key: 'AR-3', visibility: 'internal' }],
+      task: { key: 'AR-1', links: [{ kind: 'prerequisite', ref: 'AR-2' }] },
+      parent: { key: 'AR-2' },
+      subtasks: [{ key: 'AR-3' }],
       pullRequests: [],
       timeline: ['task_created', 'task_note', 'task_labels_changed', 'task_merge_requested'].map((type) =>
         timeline(type as TimelineEvent['type']),
@@ -40,7 +40,7 @@ describe('what a member sees of their project', () => {
 
   it('delivers a client the live events of every card, member and timeline entry', () => {
     const live = [
-      { type: 'task_upserted', projectKey: 'AR', task: { key: 'AR-2', visibility: 'internal' } },
+      { type: 'task_upserted', projectKey: 'AR', task: { key: 'AR-2' } },
       { type: 'timeline_appended', projectKey: 'AR', event: timeline('task_created') },
       { type: 'member_state', projectKey: 'AR', handle: 'dev', status: 'working', activity: 'Read file' },
       { type: 'member_changed', projectKey: 'AR', handle: 'dev', member: null },

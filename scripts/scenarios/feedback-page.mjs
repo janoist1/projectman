@@ -8,7 +8,7 @@
  *
  *   a. not set up yet (owner)             b. the list with a mark open (owner), light and dark
  *   c. a mark waiting for the owner       d. "Új kártya" dialog         e. "Kártyához kötöm" dialog
- *   f. the client's view: a mark that went into an internal card ("Feladatba került", no key)
+ *   f. the client's view: a mark with its card key and title
  *   g. Beállítások → Visszajelző eszköz   h. the card drawer's "Jelölések" row
  *   e2. "Lezárom" dialog  i. the launch menu, two surfaces  j. empty and failed list
  *   k. settings with a failing surface and the markers (browser on, blocked, viewer)
@@ -65,19 +65,17 @@ export default async ({ instance, open, shoot, step, log }) => {
   const tasks = await instance.api('/api/projects/AC/tasks');
   const [first, second] = tasks;
   if (!first || !second) throw new Error('The demo project needs two cards.');
-  const internalCard = {
+  const createdCard = {
     visible: true,
     key: first.key,
     title: first.title,
     stageName: 'Fejlesztés',
-    visibility: 'internal',
   };
-  const sharedCard = {
+  const linkedCard = {
     visible: true,
     key: second.key,
     title: second.title,
     stageName: 'Átnézés',
-    visibility: 'shared',
   };
 
   const entry = (id, type, actor, body, minutes, card = null) => ({
@@ -148,9 +146,9 @@ export default async ({ instance, open, shoot, step, log }) => {
       minutes: 60 * 50,
       status: 'handled',
       outcome: 'card_created',
-      card: internalCard,
+      card: createdCard,
       thread: [
-        entry('fbe_3', 'card_created', PM, null, 60 * 48, internalCard),
+        entry('fbe_3', 'card_created', PM, null, 60 * 48, createdCard),
         entry('fbe_4', 'comment', PM, 'Felvettem feladatként, a csapat hamarosan foglalkozik vele.', 60 * 48),
       ],
     }),
@@ -158,8 +156,8 @@ export default async ({ instance, open, shoot, step, log }) => {
       minutes: 60 * 24 * 3,
       status: 'handled',
       outcome: 'card_created',
-      card: sharedCard,
-      thread: [entry('fbe_5', 'card_created', PM, null, 60 * 24 * 3 - 30, sharedCard)],
+      card: linkedCard,
+      thread: [entry('fbe_5', 'card_created', PM, null, 60 * 24 * 3 - 30, linkedCard)],
     }),
     {
       ...mark('fbm_aaaaaaaaaa06', BENCE, 'A kosár ikon nem frissül, amíg újra nem töltöm az oldalt.', {
@@ -181,14 +179,8 @@ export default async ({ instance, open, shoot, step, log }) => {
       closedAt: ago(60 * 24 * 5),
     },
   ];
-  // What the client Kata sees of the same marks: her own and Bence's, the internal card without key and title.
-  const hideCard = (card) => (card?.visible && card.visibility === 'internal' ? { visible: false } : card);
-  const hide = (item) => ({
-    ...item,
-    card: hideCard(item.card),
-    thread: item.thread.map((entry) => ({ ...entry, card: hideCard(entry.card) })),
-  });
-  const clientMarks = owner.map(hide);
+  // Clients read every card, just like viewers (PM-79).
+  const clientMarks = owner;
 
   /** What the list answers with: the surfaces on show and whether the read works at all. */
   let surfaces = [SURFACE];
@@ -230,7 +222,7 @@ export default async ({ instance, open, shoot, step, log }) => {
       if (tail === '/settings') return settingsStub ? json(settingsStub) : route.fallback();
       if (tail === '' && url.searchParams.has('task')) {
         const task = url.searchParams.get('task');
-        const own = marks.filter((item) => item.card?.visible && item.card.key === task);
+        const own = marks.filter((item) => item.card?.key === task);
         return json({ ...view(own, !asClient) });
       }
       if (tail === '' && listMode === 'error') return json({ error: 'internal_error' }, 500);
@@ -289,13 +281,13 @@ export default async ({ instance, open, shoot, step, log }) => {
     await shoot(page, 'c-waiting-owner', { widths: WIDTHS });
   });
 
-  await step('c2. working, linked to an internal card, closed (processor view)', async () => {
+  await step('c2. working, linked to a card, closed (processor view)', async () => {
     const working = await open({ path: '/p/AC/feedback/fbm_aaaaaaaaaa02?f=all' });
     await working.getByText('A pm most nézi').first().waitFor();
     await shoot(working, 'c2-working', { widths: WIDTHS });
     const linked = await open({ path: '/p/AC/feedback/fbm_aaaaaaaaaa04?f=all' });
-    await linked.getByText(internalCard.title).first().waitFor();
-    await shoot(linked, 'c3-linked-internal', { widths: WIDTHS });
+    await linked.getByText(createdCard.title).first().waitFor();
+    await shoot(linked, 'c3-linked-card', { widths: WIDTHS });
     const closed = await open({ path: '/p/AC/feedback/fbm_aaaaaaaaaa06?f=all' });
     await closed.getByRole('button', { name: 'Újranyitom' }).waitFor();
     await shoot(closed, 'c4-closed', { widths: WIDTHS });
@@ -327,7 +319,7 @@ export default async ({ instance, open, shoot, step, log }) => {
     await page.getByRole('button', { name: 'Kártyához kötöm' }).click();
     await page.getByRole('dialog', { name: 'Kötés meglévő kártyához' }).waitFor();
     await shoot(page, 'e-link-card', { widths: WIDTHS });
-    await page.getByRole('option', { name: new RegExp(internalCard.key) }).click();
+    await page.getByRole('option', { name: new RegExp(createdCard.key) }).click();
     await page.getByText('csak annyit lát').first().waitFor();
     await shoot(page, 'e-link-card-chosen', { widths: WIDTHS });
     await page.keyboard.press('Escape');
@@ -336,7 +328,7 @@ export default async ({ instance, open, shoot, step, log }) => {
     await shoot(page, 'e2-close', { widths: WIDTHS });
   });
 
-  await step('f. the client sees the internal card as "Feladatba került"', async () => {
+  await step('f. the client sees the card key and title', async () => {
     asClient = true;
     const page = await open({ as: client, path: '/p/AC/feedback/fbm_aaaaaaaaaa04?f=all' });
     await install(page);

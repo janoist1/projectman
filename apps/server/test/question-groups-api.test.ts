@@ -23,7 +23,7 @@ describe('shared owner question visibility', () => {
     });
     const { domain } = h.app.projectman;
     await domain.tasks.create('AR', { title: 'Internal source' }, OWNER_ACTOR);
-    await domain.tasks.create('AR', { title: 'Shared source', visibility: 'shared' }, OWNER_ACTOR);
+    await domain.tasks.create('AR', { title: 'Shared source' }, OWNER_ACTOR);
     const questions = ['AR-1', 'AR-2'].map((taskKey, index) =>
       domain.inbox.create({
         projectKey: 'AR',

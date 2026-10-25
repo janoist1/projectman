@@ -662,6 +662,19 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
     }
     case 'task_level_changed':
       return normal(levelEventText(d));
+    case 'task_complexity_changed': {
+      const previous = record(d.previous);
+      const points = Number(d.points);
+      const before = Number(previous?.points);
+      return normal(
+        (d.points === null
+          ? t('timeline.complexityRemoved', { previous: before })
+          : previous && before !== points
+            ? t('timeline.complexityChanged', { previous: before, points })
+            : t('timeline.complexitySet', { points })) +
+          (str(d.reason).trim() ? t('timeline.levelReason', { reason: str(d.reason).trim() }) : ''),
+      );
+    }
     case 'task_senior_wait':
       return normal(seniorWaitEventText(d, ctx));
     case 'task_prerequisite_closed': {

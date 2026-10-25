@@ -12,6 +12,7 @@ import type {
   CancelTaskRequest,
   CreateTaskRequest,
   DeveloperLevelRequest,
+  ComplexityRequest,
   HandoffReason,
   HandoffStart,
   InboxItem,
@@ -72,6 +73,8 @@ import {
 import { BoardOrder } from './board-order';
 import { BoardGroupMove } from './group-move';
 import { planDeveloperLevel } from './developer-level';
+import { planComplexity } from './complexity';
+import type { ComplexityChange } from './complexity';
 import type { DeveloperLevelChange } from './developer-level';
 import { labelsChange, planLabelsOrThrow, TaskLabels } from './labels';
 import { approvalRequestedError, gateBlockedError, TaskMoves } from './moves';
@@ -137,6 +140,7 @@ interface TaskUpdate {
   despitePrerequisites?: boolean;
   /** The recommended developer (PM-347); a change goes to the timeline and is told to the listeners. */
   developerLevel?: DeveloperLevelRequest;
+  complexity?: ComplexityRequest;
 }
 
 /**
@@ -321,7 +325,17 @@ export class TaskService implements TaskSchedulingReader {
     if (kind === 'theme' && req.developerLevel)
       throw invalid('task_is_theme', 'a theme has no recommended developer: leave developerLevel out');
     const level = req.developerLevel ? planDeveloperLevel(config, null, req.developerLevel, actor, at) : null;
+    const complexity = req.complexity
+      ? planComplexity(
+          config,
+          kind === 'theme' ? { key: '', kind, status: 'active' } : null,
+          req.complexity,
+          actor,
+          at,
+        )
+      : null;
     const task: Task = {
+      ...(complexity?.next ? { complexity: complexity.next } : {}),
       ...(level ? { developerLevel: level.next } : {}),
       ...(kind === 'theme' ? { kind } : {}),
       ...(req.themeKey ? { themeKey: req.themeKey } : {}),
@@ -383,6 +397,7 @@ export class TaskService implements TaskSchedulingReader {
       });
       opts.onCreated?.(task);
       if (level) this.recordDeveloperLevel(task, level, actor, opts.sessionId ?? null, effects);
+      if (complexity) this.recordComplexity(task, complexity, actor, opts.sessionId ?? null, effects);
       const added: AddedRelation[] = [];
       if (task.parentKey) {
         this.recordParentChange(task, null, actor, opts.sessionId);
@@ -609,6 +624,10 @@ export class TaskService implements TaskSchedulingReader {
       ? planDeveloperLevel(config, task, change.developerLevel, actor, isoNow(this.ctx))
       : null;
     if (level) patch.developerLevel = level.next;
+    const complexity = change.complexity
+      ? planComplexity(config, task, change.complexity, actor, isoNow(this.ctx))
+      : null;
+    if (complexity) patch.complexity = complexity.next;
     if (change.priority !== undefined) {
       const refusal = priorityRefusal(actor, config);
       if (refusal)
@@ -696,14 +715,19 @@ export class TaskService implements TaskSchedulingReader {
     // Reassigning in the same change never lifts the self-review rule: both the current and
     // the new assignee count as authors of the work these labels judge.
     if (patch.assignee !== undefined) planLabelsOrThrow(config, task, labelChange, actor, note);
-    const labels = planLabelsOrThrow(config, { ...task, ...patch }, labelChange, actor, note);
+    const prospectiveTask = {
+      ...task,
+      ...patch,
+      complexity: patch.complexity === null ? undefined : (patch.complexity ?? task.complexity),
+    };
+    const labels = planLabelsOrThrow(config, prospectiveTask, labelChange, actor, note);
     const moving = change.stageId !== undefined && change.stageId !== task.stageId;
     if (moving) {
       if (task.status === 'cancelled') throw conflict('task_closed', `task ${task.key} is cancelled`);
       // Checked before anything is written, so a refused move leaves the rest of the change unrecorded (PM-433).
       const moveRefusal = actorMoveRefusal(config, actor, task.stageId, change.stageId!);
       if (moveRefusal) throw projectManagerMoveRefused();
-      const prospective = { ...task, ...patch, labels: labels.labels };
+      const prospective = { ...prospectiveTask, labels: labels.labels };
       const target = requireStage(config, change.stageId!);
       this.moves.assertProjectManagerWorkEntry(config, prospective, target, actor);
       // A collecting card whose subtasks are all closed goes to the done stage without the gates (PM-647).
@@ -729,6 +753,7 @@ export class TaskService implements TaskSchedulingReader {
       patch.assignee !== undefined ||
       patch.themeKey !== undefined ||
       patch.developerLevel !== undefined ||
+      patch.complexity !== undefined ||
       labelsChanged
     ) {
       next = this.store.write(task, {
@@ -758,6 +783,7 @@ export class TaskService implements TaskSchedulingReader {
       if (patch.description !== undefined)
         effects.push(() => this.ctx.events.emit('task_description_changed', { task: next, actor }));
       if (level) this.recordDeveloperLevel(next, level, actor, sessionId, effects);
+      if (complexity) this.recordComplexity(next, complexity, actor, sessionId, effects);
       if (labelsChanged)
         this.labels.record(config, next, labels, actor, { comment: note, sessionId }, effects);
       if (patch.assignee !== undefined) {
@@ -821,6 +847,24 @@ export class TaskService implements TaskSchedulingReader {
   ): void {
     if (added.length > 0)
       effects.push(() => this.ctx.events.emit('task_relations_added', { projectKey, actor, added }));
+  }
+
+  private recordComplexity(
+    task: Task,
+    complexity: ComplexityChange,
+    actor: Actor,
+    sessionId: string | null,
+    effects: Effect[],
+  ): void {
+    this.timeline.append({
+      projectKey: task.projectKey,
+      taskKey: task.key,
+      sessionId,
+      actor,
+      type: 'task_complexity_changed',
+      data: complexity.event,
+    });
+    effects.push(() => this.ctx.events.emit('task_complexity_changed', { task, actor: actorHandle(actor) }));
   }
 
   /** Puts a change of the recommended developer on the timeline and tells the listeners once it committed. */

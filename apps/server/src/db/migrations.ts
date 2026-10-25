@@ -2282,4 +2282,9 @@ migrations.push({
   name: 'member activity source card',
   sql: `ALTER TABLE member_state ADD COLUMN activity_task_key TEXT;`,
 });
+migrations.push({
+  version: 109,
+  name: 'task complexity',
+  sql: 'ALTER TABLE tasks ADD COLUMN complexity TEXT;',
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

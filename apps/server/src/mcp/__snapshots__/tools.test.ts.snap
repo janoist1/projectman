@@ -278,6 +278,25 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,
       "properties": {
+        "complexity": {
+          "anyOf": [
+            {
+              "maximum": 9007199254740991,
+              "minimum": -9007199254740991,
+              "type": "integer",
+            },
+            {
+              "type": "null",
+            },
+          ],
+          "description": "Optional complexity points: 1, 2, 3, 5, 8 or 13; null removes the points. 13 is the maximum; split larger cards.",
+        },
+        "complexity_reason": {
+          "description": "Optional reason for the complexity, 1–300 characters; only with a numeric complexity.",
+          "maxLength": 300,
+          "minLength": 1,
+          "type": "string",
+        },
         "description": {
           "description": "Markdown: what and why, and what done means (for a bug: steps to reproduce, expected and actual behaviour, environment). Mention the task it came from, if any.",
           "maxLength": 20000,
@@ -1741,6 +1760,41 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                                 },
                               ],
                             },
+                            "complexityLimit": {
+                              "anyOf": [
+                                {
+                                  "anyOf": [
+                                    {
+                                      "const": 1,
+                                      "type": "number",
+                                    },
+                                    {
+                                      "const": 2,
+                                      "type": "number",
+                                    },
+                                    {
+                                      "const": 3,
+                                      "type": "number",
+                                    },
+                                    {
+                                      "const": 5,
+                                      "type": "number",
+                                    },
+                                    {
+                                      "const": 8,
+                                      "type": "number",
+                                    },
+                                    {
+                                      "const": 13,
+                                      "type": "number",
+                                    },
+                                  ],
+                                },
+                                {
+                                  "type": "null",
+                                },
+                              ],
+                            },
                             "effort": {
                               "anyOf": [
                                 {
@@ -2117,6 +2171,41 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                             "haiku",
                           ],
                           "type": "string",
+                        },
+                        {
+                          "type": "null",
+                        },
+                      ],
+                    },
+                    "complexityLimit": {
+                      "anyOf": [
+                        {
+                          "anyOf": [
+                            {
+                              "const": 1,
+                              "type": "number",
+                            },
+                            {
+                              "const": 2,
+                              "type": "number",
+                            },
+                            {
+                              "const": 3,
+                              "type": "number",
+                            },
+                            {
+                              "const": 5,
+                              "type": "number",
+                            },
+                            {
+                              "const": 8,
+                              "type": "number",
+                            },
+                            {
+                              "const": 13,
+                              "type": "number",
+                            },
+                          ],
                         },
                         {
                           "type": "null",
@@ -2665,6 +2754,37 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                 },
                 "request": {
                   "properties": {
+                    "complexity": {
+                      "properties": {
+                        "points": {
+                          "anyOf": [
+                            {
+                              "maximum": 9007199254740991,
+                              "minimum": -9007199254740991,
+                              "type": "integer",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
+                        "reason": {
+                          "anyOf": [
+                            {
+                              "maxLength": 300,
+                              "type": "string",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
+                      },
+                      "required": [
+                        "points",
+                      ],
+                      "type": "object",
+                    },
                     "description": {
                       "type": "string",
                     },
@@ -2791,6 +2911,37 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                           "type": "null",
                         },
                       ],
+                    },
+                    "complexity": {
+                      "properties": {
+                        "points": {
+                          "anyOf": [
+                            {
+                              "maximum": 9007199254740991,
+                              "minimum": -9007199254740991,
+                              "type": "integer",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
+                        "reason": {
+                          "anyOf": [
+                            {
+                              "maxLength": 300,
+                              "type": "string",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
+                      },
+                      "required": [
+                        "points",
+                      ],
+                      "type": "object",
                     },
                     "description": {
                       "type": "string",
@@ -5371,6 +5522,41 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                         },
                       ],
                     },
+                    "complexityLimit": {
+                      "anyOf": [
+                        {
+                          "anyOf": [
+                            {
+                              "const": 1,
+                              "type": "number",
+                            },
+                            {
+                              "const": 2,
+                              "type": "number",
+                            },
+                            {
+                              "const": 3,
+                              "type": "number",
+                            },
+                            {
+                              "const": 5,
+                              "type": "number",
+                            },
+                            {
+                              "const": 8,
+                              "type": "number",
+                            },
+                            {
+                              "const": 13,
+                              "type": "number",
+                            },
+                          ],
+                        },
+                        {
+                          "type": "null",
+                        },
+                      ],
+                    },
                     "effort": {
                       "anyOf": [
                         {
@@ -6989,6 +7175,41 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                           },
                         ],
                       },
+                      "complexityLimit": {
+                        "anyOf": [
+                          {
+                            "anyOf": [
+                              {
+                                "const": 1,
+                                "type": "number",
+                              },
+                              {
+                                "const": 2,
+                                "type": "number",
+                              },
+                              {
+                                "const": 3,
+                                "type": "number",
+                              },
+                              {
+                                "const": 5,
+                                "type": "number",
+                              },
+                              {
+                                "const": 8,
+                                "type": "number",
+                              },
+                              {
+                                "const": 13,
+                                "type": "number",
+                              },
+                            ],
+                          },
+                          {
+                            "type": "null",
+                          },
+                        ],
+                      },
                       "effort": {
                         "anyOf": [
                           {
@@ -8537,6 +8758,25 @@ exports[`team tool definitions > preserves the public tool definitions across mo
           },
           "maxItems": 10,
           "type": "array",
+        },
+        "complexity": {
+          "anyOf": [
+            {
+              "maximum": 9007199254740991,
+              "minimum": -9007199254740991,
+              "type": "integer",
+            },
+            {
+              "type": "null",
+            },
+          ],
+          "description": "Optional complexity points: 1, 2, 3, 5, 8 or 13; null removes the points. 13 is the maximum; split larger cards.",
+        },
+        "complexity_reason": {
+          "description": "Optional reason for the complexity, 1–300 characters; only with a numeric complexity.",
+          "maxLength": 300,
+          "minLength": 1,
+          "type": "string",
         },
         "description": {
           "description": "New description (markdown). It replaces the whole description, so include everything that should stay; read the current one with get_task first, all of it if get_task says it is cut.",

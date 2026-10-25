@@ -8,6 +8,8 @@ import type {
   RoleConfigurationRead,
   Attachment,
   DeveloperLevelRequest,
+  ComplexityRequest,
+  ComplexityPoints,
   FeedbackMarkDetail,
   FeedbackMarkView,
   FeedbackOutcome,
@@ -223,6 +225,7 @@ export type TaskSummary = Pick<
 > & {
   /** `theme` for a theme (PM-192); absent for a task. */
   kind?: TaskKind;
+  complexity?: ComplexityPoints;
   /** Present only when a person set a priority. */
   priority?: TaskPriority;
   /** The card's place in the project's focus (PM-437); absent when it is not in it. */
@@ -478,6 +481,7 @@ export interface TaskToolsHandler {
       priority?: TaskPriority | null;
       /** The recommended developer (PM-347); only whoever `canSetDeveloperLevel` may set it. */
       developerLevel?: DeveloperLevelRequest;
+      complexity?: ComplexityRequest;
     },
   ): Promise<{ task: Task }>;
   /**
@@ -499,6 +503,7 @@ export interface TaskToolsHandler {
       themeKey?: string;
       /** The recommended developer (PM-347). */
       developerLevel?: DeveloperLevelRequest;
+      complexity?: ComplexityRequest;
     },
   ): Promise<{ task: Task }>;
 }

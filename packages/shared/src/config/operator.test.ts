@@ -325,6 +325,7 @@ describe('approval waiver eligibility (PM-691)', () => {
     ['member instructions', (n) => (ai(n, 'writer').instructions = 'Use another workflow.')],
     ['temporary status', (n) => (ai(n, 'writer').temp = true)],
     ['senior status', (n) => (ai(n, 'writer').senior = true)],
+    ['complexity limit', (n) => (ai(n, 'writer').complexityLimit = 13)],
     ['workspace', (n) => (n.project.workspacePath = '/elsewhere')],
     ['repository', (n) => (n.project.repos[0]!.path = 'other')],
     ['new repository', (n) => n.project.repos.push({ name: 'new', path: 'new', defaultBranch: 'main' })],

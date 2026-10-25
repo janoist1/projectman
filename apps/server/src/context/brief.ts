@@ -1,5 +1,7 @@
 import {
   developerLevelText,
+  isDeveloper,
+  complexityLimitOf,
   effectiveRepo,
   isMergeFixer,
   repoOf,
@@ -89,6 +91,16 @@ export function buildBrief(input: ContextPackInput, situation: Situation): strin
       ...(task.priority !== null ? [`- Priority: ${task.priority}`] : []),
       `- Labels: ${task.labels.length > 0 ? task.labels.map((label) => style.label(label)).join(', ') : 'none'}`,
       ...(task.developerLevel ? [`- Recommended developer: ${developerLevelText(task.developerLevel)}`] : []),
+      ...(task.complexity
+        ? [
+            `- Complexity: ${task.complexity.points} points${task.complexity.reason ? ` (${task.complexity.reason.replace(/\s+/g, ' ')})` : ''}`,
+          ]
+        : []),
+      ...(isDeveloper(input.project, input.member)
+        ? [
+            `- Your complexity limit: ${complexityLimitOf(input.member)} points (automatic assignment gives you cards up to this)`,
+          ]
+        : []),
     ].join('\n'),
   );
 

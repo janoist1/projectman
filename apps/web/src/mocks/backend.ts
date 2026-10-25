@@ -2849,9 +2849,7 @@ export class MockBackend {
           .filter((stage) => stageApprovers(this.config, stage).includes(handle))
           .map((stage) => stage.id);
         return ok({
-          member: {
-            ...this.viewOf(member),
-          },
+          member: this.viewOf(member),
           duties: memberDuties(this.config, original),
           tasks: clone(
             visible.filter(

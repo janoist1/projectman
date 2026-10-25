@@ -572,6 +572,22 @@ describe('who sees the Operator’s sessions (PM-475)', () => {
     for (const handle of ['dana', 'vera', 'cleo'])
       expect((await read(cookies.get(handle)!)).statusCode, handle).toBe(404);
 
+    // A client opens any other member's card session like a viewer does (PM-79).
+    const cardSession = {
+      ...session,
+      id: 'ses_card_session',
+      claudeSessionId: 'claude-ses_card_session',
+      member: 'dev-1',
+      workItem: { type: 'task', taskKey: 'AR-1' },
+    } as typeof session;
+    app.app.projectman.repos.sessions.insert(cardSession);
+    for (const handle of ['cleo', 'vera'])
+      expect(
+        (await inject(app.app, 'GET', routes.session('AR', cardSession.id), cookies.get(handle)!, undefined))
+          .statusCode,
+        handle,
+      ).toBe(200);
+
     // Live events: the developer and the client get neither the session nor its chat.
     const isOperatorSession = (id: string) => domain.sessions.isOperatorSession(id);
     const developer = { access: 'developer', handle: 'dana' } as const;

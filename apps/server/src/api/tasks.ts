@@ -158,7 +158,7 @@ export function registerTaskRoutes(app: FastifyInstance, domain: ApiDomain): voi
 
   /**
    * The cards closed in the last `days` days (14 by default) with their review rounds, send-backs
-   * and weighted tokens per model (PM-222). Whoever sees the sessions' usage sees this: not clients.
+   * and weighted tokens per model (PM-222). Every member reads it.
    */
   app.get<ProjectParams>(routes.closedCardsMeasure(':key'), async (request): Promise<ClosedCardsMeasure> => {
     await requireAccess(domain, request, request.params.key);

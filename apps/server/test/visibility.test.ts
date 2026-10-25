@@ -21,6 +21,35 @@ const item = (assignees: string[]) => ({ assignees }) as InboxItem;
 const message = (from: string, to: string[]) => ({ from, to }) as TeamMessage;
 
 describe('client visibility', () => {
+  it.each(['internal', 'shared'] as const)(
+    'filters %s source activity in live member snapshots and state',
+    (visibility) => {
+      const member = {
+        handle: 'ai',
+        currentTaskKeys: [],
+        activity: 'Read file',
+        activityTaskKey: 'AR-1',
+      } as unknown as MemberView;
+      const taskOf = () => task('AR-1', visibility);
+      const expected = {
+        activity: visibility === 'shared' ? 'Read file' : null,
+        activityTaskKey: visibility === 'shared' ? 'AR-1' : null,
+      };
+      const changed = { type: 'member_changed', projectKey: 'AR', handle: 'ai', member } as ProjectEvent;
+      const state = {
+        type: 'member_state',
+        projectKey: 'AR',
+        handle: 'ai',
+        status: 'working',
+        activity: 'Read file',
+        activityTaskKey: 'AR-1',
+      } as const;
+      expect(visibleProjectEvent(client, changed, taskOf)).toMatchObject({ member: expected });
+      expect(visibleProjectEvent(client, state, taskOf)).toMatchObject(expected);
+      expect(visibleProjectEvent(developer, state, taskOf)).toBe(state);
+      expect(canSeeProjectEvent(client, state, taskOf)).toBe(false);
+    },
+  );
   it('hides ready hold Seniors and engine identifiers from clients', () => {
     const readyHold = {
       reason: 'engine_offline' as const,

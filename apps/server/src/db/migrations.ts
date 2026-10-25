@@ -2277,4 +2277,9 @@ migrations.push({
     WHERE state IN ('queued','processing');
   CREATE INDEX member_queue_items_closed ON member_queue_items(project_key, member, closed_at);`,
 });
+migrations.push({
+  version: 108,
+  name: 'member activity source card',
+  sql: `ALTER TABLE member_state ADD COLUMN activity_task_key TEXT;`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

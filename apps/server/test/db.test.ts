@@ -17,19 +17,34 @@ import { migrations } from '../src/db/migrations';
 
 const now = '2026-09-29T10:00:00.000Z';
 
+it('keeps legacy member activity with a null source card', () => {
+  const db = new Database(':memory:');
+  try {
+    for (const migration of migrations.filter((item) => item.version < 108)) db.exec(migration.sql);
+    db.pragma('user_version = 107');
+    db.prepare(
+      `INSERT INTO member_state (project_key, handle, status, activity, updated_at)
+      VALUES ('AR', 'dev-1', 'working', 'Read file', ?)`,
+    ).run(now);
+    migrate(db);
+    expect(createRepositories(db).memberState.get('AR', 'dev-1')).toMatchObject({
+      activity: 'Read file',
+      activityTaskKey: null,
+    });
+  } finally {
+    db.close();
+  }
+});
+
 it('preserves queue rows and indexes while adding checklist notices', () => {
   const db = new Database(':memory:');
   try {
     for (const migration of migrations.filter((item) => item.version <= 106)) db.exec(migration.sql);
     db.pragma('user_version = 106');
-    createRepositories(db).projects.insert({
-      key: 'AR',
-      name: 'Acme',
-      templateId: null,
-      configVersion: 'v1',
-      createdAt: now,
-      updatedAt: now,
-    });
+    db.prepare(
+      `INSERT INTO projects (key, name, template_id, config_version, created_at, updated_at)
+      VALUES ('AR', 'Acme', NULL, 'v1', ?, ?)`,
+    ).run(now, now);
     db.prepare(
       `INSERT INTO member_queue_items (id, project_key, member, kind, source_type, source_id, place, queued_at, payload, wait_details)
       VALUES ('old', 'AR', 'operator', 'start', 'start', 'old-start', '{"type":"general"}', ?, '{"spec":1}', '{"provider":"claude"}')`,
@@ -764,6 +779,7 @@ describe('database', () => {
       handle: 'dev-1',
       status: 'idle',
       activity: null,
+      activityTaskKey: null,
       updatedAt: now,
     });
     repos.memberState.upsert({
@@ -771,9 +787,14 @@ describe('database', () => {
       handle: 'dev-1',
       status: 'working',
       activity: 'x',
+      activityTaskKey: 'AR-1',
       updatedAt: now,
     });
-    expect(repos.memberState.get('AR', 'dev-1')).toMatchObject({ status: 'working', activity: 'x' });
+    expect(repos.memberState.get('AR', 'dev-1')).toMatchObject({
+      status: 'working',
+      activity: 'x',
+      activityTaskKey: 'AR-1',
+    });
   });
 
   it('lists inbox items without a limit in full, oldest first, and with a limit the newest N', () => {

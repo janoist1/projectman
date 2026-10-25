@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Me, ServerEvent, routes } from '@projectman/shared';
-import { createAppHarness, createProject, inject, setupOwner } from './helpers/app-harness';
+import type { BoardView, MemberProfile, MemberView } from '@projectman/shared';
+import { addHumanAndLogin, createAppHarness, createProject, inject, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 import { OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 
@@ -15,6 +16,53 @@ describe('memberships and member snapshots', () => {
   afterEach(async () => h.close());
 
   const by = { actor: OWNER_ACTOR, author: OWNER, sponsor: 'owner' };
+
+  it.each(['internal', 'shared'] as const)(
+    'filters activity from a %s card on every member read',
+    async (visibility) => {
+      const domain = h.app.projectman.domain;
+      const client = await addHumanAndLogin(h.app, { handle: 'client', name: 'Client', access: 'client' });
+      const task = await domain.tasks.create('AR', { title: 'Work', visibility }, OWNER_ACTOR);
+      domain.members.setState('AR', 'dev-1', 'working', 'Read file', task.key);
+      const read = async (auth: string) => {
+        const members = (await inject(h.app, 'GET', routes.members('AR'), auth)).json<MemberView[]>();
+        const board = (await inject(h.app, 'GET', '/api/projects/AR/board', auth)).json<BoardView>();
+        const profile = (
+          await inject(h.app, 'GET', routes.memberProfile('AR', 'dev-1'), auth)
+        ).json<MemberProfile>();
+        return [
+          members.find((m) => m.handle === 'dev-1'),
+          board.members.find((m) => m.handle === 'dev-1'),
+          profile.member,
+        ];
+      };
+      for (const member of await read(cookie))
+        expect(member).toMatchObject({ activity: 'Read file', activityTaskKey: task.key });
+      for (const member of await read(client))
+        expect(member).toMatchObject({
+          activity: visibility === 'shared' ? 'Read file' : null,
+          activityTaskKey: visibility === 'shared' ? task.key : null,
+        });
+      if (visibility === 'shared') {
+        await domain.tasks.update('AR', task.key, { visibility: 'internal' }, OWNER_ACTOR);
+        for (const member of await read(client))
+          expect(member).toMatchObject({ activity: null, activityTaskKey: null });
+      }
+    },
+  );
+
+  it('publishes a source card change even when status and activity stay the same', () => {
+    const domain = h.app.projectman.domain;
+    const events: ServerEvent[] = [];
+    domain.bus.subscribe((event) => events.push(event));
+    domain.members.setState('AR', 'dev-1', 'working', 'Read file', 'AR-1');
+    domain.members.setState('AR', 'dev-1', 'working', 'Read file', 'AR-2');
+    domain.members.setState('AR', 'dev-1', 'working', 'Read file', 'AR-2');
+    expect(
+      events.filter((event) => event.type === 'member_state').map((event) => event.activityTaskKey),
+    ).toEqual(['AR-1', 'AR-2']);
+    expect(h.app.projectman.repos.memberState.get('AR', 'dev-1')?.activityTaskKey).toBe('AR-2');
+  });
   it('returns effective email settings and preserves omitted values during AI member updates', async () => {
     const members = h.app.projectman.domain.members;
     expect(

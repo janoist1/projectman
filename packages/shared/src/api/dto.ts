@@ -597,6 +597,8 @@ export const MemberView = z.object({
   specialty: z.string().nullable(),
   status: MemberStatus,
   activity: z.string().nullable(),
+  /** The card of the session activity comes from; null: no card session. */
+  activityTaskKey: TaskKey.nullable().optional(),
   currentTaskKeys: z.array(TaskKey),
   /**
    * AI members only: the work the member does on cards right now, one entry per working task session

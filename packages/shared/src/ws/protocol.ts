@@ -32,6 +32,7 @@ export const ServerEvent = z.discriminatedUnion('type', [
     handle: MemberHandle,
     status: MemberStatus,
     activity: z.string().nullable(),
+    activityTaskKey: TaskKey.nullable().optional(),
   }),
   z.object({
     type: z.literal('plan_usage'),

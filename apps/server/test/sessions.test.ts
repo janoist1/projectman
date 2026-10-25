@@ -35,6 +35,21 @@ describe('session orchestrator', () => {
 
   const task = { type: 'task' as const, taskKey: 'AR-1' };
 
+  it('clears the source card when a general session takes precedence over card work', async () => {
+    const card = (await h.domain.sessions.ensureSession('AR', 'cr', task)).session;
+    const general = (await h.domain.sessions.ensureSession('AR', 'cr', { type: 'general' })).session;
+    h.runner.setState(card.id, 'working', 'Read file');
+    h.runner.setState(general.id, 'waiting_input', 'Read file');
+    expect(h.repos.memberState.get('AR', 'cr')).toMatchObject({
+      status: 'waiting_for_human',
+      activity: 'Read file',
+      activityTaskKey: null,
+    });
+    expect(events.filter((event) => event.type === 'member_state').at(-1)).toMatchObject({
+      activityTaskKey: null,
+    });
+  });
+
   it('recomputes tool audience from the current configuration without restarting the session', async () => {
     const ctx = { sessionId: 'ses_dev', projectKey: 'AR', member: 'dev-1', taskKey: 'AR-1' };
     expect(h.domain.sessions.audienceOf(ctx)).toMatchObject({
@@ -181,10 +196,12 @@ describe('session orchestrator', () => {
       activity: 'Bash: npm test',
     });
     let roster = await h.domain.members.roster('AR');
+    expect(h.repos.memberState.get('AR', 'cr')?.activityTaskKey).toBe('AR-1');
     expect(roster.find((m) => m.handle === 'cr')).toMatchObject({
       status: 'working',
       activity: 'Bash: npm test',
       currentTaskKeys: ['AR-1'],
+      activityTaskKey: 'AR-1',
     });
 
     h.runner.setState(session.id, 'waiting_permission', 'Bash: rm -rf dist');
@@ -209,9 +226,10 @@ describe('session orchestrator', () => {
       handle: 'cr',
       status: 'working',
       activity: 'Bash: npm test',
+      activityTaskKey: 'AR-1',
     });
     expect(events.filter((e) => e.type === 'session_upserted').length).toBeGreaterThanOrEqual(4);
-    expect(h.repos.memberState.get('AR', 'cr')?.status).toBe('idle');
+    expect(h.repos.memberState.get('AR', 'cr')).toMatchObject({ status: 'idle', activityTaskKey: null });
   });
 
   it('lists the member work per card: only a working session counts, aged from its last state change (PM-207)', async () => {

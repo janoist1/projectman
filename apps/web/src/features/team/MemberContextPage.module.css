@@ -1,0 +1,256 @@
+.page {
+  display: grid;
+  gap: 24px;
+  max-width: 1200px;
+  margin: auto;
+  padding: 28px;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.page h1 {
+  margin: 0;
+  font-size: 28px;
+}
+.page h2 {
+  margin: 0;
+  font-size: 19px;
+}
+.page p {
+  margin: 8px 0;
+}
+.back {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+}
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: start;
+  gap: 20px;
+}
+.controls label,
+.situation,
+.filter {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.controls label {
+  flex: 1;
+}
+.controls select,
+.page input {
+  min-height: 44px;
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius-md);
+  background: var(--c-surface);
+  color: var(--c-ink);
+  padding: 8px 12px;
+  font: inherit;
+  width: 100%;
+  min-width: 0;
+}
+.page button {
+  min-height: 44px;
+}
+.preview,
+.welcome {
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  align-items: center;
+  padding: 18px 20px;
+  border-radius: var(--radius-lg);
+}
+.preview {
+  background: var(--c-accent-soft);
+}
+.welcome {
+  background: var(--c-subtle);
+  color: var(--c-ink-2);
+}
+.panel {
+  background: var(--c-surface);
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  min-width: 0;
+}
+.panel summary {
+  min-height: 44px;
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.tiles button {
+  display: flex;
+  flex-direction: column;
+  align-items: start;
+  gap: 6px;
+  padding: 16px;
+  text-align: left;
+  background: var(--c-subtle);
+  color: var(--c-ink-2);
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius-md);
+  font: inherit;
+  cursor: pointer;
+}
+.tiles button[aria-current] {
+  border-color: var(--c-accent);
+  background: var(--c-accent-soft);
+}
+.tiles strong {
+  font-size: 24px;
+  color: var(--c-ink);
+}
+.partHeader,
+.actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.partHeader {
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+.note {
+  color: var(--c-ink-2);
+  font-size: var(--text-sm);
+}
+.text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 420px;
+  overflow-y: auto;
+}
+.filter {
+  margin-bottom: 16px;
+}
+.picker {
+  position: relative;
+  flex: 1;
+  min-width: 220px;
+}
+.options {
+  position: absolute;
+  z-index: 5;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin: 4px 0;
+  padding: 4px;
+  list-style: none;
+  border: 1px solid var(--c-line);
+  background: var(--c-surface);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-pop);
+  max-height: 260px;
+  overflow-y: auto;
+}
+.options li {
+  min-height: 44px;
+  padding: 10px;
+  cursor: pointer;
+}
+.options li[aria-selected='true'],
+.options li:hover {
+  background: var(--c-accent-soft);
+}
+.fieldError {
+  color: var(--c-blocked-text);
+  background: var(--c-blocked-bg);
+  padding: 8px;
+  border-radius: var(--radius-md);
+}
+.loading {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+.skeleton {
+  width: 100%;
+  height: 260px;
+  border-radius: var(--radius-lg);
+  background: var(--c-subtle);
+}
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+@media (max-width: 600px) {
+  .page {
+    padding: 16px;
+    gap: 20px;
+  }
+  .page h1 {
+    font-size: 24px;
+  }
+  .controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .situation > div {
+    width: 100%;
+  }
+  .situation button {
+    flex: 1;
+  }
+  .picker {
+    min-width: 0;
+  }
+  .preview,
+  .welcome {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 16px;
+  }
+  .panel {
+    padding: 16px;
+  }
+  .tiles {
+    grid-template-columns: 1fr;
+  }
+  .tiles button {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .tiles button strong {
+    order: 2;
+    margin-left: auto;
+    font-size: 20px;
+  }
+  .tiles button small {
+    flex-basis: 100%;
+    order: 3;
+  }
+  .text {
+    max-height: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .page * {
+    animation: none !important;
+    transition: none !important;
+  }
+}

@@ -354,6 +354,12 @@ export function MemberProfilePage() {
             </div>
           </Fold>
         ) : null}
+        {ai && access === 'owner' ? (
+          <p>
+            <Link to={`/p/${key}/team/${handle}/context`}>{t('memberContext.entry')} →</Link>{' '}
+            <small>{t('memberContext.entryHint')}</small>
+          </p>
+        ) : null}
       </section>
       <div className={styles.grid}>
         {data.tasks.length ? (

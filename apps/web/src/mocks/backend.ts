@@ -1,4 +1,4 @@
-import type { ProviderLoginStatus, ServerVersionView } from '@projectman/shared';
+import type { MemberContextPreview, ProviderLoginStatus, ServerVersionView } from '@projectman/shared';
 import {
   checklistConditionHolds,
   checklistProgress,
@@ -2803,12 +2803,50 @@ export class MockBackend {
         unreadCount: this.messages.filter((message) => isUnreadBy(message, this.viewerHandle)).length,
       });
     }
-    if ((m = /^\/members\/([a-z0-9-]+)\/(profile|memories|conversation|remove)$/.exec(rest))) {
+    if ((m = /^\/members\/([a-z0-9-]+)\/(profile|memories|conversation|remove|context)$/.exec(rest))) {
       const handle = m[1]!;
+      if (m[2] === 'context' && (this.viewerAccess() !== 'owner' || this.integratorMode))
+        return error(403, 'insufficient_access', 'Owner login required');
       const member = this.findMember(handle);
       const original = memberOf(this.config, handle);
       if (!member || !original || member.status === 'retired')
         return error(404, 'not_found', 'Unknown member');
+      if (m[2] === 'context' && method === 'GET') {
+        if (original.kind !== 'ai') return error(400, 'not_ai_member', 'Only AI members have context');
+        const taskKey = query.get('task');
+        const task = taskKey === null ? undefined : this.tasks.find((entry) => entry.key === taskKey);
+        if (taskKey !== null && !task) return error(404, 'task_not_found', 'Unknown task');
+        if (task && isTheme(task)) return error(400, 'task_is_theme', 'A theme has no work context');
+        // Fixed UI sample: prompt construction and tool visibility are tested at the server boundary.
+        const text = 'You are an AI member of the team.\nWork with the current project rules.';
+        const initial = task ? `Work on ${task.key}: ${task.title}` : 'Help the owner with the project.';
+        const preview: MemberContextPreview = {
+          generatedAt: new Date().toISOString(),
+          member: {
+            handle,
+            role: original.role,
+            duties: memberDuties(this.config, original),
+            onLeave: original.onLeave ?? false,
+          },
+          situation: task ? { kind: 'task', taskKey: task.key, stageId: task.stageId } : { kind: 'general' },
+          prompt: {
+            text,
+            chars: [...text].length,
+            sections: [{ id: 'identity', title: 'Who you are', text, chars: [...text].length }],
+          },
+          initialMessage: { text: initial, chars: [...initial].length },
+          guides: [{ topic: 'rules', title: 'Team rules', text: 'Follow the task gates.', chars: 22 }],
+          tools: [
+            {
+              name: 'get_task',
+              title: 'Read a task',
+              description: 'Read the current task and its timeline.',
+            },
+            { name: 'get_guide', title: 'Read a guide', description: 'Read the guide for a topic.' },
+          ],
+        };
+        return ok(preview);
+      }
       if (m[2] === 'conversation' && method === 'POST') return this.startConversation(handle);
       if (m[2] === 'memories' && method === 'GET') {
         if (member.kind !== 'ai') return error(400, 'not_ai_member', 'Only AI members have memory');

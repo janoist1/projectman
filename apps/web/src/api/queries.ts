@@ -308,6 +308,15 @@ export function useMembers(key: string) {
   return useQuery({ queryKey: queryKeys.members(key), queryFn: () => api.members(key) });
 }
 
+export function useMemberContext(key: string, handle: string, taskKey?: string, enabled = true) {
+  return useQuery({
+    queryKey: ['memberContext', key, handle, taskKey ?? null],
+    queryFn: () => api.memberContext(key, handle, taskKey),
+    enabled,
+    retry: (count, error) => !(isApiError(error) && error.status < 500) && count < 2,
+  });
+}
+
 export function useAddHumanMember(key: string) {
   const client = useQueryClient();
   return useMutation({

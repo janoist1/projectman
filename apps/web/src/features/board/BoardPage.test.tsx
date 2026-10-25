@@ -269,7 +269,8 @@ describe('phone board', () => {
       });
     }
     project.render(<BoardPage />);
-    const done = await screen.findByRole('region', { name: t('board.groups.done') });
+    const doneCol = project.backend.config.pipeline.columns.find((col) => col.id === 'done')!;
+    const done = await screen.findByRole('region', { name: doneCol.name });
     expect(within(done).getAllByRole('link')).toHaveLength(3);
     const all = within(done).getByRole('button', { name: /^Mind \(\d+\)$/ });
     expect(all.getAttribute('aria-expanded')).toBe('false');
@@ -292,7 +293,8 @@ describe('phone board', () => {
       });
     }
     project.render(<BoardPage />, '/', { search: 'AC-' });
-    const done = await screen.findByRole('region', { name: t('board.groups.done') });
+    const doneCol = project.backend.config.pipeline.columns.find((col) => col.id === 'done')!;
+    const done = await screen.findByRole('region', { name: doneCol.name });
     expect(within(done).queryByRole('button', { name: /^Mind/ })).toBeNull();
     expect(within(done).getAllByRole('link').length).toBeGreaterThanOrEqual(5);
   });

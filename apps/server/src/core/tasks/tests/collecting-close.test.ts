@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ProjectConfig } from '@projectman/shared';
-import { createDomainHarness, OWNER_ACTOR } from '../../../../test/helpers/domain-harness';
+import {
+  createDomainHarness,
+  OWNER_ACTOR,
+  snapshotDomainHarness,
+} from '../../../../test/helpers/domain-harness';
 import type { DomainHarness } from '../../../../test/helpers/domain-harness';
 import { makeRepoless } from '../../../../test/helpers/test-template';
 
@@ -70,6 +74,19 @@ describe('collecting card closes with its parts (PM-647)', () => {
     });
   });
 
+  it('recovers a collecting card whose parts were already done before startup', async () => {
+    await setup();
+    await part('done');
+    await settle();
+    expect(card().status).toBe('active');
+    const snapshot = await snapshotDomainHarness(h!);
+    h = undefined;
+    h = await createDomainHarness({ snapshot });
+    await waitFor(() => expect(card().status).toBe('done'));
+    expect(stageEvents()).toHaveLength(1);
+    expect(stageEvents()[0]?.data).toMatchObject({ partsClosed: { done: ['AR-2'], cancelled: [] } });
+  });
+
   it('closes the card when one part is done and the other is cancelled', async () => {
     await setup();
     await part();
@@ -128,6 +145,10 @@ describe('collecting card closes with its parts (PM-647)', () => {
     await h!.domain.tasks.moveToStage('AR', 'AR-1', 'backlog', OWNER_ACTOR);
     expect(card().status).toBe('active');
     await h!.domain.tasks.update('AR', 'AR-1', { addLabels: ['merge-ok'] }, OWNER_ACTOR);
+    await settle();
+    const snapshot = await snapshotDomainHarness(h!);
+    h = undefined;
+    h = await createDomainHarness({ snapshot });
     await settle();
     expect(card().status).toBe('active');
     expect(card().stageId).toBe('backlog');

@@ -4469,9 +4469,10 @@ work nobody did on the card itself) say nothing once every subtask is closed. Th
 It reads the card fresh, then calls `moveToStage` with `expectedFrom` (the stage stay it read) and `partsClosed`
 (valid only while the waiver holds, never falling back to the gates), so two parts closing at once make one move and
 a person's move in between wins. A refusal (`gate_blocked`, `task_not_merged`, `task_closed`, `approval_requested`)
-is logged and the card stays for a person to move. There is deliberately no periodic or start-up sweep: it would close
-again a card a person reopened. What a lost trigger leaves open (a restart between the commit and the background
-work) the person's move fixes. It touches no machine-dependent part; the only machine-near step is the merge check
+is logged and the card stays for a person to move. A recovery sweep at startup and every 15 minutes (PM-982) applies
+the same rule to open cards, catching lost triggers (a restart between the commit and the background work).
+It skips cards whose stage history records a move out of Done, preserving intentional reopening.
+It touches no machine-dependent part; the only machine-near step is the merge check
 a card with a source of its own makes (`engine_unavailable` leaves that card open). A card with no code of its own
 makes no engine call (PM-797), so its close does not depend on the engine.
 

@@ -18,8 +18,7 @@ const REFUSALS: ReadonlySet<string> = new Set([
  * is cancelled), or the card loses its last blocking label, the system moves the card to the done stage
  * without the gates (`collectingAutoClose` says when). The move is the system's, so the timeline shows it;
  * it is valid only for the stage stay it was read in (`expectedFrom`) and only while the waiver holds
- * (`partsClosed`), and it never falls back to the gates. There is no sweep: it would close again a card
- * a person reopened.
+ * (`partsClosed`), and it never falls back to the gates. The recovery sweep skips cards reopened from Done.
  */
 export class CollectingCloser {
   private readonly ctx: DomainContext;
@@ -39,6 +38,19 @@ export class CollectingCloser {
     await this.close(part.projectKey, part.parentKey, part.key);
   }
 
+  /** Recover missed close events, without closing a card that somebody reopened from Done. */
+  async sweep(): Promise<void> {
+    for (const project of this.projects.summaries()) {
+      for (const task of this.tasks.readSchedulingTasks(project.key, { kind: 'open' })) {
+        try {
+          await this.close(project.key, task.key, undefined, true);
+        } catch (err) {
+          this.ctx.logger.warn({ err, taskKey: task.key }, 'collecting card recovery failed');
+        }
+      }
+    }
+  }
+
   /** A collecting card lost its last blocking label: closes it when `collectingAutoClose` holds. */
   async unblocked(task: Task, previousLabels: readonly string[]): Promise<void> {
     const config = await this.projects.config(task.projectKey);
@@ -49,13 +61,29 @@ export class CollectingCloser {
   }
 
   /** `trigger`: the subtask whose close started this, recorded on the timeline (PM-373). */
-  private async close(projectKey: string, cardKey: string, trigger?: string): Promise<void> {
+  private async close(
+    projectKey: string,
+    cardKey: string,
+    trigger?: string,
+    recovery = false,
+  ): Promise<void> {
     await this.mutex.run(`${projectKey}:${cardKey}`, async () => {
       const config = await this.projects.config(projectKey);
       const task = this.ctx.repos.tasks.get(cardKey);
       if (!task || task.projectKey !== projectKey) return;
       const close = this.autoClose(config, task);
       if (!close) return;
+      if (
+        recovery &&
+        this.ctx.repos.timeline
+          .roundEvents(projectKey, cardKey)
+          .some(
+            (event) =>
+              event.type === 'task_stage_changed' &&
+              config.pipeline.stages.some((stage) => stage.kind === 'done' && stage.id === event.data.from),
+          )
+      )
+        return;
       try {
         await this.tasks.moveToStage(projectKey, cardKey, close.to.id, SYSTEM_ACTOR, {
           expectedFrom: { stageId: task.stageId, stageEnteredAt: task.stageEnteredAt },

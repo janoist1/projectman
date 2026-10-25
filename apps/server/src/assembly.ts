@@ -2349,7 +2349,7 @@ export function createDomain(opts: DomainOptions) {
   events.on('task_labels_changed', ({ task }) => partChanged(task));
   events.on('task_cancelled', (task) => partChanged(task));
   // A collecting card closes with its parts, without the gates, when its last subtask closes or its last
-  // blocking label comes off (PM-647). No sweep: it would close again a card a person reopened.
+  // blocking label comes off (PM-647); a recovery sweep catches missed events (PM-982).
   const collectingCloser = new CollectingCloser({ ctx, projects, tasks });
   const closeWithParts = (work: () => Promise<void>, taskKey: string): void => {
     background.run(work, (err) =>
@@ -2609,6 +2609,13 @@ export function createDomain(opts: DomainOptions) {
         (err) => opts.logger.warn({ err }, 'automatic stage advance sweep failed'),
       );
       sweeps = startSweeps([
+        {
+          name: 'collecting-close',
+          everyMs: 15 * 60_000,
+          atStart: true,
+          run: () => collectingCloser.sweep(),
+          onError: (err) => opts.logger.warn({ err }, 'collecting card sweep failed'),
+        },
         {
           name: 'web-push',
           everyMs: 60000,

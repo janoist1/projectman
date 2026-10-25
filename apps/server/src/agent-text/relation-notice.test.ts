@@ -11,7 +11,6 @@ const other = (
   stageId: 'dev',
   status: 'active',
   summary: '',
-  visible: true,
   ...extra,
 });
 
@@ -47,18 +46,6 @@ describe('relationNoticeText', () => {
     );
     expect(text).toContain('- This card needs first (prerequisite): PM-2');
     expect(text).toContain('- This card is part of: PM-3');
-  });
-
-  it('gives only the key and the title of a card the recipient may not read', () => {
-    const text = relationNoticeText({
-      cardKey: 'PM-1',
-      actor: 'owner',
-      check: false,
-      relations: [{ kind: 'related', other: other('PM-2', { visible: false, summary: 'Secret plans' }) }],
-    });
-    expect(text).toContain('- This card is related to: PM-2 "Title of PM-2"');
-    expect(text).not.toContain('Stage');
-    expect(text).not.toContain('Secret plans');
   });
 
   it('leaves the summary line out for a card without a description', () => {

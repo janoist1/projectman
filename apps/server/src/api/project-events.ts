@@ -18,7 +18,7 @@ export function registerProjectEventRoutes(app: FastifyInstance, services: ApiSe
     routes.projectEvents(':key'),
     async (request, reply): Promise<ProjectChangeEventsResponse> => {
       const key = request.params.key;
-      await requireAccess(domain, request, key, { internal: true });
+      await requireAccess(domain, request, key);
       const query = parseBody(ProjectChangeEventsQuery, request.query);
       const principal = request.principal;
       const authToken = request.authToken;
@@ -34,7 +34,7 @@ export function registerProjectEventRoutes(app: FastifyInstance, services: ApiSe
           if (principal) auth.assertActive(principal);
           else if (!authToken || !auth.resolve(authToken))
             throw new DomainError('unauthorized', 'login required', { status: 401 });
-          await requireAccess(domain, request, key, { internal: true });
+          await requireAccess(domain, request, key);
         },
         subscribe: principal ? (wake) => auth.onIntegratorKeysChanged(wake) : undefined,
         expiresInMs: principal ? () => auth.integratorKeyExpiresInMs(principal.keyId) : undefined,

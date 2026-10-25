@@ -16,7 +16,7 @@ export function registerMergeRoutes(app: FastifyInstance, domain: ApiDomain): vo
   app.get<{ Params: { key: string }; Querystring: { repo: string } }>(
     routes.mergeQueueOrder(':key'),
     async (request) => {
-      await requireAccess(domain, request, request.params.key, { internal: true });
+      await requireAccess(domain, request, request.params.key);
       const { repo } = parseBody(OrderMergeQueueRequest.pick({ repo: true }), request.query);
       return domain.merges.queueOrder(request.params.key, repo);
     },

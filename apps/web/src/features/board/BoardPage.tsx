@@ -272,7 +272,7 @@ function BoardCard({
   const canAttach = useCanAttach();
   const queue = useUploadQueue();
   const fileDrop = useFileDrop({
-    allowed: canAttach(task),
+    allowed: canAttach,
     onFiles: (files) => queue.add(task.key, files, { announce: true }),
   });
   const movable = canMoveTask(task, drag.allowed);

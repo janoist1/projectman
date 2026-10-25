@@ -80,10 +80,7 @@ describe('history document copy through the domain', () => {
         }).text,
       ).toMatch(/^Alpaca (decision|lesson)$/);
     }
-    expect(await h.domain.history.search('AR', as('acme'), { query: 'alpaca' })).toMatchObject({
-      matches: [],
-      documents: [],
-    });
+    expect((await h.domain.history.search('AR', as('acme'), { query: 'alpaca' })).matches).toHaveLength(2);
     const indexed = first.documents.map((s) => s.indexedAt);
     engine.readFile.mockClear();
     const second = 'b'.repeat(40);

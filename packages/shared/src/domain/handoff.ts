@@ -57,7 +57,7 @@ export type HandoffReason = z.infer<typeof HandoffReason>;
 export const HandoffStep = z.enum(['waiting_point', 'writing', 'paused', 'closing']);
 export type HandoffStep = z.infer<typeof HandoffStep>;
 
-/** The open handoff of a card (PM-342). Hidden from clients. */
+/** The open handoff of a card (PM-342). */
 export const TaskHandoff = z.object({
   id: z.string(),
   from: MemberHandle,
@@ -74,7 +74,7 @@ export const TaskHandoff = z.object({
 });
 export type TaskHandoff = z.infer<typeof TaskHandoff>;
 
-/** The latest closed handoff of a card (PM-342), while the card is still with its receiver. Hidden from clients. */
+/** The latest closed handoff of a card (PM-342), while the card is still with its receiver. */
 export const TaskHandoffRef = z.object({
   id: z.string(),
   from: MemberHandle,

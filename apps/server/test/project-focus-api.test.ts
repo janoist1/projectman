@@ -212,7 +212,7 @@ describe('project focus API', () => {
     expect(called).toEqual(['AR', 'AR']);
   });
 
-  it('keeps the focus from a client: no endpoint, no websocket event, no timeline entry, no pulled reason', async () => {
+  it('lets a client see the focus like any member (PM-79): the view, the event, the timeline and the pulled reason, but no write', async () => {
     const client = await addHumanAndLogin(h.app, { handle: 'acme-client', access: 'client' });
     const events = await socket(client);
     const shared = await card('Shared', { visibility: 'shared' });
@@ -220,13 +220,17 @@ describe('project focus API', () => {
     await flush();
     for (const res of [
       await get(client),
+      await inject(h.app, 'GET', routes.projectFocusChanges('AR'), client),
+    ])
+      expect(res.statusCode).toBe(200);
+    expect((await get(client)).json<ProjectFocusView>().canEdit).toBe(false);
+    for (const res of [
       await add(shared.key, 1, client),
       await move(shared.key, 1, client),
       await remove(shared.key, client),
-      await inject(h.app, 'GET', routes.projectFocusChanges('AR'), client),
     ])
       expect(res.statusCode).toBe(403);
-    expect(events.some((e) => e.type === 'project_focus_changed')).toBe(false);
+    expect(events.some((e) => e.type === 'project_focus_changed')).toBe(true);
 
     const { timeline, projects } = h.app.projectman.domain;
     expect(projects.has('AR')).toBe(true);
@@ -242,10 +246,9 @@ describe('project focus API', () => {
       },
     });
     const seen = (await inject(h.app, 'GET', routes.task('AR', shared.key), client)).json<TaskDetail>();
-    expect(seen.timeline.some((e) => e.type === 'focus_changed')).toBe(false);
+    expect(seen.timeline.some((e) => e.type === 'focus_changed')).toBe(true);
     const moved = seen.timeline.find((e) => e.type === 'task_stage_changed' && e.data.to === 'dev');
-    expect(moved).toBeDefined();
-    expect(moved!.data).not.toHaveProperty('pulled');
+    expect(moved!.data).toHaveProperty('pulled');
     const team = (await inject(h.app, 'GET', routes.task('AR', shared.key), owner)).json<TaskDetail>();
     expect(team.timeline.some((e) => e.type === 'focus_changed')).toBe(true);
     expect(

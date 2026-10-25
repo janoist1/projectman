@@ -150,9 +150,12 @@ describe('history search and read visibility', () => {
     ],
     ['cr', ['tagm1', 'tagn1', 'tagn2', 'tagq1', 'tagq2', 'tagt1', 'tagt2']],
     ['dev-2', ['tagn1', 'tagn2', 'tagq1', 'tagq2', 'tagt1', 'tagt2']],
-    // A client: the shared card, its message and their own question; no note, no internal card, no private copy.
-    ['acme', ['tagm2', 'tagm6', 'tagq2', 'tagt2']],
-    ['beta', ['tagt2']],
+    // A client reads like a viewer (PM-79): every card, note and question, and their own messages.
+    [
+      'acme',
+      ['tagm2', 'tagm5', 'tagm6', 'tagm7', 'tagm8', 'tagn1', 'tagn2', 'tagq1', 'tagq2', 'tagt1', 'tagt2'],
+    ],
+    ['beta', ['tagn1', 'tagn2', 'tagq1', 'tagq2', 'tagt1', 'tagt2']],
   ];
 
   it('does not index an open question', () => {
@@ -188,7 +191,7 @@ describe('history search and read visibility', () => {
 
   it('takes the access from the current roster, not from the caller', async () => {
     const claimed: HistoryViewer = { handle: 'acme', access: 'owner' };
-    expect(await tagsOf(claimed)).toEqual(['tagm2', 'tagm6', 'tagq2', 'tagt2']);
+    expect(await tagsOf(claimed)).toEqual(matrix.find(([handle]) => handle === 'acme')![1].toSorted());
   });
 
   it('refuses a non-member, a removed member and another project the same way', async () => {
@@ -198,7 +201,7 @@ describe('history search and read visibility', () => {
     );
     expect(() => h.domain.history.read('AR', as('stranger'), { sourceId: ids.tagt2! })).toThrowError(refused);
     await expect(h.domain.history.search('NOPE', OWNER, { query: 'zebra' })).rejects.toThrowError(refused);
-    expect(await tagsOf(as('beta'))).toEqual(['tagt2']);
+    expect(await tagsOf(as('beta'))).toContain('tagt2');
     await h.domain.projects.update(
       'AR',
       { actor: OWNER_ACTOR, author: { name: 'Owner', email: 'owner@example.com' } },
@@ -211,16 +214,10 @@ describe('history search and read visibility', () => {
     expect(() => h.domain.history.read('AR', as('beta'), { sourceId: ids.tagt2! })).toThrowError(refused);
   });
 
-  it('follows a change of the card visibility on the very next call, without any reindexing', async () => {
-    expect(await tagsOf(as('acme'))).toContain('tagt2');
+  it('does not let the card visibility change what a client finds (PM-79)', async () => {
+    const before = await tagsOf(as('acme'));
     await h.domain.tasks.update('AR', 'AR-2', { visibility: 'internal' }, OWNER_ACTOR);
-    // Nothing is flushed here: the access is decided from the card as it is now.
-    expect(await tagsOf(as('acme'))).toEqual(['tagm2']);
-    expect(() => h.domain.history.read('AR', as('acme'), { sourceId: ids.tagt2! })).toThrowError(
-      expect.objectContaining({ status: 404 }),
-    );
-    await h.domain.tasks.update('AR', 'AR-1', { visibility: 'shared' }, OWNER_ACTOR);
-    expect(await tagsOf(as('acme'))).toEqual(['tagm2', 'tagm5', 'tagt1']);
+    expect(await tagsOf(as('acme'))).toEqual(before);
   });
 
   it('shows a client a grouped question as its original, never the combined one', async () => {
@@ -242,9 +239,10 @@ describe('history search and read visibility', () => {
     expect(group.id).toBeTruthy();
   });
 
-  it('keeps a hit out of a viewer who is not allowed to read it, however much better it ranks', async () => {
-    // The client searching for a word of an internal card gets nothing, not an empty "hidden" marker.
-    const result = await h.domain.history.search('AR', as('acme'), { query: 'tagt1' });
-    expect(result).toEqual({ projectKey: 'AR', matches: [], hasMore: false, documents: [] });
+  it('keeps a private hit out of a viewer who is not allowed to read it', async () => {
+    // The Operator knowledge approval is private: a search for it gets nothing, not an empty marker.
+    const result = await h.domain.history.search('AR', as('acme'), { query: 'tagq4' });
+    expect(result.matches).toEqual([]);
+    expect(result.hasMore).toBe(false);
   });
 });

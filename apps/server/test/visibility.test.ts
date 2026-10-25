@@ -1,237 +1,91 @@
 import { describe, expect, it } from 'vitest';
-import type { InboxItem, MemberView, Task, TaskDetail, TeamMessage, TimelineEvent } from '@projectman/shared';
+import type { InboxItem, Session, TaskDetail, TeamMessage, TimelineEvent } from '@projectman/shared';
 import {
   canSeeProjectEvent,
-  canSeeTask,
-  memberForViewer,
   teamMessageParticipant,
   visibleProjectEvent,
+  visibleSession,
   visibleTaskDetail,
-  visibleTasks,
 } from '../src/core/projects';
 import type { ProjectEvent } from '../src/core/projects';
 
 const client = { access: 'client' as const, handle: 'acme-client' };
 const developer = { access: 'developer' as const, handle: 'dev' };
+const viewer = { access: 'viewer' as const, handle: 'reader' };
+const owner = { access: 'owner' as const, handle: 'owner' };
+const admin = { access: 'admin' as const, handle: 'boss' };
 
-const task = (key: string, visibility: Task['visibility'], links: Task['links'] = []) =>
-  ({ key, visibility, links }) as Task;
-const timeline = (type: TimelineEvent['type']) => ({ type }) as TimelineEvent;
+const timeline = (type: TimelineEvent['type'], data?: TimelineEvent['data']) =>
+  ({ type, data }) as TimelineEvent;
 const item = (assignees: string[]) => ({ assignees }) as InboxItem;
 const message = (from: string, to: string[]) => ({ from, to }) as TeamMessage;
+const quoted = (messageId: string) =>
+  timeline('session_started', { cause: { messageId, quote: 'a private line' } });
 
-describe('client visibility', () => {
-  it.each(['internal', 'shared'] as const)(
-    'filters %s source activity in live member snapshots and state',
-    (visibility) => {
-      const member = {
-        handle: 'ai',
-        currentTaskKeys: [],
-        activity: 'Read file',
-        activityTaskKey: 'AR-1',
-      } as unknown as MemberView;
-      const taskOf = () => task('AR-1', visibility);
-      const expected = {
-        activity: visibility === 'shared' ? 'Read file' : null,
-        activityTaskKey: visibility === 'shared' ? 'AR-1' : null,
-      };
-      const changed = { type: 'member_changed', projectKey: 'AR', handle: 'ai', member } as ProjectEvent;
-      const state = {
-        type: 'member_state',
-        projectKey: 'AR',
-        handle: 'ai',
-        status: 'working',
-        activity: 'Read file',
-        activityTaskKey: 'AR-1',
-      } as const;
-      expect(visibleProjectEvent(client, changed, taskOf)).toMatchObject({ member: expected });
-      expect(visibleProjectEvent(client, state, taskOf)).toMatchObject(expected);
-      expect(visibleProjectEvent(developer, state, taskOf)).toBe(state);
-      expect(canSeeProjectEvent(client, state, taskOf)).toBe(false);
-    },
-  );
-  it('hides ready hold Seniors and engine identifiers from clients', () => {
-    const readyHold = {
-      reason: 'engine_offline' as const,
-      engine: 'eng_private' as const,
-      seniors: ['senior'],
-      since: '2026-10-18T10:00:00Z',
-    };
-    const card = { ...task('AR-1', 'shared'), readyHold };
-    expect(visibleTasks(client, [card])[0]?.readyHold).toEqual({
-      reason: readyHold.reason,
-      since: readyHold.since,
-    });
-    expect(visibleTasks(developer, [card])[0]?.readyHold).toEqual(readyHold);
-    expect(card.readyHold).toEqual(readyHold);
-  });
-  it('hides internal tasks, their details and internal timeline entries from clients', () => {
-    expect(canSeeTask(client, task('AR-1', 'shared'))).toBe(true);
-    expect(canSeeTask(client, task('AR-2', 'internal'))).toBe(false);
-    expect(canSeeTask(developer, task('AR-2', 'internal'))).toBe(true);
+describe('what a member sees of their project', () => {
+  it('shows a client the whole card, as it shows a read-only member (PM-79)', () => {
     const detail = {
-      task: task('AR-1', 'shared'),
-      parent: task('AR-2', 'internal'),
-      subtasks: [task('AR-3', 'shared'), task('AR-4', 'internal')],
+      task: { key: 'AR-1', visibility: 'internal', links: [{ kind: 'prerequisite', ref: 'AR-2' }] },
+      parent: { key: 'AR-2', visibility: 'internal' },
+      subtasks: [{ key: 'AR-3', visibility: 'internal' }],
       pullRequests: [],
-      timeline: ['task_created', 'task_note', 'task_stage_changed', 'task_labels_changed'].map((type) =>
+      timeline: ['task_created', 'task_note', 'task_labels_changed', 'task_merge_requested'].map((type) =>
         timeline(type as TimelineEvent['type']),
       ),
       sessions: [{ id: 'ses_1' }],
     } as unknown as TaskDetail;
-    expect(visibleTaskDetail(developer, detail)).toBe(detail);
-    expect(visibleTaskDetail(client, detail)).toEqual({
-      task: detail.task,
-      parent: null,
-      subtasks: [detail.subtasks![0]],
-      pullRequests: [],
-      timeline: [timeline('task_created'), timeline('task_stage_changed')],
-      sessions: [],
-    });
+    expect(visibleTaskDetail(client, detail)).toBe(detail);
+    expect(visibleTaskDetail(viewer, detail)).toBe(detail);
   });
 
-  it('hides the handoff of a card from clients, and shows it to the team (PM-342)', () => {
-    const handoff = {
-      id: 'hof_1',
-      from: 'dev-1',
-      to: 'dev-2',
-      fromProvider: 'claude',
-      toProvider: 'claude',
-      reason: 'manual',
-      step: 'writing',
-      startedAt: '2026-10-05T08:00:00.000Z',
-      deadlineAt: '2026-10-05T08:10:00.000Z',
-    } as const;
-    const lastHandoff = {
-      id: 'hof_0',
-      from: 'dev-1',
-      to: 'dev-2',
-      fromProvider: 'claude',
-      toProvider: 'claude',
-      outcome: 'note',
-      endedAt: '2026-10-05T07:00:00.000Z',
-    } as const;
-    const card = { ...task('AR-1', 'shared'), handoff, lastHandoff } as Task;
-
-    const [forClient] = visibleTasks(client, [card]);
-    const [forDeveloper] = visibleTasks(developer, [card]);
-    const detail = visibleTaskDetail(client, {
-      task: card,
-      timeline: [],
-      sessions: [],
-    } as unknown as TaskDetail);
-
-    expect(forClient).not.toHaveProperty('handoff');
-    expect(forClient).not.toHaveProperty('lastHandoff');
-    expect(detail.task).not.toHaveProperty('handoff');
-    expect(detail.task).not.toHaveProperty('lastHandoff');
-    expect(forDeveloper).toMatchObject({ handoff, lastHandoff });
-  });
-
-  it('shows a client the links to other cards only for the cards shared with them', () => {
-    const pr = { kind: 'pull_request', ref: '7', repo: 'acme/app' } as const;
-    const linked = task('AR-1', 'shared', [
-      pr,
-      { kind: 'prerequisite', ref: 'AR-2' },
-      { kind: 'related', ref: 'AR-3' },
-      { kind: 'duplicate_of', ref: 'AR-4' },
-    ]);
-    const others = [task('AR-2', 'internal'), task('AR-3', 'shared'), task('AR-4', 'internal'), linked];
-    const [forClient, forDeveloper] = [client, developer].map((viewer) => visibleTasks(viewer, others));
-    expect(forClient!.map((t) => t.key)).toEqual(['AR-3', 'AR-1']);
-    expect(forClient![1]!.links).toEqual([pr, { kind: 'related', ref: 'AR-3' }]);
-    expect(forDeveloper!.find((t) => t.key === 'AR-1')!.links).toHaveLength(4);
-
-    const detail = { task: linked, subtasks: [linked], timeline: [], sessions: [] } as unknown as TaskDetail;
-    const seen = new Set(['AR-3']);
-    const view = visibleTaskDetail(client, detail, (key) => seen.has(key));
-    expect(view.task.links).toEqual([pr, { kind: 'related', ref: 'AR-3' }]);
-    expect(view.subtasks![0]!.links).toEqual([pr, { kind: 'related', ref: 'AR-3' }]);
-
-    const event: ProjectEvent = { type: 'task_upserted', projectKey: 'AR', task: linked };
-    const byKey = new Map(others.map((t) => [t.key, t]));
-    const sent = visibleProjectEvent(client, event, (key) => byKey.get(key));
-    expect(sent.type === 'task_upserted' && sent.task.links).toEqual([pr, { kind: 'related', ref: 'AR-3' }]);
-    expect(visibleProjectEvent(developer, event, (key) => byKey.get(key))).toBe(event);
-  });
-
-  it('shows a client the theme of a card only when the theme is shared with them (PM-192)', () => {
-    const themed = (key: string, themeKey: string) => ({ ...task(key, 'shared'), themeKey }) as Task;
-    const cards = [
-      task('AR-8', 'internal'),
-      task('AR-9', 'shared'),
-      themed('AR-1', 'AR-8'),
-      themed('AR-2', 'AR-9'),
-    ];
-    const forClient = visibleTasks(client, cards);
-    expect(forClient.find((t) => t.key === 'AR-1')).not.toHaveProperty('themeKey');
-    expect(forClient.find((t) => t.key === 'AR-2')!.themeKey).toBe('AR-9');
-    expect(visibleTasks(developer, cards).find((t) => t.key === 'AR-1')!.themeKey).toBe('AR-8');
-  });
-
-  it('gives a client no session id of what holds the places a card waits for, nor the key of a card they cannot see (PM-297)', () => {
-    const at = '2026-10-11T10:00:00.000Z';
-    const holder = { working: true, startedAt: at, lastActivityAt: at, sessionId: 'ses_1' } as const;
-    const waiting = {
-      reason: 'member_at_capacity',
-      member: 'dev-1',
-      since: at,
-      capacity: 2,
-      closeAfterMinutes: 15,
-      holders: [
-        { ...holder, kind: 'task', taskKey: 'AR-8' },
-        { ...holder, kind: 'task', taskKey: 'AR-9' },
-        { ...holder, kind: 'general' },
-      ],
-    } as const;
-    const card = { ...task('AR-1', 'shared'), startWaiting: waiting } as unknown as Task;
-    const cards = [task('AR-8', 'internal'), task('AR-9', 'shared'), card];
-    const forClient = visibleTasks(client, cards).find((t) => t.key === 'AR-1')!;
-    // The elements stay (the card still says "still working"), without what the client may not see.
-    expect(forClient.startWaiting).toEqual({
-      ...waiting,
-      holders: [
-        { kind: 'task', working: true, startedAt: at, lastActivityAt: at },
-        { kind: 'task', taskKey: 'AR-9', working: true, startedAt: at, lastActivityAt: at },
-        { kind: 'general', working: true, startedAt: at, lastActivityAt: at },
-      ],
-    });
-    // The same through a task detail and a live event.
-    const detail = {
-      task: card,
-      parent: null,
-      pullRequests: [],
-      timeline: [],
-      sessions: [],
-    } as unknown as TaskDetail;
-    const seen = (key: string) => key === 'AR-9';
-    expect(visibleTaskDetail(client, detail, seen).task.startWaiting).toEqual(forClient.startWaiting);
-    const event = { type: 'task_upserted', task: card } as unknown as ProjectEvent;
-    const taskOf = (key: string) => cards.find((t) => t.key === key);
-    expect((visibleProjectEvent(client, event, taskOf) as { task: Task }).task.startWaiting).toEqual(
-      forClient.startWaiting,
-    );
-    // A developer sees all of it, and a wait for anything else is left as it is.
-    expect(visibleTasks(developer, cards).find((t) => t.key === 'AR-1')!.startWaiting).toEqual(waiting);
-    const other = { ...card, startWaiting: { reason: 'ai_disabled', since: at } } as unknown as Task;
-    expect(visibleTasks(client, [other])[0]!.startWaiting).toEqual({ reason: 'ai_disabled', since: at });
-  });
-
-  it('limits a client to their own inbox items', () => {
-    const events: Array<[ProjectEvent, boolean]> = [
-      [{ type: 'inbox_upserted', projectKey: 'AR', item: item(['acme-client']) }, true],
-      [{ type: 'inbox_upserted', projectKey: 'AR', item: item(['owner']) }, false],
-    ];
-    for (const [event, visible] of events) {
-      expect(canSeeProjectEvent(client, event)).toBe(visible);
-      expect(canSeeProjectEvent(developer, event)).toBe(true);
+  it('delivers a client the live events of every card, member and timeline entry', () => {
+    const live = [
+      { type: 'task_upserted', projectKey: 'AR', task: { key: 'AR-2', visibility: 'internal' } },
+      { type: 'timeline_appended', projectKey: 'AR', event: timeline('task_created') },
+      { type: 'member_state', projectKey: 'AR', handle: 'dev', status: 'working', activity: 'Read file' },
+      { type: 'member_changed', projectKey: 'AR', handle: 'dev', member: null },
+      { type: 'task_attachments_changed', projectKey: 'AR', taskKey: 'AR-2' },
+      { type: 'chat_appended', projectKey: 'AR', sessionId: 'ses_1' },
+      { type: 'config_changed', projectKey: 'AR', version: 'abc' },
+    ] as ProjectEvent[];
+    for (const event of live) {
+      expect(
+        canSeeProjectEvent(client, event, () => false),
+        event.type,
+      ).toBe(true);
+      expect(visibleProjectEvent(client, event), event.type).toEqual(event);
     }
   });
 
+  it('shows a client the inbox of the others too, but not the owner-only events', () => {
+    for (const assignee of ['acme-client', 'owner'])
+      expect(
+        canSeeProjectEvent(client, { type: 'inbox_upserted', projectKey: 'AR', item: item([assignee]) }),
+      ).toBe(true);
+    const checklist = { type: 'project_checklist_changed', projectKey: 'AR' } as ProjectEvent;
+    expect(canSeeProjectEvent(client, checklist)).toBe(false);
+    expect(canSeeProjectEvent(owner, checklist)).toBe(true);
+  });
+
+  it('cuts the quote of a team message that started a session from those it is not for (PM-78)', () => {
+    const lookup = (id: string) => (id === 'msg_1' ? { from: 'qa', to: ['designer'] } : null);
+    const detail = (event: TimelineEvent) =>
+      ({ task: { key: 'AR-1' }, timeline: [event], sessions: [] }) as unknown as TaskDetail;
+    const cut = visibleTaskDetail(client, detail(quoted('msg_1')), lookup).timeline[0]!;
+    expect(cut.data?.cause).toEqual({ messageId: 'msg_1' });
+    // The party to the message, an owner and an admin read it.
+    const party = { access: 'developer' as const, handle: 'designer' };
+    for (const reader of [party, owner, admin])
+      expect(visibleTaskDetail(reader, detail(quoted('msg_1')), lookup).timeline[0]).toEqual(quoted('msg_1'));
+    const session = {
+      id: 'ses_1',
+      startCause: { messageId: 'msg_1', quote: 'a private line' },
+    } as unknown as Session;
+    expect(visibleSession(client, session, lookup).startCause).toEqual({ messageId: 'msg_1' });
+    expect(visibleSession(owner, session, lookup)).toBe(session);
+  });
+
   it('narrows team messages to those a member sent or got, except for an owner and an admin (PM-78)', () => {
-    const owner = { access: 'owner' as const, handle: 'owner' };
-    const admin = { access: 'admin' as const, handle: 'boss' };
-    const viewer = { access: 'viewer' as const, handle: 'reader' };
     expect(teamMessageParticipant(owner)).toBeUndefined();
     expect(teamMessageParticipant(admin)).toBeUndefined();
     for (const member of [developer, viewer, client])
@@ -255,96 +109,5 @@ describe('client visibility', () => {
     expect(canSeeProjectEvent(client, fromTo('owner', ['acme-client']))).toBe(true);
     expect(canSeeProjectEvent(client, fromTo('acme-client', ['owner']))).toBe(true);
     expect(canSeeProjectEvent(client, fromTo('owner', ['dev']))).toBe(false);
-  });
-
-  it('keeps live timeline events and member state internal (the REST views differ, see the module)', () => {
-    const live = [
-      { type: 'task_upserted', projectKey: 'AR', task: task('AR-1', 'shared') },
-      { type: 'task_upserted', projectKey: 'AR', task: task('AR-2', 'internal') },
-      { type: 'timeline_appended', projectKey: 'AR', event: timeline('task_created') },
-      { type: 'member_state', projectKey: 'AR', handle: 'dev', status: 'working', activity: null },
-      { type: 'member_changed', projectKey: 'AR', handle: 'dev', member: null },
-      { type: 'config_changed', projectKey: 'AR', version: 'abc' },
-    ] as ProjectEvent[];
-    expect(live.map((event) => canSeeProjectEvent(client, event))).toEqual([
-      true,
-      false,
-      false,
-      false,
-      true,
-      true,
-    ]);
-  });
-
-  it('shows attachment events in a shared task of a client, and no other internal event', () => {
-    const detail = {
-      task: task('AR-1', 'shared'),
-      parent: null,
-      pullRequests: [],
-      timeline: [
-        'task_created',
-        'attachment_added',
-        'attachment_deleted',
-        'task_note',
-        'session_started',
-      ].map((type) => timeline(type as TimelineEvent['type'])),
-      sessions: [],
-    } as unknown as TaskDetail;
-    expect(visibleTaskDetail(client, detail).timeline).toEqual([
-      timeline('task_created'),
-      timeline('attachment_added'),
-      timeline('attachment_deleted'),
-    ]);
-  });
-
-  it('gives a client no key of a card they cannot see in a member, snapshots included (PM-244)', () => {
-    const work = (taskKey: string) => ({
-      sessionId: `ses_${taskKey}`,
-      taskKey,
-      activity: null,
-      since: 'now',
-    });
-    const member = {
-      handle: 'ai',
-      currentTaskKeys: ['AR-1', 'AR-2'],
-      taskWork: [work('AR-1'), work('AR-2')],
-    } as unknown as MemberView;
-    const tasks: Record<string, Task> = { 'AR-1': task('AR-1', 'shared'), 'AR-2': task('AR-2', 'internal') };
-    const taskOf = (key: string) => tasks[key];
-    const canSeeKey = (key: string) => canSeeTask(client, tasks[key]!);
-
-    expect(memberForViewer(developer, member, canSeeKey)).toBe(member);
-    expect(memberForViewer(client, member, canSeeKey)).toMatchObject({
-      currentTaskKeys: ['AR-1'],
-      taskWork: [work('AR-1')],
-    });
-    // A member without work entries (a human) stays without them.
-    const human = { handle: 'h', currentTaskKeys: ['AR-2'] } as unknown as MemberView;
-    expect(memberForViewer(client, human, canSeeKey)).toEqual({ handle: 'h', currentTaskKeys: [] });
-
-    const changed = { type: 'member_changed', projectKey: 'AR', handle: 'ai', member } as ProjectEvent;
-    expect(visibleProjectEvent(client, changed, taskOf)).toMatchObject({
-      member: { currentTaskKeys: ['AR-1'], taskWork: [work('AR-1')] },
-    });
-    expect(visibleProjectEvent(developer, changed, taskOf)).toBe(changed);
-    // A task that cannot be found is not shown either.
-    expect(visibleProjectEvent(client, changed, () => undefined)).toMatchObject({
-      member: { currentTaskKeys: [], taskWork: [] },
-    });
-  });
-
-  it('tells a client of a changed attachment list only while the task is shared with them', () => {
-    const event = { type: 'task_attachments_changed', projectKey: 'AR', taskKey: 'AR-1' } as ProjectEvent;
-    const tasks: Record<string, Task> = { 'AR-1': task('AR-1', 'shared') };
-    const taskOf = (key: string) => tasks[key];
-    expect(canSeeProjectEvent(client, event, taskOf)).toBe(true);
-    expect(canSeeProjectEvent(developer, event, taskOf)).toBe(true);
-    // Judged at delivery, with the task as it is then.
-    tasks['AR-1'] = task('AR-1', 'internal');
-    expect(canSeeProjectEvent(client, event, taskOf)).toBe(false);
-    expect(canSeeProjectEvent(developer, event, taskOf)).toBe(true);
-    // A task that cannot be found, or no way to look it up: not for a client.
-    expect(canSeeProjectEvent(client, event, () => undefined)).toBe(false);
-    expect(canSeeProjectEvent(client, event)).toBe(false);
   });
 });

@@ -1002,7 +1002,7 @@ export const BoardView = z.object({
   planUsage: PlanUsage.nullable(),
   /** Usage snapshots for the providers used by this project. */
   planUsageByProvider: z.partialRecord(AgentProvider, PlanUsage.nullable()).default({}),
-  /** The open pauses touching the project (PM-219); absent for a client member. */
+  /** The open pauses touching the project (PM-219). */
   pause: ProjectPauseView.optional(),
 });
 export type BoardView = z.infer<typeof BoardView>;
@@ -1027,13 +1027,13 @@ export const TaskDetail = z.object({
   timeline: z.array(TimelineEvent),
   pullRequests: z.array(TaskPullRequest).default([]),
   sessions: z.array(Session),
-  /** Review rounds and send-backs counted from the whole timeline (PM-222); not shared with clients. */
+  /** Review rounds and send-backs counted from the whole timeline (PM-222). */
   rounds: CardRounds.optional(),
-  /** The fix rounds since the count began and the project's limit (PM-262); not shared with clients. */
+  /** The fix rounds since the count began and the project's limit (PM-262). */
   fixRounds: z
     .object({ rounds: z.number().int().nonnegative(), limit: z.number().int().positive() })
     .optional(),
-  /** Why the card stands still (PM-460), for the viewer; null for a closed card; not shared with clients. */
+  /** Why the card stands still (PM-460), for the viewer; null for a closed card. */
   wait: TaskWait.nullable().optional(),
 });
 export type TaskDetail = z.infer<typeof TaskDetail>;

@@ -187,12 +187,12 @@ describe('the history tools of a member (PM-787)', () => {
       taskKey: null,
     });
 
-    it('reads with the guest’s own view: a client finds the shared card and never the internal one', async () => {
+    it('reads with the guest’s own view: a client finds every card like a viewer (PM-79)', async () => {
       await card('Shared page', { visibility: 'shared' });
       await card('Internal page plan', { visibility: 'internal' });
       await say('acme');
       const found = await tools().searchHistory(toolOf('acme'), { query: 'page' });
-      expect(found.matches.map((match) => match.excerpt)).toEqual(['Shared page']);
+      expect(found.matches).toHaveLength(2);
       // The record names the guest, not the Operator.
       expect(rows().map((row) => [row.member, row.via])).toEqual([['acme', null]]);
       expect(found).toEqual(await h.domain.history.search('AR', as('acme'), { query: 'page' }));

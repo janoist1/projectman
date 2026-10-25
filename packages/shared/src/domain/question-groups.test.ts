@@ -71,7 +71,7 @@ describe('question grouping rules', () => {
     ])
       expect(isRelayableQuestionItem(other)).toBe(false);
   });
-  it('redacts hidden source keys, titles and text and gives guests no cross-card group data', () => {
+  it('redacts the keys of cards that do not exist and shows a client the whole group', () => {
     const grouped: InboxItem = {
       ...item,
       title: 'Combined secret?',
@@ -109,17 +109,8 @@ describe('question grouping rules', () => {
       taskTitle: null,
       question: null,
     });
-    const guest = visibleQuestionItem({ access: 'client', handle: 'guest' }, grouped, () => true);
-    const serialized = JSON.stringify(guest);
-    for (const secret of ['AR-2', 'Secret', 'Internal reason', 'Combined secret'])
-      expect(serialized).not.toContain(secret);
-    expect(questionPayloadOf(guest)?.group).toEqual({
-      primaryItemId: 'q1',
-      itemIds: [],
-      combinedQuestion: '',
-      originalQuestion: '',
-      primaryTaskKey: null,
-    });
+    const client = visibleQuestionItem({ access: 'client', handle: 'guest' }, grouped, () => true);
+    expect(questionPayloadOf(client)?.group).toEqual(questionPayloadOf(grouped)?.group);
     expect(
       questionPayloadOf(
         visibleQuestionItem({ access: 'developer', handle: 'dev' }, { ...grouped, id: 'q2' }, () => true),

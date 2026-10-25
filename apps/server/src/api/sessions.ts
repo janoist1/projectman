@@ -16,7 +16,7 @@ import type { Session, SessionDetail, TeamMessagesView, TeamThreadsView } from '
 import { notFound } from '../kernel';
 import type { ApiDomain } from './ports';
 import { forbidden } from '../kernel';
-import { canSeeTask, teamMessageParticipant, visibleSession } from '../core/projects';
+import { teamMessageParticipant, visibleSession } from '../core/projects';
 import type { Viewer } from '../core/projects';
 import { actorOf, requireAccess, senderOf } from './context';
 import { parseBody } from '../http';
@@ -42,7 +42,7 @@ export function registerSessionRoutes(app: FastifyInstance, domain: ApiDomain): 
   /** Session with its chat, parsed from the Claude Code transcript. */
   app.get<SessionParams>(routes.session(':key', ':sessionId'), async (request): Promise<SessionDetail> => {
     const { key, sessionId } = request.params;
-    const access = await requireAccess(domain, request, key, { internal: true });
+    const access = await requireAccess(domain, request, key);
     assertMaySeeSession(domain, access, sessionId);
     const detail = await domain.sessions.detail(key, sessionId);
     return { ...detail, session: visibleSession(access, detail.session, (id) => domain.messages.get(id)) };
@@ -100,8 +100,7 @@ export function registerSessionRoutes(app: FastifyInstance, domain: ApiDomain): 
       if (!operator || body.to.some((handle) => handle !== operator.handle))
         throw forbidden('insufficient_access', 'Developer or client access required');
     }
-    if (body.taskKey && !canSeeTask(access, domain.tasks.get(key, body.taskKey)))
-      throw notFound('task', body.taskKey);
+    if (body.taskKey) domain.tasks.get(key, body.taskKey);
     return reply.code(202).send(
       await domain.messaging.send(key, senderOf(access), body, {
         workerCheck: !body.despiteWorkers,
@@ -148,10 +147,6 @@ export function registerSessionRoutes(app: FastifyInstance, domain: ApiDomain): 
     const key = request.params.key;
     const access = await requireAccess(domain, request, key);
     const query = parseBody(MessagesQuery, request.query);
-    // A card the viewer may not see has no thread for them (the POST refuses it the same way); an
-    // unknown key stays an empty list, which the free-text "all messages" filter relies on.
-    const task = query.taskKey ? domain.tasks.find(key, query.taskKey) : null;
-    if (task && !canSeeTask(access, task)) throw notFound('task', query.taskKey!);
     return {
       messages: domain.messages.list(key, {
         taskKey: query.taskKey,

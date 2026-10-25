@@ -401,16 +401,16 @@ export function useMachine({ panel }: { panel: boolean }) {
 }
 
 /**
- * The engines every internal member sees (PM-316): `single` on a one-machine installation. A client member is
- * refused by the server, so nothing is asked for one. `engine_changed` keeps the list live (see `applyServerEvent`).
+ * The engines every member sees (PM-316): `single` on a one-machine installation. `engine_changed` keeps the
+ * list live (see `applyServerEvent`).
  */
 export function useEngineStatus() {
   const me = useMe();
-  const internal = me.data?.hostOwner === true || me.data?.projects.some((p) => p.access !== 'client');
+  const member = me.data?.hostOwner === true || (me.data?.projects.length ?? 0) > 0;
   return useQuery({
     queryKey: queryKeys.engineStatus,
     queryFn: api.engineStatus,
-    enabled: internal === true,
+    enabled: member,
     staleTime: Infinity,
     retry: false,
   });

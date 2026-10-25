@@ -224,9 +224,9 @@ export interface TimelineEventData {
     reviewPin?: { commit: string; branch: string };
     branchMoved?: { branch: string; pinned: string; head: string };
     testsFailed?: { runId: string; branch: string; commit: string };
-    /** The card was pulled into this stage ahead of its turn (PM-427); hidden from clients. */
+    /** The card was pulled into this stage ahead of its turn (PM-427). */
     pulled?: StagePull;
-    /** The card went to the done stage without the gates because its subtasks are all closed (PM-647); hidden from clients. */
+    /** The card went to the done stage without the gates because its subtasks are all closed (PM-647). */
     partsClosed?: PartsClosed;
   };
   /** `reason`: the assignee left the team, or handed the task over (`from` is the one who left). */
@@ -654,7 +654,7 @@ export interface TimelineEventData {
    * The project's focus changed (PM-427; the actor is the person who set it). Places are 1-based: a
    * removed item has `position` null, an added one `previous` null. `added` and `removed` are recorded on
    * the item's own card or theme (`taskKey`); `moved` has no card and shows in the project's changes only.
-   * `title` is the item's title when it was written. Never shown to clients.
+   * `title` is the item's title when it was written.
    */
   focus_changed: {
     action: 'added' | 'removed' | 'moved';

@@ -391,12 +391,12 @@ export class MockFeedback {
     };
   }
 
-  private cardOf(taskKey: string | null, access: HumanAccess | 'ai'): FeedbackCardRef | null {
+  private cardOf(taskKey: string | null): FeedbackCardRef | null {
     if (!taskKey) return null;
     const task = this.host.findTask(taskKey);
     if (!task) return null;
     const stage = this.host.config().pipeline.stages.find((s) => s.id === task.stageId);
-    return feedbackCardRef(task, stage?.name ?? task.stageId, access);
+    return feedbackCardRef(task, stage?.name ?? task.stageId);
   }
 
   private view(
@@ -418,7 +418,7 @@ export class MockFeedback {
       anchor: mark.anchor,
       status: mark.status,
       outcome: mark.outcome,
-      card: this.cardOf(mark.taskKey, viewer.access),
+      card: this.cardOf(mark.taskKey),
       working: mark.working && mark.status !== 'closed',
       commentCount: comments,
       unread: mark.unreadBy.has(viewer.handle),
@@ -438,7 +438,7 @@ export class MockFeedback {
       body: event.type === 'forwarded' && !viewer.processor ? null : event.body,
       card:
         (event.type === 'card_created' || event.type === 'card_linked') && event.taskKey
-          ? this.cardOf(event.taskKey, viewer.access)
+          ? this.cardOf(event.taskKey)
           : null,
       createdAt: event.createdAt,
     }));
@@ -513,10 +513,7 @@ export class MockFeedback {
     let marks = this.marks;
     if (taskKey) {
       const task = this.host.findTask(taskKey);
-      marks =
-        task && feedbackCardRef(task, '', viewer.access).visible
-          ? this.marks.filter((mark) => mark.taskKey === task.key)
-          : [];
+      marks = task ? this.marks.filter((mark) => mark.taskKey === task.key) : [];
     }
     const sorted = [...marks].sort((a, b) => lastActivity(b).localeCompare(lastActivity(a)));
     const authors = [...new Set(sorted.map((mark) => mark.author))];

@@ -12,7 +12,6 @@ import {
   HistorySearchInput,
   HistoryStatsInput,
   canSeeHistorySearchStats,
-  canSeeTask,
   memberOf,
   visibleHistorySource,
 } from '@projectman/shared';
@@ -367,8 +366,7 @@ export function createHistoryService(deps: HistoryServiceDeps): HistoryService {
   ): { matches: HistoryHit[]; hasMore: boolean } {
     flush();
     if (input.taskKey) {
-      const task = taskOfProject(repos, projectKey, input.taskKey);
-      if (!task || !canSeeTask(viewer, task)) throw notFound('task', input.taskKey);
+      if (!taskOfProject(repos, projectKey, input.taskKey)) throw notFound('task', input.taskKey);
     }
     const limit = input.limit ?? HISTORY_SEARCH_DEFAULT_LIMIT;
     const matches: HistoryHit[] = [];
@@ -534,10 +532,7 @@ export function createHistoryService(deps: HistoryServiceDeps): HistoryService {
       if (error instanceof QueryError) throw invalidRequest(error.message);
       throw error;
     }
-    // A client never reads a document, so none is scanned for them.
-    const requested = (input.sourceTypes ?? HISTORY_SOURCE_TYPES).filter(
-      (type) => viewer.access !== 'client' || type !== 'document',
-    );
+    const requested = input.sourceTypes ?? HISTORY_SOURCE_TYPES;
     const wantsDocuments = requested.includes('document');
     const limit = input.limit ?? HISTORY_SEARCH_DEFAULT_LIMIT;
     let { matches, hasMore } = textPhase(projectKey, viewer, input, translated, requested);
@@ -615,8 +610,7 @@ export function createHistoryService(deps: HistoryServiceDeps): HistoryService {
       projectKey,
       matches,
       hasMore,
-      documents:
-        current.viewer.access === 'client' || !wantsDocuments ? [] : searchDocumentStates(current.config),
+      documents: wantsDocuments ? searchDocumentStates(current.config) : [],
     };
   }
 

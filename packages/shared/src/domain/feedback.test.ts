@@ -261,20 +261,15 @@ describe('feedbackCardRef', () => {
   const internal = { key: 'AR-1', title: 'Secret plan', visibility: 'internal' as const };
   const shared = { key: 'AR-2', title: 'Shared work', visibility: 'shared' as const };
 
-  it('shows an internal card to everyone but a client', () => {
-    expect(feedbackCardRef(internal, 'Fejlesztés', 'developer')).toEqual({
+  it('names the card whatever its visibility (PM-79)', () => {
+    expect(feedbackCardRef(internal, 'Fejlesztés')).toEqual({
       visible: true,
       key: 'AR-1',
       title: 'Secret plan',
       stageName: 'Fejlesztés',
       visibility: 'internal',
     });
-    expect(feedbackCardRef(internal, 'Fejlesztés', 'ai').visible).toBe(true);
-    expect(feedbackCardRef(internal, 'Fejlesztés', 'client')).toEqual({ visible: false });
-  });
-
-  it('shows a shared card to a client', () => {
-    expect(feedbackCardRef(shared, 'Kész', 'client')).toMatchObject({ visible: true, key: 'AR-2' });
+    expect(feedbackCardRef(shared, 'Kész')).toMatchObject({ visible: true, key: 'AR-2' });
   });
 });
 

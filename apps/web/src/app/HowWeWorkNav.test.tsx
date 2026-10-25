@@ -48,7 +48,7 @@ function phone() {
 }
 
 describe('"Hogyan dolgozunk" in the navigation', () => {
-  it.each(['admin', 'developer', 'viewer'] as const)(
+  it.each(['admin', 'developer', 'viewer', 'client'] as const)(
     'gives a %s the rail item, and the item leads to the page',
     async (access) => {
       renderAs(access, '/p/AC');
@@ -68,13 +68,6 @@ describe('"Hogyan dolgozunk" in the navigation', () => {
     expect(screen.queryByRole('link', { name: t('howWeWork.editInSettings') })).toBeNull();
   });
 
-  it('gives a client no item and no page, and asks for no configuration', async () => {
-    const project = renderAs('client', '/p/AC/how-we-work');
-    expect(await screen.findByText(t('app.notFound'))).toBeTruthy();
-    expect(screen.queryByRole('link', { name: t('nav.howWeWork') })).toBeNull();
-    expect(project.requests.some((request) => request.path.endsWith('/config'))).toBe(false);
-  });
-
   it('puts the item in the account menu on a phone, above the settings', async () => {
     phone();
     renderAs('admin', '/p/AC');
@@ -85,14 +78,5 @@ describe('"Hogyan dolgozunk" in the navigation', () => {
     const names = items.map((item) => item.textContent);
     await waitFor(() => expect(names).toContain(t('nav.howWeWork')));
     expect(names.indexOf(t('nav.howWeWork'))).toBeLessThan(names.indexOf(t('nav.settings')));
-  });
-
-  it('keeps a client out of the phone menu too', async () => {
-    phone();
-    renderAs('client', '/p/AC');
-    const trigger = await screen.findByRole('button', { name: t('nav.account', { name: 'Te' }) });
-    fireEvent.click(trigger);
-    const panel = document.getElementById(trigger.getAttribute('aria-controls')!)!;
-    expect(within(panel).queryByText(t('nav.howWeWork'))).toBeNull();
   });
 });

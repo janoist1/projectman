@@ -137,10 +137,9 @@ export function MemberProfilePage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [reply, setReply] = useState<TeamMessage | null>(null);
   const access = me.projects.find((p) => p.key === key)?.access;
-  const internal = access !== 'client';
   const canSend = access !== undefined && ['owner', 'admin', 'developer', 'client'].includes(access);
-  const memory = useMemberMemories(key, handle, internal && profile.data?.member.kind === 'ai');
-  const schedules = useSchedules(key, internal && profile.data?.member.kind === 'ai');
+  const memory = useMemberMemories(key, handle, profile.data?.member.kind === 'ai');
+  const schedules = useSchedules(key, profile.data?.member.kind === 'ai');
   const pausedRows = usePausedRows();
   const held = useHeldStart(useTeamPaused(), t('pause.disabled.newWork'));
   useDocumentTitle(profile.data?.member.displayName ?? t('profile.title'), board.data?.project.name);
@@ -174,10 +173,10 @@ export function MemberProfilePage() {
   const nothingYet = [
     data.tasks.length === 0 ? t('profile.noTasks') : null,
     !ai && data.inbox.length === 0 ? t('profile.noWaiting') : null,
-    ai && internal && schedules.data && !schedule ? t('profile.noSchedule') : null,
-    ai && internal && live.length === 0 && pastSessions.length === 0 ? t('profile.noSessions') : null,
-    ai && internal && usageEmpty ? t('tokenUsage.none') : null,
-    ai && internal && memory.data?.memory === '' ? t('profile.memoryEmpty') : null,
+    ai && schedules.data && !schedule ? t('profile.noSchedule') : null,
+    ai && live.length === 0 && pastSessions.length === 0 ? t('profile.noSessions') : null,
+    ai && usageEmpty ? t('tokenUsage.none') : null,
+    ai && memory.data?.memory === '' ? t('profile.memoryEmpty') : null,
   ].filter((text): text is string => text !== null);
   const titles = new Map((board.data?.tasks ?? []).map((task) => [task.key, task.title]));
   const thread = (messages.data?.messages ?? []).filter((m) =>
@@ -385,8 +384,8 @@ export function MemberProfilePage() {
             </ul>
           </section>
         ) : null}
-        {ai && internal && schedule ? <MemberSchedule handle={handle} schedule={schedule} /> : null}
-        {ai && internal && schedules.error ? <ErrorState compact error={schedules.error} /> : null}
+        {ai && schedule ? <MemberSchedule handle={handle} schedule={schedule} /> : null}
+        {ai && schedules.error ? <ErrorState compact error={schedules.error} /> : null}
       </div>
       {nothingYet.length ? <p className={styles.quiet}>{nothingYet.join(' ')}</p> : null}
       {ai ? (
@@ -441,7 +440,7 @@ export function MemberProfilePage() {
           </div>
         </details>
       ) : null}
-      {ai && internal ? (
+      {ai ? (
         <>
           {live.length || pastSessions.length ? (
             <section className={styles.panel}>

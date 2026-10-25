@@ -84,7 +84,7 @@ describe('machine display', () => {
     view.client.clear();
   });
 
-  it('does not request internal engine status or machine data for a client', async () => {
+  it('does not request machine data for a member who does not own the instance', async () => {
     vi.useFakeTimers();
     const project = setup();
     project.backend.viewerHandle = 'kata';
@@ -94,11 +94,7 @@ describe('machine display', () => {
       await vi.advanceTimersByTimeAsync(30000);
     });
     expect(view.client.getQueryData(['me'])).toBeDefined();
-    expect(
-      project.requests.some(
-        (row) => row.path.startsWith('/api/engines') || row.path.startsWith('/api/machine'),
-      ),
-    ).toBe(false);
+    expect(project.requests.some((row) => row.path.startsWith('/api/machine'))).toBe(false);
     expect(screen.queryByRole('button', { name: /Gép:/ })).toBeNull();
     view.unmount();
     view.client.clear();

@@ -180,22 +180,18 @@ describe('the states of the page', () => {
 });
 
 describe('what a client sees', () => {
-  it('shows "went into a task" without the key for an internal card', async () => {
+  it('names the card whatever its visibility, and offers no processing', async () => {
     const p = seeded();
     const overrides = asClient(p);
     p.render(<Pages />, '/p/AC/feedback?f=all', overrides);
     await screen.findByRole('list', { name: t('feedback.list.label') });
     fireEvent.click(rowOf(/A főoldali banner képe/));
     const detail = await screen.findByRole('region', { name: t('feedback.detail.label') });
-    expect(within(detail).getByText(t('feedback.decision.internalCard'))).toBeTruthy();
-    expect(within(detail).queryByText(/AC-24/)).toBeNull();
-    expect(within(detail).queryByText(/Hibariasztás/)).toBeNull();
+    expect(within(detail).queryByText(t('feedback.decision.internalCard'))).toBeNull();
+    expect(within(detail).getAllByText(/AC-24/).length).toBeGreaterThan(0);
     // A client processes nothing: no actions, no browser details.
     expect(within(detail).queryByRole('button', { name: t('feedback.actions.create') })).toBeNull();
     expect(within(detail).queryByText(t('feedback.details.title'))).toBeNull();
-    expect(
-      within(screen.getByRole('list', { name: t('feedback.list.label') })).queryByText('AC-24'),
-    ).toBeNull();
   });
 });
 

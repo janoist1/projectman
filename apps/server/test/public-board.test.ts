@@ -244,26 +244,19 @@ describe('the board that starts as public', () => {
       client = cookie.split(';')[0]!;
     });
 
-    it('sees the shared card and the project only through their own access', async () => {
+    it('sees every card of the project through their own access, like a viewer (PM-79)', async () => {
       const me = await get(routes.me(), client);
       expect(me.statusCode).toBe(200);
       const list = (await get(routes.tasks('AR'), client)).json() as Task[];
-      expect(list.map((task) => task.key)).toEqual([sharedKey]);
+      expect(list.map((task) => task.key)).toEqual([sharedKey, internalKey]);
       expect((await get(routes.task('AR', sharedKey), client)).statusCode).toBe(200);
+      expect((await get(routes.task('AR', internalKey), client)).statusCode).toBe(200);
+      expect((await get(routes.taskAttachments('AR', internalKey), client)).statusCode).toBe(200);
     });
 
-    it('cannot tell an internal card from one that does not exist', async () => {
-      const internal = await get(routes.task('AR', internalKey), client);
-      const missing = await get(routes.task('AR', 'AR-999'), client);
-      expect(internal.statusCode).toBe(missing.statusCode);
-      expect(internal.statusCode).toBeGreaterThanOrEqual(400);
-      expect((internal.json() as { error: { code: string } }).error.code).toBe(
-        (missing.json() as { error: { code: string } }).error.code,
-      );
-      const files = await get(routes.taskAttachments('AR', internalKey), client);
-      const none = await get(routes.taskAttachments('AR', 'AR-999'), client);
-      expect(files.statusCode).toBe(none.statusCode);
-      expect(files.statusCode).toBeGreaterThanOrEqual(400);
+    it('gets not found for a card that does not exist', async () => {
+      expect((await get(routes.task('AR', 'AR-999'), client)).statusCode).toBe(404);
+      expect((await get(routes.taskAttachments('AR', 'AR-999'), client)).statusCode).toBe(404);
     });
 
     it('has no way into another project or into the internal pages', async () => {
@@ -275,7 +268,7 @@ describe('the board that starts as public', () => {
       expect(projects.map((project) => project.key)).toEqual(['AR']);
     });
 
-    it('hears nothing of an internal card on the live connection', async () => {
+    it('hears of every card on the live connection', async () => {
       const events: ServerEvent[] = [];
       const ws = (await app.injectWS(
         '/ws',
@@ -302,9 +295,8 @@ describe('the board that starts as public', () => {
         });
         await flush();
         const seen = events.flatMap((event) => (event.type === 'task_upserted' ? [event.task.key] : []));
-        expect(seen).not.toContain(madeKey);
-        expect(seen).not.toContain(internalKey);
-        expect(seen.length).toBeGreaterThan(0);
+        expect(seen).toContain(madeKey);
+        expect(seen).toHaveLength(2);
       } finally {
         ws.terminate();
       }

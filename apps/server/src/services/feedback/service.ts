@@ -108,8 +108,7 @@ function decodeWidgetCursor(cursor: string): { updatedAt: string; id: string } {
  * change is one unit of work: the row, the thread entry, `updated_at` and the websocket event
  * (and the card's timeline entry when a card is involved).
  *
- * A client never learns the key or the title of an internal card from a mark: the card of every
- * view is `feedbackCardRef`, the one place that decides.
+ * The card of every view is `feedbackCardRef`, the one place that builds it.
  */
 export class FeedbackService {
   private readonly ctx: DomainContext;
@@ -153,9 +152,8 @@ export class FeedbackService {
     const viewer = await this.viewerOf(projectKey, actor);
     let taskKey = opts.taskKey;
     if (taskKey) {
-      // Asking for the marks of a card the viewer cannot see would show that they are tied to it.
       const task = this.tasks.find(projectKey, taskKey);
-      if (!task || !feedbackCardRef(task, '', viewer.access).visible) return this.emptyList(viewer);
+      if (!task) return this.emptyList(viewer);
       taskKey = task.key;
     }
     const { repos } = this.ctx;
@@ -828,7 +826,7 @@ export class FeedbackService {
     const task = this.tasks.find(view.viewer.config.project.key, taskKey);
     if (!task) return null;
     const stage = view.viewer.config.pipeline.stages.find((s) => s.id === task.stageId);
-    return feedbackCardRef(task, stage?.name ?? task.stageId, view.viewer.access);
+    return feedbackCardRef(task, stage?.name ?? task.stageId);
   }
 
   private markView(record: FeedbackMarkRecord, view: ViewContext): FeedbackMarkView {

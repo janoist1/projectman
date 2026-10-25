@@ -25,7 +25,7 @@ import type {
 import type { ApiDomain } from './ports';
 import { notFound } from '../kernel';
 import type { ProjectAccess } from '../core/members';
-import { canSeeTask, isClient, visibleTaskDetail, visibleTasks } from '../core/projects';
+import { visibleTaskDetail } from '../core/projects';
 import { actorOf, authorOf, requireAccess } from './context';
 import { parseBody } from '../http';
 
@@ -37,24 +37,19 @@ const ClosedCardsQuery = z.object({
 });
 
 export function registerTaskRoutes(app: FastifyInstance, domain: ApiDomain): void {
-  /** The detail the viewer sees, with why the card stands still (PM-460); a client gets no `wait`. */
+  /** The detail the viewer sees, with why the card stands still (PM-460). */
   const detailFor = async (access: ProjectAccess, key: string, taskKey: string): Promise<TaskDetail> => {
     const detail = visibleTaskDetail(
       access,
       domain.cardMeasure.withRounds(domain.tasks.detail(key, taskKey)),
-      (linked) => {
-        const other = domain.tasks.find(key, linked);
-        return !!other && canSeeTask(access, other);
-      },
       (id) => domain.messages.get(id),
     );
-    if (isClient(access)) return detail;
     const wait = domain.taskWaits.ofCard(await domain.projects.config(key), detail.task, access.handle);
     return wait ? { ...detail, wait } : detail;
   };
   app.get<ProjectParams>(routes.tasks(':key'), async (request): Promise<Task[]> => {
     const access = await requireAccess(domain, request, request.params.key);
-    return visibleTasks(access, domain.tasks.list(request.params.key));
+    return domain.tasks.list(request.params.key);
   });
 
   app.post<ProjectParams>(routes.tasks(':key'), async (request, reply) => {
@@ -69,7 +64,6 @@ export function registerTaskRoutes(app: FastifyInstance, domain: ApiDomain): voi
   app.get<TaskParams>(routes.task(':key', ':taskKey'), async (request): Promise<TaskDetail> => {
     const { key, taskKey } = request.params;
     const access = await requireAccess(domain, request, key);
-    if (!canSeeTask(access, domain.tasks.get(key, taskKey))) throw notFound('task', taskKey);
     return detailFor(access, key, taskKey);
   });
 
@@ -87,9 +81,8 @@ export function registerTaskRoutes(app: FastifyInstance, domain: ApiDomain): voi
     routes.taskHandoff(':key', ':taskKey', ':handoffId'),
     async (request): Promise<TaskHandoffRecord> => {
       const { key, taskKey, handoffId } = request.params;
-      const access = await requireAccess(domain, request, key, { minimum: 'developer' });
-      const task = domain.tasks.find(key, taskKey);
-      if (!task || !canSeeTask(access, task)) throw notFound('task', taskKey);
+      await requireAccess(domain, request, key, { minimum: 'developer' });
+      if (!domain.tasks.find(key, taskKey)) throw notFound('task', taskKey);
       return domain.handoffs.closedRecord(key, taskKey, handoffId);
     },
   );
@@ -165,10 +158,10 @@ export function registerTaskRoutes(app: FastifyInstance, domain: ApiDomain): voi
 
   /**
    * The cards closed in the last `days` days (14 by default) with their review rounds, send-backs
-   * and weighted tokens per model (PM-222). Whoever sees the sessions' usage sees this: not clients.
+   * and weighted tokens per model (PM-222). Every member reads it.
    */
   app.get<ProjectParams>(routes.closedCardsMeasure(':key'), async (request): Promise<ClosedCardsMeasure> => {
-    await requireAccess(domain, request, request.params.key, { internal: true });
+    await requireAccess(domain, request, request.params.key);
     const { days } = parseBody(ClosedCardsQuery, request.query);
     return domain.cardMeasure.closedCards(request.params.key, days);
   });

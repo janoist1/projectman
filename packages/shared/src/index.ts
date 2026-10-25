@@ -1,5 +1,4 @@
 export * from './domain/member';
-export * from './domain/member-activity';
 export * from './domain/checklist';
 export * from './domain/email-channel';
 export * from './domain/operator-knowledge';

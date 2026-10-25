@@ -134,12 +134,11 @@ describe('history search behaviour', () => {
       await expect(search({ query: 'alpha', since: '2026-10-01T12:00:00+02:00' })).resolves.toBeDefined();
     });
 
-    it('answers an unknown card, and a card the viewer cannot see, with not found', async () => {
+    it('answers an unknown card with not found, and a client searches a card like anyone (PM-79)', async () => {
       await task('alpha internal');
       const missing = expect.objectContaining({ status: 404, code: 'not_found' });
       await expect(search({ query: 'alpha', taskKey: 'AR-99' })).rejects.toThrowError(missing);
-      await expect(search({ query: 'alpha', taskKey: 'AR-1' }, as('acme'))).rejects.toThrowError(missing);
-      expect((await search({ query: 'alpha', taskKey: 'AR-1' })).matches).toHaveLength(1);
+      expect((await search({ query: 'alpha', taskKey: 'AR-1' }, as('acme'))).matches).toHaveLength(1);
     });
 
     it('treats an empty result as a success', async () => {
@@ -217,23 +216,6 @@ describe('history search behaviour', () => {
       expect((await search({ query: 'gazelle', limit: 5 })).matches).toHaveLength(5);
       expect((await search({ query: 'gazelle' })).matches).toHaveLength(5);
     });
-
-    it('reads past more than two hundred hidden candidates before the limit is filled', async () => {
-      // 230 internal cards that match better than the one shared card a client may read.
-      for (let i = 0; i < 230; i++) await task(`ibex ibex ibex ${i}`);
-      await task('ibex shared one', '', { visibility: 'shared' });
-      const found = await search({ query: 'ibex', limit: 1 }, as('acme'));
-      expect(found.matches).toHaveLength(1);
-      expect(found.matches[0]!.excerpt).toBe('ibex shared one');
-      expect(found.hasMore).toBe(false);
-      await task('ibex shared two', '', { visibility: 'shared' });
-      const more = await search({ query: 'ibex', limit: 1 }, as('acme'));
-      expect(more.matches).toHaveLength(1);
-      expect(more.hasMore).toBe(true);
-      // The owner reads the same data page by page without any hidden candidate in the way.
-      expect((await search({ query: 'ibex', limit: 50 })).matches).toHaveLength(50);
-      expect((await search({ query: 'ibex', limit: 50 })).hasMore).toBe(true);
-    }, 60_000);
   });
 
   describe('the hit', () => {
@@ -509,15 +491,12 @@ describe('history search behaviour', () => {
       expect(() => h.domain.history.replaceDocuments({ ...ok, checkedAt: 'now' })).toThrowError(invalid);
     });
 
-    it('never shows a client a document or the document states', async () => {
+    it('shows a client the documents like any member (PM-79)', async () => {
       h.domain.history.replaceDocuments(snapshot('narwhal one', null));
       const own = await search({ query: 'narwhal', sourceTypes: ['document'] }, as('acme'));
-      expect(own).toEqual({ projectKey: 'AR', matches: [], hasMore: false, documents: [] });
+      expect(own.matches).toHaveLength(1);
       const hit = (await search({ query: 'narwhal' })).matches[0]!;
-      expect(() => h.domain.history.read('AR', as('acme'), { sourceId: hit.sourceId })).toThrowError(
-        expect.objectContaining({ status: 404 }),
-      );
-      expect((await search({ query: 'narwhal' }, as('dev'))).matches).toHaveLength(1);
+      expect(h.domain.history.read('AR', as('acme'), { sourceId: hit.sourceId }).sourceType).toBe('document');
     });
   });
 

@@ -29,12 +29,7 @@ import type { DomainContext } from '../../core/base';
 import { QUESTION_LIMIT } from '../../core/inbox';
 import type { CardQuestions } from '../../core/inbox';
 import { DomainError } from '../../kernel';
-import {
-  canSeeTask,
-  clientCanSeeTimelineEvent,
-  visibleTaskDetail,
-  visibleTimelineEvent,
-} from '../../core/projects';
+import { visibleTaskDetail, visibleTimelineEvent } from '../../core/projects';
 import type { Viewer } from '../../core/projects';
 import type { ProjectFocusService } from '../../core/tasks';
 import type { SessionCloser } from '../../runtime/sessions';
@@ -106,7 +101,6 @@ export class TaskTools implements TaskToolsHandler {
         .list(ctx.projectKey)
         .filter(
           (task) =>
-            (!guest || canSeeTask(guest.viewer, task)) &&
             (status === 'open' ? isOpenTask(task) : task.status === status) &&
             // A theme is in no stage (it carries the first one's id because the field is required).
             (args.stage === undefined || (!isTheme(task) && task.stageId === args.stage)) &&
@@ -127,9 +121,8 @@ export class TaskTools implements TaskToolsHandler {
           updatedAt,
           ...(kind === 'theme' ? { kind } : {}),
           ...(priority !== null ? { priority } : {}),
-          // What the team plans and why a card stands still is not shown to a client (PM-475).
-          ...(places.has(key) && guest?.viewer.access !== 'client' ? { focus: places.get(key) } : {}),
-          ...(wait && guest?.viewer.access !== 'client' ? { waitsFor: taskWaitShort(wait) } : {}),
+          ...(places.has(key) ? { focus: places.get(key) } : {}),
+          ...(wait ? { waitsFor: taskWaitShort(wait) } : {}),
         };
       });
     });
@@ -138,9 +131,9 @@ export class TaskTools implements TaskToolsHandler {
   async getTask(ctx: ToolContext, args: { taskKey: string; eventId?: string }): Promise<TaskToolDetail> {
     return this.calls.guard(async () => {
       const { config, guest } = await this.calls.callerWithRequest(ctx, 'get_task');
-      const taskKey = this.calls.visibleTaskKey(ctx, guest, args.taskKey);
+      const taskKey = this.calls.validTaskKey(ctx, args.taskKey);
       const whole = await this.taskToolDetail(ctx, config, taskKey, args.eventId, guest);
-      return guest ? this.taskDetailForGuest(ctx.projectKey, whole, guest.viewer) : whole;
+      return guest ? this.taskDetailForGuest(whole, guest.viewer) : whole;
     });
   }
 
@@ -230,53 +223,15 @@ export class TaskTools implements TaskToolsHandler {
   }
 
   /**
-   * The task detail as the guest of the Operator sees it (PM-475), by the rules of the REST detail: a
-   * client's card links lead only to cards they see, and they get the milestones of the timeline only;
-   * what the team does about the card (who works on it, its questions, why it waits) is not theirs.
+   * The task detail as the guest of the Operator sees it (PM-475): the whole card (PM-79), but the quote of
+   * a team message the guest is not a party to is cut (PM-78), and the Operator's own undelivered and
+   * pending messages are not the guest's.
    */
-  private taskDetailForGuest(projectKey: string, whole: TaskToolDetail, viewer: Viewer): TaskToolDetail {
-    const canSeeKey = (key: string) => {
-      const other = this.tasks.find(projectKey, key);
-      return !!other && canSeeTask(viewer, other);
-    };
+  private taskDetailForGuest(whole: TaskToolDetail, viewer: Viewer): TaskToolDetail {
     const participants = (id: string) => this.ctx.repos.messages.get(id);
-    const { event, mergeChecks, ...rest } = whole;
-    const shown = visibleTaskDetail(viewer, rest, canSeeKey, participants);
-    // A merge check shows only when every card it checked is visible, as in list_merge_checks.
-    const checksShown = (mergeChecks ?? []).filter((run) => run.taskKeys.every(canSeeKey));
-    const withChecks = checksShown.length > 0 ? { mergeChecks: checksShown } : {};
-    if (event) {
-      const seen = visibleTimelineEvent(viewer, event, participants);
-      if (viewer.access === 'client' && !clientCanSeeTimelineEvent(seen))
-        throw new TeamToolError('not_found', `${shown.task.key} has no timeline event ${event.id}.`);
-      return { ...shown, event: seen };
-    }
-    if (viewer.access !== 'client') return { ...rest, ...shown, ...withChecks };
-    const {
-      wait: _wait,
-      focus: _focus,
-      cardWorkers: _workers,
-      workingSessionIds: _working,
-      cardQuestions: _questions,
-      undeliveredMessageIds: _undelivered,
-      pendingSentMessages: _pending,
-      theme,
-      ...open
-    } = rest;
-    return {
-      ...open,
-      ...shown,
-      ...withChecks,
-      ...(open.relations ? { relations: open.relations.filter((relation) => canSeeKey(relation.key)) } : {}),
-      ...(theme && canSeeKey(theme.key) ? { theme } : {}),
-      ...(open.themeCards
-        ? {
-            themeCards: open.themeCards
-              .filter((card) => canSeeKey(card.key))
-              .map((card) => ({ ...card, subtasks: card.subtasks.filter((sub) => canSeeKey(sub.key)) })),
-          }
-        : {}),
-    };
+    const { event, undeliveredMessageIds: _undelivered, pendingSentMessages: _pending, ...rest } = whole;
+    const shown = { ...rest, ...visibleTaskDetail(viewer, rest, participants) };
+    return event ? { ...shown, event: visibleTimelineEvent(viewer, event, participants) } : shown;
   }
 
   private async taskToolDetail(

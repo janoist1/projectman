@@ -9,7 +9,7 @@ describe('shared owner question visibility', () => {
   let h: AppHarness;
   afterEach(async () => h?.close());
 
-  it('lists one answerable primary, gives the linked drawer only a pointer, and hides both from a client who sees the source card', async () => {
+  it('lists one answerable primary, gives the linked drawer only a pointer, and shows both to a client who cannot answer', async () => {
     h = await createAppHarness();
     const owner = await setupOwner(h.app);
     await createProject(h, owner);
@@ -64,7 +64,10 @@ describe('shared owner question visibility', () => {
     expect(
       (await h.app.inject({ url: '/api/projects/AR/tasks/AR-2', headers: { cookie: client } })).statusCode,
     ).toBe(200);
-    expect((await get(client, '?state=all')).json<InboxView>().items).toEqual([]);
+    // A client reads the questions like a viewer (PM-79) but cannot answer another person's.
+    expect((await get(client, '?state=all')).json<InboxView>().items.map((item) => item.id)).toEqual(
+      all.items.map((item) => item.id),
+    );
     expect(
       (
         await h.app.inject({
@@ -74,6 +77,6 @@ describe('shared owner question visibility', () => {
           payload: { optionId: 'yes' },
         })
       ).statusCode,
-    ).toBe(404);
+    ).toBe(403);
   });
 });

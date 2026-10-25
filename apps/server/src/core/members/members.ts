@@ -59,14 +59,7 @@ import { isOpenTask, isTheme } from '@projectman/shared';
 import type { TaskService } from '../tasks';
 import type { TimelineService } from '../timeline';
 import { unique } from '../../kernel';
-import {
-  canSeeTask,
-  isClient,
-  memberForViewer,
-  visibleSession,
-  visibleTimelineEvent,
-  visibleTasks as visibleTasksOf,
-} from '../projects';
+import { visibleSession, visibleTimelineEvent } from '../projects';
 import type { Viewer } from '../projects';
 
 const ENDED_SESSION_STATES = new Set<SessionState>(['exited', 'failed']);
@@ -122,24 +115,7 @@ export class MemberService {
     }
   }
 
-  /** The roster as the viewer sees it: a client gets no key of a card they cannot see. */
-  async rosterOf(projectKey: string, viewer: Viewer): Promise<MemberView[]> {
-    return this.rosterForViewer(await this.projects.config(projectKey), viewer);
-  }
-
-  rosterForViewer(config: ProjectConfig, viewer: Viewer): MemberView[] {
-    const tasks = new Map<string, boolean>();
-    const canSeeKey = (key: string) => {
-      if (!tasks.has(key)) {
-        const task = this.ctx.repos.tasks.get(key);
-        tasks.set(key, !!task && task.projectKey === config.project.key && canSeeTask(viewer, task));
-      }
-      return tasks.get(key)!;
-    };
-    return this.rosterFor(config).map((member) => memberForViewer(viewer, member, canSeeKey));
-  }
-
-  /** Every member's whole state, for the team's own use (AI members, hand-overs); never send it to a viewer. */
+  /** Every member's whole state. */
   rosterFor(config: ProjectConfig): MemberView[] {
     const projectKey = config.project.key;
     const openTasks = new Map(
@@ -762,9 +738,8 @@ export class MemberProfiles {
   async profile(projectKey: string, handle: string, viewer: Viewer): Promise<MemberProfile> {
     const config = await this.projects.config(projectKey);
     const original = memberOf(config, handle);
-    const member = this.members.rosterForViewer(config, viewer).find((m) => m.handle === handle);
+    const member = this.members.rosterFor(config).find((m) => m.handle === handle);
     if (!original || !member) throw notFound('member', handle);
-    const internal = !isClient(viewer);
     const approverStages = new Set(
       config.pipeline.stages.filter((s) => stageApprovers(config, s).includes(handle)).map((s) => s.id),
     );
@@ -772,31 +747,28 @@ export class MemberProfiles {
       .list(projectKey, { state: 'open' })
       .filter((i) => i.assignees.includes(handle));
     const awaitingKeys = new Set(openInbox.map((i) => i.taskKey));
-    const visibleTasks = visibleTasksOf(viewer, this.tasks.list(projectKey));
-    const capacityHolders =
-      original.kind === 'ai' && internal ? this.admission.holders(config, handle) : undefined;
+    const capacityHolders = original.kind === 'ai' ? this.admission.holders(config, handle) : undefined;
     return {
       member,
       duties: memberDuties(config, original),
-      tasks: visibleTasks.filter(
-        (t) =>
-          isOpenTask(t) &&
-          !isTheme(t) &&
-          (t.assignee === handle ||
-            member.currentTaskKeys.includes(t.key) ||
-            approverStages.has(t.stageId) ||
-            awaitingKeys.has(t.key)),
-      ),
-      // A client sees only their own open inbox.
-      inbox: internal || handle === viewer.handle ? openInbox : [],
-      timeline: internal
-        ? this.ctx.repos.timeline
-            .forMember(projectKey, handle)
-            .map((event) => visibleTimelineEvent(viewer, event, (id) => this.ctx.repos.messages.get(id)))
-        : [],
+      tasks: this.tasks
+        .list(projectKey)
+        .filter(
+          (t) =>
+            isOpenTask(t) &&
+            !isTheme(t) &&
+            (t.assignee === handle ||
+              member.currentTaskKeys.includes(t.key) ||
+              approverStages.has(t.stageId) ||
+              awaitingKeys.has(t.key)),
+        ),
+      inbox: openInbox,
+      timeline: this.ctx.repos.timeline
+        .forMember(projectKey, handle)
+        .map((event) => visibleTimelineEvent(viewer, event, (id) => this.ctx.repos.messages.get(id))),
       // The Operator's sessions are the owner's and the admin's to see (PM-475).
       sessions:
-        internal && (canSeeOperatorSessions(viewer) || !isOperator(original))
+        canSeeOperatorSessions(viewer) || !isOperator(original)
           ? this.sessions
               .list(projectKey, { member: handle })
               .map((session) => visibleSession(viewer, session, (id) => this.ctx.repos.messages.get(id)))
@@ -805,7 +777,7 @@ export class MemberProfiles {
       capacity: original.kind === 'ai' ? original.capacity : null,
       capacityUsed: capacityHolders ? capacityHolders.length : 0,
       ...(capacityHolders ? { capacityHolders } : {}),
-      ...(original.kind === 'ai' && internal ? { usage: this.recentUsage(projectKey, handle) } : {}),
+      ...(original.kind === 'ai' ? { usage: this.recentUsage(projectKey, handle) } : {}),
       ...(original.kind === 'human' && ['owner', 'admin'].includes(viewer.access) && original.email
         ? { email: original.email }
         : {}),

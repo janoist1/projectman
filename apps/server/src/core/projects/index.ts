@@ -4,16 +4,10 @@ export type { Author, LoadedProject, ConfigChange } from './projects';
 export { RoleService, roleViews } from './roles';
 export { stopStageReviewers, workStageBefore } from './stage-reviewers';
 export {
-  canSeeTask,
   canSeeInboxItem,
-  isClient,
   visibleSession,
   visibleTimelineEvent,
   teamMessageParticipant,
-  withVisibleCardLinks,
-  visibleTasks,
-  memberForViewer,
-  clientCanSeeTimelineEvent,
   visibleTaskDetail,
   visibleProjectEvent,
   canSeeProjectEvent,

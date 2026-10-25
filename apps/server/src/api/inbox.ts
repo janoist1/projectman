@@ -10,7 +10,6 @@ import {
   humanInboxAssignment,
   routes,
   visibleQuestionItem,
-  canSeeTask,
   isLinkedQuestion,
 } from '@projectman/shared';
 import type { InboxItem, InboxView, ScreenedQuestionsResponse } from '@projectman/shared';
@@ -44,7 +43,7 @@ const ScreenedQuery = z.object({
 export function registerInboxRoutes(app: FastifyInstance, domain: ApiDomain): void {
   app.post<ItemParams>(routes.checkOutage(':key', ':itemId'), async (request) => {
     const { key, itemId } = request.params;
-    const access = await requireAccess(domain, request, key, { internal: true });
+    const access = await requireAccess(domain, request, key);
     return domain.outages.checkNow(key, itemId, access);
   });
   app.get<ProjectParams>(routes.inbox(':key'), async (request): Promise<InboxView> => {
@@ -57,12 +56,7 @@ export function registerInboxRoutes(app: FastifyInstance, domain: ApiDomain): vo
       .list(key, { state, kind: query.kind, limit: 500 })
       .filter((item) => canSeeInboxItem(access, item) && (!mine || humanInboxAssignment(item, access.handle)))
       .filter((item) => state === undefined || !isLinkedQuestion(item))
-      .map((item) =>
-        visibleQuestionItem(access, item, (taskKey) => {
-          const task = domain.tasks.find(key, taskKey);
-          return !!task && canSeeTask(access, task);
-        }),
-      );
+      .map((item) => visibleQuestionItem(access, item, (taskKey) => !!domain.tasks.find(key, taskKey)));
     return { items: await domain.inbox.withAskerStart(key, items) };
   });
 
@@ -126,9 +120,6 @@ export function registerInboxRoutes(app: FastifyInstance, domain: ApiDomain): vo
     const body = parseBody(ResolveInboxRequest, request.body);
     if (!canSeeInboxItem(access, domain.inbox.get(key, itemId))) throw notFound('inbox item', itemId);
     const resolved = await domain.inbox.resolve(key, itemId, body, access);
-    return visibleQuestionItem(access, resolved, (taskKey) => {
-      const task = domain.tasks.find(key, taskKey);
-      return !!task && canSeeTask(access, task);
-    });
+    return visibleQuestionItem(access, resolved, (taskKey) => !!domain.tasks.find(key, taskKey));
   });
 }

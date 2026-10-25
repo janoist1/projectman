@@ -18,8 +18,8 @@ type MemberParams = { Params: { key: string; handle: string } };
 
 export function registerMemberRoutes(app: FastifyInstance, domain: ApiDomain): void {
   app.get<ProjectParams>(routes.members(':key'), async (request): Promise<MemberView[]> => {
-    const access = await requireAccess(domain, request, request.params.key);
-    return domain.members.rosterOf(request.params.key, access);
+    await requireAccess(domain, request, request.params.key);
+    return domain.members.roster(request.params.key);
   });
 
   app.get<MemberParams>(routes.memberProfile(':key', ':handle'), async (request): Promise<MemberProfile> => {
@@ -30,7 +30,7 @@ export function registerMemberRoutes(app: FastifyInstance, domain: ApiDomain): v
 
   app.get<MemberParams>(routes.memberMemories(':key', ':handle'), async (request) => {
     const { key, handle } = request.params;
-    await requireAccess(domain, request, key, { internal: true });
+    await requireAccess(domain, request, key);
     return { memory: await domain.sessions.memory(key, handle) };
   });
 

@@ -268,7 +268,7 @@ export function canSeeInboxItem(
   if (item.payload && 'operatorKnowledge' in item.payload)
     return !viewer.via && canSeeAllTeamMessages(viewer);
   if (item.state === 'screening') return canSeeAllTeamMessages(viewer);
-  return viewer.access !== 'client' || item.assignees.includes(viewer.handle);
+  return true;
 }
 
 /**
@@ -824,29 +824,13 @@ export function isLinkedQuestion(item: Pick<InboxItem, 'id' | 'payload'>): boole
 
 /** The same group projection is used for REST, live events and the web fake. */
 export function visibleQuestionItem(
-  viewer: TaskViewer,
+  _viewer: TaskViewer,
   item: InboxItem,
   canSeeKey: (key: string) => boolean,
 ): InboxItem {
   const { groupWithdrawn: _withdrawn, ...publicPayload } = item.payload;
   const group = questionPayloadOf(item)?.group;
   if (!group) return 'groupWithdrawn' in item.payload ? { ...item, payload: publicPayload } : item;
-  if (viewer.access === 'client') {
-    return {
-      ...item,
-      title: group.originalQuestion || item.title,
-      payload: {
-        ...publicPayload,
-        group: {
-          primaryItemId: group.primaryItemId,
-          itemIds: [],
-          combinedQuestion: '',
-          originalQuestion: '',
-          primaryTaskKey: null,
-        },
-      },
-    };
-  }
   if (group.primaryItemId !== item.id)
     return {
       ...item,

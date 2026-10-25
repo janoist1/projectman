@@ -18,7 +18,6 @@ describe('attachment uploads over a real connection', () => {
   let h: AppHarness;
   let clock: Date;
   let owner: string;
-  let client: string;
   let developer: string;
   let url: string;
 
@@ -28,7 +27,6 @@ describe('attachment uploads over a real connection', () => {
     owner = await setupOwner(h.app);
     await createProject(h, owner);
     developer = await addHumanAndLogin(h.app, { handle: 'robin', access: 'developer' });
-    client = await addHumanAndLogin(h.app, { handle: 'cleo', access: 'client' });
     const { tasks } = h.app.projectman.domain;
     await tasks.create('AR', { title: 'Internal task' }, OWNER_ACTOR);
     await tasks.create('AR', { title: 'Shared task', visibility: 'shared' }, OWNER_ACTOR);
@@ -100,18 +98,6 @@ describe('attachment uploads over a real connection', () => {
     expect(result.status).toBe(401);
     await waitFor(() => stored().length === 0 && pending().length === 0, 'the cleanup');
     nothingLeft();
-  });
-
-  it('checks the access again at the end: a task that turned internal', async () => {
-    const result = await chunkedPost(endpoint('AR-2'), client, fileBody(pngBytes(400_000)), {
-      between: async () => {
-        await waitFor(() => pending().length === 1, 'the upload to start');
-        await h.app.projectman.domain.tasks.update('AR', 'AR-2', { visibility: 'internal' }, OWNER_ACTOR);
-      },
-    });
-    expect(result.status).toBe(404);
-    await waitFor(() => stored('AR-2').length === 0 && pending().length === 0, 'the cleanup');
-    nothingLeft('AR-2');
   });
 
   it.each([
@@ -196,7 +182,7 @@ describe('attachment websocket notifications', () => {
   const attachmentEvents = (events: ServerEvent[]) =>
     events.filter((e) => e.type === 'task_attachments_changed');
 
-  it('tells members after the commit, with nothing but the task key, and clients only for tasks shared with them', async () => {
+  it('tells members, clients included, after the commit, with nothing but the task key', async () => {
     const ownerEvents = await connect(owner);
     const clientEvents = await connect(client);
     const { attachments } = h.app.projectman.domain;
@@ -216,19 +202,11 @@ describe('attachment websocket notifications', () => {
       { type: 'task_attachments_changed', projectKey: 'AR', taskKey: 'AR-1' },
       { type: 'task_attachments_changed', projectKey: 'AR', taskKey: 'AR-2' },
     ]);
-    await waitFor(() => attachmentEvents(clientEvents).length === 1, 'the client event');
-    expect(attachmentEvents(clientEvents)).toEqual([
-      { type: 'task_attachments_changed', projectKey: 'AR', taskKey: 'AR-2' },
-    ]);
+    await waitFor(() => attachmentEvents(clientEvents).length === 2, 'the client events');
+    expect(attachmentEvents(clientEvents)).toEqual(attachmentEvents(ownerEvents));
 
-    // A client no longer hears about a task that turned internal; the live timeline never reaches them.
-    await h.app.projectman.domain.tasks.update('AR', 'AR-2', { visibility: 'internal' }, OWNER_ACTOR);
     await attachments.delete('AR', 'AR-2', shared.id, OWNER_ACTOR);
     await attachments.delete('AR', 'AR-1', internal.id, OWNER_ACTOR);
-    await waitFor(() => attachmentEvents(ownerEvents).length === 4, 'the delete events');
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(attachmentEvents(clientEvents)).toHaveLength(1);
-    expect(clientEvents.filter((e) => e.type === 'timeline_appended')).toEqual([]);
-    expect(JSON.stringify(clientEvents)).not.toContain('a.png');
+    await waitFor(() => attachmentEvents(clientEvents).length === 4, 'the delete events');
   });
 });

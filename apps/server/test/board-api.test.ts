@@ -47,8 +47,6 @@ describe('board API', () => {
         { name: 'Fictional reader', password: 'correct horse battery' },
       );
       const login = cookieOf(accepted);
-      if (access === 'client')
-        expect((await inject(h.app, 'GET', '/api/projects/AR/config', login)).statusCode).toBe(403);
       const board = BoardView.parse((await inject(h.app, 'GET', '/api/projects/AR/board', login)).json());
       expect(MemberView.parse(board.members.find((m) => m.handle === member.handle))).toMatchObject({
         model: 'fictional-model',
@@ -62,7 +60,7 @@ describe('board API', () => {
     },
   );
 
-  it('sends a client no key of an internal card an AI member works on, on the board, the member list and the profile (PM-244)', async () => {
+  it('sends a client the keys of the cards an AI member works on, on the board, the member list and the profile (PM-79)', async () => {
     const { domain } = h.app.projectman;
     const member = await domain.members.hire('AR', { role: 'qa' }, by);
     const internal = await domain.tasks.create(
@@ -105,19 +103,15 @@ describe('board API', () => {
     expect(workKeys(ownerMember).sort()).toEqual([internal.key, shared.key].sort());
     expect(ownerMember?.currentTaskKeys).toContain(internal.key);
     const clientMember = clientBoard.members.find((m) => m.handle === member.handle);
-    expect(workKeys(clientMember)).toEqual([shared.key]);
-    expect(clientMember?.currentTaskKeys).toEqual([shared.key]);
-    expect(JSON.stringify(clientBoard)).not.toContain(internal.key);
+    expect(workKeys(clientMember).sort()).toEqual([internal.key, shared.key].sort());
+    expect(clientMember?.currentTaskKeys).toEqual(ownerMember?.currentTaskKeys);
 
     const clientList = (await get('members', login)) as MemberView[];
     const clientListed = clientList.find((m) => m.handle === member.handle);
-    expect(workKeys(clientListed)).toEqual([shared.key]);
-    expect(clientListed?.currentTaskKeys).toEqual([shared.key]);
-    const ownerList = (await get('members', cookie)) as MemberView[];
-    expect(workKeys(ownerList.find((m) => m.handle === member.handle))).toHaveLength(2);
+    expect(workKeys(clientListed)).toHaveLength(2);
 
     const clientProfile = JSON.stringify(await get(`members/${member.handle}/profile`, login));
-    expect(clientProfile).not.toContain(internal.key);
+    expect(clientProfile).toContain(internal.key);
     expect(clientProfile).toContain(shared.key);
   });
 

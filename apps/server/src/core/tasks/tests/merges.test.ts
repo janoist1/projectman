@@ -16,7 +16,6 @@ import { LocalEngineDirectory } from '../../../runtime/sessions';
 import { createCloudRemote } from '../../../engine-link/remote';
 import type { CloudRemote } from '../../../engine-link/remote';
 import { createFakeCloud } from '../../../engine-link/remote/test-support';
-import { withVisibleCardLinks, clientCanSeeTimelineEvent } from '../../projects';
 import {
   createDomainHarness,
   OWNER,
@@ -2296,15 +2295,6 @@ describe('member initiated merge', () => {
     expect(result.task.merge?.startedBy).toBe('dev-1');
     gate.resolve({ ok: true, mergeCommit: 'mcp', changed: [] });
     await merged();
-  });
-
-  it('hides merge state, records and events from clients', async () => {
-    await setup();
-    await h!.domain.merges.reconcile('AR', 'AR-1');
-    const visible = withVisibleCardLinks({ handle: 'client', access: 'client' }, task(), () => true);
-    expect(visible.merge).toBeUndefined();
-    expect(clientCanSeeTimelineEvent({ type: 'task_merge_requested' } as never)).toBe(false);
-    expect(clientCanSeeTimelineEvent({ type: 'task_merge_failed' } as never)).toBe(false);
   });
 
   describe('the missing approval is asked before the merge is checked (PM-484)', () => {

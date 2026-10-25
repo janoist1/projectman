@@ -6,7 +6,7 @@ import { requireAccess } from './context';
 export function registerStructureRoutes(app: FastifyInstance, domain: ApiDomain): void {
   app.get<{ Params: { key: string } }>(routes.projectStructure(':key'), async (request) => {
     const key = request.params.key;
-    await requireAccess(domain, request, key, { internal: true });
+    await requireAccess(domain, request, key);
     return domain.structure.view(key);
   });
 }

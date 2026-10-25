@@ -3,7 +3,6 @@ import { assertSuperMutation } from '../../../kernel';
 import {
   attachmentPreviewOf,
   canDeleteAttachment,
-  canReadAttachments,
   canUploadAttachment,
   coverAttachmentId,
   memberOf,
@@ -245,7 +244,7 @@ export class AttachmentService implements AttachmentOperations {
     const { viewer, task } = await this.authorize(projectKey, taskKey, actor);
     await this.deletions.run(id, async () => {
       const record = this.find(projectKey, taskKey, id, ['ready', 'deleting']);
-      if (!canDeleteAttachment(viewer, task, record)) {
+      if (!canDeleteAttachment(viewer, record)) {
         throw forbidden('insufficient_access', 'only the uploader, an owner or an admin may delete this');
       }
       if (record.state === 'ready') {
@@ -322,7 +321,7 @@ export class AttachmentService implements AttachmentOperations {
     }
   }
 
-  /** The acting member's current standing on the task; 404 for a task they may not see, as for an unknown one. */
+  /** The acting member's current standing on the task; 404 for an unknown task. */
   private async authorize(
     projectKey: string,
     taskKey: string,
@@ -340,8 +339,8 @@ export class AttachmentService implements AttachmentOperations {
       handle: member.handle,
     };
     const task = this.tasks.find(projectKey, taskKey);
-    if (!task || !canReadAttachments(viewer, task)) throw notFound('task', taskKey);
-    if (need === 'upload' && !canUploadAttachment(viewer, task)) {
+    if (!task) throw notFound('task', taskKey);
+    if (need === 'upload' && !canUploadAttachment(viewer)) {
       throw forbidden('insufficient_access', 'viewers cannot attach files');
     }
     return { viewer, task };

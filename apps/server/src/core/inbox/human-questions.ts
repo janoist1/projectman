@@ -8,7 +8,6 @@ import {
   questionApprovalLabel,
   questionChoices,
   questionPayloadOf,
-  canReadAttachments,
 } from '@projectman/shared';
 import type {
   ExternalQuestionRead,
@@ -340,18 +339,6 @@ export class HumanQuestions implements HumanQuestionsPort {
         mediaType: row.mediaType,
         preview: row.preview,
       });
-    }
-    // Everyone asked must be able to open every file; only a client asked about an internal card can fail.
-    for (const handle of assignees) {
-      const person = memberOf(config, handle);
-      const viewer = { access: person?.kind === 'human' ? person.access : ('client' as const), handle };
-      for (const card of allowed) {
-        if (!found.some((file) => file.taskKey === card.key)) continue;
-        if (!canReadAttachments(viewer, card))
-          throw refuse(
-            `attachment_not_visible: ${handle} cannot open the files of ${card.key}; ask without them or ask someone who sees the card.`,
-          );
-      }
     }
     return found;
   }

@@ -16,7 +16,7 @@ import styles from './Engines.module.css';
 
 /**
  * The AI engine's state in the top bar (PM-316). Quiet while the default engine is connected; shown
- * only in cloud mode and only to members who work inside the project (a client is refused by the server).
+ * only in cloud mode and only to members of the project.
  */
 export function EngineIndicator({ phone = false }: { phone?: boolean }) {
   const status = useEngineStatus();

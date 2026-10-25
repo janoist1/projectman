@@ -241,7 +241,7 @@ describe('human team messages and member profiles', () => {
       { title: 'Internal Acme work', visibility: 'internal' },
       actor,
     );
-    expect((await send(['owner'], kata, { taskKey: 'AR-1' })).statusCode).toBe(404);
+    expect((await send(['owner'], kata, { taskKey: 'AR-1' })).statusCode).toBe(202);
     await h.app.projectman.domain.tasks.create(
       key,
       { title: 'Shared Acme work', visibility: 'shared' },
@@ -324,12 +324,12 @@ describe('human team messages and member profiles', () => {
     ).toEqual({ memory: '- Acme uses fictional fixtures.\n' });
     const kata = await human('kata', 'client');
     const clientProfile = MemberProfile.parse((await profile('dev-1', kata)).json());
-    expect(clientProfile.tasks).toEqual([]);
-    expect(clientProfile.sessions).toEqual([]);
+    expect(clientProfile.tasks).toEqual(data.tasks);
+    expect(clientProfile.sessions).toEqual(data.sessions);
     expect(
       (await h.app.inject({ url: routes.memberMemories(key, 'dev-1'), headers: { cookie: kata } }))
         .statusCode,
-    ).toBe(403);
+    ).toBe(200);
     expect((await profile('missing')).statusCode).toBe(404);
   });
 

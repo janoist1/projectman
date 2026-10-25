@@ -77,7 +77,7 @@ export class AttachmentTools implements AttachmentToolsHandler {
   ): Promise<AttachmentPage> {
     return this.calls.guard(async () => {
       const { guest } = await this.calls.callerWithRequest(ctx, 'list_attachments');
-      const taskKey = this.calls.visibleTaskKey(ctx, guest, args.taskKey);
+      const taskKey = this.calls.validTaskKey(ctx, args.taskKey);
       const offset = args.offset ?? 0;
       const limit = args.limit ?? 50;
       if (!Number.isInteger(offset) || offset < 0)
@@ -99,7 +99,7 @@ export class AttachmentTools implements AttachmentToolsHandler {
   ): Promise<LocatedAttachmentForTool> {
     return this.calls.guard(async () => {
       const { guest } = await this.calls.callerWithRequest(ctx, 'read_attachment');
-      const taskKey = this.calls.visibleTaskKey(ctx, guest, args.taskKey);
+      const taskKey = this.calls.validTaskKey(ctx, args.taskKey);
       const id = this.validAttachmentId(args.attachmentId);
       const located = await this.attachments
         .locate(ctx.projectKey, taskKey, id, guest ? humanActor(guest.handle) : aiActor(ctx.member))

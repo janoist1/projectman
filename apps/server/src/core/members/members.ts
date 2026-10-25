@@ -48,7 +48,7 @@ import type {
 import { aiMemberDefaults } from '@projectman/templates';
 import type { MemberCapacity, MemberProfileSessions } from './ports';
 import { findHumanByEmail, requireAiMember, requireHuman } from './access';
-import { applyMemberEmailChange, ownerHandles } from '@projectman/shared';
+import { applyMemberEmailChange, emailMailboxTaken, ownerHandles } from '@projectman/shared';
 import type { ProjectAccess } from './access';
 import { isoNow } from '../base';
 import type { DomainContext } from '../base';
@@ -377,6 +377,16 @@ export class MemberService {
     return view;
   }
 
+  /** 409 `email_mailbox_taken` when another AI member, in this or any other project, has this mailbox name (PM-989). */
+  private assertMailboxFree(draft: ProjectConfig, handle: string, mailbox: string): void {
+    const others = this.projects
+      .summaries()
+      .filter((project) => project.key !== draft.project.key)
+      .flatMap((project) => this.projects.cachedConfig(project.key) ?? []);
+    if (emailMailboxTaken([draft, ...others], draft.project.key, handle, mailbox))
+      throw conflict('email_mailbox_taken', `the mailbox name ${mailbox} is taken`, { mailbox });
+  }
+
   /** Mutates only the in-memory draft; shared by execution and Operator previews. */
   prepareUpdate(
     draft: ProjectConfig,
@@ -505,7 +515,16 @@ export class MemberService {
         fields.push('outbound network');
       }
       if (req.email !== undefined) {
-        member.email = applyMemberEmailChange(member.email, req.email);
+        const { mailbox, ...switches } = req.email;
+        if (mailbox !== undefined) this.assertMailboxFree(draft, handle, mailbox);
+        const email = applyMemberEmailChange(member.email, switches);
+        // The handle is the mailbox when none is chosen: its own value stores nothing.
+        if (mailbox === undefined || mailbox === handle) {
+          if (mailbox === handle) delete email.mailbox;
+        } else {
+          email.mailbox = mailbox;
+        }
+        member.email = email;
         fields.push('email');
       }
       if (req.onLeave !== undefined) {

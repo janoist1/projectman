@@ -10,6 +10,8 @@ import {
   emailChannelOn,
   emailContactChangeRefusal,
   emailContentRefusals,
+  emailMailboxOf,
+  emailMailboxOwners,
   emailRecipientRefusal,
   emailReplyAddress,
   emailSenderOf,
@@ -29,11 +31,13 @@ import type { EmailMessageRecord } from '../../db';
 import { getLocale } from '@projectman/templates';
 import { DECISION_OPTIONS, type InboxService, type Resolver } from '../../core/inbox';
 import type { DomainContext } from '../../core/base';
+import type { MessageAttachmentOperations } from '../../contracts';
 import type { Messaging } from '../../core/messages';
 import type { ProjectService } from '../../core/projects';
 import type { TaskService } from '../../core/tasks';
 import { DomainError } from '../../kernel';
 import type { EmailChannelEnv } from './config';
+import { ownAddress, projectConfigs } from './mailboxes';
 import { renderEmail } from './render';
 import { createEmailInbound } from './inbound';
 import { replyToken, replyTokenHash } from './reply-token';
@@ -56,6 +60,7 @@ export function createEmailChannelService(deps: {
   repo: DomainContext['repos']['emailChannel'];
   inbox: InboxService;
   messaging: Messaging;
+  messageAttachments: MessageAttachmentOperations;
   projects: ProjectService;
   tasks: TaskService;
   redactionContext: () => Promise<RedactionContext>;
@@ -64,7 +69,8 @@ export function createEmailChannelService(deps: {
   replyKey?: Buffer;
   now: () => Date;
 }): EmailChannelService {
-  const { ctx, repo, inbox, messaging, projects, tasks, sender, env, replyKey, now } = deps;
+  const { ctx, repo, inbox, messaging, messageAttachments, projects, tasks, sender, env, replyKey, now } =
+    deps;
   const configured = () => Boolean(sender && env && replyKey);
   const configuredParts = () => {
     if (!sender || !env || !replyKey)
@@ -78,12 +84,18 @@ export function createEmailChannelService(deps: {
     projectKey: string,
     config: ProjectConfig,
     recipientHandle: string,
+    senderHandle: string,
     input: { subject: string; text: string; taskKey: string | null },
   ) {
     const recipient = config.team.members.find((member) => member.handle === recipientHandle);
     const recipientAccess = recipient?.kind === 'human' ? recipient.access : 'client';
     const redaction = await deps.redactionContext();
     const { env } = configuredParts();
+    const sender = config.team.members.find((member) => member.handle === senderHandle);
+    const own =
+      sender?.kind === 'ai'
+        ? ownAddress(await projectConfigs(projects), projectKey, sender, env.replyDomain)
+        : null;
     return emailContentRefusals(input, {
       projectKey,
       recipientAccess,
@@ -92,6 +104,7 @@ export function createEmailChannelService(deps: {
       allowedAddresses: [
         ...(recipient?.kind === 'human' && recipient.email ? [recipient.email] : []),
         env.from,
+        ...(own ? [own] : []),
       ],
       secrets: redaction.secrets,
       paths: redaction.paths,
@@ -108,15 +121,20 @@ export function createEmailChannelService(deps: {
     const recipient = config.team.members.find((candidate) => candidate.handle === record.contact);
     if (!member || recipient?.kind !== 'human' || !recipient.email)
       throw refused('email_recipient_refused', 'the recipient is no longer valid');
+    const { sender, env, replyKey } = configuredParts();
+    const address =
+      member.kind === 'ai'
+        ? ownAddress(await projectConfigs(projects), projectKey, member, env.replyDomain)
+        : null;
     const rendered = renderEmail({
       text: record.text,
       footer: getLocale(config.project.language).email.footer({
         member: member.displayName,
         project: config.project.name,
+        ...(address ? { address } : {}),
       }),
     });
     const at = now().toISOString();
-    const { sender, env, replyKey } = configuredParts();
     repo.messages.update(record.id, {
       status: 'sending',
       replyTokenHash: replyTokenHash(replyKey, token),
@@ -199,6 +217,7 @@ export function createEmailChannelService(deps: {
     repo,
     inbox,
     messaging,
+    messageAttachments,
     projects,
     tasks,
     env,
@@ -249,7 +268,7 @@ export function createEmailChannelService(deps: {
     const wants = repo.contacts.get(item.projectKey, contact)?.wants ?? false;
     const recipientRefusal = emailRecipientRefusal(recipient, wants);
     const senderAllowed = emailSenderOf(config, record.member!);
-    const content = await contentRefusals(item.projectKey, config, contact, record);
+    const content = await contentRefusals(item.projectKey, config, contact, record.member!, record);
     // The same order as `send`: channel, sender, recipient, content (the daily limit is not checked again).
     const refusal = !emailChannelOn(config)
       ? { reason: 'email_channel_off' }
@@ -313,19 +332,30 @@ export function createEmailChannelService(deps: {
     async view(projectKey) {
       const config = await projects.config(projectKey);
       const records = new Map(repo.contacts.list(projectKey).map((row) => [row.handle, row]));
+      const configs = await projectConfigs(projects);
+      const domain = env && configured() ? env.replyDomain : null;
       return {
         configured: configured(),
         enabled: emailChannelOn(config),
         fromAddress: env?.from ?? null,
+        memberDomain: domain,
         senders: config.team.members
           .filter(
             (member): member is AiMemberConfig => member.kind === 'ai' && member.email?.enabled === true,
           )
-          .map((member) => ({
-            handle: member.handle,
-            displayName: member.displayName,
-            sendWithoutApproval: member.email?.sendWithoutApproval ?? false,
-          })),
+          .map((member) => {
+            const mailbox = emailMailboxOf(member);
+            return {
+              handle: member.handle,
+              displayName: member.displayName,
+              sendWithoutApproval: member.email?.sendWithoutApproval ?? false,
+              mailbox,
+              address: domain ? ownAddress(configs, projectKey, member, domain) : null,
+              addressConflict: emailMailboxOwners(configs, mailbox).some(
+                (owner) => owner.projectKey !== projectKey || owner.handle !== member.handle,
+              ),
+            };
+          }),
         contacts: config.team.members
           .filter((member) => member.kind === 'human')
           .map((member): EmailContact => {
@@ -407,7 +437,7 @@ export function createEmailChannelService(deps: {
           EMAIL_SENDS_PER_CONTACT_DAY
       )
         throw refused('email_rate_limited', 'the daily e-mail limit is reached', 429);
-      const refusals = await contentRefusals(projectKey, config, input.to, {
+      const refusals = await contentRefusals(projectKey, config, input.to, caller, {
         subject: input.subject,
         text: input.text,
         taskKey: input.taskKey,

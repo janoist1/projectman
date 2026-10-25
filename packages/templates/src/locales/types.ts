@@ -194,7 +194,8 @@ export interface TemplateLocale {
   };
   /** The footer of every outgoing channel e-mail (PM-941). */
   email: {
-    footer: (input: { member: string; project: string }) => string;
+    /** `address`: the member's own address, offered for a new mail (PM-989); absent: none. */
+    footer: (input: { member: string; project: string; address?: string }) => string;
   };
   webPush: WebPushText;
   /** The fix round limit decision item the server makes (PM-714). */

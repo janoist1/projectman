@@ -1,4 +1,5 @@
 import { EMAIL_PARKED_ALERTS_PER_DAY, alertPayloadOf } from '@projectman/shared';
+import type { MemberConfig } from '@projectman/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createDomainHarness,
@@ -33,6 +34,28 @@ function mime(
     body,
   ];
   return new TextEncoder().encode(lines.join('\r\n'));
+}
+
+/** A mail with a text part and a small PDF named `plan.pdf`. */
+function mimeWithPdf(headers: Record<string, string>): Uint8Array {
+  return mime(
+    headers,
+    [
+      '--b',
+      'Content-Type: text/plain',
+      '',
+      'See the file.',
+      '--b',
+      'Content-Type: application/pdf; name="plan.pdf"',
+      'Content-Disposition: attachment; filename="plan.pdf"',
+      'Content-Transfer-Encoding: base64',
+      '',
+      'JVBERi0xLjQ=',
+      '--b--',
+      '',
+    ].join('\r\n'),
+    'multipart/mixed; boundary=b',
+  );
 }
 
 type ReplyOptions = {
@@ -138,32 +161,16 @@ describe('EmailInbound', () => {
       });
     });
 
-    it('keeps only the names of the attachments', async () => {
+    it('stores the attachments of a reply on the message and keeps their names in the log', async () => {
       const { harness, emailChannel, replyTo, reply } = await setup();
-      const raw = mime(
-        { From: 'owner@example.com', To: replyTo, Subject: 'Re: Summary' },
-        [
-          '--b',
-          'Content-Type: text/plain',
-          '',
-          'See the file.',
-          '--b',
-          'Content-Type: application/pdf; name="plan.pdf"',
-          'Content-Disposition: attachment; filename="plan.pdf"',
-          'Content-Transfer-Encoding: base64',
-          '',
-          'JVBERi0xLjQ=',
-          '--b--',
-          '',
-        ].join('\r\n'),
-        'multipart/mixed; boundary=b',
-      );
+      const raw = mimeWithPdf({ From: 'owner@example.com', To: replyTo, Subject: 'Re: Summary' });
       const mail = reply({ raw });
       expect(await emailChannel.inbound.receive(mail)).toBe('delivered');
-      expect(harness.repos.emailChannel.messages.byProviderId(mail.providerId)).toMatchObject({
-        text: 'See the file.',
-        attachmentNames: ['plan.pdf'],
-      });
+      const row = harness.repos.emailChannel.messages.byProviderId(mail.providerId)!;
+      expect(row).toMatchObject({ text: 'See the file.', attachmentNames: ['plan.pdf'] });
+      expect(harness.repos.messages.get(row.messageId!)!.attachments).toMatchObject([
+        { fileName: 'plan.pdf' },
+      ]);
     });
 
     it('reports a mail with a known provider id as a duplicate and does nothing', async () => {
@@ -276,6 +283,135 @@ describe('EmailInbound', () => {
         .entries.filter((entry) => entry.kind === 'inbound');
       expect(parked).toHaveLength(EMAIL_PARKED_ALERTS_PER_DAY + 1);
       expect(alerts()).toHaveLength(EMAIL_PARKED_ALERTS_PER_DAY);
+    });
+  });
+
+  describe('receive: a mail to a member address', () => {
+    const address = 'dev-1@reply.example.test';
+
+    async function setupDirect() {
+      const base = await setup();
+      const change = (reason: string, edit: (members: MemberConfig[]) => void) =>
+        base.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (draft) => {
+          edit(draft.team.members);
+          return reason;
+        });
+      const addClient = async () => {
+        await change('Add a client', (members) => {
+          members.push({
+            kind: 'human',
+            handle: 'client',
+            displayName: 'Client',
+            access: 'client',
+            email: 'client@example.com',
+          });
+        });
+        base.emailChannel.setContact('AR', 'client', true, { handle: 'owner' });
+      };
+      return { ...base, change, addClient };
+    }
+
+    it('hands the text and the attachments to the member as a message of its own', async () => {
+      const { harness, emailChannel, reply, inboundRows, alerts } = await setupDirect();
+      const raw = mimeWithPdf({ From: 'owner@example.com', To: address, Subject: 'New plan' });
+      const mail = reply({ to: address, raw });
+      expect(await emailChannel.inbound.receive(mail)).toBe('delivered');
+      const row = harness.repos.emailChannel.messages.byProviderId(mail.providerId)!;
+      expect(row).toMatchObject({
+        status: 'delivered',
+        member: 'dev-1',
+        contact: 'owner',
+        taskKey: null,
+        inReplyTo: null,
+        attachmentNames: ['plan.pdf'],
+      });
+      expect(harness.repos.messages.get(row.messageId!)).toMatchObject({
+        from: 'owner',
+        to: ['dev-1'],
+        kind: 'action',
+        taskKey: null,
+        body: 'See the file.',
+        email: { emailId: row.id, subject: 'New plan', direct: true },
+        attachments: [{ fileName: 'plan.pdf' }],
+      });
+      expect(inboundRows()).toHaveLength(1);
+      expect(alerts()).toEqual([]);
+    });
+
+    it('reaches the member under a renamed mailbox only', async () => {
+      const { emailChannel, reply, change } = await setupDirect();
+      await change('Rename the mailbox', (members) => {
+        const member = members.find((candidate) => candidate.handle === 'dev-1');
+        if (member?.kind === 'ai') member.email = { enabled: true, mailbox: 'builder' };
+      });
+      expect(await emailChannel.inbound.receive(reply({ to: address }))).toBe('dropped');
+      expect(await emailChannel.inbound.receive(reply({ to: 'builder@reply.example.test' }))).toBe(
+        'delivered',
+      );
+    });
+
+    it('gives a reply address precedence over a member address', async () => {
+      const { harness, emailChannel, card, replyTo, reply } = await setupDirect();
+      const mail = { ...reply({ to: replyTo }), recipients: [address, replyTo] };
+      expect(await emailChannel.inbound.receive(mail)).toBe('delivered');
+      const row = harness.repos.emailChannel.messages.byProviderId(mail.providerId)!;
+      expect(harness.repos.messages.get(row.messageId!)).toMatchObject({ taskKey: card.key });
+      expect(harness.repos.messages.get(row.messageId!)!.email).not.toHaveProperty('direct');
+    });
+
+    it.each([
+      { name: 'no member has the mailbox', to: 'nobody@reply.example.test' },
+      { name: 'the member has no e-mail switch on', to: 'dev-2@reply.example.test' },
+    ])('drops a mail when $name, with no row and no alert', async ({ to }) => {
+      const { emailChannel, reply, inboundRows, alerts } = await setupDirect();
+      expect(await emailChannel.inbound.receive(reply({ to }))).toBe('dropped');
+      expect(inboundRows()).toEqual([]);
+      expect(alerts()).toEqual([]);
+    });
+
+    it('drops a mail to a mailbox that two members share', async () => {
+      const { emailChannel, reply, change, inboundRows } = await setupDirect();
+      await change('Share a mailbox', (members) => {
+        const member = members.find((candidate) => candidate.handle === 'dev-2');
+        if (member?.kind === 'ai') member.email = { enabled: true, mailbox: 'dev-1' };
+      });
+      expect(await emailChannel.inbound.receive(reply({ to: address }))).toBe('dropped');
+      expect(inboundRows()).toEqual([]);
+    });
+
+    it('parks a mail from an unknown sender without an alert', async () => {
+      const { emailChannel, reply, inboundRows, alerts } = await setupDirect();
+      expect(await emailChannel.inbound.receive(reply({ to: address, from: 'stranger@example.org' }))).toBe(
+        'parked',
+      );
+      expect(inboundRows()).toMatchObject([
+        { status: 'parked', parkReason: 'unknown_sender', member: 'dev-1' },
+      ]);
+      expect(alerts()).toEqual([]);
+    });
+
+    it('parks a mail that fails DMARC and alerts the owners', async () => {
+      const { emailChannel, reply, inboundRows, alerts } = await setupDirect();
+      const mail = reply({ to: address, verdicts: { dmarc: 'fail' } });
+      expect(await emailChannel.inbound.receive(mail)).toBe('parked');
+      expect(inboundRows()).toMatchObject([{ parkReason: 'authentication_failed' }]);
+      expect(alerts()).toHaveLength(1);
+    });
+
+    it('parks a mail from a client for a member who is not a contact', async () => {
+      const { harness, emailChannel, reply, addClient, inboundRows } = await setupDirect();
+      await addClient();
+      const mail = reply({ to: address, from: 'client@example.com' });
+      expect(await emailChannel.inbound.receive(mail)).toBe('parked');
+      expect(inboundRows()).toMatchObject([{ parkReason: 'sender_not_allowed', contact: 'client' }]);
+      expect(harness.repos.emailChannel.messages.byProviderId(mail.providerId)!.messageId).toBeNull();
+    });
+
+    it('parks a mail from a person who has not asked for e-mail', async () => {
+      const { emailChannel, reply, inboundRows } = await setupDirect();
+      emailChannel.setContact('AR', 'owner', false, { handle: 'owner' });
+      expect(await emailChannel.inbound.receive(reply({ to: address }))).toBe('parked');
+      expect(inboundRows()).toMatchObject([{ parkReason: 'sender_not_allowed' }]);
     });
   });
 

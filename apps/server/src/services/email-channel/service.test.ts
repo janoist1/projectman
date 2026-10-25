@@ -95,6 +95,19 @@ describe('EmailChannelService', () => {
       expect(outbound()[0]).toMatchObject({ status: 'sent' });
     });
 
+    it('shows the member its own address in the footer of the mail', async () => {
+      const { emailChannel, sent } = await setup({ withoutApproval: true });
+      await emailChannel.send('AR', 'dev-1', mail);
+      expect(sent[0]!.text).toContain('dev-1@reply.example.test');
+    });
+
+    it('lets the member write its own address in the text', async () => {
+      const { emailChannel } = await setup({ withoutApproval: true });
+      expect(
+        await emailChannel.send('AR', 'dev-1', { ...mail, text: 'Write to dev-1@reply.example.test.' }),
+      ).toMatchObject({ status: 'sent' });
+    });
+
     it('sends an internal card to a consenting owner only after approval', async () => {
       const { harness, emailChannel, sent, outbound, pendingItem, approve } = await setup();
       const card = await harness.domain.tasks.create('AR', { title: 'Internal card' }, OWNER_ACTOR);
@@ -214,6 +227,56 @@ describe('EmailChannelService', () => {
         details: { reason },
       });
       expect(outbound()).toEqual([]);
+    });
+  });
+
+  describe('view: the address of a member', () => {
+    const senderOf = async (emailChannel: DomainHarness['domain']['emailChannel'], handle = 'dev-1') =>
+      (await emailChannel.view('AR')).senders.find((sender) => sender.handle === handle)!;
+
+    it('gives the member domain and the address of a member who may write', async () => {
+      const { emailChannel } = await setup();
+      expect(await emailChannel.view('AR')).toMatchObject({ memberDomain: 'reply.example.test' });
+      expect(await senderOf(emailChannel)).toMatchObject({
+        mailbox: 'dev-1',
+        address: 'dev-1@reply.example.test',
+        addressConflict: false,
+      });
+    });
+
+    it('uses the renamed mailbox', async () => {
+      const { emailChannel, update } = await setup();
+      await update((config) => {
+        const member = config.team.members.find((candidate) => candidate.handle === 'dev-1');
+        if (member?.kind === 'ai') member.email = { enabled: true, mailbox: 'builder' };
+      });
+      expect(await senderOf(emailChannel)).toMatchObject({
+        mailbox: 'builder',
+        address: 'builder@reply.example.test',
+      });
+    });
+
+    it('gives no address while the project has the channel off', async () => {
+      const { emailChannel, update } = await setup();
+      await update((config) => {
+        config.project.email = { enabled: false };
+      });
+      expect(await senderOf(emailChannel)).toMatchObject({ address: null, addressConflict: false });
+    });
+
+    it('gives no address to either member who shares a mailbox, and flags the conflict', async () => {
+      const { emailChannel, update } = await setup();
+      await update((config) => {
+        const member = config.team.members.find((candidate) => candidate.handle === 'dev-2');
+        if (member?.kind === 'ai') member.email = { enabled: true, mailbox: 'dev-1' };
+      });
+      expect(await senderOf(emailChannel)).toMatchObject({ address: null, addressConflict: true });
+      expect(await senderOf(emailChannel, 'dev-2')).toMatchObject({ address: null, addressConflict: true });
+    });
+
+    it('has no member domain while the server has no e-mail channel', async () => {
+      const { emailChannel } = await setup({ configured: false });
+      expect(await emailChannel.view('AR')).toMatchObject({ memberDomain: null });
     });
   });
 

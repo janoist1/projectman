@@ -4,7 +4,13 @@ import { BoardPlacement } from '../domain/board-order';
 import { DEVELOPER_LEVEL_REASON_MAX, DeveloperLevel } from '../domain/developer-level';
 import { DutyId } from '../domain/duty';
 import { ChatItem } from '../chat/chat';
-import { AutoCompactWindowTokens, MemberSchedule, ProjectConfig, RepoConfig } from '../config/schema';
+import {
+  AutoCompactWindowTokens,
+  EmailMailbox,
+  MemberSchedule,
+  ProjectConfig,
+  RepoConfig,
+} from '../config/schema';
 import { ConfigChangeRow } from '../config/operator';
 import { canonical } from '../config/canonical';
 import { OperatorKnowledgeChange } from '../domain/operator-knowledge';
@@ -677,7 +683,12 @@ export type HireMemberRequest = z.infer<typeof HireMemberRequest>;
 export const UpdateMemberRequest = z.object({
   /** AI only; omitted values retain their settings. */
   email: z
-    .strictObject({ enabled: z.boolean().optional(), sendWithoutApproval: z.boolean().optional() })
+    .strictObject({
+      enabled: z.boolean().optional(),
+      sendWithoutApproval: z.boolean().optional(),
+      /** The member's own mailbox name (PM-989); the handle's own value clears the choice. */
+      mailbox: EmailMailbox.optional(),
+    })
     .optional(),
   access: HumanAccess.optional(),
   provider: AgentProvider.optional(),

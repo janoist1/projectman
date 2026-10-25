@@ -313,7 +313,7 @@ function AddressLine({
   if (sender.address === null)
     return (
       <span className={styles.addressLine}>
-        <span className={shared.muted}>
+        <span className={`${shared.muted} ${styles.addressNote}`}>
           {t('settings.email.senders.addressWhenOn', { mailbox: sender.mailbox, domain })}
         </span>
         {rename}

@@ -123,6 +123,13 @@
   gap: 4px 8px;
 }
 
+/* The notes of the address line hold an address that cannot break: let them shrink and wrap. */
+.conflict,
+.addressNote {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .conflict {
   font-size: 12.5px;
   color: var(--c-needs-text);

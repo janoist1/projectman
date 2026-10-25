@@ -95,13 +95,23 @@ describe('EmailChannelService', () => {
       expect(outbound()[0]).toMatchObject({ status: 'sent' });
     });
 
-    it('keeps an e-mail pending for approval and sends nothing until it is approved', async () => {
-      const { emailChannel, sent, outbound, pendingItem, approve } = await setup();
-      expect(await emailChannel.send('AR', 'dev-1', mail)).toMatchObject({ status: 'pending_approval' });
+    it('sends an internal card to a consenting owner only after approval', async () => {
+      const { harness, emailChannel, sent, outbound, pendingItem, approve } = await setup();
+      const card = await harness.domain.tasks.create('AR', { title: 'Internal card' }, OWNER_ACTOR);
+      expect((await emailChannel.view('AR')).contacts).toContainEqual(
+        expect.objectContaining({ handle: 'owner', access: 'owner', wants: true }),
+      );
+      expect(
+        await emailChannel.send('AR', 'dev-1', { ...mail, text: `See ${card.key}.`, taskKey: card.key }),
+      ).toMatchObject({ status: 'pending_approval' });
       expect(sent).toEqual([]);
       expect(pendingItem()).toBeTruthy();
       await approve('approve');
       expect(sent).toHaveLength(1);
+      expect(sent[0]).toMatchObject({
+        to: 'owner@example.com',
+        text: expect.stringContaining(`See ${card.key}.`),
+      });
       expect(outbound()[0]).toMatchObject({ status: 'sent', decidedBy: 'owner' });
     });
 
@@ -152,6 +162,27 @@ describe('EmailChannelService', () => {
         code: 'email_recipient_refused',
         details: { reason: 'not_wanted' },
       });
+    });
+
+    it('refuses an internal teammate with an address but no recorded consent', async () => {
+      const { emailChannel, sent, outbound } = await setup({
+        adjust(config) {
+          config.team.members.push({
+            kind: 'human',
+            handle: 'colleague',
+            displayName: 'Colleague',
+            access: 'developer',
+            email: 'colleague@example.test',
+            roles: [],
+          });
+        },
+      });
+      await expect(emailChannel.send('AR', 'dev-1', { ...mail, to: 'colleague' })).rejects.toMatchObject({
+        code: 'email_recipient_refused',
+        details: { reason: 'not_wanted' },
+      });
+      expect(sent).toEqual([]);
+      expect(outbound()).toEqual([]);
     });
 
     it('refuses once the daily limit to one recipient is reached', async () => {

@@ -145,14 +145,29 @@ describe('the e-mail settings section', () => {
     expect(screen.queryByText(t('settings.email.log.title'))).toBeNull();
   });
 
-  it('names the person and their role in the contacts table', async () => {
+  it('lists every human including the owner with their access and consent switch', async () => {
     const p = mailProject();
     await open(p);
-    const kata = await screen.findByRole('switch', {
-      name: t('settings.email.contacts.wantsOf', { name: 'Kata' }),
-    });
-    const access = p.backend.email.view().contacts.find((contact) => contact.handle === 'kata')!.access;
-    expect(kata.closest('tr')!.textContent).toContain(t(`roles.human.${access}`));
+    const humans = p.backend.config.team.members.filter((member) => member.kind === 'human');
+    for (const human of humans) {
+      const toggle = await screen.findByRole('switch', {
+        name: t('settings.email.contacts.wantsOf', { name: human.displayName }),
+      });
+      expect(toggle.closest('tr')!.textContent).toContain(t(`roles.human.${human.access}`));
+    }
+    const owner = humans.find((member) => member.access === 'owner')!;
+    fireEvent.click(
+      screen.getByRole('switch', {
+        name: t('settings.email.contacts.wantsOf', { name: owner.displayName }),
+      }),
+    );
+    await waitFor(() =>
+      expect(
+        p.requests.find(
+          (request) => request.method === 'PUT' && request.path.endsWith(`/email/contacts/${owner.handle}`),
+        )?.body,
+      ).toEqual({ wants: true }),
+    );
   });
 
   it('credits a change to the member by name, also one who does not write mail', async () => {

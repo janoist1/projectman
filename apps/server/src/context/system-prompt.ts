@@ -838,6 +838,11 @@ function operatorIndex(project: ContextPackInput['project']): string {
  * The guide takes `dutyPrompt` as it is, so the merge-fix and local-only texts keep their precedence.
  */
 const GUIDED_DUTIES: Partial<Record<DutyId, { title: string; short: string }>> = {
+  ux_design: {
+    title: 'Design states, accessibility and complete review',
+    short:
+      'Design user flows, screens and interactions; review the finished solution against the plan. Put the plan on the card with update_task and attach the `.demo/` mockup with attach_file. On a card you are not the assignee of, do not edit a tracked file and do not commit. A sub-card must stand on its own. Checklist: states, mobile/desktop, accessibility, visual consistency and one complete handoff/review round (read_attachment, send_message).',
+  },
   requirements_analysis: {
     title: 'Requirements and relation checks',
     short:

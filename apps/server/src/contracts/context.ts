@@ -190,7 +190,7 @@ export interface RelatedSession {
 export const GUIDE_TOPICS = ['commands', 'rules', 'role'] as const;
 export type GuideTopic = (typeof GUIDE_TOPICS)[number];
 
-export const PROMPT_SECTION_IDS = [
+const PROMPT_SECTION_IDS = [
   'identity',
   'team',
   'teamwork',

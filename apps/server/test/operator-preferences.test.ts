@@ -36,6 +36,8 @@ function people(config: ProjectConfig) {
       roles: [],
       email: `${handle}@example.test`,
     });
+  // A client may message only the contacts.
+  config.team.contacts = ['operator'];
 }
 
 describe('personal Operator preference authorization', () => {

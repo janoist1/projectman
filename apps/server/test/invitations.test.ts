@@ -83,7 +83,8 @@ describe('colleague invitation API', () => {
   it.each([false, true])(
     'binds the saved seat and preserves its identity and history (existing account: %s)',
     async (existing) => {
-      await addColleague();
+      // A seat that may comment now: a read-only seat could not write the history this test keeps.
+      await addColleague({ ...colleague, access: 'developer' });
       const { domain, repos } = h.app.projectman;
       const task = await domain.tasks.create(
         'AR',

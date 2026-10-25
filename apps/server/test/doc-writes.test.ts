@@ -116,6 +116,8 @@ async function setup(
         access: 'client',
         roles: [],
       });
+      // A client may message only the contacts.
+      config.team.contacts = ['operator'];
     },
   });
   return merger;

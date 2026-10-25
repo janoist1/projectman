@@ -75,6 +75,8 @@ async function setup(persistent = false) {
         roles: [],
         email: 'cleo@example.test',
       });
+      // A client may message only the contacts.
+      config.team.contacts = ['operator'];
     },
   });
   await h.domain.messaging.sendReporting(

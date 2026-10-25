@@ -1,6 +1,11 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { MEMBER_QUEUE_MAX_ATTEMPTS, operatorQueueAvailable, questionPayloadOf } from '@projectman/shared';
-import type { MemberQueueItem, ProjectConfig } from '@projectman/shared';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  MEMBER_QUEUE_MAX_ATTEMPTS,
+  FIX_ANOTHER_ROUND_OPTION,
+  integratorSideAvailable,
+  questionPayloadOf,
+} from '@projectman/shared';
+import type { MemberQueueItem } from '@projectman/shared';
 import { TeamToolError } from '../src/contracts';
 import type { ToolContext } from '../src/contracts';
 import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
@@ -11,7 +16,7 @@ import { flush, settle } from './helpers/fakes';
 /**
  * The Operator's lane of the per-member work queue (PM-885): the todos and held fix round decisions the system
  * opens and the action messages of AI members wake the Operator one item at a time, and the Operator ends each
- * with `finish_queue_item` — done, or handed to the owner with a reason.
+ * with `finish_queue_item` — done, or handed off with a reason.
  */
 const todo = { what: 'Measure the hub', where: 'Hub', expected: 'A latency report' };
 
@@ -20,17 +25,16 @@ const operatorItems = (h: DomainHarness): MemberQueueItem[] =>
 
 describe('the Operator queue', () => {
   let h: DomainHarness;
-  let available = true;
   beforeEach(async () => {
-    available = true;
     h = await createDomainHarness({
-      integratorTodoAccess: { available: (config) => available && operatorQueueAvailable(config) },
+      integratorTodoAccess: { available: integratorSideAvailable },
     });
     await h.domain.tasks.create('AR', { title: 'Login page' }, OWNER_ACTOR);
   });
   afterEach(async () => {
     await h.domain.stop();
     await h.cleanup();
+    vi.restoreAllMocks();
   });
 
   const openTodo = (question = 'The hub needs a measurement') =>
@@ -152,28 +156,187 @@ describe('the Operator queue', () => {
     for (const refusal of refusals) expect(refusal.code).toBe('forbidden');
   });
 
-  describe('handing an item to the owner', () => {
-    it.each(['no_grant', 'no_typed_operation'] as const)(
-      'gives a todo to the owners with the reason %s and closes the queue item as handed off',
-      async (reason) => {
-        const opened = await openTodo();
-        const { queueItem, ctx } = await working();
+  describe('handing an item off', () => {
+    it('leaves a no_grant todo for the super side and closes its queue item without requeueing it', async () => {
+      const reason = 'no_grant';
+      const opened = await openTodo();
+      const { queueItem, ctx } = await working();
 
-        const result = await finish(ctx, queueItem.id, {
-          outcome: 'handed_off',
-          handoff: { reason, action: 'Decide whether the hub may be measured' },
-        });
+      const result = await finish(ctx, queueItem.id, {
+        outcome: 'handed_off',
+        handoff: { reason, action: 'Measure the hub' },
+      });
 
-        expect(result.item).toMatchObject({ state: 'handed_off', outcome: { handoff: { reason } } });
-        const handed = h.domain.inbox.get('AR', opened.itemId);
-        expect(handed.state).toBe('open');
-        expect(handed.assignees).toContain('owner');
-        expect(questionPayloadOf(handed)).toMatchObject({
-          recipient: 'owner',
-          operatorHandoff: { queueItemId: queueItem.id, reason },
-        });
-      },
-    );
+      expect(result.item).toMatchObject({
+        state: 'handed_off',
+        outcome: { handoff: { reason, to: 'super' } },
+      });
+      const handed = h.domain.inbox.get('AR', opened.itemId);
+      expect(handed.state).toBe('open');
+      expect(handed.assignees).toContain('owner');
+      expect(questionPayloadOf(handed)).toMatchObject({
+        recipient: 'integrator',
+        operatorHandoff: { queueItemId: queueItem.id, reason },
+      });
+      expect(h.domain.inbox.countOpenFor('AR', 'owner')).toBe(0);
+      await h.domain.memberQueue.recover();
+      expect(operatorItems(h)).toEqual([]);
+      expect(item(queueItem.id).state).toBe('handed_off');
+    });
+
+    it('keeps a no_typed_operation fix limit decision with the super side and its card held', async () => {
+      const config = await h.domain.projects.config('AR');
+      const created = h.domain.inbox.createFixLimitDecision(config, {
+        projectKey: 'AR',
+        taskKey: 'AR-1',
+        assignees: ['owner'],
+        fixLimit: {
+          taskKey: 'AR-1',
+          rounds: 3,
+          limit: 3,
+          changeRequests: 3,
+          designChangeRequests: 0,
+          sendBacks: 0,
+          reason: 'passed_on',
+          decider: 'lead',
+          note: null,
+        },
+        options: [FIX_ANOTHER_ROUND_OPTION],
+      });
+      h.repos.taskFixLimits.save({
+        taskKey: 'AR-1',
+        projectKey: 'AR',
+        countedFrom: null,
+        extraRounds: 0,
+        holdPhase: 'owner',
+        heldAt: created.createdAt,
+        decider: null,
+        deciders: ['owner'],
+        reason: 'passed_on',
+        inboxItemId: created.id,
+      });
+      const { queueItem, ctx } = await working();
+      const before = h.repos.taskFixLimits.get('AR-1');
+
+      const result = await finish(ctx, queueItem.id, {
+        outcome: 'handed_off',
+        handoff: { reason: 'no_typed_operation', action: 'Review the fix history' },
+      });
+
+      expect(result.item).toMatchObject({ state: 'handed_off', outcome: { handoff: { to: 'super' } } });
+      expect(h.domain.inbox.get('AR', created.id)).toMatchObject({
+        state: 'open',
+        assignees: created.assignees,
+        options: created.options,
+        payload: { recipient: 'integrator', operatorHandoff: { reason: 'no_typed_operation' } },
+      });
+      expect(h.repos.taskFixLimits.get('AR-1')).toEqual(before);
+    });
+
+    it('serializes simultaneous super handoffs and keeps the first action', async () => {
+      const opened = await openTodo();
+      const { queueItem } = await working();
+      const handoff = {
+        queueItemId: queueItem.id,
+        reason: 'no_grant' as const,
+        action: 'Measure the hub',
+        detail: null,
+        operationId: null,
+      };
+
+      const results = await Promise.allSettled([
+        h.domain.inbox.passOnToSuper('AR', opened.itemId, handoff),
+        h.domain.inbox.passOnToSuper('AR', opened.itemId, { ...handoff, action: 'Restart the machine' }),
+      ]);
+
+      expect(results[0].status).toBe('fulfilled');
+      expect(results[1]).toMatchObject({
+        status: 'rejected',
+        reason: { status: 403, code: 'super_relay_refused' },
+      });
+      expect(h.domain.inbox.get('AR', opened.itemId).payload.operatorHandoff).toEqual(handoff);
+    });
+
+    it('refuses a super handoff after the integrator todo was resolved', async () => {
+      const opened = await openTodo();
+      const { queueItem, ctx } = await working();
+      await finish(ctx, queueItem.id);
+
+      await expect(
+        h.domain.inbox.passOnToSuper('AR', opened.itemId, {
+          queueItemId: queueItem.id,
+          reason: 'no_grant',
+          action: 'Measure the hub',
+          detail: null,
+          operationId: null,
+        }),
+      ).rejects.toMatchObject({ status: 409, code: 'inbox_item_closed' });
+    });
+
+    it('still gives an owner_reserved todo to the owners', async () => {
+      const opened = await openTodo();
+      const { queueItem, ctx } = await working();
+
+      const result = await finish(ctx, queueItem.id, {
+        outcome: 'handed_off',
+        handoff: { reason: 'owner_reserved', action: 'Choose the security setting' },
+      });
+
+      expect(result.item).toMatchObject({ state: 'handed_off', outcome: { handoff: { to: 'owner' } } });
+      expect(questionPayloadOf(h.domain.inbox.get('AR', opened.itemId))).toMatchObject({
+        recipient: 'owner',
+      });
+      expect(h.domain.inbox.countOpenFor('AR', 'owner')).toBe(1);
+    });
+
+    it('uses an owner_reserved operation question without opening a second owner todo', async () => {
+      const opened = await openTodo();
+      const { queueItem, ctx } = await working();
+      const question = h.domain.inbox.create({
+        projectKey: 'AR',
+        kind: 'question',
+        source: 'system',
+        assignees: ['owner'],
+        title: 'Approve deletion',
+        payload: {},
+        options: [{ id: 'yes', label: 'Yes', style: 'primary' }],
+      });
+      const at = new Date().toISOString();
+      h.repos.superHandoffs.insertOperation({
+        id: 'sop_owner',
+        projectKey: 'AR',
+        taskKey: null,
+        keyId: 'key_test',
+        requestId: 'request_test',
+        handoffId: null,
+        command: { kind: 'operate', operation: { op: 'member_retire', handle: 'dev-1' } },
+        commandHash: 'hash',
+        expectedConfigVersion: null,
+        state: 'waiting_owner',
+        ownerQuestionId: question.id,
+        expiresAt: null,
+        errorCode: null,
+        revision: 0,
+        createdAt: at,
+        updatedAt: at,
+      });
+
+      const result = await finish(ctx, queueItem.id, {
+        outcome: 'handed_off',
+        handoff: {
+          reason: 'owner_reserved',
+          action: 'Approve deletion',
+          operationId: 'sop_owner',
+        },
+      });
+
+      expect(result.item).toMatchObject({
+        state: 'handed_off',
+        outcome: { handoff: { to: 'owner', inboxItemId: question.id } },
+      });
+      expect(h.domain.inbox.get('AR', opened.itemId).state).toBe('resolved');
+      expect(h.domain.inbox.countOpenFor('AR', 'owner')).toBe(1);
+    });
 
     it('refuses owner_reserved with an operation that does not exist', async () => {
       await openTodo();
@@ -201,7 +364,7 @@ describe('the Operator queue', () => {
   });
 
   describe('when the Operator does not finish', () => {
-    it('reminds it once in the same session, then hands the item to the owner as processing_failed', async () => {
+    it('reminds it once in the same session, then hands the item to the super side as processing_failed', async () => {
       const opened = await openTodo();
       const { queueItem, ctx } = await working();
 
@@ -217,10 +380,10 @@ describe('the Operator queue', () => {
 
       expect(item(queueItem.id)).toMatchObject({
         state: 'handed_off',
-        outcome: { handoff: { reason: 'processing_failed' } },
+        outcome: { handoff: { reason: 'processing_failed', to: 'super' } },
       });
       expect(questionPayloadOf(h.domain.inbox.get('AR', opened.itemId))).toMatchObject({
-        recipient: 'owner',
+        recipient: 'integrator',
         operatorHandoff: { reason: 'processing_failed' },
       });
     });
@@ -276,6 +439,28 @@ describe('the Operator queue', () => {
 
       expect(h.runner.started.some((spec) => spec.member === 'operator')).toBe(false);
     });
+
+    it('opens a super todo for a handed-off message without queueing that todo for the Operator', async () => {
+      await record('dev-1', 'action');
+      const { queueItem, ctx } = await working();
+
+      const result = await finish(ctx, queueItem.id, {
+        outcome: 'handed_off',
+        handoff: { reason: 'no_typed_operation', action: 'Inspect the machine' },
+      });
+
+      expect(result.item).toMatchObject({ state: 'handed_off', outcome: { handoff: { to: 'super' } } });
+      const created = h.domain.inbox.get('AR', result.item.outcome!.handoff!.inboxItemId);
+      expect(questionPayloadOf(created)).toMatchObject({
+        recipient: 'integrator',
+        requestedRecipient: 'integrator',
+        operatorHandoff: { reason: 'no_typed_operation' },
+        screening: { todo: { recipient: 'integrator' } },
+      });
+      await h.domain.memberQueue.recover();
+      expect(operatorItems(h)).toEqual([]);
+      expect(h.domain.inbox.countOpenFor('AR', 'owner')).toBe(0);
+    });
   });
 
   it('starts the Operator for its queue although the project cap of running AI sessions is reached', async () => {
@@ -283,7 +468,7 @@ describe('the Operator queue', () => {
     await h.cleanup();
     h = await createDomainHarness({
       adjust: (config) => void (config.team.limits.maxConcurrentAi = 1),
-      integratorTodoAccess: { available: operatorQueueAvailable },
+      integratorTodoAccess: { available: integratorSideAvailable },
     });
     await h.domain.sessions.ensureSession('AR', 'dev-1', { type: 'general' });
     const opened = await openTodo();
@@ -295,10 +480,13 @@ describe('the Operator queue', () => {
   });
 
   describe('when the Operator becomes unavailable', () => {
-    it('gives the open todo and its queue item to the owners at the next sweep', async () => {
+    it('gives the open todo to the owners only after the Operator is removed', async () => {
       const opened = await openTodo();
       await settle();
-      available = false;
+      // A restored configuration can lack the fixed Operator; normal config edits cannot remove it.
+      const config = structuredClone(await h.domain.projects.config('AR'));
+      config.team.members = config.team.members.filter((member) => member.handle !== 'operator');
+      vi.spyOn(h.domain.projects, 'config').mockResolvedValue(config);
 
       await h.domain.inbox.sweepIntegratorTodos();
       await settle();
@@ -315,22 +503,27 @@ describe('the Operator queue', () => {
   });
 
   describe('when the Operator cannot be woken', () => {
-    const aiOff = (config: ProjectConfig): void => void (config.team.limits.aiEnabled = false);
+    it.each(['ai_off', 'on_leave'] as const)(
+      'keeps the todo queued for the integrator with %s',
+      async (state) => {
+        const config = structuredClone(await h.domain.projects.config('AR'));
+        if (state === 'ai_off') config.team.limits.aiEnabled = false;
+        else {
+          const operator = config.team.members.find((member) => member.handle === 'operator')!;
+          if (operator.kind === 'ai') operator.onLeave = true;
+        }
+        vi.spyOn(h.domain.projects, 'config').mockResolvedValue(config);
+        vi.spyOn(h.domain.projects, 'cachedConfig').mockReturnValue(config);
+        const opened = await openTodo();
+        await settle();
 
-    it('gives the todo to the owners at once', async () => {
-      await h.domain.stop();
-      await h.cleanup();
-      h = await createDomainHarness({
-        adjust: aiOff,
-        integratorTodoAccess: { available: operatorQueueAvailable },
-      });
-      const opened = await openTodo();
-      await settle();
-
-      expect(questionPayloadOf(h.domain.inbox.get('AR', opened.itemId))).toMatchObject({
-        recipient: 'owner',
-      });
-      expect(h.repos.memberQueue.listOpen('AR', 'operator')).toEqual([]);
-    });
+        expect(questionPayloadOf(h.domain.inbox.get('AR', opened.itemId))).toMatchObject({
+          recipient: 'integrator',
+        });
+        await h.domain.inbox.sweepIntegratorTodos();
+        expect(h.repos.memberQueue.listOpen('AR', 'operator')).toMatchObject([{ state: 'queued' }]);
+        expect(h.domain.inbox.countOpenFor('AR', 'owner')).toBe(0);
+      },
+    );
   });
 });

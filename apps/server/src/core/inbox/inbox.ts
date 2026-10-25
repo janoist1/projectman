@@ -15,6 +15,7 @@ import {
   isIntegratorTodo,
   isIntegratorFixLimitDecision,
   isIntegratorInboxItem,
+  operatorOwesInboxItem,
   wasIntegratorTodo,
   planIntegratorInboxEscalation,
   selectFixLimitRecipient,
@@ -1001,7 +1002,7 @@ export class InboxService {
 
   /**
    * Gives every open integrator item (todos and the narrow fix limit decisions) to the owners when the
-   * Operator no longer processes its queue (on leave, AI off, role gone; PM-885): nobody else would look at it.
+   * project no longer has an Operator (PM-1003). On leave or with AI off they wait for it or the super side.
    */
   async sweepIntegratorTodos(): Promise<void> {
     const open = [...this.ctx.repos.inbox.listOpen('question'), ...this.ctx.repos.inbox.listOpen('decision')];
@@ -1047,16 +1048,37 @@ export class InboxService {
     });
   }
 
+  /** Hands an open integrator item to the super side without changing its recipient or held decision. */
+  async passOnToSuper(projectKey: string, id: string, handoff: OperatorHandoff): Promise<InboxItem> {
+    return this.questionLock(id, async () => {
+      const item = this.get(projectKey, id);
+      if (item.state !== 'open') throw conflict('inbox_item_closed', `inbox item ${id} is ${item.state}`);
+      if (!operatorOwesInboxItem(item))
+        throw forbidden('super_relay_refused', 'only an unhanded integrator item may be passed on');
+      const updated = this.ctx.unitOfWork(() =>
+        this.ctx.repos.inbox.updateOpen(
+          id,
+          { ...item.payload, operatorHandoff: handoff },
+          item.assignees,
+          isoNow(this.ctx),
+        ),
+      );
+      if (!updated) throw conflict('inbox_item_closed', `inbox item ${id} is no longer open`);
+      this.publish(updated);
+      return updated;
+    });
+  }
+
   /**
-   * The owners get a todo the Operator could not do for a message (PM-885): there is no integrator item to pass
-   * on, so it opens one for them. `todo` says what to do; the Operator is its asker and no answer is delivered.
+   * Opens a todo for a message the Operator handed off (PM-1003): the super side gets machine work, the owners
+   * their reserved actions. `todo` says what to do; the Operator is its asker and no answer is delivered.
    */
   async openOperatorHandoffTodo(input: {
     projectKey: string;
     taskKey: string | null;
     operator: string;
     title: string;
-    todo: QuestionTodo;
+    todo: ScreeningTodo;
     handoff: OperatorHandoff;
   }): Promise<InboxItem> {
     const config = await this.projects.config(input.projectKey);
@@ -1073,7 +1095,11 @@ export class InboxService {
       taskKey: input.taskKey,
       title: input.title,
       body: null,
-      payload: { question: input.title, requestedRecipient: 'owner', recipient: 'owner' },
+      payload: {
+        question: input.title,
+        requestedRecipient: input.todo.recipient,
+        recipient: input.todo.recipient,
+      },
       options: [],
       state: 'open',
       resolution: null,
@@ -1081,7 +1107,7 @@ export class InboxService {
     };
     const { payload, options } = this.releaseFields(
       draft,
-      { outcome: 'todo', by: input.operator, todo: { ...input.todo, recipient: 'owner' } },
+      { outcome: 'todo', by: input.operator, todo: input.todo },
       config,
       at,
     );

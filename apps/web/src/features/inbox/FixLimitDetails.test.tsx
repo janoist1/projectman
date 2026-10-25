@@ -199,8 +199,8 @@ describe('fix limit decision details', () => {
     f.project.backend.config.team.limits.aiEnabled = false;
     f.project.backend.sweepIntegratorTodos(new Date().toISOString());
     expect(f.item.taskKey).toBe('AC-21');
-    expect(f.project.backend.inbox[0]!.payload.recipient).toBe('owner');
-    expect(f.project.backend.findTask('AC-21')!.fixLimit?.recipient).toBe('owner');
+    expect(f.project.backend.inbox[0]!.payload.recipient).toBe('integrator');
+    expect(f.project.backend.findTask('AC-21')!.fixLimit?.recipient).toBe('integrator');
   });
 
   it('keeps an Operator resolution outside the owner decisions', async () => {

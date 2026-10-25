@@ -340,6 +340,33 @@ describe('the Sor view', () => {
       inbox: true,
     },
     {
+      name: 'handed to the super side',
+      state: 'handed_off',
+      outcome: {
+        summary: '',
+        operationIds: [],
+        machine: false,
+        handoff: { reason: 'no_grant', inboxItemId: 'inb_7', to: 'super' },
+      },
+      text: () =>
+        t('operator.queue.outcome.handedOffSuper', {
+          reason: t('operator.queue.outcome.reasonsOther.no_grant'),
+        }),
+      inbox: false,
+    },
+    {
+      name: 'failed and handed to the super side',
+      state: 'handed_off',
+      outcome: {
+        summary: '',
+        operationIds: [],
+        machine: false,
+        handoff: { reason: 'processing_failed', inboxItemId: 'inb_7', to: 'super' },
+      },
+      text: () => t('operator.queue.outcome.failedSuper'),
+      inbox: false,
+    },
+    {
       name: 'cancelled',
       state: 'cancelled' as const,
       outcome: null,

@@ -11,6 +11,7 @@ import {
   isIntegratorFixLimitDecision,
   isIntegratorInboxItem,
   isIntegratorTodo,
+  operatorOwesInboxItem,
   planIntegratorInboxEscalation,
   selectFixLimitRecipient,
   wasIntegratorInboxItem,
@@ -50,6 +51,16 @@ function todo(): InboxItem {
 }
 
 describe('durable integrator todo rules', () => {
+  it.each([
+    { state: 'open' as const, handed: false, expected: true },
+    { state: 'open' as const, handed: true, expected: false },
+    { state: 'resolved' as const, handed: false, expected: false },
+  ])('owes the Operator work for $state, handed=$handed: $expected', ({ state, handed, expected }) => {
+    const item = todo();
+    item.state = state;
+    if (handed) item.payload.operatorHandoff = {};
+    expect(operatorOwesInboxItem(item)).toBe(expected);
+  });
   it('keeps old stored todos valid and requires a recipient on new screening inputs', () => {
     const old = { what: 'Measure', where: 'Hub', expected: 'Result' };
     expect(QuestionTodo.safeParse(old).success).toBe(true);

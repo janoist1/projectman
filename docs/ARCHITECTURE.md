@@ -940,9 +940,11 @@ Every AI member has one durable queue of what is waiting for them: a message, an
   remember it. A message gets an item for each AI recipient it is pending for (a receipt without `deliveredAt`; the
   `team_message_pending` table is gone since migration 99); the item closes
   `done`/`delivered` on delivery and `cancelled`/`source_closed` when the receipt is settled any other way. An open
-  inbox item that is addressed to the integrator (`isIntegratorInboxItem`: a todo or the narrow fix limit decision)
-  gets an Operator item with `wake: true`; it closes `done`/`resolved` when the integrator answered, else
-  `cancelled`/`source_closed` (escalation to the owner included). Both reconcilers are idempotent and a failure is
+  inbox item still owed by the Operator (`operatorOwesInboxItem`: an integrator todo or narrow fix limit decision
+  without `operatorHandoff`) gets an Operator item with `wake: true`; it closes `done`/`resolved` when the integrator
+  answered, or with the Operator's planned outcome when handed off, else `cancelled`/`source_closed`.
+  A handoff to the super side keeps integrator addressing and sets `operatorHandoff`, so reconciliation closes
+  the Operator row and never queues the item again (PM-1003). Both reconcilers are idempotent and a failure is
   logged and never changes what the source write does.
 - **Invariant**: the open message items are exactly the messages pending for an AI recipient. `recover()` runs at
   startup (after `messageAttachments.recover()`) and fills in what is missing or closes what is stale; running it again
@@ -971,6 +973,16 @@ Every AI member has one durable queue of what is waiting for them: a message, an
   `engine_offline` as the item's wait, and the sweep starts it when the engine is back.
 
 ## Durable super-mode handoff (PM-762, part of the super mode PM-757)
+
+The Operator's queue handoffs (PM-1003) use the existing integrator inbox: `no_grant`, `no_typed_operation`
+and `processing_failed` leave machine work there, with `payload.operatorHandoff` describing the action and
+context. The super client lists it through `list_integrator_inbox` and resolves it through
+`resolve_integrator_todo` or `resolve_integrator_fix_limit` (MCP, including the CLI proxy). With no super
+client running, it waits; held cards remain held. Operator leave or AI being off does not send this work to
+the owner (`integratorSideAvailable` checks only that an Operator exists). Only `owner_reserved` goes to
+the owner, using the operation's existing question when available. The queue outcome records
+`handoff.to` (`super` or `owner`; missing on old rows means owner). The web shows a short outcome, without
+an owner inbox link for super work; no extra owner notification or badge is created.
 
 `request_super_operation` (the base Operator, in its own general conversation during an open owner request;
 retired by PM-888, whose `execute_operation` runs the command directly, see "In-app Operator on the shared path"
@@ -2708,9 +2720,10 @@ workers follow the machine's size.
     `engine_offline` (`releaseForEngine`, `retryDeferredStarts`). Real Mac, sleep and network
     trials belong to PM-664.
     Integrator todo handoff (PM-782, `core/inbox/inbox.ts`, assembly maintenance) has no clock since
-    PM-885 and PM-938: an Operator todo goes to the owners when the Operator passes it on
-    (`integrator_passed_on`) or does not work its queue (`integrator_unavailable`, swept by
-    `sweepIntegratorTodos` whatever the engine or AI state). The hub alone persists and publishes the handoff;
+    PM-885 and PM-938: since PM-1003, machine work handed off by the Operator stays in the integrator inbox;
+    only owner-reserved work is passed to the owners (`integrator_passed_on`). The sweep gives integrator
+    work to the owners only when no Operator exists (`integrator_unavailable`); on leave or with AI off it
+    waits for the Operator or super side. The hub alone persists and publishes the handoff;
     no engine operation or credential crosses the boundary. PM-801 puts the integrator's fix-limit
     decisions on the same sweep (`planIntegratorInboxEscalation`): hub-side only.
     PM-712 applies the same server-owned queue and receipt pattern to suspected loops:

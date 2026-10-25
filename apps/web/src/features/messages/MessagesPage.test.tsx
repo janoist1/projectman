@@ -120,6 +120,18 @@ describe('a conversation', () => {
     ).toEqual([expect.stringContaining('AC-21'), expect.stringContaining('AC-22')]);
   });
 
+  it('marks a message that came by e-mail with the subject, in the thread of the member', async () => {
+    const p = mockProject();
+    p.backend.messages = [];
+    const message = p.backend.sendTeamMessage('owner', ['fe-1'], null, 'Mail body');
+    message.email = { emailId: 'eml-1', subject: 'Mail subject', direct: true };
+    p.render(<Pages />, '/p/AC/messages/with/fe-1');
+    const log = await screen.findByRole('log');
+    await within(log).findByText('Mail body');
+    expect(within(log).getByText(t('messages.email.received'))).toBeTruthy();
+    expect(within(log).getByText('Mail subject').tagName).toBe('STRONG');
+  });
+
   it('reads the incoming messages in one request after a moment and keeps the new-messages line', async () => {
     const p = mockProject();
     p.backend.messages = [];

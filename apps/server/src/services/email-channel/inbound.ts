@@ -1,24 +1,33 @@
 import { randomUUID } from 'node:crypto';
+import { Readable } from 'node:stream';
 import PostalMime from 'postal-mime';
 import {
   ALERT_SEEN_OPTION,
   EMAIL_INBOUND_TEXT_MAX,
   EMAIL_PARKED_ALERTS_PER_DAY,
   EMAIL_SUBJECT_MAX,
+  MAX_MESSAGE_ATTACHMENTS,
   SYSTEM_SENDER,
   emailChannelOn,
+  emailMailboxOwners,
+  emailRecipientRefusal,
   emailSenderOf,
   isOpenTask,
+  parseEmailMemberAddress,
   parseEmailReplyAddress,
+  teamMessageRecipientRefusal,
 } from '@projectman/shared';
 import type { EmailParkedAlert, EmailParkReason, InboxItem, ProjectConfig } from '@projectman/shared';
+import type { MessageAttachmentOperations } from '../../contracts';
 import type { EmailMessageRecord } from '../../db';
 import type { DomainContext } from '../../core/base';
 import type { InboxService } from '../../core/inbox';
 import type { Messaging } from '../../core/messages';
 import type { ProjectService } from '../../core/projects';
 import type { TaskService } from '../../core/tasks';
+import { humanActor } from '../../kernel';
 import type { EmailChannelEnv } from './config';
+import { projectConfigs } from './mailboxes';
 import { cleanReplyText, htmlToText } from './reply-text';
 import { replyTokenHash } from './reply-token';
 import type { DeliveryEvent, EmailInbound, InboundMail } from './types';
@@ -34,26 +43,42 @@ type Parsed = {
   subject: string;
   text: string;
   attachmentNames: string[];
+  /** The files to store (at most one message's worth); the names above stay the record of every attachment. */
+  files: { fileName: string; content: Buffer }[];
+};
+
+/** Who a mail is between, as the log records it. */
+type Link = {
+  member: string | null;
+  contact: string | null;
+  taskKey: string | null;
+  inReplyTo: string | null;
 };
 
 function limited(text: string, max: number): string {
   return text.length > max ? text.slice(0, max) : text;
 }
 
-/** Only the bodies and names are read: the content of an attachment is dropped, never stored or run. */
+/**
+ * The bodies, the names and the content of the attachments are read. The content goes only to the
+ * message-attachment storage, which sniffs its type, previews only a proven image and never runs it.
+ */
 async function parse(raw: Uint8Array): Promise<Parsed | null> {
   try {
     const email = await PostalMime.parse(raw);
     const fromAddress = email.from?.address?.trim().toLowerCase();
     if (!fromAddress) return null;
     const body = email.text?.trim() ? email.text : htmlToText(email.html ?? '');
+    const name = (filename: string | null) => limited(filename ?? 'attachment', ATTACHMENT_NAME_MAX);
     return {
       fromAddress: limited(fromAddress, ADDRESS_MAX),
       subject: limited((email.subject ?? '').trim(), EMAIL_SUBJECT_MAX),
       text: cleanReplyText(body),
-      attachmentNames: email.attachments
-        .slice(0, ATTACHMENT_NAMES_MAX)
-        .map((attachment) => limited(attachment.filename ?? 'attachment', ATTACHMENT_NAME_MAX)),
+      attachmentNames: email.attachments.slice(0, ATTACHMENT_NAMES_MAX).map((a) => name(a.filename)),
+      files: email.attachments.slice(0, MAX_MESSAGE_ATTACHMENTS).map((a) => ({
+        fileName: name(a.filename),
+        content: Buffer.from(typeof a.content === 'string' ? a.content : new Uint8Array(a.content)),
+      })),
     };
   } catch {
     return null;
@@ -65,6 +90,7 @@ export function createEmailInbound(deps: {
   repo: DomainContext['repos']['emailChannel'];
   inbox: InboxService;
   messaging: Messaging;
+  messageAttachments: MessageAttachmentOperations;
   projects: ProjectService;
   tasks: TaskService;
   env?: EmailChannelEnv;
@@ -74,16 +100,41 @@ export function createEmailInbound(deps: {
   notify: (projectKey: string, member: string, taskKey: string | null, text: string) => Promise<void>;
   publishInbox: (item: InboxItem | null) => void;
 }): EmailInbound {
-  const { ctx, repo, inbox, messaging, projects, tasks, env, replyKey, now, changed, notify } = deps;
+  const {
+    ctx,
+    repo,
+    inbox,
+    messaging,
+    messageAttachments,
+    projects,
+    tasks,
+    env,
+    replyKey,
+    now,
+    changed,
+    notify,
+  } = deps;
   const { logger } = ctx;
 
+  const linkOf = (outbound: EmailMessageRecord | null): Link | null =>
+    outbound
+      ? {
+          member: outbound.member,
+          contact: outbound.contact,
+          taskKey: outbound.taskKey,
+          inReplyTo: outbound.id,
+        }
+      : null;
+
+  /** `alert: false`: the mail is kept in the log but raises no item (a guessable address gets mail from anyone). */
   function park(
     projectKey: string,
     config: ProjectConfig,
     mail: InboundMail,
     reason: EmailParkReason,
     parsed: Parsed | null,
-    outbound: EmailMessageRecord | null,
+    link: Link | null,
+    alert = true,
   ): 'parked' | 'duplicate' {
     const at = now().toISOString();
     const text = limited(parsed?.text ?? '', EMAIL_INBOUND_TEXT_MAX);
@@ -92,9 +143,9 @@ export function createEmailInbound(deps: {
       record = repo.messages.insert({
         projectKey,
         direction: 'inbound',
-        member: outbound?.member ?? null,
-        contact: outbound?.contact ?? null,
-        taskKey: outbound?.taskKey ?? null,
+        member: link?.member ?? null,
+        contact: link?.contact ?? null,
+        taskKey: link?.taskKey ?? null,
         subject: parsed?.subject ?? '',
         text,
         status: 'parked',
@@ -104,7 +155,7 @@ export function createEmailInbound(deps: {
         attachmentNames: parsed?.attachmentNames ?? [],
         replyTokenHash: null,
         replyExpiresAt: null,
-        inReplyTo: outbound?.id ?? null,
+        inReplyTo: link?.inReplyTo ?? null,
         providerId: mail.providerId,
         inboxItemId: null,
         messageId: null,
@@ -121,7 +172,11 @@ export function createEmailInbound(deps: {
     const assignees = config.team.members
       .filter((member) => member.kind === 'human' && ['owner', 'admin'].includes(member.access))
       .map((member) => member.handle);
-    if (repo.countAlertedSince(projectKey, since) >= EMAIL_PARKED_ALERTS_PER_DAY || assignees.length === 0) {
+    if (
+      !alert ||
+      repo.countAlertedSince(projectKey, since) >= EMAIL_PARKED_ALERTS_PER_DAY ||
+      assignees.length === 0
+    ) {
       logger.warn({ projectKey, providerId: mail.providerId, reason }, 'a mail was parked without an alert');
     } else {
       const payload: EmailParkedAlert = {
@@ -150,39 +205,30 @@ export function createEmailInbound(deps: {
     return 'parked';
   }
 
-  async function receive(mail: InboundMail): Promise<'delivered' | 'parked' | 'duplicate' | 'dropped'> {
-    if (repo.messages.byProviderId(mail.providerId)) return 'duplicate';
-    const dropped = (why: string) => {
-      logger.warn({ providerId: mail.providerId }, `a received mail was dropped: ${why}`);
-      return 'dropped' as const;
-    };
-    if (!env || !replyKey) return dropped('the e-mail channel is not configured');
-    let address: { projectKey: string; token: string } | null = null;
-    for (const recipient of mail.recipients) {
-      address = parseEmailReplyAddress(recipient.trim().toLowerCase(), env.replyDomain);
-      if (address) break;
-    }
-    if (!address) return dropped('no reply address');
-    const config = await projects.config(address.projectKey).catch(() => null);
-    if (!config) return dropped('unknown project');
-    const projectKey = address.projectKey;
+  type Received = 'delivered' | 'parked' | 'duplicate' | 'dropped';
 
-    const parsed = await parse(mail.raw);
-    if (!parsed) return park(projectKey, config, mail, 'unreadable', null, null);
-    const outbound = repo.messages.byTokenHash(replyTokenHash(replyKey, address.token));
-    const known = outbound?.direction === 'outbound' && outbound.projectKey === projectKey ? outbound : null;
-    const fail = (reason: EmailParkReason) => park(projectKey, config, mail, reason, parsed, known);
-    if (!known) return fail('token_invalid');
-    if (known.replyExpiresAt && known.replyExpiresAt < now().toISOString()) return fail('token_expired');
-    const { dmarc, spam, virus } = mail.verdicts;
-    if (dmarc !== 'pass' || spam === 'fail' || virus === 'fail') return fail('authentication_failed');
-    const contact = config.team.members.find((member) => member.handle === known.contact);
-    if (contact?.kind !== 'human' || !contact.email || contact.email.toLowerCase() !== parsed.fromAddress)
-      return fail('unknown_sender');
-    if (!emailChannelOn(config) || !emailSenderOf(config, known.member ?? '')) return fail('channel_off');
+  const drop = (mail: InboundMail, why: string): 'dropped' => {
+    logger.warn({ providerId: mail.providerId }, `a received mail was dropped: ${why}`);
+    return 'dropped';
+  };
 
-    // The row comes first: its unique provider id claims the mail, so a second delivery of it (the queue
-    // delivers at least once) stops here and the member gets the message once.
+  /**
+   * Records the mail and hands it to the member as a message with the mail's files. The row comes first:
+   * its unique provider id claims the mail, so a second delivery of it (the queue delivers at least once)
+   * stops here and the member gets the message once.
+   */
+  async function deliverMail(input: {
+    projectKey: string;
+    config: ProjectConfig;
+    mail: InboundMail;
+    parsed: Parsed;
+    member: string;
+    contact: string;
+    taskKey: string | null;
+    inReplyTo: string | null;
+    direct: boolean;
+  }): Promise<Received> {
+    const { projectKey, config, mail, parsed, member, contact, taskKey, inReplyTo, direct } = input;
     const emailId = `eml_${randomUUID()}`;
     const at = now().toISOString();
     try {
@@ -190,9 +236,9 @@ export function createEmailInbound(deps: {
         id: emailId,
         projectKey,
         direction: 'inbound',
-        member: known.member,
-        contact: contact.handle,
-        taskKey: known.taskKey,
+        member,
+        contact,
+        taskKey,
         subject: parsed.subject,
         text: parsed.text,
         status: 'delivered',
@@ -202,7 +248,7 @@ export function createEmailInbound(deps: {
         attachmentNames: parsed.attachmentNames,
         replyTokenHash: null,
         replyExpiresAt: null,
-        inReplyTo: known.id,
+        inReplyTo,
         providerId: mail.providerId,
         inboxItemId: null,
         messageId: null,
@@ -215,27 +261,148 @@ export function createEmailInbound(deps: {
       if (isUniqueViolation(error)) return 'duplicate';
       throw error;
     }
-    const task = known.taskKey ? tasks.find(projectKey, known.taskKey) : null;
-    let message: Awaited<ReturnType<Messaging['send']>>;
     try {
-      message = await messaging.send(
+      // A file that cannot be stored is left out (its name stays in the log); the text still arrives.
+      const attachmentIds: string[] = [];
+      for (const file of parsed.files) {
+        try {
+          const stored = await messageAttachments.upload({
+            projectKey,
+            actor: humanActor(contact),
+            fileName: file.fileName,
+            content: Readable.from([file.content]),
+          });
+          attachmentIds.push(stored.id);
+        } catch (err) {
+          logger.warn(
+            { err, providerId: mail.providerId },
+            'an attachment of a received mail was not stored',
+          );
+        }
+      }
+      if (!parsed.text.trim() && attachmentIds.length === 0) {
+        repo.messages.remove(emailId);
+        return park(projectKey, config, mail, 'unreadable', parsed, { member, contact, taskKey, inReplyTo });
+      }
+      const task = taskKey ? tasks.find(projectKey, taskKey) : null;
+      const message = await messaging.send(
         projectKey,
-        contact.handle,
+        contact,
         {
-          to: [known.member!],
+          to: [member],
           taskKey: task && isOpenTask(task) ? task.key : null,
           text: parsed.text,
+          attachmentIds,
         },
-        { kind: 'action', email: { emailId, subject: parsed.subject } },
+        { kind: 'action', email: { emailId, subject: parsed.subject, ...(direct ? { direct: true } : {}) } },
       );
+      repo.messages.update(emailId, { messageId: message.id, updatedAt: now().toISOString() });
     } catch (error) {
-      // Nothing was sent: free the provider id, so the redelivery of the mail can try again.
+      // Nothing was sent: free the provider id, so the redelivery of the mail can try again. The files
+      // that were stored but not bound to a message are swept by the attachment service.
       repo.messages.remove(emailId);
       throw error;
     }
-    repo.messages.update(emailId, { messageId: message.id, updatedAt: now().toISOString() });
     changed(projectKey);
     return 'delivered';
+  }
+
+  /** A mail to a reply address of an outgoing mail: the answer of the person the member wrote to. */
+  async function receiveReply(
+    mail: InboundMail,
+    address: { projectKey: string; token: string },
+    key: Buffer,
+  ): Promise<Received> {
+    const config = await projects.config(address.projectKey).catch(() => null);
+    if (!config) return drop(mail, 'unknown project');
+    const projectKey = address.projectKey;
+
+    const parsed = await parse(mail.raw);
+    if (!parsed) return park(projectKey, config, mail, 'unreadable', null, null);
+    const outbound = repo.messages.byTokenHash(replyTokenHash(key, address.token));
+    const known = outbound?.direction === 'outbound' && outbound.projectKey === projectKey ? outbound : null;
+    const fail = (reason: EmailParkReason) => park(projectKey, config, mail, reason, parsed, linkOf(known));
+    if (!known) return fail('token_invalid');
+    if (known.replyExpiresAt && known.replyExpiresAt < now().toISOString()) return fail('token_expired');
+    const { dmarc, spam, virus } = mail.verdicts;
+    if (dmarc !== 'pass' || spam === 'fail' || virus === 'fail') return fail('authentication_failed');
+    const contact = config.team.members.find((member) => member.handle === known.contact);
+    if (contact?.kind !== 'human' || !contact.email || contact.email.toLowerCase() !== parsed.fromAddress)
+      return fail('unknown_sender');
+    if (!emailChannelOn(config) || !emailSenderOf(config, known.member ?? '')) return fail('channel_off');
+    return deliverMail({
+      projectKey,
+      config,
+      mail,
+      parsed,
+      member: known.member!,
+      contact: contact.handle,
+      taskKey: known.taskKey,
+      inReplyTo: known.id,
+      direct: false,
+    });
+  }
+
+  /** A mail to a member's own address (PM-989): from a contributing person of the member's project only. */
+  async function receiveDirect(mail: InboundMail, mailbox: string): Promise<Received> {
+    const configs = await projectConfigs(projects);
+    const owners = emailMailboxOwners(configs, mailbox);
+    if (owners.length === 0) return drop(mail, 'no member has this mailbox');
+    if (owners.length > 1) {
+      logger.warn({ providerId: mail.providerId, mailbox }, 'a received mail was dropped: ambiguous mailbox');
+      return 'dropped';
+    }
+    const { projectKey, handle } = owners[0]!;
+    const config = configs.find((candidate) => candidate.project.key === projectKey)!;
+
+    const link: Link = { member: handle, contact: null, taskKey: null, inReplyTo: null };
+    const parsed = await parse(mail.raw);
+    if (!parsed) return park(projectKey, config, mail, 'unreadable', null, link);
+    // Anyone can guess the address: a stranger's mail is kept in the log, and it raises no alert.
+    const sender = config.team.members.find(
+      (member) => member.kind === 'human' && member.email?.toLowerCase() === parsed.fromAddress,
+    );
+    if (sender?.kind !== 'human')
+      return park(projectKey, config, mail, 'unknown_sender', parsed, link, false);
+    const known: Link = { ...link, contact: sender.handle };
+    const { dmarc, spam, virus } = mail.verdicts;
+    if (dmarc !== 'pass' || spam === 'fail' || virus === 'fail')
+      return park(projectKey, config, mail, 'authentication_failed', parsed, known);
+    // The same rules as a message written in the app: the sender's consent to e-mail, and a client writes
+    // only to the contacts (`opts.email` exempts a reply from the second, a mail to an address is not one).
+    const wants = repo.contacts.get(projectKey, sender.handle)?.wants ?? false;
+    if (
+      emailRecipientRefusal(sender, wants) !== null ||
+      teamMessageRecipientRefusal(config, sender.handle, [handle]) !== null
+    )
+      return park(projectKey, config, mail, 'sender_not_allowed', parsed, known);
+    return deliverMail({
+      projectKey,
+      config,
+      mail,
+      parsed,
+      member: handle,
+      contact: sender.handle,
+      taskKey: null,
+      inReplyTo: null,
+      direct: true,
+    });
+  }
+
+  async function receive(mail: InboundMail): Promise<Received> {
+    if (repo.messages.byProviderId(mail.providerId)) return 'duplicate';
+    if (!env || !replyKey) return drop(mail, 'the e-mail channel is not configured');
+    const recipients = mail.recipients.map((recipient) => recipient.trim().toLowerCase());
+    // A reply address comes first: it belongs to one outgoing mail and wins over a member's address.
+    for (const recipient of recipients) {
+      const address = parseEmailReplyAddress(recipient, env.replyDomain);
+      if (address) return receiveReply(mail, address, replyKey);
+    }
+    for (const recipient of recipients) {
+      const mailbox = parseEmailMemberAddress(recipient, env.replyDomain);
+      if (mailbox) return receiveDirect(mail, mailbox);
+    }
+    return drop(mail, 'no reply or member address');
   }
 
   async function deliveryEvent(event: DeliveryEvent): Promise<void> {

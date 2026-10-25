@@ -116,6 +116,57 @@
   min-width: 0;
 }
 
+.addressLine {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+
+/* The notes of the address line hold an address that cannot break: let them shrink and wrap. */
+.conflict,
+.addressNote {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.conflict {
+  font-size: 12.5px;
+  color: var(--c-needs-text);
+}
+
+.address {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  overflow-wrap: anywhere;
+}
+
+.mailboxForm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px 12px;
+  margin-top: 6px;
+}
+
+.mailboxForm > :first-child {
+  flex: 1 1 220px;
+}
+
+.mailboxDomain {
+  align-self: flex-start;
+  padding-top: 30px;
+  font-family: var(--font-mono);
+  color: var(--c-ink-4);
+}
+
+.mailboxActions {
+  display: flex;
+  gap: 8px;
+  align-self: flex-start;
+  padding-top: 24px;
+}
+
 .contacts {
   width: 100%;
   border-collapse: collapse;
@@ -301,6 +352,14 @@
   }
   .detail {
     margin-left: 0;
+  }
+  /* The field takes the row; the suffix and the buttons wrap under it without the desktop label offset. */
+  .mailboxForm > :first-child {
+    flex-basis: 100%;
+  }
+  .mailboxDomain,
+  .mailboxActions {
+    padding-top: 0;
   }
   .sender button,
   .noAddress button,

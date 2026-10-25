@@ -18,6 +18,7 @@ export const ERROR_CODES = [
   'email_contact_refused',
   'email_unknown',
   'email_send_failed',
+  'email_mailbox_taken',
   'web_push_unavailable',
   'web_push_endpoint_invalid',
   'web_push_device_limit',

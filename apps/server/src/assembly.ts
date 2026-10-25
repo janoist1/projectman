@@ -939,6 +939,7 @@ export function createDomain(opts: DomainOptions) {
     repo: opts.repos.emailChannel,
     inbox,
     messaging,
+    messageAttachments,
     projects,
     tasks,
     redactionContext: () => systemFeedbackContext.current(),

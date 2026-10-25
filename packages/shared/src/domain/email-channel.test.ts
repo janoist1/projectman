@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AiMemberConfig, HumanMemberConfig, ProjectConfig } from '../config/schema';
+import { AiMemberConfig, EmailMailbox, HumanMemberConfig, ProjectConfig } from '../config/schema';
 import { applyConfigPatch, PatchConfigRequest } from '../config/edit';
 import {
   applyMemberEmailChange,
@@ -8,7 +8,12 @@ import {
   emailRecipientRefusal,
   emailContentRefusals,
   emailContactChangeRefusal,
+  emailMailboxOf,
+  emailMailboxOwners,
+  emailMailboxTaken,
+  emailMemberAddress,
   emailReplyAddress,
+  parseEmailMemberAddress,
   parseEmailReplyAddress,
 } from './email-channel';
 import type { EmailContentContext, EmailContactChangeInput } from './email-channel';
@@ -251,6 +256,71 @@ describe('email reply address', () => {
     `r-ar-${token}@reply.example.org\n`,
   ])('refuses malformed address %#', (address) => {
     expect(parseEmailReplyAddress(address, 'reply.example.org')).toBeNull();
+  });
+});
+
+describe('email member address', () => {
+  const domain = 'reply.example.org';
+  const on = (handle: string, email: object = { enabled: true }) =>
+    AiMemberConfig.parse({ ...ai, handle, email });
+  const configOf = (key: string, members: AiMemberConfig[], enabled = true): ProjectConfig => ({
+    ...project,
+    project: { ...project.project, key, email: { enabled } },
+    team: { ...project.team, members },
+  });
+
+  it('round trips a mailbox name through the address', () => {
+    expect(emailMemberAddress('pm', domain)).toBe('pm@reply.example.org');
+    expect(parseEmailMemberAddress('pm@reply.example.org', domain)).toBe('pm');
+  });
+  it.each([
+    'r-ar-abcdefghijklmnopqrstuvwxyz@reply.example.org',
+    'pm@other.example.org',
+    'pm@replyXexample.org',
+    'PM@reply.example.org',
+    'pm@reply.example.org\n',
+  ])('refuses address %#', (address) => {
+    expect(parseEmailMemberAddress(address, domain)).toBeNull();
+  });
+  it('uses the handle unless a mailbox is chosen', () => {
+    expect(emailMailboxOf(on('pm'))).toBe('pm');
+    expect(emailMailboxOf(on('pm', { enabled: true, mailbox: 'planner' }))).toBe('planner');
+  });
+  it('finds the live owner of a mailbox in any project', () => {
+    const configs = [configOf('AR', [on('dev')]), configOf('BR', [on('pm')])];
+    expect(emailMailboxOwners(configs, 'pm')).toEqual([{ projectKey: 'BR', handle: 'pm' }]);
+    expect(emailMailboxOwners(configs, 'nobody')).toEqual([]);
+  });
+  it('reports every owner when two members share a mailbox', () => {
+    const configs = [configOf('AR', [on('pm')]), configOf('BR', [on('pm')])];
+    expect(emailMailboxOwners(configs, 'pm')).toHaveLength(2);
+  });
+  it.each([
+    ['a member with the switch off', configOf('AR', [on('pm', { enabled: false })])],
+    ['a project with the channel off', configOf('AR', [on('pm')], false)],
+  ])('gives no live owner for %s', (_name, config) => {
+    expect(emailMailboxOwners([config], 'pm')).toEqual([]);
+  });
+  it('takes a name from another member whatever its switches', () => {
+    const configs = [configOf('AR', [on('pm', { enabled: false }), on('dev')])];
+    expect(emailMailboxTaken(configs, 'AR', 'dev', 'pm')).toBe(true);
+    expect(emailMailboxTaken(configs, 'AR', 'pm', 'pm')).toBe(false);
+    expect(emailMailboxTaken(configs, 'AR', 'dev', 'free')).toBe(false);
+  });
+  it('keeps the mailbox when the switches change', () => {
+    expect(applyMemberEmailChange({ enabled: true, mailbox: 'planner' }, { enabled: false })).toEqual({
+      enabled: false,
+      sendWithoutApproval: false,
+      mailbox: 'planner',
+    });
+  });
+  it('stores nothing for a mailbox equal to the handle', () => {
+    expect(applyMemberEmailChange({ enabled: true, mailbox: 'planner' }, { mailbox: 'pm' }, 'pm')).toEqual({
+      enabled: true,
+    });
+  });
+  it.each(['r-pm', '-pm', 'a'.repeat(33), 'Pm', 'p_m', ''])('refuses the mailbox name %j', (name) => {
+    expect(EmailMailbox.safeParse(name).success).toBe(false);
   });
 });
 

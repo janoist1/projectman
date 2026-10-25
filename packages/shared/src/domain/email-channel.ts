@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import type { MemberConfig, ProjectConfig } from '../config/schema';
+import { EmailMailbox } from '../config/schema';
+import type { AiMemberConfig, MemberConfig, ProjectConfig } from '../config/schema';
 import { HumanAccess, MemberHandle } from './member';
 import { TaskKey } from './task';
 import { findEmailAddresses, findPaths, findSecrets } from './system-feedback';
@@ -36,6 +37,7 @@ export const EmailParkReason = z.enum([
   'token_expired',
   'channel_off',
   'unreadable',
+  'sender_not_allowed',
 ]);
 export type EmailParkReason = z.infer<typeof EmailParkReason>;
 export const EmailContactSource = z.enum(['settings', 'message', 'email', 'complaint']);
@@ -77,12 +79,20 @@ export const EmailSenderView = z.object({
   handle: MemberHandle,
   displayName: z.string(),
   sendWithoutApproval: z.boolean(),
+  /** The member's mailbox name: the chosen one, or the handle. */
+  mailbox: z.string(),
+  /** The member's own address; null without a channel on the server, with the channel off, or on a conflict. */
+  address: z.string().nullable(),
+  /** Another member's mailbox is the same, so neither has an address until one is renamed. */
+  addressConflict: z.boolean(),
 });
 export type EmailSenderView = z.infer<typeof EmailSenderView>;
 export const EmailChannelView = z.object({
   configured: z.boolean(),
   enabled: z.boolean(),
   fromAddress: z.string().nullable(),
+  /** The domain of the members' addresses; null when the channel is not set up on the server. */
+  memberDomain: z.string().nullable(),
   senders: z.array(EmailSenderView),
   contacts: z.array(EmailContact),
 });
@@ -152,21 +162,107 @@ export function emailSenderOf(
     : null;
 }
 
+/** The local part of an AI member's own address (PM-989): the chosen mailbox, or the handle. */
+export function emailMailboxOf(member: AiMemberConfig): string {
+  return member.email?.mailbox ?? member.handle;
+}
+
+/** The AI members whose own address is live (channel on, member allowed to send) under this mailbox name. */
+export function emailMailboxOwners(
+  configs: readonly ProjectConfig[],
+  mailbox: string,
+): { projectKey: string; handle: string }[] {
+  return configs.flatMap((config) =>
+    emailChannelOn(config)
+      ? config.team.members
+          .filter(
+            (member): member is AiMemberConfig =>
+              member.kind === 'ai' &&
+              !!emailSenderOf(config, member.handle) &&
+              emailMailboxOf(member) === mailbox,
+          )
+          .map((member) => ({ projectKey: config.project.key, handle: member.handle }))
+      : [],
+  );
+}
+
+/** Whether another AI member, in any project and switches aside, already has this mailbox name. */
+export function emailMailboxTaken(
+  configs: readonly ProjectConfig[],
+  projectKey: string,
+  handle: string,
+  mailbox: string,
+): boolean {
+  return configs.some((config) =>
+    config.team.members.some(
+      (member) =>
+        member.kind === 'ai' &&
+        !(config.project.key === projectKey && member.handle === handle) &&
+        emailMailboxOf(member) === mailbox,
+    ),
+  );
+}
+
+export function emailMemberAddress(mailbox: string, domain: string): string {
+  return `${mailbox}@${domain}`;
+}
+
+/** What the settings show of a member's mailbox: its name, its address (null: none yet) and whether the name is shared. */
+export function emailMailboxState(
+  configs: readonly ProjectConfig[],
+  projectKey: string,
+  member: AiMemberConfig,
+  domain: string | null,
+): { mailbox: string; address: string | null; addressConflict: boolean } {
+  const mailbox = emailMailboxOf(member);
+  return {
+    mailbox,
+    address: domain ? emailOwnAddress(configs, projectKey, member, domain) : null,
+    addressConflict: emailMailboxOwners(configs, mailbox).some(
+      (owner) => owner.projectKey !== projectKey || owner.handle !== member.handle,
+    ),
+  };
+}
+
+/** The member's own address, or null while it has none: the channel or its switch is off, or the name is shared. */
+export function emailOwnAddress(
+  configs: readonly ProjectConfig[],
+  projectKey: string,
+  member: AiMemberConfig,
+  domain: string,
+): string | null {
+  const mailbox = emailMailboxOf(member);
+  const owners = emailMailboxOwners(configs, mailbox);
+  return owners.length === 1 && owners[0]!.projectKey === projectKey && owners[0]!.handle === member.handle
+    ? emailMemberAddress(mailbox, domain)
+    : null;
+}
+
+/** The mailbox of an address at the members' domain, or null (not that domain, or a reply address). */
+export function parseEmailMemberAddress(address: string, domain: string): string | null {
+  const match = /^([^@]+)@(.+)$/.exec(address);
+  if (!match || match[2] !== domain) return null;
+  return EmailMailbox.safeParse(match[1]).success ? match[1]! : null;
+}
+
 /**
  * An AI member's email settings after a change (PM-956). Omitted fields stay, except that sending
  * without approval never outlives the permission to send: switching sending off clears it, and
- * switching it on starts from "needs approval" unless the same change says otherwise.
+ * switching it on starts from "needs approval" unless the same change says otherwise. The mailbox name
+ * (PM-989) stays too; a name equal to the member's `handle`, its default, stores nothing.
  */
 export function applyMemberEmailChange(
-  current: { enabled: boolean; sendWithoutApproval?: boolean } | undefined,
-  change: { enabled?: boolean; sendWithoutApproval?: boolean },
-): { enabled: boolean; sendWithoutApproval?: boolean } {
+  current: { enabled: boolean; sendWithoutApproval?: boolean; mailbox?: string } | undefined,
+  change: { enabled?: boolean; sendWithoutApproval?: boolean; mailbox?: string },
+  handle?: string,
+): { enabled: boolean; sendWithoutApproval?: boolean; mailbox?: string } {
   const wasEnabled = current?.enabled === true;
   const enabled = change.enabled ?? wasEnabled;
-  const rest = { ...current, ...change, enabled };
-  if (!enabled) return { ...rest, sendWithoutApproval: false };
-  if (!wasEnabled) return { ...rest, sendWithoutApproval: change.sendWithoutApproval ?? false };
-  return rest;
+  const { mailbox, ...rest } = { ...current, ...change, enabled };
+  const named = mailbox === undefined || mailbox === handle ? rest : { ...rest, mailbox };
+  if (!enabled) return { ...named, sendWithoutApproval: false };
+  if (!wasEnabled) return { ...named, sendWithoutApproval: change.sendWithoutApproval ?? false };
+  return named;
 }
 
 export function emailRecipientRefusal(

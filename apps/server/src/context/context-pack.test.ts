@@ -103,7 +103,7 @@ describe('Operator checklist onboarding', () => {
 });
 
 it.each(
-  ['code-review', 'operator'].flatMap((handle) =>
+  ['code-review', 'operator', 'pm'].flatMap((handle) =>
     (['claude', 'codex', 'gemini', 'nanogpt', 'sandbox'] as const).map((provider) => ({
       handle,
       provider,
@@ -127,7 +127,7 @@ it.each(
   );
   expect(Object.keys(pack.guide).sort()).toEqual(topics.sort());
   expect(pack.guide.commands !== undefined).toBe(provider === 'claude' || provider === 'codex');
-  expect(pack.guide.role !== undefined).toBe(handle === 'operator');
+  expect(pack.guide.role !== undefined).toBe(handle !== 'code-review');
 });
 
 describe('operating agreement and conversation guidance (PM-690)', () => {
@@ -252,7 +252,8 @@ describe('operating agreement and conversation guidance (PM-690)', () => {
     const operator = prompt({}, 'operator');
     expect(operator).not.toContain('Check current facts before referring to a card');
     expect(operator).toContain('Say a number, name or state only from a tool result you read in this turn');
-    const text = prompt({}, 'pm');
+    const text = builder.build(input({ handle: 'pm', task: null, workItem: { type: 'general' } })).guide
+      .role!;
     for (const rule of [
       'Check current facts before referring to a card',
       'one consolidated summary',
@@ -264,10 +265,11 @@ describe('operating agreement and conversation guidance (PM-690)', () => {
       'normal waiting, not permission to move work elsewhere',
     ])
       expect(text).toContain(rule);
-    expect(text).toContain('never another person’s conversational preferences');
-    expect(text).toContain('Suggest a changed common principle to the Operator as information');
-    expect(text).toContain('Never operate, write private knowledge, waive approval');
-    expect(text).not.toContain('# Personal conversation style');
+    const index = prompt({}, 'pm');
+    expect(index).toContain('never another person’s conversational preferences');
+    expect(index).toContain('Suggest a changed common principle to the Operator as information');
+    expect(index).toContain('Never operate, write private knowledge, waive approval');
+    expect(index).not.toContain('# Personal conversation style');
   });
 });
 
@@ -1342,18 +1344,20 @@ describe('system prompt', () => {
       expect(pm).toContain(
         'in one continuous conversation, one after the other; the card key is in the message prefix',
       );
+      expect(pm).not.toContain("A person's message on a card's conversation comes to you");
       expect(pm).toContain("set a card's priority (update_task priority)");
       expect(pm).toContain('(the system picks the member)');
       expect(pm).toContain("Never do another role's work: no code, no requirement, no plan, no review.");
       expect(pm).toContain('Only propose what needs the owner: stopping a session');
       expect(pm).toContain('never decide permission or boundary requests, never release');
-      expect(pm).toContain(
+      const guide = builder.build(input({ project, handle: 'pm' })).guide.role;
+      expect(guide).toContain(
         "A person's message on a card's conversation comes to you when nobody else is on the card",
       );
       for (const handle of ['code-review', 'fe-1']) {
-        const other = roleOf(builder.build(input({ project, handle })).appendSystemPrompt);
-        expect(other).not.toContain('You are the project manager');
-        expect(other).not.toContain("A person's message on a card's conversation comes to you");
+        const pack = builder.build(input({ project, handle }));
+        expect(roleOf(pack.appendSystemPrompt)).not.toContain('You are the project manager');
+        expect(pack.guide.role).toBeUndefined();
       }
     });
 
@@ -1492,28 +1496,35 @@ describe('system prompt', () => {
     it('includes the system feedback path for screened todos', () => {
       for (const prompt of [
         builder.build(input({ handle: 'operator' })).guide.role!,
-        roleOf(builder.build(input({ handle: 'pm' })).appendSystemPrompt),
+        builder.build(input({ handle: 'pm' })).guide.role!,
       ])
         for (const key of ['list_system_feedback', 'record_system_feedback', 'same_as', 'feedback_id'])
           expect(prompt).toContain(key);
     });
 
     it('tells only the PM how to screen AI questions while leaving human approvals to people', () => {
-      const operator = roleOf(builder.build(input({ handle: 'pm' })).appendSystemPrompt);
-      expect(operatorPrompt('en')).not.toContain('Call screen_question for every question');
+      const pm = builder.build(input({ handle: 'pm' }));
+      const operator = roleOf(pm.appendSystemPrompt);
+      expect(operatorPrompt('en')).not.toContain('screen_question for every question');
       for (const text of [
         'a "question screening" notice',
-        'Call screen_question for every question in the notice, always with a note.',
+        'call screen_question for every question in the notice, always with a note.',
+        'Always choose decision for an approval, a release, human access, a cost or fee, a change of scope or deadline',
+        "start or move nothing on the board, change no settings, and never decide in the owner's name.",
+      ])
+        expect(operator).toContain(text);
+      for (const text of [
         'in the decision log (DECISIONS.md), in the roadmap (ROADMAP.md), in the code or in an earlier owner answer; name the source in the note',
         'forwarded: when answering is another AI member',
         'moot: when the question is obsolete',
         'todo: a step for the owner or their external integrator; give what, where, expected and recipient (owner or integrator).',
         'Independently choose the recipient, regardless of requestedRecipient',
         'Integrator addressing grants no execution authority; approvals and decisions stay with the owner.',
-        'decision: everything else. Always choose decision for an approval, a release, human access, a cost or fee, a change of scope or deadline',
-        "start or move nothing on the board, change no settings, and never decide in the owner's name.",
-      ])
-        expect(operator).toContain(text);
+        'decision: everything else.',
+      ]) {
+        expect(pm.guide.role).toContain(text);
+        expect(operator).not.toContain(text);
+      }
       expect(roleOf(builder.build(input({ handle: 'fe-1' })).appendSystemPrompt)).not.toContain(
         'screen_question',
       );
@@ -1637,9 +1648,7 @@ describe('system prompt', () => {
           expect(operator).toContain('(signal → step → result)');
           expect(operator).toContain('actionable_signal_ids');
           expect(operator).toContain('if you did nothing and nothing needs a decision, write nothing.');
-          expect(operator).toContain(
-            'A ready_waiting signal whose cards all wait on purpose you close with dismiss_signal and a note instead of bringing it to the owners; new_cards in its facts are the cards that became ready since the last close.',
-          );
+          expect(operator).not.toContain('A ready_waiting signal whose cards all wait on purpose');
           expect(operator).toContain('**Done**');
           expect(operator).toContain('**Decision needed**');
           expect(operator).not.toContain('signal_actionable');
@@ -1677,6 +1686,46 @@ describe('system prompt', () => {
       // UTF-8 bytes, including the snapshot's final newline; baseline: 18,653 B / 8,367 B.
       expect(Buffer.byteLength(`${pack.appendSystemPrompt}\n`)).toBeLessThan(15_000);
       expect(Buffer.byteLength(`${roleOf(pack.appendSystemPrompt).trimEnd()}\n`)).toBeLessThan(4_700);
+    });
+
+    it('gives the project manager a full prompt and role guide snapshot (PM-992)', async () => {
+      const pack = builder.build(
+        input({ handle: 'pm', workItem: { type: 'general' }, task: null, stage: null }),
+      );
+      await expect(`${pack.appendSystemPrompt}\n`).toMatchFileSnapshot(
+        '__snapshots__/project-manager-general.system-prompt.txt',
+      );
+      await expect(`${pack.guide.role}\n`).toMatchFileSnapshot(
+        '__snapshots__/project-manager-general.role-guide.txt',
+      );
+      // UTF-8 bytes, including the snapshot's final newline; baseline: 22,588 B / 12,295 B / no guide.
+      expect(Buffer.byteLength(`${pack.appendSystemPrompt}\n`)).toBeLessThan(17_500);
+      expect(Buffer.byteLength(`${roleOf(pack.appendSystemPrompt).trimEnd()}\n`)).toBeLessThan(7_000);
+    });
+
+    it('keeps the level, the limits and the personal instructions in the prompt, the procedures in the guide (PM-992)', () => {
+      const project = buildProject();
+      project.team.operatorWatch = 'drive';
+      const member = { ...aiMember(project, 'pm'), instructions: 'Keep the personal instructions.' };
+      const pack = builder.build(input({ project, member, handle: 'pm' }));
+      const role = roleOf(pack.appendSystemPrompt);
+      for (const text of [
+        'steps_left, next_step_at',
+        'Keep the personal instructions.',
+        'open_integrator_todo',
+      ])
+        expect(role).toContain(text);
+      for (const text of [
+        'Consider machine load',
+        'loop_suspected: before triage_loop',
+        'combine_questions with',
+      ])
+        expect(pack.guide.role).toContain(text);
+      expect(pack.guide.role).not.toContain('Keep the personal instructions.');
+      expect(pack.guide.role).not.toContain('steps_left');
+      // Every procedure of the guide is only in the guide.
+      expect(role).not.toContain('Consider machine load');
+      expect(pack.appendSystemPrompt.match(/get_guide with topic `role`/g)).toHaveLength(1);
     });
   });
 

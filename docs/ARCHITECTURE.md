@@ -268,8 +268,11 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   from `runtime/permissions` (`unattended-commands`), so that a member writes them in
   a form that passes), the member's memory, and for tasks a kick-off brief (title,
   description, links, relations to other cards, attachments, recent timeline) sent as the first message.
-  The Operator's role starts with a short procedure/tool index; its full procedure is the optional
-  `role` guide (PM-991). Immediate authorization limits, session policy, current task steps,
+  The Operator's and the project manager's roles start with a short procedure/tool index; the full
+  procedure is the optional `role` guide (PM-991, PM-992). The project manager's prompt keeps the
+  signal level and its step budget, the never list, the screening limits and the report labels;
+  the principles, signal, screening, feedback and routing procedures are in the guide.
+  Immediate authorization limits, session policy, current task steps,
   configured/personal instructions, checklist state, knowledge, preferences and memory stay in the prompt.
 - **Team tools** — an MCP server (`/mcp/:token`) through which AI members message teammates,
   read full `commands`, `rules` and optional `role` guide topics with the member-only `get_guide`

@@ -574,10 +574,24 @@ export type TemplateSummary = z.infer<typeof TemplateSummary>;
 
 /* ---------- members ---------- */
 
+export const MEMBER_QUOTA_WAIT_REASONS = ['provider_rate_limited', 'plan_usage_paused'] as const;
+/** A waking queued item waits for the AI member's provider limit (PM-999). */
+export const MemberQuotaWaiting = z.object({
+  reason: TaskStartWaiting.shape.reason.extract(MEMBER_QUOTA_WAIT_REASONS),
+  provider: AgentProvider.optional(),
+  /** ISO: when the provider says the limit lifts; absent when unknown. */
+  until: z.string().optional(),
+  /** ISO: the oldest matching item's wait time. */
+  since: z.string(),
+});
+export type MemberQuotaWaiting = z.infer<typeof MemberQuotaWaiting>;
+
 export const MemberView = z.object({
   /** AI members: the server always supplies the effective email settings. */
   email: z.object({ enabled: z.boolean(), sendWithoutApproval: z.boolean() }).optional(),
   outage: WorkOutage.optional(),
+  /** AI members only: a waking queued item waits for the provider's limit. */
+  quotaWaiting: MemberQuotaWaiting.optional(),
   githubLogin: GithubLogin.optional(),
   handle: MemberHandle,
   displayName: z.string(),

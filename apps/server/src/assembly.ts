@@ -1085,6 +1085,7 @@ export function createDomain(opts: DomainOptions) {
     queue: memberQueue,
     admission,
     sessions,
+    quotaWaitChanged: (key, handle) => members.publishMembers(key, [handle]),
     // The screening and the signals are projectman's own notices: the asker of a question is no sender of them.
     type: (session, item, text) =>
       item.kind === 'screening' || item.kind === 'signal'

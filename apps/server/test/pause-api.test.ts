@@ -104,14 +104,14 @@ describe('pause routes', () => {
     expect((await call('POST', routes.projectPauseResume('AR'))).statusCode).toBe(200);
   });
 
-  it('keeps a client out of the pause and out of the board field', async () => {
+  it('lets a client look at the pause like any member, but not change it', async () => {
     await setup();
     await call('POST', routes.projectPause('AR'));
     await actAs('client');
-    expect((await call('GET', routes.projectPause('AR'))).statusCode).toBe(403);
+    expect((await call('GET', routes.projectPause('AR'))).statusCode).toBe(200);
     expect((await call('POST', routes.projectPause('AR'))).statusCode).toBe(403);
-    expect((await call('GET', routes.board('AR'))).json()).not.toHaveProperty('pause');
-    expect((await call('GET', routes.instancePause())).statusCode).toBe(403);
+    expect((await call('GET', routes.board('AR'))).json()).toHaveProperty('pause');
+    expect((await call('GET', routes.instancePause())).statusCode).toBe(200);
   });
 
   it('lets an owner of every project pause the instance, and shows both pauses in the board', async () => {

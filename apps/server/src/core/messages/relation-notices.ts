@@ -1,7 +1,6 @@
 import {
   ALERT_SEEN_OPTION,
   ANALYSIS_LABEL,
-  canSeeTask,
   cardAnalyst,
   isOpenTask,
   isTheme,
@@ -105,7 +104,6 @@ export class RelationNotices {
           stageId: other.stageId,
           status: other.status,
           summary: oneLine(other.description, SUMMARY_LIMIT),
-          visible: canSeeTask({ access: 'ai' }, other),
         },
       });
     }

@@ -182,10 +182,10 @@ describe('project change events API (PM-761)', () => {
     expect(after.at(-1)!.kind).toBe('timeline');
   });
 
-  it('keeps client members out and lets internal members read', async () => {
+  it('lets every member read, clients included (PM-79)', async () => {
     const client = await addHumanAndLogin(h.app, { handle: 'cli', access: 'client' });
     const developer = await addHumanAndLogin(h.app, { handle: 'dev1', access: 'developer' });
-    expect((await events('waitMs=0', { cookie: client })).statusCode).toBe(403);
+    expect((await events('waitMs=0', { cookie: client })).statusCode).toBe(200);
     expect((await events('waitMs=0', { cookie: developer })).statusCode).toBe(200);
   });
 

@@ -1,6 +1,5 @@
 import {
   ResolveIntegratorFixLimitRequest,
-  canSeeTask,
   isIntegratorInboxItem,
   visibleQuestionItem,
   wasIntegratorInboxItem,
@@ -21,10 +20,7 @@ interface Deps {
 }
 
 function visible(deps: Deps, projectKey: string, item: InboxItem, access: ProjectAccess): InboxItem {
-  return visibleQuestionItem(access, item, (key) => {
-    const task = deps.tasks.find(projectKey, key);
-    return !!task && canSeeTask(access, task);
-  });
+  return visibleQuestionItem(access, item, (key) => !!deps.tasks.find(projectKey, key));
 }
 
 /**

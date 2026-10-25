@@ -287,24 +287,6 @@ describe('session orchestrator', () => {
     listInStates.mockRestore();
   });
 
-  it('reads roster visibility lazily and reuses the lookup for a card shared by members', async () => {
-    await h.domain.tasks.update('AR', 'AR-1', { visibility: 'shared' }, OWNER_ACTOR);
-    await h.domain.sessions.ensureSession('AR', 'cr', task);
-    await h.domain.sessions.ensureSession('AR', 'dev-1', task);
-    const config = await h.domain.projects.config('AR');
-    const list = vi.spyOn(h.repos.tasks, 'list');
-    const get = vi.spyOn(h.repos.tasks, 'get');
-    const roster = h.domain.members.rosterForViewer(config, { access: 'client', handle: 'client' });
-    expect(roster.filter((m) => ['cr', 'dev-1'].includes(m.handle)).map((m) => m.currentTaskKeys)).toEqual([
-      ['AR-1'],
-      ['AR-1'],
-    ]);
-    expect(list).not.toHaveBeenCalled();
-    expect(get.mock.calls).toEqual([['AR-1']]);
-    list.mockRestore();
-    get.mockRestore();
-  });
-
   it('keeps the sentence a member gives with set_current_work until the round or the session ends (PM-238)', async () => {
     const { session } = await h.domain.sessions.ensureSession('AR', 'cr', task);
     h.runner.setState(session.id, 'working', 'Bash: npm test');

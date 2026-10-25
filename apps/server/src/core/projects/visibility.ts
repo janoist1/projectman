@@ -2,36 +2,26 @@ import {
   canSeeAllTeamMessages,
   canSeeInboxItem,
   canSeeOperatorSessions,
-  canSeeTask,
   canSeeTeamMessage,
-  clientCanSeeTimelineEvent,
-  isCardLink,
   isCoordinatorOnlySignal,
   visibleQuestionItem,
-  visibleActivity,
   visibleTimelineEvent,
 } from '@projectman/shared';
-import type { MemberView, ServerEvent, Session, Task, TaskDetail } from '@projectman/shared';
+import type { ServerEvent, Session, TaskDetail } from '@projectman/shared';
 import type { ProjectAccess } from '../members';
 
 /**
- * What a member sees of their project. Client members (access "client") see only what is
- * shared with them; every other access level sees the whole project. The REST routes and the
- * websocket both decide here.
+ * What a member sees of their project. Every project member, a client included, reads the whole
+ * project (PM-79); the REST routes and the websocket both decide here.
  *
- * Team messages are the exception to the second half (PM-78): an owner and an admin see every
- * message, every other member (a developer and a read-only member too) only what they sent or got.
- *
- * The two paths do not agree everywhere yet (an open question for the owner, kept as it was):
- * - timeline: the task detail shows a client the milestones below, while live timeline
- *   events never reach them (and label changes, e.g. "client accepted", are no milestone);
- * - member state: live member_state events never reach clients (member_changed snapshots do).
- *   Activity text is visible only when its source card is visible (`memberForViewer`).
+ * Team messages are the exception (PM-78): an owner and an admin see every message, every other
+ * member (a developer, a read-only member and a client too) only what they sent or got. So are the
+ * Operator's sessions (PM-475): the owner and the admin see them.
  */
 export type Viewer = Pick<ProjectAccess, 'access' | 'handle' | 'via'>;
 
-/** The two timeline rules live in `packages/shared` (the history search uses them too, PM-786). */
-export { visibleTimelineEvent, clientCanSeeTimelineEvent };
+/** The timeline rule lives in `packages/shared` (the history search uses it too, PM-786). */
+export { visibleTimelineEvent };
 
 export function visibleSession(
   viewer: Viewer,
@@ -56,13 +46,6 @@ export type ProjectEvent = Exclude<
   }
 >;
 
-export function isClient(viewer: Viewer): boolean {
-  return viewer.access === 'client';
-}
-
-/** Internal tasks are hidden from client members (the rule lives in `packages/shared`). */
-export { canSeeTask };
-
 /** Inbox privacy is shared by REST, websocket delivery and the web fake. */
 export { canSeeInboxItem };
 
@@ -77,89 +60,12 @@ export function teamMessageParticipant(viewer: Viewer): string | undefined {
 }
 
 /**
- * A task as the viewer sees it: a client gets a task's links to other cards (relations, PM-192) and its
- * theme only when the other card is shared with them. `canSeeKey` says whether the viewer sees a card.
- */
-export function withVisibleCardLinks(viewer: Viewer, task: Task, canSeeKey: (key: string) => boolean): Task {
-  if (!isClient(viewer)) return task;
-  // The loop mark (PM-261) and the fix round limit hold (PM-262) are the team's, as the rounds of a card
-  // are: a client never sees them. Nor the handoff of the card (PM-342).
-  const {
-    startOffer: _startOffer,
-    loop: _loop,
-    fixLimit: _fixLimit,
-    handoff: _handoff,
-    lastHandoff: _lastHandoff,
-    merge: _merge,
-    merged: _merged,
-    ...rest
-  } = task;
-  if (rest.readyHold) {
-    const { seniors: _seniors, engine: _engine, ...readyHold } = rest.readyHold;
-    rest.readyHold = readyHold;
-  }
-  const visible = withVisibleHolders(rest, canSeeKey);
-  const hideTheme = !!visible.themeKey && !canSeeKey(visible.themeKey);
-  if (!hideTheme && !visible.links.some(isCardLink)) return visible;
-  const { themeKey: _theme, ...shown } = visible;
-  return {
-    ...(hideTheme ? shown : visible),
-    links: visible.links.filter((link) => !isCardLink(link) || canSeeKey(link.ref)),
-  };
-}
-
-/**
- * What holds the places of the member a card waits for (PM-297), as a client sees it: no session
- * id, and no key of a card they cannot see. The element stays, so that the card says "still working".
- */
-function withVisibleHolders<T extends Task>(task: T, canSeeKey: (key: string) => boolean): T {
-  const holders = task.startWaiting?.holders;
-  if (!task.startWaiting || !holders) return task;
-  return {
-    ...task,
-    startWaiting: {
-      ...task.startWaiting,
-      holders: holders.map(({ sessionId: _session, taskKey, ...holder }) =>
-        taskKey && canSeeKey(taskKey) ? { ...holder, taskKey } : holder,
-      ),
-    },
-  };
-}
-
-/** The tasks the viewer sees, each as they see it: a client's links to other cards lead only to cards they see. */
-export function visibleTasks(viewer: Viewer, tasks: readonly Task[]): Task[] {
-  const visible = tasks.filter((task) => canSeeTask(viewer, task));
-  if (!isClient(viewer)) return visible;
-  const keys = new Set(visible.map((task) => task.key));
-  return visible.map((task) => withVisibleCardLinks(viewer, task, (key) => keys.has(key)));
-}
-
-/**
- * A member as the viewer sees them: the cards they work on or carry are only those the viewer
- * sees (a client gets no key of an internal card). The one rule for the board, the member list,
- * the profile and the live `member_changed` event; `canSeeKey` says whether the viewer sees a card.
- */
-export function memberForViewer(
-  viewer: Viewer,
-  member: MemberView,
-  canSeeKey: (key: string) => boolean,
-): MemberView {
-  if (!isClient(viewer)) return member;
-  return {
-    ...visibleActivity(viewer, member, canSeeKey),
-    currentTaskKeys: member.currentTaskKeys.filter(canSeeKey),
-    ...(member.taskWork ? { taskWork: member.taskWork.filter((work) => canSeeKey(work.taskKey)) } : {}),
-  };
-}
-
-/**
- * What the viewer may see of a task detail; the task itself must be visible (canSeeTask).
- * `canSeeKey` says whether the viewer sees a card by its key (for the links to other cards).
+ * What the viewer may see of a task detail: the quote of a team message that started a session
+ * is cut when the viewer is not a party to it.
  */
 export function visibleTaskDetail(
   viewer: Viewer,
   detail: TaskDetail,
-  canSeeKey: (key: string) => boolean = () => true,
   messageParticipants: (id: string) => { from: string; to: string[] } | null = () => null,
 ): TaskDetail {
   const timeline = detail.timeline.map((event) => visibleTimelineEvent(viewer, event, messageParticipants));
@@ -168,63 +74,29 @@ export function visibleTaskDetail(
     timeline.some((event, index) => event !== detail.timeline[index]) ||
     sessions.some((session, index) => session !== detail.sessions[index])
   )
-    detail = { ...detail, timeline, sessions };
-  if (!isClient(viewer)) return detail;
-  return {
-    task: withVisibleCardLinks(viewer, detail.task, canSeeKey),
-    parent: detail.parent && canSeeTask(viewer, detail.parent) ? detail.parent : null,
-    subtasks: detail.subtasks
-      ?.filter((task) => canSeeTask(viewer, task))
-      .map((task) => withVisibleCardLinks(viewer, task, canSeeKey)),
-    pullRequests: detail.pullRequests,
-    timeline: detail.timeline.filter(clientCanSeeTimelineEvent),
-    sessions: [],
-  };
+    return { ...detail, timeline, sessions };
+  return detail;
 }
 
-/**
- * The event as the viewer sees it, once `canSeeProjectEvent` let it through: a client's task
- * snapshot keeps only its links to cards they see.
- */
+/** The event as the viewer sees it, once `canSeeProjectEvent` let it through. */
 export function visibleProjectEvent(
   viewer: Viewer,
   event: ProjectEvent,
-  taskOf: (taskKey: string) => Task | null | undefined,
   messageParticipants: (id: string) => { from: string; to: string[] } | null = () => null,
 ): ProjectEvent {
   if (event.type === 'inbox_upserted')
-    return {
-      ...event,
-      item: visibleQuestionItem(viewer, event.item, (key) => {
-        const task = taskOf(key);
-        return !!task && canSeeTask(viewer, task);
-      }),
-    };
+    return { ...event, item: visibleQuestionItem(viewer, event.item, () => true) };
   if (event.type === 'timeline_appended')
     return { ...event, event: visibleTimelineEvent(viewer, event.event, messageParticipants) };
   if (event.type === 'session_upserted')
     return { ...event, session: visibleSession(viewer, event.session, messageParticipants) };
-  if (!isClient(viewer)) return event;
-  const canSeeKey = (key: string) => {
-    const other = taskOf(key);
-    return !!other && canSeeTask(viewer, other);
-  };
-  if (event.type === 'member_changed' && event.member)
-    return { ...event, member: memberForViewer(viewer, event.member, canSeeKey) };
-  if (event.type === 'member_state') return visibleActivity(viewer, event, canSeeKey);
-  if (event.type !== 'task_upserted') return event;
-  return { ...event, task: withVisibleCardLinks(viewer, event.task, canSeeKey) };
+  return event;
 }
 
-/**
- * Whether a live event of the viewer's project reaches them (websocket). `taskOf` reads a task as
- * it is now: an event that names only a task (attachments changed) reaches a client only while
- * that task is shared with them at delivery.
- */
+/** Whether a live event of the viewer's project reaches them (websocket). */
 export function canSeeProjectEvent(
   viewer: Viewer,
   event: ProjectEvent,
-  taskOf?: (taskKey: string) => Task | null | undefined,
   isOperatorSession?: (sessionId: string) => boolean,
 ): boolean {
   // A team message reaches only those it concerns (and an owner and an admin), whatever their access.
@@ -240,21 +112,5 @@ export function canSeeProjectEvent(
     if (event.type === 'session_upserted' && isOperatorSession(event.session.id)) return false;
     if (event.type === 'chat_appended' && isOperatorSession(event.sessionId)) return false;
   }
-  if (!isClient(viewer)) return true;
-  switch (event.type) {
-    case 'task_upserted':
-      return canSeeTask(viewer, event.task);
-    case 'task_attachments_changed': {
-      const task = taskOf?.(event.taskKey);
-      return task ? canSeeTask(viewer, task) : false;
-    }
-    case 'config_changed':
-    case 'member_changed':
-    // A mark names only its id: the card key and title come from the detail, which hides them from a client.
-    case 'feedback_changed':
-      return true;
-    default:
-      // Live timeline events, member state, sessions, chat and plan usage are internal.
-      return false;
-  }
+  return true;
 }

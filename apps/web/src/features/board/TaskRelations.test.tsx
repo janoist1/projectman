@@ -540,9 +540,8 @@ describe('relations in the drawer (PM-203)', () => {
     expect(within(list).getAllByRole('listitem')).toHaveLength(7);
   });
 
-  it('lets a client see only the cards it may see, and change nothing', async () => {
+  it('lets a client see every related card (PM-79), and change nothing', async () => {
     const project = mockProject();
-    // AC-21 is shared with the client; AC-20 is internal; AC-17 is shared.
     relate(project, 'AC-21', 'prerequisite', 'AC-20');
     relate(project, 'AC-21', 'prerequisite', 'AC-17');
     relate(project, 'AC-21', 'related', 'AC-24');
@@ -556,10 +555,9 @@ describe('relations in the drawer (PM-203)', () => {
       within(list)
         .getAllByRole('link')
         .map((link) => link.getAttribute('href')),
-    ).toEqual(['/p/AC/tasks/AC-17']);
+    ).toEqual(['/p/AC/tasks/AC-17', '/p/AC/tasks/AC-20']);
     const all = await section();
-    expect(within(all).queryByRole('group', { name: kindName('related') })).toBeNull();
-    expect(all.textContent).not.toMatch(/AC-20|AC-24/);
+    expect(within(all).getByRole('group', { name: kindName('related') })).toBeTruthy();
     expect(within(all).queryByRole('button', { name: t('task.relations.add') })).toBeNull();
     expect(within(all).queryByRole('button', { name: /×|törlése/i })).toBeNull();
   });

@@ -9,12 +9,12 @@ type Params = { Params: { key: string; id: string } };
 export function registerBoundaryRoutes(app: FastifyInstance, domain: ApiDomain): void {
   app.get<Params>(routes.boundaryRequest(':key', ':id'), async (request) => {
     const { key, id } = request.params;
-    const access = await requireAccess(domain, request, key, { internal: true });
+    const access = await requireAccess(domain, request, key);
     return domain.boundary.read(key, parseBody(BoundaryId, id), access.handle);
   });
   app.post<Params>(routes.decideBoundary(':key', ':id'), async (request) => {
     const { key, id } = request.params;
-    const access = await requireAccess(domain, request, key, { internal: true });
+    const access = await requireAccess(domain, request, key);
     if (access.via)
       throw forbidden(
         'owner_approval_required',

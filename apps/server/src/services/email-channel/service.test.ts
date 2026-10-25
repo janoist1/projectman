@@ -165,9 +165,9 @@ describe('EmailChannelService', () => {
 
     it.each([
       {
-        name: 'a card the recipient cannot see',
+        name: 'a card that does not exist',
         to: 'acme',
-        text: 'See AR-1 for the status.',
+        text: 'See AR-99 for the status.',
         reason: 'task_not_visible',
       },
       {
@@ -178,7 +178,6 @@ describe('EmailChannelService', () => {
       },
     ])('refuses content with $name', async ({ to, text, reason }) => {
       const { harness, emailChannel, outbound } = await setup();
-      await harness.domain.tasks.create('AR', { title: 'Internal card' }, OWNER_ACTOR);
       await expect(emailChannel.send('AR', 'dev-1', { ...mail, to, text })).rejects.toMatchObject({
         code: 'email_content_refused',
         details: { reason },

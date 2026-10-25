@@ -103,8 +103,6 @@ import {
   attachmentPreviewOf,
   withQuestionAttachmentGone,
   canDeleteAttachment,
-  canReadAttachments,
-  canSeeTask,
   canSeeInboxItem,
   visibleQuestionItem,
   isPendingQuestion,
@@ -774,11 +772,6 @@ export class MockBackend {
   private visibleMessages(): TeamMessage[] {
     const viewer = this.taskViewer();
     return this.messages.filter((message) => canSeeTeamMessage(viewer, message));
-  }
-
-  /** Whether the viewer may see the task: the rule the server uses (`packages/shared`). */
-  canSee(task: Task): boolean {
-    return canSeeTask(this.taskViewer(), task);
   }
 
   /**
@@ -1895,7 +1888,7 @@ export class MockBackend {
         ...clone(label),
         holders: labelHolders(this.config, label),
       })),
-      tasks: this.tasks.filter((task) => this.canSee(task)).map((task) => this.forViewer(task)),
+      tasks: clone(this.tasks),
       members: this.members.filter((member) => member.status !== 'retired').map((m) => this.viewOf(m)),
       openInboxCount: this.inbox.filter(
         (item) =>
@@ -1904,8 +1897,7 @@ export class MockBackend {
           canSeeInboxItem(this.taskViewer(), item),
       ).length,
       aiEnabled: this.config.team.limits.aiEnabled,
-      // A client member does not see it (like the server).
-      ...(this.findMember(this.viewerHandle)?.role === 'client' ? {} : { pause: this.pauses.projectView() }),
+      pause: this.pauses.projectView(),
       planUsage: { ...this.planUsage, fetchedAt: nowIso() },
       planUsageByProvider: Object.fromEntries(
         [
@@ -2337,8 +2329,6 @@ export class MockBackend {
     const me = this.me();
     if (path === '/api/engines/status' && method === 'GET') {
       if (this.engineMode === 'single') return ok({ mode: 'single', engines: [] });
-      if (!me.hostOwner && this.viewerAccess() === 'client')
-        return error(403, 'insufficient_access', 'Engine status requires internal membership');
       return ok({
         mode: 'cloud',
         engines: this.engines.filter((engine) => !engine.revokedAt).map((e) => this.engineStatus(e)),
@@ -2531,10 +2521,7 @@ export class MockBackend {
     const scheduleMatch = /^\/members\/([\w-]+)\/schedule\/run$/.exec(rest);
     if (scheduleMatch && method === 'POST') return this.runSchedule(scheduleMatch[1]!);
     if (rest === '/board') return ok(this.board());
-    if (rest === '/structure' && method === 'GET') {
-      if (viewer.role === 'client') return error(403, 'insufficient_access', 'Internal access required');
-      return ok(clone(this.structure));
-    }
+    if (rest === '/structure' && method === 'GET') return ok(clone(this.structure));
     if (rest === '/project-manager' && method === 'GET') return this.projectManagerChannel();
     const checklistState = /^\/checklist\/items\/([a-z][a-z0-9_]{0,39})\/state$/.exec(rest);
     if ((rest === '/checklist' && method === 'GET') || (checklistState && method === 'POST')) {
@@ -2626,10 +2613,8 @@ export class MockBackend {
     const signalMatch = /^\/operator\/signals\/([\w-]+)\/dismiss$/.exec(rest);
     if (signalMatch && method === 'POST') return this.dismissOperatorSignal(signalMatch[1]!);
     if (/^\/pause(\/resume|\/force)?$/.test(rest)) return this.projectPause(method, rest);
-    if (rest === '/measure/closed-cards' && method === 'GET') {
-      if (viewer.role === 'client') return error(403, 'insufficient_access', 'Internal access required');
+    if (rest === '/measure/closed-cards' && method === 'GET')
       return ok(this.closedCardsMeasure(Number(query.get('days') ?? DEFAULT_CLOSED_CARDS_DAYS)));
-    }
 
     if (rest === '/tasks') {
       if (method === 'POST') return this.createTask(body);
@@ -2707,7 +2692,6 @@ export class MockBackend {
       return this.stopSession(m[1]!, body);
 
     if (rest === '/involvements' && method === 'GET') {
-      if (this.viewerAccess() === 'client') return error(403, 'insufficient_access', 'Internal only');
       const input = parseBody(InvolvementQuery, Object.fromEntries(query));
       if (!input) return error(400, 'invalid_request', 'Invalid involvement query');
       const events = this.timeline
@@ -2773,11 +2757,6 @@ export class MockBackend {
       const involves = (message: TeamMessage, handle: string) =>
         message.from === handle || message.to.includes(handle);
       const limit = Number(query.get('limit') ?? 200);
-      // Like the server: the conversation of a card the viewer cannot see is not theirs to learn of.
-      if (taskKey) {
-        const card = this.findTask(taskKey);
-        if (card && !this.canSee(card)) return error(404, 'not_found', 'Unknown task');
-      }
       const listed = this.visibleMessages()
         .filter((message) => !peer || threadPeersOf(message, this.viewerHandle).includes(peer))
         .filter((message) => !member || involves(message, member))
@@ -2832,7 +2811,6 @@ export class MockBackend {
         return error(404, 'not_found', 'Unknown member');
       if (m[2] === 'conversation' && method === 'POST') return this.startConversation(handle);
       if (m[2] === 'memories' && method === 'GET') {
-        if (viewer.role === 'client') return error(403, 'insufficient_access', 'Internal access required');
         if (member.kind !== 'ai') return error(400, 'not_ai_member', 'Only AI members have memory');
         return ok({ memory: this.memories[handle] ?? '' });
       }
@@ -2863,8 +2841,7 @@ export class MockBackend {
         return ok();
       }
       if (m[2] === 'profile' && method === 'GET') {
-        const internal = viewer.role !== 'client';
-        const visible = this.tasks.filter((t) => isOpenTask(t) && this.canSee(t));
+        const visible = this.tasks.filter((t) => isOpenTask(t));
         const awaiting = new Set(
           this.inbox.filter((i) => i.state === 'open' && i.assignees.includes(handle)).map((i) => i.taskKey),
         );
@@ -2874,7 +2851,6 @@ export class MockBackend {
         return ok({
           member: {
             ...this.viewOf(member),
-            currentTaskKeys: member.currentTaskKeys.filter((k) => visible.some((t) => t.key === k)),
           },
           duties: memberDuties(this.config, original),
           tasks: clone(
@@ -2886,39 +2862,28 @@ export class MockBackend {
                 awaiting.has(t.key),
             ),
           ),
-          inbox: clone(
-            this.inbox.filter(
-              (i) =>
-                i.state === 'open' &&
-                i.assignees.includes(handle) &&
-                (internal || handle === this.viewerHandle),
-            ),
+          inbox: clone(this.inbox.filter((i) => i.state === 'open' && i.assignees.includes(handle))),
+          timeline: clone(
+            this.timeline
+              .filter(
+                (e) =>
+                  e.actor.handle === handle ||
+                  e.data.handle === handle ||
+                  e.data.member === handle ||
+                  e.data.assignee === handle ||
+                  (Array.isArray(e.data.to) && e.data.to.includes(handle)),
+              )
+              .slice(-30),
           ),
-          timeline: internal
-            ? clone(
-                this.timeline
-                  .filter(
-                    (e) =>
-                      e.actor.handle === handle ||
-                      e.data.handle === handle ||
-                      e.data.member === handle ||
-                      e.data.assignee === handle ||
-                      (Array.isArray(e.data.to) && e.data.to.includes(handle)),
-                  )
-                  .slice(-30),
-              )
-            : [],
-          sessions: internal
-            ? clone(
-                this.sessions
-                  .filter((s) => s.member === handle)
-                  .sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt)),
-              )
-            : [],
+          sessions: clone(
+            this.sessions
+              .filter((s) => s.member === handle)
+              .sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt)),
+          ),
           capacity: original.kind === 'ai' ? original.capacity : null,
-          capacityUsed: original.kind === 'ai' && internal ? this.memberLoad(handle) : 0,
-          ...(original.kind === 'ai' && internal ? { capacityHolders: this.memberHolders(handle) } : {}),
-          ...(original.kind === 'ai' && internal ? { usage: this.memberUsage(handle) } : {}),
+          capacityUsed: original.kind === 'ai' ? this.memberLoad(handle) : 0,
+          ...(original.kind === 'ai' ? { capacityHolders: this.memberHolders(handle) } : {}),
+          ...(original.kind === 'ai' ? { usage: this.memberUsage(handle) } : {}),
           ...(original.kind === 'human' && ['owner', 'admin'].includes(viewer.role) && original.email
             ? { email: original.email }
             : {}),
@@ -2938,12 +2903,7 @@ export class MockBackend {
                 (query.get('mine') !== 'true' || humanInboxAssignment(item, this.viewerHandle)) &&
                 (!operatorApprovalOf(item) || item.assignees.includes(this.viewerHandle)),
             )
-            .map((item) =>
-              visibleQuestionItem(this.taskViewer(), item, (key) => {
-                const task = this.findTask(key);
-                return !!task && this.canSee(task);
-              }),
-            ),
+            .map((item) => visibleQuestionItem(this.taskViewer(), item, (key) => !!this.findTask(key))),
         ),
       });
     }
@@ -2968,10 +2928,6 @@ export class MockBackend {
 
     if (rest === '/config') {
       if (method === 'PATCH') return this.patchConfig(body);
-      // The server gives the configuration to every member but a client.
-      const reader = memberOf(this.config, this.viewerHandle);
-      if (reader?.kind === 'human' && reader.access === 'client')
-        return error(403, 'insufficient_access', 'Requires internal access');
       return ok({ config: clone(this.config), version: this.configVersion, history: clone(this.history) });
     }
     if (rest === '/config/revert' && method === 'POST') {
@@ -3739,12 +3695,12 @@ export class MockBackend {
   ): MockResponse {
     const viewer = this.taskViewer();
     const task = this.findTask(taskKey);
-    if (!task || !canReadAttachments(viewer, task)) return error(404, 'not_found', 'Unknown task');
+    if (!task) return error(404, 'not_found', 'Unknown task');
     if (!id && method === 'GET') {
       return ok({ attachments: clone(this.attachments.filter((entry) => entry.taskKey === taskKey)) });
     }
     if (!id && method === 'POST') {
-      if (!canUploadAttachment(viewer, task))
+      if (!canUploadAttachment(viewer))
         return error(403, 'insufficient_access', 'Viewers cannot attach files');
       const file = body instanceof FormData ? body.get('file') : null;
       if (!(file instanceof File)) return error(400, 'invalid_request', 'The request carries no file');
@@ -3756,7 +3712,7 @@ export class MockBackend {
     if (id && method === 'DELETE') {
       const attachment = this.attachments.find((entry) => entry.id === id && entry.taskKey === taskKey);
       if (!attachment) return error(404, 'not_found', 'Unknown attachment');
-      if (!canDeleteAttachment(viewer, task, attachment))
+      if (!canDeleteAttachment(viewer, attachment))
         return error(403, 'insufficient_access', 'Only the uploader, an owner or an admin may delete this');
       this.removeAttachment(id);
       return ok({ id, deleted: true });
@@ -3768,9 +3724,8 @@ export class MockBackend {
   private handleCover(taskKey: string, body: unknown): MockResponse {
     const viewer = this.taskViewer();
     const task = this.findTask(taskKey);
-    if (!task || !canReadAttachments(viewer, task)) return error(404, 'not_found', 'Unknown task');
-    if (!canUploadAttachment(viewer, task))
-      return error(403, 'insufficient_access', 'Viewers cannot attach files');
+    if (!task) return error(404, 'not_found', 'Unknown task');
+    if (!canUploadAttachment(viewer)) return error(403, 'insufficient_access', 'Viewers cannot attach files');
     const choice = parseBody(TaskCoverRequest, body);
     if (!choice) return error(400, 'invalid_request', 'Invalid cover choice');
     if (choice.mode === 'pinned') {
@@ -3804,37 +3759,18 @@ export class MockBackend {
     });
   }
 
-  /** A task as the viewer sees it: the merge is the team's, a client never gets it (like the server). */
-  private forViewer(task: Task): Task {
-    // Derived ready holds are supplied by fixtures, without a second scheduling implementation.
-    if (this.findMember(this.viewerHandle)?.role !== 'client') return clone(task);
-    const { merge: _merge, merged: _merged, ...visible } = task;
-    return clone(visible);
-  }
-
   taskDetail(task: Task): TaskDetail {
-    const client = this.findMember(this.viewerHandle)?.role === 'client';
-    const wait = client ? null : this.taskWaitOf(task);
+    const wait = this.taskWaitOf(task);
     return {
       ...(wait ? { wait } : {}),
-      task: this.forViewer(task),
+      task: clone(task),
       parent: task.parentKey ? clone(this.findTask(task.parentKey) ?? null) : null,
       subtasks: clone(this.tasks.filter((child) => child.parentKey === task.key)),
       pullRequests: this.taskPullRequests(task),
-      timeline: clone(
-        this.timeline.filter(
-          (event) =>
-            event.taskKey === task.key &&
-            !(client && (event.type.startsWith('task_merge_') || event.type === 'task_merged')),
-        ),
-      ),
+      timeline: clone(this.timeline.filter((event) => event.taskKey === task.key)),
       sessions: clone(this.taskSessions(task.key)),
-      ...(this.findMember(this.viewerHandle)?.role === 'client'
-        ? {}
-        : {
-            rounds: this.cardRounds(task.key),
-            fixRounds: { rounds: this.fixRoundsOf(task.key).rounds, limit: this.fixLimitOf(task.key) },
-          }),
+      rounds: this.cardRounds(task.key),
+      fixRounds: { rounds: this.fixRoundsOf(task.key).rounds, limit: this.fixLimitOf(task.key) },
     };
   }
 
@@ -5829,8 +5765,7 @@ export class MockBackend {
         return error(403, 'insufficient_access', 'Viewers may write to the Operator alone');
     }
     if (input.taskKey) {
-      const task = this.findTask(input.taskKey);
-      if (!task || !this.canSee(task)) return error(404, 'not_found', 'Unknown task');
+      if (!this.findTask(input.taskKey)) return error(404, 'not_found', 'Unknown task');
     }
     const ids = input.attachmentIds ?? [];
     const attached = ids.map((id) => this.messageAttachments.find((file) => file.id === id));
@@ -6265,10 +6200,8 @@ export class MockBackend {
     return ok(clone(updated));
   }
 
-  /** The project's pause routes (PM-219): anyone internal reads it, an owner or an admin changes it. */
+  /** The project's pause routes (PM-219): every member reads it, an owner or an admin changes it. */
   private projectPause(method: string, rest: string): MockResponse {
-    const viewer = this.findMember(this.viewerHandle);
-    if (viewer?.role === 'client') return error(403, 'insufficient_access', 'Internal access required');
     if (method === 'GET') return ok(this.pauses.projectView());
     if (!this.pauses.mayManageProject()) return error(403, 'insufficient_access', 'Admin access required');
     if (rest === '/pause/resume') this.pauses.resume('project');
@@ -6280,8 +6213,7 @@ export class MockBackend {
   /** The instance's pause routes: an owner of every project changes it. */
   private instancePause(method: string, path: string): MockResponse {
     const viewer = this.findMember(this.viewerHandle);
-    if (!viewer || viewer.role === 'client')
-      return error(403, 'insufficient_access', 'Internal access required');
+    if (!viewer) return error(403, 'insufficient_access', 'Membership required');
     if (method === 'POST') {
       if (!this.pauses.instanceView().canManage)
         return error(403, 'insufficient_access', 'Only an owner of every project may pause the instance');

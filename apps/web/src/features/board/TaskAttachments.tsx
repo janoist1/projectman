@@ -281,7 +281,7 @@ export function TaskAttachments({
   const uploads = useAttachmentUploads(task.key);
   const refused = list.isError && isRefusal(list.error);
   const attachments = refused ? [] : (list.data?.attachments ?? []);
-  const canUpload = viewer !== null && !refused && canUploadAttachment(viewer, task);
+  const canUpload = viewer !== null && !refused && canUploadAttachment(viewer);
   const setCover = useSetTaskCover(key, task.key);
   // An automatic cover is the first image, so images without a cover can only mean it was hidden.
   const hasImage = attachments.some((attachment) => attachment.preview === 'image');
@@ -394,7 +394,7 @@ export function TaskAttachments({
                 attachment={attachment}
                 task={task}
                 members={members}
-                canDelete={canDeleteAttachment(viewer, task, attachment)}
+                canDelete={canDeleteAttachment(viewer, attachment)}
                 isCover={attachment.id === task.coverAttachmentId}
                 canSetCover={canUpload}
                 settingCover={

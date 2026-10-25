@@ -268,7 +268,7 @@ describe('a question the Operator screens: the foundations', () => {
       const id = await ask();
       const open: InboxItem = item(id);
       expect(canSeeInboxItem({ handle: 'dev-human', access: 'developer' }, open)).toBe(true);
-      expect(canSeeInboxItem({ handle: 'someone', access: 'client' }, open)).toBe(false);
+      expect(canSeeInboxItem({ handle: 'someone', access: 'client' }, open)).toBe(true);
       expect(canSeeInboxItem({ handle: 'owner', access: 'client' }, open)).toBe(true);
     });
   });

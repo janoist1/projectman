@@ -46,7 +46,6 @@ import { QUESTION_LIMIT } from '../../core/inbox';
 import type { CardQuestions, InboxService } from '../../core/inbox';
 import type { Messaging } from '../../core/messages';
 import type { MemberService, ProjectAccess } from '../../core/members';
-import { canSeeTask } from '../../core/projects';
 import type { ProjectService } from '../../core/projects';
 import type { ProjectFocusService, TaskService, TaskWaits } from '../../core/tasks';
 import type { TimelineService } from '../../core/timeline';
@@ -223,12 +222,10 @@ export class ExternalTools implements ExternalToolsHandler {
     if (args.assignee === 'me')
       throw new TeamToolError('invalid', 'assignee "me" has no meaning here: name a member handle.');
     const places = this.deps.projectFocus.places(projectKey);
-    const access = this.access(ctx);
     const cards = this.deps.tasks
       .list(projectKey)
       .filter(
         (task) =>
-          canSeeTask(access, task) &&
           (status === 'open' ? isOpenTask(task) : task.status === status) &&
           // A theme is in no stage (it carries the first one's id because the field is required).
           (args.stage === undefined || (!isTheme(task) && task.stageId === args.stage)) &&

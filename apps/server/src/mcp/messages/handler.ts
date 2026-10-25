@@ -96,7 +96,7 @@ export class MessageTools implements MessageToolsHandler {
             `${OWNER_ONLY}: in this conversation you answer ${guest.handle} only; a message to anyone else is for the project owner to ask.`,
           );
         }
-        if (args.taskKey !== undefined) this.calls.visibleTaskKey(ctx, guest, args.taskKey);
+        if (args.taskKey !== undefined) this.calls.validTaskKey(ctx, args.taskKey);
       }
       this.calls.assertOperatorMessageRecipients(ctx.member, who, args.to);
       // To the owner the Operator only reports; to anyone else it acts for the request: a step (PM-463).

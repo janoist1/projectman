@@ -386,20 +386,19 @@ describe('the Operator only reads and answers in a guest’s conversation (PM-47
     }
   });
 
-  it('shows a client only the cards shared with them', async () => {
+  it('shows a client every card like a viewer (PM-79), and a card that does not exist as missing', async () => {
     await setup();
     await say('cleo');
     const tool = toolOf(conversationWith('cleo'));
-    expect(await refusal(h.domain.teamTools.getTask(tool, { taskKey: 'AR-1' }))).toMatch(/does not exist/);
-    expect(await refusal(h.domain.teamTools.listAttachments(tool, { taskKey: 'AR-1' }))).toMatch(
-      /does not exist/,
-    );
+    expect(await refusal(h.domain.teamTools.getTask(tool, { taskKey: 'AR-99' }))).toMatch(/does not exist/);
+    expect((await h.domain.teamTools.getTask(tool, { taskKey: 'AR-1' })).task.key).toBe('AR-1');
+    expect((await h.domain.teamTools.listAttachments(tool, { taskKey: 'AR-1' })).attachments).toEqual([]);
     const shared = await h.domain.teamTools.getTask(tool, { taskKey: 'AR-2' });
     expect(shared.task.key).toBe('AR-2');
-    expect(shared).not.toHaveProperty('cardQuestions');
-    expect(shared).not.toHaveProperty('workingSessionIds');
-    expect((await h.domain.teamTools.listTasks(tool, {})).map((t) => t.key)).toEqual(['AR-2']);
-    // A merge check with a card the client cannot see is left out of both readings (PM-876).
+    expect(shared.cardQuestions).toEqual([]);
+    expect(shared.timeline.length).toBeGreaterThan(0);
+    expect((await h.domain.teamTools.listTasks(tool, {})).map((t) => t.key).sort()).toEqual(['AR-1', 'AR-2']);
+    // A merge check shows on every card it names, whoever reads it.
     const checked = (id: string, taskKeys: string[]) =>
       h.repos.mergeCheckRuns.start({
         id,
@@ -418,6 +417,7 @@ describe('the Operator only reads and answers in a guest’s conversation (PM-47
     checked('mergecheck_mixed', ['AR-1', 'AR-2']);
     const runIds = (runs: Array<{ id: string }> | undefined) => runs?.map((run) => run.id);
     expect(runIds((await h.domain.teamTools.getTask(tool, { taskKey: 'AR-2' })).mergeChecks)).toEqual([
+      'mergecheck_mixed',
       'mergecheck_shared',
     ]);
     // The listing is no tool of a client conversation at all.
@@ -569,24 +569,21 @@ describe('who sees the Operator’s sessions (PM-475)', () => {
     const read = (cookie: string) =>
       inject(app!.app, 'GET', routes.session('AR', session.id), cookie, undefined);
     expect((await read(owner)).statusCode).toBe(200);
-    for (const handle of ['dana', 'vera'])
+    for (const handle of ['dana', 'vera', 'cleo'])
       expect((await read(cookies.get(handle)!)).statusCode, handle).toBe(404);
-    // The client has no access to sessions at all.
-    expect((await read(cookies.get('cleo')!)).statusCode).toBeGreaterThanOrEqual(403);
 
-    // Live events: the developer gets neither the session nor its chat.
+    // Live events: the developer and the client get neither the session nor its chat.
     const isOperatorSession = (id: string) => domain.sessions.isOperatorSession(id);
     const developer = { access: 'developer', handle: 'dana' } as const;
+    const client = { access: 'client', handle: 'cleo' } as const;
     const upsert = { type: 'session_upserted', projectKey: 'AR', session } as const;
     const chat = { type: 'chat_appended', projectKey: 'AR', sessionId: session.id } as never;
-    expect(canSeeProjectEvent(developer, upsert, undefined, isOperatorSession)).toBe(false);
-    expect(canSeeProjectEvent(developer, chat, undefined, isOperatorSession)).toBe(false);
-    expect(
-      canSeeProjectEvent({ access: 'owner', handle: 'owner' }, upsert, undefined, isOperatorSession),
-    ).toBe(true);
-    expect(canSeeProjectEvent({ access: 'admin', handle: 'ada' }, chat, undefined, isOperatorSession)).toBe(
-      true,
-    );
+    for (const viewer of [developer, client]) {
+      expect(canSeeProjectEvent(viewer, upsert, isOperatorSession)).toBe(false);
+      expect(canSeeProjectEvent(viewer, chat, isOperatorSession)).toBe(false);
+    }
+    expect(canSeeProjectEvent({ access: 'owner', handle: 'owner' }, upsert, isOperatorSession)).toBe(true);
+    expect(canSeeProjectEvent({ access: 'admin', handle: 'ada' }, chat, isOperatorSession)).toBe(true);
 
     // A person’s channel shows their own conversation and nobody else’s.
     const mine = await inject(app.app, 'GET', routes.operator('AR'), cookies.get('cleo')!, undefined);

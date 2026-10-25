@@ -7,7 +7,7 @@ import { parseBody } from '../http';
 export function registerInvolvementRoutes(app: FastifyInstance, domain: ApiDomain): void {
   app.get<{ Params: { key: string } }>(routes.involvements(':key'), async (request) => {
     const key = request.params.key;
-    const access = await requireAccess(domain, request, key, { internal: true });
+    const access = await requireAccess(domain, request, key);
     return domain.involvements.list(key, parseBody(InvolvementQuery, request.query), access);
   });
 }

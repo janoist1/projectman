@@ -5,7 +5,6 @@ import type { MemberService } from '../members';
 import type { BoardPauses, BoardPlanUsage } from './ports';
 import type { ProjectService } from '../projects';
 import type { TaskService } from './service';
-import { isClient, visibleTasks } from '../projects';
 import type { Viewer } from '../projects';
 
 /** A project's board as one member sees it. */
@@ -34,9 +33,9 @@ export class BoardService {
   }
 
   /**
-   * Columns with their stages, labels with who may set them, the tasks the viewer may see, the
+   * Columns with their stages, labels with who may set them, the tasks, the
    * roster, the viewer's open inbox count and the plan usage of every provider the team's AI
-   * members run on that has a measurable one (`hasPlanUsage`; known from earlier probes; hidden from clients).
+   * members run on that has a measurable one (`hasPlanUsage`; known from earlier probes).
    */
   async view(projectKey: string, viewer: Viewer): Promise<BoardView> {
     const { config } = await this.projects.load(projectKey);
@@ -46,7 +45,7 @@ export class BoardService {
       ),
     ].filter(hasPlanUsage);
     const planUsageByProvider = Object.fromEntries(
-      providers.map((provider) => [provider, isClient(viewer) ? null : this.planUsage.peek(provider)]),
+      providers.map((provider) => [provider, this.planUsage.peek(provider)]),
     );
     return {
       aiEnabled: config.team.limits.aiEnabled,
@@ -57,13 +56,12 @@ export class BoardService {
       })),
       stages: resolvedStages(config),
       labels: config.pipeline.labels.map((label) => ({ ...label, holders: labelHolders(config, label) })),
-      tasks: visibleTasks(viewer, this.tasks.list(projectKey)),
-      members: this.members.rosterForViewer(config, viewer),
+      tasks: this.tasks.list(projectKey),
+      members: this.members.rosterFor(config),
       openInboxCount: this.inbox.countOpenFor(projectKey, viewer.handle, viewer),
       planUsage: planUsageByProvider.claude ?? null,
       planUsageByProvider,
-      // Which sessions are held is the team's business: a client sees none of it.
-      ...(isClient(viewer) ? {} : { pause: this.pauses.projectView(projectKey) }),
+      pause: this.pauses.projectView(projectKey),
     };
   }
 }

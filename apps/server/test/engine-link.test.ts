@@ -143,14 +143,14 @@ describe('cloud engine registry and link', () => {
     expect((await inject(h.app, 'POST', routes.revokeEngine('eng_missing'), cookie)).statusCode).toBe(404);
   });
 
-  it('restricts mutation to host owner login and status to internal users', async () => {
+  it('restricts mutation to host owner login and shows the status to every member', async () => {
     await createProjectThroughEngine();
     const developer = await addHumanAndLogin(h.app, { handle: 'human' });
     const client = await addHumanAndLogin(h.app, { handle: 'client', access: 'client' });
     expect((await inject(h.app, 'GET', routes.engines(), developer)).statusCode).toBe(403);
     expect((await inject(h.app, 'POST', routes.engines(), developer, { name: 'x' })).statusCode).toBe(403);
     expect((await inject(h.app, 'GET', routes.engineStatus(), developer)).statusCode).toBe(200);
-    expect((await inject(h.app, 'GET', routes.engineStatus(), client)).statusCode).toBe(403);
+    expect((await inject(h.app, 'GET', routes.engineStatus(), client)).statusCode).toBe(200);
     const keyResponse = await inject(h.app, 'POST', routes.integratorKey(), cookie, {});
     const headers = { authorization: `Bearer ${keyResponse.json().secret}` };
     const engine = await create();
@@ -302,7 +302,7 @@ describe('cloud engine registry and link', () => {
     await expect(request).resolves.toBe(123);
   });
 
-  it('broadcasts status to internal sockets without disclosing keys to clients', async () => {
+  it('broadcasts status to the sockets of every member', async () => {
     await createProjectThroughEngine();
     const developer = await addHumanAndLogin(h.app, { handle: 'human' });
     const client = await addHumanAndLogin(h.app, { handle: 'client', access: 'client' });
@@ -327,7 +327,7 @@ describe('cloud engine registry and link', () => {
     await vi.waitFor(() =>
       expect(internalEvents.some((event) => event.type === 'engine_changed')).toBe(true),
     );
-    expect(clientEvents.some((event) => event.type === 'engine_changed')).toBe(false);
+    await vi.waitFor(() => expect(clientEvents.some((event) => event.type === 'engine_changed')).toBe(true));
   });
 
   it('does not log secret requests or responses and reexecutes the same secret request id', async () => {

@@ -143,11 +143,6 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
   switch (event.type) {
     case 'task_upserted': {
       const { projectKey: key, task } = event;
-      // Who may see the files follows the task's visibility: read the list again when it changes.
-      const before = client.getQueryData<TaskDetail>(queryKeys.task(key, task.key))?.task;
-      if (before && before.visibility !== task.visibility) {
-        void client.invalidateQueries({ queryKey: queryKeys.attachments(key, task.key) });
-      }
       writeTask(client, key, task);
       if (task.status === 'done') void client.invalidateQueries({ queryKey: queryKeys.closedCardsAll(key) });
       if (task.links.some((link) => link.kind === 'pull_request')) {

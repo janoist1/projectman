@@ -17,15 +17,15 @@ describe('mock task detail: why the card stands still (PM-460)', () => {
     expect(detail.task.readyHold).toEqual(task.readyHold);
     expect(detail.wait).toMatchObject({ reason: 'ready', hold: task.readyHold });
   });
-  it('serves the wait of the shared rule to the team, and none to a client', () => {
+  it('serves the wait of the shared rule to the team, a client included', () => {
     const backend = new MockBackend();
     const detail = TaskDetail.parse(backend.taskDetail(backend.findTask('AC-20')!));
     expect(detail.wait?.reason).toEqual(expect.any(String));
     expect(detail.wait?.since).toEqual(expect.any(String));
 
     backend.viewerHandle = 'kata';
-    const asClient = TaskDetail.parse(backend.taskDetail(backend.findTask('AC-18')!));
-    expect(asClient).not.toHaveProperty('wait');
+    const asClient = TaskDetail.parse(backend.taskDetail(backend.findTask('AC-20')!));
+    expect(asClient.wait).toEqual(detail.wait);
   });
 
   it('has no wait for a closed card', () => {

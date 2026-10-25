@@ -7,7 +7,6 @@ import {
   attachmentPreviewOf,
   canDeleteMessageAttachment,
   canSeeTeamMessage,
-  canSeeTask,
   memberOf,
 } from '@projectman/shared';
 import type {
@@ -430,7 +429,7 @@ export class MessageAttachmentService implements MessageAttachmentOperations {
           target.resolution?.by === anchor.from &&
           target.resolution.via === anchor.via &&
           message.to.includes(target.source) &&
-          (!target.taskKey || (!!task && canSeeTask(viewer, task)))
+          (!target.taskKey || !!task)
         );
       }) ?? null
     );

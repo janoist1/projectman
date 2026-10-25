@@ -9,9 +9,9 @@ import { authenticatedUser, instanceUser, requireAccess } from './context';
 import { parseBody } from '../http';
 
 /**
- * The team's pause (PM-219). A project's pause is for its admins and owners, whom every internal member
- * may look at; the instance's is for a person who is an owner in every project, whom any internal
- * member of some project may look at (`canManageInstancePause`).
+ * The team's pause (PM-219). A project's pause is for its admins and owners, whom every member
+ * may look at; the instance's is for a person who is an owner in every project, whom any member
+ * of some project may look at (`canManageInstancePause`).
  */
 export function registerPauseRoutes(app: FastifyInstance, domain: ApiDomain): void {
   type ProjectParams = { Params: { key: string } };
@@ -25,13 +25,13 @@ export function registerPauseRoutes(app: FastifyInstance, domain: ApiDomain): vo
   });
 
   app.get<ProjectParams>(routes.projectPause(':key'), async (request): Promise<ProjectPauseView> => {
-    await requireAccess(domain, request, request.params.key, { internal: true });
+    await requireAccess(domain, request, request.params.key);
     return domain.pauses.projectView(request.params.key);
   });
 
   app.post<ProjectParams>(routes.projectPause(':key'), async (request): Promise<ProjectPauseView> => {
     const { key } = request.params;
-    const access = await requireAccess(domain, request, key, { minimum: 'admin', internal: true });
+    const access = await requireAccess(domain, request, key, { minimum: 'admin' });
     const body = parseBody(PauseRequest, request.body);
     await domain.pauses.pause({ scope: 'project', projectKey: key }, requester(request, access), body);
     return domain.pauses.projectView(key);
@@ -39,19 +39,19 @@ export function registerPauseRoutes(app: FastifyInstance, domain: ApiDomain): vo
 
   app.post<ProjectParams>(routes.projectPauseResume(':key'), async (request): Promise<ProjectPauseView> => {
     const { key } = request.params;
-    const access = await requireAccess(domain, request, key, { minimum: 'admin', internal: true });
+    const access = await requireAccess(domain, request, key, { minimum: 'admin' });
     await domain.pauses.resume({ scope: 'project', projectKey: key }, requester(request, access));
     return domain.pauses.projectView(key);
   });
 
   app.post<ProjectParams>(routes.projectPauseForce(':key'), async (request): Promise<ProjectPauseView> => {
     const { key } = request.params;
-    const access = await requireAccess(domain, request, key, { minimum: 'admin', internal: true });
+    const access = await requireAccess(domain, request, key, { minimum: 'admin' });
     await domain.pauses.force({ scope: 'project', projectKey: key }, requester(request, access));
     return domain.pauses.projectView(key);
   });
 
-  /** The viewer's internal projects and whether they may manage the instance's pause. */
+  /** The viewer's projects and whether they may manage the instance's pause. */
   async function instanceViewer(request: FastifyRequest) {
     const user = await instanceUser(domain, request, request.method === 'GET' ? 'read' : 'write');
     const accesses = await Promise.all(
@@ -60,11 +60,10 @@ export function registerPauseRoutes(app: FastifyInstance, domain: ApiDomain): vo
         access: await domain.accessFor(project.key, user.email),
       })),
     );
-    const internal = accesses.filter((a) => a.access && a.access.access !== 'client').map((a) => a.key);
-    if (internal.length === 0)
-      throw forbidden('insufficient_access', 'requires internal membership in a project');
+    const member = accesses.filter((a) => a.access).map((a) => a.key);
+    if (member.length === 0) throw forbidden('insufficient_access', 'requires membership in a project');
     return {
-      projectKeys: internal,
+      projectKeys: member,
       canManage: canManageInstancePause(accesses.map((a) => a.access?.access ?? null)),
     };
   }

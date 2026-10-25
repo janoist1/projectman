@@ -521,7 +521,8 @@ answers and can change that person's own conversational style (PM-688):
   `operator_owner_only`; a refused write is logged as a `refused` step. `get_project_state` is not
   among them until a separate task adds a viewer filter.
 - **Reads are the person's own view.** Cards, details, timeline excerpts and attachments go through
-  `canSeeTask` / `visibleTaskDetail` / `humanActor`, so a client sees only what is shared with them.
+  `visibleTaskDetail` / `humanActor`, so the guest sees what their access level reads (a client reads like a
+  viewer, PM-79), minus the team messages they are not a party to (PM-78).
 - **No other way to data.** The session starts with the team tools alone (`SessionPolicy.teamToolsOnly`).
   The Claude Code adapter then renders: `--tools ToolSearch` (the one built-in tool that reaches the
   deferred team tools), the deny rules `Bash`, `Read`, `Edit`, `Write`, `WebFetch`, `WebSearch` and `Agent`,
@@ -1057,8 +1058,11 @@ boundary is then the application, so these hold and are tested (`apps/server/tes
 - **Anonymous callers get nothing.** `/api`, the attachment content and thumbnail routes and the `/ws`
   upgrade answer 401 without a session. A cross-origin login or mutation is refused (403) by the existing
   same-origin check; the session cookie is `HttpOnly`, `SameSite` and, behind the tunnel's HTTPS, `Secure`.
-- **A client sees only what is shared with them.** An internal card, a card of another project and a
-  card that does not exist give the same answer; the live connection sends no event of an internal card.
+- **A client reads like a viewer (PM-79).** Every card, label, timeline entry, session, conversation and
+  question of the project is theirs to read, and the live connection sends them the same events; only a
+  card of another project and a card that does not exist give the not-found answer. What stays closed to a
+  client is the write side, the Operator's sessions (owner and admin only, PM-475), the team messages they
+  are not a party to (PM-78) and the owner-only events (`project_checklist_changed`, `operator_signal`).
   The engine service token is no board login: `/api/auth/me` with it answers 401.
 - **The engine door stays closed.** `/engine` keeps its own Access application (the engine service token
   only), and the tunnel demands that application's audience for it; `/hooks` and `/mcp/` (the member door)

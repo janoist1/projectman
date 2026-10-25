@@ -201,6 +201,32 @@ describe('websocket', () => {
     expect(h.runner.input).toEqual([]);
   });
 
+  it('lets a client watch a terminal like a viewer, but not type into it (PM-79)', async () => {
+    await h.app.inject({
+      method: 'POST',
+      url: '/api/projects/AR/tasks',
+      headers: { cookie },
+      payload: { title: 'Example' },
+    });
+    const started = await h.app.inject({
+      method: 'POST',
+      url: '/api/projects/AR/tasks/AR-1/start',
+      headers: { cookie },
+      payload: {},
+    });
+    const sessionId = started.json<TaskDetail>().sessions[0]!.id;
+    const clientCookie = await addHumanAndLogin(h.app, { handle: 'cecil', name: 'Cecil', access: 'client' });
+    const { ws, events } = await connect({ cookie: clientCookie });
+    await waitFor(events, ofType('hello'));
+    ws.send(JSON.stringify({ type: 'terminal_attach', sessionId }));
+    await waitFor(events, ofType('terminal_snapshot'));
+    h.runner.emit({ type: 'terminal_data', sessionId, data: 'visible output' });
+    await waitFor(events, ofType('terminal_data'));
+    ws.send(JSON.stringify({ type: 'terminal_input', sessionId, data: 'x' }));
+    await waitFor(events, ofType('error'));
+    expect(h.runner.input).toEqual([]);
+  });
+
   it('lets an admin watch the Operator’s terminal but only the owner type into it (PM-475)', async () => {
     const sent = await h.app.inject({
       method: 'POST',
@@ -329,7 +355,7 @@ describe('websocket', () => {
     );
   });
 
-  it('shares task reads across clients for each event while preserving client visibility', async () => {
+  it('sends a client the same task events as any member, without a read per connection', async () => {
     const clientCookie = await addHumanAndLogin(h.app, {
       handle: 'client',
       name: 'Client',
@@ -366,23 +392,16 @@ describe('websocket', () => {
     };
     h.app.projectman.domain.bus.publish(event);
     for (const { events } of connections) await waitFor(events, ofType('task_upserted'));
-    expect(find.mock.calls).toEqual([
-      ['AR', task.key],
-      ['AR', 'AR-999'],
-    ]);
-    for (const { events } of connections.slice(0, 2))
-      expect(events.find(ofType('task_upserted'))?.task.links).toEqual([
-        { kind: 'prerequisite', ref: task.key },
-      ]);
-    expect(connections[2]!.events.find(ofType('task_upserted'))).toEqual(event);
-    find.mockClear();
+    // A client gets the event as the owner does: nothing is read or cut per connection (PM-79).
+    expect(find).not.toHaveBeenCalled();
+    for (const { events } of connections) expect(events.find(ofType('task_upserted'))).toEqual(event);
     h.app.projectman.domain.bus.publish({
       type: 'task_attachments_changed',
       projectKey: 'AR',
       taskKey: task.key,
     });
     for (const { events } of connections) await waitFor(events, ofType('task_attachments_changed'));
-    expect(find.mock.calls).toEqual([['AR', task.key]]);
+    expect(find).not.toHaveBeenCalled();
   });
 
   it.each(['https://evil.example', 'http://localhost:5173', 'https://localhost:4700'])(

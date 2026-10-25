@@ -6,7 +6,6 @@ import {
   EMAIL_SUBJECT_MAX,
   EMAIL_TEXT_MAX,
   SYSTEM_SENDER,
-  canSeeTask,
   emailApprovalOf,
   emailChannelOn,
   emailContactChangeRefusal,
@@ -88,10 +87,7 @@ export function createEmailChannelService(deps: {
     return emailContentRefusals(input, {
       projectKey,
       recipientAccess,
-      canSee: (taskKey) => {
-        const task = tasks.find(projectKey, taskKey);
-        return !!task && canSeeTask({ access: recipientAccess }, task);
-      },
+      canSee: (taskKey) => !!tasks.find(projectKey, taskKey),
       labelIds: config.pipeline.labels.map((label) => label.id),
       allowedAddresses: [
         ...(recipient?.kind === 'human' && recipient.email ? [recipient.email] : []),

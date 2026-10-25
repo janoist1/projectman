@@ -218,11 +218,11 @@ describe('history search by meaning', () => {
     expect(result.hasMore).toBe(true);
   });
 
-  it('leaves out the sources the viewer may not read', async () => {
+  it('finds the same sources for a client as for the owner (PM-79)', async () => {
     await task('Internal one', 'automobile secret', { visibility: 'internal' });
     await task('Shared one', 'automobile public');
     const client = await search({ query: 'vehicle' }, as('acme'));
-    expect(client.matches).toEqual([]);
+    expect(client.matches).toHaveLength(2);
     const owner = await search({ query: 'vehicle' });
     expect(owner.matches).toHaveLength(2);
   });

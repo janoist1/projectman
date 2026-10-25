@@ -150,7 +150,7 @@ export interface FeedbackPerson {
   color: number | null;
 }
 
-/** The card of a mark as the viewer may see it: a client gets no key and no title of an internal card. */
+/** The card of a mark. Always visible since PM-79; the `visible: false` form goes away with PM-987. */
 export type FeedbackCardRef =
   | { visible: true; key: TaskKey; title: string; stageName: string; visibility: Visibility }
   | { visible: false };

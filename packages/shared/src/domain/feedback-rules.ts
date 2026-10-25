@@ -1,8 +1,6 @@
 import { memberDuties } from '../config/duties';
 import type { MemberConfig, ProjectConfig } from '../config/schema';
 import type { FeedbackCardRef, FeedbackOutcome, FeedbackStatus } from './feedback';
-import type { HumanAccess } from './member';
-import { canSeeTask } from './task';
 import type { Task } from './task';
 
 export { feedbackOriginRefusal, normalizeFeedbackOrigin } from './feedback-origin';
@@ -36,15 +34,13 @@ export function canMarkFeedback(config: Pick<ProjectConfig, 'project'>, member: 
 }
 
 /**
- * The card of a mark as the viewer may see it. The one place that decides: a client looking at an
- * internal card gets neither its key nor its title (decision 2 of PM-506).
+ * The card of a mark. Every member sees every card (PM-79), so the reference is always visible; the
+ * `{ visible: false }` form of `FeedbackCardRef` stays in the contract until PM-987.
  */
 export function feedbackCardRef(
   task: Pick<Task, 'key' | 'title' | 'visibility'>,
   stageName: string,
-  viewerAccess: HumanAccess | 'ai',
 ): FeedbackCardRef {
-  if (!canSeeTask({ access: viewerAccess }, task)) return { visible: false };
   return { visible: true, key: task.key, title: task.title, stageName, visibility: task.visibility };
 }
 

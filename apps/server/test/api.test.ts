@@ -710,7 +710,7 @@ describe('REST API', () => {
       expect(revert.body.error.code).toBe('insufficient_access');
     });
 
-    it('shows client members only what is shared with them', async () => {
+    it('shows client members every card and the team’s news, and lets them change nothing (PM-79)', async () => {
       const clientCookie = await addHumanAndLogin(h.app, {
         handle: 'client',
         name: 'Client',
@@ -720,16 +720,14 @@ describe('REST API', () => {
       await call('POST', '/api/projects/AR/tasks', cookie, { title: 'Shared work', visibility: 'shared' });
 
       const tasks = await call<Task[]>('GET', '/api/projects/AR/tasks', clientCookie);
-      expect(tasks.body.map((t) => t.title)).toEqual(['Shared work']);
+      expect(tasks.body.map((t) => t.title).sort()).toEqual(['Internal work', 'Shared work']);
       const board = await call<BoardView>('GET', '/api/projects/AR/board', clientCookie);
-      expect(board.body.tasks.map((t) => t.key)).toEqual(['AR-2']);
-      expect(board.body.planUsage).toBeNull();
-      expect((await call('GET', '/api/projects/AR/tasks/AR-1', clientCookie)).status).toBe(404);
+      expect(board.body.tasks.map((t) => t.key).sort()).toEqual(['AR-1', 'AR-2']);
+      expect((await call('GET', '/api/projects/AR/tasks/AR-1', clientCookie)).status).toBe(200);
       const shared = await call<TaskDetail>('GET', '/api/projects/AR/tasks/AR-2', clientCookie);
-      expect(shared.body.sessions).toEqual([]);
       expect(shared.body.timeline.map((e) => e.type)).toEqual(['task_created']);
-      // Why a card stands still is the team's own news: a person at the team sees it, a client does not (PM-460).
-      expect(shared.body).not.toHaveProperty('wait');
+      // Why a card stands still reaches a client as it reaches the team (PM-460).
+      expect(shared.body.wait?.reason).toBe('ready');
       const own = await call<TaskDetail>('GET', '/api/projects/AR/tasks/AR-2', cookie);
       expect(own.body.wait?.reason).toBe('ready');
       expect(own.body.wait?.toStageId).toEqual(expect.any(String));
@@ -752,7 +750,7 @@ describe('REST API', () => {
       });
       const asked = await call<TaskDetail>('GET', '/api/projects/AR/tasks/AR-2', cookie);
       expect(asked.body.wait).toMatchObject({ reason: 'inbox', inboxItemId: 'inb_mine' });
-      expect((await call<ApiError>('GET', '/api/projects/AR/config', clientCookie)).status).toBe(403);
+      expect((await call<ApiError>('GET', '/api/projects/AR/config', clientCookie)).status).toBe(200);
       expect((await call('POST', '/api/projects/AR/tasks', clientCookie, { title: 'x' })).status).toBe(403);
     });
   });

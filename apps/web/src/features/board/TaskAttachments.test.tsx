@@ -873,7 +873,7 @@ describe('attachments: cover choice', () => {
     ).toBe(403);
   });
 
-  it('lets a client choose only on a shared card', async () => {
+  it('lets a client choose the cover', async () => {
     const project = mockProject();
     project.backend.addAttachment('AC-19', png);
     project.backend.addAttachment('AC-19', jpg);
@@ -881,10 +881,6 @@ describe('attachments: cover choice', () => {
     await fromList();
     expect(makeButton('two.jpg')).toBeTruthy();
     expect(hideButton('one.png')).toBeTruthy();
-    // An internal card is not even visible to a client.
-    expect(project.backend.handle('PUT', routes.taskCover('AC', 'AC-20'), { mode: 'hidden' }).status).toBe(
-      404,
-    );
   });
 });
 
@@ -895,31 +891,11 @@ describe('attachments: live and lost access', () => {
     await screen.findByText(t('attachments.none'));
     const att = project.backend.addAttachment('AC-20', { name: 'remote.txt', size: 10, type: 'text/plain' });
     await listed('remote.txt');
-    // The change is on the timeline too (a client reads the timeline, not the file list, for history).
+    // The change is on the timeline too.
     expect(await findAddedRow('remote.txt')).toBeTruthy();
     project.backend.removeAttachment(att.id);
     await waitFor(() => expect(inList('remote.txt')).toBeNull());
     expect(await screen.findByText(t('timeline.attachmentDeleted', { fileName: 'remote.txt' }))).toBeTruthy();
-  });
-
-  it('shows nothing of the files once the task is no longer shared with the client', async () => {
-    const project = mockProject();
-    project.backend.addAttachment('AC-19', { name: 'secret.txt', size: 10, type: 'text/plain' }, OWNER_ACTOR);
-    project.backend.addAttachment('AC-19', { name: 'secret.png', size: 10, type: 'image/png' }, OWNER_ACTOR);
-    project.render(drawerFor(project), '/p/AC/tasks/AC-19/attachments', actAs(project, 'bence', 'client'));
-    await listed('secret.txt');
-    const preview = (await fromList()).getByRole('button', {
-      name: t('attachments.previewLabel', { fileName: 'secret.png' }),
-    });
-    fireEvent.click(preview);
-    await screen.findByRole('dialog');
-
-    project.backend.updateTask('AC-19', { visibility: 'internal' });
-    await waitFor(() => expect(inList('secret.txt')).toBeNull());
-    expect(screen.queryByRole('dialog')).toBeNull();
-    expect(document.querySelector('img[src*="/attachments/"]')).toBeNull();
-    expect(screen.queryByRole('button', { name: t('attachments.chooseFiles') })).toBeNull();
-    expect(screen.getAllByRole('alert').length).toBeGreaterThan(0);
   });
 
   it('clears the section when another task is opened', async () => {

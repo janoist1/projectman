@@ -156,7 +156,7 @@ export function registerOperatorRoutes(app: FastifyInstance, deps: { domain: Api
     routes.dismissOperatorSignal(':key', ':signalId'),
     async (request) => {
       const { key, signalId } = request.params;
-      const access = await requireAccess(domain, request, key, { internal: true });
+      const access = await requireAccess(domain, request, key);
       if (access.access !== 'owner' || access.via)
         throw forbidden('operator_owner_only', "only the owner's own login may dismiss a signal");
       return domain.operatorSignals.decision(key, signalId, access.handle, false);

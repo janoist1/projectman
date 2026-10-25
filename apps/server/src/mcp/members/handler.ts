@@ -8,12 +8,12 @@ import type { MemberToolsHandler } from '../../contracts';
 
 export class MemberTools implements MemberToolsHandler {
   private readonly calls: ToolCaller;
-  private readonly members: Pick<MemberService, 'rosterFor' | 'rosterForViewer'>;
+  private readonly members: Pick<MemberService, 'rosterFor'>;
   private readonly memory: MemberMemoryStore;
   constructor(deps: {
     memory: MemberMemoryStore;
     calls: ToolCaller;
-    members: Pick<MemberService, 'rosterFor' | 'rosterForViewer'>;
+    members: Pick<MemberService, 'rosterFor'>;
   }) {
     this.memory = deps.memory;
     this.calls = deps.calls;
@@ -21,8 +21,8 @@ export class MemberTools implements MemberToolsHandler {
   }
   async listMembers(ctx: ToolContext): Promise<MemberView[]> {
     return this.calls.guard(async () => {
-      const { config, guest } = await this.calls.callerWithRequest(ctx, 'list_members');
-      return guest ? this.members.rosterForViewer(config, guest.viewer) : this.members.rosterFor(config);
+      const { config } = await this.calls.callerWithRequest(ctx, 'list_members');
+      return this.members.rosterFor(config);
     });
   }
   async saveMemory(ctx: ToolContext, args: { note: string }): Promise<{ ok: true }> {

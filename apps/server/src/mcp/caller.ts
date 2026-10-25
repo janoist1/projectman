@@ -35,7 +35,6 @@ import {
   OPERATOR_TOOL_ACTIONS,
 } from '../services/operator';
 import type { CoordinationRequests, OperatorRequests, OperatorSteps } from '../services/operator';
-import { canSeeTask } from '../core/projects';
 import type { Viewer } from '../core/projects';
 import type { OperatorSignals } from '../services/operator';
 import type { ProjectService } from '../core/projects';
@@ -475,17 +474,6 @@ export class ToolCaller {
     if (!this.tasks.find(ctx.projectKey, taskKey))
       throw new TeamToolError('not_found', `Task ${taskKey} does not exist in this project.`);
     return taskKey;
-  }
-
-  /**
-   * A task key of the caller's project that the guest may see: a card they may not see does not exist
-   * for them (PM-475). Without a guest (any other caller) it is `validTaskKey`.
-   */
-  visibleTaskKey(ctx: ToolContext, guest: GuestView | null, taskKey: string): string {
-    const key = this.validTaskKey(ctx, taskKey);
-    if (guest && !canSeeTask(guest.viewer, this.tasks.get(ctx.projectKey, key)))
-      throw new TeamToolError('not_found', `Task ${key} does not exist in this project.`);
-    return key;
   }
 
   /**

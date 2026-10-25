@@ -403,7 +403,7 @@ describe('feedback widget API (PM-509)', () => {
       expect(widget).toMatchObject({ canProcess: false, environment: null, screenshot: null });
     });
 
-    it('keeps the key and the title of an internal card from a client', async () => {
+    it('names the card of a mark to a client whatever its visibility (PM-79)', async () => {
       const made = (await (await postMark(tokens.client!)).json()) as MarkDetail;
       const created = await h.app.inject({
         method: 'POST',
@@ -417,9 +417,9 @@ describe('feedback widget API (PM-509)', () => {
         await api('GET', '/marks', { token: tokens.client! }),
       ]) {
         expect(response.statusCode).toBe(200);
-        expect(response.body).not.toContain('AR-1');
-        expect(response.body).not.toContain('Secret rework');
-        expect(response.body).toContain('"visible":false');
+        expect(response.body).toContain('AR-1');
+        expect(response.body).toContain('Secret rework');
+        expect(response.body).toContain('"visible":true');
       }
     });
 

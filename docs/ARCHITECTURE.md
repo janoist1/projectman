@@ -144,13 +144,13 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   `PROJECTMAN_HOME/attachments` and reached only through the protected REST routes
   (`routes.taskAttachments` and its `content`/`download` children, a multipart upload of one
   file per request, never buffered whole); there is no public static route. Who may read, upload
-  and delete is one rule in `packages/shared` (`canReadAttachments`, `canUploadAttachment`,
-  `canDeleteAttachment`, with `canSeeTask` underneath): project membership always; a client only
-  on a shared task; a viewer only reads; AI members and the other workers upload; the uploader or
+  and delete is one rule in `packages/shared` (`canUploadAttachment`,
+  `canDeleteAttachment`): every project member reads (a client like a viewer, PM-79); a viewer only
+  reads; AI members and the other workers upload; the uploader or
   a human owner or admin deletes. The attachments service ([`core/attachments`](modules/core-attachments.md), the contract in
   `contracts/attachments.ts`) takes a stream, so REST and the team tools share one size,
-  storage and access check, and judges the member against the current roster and the task's
-  current visibility again just before an upload is published. The media type is proven from the
+  storage and access check, and judges the member against the current roster
+  again just before an upload is published. The media type is proven from the
   file's content (PNG, JPEG, GIF, WebP and PDF may be shown inline; HTML, SVG, a renamed or an
   unknown file is always an `application/octet-stream` download); every response is `nosniff`,
   sandboxed by CSP and has a safely encoded `Content-Disposition`; the uploaded name is
@@ -160,8 +160,7 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   the row and the audit event together, a failure leaves it `deleting` (not readable, finished by
   the next try or the next start), and the start of the server finishes what a stop left half
   done. `attachment_added` and `attachment_deleted` stay in the task's timeline with the file
-  name; the websocket event `task_attachments_changed` carries only the task key and reaches a
-  client only while the task is shared with them. Cancelling a task keeps its attachments, and
+  name; the websocket event `task_attachments_changed` carries only the task key and reaches every member. Cancelling a task keeps its attachments, and
   no task is ever hard-deleted (deleting one for good would have to remove its files too).
   **Cover and thumbnail** (PM-195): a card's cover is its first image (`coverAttachmentId` in
   `packages/shared`, the oldest ready attachment whose content proved to be a PNG, JPEG, GIF or
@@ -575,7 +574,7 @@ claude | codex ── transcript JSONL ────────────▶ r
 - Services tell each other what happened through typed domain events (`ctx.events`:
   configuration changes, resolved inbox items, stage moves, cancellations, label and mention
   notices, sessions starting and ending, messages waiting for a recipient); a failing listener
-  is logged and never stops the others. The event bus carries only what goes to clients (the
+  is logged and never stops the others. The event bus carries only what goes to members (the
   websocket). Shutdown stops the kernel sweep tickers and module programs, then waits for
   running sweep rounds and background work (hand-overs, message wake-ups, plan usage probes).
   It next awaits `MessageDelivery.close()`, calls `pauses.dispose()` and `sessions.dispose()`,
@@ -1144,7 +1143,7 @@ at)`, index `(project_key, seq)` (migration 81). `seq` never goes back, also not
   one of another generation (or past the end of this journal) is `409 event_cursor_expired`. The same cursor
   works after a restart: the generation is a UUID stored in `instance_meta` under
   `project_change_generation`, made once with the database (migration 81) and never changed by a restart.
-- **Access during the wait.** Internal members only (clients are refused). The credential and the
+- **Access during the wait.** Every member (PM-79: a client reads like a viewer). The credential and the
   membership are checked again on every wake and before the answer: a key revoked or expired during the
   wait gets `401 integrator_key_invalid` at once (revocation wakes the waiter, expiry has a timer), a
   member who lost access gets the refusal instead of entries. A stopping server ends the waits with
@@ -1429,7 +1428,7 @@ a normal merge (PM-882); conflict fix checkouts and resolution submissions remai
 `mergeReadiness` and `mergeRepoOf` in shared
 configuration rules determine readiness and the forward moves that need the approved commit on the
 default branch. The source is the persistent handover (`task_handovers`, migration 47), then the review
-pin, then the card's clean branch head. Clients never see `Task.merge` or `Task.merged`.
+pin, then the card's clean branch head. A client reads `Task.merge` and `Task.merged` like any member (PM-79).
 
 `services/merges/` (PM-600; `Merges` in `merges.ts` is the facade, exported by `index.ts` with `MergeCardLock`)
 persists requested, queued, running, failed and blocked states in `task_merges`,
@@ -4351,7 +4350,7 @@ the work of a team that does not write code: a note, an attachment or a new desc
 new one; an imported comment is no work); the window
 and the count are `team.limits.loopWatch` (`enabled`, `count` 3..50, `minutes` 5..240; default on, 6 in 30).
 A loop is a row of `task_loops` (migration 29) with the phase `notified` → `owner` → `let_run`, and the card
-carries it as `Task.loop` (a "Körbe fut" mark; clients do not see it). Since PM-712 the selected PM gets a
+carries it as `Task.loop` (a "Körbe fut" mark; every member sees it). Since PM-712 the selected PM gets a
 report-only `loop_suspected` signal in its internal general session, even when it participates.
 `triage_loop` records an attributed `loop_triaged` event: `progress` keeps observing from the current count;
 another threshold of unchanged messages starts a new generation. `loop` asks the existing human deciders
@@ -4390,7 +4389,7 @@ the planner is not the lead who passed the card on either; if none is left by th
 people decide (an inbox decision with `replan`, `reassign`
 and `another_round`, only the options that can be carried out) when no AI member can, when the lead passed it
 on (`passed_on`), or when the card reaches the limit again after one more round (`again`). The state is a row of
-`task_fix_limits` (migration 30); the card carries it as `Task.fixLimit` (clients do not see it) and
+`task_fix_limits` (migration 30); the card carries it as `Task.fixLimit` (every member sees it) and
 `TaskDetail.fixRounds`. The hold ends with a decision, a change of the assignee (the count then starts anew) or
 the card's closing; its inbox decision closes itself with the `fix_limit_ended` rule. The timeline event is
 `task_fix_limit` (`reached`, `passed_on`, `decided`, `ended`). The notices to the lead, the planner and a
@@ -4447,8 +4446,7 @@ work nobody did on the card itself) say nothing once every subtask is closed. Th
   (`core/tasks/moves.ts`) and `TaskService.update` use it for every move path, a person's or the system's, so the
   board drop, the card update and the hand-on decision need no rule of their own. The waiver skips the gates, and
   the merge check only for a card with no code of its own (PM-797, below); a card with its own unmerged branch is
-  still refused (`task_not_merged`). The `task_stage_changed` event carries `partsClosed` (the subtasks by outcome);
-  clients do not see it.
+  still refused (`task_not_merged`). The `task_stage_changed` event carries `partsClosed` (the subtasks by outcome).
 - `collectingSourceStateOf` / `canSkipCollectingMerge` (PM-797): the merge check reads a source commit from the
   engine, so a collecting card with nothing to merge must not need one. The state is `none` only when the hub's own
   data proves it: `TaskRepository.sourceEvidence` reads SQLite only (links, review pins, hand-overs, workspace
@@ -4502,7 +4500,7 @@ for a live session of the old assignee (only a change of the repository is).
 - **Cancel and restart.** A change of the assignee while a handoff is open calls it off (the card went back to the old
   member) or retargets it (to a third member); the old session is told so. `sweep()` ends the handoffs whose time ran
   out; `resumeAfterStartup()` brings the open ones on after a restart.
-- **Visibility.** `Task.handoff` and `Task.lastHandoff` are for the team only (`visibility.ts` hides them from clients);
+- **Visibility.** `Task.handoff` and `Task.lastHandoff` are read like the rest of the card (a client reads like a viewer, PM-79);
   a closed handoff is read with `GET /api/projects/:key/tasks/:task/handoffs/:id`, and the `PATCH` of a card answers
   `handoffStart` (`live` or `fallback`). The timeline event is `task_handoff`.
 
@@ -4571,7 +4569,7 @@ later parts of PM-427 (the order of deferred starts, the AI members' brief, the 
   `focus_humans_only`, any other person `focus_not_allowed`.
 - **API.** `GET /api/projects/:key/focus` (`ProjectFocusView`, with `canEdit`), `POST .../focus/items`,
   `PATCH` and `DELETE .../focus/items/:taskKey`, and `GET .../focus/changes?limit=` (the project's `focus_changed`
-  events, newest first). All are internal-only (`requireAccess(..., { internal: true })`).
+  events, newest first). Every member reads (`requireAccess`); the writes are refused by the domain to anyone without the prioritization duty.
 - **Timeline.** `focus_changed` (`added`/`removed` on the item's own card or theme, `moved` without a card, so it shows
   only in the project's changes). `task_stage_changed.data.pulled` (`StagePull`: `{ reason: 'urgent' }` or
   `{ reason: 'focus', position, key, title }`) marks a card the system pulled into the work stage (below).
@@ -4653,9 +4651,8 @@ later parts of PM-427 (the order of deferred starts, the AI members' brief, the 
   milestones, repeated conflicts, shared/distinct original windows and signals held by budget/admission/engine
   refusal, preserving the PM-769/771 seed and scenarios. It records CPU user/system time, wall median/p95, hydrated
   rows and computation/read counts separately from startup and seeding.
-- **Clients.** A client sees nothing of the focus: not the endpoints, not `project_focus_changed` (the default of
-  `canSeeProjectEvent`), not `focus_changed` (it is not in `CLIENT_TASK_TIMELINE`), and `visibleTimelineEvent` takes
-  `pulled` off a stage change.
+- **Clients.** A client sees the focus like a viewer (PM-79): the endpoints, `project_focus_changed`, `focus_changed` and
+  the `pulled` mark of a stage change; they cannot set it.
 
 **Remote engine:** the pull and the order are server-side domain rules over stored data and the existing start path; no
 new machine-dependent part (the start itself is the inventory's existing work start), so the inventory does not change.
@@ -4873,8 +4870,8 @@ listAnsweredQuestions`). `list_decision_candidates { limit? }` (1..50, default 2
   answers: `callerWithRequest` lets it call `OPERATOR_GUEST_TOOLS` only (reads, and `send_message` to that person alone,
   which is no step; `get_project_state` stays out until it filters by viewer); any other tool is 403
   `operator_owner_only`, and a refused write (`OPERATOR_TOOL_ACTIONS`) is
-  logged as a `refused` step. Reads use the person's own view (`canSeeTask`, `visibleTaskDetail`,
-  `visibleTimelineEvent`, attachments as `humanActor`; an invisible card is `not_found`), the prompt has no memory and
+  logged as a `refused` step. Reads use the person's own view (`visibleTaskDetail`,
+  `visibleTimelineEvent`, attachments as `humanActor`; a client reads like a viewer, PM-79; a missing card is `not_found`), the prompt has no memory and
   says who it talks with. The session itself has the team tools alone (`SessionPolicy.teamToolsOnly`, set by
   `buildSessionPolicy`; `default` permission mode): the Claude adapter renders `--tools ToolSearch`, deny rules for
   Bash, Read, Edit, Write, WebFetch, WebSearch and Agent, only `mcp__team__*` as an allow rule (no session folder,
@@ -5021,7 +5018,7 @@ deploy; decision 32). The runner's part is `SessionRunner.pause` / `forcePause` 
 - **Scope and storage.** A pause covers the instance or one project, never one member (decision 32). It is a row of
   `pauses` (migration 31; at most one open per scope), and `session_pauses` holds one open row for every session
   it stops (point, tool, what it still waits for, `needs_restart`), so it survives a restart. `Session.pause`
-  carries that row, `BoardView.pause` the open pauses of the project (`ProjectPauseView`; clients see neither),
+  carries that row, `BoardView.pause` the open pauses of the project (`ProjectPauseView`; a client reads them like any member),
   `pause_changed` and `session_upserted` keep the app current. The rules are pure and in
   `packages/shared/src/domain/pause.ts` (`isWorkPaused`, `canManageInstancePause`, `pauseStateOf`).
 - **Pausing.** Under the admission lock only the rows and the timeline event (`team_paused`; project-level,

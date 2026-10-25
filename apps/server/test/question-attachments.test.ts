@@ -205,19 +205,7 @@ describe('files on an ask_human question', () => {
       nothingLeft();
     });
 
-    it('refuses to ask a client about the files of an internal card', async () => {
-      const shot = await upload('AR-2', 'shot.png');
-      const error = await refusal(ask([shot.id], { to: ['cleo'] }));
-      expect(error).toEqual({
-        code: 'invalid',
-        message:
-          'attachment_not_visible: cleo cannot open the files of AR-2; ask without them or ask someone who sees the card.',
-      });
-      nothingLeft();
-    });
-
-    it('lets a client be asked about the files of a shared card', async () => {
-      await h.domain.tasks.update('AR', 'AR-2', { visibility: 'shared' }, OWNER_ACTOR);
+    it('lets a client be asked about the files of any card (PM-79)', async () => {
       const shot = await upload('AR-2', 'shot.png');
       const asked = await ask([shot.id], { to: ['cleo'] });
       expect(asked.attachments).toHaveLength(1);

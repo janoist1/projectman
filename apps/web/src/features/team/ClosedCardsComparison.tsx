@@ -18,12 +18,12 @@ const PERIODS = [7, DEFAULT_CLOSED_CARDS_DAYS, 30] as const;
 /**
  * The cards closed lately side by side (PM-222): who carried them with which model, what they
  * cost in weighted tokens (per model too) and how many review rounds and send-backs they took.
- * It shows what a cheaper model brings: more rounds, or not. Not for clients, who see no usage.
+ * It shows what a cheaper model brings: more rounds, or not.
  */
 export function ClosedCardsComparison() {
   const { key, me, myHandle } = useProject();
   const access = me.projects.find((project) => project.key === key)?.access;
-  const allowed = access !== undefined && access !== 'client';
+  const allowed = access !== undefined;
   const [days, setDays] = useState<number>(DEFAULT_CLOSED_CARDS_DAYS);
   const [sort, setSort] = useState<ClosedCardsSort>('closedAt');
   const query = useClosedCardsMeasure(key, days, allowed);

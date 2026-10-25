@@ -15,12 +15,12 @@ export function registerProjectFocusRoutes(app: FastifyInstance, domain: ApiDoma
 
   app.get<{ Params: { key: string } }>(routes.projectFocus(':key'), async (request) => {
     const key = request.params.key;
-    return view(key, await requireAccess(domain, request, key, { internal: true }));
+    return view(key, await requireAccess(domain, request, key));
   });
 
   app.post<{ Params: { key: string } }>(routes.projectFocusItems(':key'), async (request) => {
     const key = request.params.key;
-    const access = await requireAccess(domain, request, key, { internal: true });
+    const access = await requireAccess(domain, request, key);
     const body = parseBody(ProjectFocusAddRequest, request.body);
     await domain.projectFocus.add(key, body.key, actorOf(access), body.position);
     return view(key, access);
@@ -30,7 +30,7 @@ export function registerProjectFocusRoutes(app: FastifyInstance, domain: ApiDoma
     routes.projectFocusItem(':key', ':taskKey'),
     async (request) => {
       const { key, taskKey } = request.params;
-      const access = await requireAccess(domain, request, key, { internal: true });
+      const access = await requireAccess(domain, request, key);
       const body = parseBody(ProjectFocusMoveRequest, request.body);
       await domain.projectFocus.move(key, taskKey, body.position, actorOf(access));
       return view(key, access);
@@ -41,7 +41,7 @@ export function registerProjectFocusRoutes(app: FastifyInstance, domain: ApiDoma
     routes.projectFocusItem(':key', ':taskKey'),
     async (request) => {
       const { key, taskKey } = request.params;
-      const access = await requireAccess(domain, request, key, { internal: true });
+      const access = await requireAccess(domain, request, key);
       await domain.projectFocus.remove(key, taskKey, actorOf(access));
       return view(key, access);
     },
@@ -51,7 +51,7 @@ export function registerProjectFocusRoutes(app: FastifyInstance, domain: ApiDoma
     routes.projectFocusChanges(':key'),
     async (request): Promise<ProjectFocusChanges> => {
       const key = request.params.key;
-      await requireAccess(domain, request, key, { internal: true });
+      await requireAccess(domain, request, key);
       const { limit } = parseBody(ChangesQuery, request.query);
       return { events: domain.projectFocus.changes(key, limit) };
     },

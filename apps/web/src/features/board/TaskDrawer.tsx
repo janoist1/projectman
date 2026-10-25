@@ -296,7 +296,7 @@ export function TaskDrawer() {
   const uploads = useUploadQueue();
   const canAttach = useCanAttach();
   const fileDrop = useFileDrop({
-    allowed: task ? canAttach(task) : false,
+    allowed: task ? canAttach : false,
     onFiles: (files) => {
       if (!task) return;
       uploads.add(task.key, files);

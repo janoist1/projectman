@@ -56,7 +56,7 @@ describe('structure API', () => {
       ],
     });
   });
-  it('allows internal members and refuses clients', async () => {
+  it('allows every member, clients included', async () => {
     h = await createAppHarness();
     const owner = await setupOwner(h.app);
     await createProject(h, owner);
@@ -64,6 +64,6 @@ describe('structure API', () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toHaveProperty('repos');
     const client = await addHumanAndLogin(h.app, { handle: 'client', access: 'client' });
-    expect((await inject(h.app, 'GET', routes.projectStructure('AR'), client)).statusCode).toBe(403);
+    expect((await inject(h.app, 'GET', routes.projectStructure('AR'), client)).statusCode).toBe(200);
   });
 });

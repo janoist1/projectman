@@ -336,7 +336,7 @@ describe('integrator key and involvement audit', () => {
     });
   });
 
-  it('hides private cause quotes in the overview and refuses client access', async () => {
+  it('hides private cause quotes in the overview from everyone but the owner, clients included', async () => {
     const developer = await addHumanAndLogin(h.app, { handle: 'colleague' });
     const client = await addHumanAndLogin(h.app, { handle: 'client', access: 'client' });
     const sent = await h.app.projectman.domain.messaging.send('AR', 'owner', {
@@ -355,7 +355,9 @@ describe('integrator key and involvement audit', () => {
     expect(otherView.statusCode).toBe(200);
     expect(otherView.body).not.toContain('Private audit instructions.');
     expect(otherView.body).toContain(sent.id);
-    expect((await h.app.inject({ url, headers: { cookie: client } })).statusCode).toBe(403);
+    const clientView = await h.app.inject({ url, headers: { cookie: client } });
+    expect(clientView.statusCode).toBe(200);
+    expect(clientView.body).not.toContain('Private audit instructions.');
     expect((await h.app.inject({ url: url + '?before=invalid', headers: { cookie } })).statusCode).toBe(400);
   });
 });

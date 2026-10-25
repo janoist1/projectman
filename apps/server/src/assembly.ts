@@ -1793,7 +1793,7 @@ export function createDomain(opts: DomainOptions) {
         materializeAttachment: opts.engineAttachments?.materialize,
         sessionEngine,
       }),
-      merges: new MergeTools({ calls: toolCaller, merges, tasks }),
+      merges: new MergeTools({ calls: toolCaller, merges }),
       screenshots: new ScreenshotTools({ calls: toolCaller, screenshots: screenshotRuns }),
       boundary: new BoundaryTools({ calls: toolCaller, boundary }),
       inbox: new InboxTools({ calls: toolCaller, ctx, inbox, humanQuestions }),

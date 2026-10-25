@@ -62,8 +62,8 @@ export function ProjectLayout() {
   const [themeFilter, setThemeFilter] = useState<string | null>(null);
   const [boardFilters, setBoardFilters] = useState<BoardFilters>(noBoardFilters);
   const access = me.projects.find((project) => project.key === projectKey)?.access;
-  // The server gives the configuration to every member but a client; the card's state line needs it (PM-291).
-  const readConfig = access !== undefined && access !== 'client';
+  // The server gives the configuration to every member; the card's state line needs it (PM-291).
+  const readConfig = access !== undefined;
   const config = useConfig(projectKey, readConfig);
   const isOwner = access === 'owner';
   const internal = access === 'owner' || access === 'admin' || access === 'developer';

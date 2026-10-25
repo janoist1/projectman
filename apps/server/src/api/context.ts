@@ -40,15 +40,12 @@ export async function requireAccess(
   domain: ApiDomain,
   request: FastifyRequest,
   projectKey: string,
-  opts: { minimum?: HumanAccess; internal?: boolean; messaging?: boolean } = {},
+  opts: { minimum?: HumanAccess; messaging?: boolean } = {},
 ): Promise<ProjectAccess> {
   const user = authenticatedUser(request);
   if (!domain.projects.has(projectKey)) throw notFound('project', projectKey);
   const access = await domain.accessFor(projectKey, user.email);
   if (!access) throw forbidden('not_a_member', 'you are not a member of this project');
-  if (opts.internal && access.access === 'client') {
-    throw forbidden('insufficient_access', 'not available to client members');
-  }
   if (opts.messaging && access.access === 'viewer') {
     throw forbidden('insufficient_access', 'Developer or client access required');
   }

@@ -321,7 +321,7 @@ describe('feedback marks API (PM-506)', () => {
   });
 
   describe('who sees what', () => {
-    it('hides the key and the title of an internal card from a client everywhere', async () => {
+    it('shows a client the key and the title of the card of a mark, whatever its visibility (PM-79)', async () => {
       const made = await mark('robin');
       const created = await post(owner, routes.feedbackTask('AR', made.id), {
         title: 'Secret refactor',
@@ -329,59 +329,35 @@ describe('feedback marks API (PM-506)', () => {
       });
       const { task } = CreateTaskFromFeedbackResponse.parse(created.json());
       expect(h.app.projectman.domain.tasks.find('AR', task.key)!.visibility).toBe('internal');
-      // And a shared card of a client marker stays visible to them.
-      const sharedMark = await mark('cleo', { body: 'My own' });
-      const sharedCard = CreateTaskFromFeedbackResponse.parse(
-        (
-          await post(owner, routes.feedbackTask('AR', sharedMark.id), {
-            title: 'Visible fix',
-            description: '',
-          })
-        ).json(),
-      );
 
-      const everything: string[] = [];
       const listed = await get(cookies.client!, routes.feedback('AR'));
       expect(listed.statusCode).toBe(200);
-      everything.push(listed.body);
       const inbox = FeedbackInboxResponse.parse(listed.json());
-      expect(inbox.marks.find((m) => m.id === made.id)?.card).toEqual({ visible: false });
-      expect(inbox.marks.find((m) => m.id === sharedMark.id)?.card).toMatchObject({
+      expect(inbox.marks.find((m) => m.id === made.id)?.card).toMatchObject({
         visible: true,
-        key: sharedCard.task.key,
-        title: 'Visible fix',
+        key: task.key,
+        title: 'Secret refactor',
       });
       const detail = await get(cookies.client!, routes.feedbackMark('AR', made.id));
-      everything.push(detail.body);
       expect(
         FeedbackMarkDetail.parse(detail.json()).thread.find((e) => e.type === 'card_created')?.card,
-      ).toEqual({
-        visible: false,
-      });
-      // Asking for the marks of the internal card shows nothing, not even that there are some.
-      const byCard = await get(cookies.client!, `${routes.feedback('AR')}?task=${task.key}`);
-      expect(FeedbackInboxResponse.parse(byCard.json()).marks).toEqual([]);
-      everything.push(byCard.body);
-      for (const body of everything) {
-        expect(body).not.toContain(task.key);
-        expect(body).not.toContain('Secret refactor');
+      ).toMatchObject({ visible: true, key: task.key });
+      // Asking by card works for a client as for a developer.
+      for (const who of [cookies.client!, cookies.developer!]) {
+        const byCard = await get(who, `${routes.feedback('AR')}?task=${task.key}`);
+        expect(FeedbackInboxResponse.parse(byCard.json()).marks.map((m) => m.id)).toEqual([made.id]);
       }
-      // A developer sees the card, and asking by card works.
-      const dev = await get(cookies.developer!, `${routes.feedback('AR')}?task=${task.key}`);
-      expect(FeedbackInboxResponse.parse(dev.json()).marks.map((m) => m.id)).toEqual([made.id]);
 
-      // The live event names only the mark, and reaches the client.
+      // The live events reach the client too; the event names only the mark.
       const client = { handle: 'cleo', access: 'client' } as const;
       const changed = events.filter((e) => e.type === 'feedback_changed');
       expect(changed.length).toBeGreaterThan(0);
       for (const event of changed) {
         expect(canSeeProjectEvent(client, event)).toBe(true);
-        expect(JSON.stringify(event)).not.toContain('Secret refactor');
         expect(JSON.stringify(event)).not.toContain(task.key);
       }
-      // The card's own timeline entry is not a client's to see.
       const timelineEvent = events.find((e) => e.type === 'timeline_appended');
-      if (timelineEvent) expect(canSeeProjectEvent(client, timelineEvent)).toBe(false);
+      if (timelineEvent) expect(canSeeProjectEvent(client, timelineEvent)).toBe(true);
     });
 
     it('keeps the forwarding reason and the unread count to the people they concern', async () => {

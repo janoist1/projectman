@@ -52,7 +52,7 @@ export function registerConfigRoutes(app: FastifyInstance, domain: ApiDomain): v
   };
 
   app.get<ProjectParams>(routes.config(':key'), async (request): Promise<ConfigView> => {
-    await requireAccess(domain, request, request.params.key, { internal: true });
+    await requireAccess(domain, request, request.params.key);
     return view(request.params.key);
   });
 

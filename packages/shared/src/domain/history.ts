@@ -5,9 +5,9 @@ import type { InboxItem } from './inbox';
 import { MemberHandle } from './member';
 import { canSeeTeamMessage } from './message';
 import type { TeamMessage } from './message';
-import { canSeeTask, TaskKey } from './task';
+import { TaskKey } from './task';
 import type { Task, TaskViewer } from './task';
-import { clientCanSeeTimelineEvent, visibleTimelineEvent } from './timeline-visibility';
+import { visibleTimelineEvent } from './timeline-visibility';
 
 /**
  * The searchable history of a project (PM-744, PM-786): the cards, the notes on them, the closed
@@ -389,32 +389,29 @@ export function historySourceMeta(
   }
 }
 
-/** A reader of the project's current cards: absent or unshared cards are not there for a client. */
-function taskVisible(viewer: HistoryViewer, taskKey: string | null, related: HistoryRelated): Task | null {
+/** A reader of the project's current cards: a card that is gone is not there. */
+function taskVisible(taskKey: string | null, related: HistoryRelated): Task | null {
   if (taskKey === null) return null;
-  const task = related.taskOf(taskKey);
-  return task && canSeeTask(viewer, task) ? task : null;
+  return related.taskOf(taskKey) ?? null;
 }
 
 function questionVisible(viewer: HistoryViewer, item: InboxItem, related: HistoryRelated): boolean {
   if (!canSeeInboxItem(viewer, item)) return false;
-  return item.taskKey === null || taskVisible(viewer, item.taskKey, related) !== null;
+  return item.taskKey === null || taskVisible(item.taskKey, related) !== null;
 }
 
-/** A timeline event of a card the viewer sees; a client reads only the milestones (a note is none). */
-function timelineEventVisible(viewer: HistoryViewer, event: TimelineEvent, related: HistoryRelated): boolean {
-  if (event.taskKey === null || !taskVisible(viewer, event.taskKey, related)) return false;
-  const shown = visibleTimelineEvent(viewer, event, () => null);
-  return viewer.access !== 'client' || clientCanSeeTimelineEvent(shown);
+/** A timeline event of a card that is still there. */
+function timelineEventVisible(event: TimelineEvent, related: HistoryRelated): boolean {
+  return event.taskKey !== null && taskVisible(event.taskKey, related) !== null;
 }
 
-function noteVisible(viewer: HistoryViewer, event: TimelineEvent, related: HistoryRelated): boolean {
-  return event.type === 'task_note' && timelineEventVisible(viewer, event, related);
+function noteVisible(event: TimelineEvent, related: HistoryRelated): boolean {
+  return event.type === 'task_note' && timelineEventVisible(event, related);
 }
 
 function messageVisible(viewer: HistoryViewer, message: TeamMessage, related: HistoryRelated): boolean {
   if (!canSeeTeamMessage(viewer, message)) return false;
-  if (message.taskKey !== null && !taskVisible(viewer, message.taskKey, related)) return false;
+  if (message.taskKey !== null && !taskVisible(message.taskKey, related)) return false;
   // A copy of a private question, answer or note is as private as its original.
   const inboxOk = (id: string) => {
     const item = related.inboxOf(id);
@@ -430,7 +427,7 @@ function messageVisible(viewer: HistoryViewer, message: TeamMessage, related: Hi
       // A label origin without an event is the card's own label change: the task rule above covers it.
       if (eventId === undefined) return true;
       const event = related.eventOf(eventId);
-      return !!event && timelineEventVisible(viewer, event, related);
+      return !!event && timelineEventVisible(event, related);
     }
     case 'operator_knowledge_approval':
       return !viewer.via && inboxOk(origin.inboxItemId);
@@ -442,8 +439,7 @@ function messageVisible(viewer: HistoryViewer, message: TeamMessage, related: Hi
 
 /**
  * The text of a source the viewer may read, or null. The one place that combines the existing rules
- * (`canSeeTask`, `canSeeInboxItem`, `visibleQuestionItem`, `canSeeTeamMessage`, `visibleTimelineEvent`,
- * `clientCanSeeTimelineEvent`) for the history; the search and the full read both call it with the
+ * (`canSeeInboxItem`, `visibleQuestionItem`, `canSeeTeamMessage`, `visibleTimelineEvent`) for the history; the search and the full read both call it with the
  * source as it is now, so a change of access applies to the very next call.
  */
 export function visibleHistorySource(
@@ -453,23 +449,19 @@ export function visibleHistorySource(
 ): HistoryText | null {
   switch (source.type) {
     case 'task':
-      return canSeeTask(viewer, source.task) ? historySourceText(source) : null;
+      return historySourceText(source);
     case 'note': {
-      if (!noteVisible(viewer, source.event, related)) return null;
+      if (!noteVisible(source.event, related)) return null;
       return historySourceText({ ...source, event: visibleTimelineEvent(viewer, source.event, () => null) });
     }
     case 'question': {
       if (!isHistoryIndexable(source) || !questionVisible(viewer, source.item, related)) return null;
-      const shown = visibleQuestionItem(
-        viewer,
-        source.item,
-        (key) => taskVisible(viewer, key, related) !== null,
-      );
+      const shown = visibleQuestionItem(viewer, source.item, (key) => taskVisible(key, related) !== null);
       return historySourceText({ type: 'question', item: shown });
     }
     case 'message':
       return messageVisible(viewer, source.message, related) ? historySourceText(source) : null;
     case 'document':
-      return viewer.access === 'client' ? null : historySourceText(source);
+      return historySourceText(source);
   }
 }

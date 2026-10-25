@@ -1,4 +1,4 @@
-import { canSeeTask, isRelayableQuestionItem, visibleQuestionItem } from '@projectman/shared';
+import { isRelayableQuestionItem, visibleQuestionItem } from '@projectman/shared';
 import type { InboxItem } from '@projectman/shared';
 import { ANSWER_OPTION } from '../../core/inbox';
 import type { InboxService } from '../../core/inbox';
@@ -32,9 +32,6 @@ export async function relayOwnerAnswer(
     access,
   );
   return {
-    item: visibleQuestionItem(access, resolved, (taskKey) => {
-      const task = deps.tasks.find(projectKey, taskKey);
-      return !!task && canSeeTask(access, task);
-    }),
+    item: visibleQuestionItem(access, resolved, (taskKey) => !!deps.tasks.find(projectKey, taskKey)),
   };
 }

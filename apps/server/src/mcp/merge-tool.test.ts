@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { MergeCheckRun, MergeTestReport } from '@projectman/shared';
-import type { Viewer } from '../core/projects';
 import type { MergeCheckRunQuery } from '../db';
 import type { ToolCaller } from './caller';
 import { MergeTools } from './merges';
@@ -164,12 +163,7 @@ describe('list_merge_checks (PM-876)', () => {
   });
 
   describe('handler', () => {
-    const client: Viewer = { access: 'client', handle: 'acme' };
-    const cards = new Map([
-      ['AR-21', { key: 'AR-21', visibility: 'shared' }],
-      ['AR-22', { key: 'AR-22', visibility: 'internal' }],
-    ]);
-    function tools(guest: { handle: string; viewer: Viewer } | null, all: MergeCheckRun[]) {
+    function tools(all: MergeCheckRun[]) {
       const checkRuns = vi.fn((query: MergeCheckRunQuery) => {
         const rest = all.filter((item) => !query.kinds || query.kinds.includes(item.kind));
         const offset = query.offset ?? 0;
@@ -180,19 +174,18 @@ describe('list_merge_checks (PM-876)', () => {
       });
       const calls = {
         guard: (fn: () => Promise<unknown>) => fn(),
-        callerWithRequest: async () => ({ guest }),
-        visibleTaskKey: (_ctx: unknown, _guest: unknown, key: string) => key,
+        callerWithRequest: async () => ({ guest: null }),
+        validTaskKey: (_ctx: unknown, key: string) => key,
       } as unknown as ToolCaller;
       const handler = new MergeTools({
         calls,
         merges: { start: vi.fn(), prioritize: vi.fn(), checkRuns } as never,
-        tasks: { find: (_project: string, key: string) => cards.get(key) } as never,
       });
       return { handler, checkRuns };
     }
 
     it('asks for the merge and train checks of the period, normalizing the times', async () => {
-      const { handler, checkRuns } = tools(null, []);
+      const { handler, checkRuns } = tools([]);
       await handler.listMergeChecks(ctx, {
         outcome: 'not_passed',
         since: '2026-10-20T12:00:00+02:00',
@@ -210,39 +203,16 @@ describe('list_merge_checks (PM-876)', () => {
     });
 
     it('leaves the filter out for outcome and kind "any"', async () => {
-      const { handler, checkRuns } = tools(null, []);
+      const { handler, checkRuns } = tools([]);
       await handler.listMergeChecks(ctx, { outcome: 'any', kind: 'any', limit: 5 });
       expect(checkRuns).toHaveBeenCalledWith({ projectKey: 'AR', limit: 5, offset: 0 });
     });
 
-    it('hides from a client the runs with a card they cannot see, and keeps paging until the limit is full', async () => {
-      const all = [
-        run('mc_hidden_a', { taskKeys: ['AR-21', 'AR-22'] }),
-        run('mc_hidden_b', { taskKeys: ['AR-22'] }),
-        run('mc_seen_a'),
-        run('mc_seen_b'),
-        run('mc_seen_c'),
-      ];
-      const { handler } = tools({ handle: 'acme', viewer: client }, all);
+    it('returns the page as the store gives it, with whether more follow', async () => {
+      const { handler } = tools([run('mc_a'), run('mc_b'), run('mc_c')]);
       const page = await handler.listMergeChecks(ctx, { limit: 2 });
-      expect(page.runs.map((item) => item.id)).toEqual(['mc_seen_a', 'mc_seen_b']);
+      expect(page.runs.map((item) => item.id)).toEqual(['mc_a', 'mc_b']);
       expect(page.hasMore).toBe(true);
-      const everything = tools(null, all).handler;
-      expect((await everything.listMergeChecks(ctx, { limit: 2 })).runs.map((item) => item.id)).toEqual([
-        'mc_hidden_a',
-        'mc_hidden_b',
-      ]);
-    });
-
-    it('is not "has more" when only hidden runs remain', async () => {
-      const { handler } = tools({ handle: 'acme', viewer: client }, [
-        run('mc_seen'),
-        run('mc_hidden', { taskKeys: ['AR-22'] }),
-      ]);
-      expect(await handler.listMergeChecks(ctx, { limit: 1 })).toEqual({
-        runs: [run('mc_seen')],
-        hasMore: false,
-      });
     });
   });
 });

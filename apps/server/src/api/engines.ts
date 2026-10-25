@@ -10,8 +10,8 @@ export function registerEngineRoutes(app: FastifyInstance, services: ApiServices
   app.get(routes.engineStatus(), async (request) => {
     const user = await instanceUser(domain, request, 'read');
     const memberships = await domain.projectsFor(user.email);
-    if (!auth.isHostOwner(user.id) && !memberships.some((project) => project.access !== 'client'))
-      throw forbidden('insufficient_access', 'Engine status requires internal membership');
+    if (!auth.isHostOwner(user.id) && memberships.length === 0)
+      throw forbidden('insufficient_access', 'Engine status requires project membership');
     return { mode: engineRegistry ? 'cloud' : 'single', engines: engineRegistry?.status() ?? [] };
   });
   if (!engineRegistry) return;

@@ -132,17 +132,16 @@ describe('closed cards comparison', () => {
     expect((await get('owner', `${routes.closedCardsMeasure('AR')}?days=0`)).statusCode).toBe(400);
   });
 
-  it('is refused to a client and without a login, and open to the other members', async () => {
-    expect((await get('client', routes.closedCardsMeasure('AR'))).statusCode).toBe(403);
+  it('is refused without a login, and open to every member', async () => {
     expect((await get('nobody', routes.closedCardsMeasure('AR'))).statusCode).toBe(401);
+    expect((await get('client', routes.closedCardsMeasure('AR'))).statusCode).toBe(200);
     expect((await get('developer', routes.closedCardsMeasure('AR'))).statusCode).toBe(200);
   });
 });
 
 describe('rounds on the card detail', () => {
-  it('counts them from the whole timeline for members, and leaves them out for clients', async () => {
+  it('counts them from the whole timeline for every member, clients included', async () => {
     const key = await closedCard('Login page', '2026-10-01T10:00:00.000Z');
-    await domain().tasks.update('AR', key, { visibility: 'shared' }, owner);
     const rounds = {
       reviewRounds: 2,
       changeRequests: 1,
@@ -153,6 +152,6 @@ describe('rounds on the card detail', () => {
     const detail = TaskDetail.parse((await get('owner', routes.task('AR', key))).json());
     expect(detail.rounds).toEqual(rounds);
     const seen = TaskDetail.parse((await get('client', routes.task('AR', key))).json());
-    expect(seen).not.toHaveProperty('rounds');
+    expect(seen.rounds).toEqual(rounds);
   });
 });

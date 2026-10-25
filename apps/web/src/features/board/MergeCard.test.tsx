@@ -1,4 +1,3 @@
-import { screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { setFetchImplementation } from '../../api/client';
 import { t } from '../../i18n/t';
@@ -61,12 +60,12 @@ describe('the merge on the board card (PM-453)', () => {
     expect(text).not.toContain('Rád vár');
   });
 
-  it('shows a client nothing about the merge', async () => {
+  it('tells a client that the merge is awaited from the merger, like another member (PM-79)', async () => {
     const project = mockProject();
     project.backend.reconcileMerges();
     project.backend.viewerHandle = 'kata';
     const text = await cardText(project, { myHandle: 'kata', isOwner: false });
-    expect(text).not.toMatch(/beolvaszt/i);
-    expect(screen.queryByText(/beolvaszt/i)).toBeNull();
+    const merger = project.backend.config.team.members.find((member) => member.handle === 'code-review')!;
+    expect(text).toContain(`${merger.displayName} · ${t('taskStatus.next.short.merge')}`);
   });
 });

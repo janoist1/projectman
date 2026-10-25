@@ -70,7 +70,7 @@ export const TaskLink = z.object({
 });
 export type TaskLink = z.infer<typeof TaskLink>;
 
-/** Internal tasks are hidden from client members; shared ones appear in the client view. */
+/** No longer restricts reading: every member sees every card (PM-79). The field is removed in PM-987. */
 export const Visibility = z.enum(['internal', 'shared']);
 export type Visibility = z.infer<typeof Visibility>;
 
@@ -81,9 +81,9 @@ export type Visibility = z.infer<typeof Visibility>;
 export const CapacityHolder = z.object({
   /** The kind of work of the session. */
   kind: z.enum(['task', 'general', 'schedule', 'meeting']),
-  /** `task` only; left out for a viewer who cannot see the card. */
+  /** `task` only. */
   taskKey: TaskKey.optional(),
-  /** The latest active session; it points to the session's page. Left out for a client viewer. */
+  /** The latest active session; it points to the session's page. */
   sessionId: z.string().optional(),
   /** Works now: an engaged session state, or its first turn has not begun yet. */
   working: z.boolean(),
@@ -222,7 +222,7 @@ export type TaskLoop = z.infer<typeof TaskLoop>;
  * round does not go to its implementer by itself. Present only while it is held; the board shows it. `phase`:
  * `lead` the lead developer `decider` decides, `replan` the planner `decider` is to make the plan more exact
  * and lets the card go, `owner` the people in `deciders` decide (`reason`: nobody could be asked, the lead
- * passed it on, or it reached the limit again after one more round). A client never sees it.
+ * passed it on, or it reached the limit again after one more round).
  */
 export const TaskFixLimit = z.object({
   phase: z.enum(['lead', 'replan', 'owner']),
@@ -291,19 +291,19 @@ export const Task = z.object({
   startWaiting: TaskStartWaiting.optional(),
   /** Computed on reads; never stored. */
   readyHold: TaskReadyHold.optional(),
-  /** Computed on reads; never stored. Hidden from clients. */
+  /** Computed on reads; never stored. */
   startOffer: TaskStartOffer.optional(),
   outage: WorkOutage.optional(),
   reviewPin: TaskReviewPin.optional(),
   merge: TaskMergeState.optional(),
   merged: TaskMerged.optional(),
-  /** The loop open on the card (PM-261); absent when there is none. Hidden from clients. */
+  /** The loop open on the card (PM-261); absent when there is none. */
   loop: TaskLoop.optional(),
-  /** The fix round limit that holds the card back (PM-262); absent when it is not held. Hidden from clients. */
+  /** The fix round limit that holds the card back (PM-262); absent when it is not held. */
   fixLimit: TaskFixLimit.optional(),
-  /** The handoff open on the card (PM-342); absent when there is none. Hidden from clients. */
+  /** The handoff open on the card (PM-342); absent when there is none. */
   handoff: TaskHandoff.optional(),
-  /** The latest closed handoff, while the card is still with its receiver (PM-342). Hidden from clients. */
+  /** The latest closed handoff, while the card is still with its receiver (PM-342). */
   lastHandoff: TaskHandoffRef.optional(),
   /**
    * The attachment whose thumbnail is the card's cover (`coverAttachmentId` in `domain/attachment`):
@@ -353,11 +353,6 @@ export type Task = z.infer<typeof Task>;
 export interface TaskViewer {
   access: HumanAccess | 'ai';
   handle: string;
-}
-
-/** Client members see only what is shared with them; every other member sees the whole project. */
-export function canSeeTask(viewer: Pick<TaskViewer, 'access'>, task: Pick<Task, 'visibility'>): boolean {
-  return viewer.access !== 'client' || task.visibility === 'shared';
 }
 
 /** A task is open until it is done or cancelled. */

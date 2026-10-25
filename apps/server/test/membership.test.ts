@@ -18,7 +18,7 @@ describe('memberships and member snapshots', () => {
   const by = { actor: OWNER_ACTOR, author: OWNER, sponsor: 'owner' };
 
   it.each(['internal', 'shared'] as const)(
-    'filters activity from a %s card on every member read',
+    'shows a client the activity on a %s card on every member read, like any member (PM-79)',
     async (visibility) => {
       const domain = h.app.projectman.domain;
       const client = await addHumanAndLogin(h.app, { handle: 'client', name: 'Client', access: 'client' });
@@ -39,15 +39,7 @@ describe('memberships and member snapshots', () => {
       for (const member of await read(cookie))
         expect(member).toMatchObject({ activity: 'Read file', activityTaskKey: task.key });
       for (const member of await read(client))
-        expect(member).toMatchObject({
-          activity: visibility === 'shared' ? 'Read file' : null,
-          activityTaskKey: visibility === 'shared' ? task.key : null,
-        });
-      if (visibility === 'shared') {
-        await domain.tasks.update('AR', task.key, { visibility: 'internal' }, OWNER_ACTOR);
-        for (const member of await read(client))
-          expect(member).toMatchObject({ activity: null, activityTaskKey: null });
-      }
+        expect(member).toMatchObject({ activity: 'Read file', activityTaskKey: task.key });
     },
   );
 

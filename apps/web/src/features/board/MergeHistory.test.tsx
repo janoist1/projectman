@@ -1,4 +1,4 @@
-import { screen, within } from '@testing-library/react';
+import { screen } from '@testing-library/react';
 import { Route, Routes } from 'react-router';
 import { afterEach, describe, expect, it } from 'vitest';
 import { setFetchImplementation } from '../../api/client';
@@ -71,27 +71,13 @@ describe('the merge in the card’s history and properties (PM-453)', () => {
   });
 });
 
-describe('a client sees nothing of the merge (PM-453)', () => {
-  it('shows no merge box, no merge result and no merge in the timeline', async () => {
+describe('a client reads the merge like any member (PM-79)', () => {
+  it('shows the merge in the timeline and the result in the properties, with no way to merge', async () => {
     const project = mergedAfterConflict();
     project.backend.viewerHandle = 'kata';
     project.render(drawer, '/p/AC/tasks/AC-27', { myHandle: 'kata', isOwner: false });
-    await screen.findByText(project.backend.findTask('AC-27')!.title);
-    expect(screen.queryByTestId('merge-box')).toBeNull();
-    expect(screen.queryByText(t('task.merge.merged.label'))).toBeNull();
-    expect(screen.queryByText(/beolvaszt/i)).toBeNull();
+    expect(await screen.findByText(t('task.merge.merged.label'))).toBeTruthy();
+    expect(screen.getByText(new RegExp('^Beolvasztotta a main ágba'))).toBeTruthy();
     expect(screen.queryByRole('button', { name: t('task.merge.button') })).toBeNull();
-  });
-
-  it('shows a card that is waiting to be merged as an ordinary card', async () => {
-    const project = mockProject();
-    project.backend.config.team.merger = { kind: 'member', handle: 'owner' };
-    project.backend.reconcileMerges();
-    project.backend.viewerHandle = 'kata';
-    project.render(drawer, '/p/AC/tasks/AC-27', { myHandle: 'kata', isOwner: false });
-    const title = await screen.findByText(project.backend.findTask('AC-27')!.title);
-    expect(within(document.body).queryByTestId('merge-box')).toBeNull();
-    expect(title).toBeTruthy();
-    expect(screen.queryAllByText(/beolvaszt/i).map((el) => el.parentElement?.textContent)).toEqual([]);
   });
 });

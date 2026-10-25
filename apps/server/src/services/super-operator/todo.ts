@@ -1,4 +1,4 @@
-import { canSeeTask, ResolveIntegratorTodoRequest, visibleQuestionItem } from '@projectman/shared';
+import { ResolveIntegratorTodoRequest, visibleQuestionItem } from '@projectman/shared';
 import type { InboxItem } from '@projectman/shared';
 import type { InboxService } from '../../core/inbox';
 import type { ProjectAccess } from '../../core/members';
@@ -21,9 +21,6 @@ export async function resolveIntegratorTodo(
     throw forbidden('integrator_not_allowed', 'an explicit super credential is required');
   const item = await deps.inbox.resolveIntegratorTodo(projectKey, itemId, parsed.data, access);
   return {
-    item: visibleQuestionItem(access, item, (key) => {
-      const task = deps.tasks.find(projectKey, key);
-      return !!task && canSeeTask(access, task);
-    }),
+    item: visibleQuestionItem(access, item, (key) => !!deps.tasks.find(projectKey, key)),
   };
 }

@@ -166,6 +166,37 @@ describe('the e-mail settings section', () => {
       expect(await screen.findByText(t('settings.email.senders.copied'))).toBeTruthy();
     });
 
+    it('puts the copy button back after a moment', async () => {
+      const p = mailProject();
+      Object.defineProperty(navigator, 'clipboard', {
+        value: { writeText: vi.fn().mockResolvedValue(undefined) },
+        configurable: true,
+      });
+      await open(p);
+      fireEvent.click(await screen.findByRole('button', { name: /címének másolása/ }));
+      await screen.findByText(t('settings.email.senders.copied'));
+      await waitFor(() => expect(screen.queryByText(t('settings.email.senders.copied'))).toBeNull(), {
+        timeout: 3500,
+      });
+      expect(screen.getByText(t('settings.email.senders.copy'))).toBeTruthy();
+    });
+
+    it('confirms a rename also while the channel is off and the member has no address yet', async () => {
+      const p = mailProject({ enabled: false });
+      await open(p);
+      fireEvent.click(await renameButton());
+      fireEvent.change(await screen.findByLabelText(t('settings.email.senders.mailboxLabel')), {
+        target: { value: 'front-desk' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: t('settings.email.senders.save') }));
+      expect(await screen.findByText(t('settings.email.senders.saved'))).toBeTruthy();
+      expect(
+        screen.getByText(
+          t('settings.email.senders.addressWhenOn', { mailbox: 'front-desk', domain: 'mail.example.com' }),
+        ),
+      ).toBeTruthy();
+    });
+
     it('says to copy by hand when the clipboard is refused', async () => {
       const p = mailProject();
       const writeText = vi.fn().mockRejectedValue(new Error('denied'));

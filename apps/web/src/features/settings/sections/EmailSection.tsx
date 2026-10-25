@@ -235,7 +235,7 @@ function MailboxForm({
         save();
       }}
       onKeyDown={(event) => {
-        if (event.key === 'Escape') onClose();
+        if (event.key === 'Escape' && !update.isPending) onClose();
       }}
     >
       <TextField
@@ -244,6 +244,7 @@ function MailboxForm({
         hint={t('settings.email.senders.mailboxHint', { handle: sender.handle })}
         error={error ?? undefined}
         value={value}
+        readOnly={update.isPending}
         maxLength={64}
         autoCapitalize="none"
         autoCorrect="off"
@@ -260,7 +261,7 @@ function MailboxForm({
         <Button type="submit" variant="primary" size="md" loading={update.isPending}>
           {update.isPending ? t('settings.email.senders.saving') : t('settings.email.senders.save')}
         </Button>
-        <Button type="button" variant="ghost" size="md" onClick={onClose}>
+        <Button type="button" variant="ghost" size="md" disabled={update.isPending} onClick={onClose}>
           {t('common.cancel')}
         </Button>
       </div>
@@ -272,18 +273,22 @@ function MailboxForm({
 function AddressLine({
   sender,
   domain,
-  saved,
   renameRef,
   onRename,
 }: {
   sender: Sender;
   domain: string | null;
-  saved: boolean;
   renameRef: RefObject<HTMLButtonElement | null>;
   onRename: () => void;
 }) {
   const [copied, setCopied] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
+  // "Másolva" goes back to "Másolás" after a moment.
+  useEffect(() => {
+    if (!copied) return;
+    const timer = setTimeout(() => setCopied(false), 2000);
+    return () => clearTimeout(timer);
+  }, [copied]);
   const rename = (
     <Button
       ref={renameRef}
@@ -299,7 +304,7 @@ function AddressLine({
   if (sender.addressConflict)
     return (
       <span className={styles.addressLine}>
-        <span className={shared.validation}>
+        <span className={styles.conflict}>
           {t('settings.email.senders.addressConflict', { mailbox: sender.mailbox })}
         </span>
         {rename}
@@ -336,11 +341,6 @@ function AddressLine({
           {t(copied ? 'settings.email.senders.copied' : 'settings.email.senders.copy')}
         </Button>
         {rename}
-        {saved ? (
-          <span role="status" className={shared.muted}>
-            {t('settings.email.senders.saved')}
-          </span>
-        ) : null}
       </span>
       {copyFailed ? (
         <span role="alert" className={shared.validation}>
@@ -402,13 +402,14 @@ function SenderRow({
             onSaved={() => setSaved(true)}
           />
         ) : (
-          <AddressLine
-            sender={sender}
-            domain={domain}
-            saved={saved}
-            renameRef={renameRef}
-            onRename={onRename}
-          />
+          <>
+            <AddressLine sender={sender} domain={domain} renameRef={renameRef} onRename={onRename} />
+            {saved ? (
+              <span role="status" className={shared.muted}>
+                {t('settings.email.senders.saved')}
+              </span>
+            ) : null}
+          </>
         )}
       </span>
       <Button

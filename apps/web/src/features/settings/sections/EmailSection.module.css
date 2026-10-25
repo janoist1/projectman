@@ -346,6 +346,14 @@
   .detail {
     margin-left: 0;
   }
+  /* The field takes the row; the suffix and the buttons wrap under it without the desktop label offset. */
+  .mailboxForm > :first-child {
+    flex-basis: 100%;
+  }
+  .mailboxDomain,
+  .mailboxActions {
+    padding-top: 0;
+  }
   .sender button,
   .noAddress button,
   .pendingLink {

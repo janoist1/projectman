@@ -1,8 +1,7 @@
 import type { ReactNode } from 'react';
 import { Link } from 'react-router';
-import { contactHandles, isOperator } from '@projectman/shared';
+import { isOperator } from '@projectman/shared';
 import type { InboxItem, MemberView, RoleView, ProviderLoginStatus } from '@projectman/shared';
-import { useConfig } from '../../api/queries';
 import { useProject, useProjectIndexes } from '../../app/contexts';
 import { Avatar } from '../../components/Avatar';
 import { Chip, StatusDot } from '../../components/Chip';
@@ -12,6 +11,7 @@ import { t } from '../../i18n/t';
 import { aiSponsors, memberStatusView, nameOf } from '../../lib/members';
 import { aiRoleView, humanRoleName } from '../../lib/roles';
 import { usePausedRows } from '../pause/usePause';
+import { useContacts } from '../messages/useContacts';
 import { useIsRequiredPm } from '../operator/useRequiredMember';
 import { MemberScheduleControl } from './ScheduledRuns';
 import styles from './Roster.module.css';
@@ -80,12 +80,11 @@ function MemberIdentity({
   /** The phone card: one role chip and a "+N" (see RoleChips). */
   compact?: boolean;
 }) {
-  const { key, myHandle, can } = useProject();
+  const { key, myHandle } = useProject();
   const { members } = useProjectIndexes(key);
   const required = useIsRequiredPm(member.handle);
-  // Only a viewer who manages the team reads the configuration for the contact chip (a hint for them).
-  const config = useConfig(key, can.manageTeam).data?.config;
-  const isContact = config ? contactHandles(config).includes(member.handle) : false;
+  // Everyone sees who the contacts are: a member who writes only to them learns whom to write to.
+  const isContact = useContacts().contacts.includes(member.handle);
   const builtIn = isOperator(member);
   return (
     <div className={styles.memberCell}>

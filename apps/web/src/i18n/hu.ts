@@ -2274,8 +2274,7 @@ export const hu = {
         projectManager:
           'Most senki nem foglalkozik vele, ezért a projektmenedzser kapja meg, és ő továbbítja a megfelelő tagnak.',
         none: 'Válaszd ki, kinek írsz.',
-        contact:
-          'Most senki a kártyán dolgozók közül nem kapcsolattartó, ezért az első kapcsolattartó kapja meg.',
+        contact: 'A kártyán dolgozók közül senki sem kapcsolattartó, ezért egy kapcsolattartó kapja meg.',
       },
       noContacts:
         'A projektnek nincs kapcsolattartója, ezért innen nem tudsz üzenni. Hozzászólni a kártya nézetében tudsz:',
@@ -5709,7 +5708,7 @@ export const hu = {
       unread: 'Olvasatlan',
       unknownMember: 'Nincs ilyen tag.',
       retiredMember: 'Már nem tagja a csapatnak, nem írhatsz neki.',
-      notContact: 'Neki nem tudsz üzenni, mert nem kapcsolattartó. Írj inkább nekik:',
+      notContact: 'Neki nem tudsz üzenni, mert nem kapcsolattartó. Írj inkább a kapcsolattartónak:',
       notContactNoContacts:
         'Neki nem tudsz üzenni, mert nem kapcsolattartó, és a projektnek most nincs kapcsolattartója.',
       or: 'vagy',
@@ -6089,7 +6088,7 @@ export const hu = {
       /** Who the members who write only to the contacts can message (PM-985). */
       contacts: {
         label: 'Kapcsolattartók',
-        hint: 'Aki csak olvasni és hozzászólni tud, az üzenetet csak nekik küldhet. Mást nem érhet el üzenettel, és nem is említhet meg.',
+        hint: 'Aki csak olvasni és hozzászólni tud, üzenetet csak nekik küldhet. Ha senki sincs kijelölve, csak a kártyákon szólhat hozzá.',
         none: 'Nincs kapcsolattartó',
       },
       /** Who moves the cards on (PM-439): the choice of the wizard and the settings. */

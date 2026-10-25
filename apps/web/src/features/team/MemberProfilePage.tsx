@@ -596,7 +596,7 @@ export function MemberProfilePage() {
         )}
         {read.error ? <ErrorBanner>{errorMessage(read.error)}</ErrorBanner> : null}
         {notContact ? (
-          <ContactNote />
+          <ContactNote className={styles.contactNote} />
         ) : (
           <MessageComposer
             key={`${handle}:${reply?.id ?? ''}`}

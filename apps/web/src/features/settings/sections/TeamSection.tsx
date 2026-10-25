@@ -326,24 +326,6 @@ export function TeamSection({ config }: { config: ProjectConfig }) {
       <p className={shared.muted}>
         <Link to={`/p/${key}/team`}>{t('settings.team.manage')}</Link>
       </p>
-      <section aria-labelledby="settings-contacts-title">
-        <h3 id="settings-contacts-title" className={shared.groupTitle}>
-          {t('settings.team.contacts.label')}
-        </h3>
-        {can.manageTeam ? (
-          <ContactControls config={config} />
-        ) : (
-          <dl className={shared.facts}>
-            <div>
-              <dt>{t('settings.team.contacts.label')}</dt>
-              <dd>
-                {contactsValue(config)}
-                <p className={shared.help}>{t('settings.team.contacts.hint')}</p>
-              </dd>
-            </div>
-          </dl>
-        )}
-      </section>
       <section aria-labelledby="settings-mover-title">
         <h3 id="settings-mover-title" className={shared.groupTitle}>
           {t('settings.team.mover.label')}
@@ -375,6 +357,24 @@ export function TeamSection({ config }: { config: ProjectConfig }) {
               <dd>
                 {mergerValue(config)}
                 <p className={shared.help}>{t('settings.team.merger.help')}</p>
+              </dd>
+            </div>
+          </dl>
+        )}
+      </section>
+      <section aria-labelledby="settings-contacts-title">
+        <h3 id="settings-contacts-title" className={shared.groupTitle}>
+          {t('settings.team.contacts.label')}
+        </h3>
+        {can.manageTeam ? (
+          <ContactControls config={config} />
+        ) : (
+          <dl className={shared.facts}>
+            <div>
+              <dt>{t('settings.team.contacts.label')}</dt>
+              <dd>
+                {contactsValue(config)}
+                <p className={shared.help}>{t('settings.team.contacts.hint')}</p>
               </dd>
             </div>
           </dl>

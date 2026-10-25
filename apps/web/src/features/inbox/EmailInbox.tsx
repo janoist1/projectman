@@ -103,7 +103,11 @@ export function EmailParkedBody({ alert }: { alert: EmailParkedAlert }) {
       </dl>
       {alert.excerpt ? <MailText text={alert.excerpt} label={t('inbox.email.excerptLabel')} /> : null}
       <p className={mailStyles.hint}>
-        {alert.reason === 'channel_off' ? t('inbox.email.parkedHintChannelOff') : t('inbox.email.parkedHint')}
+        {alert.reason === 'channel_off'
+          ? t('inbox.email.parkedHintChannelOff')
+          : alert.reason === 'sender_not_allowed'
+            ? t('inbox.email.parkedHintNotAllowed')
+            : t('inbox.email.parkedHint')}
       </p>
     </>
   );

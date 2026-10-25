@@ -314,6 +314,11 @@ describe('email member address', () => {
       mailbox: 'planner',
     });
   });
+  it('stores nothing for a mailbox equal to the handle', () => {
+    expect(applyMemberEmailChange({ enabled: true, mailbox: 'planner' }, { mailbox: 'pm' }, 'pm')).toEqual({
+      enabled: true,
+    });
+  });
   it.each(['r-pm', '-pm', 'a'.repeat(33), 'Pm', 'p_m', ''])('refuses the mailbox name %j', (name) => {
     expect(EmailMailbox.safeParse(name).success).toBe(false);
   });

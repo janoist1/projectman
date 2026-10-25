@@ -303,6 +303,7 @@ describe('EmailInbound', () => {
             handle: 'client',
             displayName: 'Client',
             access: 'client',
+            roles: [],
             email: 'client@example.com',
           });
         });

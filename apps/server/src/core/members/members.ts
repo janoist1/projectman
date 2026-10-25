@@ -515,16 +515,8 @@ export class MemberService {
         fields.push('outbound network');
       }
       if (req.email !== undefined) {
-        const { mailbox, ...switches } = req.email;
-        if (mailbox !== undefined) this.assertMailboxFree(draft, handle, mailbox);
-        const email = applyMemberEmailChange(member.email, switches);
-        // The handle is the mailbox when none is chosen: its own value stores nothing.
-        if (mailbox === undefined || mailbox === handle) {
-          if (mailbox === handle) delete email.mailbox;
-        } else {
-          email.mailbox = mailbox;
-        }
-        member.email = email;
+        if (req.email.mailbox !== undefined) this.assertMailboxFree(draft, handle, req.email.mailbox);
+        member.email = applyMemberEmailChange(member.email, req.email, handle);
         fields.push('email');
       }
       if (req.onLeave !== undefined) {

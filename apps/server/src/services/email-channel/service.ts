@@ -10,8 +10,8 @@ import {
   emailChannelOn,
   emailContactChangeRefusal,
   emailContentRefusals,
-  emailMailboxOf,
-  emailMailboxOwners,
+  emailMailboxState,
+  emailOwnAddress,
   emailRecipientRefusal,
   emailReplyAddress,
   emailSenderOf,
@@ -37,7 +37,7 @@ import type { ProjectService } from '../../core/projects';
 import type { TaskService } from '../../core/tasks';
 import { DomainError } from '../../kernel';
 import type { EmailChannelEnv } from './config';
-import { ownAddress, projectConfigs } from './mailboxes';
+import { projectConfigs } from './mailboxes';
 import { renderEmail } from './render';
 import { createEmailInbound } from './inbound';
 import { replyToken, replyTokenHash } from './reply-token';
@@ -94,7 +94,7 @@ export function createEmailChannelService(deps: {
     const sender = config.team.members.find((member) => member.handle === senderHandle);
     const own =
       sender?.kind === 'ai'
-        ? ownAddress(await projectConfigs(projects), projectKey, sender, env.replyDomain)
+        ? emailOwnAddress(await projectConfigs(projects), projectKey, sender, env.replyDomain)
         : null;
     return emailContentRefusals(input, {
       projectKey,
@@ -124,7 +124,7 @@ export function createEmailChannelService(deps: {
     const { sender, env, replyKey } = configuredParts();
     const address =
       member.kind === 'ai'
-        ? ownAddress(await projectConfigs(projects), projectKey, member, env.replyDomain)
+        ? emailOwnAddress(await projectConfigs(projects), projectKey, member, env.replyDomain)
         : null;
     const rendered = renderEmail({
       text: record.text,
@@ -343,19 +343,12 @@ export function createEmailChannelService(deps: {
           .filter(
             (member): member is AiMemberConfig => member.kind === 'ai' && member.email?.enabled === true,
           )
-          .map((member) => {
-            const mailbox = emailMailboxOf(member);
-            return {
-              handle: member.handle,
-              displayName: member.displayName,
-              sendWithoutApproval: member.email?.sendWithoutApproval ?? false,
-              mailbox,
-              address: domain ? ownAddress(configs, projectKey, member, domain) : null,
-              addressConflict: emailMailboxOwners(configs, mailbox).some(
-                (owner) => owner.projectKey !== projectKey || owner.handle !== member.handle,
-              ),
-            };
-          }),
+          .map((member) => ({
+            handle: member.handle,
+            displayName: member.displayName,
+            sendWithoutApproval: member.email?.sendWithoutApproval ?? false,
+            ...emailMailboxState(configs, projectKey, member, domain),
+          })),
         contacts: config.team.members
           .filter((member) => member.kind === 'human')
           .map((member): EmailContact => {

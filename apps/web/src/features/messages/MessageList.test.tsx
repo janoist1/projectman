@@ -65,6 +65,34 @@ describe('MessageList', () => {
     expect(body.closest('ol')?.className).toMatch(/compact/);
   });
 
+  it('marks a message that came by e-mail and shows its subject before the text', async () => {
+    const p = mockProject();
+    p.render(
+      <MessageList
+        messages={[
+          {
+            id: 'm-mail',
+            projectKey: 'AC',
+            from: 'owner',
+            to: ['fe-1'],
+            taskKey: null,
+            body: 'Please look at the offer.',
+            email: { emailId: 'eml-1', subject: 'The offer', direct: true },
+            createdAt: '2026-10-01T12:00:00.000Z',
+            deliveredAt: null,
+          },
+        ]}
+        members={new Map()}
+        myHandle="owner"
+        projectKey="AC"
+        taskTitles={new Map()}
+      />,
+    );
+    expect(await screen.findByTitle(t('messages.email.received'))).toBeTruthy();
+    expect(screen.getByText('The offer').tagName).toBe('STRONG');
+    expect(screen.getByText(/Please look at the offer/)).toBeTruthy();
+  });
+
   it('does not mark the full list, which shows the whole text', async () => {
     list(false);
     await screen.findByText(/Line 1 of/);

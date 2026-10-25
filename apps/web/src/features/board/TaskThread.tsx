@@ -38,6 +38,7 @@ import { PAGE_LIMIT, READ_AFTER_MS, STICK_PX, useDocumentVisible } from '../mess
 import { layoutThread, threadItems } from '../messages/conversations';
 import type { ThreadEntry } from '../messages/conversations';
 import { DeliveryStatus } from '../messages/DeliveryStatus';
+import { EmailMessageHead } from '../messages/EmailMessageHead';
 import { useContacts } from '../messages/useContacts';
 import { Composer } from '../session/Composer';
 import styles from './TaskThread.module.css';
@@ -649,6 +650,7 @@ function MessageBubble({
           <span className={styles.route}>{routeOf(message, members, myHandle)}</span>
         ) : null}
         <div className={styles.bubble}>
+          {message.email ? <EmailMessageHead email={message.email} /> : null}
           {message.body.trim() ? <Markdown text={message.body} /> : null}
           <MessageAttachments files={message.attachments ?? []} from={message.from} />
         </div>

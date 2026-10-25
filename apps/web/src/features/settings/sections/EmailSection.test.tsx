@@ -137,12 +137,134 @@ describe('the e-mail settings section', () => {
     expect((kata as HTMLInputElement).checked).toBe(true);
   });
 
-  it('shows only the channel card while the channel is off', async () => {
+  it('shows the channel card and the future addresses, not the contacts or the log, while the channel is off', async () => {
     const p = mailProject({ enabled: false });
     await open(p);
-    expect(screen.queryByText(t('settings.email.senders.title'))).toBeNull();
+    expect(screen.getByText(t('settings.email.senders.title'))).toBeTruthy();
+    expect(
+      screen.getByText(
+        t('settings.email.senders.addressWhenOn', { mailbox: 'fe-1', domain: 'mail.example.com' }),
+      ),
+    ).toBeTruthy();
     expect(screen.queryByText(t('settings.email.contacts.title'))).toBeNull();
     expect(screen.queryByText(t('settings.email.log.title'))).toBeNull();
+  });
+
+  describe('the address of a member (PM-989)', () => {
+    const renameButton = () => screen.findByRole('button', { name: /Átírás|postafiókjának átírása/ });
+    const memberPatches = (p: ReturnType<typeof mockProject>) =>
+      p.requests.filter((request) => request.method === 'PATCH' && request.path.endsWith('/members/fe-1'));
+
+    it('shows the address and copies it', async () => {
+      const p = mailProject();
+      const writeText = vi.fn().mockResolvedValue(undefined);
+      Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+      await open(p);
+      expect(await screen.findByText('fe-1@mail.example.com')).toBeTruthy();
+      fireEvent.click(await screen.findByRole('button', { name: /címének másolása/ }));
+      await waitFor(() => expect(writeText).toHaveBeenCalledWith('fe-1@mail.example.com'));
+      expect(await screen.findByText(t('settings.email.senders.copied'))).toBeTruthy();
+    });
+
+    it('says to copy by hand when the clipboard is refused', async () => {
+      const p = mailProject();
+      const writeText = vi.fn().mockRejectedValue(new Error('denied'));
+      Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+      await open(p);
+      fireEvent.click(await screen.findByRole('button', { name: /címének másolása/ }));
+      expect((await screen.findByRole('alert')).textContent).toContain(
+        t('settings.email.senders.copyFailed'),
+      );
+    });
+
+    it('renames the mailbox and shows the new address', async () => {
+      const p = mailProject();
+      await open(p);
+      fireEvent.click(await renameButton());
+      const field = await screen.findByLabelText(t('settings.email.senders.mailboxLabel'));
+      expect((field as HTMLInputElement).value).toBe('fe-1');
+      fireEvent.change(field, { target: { value: ' Front-Desk ' } });
+      fireEvent.click(screen.getByRole('button', { name: t('settings.email.senders.save') }));
+      await waitFor(() => expect(memberPatches(p)).toHaveLength(1));
+      expect(memberPatches(p)[0]!.body).toMatchObject({ email: { mailbox: 'front-desk' } });
+      expect(await screen.findByText('front-desk@mail.example.com')).toBeTruthy();
+      expect(await screen.findByText(t('settings.email.senders.saved'))).toBeTruthy();
+    });
+
+    it('sends nothing when the name is unchanged', async () => {
+      const p = mailProject();
+      await open(p);
+      fireEvent.click(await renameButton());
+      fireEvent.click(await screen.findByRole('button', { name: t('settings.email.senders.save') }));
+      await waitFor(() =>
+        expect(screen.queryByLabelText(t('settings.email.senders.mailboxLabel'))).toBeNull(),
+      );
+      expect(memberPatches(p)).toHaveLength(0);
+    });
+
+    it('refuses a name of a wrong shape without asking the server', async () => {
+      const p = mailProject();
+      await open(p);
+      fireEvent.click(await renameButton());
+      fireEvent.change(await screen.findByLabelText(t('settings.email.senders.mailboxLabel')), {
+        target: { value: 'r-reply' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: t('settings.email.senders.save') }));
+      expect((await screen.findByRole('alert')).textContent).toContain(
+        t('settings.email.senders.mailboxInvalid'),
+      );
+      expect(memberPatches(p)).toHaveLength(0);
+    });
+
+    it('says a name is taken, also by a member of another project', async () => {
+      const p = mailProject();
+      const other = structuredClone(p.backend.config);
+      other.project.key = 'ZZ';
+      const twin = other.team.members.find((member) => member.handle === 'fe-1');
+      if (twin?.kind === 'ai') twin.email = { enabled: true, mailbox: 'taken' };
+      p.backend.email.otherProjects = [other];
+      await open(p);
+      fireEvent.click(await renameButton());
+      fireEvent.change(await screen.findByLabelText(t('settings.email.senders.mailboxLabel')), {
+        target: { value: 'taken' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: t('settings.email.senders.save') }));
+      expect((await screen.findByRole('alert')).textContent).toContain(
+        t('settings.email.senders.mailboxTaken', { mailbox: 'taken' }),
+      );
+      // The form stays open for another try.
+      expect(screen.getByLabelText(t('settings.email.senders.mailboxLabel'))).toBeTruthy();
+    });
+
+    it('closes the form on Escape and puts focus back on the button', async () => {
+      const p = mailProject();
+      await open(p);
+      fireEvent.click(await renameButton());
+      fireEvent.keyDown(await screen.findByLabelText(t('settings.email.senders.mailboxLabel')), {
+        key: 'Escape',
+      });
+      // The button is made again when the form closes: focus goes to the new one.
+      await waitFor(() =>
+        expect(document.activeElement).toBe(
+          screen.getByRole('button', { name: /Átírás|postafiókjának átírása/ }),
+        ),
+      );
+      expect(memberPatches(p)).toHaveLength(0);
+    });
+
+    it('says why a member has no address when another project uses the same name', async () => {
+      const p = mailProject();
+      const other = structuredClone(p.backend.config);
+      other.project.key = 'ZZ';
+      const twin = other.team.members.find((member) => member.handle === 'fe-1');
+      if (twin?.kind === 'ai') twin.email = { enabled: true };
+      p.backend.email.otherProjects = [other];
+      await open(p);
+      expect(
+        await screen.findByText(t('settings.email.senders.addressConflict', { mailbox: 'fe-1' })),
+      ).toBeTruthy();
+      expect(screen.queryByText('fe-1@mail.example.com')).toBeNull();
+    });
   });
 
   it('lists every human including the owner with their access and consent switch', async () => {

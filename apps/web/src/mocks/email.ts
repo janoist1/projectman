@@ -1,6 +1,7 @@
 import {
   EMAIL_LOG_PAGE,
   SetEmailContactRequest,
+  emailMailboxState,
   emailRecipientRefusal,
   emailSenderOf,
 } from '@projectman/shared';
@@ -50,6 +51,10 @@ export class MockEmail {
   /** False on an instance without a mail sender: the channel cannot be switched on. */
   configured = true;
   fromAddress: string | null = 'projectman@mail.example.com';
+  /** The domain of the members' addresses. */
+  memberDomain = 'mail.example.com';
+  /** The other projects of the server: their members' mailbox names count too. A test fills it. */
+  otherProjects: ProjectConfig[] = [];
   /** Newest first, as the server returns it. */
   log: EmailLogEntry[] = [];
   records = new Map<string, MockEmailContactRecord>();
@@ -78,14 +83,16 @@ export class MockEmail {
         source: record?.source ?? null,
       });
     }
+    const domain = this.configured ? this.memberDomain : null;
     const senders = config.team.members.flatMap((member) => {
       const sender = emailSenderOf(config, member.handle);
-      return sender
+      return sender && member.kind === 'ai'
         ? [
             {
               handle: member.handle,
               displayName: member.displayName,
               sendWithoutApproval: sender.sendWithoutApproval,
+              ...emailMailboxState([config, ...this.otherProjects], config.project.key, member, domain),
             },
           ]
         : [];
@@ -94,6 +101,7 @@ export class MockEmail {
       configured: this.configured,
       enabled: config.project.email?.enabled === true,
       fromAddress: config.project.email?.enabled === true ? this.fromAddress : null,
+      memberDomain: domain,
       senders,
       contacts,
     };

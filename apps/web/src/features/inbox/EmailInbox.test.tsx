@@ -83,6 +83,16 @@ describe('the parked mail card', () => {
     expect(within(card).queryByRole('link', { name: /example\.org/ })).toBeNull();
   });
 
+  it('says a sender who may not write to the member could not, and where to look', async () => {
+    const project = mockProject();
+    project.backend.parkEmail({ reason: 'sender_not_allowed' });
+    project.render(<InboxPage />, '/p/AC/inbox');
+    const heading = await screen.findByRole('heading', { name: t('inbox.email.parkedTitle') });
+    const card = heading.closest('article') as HTMLElement;
+    expect(card.textContent).toContain(t('inbox.email.parkReason.sender_not_allowed'));
+    expect(card.textContent).toContain(t('inbox.email.parkedHintNotAllowed'));
+  });
+
   it('is closed with one button', async () => {
     const project = mockProject();
     project.backend.parkEmail();

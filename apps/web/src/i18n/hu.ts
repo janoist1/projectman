@@ -1179,6 +1179,7 @@ export const hu = {
       checklist_full: 'A lista megtelt.',
       checklist_exists: 'A projektnek már van indulási listája.',
       email_send_failed: 'Az e-mail küldése sikertelen.',
+      email_mailbox_taken: 'A postafiók neve már foglalt.',
       web_push_endpoint_invalid:
         'Ez az értesítési eszköz nem használható. Kapcsold be újra az értesítéseket.',
       web_push_device_limit: 'Legfeljebb 20 eszközön kérhetsz értesítést. Előbb törölj egy eszközt.',
@@ -4292,6 +4293,7 @@ export const hu = {
         token_expired: 'A levél egy lejárt vagy hibás válaszcímre jött.',
         channel_off: 'Az e-mail levelezés ki volt kapcsolva, amikor jött.',
         unreadable: 'A levelet nem tudtuk elolvasni.',
+        sender_not_allowed: 'Olyan írta, aki ennek az AI-tagnak nem írhat e-mailben.',
       },
       from: 'Feladó',
       attachments: 'Melléklet',
@@ -4300,6 +4302,8 @@ export const hu = {
       parkedHint:
         'Ha ismerős írta, kérd meg, hogy a legutóbbi levelünkre válaszoljon, vagy írja meg az appban.',
       parkedHintChannelOff: 'Ha fontos, kapcsold be a levelezést, és kérd meg, hogy küldje újra.',
+      parkedHintNotAllowed:
+        'Ha írhat neki, nézd meg, kér-e e-mailt (Beállítások › E-mail) és kapcsolattartó-e (Beállítások › Csapat), aztán kérd meg, hogy küldje újra.',
     },
     release: {
       title: 'Élesre mehet ez a kiadás?',
@@ -5635,6 +5639,10 @@ export const hu = {
     send: 'Elküldöm',
     sent: 'Üzenet elküldve.',
     reply: 'Válasz',
+    email: {
+      received: 'E-mailben érkezett',
+      short: 'E-mailben',
+    },
     read: 'Elolvastam',
     unread: 'Olvasatlan',
     queued: 'Kézbesítésre vár',
@@ -5875,6 +5883,26 @@ export const hu = {
         noApproval: 'Jóváhagyás nélkül küld.',
         edit: 'Szerkesztés',
         editOf: '{name} szerkesztése',
+        addressIntro:
+          'Mindegyiküknek saját címe van. Erre a projekt e-mailt kérő tagjai új levelet is írhatnak nekik; mástól jött levelet nem adunk át.',
+        copy: 'Másolás',
+        copied: 'Másolva',
+        copyOf: '{name} címének másolása',
+        copyFailed: 'Nem sikerült kimásolni. Jelöld ki a címet, és másold kézzel.',
+        rename: 'Átírás',
+        renameOf: '{name} postafiókjának átírása',
+        mailboxLabel: 'Postafiók neve',
+        mailboxHint:
+          'Kisbetű, szám és kötőjel, legfeljebb 32 karakter. Üresen hagyva visszaáll: {handle}. Mentés után a régi cím azonnal megszűnik.',
+        mailboxInvalid:
+          'Kisbetűvel vagy számmal kezdődjön, csak kisbetű, szám és kötőjel lehet benne (legfeljebb 32), és nem kezdődhet így: „r-”.',
+        mailboxTaken: 'A(z) „{mailbox}” név már foglalt. Válassz másikat.',
+        save: 'Mentés',
+        saving: 'Mentés…',
+        saved: 'Mentve.',
+        addressConflict:
+          'Nincs címe: a(z) „{mailbox}” nevet egy másik projekt tagja is használja. Írd át, és lesz címe.',
+        addressWhenOn: 'Címe a levelezés bekapcsolásakor: {mailbox}@{domain}',
       },
       contacts: {
         title: 'Kik kérnek e-mailt?',

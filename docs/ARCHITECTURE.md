@@ -2444,6 +2444,11 @@ workers follow the machine's size.
   `cloud.env` (read in `index.ts` only); the CLI runs on the owner's POSIX administration machine with AWS CLI
   v2 profiles and the Cloudflare DNS token, like the SES provisioning entry. **Does this work on a remote
   engine?** Yes: the reader runs on the hub only; an engine gets no queue, no key and no protocol change.
+  **Member addresses (PM-989):** the same receipt rule also takes mail to `<mailbox>@<reply domain>`, the
+  permanent address of an AI member (`services/email-channel/inbound.ts`, `receiveDirect`; the mailbox name
+  is the handle or `ai.email.mailbox`, unique server-wide). The mail lands in the member's conversation as a
+  team message, and its attachments go through the message-attachments storage on the hub, so nothing new
+  crosses to an engine.
 
 - **Feedback widget public entrance and screenshot store (PM-506, PM-508)** —
   `apps/server/src/services/feedback/{service,screenshots,notices,widget}.ts`, `apps/server/src/api/feedback.ts`,

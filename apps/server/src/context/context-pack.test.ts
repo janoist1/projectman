@@ -4034,6 +4034,173 @@ describe('structural decisions (PM-223)', () => {
   });
 });
 
+describe('architect role guide (PM-993)', () => {
+  const roleOf = (prompt: string) => section(prompt, '# Your role instructions');
+  const bytes = (text: string) => Buffer.byteLength(`${text.trimEnd()}\n`);
+  const planner = (id: string, duties: DutyId[], instructions = '') => ({
+    id,
+    name: id,
+    summary: `The ${id}.`,
+    notTheirJob: '',
+    holders: 'both' as const,
+    duties,
+    instructions,
+  });
+  const generalPack = (project: ProjectConfig, handle: string) =>
+    builder.build(input({ project, handle, workItem: { type: 'general' }, task: null, stage: null }));
+  const projectWith = (handle: string, role: string, duties: DutyId[], instructions = '') => {
+    const project = buildProject();
+    project.team.roles.push(planner(role, duties, instructions));
+    addMember(project, handle, role);
+    return project;
+  };
+
+  it('gives the architect a full prompt and role guide snapshot', async () => {
+    const project = buildProject();
+    addMember(project, 'architect', 'architect');
+    const pack = generalPack(project, 'architect');
+    await expect(`${pack.appendSystemPrompt}\n`).toMatchFileSnapshot(
+      '__snapshots__/architect-general.system-prompt.txt',
+    );
+    await expect(`${pack.guide.role}\n`).toMatchFileSnapshot(
+      '__snapshots__/architect-general.role-guide.txt',
+    );
+    // UTF-8 bytes, including the snapshot's final newline; baseline: 12,991 B / 1,934 B / no guide.
+    expect(bytes(pack.appendSystemPrompt)).toBeLessThan(12_000);
+    expect(bytes(roleOf(pack.appendSystemPrompt))).toBeLessThan(950);
+    // On a development card the sub-card rule moves too; baseline: 14,310 B / 1,574 B / no guide.
+    const task = builder.build(input({ project, handle: 'architect', task: makeTask({ stageId: 'dev' }) }));
+    expect(bytes(task.appendSystemPrompt)).toBeLessThan(13_550);
+    expect(bytes(roleOf(task.appendSystemPrompt))).toBeLessThan(800);
+  });
+
+  it('indexes exactly the headings of the guide', () => {
+    const project = buildProject();
+    addMember(project, 'architect', 'architect');
+    const pack = generalPack(project, 'architect');
+    const indexed = /Role guide index: ([^\n]+)\. Before an indexed/.exec(pack.appendSystemPrompt)![1]!;
+    const headings = [...pack.guide.role!.matchAll(/^## (.+)$/gm)].map((match) => match[1]);
+    expect(indexed.split('; ')).toEqual(headings);
+  });
+
+  it('keeps the plan, contract, escalation and structural-answer duties and the review limit visible', () => {
+    const project = buildProject();
+    addMember(project, 'architect', 'architect');
+    const role = roleOf(generalPack(project, 'architect').appendSystemPrompt);
+    for (const text of [
+      'exact shape',
+      'Escalate major decisions to a human',
+      'send_message',
+      'note on the task',
+    ])
+      expect(role).toContain(text);
+    expect(role).toContain('never authorizes automatic card creation or refactoring');
+    // The long field list and the review procedure are only in the guide.
+    expect(role).not.toContain('default values');
+    expect(role).not.toContain('re-read the current cards');
+  });
+
+  it('serves the full catalogue text of the duties in the guide', () => {
+    const project = buildProject();
+    addMember(project, 'architect', 'architect');
+    const pack = generalPack(project, 'architect');
+    for (const duty of ['technical_direction', 'task_breakdown'] as const)
+      expect(pack.guide.role).toContain(dutyPrompt(input({ project, handle: 'architect' }), duty));
+    expect(pack.guide.role).toContain('re-read the current cards');
+  });
+
+  it('keeps the occasional review out of a task session', () => {
+    const project = buildProject();
+    addMember(project, 'architect', 'architect');
+    const pack = builder.build(input({ project, handle: 'architect', task: makeTask({ stageId: 'dev' }) }));
+    expect(pack.guide.role).not.toContain('## Occasional architecture review');
+    expect(pack.appendSystemPrompt).not.toContain('occasional architecture review');
+  });
+
+  it('gives a custom role and an override with the duty the same short form and guide', () => {
+    const custom = projectWith('planner-1', 'planner', ['task_breakdown']);
+    const overridden = buildProject();
+    addMember(overridden, 'architect', 'architect');
+    overridden.team.roleOverrides = { architect: { duties: ['task_breakdown'], instructions: '' } };
+    const [a, b] = [generalPack(custom, 'planner-1'), generalPack(overridden, 'architect')];
+    expect(roleOf(a.appendSystemPrompt)).toBe(roleOf(b.appendSystemPrompt));
+    expect(a.guide.role).toBe(b.guide.role);
+    expect(a.guide.role).toContain(DUTIES.task_breakdown.prompt);
+  });
+
+  it('shortens a mixed bundle once, in the duty order, with the unchanged duty in full', () => {
+    const project = projectWith('planner-1', 'planner', ['task_breakdown', 'triage', 'technical_direction']);
+    const pack = generalPack(project, 'planner-1');
+    const role = roleOf(pack.appendSystemPrompt);
+    const triage = dutyPrompt(input({ project, handle: 'planner-1' }), 'triage');
+    const order = [
+      'Split work into independently testable tasks',
+      triage,
+      'Write the technical plan from the code',
+    ].map((text) => role.indexOf(text));
+    expect(order.every((at) => at >= 0)).toBe(true);
+    expect(order).toEqual([...order].sort((x, y) => x - y));
+    expect(pack.appendSystemPrompt.match(/get_guide with topic `role`/g)).toHaveLength(1);
+    expect(pack.appendSystemPrompt.match(/Role guide index:/g)).toHaveLength(1);
+    expect(pack.guide.role!.match(/A sub-card you create must stand on its own/g)).toHaveLength(1);
+    expect(role).not.toContain('A sub-card you create must stand on its own');
+    expect(pack.guide.role).not.toContain(triage);
+  });
+
+  it('keeps the sub-card rule in the prompt for a role with no shortened duty', () => {
+    const project = projectWith('designer-1', 'design_planner', ['ux_design']);
+    const pack = generalPack(project, 'designer-1');
+    expect(roleOf(pack.appendSystemPrompt)).toContain('A sub-card you create must stand on its own');
+    expect(pack.guide.role).toBeUndefined();
+    expect(pack.appendSystemPrompt).not.toContain('Role guide index:');
+  });
+
+  it('keeps the bundle and personal instructions whole in the prompt, not in the guide', () => {
+    const project = projectWith('planner-1', 'planner', ['technical_direction'], 'Bundle rule: keep it.');
+    const member = { ...aiMember(project, 'planner-1'), instructions: 'Personal rule: keep it.' };
+    const pack = builder.build(
+      input({ project, member, workItem: { type: 'general' }, task: null, stage: null }),
+    );
+    for (const text of ['Bundle rule: keep it.', 'Personal rule: keep it.']) {
+      expect(roleOf(pack.appendSystemPrompt)).toContain(text);
+      expect(pack.guide.role).not.toContain(text);
+    }
+  });
+
+  it('keeps the full duty text for a merge fixer', () => {
+    const project = buildProject();
+    project.project.repos[0]!.requireMerge = true;
+    addMember(project, 'architect', 'architect');
+    const task = makeTask({
+      stageId: 'dev',
+      merge: {
+        id: 'm',
+        repo: 'web',
+        base: 'main',
+        merger: 'architect',
+        toStageId: 'done',
+        requestedAt: 'now',
+        state: 'fixing',
+        landed: 'nowhere',
+        commit: 'approved',
+        fix: { by: 'architect', branch: 'merge-fix/AR-21', base: 'onto', startedAt: 'now' },
+      },
+    });
+    const pack = builder.build(input({ project, handle: 'architect', task }));
+    expect(roleOf(pack.appendSystemPrompt)).toContain('dedicated writable merge-fix worktree');
+    expect(pack.guide.role).toBeUndefined();
+  });
+
+  it('gives the analyst the shared task breakdown short form and the sub-card rule in the guide', async () => {
+    const project = buildProject();
+    addMember(project, 'analyst', 'business_analyst');
+    const pack = builder.build(input({ project, handle: 'analyst', task: makeTask({ stageId: 'dev' }) }));
+    expect(pack.guide.role).toContain(DUTIES.task_breakdown.prompt);
+    expect(pack.guide.role).toContain('A sub-card you create must stand on its own');
+    expect(roleOf(pack.appendSystemPrompt)).toContain(DUTIES.requirements_analysis.prompt);
+  });
+});
+
 describe('handover and previous conversation (PM-342)', () => {
   const summary = (overrides: Partial<HandoffSummary> = {}): HandoffSummary => ({
     source: 'last_replies',

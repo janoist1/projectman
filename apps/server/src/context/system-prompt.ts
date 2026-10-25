@@ -1,5 +1,6 @@
 import {
   DEFAULT_AGENT_PROVIDER,
+  DUTIES,
   emailChannelOn,
   emailSenderOf,
   approverOf,
@@ -832,12 +833,60 @@ function operatorIndex(project: ContextPackInput['project']): string {
   ].join('\n');
 }
 
+/**
+ * Duties whose catalogue text is served by the role guide while the prompt keeps a short form (PM-993).
+ * The guide takes `dutyPrompt` as it is, so the merge-fix and local-only texts keep their precedence.
+ */
+const GUIDED_DUTIES: Partial<Record<DutyId, { title: string; short: string }>> = {
+  technical_direction: {
+    title: 'Technical plan and contract detail',
+    short:
+      'Write the technical plan from the code: risks and tradeoffs, and for a card that changes a contract its exact shape, so the developer never has to guess a structure. Escalate major decisions to a human. When a developer asks a structural question the plan does not cover, answer briefly with send_message and record the decision as a note on the task.',
+  },
+  task_breakdown: {
+    title: 'Task breakdown',
+    short:
+      'Split work into independently testable tasks with create_task and record dependencies. A sub-card must stand on its own; set developer_level on every developer card you plan or create.',
+  },
+};
+
+const OCCASIONAL_REVIEW_TITLE = 'Occasional architecture review';
+const OCCASIONAL_REVIEW =
+  'When the PM requests an occasional architecture review, re-read the current cards and responsibility boundaries. Report a few concrete suggestions or say no change is needed. This standing review never authorizes automatic card creation or refactoring. Send the report to the PM and only learned-principle proposals to the Operator; never write its knowledge.';
+const OCCASIONAL_REVIEW_LIMIT =
+  'An occasional architecture review the PM requests never authorizes automatic card creation or refactoring.';
+
+/** The short form of the duty when the guide holds its full text for this work item, else null. */
+function guidedDuty(input: ContextPackInput, id: DutyId) {
+  const guided = GUIDED_DUTIES[id];
+  return guided && dutyPrompt(input, id) === DUTIES[id].prompt ? guided : null;
+}
+
 /** Duty fragments and role extras share one guide, followed by unabridged personal instructions. */
 function roleSection(input: ContextPackInput, guide: ContextPack['guide']): string {
   const { project, member } = input;
   const bundle = roleBundle(project, member.role);
-  const details: string[] = [];
-  const duties = bundle.duties.map((id) => dutyPrompt(input, id)).filter(Boolean);
+  const held = bundle.duties.map((id) => ({
+    id,
+    text: dutyPrompt(input, id),
+    guided: guidedDuty(input, id),
+  }));
+  const duties = held.map(({ text, guided }) => guided?.short ?? text).filter(Boolean);
+  // Detail sections of the duties, in the duty order; the indexed titles are exactly these headings.
+  const guidedHeld = held.filter(({ guided }) => guided);
+  const reviewGuided =
+    input.workItem.type === 'general' && guidedHeld.some(({ id }) => id === 'technical_direction');
+  const subCardsGuided = guidedHeld.some(({ id }) => SUB_CARD_DUTIES.includes(id));
+  const dutyDetails = [
+    ...guidedHeld.flatMap(({ id, text, guided }) => [
+      { title: guided!.title, text },
+      ...(id === 'technical_direction' && reviewGuided
+        ? [{ title: OCCASIONAL_REVIEW_TITLE, text: OCCASIONAL_REVIEW }]
+        : []),
+    ]),
+    ...(subCardsGuided ? [{ title: 'Sub-cards', text: SUB_CARD_RULE }] : []),
+  ];
+  const details: string[] = dutyDetails.map(({ title, text }) => `## ${title}\n${text}`);
   if (isOperator(member)) details.push(operatorRule(project));
   if (isProjectManager(member)) details.push(projectManagerGuide());
   if (details.length) guide.role = ['# Role guide', ...details].join('\n\n');
@@ -845,12 +894,10 @@ function roleSection(input: ContextPackInput, guide: ContextPack['guide']): stri
     '# Your role instructions',
     ...duties,
     ...(bundle.duties.includes('technical_direction') && input.workItem.type === 'general'
-      ? [
-          'When the PM requests an occasional architecture review, re-read the current cards and responsibility boundaries. Report a few concrete suggestions or say no change is needed. This standing review never authorizes automatic card creation or refactoring. Send the report to the PM and only learned-principle proposals to the Operator; never write its knowledge.',
-        ]
+      ? [reviewGuided ? OCCASIONAL_REVIEW_LIMIT : OCCASIONAL_REVIEW]
       : []),
     ...(bundle.duties.includes('implementation') ? [structuralDecisionRule(input)] : []),
-    ...(bundle.duties.some((id) => SUB_CARD_DUTIES.includes(id)) ? [SUB_CARD_RULE] : []),
+    ...(!subCardsGuided && bundle.duties.some((id) => SUB_CARD_DUTIES.includes(id)) ? [SUB_CARD_RULE] : []),
     ...(isProjectManager(member)
       ? [
           projectManagerRule(
@@ -862,7 +909,14 @@ function roleSection(input: ContextPackInput, guide: ContextPack['guide']): stri
       : []),
     ...(isOperator(member) ? [operatorIndex(project)] : []),
     ...(details.length
-      ? ['Before an indexed role procedure, read get_guide with topic `role` when this index is not enough.']
+      ? [
+          [
+            ...(dutyDetails.length
+              ? [`Role guide index: ${dutyDetails.map(({ title }) => title).join('; ')}.`]
+              : []),
+            'Before an indexed role procedure, read get_guide with topic `role` when this index is not enough.',
+          ].join(' '),
+        ]
       : []),
     bundle.instructions.trim(),
     member.instructions.trim(),

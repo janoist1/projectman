@@ -88,7 +88,6 @@ export function buildBrief(input: ContextPackInput, situation: Situation): strin
         : []),
       ...(task.priority !== null ? [`- Priority: ${task.priority}`] : []),
       `- Labels: ${task.labels.length > 0 ? task.labels.map((label) => style.label(label)).join(', ') : 'none'}`,
-      `- Visibility: ${task.visibility}`,
       ...(task.developerLevel ? [`- Recommended developer: ${developerLevelText(task.developerLevel)}`] : []),
     ].join('\n'),
   );

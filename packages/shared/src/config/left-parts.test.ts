@@ -53,7 +53,6 @@ const part = (over: Partial<Task> = {}): Task => ({
   priority: null,
   labels: [],
   links: [],
-  visibility: 'internal',
   kind: 'task',
   parentKey: 'AC-1',
   createdBy: 'architect',

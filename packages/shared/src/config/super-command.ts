@@ -1,7 +1,6 @@
 import type { AdministrationCommand } from '../api/administration';
 import type { SuperCommand } from '../api/super-handoff';
 import type { AgentProvider, HumanAccess } from '../domain/member';
-import type { Visibility } from '../domain/task';
 import { operatorOf } from './operator-member';
 import { applyConfigPatch, prepareOperatorConfigPatch } from './edit';
 import type { ProjectConfig } from './schema';
@@ -28,7 +27,6 @@ export interface SuperCommandContext {
   configVersion: string;
   /** The configuration a stored version holds; null when the version is unknown. */
   configAt?: (version: string) => ProjectConfig | null;
-  taskVisibility?: (taskKey: string) => Visibility | null;
 }
 
 const PROVIDERS: readonly AgentProvider[] = ['claude', 'codex', 'gemini', 'nanogpt'];
@@ -153,31 +151,9 @@ export function superCommandMutations(
     case 'merge_order':
       return [{ kind: 'routine', operation: 'merge_order' }];
     case 'task_create':
-      return [
-        { kind: 'routine', operation: 'task_create' },
-        ...(command.request.visibility !== undefined
-          ? [
-              {
-                kind: 'task_visibility' as const,
-                taskKey: null,
-                before: 'internal' as const,
-                after: command.request.visibility,
-              },
-            ]
-          : []),
-      ];
-    case 'task_update': {
-      const mutations: SuperMutationCommand[] = [{ kind: 'routine', operation: 'task_write' }];
-      const before = context.taskVisibility?.(command.taskKey) ?? null;
-      if (command.request.visibility !== undefined && command.request.visibility !== before)
-        mutations.push({
-          kind: 'task_visibility',
-          taskKey: command.taskKey,
-          before,
-          after: command.request.visibility,
-        });
-      return mutations;
-    }
+      return [{ kind: 'routine', operation: 'task_create' }];
+    case 'task_update':
+      return [{ kind: 'routine', operation: 'task_write' }];
     case 'task_labels':
     case 'task_start':
     case 'inbox_resolve':

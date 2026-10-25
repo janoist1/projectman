@@ -117,7 +117,7 @@ describe('card relations over REST', () => {
   });
 
   it('is for developers and up: a viewer and a client cannot set relations', async () => {
-    const one = await create('One', { visibility: 'shared' });
+    const one = await create('One');
     const two = await create('Two');
     for (const who of ['viewer', 'client']) {
       const res = await call(who, 'PATCH', routes.task('AR', one.key), {
@@ -129,8 +129,8 @@ describe('card relations over REST', () => {
   });
 
   it('shows a client every link, like any member (PM-79)', async () => {
-    const shared = await create('Shared', { visibility: 'shared' });
-    const other = await create('Other shared', { visibility: 'shared' });
+    const shared = await create('Shared');
+    const other = await create('Other shared');
     const internal = await create('Internal');
     await call('owner', 'PATCH', routes.task('AR', shared.key), {
       relations: {

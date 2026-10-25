@@ -7,7 +7,6 @@ import {
   TaskPriority,
   TaskRelationKind,
   TaskStatus,
-  Visibility,
 } from '@projectman/shared';
 import type { DeveloperLevelRequest, MemberView, Task } from '@projectman/shared';
 import { z } from 'zod';
@@ -15,7 +14,7 @@ import { TeamToolError } from '../../contracts';
 import type { ListTasksInput, TaskSummary, TaskToolDetail, TaskToolsHandler } from '../../contracts';
 import { formatTaskCreated, formatTaskDetail, formatTaskUpdate, MAX_DESCRIPTION_CHARS } from '../format';
 
-import { defineTool, type TeamToolGroup, unique, taskKeyInput } from '../kit';
+import { defineTool, type TeamToolGroup, unique, taskKeyInput, TASK_VISIBILITY_REMOVED } from '../kit';
 const MAX_NOTE_CHARS = 10_000;
 
 const developerLevelInput = DeveloperLevel.optional().describe(
@@ -209,7 +208,6 @@ interface CreateTaskArgs {
   title: string;
   description?: string | undefined;
   labels?: string[] | undefined;
-  visibility?: Visibility | undefined;
   relations?: { kind: AddableRelationKind; task_key: string }[] | undefined;
   developer_level?: DeveloperLevel | undefined;
   developer_level_reason?: string | undefined;
@@ -236,7 +234,6 @@ async function runCreateTask<C>({
     ...(args.theme_key ? { themeKey: args.theme_key } : {}),
     ...(args.description ? { description: args.description } : {}),
     ...(args.labels ? { labels: unique(args.labels) } : {}),
-    ...(args.visibility ? { visibility: args.visibility } : {}),
   });
   return formatTaskCreated(task);
 }
@@ -424,6 +421,7 @@ export const TASK_TOOL_GROUP: TeamToolGroup = {
     defineTool({
       name: 'create_task',
       refused: {
+        visibility: TASK_VISIBILITY_REMOVED,
         priority:
           'priority is set by people only: AI members can read it (get_task, list_tasks) but cannot set it. ' +
           'Urgent cards start first and are pulled into development by the system; the other levels only inform.',
@@ -465,9 +463,6 @@ export const TASK_TOOL_GROUP: TeamToolGroup = {
           .max(10)
           .optional()
           .describe('Labels, e.g. ["bug"].'),
-        visibility: Visibility.optional().describe(
-          'internal (default): only the team sees it; shared: client members see it too.',
-        ),
         relations: z
           .array(addedRelationInput)
           .max(10)

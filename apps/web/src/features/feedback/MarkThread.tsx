@@ -8,7 +8,6 @@ import styles from './MarkThread.module.css';
 
 function cardText(projectKey: string, card: FeedbackCardRef | null) {
   if (!card) return null;
-  if (!card.visible) return t('feedback.thread.internalCard');
   return (
     <>
       <Link to={`/p/${projectKey}/tasks/${card.key}`} className={styles.cardKey}>

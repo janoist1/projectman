@@ -63,7 +63,7 @@ function MergedValue({
 }
 
 /**
- * The task's properties as tight rows: assignee, repository, visibility, labels, relations. Each row
+ * The task's properties as tight rows: assignee, repository, labels, relations. Each row
  * is one line of label and value, with a small "+" where something can be added.
  */
 export function TaskProperties({
@@ -105,10 +105,6 @@ export function TaskProperties({
       <TaskPrioritySelect key={`priority:${task.key}`} task={task} />
       <div className={styles.prop}>
         <TaskRepo key={task.key} task={task} />
-      </div>
-      <div className={styles.prop}>
-        <span className={styles.propLabel}>{t('newTask.fields.visibility')}</span>
-        <span>{t(`visibility.${task.visibility}`)}</span>
       </div>
       {task.merged ? (
         <div className={styles.prop}>

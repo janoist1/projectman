@@ -9,9 +9,7 @@ import { Avatar, StatusLabel, colorVar, personName } from './common';
 function CardLine({ card }: { card: FeedbackCardRef }) {
   return (
     <p class="card-line">
-      {card.visible
-        ? t('thread.cardLine', { key: card.key, title: card.title, stage: card.stageName })
-        : t('thread.cardInternal')}
+      {t('thread.cardLine', { key: card.key, title: card.title, stage: card.stageName })}
     </p>
   );
 }

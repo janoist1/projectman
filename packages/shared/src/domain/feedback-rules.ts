@@ -33,15 +33,9 @@ export function canMarkFeedback(config: Pick<ProjectConfig, 'project'>, member: 
   return feedbackMarkRefusal(config, member) === null;
 }
 
-/**
- * The card of a mark. Every member sees every card (PM-79), so the reference is always visible; the
- * `{ visible: false }` form of `FeedbackCardRef` stays in the contract until PM-987.
- */
-export function feedbackCardRef(
-  task: Pick<Task, 'key' | 'title' | 'visibility'>,
-  stageName: string,
-): FeedbackCardRef {
-  return { visible: true, key: task.key, title: task.title, stageName, visibility: task.visibility };
+/** The card of a mark. Every member sees every card (PM-79). */
+export function feedbackCardRef(task: Pick<Task, 'key' | 'title'>, stageName: string): FeedbackCardRef {
+  return { visible: true, key: task.key, title: task.title, stageName };
 }
 
 export type FeedbackAction = 'comment' | 'create_task' | 'link' | 'forward' | 'close' | 'reopen';

@@ -68,11 +68,7 @@ describe('history search and read visibility', () => {
   beforeEach(async () => {
     h = await historyHarness();
     const internal = await h.domain.tasks.create('AR', { title: 'zebra tagt1' }, OWNER_ACTOR);
-    const shared = await h.domain.tasks.create(
-      'AR',
-      { title: 'zebra tagt2', visibility: 'shared' },
-      OWNER_ACTOR,
-    );
+    const shared = await h.domain.tasks.create('AR', { title: 'zebra tagt2' }, OWNER_ACTOR);
     const noteInternal = await h.domain.tasks.addNote('AR', internal.key, 'zebra tagn1', OWNER_ACTOR);
     await h.domain.tasks.addNote('AR', shared.key, 'zebra tagn2', OWNER_ACTOR);
     record('dev-1', ['cr'], 'tagm1');
@@ -212,12 +208,6 @@ describe('history search and read visibility', () => {
     );
     await expect(h.domain.history.search('AR', as('beta'), { query: 'zebra' })).rejects.toThrowError(refused);
     expect(() => h.domain.history.read('AR', as('beta'), { sourceId: ids.tagt2! })).toThrowError(refused);
-  });
-
-  it('does not let the card visibility change what a client finds (PM-79)', async () => {
-    const before = await tagsOf(as('acme'));
-    await h.domain.tasks.update('AR', 'AR-2', { visibility: 'internal' }, OWNER_ACTOR);
-    expect(await tagsOf(as('acme'))).toEqual(before);
   });
 
   it('shows a client a grouped question as its original, never the combined one', async () => {

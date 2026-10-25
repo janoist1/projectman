@@ -246,7 +246,7 @@ export const COMMANDS: CommandSpec[] = [
   {
     name: 'tasks update',
     usage:
-      'tasks update TASK [--title TEXT] [--description-file FILE] [--priority urgent|high|normal|low|none] [--stage ID] [--assignee HANDLE|none] [--theme KEY|none] [--parent KEY|none] [--visibility internal|shared] [--add-relation KIND:KEY]… [--remove-relation KIND:KEY]…',
+      'tasks update TASK [--title TEXT] [--description-file FILE] [--priority urgent|high|normal|low|none] [--stage ID] [--assignee HANDLE|none] [--theme KEY|none] [--parent KEY|none] [--add-relation KIND:KEY]… [--remove-relation KIND:KEY]…',
     summary: 'Updates card fields and relations as the Operator',
     options: {
       ...WRITE,
@@ -258,7 +258,6 @@ export const COMMANDS: CommandSpec[] = [
       assignee: { type: 'string' },
       theme: { type: 'string' },
       parent: { type: 'string' },
-      visibility: { type: 'string' },
       'add-relation': { type: 'string', multiple: true },
       'remove-relation': { type: 'string', multiple: true },
     },
@@ -274,7 +273,6 @@ export const COMMANDS: CommandSpec[] = [
         assignee: 'assignee',
         theme: 'themeKey',
         parent: 'parentKey',
-        visibility: 'visibility',
       })) {
         const value = text(ctx, flag);
         if (value !== undefined)

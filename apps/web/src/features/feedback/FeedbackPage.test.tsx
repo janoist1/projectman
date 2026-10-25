@@ -180,14 +180,13 @@ describe('the states of the page', () => {
 });
 
 describe('what a client sees', () => {
-  it('names the card whatever its visibility, and offers no processing', async () => {
+  it('names the card, and offers no processing', async () => {
     const p = seeded();
     const overrides = asClient(p);
     p.render(<Pages />, '/p/AC/feedback?f=all', overrides);
     await screen.findByRole('list', { name: t('feedback.list.label') });
     fireEvent.click(rowOf(/A főoldali banner képe/));
     const detail = await screen.findByRole('region', { name: t('feedback.detail.label') });
-    expect(within(detail).queryByText(t('feedback.decision.internalCard'))).toBeNull();
     expect(within(detail).getAllByText(/AC-24/).length).toBeGreaterThan(0);
     // A client processes nothing: no actions, no browser details.
     expect(within(detail).queryByRole('button', { name: t('feedback.actions.create') })).toBeNull();
@@ -217,7 +216,7 @@ describe('working a mark', () => {
     expect(body.description).toContain('A kupon mező kitakarja');
     expect(body.description).toContain('/penztar');
     expect(body.description).toContain('Kata');
-    expect(body.visibility).toBe('shared');
+    expect(body).not.toHaveProperty('visibility');
     expect(body.reply).toBe('Felvettem.');
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     // The mark now stands on the card.

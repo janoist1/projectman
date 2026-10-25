@@ -78,7 +78,6 @@ export const hu = {
   'thread.sendError': 'Nem sikerült elküldeni. A szöveget megtartottuk, próbáld újra.',
   'thread.changed': 'Az elem azóta megváltozott, ezért a jelölés a korábbi helyén látszik.',
   'thread.ai': '{name} (AI)',
-  'thread.cardInternal': 'Feladatba került',
   'thread.cardLine': '{key} · {title} · {stage}',
   'thread.working': 'A pm most nézi; a válasza itt jelenik meg.',
   'thread.event.card_created': 'Kártya nyílt belőle',

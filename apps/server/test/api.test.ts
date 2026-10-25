@@ -49,6 +49,24 @@ describe('REST API', () => {
     return { status: res.statusCode, body: (res.body ? res.json() : null) as T, res };
   }
 
+  it.each(['POST', 'PATCH'] as const)('ignores legacy task visibility in %s requests', async (method) => {
+    const cookie = await setupOwner(h.app);
+    await createProject(h, cookie);
+    if (method === 'PATCH') await call('POST', '/api/projects/AR/tasks', cookie, { title: 'Original' });
+    const url = method === 'POST' ? '/api/projects/AR/tasks' : '/api/projects/AR/tasks/AR-1';
+    const response = await call<Task | TaskDetail>(method, url, cookie, {
+      title: 'Legacy request',
+      visibility: 'internal',
+    });
+    expect(response.status).toBe(method === 'POST' ? 201 : 200);
+    const task = 'task' in response.body ? response.body.task : response.body;
+    expect(task).not.toHaveProperty('visibility');
+    const detail = await call<TaskDetail>('GET', `/api/projects/AR/tasks/${task.key}`, cookie);
+    const updates = detail.body.timeline.filter((event) => event.type === 'task_updated');
+    if (method === 'PATCH') expect(updates).toHaveLength(1);
+    for (const event of updates) expect(event.data?.fields).not.toContain('visibility');
+  });
+
   describe('setup, login and the guard', () => {
     it('rejects cross-origin mutations including login, and sets secure proxy cookies', async () => {
       const cookie = await setupOwner(h.app);
@@ -717,7 +735,7 @@ describe('REST API', () => {
         access: 'client',
       });
       await call('POST', '/api/projects/AR/tasks', cookie, { title: 'Internal work' });
-      await call('POST', '/api/projects/AR/tasks', cookie, { title: 'Shared work', visibility: 'shared' });
+      await call('POST', '/api/projects/AR/tasks', cookie, { title: 'Shared work' });
 
       const tasks = await call<Task[]>('GET', '/api/projects/AR/tasks', clientCookie);
       expect(tasks.body.map((t) => t.title).sort()).toEqual(['Internal work', 'Shared work']);

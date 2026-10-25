@@ -374,19 +374,19 @@ describe('formatTaskDetail', () => {
     const detail = sampleTaskDetail();
     detail.task.repo = null;
     // A handler that does not say falls back to the task's own repository.
-    expect(repoLine(detail)).toBe('Repo: the workspace root · Visibility: internal · Priority: high');
+    expect(repoLine(detail)).toBe('Repo: the workspace root · Priority: high');
     // A task of a one-repository project works in that repository.
     expect(repoLine({ ...detail, effectiveRepo: 'web', repoChoiceNeeded: false })).toBe(
-      'Repo: web · Visibility: internal · Priority: high',
+      'Repo: web · Priority: high',
     );
     // Several repositories and none chosen: the agent is told why there is none.
     expect(repoLine({ ...detail, effectiveRepo: null, repoChoiceNeeded: true })).toBe(
       'Repo: none chosen yet (the project has several repositories; ask a human which one if you need to know) · ' +
-        'Visibility: internal · Priority: high',
+        'Priority: high',
     );
     // No repositories at all: the workspace root.
     expect(repoLine({ ...detail, effectiveRepo: null, repoChoiceNeeded: false })).toBe(
-      'Repo: the workspace root · Visibility: internal · Priority: high',
+      'Repo: the workspace root · Priority: high',
     );
   });
 
@@ -568,7 +568,7 @@ describe('formatTaskDetail', () => {
     const out = formatTaskDetail(detail);
     expect(out.split('\n').slice(1, 3)).toEqual([
       'Stage: dev · Status: active · Assignee: fe-1 · Labels: frontend, qa-ok',
-      'Repo: web · Visibility: internal · Priority: high',
+      'Repo: web · Priority: high',
     ]);
     expect(out.match(/Labels:/g)).toHaveLength(1);
   });

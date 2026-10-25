@@ -223,12 +223,10 @@ describe('the board that starts as public', () => {
       void (invited.json() as CreatedInvitation);
       const shared = await inject(app, 'POST', routes.tasks('AR'), owner, {
         title: 'Shared',
-        visibility: 'shared',
       });
       sharedKey = (shared.json() as Task).key;
       const internal = await inject(app, 'POST', routes.tasks('AR'), owner, {
         title: 'Internal',
-        visibility: 'internal',
       });
       internalKey = (internal.json() as Task).key;
       await goPublic();
@@ -286,12 +284,10 @@ describe('the board that starts as public', () => {
         events.length = 0;
         const made = await inject(app, 'POST', routes.tasks('AR'), owner, {
           title: 'Another internal',
-          visibility: 'internal',
         });
         const madeKey = (made.json() as Task).key;
         await inject(app, 'POST', routes.tasks('AR'), owner, {
           title: 'Another shared',
-          visibility: 'shared',
         });
         await flush();
         const seen = events.flatMap((event) => (event.type === 'task_upserted' ? [event.task.key] : []));

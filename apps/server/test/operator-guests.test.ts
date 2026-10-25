@@ -48,7 +48,7 @@ function withGuests(config: ProjectConfig): void {
 async function setup(opts: { appHome?: string; sessionFolders?: boolean } = {}): Promise<void> {
   h = await createDomainHarness({ adjust: withGuests, ...opts });
   await h.domain.tasks.create('AR', { title: 'Internal plan' }, OWNER_ACTOR);
-  await h.domain.tasks.create('AR', { title: 'Shared page', visibility: 'shared' }, OWNER_ACTOR);
+  await h.domain.tasks.create('AR', { title: 'Shared page' }, OWNER_ACTOR);
 }
 
 /** A person writes to the Operator with their own login. */

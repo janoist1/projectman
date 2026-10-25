@@ -1,6 +1,6 @@
 import type { Actor } from '../domain/event';
 import type { AgentProvider, HumanAccess } from '../domain/member';
-import type { TaskKey, Visibility } from '../domain/task';
+import type { TaskKey } from '../domain/task';
 import type { AiMemberConfig, ProjectConfig } from './schema';
 import { canonical } from './canonical';
 import { boundaryDelegationChanged, permissionsChanged } from './owner-only';
@@ -60,7 +60,6 @@ export const SUPER_ADMINISTRATION_COMMANDS = [
 export type SuperAdministrationCommand = (typeof SUPER_ADMINISTRATION_COMMANDS)[number];
 export type SuperMutationCommand =
   | { kind: 'config_change'; next: ProjectConfig }
-  | { kind: 'task_visibility'; taskKey: TaskKey | null; before: Visibility | null; after: Visibility }
   | {
       kind: 'remove';
       resource:
@@ -189,7 +188,6 @@ export function ownerReservedEffect(
     case 'permission_change':
     case 'owner_command':
       return 'security';
-    case 'task_visibility':
     case 'focus_change':
       return null;
     case 'runtime_start':

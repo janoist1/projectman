@@ -2614,7 +2614,6 @@ export const hu = {
       description: 'Leírás',
       repo: 'Repó',
       repoNone: 'Nincs kiválasztva',
-      visibility: 'Láthatóság',
       theme: 'Téma',
       themeNone: 'Nincs',
       themeFromFilter: 'A tábla erre a témára szűr, ezért alapból ide kerül.',
@@ -2626,13 +2625,6 @@ export const hu = {
     created: 'Létrehozva: {key}',
     themeCreated: 'Téma létrehozva: {key}',
     titleRequired: 'Adj meg egy címet.',
-  },
-
-  visibility: {
-    internal: 'Belső',
-    shared: 'Megosztott',
-    internalHint: 'Csak a csapat látja.',
-    sharedHint: 'A megrendelő is látja az ügyfélnézetben.',
   },
 
   stageKinds: {
@@ -5566,17 +5558,12 @@ export const hu = {
       youDecideWith: 'Te döntesz. A pm továbbította: {reason}',
       ownerDecides: 'Erről {owner} dönt. Ha válaszol, itt és az oldalon is látod.',
       ownerDecidesWith: 'Erről {owner} dönt. A pm továbbította: {reason}',
-      internalCard: 'Feladatba került. Az állapotát itt és az oldalon is látod.',
       cardPrefix: 'Kártyára került:',
       created: 'Kártya nyílt belőle:',
       linked: 'Kártyához kötve:',
-      shared: 'megosztott',
-      internal: 'belső',
-      internalForClient: 'belső, az ügyfél csak az állapotot látja',
     },
     thread: {
       label: 'A jelölés története',
-      internalCard: 'Feladatba került.',
       cardCreated: '{name} kártyát nyitott a jelölésből.',
       cardLinked: '{name} kártyához kötötte a jelölést.',
       forwarded: '{name} továbbította a tulajdonosnak.',
@@ -5606,18 +5593,10 @@ export const hu = {
     reply: {
       label: 'Válasz a jelölőnek',
     },
-    visibility: {
-      shared: 'Megosztott',
-      internal: 'Belső',
-    },
-    internalHidden: 'Belső kártya: {name} csak annyit lát, hogy „Feladatba került”, a számát és a címét nem.',
     create: {
       heading: 'Új kártya a jelölésből',
       info: 'A leírásba bekerül a jelölés szövege, az oldal címe és hivatkozása; a képernyőkép a kártya melléklete lesz.',
       title: 'Cím',
-      visibility: 'Ki látja a kártyát?',
-      clientShared:
-        '{name} ügyfél, ezért alapból megosztott: a jelölésnél látja a kártya számát, címét és szakaszát.',
       submit: 'Kártyát nyitok',
       done: '{key} kártya megnyitva',
       pageLine: 'Oldal: {title}',

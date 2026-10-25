@@ -104,8 +104,9 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   GitHub integration. Labels without a definition are plain tags.
 - **Task** — key (`AR-21`), title, markdown description, stage, status, assignee (the work
   stage owner), repo, labels, links (PRs with their attributed authors, branches, issues,
-  prerequisites), visibility (`internal` or `shared` with clients), optional parent (one level
+  prerequisites), optional parent (one level
   of subtasks), comments with @mentions and **attachments**. Tasks can be imported with their original dates.
+  Cards have no per-card visibility: clients read the same cards as viewers (PM-79, PM-987).
   **Relations between cards** (PM-192/PM-202): part of (`parentKey`), prerequisite, related and
   duplicate of. The last three are `task_links` rows (`prerequisite`, `related`, `duplicate_of`;
   `ref` is the other card's key) stored once on the card that set them; the other direction is read

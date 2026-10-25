@@ -94,12 +94,8 @@ describe('history search by meaning', () => {
   let h: DomainHarness;
   let port: ReturnType<typeof fakePort>;
 
-  const task = async (
-    title: string,
-    description = '',
-    extra: { visibility?: 'shared' | 'internal' } = {},
-  ) => {
-    const created = await h.domain.tasks.create('AR', { title, description, ...extra }, OWNER_ACTOR);
+  const task = async (title: string, description = '') => {
+    const created = await h.domain.tasks.create('AR', { title, description }, OWNER_ACTOR);
     h.domain.history.flush();
     return created;
   };
@@ -219,7 +215,7 @@ describe('history search by meaning', () => {
   });
 
   it('finds the same sources for a client as for the owner (PM-79)', async () => {
-    await task('Internal one', 'automobile secret', { visibility: 'internal' });
+    await task('Internal one', 'automobile secret');
     await task('Shared one', 'automobile public');
     const client = await search({ query: 'vehicle' }, as('acme'));
     expect(client.matches).toHaveLength(2);

@@ -20,7 +20,6 @@ function card(key: string, extra: Partial<Task> = {}): Task {
     priority: null,
     labels: [],
     links: [],
-    visibility: 'internal',
     createdBy: 'owner',
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',

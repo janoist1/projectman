@@ -546,7 +546,7 @@ describe('task editing and subtasks', () => {
     await waitFor(() => expect(project.backend.findTask('AC-20')?.title).toBe('Preserved draft'));
   });
 
-  it('shows the parts with their progress; a new subtask inherits repo, visibility and first stage', async () => {
+  it('shows the parts with their progress; a new subtask inherits repo and first stage', async () => {
     const project = mockProject();
     project.backend.updateTask('AC-21', { parentKey: 'AC-20', status: 'done' });
     project.backend.updateTask('AC-22', { parentKey: 'AC-20' });
@@ -570,7 +570,6 @@ describe('task editing and subtasks', () => {
     expect(project.backend.tasks.find((task) => task.title === 'Example child')).toMatchObject({
       parentKey: parent.key,
       repo: parent.repo,
-      visibility: parent.visibility,
       stageId: project.backend.config.pipeline.stages[0]!.id,
     });
   });

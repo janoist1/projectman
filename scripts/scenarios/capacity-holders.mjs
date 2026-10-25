@@ -3,7 +3,7 @@
  * (`member_at_capacity`). Three members are filled, one after the other, and a card waits for each:
  *
  *   a. a developer with one quiet general conversation (the tip has a time)
- *   b. a developer in the middle of a turn on another card (the card is internal, "most dolgozik")
+ *   b. a developer in the middle of a turn on another card ("most dolgozik")
  *   c. a member with two places: a conversation and a card at work (the mixed tip)
  *   d. the same card as a. when the server sends no holders (an older server): today's texts
  *
@@ -76,15 +76,15 @@ export default async ({ instance, open, shoot, step, log }) => {
 
   const workStage = current.pipeline.stages.find((stage) => stage.kind === 'work');
 
-  const card = async (title, visibility) =>
+  const card = async (title) =>
     (
       await instance.api('/api/projects/AC/tasks', {
         method: 'POST',
-        body: { title, repo: 'webshop', description: 'Fictional Acme webshop demo task.', visibility },
+        body: { title, repo: 'webshop', description: 'Fictional Acme webshop demo task.' },
       })
     ).key;
   const wait = async (title, member) => {
-    const key = await card(title, 'shared');
+    const key = await card(title);
     // A message about the card wakes its assignee; the wake-up waits for a full member.
     await instance.api(`/api/projects/AC/tasks/${key}`, {
       method: 'PATCH',
@@ -111,7 +111,7 @@ export default async ({ instance, open, shoot, step, log }) => {
   };
   /** The member starts a turn that does not end for a while: a working card holder. */
   const work = async (title, member) => {
-    const key = await card(title, 'internal');
+    const key = await card(title);
     const session = await instance.startSession('AC', key, member.handle);
     await instance.waitIdle('AC', session);
     await instance.setFakeCalls([{ tool: 'get_task', arguments: { task_key: key }, delayMs: 600_000 }]);
@@ -122,7 +122,7 @@ export default async ({ instance, open, shoot, step, log }) => {
   // a. a quiet conversation holds the only place of the quiet developer.
   await chat(quiet);
   const a = await wait('Show the order history', quiet);
-  // b. the other developer works on an internal card.
+  // b. the other developer works on another card.
   const heldB = await work('Migrate the order history', working);
   const b = await wait('Add tiered shipping rates', working);
   // c. a member with two places: a conversation and a card at work.

@@ -360,7 +360,7 @@ describe('the cover of a card', () => {
     expect(first.id).toBeTruthy();
   });
 
-  it('is a small thumbnail on the phone', async () => {
+  it('shows the cover strip on the phone column card as on the desktop', async () => {
     vi.spyOn(window, 'matchMedia').mockImplementation((query) => ({
       matches: true,
       media: query,
@@ -377,6 +377,7 @@ describe('the cover of a card', () => {
     await cardLink(project, 'AC-20');
     const image = thumbnailOf(view.container, 'AC-20', first.id)!;
     expect(image).toBeTruthy();
-    expect(image.parentElement!.className).toMatch(/thumbnail/);
+    expect(image.parentElement!.className).toMatch(/cover/);
+    expect(image.parentElement!.className).not.toMatch(/thumbnail/);
   });
 });

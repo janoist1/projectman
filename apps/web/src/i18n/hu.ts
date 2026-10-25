@@ -1741,13 +1741,6 @@ export const hu = {
         unknown: 'Nem teljesül a belépés feltétele',
       },
     },
-    groups: {
-      needsYou: 'Rád vár',
-      working: 'Dolgozik',
-      waiting: 'Másra vár',
-      ready: 'Indulhat',
-      done: 'Kész',
-    },
     noTasks: 'Még nincs feladat. Hozd létre az elsőt az „Új feladat” gombbal.',
     subtitleFiltered: 'Szűrve: {values} · {count} feladat',
     /** The strip of themes above the board (PM-192). */

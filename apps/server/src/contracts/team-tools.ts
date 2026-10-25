@@ -939,8 +939,8 @@ export interface SystemFeedbackToolsHandler {
 /** The tools of services/project-docs (PM-495, PM-496). */
 export interface ProjectDocToolsHandler {
   /**
-   * read_project_doc (PM-495): the decision log or the roadmap on the head of the default branch, in lines.
-   * Only the Operator; needs no open request.
+   * read_project_doc (PM-495, PM-1004): decisions, roadmap or lessons on the default branch, in lines.
+   * Only the Operator; needs no open request. Lessons also allow its verified processing queue.
    */
   readProjectDoc(
     ctx: ToolContext,
@@ -948,7 +948,8 @@ export interface ProjectDocToolsHandler {
   ): Promise<ProjectDocRead>;
   /**
    * write_project_docs (PM-495): text replacements in the project documents as one commit on the default
-   * branch. Only the Operator, in the owner's own conversation, during an open owner request.
+   * branch, at most two files. Only the Operator in its internal conversation: lessons-only needs no
+   * owner request (including its verified queue); other or mixed edits require an open owner request.
    */
   writeProjectDocs(
     ctx: ToolContext,

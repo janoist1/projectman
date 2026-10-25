@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { applyConfigPatch, PatchConfigRequest, unknownPatchRepo } from './edit';
 import { operatorConfigVerdict } from './operator';
-import { isRepoFilePath, projectDocsOf, RepoDocs } from './project-docs';
+import { isLessonsOnly, isRepoFilePath, ProjectDoc, projectDocsOf, RepoDocs } from './project-docs';
 import { ProjectConfig } from './schema';
 
 function config(repos: object[]): ProjectConfig {
@@ -63,13 +63,19 @@ describe('isRepoFilePath', () => {
 });
 
 describe('RepoDocs', () => {
-  it('takes a path for either document, or none', () => {
+  it('takes paths for the supported documents, or none', () => {
     expect(RepoDocs.parse({})).toEqual({});
     expect(RepoDocs.parse({ decisions: 'docs/D.md' })).toEqual({ decisions: 'docs/D.md' });
-    expect(RepoDocs.parse({ decisions: 'D.md', roadmap: 'docs/R.md' })).toEqual({
+    expect(ProjectDoc.parse('lessons')).toBe('lessons');
+    expect(RepoDocs.parse({ decisions: 'D.md', roadmap: 'docs/R.md', lessons: 'docs/L.md' })).toEqual({
       decisions: 'D.md',
       roadmap: 'docs/R.md',
+      lessons: 'docs/L.md',
     });
+  });
+
+  it.each(['decisions', 'roadmap'])('refuses a lessons path shared with %s', (doc) => {
+    expect(RepoDocs.safeParse({ [doc]: 'same.md', lessons: 'same.md' }).success).toBe(false);
   });
 
   it('refuses a bad path, an unknown key and one file for both documents', () => {
@@ -86,6 +92,18 @@ describe('RepoDocs', () => {
 });
 
 describe('projectDocsOf', () => {
+  it('selects a lessons-only repository before a later repository with other documents', () => {
+    const c = config([
+      { name: 'lessons', path: '.', docs: { lessons: 'docs/LESSONS.md' } },
+      { name: 'other', path: 'other', docs: { decisions: 'D.md' } },
+    ]);
+    expect(projectDocsOf(c)).toMatchObject({
+      repo: { name: 'lessons' },
+      decisions: null,
+      roadmap: null,
+      lessons: 'docs/LESSONS.md',
+    });
+  });
   it('is null when no repository has a path', () => {
     expect(projectDocsOf(config([]))).toBeNull();
     expect(projectDocsOf(config([{ name: 'web', path: '.' }]))).toBeNull();
@@ -115,7 +133,7 @@ describe('repoDocs patch', () => {
     const patch = PatchConfigRequest.parse({
       baseVersion: 'v1',
       repoDocs: [
-        { repo: 'web', docs: { decisions: 'docs/D.md', roadmap: 'docs/R.md' } },
+        { repo: 'web', docs: { decisions: 'docs/D.md', roadmap: 'docs/R.md', lessons: 'docs/L.md' } },
         { repo: 'api', docs: null },
       ],
     });
@@ -123,7 +141,7 @@ describe('repoDocs patch', () => {
     expect(next.project.repos[0]).toMatchObject({
       name: 'web',
       requireMerge: true,
-      docs: { decisions: 'docs/D.md', roadmap: 'docs/R.md' },
+      docs: { decisions: 'docs/D.md', roadmap: 'docs/R.md', lessons: 'docs/L.md' },
     });
     expect('docs' in next.project.repos[1]!).toBe(false);
     expect(projectDocsOf(next)?.repo.name).toBe('web');
@@ -183,5 +201,17 @@ describe('repoDocs patch', () => {
         level: 'approval',
       }),
     ]);
+  });
+});
+
+describe('isLessonsOnly', () => {
+  it.each([
+    { docs: [], expected: false },
+    { docs: ['lessons'], expected: true },
+    { docs: ['lessons', 'lessons'], expected: true },
+    { docs: ['lessons', 'decisions'], expected: false },
+    { docs: ['roadmap'], expected: false },
+  ] as const)('classifies $docs as $expected', ({ docs, expected }) => {
+    expect(isLessonsOnly(docs.map((doc) => ({ doc })))).toBe(expected);
   });
 });

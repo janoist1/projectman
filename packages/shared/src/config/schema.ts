@@ -324,7 +324,7 @@ export const RepoConfig = z.object({
    */
   requireMerge: z.boolean().optional(),
   /**
-   * Where the project documents (decision log, roadmap) live in this repository (PM-388). No default:
+   * Where the project documents (decision log, roadmap, lessons) live in this repository (PM-388, PM-1004). No default:
    * absent, the feature is off, so nothing is written to a client's public default branch unasked.
    * When several repositories have it, the first counts (`projectDocsOf`).
    */

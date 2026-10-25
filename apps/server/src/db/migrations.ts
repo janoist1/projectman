@@ -2282,4 +2282,9 @@ migrations.push({
   name: 'member activity source card',
   sql: `ALTER TABLE member_state ADD COLUMN activity_task_key TEXT;`,
 });
+migrations.push({
+  version: 109,
+  name: 'autonomous lessons writes',
+  sql: `ALTER TABLE doc_writes ADD COLUMN autonomous_lessons INTEGER NOT NULL DEFAULT 0 CHECK (autonomous_lessons IN (0,1));`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

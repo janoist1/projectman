@@ -5,6 +5,9 @@ import type { DocWriteSlotPeer } from './ports';
 import {
   DocWriteFailure as DocWriteFailureSchema,
   LOCAL_ENGINE_ID,
+  isLessonsOnly,
+  isOperator,
+  memberOf,
   projectDocsOf,
   SUPER_AUDIT_REQUEST_ID,
   SYSTEM_SENDER,
@@ -99,7 +102,7 @@ type Deps = {
   externalWaitMs?: number;
 };
 
-/** The key, the owner's membership or the Operator of a bearer-MCP write ended before it went up. */
+/** A write lost its key, owner, Operator or autonomous lessons configuration before publication. */
 class AuthorizationEnded extends Error {
   constructor(cause: unknown) {
     super('the credential of the write is no longer valid', { cause });
@@ -133,7 +136,7 @@ function failureOf(code: string | undefined): DocWriteFailure {
 }
 
 /**
- * The Operator's writes of the decision log and the roadmap to the default branch (PM-495). A write is a row
+ * The Operator's writes of project documents to the default branch (PM-495, PM-1004). A write is a row
  * in `doc_writes`, one open per project; it runs in the repository's merge slot, so it never overlaps a
  * member-initiated merge (`Merges` skips a repository while a write runs here, and runs the write first when the
  * slot frees). All git work is the engine's (`BranchMerger.readFile`, `commitFiles`, `push`, `advance`).
@@ -209,6 +212,7 @@ export class DocWrites {
         createdAt: now,
         updatedAt: now,
         externalOrigin: null,
+        autonomousLessons: false,
       });
       ctx.repos.operatorRequests.insertStep({
         id: stepId,
@@ -223,6 +227,45 @@ export class DocWrites {
         inboxItemId: null,
         signalId: null,
         refusal: null,
+      });
+    });
+    return this.started(id, projectKey, docs.repo.name, this.deps.waitMs ?? DOC_WRITE_WAIT_MS);
+  }
+
+  /** Lessons alone need no owner request; provenance is stored without inventing an owner step. */
+  async requestLessons(input: Omit<DocWriteRequest, 'requestedBy' | 'requestId'>): Promise<DocWriteOutcome> {
+    const { ctx } = this.deps;
+    const { projectKey } = input;
+    const config = await this.deps.projects.config(projectKey);
+    if (!isOperator(memberOf(config, input.author)))
+      throw forbidden('operator_only', 'only the Operator may maintain lessons');
+    if (!isLessonsOnly(input.edits))
+      throw forbidden('operator_owner_only', 'autonomous writes may only edit lessons');
+    const { docs, edits } = await this.checkedEdits(projectKey, input.author, input.baseCommit, input.edits);
+    const id = newId('dw');
+    const now = isoNow(ctx);
+    ctx.unitOfWork(() => {
+      if (ctx.repos.docWrites.openOf(projectKey)) throw pending();
+      ctx.repos.docWrites.insert({
+        id,
+        projectKey,
+        repo: docs.repo.name,
+        base: docs.repo.defaultBranch,
+        baseCommit: input.baseCommit,
+        edits,
+        message: `${input.message}\n\nProjectman-Operator: ${input.author}\nProjectman-Operator-Mode: autonomous-lessons`,
+        author: input.author,
+        requestedBy: null,
+        requestId: null,
+        stepId: null,
+        engineId: this.engineOf(projectKey, input.author),
+        state: 'queued',
+        commitSha: null,
+        error: null,
+        createdAt: now,
+        updatedAt: now,
+        externalOrigin: null,
+        autonomousLessons: true,
       });
     });
     return this.started(id, projectKey, docs.repo.name, this.deps.waitMs ?? DOC_WRITE_WAIT_MS);
@@ -267,6 +310,7 @@ export class DocWrites {
         createdAt: now,
         updatedAt: now,
         externalOrigin: origin,
+        autonomousLessons: false,
       });
     });
     return this.started(
@@ -318,6 +362,11 @@ export class DocWrites {
       if (!path) throw this.notConfigured(edit.doc);
       return { path, old_text: edit.old_text, new_text: edit.new_text };
     });
+    // merge.commit_files accepts at most two files; refuse before any row or queued step is created.
+    if (new Set(located.map((edit) => edit.path)).size > 2)
+      throw new DomainError('invalid_request', 'a document write may touch at most two files', {
+        status: 422,
+      });
     const merger = this.mergerOf(this.engineOf(projectKey, author));
     const ref = { projectKey, repo: docs.repo.name };
     const edits: DocWriteEdit[] = [];
@@ -424,10 +473,43 @@ export class DocWrites {
   }
 
   private async runRow(row: DocWriteRecord): Promise<void> {
+    if (row.autonomousLessons) {
+      const check = () => this.assertLessonsActive(row);
+      try {
+        await check();
+        return await this.execute(row, check);
+      } catch (err) {
+        if (!(err instanceof AuthorizationEnded)) throw err;
+        return this.revoked(row);
+      }
+    }
     if (row.externalOrigin) return this.runExternal(row, row.externalOrigin);
     // A row without any request and without an origin cannot be told apart from a forged one: it never runs.
     if (!row.requestedBy || !row.requestId || !row.stepId) return this.revoked(row);
     return this.execute(row, async () => {});
+  }
+
+  /** Recheck persisted autonomous authority at start/recovery and immediately before publication. */
+  private async assertLessonsActive(row: DocWriteRecord): Promise<void> {
+    try {
+      const config = await this.deps.projects.config(row.projectKey);
+      const docs = projectDocsOf(config);
+      if (
+        row.externalOrigin ||
+        row.requestedBy !== null ||
+        row.requestId !== null ||
+        row.stepId !== null ||
+        !isOperator(memberOf(config, row.author)) ||
+        !docs?.lessons ||
+        docs.repo.name !== row.repo ||
+        docs.repo.defaultBranch !== row.base ||
+        row.edits.length === 0 ||
+        row.edits.some((edit) => edit.path !== docs.lessons)
+      )
+        throw new Error('autonomous lessons authorization changed');
+    } catch (err) {
+      throw new AuthorizationEnded(err);
+    }
   }
 
   /** A write made through the bearer MCP runs under a fresh scope of its key, and is checked again before it goes up. */
@@ -597,6 +679,16 @@ export class DocWrites {
 
   /** A `running` row from before a restart: published when its commit is already up, otherwise queued again. */
   private async recover(row: DocWriteRecord): Promise<void> {
+    if (!row.autonomousLessons && !row.externalOrigin && (!row.requestedBy || !row.requestId || !row.stepId))
+      return this.revoked(row);
+    if (row.autonomousLessons) {
+      try {
+        await this.assertLessonsActive(row);
+      } catch (err) {
+        if (!(err instanceof AuthorizationEnded)) throw err;
+        return this.revoked(row);
+      }
+    }
     const merger = this.deps.engines.get(row.engineId)?.merger;
     if (row.commitSha && merger) {
       const ref = { projectKey: row.projectKey, repo: row.repo };
@@ -605,6 +697,14 @@ export class DocWrites {
       const landed = base.remote ? base.contains.remote === true : base.contains.local;
       if (landed) {
         if (base.contains.local) return this.end(row, { state: 'published', commit: row.commitSha });
+        if (row.autonomousLessons) {
+          try {
+            await this.assertLessonsActive(row);
+          } catch (err) {
+            if (!(err instanceof AuthorizationEnded)) throw err;
+            return this.revoked(row);
+          }
+        }
         return this.advance(row, merger, base.local, row.commitSha, base.remote !== null);
       }
     }
@@ -640,7 +740,7 @@ export class DocWrites {
         ...(ended.state === 'published' ? { commitSha: ended.commit } : {}),
         error,
       });
-      // A write made through the bearer MCP has no Operator step.
+      // Bearer MCP and autonomous lessons writes have no Operator step.
       if (row.stepId) ctx.repos.operatorRequests.updateStep(row.stepId, status, null, refusal);
     });
     if (ended.state === 'published') {
@@ -656,7 +756,7 @@ export class DocWrites {
       }
     }
     // The caller of a bearer-MCP write reads the result with `get_project_doc_write`: no message follows.
-    if (this.waiting.has(row.id) || row.externalOrigin || !row.stepId) return;
+    if (this.waiting.has(row.id) || row.externalOrigin || (!row.stepId && !row.autonomousLessons)) return;
     void this.tell(row, ended);
   }
 
@@ -668,7 +768,7 @@ export class DocWrites {
       ended.state === 'published'
         ? `${subject} is published as commit ${ended.commit}: ${paths}.${ended.warning ? ' The local checkout could not follow the default branch; tell the owner.' : ''}`
         : ended.state === 'stale'
-          ? `${subject} was not written: ${paths} changed since the commit you read. Read the file again and show the owner the new text.`
+          ? `${subject} was not written: ${paths} changed since the commit you read. ${row.autonomousLessons ? 'Read the lessons again and retry the write.' : 'Read the file again and show the owner the new text.'}`
           : `${subject} was not written (${ended.failure}): ${ended.message}`;
     try {
       await this.deps.messaging.send(

@@ -1,4 +1,4 @@
-import { ERROR_CODES, isOperator, memberOf } from '@projectman/shared';
+import { ERROR_CODES, isLessonsOnly, isOperator, memberOf } from '@projectman/shared';
 import type { ProjectDoc } from '@projectman/shared';
 import { TeamToolError } from '../../contracts';
 import type { ProjectDocToolsHandler, ProjectDocRead, ProjectDocWrite, ToolContext } from '../../contracts';
@@ -32,7 +32,7 @@ export class ProjectDocTools implements ProjectDocToolsHandler {
   private readonly ctx: Pick<DomainContext, 'repos'>;
   private readonly projects: Pick<ProjectService, 'config'>;
   private readonly operatorSteps: Pick<OperatorSteps, 'record'>;
-  private readonly docWrites: Pick<DocWrites, 'read' | 'request'>;
+  private readonly docWrites: Pick<DocWrites, 'read' | 'request' | 'requestLessons'>;
   private readonly decisionCandidates: Pick<DecisionCandidates, 'list' | 'mark'>;
 
   constructor(deps: {
@@ -40,7 +40,7 @@ export class ProjectDocTools implements ProjectDocToolsHandler {
     ctx: Pick<DomainContext, 'repos'>;
     projects: Pick<ProjectService, 'config'>;
     operatorSteps: Pick<OperatorSteps, 'record'>;
-    docWrites: Pick<DocWrites, 'read' | 'request'>;
+    docWrites: Pick<DocWrites, 'read' | 'request' | 'requestLessons'>;
     decisionCandidates: Pick<DecisionCandidates, 'list' | 'mark'>;
   }) {
     this.calls = deps.calls;
@@ -61,7 +61,7 @@ export class ProjectDocTools implements ProjectDocToolsHandler {
         'forbidden',
         'operator_only: only the Operator may read the project documents.',
       );
-    await this.calls.callerWithRequest(ctx, 'read_project_doc');
+    await this.calls.projectDocCaller(ctx, [{ doc: args.doc }], 'read_project_doc');
     try {
       const read = await this.docWrites.read(ctx.projectKey, ctx.member, args.doc);
       return docWindow(args.doc, read, args.fromLine, args.lineCount);
@@ -84,29 +84,32 @@ export class ProjectDocTools implements ProjectDocToolsHandler {
         'forbidden',
         'operator_only: only the Operator may write the project documents.',
       );
-    const caller = await this.calls.callerWithRequest(ctx, 'write_project_docs');
-    const request = this.inOwnerConversation(ctx, caller, 'write_project_docs');
+    const lessonsOnly = isLessonsOnly(args.edits);
+    const caller = await this.calls.projectDocCaller(ctx, args.edits);
+    const request = lessonsOnly ? null : this.inOwnerConversation(ctx, caller, 'write_project_docs');
     let outcome: Awaited<ReturnType<DocWrites['request']>>;
     try {
-      outcome = await this.docWrites.request({
+      const input = {
         projectKey: ctx.projectKey,
         author: ctx.member,
-        requestedBy: request.fromHandle,
-        requestId: request.id,
         baseCommit: args.baseCommit,
         message: args.message,
         edits: args.edits,
-      });
+      };
+      outcome = request
+        ? await this.docWrites.request({ ...input, requestedBy: request.fromHandle, requestId: request.id })
+        : await this.docWrites.requestLessons(input);
     } catch (err) {
       // A write that was never queued has no step of its own: the refusal is the step.
-      this.operatorSteps.record({
-        requestId: request.id,
-        action: 'docs_write',
-        taskKey: null,
-        member: null,
-        status: 'refused',
-        refusal: refusalOf(err),
-      });
+      if (request)
+        this.operatorSteps.record({
+          requestId: request.id,
+          action: 'docs_write',
+          taskKey: null,
+          member: null,
+          status: 'refused',
+          refusal: refusalOf(err),
+        });
       throw docToolError(err);
     }
     switch (outcome.state) {
@@ -130,7 +133,9 @@ export class ProjectDocTools implements ProjectDocToolsHandler {
       case 'stale':
         throw new TeamToolError(
           'invalid',
-          'docs_stale: a file changed since the commit you read. Read it again with read_project_doc and show the owner the new text.',
+          lessonsOnly
+            ? 'docs_stale: lessons changed since the commit you read. Read them again with read_project_doc and retry.'
+            : 'docs_stale: a file changed since the commit you read. Read it again with read_project_doc and show the owner the new text.',
         );
       case 'failed':
         throw new TeamToolError('invalid', `docs_write_failed: ${outcome.failure}: ${outcome.message}`);

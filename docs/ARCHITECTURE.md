@@ -1634,7 +1634,7 @@ unreachable is `engine_offline`.
 
 `BranchMerger.readFile` and `BranchMerger.commitFiles` are for the Operator's document writing
 (PM-388, PM-494): the card merge never calls them. `RepoConfig.docs` (`project-docs.ts`) says where
-the decision log and the roadmap are; absent, the feature is off, and `projectDocsOf` takes the first
+the decision log, roadmap and lessons are (PM-1004); absent, the feature is off, and `projectDocsOf` takes the first
 repository that has a path. `PATCH /config` sets it with `repoDocs` (`docs: null` clears it).
 
 **The slot is shared with the Operator's document writes (PM-495).** `DocWrites` (`services/project-docs/doc-writes.ts`)
@@ -1650,7 +1650,11 @@ new head. The built commit is saved (`commit_sha`) before the push; a `running` 
 A write made through the bearer MCP (PM-784, `requestExternal`) has no Operator request or step: its row carries
 the key's origin (`external_origin`), its commit has the key's trailers, and it answers after about five seconds
 (`EXTERNAL_DOC_WRITE_WAIT_MS`) with `published`, `queued` or `running`; `get_project_doc_write` reads it on. A row
-without a request and without an origin never runs (`authorization_revoked`).
+without a request and without an origin never runs (`authorization_revoked`), except one explicitly marked
+`autonomous_lessons` by `requestLessons` (PM-1004). That write has no owner request or step. The hub verifies
+the Operator, repository/default branch and current lessons path at start, recovery and before publication;
+conflicting provenance or revoked configuration ends it as `authorization_revoked`. Its result still reaches
+the Operator through the existing system-message path.
 
 ## Heavy-run queue (PM-332)
 
@@ -4205,6 +4209,10 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   registered with a `mergeBranch`, a `base` must be that branch, 1–2 different paths, 1 MiB of text each
   without NUL, a message that `isMergeMessage` accepts); they run on the engine, so no new
   machine-dependent part is added. The temporary index is a directory under the engine's temp directory.
+  PM-1004 uses the same calls for autonomous lessons writes. The hub owns the lessons-only permission,
+  session/queue binding, configuration and durable provenance; reads, commits, push and advance stay on the
+  Operator's selected engine, including remote engines. Only existing path/text/commit data crosses the link.
+  The service rejects a third document path before queueing; no RPC or engine limit changes.
   Two read-only calls serve the structure map (PM-595, PM-682): `merge.list_paths` (`ls-tree -r` of the
   local base head: the tracked file names, sorted, at most 20 000) and `merge.changed_paths` (per item,
   at most 25: a branch tip, a commit or a merge commit, its changed file names against the merge base
@@ -4819,8 +4827,8 @@ retired, `operator_required` 409; it cannot go on leave), `isOperatorActor` (an 
   `OperatorSignals.active`: delivered, unresolved, pending or open, oldest first, using the public schema.
   The tool uses the common Operator caller guard; guest conversations cannot read this internal report.
   It neither starts work nor contacts an engine.
-- **Operator documents (PM-495, PM-388).** Tools and their handler live in `mcp/project-docs/`. `read_project_doc { doc, from_line?, line_count? }` is a read tool
-  (`OPERATOR_READ_TOOLS`, not a guest tool): the decision log or roadmap at the fresh head of the default branch,
+- **Operator documents (PM-495, PM-388, PM-1004).** Tools and their handler live in `mcp/project-docs/`. `read_project_doc { doc, from_line?, line_count? }` is a read tool
+  (`OPERATOR_READ_TOOLS`, not a guest tool): decisions, roadmap or lessons at the fresh head of the default branch,
   read through `BranchMerger.readFile` on the Operator's engine, with the commit it was read at.
   `write_project_docs { base_commit, message, edits }` writes: the Operator only (`operator_only`), in the owners'
   own conversation (`{ type: 'general' }` without `with`, from an owner's request; `operator_owner_only`
@@ -4835,6 +4843,20 @@ retired, `operator_required` 409; it cannot go on leave), `isOperatorActor` (an 
   next message. A file that changed since `base_commit` is `docs_stale`, never a blind edit. The commit carries the
   trailers `Projectman-Operator`, `Projectman-Request` and `Projectman-Requested-By`. Never forced. The server owns
   the queue, the lock and the step log; the git runs on the engine. No new machine-dependent part.
+  PM-1004 adds the narrow lessons-only exception (`isLessonsOnly` in shared): the Operator reads/writes lessons
+  in its own internal general session without an open owner request, including a queue request whose server-side
+  `queueItemId` identifies its own processing item in the same project and session. Guest conversations,
+  non-owner message/answer requests and approval continuations remain forbidden. Mixed edits, decisions,
+  roadmap and decision offers retain the owner-request rule. Paths are explicit in `RepoDocs.lessons`, with no
+  implicit default or migration, and all configured document paths must differ. A write touches at most two
+  paths (422 `invalid_request` before queueing). Autonomous rows alone carry `autonomous_lessons = 1`
+  (migration 109), with null owner request, owner, step and external origin; the commit trailers are
+  `Projectman-Operator` and `Projectman-Operator-Mode: autonomous-lessons`. Reauthorization at start/recovery
+  and before push/advance checks the current Operator, repository/default branch and lessons path; conflicting
+  provenance is refused. Delayed results use the existing system-message path, and stale lessons request a
+  reread and retry. Super MCP lessons still use `requestExternal`, key provenance and key/owner/Operator
+  reauthorization; neither read nor legacy keys acquire write permission. See the `merge.read_file` /
+  `merge.commit_files` machine inventory above for the unchanged remote-engine boundary.
 - **Searchable document copies (PM-744, PM-788).** `services/history/document-sync.ts` maintains a cloud SQLite
   copy of each configured repository's fixed `docs/DECISIONS.md` and `docs/LESSONS.md` paths. The assembly reader
   uses the same engine selection as structure-map base reads; the second file is pinned to the first file's commit.

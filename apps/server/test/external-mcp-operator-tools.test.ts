@@ -1,9 +1,12 @@
 import { Readable } from 'node:stream';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { routes } from '@projectman/shared';
 import { humanActor } from '../src/kernel';
 import { createAppHarness, createProject, inject, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
+import { createGitSeed } from './helpers/git-seed';
 
 type Mode = 'legacy' | 'super' | 'read';
 
@@ -315,19 +318,57 @@ describe('the bearer MCP endpoint: the Operator tools (PM-784)', () => {
       );
     });
 
+    it('reads and publishes lessons through the super MCP schema and dispatch', async () => {
+      const path = 'docs/LESSONS.md';
+      createGitSeed(join(h.home, 'docs-seed'), { [path]: '# Lessons\n' }).copyTo(
+        h.workspace,
+        join(h.home, 'docs-remote.git'),
+      );
+      const { domain, repos } = h.app.projectman;
+      await domain.projects.update(
+        'AR',
+        {
+          actor: humanActor('owner'),
+          author: { name: 'Owner', email: 'owner@example.com' },
+        },
+        (config) => {
+          config.project.repos[0]!.docs = { lessons: path };
+          return 'Configure lessons';
+        },
+      );
+      const { secret, id } = key('super');
+      const read = await call(secret, 'read_project_doc', { project_key: 'AR', doc: 'lessons' });
+      expect(read.isError, JSON.stringify(read)).not.toBe(true);
+      expect(read.structuredContent).toMatchObject({ doc: 'lessons', path, exists: true });
+      const written = await call(secret, 'write_project_docs', {
+        project_key: 'AR',
+        base_commit: read.structuredContent!.commit,
+        message: 'Record lesson',
+        edits: [{ doc: 'lessons', old_text: '', new_text: 'A new lesson\n' }],
+      });
+      expect(written.structuredContent).toMatchObject({ state: 'published', paths: [path] });
+      const row = repos.docWrites.get(written.structuredContent!.write_id)!;
+      expect(row).toMatchObject({
+        autonomousLessons: false,
+        requestId: null,
+        externalOrigin: { actor: { credential: { id } } },
+      });
+      expect(readFileSync(join(h.workspace, path), 'utf8')).toContain('A new lesson');
+    });
+
     it('keeps the document writers from a read key and from a legacy key', async () => {
       const args = {
         project_key: 'AR',
         base_commit: 'a'.repeat(40),
         message: 'Update',
-        edits: [{ doc: 'ROADMAP', old_text: '', new_text: 'x' }],
+        edits: [{ doc: 'lessons', old_text: '', new_text: 'x' }],
       };
       expect(code(await call(key('read').secret, 'write_project_docs', args))).toBe('integrator_read_only');
       expect(code(await call(key('legacy').secret, 'write_project_docs', args))).toBe(
         'integrator_not_allowed',
       );
       expect(
-        code(await call(key('legacy').secret, 'read_project_doc', { project_key: 'AR', doc: 'ROADMAP' })),
+        code(await call(key('legacy').secret, 'read_project_doc', { project_key: 'AR', doc: 'lessons' })),
       ).toBe('integrator_not_allowed');
     });
 

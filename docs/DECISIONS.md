@@ -426,3 +426,59 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     extra réteg azért, hogy az operátor ki tudjon nyúlni a helyéről és az én gépem erőforrásait
     és akár engedéllyel és utasítással az én jogaimmal is élhessen, pl használhassa a
     parancssoromat, mint a claude desktop !”
+56. **The board is public behind its own login.** Decided by the owner on 2026-10-21 (PM-930).
+    Cloudflare Access is removed from chopper.istvan.io; the board is reached directly and
+    guarded by projectman's own email and password login, without an emailed code. Only the
+    integrator's machine host keeps Access (a service token plus the integrator key). The
+    owner's words: „nem lenne elég egy szokásos email/jelszó ??” and „vedd le az Access-t a
+    chopper.istvan.io-ról, tedd publikussá a táblát”.
+57. **What is in Indulhat starts by itself.** Decided by the owner on 2026-10-22. The project
+    manager starts the cards in Indulhat (ready) when a member is free; nothing is taken from
+    Ötletek (incoming) on its own. When Indulhat is empty, what goes there next is agreed with
+    the owner. The owner's words: „inkább ne az ötletekből vegye elő magától hanem az
+    indulhatból. ami ott van, az mehet fejlesztésre automatikusan. ha kifogy, egyeztetni kell h
+    mi kerüljön oda”.
+58. **Members decide, the system enforces; less is more.** Decided by the owner on 2026-10-23
+    (PM-970, PM-971). As much as possible is left to the members; what the system does is
+    offered to them as tools. Members may create rules, and the system makes sure they are kept,
+    because an AI that understood something well tends to forget it later. What members need to
+    know about the system (their tools, the rules, the members and who does what) is kept as a
+    short list they can look up, in the skill pattern, not as long instructions: for an AI, less
+    is usually more. The owner's words: „a tagokra bízzunk minél több dolgot és ami rendszer, az
+    pedig inkább eszközként legyen biztosított a tagok kezében. a szabályok is a tagok által
+    létrehozhatóak, de a rendszer tartatja be.” and „nem szájbarágósan kell … AI esetében a
+    kevesebb általában több !”
+59. **The client sees everything.** Decided by the owner on 2026-10-25 (PM-79, PM-985). There
+    are no internal cards: a client reads the whole project, its sessions included, and can
+    comment on cards. A client writes messages only to the members enabled for it; in PM this
+    is the project manager only. The owner's words: „szerintem mindent lásson az ügyfél inkább,
+    egyszerűbb és nincs is mit titkolni”, „nem kell belső kártya inkább … legyen egy ügyfél
+    szerep, kommentelni tud és olvasni mindent” and „az ügyfél továbbá írhat azoknak a
+    tagoknak, akinek engedélyezve van (egyelőre csak a PM-nél engedélyezzük)”.
+60. **Email reaches members, and members reach people.** Decided by the owner on 2026-10-25
+    (PM-989). Members may email any person who agreed to it, the owner included („bővítsük,
+    hogy nekem is írhassanak”). Each AI member can have its own mailbox, so mail can be
+    addressed to it directly, and replies too; a mail lands in that member's existing
+    conversation. The addresses are set in the project's email settings („az email beállításnál
+    legyen a postafiók is megadható”). In this installation mail is received on
+    mail.chopper.istvan.io („akkor legyen a mail”).
+61. **Planning is the architects' work.** Decided by the owner on 2026-10-25. The technical
+    plan of a card is made by an architect, not by the lead developer; the planning duty was
+    taken off the lead developer. The owner's words: „nem értem miért a vez. fejlesztő csinálja
+    ! nem ő az architekt”.
+62. **Complexity points instead of a Senior switch.** Decided by the owner on 2026-10-25
+    (PM-1001). A project may turn on complexity points: the fitting member, for example an
+    architect, gives a card a Fibonacci number (1, 2, 3, 5, …), and each developer has a
+    complexity limit, so weaker AI members pick cards they can carry. It is a tool members use,
+    not a project rule. The Senior switch on members goes; the limit is set on developers only.
+    The owner's words: „inkább nem kell a senior kapcsoló a tag-on, helyette valami komplexitási
+    szám beállítás lenne jobb (de csak a fejlesztőknél legyen ez állítható)”.
+63. **The owner does no manual work; the Operator adds lessons itself.** Decided by the owner
+    on 2026-10-25 (PM-1002). The owner is asked for decisions when needed, but is never handed
+    documents to write or commands to run that the Operator or a member can do. Lessons go into
+    `docs/LESSONS.md` without asking the owner, and whoever is responsible acts on a lesson
+    without waiting to be told. Decisions and the roadmap still follow decision 50. This
+    modifies decision 50 for the lessons. The owner's words: „az rendben van ha kérdez tőlem
+    (amennyiben szükséges), de az nincs, h nekem kelljen manuálisan írogatnom doksikat meg
+    futtatnom parancsokat, amiket technikaliag te is tudsz” and „ezt legjobb lenne, ha az
+    illetékes magától megtenni legközelebb, ne nekünk kelljen az ilyet kiszúrni”.

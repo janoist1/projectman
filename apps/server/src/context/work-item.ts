@@ -397,6 +397,7 @@ const reviewing: StepRule = ({ input, s, task, duty, author, localOnly }) => {
     fullTestLine(input.project, task) === null
       ? [
           `Do not run the whole test suite: ${mergeStepCheckLine(input.project, task) ?? 'the integrator or merge step owns the full check before merge'}. Run only targeted tests if needed for this review.`,
+          'Verify that the developer recorded the local hand-over checks required by the repository, including `npm run dead-code` if that script is available; ask for missing checks before approving.',
         ]
       : []),
     ...(pin
@@ -497,7 +498,7 @@ function developerTests(input: ContextPackInput, task: Task): string {
   return input.serverFullTest && reviewTest
     ? `While you work, run only the tests that cover your change (single test files, or your test runner's related or changed mode) and the type check of the parts you touched. Do not run the whole test suite: the server runs ${code(reviewTest.command)} once on the commit you hand over, PTY tests included, and sends the task back if it fails.`
     : testsAtMerge(input, task)
-      ? `While you work, before hand-over and in fix rounds, run only the tests that cover your change (your test runner's related or changed mode) and the type check of the workspaces you touched. Do not run the whole test suite: ${mergeStepCheckLine(input.project, task) ?? 'the integrator or merge step runs the full check once before the task enters the default branch'}.`
+      ? `While you work, before hand-over and in fix rounds, run only the tests that cover your change (your test runner's related or changed mode) and the type check of the workspaces you touched. Also run the repository's fast local hand-over checks, including \`npm run dead-code\` from the repository root if that script is available; record results on the card and fix new findings without automatically extending the baseline. When adding a merge check that can run quickly locally, update the developer hand-over checklist in the same change. Do not run the whole test suite: ${mergeStepCheckLine(input.project, task) ?? 'the integrator or merge step runs the full check once before the task enters the default branch'}.`
       : "While you work, run the tests that cover your change; run the project's full tests and type check once, on the commit you hand over.";
 }
 

@@ -31,7 +31,7 @@ describe('attachment uploads over a real connection', () => {
     await tasks.create('AR', { title: 'Internal task' }, OWNER_ACTOR);
     await tasks.create('AR', { title: 'Shared task', visibility: 'shared' }, OWNER_ACTOR);
     await h.app.listen({ host: '127.0.0.1', port: 0 });
-    url =`http://127.0.0.1:${(h.app.server.address() as AddressInfo).port}`;
+    url = `http://127.0.0.1:${(h.app.server.address() as AddressInfo).port}`;
   });
   afterEach(async () => h.close());
 

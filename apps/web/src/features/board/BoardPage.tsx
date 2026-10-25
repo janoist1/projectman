@@ -21,7 +21,6 @@ import { coverSrcOf } from './cardModel';
 import { useDoneFold } from './doneFold';
 import { useFileDrop } from './useFileDrop';
 import { useBoardFilters } from './useBoardFilters';
-import { MobileBoardList } from './MobileBoardList';
 import { TaskCard } from './TaskCard';
 import { TeamStrip } from './TeamStrip';
 import { ThemeStrip } from './ThemeStrip';
@@ -721,16 +720,6 @@ export function BoardPage() {
             }
           />
         </div>
-      ) : isMobile ? (
-        <MobileBoardList
-          subtasksByParent={model.subtasksByParent}
-          entries={visible}
-          pipeline={pipeline}
-          projectKey={key}
-          searching={search !== ''}
-          members={model.ctx.members}
-          myHandle={myHandle}
-        />
       ) : (
         <div className={styles.columns}>
           {pipeline.columns.map((column) => (

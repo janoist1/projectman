@@ -219,6 +219,19 @@ function phone() {
 }
 
 describe('phone board', () => {
+  it('renders the pipeline columns side by side on phones', async () => {
+    phone();
+    const project = mockProject();
+    const view = project.render(<BoardPage />);
+    for (const col of project.backend.config.pipeline.columns) {
+      const column = await screen.findByRole('region', { name: col.name });
+      expect(column.classList.contains(styles.column!)).toBe(true);
+      expect(column.parentElement!.classList.contains(styles.columns!)).toBe(true);
+      expect(column.querySelector(`.${styles.cards}`)).toBeTruthy();
+    }
+    expect(view.container.firstElementChild!.classList.contains(styles.page!)).toBe(true);
+  });
+
   it('has no draggable controls on phones', async () => {
     phone();
     const project = mockProject();
@@ -227,15 +240,14 @@ describe('phone board', () => {
     expect(view.container.querySelector('[draggable="true"]')).toBeNull();
   });
 
-  it('puts the filter where the title was and drops the subtitle and stage chips', async () => {
+  it('puts the filter where the title was and drops the subtitle', async () => {
     phone();
     const project = mockProject();
     project.render(<BoardPage />);
     await screen.findByRole('group', { name: t('board.filtersLabel') });
     // The page title stays for screen readers; the subtitle is gone.
     expect(screen.getByRole('heading', { level: 1, name: t('board.title') })).toBeTruthy();
-    expect(screen.queryByText(/folyamatban$/)).toBeNull();
-    expect(screen.queryByRole('list', { name: 'Lépések' })).toBeNull();
+    expect(screen.queryByText(/feladat · \d+ folyamatban$/)).toBeNull();
   });
 
   it('shows the task key on the card', async () => {
@@ -246,11 +258,15 @@ describe('phone board', () => {
     expect(within(link!).getByText('AC-20')).toBeTruthy();
   });
 
-  it('collapses the finished group to the newest few and expands it on request', async () => {
+  it('collapses the finished column to the newest few and expands it on request', async () => {
     phone();
     const project = mockProject();
     for (const [index, key] of ['AC-17', 'AC-18', 'AC-19', 'AC-20', 'AC-21'].entries()) {
-      project.backend.updateTask(key, { status: 'done', closedAt: `2026-09-2${index}T10:00:00.000Z` });
+      project.backend.updateTask(key, {
+        stageId: 'done',
+        status: 'done',
+        closedAt: `2026-09-2${index}T10:00:00.000Z`,
+      });
     }
     project.render(<BoardPage />);
     const done = await screen.findByRole('region', { name: t('board.groups.done') });
@@ -269,7 +285,11 @@ describe('phone board', () => {
     phone();
     const project = mockProject();
     for (const [index, key] of ['AC-17', 'AC-18', 'AC-19', 'AC-20', 'AC-21'].entries()) {
-      project.backend.updateTask(key, { status: 'done', closedAt: `2026-09-2${index}T10:00:00.000Z` });
+      project.backend.updateTask(key, {
+        stageId: 'done',
+        status: 'done',
+        closedAt: `2026-09-2${index}T10:00:00.000Z`,
+      });
     }
     project.render(<BoardPage />, '/', { search: 'AC-' });
     const done = await screen.findByRole('region', { name: t('board.groups.done') });

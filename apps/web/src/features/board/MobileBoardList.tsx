@@ -25,7 +25,7 @@ const groups: ReadonlyArray<{ id: string; label: PlainMessageKey; phases: TaskPh
  * Phone board: tasks grouped by what they wait for. The finished group is collapsed to its
  * newest few; a search shows every match.
  */
-export function MobileBoardList({
+function MobileBoardList({
   entries,
   subtasksByParent = new Map(),
   pipeline,
@@ -93,3 +93,4 @@ export function MobileBoardList({
     </div>
   );
 }
+void MobileBoardList;

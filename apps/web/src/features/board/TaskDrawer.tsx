@@ -594,15 +594,7 @@ export function TaskDrawer() {
         </div>
 
         {theme ? (
-          <>
-            <ThemeSummary task={task} tasks={cards} />
-            <section className={drawer.props}>
-              <div className={drawer.prop}>
-                <span className={drawer.propLabel}>{t('newTask.fields.visibility')}</span>
-                <span>{t(`visibility.${task.visibility}`)}</span>
-              </div>
-            </section>
-          </>
+          <ThemeSummary task={task} tasks={cards} />
         ) : (
           <TaskProperties
             task={task}

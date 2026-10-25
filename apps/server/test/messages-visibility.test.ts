@@ -94,7 +94,7 @@ describe('team message visibility over REST and websocket', () => {
   });
 
   it('gives a card thread the same message visibility, and a client any card thread', async () => {
-    await h.app.projectman.domain.tasks.create(key, { title: 'Shared work', visibility: 'shared' }, actor);
+    await h.app.projectman.domain.tasks.create(key, { title: 'Shared work' }, actor);
     record('owner', ['acme'], 'AR-2', 'owner-acme card');
     record('qa', ['dev'], 'AR-2', 'qa-dev card');
     record('dev', ['qa', 'reader'], 'AR-2', 'dev-qa-reader card');

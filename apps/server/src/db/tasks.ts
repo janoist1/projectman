@@ -73,7 +73,6 @@ export type TaskPatch = Partial<
     | 'priority'
     | 'boardRank'
     | 'labels'
-    | 'visibility'
     | 'stageEnteredAt'
     | 'updatedAt'
     | 'closedAt'
@@ -95,7 +94,6 @@ const COLUMNS: Record<keyof TaskPatch, string> = {
   priority: 'priority',
   boardRank: 'board_rank',
   labels: 'labels',
-  visibility: 'visibility',
   stageEnteredAt: 'stage_entered_at',
   updatedAt: 'updated_at',
   closedAt: 'closed_at',
@@ -188,7 +186,6 @@ function toTask(r: TaskRow, links: TaskLink[]): Task {
       ]),
     ],
     links,
-    visibility: r.visibility as Task['visibility'],
     createdBy: r.created_by,
     createdAt: r.created_at,
     stageEnteredAt: r.stage_entered_at ?? r.created_at,
@@ -452,7 +449,7 @@ export function createTaskRepository(db: Db) {
           task.priority === null ? null : PRIORITY_COLUMN[task.priority],
           toJson(task.labels),
           '{}',
-          task.visibility,
+          'shared', // Legacy column, not read since PM-987.
           task.createdBy,
           task.createdAt,
           task.stageEnteredAt ?? task.createdAt,

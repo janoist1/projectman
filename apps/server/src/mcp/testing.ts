@@ -121,7 +121,6 @@ export function sampleTaskDetail(): TaskDetail {
       priority: 'high',
       labels: ['frontend'],
       links: [{ kind: 'branch', ref: 'ar-21-login-validation', repo: 'web' }],
-      visibility: 'internal',
       createdBy: 'owner',
       createdAt: '2026-09-29T08:00:00.000Z',
       updatedAt: '2026-09-29T09:00:00.000Z',
@@ -699,7 +698,6 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
           priority: null,
           labels: args.labels ?? [],
           links: [],
-          visibility: args.visibility ?? 'internal',
           createdBy: ctx.member,
           ...(args.developerLevel
             ? {
@@ -765,6 +763,7 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
 
     async getGuide(ctx, args) {
       await enter('getGuide', ctx, args);
+      if (args.topic === 'role') return '# Role guide\nSession role procedures';
       if (args.topic !== 'rules') throw new TeamToolError('not_found', 'No guide topic.');
       return '# Team rules\nSession rules';
     },

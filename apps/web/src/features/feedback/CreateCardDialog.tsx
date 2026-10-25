@@ -1,5 +1,5 @@
 import { useId, useState } from 'react';
-import type { FeedbackMarkDetail, Visibility } from '@projectman/shared';
+import type { FeedbackMarkDetail } from '@projectman/shared';
 import { useCreateTaskFromFeedback } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
@@ -21,21 +21,12 @@ export function cardDescription(mark: FeedbackMarkDetail): string {
   return lines.join('\n');
 }
 
-function CreateCardForm({
-  mark,
-  clientAuthor,
-  onClose,
-}: {
-  mark: FeedbackMarkDetail;
-  clientAuthor: boolean;
-  onClose: () => void;
-}) {
+function CreateCardForm({ mark, onClose }: { mark: FeedbackMarkDetail; onClose: () => void }) {
   const { key } = useProject();
   const toast = useToast();
   const create = useCreateTaskFromFeedback(key, mark.id);
   const formId = useId();
   const [title, setTitle] = useState(() => titleFromBody(mark.body));
-  const [visibility, setVisibility] = useState<Visibility>(clientAuthor ? 'shared' : 'internal');
   const [reply, setReply] = useState('');
   const ready = title.trim() !== '';
 
@@ -45,7 +36,6 @@ function CreateCardForm({
       {
         title: title.trim(),
         description: cardDescription(mark),
-        visibility,
         ...(reply.trim() ? { reply: reply.trim() } : {}),
       },
       {
@@ -77,29 +67,6 @@ function CreateCardForm({
         onChange={(event) => setTitle(event.target.value)}
         autoFocus
       />
-      <fieldset className={styles.field}>
-        <legend className={styles.label}>{t('feedback.create.visibility')}</legend>
-        <div className={styles.choices}>
-          {(['shared', 'internal'] as const).map((value) => (
-            <label key={value} className={styles.choice}>
-              <input
-                type="radio"
-                name={`${formId}-visibility`}
-                checked={visibility === value}
-                disabled={create.isPending}
-                onChange={() => setVisibility(value)}
-              />
-              {t(`feedback.visibility.${value}`)}
-            </label>
-          ))}
-        </div>
-        {clientAuthor && visibility === 'shared' ? (
-          <p className={styles.info}>{t('feedback.create.clientShared', { name: mark.author.name })}</p>
-        ) : null}
-        {clientAuthor && visibility === 'internal' ? (
-          <p className={styles.warn}>{t('feedback.internalHidden', { name: mark.author.name })}</p>
-        ) : null}
-      </fieldset>
       <TextAreaField
         label={t('feedback.reply.label')}
         optional
@@ -128,21 +95,19 @@ function CreateCardForm({
   );
 }
 
-/** "＋ Új kártya": a card from the mark, the visibility decided here (a client's mark starts shared). */
+/** Create a card from the mark. */
 export function CreateCardDialog({
   open,
   mark,
-  clientAuthor,
   onClose,
 }: {
   open: boolean;
   mark: FeedbackMarkDetail;
-  clientAuthor: boolean;
   onClose: () => void;
 }) {
   return (
     <Dialog open={open} onClose={onClose} title={t('feedback.create.heading')} size="md">
-      {open ? <CreateCardForm mark={mark} clientAuthor={clientAuthor} onClose={onClose} /> : null}
+      {open ? <CreateCardForm mark={mark} onClose={onClose} /> : null}
     </Dialog>
   );
 }

@@ -11,7 +11,6 @@ import type {
   Task,
   TaskKind,
   TaskPriority,
-  Visibility,
   AddRelationRef,
   DeveloperLevelRequest,
   RelationsChange,
@@ -181,7 +180,6 @@ export class TaskTools implements TaskToolsHandler {
       title: string;
       description?: string;
       labels?: string[];
-      visibility?: Visibility;
       parentKey?: string;
       relations?: AddRelationRef[];
       kind?: TaskKind;
@@ -207,7 +205,6 @@ export class TaskTools implements TaskToolsHandler {
               parentKey: args.parentKey,
               description: args.description?.trim() ?? '',
               labels,
-              visibility: args.visibility ?? 'internal',
               ...(args.relations?.length ? { relations: args.relations } : {}),
               ...(args.kind ? { kind: args.kind } : {}),
               ...(args.themeKey ? { themeKey: args.themeKey } : {}),

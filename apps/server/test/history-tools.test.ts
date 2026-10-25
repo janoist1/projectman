@@ -36,10 +36,7 @@ describe('the history tools of a member (PM-787)', () => {
     tools().searchHistory(ctx, input);
   const rows = (): LogRow[] =>
     h.repos.db.prepare('SELECT * FROM history_searches ORDER BY at, id').all() as LogRow[];
-  const card = async (
-    title: string,
-    extra: { visibility?: 'shared' | 'internal'; description?: string } = {},
-  ) => {
+  const card = async (title: string, extra: { description?: string } = {}) => {
     const created = await h.domain.tasks.create('AR', { title, ...extra }, OWNER_ACTOR);
     h.domain.history.flush();
     return created;
@@ -188,8 +185,8 @@ describe('the history tools of a member (PM-787)', () => {
     });
 
     it('reads with the guest’s own view: a client finds every card like a viewer (PM-79)', async () => {
-      await card('Shared page', { visibility: 'shared' });
-      await card('Internal page plan', { visibility: 'internal' });
+      await card('Shared page');
+      await card('Internal page plan');
       await say('acme');
       const found = await tools().searchHistory(toolOf('acme'), { query: 'page' });
       expect(found.matches).toHaveLength(2);
@@ -199,7 +196,7 @@ describe('the history tools of a member (PM-787)', () => {
     });
 
     it('lets a guest who left the team find nothing and records nothing', async () => {
-      await card('Shared page', { visibility: 'shared' });
+      await card('Shared page');
       await say('acme');
       const { config } = await h.configStore.load('AR');
       config.team.members = config.team.members.filter((member) => member.handle !== 'acme');

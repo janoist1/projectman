@@ -4998,16 +4998,6 @@ export class MockBackend {
     if (!input) return error(400, 'invalid_request', 'Invalid task');
     if (this.integratorMode && input.importedAt !== undefined)
       return error(403, 'owner_approval_required', 'Historical human attribution requires an own login');
-    if (
-      this.integratorMode === 'super' &&
-      ownerReservedEffect(this.config, {
-        kind: 'task_visibility',
-        taskKey: null,
-        before: null,
-        after: input.visibility ?? 'internal',
-      })
-    )
-      return error(403, 'owner_approval_required', 'Publication requires a specific owner authorization');
     const actor = this.viewerActor();
     if (input.importedAt !== undefined && this.findMember(this.viewerHandle)?.role !== 'owner')
       return error(403, 'owner_only', 'Only an owner may import tasks');
@@ -5050,7 +5040,6 @@ export class MockBackend {
       priority: null,
       labels: unique((input.labels ?? []).map((label) => label.trim()).filter(Boolean)),
       links: [],
-      visibility: input.visibility ?? 'internal',
       createdBy: this.viewerHandle,
       createdAt: at,
       stageEnteredAt: at,

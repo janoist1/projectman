@@ -155,7 +155,6 @@ describe('developer level', () => {
       priority: null,
       labels: [],
       links: [],
-      visibility: 'internal',
       createdBy: 'owner',
       createdAt: 'now',
       updatedAt: 'now',

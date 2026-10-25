@@ -185,13 +185,7 @@ function Opened({
           </span>
           <SourceLink mark={mark} surfaces={surfaces} canMark={canMark} />
         </p>
-        <DecisionRow
-          mark={mark}
-          projectKey={key}
-          ownerName={ownerName}
-          isOwner={isOwner}
-          clientAuthor={clientAuthor}
-        />
+        <DecisionRow mark={mark} projectKey={key} ownerName={ownerName} isOwner={isOwner} />
         {canProcess ? (
           <div className={styles.actions}>
             {closed ? (
@@ -247,18 +241,8 @@ function Opened({
       ) : !closed ? (
         <p className={styles.closedNote}>{t('feedback.composer.viewer')}</p>
       ) : null}
-      <CreateCardDialog
-        open={dialog === 'create'}
-        mark={mark}
-        clientAuthor={clientAuthor}
-        onClose={() => setDialog(null)}
-      />
-      <LinkCardDialog
-        open={dialog === 'link'}
-        mark={mark}
-        clientAuthor={clientAuthor}
-        onClose={() => setDialog(null)}
-      />
+      <CreateCardDialog open={dialog === 'create'} mark={mark} onClose={() => setDialog(null)} />
+      <LinkCardDialog open={dialog === 'link'} mark={mark} onClose={() => setDialog(null)} />
       <CloseMarkDialog open={dialog === 'close'} mark={mark} onClose={() => setDialog(null)} />
       <AttachmentImageDialog
         image={

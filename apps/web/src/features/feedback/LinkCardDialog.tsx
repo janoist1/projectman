@@ -14,15 +14,7 @@ import styles from './FeedbackDialogs.module.css';
 
 const MAX_OPTIONS = 8;
 
-function LinkCardForm({
-  mark,
-  clientAuthor,
-  onClose,
-}: {
-  mark: FeedbackMarkDetail;
-  clientAuthor: boolean;
-  onClose: () => void;
-}) {
+function LinkCardForm({ mark, onClose }: { mark: FeedbackMarkDetail; onClose: () => void }) {
   const { key } = useProject();
   const toast = useToast();
   const board = useBoard(key);
@@ -128,10 +120,7 @@ function LinkCardForm({
                   <span className={styles.optionKey}>{task.key}</span>
                   <span className={styles.optionTitle}>{task.title}</span>
                 </span>
-                <span className={styles.optionMeta}>
-                  {t(`feedback.visibility.${task.visibility === 'shared' ? 'shared' : 'internal'}`)} ·{' '}
-                  {stageName(task)}
-                </span>
+                <span className={styles.optionMeta}>{stageName(task)}</span>
               </li>
             ))}
           </ul>
@@ -142,12 +131,7 @@ function LinkCardForm({
         )}
       </div>
       {chosenTask ? (
-        <>
-          <p className={styles.info}>{t('feedback.link.chosen', { key: chosenTask.key })}</p>
-          {clientAuthor && chosenTask.visibility !== 'shared' ? (
-            <p className={styles.warn}>{t('feedback.internalHidden', { name: mark.author.name })}</p>
-          ) : null}
-        </>
+        <p className={styles.info}>{t('feedback.link.chosen', { key: chosenTask.key })}</p>
       ) : null}
       <TextAreaField
         label={t('feedback.reply.label')}
@@ -181,17 +165,15 @@ function LinkCardForm({
 export function LinkCardDialog({
   open,
   mark,
-  clientAuthor,
   onClose,
 }: {
   open: boolean;
   mark: FeedbackMarkDetail;
-  clientAuthor: boolean;
   onClose: () => void;
 }) {
   return (
     <Dialog open={open} onClose={onClose} title={t('feedback.link.heading')} size="md">
-      {open ? <LinkCardForm mark={mark} clientAuthor={clientAuthor} onClose={onClose} /> : null}
+      {open ? <LinkCardForm mark={mark} onClose={onClose} /> : null}
     </Dialog>
   );
 }

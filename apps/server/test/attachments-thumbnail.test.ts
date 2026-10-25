@@ -41,7 +41,7 @@ describe('attachment thumbnails and the card cover', () => {
     cookies.stranger = await addHumanAndLogin(h.app, { handle: 'sam', projectKey: null });
     const { tasks } = h.app.projectman.domain;
     await tasks.create('AR', { title: 'Internal task' }, OWNER_ACTOR);
-    await tasks.create('AR', { title: 'Shared task', visibility: 'shared' }, OWNER_ACTOR);
+    await tasks.create('AR', { title: 'Shared task' }, OWNER_ACTOR);
   });
   afterEach(async () => h.close());
 

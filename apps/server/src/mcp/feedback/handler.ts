@@ -1,5 +1,5 @@
 import { canProcessFeedback, LOCAL_ENGINE_ID, memberOf } from '@projectman/shared';
-import type { Actor, FeedbackMarkDetail, ProjectConfig, Visibility } from '@projectman/shared';
+import type { Actor, FeedbackMarkDetail, ProjectConfig } from '@projectman/shared';
 import { TeamToolError } from '../../contracts';
 import type {
   FeedbackToolsHandler,
@@ -110,13 +110,12 @@ export class FeedbackTools implements FeedbackToolsHandler {
 
   async createTaskFromFeedback(
     ctx: ToolContext,
-    args: { markId: string; title: string; description: string; visibility?: Visibility; reply?: string },
+    args: { markId: string; title: string; description: string; reply?: string },
   ): Promise<FeedbackToolResult> {
     return this.feedbackStep(ctx, async (actor) => {
       const created = await this.feedback.createTask(ctx.projectKey, args.markId, actor, {
         title: args.title,
         description: args.description,
-        ...(args.visibility ? { visibility: args.visibility } : {}),
         ...(args.reply ? { reply: args.reply } : {}),
       });
       return { ...feedbackResult(created.mark), task: created.task };

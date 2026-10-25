@@ -313,7 +313,6 @@ export class ExternalTools implements ExternalToolsHandler {
         parentKey: args.parentKey,
         description: args.description?.trim() ?? '',
         labels,
-        visibility: args.visibility ?? 'internal',
         ...(args.relations?.length ? { relations: args.relations } : {}),
         ...(args.kind ? { kind: args.kind } : {}),
         ...(args.themeKey ? { themeKey: args.themeKey } : {}),

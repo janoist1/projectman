@@ -105,13 +105,22 @@
 
 @media (max-width: 767px) {
   .page {
-    flex: none;
-    overflow: visible;
+    height: 100%;
   }
   .header {
     padding: 6px 14px 10px;
     align-items: center;
     --page-title-size: 28px;
+  }
+  .columns {
+    padding: 0 14px 14px;
+    scroll-padding-inline: 14px;
+    scroll-snap-type: x mandatory;
+  }
+  .column {
+    flex: 0 0 82vw;
+    max-width: 82vw;
+    scroll-snap-align: start;
   }
   .emptyWrap {
     padding: 0 14px 24px;

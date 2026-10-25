@@ -43,7 +43,6 @@ import type {
   ThemeCard,
   ThemeProgress,
   TimelineEvent,
-  Visibility,
   WakeBlock,
   WorkDoing,
   WorkItemRef,
@@ -484,7 +483,6 @@ export interface TaskToolsHandler {
       title: string;
       description?: string;
       labels?: string[];
-      visibility?: Visibility;
       parentKey?: string;
       /** Relations the new card starts with (PM-192). */
       relations?: AddRelationRef[];
@@ -605,7 +603,7 @@ export interface FeedbackToolsHandler {
   /** create_task_from_feedback: a card from the mark (the screenshot becomes its attachment). */
   createTaskFromFeedback(
     ctx: ToolContext,
-    args: { markId: string; title: string; description: string; visibility?: Visibility; reply?: string },
+    args: { markId: string; title: string; description: string; reply?: string },
   ): Promise<FeedbackToolResult>;
   /** link_feedback: the mark belongs to an existing card. */
   linkFeedback(

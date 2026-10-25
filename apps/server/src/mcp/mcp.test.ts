@@ -366,16 +366,27 @@ describe('attachment tools', () => {
 /* ---------- tools ---------- */
 
 describe('team tools', () => {
-  it('get_guide returns markdown and preserves a missing topic refusal', async () => {
+  it.each([
+    { topic: 'rules', heading: '# Team rules' },
+    { topic: 'role', heading: '# Role guide' },
+  ])('get_guide returns $topic markdown for the caller session', async ({ topic, heading }) => {
     expect(OPERATOR_READ_TOOLS.has('get_guide')).toBe(true);
     expect(OPERATOR_GUEST_TOOLS.has('get_guide')).toBe(true);
-    const { client } = await startTools();
-    const result = await call(client, 'get_guide', { topic: 'rules' });
+    const { client, handler } = await startTools();
+    const result = await call(client, 'get_guide', { topic });
     expect(result.isError).toBeFalsy();
-    expect(text(result)).toContain('# Team rules');
-    const missing = await call(client, 'get_guide', { topic: 'commands' });
+    expect(text(result)).toContain(heading);
+    expect(handler.calls.at(-1)).toEqual({ method: 'getGuide', ctx: devContext, args: { topic } });
+  });
+  it('get_guide preserves a missing session role refusal', async () => {
+    const { client, handler } = await startTools();
+    handler.failNext('getGuide', new TeamToolError('not_found', 'This session has no role guide.'));
+    const missing = await call(client, 'get_guide', { topic: 'role' });
     expect(missing.isError).toBe(true);
     expect(text(missing)).toContain('[not_found]');
+  });
+  it('get_guide refuses unknown topics before calling the handler', async () => {
+    await expectRefused(await startTools(), 'get_guide', [{ topic: 'unknown' }]);
   });
   it('forwards the arguments of the simple tools with the caller context', async () => {
     const { client, handler } = await startTools();
@@ -729,6 +740,14 @@ describe('team tools', () => {
     }
   });
 
+  it('create_task explains a removed visibility argument without creating a card', async () => {
+    const { client, handler } = await startTools();
+    const result = await call(client, 'create_task', { title: 'Legacy card', visibility: 'shared' });
+    expect(result.isError).toBe(true);
+    expect(text(result)).toContain('Omit visibility');
+    expect(handler.calls).toEqual([]);
+  });
+
   it('create_task refuses a priority and any other invalid field before the handler', async () => {
     const session = await startTools();
     const priority = await call(session.client, 'create_task', { title: 'New card', priority: null });
@@ -736,7 +755,6 @@ describe('team tools', () => {
     expect(text(priority)).toContain('priority is set by people only');
 
     await expectRefused(session, 'create_task', [
-      { title: 'x', visibility: 'public' },
       { title: 'Card', kind: 'epic' },
       { title: 'Card', developer_level_reason: 'why' },
     ]);

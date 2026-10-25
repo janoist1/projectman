@@ -59,7 +59,7 @@ const toDto = (r: AttachmentRecord): Attachment => ({
  *   delete finishes it.
  *
  * Whoever calls (REST, the team tools) gets the same checks: the rules are those of `packages/shared`,
- * judged for the acting member against the current roster and the task's current visibility.
+ * judged for the acting member against the current roster.
  */
 export class AttachmentService implements AttachmentOperations {
   private readonly ctx: DomainContext;
@@ -119,7 +119,7 @@ export class AttachmentService implements AttachmentOperations {
     try {
       writer = await this.createWriter(ref);
       const { size, head } = await this.receive(input.content, writer.stream);
-      // The access may have changed while the bytes arrived (membership, the task's visibility).
+      // The access may have changed while the bytes arrived (membership).
       await this.authorize(projectKey, taskKey, actor, 'upload');
       await input.beforeCommit?.();
       await writer.publish().catch((err: unknown) => {

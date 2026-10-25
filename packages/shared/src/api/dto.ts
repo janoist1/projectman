@@ -50,15 +50,7 @@ import { Session, TaskWork } from '../domain/session';
 import { CardRounds } from '../domain/card-measure';
 import { MemberUsage } from '../domain/token-usage';
 import { AddRelationRef, RelationsChange } from '../domain/relations';
-import {
-  CapacityHolder,
-  Task,
-  TaskKey,
-  TaskKind,
-  TaskPriority,
-  TaskStartWaiting,
-  Visibility,
-} from '../domain/task';
+import { CapacityHolder, Task, TaskKey, TaskKind, TaskPriority, TaskStartWaiting } from '../domain/task';
 
 export const ServerVersionView = z.object({
   /** What the server reports: a commit id, dev, or a version override. */
@@ -582,10 +574,24 @@ export type TemplateSummary = z.infer<typeof TemplateSummary>;
 
 /* ---------- members ---------- */
 
+export const MEMBER_QUOTA_WAIT_REASONS = ['provider_rate_limited', 'plan_usage_paused'] as const;
+/** A waking queued item waits for the AI member's provider limit (PM-999). */
+export const MemberQuotaWaiting = z.object({
+  reason: TaskStartWaiting.shape.reason.extract(MEMBER_QUOTA_WAIT_REASONS),
+  provider: AgentProvider.optional(),
+  /** ISO: when the provider says the limit lifts; absent when unknown. */
+  until: z.string().optional(),
+  /** ISO: the oldest matching item's wait time. */
+  since: z.string(),
+});
+export type MemberQuotaWaiting = z.infer<typeof MemberQuotaWaiting>;
+
 export const MemberView = z.object({
   /** AI members: the server always supplies the effective email settings. */
   email: z.object({ enabled: z.boolean(), sendWithoutApproval: z.boolean() }).optional(),
   outage: WorkOutage.optional(),
+  /** AI members only: a waking queued item waits for the provider's limit. */
+  quotaWaiting: MemberQuotaWaiting.optional(),
   githubLogin: GithubLogin.optional(),
   handle: MemberHandle,
   displayName: z.string(),
@@ -1058,7 +1064,6 @@ export const CreateTaskRequest = z.object({
   stageId: StageId.optional(),
   repo: z.string().nullable().optional(),
   labels: z.array(z.string()).optional(),
-  visibility: Visibility.optional(),
   /** Relations the new card starts with (PM-192); a refused one refuses the creation. */
   relations: z.array(AddRelationRef).optional(),
   /** `theme` creates a theme (PM-192); absent: a task. A theme takes no stage, repository, parent or theme of its own (plain labels are allowed). */
@@ -1078,7 +1083,6 @@ export const UpdateTaskRequest = z.object({
   description: z.string().optional(),
   stageId: StageId.optional(),
   labels: z.array(z.string()).optional(),
-  visibility: Visibility.optional(),
   /**
    * Owner/admin only; null clears the assignee. Starting work is a separate call. A live session of
    * the old assignee does not refuse the change: it is asked for a handoff note (PM-342).

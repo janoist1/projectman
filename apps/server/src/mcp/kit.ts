@@ -401,4 +401,7 @@ export const MAX_PATH_CHARS = 4_096;
 
 export const unique = <T>(items: T[]): T[] => [...new Set(items)];
 
+export const TASK_VISIBILITY_REMOVED =
+  'Card visibility has been removed: every project member can read every card. Omit visibility.';
+
 export const taskKeyInput = TaskKey.describe('Task key, e.g. "AR-21".');

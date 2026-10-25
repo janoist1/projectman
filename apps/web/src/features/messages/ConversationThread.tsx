@@ -90,6 +90,8 @@ export function ConversationThread({
   const uploads = useMessageAttachmentUploads(key);
   const visible = useDocumentVisible();
   const member = members.get(peer);
+  const quotaWaiting = member?.kind === 'ai' ? member.quotaWaiting : undefined;
+  const quotaUntil = quotaWaiting?.until;
   // The project manager has one conversation (PM-434): a card only marks the message, it never picks a thread.
   const marksOnly = member?.kind === 'ai' && member.role === PROJECT_MANAGER_ROLE && !member.temp;
   const access = me.projects.find((p) => p.key === key)?.access;
@@ -157,7 +159,7 @@ export function ConversationThread({
     }
     if (stick.current) box.scrollTop = box.scrollHeight;
     else if (lastIsIncoming) setPill(true);
-  }, [entries.length, ready, lastIsIncoming]);
+  }, [entries.length, ready, lastIsIncoming, quotaWaiting]);
 
   const jumpToEnd = () => {
     const box = scroller.current;
@@ -366,6 +368,13 @@ export function ConversationThread({
             ) : (
               entries.map(renderEntry)
             )}
+            {quotaWaiting ? (
+              <p className={styles.answered} role="status">
+                {quotaUntil && Date.parse(quotaUntil) > Date.now()
+                  ? t('messages.thread.quotaWaiting', { time: formatTime(quotaUntil) })
+                  : t('messages.thread.quotaWaitingUnknown')}
+              </p>
+            ) : null}
           </div>
           {pill ? (
             <Button

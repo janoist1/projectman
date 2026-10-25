@@ -2,6 +2,7 @@ import { hasSuperOrigin, isOnLeave, SYSTEM_SENDER } from '@projectman/shared';
 import type { Actor, InboxItem, MemberStatus, MemberView, PausedSession, RoleView } from '@projectman/shared';
 import type { IconName } from '../components/Icon';
 import { t } from '../i18n/t';
+import { formatTime } from '../i18n/format';
 import { outageReason } from './outage';
 import { aiRoleView, humanRoleName } from './roles';
 import type { RoleTone } from './roles';
@@ -63,7 +64,8 @@ export function roleLabel(
 export type MemberIndex = ReadonlyMap<string, MemberView>;
 
 export function actorLabel(actor: Actor, index: MemberIndex, myHandle: string | null): string {
-  if (hasSuperOrigin(actor)) return t(actor.credential.prefix === 'operator-app' ? 'superMode.name' : 'superMode.actor');
+  if (hasSuperOrigin(actor))
+    return t(actor.credential.prefix === 'operator-app' ? 'superMode.name' : 'superMode.actor');
   return actor.via === 'integrator' ? t('involvement.integrator') : nameOf(actor.handle, index, myHandle);
 }
 
@@ -111,7 +113,7 @@ const PAUSABLE_STATUSES: readonly MemberStatus[] = ['idle', 'working', 'waiting_
  * With `pausedRows` (the rows of the pause the page shows; an empty list: nobody was working) an AI
  * member that is not on leave reads "Szünetel", or "Megáll…" while one of its sessions has not stopped.
  * An outage that keeps a member from working (PM-468) reads "Nem tud dolgozni", with its reason; the
- * order is a pause, then leave, then an outage, then "Rád vár", then the member's own state, and a
+ * order is a pause, then leave, then an outage, then a quota wait, then "Rád vár", then the member's own state, and a
  * running session does not change it.
  */
 export function memberStatusView(
@@ -129,6 +131,17 @@ export function memberStatusView(
       status: 'cannot_work',
       label: t('memberStatus.cannotWork'),
       reason: outageReason(member.outage),
+    };
+  }
+  if (member.kind === 'ai' && member.quotaWaiting && !isOnLeave(member)) {
+    const until = member.quotaWaiting.until;
+    return {
+      status: 'cannot_work',
+      label: t('memberStatus.cannotWork'),
+      reason:
+        until && Date.parse(until) > Date.now()
+          ? t('memberStatus.quotaReasonUntil', { time: formatTime(until) })
+          : t('memberStatus.quotaReason'),
     };
   }
   if (member.status === 'waiting_for_human' && isWaitingForMe(member, inbox, myHandle)) {

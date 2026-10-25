@@ -36,7 +36,7 @@ describe('task attachments API', () => {
     });
     const { tasks } = h.app.projectman.domain;
     await tasks.create('AR', { title: 'Internal task' }, OWNER_ACTOR);
-    await tasks.create('AR', { title: 'Shared task', visibility: 'shared' }, OWNER_ACTOR);
+    await tasks.create('AR', { title: 'Shared task' }, OWNER_ACTOR);
   });
   afterEach(async () => h.close());
 

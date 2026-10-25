@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { MemberHandle } from './member';
 import type { HumanAccess } from './member';
 import { feedbackOriginRefusal } from './feedback-origin';
-import { TaskKey, Visibility } from './task';
+import { TaskKey } from './task';
 
 /**
  * Feedback marks (PM-506): a person marks a spot on a page of the product, writes a comment, and
@@ -150,10 +150,13 @@ export interface FeedbackPerson {
   color: number | null;
 }
 
-/** The card of a mark. Always visible since PM-79; the `visible: false` form goes away with PM-987. */
-export type FeedbackCardRef =
-  | { visible: true; key: TaskKey; title: string; stageName: string; visibility: Visibility }
-  | { visible: false };
+/** The card of a mark. `visible` stays `true` for widgets loaded before PM-987. */
+export interface FeedbackCardRef {
+  visible: true;
+  key: TaskKey;
+  title: string;
+  stageName: string;
+}
 
 /** `name` null: the surface was removed from the configuration since the mark was made. */
 export interface FeedbackSurfaceView {
@@ -240,11 +243,9 @@ export type CreateFeedbackMarkRequest = z.infer<typeof CreateFeedbackMarkRequest
 export const FeedbackCommentRequest = z.strictObject({ body: text(4000) });
 export type FeedbackCommentRequest = z.infer<typeof FeedbackCommentRequest>;
 
-/** `visibility` defaults to `shared` when the marker's access is `client`, else `internal`. */
 export const CreateTaskFromFeedbackRequest = z.strictObject({
   title: text(200),
   description: z.string().trim().max(20000),
-  visibility: Visibility.optional(),
   reply: text(4000).optional(),
 });
 export type CreateTaskFromFeedbackRequest = z.infer<typeof CreateTaskFromFeedbackRequest>;

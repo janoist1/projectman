@@ -26,7 +26,6 @@ import type {
   TaskFixLimit,
   TaskLink,
   TimelineEventData,
-  Visibility,
 } from '@projectman/shared';
 import {
   actorMoveRefusal,
@@ -115,7 +114,6 @@ interface TaskUpdate {
   priority?: TaskPriority | null;
   title?: string;
   description?: string;
-  visibility?: Visibility;
   parentKey?: string | null;
   /**
    * The repository the task works in, a repository of the project's configuration; null clears it.
@@ -296,7 +294,7 @@ export class TaskService implements TaskSchedulingReader {
       projectKey,
       previous: config,
       actor,
-      command: { kind: 'task_visibility', taskKey: null, before: null, after: req.visibility ?? 'internal' },
+      command: { kind: 'routine', operation: 'task_create' },
     });
     if (req.importedAt !== undefined) {
       assertOwnApproval(actor);
@@ -340,7 +338,6 @@ export class TaskService implements TaskSchedulingReader {
       priority: null,
       labels: unique((req.labels ?? []).map((label) => label.trim()).filter(Boolean)),
       links: [],
-      visibility: req.visibility ?? 'internal',
       createdBy: actorHandle(actor),
       createdAt: at,
       stageEnteredAt: at,
@@ -436,15 +433,6 @@ export class TaskService implements TaskSchedulingReader {
         : await this.projects.config(projectKey);
     assertIntegratorAccess(config, 'write', actor);
     const effects: Effect[] = [];
-    if (change.visibility !== undefined) {
-      const current = this.get(projectKey, taskKey);
-      await authorizeSuperMutation({
-        projectKey,
-        previous: config,
-        actor,
-        command: { kind: 'task_visibility', taskKey, before: current.visibility, after: change.visibility },
-      });
-    }
     // A move into a review or test stage hands the branch over (PM-183), and one that needs a merge checks
     // it (PM-484): read before the write, as the card will be once the labels of this change are on it.
     let prepared: PreparedMove = { handover: null, mergeChecked: false };
@@ -591,12 +579,6 @@ export class TaskService implements TaskSchedulingReader {
     prepared: PreparedMove,
   ): { task: Task; pendingApproval?: InboxItem[]; handoffStart?: HandoffStart | undefined } {
     assertIntegratorAccess(config, 'write', actor);
-    if (change.visibility !== undefined)
-      assertSuperMutation(
-        config,
-        { kind: 'task_visibility', taskKey: task.key, before: task.visibility, after: change.visibility },
-        actor,
-      );
     if (
       change.assignee !== undefined &&
       change.assignee !== task.assignee &&
@@ -644,10 +626,6 @@ export class TaskService implements TaskSchedulingReader {
     if (change.description !== undefined && change.description !== task.description) {
       patch.description = change.description;
       fields.push('description');
-    }
-    if (change.visibility !== undefined && change.visibility !== task.visibility) {
-      patch.visibility = change.visibility;
-      fields.push('visibility');
     }
     if (change.relations && change.parentKey !== undefined)
       throw invalid('invalid_request', 'give the parent in parentKey or in relations, not in both');

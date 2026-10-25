@@ -104,8 +104,9 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   GitHub integration. Labels without a definition are plain tags.
 - **Task** — key (`AR-21`), title, markdown description, stage, status, assignee (the work
   stage owner), repo, labels, links (PRs with their attributed authors, branches, issues,
-  prerequisites), visibility (`internal` or `shared` with clients), optional parent (one level
+  prerequisites), optional parent (one level
   of subtasks), comments with @mentions and **attachments**. Tasks can be imported with their original dates.
+  Cards have no per-card visibility: clients read the same cards as viewers (PM-79, PM-987).
   **Relations between cards** (PM-192/PM-202): part of (`parentKey`), prerequisite, related and
   duplicate of. The last three are `task_links` rows (`prerequisite`, `related`, `duplicate_of`;
   `ref` is the other card's key) stored once on the card that set them; the other direction is read
@@ -267,8 +268,12 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   from `runtime/permissions` (`unattended-commands`), so that a member writes them in
   a form that passes), the member's memory, and for tasks a kick-off brief (title,
   description, links, relations to other cards, attachments, recent timeline) sent as the first message.
+  The Operator's role starts with a short procedure/tool index; its full procedure is the optional
+  `role` guide (PM-991). Immediate authorization limits, session policy, current task steps,
+  configured/personal instructions, checklist state, knowledge, preferences and memory stay in the prompt.
 - **Team tools** — an MCP server (`/mcp/:token`) through which AI members message teammates,
-  read full `commands` and `rules` guide topics with the member-only `get_guide` tool (PM-972),
+  read full `commands`, `rules` and optional `role` guide topics with the member-only `get_guide`
+  tool (PM-972, PM-991),
   read and update tasks (labels, notes, stage moves, subtasks), create tasks, link PRs, ask
   humans, save memories and work with attachments (list, read by local path, attach a file of
   their own working directory, delete their own; PM-113, see [SECURITY.md](SECURITY.md)). Text
@@ -286,6 +291,8 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   The context pack builds each guide from the same section builders as its short prompt index.
   Guides stay in server memory per live session, are rebuilt on start/resume and removed on exit
   or failed start. Only the shortened prompt crosses to a remote engine; no database storage is needed.
+  `GUIDE_TOPICS` in `contracts/context.ts` supplies the MCP topic enum. A missing session topic
+  returns `not_found`; role procedures share one guide even when several duties are indexed.
 - **Team messages** — a message about a task goes to the recipient's session for that task
   (batched when idle; a stopped session is started or resumed through admission only for a valid
   action); messages to humans go to the web app. A message never goes to its sender.

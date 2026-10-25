@@ -39,7 +39,6 @@ function task(key: string, overrides: Partial<Task> = {}): Task {
     priority: null,
     labels: [],
     links: [],
-    visibility: 'internal',
     createdBy: 'owner',
     createdAt: AT,
     updatedAt: AT,

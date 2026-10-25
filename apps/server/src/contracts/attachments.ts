@@ -4,7 +4,7 @@ import type { Actor, Attachment, MessageAttachment } from '@projectman/shared';
 /**
  * The boundary between whoever receives a file (the REST route, the team tool `attach_file`) and the
  * attachments service: it takes a stream and applies one size, storage and access check, whoever
- * asks. Access is judged for the acting member against the current roster and task visibility.
+ * asks. Access is judged for the acting member against the current roster.
  */
 export interface AttachmentUploadInput {
   projectKey: string;

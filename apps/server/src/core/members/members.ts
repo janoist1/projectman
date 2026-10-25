@@ -4,6 +4,8 @@ export function createMemberService(deps: ConstructorParameters<typeof MemberSer
 
 import {
   AiMemberConfig,
+  AgentProvider,
+  MemberQuotaWaiting,
   DEFAULT_OUTBOUND_NETWORK,
   HumanMemberConfig,
   DEFAULT_AGENT_PROVIDER,
@@ -164,6 +166,23 @@ export class MemberService {
         };
       }
       const state = states.get(m.handle);
+      const quotaWaiting = this.ctx.repos.memberQueue
+        .listOpen(projectKey, m.handle)
+        .flatMap((item) => {
+          const reason = MemberQuotaWaiting.shape.reason.safeParse(item.wait?.code);
+          if (item.state !== 'queued' || !item.wake || !item.wait || !reason.success) return [];
+          const provider = AgentProvider.safeParse(item.waitDetails?.provider);
+          const until = item.waitDetails?.until;
+          return [
+            {
+              reason: reason.data,
+              since: item.wait.at,
+              ...(provider.success ? { provider: provider.data } : {}),
+              ...(typeof until === 'string' ? { until } : {}),
+            },
+          ];
+        })
+        .sort((a, b) => a.since.localeCompare(b.since))[0];
       return {
         handle: m.handle,
         displayName: m.displayName,
@@ -174,6 +193,7 @@ export class MemberService {
           sendWithoutApproval: m.email?.sendWithoutApproval ?? false,
         },
         outage: this.outageOf?.(projectKey, m.handle),
+        quotaWaiting,
         role: m.role,
         roles: memberRoles(m),
         specialty: m.specialty ?? null,

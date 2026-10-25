@@ -17,7 +17,6 @@ const card = (n: number, patch: Partial<Task> = {}): Task =>
     priority: null,
     labels: [],
     links: [],
-    visibility: 'internal',
     createdBy: 'owner',
     createdAt: '2026-10-18T10:00:00Z',
     updatedAt: '2026-10-18T10:00:00Z',

@@ -70,10 +70,6 @@ export const TaskLink = z.object({
 });
 export type TaskLink = z.infer<typeof TaskLink>;
 
-/** No longer restricts reading: every member sees every card (PM-79). The field is removed in PM-987. */
-export const Visibility = z.enum(['internal', 'shared']);
-export type Visibility = z.infer<typeof Visibility>;
-
 /**
  * What takes one of an AI member's places (PM-297): one task (however many sessions work on it) or
  * one other running session. The set is exactly what the server counts as the member's load.
@@ -339,7 +335,6 @@ export const Task = z.object({
   /** Label ids: defined in the pipeline's label vocabulary, or plain tags. */
   labels: z.array(z.string()),
   links: z.array(TaskLink),
-  visibility: Visibility,
   createdBy: MemberHandle,
   createdAt: z.string(),
   /** When the card entered its current stage (PM-379): set on create and by every stage move. Absent on a card read from an older server or fixture: read it as `createdAt`. */

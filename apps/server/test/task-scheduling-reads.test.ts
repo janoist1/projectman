@@ -23,7 +23,6 @@ function card(seq: number, patch: Partial<Task> = {}): Task {
     priority: null,
     labels: [],
     links: [],
-    visibility: 'internal',
     createdBy: 'owner',
     createdAt: at,
     updatedAt: at,

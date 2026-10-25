@@ -184,7 +184,7 @@ function RelationForm({
     if (!ready || pending || !kind) return;
     if (kind === 'subtask') {
       create.mutate(
-        { title: title.trim(), parentKey: task.key, repo: task.repo, visibility: task.visibility },
+        { title: title.trim(), parentKey: task.key, repo: task.repo },
         {
           onSuccess: (created) => {
             const card = Task.safeParse(created);

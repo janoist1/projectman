@@ -55,7 +55,7 @@ export function MarkList({
                 <span className={styles.body}>{mark.body}</span>
                 <span className={styles.meta}>
                   <MarkStatusChip mark={mark} ownerName={ownerName} />
-                  {mark.card?.visible ? <span className={styles.cardKey}>{mark.card.key}</span> : null}
+                  {mark.card ? <span className={styles.cardKey}>{mark.card.key}</span> : null}
                   <span className={styles.source}>{sourceLabel(mark)}</span>
                 </span>
               </span>

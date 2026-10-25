@@ -11,7 +11,6 @@ import {
   StageKind,
   TaskLinkKind,
   TaskStatus,
-  Visibility,
 } from '@projectman/shared';
 import { describe, expect, it } from 'vitest';
 import { hu } from './hu';
@@ -70,7 +69,6 @@ describe('hu locale', () => {
     expectKeys('permissionControls.blocked', ['delegation_off', 'no_ai_decider']);
     expectKeys('taskStatus.statuses', TaskStatus.options);
     expectKeys('links.kinds', TaskLinkKind.options);
-    expectKeys('visibility', Visibility.options);
     expectKeys('inbox.options', ['allow', 'allow_session', 'deny', 'approve', 'reject', 'answer']);
     expectKeys('inbox.resolutions', ['allow', 'allow_session', 'deny', 'approve', 'reject', 'answer']);
     expectKeys('inbox.resolutionRules', InboxResolutionRule.options);

@@ -987,7 +987,7 @@ describe('credential REST and domain access (PM-759)', () => {
       url: routes.invitation('AR', invite.json().id),
       headers,
     });
-    // Publication, direction and revoking an invitation are the Operator's own since PM-870.
+    // Direction and revoking an invitation are the Operator's own since PM-870.
     expect(revoke.statusCode, revoke.body).toBe(204);
     expect(domain.invitations.list('AR')[0]?.revokedAt).not.toBeNull();
     const relocation = await h.app.inject({
@@ -997,13 +997,6 @@ describe('credential REST and domain access (PM-759)', () => {
       payload: direction,
     });
     expect(relocation.statusCode, relocation.body).toBe(200);
-    const shared = await h.app.inject({
-      method: 'PATCH',
-      url: routes.task('AR', task.key),
-      headers,
-      payload: { visibility: 'shared' },
-    });
-    expect(shared.statusCode, shared.body).toBe(200);
   });
 
   it('rejects copied principals, mismatched actors and work inherited past the scope lifetime', async () => {

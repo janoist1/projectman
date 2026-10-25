@@ -70,8 +70,6 @@ export const TaskLink = z.object({
 });
 export type TaskLink = z.infer<typeof TaskLink>;
 
-/** No longer restricts reading: every member sees every card (PM-79). The field is removed in PM-987. */
-
 /**
  * What takes one of an AI member's places (PM-297): one task (however many sessions work on it) or
  * one other running session. The set is exactly what the server counts as the member's load.

@@ -215,7 +215,7 @@ describe('project focus API', () => {
   it('lets a client see the focus like any member (PM-79): the view, the event, the timeline and the pulled reason, but no write', async () => {
     const client = await addHumanAndLogin(h.app, { handle: 'acme-client', access: 'client' });
     const events = await socket(client);
-    const shared = await card('Shared', { visibility: 'shared' });
+    const shared = await card('Shared');
     await add(shared.key);
     await flush();
     for (const res of [

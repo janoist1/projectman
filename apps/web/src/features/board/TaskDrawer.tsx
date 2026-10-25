@@ -594,9 +594,7 @@ export function TaskDrawer() {
         </div>
 
         {theme ? (
-          <>
-            <ThemeSummary task={task} tasks={cards} />
-          </>
+          <ThemeSummary task={task} tasks={cards} />
         ) : (
           <TaskProperties
             task={task}

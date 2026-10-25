@@ -52,6 +52,9 @@
   width: 100%;
   min-width: 0;
 }
+.page input[aria-invalid='true'] {
+  border-color: var(--c-blocked);
+}
 .page button {
   min-height: 44px;
 }
@@ -129,6 +132,9 @@
   color: var(--c-ink-2);
   font-size: var(--text-sm);
 }
+.promptLead {
+  padding-top: 16px;
+}
 .text {
   margin: 0;
   font-size: 13px;
@@ -142,6 +148,8 @@
   margin-bottom: 16px;
 }
 .picker {
+  display: grid;
+  gap: 8px;
   position: relative;
   flex: 1;
   min-width: 220px;
@@ -198,6 +206,18 @@
   white-space: nowrap;
 }
 @media (max-width: 600px) {
+  .memberState {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+  .memberState > div {
+    flex: 1;
+    min-width: 140px;
+  }
+  .memberState > a {
+    flex-basis: 100%;
+    justify-content: center;
+  }
   .page {
     padding: 16px;
     gap: 20px;

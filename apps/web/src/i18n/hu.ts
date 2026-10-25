@@ -70,6 +70,7 @@ export const hu = {
     chooseAi: 'Válassz fent egy AI tagot.',
     memberNotFound: 'Nincs ilyen tag ebben a projektben.',
     ownerOnly: 'Ezt a nézetet csak a projekt tulajdonosa nyithatja meg.',
+    ownerTitle: 'Tulajdonosi nézet',
     backToProfile: 'Vissza a profilhoz',
     backToTeam: 'Vissza a Csapat oldalra',
     noGuides: 'Nincs kérésre olvasható útmutatója. Ez a tag mindent a bevezetőben kap meg.',

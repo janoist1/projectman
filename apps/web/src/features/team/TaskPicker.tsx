@@ -31,6 +31,7 @@ export function TaskPicker({
         !isTheme(task) && `${task.key} ${task.title}`.toLocaleLowerCase().includes(text.toLocaleLowerCase()),
     )
     .slice(0, 20);
+  const expanded = open && matches.length > 0;
   function choose(key: string) {
     setText(key);
     setOpen(false);
@@ -46,10 +47,10 @@ export function TaskPicker({
         autoComplete="off"
         value={text}
         placeholder={t('memberContext.taskPlaceholder')}
-        aria-expanded={open}
-        aria-controls={`${id}-list`}
+        aria-expanded={expanded}
+        aria-controls={expanded ? `${id}-list` : undefined}
         aria-autocomplete="list"
-        aria-activedescendant={open && active >= 0 ? `${id}-${active}` : undefined}
+        aria-activedescendant={expanded && active >= 0 ? `${id}-${active}` : undefined}
         aria-invalid={!!error}
         aria-describedby={error ? `${id}-error` : undefined}
         onFocus={() => setOpen(true)}
@@ -82,7 +83,7 @@ export function TaskPicker({
           }
         }}
       />
-      {open && (
+      {expanded && (
         <ul id={`${id}-list`} role="listbox" aria-label={t('memberContext.task')} className={styles.options}>
           {matches.map((task, index) => (
             <li

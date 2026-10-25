@@ -9,7 +9,7 @@ import { Button } from '../../components/Button';
 import { Chip } from '../../components/Chip';
 import { Fold } from '../../components/Fold';
 import { SegmentedControl } from '../../components/SegmentedControl';
-import { ErrorState, Spinner } from '../../components/States';
+import { EmptyState, ErrorState, Spinner } from '../../components/States';
 import { useToast } from '../../components/toastContext';
 import { t } from '../../i18n/t';
 import { aiRoleView } from '../../lib/roles';
@@ -88,7 +88,16 @@ export function MemberContextPage() {
         )}
       </header>
       {forbidden ? (
-        <p role="alert">{t('memberContext.ownerOnly')}</p>
+        <EmptyState
+          className={styles.memberState}
+          title={t('memberContext.ownerTitle')}
+          body={t('memberContext.ownerOnly')}
+          action={
+            <Link className={styles.back} to={`/p/${key}/team/${handle}`}>
+              {t('memberContext.backToProfile')}
+            </Link>
+          }
+        />
       ) : (
         <>
           {firstUse && (
@@ -198,15 +207,22 @@ export function MemberContextPage() {
             </aside>
           )}
           {missing ? (
-            <div role="alert">
-              <p>{t('memberContext.memberNotFound')}</p>
-              <Link to={`/p/${key}/team`}>{t('memberContext.backToTeam')}</Link>
-            </div>
+            <EmptyState
+              className={styles.memberState}
+              title={t('memberContext.memberNotFound')}
+              body={t('memberContext.chooseAi')}
+              action={
+                <Link className={styles.back} to={`/p/${key}/team`}>
+                  {t('memberContext.backToTeam')}
+                </Link>
+              }
+            />
           ) : human ? (
-            <div>
-              <p>{t('memberContext.human', { name: member?.displayName ?? handle })}</p>
-              <p>{t('memberContext.chooseAi')}</p>
-            </div>
+            <EmptyState
+              className={styles.memberState}
+              title={t('memberContext.human', { name: member?.displayName ?? handle })}
+              body={t('memberContext.chooseAi')}
+            />
           ) : onTask && task === undefined ? (
             <p>{t('memberContext.chooseTask')}</p>
           ) : taskError ? null : preview.error ? (
@@ -341,7 +357,7 @@ function ContextPart({ data, part }: { data: MemberContextPreview; part: Part })
             <div key={section.id}>
               {index === (data.initialMessage ? 1 : 0) && (
                 <>
-                  <p className={styles.note}>
+                  <p className={`${styles.note} ${data.initialMessage ? styles.promptLead : ''}`}>
                     {t('memberContext.promptLead', { count: number(data.prompt.sections.length) })}
                   </p>
                   <p className={styles.note}>{t('memberContext.placementNote')}</p>

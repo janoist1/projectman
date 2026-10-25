@@ -168,6 +168,8 @@ describe('member context preview', () => {
     fireEvent.click(screen.getByRole('button', { name: t('memberContext.onTask') }));
     const input = screen.getByRole('combobox', { name: t('memberContext.task') });
     fireEvent.change(input, { target: { value: 'ac-9999' } });
+    expect(screen.queryByRole('listbox')).toBeNull();
+    expect(input.getAttribute('aria-expanded')).toBe('false');
     fireEvent.keyDown(input, { key: 'Enter' });
     await screen.findByText(t('memberContext.taskNotFound', { task: 'AC-9999' }));
   });

@@ -357,7 +357,7 @@ export function MemberProfilePage() {
         {ai && access === 'owner' ? (
           <p>
             <Link to={`/p/${key}/team/${handle}/context`}>{t('memberContext.entry')} →</Link>{' '}
-            <small>{t('memberContext.entryHint')}</small>
+            <small className={styles.contextHint}>{t('memberContext.entryHint')}</small>
           </p>
         ) : null}
       </section>

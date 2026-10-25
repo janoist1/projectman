@@ -136,6 +136,7 @@ npm run dev          # server (4700) + web (5173)
 npm run shots -- <scenario>  # screenshots of a disposable instance (docs/SCREENSHOTS.md); queues too
 npm run heavy -- <command>   # any other heavy command, at its turn (--label, --max-wait <s>)
 npm run merge-test          # merge checks selected from HEAD's first-parent diff (-- --all forces all)
+npm run dead-code           # before hand-over and in fix rounds: unused files/exports (fast, no queue)
 npm run full-test -- --workers 4 --timeout 60 -- npm run merge-test -- --all  # macOS, outside member sandboxes
 npx vitest related <files> --run   # while working: the tests of what you changed, in the workspace (no queue)
 npx vitest run test/architecture  # in apps/server after adding, moving or renaming files; before hand-over too (no queue)
@@ -152,11 +153,18 @@ in the context pack. Gemini's native `command_status` follows a running command;
 `schedule` wakeups are an optional path described there. Do not finish the turn while the
 command is still running. Developers run only related tests (`npx vitest related <files> --run`
 inside the affected workspace) and the type check of the workspaces they touched, including
-before hand-over and in fix rounds. After adding, moving or renaming files, also run
+before hand-over and in fix rounds. Also run `npm run dead-code` from the repository root
+before hand-over and in fix rounds; it is fast and does not queue. Fix new findings rather
+than extending the baseline. After adding, moving or renaming files, also run
 `npx vitest run test/architecture` in `apps/server`, including before hand-over; it is fast
 and does not queue. They never run the full suite. The merger (`team.merger`,
 `claude` in PM) merges with `merge_task`. The server runs the card's single full check at merge,
 before `main` moves: `npm run merge-test` in the full test sandbox, in the machine's queue.
+Any card adding a merge check that can run quickly in the developer's worktree must update
+the developer hand-over checklist in the same change.
+When a merge fails a check the developer could have run locally, the merger names that
+command in the send-back note; if it was missing from the checklist, propose adding it
+and send the lesson to the Operator for `docs/LESSONS.md`.
 Shared code or configuration changes require the whole suite; workspace checks do not queue
 (decision 40, PM-380, PM-386). If a heavy command says its queue cannot be used
 (exit status 78), or the sandbox refuses a test (a local port, a pseudo-terminal), it did not

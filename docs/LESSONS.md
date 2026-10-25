@@ -5,6 +5,10 @@ where it went. Newest first. The owner's decisions stay in [DECISIONS.md](DECISI
 file keeps the experience behind them, so that members and the Operator do not learn it twice.
 Anyone may propose a lesson; the Operator adds it.
 
+## 2026-10-25: a new merge check without its local command
+
+**A new merge check failed the next card.** PM-965 added the dead-code check (knip) to the merge test, but the developers' hand-over list did not get the fast local command. The next card, PM-1000, passed its local checks and failed at merge. _Lesson:_ a card that adds a merge check which runs fast locally updates the developers' hand-over list in the same change. When the merger sends a card back, they name the local command that was skipped, and propose adding it if the list lacks it. (PM-1002)
+
 ## 2026-10-12 – 2026-10-13: handing the integrator's work to the team
 
 **Merging moved to the team, and broke at once.** The first member merge (`merge_task`) failed

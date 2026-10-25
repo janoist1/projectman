@@ -513,7 +513,11 @@ function unattendedCommandsSection(
           .filter((rule) => rule.arguments === 'prefix')
           .map((rule) => rule.command),
   });
-  guide.commands = [heading, ...commands].join('\n');
+  guide.commands = [
+    heading,
+    ...commands,
+    "- Before hand-over and in fix rounds, run the repository's fast local checks as well as targeted tests and type checks. If the repository provides `npm run dead-code`, run it from the repository root (it does not use the heavy-run queue) and fix new findings without automatically extending the baseline. Record results or sandbox refusals on the card. Adding a fast local merge check also requires updating the developer hand-over checklist in the same change.",
+  ].join('\n');
   return [
     heading,
     'Reading, project checks, formatting and routine worktree commands run without asking in the supported forms; read get_guide with topic `commands` for the full list when needed.',

@@ -1287,6 +1287,7 @@ describe('system prompt', () => {
       expect(text).not.toContain('Claude Code');
       expect(text).toContain('Your sandbox runs commands on its own');
       expect(text).not.toContain('Every other shell command');
+      expect(text).toContain('`npm run dead-code`');
     });
 
     it('is left out of work that is not a task', () => {
@@ -2250,6 +2251,7 @@ describe('expected steps', () => {
         const steps = doneSteps(builder.build(source).appendSystemPrompt);
         expect(steps).toContain('before hand-over and in fix rounds, run only the tests');
         expect(steps).toContain('the type check of the workspaces you touched');
+        expect(steps).toContain('`npm run dead-code`');
         expect(steps).toContain('the integrator or merge step runs the full check once');
         expect(steps).not.toContain("run the project's full tests and type check once");
       }
@@ -2310,6 +2312,7 @@ describe('expected steps', () => {
       const source = input({ project, handle: 'code-review', task: makeTask({ stageId: 'code_review' }) });
       const steps = doneSteps(builder.build(source).appendSystemPrompt);
       expect(steps).toContain(`Do not run the whole test suite: ${mergeStep}. Run only targeted tests`);
+      expect(steps).toContain('`npm run dead-code`');
       expect(steps).not.toContain('the integrator or merge step');
     });
 

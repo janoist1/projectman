@@ -1499,6 +1499,9 @@ describe('member initiated merge', () => {
     expect(text).toContain('AssertionError: expected 1 to be 2');
     expect(text).toContain('update_task');
     expect(text).toContain('merge_task');
+    expect(text).toContain('npm run dead-code');
+    expect(text).toContain('Operator');
+    expect(text).toContain('docs/LESSONS.md');
     expect(row()?.failure?.files).toEqual(['src/a.test.ts']);
   });
 

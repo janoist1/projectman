@@ -3,6 +3,7 @@ import type { WakeStart } from '../../contracts';
 import {
   MEMBER_QUEUE_MAX_ATTEMPTS,
   MEMBER_QUEUE_STUCK_MS,
+  MEMBER_QUOTA_WAIT_REASONS,
   memberOf,
   memberQueueStartLimits,
   sessionWorkItemOf,
@@ -30,6 +31,8 @@ interface MemberQueueDriverDeps {
   sessions: Pick<SessionOrchestrator, 'find' | 'findRunning' | 'isRunning' | 'close'>;
   /** Types a rendered item into the idle session; false: the session did not take it. */
   type(session: Session, item: StoredMemberQueueItem, text: string): Promise<boolean>;
+  /** Publishes the member's quota wait and its recovery. */
+  quotaWaitChanged?: (projectKey: string, member: string) => Promise<void>;
 }
 
 /** An open, queued item of the member the driver looks at, with what was decided of it in this run. */
@@ -95,6 +98,7 @@ export class MemberQueueWorker implements MemberQueueDriver {
   private readonly awaitingFirstInput = new Set<string>();
   /** The members whose next run is at a turn boundary: it types into their live sessions. */
   private readonly boundaries = new Set<string>();
+  private readonly quotaWaits = new Set<string>();
   private begun = false;
 
   constructor(deps: MemberQueueDriverDeps) {
@@ -128,9 +132,30 @@ export class MemberQueueWorker implements MemberQueueDriver {
     const queued = this.queuedRuns.get(key);
     if (queued && !queued.started) return queued.promise;
     const run = { started: false, promise: Promise.resolve() };
-    run.promise = this.mutex.run(key, () => {
+    run.promise = this.mutex.run(key, async () => {
       run.started = true;
-      return this.work(projectKey, member);
+      try {
+        await this.work(projectKey, member);
+      } finally {
+        const waiting = this.deps.ctx.repos.memberQueue
+          .listOpen(projectKey, member)
+          .some(
+            (item) =>
+              item.state === 'queued' &&
+              item.wake &&
+              MEMBER_QUOTA_WAIT_REASONS.some((reason) => reason === item.wait?.code),
+          );
+        const previous = this.quotaWaits.has(key);
+        if (waiting) this.quotaWaits.add(key);
+        else this.quotaWaits.delete(key);
+        if (waiting || previous) {
+          try {
+            await this.deps.quotaWaitChanged?.(projectKey, member);
+          } catch (err) {
+            this.deps.ctx.logger.warn({ err, projectKey, member }, 'publishing member quota wait failed');
+          }
+        }
+      }
     });
     this.queuedRuns.set(key, run);
     const forget = () => {

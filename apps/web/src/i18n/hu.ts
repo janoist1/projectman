@@ -3079,6 +3079,8 @@ export const hu = {
     cannotWorkWithReason: 'Nem tud dolgozni: {reason}',
     /** The bold lead of the phone card's line; the reason follows it in the normal weight. */
     cannotWorkLead: 'Nem tud dolgozni:',
+    quotaReason: 'Elfogyott a szolgáltatói kerete; a visszaállásra vár.',
+    quotaReasonUntil: 'Elfogyott a szolgáltatói kerete; kb. {time}-kor áll vissza.',
   },
 
   sessionState: {
@@ -5672,6 +5674,8 @@ export const hu = {
       unread: 'Olvasatlan',
       unknownMember: 'Nincs ilyen tag.',
       retiredMember: 'Már nem tagja a csapatnak, nem írhatsz neki.',
+      quotaWaiting: 'A tag kerete most elfogyott, kb. {time}-kor áll vissza; az üzeneted addig várakozik.',
+      quotaWaitingUnknown: 'A tag kerete most elfogyott; az üzeneted a visszaállásig várakozik.',
     },
     status: {
       queued: 'Kézbesítésre vár',

@@ -17,6 +17,34 @@ describe('memberships and member snapshots', () => {
 
   const by = { actor: OWNER_ACTOR, author: OWNER, sponsor: 'owner' };
 
+  it('includes the provider quota wait of a waking queued item in the roster', async () => {
+    const { domain, repos } = h.app.projectman;
+    const since = '2026-10-25T12:00:00.000Z';
+    const until = '2026-10-25T13:00:00.000Z';
+    repos.memberQueue.insert({
+      id: 'quota-message',
+      projectKey: 'AR',
+      member: 'dev-1',
+      kind: 'message',
+      source: { type: 'message', id: 'waiting-message' },
+      place: { type: 'general' },
+      taskKey: null,
+      wake: true,
+      title: 'Waiting message',
+      from: 'owner',
+      queuedAt: since,
+    });
+    repos.memberQueue.setWait('quota-message', 'provider_rate_limited', since, { provider: 'gemini', until });
+
+    const roster = domain.members.rosterFor(await domain.projects.config('AR'));
+    expect(roster.find((member) => member.handle === 'dev-1')?.quotaWaiting).toEqual({
+      reason: 'provider_rate_limited',
+      provider: 'gemini',
+      until,
+      since,
+    });
+  });
+
   it('shows a client card activity on every member read, like any member (PM-79)', async () => {
     const domain = h.app.projectman.domain;
     const client = await addHumanAndLogin(h.app, { handle: 'client', name: 'Client', access: 'client' });

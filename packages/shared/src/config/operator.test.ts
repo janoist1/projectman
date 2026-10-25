@@ -559,6 +559,17 @@ describe('approval waiver eligibility (PM-691)', () => {
     const { result } = hire({ outboundNetwork: true });
     expect(result.waiverEligible).toBe(true);
   });
+  it('holds a contacts change for the owner’s approval and never makes it waivable (PM-985)', () => {
+    const previous = config();
+    previous.team.operatorApprovalWaiver = true;
+    const next = structuredClone(previous);
+    next.team.contacts = ['ann'];
+    expect(operatorConfigVerdict(previous, next, { operator: 'operator' })).toMatchObject({
+      level: 'approval',
+      changes: [expect.objectContaining({ field: 'contacts', level: 'approval' })],
+      waiverEligible: false,
+    });
+  });
   it('names the waiver switch as an owner-only change in both directions', () => {
     const previous = config();
     const next = structuredClone(previous);

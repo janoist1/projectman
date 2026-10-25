@@ -257,6 +257,11 @@ export function validateProjectConfig(config: ProjectConfig): ConfigIssue[] {
       });
   });
 
+  (config.team.contacts ?? []).forEach((handle, i) => {
+    if (!members.has(handle))
+      issues.push({ code: 'unknown_member', path: `team.contacts[${i}]`, detail: handle });
+  });
+
   issues.push(...cardMoverIssues(config));
 
   const stages = config.pipeline.stages;

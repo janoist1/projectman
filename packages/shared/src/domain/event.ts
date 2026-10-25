@@ -117,6 +117,7 @@ export const TimelineEventType = z.enum([
   'member_hired',
   'member_retired',
   'config_changed',
+  'team_contact_changed',
   'operator_knowledge_changed',
   'operator_approval_waived',
   'focus_changed',
@@ -638,6 +639,8 @@ export interface TimelineEventData {
   member_hired: { handle: string; role: string; temp: boolean; sponsor: string };
   member_retired: { handle: string; handoverTo: string | null };
   config_changed: { version: string; message: string };
+  /** A member was named a contact of the project (`contact` true) or taken off the list (PM-985); once per member. */
+  team_contact_changed: { handle: string; contact: boolean; version: string };
   operator_knowledge_changed: {
     proposalId: string;
     kind: OperatorKnowledgeChange['kind'];

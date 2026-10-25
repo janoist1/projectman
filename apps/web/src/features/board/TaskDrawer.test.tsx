@@ -4,7 +4,7 @@ import { mockIndexes } from '../../test/render';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { Route, Routes } from 'react-router';
 import { afterEach, describe, expect, it } from 'vitest';
-import { setFetchImplementation } from '../../api/client';
+import { apiRequest, setFetchImplementation } from '../../api/client';
 import { plainLanguageQuestion } from '../../mocks/fixtures';
 import { createMockFetch, mockProject } from '../../test/mockProject';
 import { t, tDynamic } from '../../i18n/t';
@@ -461,6 +461,64 @@ describe('task drawer comments', () => {
     expect(project.backend.messages).toHaveLength(count);
   });
 
+  /** Kata, a client who sees the card as read-only, with the given contacts (PM-985). */
+  function asClient(project: ReturnType<typeof mockProject>, contacts: string[]) {
+    project.backend.viewerHandle = 'kata';
+    project.backend.config.team.contacts = contacts;
+    return {
+      myHandle: 'kata',
+      can: { createTasks: false, manageTeam: false, workInSessions: false, comment: true },
+      me: {
+        ...project.context.me,
+        projects: [{ ...project.context.me.projects[0]!, access: 'client' as const }],
+      },
+    };
+  }
+
+  it('lets a client comment and mention only the contacts', async () => {
+    const project = mockProject();
+    project.render(drawer, '/p/AC/tasks/AC-20/timeline', asClient(project, ['fe-1']));
+    const input = await screen.findByLabelText(t('task.comments.label'));
+    fireEvent.change(input, { target: { value: 'Hello @', selectionStart: 7 } });
+    const options = within(screen.getByRole('listbox', { name: t('task.comments.members') })).getAllByRole(
+      'option',
+    );
+    expect(options.map((option) => option.textContent)).toEqual([expect.stringContaining('@fe-1')]);
+    fireEvent.click(screen.getByRole('button', { name: t('common.send') }));
+    await waitFor(() =>
+      expect(project.requests).toContainEqual({
+        method: 'POST',
+        path: '/api/projects/AC/tasks/AC-20/comments',
+        body: { text: 'Hello @' },
+      }),
+    );
+  });
+
+  it('offers a client no one to mention when the project has no contacts', async () => {
+    const project = mockProject();
+    project.render(drawer, '/p/AC/tasks/AC-20/timeline', asClient(project, []));
+    const input = await screen.findByLabelText(t('task.comments.label'));
+    fireEvent.change(input, { target: { value: '@', selectionStart: 1 } });
+    expect(screen.queryByRole('option')).toBeNull();
+    expect(screen.getByText(t('task.comments.contactsHintNone'))).toBeTruthy();
+  });
+
+  it('refuses a viewer comment and imported history from a non-owner in the fake, like the server', async () => {
+    const project = mockProject();
+    project.backend.viewerHandle = 'kata';
+    const comment = (body: object) =>
+      apiRequest(`/api/projects/AC/tasks/AC-20/comments`, { method: 'POST', body });
+    const kata = project.backend.config.team.members.find((member) => member.handle === 'kata');
+    if (kata?.kind !== 'human') throw new Error('Kata is a person');
+    kata.access = 'viewer';
+    await expect(comment({ text: 'Hello' })).rejects.toMatchObject({ code: 'insufficient_access' });
+    kata.access = 'client';
+    await expect(
+      comment({ text: 'History', importedAuthor: 'Morgan Example', importedAt: '2024-01-02T03:04:05Z' }),
+    ).rejects.toMatchObject({ code: 'insufficient_access' });
+    await expect(comment({ text: 'Hello' })).resolves.toBeTruthy();
+  });
+
   it('dismisses suggestions with Escape without closing the drawer', async () => {
     const project = mockProject();
     project.render(drawer, '/p/AC/tasks/AC-20');
@@ -595,7 +653,7 @@ describe('task editing and subtasks', () => {
   it('is read-only for viewers: no editing, quick-add, labels, moving or comment composer', async () => {
     const project = mockProject();
     project.render(drawer, '/p/AC/tasks/AC-20', {
-      can: { createTasks: false, manageTeam: false, workInSessions: false },
+      can: { createTasks: false, manageTeam: false, workInSessions: false, comment: false },
     });
     await screen.findByText(project.backend.findTask('AC-20')!.title);
     expect(screen.queryByRole('button', { name: t('task.move.open') })).toBeNull();

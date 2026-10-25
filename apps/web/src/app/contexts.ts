@@ -28,6 +28,8 @@ export interface ProjectContextValue {
     manageTeam: boolean;
     workInSessions: boolean;
     pauseTeam: boolean;
+    /** Whether the viewer comments on any card: every member but a viewer (PM-985). */
+    comment: boolean;
     /** Whether the viewer gets the project configuration (every member but a client). */
     readConfig: boolean;
   };

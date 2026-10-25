@@ -134,6 +134,7 @@ describe('mock team messaging and profiles', () => {
   it('allows clients to write, denies viewers and rejects invalid data atomically', () => {
     const b = backend();
     b.viewerHandle = 'kata';
+    b.config.team.contacts = ['fe-1'];
     expect(b.handle('POST', `${base}/messages`, { to: ['fe-1'], text: 'Acme request' }).status).toBe(202);
     expect(b.handle('POST', `${base}/members/fe-1/conversation`, {}).status).toBe(403);
     b.findMember('kata')!.role = 'viewer';

@@ -89,11 +89,15 @@ function limitsBody(draft: ProjectConfig, saved: ProjectConfig, baseVersion: str
     draft.team.cardMover && JSON.stringify(draft.team.cardMover) !== JSON.stringify(saved.team.cardMover)
       ? draft.team.cardMover
       : null;
+  // The contacts go as the whole list when it changed, an empty one too: a missing field keeps the stored list.
+  const contacts = draft.team.contacts ?? [];
+  const contactsChanged = JSON.stringify(contacts) !== JSON.stringify(saved.team.contacts ?? []);
   // A removed cap or warning limit is sent as null: a missing field would leave the stored one as it is.
   return {
     baseVersion,
     ...(merger ? { merger } : {}),
     ...(cardMover ? { cardMover } : {}),
+    ...(contactsChanged ? { contacts } : {}),
     ...(repoMerge.length ? { repoMerge } : {}),
     limits: {
       ...draft.team.limits,

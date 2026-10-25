@@ -1,5 +1,5 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { PatchConfigRequest } from '@projectman/shared';
 import { getLocale } from '@projectman/templates';
 import { setFetchImplementation } from '../../api/client';
@@ -119,10 +119,59 @@ describe('settings section editors', () => {
     const section = within(await screen.findByRole('region', { name: t('settings.sections.team') }));
     expect(section.queryByRole('table')).toBeNull();
     const owner = project.backend.config.team.members.find((m) => m.handle === 'owner')!;
-    expect(section.getByText(owner.displayName)).toBeTruthy();
+    // The name is also offered in the contacts list below the team.
+    expect(section.getAllByText(owner.displayName).length).toBeGreaterThan(0);
     expect(section.getByRole('link', { name: t('settings.team.manage') }).getAttribute('href')).toBe(
       '/p/AC/team',
     );
+  });
+
+  describe('the contacts', () => {
+    const teamSection = async () =>
+      within(await screen.findByRole('region', { name: t('settings.sections.team') }));
+    const contactBox = (section: ReturnType<typeof within>, handle: string) =>
+      section.getByRole('checkbox', { name: new RegExp(`${handle}$`) }) as HTMLInputElement;
+
+    it('saves a ticked member as a contact at once, and clears them when unticked (PM-985)', async () => {
+      const project = mockProject();
+      project.render(<SettingsTestRoutes initialSection="team" />);
+      const section = await teamSection();
+      fireEvent.click(contactBox(section, 'fe-1'));
+      await waitFor(() => expect(project.backend.config.team.contacts).toEqual(['fe-1']));
+      expect(lastConfigPatch(project.requests)).toMatchObject({ contacts: ['fe-1'] });
+      await waitFor(() => expect(contactBox(section, 'fe-1').matches(':disabled')).toBe(false));
+      fireEvent.click(contactBox(section, 'fe-1'));
+      await waitFor(() => expect(project.backend.config.team.contacts).toEqual([]));
+      expect(lastConfigPatch(project.requests)).toMatchObject({ contacts: [] });
+    });
+
+    it('puts the tick back and says why when the server refuses the change', async () => {
+      const project = mockProject();
+      const original = project.backend.handle.bind(project.backend);
+      vi.spyOn(project.backend, 'handle').mockImplementation((method, path, body, query) =>
+        method === 'PATCH' && path.endsWith('/config')
+          ? { status: 400, body: { error: { code: 'config_invalid', message: 'Refused' } } }
+          : original(method, path, body, query),
+      );
+      project.render(<SettingsTestRoutes initialSection="team" />);
+      const section = await teamSection();
+      fireEvent.click(contactBox(section, 'fe-1'));
+      expect(await section.findByRole('alert')).toBeTruthy();
+      await waitFor(() => expect(contactBox(section, 'fe-1').checked).toBe(false));
+      expect(project.backend.config.team.contacts).toEqual([]);
+    });
+
+    it('only lists the contacts for a member who may not manage the team', async () => {
+      const project = mockProject();
+      project.backend.config.team.contacts = ['fe-1'];
+      project.render(<SettingsTestRoutes initialSection="team" />, '/', {
+        can: { createTasks: false, manageTeam: false, workInSessions: false },
+      });
+      const section = await teamSection();
+      expect(section.queryByRole('checkbox')).toBeNull();
+      // The heading and the read-only line below it.
+      expect(section.getAllByText(t('settings.team.contacts.label'))).toHaveLength(2);
+    });
   });
 
   it('lists each repository as a row with its path below the name', async () => {

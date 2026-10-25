@@ -42,6 +42,7 @@ describe('project access from Me', () => {
         manageTeam: false,
         workInSessions: false,
         pauseTeam: false,
+        comment: false,
         readConfig: true,
       },
       isOwner: false,

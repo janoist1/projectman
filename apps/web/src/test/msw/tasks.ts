@@ -5,6 +5,8 @@ import {
   TaskDetail,
   UpdateTaskRequest,
   UpdateTaskResponse,
+  accessOfHandle,
+  canCommentOnTask,
   commentMentions,
 } from '@projectman/shared';
 import { http, HttpResponse } from 'msw';
@@ -120,6 +122,11 @@ export function defaultTaskHandlers(backend: MockBackend): HttpHandler[] {
       TaskDetail,
       ({ taskKey, body }) => {
         if (!backend.findTask(taskKey)) return apiFailure(404, 'not_found');
+        // The server's rules (PM-985): every member but a viewer comments, imported comments are owner-only.
+        const access = accessOfHandle(backend.config, backend.viewerHandle);
+        if (!canCommentOnTask(access)) return apiFailure(403, 'insufficient_access');
+        if ((body.importedAuthor !== undefined || body.importedAt !== undefined) && access !== 'owner')
+          return apiFailure(403, 'insufficient_access');
         note(taskKey, body);
         return detail(taskKey);
       },

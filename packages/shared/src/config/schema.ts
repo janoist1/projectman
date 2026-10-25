@@ -154,6 +154,14 @@ export type MemberConfig = z.infer<typeof MemberConfig>;
 export const MaxConcurrentAi = z.number().int().min(1).max(20);
 
 /**
+ * The project's contacts (PM-985): the members a contact-restricted member (`isContactRestricted`) may
+ * write messages to, each handle once. The list belongs to the project, not to a member.
+ */
+export const ContactHandles = z
+  .array(MemberHandle)
+  .refine((handles) => new Set(handles).size === handles.length, 'duplicate contact');
+
+/**
  * The compaction window of a session whose member and project set none (PM-212). Not the CLI's own
  * default (the model's whole window): that would leave a conversation to grow, and be re-read at
  * every step, up to the end of it.
@@ -353,6 +361,8 @@ export const ProjectConfig = z.object({
     /** Who merges approved work into the default branch. Absent: `defaultMerger` decides. */
     merger: Merger.optional(),
     members: z.array(MemberConfig).min(1),
+    /** Who a contact-restricted member may write to (PM-985); absent in older configurations: nobody. */
+    contacts: ContactHandles.default([]),
     /** Roles the team defined in addition to the built-in ones. */
     roles: z.array(CustomRoleDefinition).default([]),
     roleOverrides: RoleOverrides.optional(),

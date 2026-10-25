@@ -8,6 +8,7 @@ import { RepoDocs } from './project-docs';
 import { OperatorWatch } from './operator-watch';
 import {
   AutoCompactWindowTokens,
+  ContactHandles,
   MaxConcurrentAi,
   ProjectConfig,
   ReviewTestConfig,
@@ -67,6 +68,8 @@ export const PatchConfigRequest = z
     operatorWatch: OperatorWatch.nullable().optional(),
     cardMover: ProjectConfig.shape.team.shape.cardMover,
     merger: ProjectConfig.shape.team.shape.merger,
+    /** The project's contacts (PM-985): the whole list replaces the saved one, [] clears it. */
+    contacts: ContactHandles.optional(),
     /** Per repository: whether a card's work must be merged (`requireMerge`); null removes the explicit value. */
     repoMerge: z
       .array(z.object({ repo: z.string(), requireMerge: z.boolean().nullable() }))
@@ -263,6 +266,7 @@ export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigReques
       ...team,
       ...(patch.cardMover !== undefined ? { cardMover: patch.cardMover } : {}),
       ...(patch.merger !== undefined ? { merger: patch.merger } : {}),
+      ...(patch.contacts !== undefined ? { contacts: patch.contacts } : {}),
       ...(patch.roleOverrides !== undefined ? { roleOverrides: patch.roleOverrides } : {}),
       ...(patch.roles !== undefined ? { roles: patch.roles } : {}),
       ...(patch.releaseFourEyes !== undefined ? { releaseFourEyes: patch.releaseFourEyes } : {}),

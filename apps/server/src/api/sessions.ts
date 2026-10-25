@@ -3,7 +3,6 @@ import { z } from 'zod';
 import {
   canSeeOperatorSessions,
   MemberHandle,
-  operatorOf,
   ReadTeamMessagesRequest,
   routes,
   SendMessageRequest,
@@ -15,7 +14,6 @@ import {
 import type { Session, SessionDetail, TeamMessagesView, TeamThreadsView } from '@projectman/shared';
 import { notFound } from '../kernel';
 import type { ApiDomain } from './ports';
-import { forbidden } from '../kernel';
 import { teamMessageParticipant, visibleSession } from '../core/projects';
 import type { Viewer } from '../core/projects';
 import { actorOf, requireAccess, senderOf } from './context';
@@ -91,15 +89,10 @@ export function registerSessionRoutes(app: FastifyInstance, domain: ApiDomain): 
 
   app.post<ProjectParams>(routes.sendTeamMessage(':key'), async (request, reply) => {
     const key = request.params.key;
-    // A read-only member talks to the Operator alone (PM-475); the team's other members are not theirs to write to.
+    // Who a read-only or contact-restricted member may write to is the messaging service's rule (PM-475, PM-985).
     const access = await requireAccess(domain, request, key);
     const body = parseBody(SendTeamMessageRequest, request.body);
     // `attachmentIds` ride along in `body`: the messaging service checks and binds them.
-    if (access.access === 'viewer') {
-      const operator = operatorOf(await domain.projects.config(key));
-      if (!operator || body.to.some((handle) => handle !== operator.handle))
-        throw forbidden('insufficient_access', 'Developer or client access required');
-    }
     if (body.taskKey) domain.tasks.get(key, body.taskKey);
     return reply.code(202).send(
       await domain.messaging.send(key, senderOf(access), body, {

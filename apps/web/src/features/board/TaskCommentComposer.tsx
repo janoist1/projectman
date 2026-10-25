@@ -4,6 +4,7 @@ import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
 import { TextAreaField } from '../../components/Field';
 import { t } from '../../i18n/t';
+import { useContacts } from '../messages/useContacts';
 import { errorMessage } from '../../lib/errors';
 import type { MemberIndex } from '../../lib/members';
 import styles from './TaskCommentComposer.module.css';
@@ -16,8 +17,12 @@ export function TaskCommentComposer({ taskKey, members }: { taskKey: string; mem
   const [selected, setSelected] = useState(0);
   const textarea = useRef<HTMLTextAreaElement>(null);
   const listId = useId();
+  const contacts = useContacts();
+  // A member who writes only to the contacts mentions only them (PM-985); the others get no notice anyway.
+  const mentionable = [...members.values()].filter((member) => contacts.canWriteTo(member.handle));
+  const noContacts = contacts.restricted && contacts.ready && mentionable.length === 0;
   const options = mention
-    ? [...members.values()].filter(
+    ? mentionable.filter(
         (member) =>
           member.handle.toLowerCase().includes(mention.query) ||
           member.displayName.toLowerCase().includes(mention.query),
@@ -65,7 +70,11 @@ export function TaskCommentComposer({ taskKey, members }: { taskKey: string; mem
       <TextAreaField
         ref={textarea}
         label={t('task.comments.label')}
-        hint={t('task.comments.hint')}
+        hint={
+          contacts.restricted
+            ? t(noContacts ? 'task.comments.contactsHintNone' : 'task.comments.contactsHint')
+            : t('task.comments.hint')
+        }
         rows={3}
         maxLength={10000}
         value={text}

@@ -252,6 +252,15 @@ describe('targeted Operator role configuration (PM-746)', () => {
     ]);
   });
 
+  it('asks the owner before it changes the project contacts (PM-985)', async () => {
+    await setup();
+    const result = await operate({ op: 'config_patch', patch: { contacts: ['dev-1'] } });
+    expect(result.status).toBe('awaiting_approval');
+    expect((await h.domain.projects.config('AR')).team.contacts).toEqual([]);
+    await resolve(result.inbox_item_id!);
+    expect((await h.domain.projects.config('AR')).team.contacts).toEqual(['dev-1']);
+  });
+
   it('preserves a different role edited after approval replay and before the final configuration lock', async () => {
     await setup(false, withOverrides);
     const read = await h.domain.teamTools.getRoleConfiguration(ctx, { role: 'developer' });

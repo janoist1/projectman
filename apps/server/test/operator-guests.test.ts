@@ -28,8 +28,9 @@ afterEach(async () => {
   app = undefined;
 });
 
-/** People who are no owner: a developer, a client and a read-only member. */
+/** People who are no owner: a developer, a client and a read-only member. The Operator is a contact (PM-985). */
 function withGuests(config: ProjectConfig): void {
+  config.team.contacts = ['operator'];
   for (const [handle, access] of [
     ['dana', 'developer'],
     ['cleo', 'client'],
@@ -554,6 +555,14 @@ describe('who sees the Operator’s sessions (PM-475)', () => {
       ['vera', 'viewer'],
     ] as const)
       cookies.set(handle, await addHumanAndLogin(app.app, { handle, access }));
+    await app.app.projectman.domain.projects.update(
+      'AR',
+      { actor: OWNER_ACTOR, author: { name: 'Owner', email: 'owner@example.com' } },
+      (draft) => {
+        draft.team.contacts = ['operator'];
+        return 'Make the Operator a contact';
+      },
+    );
     // The client asks the Operator with their own login.
     const sent = await inject(app.app, 'POST', routes.sendTeamMessage('AR'), cookies.get('cleo')!, {
       to: ['operator'],

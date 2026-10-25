@@ -94,7 +94,7 @@ describe('who may upload and delete attachments', () => {
     ['admin', true],
     ['developer', true],
     ['ai', true],
-    ['client', true],
+    ['client', false],
     ['viewer', false],
   ] as const)('%s: upload %s', (access, upload) => {
     expect(canUploadAttachment(viewerOf(access))).toBe(upload);
@@ -126,8 +126,7 @@ describe('who may upload and delete attachments', () => {
     expect(canDeleteAttachment(viewerOf('viewer', 'vic'), uploadedBy('human', 'vic'))).toBe(false);
   });
 
-  it('lets a client delete their own upload only', () => {
-    expect(canDeleteAttachment(viewerOf('client', 'cleo'), uploadedBy('human', 'cleo'))).toBe(true);
-    expect(canDeleteAttachment(viewerOf('client', 'cleo'), uploadedBy('human', 'dana'))).toBe(false);
+  it('never lets a client delete, not even an older upload of their own (PM-985)', () => {
+    expect(canDeleteAttachment(viewerOf('client', 'cleo'), uploadedBy('human', 'cleo'))).toBe(false);
   });
 });

@@ -654,7 +654,7 @@ export function TaskDrawer() {
           )}
         </section>
 
-        {can.createTasks && myHandle ? (
+        {can.comment && myHandle ? (
           <TaskCommentComposer key={`comments:${task.key}`} taskKey={task.key} members={members} />
         ) : null}
       </div>
@@ -785,6 +785,7 @@ export function TaskDrawer() {
                   members={members}
                   labels={labels}
                   messageParam={searchParams.get('message')}
+                  onShowCard={() => switchView('card')}
                 />
               </div>
             ) : null,

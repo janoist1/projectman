@@ -29,7 +29,9 @@ import {
   threadItems,
 } from './conversations';
 import type { ThreadEntry } from './conversations';
+import { ContactNote } from './ContactNote';
 import { DeliveryStatus } from './DeliveryStatus';
+import { useContacts } from './useContacts';
 import { TaskChip } from './TaskChip';
 import styles from './ConversationThread.module.css';
 import { MessageAttachments } from './MessageAttachments';
@@ -91,7 +93,12 @@ export function ConversationThread({
   // The project manager has one conversation (PM-434): a card only marks the message, it never picks a thread.
   const marksOnly = member?.kind === 'ai' && member.role === PROJECT_MANAGER_ROLE && !member.temp;
   const access = me.projects.find((p) => p.key === key)?.access;
-  const canSend = Boolean(access && ['owner', 'admin', 'developer', 'client'].includes(access));
+  const contacts = useContacts();
+  // A member who writes only to the contacts reads this thread but cannot answer in it (PM-985).
+  const canSend =
+    Boolean(access && ['owner', 'admin', 'developer', 'client'].includes(access)) &&
+    contacts.canWriteTo(peer);
+  const writesOnlyToContacts = contacts.restricted && contacts.ready && !contacts.canWriteTo(peer);
 
   const titles = useMemo(
     () => new Map((board.data?.tasks ?? []).map((task) => [task.key, task.title])),
@@ -175,11 +182,12 @@ export function ConversationThread({
     setTaskChoice(message.taskKey ?? '');
     composerBox.current?.querySelector('textarea')?.focus();
   };
+  const othersOf = (message: TeamMessage) =>
+    [...new Set([message.from, ...message.to])].filter((handle) => handle !== myHandle);
   const replyAll = (message: TeamMessage) =>
-    onCompose({
-      to: [...new Set([message.from, ...message.to])].filter((handle) => handle !== myHandle),
-      task: message.taskKey ?? '',
-    });
+    onCompose({ to: othersOf(message), task: message.taskKey ?? '' });
+  // "Mindenkinek" only when every other party can be written to.
+  const canReplyAll = (message: TeamMessage) => othersOf(message).every(contacts.canWriteTo);
 
   const answer = (item: InboxItem, body: ResolveInboxRequest) =>
     resolve.mutate({ item, body }, { onError: () => toast.show(t('inbox.resolveFailed'), 'error') });
@@ -226,6 +234,7 @@ export function ConversationThread({
             projectKey={key}
             titles={titles}
             canSend={canSend}
+            canReplyAll={canReplyAll(item.message)}
             onReply={reply}
             onReplyAll={replyAll}
           />
@@ -374,6 +383,8 @@ export function ConversationThread({
 
       {retired ? (
         <p className={styles.readOnly}>{t('messages.thread.retiredMember')}</p>
+      ) : contacts.restricted && !contacts.ready ? null : writesOnlyToContacts ? (
+        <ContactNote className={styles.readOnly} />
       ) : canSend ? (
         <div className={styles.composer} ref={composerBox}>
           {send.error ? (
@@ -468,6 +479,7 @@ function MessageBubble({
   projectKey,
   titles,
   canSend,
+  canReplyAll,
   onReply,
   onReplyAll,
 }: {
@@ -479,6 +491,7 @@ function MessageBubble({
   projectKey: string;
   titles: ReadonlyMap<string, string>;
   canSend: boolean;
+  canReplyAll: boolean;
   onReply: (message: TeamMessage) => void;
   onReplyAll: (message: TeamMessage) => void;
 }) {
@@ -542,7 +555,7 @@ function MessageBubble({
               <Button size="sm" variant="ghost" onClick={() => onReply(message)}>
                 {t('messages.reply')}
               </Button>
-              {also.length > 0 ? (
+              {also.length > 0 && canReplyAll ? (
                 <Button size="sm" variant="ghost" onClick={() => onReplyAll(message)}>
                   {t('messages.thread.replyAll')}
                 </Button>

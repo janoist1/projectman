@@ -3,6 +3,7 @@ import { useRef } from 'react';
 import { useProject } from '../../app/contexts';
 import { Avatar } from '../../components/Avatar';
 import { t } from '../../i18n/t';
+import { useContacts } from '../messages/useContacts';
 import { operatorDotOf, operatorStatusWithQueue } from './operatorChannel';
 import { useOperator } from './useOperator';
 import styles from './OperatorButton.module.css';
@@ -20,7 +21,11 @@ export function OperatorButton({ variant }: { variant: 'bar' | 'phone' | 'drawer
   const { myHandle, operatorOpen, openOperator, closeOperator } = useProject();
   const { state, member, handle, unread, openSignals, grant } = useOperator();
   const button = useRef<HTMLButtonElement>(null);
+  const contacts = useContacts();
   if (!myHandle) return null;
+  // A member who writes only to the contacts has the Operator's button only when it is a contact (PM-985).
+  if (contacts.restricted && (!contacts.ready || handle === null || !contacts.canWriteTo(handle)))
+    return null;
 
   const displayName = state?.member?.displayName ?? t('operator.name');
   const shortName = displayName.length > NAME_MAX ? `${displayName.slice(0, NAME_MAX - 1)}…` : displayName;

@@ -14,6 +14,7 @@ import { whenToAsk } from '../../lib/roles';
 import { PauseNote } from '../pause/PauseNote';
 import { useTeamPaused } from '../pause/usePause';
 import styles from './MessageComposer.module.css';
+import { useContacts } from './useContacts';
 import { useMessageAttachmentUploads } from './useMessageAttachmentUploads';
 import { useCardBusySend } from './useCardBusySend';
 import { MessageAttachmentTray } from './MessageAttachmentTray';
@@ -54,15 +55,21 @@ export function MessageComposer({
   });
   const teamPaused = useTeamPaused();
   const toast = useToast();
-  const [to, setTo] = useState(initialTo);
+  const contacts = useContacts();
+  const [chosen, setChosen] = useState<string[] | null>(initialTo.length ? initialTo : null);
   const [text, setText] = useState('');
   const [taskKey, setTaskKey] = useState(initialTask);
+  // A member who writes only to the contacts sees only them (PM-985).
   const recipients = (board.data?.members ?? []).filter(
-    (m) => m.handle !== myHandle && m.status !== 'retired',
+    (m) => m.handle !== myHandle && m.status !== 'retired' && contacts.canWriteTo(m.handle),
   );
+  // A single possible recipient is chosen for them until they choose themselves.
+  const to = chosen ?? (contacts.restricted && recipients.length === 1 ? [recipients[0]!.handle] : []);
   const selected = to.filter((handle) => recipients.some((m) => m.handle === handle));
   const access = me.projects.find((p) => p.key === key)?.access;
   if (!access || !['owner', 'admin', 'developer', 'client'].includes(access)) return null;
+  // Nobody to write to: the page says so instead of offering a form that cannot send.
+  if (contacts.restricted && contacts.ready && recipients.length === 0) return null;
   return (
     <form
       id={formId}
@@ -106,6 +113,7 @@ export function MessageComposer({
       ) : null}
       <fieldset className={styles.recipients} disabled={send.isPending}>
         <legend>{t('messages.recipients')}</legend>
+        {contacts.restricted ? <small>{t('messages.contactsOnlyHint')}</small> : null}
         {recipients.map((member) => {
           const ask = whenToAsk(member.roles, roles.data?.roles);
           return (
@@ -114,7 +122,9 @@ export function MessageComposer({
                 type="checkbox"
                 checked={to.includes(member.handle)}
                 onChange={(event) =>
-                  setTo(event.target.checked ? [...to, member.handle] : to.filter((h) => h !== member.handle))
+                  setChosen(
+                    event.target.checked ? [...to, member.handle] : to.filter((h) => h !== member.handle),
+                  )
                 }
               />
               <Avatar member={member} size="sm" />

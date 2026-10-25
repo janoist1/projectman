@@ -623,45 +623,48 @@ describe('attachments: delete', () => {
 });
 
 describe('attachments: who may do what', () => {
-  it('offers a viewer the list and downloads, but no upload, no paste and no delete', async () => {
-    const project = mockProject();
-    project.backend.addAttachment(
-      'AC-20',
-      { name: 'mine.txt', size: 10, type: 'text/plain' },
-      { kind: 'human', handle: 'bence' },
-    );
-    const overrides = actAs(project, 'bence', 'viewer');
-    project.render(drawerFor(project), '/p/AC/tasks/AC-20/attachments', overrides);
-    await fromList();
-    // Not even an older upload of their own can be deleted.
-    expect(screen.queryByRole('button', { name: t('attachments.chooseFiles') })).toBeNull();
-    expect(screen.queryByLabelText(t('attachments.inputLabel'))).toBeNull();
-    expect(screen.queryByRole('button', { name: new RegExp(t('attachments.delete')) })).toBeNull();
-    expect(
-      (await fromList()).getByRole('link', {
-        name: t('attachments.downloadLabel', { fileName: 'mine.txt' }),
-      }),
-    ).toBeTruthy();
-    const image = makeFile('image.png', 'image/png');
-    expect(
-      fireEvent.paste(document.body, {
-        clipboardData: { types: ['Files'], files: [image], items: [], getData: () => '' },
-      }),
-    ).toBe(true);
-    expect(uploads(project)).toHaveLength(0);
-    // The server refuses too (the fake applies the shared rule).
-    expect(
-      project.backend.handle(
-        'POST',
-        routes.taskAttachments('AC', 'AC-20'),
-        (() => {
-          const form = new FormData();
-          form.append('file', image);
-          return form;
-        })(),
-      ).status,
-    ).toBe(403);
-  });
+  it.each(['viewer', 'client'] as const)(
+    'offers a %s the list and downloads, but no upload, no paste and no delete',
+    async (access) => {
+      const project = mockProject();
+      project.backend.addAttachment(
+        'AC-20',
+        { name: 'mine.txt', size: 10, type: 'text/plain' },
+        { kind: 'human', handle: 'bence' },
+      );
+      const overrides = actAs(project, 'bence', access);
+      project.render(drawerFor(project), '/p/AC/tasks/AC-20/attachments', overrides);
+      await fromList();
+      // Not even an older upload of their own can be deleted.
+      expect(screen.queryByRole('button', { name: t('attachments.chooseFiles') })).toBeNull();
+      expect(screen.queryByLabelText(t('attachments.inputLabel'))).toBeNull();
+      expect(screen.queryByRole('button', { name: new RegExp(t('attachments.delete')) })).toBeNull();
+      expect(
+        (await fromList()).getByRole('link', {
+          name: t('attachments.downloadLabel', { fileName: 'mine.txt' }),
+        }),
+      ).toBeTruthy();
+      const image = makeFile('image.png', 'image/png');
+      expect(
+        fireEvent.paste(document.body, {
+          clipboardData: { types: ['Files'], files: [image], items: [], getData: () => '' },
+        }),
+      ).toBe(true);
+      expect(uploads(project)).toHaveLength(0);
+      // The server refuses too (the fake applies the shared rule).
+      expect(
+        project.backend.handle(
+          'POST',
+          routes.taskAttachments('AC', 'AC-20'),
+          (() => {
+            const form = new FormData();
+            form.append('file', image);
+            return form;
+          })(),
+        ).status,
+      ).toBe(403);
+    },
+  );
 
   it('lets a developer delete only their own', async () => {
     const project = mockProject();
@@ -698,30 +701,6 @@ describe('attachments: who may do what', () => {
       ).toBeTruthy();
       unmount();
     }
-  });
-
-  it('lets a client upload to a shared task and delete their own only', async () => {
-    const project = mockProject();
-    project.backend.addAttachment('AC-19', { name: 'ours.txt', size: 10, type: 'text/plain' }, OWNER_ACTOR);
-    project.backend.addAttachment(
-      'AC-19',
-      { name: 'bence.txt', size: 10, type: 'text/plain' },
-      { kind: 'human', handle: 'bence' },
-    );
-    project.render(drawerFor(project), '/p/AC/tasks/AC-19/attachments', actAs(project, 'bence', 'client'));
-    await fromList();
-    expect(
-      screen.getByRole('button', { name: t('attachments.deleteLabel', { fileName: 'bence.txt' }) }),
-    ).toBeTruthy();
-    expect(
-      screen.queryByRole('button', { name: t('attachments.deleteLabel', { fileName: 'ours.txt' }) }),
-    ).toBeNull();
-    choose(makeFile('from-client.txt'));
-    await findAddedRow('from-client.txt');
-    expect(project.backend.attachments.at(-1)).toMatchObject({
-      fileName: 'from-client.txt',
-      uploadedBy: { kind: 'human', handle: 'bence' },
-    });
   });
 });
 
@@ -854,34 +833,27 @@ describe('attachments: cover choice', () => {
     expect(alert.textContent).toContain(t('errors.codes.cover_not_an_image'));
   });
 
-  it('offers a viewer no cover buttons and no hint, and the server refuses too', async () => {
-    const project = mockProject();
-    project.backend.addAttachment('AC-20', png);
-    const second = project.backend.addAttachment('AC-20', jpg);
-    project.backend.covers.set('AC-20', { mode: 'hidden' });
-    project.render(drawerFor(project), '/p/AC/tasks/AC-20/attachments', actAs(project, 'bence', 'viewer'));
-    await fromList();
-    expect(makeButton('one.png')).toBeNull();
-    expect(makeButton('two.jpg')).toBeNull();
-    expect(hideButton('one.png')).toBeNull();
-    expect(screen.queryByText(t('attachments.coverHidden'))).toBeNull();
-    expect(
-      project.backend.handle('PUT', routes.taskCover('AC', 'AC-20'), {
-        mode: 'pinned',
-        attachmentId: second.id,
-      }).status,
-    ).toBe(403);
-  });
-
-  it('lets a client choose the cover', async () => {
-    const project = mockProject();
-    project.backend.addAttachment('AC-19', png);
-    project.backend.addAttachment('AC-19', jpg);
-    project.render(drawerFor(project), '/p/AC/tasks/AC-19/attachments', actAs(project, 'bence', 'client'));
-    await fromList();
-    expect(makeButton('two.jpg')).toBeTruthy();
-    expect(hideButton('one.png')).toBeTruthy();
-  });
+  it.each(['viewer', 'client'] as const)(
+    'offers a %s no cover buttons and no hint, and the server refuses too',
+    async (access) => {
+      const project = mockProject();
+      project.backend.addAttachment('AC-20', png);
+      const second = project.backend.addAttachment('AC-20', jpg);
+      project.backend.covers.set('AC-20', { mode: 'hidden' });
+      project.render(drawerFor(project), '/p/AC/tasks/AC-20/attachments', actAs(project, 'bence', access));
+      await fromList();
+      expect(makeButton('one.png')).toBeNull();
+      expect(makeButton('two.jpg')).toBeNull();
+      expect(hideButton('one.png')).toBeNull();
+      expect(screen.queryByText(t('attachments.coverHidden'))).toBeNull();
+      expect(
+        project.backend.handle('PUT', routes.taskCover('AC', 'AC-20'), {
+          mode: 'pinned',
+          attachmentId: second.id,
+        }).status,
+      ).toBe(403);
+    },
+  );
 });
 
 describe('attachments: live and lost access', () => {

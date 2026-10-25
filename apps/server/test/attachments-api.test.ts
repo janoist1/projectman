@@ -393,14 +393,16 @@ describe('task attachments API', () => {
       ]);
     });
 
-    it('lets everyone but viewers upload', async () => {
-      for (const who of ['admin', 'developer', 'other', 'client'] as const) {
+    it('lets everyone but viewers and clients upload (PM-985)', async () => {
+      for (const who of ['admin', 'developer', 'other'] as const) {
         expect((await uploadFile(h.app, cookies[who]!, pngBytes())).statusCode, who).toBe(201);
       }
-      const viewer = await uploadFile(h.app, cookies.viewer!, pngBytes());
-      expect(viewer.statusCode).toBe(403);
-      expect(errorCode(viewer)).toBe('insufficient_access');
-      expect(storedFiles()).toHaveLength(4);
+      for (const who of ['viewer', 'client'] as const) {
+        const refused = await uploadFile(h.app, cookies[who]!, pngBytes());
+        expect(refused.statusCode, who).toBe(403);
+        expect(errorCode(refused), who).toBe('insufficient_access');
+      }
+      expect(storedFiles()).toHaveLength(3);
     });
 
     it('lets an AI member upload and delete its own file', async () => {
@@ -448,31 +450,28 @@ describe('task attachments API', () => {
       expect(storedFiles()).toEqual([]);
     });
 
-    it('does not let a viewer delete an older upload of their own', async () => {
-      const mine = await upload(cookies.developer!);
-      await h.app.projectman.domain.projects.update(
-        'AR',
-        { actor: OWNER_ACTOR, author: { name: 'Owner', email: 'owner@example.com' } },
-        (draft) => {
-          const member = draft.team.members.find((m) => m.handle === 'robin');
-          if (member?.kind === 'human') member.access = 'viewer';
-          return 'Make robin a viewer';
-        },
-      );
-      const response = await inject(h.app, 'DELETE', urlOf('taskAttachment', mine.id), cookies.developer);
-      expect(response.statusCode).toBe(403);
-      expect(storedFiles()).toEqual([mine.id]);
-      // ... but can still read it.
-      expect(
-        (await inject(h.app, 'GET', urlOf('attachmentContent', mine.id), cookies.developer)).statusCode,
-      ).toBe(200);
-    });
-
-    it('lets a client delete their own upload on a shared task', async () => {
-      const own = await upload(cookies.client!, pngBytes(), { taskKey: 'AR-2' });
-      const response = await inject(h.app, 'DELETE', urlOf('taskAttachment', own.id, 'AR-2'), cookies.client);
-      expect(response.statusCode).toBe(200);
-    });
+    it.each(['viewer', 'client'] as const)(
+      'does not let a %s delete an older upload of their own',
+      async (access) => {
+        const mine = await upload(cookies.developer!);
+        await h.app.projectman.domain.projects.update(
+          'AR',
+          { actor: OWNER_ACTOR, author: { name: 'Owner', email: 'owner@example.com' } },
+          (draft) => {
+            const member = draft.team.members.find((m) => m.handle === 'robin');
+            if (member?.kind === 'human') member.access = access;
+            return `Make robin a ${access}`;
+          },
+        );
+        const response = await inject(h.app, 'DELETE', urlOf('taskAttachment', mine.id), cookies.developer);
+        expect(response.statusCode).toBe(403);
+        expect(storedFiles()).toEqual([mine.id]);
+        // ... but can still read it.
+        expect(
+          (await inject(h.app, 'GET', urlOf('attachmentContent', mine.id), cookies.developer)).statusCode,
+        ).toBe(200);
+      },
+    );
 
     it('turns away anonymous users and people outside the project', async () => {
       const attachment = await upload(owner);

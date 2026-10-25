@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import {
   BoardMoveRequest,
+  canCommentOnTask,
   ChangeTaskLabelsRequest,
   MAX_CLOSED_CARDS_DAYS,
   CreateTaskCommentRequest,
@@ -23,7 +24,7 @@ import type {
   UpdateTaskResponse,
 } from '@projectman/shared';
 import type { ApiDomain } from './ports';
-import { notFound } from '../kernel';
+import { forbidden, notFound } from '../kernel';
 import type { ProjectAccess } from '../core/members';
 import { visibleTaskDetail } from '../core/projects';
 import { actorOf, authorOf, requireAccess } from './context';
@@ -100,7 +101,10 @@ export function registerTaskRoutes(app: FastifyInstance, domain: ApiDomain): voi
 
   app.post<TaskParams>(routes.taskComments(':key', ':taskKey'), async (request, reply) => {
     const { key, taskKey } = request.params;
-    const access = await requireAccess(domain, request, key, { minimum: 'developer' });
+    // Every member but the read-only viewer comments (PM-985); the domain checks the author again.
+    const access = await requireAccess(domain, request, key);
+    if (!canCommentOnTask(access.access))
+      throw forbidden('insufficient_access', 'read-only members cannot comment');
     // Imported comments (author and time from elsewhere) are owner-only; the domain enforces it.
     const { text, ...imported } = parseBody(CreateTaskCommentRequest, request.body);
     await domain.tasks.addNote(key, taskKey, text, actorOf(access), null, imported);

@@ -28,6 +28,7 @@ export function splitProjectConfig(config: ProjectConfig): Record<ProjectFileNam
       releaseFourEyes: config.team.releaseFourEyes,
       cardMover: config.team.cardMover,
       merger: config.team.merger,
+      contacts: config.team.contacts?.length ? config.team.contacts : undefined,
       operatorWatch: config.team.operatorWatch,
       operatorApprovalWaiver: config.team.operatorApprovalWaiver,
       boundary: config.team.boundary,
@@ -75,6 +76,7 @@ export function mergeProjectFiles(files: Record<ProjectFileName, unknown>): unkn
       releaseFourEyes: team.releaseFourEyes,
       cardMover: team.cardMover,
       merger: team.merger,
+      contacts: team.contacts,
       ...(team.operatorWatch !== undefined ? { operatorWatch: team.operatorWatch } : {}),
       ...(team.operatorApprovalWaiver !== undefined
         ? { operatorApprovalWaiver: team.operatorApprovalWaiver }

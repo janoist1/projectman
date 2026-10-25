@@ -145,8 +145,8 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   (`routes.taskAttachments` and its `content`/`download` children, a multipart upload of one
   file per request, never buffered whole); there is no public static route. Who may read, upload
   and delete is one rule in `packages/shared` (`canUploadAttachment`,
-  `canDeleteAttachment`): every project member reads (a client like a viewer, PM-79); a viewer only
-  reads; AI members and the other workers upload; the uploader or
+  `canDeleteAttachment`): every project member reads (a client like a viewer, PM-79); a viewer and a
+  client only read; AI members and the other workers upload; the uploader or
   a human owner or admin deletes. The attachments service ([`core/attachments`](modules/core-attachments.md), the contract in
   `contracts/attachments.ts`) takes a stream, so REST and the team tools share one size,
   storage and access check, and judges the member against the current roster

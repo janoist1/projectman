@@ -111,6 +111,8 @@ import {
   isUnreadBy,
   threadPeersOf,
   canUploadAttachment,
+  contactHandles,
+  teamMessageRecipientRefusal,
   commentMentions,
   configSchemaIssues,
   coverAttachmentId,
@@ -2819,11 +2821,19 @@ export class MockBackend {
         if (original.kind !== 'human') return error(400, 'not_human_member', 'Only humans can be removed');
         const next = clone(this.config);
         next.team.members = next.team.members.filter((entry) => entry.handle !== handle);
+        const wasContact = (next.team.contacts ?? []).includes(handle);
+        next.team.contacts = (next.team.contacts ?? []).filter((contact) => contact !== handle);
         for (const stage of next.pipeline.stages)
           if (stage.owners) stage.owners = stage.owners.filter((h) => h !== handle);
         const failure = this.configChangeFailure(next);
         if (failure) return failure;
         this.config = next;
+        if (wasContact)
+          this.addTimeline(null, this.viewerHandle, 'team_contact_changed', {
+            handle,
+            contact: false,
+            version: this.configVersion,
+          });
         for (const item of this.inbox.filter((i) => i.state === 'open' && i.assignees.includes(handle))) {
           const remaining = item.assignees.filter((h) => h !== handle);
           item.assignees = remaining.length
@@ -3031,6 +3041,8 @@ export class MockBackend {
     const failure = this.configChangeFailure(next);
     if (failure) return failure;
     if (JSON.stringify(next) !== JSON.stringify(this.config)) {
+      const before = new Set(contactHandles(this.config));
+      const after = new Set(contactHandles(next));
       this.config = next;
       if (input.email) this.emit({ type: 'email_changed', projectKey: next.project.key });
       const message =
@@ -3038,6 +3050,13 @@ export class MockBackend {
         (input.pipeline ? 'Update pipeline' : input.limits ? 'Update limits' : 'Update project');
       this.commitConfig(message);
       this.addTimeline(null, this.viewerHandle, 'config_changed', { version: this.configVersion, message });
+      // Who became a contact and who stopped being one is its own line on the timeline (PM-985).
+      for (const handle of [...before, ...after].filter((handle) => before.has(handle) !== after.has(handle)))
+        this.addTimeline(null, this.viewerHandle, 'team_contact_changed', {
+          handle,
+          contact: after.has(handle),
+          version: this.configVersion,
+        });
       // Who merges, and which repositories need a merge, decide the cards' merge requests.
       if (input.merger || input.repoMerge) this.reconcileMerges();
     }
@@ -5503,6 +5522,7 @@ export class MockBackend {
     const target = input.handoverTo ? this.findMember(input.handoverTo) : undefined;
     const next = clone(this.config);
     next.team.members = next.team.members.filter((m) => m.handle !== handle);
+    next.team.contacts = (next.team.contacts ?? []).filter((contact) => contact !== handle);
     for (const stage of next.pipeline.stages) {
       if (stage.owners)
         stage.owners = [
@@ -5526,7 +5546,16 @@ export class MockBackend {
     member.status = 'retired';
     member.currentTaskKeys = [];
     this.config.team.members = this.config.team.members.filter((entry) => entry.handle !== handle);
+    // A retired member is no contact any more (PM-985).
+    const wasContact = (this.config.team.contacts ?? []).includes(handle);
+    this.config.team.contacts = (this.config.team.contacts ?? []).filter((contact) => contact !== handle);
     this.addTimeline(null, this.owner, 'member_retired', { handle, handoverTo: target?.handle ?? null });
+    if (wasContact)
+      this.addTimeline(null, this.owner, 'team_contact_changed', {
+        handle,
+        contact: false,
+        version: this.configVersion,
+      });
     this.commitConfig(`Retire ${handle}${target ? ` (handover to ${target.handle})` : ''}`);
     this.memberChanged(handle);
     return ok();
@@ -5757,11 +5786,25 @@ export class MockBackend {
       return error(403, 'insufficient_access', 'Developer or client required');
     const input = parseBody(SendTeamMessageRequest, body);
     if (!input) return error(400, 'invalid_request', 'Invalid message');
-    if (viewer.role === 'viewer' || this.viewerAccess() === 'viewer') {
-      const operator = operatorOf(this.config);
-      if (!operator || input.to.some((handle) => handle !== operator.handle))
-        return error(403, 'insufficient_access', 'Viewers may write to the Operator alone');
-    }
+    // The same rule as the server's: a viewer writes to the Operator alone, a client to the contacts alone (PM-985).
+    // A fixture can also mark a viewer by the member's role.
+    const operatorHandle = operatorOf(this.config)?.handle;
+    const notOperator = input.to.filter((handle) => handle !== operatorHandle);
+    const recipientRefusal =
+      viewer.role === 'viewer'
+        ? notOperator.length > 0
+          ? { code: 'insufficient_access' as const, recipients: notOperator }
+          : null
+        : teamMessageRecipientRefusal(this.config, this.viewerHandle, input.to);
+    if (recipientRefusal)
+      return error(
+        403,
+        recipientRefusal.code,
+        recipientRefusal.code === 'recipient_not_contact'
+          ? 'the message goes only to the contacts of the project'
+          : 'Developer or client access required',
+        { recipients: recipientRefusal.recipients },
+      );
     if (input.taskKey) {
       if (!this.findTask(input.taskKey)) return error(404, 'not_found', 'Unknown task');
     }

@@ -69,6 +69,8 @@ export const ERROR_CODES = [
   'already_set_up',
   'not_a_member',
   'insufficient_access',
+  /** A contact-restricted member wrote to someone who is not a project contact (PM-985); `details.recipients`. */
+  'recipient_not_contact',
   'owner_only',
   'server_stopping',
   // Websocket

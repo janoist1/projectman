@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react';
 import { Link } from 'react-router';
-import { isOperator } from '@projectman/shared';
+import { contactHandles, isOperator } from '@projectman/shared';
 import type { InboxItem, MemberView, RoleView, ProviderLoginStatus } from '@projectman/shared';
+import { useConfig } from '../../api/queries';
 import { useProject, useProjectIndexes } from '../../app/contexts';
 import { Avatar } from '../../components/Avatar';
 import { Chip, StatusDot } from '../../components/Chip';
@@ -79,9 +80,12 @@ function MemberIdentity({
   /** The phone card: one role chip and a "+N" (see RoleChips). */
   compact?: boolean;
 }) {
-  const { key, myHandle } = useProject();
+  const { key, myHandle, can } = useProject();
   const { members } = useProjectIndexes(key);
   const required = useIsRequiredPm(member.handle);
+  // Only a viewer who manages the team reads the configuration for the contact chip (a hint for them).
+  const config = useConfig(key, can.manageTeam).data?.config;
+  const isContact = config ? contactHandles(config).includes(member.handle) : false;
   const builtIn = isOperator(member);
   return (
     <div className={styles.memberCell}>
@@ -106,6 +110,7 @@ function MemberIdentity({
             </>
           ) : null}
           {member.temp ? <Chip tone="needs">{t('team.temp')}</Chip> : null}
+          {isContact ? <Chip>{t('team.contactChip')}</Chip> : null}
           {required && !compact ? (
             <Chip tone="accent" title={t('pm.required.title')}>
               {t('pm.required.chip')}

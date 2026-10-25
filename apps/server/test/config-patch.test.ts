@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { labelHolders, releaseApprovers } from '@projectman/shared';
+import { labelHolders, releaseApprovers, routes } from '@projectman/shared';
 import type { ConfigView, HumanAccess, ServerEvent, Task } from '@projectman/shared';
 import {
   addHumanAndLogin,
@@ -180,6 +180,92 @@ describe('configuration PATCH', () => {
     expect(response.statusCode).toBe(409);
     expect(response.json().error.code).toBe('config_conflict');
     expect(await view()).toEqual(current);
+  });
+
+  describe('contacts (PM-985)', () => {
+    const contactsOf = async () => (await view()).config.team.contacts;
+    const changes = () =>
+      h.app.projectman.domain.timeline.list('AR').filter((event) => event.type === 'team_contact_changed');
+
+    it('keeps the list when the patch does not name it, replaces it, and clears it with []', async () => {
+      expect(await contactsOf()).toEqual([]);
+      expect(
+        (await patch({ baseVersion: (await view()).version, contacts: ['cr', 'dev-1'] })).statusCode,
+      ).toBe(200);
+      expect(await contactsOf()).toEqual(['cr', 'dev-1']);
+      await patch({ baseVersion: (await view()).version, limits: { maxConcurrentAi: 2 } });
+      expect(await contactsOf()).toEqual(['cr', 'dev-1']);
+      await patch({ baseVersion: (await view()).version, contacts: ['dev-1'] });
+      expect(await contactsOf()).toEqual(['dev-1']);
+      await patch({ baseVersion: (await view()).version, contacts: [] });
+      expect(await contactsOf()).toEqual([]);
+    });
+
+    it('audits who became a contact and who stopped, beside the config change', async () => {
+      const configChanges = () =>
+        h.app.projectman.domain.timeline.list('AR').filter((event) => event.type === 'config_changed').length;
+      const before = configChanges();
+      await patch({ baseVersion: (await view()).version, contacts: ['cr', 'dev-1'] });
+      await patch({ baseVersion: (await view()).version, contacts: ['dev-1'] });
+      expect(changes().map((event) => event.data)).toEqual([
+        expect.objectContaining({ handle: 'cr', contact: true }),
+        expect.objectContaining({ handle: 'dev-1', contact: true }),
+        expect.objectContaining({ handle: 'cr', contact: false }),
+      ]);
+      expect(configChanges()).toBe(before + 2);
+    });
+
+    it('writes no event when the list stays as it was', async () => {
+      await patch({ baseVersion: (await view()).version, contacts: ['cr'] });
+      await patch({ baseVersion: (await view()).version, contacts: ['cr'] });
+      expect(changes()).toHaveLength(1);
+    });
+
+    it('refuses a handle that is no member with an issue at its place, and a null list', async () => {
+      const current = await view();
+      const unknown = await patch({ baseVersion: current.version, contacts: ['cr', 'nobody'] });
+      expect(unknown.statusCode).toBe(400);
+      expect(unknown.json().error).toMatchObject({
+        code: 'config_invalid',
+        details: { issues: [{ code: 'unknown_member', path: 'team.contacts[1]', detail: 'nobody' }] },
+      });
+      expect((await patch({ baseVersion: current.version, contacts: null })).statusCode).toBe(400);
+      expect(await view()).toEqual(current);
+    });
+
+    it('is for admins and owners, and rejects a stale version', async () => {
+      const developer = await memberLogin('developer');
+      const current = await view();
+      const refused = await patch({ baseVersion: current.version, contacts: ['cr'] }, developer);
+      expect(refused.statusCode).toBe(403);
+      const stale = await patch({ baseVersion: 'outdated', contacts: ['cr'] });
+      expect(stale.json().error.code).toBe('config_conflict');
+      expect(await view()).toEqual(current);
+    });
+
+    it('drops a contact when the AI member is retired', async () => {
+      await patch({ baseVersion: (await view()).version, contacts: ['dev-2', 'dev-1'] });
+      await h.app.projectman.domain.members.retire(
+        'AR',
+        'dev-2',
+        {},
+        { actor: { kind: 'human', handle: 'owner' }, author: OWNER_LOGIN },
+      );
+      expect(await contactsOf()).toEqual(['dev-1']);
+      expect(changes().at(-1)?.data).toMatchObject({ handle: 'dev-2', contact: false });
+    });
+
+    it('drops a contact when the person is removed', async () => {
+      await memberLogin('client');
+      await patch({ baseVersion: (await view()).version, contacts: ['kata'] });
+      const removed = await h.app.inject({
+        method: 'DELETE',
+        url: routes.removeHuman('AR', 'kata'),
+        headers: { cookie },
+      });
+      expect(removed.statusCode).toBe(204);
+      expect(await contactsOf()).toEqual([]);
+    });
   });
 
   it.each([

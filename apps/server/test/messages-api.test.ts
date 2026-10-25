@@ -214,9 +214,17 @@ describe('human team messages and member profiles', () => {
     ).toBe(404);
   });
 
+  /** The project's contacts, as an admin sets them. */
+  const setContacts = (...contacts: string[]) =>
+    h.app.projectman.domain.projects.update(key, { actor, author: OWNER_LOGIN }, (draft) => {
+      draft.team.contacts = contacts;
+      return 'Set contacts';
+    });
+
   it('accepts developers and clients, rejects viewers, validates all recipients before recording', async () => {
     const kata = await human('kata', 'client');
     const bence = await human('bence');
+    await setContacts('dev-1', 'owner');
     expect((await send(['dev-1'], bence)).statusCode).toBe(202);
     await h.app.projectman.domain.members.update(
       key,
@@ -266,6 +274,59 @@ describe('human team messages and member profiles', () => {
         })
       ).statusCode,
     ).toBe(400);
+  });
+
+  describe('contact-restricted senders', () => {
+    it('refuses the whole message when one recipient is not a contact, and records nothing', async () => {
+      const kata = await human('kata', 'client');
+      await setContacts('dev-1');
+      const before = h.app.projectman.repos.messages.list(key).length;
+      const res = await send(['dev-1', 'owner'], kata);
+      expect(res.statusCode).toBe(403);
+      expect(res.json()).toMatchObject({
+        error: { code: 'recipient_not_contact', details: { recipients: ['owner'] } },
+      });
+      expect(h.app.projectman.repos.messages.list(key)).toHaveLength(before);
+      expect(h.app.projectman.domain.sessions.list(key, { member: 'dev-1' })).toEqual([]);
+    });
+
+    it('refuses everyone when no contact is set, the Operator included', async () => {
+      const kata = await human('kata', 'client');
+      for (const to of ['dev-1', 'operator']) {
+        const res = await send([to], kata);
+        expect(res.statusCode).toBe(403);
+        expect(res.json()).toMatchObject({
+          error: { code: 'recipient_not_contact', details: { recipients: [to] } },
+        });
+      }
+    });
+
+    it('checks the recipients again with the fresh config when recording', async () => {
+      const kata = await human('kata', 'client');
+      await setContacts('dev-1');
+      const projects = h.app.projectman.domain.projects;
+      const real = projects.cachedConfig.bind(projects);
+      // The admin removes the contact after the first check and before the message is recorded.
+      vi.spyOn(projects, 'cachedConfig').mockImplementation((projectKey) => {
+        const config = real(projectKey);
+        return config && { ...config, team: { ...config.team, contacts: [] } };
+      });
+      const before = h.app.projectman.repos.messages.list(key).length;
+      const res = await send(['dev-1'], kata);
+      expect(res.statusCode).toBe(403);
+      expect(res.json()).toMatchObject({ error: { code: 'recipient_not_contact' } });
+      expect(h.app.projectman.repos.messages.list(key)).toHaveLength(before);
+    });
+
+    it('lets a viewer message only the Operator, and keeps insufficient_access', async () => {
+      const vera = await human('vera', 'viewer');
+      const res = await send(['dev-1'], vera);
+      expect(res.statusCode).toBe(403);
+      expect(res.json()).toMatchObject({
+        error: { code: 'insufficient_access', details: { recipients: ['dev-1'] } },
+      });
+      expect((await send(['operator'], vera)).statusCode).toBe(202);
+    });
   });
 
   it('enforces member capacity, concurrency, provider usage, and reuses live conversations', async () => {

@@ -1,4 +1,5 @@
 import {
+  DEFAULT_AGENT_PROVIDER,
   emailChannelOn,
   emailSenderOf,
   approverOf,
@@ -27,7 +28,7 @@ import {
 import type { DutyId, OperatorWatch } from '@projectman/shared';
 import { getLocale } from '@projectman/templates';
 import { roleLabel } from '../agent-text';
-import type { ContextPack, ContextPackInput } from '../contracts';
+import type { ContextPack, ContextPackInput, PromptSection, PromptSectionId } from '../contracts';
 import {
   describeReadOnlySessionFolder,
   describeSandbox,
@@ -53,34 +54,44 @@ export function buildSystemPrompt(
   input: ContextPackInput,
   situation: Situation,
   guide: ContextPack['guide'],
-): string {
-  return [
-    identitySection(input),
-    teamSection(input),
-    teamworkSection(input),
-    tokenEconomySection(),
-    pipelineSection(input, situation),
-    labelsSection(input),
-    emailChannelSection(input),
-    teamRulesSection(input, guide),
-    workItemSection(input, situation),
-    sessionPolicySection(input),
-    workspaceSection(input),
-    unattendedCommandsSection(input, guide),
-    heavyCommandsSection(input),
-    untestedChecksSection(input),
-    sessionFolderSection(input),
-    boundarySection(input),
-    cheapSubagentSection(input.member),
-    guardrailsSection(input),
-    roleSection(input, guide),
-    checklistSection(input, guide),
-    operatorKnowledgeSection(input),
-    operatorPreferenceSection(input),
-    memorySection(input),
-  ]
-    .filter(Boolean)
-    .join('\n\n');
+): PromptSection[] {
+  const sections: Array<[PromptSectionId, string]> = [
+    ['identity', identitySection(input)],
+    ['team', teamSection(input)],
+    ['teamwork', teamworkSection(input)],
+    ['token_economy', tokenEconomySection()],
+    ['pipeline', pipelineSection(input, situation)],
+    ['labels', labelsSection(input)],
+    ['email_channel', emailChannelSection(input)],
+    ['team_rules', teamRulesSection(input, guide)],
+    ['work_item', workItemSection(input, situation)],
+    ['session_policy', input.placementDeferred ? '' : sessionPolicySection(input)],
+    ['workspace', input.placementDeferred ? '' : workspaceSection(input)],
+    [
+      'commands',
+      input.placementDeferred && (input.member.provider ?? DEFAULT_AGENT_PROVIDER) === 'claude'
+        ? ''
+        : unattendedCommandsSection(input, guide),
+    ],
+    ['heavy_commands', heavyCommandsSection(input)],
+    ['untested_checks', untestedChecksSection(input)],
+    ['session_folder', input.placementDeferred ? '' : sessionFolderSection(input)],
+    ['boundary', boundarySection(input)],
+    ['cheap_subagent', cheapSubagentSection(input.member)],
+    ['guardrails', guardrailsSection(input)],
+    ['role', roleSection(input, guide)],
+    ['checklist', checklistSection(input, guide)],
+    ['operator_knowledge', operatorKnowledgeSection(input)],
+    ['operator_preference', operatorPreferenceSection(input)],
+    ['memory', memorySection(input)],
+  ];
+  return sections
+    .filter(([, text]) => Boolean(text))
+    .map(([id, text]) => ({
+      id,
+      title: text.startsWith('# ') ? text.split('\n')[0]!.slice(2) : id,
+      text,
+    }));
 }
 
 /** Codex members differ in a few words: their plan, the tool naming and the project's rules file. */

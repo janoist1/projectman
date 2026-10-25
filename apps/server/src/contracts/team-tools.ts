@@ -88,6 +88,13 @@ import type { IntegratorPrincipal } from './integrator-principal';
 import type { CardQuestion, CardWorker, GuideTopic } from './context';
 import type { MessageStateReport, ProjectStateReport, TaskStateReport } from './project-state';
 
+export interface TeamToolListing {
+  name: string;
+  title: string;
+  description: string;
+}
+export type VisibleTeamTools = (audience: MemberAudience) => TeamToolListing[];
+
 /** What read_project_doc answers: the lines asked for of a project document at one commit. */
 export interface ProjectDocRead {
   doc: ProjectDoc;

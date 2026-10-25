@@ -14,10 +14,8 @@ import {
   sessionApproverChangeRefusal,
   isOnLeave,
   isOperator,
-  isProjectManager,
-  mergerOf,
-  dutyMembers,
-  DUTY_IDS,
+  isTheme,
+  roleBundle,
   isWorkPaused,
   memberOf,
   permissionDecidersNow,
@@ -35,6 +33,8 @@ import type {
   EngineId,
   HandoffSummary,
   MemberConfig,
+  MemberContextPreview,
+  MemberHandle,
   MemberStatus,
   OperatorPreferenceData,
   PausePoint,
@@ -45,11 +45,12 @@ import type {
   SessionState,
   SessionStop,
   Task,
+  TaskKey,
   UpdateSessionRequest,
   WorkDoing,
   WorkItemRef,
 } from '@projectman/shared';
-import { openingTurnOrigin } from '../../contracts';
+import { GUIDE_TOPICS, openingTurnOrigin } from '../../contracts';
 import type {
   AttachmentOperations,
   CardWorker,
@@ -67,6 +68,7 @@ import type {
   ToolContext,
   MemberAudience,
   TranscriptReader,
+  VisibleTeamTools,
 } from '../../contracts';
 import { encodeWorkItem } from '../../db';
 import { roleLabel } from '../../agent-text';
@@ -75,7 +77,7 @@ import { assertNotPaused } from '../admission';
 import type { CardQuestions } from '../../core/inbox';
 import { isoNow } from '../../core/base';
 import type { DomainContext } from '../../core/base';
-import { conflict, DomainError, forbidden, notFound } from '../../kernel';
+import { conflict, DomainError, forbidden, invalid, notFound } from '../../kernel';
 import type { MemberService } from '../../core/members';
 import type { ProjectFocusService } from '../../core/tasks';
 import type { ConfigChange, ProjectService } from '../../core/projects';
@@ -102,6 +104,8 @@ import { SessionTimers } from './session-timers';
 import { TurnFinishes } from './turn-finish';
 import { MemberWorkspaces } from './workspaces';
 import { engineIdOf, engineOption } from './engines';
+import { memberAudience } from './audience';
+import { SessionContextInput } from './context-input';
 
 export { LIVE_SESSION_STATES } from '@projectman/shared';
 /** A turn is in progress: these count against `maxConcurrentAi`. */
@@ -153,6 +157,7 @@ export interface SessionOrchestratorDeps {
   runner: SessionRunner;
   transcripts: TranscriptReader;
   contextBuilder: ContextPackBuilder;
+  visibleTeamTools: VisibleTeamTools;
   /** The questions asked on a card, listed in the brief and in a resumed session's first message (PM-249). */
   cardQuestions: Pick<CardQuestions, 'list'>;
   memory: MemberMemoryStore;
@@ -251,6 +256,7 @@ export class SessionOrchestrator {
   private readonly lifecycle: SessionLifecycle;
   /** Starts the sessions' processes (`launch.ts`). */
   private readonly launcher: SessionLauncher;
+  private readonly contextInput: SessionContextInput;
   /** What the provider limits: token usage, the request quota and a lost login (`provider-limits.ts`). */
   private readonly limits: ProviderLimits;
   /** Compares live rows with the runner between restarts (`live-reconcile.ts`). */
@@ -339,19 +345,22 @@ export class SessionOrchestrator {
       publish: (session) => this.publishSession(session),
       background: (job) => this.lifecycle.run(job),
     });
+    this.contextInput = new SessionContextInput(deps, {
+      fullTests: () => this.fullTests,
+      findRunning: (projectKey, member, workItem) => this.findRunning(projectKey, member, workItem),
+      cardWorkersFor: (config, task, self) => this.cardWorkersFor(config, task, self),
+    });
     this.launcher = new SessionLauncher(deps, {
       live: this.live,
       mergeCards: this.mergeCards,
       screenshotScopes: this.screenshotScopes,
-      fullTests: () => this.fullTests,
+      contextInput: this.contextInput,
       workspacesOf: (engineId) => this.workspacesOf(engineId),
       allWorkspaces: () => this.allWorkspaces(),
       publishSession: (session) => this.publishSession(session),
       recomputeMemberState: (projectKey, handle) => this.recomputeMemberState(projectKey, handle),
       sessionGrants: (session) => this.sessionGrants(session),
       cardEngineId: (projectKey, task) => this.cardEngineId(projectKey, task),
-      findRunning: (projectKey, member, workItem) => this.findRunning(projectKey, member, workItem),
-      cardWorkersFor: (config, task, self) => this.cardWorkersFor(config, task, self),
       transcriptWritten: (session) => this.transcriptWritten(session),
       transcriptSummary: (session) => this.transcriptSummary(session),
       compactFirst: (existing, resume, provider) => this.compaction.firstOnResume(existing, resume, provider),
@@ -546,19 +555,75 @@ export class SessionOrchestrator {
   /** Recomputed from the current project configuration for each MCP request. */
   audienceOf(ctx: ToolContext): MemberAudience {
     const config = this.deps.projects.cachedConfig(ctx.projectKey);
-    const member = config ? memberOf(config, ctx.member) : undefined;
-    const merger = config ? mergerOf(config) : undefined;
+    return config
+      ? memberAudience(config, ctx.member)
+      : {
+          operator: false,
+          projectManager: false,
+          merger: false,
+          duties: new Set(),
+        };
+  }
+
+  /** Builds the current context without reserving placement or recording a session. */
+  async previewContext(
+    projectKey: string,
+    handle: MemberHandle,
+    opts: { taskKey?: TaskKey; viewer: MemberHandle },
+  ): Promise<MemberContextPreview> {
+    const config = await this.deps.projects.config(projectKey);
+    const member = requireAiMember(config, handle);
+    const task = opts.taskKey ? this.deps.tasks.find(projectKey, opts.taskKey) : null;
+    if (opts.taskKey && !task) throw new DomainError('task_not_found', 'task not found', { status: 404 });
+    if (task && isTheme(task)) throw invalid('task_is_theme', 'a theme has no task context');
+    const workItem: WorkItemRef = task ? { type: 'task', taskKey: task.key } : { type: 'general' };
+    const cause: SessionStartCause = {
+      kind: task ? 'start_button' : 'conversation',
+      by: { kind: 'human', handle: opts.viewer },
+    };
+    const prepared = await this.contextInput.prepare(config, member, workItem, task, {
+      placementDeferred: true,
+    });
+    const { handoff } = this.contextInput.handoffFor(task, member);
+    const standing = this.contextInput.standingFor(config, member, task, null, false);
+    const input = await this.contextInput.build(
+      config,
+      member,
+      workItem,
+      task,
+      null,
+      cause,
+      prepared,
+      standing,
+      handoff,
+    );
+    const pack = this.deps.contextBuilder.build({ ...input, placementDeferred: true });
+    const counted = (text: string) => ({ text, chars: Array.from(text).length });
     return {
-      operator: isOperator(member),
-      projectManager: isProjectManager(member),
-      merger: merger?.kind === 'member' && merger.handle === ctx.member,
-      duties: new Set(
-        config
-          ? DUTY_IDS.filter((duty) =>
-              dutyMembers(config, duty).some((holder) => holder.handle === ctx.member),
-            )
-          : [],
-      ),
+      generatedAt: isoNow(this.ctx),
+      member: {
+        handle,
+        role: member.role,
+        duties: roleBundle(config, member.role).duties,
+        onLeave: isOnLeave(member),
+      },
+      situation: task ? { kind: 'task', taskKey: task.key, stageId: task.stageId } : { kind: 'general' },
+      prompt: {
+        ...counted(pack.appendSystemPrompt),
+        sections: pack.sections.map((section) => ({ ...section, ...counted(section.text) })),
+      },
+      initialMessage: pack.initialMessage === null ? null : counted(pack.initialMessage),
+      guides: GUIDE_TOPICS.flatMap((topic) => {
+        const text = pack.guide[topic];
+        if (!text) return [];
+        const title =
+          text
+            .split('\n')
+            .find((line) => line.startsWith('# '))
+            ?.slice(2) ?? topic;
+        return [{ topic, title, ...counted(text) }];
+      }),
+      tools: this.deps.visibleTeamTools(memberAudience(config, handle)),
     };
   }
 

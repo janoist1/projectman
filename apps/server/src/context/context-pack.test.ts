@@ -40,6 +40,68 @@ import { dutyPrompt, handover } from './work-item';
 
 const builder = createContextPackBuilder();
 
+describe('context preview sections', () => {
+  it.each(['claude', undefined, 'codex', 'gemini', 'nanogpt'] as const)(
+    'defers only placement-dependent sections for %s',
+    (provider) => {
+      const source = input({ handle: 'fe-1', task: makeTask({ stageId: 'dev' }) });
+      source.member = { ...source.member, provider };
+      source.sessionPolicy = withSessionFolders(
+        buildSessionPolicy({
+          config: source.project,
+          role: source.member.role,
+          task: source.task!,
+          placement: {
+            kind: 'task_worktree',
+            path: '/work/task',
+            workspace: { branch: 'AR-21', baseCommit: COMMIT_A },
+          },
+        }),
+        { own: '/sessions/one', root: '/sessions' },
+      );
+      source.sandbox = sessionSandbox(source.sessionPolicy, {
+        userHome: '/home/anna',
+        appHome: '/pm',
+        sessionDir: '/sessions/one',
+      })!;
+      const launch = builder.build(source);
+      const preview = builder.build({ ...source, placementDeferred: true });
+      const deferred = [
+        'session_policy',
+        'workspace',
+        'session_folder',
+        ...(provider === undefined || provider === 'claude' ? ['commands'] : []),
+      ];
+      expect(preview.sections).toEqual(launch.sections.filter((section) => !deferred.includes(section.id)));
+      expect(preview.appendSystemPrompt).toBe(preview.sections.map((section) => section.text).join('\n\n'));
+      expect(launch.appendSystemPrompt).toBe(launch.sections.map((section) => section.text).join('\n\n'));
+      const guides = { ...launch.guide };
+      if (provider === undefined || provider === 'claude') delete guides.commands;
+      expect(preview.guide).toEqual(guides);
+      for (const section of preview.sections) {
+        expect(section.text).not.toBe('');
+        expect(section.title).toBe(
+          section.text.startsWith('# ') ? section.text.split('\n')[0]!.slice(2) : section.id,
+        );
+      }
+    },
+  );
+
+  it('omits a review workspace even without a placement policy', () => {
+    const source = input({
+      task: makeTask({
+        reviewPin: { commit: COMMIT_B, branch: 'AR-21', pinnedAt: '2026-10-01T10:00:00.000Z' },
+      }),
+    });
+    expect(builder.build(source).sections.some((section) => section.id === 'workspace')).toBe(true);
+    expect(
+      builder
+        .build({ ...source, placementDeferred: true })
+        .sections.some((section) => section.id === 'workspace'),
+    ).toBe(false);
+  });
+});
+
 describe('Operator checklist onboarding', () => {
   const checklist: NonNullable<ContextPackInput['checklist']> = {
     items: [

@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import {
   HireMemberRequest,
+  MemberContextQuery,
   hasOperatorWaiverField,
   AddHumanMemberRequest,
   RetireMemberRequest,
@@ -32,6 +33,16 @@ export function registerMemberRoutes(app: FastifyInstance, domain: ApiDomain): v
     const { key, handle } = request.params;
     await requireAccess(domain, request, key);
     return { memory: await domain.sessions.memory(key, handle) };
+  });
+
+  app.get<MemberParams>(routes.memberContext(':key', ':handle'), async (request) => {
+    const { key, handle } = request.params;
+    if (request.principal)
+      throw forbidden('insufficient_access', "only the owner's own login may preview context");
+    const access = await requireAccess(domain, request, key, { minimum: 'owner' });
+    if (access.via) throw forbidden('insufficient_access', "only the owner's own login may preview context");
+    const query = parseBody(MemberContextQuery, request.query);
+    return domain.sessions.previewContext(key, handle, { taskKey: query.task, viewer: access.handle });
   });
 
   app.post<MemberParams>(routes.startConversation(':key', ':handle'), async (request, reply) => {

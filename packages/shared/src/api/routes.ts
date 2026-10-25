@@ -191,6 +191,7 @@ export const routes = {
   sendTeamMessage: (key: string) => `/api/projects/${key}/messages`,
   readTeamMessage: (key: string, id: string) => `/api/projects/${key}/messages/${id}/read`,
   memberProfile: (key: string, handle: string) => `/api/projects/${key}/members/${handle}/profile`,
+  memberContext: (key: string, handle: string) => `/api/projects/${key}/members/${handle}/context`,
   memberMemories: (key: string, handle: string) => `/api/projects/${key}/members/${handle}/memories`,
   startConversation: (key: string, handle: string) => `/api/projects/${key}/members/${handle}/conversation`,
   removeHuman: (key: string, handle: string) => `/api/projects/${key}/members/${handle}/remove`,

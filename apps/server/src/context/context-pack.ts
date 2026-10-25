@@ -43,8 +43,10 @@ export function createContextPackBuilder(): ContextPackBuilder {
     build(input: ContextPackInput): ContextPack {
       const situation = assess(input);
       const guide: ContextPack['guide'] = {};
-      const appendSystemPrompt = buildSystemPrompt(input, situation, guide);
+      const sections = buildSystemPrompt(input, situation, guide);
+      const appendSystemPrompt = sections.map((section) => section.text).join('\n\n');
       return {
+        sections,
         appendSystemPrompt,
         guide,
         initialMessage: buildBrief(input, situation),

@@ -30,6 +30,8 @@ import type {
  */
 
 export interface ContextPackInput {
+  /** Preview only: placement and its sandbox have not been allocated. */
+  placementDeferred?: true;
   /** Current checklist data for the Operator; absent for other members or older projects. */
   checklist?: Pick<ProjectChecklist, 'items'>;
   /**
@@ -188,7 +190,41 @@ export interface RelatedSession {
 export const GUIDE_TOPICS = ['commands', 'rules', 'role'] as const;
 export type GuideTopic = (typeof GUIDE_TOPICS)[number];
 
+const PROMPT_SECTION_IDS = [
+  'identity',
+  'team',
+  'teamwork',
+  'token_economy',
+  'pipeline',
+  'labels',
+  'email_channel',
+  'team_rules',
+  'work_item',
+  'session_policy',
+  'workspace',
+  'commands',
+  'heavy_commands',
+  'untested_checks',
+  'session_folder',
+  'boundary',
+  'cheap_subagent',
+  'guardrails',
+  'role',
+  'checklist',
+  'operator_knowledge',
+  'operator_preference',
+  'memory',
+] as const;
+export type PromptSectionId = (typeof PROMPT_SECTION_IDS)[number];
+export interface PromptSection {
+  id: PromptSectionId;
+  title: string;
+  text: string;
+}
+
 export interface ContextPack {
+  /** Nonempty sections in prompt order; joining their text reconstructs appendSystemPrompt. */
+  sections: PromptSection[];
   /** On-demand details for topics indexed in the prompt (get_guide). */
   guide: Partial<Record<GuideTopic, string>>;
   /**

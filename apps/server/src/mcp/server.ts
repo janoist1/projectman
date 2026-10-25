@@ -2,11 +2,25 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { AjvJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/ajv';
 import type { FastifyBaseLogger } from 'fastify';
-import { TeamToolError, type TeamToolsHandler, type ToolContext, type MemberAudience } from '../contracts';
+import {
+  TeamToolError,
+  type TeamToolsHandler,
+  type ToolContext,
+  type MemberAudience,
+  type TeamToolListing,
+} from '../contracts';
 import { toolVisible } from './kit';
 import { TEAM_INSTRUCTIONS, TEAM_TOOLS, type TeamTool } from './tools';
 
 export const SERVER_INFO = { name: 'projectman-team', version: '1.0.0' } as const;
+
+function toolsFor(audience: MemberAudience): TeamTool[] {
+  return TEAM_TOOLS.filter((tool) => toolVisible(tool.audience, audience));
+}
+
+export function visibleTeamTools(audience: MemberAudience): TeamToolListing[] {
+  return toolsFor(audience).map(({ name, title, description }) => ({ name, title, description }));
+}
 
 /**
  * A handler that has not answered after this long gets a `timeout` tool error, so a hung
@@ -43,8 +57,7 @@ export const jsonSchemaValidator = new AjvJsonSchemaValidator();
 export function createTeamMcpServer(ctx: ToolContext, deps: TeamServerDeps): McpServer {
   const server = new McpServer(SERVER_INFO, { instructions: TEAM_INSTRUCTIONS, jsonSchemaValidator });
   const audience = deps.audienceOf(ctx);
-  for (const tool of TEAM_TOOLS) {
-    if (!toolVisible(tool.audience, audience)) continue;
+  for (const tool of toolsFor(audience)) {
     server.registerTool(
       tool.name,
       {

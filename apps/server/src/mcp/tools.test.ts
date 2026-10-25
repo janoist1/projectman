@@ -2,7 +2,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import Fastify from 'fastify';
 import { describe, expect, it } from 'vitest';
-import { createTeamMcpServer, DEFAULT_TOOL_TIMEOUT_MS } from './server';
+import { createTeamMcpServer, DEFAULT_TOOL_TIMEOUT_MS, visibleTeamTools } from './server';
 import { createFakeTeamToolsHandler, devContext, operatorAudience } from './testing';
 import type { MemberAudience } from '../contracts';
 import { toolVisible, type ToolAudience } from './kit';
@@ -32,6 +32,15 @@ async function listToolsFor(audience: MemberAudience) {
 }
 
 describe('tool audience', () => {
+  it.each([operatorAudience, developerAudience, { ...developerAudience, projectManager: true }])(
+    'registers exactly the tools listed by the context preview for %o',
+    async (audience) => {
+      const result = await listToolsFor(audience);
+      expect(result.tools.map(({ name, title, description }) => ({ name, title, description }))).toEqual(
+        visibleTeamTools(audience),
+      );
+    },
+  );
   it.each<{ audience: ToolAudience | undefined; member: MemberAudience; visible: boolean }>([
     { audience: undefined, member: developerAudience, visible: true },
     { audience: {}, member: operatorAudience, visible: true },

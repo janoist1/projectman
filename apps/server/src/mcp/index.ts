@@ -37,6 +37,7 @@ export { EmailChannelTools } from './email-channel';
 export { ExternalTools } from './super-operator/handler';
 
 export { TEAM_TOOLS, TEAM_TOOL_NAMES, toolOutputText } from './tools';
+export { visibleTeamTools } from './server';
 
 /**
  * Team tools MCP endpoint (`/mcp/:token`) for AI members' Claude Code sessions.

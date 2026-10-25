@@ -5,23 +5,19 @@ import {
   DEFAULT_AGENT_PROVIDER,
   effectiveRepo,
   isMergeFixer,
-  effectiveSessionPermissions,
   handoffBlocksStart,
-  isOpenTask,
   isOperator,
   isTheme,
   memberOf,
   outboundNetworkOf,
   repoOf,
   routes,
-  stageOf,
   autoCompactWindowOf,
   usesCodexCli,
 } from '@projectman/shared';
 import type {
   AgentProvider,
   AiMemberConfig,
-  Attachment,
   EngineId,
   HandoffSummary,
   ProjectConfig,
@@ -37,27 +33,20 @@ import {
   PROVIDER_NOT_LOGGED_IN,
 } from '../../contracts';
 import type {
-  CardRelation,
-  CardWorker,
-  ContextFocus,
-  HandoffTakeover,
   EngineHost,
   EngineSessionFolders,
   PreviousConversation,
-  RelatedSession,
   ScreenshotScope,
   SessionPolicy,
   WorktreeInfo,
 } from '../../contracts';
 import type { TaskHandoffRow } from '../../db';
 import { assertAiEnabled, assertNotOnLeave, assertNotPaused, assertRepoChosen } from '../admission';
-import { QUESTION_LIMIT } from '../../core/inbox';
 import { isoNow } from '../../core/base';
 import type { DomainContext } from '../../core/base';
 import { conflict, DomainError, themeRefused } from '../../kernel';
 import {
   allowedToolsFor,
-  attachmentToolRules,
   deniedToolsFor,
   buildSessionPolicy,
   sessionPolicyFor,
@@ -75,6 +64,7 @@ import type { LiveSessions } from './live-sessions';
 import type { MemberWorkspaces, WorkspacePlacement } from './workspaces';
 import { engineIdOf, engineOption } from './engines';
 import type { SessionOrchestratorDeps } from './sessions';
+import { contextMember, type SessionContextInput } from './context-input';
 
 /** Between the messages of a first input, and before the first one after a brief. */
 export const MESSAGE_SEPARATOR = '\n\n';
@@ -140,16 +130,14 @@ interface LaunchHost {
   readonly live: LiveSessions;
   readonly mergeCards: MergeCardLock;
   readonly screenshotScopes: Map<string, ScreenshotScope>;
-  /** The full test runner of the project, set after the orchestrator is built (`useFullTests`). */
-  readonly fullTests: () => { runsFor(task: Task, config: ProjectConfig): boolean } | undefined;
+  /** Shared placement-independent input reads, also used by the context preview. */
+  readonly contextInput: SessionContextInput;
   readonly workspacesOf: (engineId: EngineId) => MemberWorkspaces | null;
   readonly allWorkspaces: () => MemberWorkspaces[];
   readonly publishSession: (session: Session) => void;
   readonly recomputeMemberState: (projectKey: string, handle: string) => void;
   readonly sessionGrants: (session: Pick<Session, 'id' | 'projectKey'>) => number;
   readonly cardEngineId: (projectKey: string, task: Task) => EngineId;
-  readonly findRunning: (projectKey: string, member: string, workItem: WorkItemRef) => Session | null;
-  readonly cardWorkersFor: (config: ProjectConfig, task: Task, self: string) => CardWorker[];
   readonly transcriptWritten: (session: Session) => Promise<boolean>;
   readonly transcriptSummary: (session: Session) => Promise<HandoffSummary | null>;
   /** The compaction a resumed conversation owes, to type first (`RoundCompaction.firstOnResume`). */
@@ -262,9 +250,6 @@ export class SessionLauncher {
     assertRepoChosen(config, member.role, task);
     const projectKey = config.project.key;
     const provider = member.provider ?? DEFAULT_AGENT_PROVIDER;
-    // The session's own permission settings, set by an owner, in place of the member's (PM-170):
-    // a resume keeps them (same row), a new session has none. The member's stay as they are.
-    const permissions = effectiveSessionPermissions(member, existing ?? {});
     // The Operator's conversation with someone who is not an owner (PM-475) runs on the team tools
     // alone: no file or shell tools, an empty directory of its own, and every other tool refused.
     const guestOf = isOperator(member) && workItem.type === 'general' ? workItem.with : undefined;
@@ -276,9 +261,9 @@ export class SessionLauncher {
         `the Operator's conversation with others needs Claude Code; ${provider} cannot be limited to the team tools`,
         { provider },
       );
-    const permissionMode =
-      guestOf !== undefined ? 'default' : (permissions.permissionMode ?? member.permissionMode);
-    const acting: AiMemberConfig = { ...member, permissionMode, approver: permissions.approver };
+    // A resume keeps its permission overrides (PM-170); a guest uses team tools alone.
+    const acting = contextMember(member, workItem, existing);
+    const { permissionMode } = acting;
     // The engine the session runs on (PM-311): every path, worktree and folder below is its. A start
     // is refused while it is not connected (admission makes it wait).
     const engineId = this.deps.engines.engineFor(projectKey, member.handle);
@@ -414,20 +399,8 @@ export class SessionLauncher {
       branch = existing.branch ?? branch;
     }
 
-    const stage = task ? (stageOf(config, task.stageId) ?? null) : null;
-    const memory =
-      guestOf !== undefined
-        ? ''
-        : await this.deps.memory.read(projectKey, member.handle).catch((err: unknown) => {
-            this.ctx.logger.warn({ err, member: member.handle }, 'could not read member memory');
-            return '';
-          });
-    const { attachments, parentAttachments, attachmentRules, attachmentDirs } = await this.attachmentsFor(
-      projectKey,
-      member.handle,
-      task,
-    );
-    const relatedSessions = task ? this.relatedSessions(projectKey, member.handle, task) : [];
+    const prepared = await this.host.contextInput.prepare(config, member, workItem, task);
+    const { attachmentRules, attachmentDirs } = prepared;
     // Resume only a conversation that exists (the runner reported its transcript), that belongs to
     // the member's current provider and that ran where the session runs now. The reported path is not
     // proof (PM-340): the CLI writes the file after its first message, and cannot resume what it never
@@ -445,11 +418,7 @@ export class SessionLauncher {
         : await this.previousConversation(existing, provider, conversationLost, relocated);
     // The card handed over to this member, until a session of theirs takes it over (PM-342); a new
     // conversation also gets the card's latest handoff note, whoever wrote it.
-    const takenHandoff =
-      task && task.assignee === member.handle
-        ? this.ctx.repos.taskHandoffs.untakenFor(task.key, member.handle)
-        : null;
-    const handoff = takenHandoff ? this.handoffTakeover(takenHandoff, provider) : null;
+    const { takenHandoff, handoff } = this.host.contextInput.handoffFor(task, member);
     let lastNoteId: string | undefined;
     if (previousConversation && task) {
       const note = this.ctx.repos.taskHandoffs.latestNote(task.key);
@@ -460,16 +429,7 @@ export class SessionLauncher {
     }
     // Who else works on the card and what was asked on it (PM-249): a new conversation gets the latest
     // questions, a resumed one those since it last ran.
-    const cardWorkers = task ? this.host.cardWorkersFor(config, task, member.handle) : [];
-    const cardQuestions = task
-      ? this.deps.cardQuestions.list(projectKey, task.key, {
-          limit: QUESTION_LIMIT,
-          ...(resume && existing ? { since: existing.lastActivityAt } : {}),
-        })
-      : [];
-    const relations = task ? this.deps.tasks.relationsOf(projectKey, task.key) : [];
-    const themeCard = task?.themeKey ? this.deps.tasks.find(projectKey, task.themeKey) : null;
-    const focus = this.focusFor(projectKey, task);
+    const standing = this.host.contextInput.standingFor(config, member, task, existing, resume);
     // What a returning reviewer reviewed last (PM-213), named in the message that wakes it.
     const lastReviewedCommit = existing ? this.ctx.repos.sessions.reviewedCommit(existing.id) : null;
     const { userHome } = paths;
@@ -563,55 +523,23 @@ export class SessionLauncher {
         ? { own: sessionFolder, root: folders.root }
         : undefined,
     );
-    const operatorKnowledge = await this.deps.operatorKnowledge
-      .forConversation(projectKey, member.handle, workItem, cause)
-      .catch((err: unknown) => {
-        this.ctx.logger.warn({ err, member: member.handle }, 'could not read operator knowledge');
-        return undefined;
-      });
-    const operatorPreference = await this.deps.operatorPreferences
-      .forConversation(projectKey, member.handle, workItem, cause)
-      .catch((err: unknown) => {
-        this.ctx.logger.warn({ err, member: member.handle }, 'could not read operator preference');
-        return undefined;
-      });
-    const checklist = isOperator(acting) ? this.ctx.repos.checklists.get(projectKey) : null;
-    const pack = this.deps.contextBuilder.build({
-      ...(task && this.host.fullTests()?.runsFor(task, config) ? { serverFullTest: true } : {}),
-      project: config,
-      ...(checklist ? { checklist } : {}),
-      // The settings that apply to this session: the system prompt tells the agent who answers.
-      member: acting,
+    const input = await this.host.contextInput.build(
+      config,
+      member,
       workItem,
       task,
-      stage,
-      timeline: task ? this.deps.timeline.list(projectKey, { taskKey: task.key, limit: 30 }) : [],
-      team: this.deps.members.rosterFor(config),
-      memory,
-      ...(operatorPreference ? { operatorPreference } : {}),
-      ...(operatorKnowledge ? { operatorKnowledge } : {}),
+      existing,
+      cause,
+      prepared,
+      standing,
+      handoff,
+    );
+    const pack = this.deps.contextBuilder.build({
+      ...input,
       sessionPolicy: startPolicy,
       ...(sandbox ? { sandbox } : {}),
-      ...(attachments.length > 0 ? { attachments } : {}),
-      ...(parentAttachments ? { parentAttachments } : {}),
-      ...(relatedSessions.length > 0 ? { relatedSessions } : {}),
-      ...(cardWorkers.length > 0 ? { cardWorkers } : {}),
-      ...(cardQuestions.length > 0 ? { cardQuestions } : {}),
-      ...(relations.length > 0 ? { relations } : {}),
-      ...(themeCard
-        ? {
-            theme: {
-              key: themeCard.key,
-              title: themeCard.title,
-              stageId: themeCard.stageId,
-              status: themeCard.status,
-            },
-          }
-        : {}),
-      ...(focus ? { focus } : {}),
       ...(lastReviewedCommit ? { lastReviewedCommit } : {}),
       ...(previousConversation && task ? { previousConversation } : {}),
-      ...(handoff ? { handoff } : {}),
     });
 
     // Configuration may change while login, worktree and memory preparation await I/O. So may the
@@ -898,24 +826,6 @@ export class SessionLauncher {
     };
   }
 
-  /** A closed handoff to the session's member, as the context pack tells it (PM-342). */
-  private handoffTakeover(row: TaskHandoffRow, toProvider: AgentProvider): HandoffTakeover {
-    return {
-      handoffId: row.id,
-      from: row.from,
-      fromProvider: row.fromProvider,
-      toProvider,
-      endedAt: row.endedAt ?? row.startedAt,
-      outcome: row.outcome === 'note' ? 'note' : 'fallback',
-      ...(row.fallbackReason ? { fallbackReason: row.fallbackReason } : {}),
-      note: row.note,
-      branch: row.branch,
-      lastCommit: row.lastCommit,
-      uncommitted: row.uncommitted,
-      summary: row.summary,
-    };
-  }
-
   /** The member's session took the handed-over card over (PM-342): the handoff is marked and the timeline says so. */
   private recordTakeover(row: TaskHandoffRow, session: Session, task: Task): void {
     this.ctx.repos.taskHandoffs.save({
@@ -960,122 +870,6 @@ export class SessionLauncher {
     if (relocated && existing.transcriptPath)
       return { reason: 'relocated', fromProvider: null, summary: await summarize(), lastNote: null };
     return null;
-  }
-
-  /**
-   * The project's focus as the brief tells it (PM-437): the open items in order (closed ones keep
-   * their numbers) and the place of the session's card; undefined when no item is open.
-   */
-  private focusFor(projectKey: string, task: Task | null): ContextFocus | undefined {
-    const items = this.deps.projectFocus
-      .get(projectKey)
-      .items.flatMap<ContextFocus['items'][number]>((item, index) => {
-        const card = this.deps.tasks.find(projectKey, item.key);
-        return card && isOpenTask(card)
-          ? [
-              {
-                position: index + 1,
-                key: card.key,
-                title: card.title,
-                kind: isTheme(card) ? 'theme' : 'task',
-              },
-            ]
-          : [];
-      });
-    if (items.length === 0) return undefined;
-    const place = task ? (this.deps.projectFocus.places(projectKey).get(task.key) ?? null) : null;
-    return { items, place };
-  }
-
-  /**
-   * The member's running sessions on the cards that belong with `task` (PM-184): its parent and its
-   * subtasks (`TaskService.family`), and the cards on the prerequisite links, in both directions. A
-   * card that belongs in several ways is named once, by the first. The task's own session is not one.
-   */
-  private relatedSessions(projectKey: string, member: string, task: Task): RelatedSession[] {
-    const related = new Map<string, CardRelation>();
-    for (const card of this.deps.tasks.family(projectKey, task.key))
-      related.set(card.key, card.key === task.parentKey ? 'parent' : 'subtask');
-    for (const link of task.links)
-      if (link.kind === 'prerequisite' && !related.has(link.ref)) related.set(link.ref, 'prerequisite');
-    for (const card of this.deps.tasks.relationsOf(projectKey, task.key))
-      if (card.kind === 'prerequisite_of' && !related.has(card.key)) related.set(card.key, 'prerequisite_of');
-    const found: RelatedSession[] = [];
-    for (const [taskKey, relation] of related) {
-      if (taskKey === task.key) continue;
-      const card = this.deps.tasks.find(projectKey, taskKey);
-      const session = card && this.host.findRunning(projectKey, member, { type: 'task', taskKey });
-      if (card && session) found.push({ taskKey, title: card.title, relation, state: session.state });
-    }
-    return found;
-  }
-
-  /** The attachments of a card the member may read (empty when it may not, or on a failure). */
-  private async readableAttachments(
-    projectKey: string,
-    taskKey: string,
-    handle: string,
-  ): Promise<Attachment[]> {
-    return (
-      (await this.deps.attachments?.list(projectKey, taskKey, aiActor(handle)).catch((err: unknown) => {
-        this.ctx.logger.warn({ err, taskKey }, 'could not list the task attachments');
-        return undefined;
-      })) ?? []
-    );
-  }
-
-  /**
-   * A task session's attachments: the list for its brief, and the task's attachment directory,
-   * which it reads (never edits) without asking: in the session policy as a read-only path, and as
-   * rules for sessions without a policy. Only that one directory: not the other tasks' ones, nor
-   * the rest of the server's home, and only when it can be written as a plain rule path. A failure
-   * leaves the session without them. A subtask also gets its direct parent's files and directory
-   * (PM-228): the brief names them, so they open without asking too.
-   */
-  private async attachmentsFor(
-    projectKey: string,
-    handle: string,
-    task: Task | null,
-  ): Promise<{
-    attachments: Attachment[];
-    parentAttachments: { taskKey: string; attachments: Attachment[] } | null;
-    attachmentRules: { allow: string[]; deny: string[] };
-    attachmentDirs: string[];
-  }> {
-    if (!task)
-      return {
-        attachments: [],
-        parentAttachments: null,
-        attachmentRules: attachmentToolRules(null),
-        attachmentDirs: [],
-      };
-    const attachments = await this.readableAttachments(projectKey, task.key, handle);
-    const parentKey =
-      task.parentKey && this.deps.tasks.find(projectKey, task.parentKey) ? task.parentKey : null;
-    const parentFiles = parentKey ? await this.readableAttachments(projectKey, parentKey, handle) : [];
-    const rules = { allow: [] as string[], deny: [] as string[] };
-    const dirs: string[] = [];
-    for (const key of parentKey ? [task.key, parentKey] : [task.key]) {
-      const dir =
-        (await this.deps.attachmentDirectory?.(projectKey, key).catch((err: unknown) => {
-          this.ctx.logger.warn({ err, taskKey: key }, 'could not find the task attachment directory');
-          return undefined;
-        })) ?? null;
-      const dirRules = attachmentToolRules(dir);
-      // The rules are empty when the directory cannot be a plain rule path; then it is not granted.
-      if (dir && dirRules.allow.length > 0) {
-        dirs.push(dir);
-        rules.allow.push(...dirRules.allow);
-        rules.deny.push(...dirRules.deny);
-      }
-    }
-    return {
-      attachments,
-      parentAttachments:
-        parentKey && parentFiles.length > 0 ? { taskKey: parentKey, attachments: parentFiles } : null,
-      attachmentRules: rules,
-      attachmentDirs: dirs,
-    };
   }
 
   /**

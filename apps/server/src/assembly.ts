@@ -21,6 +21,7 @@ import {
   OperatorQueueTools,
   SessionTools,
   ExternalTools,
+  visibleTeamTools,
 } from './mcp';
 import { createInboxService } from './core/inbox';
 import { createWebPushService } from './services/web-push';
@@ -808,6 +809,7 @@ export function createDomain(opts: DomainOptions) {
     runner: runnerModule.runner,
     transcripts: runnerModule.transcripts,
     contextBuilder: opts.contextBuilder,
+    visibleTeamTools,
     cardQuestions,
     memory: opts.memory,
     operatorPreferences,

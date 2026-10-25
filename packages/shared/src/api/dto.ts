@@ -918,6 +918,31 @@ export const MemberProfile = z.object({
   usage: MemberUsage.optional(),
 });
 export type MemberProfile = z.infer<typeof MemberProfile>;
+export const MemberContextQuery = z.object({ task: TaskKey.optional() });
+export type MemberContextQuery = z.infer<typeof MemberContextQuery>;
+
+const ContextText = z.object({ text: z.string(), chars: z.number().int().nonnegative() });
+export const MemberContextPreview = z.object({
+  generatedAt: z.iso.datetime(),
+  member: z.object({
+    handle: MemberHandle,
+    role: RoleId,
+    duties: z.array(DutyId),
+    onLeave: z.boolean(),
+  }),
+  situation: z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('general') }),
+    z.object({ kind: z.literal('task'), taskKey: TaskKey, stageId: StageId }),
+  ]),
+  prompt: ContextText.extend({
+    sections: z.array(ContextText.extend({ id: z.string(), title: z.string() })),
+  }),
+  initialMessage: ContextText.nullable(),
+  guides: z.array(ContextText.extend({ topic: z.string(), title: z.string() })),
+  tools: z.array(z.object({ name: z.string(), title: z.string(), description: z.string() })),
+});
+export type MemberContextPreview = z.infer<typeof MemberContextPreview>;
+
 export const MemberMemories = z.object({ memory: z.string() });
 export type MemberMemories = z.infer<typeof MemberMemories>;
 

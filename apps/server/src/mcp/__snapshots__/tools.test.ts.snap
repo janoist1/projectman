@@ -1362,6 +1362,11 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                                             "minLength": 1,
                                             "type": "string",
                                           },
+                                          "lessons": {
+                                            "maxLength": 200,
+                                            "minLength": 1,
+                                            "type": "string",
+                                          },
                                           "roadmap": {
                                             "maxLength": 200,
                                             "minLength": 1,
@@ -4992,6 +4997,11 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                                     "minLength": 1,
                                     "type": "string",
                                   },
+                                  "lessons": {
+                                    "maxLength": 200,
+                                    "minLength": 1,
+                                    "type": "string",
+                                  },
                                   "roadmap": {
                                     "maxLength": 200,
                                     "minLength": 1,
@@ -6610,6 +6620,11 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                                       "minLength": 1,
                                       "type": "string",
                                     },
+                                    "lessons": {
+                                      "maxLength": 200,
+                                      "minLength": 1,
+                                      "type": "string",
+                                    },
                                     "roadmap": {
                                       "maxLength": 200,
                                       "minLength": 1,
@@ -7530,7 +7545,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": true,
       "title": "Read a project document",
     },
-    "description": "Only the Operator, not in guest conversations; needs no open owner request. Read the decision log (decisions) or the roadmap (roadmap) as it is on the head of the project's default branch, fresh from the remote. The answer names the commit it was read at: pass it as base_commit to write_project_docs. A long file is read in parts with from_line and line_count; total_lines says how long it is. exists false: the file is not in the repository yet (the first write creates it).",
+    "description": "Only the Operator, not in guest conversations; needs no open owner request. Read the decision log (decisions), roadmap (roadmap) or lessons (lessons) as it is on the head of the project's default branch, fresh from the remote. Lessons may also be read from your own processing queue item. The answer names the commit it was read at: pass it as base_commit to write_project_docs. A long file is read in parts with from_line and line_count; total_lines says how long it is. exists false: the file is not in the repository yet (the first write creates it).",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,
@@ -7539,6 +7554,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
           "enum": [
             "decisions",
             "roadmap",
+            "lessons",
           ],
           "type": "string",
         },
@@ -8714,7 +8730,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": false,
       "title": "Write the project documents",
     },
-    "description": "Only the Operator, in the owner's own conversation, during an open owner request. Replace text in the decision log and the roadmap as ONE commit on the default branch, pushed to its remote. base_commit is the commit read_project_doc returned; edits are applied in order. Each edit replaces old_text, which must occur exactly once in the file, with new_text; an empty old_text appends new_text at the end of the file. The decision log is append-only: no existing line may change or go, so a decision is added, never rewritten. Show the owner the text before you write it. Refused when a file changed since base_commit (docs_stale: read it again), when an old_text is not found or is ambiguous, or when nothing changes. The write runs in the repository's merge slot: it may answer queued (it runs after the merge that holds the slot, and you are told how it ended with the owner's next message) or running (not finished within 60 seconds; the same). message is the commit subject: one line, English.",
+    "description": "Only the Operator. Lessons-only edits need no owner request or approval in your own internal conversation, including your processing queue item; never in a guest conversation or approval continuation. Any decisions, roadmap or mixed edits require an open owner request in the owner's own conversation: show the owner the text first. Replace text in at most TWO document files as ONE commit on the default branch, pushed to its remote; use separate calls for three files. base_commit is the commit read_project_doc returned; edits are applied in order. Each edit replaces old_text, which must occur exactly once in the file, with new_text; an empty old_text appends new_text at the end of the file. The decision log is append-only: no existing line may change or go. Lessons and roadmap may be rewritten. Refused when a file changed since base_commit (docs_stale: read it again and retry lessons; show the owner changes to other documents), when an old_text is not found or is ambiguous, or when nothing changes. The write runs in the repository's merge slot: it may answer queued or running (not finished within 60 seconds); a system message reports its eventual result. message is the commit subject: one line, English.",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,
@@ -8731,6 +8747,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                 "enum": [
                   "decisions",
                   "roadmap",
+                  "lessons",
                 ],
                 "type": "string",
               },

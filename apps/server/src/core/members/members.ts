@@ -39,6 +39,7 @@ import type {
   WorkOutage,
   ProjectConfig,
   SessionState,
+  TaskKey,
   UpdateMemberRequest,
   OperatorMemberChanges,
 } from '@projectman/shared';
@@ -179,6 +180,7 @@ export class MemberService {
           specialty: null,
           status: !m.email ? 'no_account' : this.presence.isOnline(m.email) ? 'online' : 'offline',
           activity: null,
+          activityTaskKey: null,
           currentTaskKeys,
           sponsor: null,
           temp: false,
@@ -201,6 +203,7 @@ export class MemberService {
         specialty: m.specialty ?? null,
         status: state && state.status !== 'retired' ? state.status : 'idle',
         activity: state?.activity ?? null,
+        activityTaskKey: state?.activityTaskKey ?? null,
         currentTaskKeys,
         taskWork,
         sponsor: m.sponsor,
@@ -607,18 +610,30 @@ export class MemberService {
   }
 
   /** Records an AI member's runtime status; retired members stay retired. */
-  setState(projectKey: string, handle: string, status: MemberStatus, activity: string | null): void {
+  setState(
+    projectKey: string,
+    handle: string,
+    status: MemberStatus,
+    activity: string | null,
+    activityTaskKey: TaskKey | null,
+  ): void {
     const current = this.ctx.repos.memberState.get(projectKey, handle);
     if (current?.status === 'retired') return;
-    if (current && current.status === status && current.activity === activity) return;
-    this.writeState(projectKey, handle, status, activity);
+    if (
+      current &&
+      current.status === status &&
+      current.activity === activity &&
+      current.activityTaskKey === activityTaskKey
+    )
+      return;
+    this.writeState(projectKey, handle, status, activity, activityTaskKey);
   }
 
   /** Startup: no session survived the restart, so no AI member is working or waiting. */
   reconcileAfterRestart(): void {
     for (const project of this.ctx.repos.projects.list()) {
       for (const state of this.ctx.repos.memberState.list(project.key)) {
-        this.setState(project.key, state.handle, 'idle', null);
+        this.setState(project.key, state.handle, 'idle', null, null);
       }
     }
   }
@@ -632,11 +647,11 @@ export class MemberService {
         if (m.kind !== 'ai') continue;
         const state = this.ctx.repos.memberState.get(projectKey, m.handle);
         if (state && state.status !== 'retired') continue;
-        this.writeState(projectKey, m.handle, 'idle', null);
+        this.writeState(projectKey, m.handle, 'idle', null, null);
       }
       for (const m of previous?.team.members ?? []) {
         if (m.kind !== 'ai' || nextHandles.has(m.handle)) continue;
-        this.writeState(projectKey, m.handle, 'retired', null);
+        this.writeState(projectKey, m.handle, 'retired', null, null);
       }
     });
     const previousMembers = new Map((previous?.team.members ?? []).map((m) => [m.handle, m]));
@@ -668,9 +683,17 @@ export class MemberService {
     handle: string,
     status: MemberStatus,
     activity: string | null,
+    activityTaskKey: TaskKey | null,
   ): void {
-    this.ctx.repos.memberState.upsert({ projectKey, handle, status, activity, updatedAt: isoNow(this.ctx) });
-    this.ctx.bus.publish({ type: 'member_state', projectKey, handle, status, activity });
+    this.ctx.repos.memberState.upsert({
+      projectKey,
+      handle,
+      status,
+      activity,
+      activityTaskKey,
+      updatedAt: isoNow(this.ctx),
+    });
+    this.ctx.bus.publish({ type: 'member_state', projectKey, handle, status, activity, activityTaskKey });
   }
 
   /** Websocket presence changed: publish the human member's online/offline status. */
@@ -686,6 +709,7 @@ export class MemberService {
           handle: member.handle,
           status,
           activity: null,
+          activityTaskKey: null,
         });
       }
     }

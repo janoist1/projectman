@@ -1935,6 +1935,8 @@ export class SessionOrchestrator {
       status = 'working';
       activity = working.activity;
     }
-    this.deps.members.setState(projectKey, handle, status, activity);
+    const selected = waiting ?? working;
+    const activityTaskKey = selected?.workItem.type === 'task' ? selected.workItem.taskKey : null;
+    this.deps.members.setState(projectKey, handle, status, activity, activityTaskKey);
   }
 }

@@ -8,6 +8,7 @@ import {
   isCardLink,
   isCoordinatorOnlySignal,
   visibleQuestionItem,
+  visibleActivity,
   visibleTimelineEvent,
 } from '@projectman/shared';
 import type { MemberView, ServerEvent, Session, Task, TaskDetail } from '@projectman/shared';
@@ -24,10 +25,8 @@ import type { ProjectAccess } from '../members';
  * The two paths do not agree everywhere yet (an open question for the owner, kept as it was):
  * - timeline: the task detail shows a client the milestones below, while live timeline
  *   events never reach them (and label changes, e.g. "client accepted", are no milestone);
- * - member state: the board shows a client every member's status and activity, while live
- *   member_state events never reach them (member_changed snapshots do). Whatever the path, a
- *   client gets the keys of the cards they see only (`memberForViewer`); a member's activity text
- *   is not filtered (open question for the owner).
+ * - member state: live member_state events never reach clients (member_changed snapshots do).
+ *   Activity text is visible only when its source card is visible (`memberForViewer`).
  */
 export type Viewer = Pick<ProjectAccess, 'access' | 'handle' | 'via'>;
 
@@ -147,7 +146,7 @@ export function memberForViewer(
 ): MemberView {
   if (!isClient(viewer)) return member;
   return {
-    ...member,
+    ...visibleActivity(viewer, member, canSeeKey),
     currentTaskKeys: member.currentTaskKeys.filter(canSeeKey),
     ...(member.taskWork ? { taskWork: member.taskWork.filter((work) => canSeeKey(work.taskKey)) } : {}),
   };
@@ -212,6 +211,7 @@ export function visibleProjectEvent(
   };
   if (event.type === 'member_changed' && event.member)
     return { ...event, member: memberForViewer(viewer, event.member, canSeeKey) };
+  if (event.type === 'member_state') return visibleActivity(viewer, event, canSeeKey);
   if (event.type !== 'task_upserted') return event;
   return { ...event, task: withVisibleCardLinks(viewer, event.task, canSeeKey) };
 }

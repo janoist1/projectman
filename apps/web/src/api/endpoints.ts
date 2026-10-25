@@ -39,6 +39,7 @@ import {
   DeleteMessageAttachmentResponse,
   ClosedCardsMeasure,
   MemberProfile,
+  MemberContextPreview,
   MemberMemories,
   Session,
   TeamMessage,
@@ -327,6 +328,11 @@ export const api = {
     apiRequest(`${routes.closedCardsMeasure(key)}?days=${days}`, { schema: ClosedCardsMeasure }),
   memberProfile: (key: string, handle: string) =>
     apiRequest(routes.memberProfile(key, handle), { schema: MemberProfile }),
+  memberContext: (key: string, handle: string, taskKey?: string) =>
+    apiRequest(
+      `${routes.memberContext(key, handle)}${taskKey !== undefined ? `?task=${encodeURIComponent(taskKey)}` : ''}`,
+      { schema: MemberContextPreview },
+    ),
   memberMemories: (key: string, handle: string) =>
     apiRequest(routes.memberMemories(key, handle), { schema: MemberMemories }),
   startConversation: (key: string, handle: string) =>

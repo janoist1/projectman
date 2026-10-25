@@ -838,6 +838,11 @@ function operatorIndex(project: ContextPackInput['project']): string {
  * The guide takes `dutyPrompt` as it is, so the merge-fix and local-only texts keep their precedence.
  */
 const GUIDED_DUTIES: Partial<Record<DutyId, { title: string; short: string }>> = {
+  requirements_analysis: {
+    title: 'Requirements and relation checks',
+    short:
+      'Clarify goals, edge cases and acceptance criteria with ask_human; record them in the description with update_task. On a new-relation analyst check, assess its impact; do not move or stop the card.',
+  },
   technical_direction: {
     title: 'Technical plan and contract detail',
     short:

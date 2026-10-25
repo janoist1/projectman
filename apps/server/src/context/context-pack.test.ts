@@ -4034,6 +4034,95 @@ describe('structural decisions (PM-223)', () => {
   });
 });
 
+describe('analyst role guide (PM-994)', () => {
+  it('snapshots the full prompt and guide and measures the starting context', async () => {
+    const project = buildProject();
+    addMember(project, 'analyst', 'business_analyst');
+    const pack = builder.build(input({ project, handle: 'analyst', task: makeTask({ stageId: 'dev' }) }));
+    await expect(`${pack.appendSystemPrompt}\n`).toMatchFileSnapshot(
+      '__snapshots__/analyst-dev.system-prompt.txt',
+    );
+    await expect(`${pack.guide.role}\n`).toMatchFileSnapshot('__snapshots__/analyst-dev.role-guide.txt');
+    // Same development fixture after PM-993: 13,480 B / 716 B / 875 B (final newline included).
+    expect(Buffer.byteLength(`${pack.appendSystemPrompt}\n`)).toBeLessThanOrEqual(13_351);
+    expect(
+      Buffer.byteLength(`${section(pack.appendSystemPrompt, '# Your role instructions').trimEnd()}\n`),
+    ).toBeLessThanOrEqual(587);
+  });
+
+  it('keeps clarification and the relation-check limit visible, serving the complete duty in the guide', () => {
+    const project = buildProject();
+    addMember(project, 'analyst', 'business_analyst');
+    const source = input({ project, handle: 'analyst', task: makeTask({ stageId: 'dev' }) });
+    const pack = builder.build(source);
+    const role = section(pack.appendSystemPrompt, '# Your role instructions');
+    for (const key of [
+      'ask_human',
+      'description with update_task',
+      'new-relation analyst check',
+      'do not move or stop the card',
+    ])
+      expect(role).toContain(key);
+    expect(pack.guide.role).toContain(dutyPrompt(source, 'requirements_analysis'));
+    const indexed = /Role guide index: ([^\n]+)\. Before an indexed/.exec(role)![1]!;
+    expect(indexed.split('; ')).toEqual(
+      [...pack.guide.role!.matchAll(/^## (.+)$/gm)].map((match) => match[1]),
+    );
+  });
+
+  it('uses the analysis duty for custom roles and overrides, preserving mixed order and instructions', () => {
+    const custom = buildProject();
+    custom.team.roles.push({
+      id: 'analyst_custom',
+      name: 'Analyst',
+      summary: '',
+      notTheirJob: '',
+      holders: 'both',
+      duties: ['task_breakdown', 'triage', 'requirements_analysis'],
+      instructions: 'Keep bundle instructions.',
+    });
+    addMember(custom, 'analyst', 'analyst_custom');
+    const overridden = buildProject();
+    addMember(overridden, 'analyst', 'business_analyst');
+    overridden.team.roleOverrides = {
+      business_analyst: {
+        duties: ['task_breakdown', 'triage', 'requirements_analysis'],
+        instructions: 'Keep bundle instructions.',
+      },
+    };
+    const packs = [custom, overridden].map((project) => {
+      const source = input({
+        project,
+        handle: 'analyst',
+        workItem: { type: 'general' },
+        task: null,
+        stage: null,
+      });
+      source.member = { ...source.member, instructions: 'Keep member instructions.' };
+      return builder.build(source);
+    });
+    const [a, b] = packs;
+    expect(section(a!.appendSystemPrompt, '# Your role instructions')).toBe(
+      section(b!.appendSystemPrompt, '# Your role instructions'),
+    );
+    expect(a!.guide.role).toBe(b!.guide.role);
+    const role = section(a!.appendSystemPrompt, '# Your role instructions');
+    const offsets = [
+      'Split work',
+      DUTIES.triage.prompt,
+      'Clarify goals',
+      'Keep bundle instructions.',
+      'Keep member instructions.',
+    ].map((text) => role.indexOf(text));
+    expect(offsets.every((at) => at >= 0)).toBe(true);
+    expect(offsets).toEqual([...offsets].sort((x, y) => x - y));
+    expect(role.match(/get_guide with topic `role`/g)).toHaveLength(1);
+    expect(a!.guide.role!.match(/A sub-card you create must stand on its own/g)).toHaveLength(1);
+    for (const text of [DUTIES.triage.prompt, 'Keep bundle instructions.', 'Keep member instructions.'])
+      expect(a!.guide.role).not.toContain(text);
+  });
+});
+
 describe('architect role guide (PM-993)', () => {
   const roleOf = (prompt: string) => section(prompt, '# Your role instructions');
   const bytes = (text: string) => Buffer.byteLength(`${text.trimEnd()}\n`);
@@ -4197,7 +4286,7 @@ describe('architect role guide (PM-993)', () => {
     const pack = builder.build(input({ project, handle: 'analyst', task: makeTask({ stageId: 'dev' }) }));
     expect(pack.guide.role).toContain(DUTIES.task_breakdown.prompt);
     expect(pack.guide.role).toContain('A sub-card you create must stand on its own');
-    expect(roleOf(pack.appendSystemPrompt)).toContain(DUTIES.requirements_analysis.prompt);
+    expect(pack.guide.role).toContain(DUTIES.requirements_analysis.prompt);
   });
 });
 

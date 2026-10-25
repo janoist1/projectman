@@ -1,6 +1,6 @@
 import type { InboxItem, MemberHandle, ProjectConfig } from '@projectman/shared';
 
-/** The hub checks whether a current owner has usable explicit super access. No key data crosses this port. */
+/** Whether integrator work stays on its side: an Operator exists, including on leave or with AI off (PM-1003). */
 export interface IntegratorTodoAccess {
   available(config: ProjectConfig): boolean;
 }

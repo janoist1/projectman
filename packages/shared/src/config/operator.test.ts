@@ -24,6 +24,19 @@ import { actorMoveRefusal } from './project-manager';
 import { AiMemberConfig, ProjectConfig } from './schema';
 import { DEFAULT_NEW_MEMBER_APPROVER, DEFAULT_PERMISSION_MODE } from '../domain/member';
 import { cardMerger, mergerOf } from './merger';
+import { integratorSideAvailable } from '../domain/member-queue';
+
+it.each(['active', 'on_leave', 'ai_off', 'absent'] as const)(
+  'keeps integrator work on its side when the Operator is %s',
+  (state) => {
+    const c = config();
+    const operator = operatorOf(c)!;
+    if (state === 'on_leave') operator.onLeave = true;
+    if (state === 'ai_off') c.team.limits.aiEnabled = false;
+    if (state === 'absent') c.team.members = c.team.members.filter((member) => member !== operator);
+    expect(integratorSideAvailable(c)).toBe(state !== 'absent');
+  },
+);
 
 function config() {
   return ProjectConfig.parse({

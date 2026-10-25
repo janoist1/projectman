@@ -10,6 +10,8 @@ import {
   RelayOwnerAnswerRequest,
   ResolveIntegratorFixLimitRequest,
   ResolveIntegratorTodoRequest,
+  OperatorHandoff,
+  questionPayloadOf,
   SuperOperateArgs,
 } from '@projectman/shared';
 import { z } from 'zod';
@@ -167,7 +169,7 @@ export const EXTERNAL_ONLY_TOOLS: readonly ExternalRegisteredTool[] = [
     name: 'resolve_integrator_todo',
     title: 'Resolve the integrator’s own todo',
     description:
-      'Report the result of an open integrator-addressed todo: {item}. This is your own work, never an owner answer or approval. Cannot do it requires a reason in note. After 24 hours only the owner may resolve it. This endpoint grants no execution authority.',
+      'Report the result of an open integrator-addressed todo: {item}. This is your own work, never an owner answer or approval. Cannot do it requires a reason in note. This endpoint grants no execution authority.',
     access: 'write',
     modes: ['super'],
     input: {
@@ -189,7 +191,7 @@ export const EXTERNAL_ONLY_TOOLS: readonly ExternalRegisteredTool[] = [
     name: 'resolve_integrator_fix_limit',
     title: 'Decide a fix round limit item addressed to you',
     description:
-      'Decide the fix round limit item that is addressed to you (list_integrator_inbox shows it with its full text): {item}. option_id is replan (a more exact plan first), reassign (another implementer) or another_round (one more round for the same implementer; it counts as an extra round); or to_owner, which hands the same item to the owners and requires why in note. This is your own work, not an owner approval, and it works on that item only: any other item is refused (super_relay_refused). After 24 hours the item belongs to the owners.',
+      'Decide the fix round limit item that is addressed to you (list_integrator_inbox shows it with its full text): {item}. option_id is replan (a more exact plan first), reassign (another implementer) or another_round (one more round for the same implementer; it counts as an extra round); or to_owner, which hands the same item to the owners and requires why in note. This is your own work, not an owner approval, and it works on that item only: any other item is refused (super_relay_refused).',
     access: 'write',
     modes: ['super'],
     input: {
@@ -211,7 +213,7 @@ export const EXTERNAL_ONLY_TOOLS: readonly ExternalRegisteredTool[] = [
     name: 'list_integrator_inbox',
     title: 'List what is addressed to the integrator',
     description:
-      'The items addressed to you: your todos and the fix round limit decisions, each with its full text (the summary, the extra rounds, the lead’s assessment, every round, and per option its id, label and consequence), newest first: {items}. state is open (default) or all (every item that was ever opened to you, at most 500).',
+      'The items addressed to you: your todos and the fix round limit decisions, including Operator handoffs with their action and context, each with its full text (the summary, the extra rounds, the lead’s assessment, every round, and per option its id, label and consequence), newest first: {items}. state is open (default) or all (every item that was ever opened to you, at most 500).',
     access: 'read',
     modes: ['super'],
     input: { state: z.enum(['open', 'all']).optional() },
@@ -221,16 +223,27 @@ export const EXTERNAL_ONLY_TOOLS: readonly ExternalRegisteredTool[] = [
         result.items.length === 0
           ? 'Nothing is addressed to you.'
           : result.items
-              .map((item) =>
-                [
+              .map((item) => {
+                const todo = questionPayloadOf(item)?.screening?.todo;
+                const handoff = OperatorHandoff.safeParse(item.payload.operatorHandoff);
+                return [
                   `## ${item.id} · ${item.kind} · ${item.state}${item.taskKey ? ` · ${item.taskKey}` : ''}`,
                   item.title,
                   item.body ?? '',
+                  ...(todo
+                    ? [`What: ${todo.what}`, `Where: ${todo.where}`, `Expected: ${todo.expected}`]
+                    : []),
+                  ...(handoff.success
+                    ? [
+                        `Operator hand-off (${handoff.data.reason}): ${handoff.data.action}`,
+                        handoff.data.detail ?? '',
+                      ]
+                    : []),
                   `Options: ${item.options.map((option) => option.id).join(', ')}`,
                 ]
                   .filter((line) => line !== '')
-                  .join('\n'),
-              )
+                  .join('\n');
+              })
               .join('\n\n');
       return { structured: { ...result }, text };
     },

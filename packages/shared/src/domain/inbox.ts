@@ -1148,6 +1148,11 @@ export function isIntegratorInboxItem(item: InboxItem): boolean {
   return isIntegratorTodo(item) || isIntegratorFixLimitDecision(item);
 }
 
+/** The Operator still owes this open integrator item: it has not handed it to the super side (PM-1003). */
+export function operatorOwesInboxItem(item: InboxItem): boolean {
+  return item.state === 'open' && isIntegratorInboxItem(item) && !('operatorHandoff' in item.payload);
+}
+
 /** Whether the item was ever opened to the integrator, whatever happened to it since (PM-714). */
 export function wasIntegratorInboxItem(item: InboxItem): boolean {
   if (wasIntegratorTodo(item)) return true;

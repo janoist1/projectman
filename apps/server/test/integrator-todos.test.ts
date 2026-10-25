@@ -9,7 +9,7 @@ import {
 import type { InboxItem } from '@projectman/shared';
 import { createAppHarness, createProject, setupOwner, addHumanAndLogin } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
-import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
+import { createDomainHarness, restartDomainHarness } from './helpers/domain-harness';
 
 const START = '2026-10-18T10:00:00.000Z';
 const step = {
@@ -337,17 +337,19 @@ describe('integrator todo REST and durable lifecycle', () => {
     );
   });
 
-  it('falls back to owner when the Operator queue is unavailable', async () => {
-    await h.app.projectman.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (draft) => {
-      draft.team.limits.aiEnabled = false;
-      return 'Switch AI work off';
-    });
+  it('falls back to owner when the project has no Operator', async () => {
+    const projects = h.app.projectman.domain.projects;
+    const config = structuredClone(await projects.config('AR'));
+    config.team.members = config.team.members.filter(
+      (member) => member.kind !== 'ai' || member.role !== 'ai_operator',
+    );
+    vi.spyOn(projects, 'config').mockResolvedValue(config);
     const item = await opened();
     expect(item.payload).toMatchObject({
       recipient: 'owner',
       screening: { recipientRefusal: 'integrator_unavailable' },
     });
-    expect((await resolve(item.id)).json().error.code).toBe('super_relay_refused');
+    expect((await resolve(item.id)).json().error.code).toBe('integrator_not_allowed');
   });
 
   it('keeps a todo for the Operator without any super access key', async () => {

@@ -5,7 +5,7 @@ import type {
   OperatorHandoff,
   OperatorHandoffReason,
   OperatorQueueOutcome,
-  QuestionTodo,
+  ScreeningTodo,
 } from '@projectman/shared';
 import { TODO_DONE_OPTION } from '@projectman/shared';
 import { getLocale } from '@projectman/templates';
@@ -30,12 +30,13 @@ interface OperatorQueueInbox {
     operator: string,
     how: { note: string; handoff: OperatorHandoff },
   ): Promise<InboxItem>;
+  passOnToSuper(projectKey: string, id: string, handoff: OperatorHandoff): Promise<InboxItem>;
   openOperatorHandoffTodo(input: {
     projectKey: string;
     taskKey: string | null;
     operator: string;
     title: string;
-    todo: QuestionTodo;
+    todo: ScreeningTodo;
     handoff: OperatorHandoff;
   }): Promise<InboxItem>;
 }
@@ -62,7 +63,7 @@ interface FinishQueueItemInput {
 const NOT_PROCESSING = 'queue_item_not_processing';
 
 /**
- * The Operator ends its queue item (`finish_queue_item`, PM-885): done, or handed to the owner. The item's
+ * The Operator ends its queue item (`finish_queue_item`, PM-885): done, or handed off. The item's
  * source closes in the same step — a todo or a held decision in the inbox, a message only its queue row —
  * and the close of the row is planned first, so the reconciler writes the Operator's outcome and not a generic one.
  */
@@ -174,7 +175,7 @@ export class OperatorQueueFinisher {
   }
 
   /**
-   * The Operator did not finish the item (its session ended in vain, or the attempts ran out): the owner
+   * The Operator did not finish the item (its session ended in vain, or the attempts ran out): the super side
    * gets it to look at, in the project's language. The item need not be processing.
    */
   async handOffUnfinished(item: StoredMemberQueueItem): Promise<void> {
@@ -208,6 +209,7 @@ export class OperatorQueueFinisher {
     operations: { machine: boolean },
   ): Promise<void> {
     const handoff = input.handoff;
+    const toSuper = handoff.reason !== 'owner_reserved';
     const operation = handoff.operationId
       ? this.ctx.repos.superHandoffs.operation(item.projectKey, handoff.operationId)
       : null;
@@ -230,7 +232,7 @@ export class OperatorQueueFinisher {
       summary: input.summary,
       operationIds: input.operationIds,
       machine: operations.machine,
-      handoff: { reason: handoff.reason, inboxItemId },
+      handoff: { reason: handoff.reason, inboxItemId, to: toSuper ? 'super' : 'owner' },
     });
 
     if (item.kind === 'message') {
@@ -246,7 +248,7 @@ export class OperatorQueueFinisher {
               what: handoffText(input.summary, handoff.detail),
               where: item.taskKey ?? 'general',
               expected: handoff.action,
-              recipient: 'owner',
+              recipient: toSuper ? 'integrator' : 'owner',
             },
             handoff: record,
           })
@@ -281,10 +283,12 @@ export class OperatorQueueFinisher {
       item,
       { state: 'handed_off', reason: 'handed_off', outcome: outcome(item.source.id) },
       async () => {
-        await this.inbox.passOnToOwners(item.projectKey, item.source.id, input.member, {
-          note: handoffText(input.summary, handoff.detail),
-          handoff: record,
-        });
+        if (toSuper) await this.inbox.passOnToSuper(item.projectKey, item.source.id, record);
+        else
+          await this.inbox.passOnToOwners(item.projectKey, item.source.id, input.member, {
+            note: handoffText(input.summary, handoff.detail),
+            handoff: record,
+          });
       },
     );
   }

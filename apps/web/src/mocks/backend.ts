@@ -14,7 +14,7 @@ import {
   humanInboxAssignment,
   isIntegratorTodo,
   planIntegratorInboxEscalation,
-  operatorQueueAvailable,
+  integratorSideAvailable,
   ownerHandles,
   superActorOf,
   ownerReservedEffect,
@@ -1805,7 +1805,7 @@ export class MockBackend {
 
   sweepIntegratorTodos(now: string): void {
     // Like the server: the Operator's items go to the owners only when it does not work its queue (no clock).
-    if (operatorQueueAvailable(this.config)) return;
+    if (integratorSideAvailable(this.config)) return;
     for (const item of this.inbox) {
       const patch = planIntegratorInboxEscalation(
         item,

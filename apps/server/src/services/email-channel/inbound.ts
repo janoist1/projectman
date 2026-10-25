@@ -77,10 +77,7 @@ async function parse(raw: Uint8Array): Promise<Parsed | null> {
       attachmentNames: email.attachments.slice(0, ATTACHMENT_NAMES_MAX).map((a) => name(a.filename)),
       files: email.attachments.slice(0, MAX_MESSAGE_ATTACHMENTS).map((a) => ({
         fileName: name(a.filename),
-        content:
-          typeof a.content === 'string' || a.content instanceof Uint8Array
-            ? Buffer.from(a.content)
-            : Buffer.from(a.content),
+        content: Buffer.from(typeof a.content === 'string' ? a.content : new Uint8Array(a.content)),
       })),
     };
   } catch {

@@ -203,6 +203,11 @@ describe('EmailInbound', () => {
         options: { to: 'r-ar-abcdefghijklmnopqrstuvwxyz@reply.example.test' },
       },
       {
+        name: 'a mail with no text and no stored attachment',
+        reason: 'unreadable',
+        options: { body: '' },
+      },
+      {
         name: 'a mail that fails DMARC',
         reason: 'authentication_failed',
         options: { verdicts: { dmarc: 'fail' } },

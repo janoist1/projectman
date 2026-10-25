@@ -25,6 +25,8 @@ function addHumans(config: ProjectConfig): void {
       access: human.access,
       roles: [],
     });
+  // A client may message only the contacts, and these tests talk to the Operator.
+  config.team.contacts = ['operator'];
 }
 
 export const historyHarness = (

@@ -61,6 +61,8 @@ function renderLayout(project: Project, options: { viewer?: 'owner' | 'kata'; ac
   const viewer = options.viewer ?? 'owner';
   const access = options.access ?? (viewer === 'owner' ? 'owner' : 'developer');
   project.backend.viewerHandle = viewer;
+  // A client writes only to the contacts; the Operator is one (PM-985).
+  project.backend.config.team.contacts = ['operator'];
   project.backend.config.team.members.forEach((member) => {
     if (member.kind === 'human' && member.handle === viewer) member.access = access;
   });

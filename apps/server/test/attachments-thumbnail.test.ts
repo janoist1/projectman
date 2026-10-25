@@ -369,25 +369,17 @@ describe('attachment thumbnails and the card cover', () => {
       expect(await coverOf()).toBeUndefined();
     });
 
-    it('refuses a viewer, and lets a client choose on any card', async () => {
+    it('refuses a viewer and a client, and a stranger (PM-985)', async () => {
       const internal = await attach(await picture('png'), 'one.png');
-      const shared = await attach(await picture('png'), 'two.png', 'AR-2');
       const body = (id: string) => ({ mode: 'pinned', attachmentId: id });
-      expect((await choose(body(internal.id), { cookie: cookies.viewer })).statusCode).toBe(403);
-      expect((await choose({ mode: 'hidden' }, { cookie: cookies.viewer })).statusCode).toBe(403);
-      expect((await choose(body(internal.id), { cookie: cookies.client })).statusCode).toBe(200);
+      for (const cookie of [cookies.viewer, cookies.client]) {
+        expect((await choose(body(internal.id), { cookie })).statusCode).toBe(403);
+        expect((await choose({ mode: 'hidden' }, { cookie })).statusCode).toBe(403);
+      }
       expect(
         (await choose(body(internal.id), { cookie: cookies.stranger })).statusCode,
       ).toBeGreaterThanOrEqual(403);
-      expect((await choose({ mode: 'hidden' }, { taskKey: 'AR-2', cookie: cookies.client })).statusCode).toBe(
-        200,
-      );
-      expect(await coverOf('AR-2')).toBeUndefined();
-      expect((await choose(body(shared.id), { taskKey: 'AR-2', cookie: cookies.client })).statusCode).toBe(
-        200,
-      );
-      expect(await coverOf('AR-2', cookies.client)).toBe(shared.id);
-      expect(covers().get('AR-1')?.choice).toEqual({ mode: 'pinned', attachmentId: internal.id });
+      expect(covers().get('AR-1')).toBeNull();
     });
 
     it('needs a login, and answers 404 for an unknown card', async () => {

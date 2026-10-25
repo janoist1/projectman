@@ -341,7 +341,7 @@ export class AttachmentService implements AttachmentOperations {
     const task = this.tasks.find(projectKey, taskKey);
     if (!task) throw notFound('task', taskKey);
     if (need === 'upload' && !canUploadAttachment(viewer)) {
-      throw forbidden('insufficient_access', 'viewers cannot attach files');
+      throw forbidden('insufficient_access', 'read-only members cannot attach files');
     }
     return { viewer, task };
   }

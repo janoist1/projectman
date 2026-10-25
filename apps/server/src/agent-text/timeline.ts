@@ -169,6 +169,8 @@ export function describeEvent(
       return `hired ${member('handle', 'a member')}`;
     case 'member_retired':
       return `retired ${member('handle', 'a member')}`;
+    case 'team_contact_changed':
+      return `${data.contact === true ? 'made' : 'removed'} ${member('handle', 'a member')} ${data.contact === true ? 'a contact of the project' : 'from the contacts of the project'}`;
     case 'config_changed':
       return `changed the configuration${text('message') ? `: ${text('message')}` : ''}`;
     default: {

@@ -17,6 +17,7 @@ import { ConversationThread } from './ConversationThread';
 import type { ThreadComposeRequest } from './ConversationThread';
 import { conversationRows, openQuestionsFrom } from './conversations';
 import { MessageComposer } from './MessageComposer';
+import { useContacts } from './useContacts';
 import styles from './MessagesPage.module.css';
 
 type View = 'conversations' | 'all';
@@ -39,7 +40,6 @@ export function MessagesPage() {
   const { members } = useProjectIndexes(key);
   const access = me.projects.find((p) => p.key === key)?.access;
   const canAll = access ? canSeeAllTeamMessages({ access }) : false;
-  const canSend = Boolean(access && ['owner', 'admin', 'developer', 'client'].includes(access));
   const [compose, setCompose] = useState<ThreadComposeRequest | null>(null);
   useDocumentTitle(t('messages.title'), board.data?.project.name);
 
@@ -47,7 +47,9 @@ export function MessagesPage() {
     () => (inbox.data?.items ?? []).filter((item) => item.kind === 'question' && item.state === 'open'),
     [inbox.data],
   );
-  const { rows, rest } = useMemo(
+  const contacts = useContacts();
+  const { canWriteTo } = contacts;
+  const { rows, rest: allRest } = useMemo(
     () =>
       conversationRows(
         threads.data?.threads ?? [],
@@ -57,6 +59,21 @@ export function MessagesPage() {
       ),
     [threads.data, openQuestions, members, myHandle],
   );
+  // Old conversations stay in the list; a new one starts only with someone the viewer may write to (PM-985).
+  const rest = useMemo(() => allRest.filter(canWriteTo), [allRest, canWriteTo]);
+  const reachable = contacts.contacts.filter(
+    (handle) => handle !== myHandle && members.get(handle)?.status !== 'retired' && members.has(handle),
+  );
+  const noContacts = contacts.restricted && contacts.ready && reachable.length === 0;
+  // The "Új üzenet" button needs someone to write to: with no contacts there is none (PM-985).
+  const canSend =
+    Boolean(access && ['owner', 'admin', 'developer', 'client'].includes(access)) &&
+    !(contacts.restricted && (!contacts.ready || noContacts));
+  const introText = !contacts.restricted
+    ? undefined
+    : noContacts
+      ? { title: t('messages.list.noContactsTitle'), body: t('messages.list.noContactsBody') }
+      : { title: t('messages.list.introTitle'), body: t('messages.list.contactsIntroBody') };
   const questionTitles = useMemo(() => {
     const titles = new Map<string, string>();
     for (const row of rows) {
@@ -139,6 +156,7 @@ export function MessagesPage() {
       selected={isMobile ? null : selected}
       questionTitles={questionTitles}
       intro={rows.length === 0}
+      introText={introText}
       focusPeer={isMobile ? lastPeer : null}
     />
   );

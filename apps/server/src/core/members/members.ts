@@ -572,6 +572,7 @@ export class MemberService {
   prepareRetire(draft: ProjectConfig, handle: string, handoverTo: string | null = null): void {
     requireAiMember(draft, handle);
     draft.team.members = draft.team.members.filter((m) => m.handle !== handle);
+    draft.team.contacts = (draft.team.contacts ?? []).filter((contact) => contact !== handle);
     for (const stage of draft.pipeline.stages) {
       if (!(stage.owners ?? []).includes(handle)) continue;
       stage.owners = unique(
@@ -586,6 +587,7 @@ export class MemberService {
       if (!member) throw notFound('member', handle);
       if (member.kind !== 'human') throw invalid('not_human_member', 'Only humans can be removed');
       draft.team.members = draft.team.members.filter((m) => m.handle !== handle);
+      draft.team.contacts = (draft.team.contacts ?? []).filter((contact) => contact !== handle);
       // Sponsors and explicit gate approvers must be reassigned before removal.
       for (const stage of draft.pipeline.stages) {
         if (stage.owners) stage.owners = stage.owners.filter((h) => h !== handle);

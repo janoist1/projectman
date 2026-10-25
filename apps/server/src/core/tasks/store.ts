@@ -1,4 +1,6 @@
 import {
+  accessOfHandle,
+  canCommentOnTask,
   commentMentions,
   coverAttachmentId,
   effectiveRepo,
@@ -32,7 +34,7 @@ import type { TaskPatch } from '../../db';
 import { mergeState, mergedState } from '../../db';
 import type { DomainContext } from '../base';
 import { requireHuman } from '../members';
-import { invalid, notFound } from '../../kernel';
+import { forbidden, invalid, notFound } from '../../kernel';
 import { assertIntegratorAccess, assertOwnApproval } from '../../kernel';
 import type { ProjectService } from '../projects';
 import type { TimelineService } from '../timeline';
@@ -312,6 +314,10 @@ export class TaskStore {
     const task = this.get(projectKey, taskKey);
     const config = await this.projects.config(projectKey);
     assertIntegratorAccess(config, 'write', actor);
+    // The author's current access counts, not the one the request was authorized with.
+    const authorAccess = actor.kind === 'human' ? accessOfHandle(config, actor.handle) : undefined;
+    if (authorAccess !== undefined && !canCommentOnTask(authorAccess))
+      throw forbidden('insufficient_access', 'read-only members cannot comment');
     if (imported.importedAuthor !== undefined || imported.importedAt !== undefined) {
       assertOwnApproval(actor);
       requireHuman(config, actor, 'owner', { message: 'imported comments require owner access' });

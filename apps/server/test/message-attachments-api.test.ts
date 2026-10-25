@@ -292,5 +292,30 @@ describe('message attachments API', () => {
       expect(again.statusCode).toBe(409);
       expect(errorCode(again)).toBe('message_attachment_unavailable');
     });
+
+    it('lets a client send a file to a contact, and binds none when a recipient is no contact (PM-985)', async () => {
+      await h.app.projectman.domain.projects.update(
+        key,
+        { actor: { kind: 'human', handle: 'owner' }, author: { name: 'Owner', email: 'owner@example.com' } },
+        (draft) => {
+          draft.team.contacts = ['dev-1'];
+          return 'Set contacts';
+        },
+      );
+      const file = await put(cookies.client!, pngBytes(120));
+      const refused = await send(cookies.client!, {
+        to: ['dev-1', 'dev-2'],
+        text: 'x',
+        attachmentIds: [file.id],
+      });
+      expect(refused.statusCode).toBe(403);
+      expect(errorCode(refused)).toBe('recipient_not_contact');
+      expect(refused.json()).toMatchObject({ error: { details: { recipients: ['dev-2'] } } });
+      expect(h.app.projectman.repos.messages.list(key)).toHaveLength(0);
+      // The file is still free: it goes with the message to the contact.
+      const sent = await send(cookies.client!, { to: ['dev-1'], text: 'x', attachmentIds: [file.id] });
+      expect(sent.statusCode).toBe(202);
+      expect(TeamMessage.parse(sent.json()).attachments?.map((entry) => entry.id)).toEqual([file.id]);
+    });
   });
 });

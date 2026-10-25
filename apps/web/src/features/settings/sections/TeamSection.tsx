@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { Link } from 'react-router';
 import {
   cardMerger,
   cardMoverHandle,
   cardMoverOf,
+  contactHandles,
   hasAccess,
   isOperator,
   mergerOf,
@@ -11,8 +12,10 @@ import {
 import type { MemberConfig, ProjectConfig, RoleView } from '@projectman/shared';
 import { isApiError } from '../../../api/client';
 import { useRoles } from '../../../api/queries';
-import { useProject } from '../../../app/contexts';
+import { useProject, useProjectIndexes } from '../../../app/contexts';
+import { Avatar } from '../../../components/Avatar';
 import { Chip } from '../../../components/Chip';
+import { ErrorBanner } from '../../../components/ErrorBanner';
 import { MoverChoice } from '../../../components/MoverChoice';
 import { SelectField } from '../../../components/Field';
 import { t } from '../../../i18n/t';
@@ -242,6 +245,55 @@ function MoverControls({ config }: { config: ProjectConfig }) {
   );
 }
 
+/** The contacts as a sentence: their names, or that there are none. */
+function contactsValue(config: ProjectConfig): string {
+  const names = contactHandles(config).map(
+    (handle) => config.team.members.find((member) => member.handle === handle)?.displayName ?? handle,
+  );
+  return names.length ? names.join(', ') : t('settings.team.contacts.none');
+}
+
+/** Who may be written to by the members who write only to the contacts (PM-985): a tick per member, saved at once. */
+function ContactControls({ config }: { config: ProjectConfig }) {
+  const { key } = useProject();
+  const { members } = useProjectIndexes(key);
+  const { shown, saving, commit, error, locked } = useInstantLimits(config);
+  const hintId = useId();
+  const chosen = new Set(contactHandles(shown));
+  return (
+    <fieldset
+      className={shared.controls}
+      disabled={locked || saving}
+      aria-busy={saving}
+      aria-labelledby="settings-contacts-title"
+      aria-describedby={hintId}
+    >
+      <p id={hintId} className={shared.help}>
+        {t('settings.team.contacts.hint')}
+      </p>
+      {shown.team.members.map((member) => (
+        <label key={member.handle} className={shared.contactRow}>
+          <input
+            type="checkbox"
+            checked={chosen.has(member.handle)}
+            onChange={(event) =>
+              commit((draft) => {
+                const rest = (draft.team.contacts ?? []).filter((handle) => handle !== member.handle);
+                draft.team.contacts = event.target.checked ? [...rest, member.handle] : rest;
+              })
+            }
+          />
+          <Avatar member={members.get(member.handle)} handle={member.handle} size="sm" />
+          <span>
+            {member.displayName} <code className={shared.id}>{member.handle}</code>
+          </span>
+        </label>
+      ))}
+      {error ? <ErrorBanner>{errorMessage(error)}</ErrorBanner> : null}
+    </fieldset>
+  );
+}
+
 /**
  * The configured members in short: name and role. Model, permissions, capacity and subscription
  * are the Team page's business, which this links to instead of repeating them. Below them, who
@@ -305,6 +357,24 @@ export function TeamSection({ config }: { config: ProjectConfig }) {
               <dd>
                 {mergerValue(config)}
                 <p className={shared.help}>{t('settings.team.merger.help')}</p>
+              </dd>
+            </div>
+          </dl>
+        )}
+      </section>
+      <section aria-labelledby="settings-contacts-title">
+        <h3 id="settings-contacts-title" className={shared.groupTitle}>
+          {t('settings.team.contacts.label')}
+        </h3>
+        {can.manageTeam ? (
+          <ContactControls config={config} />
+        ) : (
+          <dl className={shared.facts}>
+            <div>
+              <dt>{t('settings.team.contacts.label')}</dt>
+              <dd>
+                {contactsValue(config)}
+                <p className={shared.help}>{t('settings.team.contacts.hint')}</p>
               </dd>
             </div>
           </dl>

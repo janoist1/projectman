@@ -38,6 +38,7 @@ import { PAGE_LIMIT, READ_AFTER_MS, STICK_PX, useDocumentVisible } from '../mess
 import { layoutThread, threadItems } from '../messages/conversations';
 import type { ThreadEntry } from '../messages/conversations';
 import { DeliveryStatus } from '../messages/DeliveryStatus';
+import { useContacts } from '../messages/useContacts';
 import { Composer } from '../session/Composer';
 import styles from './TaskThread.module.css';
 import { MessageAttachments } from '../messages/MessageAttachments';
@@ -50,6 +51,7 @@ import attachmentStyles from '../messages/MessageAttachments.module.css';
 const FLASH_MS = 1800;
 
 const BASIS_KEY = {
+  contact: 'contact',
   workers: 'workers',
   assignee: 'assignee',
   stage_owners: 'stageOwners',
@@ -80,6 +82,8 @@ interface TaskThreadProps {
   labels: readonly LabelView[] | undefined;
   /** `?message=`: the message a link leads to. */
   messageParam: string | null;
+  /** Switches to the card's own view, where a member without contacts can still comment (PM-985). */
+  onShowCard?: () => void;
 }
 
 /**
@@ -96,8 +100,10 @@ export function TaskThread({
   members,
   labels,
   messageParam,
+  onShowCard,
 }: TaskThreadProps) {
   const { key, myHandle, me } = useProject();
+  const contacts = useContacts();
   const inbox = useInbox(key);
   const resolve = useResolveInbox(key, myHandle);
   const readMessages = useReadTeamMessages(key);
@@ -225,10 +231,14 @@ export function TaskThread({
     return (
       Boolean(member) &&
       member?.status !== 'retired' &&
-      !(member?.kind === 'human' && member.role === 'client')
+      !(member?.kind === 'human' && member.role === 'client') &&
+      contacts.canWriteTo(handle)
     );
   };
-  const defaults = cardThreadRecipients({
+  const candidates = [...members.values()].filter(
+    (member) => member.handle !== myHandle && canReceive(member.handle),
+  );
+  const computed = cardThreadRecipients({
     workers,
     assignee: task.assignee,
     stageOwners,
@@ -236,6 +246,12 @@ export function TaskThread({
     writer: myHandle ?? '',
     canReceive,
   });
+  // A member who writes only to the contacts falls back to the first contact when nobody on the card is one.
+  const firstContact = contacts.restricted && computed.to.length === 0 ? candidates[0] : undefined;
+  const defaults = firstContact
+    ? { basis: 'contact' as const, to: [firstContact.handle] }
+    : { basis: computed.basis, to: computed.to };
+  const noContacts = contacts.restricted && contacts.ready && candidates.length === 0;
   const [chosen, setChosen] = useState<string[] | null>(null);
   const to = chosen ?? defaults.to;
   const toggle = (handle: string) =>
@@ -243,9 +259,6 @@ export function TaskThread({
       const base = current ?? defaults.to;
       return base.includes(handle) ? base.filter((candidate) => candidate !== handle) : [...base, handle];
     });
-  const candidates = [...members.values()].filter(
-    (member) => member.handle !== myHandle && canReceive(member.handle),
-  );
   const working = candidates.filter((member) => workers.includes(member.handle));
   const others = candidates.filter((member) => !workers.includes(member.handle));
 
@@ -268,6 +281,10 @@ export function TaskThread({
     setChosen([...new Set(people)].filter((handle) => handle !== myHandle && canReceive(handle)));
     composerBox.current?.querySelector('textarea')?.focus();
   };
+
+  const replyAllOthers = (message: TeamMessage) => [
+    ...new Set([message.from, ...message.to].filter((handle) => handle !== myHandle)),
+  ];
 
   const answer = (item: InboxItem, body: ResolveInboxRequest) =>
     resolve.mutate({ item, body }, { onError: () => toast.show(t('inbox.resolveFailed'), 'error') });
@@ -301,12 +318,13 @@ export function TaskThread({
               entry={entry}
               members={members}
               myHandle={myHandle}
-              canSend={canSend}
+              // No Reply under the message of someone the writer may not write to (PM-985).
+              canSend={canSend && (item.message.from === myHandle || contacts.canWriteTo(item.message.from))}
               canSeeAll={canSeeAll}
               flash={flash === item.message.id}
               canReplyAll={
-                new Set([item.message.from, ...item.message.to].filter((handle) => handle !== myHandle))
-                  .size > 1
+                replyAllOthers(item.message).length > 1 &&
+                replyAllOthers(item.message).every(contacts.canWriteTo)
               }
               onReply={reply}
             />
@@ -425,7 +443,16 @@ export function TaskThread({
         </div>
       )}
 
-      {canSend ? (
+      {noContacts ? (
+        <p className={styles.readOnly}>
+          {t('task.thread.noContacts')}{' '}
+          {onShowCard ? (
+            <button type="button" className={styles.reset} onClick={onShowCard}>
+              {t('task.view.card')}
+            </button>
+          ) : null}
+        </p>
+      ) : canSend ? (
         <div className={styles.composer} ref={composerBox}>
           <div className={styles.composerColumn}>
             {send.error ? (

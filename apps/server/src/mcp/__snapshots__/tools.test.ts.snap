@@ -725,6 +725,13 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                                 },
                               ],
                             },
+                            "contacts": {
+                              "items": {
+                                "pattern": "^[a-z0-9][a-z0-9-]{0,31}$",
+                                "type": "string",
+                              },
+                              "type": "array",
+                            },
                             "email": {
                               "additionalProperties": false,
                               "properties": {
@@ -4348,6 +4355,13 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                         },
                       ],
                     },
+                    "contacts": {
+                      "items": {
+                        "pattern": "^[a-z0-9][a-z0-9-]{0,31}$",
+                        "type": "string",
+                      },
+                      "type": "array",
+                    },
                     "email": {
                       "additionalProperties": false,
                       "properties": {
@@ -5958,6 +5972,13 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                             "type": "object",
                           },
                         ],
+                      },
+                      "contacts": {
+                        "items": {
+                          "pattern": "^[a-z0-9][a-z0-9-]{0,31}$",
+                          "type": "string",
+                        },
+                        "type": "array",
                       },
                       "email": {
                         "additionalProperties": false,

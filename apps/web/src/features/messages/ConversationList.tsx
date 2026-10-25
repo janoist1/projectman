@@ -33,6 +33,8 @@ export interface ConversationListProps {
   questionTitles: ReadonlyMap<string, string>;
   /** First use: no conversation anywhere yet. */
   intro: boolean;
+  /** The first-use text of a member who writes only to the contacts (PM-985); the default otherwise. */
+  introText?: { title: string; body: string };
   /** The member whose row takes the focus when the list opens. */
   focusPeer?: string | null;
 }
@@ -48,6 +50,7 @@ export function ConversationList({
   selected,
   questionTitles,
   intro,
+  introText,
   focusPeer = null,
 }: ConversationListProps) {
   const href = (peer: string) => `/p/${projectKey}/messages/with/${peer}`;
@@ -68,8 +71,8 @@ export function ConversationList({
     <nav ref={nav} className={styles.list} aria-label={t('messages.list.label')}>
       {intro ? (
         <div className={styles.intro}>
-          <h2 className={styles.introTitle}>{t('messages.list.introTitle')}</h2>
-          <p className={styles.introBody}>{t('messages.list.introBody')}</p>
+          <h2 className={styles.introTitle}>{introText?.title ?? t('messages.list.introTitle')}</h2>
+          <p className={styles.introBody}>{introText?.body ?? t('messages.list.introBody')}</p>
         </div>
       ) : null}
       {rows.map((row) => {

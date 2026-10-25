@@ -42,11 +42,17 @@ type Project = ReturnType<typeof mockProject>;
 function renderLayout(
   project: Project,
   route = '/p/AC',
-  options: { viewer?: 'owner' | 'kata'; access?: 'owner' | 'admin' | 'developer' | 'client' } = {},
+  options: {
+    viewer?: 'owner' | 'kata';
+    access?: 'owner' | 'admin' | 'developer' | 'client';
+    contacts?: string[];
+  } = {},
 ) {
   const viewer = options.viewer ?? 'owner';
   const access = options.access ?? (viewer === 'owner' ? 'owner' : 'client');
   project.backend.viewerHandle = viewer;
+  // A client writes only to the contacts; the Operator is one (PM-985).
+  project.backend.config.team.contacts = options.contacts ?? ['operator'];
   const me = {
     ...project.context.me,
     handles: { AC: viewer },
@@ -205,6 +211,14 @@ describe('the Operator button', () => {
     const panel = await screen.findByRole('dialog');
     await within(panel).findByRole('textbox', { name: t('operator.composer.label') });
     expect(within(panel).queryByRole('heading', { name: /senki nem viheti/ })).toBeNull();
+  });
+
+  it('is not there for a client while the Operator is not a contact (PM-985)', async () => {
+    const project = mockProject();
+    renderLayout(project, '/p/AC', { viewer: 'kata', contacts: ['fe-1'] });
+    await screen.findByText('board');
+    await waitFor(() => expect(project.requests.some((r) => r.path.endsWith('/config'))).toBe(true));
+    expect(screen.queryByRole('button', { name: new RegExp(`^${t('operator.panel.label')}`) })).toBeNull();
   });
 });
 

@@ -423,6 +423,7 @@ export function buildConfig(): ProjectConfig {
           temp: false,
         },
       ],
+      contacts: [],
       roles: [],
       limits: {
         aiEnabled: true,

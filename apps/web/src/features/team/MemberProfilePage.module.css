@@ -192,6 +192,14 @@
   }
 }
 
+/* Why there is no reply box under a thread with someone who is not a contact (PM-985). */
+.contactNote {
+  margin: 12px 0 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--c-ink-4);
+}
+
 /* The reason a past session rests, after its start (PM-296). */
 .closed {
   color: var(--c-ink-4);

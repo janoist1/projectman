@@ -25,6 +25,7 @@ import {
   questionPayloadOf,
   stageOf,
   stageOwners,
+  teamMessageRecipientRefusal,
 } from '@projectman/shared';
 import type {
   Actor,
@@ -237,6 +238,9 @@ export class Messaging {
     );
     if (recipients.length === 0)
       throw invalid('invalid_request', 'the message names no recipient but its sender', { field: 'to' });
+    // Who the sender may write to is checked before anything is written, bound or woken, and again as
+    // the message is recorded (the configuration may change in between).
+    this.assertRecipientsAllowed(config, from, recipients, opts);
     const unknown = recipients.filter((handle) => !memberOf(config, handle));
     if (unknown.length > 0)
       throw new DomainError('not_found', `member not found: ${unknown.join(', ')}`, {
@@ -370,6 +374,12 @@ export class Messaging {
         : undefined;
     const record = () =>
       this.ctx.unitOfWork(() => {
+        this.assertRecipientsAllowed(
+          this.projects.cachedConfig(projectKey) ?? config,
+          from,
+          recipients,
+          opts,
+        );
         opts.beforeRecord?.();
         if (signals.length > 0) {
           if (coordinationActorRefusal(this.projects.cachedConfig(projectKey)!, sender))
@@ -447,6 +457,29 @@ export class Messaging {
       return decided instanceof Promise ? decided.then(report) : report(decided);
     };
     return complete({ record, deliver });
+  }
+
+  /**
+   * 403 `recipient_not_contact` (a contact-restricted sender) or `insufficient_access` (a viewer) with the refused
+   * recipients in `details`, for the whole message (PM-985). The answer to a member's own question and an e-mail
+   * contact's reply have their own rules: the origin is set by the server, never by a request.
+   */
+  private assertRecipientsAllowed(
+    config: ProjectConfig,
+    from: string,
+    recipients: readonly string[],
+    opts: Pick<SendOptions, 'origin' | 'email'>,
+  ): void {
+    if (opts.origin?.kind === 'answer' || opts.email) return;
+    const refusal = teamMessageRecipientRefusal(config, from, recipients);
+    if (!refusal) return;
+    throw forbidden(
+      refusal.code,
+      refusal.code === 'recipient_not_contact'
+        ? 'the message goes only to the contacts of the project'
+        : 'Developer or client access required',
+      { recipients: refusal.recipients },
+    );
   }
 
   /**
@@ -576,13 +609,25 @@ export class Messaging {
 
   /** The members a task comment mentions get it as a message from its author. */
   async mentionNotice(note: DomainEventMap['task_note_added']): Promise<void> {
-    const { event, mentions } = note;
-    await this.send(
-      event.projectKey,
-      actorHandle(event.actor),
-      { to: mentions, text: event.data.text as string, taskKey: event.taskKey },
-      { actor: event.actor, sessionId: event.sessionId, origin: { kind: 'note', eventId: event.id } },
-    );
+    const { event } = note;
+    const author = actorHandle(event.actor);
+    // The comment keeps every mention; the notice goes only to those the author may write to now (PM-985).
+    const config = await this.projects.config(event.projectKey);
+    const refused = new Set(teamMessageRecipientRefusal(config, author, note.mentions)?.recipients);
+    const mentions = note.mentions.filter((handle) => !refused.has(handle));
+    if (mentions.length === 0) return;
+    try {
+      await this.send(
+        event.projectKey,
+        author,
+        { to: mentions, text: event.data.text as string, taskKey: event.taskKey },
+        { actor: event.actor, sessionId: event.sessionId, origin: { kind: 'note', eventId: event.id } },
+      );
+    } catch (err) {
+      // The author's contacts changed while the notice was being prepared: no notice, the comment stands.
+      if (err instanceof DomainError && err.code === 'recipient_not_contact') return;
+      throw err;
+    }
   }
 
   /**

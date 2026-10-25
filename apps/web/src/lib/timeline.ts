@@ -1037,6 +1037,12 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
       );
     case 'config_changed':
       return normal(t('timeline.events.config_changed', { message: str(d.message) }));
+    case 'team_contact_changed':
+      return normal(
+        t(d.contact === true ? 'timeline.events.contactAdded' : 'timeline.events.contactRemoved', {
+          name: nameOf(str(d.handle), ctx.members, ctx.myHandle),
+        }),
+      );
     case 'operator_knowledge_changed':
       return normal(t('timeline.events.operator_knowledge_changed', { revision: Number(d.revision) }));
     case 'operator_approval_waived':

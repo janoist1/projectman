@@ -690,7 +690,7 @@ export const hu = {
     accessHint: {
       admin: 'Kezelheti a csapatot és a projekt beállításait.',
       developer: 'Dolgozhat a feladatokon és a munkamenetekben.',
-      client: 'Látja a vele megosztott feladatokat, és tesztelhet.',
+      client: 'Mindent lát, hozzászólhat a kártyákhoz, és üzenhet a kapcsolattartóknak.',
       viewer: 'Megtekintheti a projektet; nem módosíthatja.',
     },
   },
@@ -1266,6 +1266,8 @@ export const hu = {
       update_not_applied: 'A módosítás nem érvényesült: a szakasz vagy a felelős nem változott.',
       not_a_member: 'Nem vagy tagja ennek a projektnek.',
       insufficient_access: 'Ehhez nincs elég jogod.',
+      recipient_not_contact:
+        'Nem ment el az üzenet. A címzettek közül valaki már nem kaphat tőled üzenetet, ezért senki nem kapta meg. Válassz más címzettet.',
       owner_only: 'Ezt csak a tulajdonos teheti meg.',
       self_review_forbidden: 'A megvalósító és a PR szerzője nem ellenőrizheti a saját munkáját.',
       comment_required: 'Ehhez a címkéhez indoklás is kell: írd meg kommentben, miért.',
@@ -2265,7 +2267,10 @@ export const hu = {
         projectManager:
           'Most senki nem foglalkozik vele, ezért a projektmenedzser kapja meg, és ő továbbítja a megfelelő tagnak.',
         none: 'Válaszd ki, kinek írsz.',
+        contact: 'A kártyán dolgozók közül senki sem kapcsolattartó, ezért egy kapcsolattartó kapja meg.',
       },
+      noContacts:
+        'A projektnek nincs kapcsolattartója, ezért innen nem tudsz üzenni. Hozzászólni a kártya nézetében tudsz:',
       edited: 'Te választottad.',
       reset: 'Vissza az alaphoz',
       composerLabel: 'Üzenet a(z) {key} kártyáról',
@@ -2307,6 +2312,8 @@ export const hu = {
     comments: {
       label: 'Hozzászólás',
       hint: 'Írj @ jelet egy csapattag megemlítéséhez.',
+      contactsHint: 'Írj @ jelet egy kapcsolattartó megemlítéséhez. Másnak nem megy értesítés.',
+      contactsHintNone: 'A projektnek nincs kapcsolattartója, ezért senkit nem tudsz megemlíteni.',
       members: 'Megemlíthető csapattagok',
       imported: 'Importált',
     },
@@ -5115,6 +5122,8 @@ export const hu = {
       member_retired: 'Elbocsátva: {handle}',
       member_retired_handover: 'Elbocsátva: {handle}, a munkái átkerültek: {to}',
       config_changed: 'Beállítás módosítva: {message}',
+      contactAdded: 'Kapcsolattartó lett: {name}',
+      contactRemoved: 'Már nem kapcsolattartó: {name}',
       operator_approval_waived:
         'Az Operátor a(z) {version}. megállapodás szerinti elengedéssel módosította a beállításokat.',
       operator_knowledge_changed:
@@ -5175,6 +5184,7 @@ export const hu = {
     roster: 'Tagok',
     senior: 'Senior',
     seniorTitle: 'Senior fejlesztő: ő kapja a Senior-feladatokat.',
+    contactChip: 'Kapcsolattartó',
     columns: {
       member: 'Tag',
       status: 'Állapot',
@@ -5618,6 +5628,7 @@ export const hu = {
   messages: {
     new: 'Új üzenet',
     recipients: 'Címzettek',
+    contactsOnlyHint: 'Csak a kapcsolattartóknak írhatsz.',
     text: 'Üzenet',
     task: 'Kapcsolódó feladat',
     noTask: 'Nincs kapcsolódó feladat',
@@ -5650,6 +5661,10 @@ export const hu = {
       asksYou: 'kérdés vár rád',
       introTitle: 'Itt beszélgethetsz a csapattal.',
       introBody: 'Válassz egy tagot, és írj neki. Az AI-tag a feladat munkamenetében kapja meg az üzenetet.',
+      contactsIntroBody: 'Válassz egy kapcsolattartót, és írj neki. Másnak itt nem tudsz üzenni.',
+      noContactsTitle: 'A projektnek még nincs kapcsolattartója.',
+      noContactsBody:
+        'Amíg nincs, nem tudsz üzenetet küldeni. A beérkezett üzeneteket itt olvashatod, a kártyákhoz pedig hozzászólhatsz.',
     },
     thread: {
       label: 'Beszélgetés: {name}',
@@ -5667,6 +5682,10 @@ export const hu = {
       unread: 'Olvasatlan',
       unknownMember: 'Nincs ilyen tag.',
       retiredMember: 'Már nem tagja a csapatnak, nem írhatsz neki.',
+      notContact: 'Neki nem tudsz üzenni, mert nem kapcsolattartó. Írj inkább a kapcsolattartónak:',
+      notContactNoContacts:
+        'Neki nem tudsz üzenni, mert nem kapcsolattartó, és a projektnek most nincs kapcsolattartója.',
+      or: 'vagy',
       quotaWaiting: 'A tag kerete most elfogyott, kb. {time}-kor áll vissza; az üzeneted addig várakozik.',
       quotaWaitingUnknown: 'A tag kerete most elfogyott; az üzeneted a visszaállásig várakozik.',
     },
@@ -6042,6 +6061,12 @@ export const hu = {
     team: {
       role: 'Szerep',
       manage: 'Tagok kezelése a Csapat oldalon',
+      /** Who the members who write only to the contacts can message (PM-985). */
+      contacts: {
+        label: 'Kapcsolattartók',
+        hint: 'Aki csak olvasni és hozzászólni tud, üzenetet csak nekik küldhet. Ha senki sincs kijelölve, csak a kártyákon szólhat hozzá.',
+        none: 'Nincs kapcsolattartó',
+      },
       /** Who moves the cards on (PM-439): the choice of the wizard and the settings. */
       mover: {
         label: 'Ki viszi tovább a kártyákat?',

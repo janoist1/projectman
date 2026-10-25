@@ -54,7 +54,9 @@ import { closureTexts, isLiveSession, sessionClosure } from '../../lib/sessions'
 import { aiRoleView, humanRoleName } from '../../lib/roles';
 import { useDocumentTitle } from '../../lib/hooks';
 import { describeCron } from '../../lib/schedules';
+import { ContactNote } from '../messages/ContactNote';
 import { MessageComposer } from '../messages/MessageComposer';
+import { useContacts } from '../messages/useContacts';
 import { MessageList } from '../messages/MessageList';
 import { usePausedRows, useHeldStart, useTeamPaused } from '../pause/usePause';
 import { useIsRequiredPm } from '../operator/useRequiredMember';
@@ -137,7 +139,11 @@ export function MemberProfilePage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [reply, setReply] = useState<TeamMessage | null>(null);
   const access = me.projects.find((p) => p.key === key)?.access;
-  const canSend = access !== undefined && ['owner', 'admin', 'developer', 'client'].includes(access);
+  const contacts = useContacts();
+  // A member who writes only to the contacts cannot answer someone else here (PM-985).
+  const notContact = contacts.restricted && contacts.ready && !contacts.canWriteTo(handle);
+  const canSend =
+    access !== undefined && ['owner', 'admin', 'developer', 'client'].includes(access) && !notContact;
   const memory = useMemberMemories(key, handle, profile.data?.member.kind === 'ai');
   const schedules = useSchedules(key, profile.data?.member.kind === 'ai');
   const pausedRows = usePausedRows();
@@ -209,6 +215,11 @@ export function MemberProfilePage() {
                   {t('pm.required.chip')}
                 </Chip>{' '}
                 ·{' '}
+              </>
+            ) : null}
+            {contacts.contacts.includes(handle) ? (
+              <>
+                <Chip>{t('team.contactChip')}</Chip> ·{' '}
               </>
             ) : null}
             {builtInOperator ? (
@@ -584,12 +595,18 @@ export function MemberProfilePage() {
           />
         )}
         {read.error ? <ErrorBanner>{errorMessage(read.error)}</ErrorBanner> : null}
-        <MessageComposer
-          key={`${handle}:${reply?.id ?? ''}`}
-          initialTo={reply ? [...new Set([reply.from, ...reply.to])].filter((h) => h !== myHandle) : [handle]}
-          initialTask={reply?.taskKey ?? ''}
-          onSent={() => setReply(null)}
-        />
+        {notContact ? (
+          <ContactNote className={styles.contactNote} />
+        ) : (
+          <MessageComposer
+            key={`${handle}:${reply?.id ?? ''}`}
+            initialTo={
+              reply ? [...new Set([reply.from, ...reply.to])].filter((h) => h !== myHandle) : [handle]
+            }
+            initialTask={reply?.taskKey ?? ''}
+            onSent={() => setReply(null)}
+          />
+        )}
       </section>
       <InviteDialog open={inviting} member={member} onClose={() => setInviting(false)} />
       <EditMemberDialog

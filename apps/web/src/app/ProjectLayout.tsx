@@ -1,3 +1,4 @@
+import { canCommentOnTask } from '@projectman/shared';
 import clsx from 'clsx';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Outlet, useLocation, useNavigate, useMatch, useParams } from 'react-router';
@@ -73,6 +74,7 @@ export function ProjectLayout() {
       manageTeam: access === 'owner' || access === 'admin',
       workInSessions: internal,
       pauseTeam: access === 'owner' || access === 'admin',
+      comment: canCommentOnTask(access),
       readConfig,
     }),
     [access, internal, readConfig],

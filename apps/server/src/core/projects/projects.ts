@@ -855,6 +855,24 @@ export class ProjectService {
     });
   }
 
+  /** One audit event per member named a contact or taken off the list; a new project and a reorder add none. */
+  private announceContactChanges(change: ConfigChange): void {
+    if (!change.previous) return;
+    const before = new Set(change.previous.team.contacts ?? []);
+    const after = new Set(change.next.team.contacts ?? []);
+    const changes = [
+      ...[...after].filter((handle) => !before.has(handle)).map((handle) => ({ handle, contact: true })),
+      ...[...before].filter((handle) => !after.has(handle)).map((handle) => ({ handle, contact: false })),
+    ];
+    for (const { handle, contact } of changes)
+      this.timeline.append({
+        projectKey: change.projectKey,
+        actor: change.actor,
+        type: 'team_contact_changed',
+        data: { handle, contact, version: change.version },
+      });
+  }
+
   private async announce(change: ConfigChange, message: string): Promise<void> {
     this.timeline.append({
       projectKey: change.projectKey,
@@ -862,6 +880,7 @@ export class ProjectService {
       type: 'config_changed',
       data: { version: change.version, message },
     });
+    this.announceContactChanges(change);
     this.ctx.bus.publish({ type: 'config_changed', projectKey: change.projectKey, version: change.version });
     await this.ctx.events.emit('config_changed', change);
   }

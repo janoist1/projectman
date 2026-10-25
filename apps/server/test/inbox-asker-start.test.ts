@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { routes } from '@projectman/shared';
 import type { InboxItem } from '@projectman/shared';
-import { createAppHarness, createProject, setupOwner } from './helpers/app-harness';
+import { addHumanAndLogin, createAppHarness, createProject, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 import type { Domain } from '../src/assembly';
 import { OWNER, OWNER_ACTOR } from './helpers/domain-harness';
@@ -63,6 +63,26 @@ describe('inbox asker admission preview', () => {
       state: 'waiting',
       reason: 'member_at_capacity',
     });
+  });
+
+  it('lets a client answer a question of a member who is not a contact (PM-985)', async () => {
+    const kata = await addHumanAndLogin(h.app, {
+      handle: 'kata',
+      access: 'client',
+      email: 'kata@acme.test',
+    });
+    expect((await domain.projects.config('AR')).team.contacts).toEqual([]);
+    const item = question('dev-1', ['kata']);
+    const response = await h.app.inject({
+      method: 'POST',
+      url: routes.resolveInbox('AR', item.id),
+      headers: { cookie: kata },
+      payload: { optionId: 'answer', note: 'The wide one' },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    expect(
+      h.app.projectman.repos.messages.list('AR').filter((m) => m.origin?.kind === 'answer'),
+    ).toHaveLength(1);
   });
 
   it('checks each visible asker and work item once and skips non-AI questions', async () => {

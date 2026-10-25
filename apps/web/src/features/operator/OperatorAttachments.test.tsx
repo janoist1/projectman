@@ -340,6 +340,7 @@ describe('Operator message attachments', () => {
       [attachment],
     );
     project.backend.viewerHandle = 'kata';
+    project.backend.config.team.contacts = ['operator'];
     project.render(<OperatorPanel returnFocusTo={{ current: null }} />, '/', {
       myHandle: 'kata',
       isOwner: false,

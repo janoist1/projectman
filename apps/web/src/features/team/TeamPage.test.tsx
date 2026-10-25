@@ -402,7 +402,18 @@ describe('TeamPage role catalogue', () => {
     expect(screen.queryByRole('button', { name: /Tag szerkesztése/ })).toBeNull();
     expect(screen.queryByRole('button', { name: t('addHuman.title') })).toBeNull();
     expect(screen.queryByRole('button', { name: t('invites.create') })).toBeNull();
-    expect(project.requests.some((request) => request.path.endsWith('/config'))).toBe(false);
+    // The configuration is read (the contact chips need it) but never written.
+    expect(
+      project.requests.some((request) => request.path.endsWith('/config') && request.method !== 'GET'),
+    ).toBe(false);
+  });
+  it('marks the contacts in the roster for a member who cannot manage the team', async () => {
+    const project = mockProject();
+    project.backend.config.team.contacts = ['fe-1'];
+    project.render(<TeamPage />, '/', {
+      can: { createTasks: true, manageTeam: false, workInSessions: false },
+    });
+    expect((await screen.findAllByText(t('team.contactChip'))).length).toBeGreaterThan(0);
   });
   it.each([false, true])('shows provider badges in roster rows and cards (mobile: %s)', async (mobile) => {
     vi.spyOn(window, 'matchMedia').mockImplementation((query) => ({

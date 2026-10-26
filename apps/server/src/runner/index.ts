@@ -6,6 +6,8 @@ import { createTranscriptReader } from './transcript/reader';
 
 /** The variables that would move billing off the subscription. */
 export { BILLING_ENV_VARS } from './env';
+/** Shared literal/glob path matching and validation for native read boundaries. */
+export { pathPatternMatcher, isReadBoundaryPath } from './tool-decision';
 /** How long the PreToolUse dependency gate waits for the installer (PM-743). */
 export { DEPENDENCY_GATE_WAIT_S } from './hook-forwarder';
 /** Records Claude Code's workspace trust. */

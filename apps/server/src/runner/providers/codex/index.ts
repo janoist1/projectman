@@ -11,6 +11,7 @@ import { parseCodexLoginStatus } from '../login';
 import { writeHookConfig } from '../../session-config';
 import type { ProviderAdapter, SessionTiming, TranscriptLineParser } from '../types';
 import { buildCodexArgs, codexCliReadRoot, codexCliDenials, validateCodexReadBoundary } from './args';
+import type { ReadBoundaryProblem } from './args';
 import { CodexPlanUsage } from './plan-usage';
 import { CodexTranscriptParser } from './transcript';
 import { assertCodexMemberWorkspace, inspectCodexMcpServers, type AmbientIssue } from '../../ambient-config';
@@ -22,7 +23,7 @@ export class CodexStartError extends Error {
   constructor(details: {
     problem:
       'cli_missing' | 'cli_too_old' | 'sandbox_config' | 'mcp_config' | 'cli_location' | 'read_boundary';
-    reason?: 'missing' | 'invalid' | 'required_path_denied';
+    reason?: ReadBoundaryProblem;
     cliPath?: string;
     cliVersion?: string;
     minCliVersion?: string;

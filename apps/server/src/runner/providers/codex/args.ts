@@ -2,7 +2,7 @@ import { modelForProvider, sessionPermissions, SessionReadBoundary } from '@proj
 import { homedir } from 'node:os';
 import { statSync } from 'node:fs';
 import path from 'node:path';
-import { toolPathForms } from '../../tool-decision';
+import { toolPathForms, withoutFirmlink, pathPatternMatcher, isReadBoundaryPath } from '../../tool-decision';
 import type { StartSessionSpec } from '../../../contracts';
 import {
   FAST_HOOK_TIMEOUT_S,
@@ -203,25 +203,15 @@ export function codexCliDenials(input: Pick<CodexArgsInput, 'spec' | 'codexHome'
 }
 
 function pathForms(target: string): string[] {
-  const strip = (value: string) => value.replace(/^\/System\/Volumes\/Data(?=\/|$)/, '') || '/';
-  return [...new Set([strip(path.normalize(target)), ...toolPathForms('/', target, homedir()).map(strip)])];
+  return [
+    ...new Set([path.normalize(target), ...toolPathForms('/', target, homedir())].map(withoutFirmlink)),
+  ];
 }
 
 /** Hard denials cover descendants, including globbed file names and symlink targets. */
 function pathDenials(denied: readonly string[]): (target: string) => boolean {
-  const patterns = denied.flatMap((entry) =>
-    pathForms(entry).map((root) => {
-      const expression = root
-        .split(/([*?])/)
-        .map((part) =>
-          part === '*' ? '[^/]*' : part === '?' ? '[^/]' : part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
-        )
-        .join('');
-      return new RegExp(`^${expression}(?:/|$)`, process.platform === 'darwin' ? 'i' : '');
-    }),
-  );
-  return (target) =>
-    pathForms(target).some((candidate) => patterns.some((pattern) => pattern.test(candidate)));
+  const matches = pathPatternMatcher(denied.flatMap(pathForms), process.platform === 'darwin');
+  return (target) => pathForms(target).some(matches);
 }
 
 export type ReadBoundaryProblem = 'missing' | 'invalid' | 'required_path_denied';
@@ -237,9 +227,9 @@ export function validateCodexReadBoundary(
   const parsed = SessionReadBoundary.safeParse(raw);
   if (!parsed.success) return 'invalid';
   const boundary = parsed.data;
-  const validPath = (value: string) =>
-    path.isAbsolute(value) && !/[\0*?\[\]]/.test(value) && path.normalize(value) === value;
-  if (![...boundary.deniedRoots, ...boundary.allowedPaths.map((entry) => entry.path)].every(validPath))
+  if (
+    ![...boundary.deniedRoots, ...boundary.allowedPaths.map((entry) => entry.path)].every(isReadBoundaryPath)
+  )
     return 'invalid';
   if (!boundary.deniedRoots.some((root) => pathForms(root).includes(pathForms(homedir()).at(-1)!)))
     return 'invalid';

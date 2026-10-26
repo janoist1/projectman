@@ -3897,7 +3897,10 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   Claude's existing `worktreeSandbox` read/write rules remain unchanged. Explicit boundaries
   contain reopenable roots and typed file/directory exceptions, separate from unconditional
   policy/adapter denials. Local adapters resolve lexical/physical paths and reject invalid
-  explicit inputs; `engine-link/engine-limit.ts` adds its own homes/temp roots and checks
+  explicit inputs using the shared `runner/tool-decision.ts` matcher (exported through
+  `runner/index.ts` for the engine): glob component boundaries, case handling and macOS
+  `/System/Volumes/Data` firmlink aliases have one implementation. The engine
+  (`engine-link/engine-limit.ts`) adds its own homes/temp roots and checks
   exceptions and required private directories only when a boundary is supplied. Existing
   engine-root, permission-mode, environment and sensitive-path checks always apply.
   **Remote engine:** `paths()` supplies the executing engine's roots; only the optional,

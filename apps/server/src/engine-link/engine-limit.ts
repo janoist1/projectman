@@ -20,7 +20,7 @@ import {
 } from '../engine-host';
 import { userExcludesFile } from '../engine-host';
 import { isWithin } from '../kernel';
-import { BILLING_ENV_VARS } from '../runner';
+import { BILLING_ENV_VARS, pathPatternMatcher, isReadBoundaryPath } from '../runner';
 import { assertNpmCiCheckout } from '../full-test';
 import { engineFiles } from './engine-config';
 import type { ResolvedEngineConfig } from './engine-config';
@@ -343,27 +343,15 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
         const boundary = SessionReadBoundary.safeParse(sandbox?.portable?.readBoundary);
         if (!boundary.success) refuse('invalid_params', 'The explicit read boundary is invalid');
         const portable = sandbox!.portable!;
-        const valid = (value: string) =>
-          path.isAbsolute(value) && !/[\0*?\[\]]/.test(value) && path.normalize(value) === value;
         if (
           ![...boundary.data.deniedRoots, ...boundary.data.allowedPaths.map((entry) => entry.path)].every(
-            valid,
+            isReadBoundaryPath,
           )
         )
           refuse('invalid_params', 'The read boundary needs absolute normalized paths');
         const blocked = [...sensitive, ...(filesystem.deniedPaths ?? [])].map(resolveReal);
-        const hardDenied = (target: string) =>
-          blocked.some((root) => {
-            const expression = root
-              .split(/([*?])/)
-              .map((part) =>
-                part === '*' ? '[^/]*' : part === '?' ? '[^/]' : part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
-              )
-              .join('');
-            return new RegExp(`^${expression}(?:/|$)`, process.platform === 'darwin' ? 'i' : '').test(
-              resolveReal(target),
-            );
-          });
+        const matchesDenied = pathPatternMatcher(blocked, process.platform === 'darwin');
+        const hardDenied = (target: string) => matchesDenied(resolveReal(target));
         const required = [
           spec.cwd,
           ...(placement.kind === 'task_worktree' && placement.gitDir ? [placement.gitDir] : []),

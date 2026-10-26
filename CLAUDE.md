@@ -139,6 +139,7 @@ npm run merge-test          # merge checks selected from HEAD's first-parent dif
 npm run dead-code           # before hand-over and in fix rounds: unused files/exports (fast, no queue)
 npm run full-test -- --workers 4 --timeout 60 -- npm run merge-test -- --all  # macOS, outside member sandboxes
 npx vitest related <files> --run   # while working: the tests of what you changed, in the workspace (no queue)
+npx vitest run src/i18n/i18n.test.ts --configLoader runner  # in apps/web: after changing locale keys or their usage
 npx vitest run test/architecture  # in apps/server after adding, moving or renaming files; before hand-over too (no queue)
 npm run typecheck -w <workspace>  # type check only the workspaces you touched (no queue)
 ```

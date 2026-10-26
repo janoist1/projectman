@@ -1,0 +1,4 @@
+# Role guide
+
+## Security review
+Review authentication, authorization, injection and secret handling. Record the verdict as the matching label with update_task, evidence in the note; never review your own work or disclose secrets.

@@ -844,6 +844,11 @@ const GUIDED_DUTIES: Partial<Record<DutyId, { title: string; short: string }>> =
     short:
       'Test expected/risky paths in a test environment. Use update_task: result label, repro note. Never certify your own work.',
   },
+  security_review: {
+    title: 'Security review',
+    short:
+      'Review authentication, authorization, injection and secret handling. Never review your own work or disclose secrets.',
+  },
   ux_design: {
     title: 'Design states, accessibility and complete review',
     short:
@@ -865,6 +870,9 @@ const GUIDED_DUTIES: Partial<Record<DutyId, { title: string; short: string }>> =
       'Split work into independently testable tasks with create_task and record dependencies. A sub-card must stand on its own; set developer_level on every developer card you plan or create.',
   },
 };
+
+/** Guided duties whose short form is so brief that a held one alone gets a one-line index. */
+const SHORT_DUTIES: DutyId[] = ['testing_acceptance', 'security_review'];
 
 const OCCASIONAL_REVIEW_TITLE = 'Occasional architecture review';
 const OCCASIONAL_REVIEW =
@@ -926,9 +934,11 @@ function roleSection(input: ContextPackInput, guide: ContextPack['guide']): stri
     ...(isOperator(member) ? [operatorIndex(project)] : []),
     ...(details.length
       ? [
-          // The testing duty is already short: the normal index would cost more than it saves.
-          dutyDetails.length === 1 && guidedHeld[0]?.id === 'testing_acceptance' && details.length === 1
-            ? 'Testing: get_guide with topic `role` if needed.'
+          // The testing and security duties are already short: the normal index would cost more than it saves.
+          dutyDetails.length === 1 &&
+          SHORT_DUTIES.includes(guidedHeld[0]?.id as DutyId) &&
+          details.length === 1
+            ? `${dutyDetails[0]!.title}: get_guide with topic \`role\` if needed.`
             : [
                 ...(dutyDetails.length
                   ? [`Role guide index: ${dutyDetails.map(({ title }) => title).join('; ')}.`]

@@ -21,7 +21,7 @@ import type {
   TimelineEventType,
   WorkItemRef,
 } from '@projectman/shared';
-import { aiMemberDefaults, getLocale, getTemplate } from '@projectman/templates';
+import { aiMemberDefaults, getLocale, getTemplate, standardLabelsFor } from '@projectman/templates';
 import type {
   CardQuestion,
   CardWorker,
@@ -4054,6 +4054,128 @@ describe('structural decisions (PM-223)', () => {
     await expect(`${roleText(pack.appendSystemPrompt)}\n`).toMatchFileSnapshot(
       '__snapshots__/architect.role-instructions.txt',
     );
+  });
+});
+
+describe('security role guide (PM-997)', () => {
+  /** The default project with a security reviewer who owns the review stage when `owner`. */
+  function securityProject(owner = true) {
+    const project = buildProject();
+    addMember(project, 'security', 'security_review');
+    project.pipeline.labels.push(...standardLabelsFor(['security-ok'], getLocale('en')));
+    if (owner) (project.pipeline.stages.find((s) => s.id === 'code_review')!.owners ??= []).push('security');
+    return project;
+  }
+
+  it('snapshots the full prompt and guide and measures the starting context', async () => {
+    const source = input({
+      project: securityProject(),
+      handle: 'security',
+      task: makeTask({ stageId: 'code_review' }),
+    });
+    const pack = builder.build(source);
+    await expect(`${pack.appendSystemPrompt}\n`).toMatchFileSnapshot(
+      '__snapshots__/security-review.system-prompt.txt',
+    );
+    await expect(`${pack.guide.role}\n`).toMatchFileSnapshot('__snapshots__/security-review.role-guide.txt');
+    // Same fixture before PM-997: prompt 14,112 B, role 224 B, no guide; final newline included.
+    expect(Buffer.byteLength(`${pack.appendSystemPrompt}\n`)).toBeLessThanOrEqual(14_088);
+    expect(
+      Buffer.byteLength(`${section(pack.appendSystemPrompt, '# Your role instructions').trimEnd()}\n`),
+    ).toBeLessThanOrEqual(200);
+    expect(pack.guide.role).toContain(dutyPrompt(source, 'security_review'));
+    expect([...pack.guide.role!.matchAll(/^## (.+)$/gm)].map((match) => match[1])).toEqual([
+      'Security review',
+    ]);
+    const topics = [...pack.appendSystemPrompt.matchAll(/get_guide with topic `([^`]+)`/g)].map(
+      (match) => match[1],
+    );
+    expect(topics).toEqual(Object.keys(pack.guide));
+  });
+
+  it.each([true, false])(
+    'keeps the output and recipient visible (stage owner: %s) and the guide free of them',
+    (owner) => {
+      const pack = builder.build(
+        input({
+          project: securityProject(owner),
+          handle: 'security',
+          task: makeTask({ stageId: 'code_review' }),
+        }),
+      );
+      const steps = doneSteps(pack.appendSystemPrompt);
+      for (const key of ['update_task', 'security-ok', 'security-changes', 'send_message'])
+        expect(steps).toContain(key);
+      if (owner) {
+        expect(steps).toContain('Blocking');
+        expect(steps).toContain('`fe-1`');
+      } else {
+        expect(steps).toContain('Review what you were asked to review');
+        expect(steps).not.toContain('Blocking');
+      }
+      expect(pack.guide.role).not.toContain('security-ok');
+    },
+  );
+
+  it('keeps the self-review and secret prohibitions visible on an assigned card', () => {
+    const pack = builder.build(
+      input({
+        project: securityProject(),
+        handle: 'security',
+        task: makeTask({ stageId: 'code_review', assignee: 'security' }),
+      }),
+    );
+    const role = section(pack.appendSystemPrompt, '# Your role instructions');
+    expect(role).toContain('Never review your own work');
+    expect(role).toContain('disclose secrets');
+    expect(section(pack.appendSystemPrompt, '# Team rules')).toContain('Nobody approves their own work');
+  });
+
+  it('follows custom and override duties and preserves other instructions', () => {
+    const custom = securityProject(false);
+    const duties: DutyId[] = ['security_review', 'triage'];
+    custom.team.roles.push({
+      id: 'custom_security',
+      name: 'Custom security',
+      summary: '',
+      notTheirJob: '',
+      holders: 'both',
+      duties,
+      instructions: 'Keep bundle instructions.',
+    });
+    addMember(custom, 'sec-custom', 'custom_security');
+    const overridden = securityProject(false);
+    addMember(overridden, 'sec-custom', 'security_review');
+    overridden.team.roleOverrides = {
+      security_review: { duties, instructions: 'Keep bundle instructions.' },
+    };
+    const packs = [custom, overridden].map((project) => {
+      const source = input({ project, handle: 'sec-custom' });
+      source.member = { ...source.member, instructions: 'Keep member instructions.' };
+      return builder.build(source);
+    });
+    const [a, b] = packs;
+    const role = section(a!.appendSystemPrompt, '# Your role instructions');
+    expect(role).toBe(section(b!.appendSystemPrompt, '# Your role instructions'));
+    expect(a!.guide.role).toBe(b!.guide.role);
+    const order = [
+      'Never review your own work',
+      DUTIES.triage.prompt,
+      'Keep bundle instructions.',
+      'Keep member instructions.',
+    ].map((text) => role.indexOf(text));
+    expect(order.every((at) => at >= 0)).toBe(true);
+    expect(order).toEqual([...order].sort((x, y) => x - y));
+    for (const text of [DUTIES.triage.prompt, 'Keep bundle instructions.', 'Keep member instructions.'])
+      expect(a!.guide.role).not.toContain(text);
+    overridden.team.roleOverrides.security_review!.duties = ['triage'];
+    expect(builder.build(input({ project: overridden, handle: 'sec-custom' })).guide.role).toBeUndefined();
+  });
+
+  it('leaves the code review prompt unguided', () => {
+    const pack = builder.build(input({ task: makeTask({ stageId: 'code_review' }) }));
+    expect(pack.guide.role).toBeUndefined();
+    expect(section(pack.appendSystemPrompt, '# Your role instructions')).toContain(DUTIES.code_review.prompt);
   });
 });
 

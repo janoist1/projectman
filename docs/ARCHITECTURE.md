@@ -435,19 +435,26 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   through (the label set, or `ui` removed). A move, a cancel or an assignment ends the wait like
   for the other work starts. Only a person's start (`StartTaskOptions.startSetters`, set by the
   route) starts setters.
-  **The Senior card** (PM-348, decisions K2 and K3 of PM-338): the automatic developer choice is
-  `pickDeveloper` in `packages/shared` (a Senior card to a free Senior; any other card to the least
-  loaded free member, a Senior last; a Senior card never to a temp worker). While every Senior is busy
-  or away, `startLocked` leaves the card in the work stage unassigned and the start waits as a
-  `work_start` deferral (`startWaiting.reason` `senior_busy`, with `seniors`); a person's Start gets a
-  normal response with that wait. `SeniorWaits` (`admission/senior-waits.ts`, table `senior_waits`, one
-  open row per card) keeps when the wait began, the question and the answer over a restart. After
-  `seniorWaitMinutes` (30) the 60 s sweep asks the owners once (an inbox decision, `wait_for_senior` or
-  `any_developer`); "any" lets a free developer take it, never a temp worker. A freed Senior takes the
-  card first (`retryDeferred` tries `senior_busy` deferrals first) and the question closes
-  (`senior_took`); an assignment, move, closure, level change or the end of the team's Senior closes it
-  (`senior_wait_ended`). A team without a Senior starts the card by the "any" rule (`no_senior` event).
-  No machine-dependent part is affected.
+  **The complexity limit** (PM-1007, replaces the Senior mark of PM-348): the automatic developer
+  choice is `chooseDeveloper` in `packages/shared`. A card's points (`Task.complexity`, PM-1006) are
+  compared with each developer's `complexityLimit` (a temp worker's is always 5). Among the free
+  developers whose limit reaches the points the one with the smallest limit wins (then the least
+  loaded, then the team order), so a small card does not take the strongest developer; an unscored
+  card goes the same way among all free developers. While every developer who reaches the points is
+  busy or away, `startLocked` leaves the card in the work stage unassigned and the start waits as a
+  `work_start` deferral (`startWaiting.reason` `senior_busy`, with `seniors`: the handles whose limit
+  reaches the points); a person's Start gets a normal response with that wait. A card of up to 5
+  points may go to a temp worker instead of waiting. `SeniorWaits` (`admission/senior-waits.ts`, table
+  `senior_waits`, one open row per card) keeps when the wait began, the question and the answer over a
+  restart. After `seniorWaitMinutes` (30) the 60 s sweep asks the owners once (an inbox decision,
+  `wait_for_senior` or `any_developer`); "any" lets the free non-temp developer with the largest limit
+  take it. A freed developer who reaches the points takes the card first (`retryDeferred` tries
+  `senior_busy` deferrals first) and the question closes (`senior_took`); an assignment, move,
+  closure, a change of the card's points (`task_complexity_changed`) or of the team's limits closes it
+  (`senior_wait_ended`). When no developer's limit reaches the points the card starts by the "any"
+  rule (`no_senior` event). The names `senior_*`, `seniors` and `wait_for_senior` are kept because
+  stored rows and events carry them. A config migration turns the old `senior` mark into limit 13 and
+  a DB migration turns a "senior" recommendation into 8 points. No machine-dependent part is affected.
 - **Stage hand-over** — when a task enters a later stage owned by AI members, by anyone's
   move, the least loaded free owner (never the task's assignee) gets a session for the task.
   An owner that already has a session for the task gets a notice instead. A card sent back into the
@@ -4612,10 +4619,10 @@ later parts of PM-427 (the order of deferred starts, the AI members' brief, the 
   place. A candidate is an active card, not a theme or a collector with any subtasks (closed ones included, PM-818), with no assignee,
   no open prerequisite, no start block
   (`startBlock`, so no `waiting-answer`) and nothing more asked by the gates on the way: a card that would need
-  `approvals` is left out, so a pull never requests one. The developer is picked as for any start (`pickDeveloper`: a
-  Senior card waits for a Senior, never goes to another developer) among the AI owners of the work stage who are not
+  `approvals` is left out, so a pull never requests one. The developer is picked as for any start (`chooseDeveloper`: a card
+  whose points exceed a developer's limit never goes to that developer) among the AI owners of the work stage who are not
   temp workers, not on leave, have capacity and are not waited for by a stored deferral (that one goes first, a
-  `senior_busy` wait waits for its Seniors). One card per developer per round; nothing is pulled while AI work is off or
+  `senior_busy` wait waits for the developers whose limit reaches its points). One card per developer per round; nothing is pulled while AI work is off or
   the project or the instance is paused, and no temp worker is hired. `WorkStarts.pull` takes the admission lock per
   card and starts it like a deferred start (`startLocked` in the system's name, `automatic`, `StartTaskOptions.pulled`
   into the stage change), so the Start button and a pull on the same card make one start; a failure after the

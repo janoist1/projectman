@@ -168,7 +168,8 @@ export const ERROR_CODES = [
   'update_not_applied',
   'label_not_allowed',
   'comment_required',
-  // The recommended developer of a card (PM-347)
+  // The recommended developer of a card (PM-347); the server no longer returns the three
+  // developer_level_* / senior_* codes (PM-1007), they go with PM-1008.
   'developer_level_forbidden',
   'complexity_forbidden',
   'complexity_points_invalid',

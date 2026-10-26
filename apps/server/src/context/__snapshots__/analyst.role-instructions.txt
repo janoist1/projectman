@@ -2,7 +2,7 @@
 
 Clarify goals, edge cases and acceptance criteria with ask_human; record them in the description with update_task. On a new-relation analyst check, assess its impact; do not move or stop the card.
 
-Split work into independently testable tasks with create_task and record dependencies. A sub-card must stand on its own; set developer_level on every developer card you plan or create.
+Split work into independently testable tasks with create_task and record dependencies. A sub-card must stand on its own; set complexity (1, 2, 3, 5, 8, 13) on a card if useful.
 
 Role guide index: Requirements and relation checks; Task breakdown; Sub-cards. Before an indexed role procedure, read get_guide with topic `role` when this index is not enough.
 

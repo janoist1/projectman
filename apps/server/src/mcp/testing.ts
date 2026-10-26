@@ -688,16 +688,6 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
         repo: args.repo !== undefined ? args.repo : detail.task.repo,
         labels,
         stageId: args.stageId ?? detail.task.stageId,
-        ...(args.developerLevel
-          ? {
-              developerLevel: {
-                level: args.developerLevel.level,
-                reason: args.developerLevel.reason || null,
-                setBy: ctx.member,
-                setAt: '2026-09-28T08:00:00.000Z',
-              },
-            }
-          : {}),
       };
       return { task: detail.task };
     },
@@ -729,16 +719,6 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
           labels: args.labels ?? [],
           links: [],
           createdBy: ctx.member,
-          ...(args.developerLevel
-            ? {
-                developerLevel: {
-                  level: args.developerLevel.level,
-                  reason: args.developerLevel.reason || null,
-                  setBy: ctx.member,
-                  setAt: '2026-09-28T08:00:00.000Z',
-                },
-              }
-            : {}),
         },
         timeline: [],
         sessions: [],

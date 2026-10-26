@@ -2,13 +2,14 @@ import {
   SENIOR_WAIT_OPTIONS,
   SENIOR_WAIT_OPTION_ANY,
   SENIOR_WAIT_OPTION_WAIT,
-  developerLevelOf,
+  complexityLimitOf,
+  complexityOf,
   isOpenTask,
-  isSenior,
   memberOf,
+  reachingDevelopers,
   seniorWaitDecisionOf,
   seniorWaitMinutesOf,
-  seniorsOf,
+  stageDevelopers,
   stageOf,
 } from '@projectman/shared';
 import type { InboxItem, ProjectConfig, SeniorWaitDecisionPayload, Task } from '@projectman/shared';
@@ -25,11 +26,11 @@ import { SYSTEM_ACTOR, newId } from '../../kernel';
 const MINUTE_MS = 60_000;
 
 /**
- * The wait of a card recommended for the Senior (PM-348, decisions K2 and K3 of PM-338). While every
- * Senior is busy or away the card waits for one; it gets no other developer. After the wait limit
- * (`seniorWaitMinutes`, 30 by default) the owners get one question: wait on, or let a free developer
- * take the card. A Senior who frees up in the meantime takes the card, and the question closes. An
- * unanswered question leaves the card waiting.
+ * The wait of a scored card for a developer whose limit reaches its points (PM-348, PM-1001, decisions
+ * K2 and K3 of PM-338). While every such developer is busy or away the card waits for one; it gets no
+ * other developer. After the wait limit (`seniorWaitMinutes`, 30 by default) the owners get one
+ * question: wait on, or let a free developer take the card. A developer who frees up in the meantime
+ * takes the card, and the question closes. An unanswered question leaves the card waiting.
  *
  * One row per card (`senior_waits`) holds when the wait began, the question and the answer, so that
  * a restart loses none of it. The card's start itself is a deferred start (`work-start:...`, reason
@@ -72,14 +73,9 @@ export class SeniorWaits {
   configurationChanged(change: ConfigChange): void {
     this.configChanged(change);
     const { previous, next } = change;
-    const seniors = (config: typeof next) =>
-      config.team.members
-        .filter((m) => isSenior(m))
-        .map((m) => m.handle)
-        .join(',');
     if (
       previous &&
-      (seniors(previous) !== seniors(next) ||
+      (developersSignature(previous) !== developersSignature(next) ||
         seniorWaitMinutesOf(previous.team.limits) !== seniorWaitMinutesOf(next.team.limits))
     )
       this.retry();
@@ -94,7 +90,10 @@ export class SeniorWaits {
       taskKey: task.key,
       since: isoNow(this.ctx),
     });
-    this.ctx.logger.info({ taskKey: task.key, seniors }, 'card waits for a Senior');
+    this.ctx.logger.info(
+      { taskKey: task.key, seniors },
+      'card waits for a developer whose complexity limit reaches its points',
+    );
   }
 
   /** What the owners decided about the card's wait, as the start reads it; null before an answer. */
@@ -183,6 +182,7 @@ export class SeniorWaits {
     if (!task || task.startWaiting?.reason !== 'senior_busy') return;
     const deciders = ownerHandles(config);
     const seniors = task.startWaiting.seniors ?? [];
+    const points = complexityOf(task);
     const now = isoNow(this.ctx);
     if (deciders.length === 0) {
       // Nobody can be asked: said once, and the card goes on waiting.
@@ -198,7 +198,8 @@ export class SeniorWaits {
       since: wait.since,
       minutes,
       seniors,
-      reason: task.developerLevel?.reason ?? null,
+      reason: task.complexity?.reason ?? null,
+      ...(points === null ? {} : { points }),
     };
     this.ctx.unitOfWork(() => {
       const item = this.inbox.create({
@@ -207,7 +208,7 @@ export class SeniorWaits {
         assignees: deciders,
         source: 'system',
         taskKey: task.key,
-        title: `${task.key} waits for the Senior`,
+        title: `${task.key} waits for a developer who can take it`,
         payload: { seniorWait: payload },
         options: SENIOR_WAIT_OPTIONS,
       });
@@ -217,7 +218,7 @@ export class SeniorWaits {
         taskKey: task.key,
         actor: SYSTEM_ACTOR,
         type: 'task_senior_wait',
-        data: { phase: 'asked', minutes, seniors, deciders },
+        data: { phase: 'asked', minutes, seniors, deciders, ...(points === null ? {} : { points }) },
       });
     });
   }
@@ -246,16 +247,17 @@ export class SeniorWaits {
     this.publish(wait);
   }
 
-  private announceNoSenior(task: Pick<Task, 'projectKey' | 'key'>): void {
+  private announceNoSenior(task: Pick<Task, 'projectKey' | 'key' | 'complexity'>): void {
     const said = this.timeline.latest(task.projectKey, task.key, 'task_senior_wait');
     const moved = this.timeline.latest(task.projectKey, task.key, 'task_stage_changed');
     if (said?.data.phase === 'no_senior' && (!moved || said.createdAt >= moved.createdAt)) return;
+    const points = complexityOf(task);
     this.timeline.append({
       projectKey: task.projectKey,
       taskKey: task.key,
       actor: SYSTEM_ACTOR,
       type: 'task_senior_wait',
-      data: { phase: 'no_senior' },
+      data: { phase: 'no_senior', ...(points === null ? {} : { points }) },
     });
   }
 
@@ -265,13 +267,28 @@ export class SeniorWaits {
   }
 }
 
-/** Why a card no longer waits for a Senior, or null when it still does. */
+/** Why a card no longer waits for a developer whose limit reaches its points, or null when it still does. */
 function endReasonOf(task: Task, config: ProjectConfig): SeniorWaitEndReason | null {
   if (!isOpenTask(task)) return 'closed';
   const stage = stageOf(config, task.stageId);
   if (stage?.kind !== 'work') return 'moved';
-  if (task.assignee) return isSenior(memberOf(config, task.assignee)) ? 'senior' : 'assigned';
-  if (developerLevelOf(task) !== 'senior') return 'level_changed';
-  if (seniorsOf(config, stage).length === 0) return 'no_senior';
+  const points = complexityOf(task);
+  if (task.assignee) {
+    const assignee = memberOf(config, task.assignee);
+    const reaches = points !== null && assignee?.kind === 'ai' && complexityLimitOf(assignee) >= points;
+    return reaches ? 'senior' : 'assigned';
+  }
+  if (points === null) return 'level_changed';
+  if (reachingDevelopers(stageDevelopers(config, stage), points).length === 0) return 'no_senior';
   return null;
+}
+
+/** The work stages' developers and their limits as one text, to see whether a roster change matters. */
+function developersSignature(config: ProjectConfig): string {
+  return config.pipeline.stages
+    .filter((stage) => stage.kind === 'work')
+    .flatMap((stage) => stageDevelopers(config, stage))
+    .map((developer) => `${developer.handle}:${developer.limit}`)
+    .sort()
+    .join(',');
 }

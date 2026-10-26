@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { EmailParkReason } from './email-channel';
 import { AttachmentId, AttachmentPreview } from './attachment';
 import { BoardPlacement } from './board-order';
+import { ComplexityPoints } from './complexity';
 import { Actor } from './event';
 import { ExternalToolOrigin } from './external-tool-origin';
 import {
@@ -387,9 +388,10 @@ export const FIX_ANOTHER_ROUND_OPTION: InboxOption = {
 };
 
 /**
- * `payload.seniorWait` of a `decision` item (PM-348): card `taskKey`, recommended for the Senior, has
- * waited `minutes` minutes (since `since`) for one of the `seniors`, who are busy or away. `reason` is
- * the reason of the recommendation. The item is closed by the system when the card goes on without an answer.
+ * `payload.seniorWait` of a `decision` item (PM-348): card `taskKey` has waited `minutes` minutes (since
+ * `since`) for one of the `seniors`, the developers whose complexity limit reaches its `points` and who are
+ * busy or away (PM-1001). `reason` is the reason of the complexity points. The item is closed by the system
+ * when the card goes on without an answer.
  */
 export const SeniorWaitDecisionPayload = z.object({
   taskKey: TaskKey,
@@ -397,6 +399,7 @@ export const SeniorWaitDecisionPayload = z.object({
   minutes: z.number().int(),
   seniors: z.array(MemberHandle),
   reason: z.string().nullable(),
+  points: ComplexityPoints.optional(),
 });
 export type SeniorWaitDecisionPayload = z.infer<typeof SeniorWaitDecisionPayload>;
 

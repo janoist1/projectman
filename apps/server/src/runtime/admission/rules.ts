@@ -80,7 +80,7 @@ type WaitingReason = TaskStartWaiting['reason'];
  * likewise records a question hold without a refusal (PM-927). `full_test_pending`
  * is one only for the stage hand-over (`AutomaticStart.defers`), which waits for the server's full test
  * of the pinned commit (PM-217). `senior_busy` is one only for the start that picks its developer
- * itself (`AutomaticStart.defers`): a card recommended for the Senior waits for one (PM-348).
+ * itself (`AutomaticStart.defers`): a card whose points only some developers' limit reaches waits for one (PM-348, PM-1001).
  */
 type DeferrableReason = Exclude<
   WaitingReason,

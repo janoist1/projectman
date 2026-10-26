@@ -135,6 +135,8 @@ export const AiMemberConfig = z.object({
   /** Temporary stand-in ("beugró"): hired for one task, retired when it is done. */
   temp: z.boolean().default(false),
   /**
+   * @deprecated Replaced by `complexityLimit` (PM-1001); the config migration drops it and the server
+   * ignores it. Kept only until the web stops reading it (PM-1008).
    * The team's Senior (PM-347): Senior cards are for this member. Absent: not a Senior (see `isSenior`);
    * a temp worker is never one.
    */

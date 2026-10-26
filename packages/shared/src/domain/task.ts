@@ -283,7 +283,7 @@ export const Task = z.object({
   themeKey: TaskKey.nullable().optional(),
   /** One level of subtasks; omitted by older clients. */
   parentKey: TaskKey.nullable().optional(),
-  /** The developer the card is recommended for (PM-347); absent: no recommendation, which counts as `any`. */
+  /** @deprecated The server no longer sets it (PM-1007); see `complexity`. Removed with PM-1008. */
   developerLevel: TaskDeveloperLevel.optional(),
   complexity: TaskComplexity.optional(),
   startWaiting: TaskStartWaiting.optional(),

@@ -55,7 +55,6 @@ import type {
   TaskPriority,
   WorkDoing,
   AddRelationRef,
-  DeveloperLevelRequest,
   ComplexityRequest,
   RelationsChange,
   SubmitBoundaryRequest,
@@ -387,7 +386,6 @@ export class TeamToolsService implements TeamToolsHandler {
       relations?: RelationsChange;
       themeKey?: string | null;
       priority?: TaskPriority | null;
-      developerLevel?: DeveloperLevelRequest;
       complexity?: ComplexityRequest;
     },
   ): Promise<{ task: Task }> {
@@ -404,7 +402,6 @@ export class TeamToolsService implements TeamToolsHandler {
       relations?: AddRelationRef[];
       kind?: TaskKind;
       themeKey?: string;
-      developerLevel?: DeveloperLevelRequest;
       complexity?: ComplexityRequest;
     },
   ): Promise<{ task: Task }> {

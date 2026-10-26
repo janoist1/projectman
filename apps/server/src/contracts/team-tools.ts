@@ -7,7 +7,6 @@ import type {
   ProjectChecklist,
   RoleConfigurationRead,
   Attachment,
-  DeveloperLevelRequest,
   ComplexityRequest,
   ComplexityPoints,
   FeedbackMarkDetail,
@@ -479,8 +478,6 @@ export interface TaskToolsHandler {
       themeKey?: string | null;
       /** The card priority (PM-433); null clears it. Only people and the project manager may set it. */
       priority?: TaskPriority | null;
-      /** The recommended developer (PM-347); only whoever `canSetDeveloperLevel` may set it. */
-      developerLevel?: DeveloperLevelRequest;
       complexity?: ComplexityRequest;
     },
   ): Promise<{ task: Task }>;
@@ -501,8 +498,6 @@ export interface TaskToolsHandler {
       kind?: TaskKind;
       /** The theme the new card belongs to. */
       themeKey?: string;
-      /** The recommended developer (PM-347). */
-      developerLevel?: DeveloperLevelRequest;
       complexity?: ComplexityRequest;
     },
   ): Promise<{ task: Task }>;

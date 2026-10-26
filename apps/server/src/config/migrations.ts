@@ -10,6 +10,7 @@ import {
   isOperator,
   isProjectManager,
   LabelDefinition,
+  MAX_COMPLEXITY,
   type MemberConfig,
   PermissionMode,
   permissionModeFitsProvider,
@@ -67,6 +68,22 @@ function migrateCodexBypass(raw: unknown, { projectKey, logger }: MigrationConte
       { projectKey, member: member.handle },
       `Migrated ${provider.data} member from ${mode.data} to ${FALLBACK_PERMISSION_MODE}`,
     );
+  }
+  return raw;
+}
+
+/**
+ * The removed Senior mark (PM-347, PM-1001): a permanent AI member marked `senior` gets the complexity
+ * limit 13 unless it has one already, a temp worker none (its limit is always 5). The `senior` field is
+ * dropped from every member, so the migration runs once.
+ */
+function migrateSeniorLimit(raw: unknown, { projectKey, logger }: MigrationContext): unknown {
+  for (const member of rawAiMembers(raw)) {
+    if (!('senior' in member)) continue;
+    if (member.senior === true && !member.temp && member.complexityLimit === undefined)
+      member.complexityLimit = MAX_COMPLEXITY;
+    delete member.senior;
+    logger.warn({ projectKey, member: member.handle }, 'Migrated the Senior mark to a complexity limit');
   }
   return raw;
 }
@@ -368,7 +385,10 @@ export function migrateProjectConfig(raw: unknown, context: MigrationContext): u
                 migrateLegacyConfig(
                   migrateCodexBypass(
                     migrateScheduledRole(
-                      dropMessageBurst(migrateShadowingRoles(raw, context), context),
+                      dropMessageBurst(
+                        migrateSeniorLimit(migrateShadowingRoles(raw, context), context),
+                        context,
+                      ),
                       context,
                     ),
                     context,

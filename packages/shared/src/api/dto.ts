@@ -647,6 +647,7 @@ export const MemberView = z.object({
    */
   outboundNetwork: z.boolean().optional(),
   /**
+   * @deprecated The server no longer fills it in (PM-1007); use `complexityLimit`. Removed with PM-1008.
    * The team's Senior (PM-347, `isSenior`): an AI member marked so, and not a temp worker. The server
    * always fills it in; a missing value (an older server, a test fake) is `false`.
    */
@@ -714,7 +715,7 @@ export const UpdateMemberRequest = z.object({
   schedule: MemberSchedule.nullable().optional(),
   /** AI only; true sends the member on leave, false calls it back. */
   onLeave: z.boolean().optional(),
-  /** AI only, not a temp worker (PM-347); true marks the member as the team's Senior, false removes the mark. */
+  /** @deprecated The server ignores it (PM-1007); use `complexityLimit`. AI only (PM-347): marks the team's Senior. */
   senior: z.boolean().optional(),
   /** AI only; the member's own instructions (English prompt text); an empty string clears them. */
   instructions: z.string().optional(),
@@ -1084,6 +1085,7 @@ export const TaskDetail = z.object({
 export type TaskDetail = z.infer<typeof TaskDetail>;
 
 /**
+ * @deprecated Replaced by `ComplexityRequest` (PM-1001); removed with PM-1008.
  * The recommended developer in a request (PM-347). The reason is required for `senior` (checked by the
  * server: `developer_level_reason_required`); an empty one counts as none.
  */
@@ -1101,7 +1103,7 @@ export type ComplexityRequest = z.infer<typeof ComplexityRequest>;
 
 export const CreateTaskRequest = z.object({
   complexity: ComplexityRequest.optional(),
-  /** The developer the card is recommended for (PM-347); only whoever `canSetDeveloperLevel` may send it. */
+  /** @deprecated The server ignores it (PM-1007); send `complexity`. Removed with PM-1008. */
   developerLevel: DeveloperLevelRequest.optional(),
   parentKey: TaskKey.optional(),
   importedAt: z.string().datetime().optional(),
@@ -1121,7 +1123,7 @@ export type CreateTaskRequest = z.infer<typeof CreateTaskRequest>;
 
 export const UpdateTaskRequest = z.object({
   complexity: ComplexityRequest.optional(),
-  /** The developer the card is recommended for (PM-347); only whoever `canSetDeveloperLevel` may send it. */
+  /** @deprecated The server ignores it (PM-1007); send `complexity`. Removed with PM-1008. */
   developerLevel: DeveloperLevelRequest.optional(),
   /** People only (PM-287); null clears it. */
   priority: TaskPriority.nullable().optional(),

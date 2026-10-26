@@ -404,4 +404,12 @@ export const unique = <T>(items: T[]): T[] => [...new Set(items)];
 export const TASK_VISIBILITY_REMOVED =
   'Card visibility has been removed: every project member can read every card. Omit visibility.';
 
+/** The refusal of the removed `developer_level` parameters (PM-1001): `refused` of the tools that took them. */
+export const DEVELOPER_LEVEL_REFUSED: Record<string, string> = Object.fromEntries(
+  ['developer_level', 'developer_level_reason'].map((key) => [
+    key,
+    `${key} has been removed: use complexity (1, 2, 3, 5, 8, 13).`,
+  ]),
+);
+
 export const taskKeyInput = TaskKey.describe('Task key, e.g. "AR-21".');

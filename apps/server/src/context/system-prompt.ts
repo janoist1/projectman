@@ -867,7 +867,7 @@ const GUIDED_DUTIES: Partial<Record<DutyId, { title: string; short: string }>> =
   task_breakdown: {
     title: 'Task breakdown',
     short:
-      'Split work into independently testable tasks with create_task and record dependencies. A sub-card must stand on its own; set developer_level on every developer card you plan or create.',
+      'Split work into independently testable tasks with create_task and record dependencies. A sub-card must stand on its own; set complexity (1, 2, 3, 5, 8, 13) on a card if useful.',
   },
 };
 

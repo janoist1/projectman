@@ -278,14 +278,16 @@ export interface TimelineEventData {
     previous: { points: ComplexityPoints; reason: string | null } | null;
   };
   /**
-   * The wait of a Senior card for a Senior (PM-348, actor system unless `by`): `asked` the question went
-   * to the `deciders` after `minutes` minutes of waiting for the `seniors`; `decided` `by` answered it
-   * (`wait` on, or `any` free developer); `senior_took` the open question closed because a Senior got
-   * the card; `no_senior` the automatic start gave the card out as an "any" card because the team has no
-   * Senior (or the wait ended for that).
+   * The wait of a scored card for a developer whose limit reaches its points (PM-348, PM-1001, actor
+   * system unless `by`): `asked` the question went to the `deciders` after `minutes` minutes of waiting
+   * for the `seniors` (those developers); `decided` `by` answered it (`wait` on, or `any` free developer);
+   * `senior_took` the open question closed because such a developer got the card; `no_senior` the
+   * automatic start gave the card out by the "any" rule because no developer's limit reaches its
+   * `points` (or the wait ended for that).
    */
   task_senior_wait: {
     phase: 'asked' | 'decided' | 'senior_took' | 'no_senior';
+    points?: ComplexityPoints;
     minutes?: number;
     seniors?: string[];
     deciders?: string[];

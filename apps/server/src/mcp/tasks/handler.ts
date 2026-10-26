@@ -12,7 +12,6 @@ import type {
   TaskKind,
   TaskPriority,
   AddRelationRef,
-  DeveloperLevelRequest,
   ComplexityRequest,
   RelationsChange,
 } from '@projectman/shared';
@@ -154,7 +153,6 @@ export class TaskTools implements TaskToolsHandler {
       relations?: RelationsChange;
       themeKey?: string | null;
       priority?: TaskPriority | null;
-      developerLevel?: DeveloperLevelRequest;
       complexity?: ComplexityRequest;
     },
   ): Promise<{ task: Task }> {
@@ -189,7 +187,6 @@ export class TaskTools implements TaskToolsHandler {
       relations?: AddRelationRef[];
       kind?: TaskKind;
       themeKey?: string;
-      developerLevel?: DeveloperLevelRequest;
       complexity?: ComplexityRequest;
     },
   ): Promise<{ task: Task }> {
@@ -214,7 +211,6 @@ export class TaskTools implements TaskToolsHandler {
               ...(args.relations?.length ? { relations: args.relations } : {}),
               ...(args.kind ? { kind: args.kind } : {}),
               ...(args.themeKey ? { themeKey: args.themeKey } : {}),
-              ...(args.developerLevel ? { developerLevel: args.developerLevel } : {}),
               ...(args.complexity ? { complexity: args.complexity } : {}),
             },
             aiActor(ctx.member),
@@ -344,7 +340,6 @@ export class TaskTools implements TaskToolsHandler {
           ...(args.relations ? { relations: args.relations } : {}),
           ...(args.themeKey !== undefined ? { themeKey: args.themeKey } : {}),
           ...(args.priority !== undefined ? { priority: args.priority } : {}),
-          ...(args.developerLevel ? { developerLevel: args.developerLevel } : {}),
           ...(args.complexity ? { complexity: args.complexity } : {}),
           addLabels: args.addLabels,
           removeLabels: args.removeLabels,

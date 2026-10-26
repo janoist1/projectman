@@ -758,3 +758,33 @@ describe('custom roles that became built-in roles', () => {
     expect(warn).not.toHaveBeenCalled();
   });
 });
+
+describe('Senior mark migration (PM-1007)', () => {
+  const member = (config: ReturnType<typeof raw>, handle: string) =>
+    config.team.members.find((m) => m.handle === handle)!;
+
+  it('gives the Senior the largest limit, drops the mark, and is done once', () => {
+    const legacy = raw();
+    member(legacy, 'dev-2').senior = true;
+    member(legacy, 'dev-1').senior = false;
+    const first = migrate(legacy);
+    expect(first.config.team.members.find((m) => m.handle === 'dev-2')).toMatchObject({
+      complexityLimit: 13,
+    });
+    for (const m of first.config.team.members) expect(m).not.toHaveProperty('senior');
+    expect(first.config.team.members.find((m) => m.handle === 'dev-1')).not.toHaveProperty('complexityLimit');
+    expect(first.warn).toHaveBeenCalled();
+    const again = migrate(first.migrated);
+    expect(again.config).toEqual(first.config);
+    expect(again.warn).not.toHaveBeenCalled();
+  });
+
+  it('keeps a limit that is already set and gives a temp worker none', () => {
+    const legacy = raw();
+    Object.assign(member(legacy, 'dev-1'), { senior: true, complexityLimit: 8 });
+    Object.assign(member(legacy, 'dev-2'), { senior: true, temp: true });
+    const { config } = migrate(legacy);
+    expect(config.team.members.find((m) => m.handle === 'dev-1')).toMatchObject({ complexityLimit: 8 });
+    expect(config.team.members.find((m) => m.handle === 'dev-2')).not.toHaveProperty('complexityLimit');
+  });
+});

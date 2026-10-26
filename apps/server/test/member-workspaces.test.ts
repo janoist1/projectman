@@ -128,6 +128,38 @@ describe('member workspaces (PM-138)', { timeout: 60_000 }, () => {
     expect(await git(h.workspace, 'branch', '--list', 'AR-*')).toBe('');
   });
 
+  it('keeps a renamed member`s workspace, sandbox directory and memory under its storage handle (PM-1024)', async () => {
+    const appHome = await mkdtemp(path.join(tmpdir(), 'pm-app-home-'));
+    try {
+      await setup({
+        appHome,
+        adjust: (c) => {
+          const dev = c.team.members.find((m) => m.handle === 'dev-1');
+          if (dev?.kind === 'ai') dev.formerHandles = ['old'];
+        },
+      });
+      await h.memory.append('AR', 'old', 'The build needs node 22.');
+      await startTask('AR-1', 'dev-1');
+      const stored = await workspaceOf('old');
+      expect(h.runner.lastStarted()).toMatchObject({ cwd: stored });
+      expect(await exists(await workspaceOf('dev-1'))).toBe(false);
+      expect(await exists(path.join(appHome, 'member-caches', 'AR', 'old'))).toBe(true);
+      expect(await exists(path.join(appHome, 'member-caches', 'AR', 'dev-1'))).toBe(false);
+      expect(await h.domain.sessions.memory('AR', 'dev-1')).toContain('The build needs node 22.');
+      // The task's binding belongs to the current handle: the assignee finds its work again.
+      expect(h.repos.memberWorkspaces.bindingsOfTask('AR', 'AR-1')).toMatchObject([
+        { member: 'dev-1', kind: 'work' },
+      ]);
+      expect(h.repos.memberWorkspaces.find('AR', 'old', 'web')).toMatchObject({ path: stored });
+      expect(h.repos.memberWorkspaces.find('AR', 'dev-1', 'web')).toBeNull();
+      // A second start continues in the same workspace on the same branch.
+      await ensure('dev-1', 'AR-1');
+      expect(await branchOf(stored)).toBe('AR-1-login-page');
+    } finally {
+      await rm(appHome, { recursive: true, force: true });
+    }
+  });
+
   it('keeps a second task of the same repository waiting while the first one works there', async () => {
     await setup();
     await startTask('AR-1', 'dev-1');

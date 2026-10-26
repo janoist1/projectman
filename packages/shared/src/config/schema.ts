@@ -92,6 +92,12 @@ export const AiMemberConfig = z.object({
   kind: z.literal('ai'),
   email: AiMemberEmail.optional(),
   handle: MemberHandle,
+  /**
+   * The member's earlier handles, the oldest first (PM-1024). Not edited by hand: a rename
+   * writes it. The first one is the member's storage handle (`memberStorageHandle`), so the
+   * workspace, memory and sandbox paths do not move when the handle changes.
+   */
+  formerHandles: z.array(MemberHandle).max(10).optional(),
   displayName: z.string().min(1),
   githubLogin: GithubLogin.optional(),
   /** The one role this member holds: a built-in role or one of the team's custom roles. */

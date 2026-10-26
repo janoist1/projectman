@@ -9,6 +9,7 @@ import {
   isOperator,
   isTheme,
   memberOf,
+  memberStorageHandle,
   outboundNetworkOf,
   repoOf,
   routes,
@@ -469,7 +470,7 @@ export class SessionLauncher {
     // A developer's npm cache and development data live in its own directory (PM-193).
     const memberDir =
       policy.access === 'task_worktree' && appHome
-        ? await this.prepareMemberSandboxDir(engine, appHome, projectKey, member.handle)
+        ? await this.prepareMemberSandboxDir(engine, appHome, projectKey, memberStorageHandle(member))
         : undefined;
     const excludesFile = paths.gitExcludesFile;
     // A session of the legacy profile gets its own folder (`sessionFolderAccess`, PM-268, PM-339,

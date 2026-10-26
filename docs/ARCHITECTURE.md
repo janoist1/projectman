@@ -62,7 +62,12 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   on GitHub), a team, a pipeline with labels, and limits. Its configuration is YAML in the
   customization repository; its runtime state is in SQLite.
 - **Member** — human or AI, identified by a unique **handle** (`fe-1`, `qa`, `owner`) and a
-  display name. Humans have an **access level** (`owner`, `admin`, `developer`, `client`,
+  display name. An AI member's state on disk and on its engine (workspace, `.home`, sandbox
+  cache, memory file, snapshot refs) is kept under its **storage handle**
+  (`memberStorageHandle`, PM-1024): the first of its `formerHandles` (earlier handles, oldest
+  first, written by a rename), else the current handle. Renaming a member therefore moves
+  nothing on disk, and the agent's conversations keep their working directory. The task and
+  session comparisons (assignee, `session.member`, bindings) use the current handle. Humans have an **access level** (`owner`, `admin`, `developer`, `client`,
   `viewer`) that governs what they may do in the app, and may hold several roles. An AI
   member holds exactly one role and has a provider (`claude` or `codex`), a model and effort,
   an optional **cheap subagent** (PM-179: a Claude Code member's sessions get a `reader-<model>`
@@ -3641,7 +3646,9 @@ assumption or remote-engine RPC.
   `packages/shared/src/domain/provider-model.ts` (PM-330); this changes no path or engine assumption.
   Claude conversations live under `~/.claude/projects`; Codex rollouts under
   `CODEX_HOME/sessions`. The server reads and tails hook-reported files, and resume eligibility
-  checks transcript content.
+  checks transcript content. A task session's cwd is the member's workspace, whose path uses the
+  member's storage handle (PM-1024), so a rename of the member leaves the cwd, and with it the
+  conversation's place under `~/.claude/projects`, unchanged.
   PM-342 adds `TranscriptReader.summary` (`runner/transcript/summary.ts`): when a member's new
   conversation replaces one that could not go on (provider changed, lost, moved) or a card is
   handed over without a note, the server reads the old transcript for the CLI's compaction
@@ -3733,7 +3740,11 @@ assumption or remote-engine RPC.
   on the card's engine. Task worktrees default to
   `~/.projectman/worktrees/<project>/<task>-<repo>`; git links them to the main repository's
   common git directory. Canonical paths, branch ownership and cleanup are local filesystem
-  operations. PM-368's `core/messages` and `runtime/delivery/delivery.ts` also use
+  operations. A member's workspace (`<workRoot>/workspaces/<project>/<member>/<repo>/repo`), its
+  `.home`, its sandbox directory (`member-caches/<project>/<member>`) and its `member_workspaces`
+  row use the member's storage handle (PM-1024), so a rename does not move them; the
+  `MemberWorkspaceKey.member` the server sends to the engine is that storage handle, and the engine
+  RPC schema is unchanged. PM-368's `core/messages` and `runtime/delivery/delivery.ts` also use
   `SessionOrchestrator.sourceHead` to snapshot the local branch for sent messages and input batches;
   PM-342's `runtime/admission` (`HandoffService`) uses it for the branch, last commit and uncommitted state of a handoff note or fallback.
   PM-712 uses the existing engine-local `sourceHead` read again before loop triage and human

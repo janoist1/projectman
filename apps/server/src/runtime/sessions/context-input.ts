@@ -4,6 +4,7 @@ import {
   isOpenTask,
   isOperator,
   isTheme,
+  memberStorageHandle,
   stageOf,
 } from '@projectman/shared';
 import type {
@@ -74,7 +75,7 @@ export class SessionContextInput {
     const memory =
       guestOf !== undefined
         ? ''
-        : await this.deps.memory.read(projectKey, member.handle).catch((err: unknown) => {
+        : await this.deps.memory.read(projectKey, memberStorageHandle(member)).catch((err: unknown) => {
             this.ctx.logger.warn({ err, member: member.handle }, 'could not read member memory');
             return '';
           });

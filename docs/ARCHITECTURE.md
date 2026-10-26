@@ -541,9 +541,9 @@ claude | codex ── transcript JSONL ────────────▶ r
 
 - One HTTP port, bound to loopback. `/hooks` and `/mcp` accept only local connections with a
   per-session random token. Everything under `/api` and `/ws` requires a login cookie.
-  Remote access goes through `tailscale serve` ([SECURITY.md](SECURITY.md)); the owner's live
-  instance is also public at chopper.istvan.io through a Cloudflare Tunnel behind Cloudflare
-  Access ([DEPLOY.md](DEPLOY.md), PM-200), which still ends at this one loopback port.
+  Local single-machine remote access can use `tailscale serve` ([SECURITY.md](SECURITY.md)).
+  The cloud hub's public entrance uses a Cloudflare Tunnel and Access
+  ([HYBRID.md](HYBRID.md#the-cloudflare-tunnel-and-access)), ending at the container's loopback port.
 - Session states come from hooks: SessionStart → idle, UserPromptSubmit → working,
   PermissionRequest → waiting_permission (a blocking call answered by the inbox decision,
   with a timeout), Stop → idle, SessionEnd or exit → exited; a lost login → failed.
@@ -5119,8 +5119,8 @@ deploy; decision 32). The runner's part is `SessionRunner.pause` / `forcePause` 
   pause that was open before are cut with one Esc (`forcePause`), so the stop waits for none of them longer.
   After the start `resumeAfterStartup` (in the background, after `restoreDeferred`) ends the `shutdown`
   pauses, so the sessions start again with a nudge that says their process is new; a pause a person made stays.
-  A crash and a second Ctrl-C after 3 s do not pause. Under systemd this needs `KillMode=mixed` and
-  `TimeoutStopSec=90` ([DEPLOY.md](DEPLOY.md)).
+  A crash and a second Ctrl-C after 3 s do not pause. The service manager must allow the shutdown
+  pause to finish before terminating child sessions.
 - **Access.** `GET` of a project's pause: an internal member; changing it: admin or owner. The instance's pause
   may be seen by anyone who is internal in some project, with only the sessions of the viewer's projects, and
   changed by an owner of every project (`canManageInstancePause`).

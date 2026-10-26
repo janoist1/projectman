@@ -1,5 +1,6 @@
-# Template for the public entrance of the live projectman (PM-200, PM-210); guide: docs/DEPLOY.md,
-# section "Public entry through Cloudflare Tunnel and Access".
+# Legacy local-tunnel template (PM-200, PM-210). The cloud deployment generates its configuration:
+# docs/AWS.md "Cloudflare"; manual token-tunnel setup: docs/HYBRID.md "The Cloudflare tunnel and Access".
+# Security conditions: docs/SECURITY.md "Public entrance through Cloudflare".
 #
 # Copy it to ~/.cloudflared/config.yml (outside the repository, mode 600) and replace every
 # <PLACEHOLDER>. Nothing in this file is a secret, but the files it points to are: never commit,

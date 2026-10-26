@@ -68,7 +68,7 @@ export async function verifyHome(options: VerifyOptions): Promise<VerifyResult> 
         'blocker',
         'apply_incomplete',
         MIGRATED_DIR,
-        `the apply did not finish (no ${join(MIGRATED_DIR, APPLY_REPORT_FILE)}): the copy is incomplete, apply the package again into a new home`,
+        `the apply did not finish (no ${join(MIGRATED_DIR, APPLY_REPORT_FILE)}): the copy is incomplete; start from the source again`,
       );
     if (role === 'active' && !existsSync(join(migrated, ACTIVATED_FILE)))
       add(

@@ -151,7 +151,7 @@ export function activateHome(options: ActivateOptions): void {
     // A copy whose apply did not finish is incomplete data: it is never released.
     if (!existsSync(join(migrated, APPLY_REPORT_FILE)))
       throw new MigrationRefused(
-        `${home} is a migrated copy whose apply did not finish (no ${join(MIGRATED_DIR, APPLY_REPORT_FILE)}): apply the package again into a new home`,
+        `${home} is a migrated copy whose apply did not finish (no ${join(MIGRATED_DIR, APPLY_REPORT_FILE)}): the copy is incomplete; start from the source again`,
       );
     writeFileSync(
       join(migrated, ACTIVATED_FILE),

@@ -23,8 +23,17 @@ function ai(config: ProjectConfig, handle: string): AiMemberConfig {
 async function setup(adjust?: (config: ProjectConfig) => void): Promise<void> {
   h = await createDomainHarness({ adjust });
   await h.domain.tasks.create('AR', { title: 'Login page' }, OWNER_ACTOR);
-  await h.domain.messaging.sendReporting('AR', 'owner', { to: ['operator'], text: 'Wake dev-1 up' });
-  await flush();
+  const sent = await h.domain.messaging.sendReporting('AR', 'owner', {
+    to: ['operator'],
+    text: 'Wake dev-1 up',
+  });
+  const session = await waitForSession(h.domain, { member: 'operator' });
+  // A session row exists before delivery opens the request authorizing the Operator's writes.
+  await vi.waitFor(() => {
+    expect(h.repos.operatorRequests.openOfSession(session.id)).toMatchObject([
+      { messageId: sent.message.id },
+    ]);
+  });
 }
 
 const operatorTool = async (): Promise<ToolContext> => ({

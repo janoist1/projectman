@@ -17,9 +17,13 @@ afterEach(async () => {
 const SIGNAL =
   /(\d+) owner answers on cards since you last looked may be decisions: list_decision_candidates\./;
 
-function adjusted(opts: { docs: boolean }) {
+function adjusted(opts: { docs: boolean; pm?: boolean }) {
   return (config: ProjectConfig): void => {
     if (opts.docs) config.project.repos[0]!.docs = { decisions: 'docs/DECISIONS.md' };
+    if (opts.pm) {
+      const pm = config.team.members.find((member) => member.handle === 'pm');
+      if (pm?.kind === 'ai') pm.onLeave = false;
+    }
     config.team.members.push({
       kind: 'human',
       handle: 'dana',
@@ -31,9 +35,9 @@ function adjusted(opts: { docs: boolean }) {
   };
 }
 
-async function setup(opts: { docs?: boolean } = {}): Promise<void> {
+async function setup(opts: { docs?: boolean; pm?: boolean } = {}): Promise<void> {
   now = new Date('2026-10-11T10:00:00.000Z');
-  h = await createDomainHarness({ now: () => now, adjust: adjusted({ docs: opts.docs !== false }) });
+  h = await createDomainHarness({ now: () => now, adjust: adjusted({ ...opts, docs: opts.docs !== false }) });
   await h.domain.tasks.create('AR', { title: 'Login page' }, OWNER_ACTOR);
 }
 
@@ -103,7 +107,7 @@ async function ask(text: string, from = 'owner', to = 'operator') {
   const result = await h.domain.messaging.sendReporting('AR', from, { to: [to], text });
   // Delivery starts the session in the background; wait for this message, not event-loop turns.
   await vi.waitFor(() => {
-    const conversation = sessions().filter(
+    const conversation = sessions(to).filter(
       (s) => s.workItem.type === 'general' && s.workItem.with === (from === 'owner' ? undefined : from),
     );
     expect(conversation).toHaveLength(1);
@@ -115,12 +119,12 @@ async function ask(text: string, from = 'owner', to = 'operator') {
     }
   });
 }
-const sessions = (): Session[] => h.domain.sessions.list('AR', { member: 'operator' });
+const sessions = (member = 'operator'): Session[] => h.domain.sessions.list('AR', { member });
 const ownerSession = (): Session =>
   sessions().find((s) => s.workItem.type === 'general' && s.workItem.with === undefined)!;
 const toolOf = (session: Session): ToolContext => ({
   projectKey: 'AR',
-  member: 'operator',
+  member: session.member,
   sessionId: session.id,
   taskKey: null,
 });
@@ -232,9 +236,11 @@ describe('the decision candidates (PM-496)', () => {
 });
 
 describe('mark_decision_candidates (PM-496)', () => {
-  async function ownerAsks() {
-    await ask('Look at the decisions');
-    const session = ownerSession();
+  async function ownerAsks(member = 'operator') {
+    await ask('Look at the decisions', 'owner', member);
+    const session = sessions(member).find(
+      (session) => session.workItem.type === 'general' && session.workItem.with === undefined,
+    )!;
     return { session, ctx: toolOf(session), requestId: requestOf(session).id };
   }
   const mark = (
@@ -242,12 +248,12 @@ describe('mark_decision_candidates (PM-496)', () => {
     items: Parameters<typeof h.domain.teamTools.markDecisionCandidates>[1]['items'],
   ) => h.domain.teamTools.markDecisionCandidates(ctx, { items });
 
-  it('records the verdicts and the step, and a marked item is no candidate any more', async () => {
-    await setup();
+  it.each(['operator', 'pm'])('records verdicts and the request step for %s', async (member) => {
+    await setup({ pm: member === 'pm' });
     answered('inb_1', '2026-10-11T09:00:00.000Z');
     answered('inb_2', '2026-10-11T09:01:00.000Z');
     answered('inb_3', '2026-10-11T09:02:00.000Z');
-    const { ctx, requestId } = await ownerAsks();
+    const { ctx, requestId } = await ownerAsks(member);
     expect(
       await mark(ctx, [
         { item_id: 'inb_1', verdict: 'recorded', decision: '52' },
@@ -346,6 +352,31 @@ describe('mark_decision_candidates (PM-496)', () => {
     await endTurn();
     const result = await h.domain.teamTools.listDecisionCandidates(ctx, { limit: 5 });
     expect(result.candidates.map((c) => c.item_id)).toEqual(['inb_1']);
+  });
+
+  it('lets the PM list without an owner request but refuses marking', async () => {
+    await setup({ pm: true });
+    answered('inb_1', '2026-10-11T09:00:00.000Z');
+    const { ctx, requestId } = await ownerAsks('pm');
+    h.repos.operatorRequests.close(requestId, now.toISOString());
+    expect((await h.domain.teamTools.listDecisionCandidates(ctx, {})).candidates).toMatchObject([
+      { item_id: 'inb_1' },
+    ]);
+    await expect(mark(ctx, [{ item_id: 'inb_1', verdict: 'declined' }])).rejects.toThrow(
+      'operator_no_request',
+    );
+    expect(h.repos.decisionOffers.get('AR', 'inb_1')).toBeNull();
+  });
+
+  it('refuses decision candidates in a PM guest conversation', async () => {
+    await setup({ pm: true });
+    const { session } = await h.domain.sessions.ensureSession('AR', 'pm', {
+      type: 'general',
+      with: 'dana',
+    });
+    const ctx = toolOf(session);
+    await expect(h.domain.teamTools.listDecisionCandidates(ctx, {})).rejects.toThrow('project_manager_only');
+    await expect(mark(ctx, [])).rejects.toThrow('project_manager_only');
   });
 });
 

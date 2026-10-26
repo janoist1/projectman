@@ -210,7 +210,8 @@ export const en: TemplateLocale = {
     },
     project_manager: {
       name: 'Project manager',
-      summary: 'Runs the schedule: standups, planning, deadlines, reminders and the weekly report.',
+      summary:
+        'Runs the schedule: standups, planning, deadlines, reminders and the weekly report. Maintains the decision log and roadmap on the owner’s request or yes, offers decision candidates, and records lessons.',
       notTheirJob: 'Does not set priorities or run the retro.',
       whenToAsk:
         'When you want to know where the work stands and what is due when, or need a reminder or a report.',

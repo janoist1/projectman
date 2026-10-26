@@ -330,7 +330,7 @@ describe('operating agreement and conversation guidance (PM-690)', () => {
     const index = prompt({}, 'pm');
     expect(index).toContain('never another person’s conversational preferences');
     expect(index).toContain('Suggest a changed common principle to the Operator as information');
-    expect(index).toContain('Never operate, write private knowledge, waive approval');
+    expect(index).toContain('Never operate, write private knowledge');
     expect(index).not.toContain('# Personal conversation style');
   });
 });
@@ -1598,7 +1598,7 @@ describe('system prompt', () => {
 
     it('offers the roadmap check at a proposed release only when the project has a roadmap (PM-497)', () => {
       const guideOf = (project: ReturnType<typeof buildProject>) =>
-        builder.build(input({ project, handle: 'operator' })).guide.role;
+        builder.build(input({ project, handle: 'pm' })).guide.role;
       expect(guideOf(buildProject())).not.toContain('roadmap check');
       const project = buildProject();
       project.project.repos[0]!.docs = { roadmap: 'docs/ROADMAP.md' };
@@ -1608,11 +1608,14 @@ describe('system prompt', () => {
     it('gives the rules of the decision log and the roadmap only to a project with docs (PM-496)', () => {
       const withDocs = buildProject();
       withDocs.project.repos[0]!.docs = { decisions: 'docs/DECISIONS.md', roadmap: 'docs/ROADMAP.md' };
-      const pack = builder.build(input({ project: withDocs, handle: 'operator' }));
+      const pack = builder.build(input({ project: withDocs, handle: 'pm' }));
       for (const key of ['write_project_docs', 'mark_decision_candidates']) {
         expect(pack.appendSystemPrompt).toContain(key);
         expect(pack.guide.role).toContain(key);
-        expect(builder.build(input({ handle: 'operator' })).guide.role).not.toContain(key);
+        expect(builder.build(input({ handle: 'pm' })).guide.role).not.toContain(key);
+        const operator = builder.build(input({ project: withDocs, handle: 'operator' }));
+        expect(operator.appendSystemPrompt).not.toContain(key);
+        expect(operator.guide.role).not.toContain(key);
       }
       expect(pack.guide.role).toContain('docs_stale');
       expect(
@@ -1624,15 +1627,18 @@ describe('system prompt', () => {
 
     it('includes autonomous lessons guidance only when lessons are configured (PM-1004)', () => {
       const project = buildProject();
-      const without = builder.build(input({ project, handle: 'operator' }));
+      const without = builder.build(input({ project, handle: 'pm' }));
       project.project.repos[0]!.docs = { lessons: 'docs/LESSONS.md' };
-      const withLessons = builder.build(input({ project, handle: 'operator' }));
+      const withLessons = builder.build(input({ project, handle: 'pm' }));
       for (const part of ['appendSystemPrompt', 'guide'] as const) {
         const text = part === 'guide' ? withLessons.guide.role : withLessons[part];
         const before = part === 'guide' ? without.guide.role : without[part];
         expect(text).toContain('doc lessons');
         expect(before).not.toContain('doc lessons');
       }
+      const operator = builder.build(input({ project, handle: 'operator' }));
+      expect(operator.appendSystemPrompt).not.toContain('doc lessons');
+      expect(operator.guide.role).not.toContain('doc lessons');
     });
 
     it('tells the Operator the release and merge checks, and never to ask the owner to relay (PM-544)', () => {
@@ -1772,8 +1778,14 @@ describe('system prompt', () => {
     });
 
     it('gives the project manager a full prompt and role guide snapshot (PM-992)', async () => {
+      const project = buildProject();
+      project.project.repos[0]!.docs = {
+        decisions: 'docs/DECISIONS.md',
+        roadmap: 'docs/ROADMAP.md',
+        lessons: 'docs/LESSONS.md',
+      };
       const pack = builder.build(
-        input({ handle: 'pm', workItem: { type: 'general' }, task: null, stage: null }),
+        input({ project, handle: 'pm', workItem: { type: 'general' }, task: null, stage: null }),
       );
       await expect(`${pack.appendSystemPrompt}\n`).toMatchFileSnapshot(
         '__snapshots__/project-manager-general.system-prompt.txt',

@@ -1,4 +1,4 @@
-import { ERROR_CODES, isLessonsOnly, isOperator, memberOf } from '@projectman/shared';
+import { coordinationMemberOf, ERROR_CODES, isLessonsOnly, isOperator, memberOf } from '@projectman/shared';
 import type { ProjectDoc } from '@projectman/shared';
 import { TeamToolError } from '../../contracts';
 import type { ProjectDocToolsHandler, ProjectDocRead, ProjectDocWrite, ToolContext } from '../../contracts';
@@ -56,10 +56,10 @@ export class ProjectDocTools implements ProjectDocToolsHandler {
     args: { doc: ProjectDoc; fromLine?: number; lineCount?: number },
   ): Promise<ProjectDocRead> {
     const config = await this.projects.config(ctx.projectKey);
-    if (!isOperator(memberOf(config, ctx.member)))
+    if (!isOperator(memberOf(config, ctx.member)) && coordinationMemberOf(config)?.handle !== ctx.member)
       throw new TeamToolError(
         'forbidden',
-        'operator_only: only the Operator may read the project documents.',
+        'operator_only: only the selected project manager or Operator may read the project documents.',
       );
     await this.calls.projectDocCaller(ctx, [{ doc: args.doc }], 'read_project_doc');
     try {
@@ -79,10 +79,10 @@ export class ProjectDocTools implements ProjectDocToolsHandler {
     },
   ): Promise<ProjectDocWrite> {
     const config = await this.projects.config(ctx.projectKey);
-    if (!isOperator(memberOf(config, ctx.member)))
+    if (!isOperator(memberOf(config, ctx.member)) && coordinationMemberOf(config)?.handle !== ctx.member)
       throw new TeamToolError(
         'forbidden',
-        'operator_only: only the Operator may write the project documents.',
+        'operator_only: only the selected project manager or Operator may write the project documents.',
       );
     const lessonsOnly = isLessonsOnly(args.edits);
     const caller = await this.calls.projectDocCaller(ctx, args.edits);
@@ -169,10 +169,10 @@ export class ProjectDocTools implements ProjectDocToolsHandler {
 
   async listDecisionCandidates(ctx: ToolContext, args: { limit?: number }) {
     const config = await this.projects.config(ctx.projectKey);
-    if (!isOperator(memberOf(config, ctx.member)))
+    if (!isOperator(memberOf(config, ctx.member)) && coordinationMemberOf(config)?.handle !== ctx.member)
       throw new TeamToolError(
         'forbidden',
-        'operator_only: only the Operator may list the decision candidates.',
+        'operator_only: only the selected project manager or Operator may list the decision candidates.',
       );
     await this.calls.callerWithRequest(ctx, 'list_decision_candidates');
     try {
@@ -187,10 +187,10 @@ export class ProjectDocTools implements ProjectDocToolsHandler {
     args: { items: { item_id: string; verdict: 'recorded' | 'declined' | 'skipped'; decision?: string }[] },
   ) {
     const config = await this.projects.config(ctx.projectKey);
-    if (!isOperator(memberOf(config, ctx.member)))
+    if (!isOperator(memberOf(config, ctx.member)) && coordinationMemberOf(config)?.handle !== ctx.member)
       throw new TeamToolError(
         'forbidden',
-        'operator_only: only the Operator may mark the decision candidates.',
+        'operator_only: only the selected project manager or Operator may mark the decision candidates.',
       );
     const caller = await this.calls.callerWithRequest(ctx, 'mark_decision_candidates');
     const request = this.inOwnerConversation(ctx, caller, 'mark_decision_candidates');

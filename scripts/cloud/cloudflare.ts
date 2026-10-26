@@ -19,7 +19,8 @@ import {
 /**
  * The Cloudflare side of the cloud board (PM-536, docs/AWS.md "Cloudflare"): the `preflight` part and the `edge`
  * command. Everything is found by name and put right when it differs, so a second run changes nothing; a setting
- * changed by hand in the dashboard is written back. The security conditions are those of docs/DEPLOY.md (PM-200):
+ * changed by hand in the dashboard is written back. The security conditions are those of docs/SECURITY.md
+ * ("Public entrance through Cloudflare") and docs/HYBRID.md ("The Cloudflare tunnel and Access"):
  * Access in front of the board with the exact e-mail list, the engine's door open only to the engine service token,
  * the internal paths answered 404 by the tunnel, no Host rewrite, no framing.
  */

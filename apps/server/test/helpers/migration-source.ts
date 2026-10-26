@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { routes } from '@projectman/shared';
 import { copyTree } from '../../../../scripts/migrate/copy';
 import type { Task } from '@projectman/shared';
-import { createAppHarness, OWNER_LOGIN, setupOwner } from './app-harness';
+import { createAppHarness, setupOwner } from './app-harness';
 import type { AppHarness } from './app-harness';
 import { pngBytes, uploadFile } from './attachments';
 import { withoutOnboarding } from './onboarding';
@@ -47,7 +47,7 @@ const GIT_ENV = {
   GIT_COMMITTER_EMAIL: 'test@example.test',
 };
 
-export function git(cwd: string, ...args: string[]): string {
+function git(cwd: string, ...args: string[]): string {
   const env: NodeJS.ProcessEnv = { ...process.env };
   for (const key of Object.keys(env)) if (key.startsWith('GIT_')) delete env[key];
   return execFileSync('git', ['-c', 'commit.gpgSign=false', '-c', 'protocol.file.allow=always', ...args], {
@@ -262,5 +262,3 @@ export function stoppedSourceHomes<T = undefined>(
     return { src, prepared };
   };
 }
-
-export { OWNER_LOGIN };

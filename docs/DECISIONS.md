@@ -482,3 +482,11 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     (amennyiben szükséges), de az nincs, h nekem kelljen manuálisan írogatnom doksikat meg
     futtatnom parancsokat, amiket technikaliag te is tudsz” and „ezt legjobb lenne, ha az
     illetékes magától megtenni legközelebb, ne nekünk kelljen az ilyet kiszúrni”.
+64. **The project manager speaks like a person.** Decided by the owner on 2026-10-26. The
+    project manager writes in a human, plain-spoken tone that anyone can follow, and still
+    answers technical details in technical language when asked. This is the default of the
+    role when a member is created, in every project; a project may change it, and the project
+    manager learns the people's preferred style as it goes, like the Operator. The owner's
+    words: „a PM alapvetően emberibb hangot üt meg, közérthetően kommunikál, de képes tech
+    nyelven is részletekre válaszolni. Ez alapból legyen a tag létrehozásánál, át lehet írni
+    aki akarja másik projektben, de ugye ez is tanul menet közben hasonlóan az Op-hoz”.

@@ -445,6 +445,33 @@ describe('the Operator queue', () => {
       expect(sent?.body).not.toContain('integrator resolved');
     });
 
+    it('lets the asker ask the answered question again, once', async () => {
+      const opened = await askAs('dev-1');
+      const { queueItem, ctx } = await working();
+      await answer(ctx, queueItem.id);
+
+      const dev = { projectKey: 'AR', member: 'dev-1', sessionId: 'ses_dev', taskKey: 'AR-1' };
+      const again = await h.domain.teamTools.askHuman(dev, {
+        question: 'Really?',
+        recipient: 'integrator',
+        reaskOf: opened.itemId,
+        reaskReason: 'The test failed again.',
+      });
+
+      expect(again.screening).toBeUndefined();
+      expect(
+        await rejection(
+          h.domain.teamTools.askHuman(dev, {
+            question: 'Really?',
+            recipient: 'integrator',
+            reaskOf: opened.itemId,
+            reaskReason: 'Once more.',
+          }),
+          Error,
+        ),
+      ).toHaveProperty('message', expect.stringContaining('already asked again'));
+    });
+
     it('refuses the answer on a todo the system opened, and on one with no answer', async () => {
       await askAs('pm', { id: 'obl_start', kind: 'start', responsible: 'dev-1' });
       const { queueItem, ctx } = await working();

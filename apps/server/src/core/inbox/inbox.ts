@@ -949,28 +949,13 @@ export class InboxService {
           integratorTodo: true as const,
           operatorQueue: true as const,
         };
-        const close = (): InboxItem => {
-          const resolved = this.ctx.repos.inbox.close(id, 'resolved', resolution, at);
-          if (!resolved) throw conflict('inbox_item_closed', `inbox item ${id} is no longer open`);
-          this.publish(resolved);
-          this.timeline.append({
-            projectKey,
-            taskKey: resolved.taskKey,
-            sessionId: resolved.sessionId,
-            actor: aiActor(operator),
-            type: 'question_answered',
-            data: {
-              inboxItemId: id,
-              answer: answerText(resolved),
-              integratorTodo: {
-                optionId: optionId === TODO_DONE_OPTION.id ? 'todo_done' : 'todo_cannot',
-                note,
-              },
-            },
-          });
-          return resolved;
-        };
-        return this.deliverResolved(item, resolution, close);
+        return this.deliverResolved(item, resolution, (resolved) => ({
+          answer: answerText(resolved),
+          integratorTodo: {
+            optionId: optionId === TODO_DONE_OPTION.id ? 'todo_done' : 'todo_cannot',
+            note,
+          },
+        }));
       }
       if (!isIntegratorFixLimitDecision(item))
         throw forbidden('super_relay_refused', 'only a current integrator item may be closed this way');
@@ -1027,30 +1012,36 @@ export class InboxService {
         rule: 'operator_answered' as const,
         operatorQueue: true as const,
       };
-      const close = (): InboxItem => {
-        const resolved = this.ctx.repos.inbox.close(id, 'resolved', resolution, at);
-        if (!resolved) throw conflict('inbox_item_closed', `inbox item ${id} is no longer open`);
-        this.publish(resolved);
-        this.timeline.append({
-          projectKey,
-          taskKey: resolved.taskKey,
-          sessionId: resolved.sessionId,
-          actor: aiActor(operator),
-          type: 'question_answered',
-          data: { inboxItemId: id, answer },
-        });
-        return resolved;
-      };
-      return this.deliverResolved(item, resolution, close);
+      return this.deliverResolved(item, resolution, () => ({ answer }));
     });
   }
 
-  /** Hands the closed question to the asking member (when it has one) and announces the resolution. */
+  /**
+   * Closes the Operator's question todo with `resolution`, writes the `question_answered` event (`data` adds
+   * to its inbox item id), hands the answer to the asking member (when it has one) and announces the resolution.
+   */
   private async deliverResolved(
     item: InboxItem,
     resolution: NonNullable<InboxItem['resolution']>,
-    close: () => InboxItem,
+    data: (resolved: InboxItem) => {
+      answer: string;
+      integratorTodo?: { optionId: 'todo_done' | 'todo_cannot'; note: string };
+    },
   ): Promise<InboxItem> {
+    const close = (): InboxItem => {
+      const resolved = this.ctx.repos.inbox.close(item.id, 'resolved', resolution, resolution.at);
+      if (!resolved) throw conflict('inbox_item_closed', `inbox item ${item.id} is no longer open`);
+      this.publish(resolved);
+      this.timeline.append({
+        projectKey: item.projectKey,
+        taskKey: resolved.taskKey,
+        sessionId: resolved.sessionId,
+        actor: aiActor(resolution.by),
+        type: 'question_answered',
+        data: { inboxItemId: item.id, ...data(resolved) },
+      });
+      return resolved;
+    };
     const answered = this.questionAnswer
       ? await this.questionAnswer({ ...item, state: 'resolved', resolution }, [], close)
       : null;

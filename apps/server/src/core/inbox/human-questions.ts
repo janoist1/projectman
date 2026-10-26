@@ -292,7 +292,9 @@ export class HumanQuestions implements HumanQuestionsPort {
     if (previous.source !== member)
       throw refuse('reask_not_allowed: only the member who asked may ask again.');
     const outcome = questionPayloadOf(previous)?.screening?.outcome;
-    if (outcome !== 'answered' && outcome !== 'forwarded' && outcome !== 'moot')
+    // An Operator answer from its work queue (PM-1009) leaves the screening outcome at `todo`: the rule says it.
+    const answeredFromQueue = previous.resolution?.rule === 'operator_answered';
+    if (outcome !== 'answered' && outcome !== 'forwarded' && outcome !== 'moot' && !answeredFromQueue)
       throw refuse('reask_not_allowed: the Operator did not answer, forward or close that question.');
     const asked = this.inbox
       .list(projectKey, { kind: 'question' })

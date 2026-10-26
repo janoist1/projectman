@@ -117,8 +117,9 @@ export function operatorLane(deps: OperatorLaneDeps): MemberQueueLane {
                 asker: inbox.source,
                 text: payload.question,
                 options: payload.options ?? [],
+                // `recommended` is the id of a suggested answer (`option_N`); the label list is in the same order.
                 recommended: payload.recommended
-                  ? (inbox.options.find((option) => option.id === payload.recommended)?.label ??
+                  ? (payload.options?.[Number(payload.recommended.replace('option_', '')) - 1] ??
                     payload.recommended)
                   : null,
               },

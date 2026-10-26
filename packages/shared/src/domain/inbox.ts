@@ -1076,6 +1076,27 @@ export function isIntegratorTodo(item: InboxItem): boolean {
   );
 }
 
+/**
+ * Whether the Operator may answer this integrator todo as the question of an AI member (PM-1009): an open
+ * todo that a member asked (no system obligation, no external integrator question), not the Operator's own.
+ * Whether the content is reserved to the owner (deletion, security, cost, direction) is the Operator's judgement.
+ */
+export function isOperatorAnswerableTodo(
+  item: InboxItem,
+  facts: { operatorHandle: string; askerIsAi: boolean },
+): boolean {
+  const p = questionPayloadOf(item);
+  return (
+    item.state === 'open' &&
+    isIntegratorTodo(item) &&
+    !!p &&
+    !p.obligation &&
+    !p.externalQuestion &&
+    item.source !== facts.operatorHandle &&
+    facts.askerIsAi
+  );
+}
+
 export function questionRecipientOf(item: InboxItem): QuestionRecipient {
   return isIntegratorTodo(item) ? 'integrator' : 'owner';
 }

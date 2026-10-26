@@ -112,6 +112,7 @@ export function toToolError(err: unknown): unknown {
     [
       'question_group_incompatible',
       'question_not_screening',
+      'question_not_answerable',
       'operator_signal_closed',
       'queue_item_not_processing',
     ].includes(err.code)

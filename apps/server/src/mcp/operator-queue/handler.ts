@@ -30,6 +30,7 @@ export class OperatorQueueTools implements OperatorQueueToolsHandler {
         itemId: args.itemId,
         outcome: args.outcome,
         summary: args.summary,
+        ...(args.answer ? { answer: args.answer } : {}),
         operationIds: args.operationIds,
         ...(args.fixLimitOption ? { fixLimitOption: args.fixLimitOption } : {}),
         ...(args.handoff ? { handoff: args.handoff } : {}),

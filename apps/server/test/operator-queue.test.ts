@@ -414,6 +414,114 @@ describe('the Operator queue', () => {
     });
   });
 
+  describe('answering the question of an AI member (PM-1009)', () => {
+    const askAs = (askedBy: string, obligation?: { id: string; kind: 'start'; responsible: string }) =>
+      h.domain.inbox.openIntegratorTodo({
+        projectKey: 'AR',
+        taskKey: 'AR-1',
+        askedBy,
+        question: 'May I rerun the flaky test?',
+        todo,
+        ...(obligation ? { obligation: { ...obligation, openedAt: new Date().toISOString() } } : {}),
+      });
+    const answer = (ctx: ToolContext, itemId: string, extra: Record<string, unknown> = {}) =>
+      finish(ctx, itemId, { outcome: 'answered', answer: 'Yes, rerun it once.', ...extra });
+
+    it('delivers the answer to the asker as the Operator’s, closes the todo and the row', async () => {
+      const opened = await askAs('dev-1');
+      const { queueItem, ctx } = await working();
+
+      const result = await answer(ctx, queueItem.id, { summary: 'A known flaky test.' });
+
+      expect(result.item).toMatchObject({ state: 'done', outcome: { summary: 'A known flaky test.' } });
+      const resolved = h.domain.inbox.get('AR', opened.itemId);
+      expect(resolved).toMatchObject({
+        state: 'resolved',
+        resolution: { rule: 'operator_answered', by: 'operator', note: 'Yes, rerun it once.' },
+      });
+      expect(resolved.resolution).not.toHaveProperty('integratorTodo');
+      const sent = h.repos.messages.list('AR').find((m) => m.body.includes('Yes, rerun it once.'));
+      expect(sent).toMatchObject({ from: 'operator' });
+      expect(sent?.body).not.toContain('integrator resolved');
+    });
+
+    it('lets the asker ask the answered question again, once', async () => {
+      const opened = await askAs('dev-1');
+      const { queueItem, ctx } = await working();
+      await answer(ctx, queueItem.id);
+
+      const dev = { projectKey: 'AR', member: 'dev-1', sessionId: 'ses_dev', taskKey: 'AR-1' };
+      const again = await h.domain.teamTools.askHuman(dev, {
+        question: 'Really?',
+        recipient: 'integrator',
+        reaskOf: opened.itemId,
+        reaskReason: 'The test failed again.',
+      });
+
+      expect(again.screening).toBeUndefined();
+      expect(
+        await rejection(
+          h.domain.teamTools.askHuman(dev, {
+            question: 'Really?',
+            recipient: 'integrator',
+            reaskOf: opened.itemId,
+            reaskReason: 'Once more.',
+          }),
+          Error,
+        ),
+      ).toHaveProperty('message', expect.stringContaining('already asked again'));
+    });
+
+    it('refuses the answer on a todo the system opened, and on one with no answer', async () => {
+      await askAs('pm', { id: 'obl_start', kind: 'start', responsible: 'dev-1' });
+      const { queueItem, ctx } = await working();
+
+      expect((await rejection(answer(ctx, queueItem.id), TeamToolError)).message).toContain(
+        'question_not_answerable',
+      );
+      expect((await rejection(finish(ctx, queueItem.id, { outcome: 'answered' }), TeamToolError)).code).toBe(
+        'invalid',
+      );
+      expect(item(queueItem.id).state).toBe('processing');
+    });
+
+    it('refuses an answer on a todo of a non-AI asker', async () => {
+      await askAs('system');
+      const { queueItem, ctx } = await working();
+
+      expect((await rejection(answer(ctx, queueItem.id), TeamToolError)).message).toContain(
+        'question_not_answerable',
+      );
+    });
+
+    it('refuses an answer on a message, and an answer next to another outcome', async () => {
+      await h.domain.messaging.send(
+        'AR',
+        'dev-1',
+        { to: ['operator'], text: 'Please look at the hub.', taskKey: 'AR-1' },
+        { kind: 'action' },
+      );
+      const message = await working();
+      expect((await rejection(answer(message.ctx, message.queueItem.id), TeamToolError)).code).toBe(
+        'invalid',
+      );
+      expect(
+        (await rejection(finish(message.ctx, message.queueItem.id, { answer: 'Yes' }), TeamToolError)).code,
+      ).toBe('invalid');
+    });
+
+    it('refuses the answer once the item was closed meanwhile', async () => {
+      const opened = await askAs('dev-1');
+      const { queueItem, ctx } = await working();
+      await h.domain.inbox.resolveForOperatorQueue('AR', opened.itemId, 'todo_done', 'Done', 'operator');
+      await flush();
+
+      const refused = await rejection(answer(ctx, queueItem.id), TeamToolError);
+
+      expect(refused.message).toContain('queue_item_not_processing');
+    });
+  });
+
   describe('messages', () => {
     const record = (from: string, kind: 'action' | 'info') =>
       h.domain.messaging.send(

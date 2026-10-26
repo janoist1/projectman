@@ -13,6 +13,7 @@ import {
   hasProtectedQuestionPayload,
   humanInboxAssignment,
   isIntegratorTodo,
+  isOperatorAnswerableTodo,
   isIntegratorFixLimitDecision,
   isIntegratorInboxItem,
   operatorOwesInboxItem,
@@ -948,34 +949,13 @@ export class InboxService {
           integratorTodo: true as const,
           operatorQueue: true as const,
         };
-        const close = (): InboxItem => {
-          const resolved = this.ctx.repos.inbox.close(id, 'resolved', resolution, at);
-          if (!resolved) throw conflict('inbox_item_closed', `inbox item ${id} is no longer open`);
-          this.publish(resolved);
-          this.timeline.append({
-            projectKey,
-            taskKey: resolved.taskKey,
-            sessionId: resolved.sessionId,
-            actor: aiActor(operator),
-            type: 'question_answered',
-            data: {
-              inboxItemId: id,
-              answer: answerText(resolved),
-              integratorTodo: {
-                optionId: optionId === TODO_DONE_OPTION.id ? 'todo_done' : 'todo_cannot',
-                note,
-              },
-            },
-          });
-          return resolved;
-        };
-        const answered = this.questionAnswer
-          ? await this.questionAnswer({ ...item, state: 'resolved', resolution }, [], close)
-          : null;
-        const resolved = answered ?? this.ctx.unitOfWork(close);
-        this.waiters.get(id)?.(resolved);
-        await this.ctx.events.emit('inbox_resolved', resolved);
-        return resolved;
+        return this.deliverResolved(item, resolution, (resolved) => ({
+          answer: answerText(resolved),
+          integratorTodo: {
+            optionId: optionId === TODO_DONE_OPTION.id ? 'todo_done' : 'todo_cannot',
+            note,
+          },
+        }));
       }
       if (!isIntegratorFixLimitDecision(item))
         throw forbidden('super_relay_refused', 'only a current integrator item may be closed this way');
@@ -998,6 +978,77 @@ export class InboxService {
       await this.ctx.events.emit('inbox_resolved', resolved);
       return resolved;
     });
+  }
+
+  /**
+   * The Operator answers, in its own name, the question of an AI member that reached it as an integrator todo
+   * (PM-1009). The answer goes to the asker as the Operator's (`operator_answered`, not an integrator task
+   * result) and the item closes with the message; the card's waiting label comes off. 403
+   * `question_not_answerable` when the item is not a member's question the Operator may answer.
+   */
+  async answerForOperatorQueue(
+    projectKey: string,
+    id: string,
+    answer: string,
+    operator: string,
+  ): Promise<InboxItem> {
+    return this.questionLock(id, async () => {
+      const item = this.get(projectKey, id);
+      if (item.state !== 'open') throw conflict('inbox_item_closed', `inbox item ${id} is ${item.state}`);
+      const config = await this.projects.config(projectKey);
+      if (
+        !isOperatorAnswerableTodo(item, {
+          operatorHandle: operator,
+          askerIsAi: memberOf(config, item.source)?.kind === 'ai',
+        })
+      )
+        throw forbidden('question_not_answerable', 'the Operator may not answer this item as a question');
+      const at = isoNow(this.ctx);
+      const resolution = {
+        optionId: ANSWER_OPTION.id,
+        by: operator,
+        at,
+        note: answer,
+        rule: 'operator_answered' as const,
+        operatorQueue: true as const,
+      };
+      return this.deliverResolved(item, resolution, () => ({ answer }));
+    });
+  }
+
+  /**
+   * Closes the Operator's question todo with `resolution`, writes the `question_answered` event (`data` adds
+   * to its inbox item id), hands the answer to the asking member (when it has one) and announces the resolution.
+   */
+  private async deliverResolved(
+    item: InboxItem,
+    resolution: NonNullable<InboxItem['resolution']>,
+    data: (resolved: InboxItem) => {
+      answer: string;
+      integratorTodo?: { optionId: 'todo_done' | 'todo_cannot'; note: string };
+    },
+  ): Promise<InboxItem> {
+    const close = (): InboxItem => {
+      const resolved = this.ctx.repos.inbox.close(item.id, 'resolved', resolution, resolution.at);
+      if (!resolved) throw conflict('inbox_item_closed', `inbox item ${item.id} is no longer open`);
+      this.publish(resolved);
+      this.timeline.append({
+        projectKey: item.projectKey,
+        taskKey: resolved.taskKey,
+        sessionId: resolved.sessionId,
+        actor: aiActor(resolution.by),
+        type: 'question_answered',
+        data: { inboxItemId: item.id, ...data(resolved) },
+      });
+      return resolved;
+    };
+    const answered = this.questionAnswer
+      ? await this.questionAnswer({ ...item, state: 'resolved', resolution }, [], close)
+      : null;
+    const resolved = answered ?? this.ctx.unitOfWork(close);
+    this.waiters.get(item.id)?.(resolved);
+    await this.ctx.events.emit('inbox_resolved', resolved);
+    return resolved;
   }
 
   /**

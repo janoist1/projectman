@@ -1,7 +1,7 @@
-import { realpathSync } from 'node:fs';
+import { readlinkSync, realpathSync, statSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { isReleaseTagName, type ProjectConfig } from '@projectman/shared';
+import { isReleaseTagName, usesCodexCli, SessionReadBoundary, type ProjectConfig } from '@projectman/shared';
 import type { AgentSandbox, EnginePaths, MachineProbe, ProcessRecord } from '../contracts';
 import {
   OPEN_OUTBOUND_DOMAINS,
@@ -88,6 +88,10 @@ function refuse(code: EngineErrorCode, message: string): never {
 
 /** The real path of the nearest existing ancestor, plus the not yet existing rest (a path to be made). */
 function resolveReal(target: string): string {
+  return resolveRealPath(target, 0);
+}
+
+function resolveRealPath(target: string, depth: number): string {
   const absolute = path.resolve(target);
   let head = absolute;
   const rest: string[] = [];
@@ -95,6 +99,19 @@ function resolveReal(target: string): string {
     try {
       return path.join(realpathSync(head), ...rest.reverse());
     } catch {
+      // realpath cannot resolve a dangling link. Follow its target before appending the
+      // missing tail, rather than treating a link into a denied root as a new safe path.
+      if (depth < 40) {
+        try {
+          const link = readlinkSync(head);
+          return path.join(
+            resolveRealPath(path.resolve(path.dirname(head), link), depth + 1),
+            ...rest.reverse(),
+          );
+        } catch {
+          // Not a symbolic link; continue with the nearest existing ancestor.
+        }
+      }
       const parent = path.dirname(head);
       if (parent === head) return absolute;
       rest.push(path.basename(head));
@@ -322,6 +339,140 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
         }
       }
       let sandbox = spec.sandbox;
+      if (usesCodexCli(spec.provider ?? 'claude') && policy.access === 'task_worktree') {
+        const boundary = SessionReadBoundary.safeParse(sandbox?.portable?.readBoundary);
+        if (!boundary.success) refuse('invalid_params', 'A worktree session needs a valid read boundary');
+        const portable = sandbox!.portable!;
+        const valid = (value: string) =>
+          path.isAbsolute(value) && !/[\0*?\[\]]/.test(value) && path.normalize(value) === value;
+        if (
+          ![...boundary.data.deniedRoots, ...boundary.data.allowedPaths.map((entry) => entry.path)].every(
+            valid,
+          )
+        )
+          refuse('invalid_params', 'The read boundary needs absolute normalized paths');
+        const blocked = [...sensitive, ...(filesystem.deniedPaths ?? [])].map(resolveReal);
+        const hardDenied = (target: string) =>
+          blocked.some((root) => {
+            const expression = root
+              .split(/([*?])/)
+              .map((part) =>
+                part === '*' ? '[^/]*' : part === '?' ? '[^/]' : part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
+              )
+              .join('');
+            return new RegExp(`^${expression}(?:/|$)`, process.platform === 'darwin' ? 'i' : '').test(
+              resolveReal(target),
+            );
+          });
+        const required = [
+          spec.cwd,
+          ...(placement.kind === 'task_worktree' && placement.gitDir ? [placement.gitDir] : []),
+        ];
+        if (policy.permissions.sandbox === 'workspace-write') {
+          if (!portable.tmpDir || !portable.env.PROJECTMAN_SESSION_DIR)
+            refuse('invalid_params', 'A writing worktree session needs private directories');
+          for (const [target, root] of [
+            [portable.tmpDir, paths.sessionTmpRoot],
+            [portable.env.PROJECTMAN_SESSION_DIR, paths.sessionFoldersRoot],
+          ]) {
+            if (
+              !root ||
+              !target ||
+              resolveReal(target) === resolveReal(root) ||
+              !isWithin(resolveReal(root), resolveReal(target))
+            )
+              refuse('path_outside_roots', 'A private directory must be below its engine-owned root');
+          }
+          required.push(portable.tmpDir, portable.env.PROJECTMAN_SESSION_DIR);
+        }
+        if (required.some(hardDenied)) refuse('path_outside_roots', 'A required path is denied');
+        const ownCandidates = [
+          spec.cwd,
+          ...filesystem.readableRoots,
+          ...(filesystem.readOnlyPaths ?? []),
+          ...(placement.kind === 'task_worktree' && placement.gitDir ? [placement.gitDir] : []),
+          ...(sandbox?.allowRead ?? []),
+          ...portable.allowWrite,
+          ...(portable.tmpDir ? [portable.tmpDir] : []),
+          ...homeReads(),
+          ...present([paths.sessionFoldersRoot, paths.browsersDir]),
+        ];
+        // Never reopen homes or collectors of other members' checkouts/caches. A permitted
+        // root is still checked against the engine's read roots after resolving symlinks.
+        const collectors = present([
+          home,
+          userHome,
+          paths.worktreesRoot,
+          paths.workspacesRoot,
+          memberCaches,
+          attachmentsCache,
+          ...config.projects.map((project) => project.workspacePath),
+        ]);
+        const allowedPaths = boundary.data.allowedPaths.filter((entry) => {
+          const real = resolveReal(entry.path);
+          if (hardDenied(entry.path)) return false;
+          let kindMatches = true;
+          try {
+            const stat = statSync(entry.path);
+            kindMatches = entry.kind === 'file' ? stat.isFile() : stat.isDirectory();
+          } catch {
+            // Optional technical files and newly allocated directories may not exist yet.
+          }
+          if (!kindMatches) refuse('path_outside_roots', 'A read exception has the wrong path kind');
+          if (collectors.some((root) => isWithin(real, resolveReal(root))))
+            refuse('path_outside_roots', 'A read exception would reopen a shared parent');
+          if (isWithin(resolveReal(memberCaches), real)) {
+            const parts = path.relative(resolveReal(memberCaches), real).split(path.sep);
+            if (parts.length < 3 || (spec.member && parts[1] !== spec.member))
+              refuse('path_outside_roots', 'A cache exception must name the member’s own directory or file');
+          }
+          inside(entry.path, 'A read boundary exception', readable);
+          if (!ownCandidates.some((candidate) => resolveReal(candidate) === real))
+            refuse('path_outside_roots', 'A read exception is not a session path');
+          // Technical files stay exact-file grants, even if the hub sends a directory kind.
+          if (
+            entry.kind === 'directory' &&
+            [path.join(userHome, '.gitconfig'), userExcludesFile(userHome)].some(
+              (file) => file && resolveReal(file) === real,
+            )
+          )
+            refuse('path_outside_roots', 'A technical file cannot grant directory access');
+          return true;
+        });
+        if (
+          required.some(
+            (target) =>
+              !allowedPaths.some(
+                (entry) =>
+                  entry.kind === 'directory' && isWithin(resolveReal(entry.path), resolveReal(target)),
+              ),
+          )
+        )
+          refuse('path_outside_roots', 'A required path is outside the read boundary');
+        const shared = portable.tmpDir
+          ? [...paths.claudeTmpRoots, ...(paths.sessionTmpRoot ? [path.dirname(paths.sessionTmpRoot)] : [])]
+          : [];
+        sandbox = {
+          ...sandbox!,
+          allowRead: sandbox!.allowRead?.filter((target) => !hardDenied(target)),
+          allowWrite: sandbox!.allowWrite.filter((target) => !hardDenied(target)),
+          portable: {
+            ...portable,
+            allowWrite: portable.allowWrite.filter((target) => !hardDenied(target)),
+            readBoundary: {
+              deniedRoots: [
+                ...new Set(
+                  [...boundary.data.deniedRoots, userHome, home, ...shared].flatMap((root) => [
+                    root,
+                    resolveReal(root),
+                  ]),
+                ),
+              ],
+              allowedPaths,
+            },
+          },
+        };
+      }
       if (sandbox) {
         insideAll(sandbox.allowWrite, 'A writable sandbox path', extra);
         insideAll(sandbox.allowRead, 'A readable sandbox path', readable);

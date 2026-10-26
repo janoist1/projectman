@@ -134,7 +134,7 @@ describe('the session folder and the browsers in the sandbox (PM-268)', () => {
         heavyLockDir,
         tmpDir,
       })!;
-      expect(sandbox.portable).toEqual({
+      expect(sandbox.portable).toMatchObject({
         allowWrite: ['/fictional/tmp/projectman-501', sessionDir],
         env: {
           PROJECTMAN_HEAVY_LOCK_DIR: heavyLockDir,
@@ -149,19 +149,22 @@ describe('the session folder and the browsers in the sandbox (PM-268)', () => {
     });
 
     it('makes `portable` for a folder alone, and for a tmp alone', () => {
-      expect(sessionSandbox(developer(), { ...paths, sessionDir })!.portable).toEqual({
+      expect(sessionSandbox(developer(), { ...paths, sessionDir })!.portable).toMatchObject({
         allowWrite: [sessionDir],
         env: { PROJECTMAN_SESSION_DIR: sessionDir },
       });
-      expect(sessionSandbox(developer(), { ...paths, tmpDir })!.portable).toEqual({
+      expect(sessionSandbox(developer(), { ...paths, tmpDir })!.portable).toMatchObject({
         allowWrite: [],
         env: {},
         tmpDir,
       });
     });
 
-    it('has none without any of them', () => {
-      expect(sessionSandbox(developer(), paths)!.portable).toBeUndefined();
+    it('keeps the developer read boundary without writes and leaves reader behavior unchanged', () => {
+      expect(sessionSandbox(developer(), paths)!.portable).toMatchObject({
+        allowWrite: [],
+        readBoundary: { deniedRoots: [userHome, appHome] },
+      });
       expect(sessionSandbox(reader(), {})!.portable).toBeUndefined();
     });
 
@@ -177,7 +180,10 @@ describe('the session folder and the browsers in the sandbox (PM-268)', () => {
 
     it('leaves out a tmp or a folder in a denied path', () => {
       const denied = [tmpDir, sessionDir];
-      expect(sessionSandbox(developer(denied), { ...paths, sessionDir, tmpDir })!.portable).toBeUndefined();
+      expect(sessionSandbox(developer(denied), { ...paths, sessionDir, tmpDir })!.portable).toMatchObject({
+        allowWrite: [],
+        readBoundary: { deniedRoots: [userHome, appHome] },
+      });
     });
   });
 
@@ -232,7 +238,10 @@ describe('the session folder and the browsers in the sandbox (PM-268)', () => {
       // Nor when the tmp is dropped for lying in a denied path.
       const denied = sessionSandbox(developer([tmpDir]), { ...paths, tmpDir, sharedTmpRoots })!;
       expect(denied.denyRead).not.toContain(base);
-      expect(denied.portable).toBeUndefined();
+      expect(denied.portable).toMatchObject({
+        allowWrite: [],
+        readBoundary: { deniedRoots: [userHome, appHome] },
+      });
     });
 
     it('leaves a developer’s allow list as it was when nothing is shared', () => {

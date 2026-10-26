@@ -483,11 +483,16 @@ export class SessionLauncher {
       tmpRoot: !!folders?.tmpRoot,
     });
     const codexWrites = usesCodexCli(provider) && folderAccess === 'write';
+    const codexWorktree = usesCodexCli(provider) && policy.access === 'task_worktree';
+    if (codexWorktree && (!userHome || !appHome))
+      throw new Error('A Codex worktree session requires engine user and application homes');
     // The sandbox itself writes the folder (and so gets the browsers and the screenshot scope).
     const sandboxWritesFolder = provider === 'claude' || codexWrites;
     // A new path at every start: what an earlier run left running cannot use or pre-empt it.
     const sessionDir = folderAccess && folders ? folders.allocate(sessionId) : undefined;
     const tmpDir = (codexWrites || claudeOwnTmp) && sessionDir ? folders?.allocateTmp(sessionId) : undefined;
+    if (codexWorktree && policy.permissions.sandbox === 'workspace-write' && (!sessionDir || !tmpDir))
+      throw new Error('A writing Codex worktree session requires private session and temporary directories');
     const tmpBase = folders?.tmpRoot ? path.dirname(folders.tmpRoot) : undefined;
     const browsersDir = sandboxWritesFolder ? (paths.browsersDir ?? undefined) : undefined;
     const sandbox = sessionSandbox(policy, {
@@ -513,6 +518,12 @@ export class SessionLauncher {
     // directory would leave the CLI on a root it can no longer reach. Only a programming error; no start.
     if (claudeOwnTmp && sandbox && sandbox.portable?.tmpDir !== tmpDir)
       throw new Error(`The sandbox of session ${sessionId} dropped its Claude Code temporary directory`);
+    if (
+      codexWorktree &&
+      policy.permissions.sandbox === 'workspace-write' &&
+      (sandbox?.portable?.tmpDir !== tmpDir || sandbox?.portable?.env[SESSION_DIR_VARIABLE] !== sessionDir)
+    )
+      throw new Error('The Codex worktree sandbox dropped a required private directory');
     // The folder the sandbox kept and its root go into the policy: the adapter renders the file-tool
     // rules from it, and drops the legacy allow list beside a policy (PM-333).
     const sessionFolder = sandbox?.env?.[SESSION_DIR_VARIABLE];

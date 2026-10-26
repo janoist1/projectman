@@ -140,6 +140,157 @@ describe('engine local limit', () => {
   afterEach(() => rmSync(base, { recursive: true, force: true }));
 
   describe('session.start', () => {
+    const worktreeStart = (provider: 'codex' | 'nanogpt' = 'codex') => {
+      const cwd = path.join(worktrees, 'PM', 'own');
+      return start({
+        provider,
+        cwd,
+        policy: {
+          ...policy({
+            placement: { kind: 'task_worktree', path: cwd },
+            filesystem: { readableRoots: [cwd], writableRoots: [] },
+            permissions: { sandbox: 'read-only' },
+          }),
+          access: 'task_worktree',
+        },
+        sandbox: sandbox({
+          allowWrite: [],
+          allowRead: [cwd],
+          portable: {
+            allowWrite: [],
+            env: {},
+            readBoundary: {
+              deniedRoots: [],
+              allowedPaths: [{ path: cwd, kind: 'directory' }],
+            },
+          },
+        }),
+      });
+    };
+
+    it.each(['codex', 'nanogpt'] as const)(
+      'requires the portable boundary for %s worktrees',
+      async (provider) => {
+        const input = worktreeStart(provider);
+        await refused(make(), 'session.start', { ...input, sandbox: undefined }, 'invalid_params');
+      },
+    );
+
+    it('adds its own homes while preserving an own checkout underneath app home', async () => {
+      const input = worktreeStart();
+      const checked = await make().check('session.start', input as never);
+      expect(checked.sandbox?.portable?.readBoundary).toEqual({
+        deniedRoots: [userHome, home],
+        allowedPaths: [{ path: input.cwd, kind: 'directory' }],
+      });
+    });
+
+    it.each([false, true])(
+      'checks private writable directories against engine roots (shared=%s)',
+      async (shared) => {
+        const input = worktreeStart();
+        const tmp = shared ? paths().sessionTmpRoot! : path.join(paths().sessionTmpRoot!, 'own');
+        const folder = path.join(paths().sessionFoldersRoot!, 'own');
+        const request = {
+          ...input,
+          policy: {
+            ...policy({
+              placement: { kind: 'task_worktree', path: input.cwd },
+              filesystem: { readableRoots: [input.cwd] },
+            }),
+            access: 'task_worktree',
+          },
+          sandbox: sandbox({
+            allowWrite: [folder],
+            portable: {
+              allowWrite: [folder],
+              env: { PROJECTMAN_SESSION_DIR: folder },
+              tmpDir: tmp,
+              readBoundary: {
+                deniedRoots: [],
+                allowedPaths: [input.cwd, tmp, folder].map((path) => ({ path, kind: 'directory' })),
+              },
+            },
+          }),
+        };
+        if (shared) await refused(make(), 'session.start', request, 'path_outside_roots');
+        else {
+          const checked = await make().check('session.start', request as never);
+          expect(checked.sandbox?.portable?.tmpDir).toBe(tmp);
+          expect(checked.sandbox?.portable?.readBoundary?.deniedRoots).toEqual(
+            expect.arrayContaining([userHome, home]),
+          );
+        }
+      },
+    );
+
+    it.each(['home', 'collector', 'symlink', 'relative'] as const)(
+      'refuses a %s boundary exception',
+      async (variant) => {
+        const input = worktreeStart();
+        const link = path.join(worktrees, 'escape');
+        symlinkSync(outside, link);
+        const target =
+          variant === 'home'
+            ? userHome
+            : variant === 'collector'
+              ? worktrees
+              : variant === 'symlink'
+                ? link
+                : 'relative';
+        const changed = {
+          ...input,
+          sandbox: sandbox({
+            allowWrite: [],
+            portable: {
+              allowWrite: [],
+              env: {},
+              readBoundary: {
+                deniedRoots: [],
+                allowedPaths: [{ path: target, kind: 'directory' }],
+              },
+            },
+          }),
+        };
+        await refused(
+          make(),
+          'session.start',
+          changed,
+          variant === 'relative' ? 'invalid_params' : 'path_outside_roots',
+        );
+      },
+    );
+
+    it('drops optional exceptions that physically point into engine secrets', async () => {
+      const input = worktreeStart();
+      const link = path.join(worktrees, 'key-link');
+      symlinkSync(path.join(home, 'secret'), link);
+      const checked = await make().check('session.start', {
+        ...input,
+        sandbox: sandbox({
+          allowWrite: [link],
+          allowRead: [input.cwd, link],
+          portable: {
+            allowWrite: [link],
+            env: {},
+            readBoundary: {
+              deniedRoots: [],
+              allowedPaths: [
+                { path: input.cwd, kind: 'directory' },
+                { path: link, kind: 'file' },
+              ],
+            },
+          },
+        }),
+      } as never);
+      expect(checked.sandbox?.portable?.readBoundary?.allowedPaths).toEqual([
+        { path: input.cwd, kind: 'directory' },
+      ]);
+      expect(checked.sandbox?.allowRead).toEqual([input.cwd]);
+      expect(checked.sandbox?.allowWrite).toEqual([]);
+      expect(checked.sandbox?.portable?.allowWrite).toEqual([]);
+    });
+
     it('accepts a session inside the registered workspace', async () => {
       const limit = make();
       const result = (await limit.check('session.start', start({ permissionMode: 'auto' }) as never)) as {

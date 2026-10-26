@@ -386,16 +386,18 @@ describe('the session folder and the temporary directory of a Codex session (PM-
       expect(err.code).toBe('forbidden');
     });
 
-    it('gives no folder to a writing session without a safe temporary root', async () => {
-      await start({
-        mode: 'acceptEdits',
-        tmp: false,
-        adjust: (config) => {
-          const dev = config.team.members.find((m) => m.handle === 'dev-1');
-          if (dev?.kind === 'ai') dev.provider = 'nanogpt';
-        },
-      });
-      expect(h!.runner.lastStarted().policy!.filesystem.sessionFolder).toBeUndefined();
+    it('refuses a writing NanoGPT session without a safe temporary root', async () => {
+      await expect(
+        start({
+          mode: 'acceptEdits',
+          tmp: false,
+          adjust: (config) => {
+            const dev = config.team.members.find((m) => m.handle === 'dev-1');
+            if (dev?.kind === 'ai') dev.provider = 'nanogpt';
+          },
+        }),
+      ).rejects.toThrow(/requires private session and temporary directories/);
+      expect(h!.runner.started).toEqual([]);
     });
   });
 
@@ -442,9 +444,11 @@ describe('the session folder and the temporary directory of a Codex session (PM-
     });
   });
 
-  it('gives no folder when there is no safe temporary root: /tmp would stay open', async () => {
-    await start({ mode: 'acceptEdits', tmp: false });
-    expect(h!.runner.lastStarted().sandbox!.env).not.toHaveProperty('PROJECTMAN_SESSION_DIR');
+  it('refuses a writing Codex session without a safe temporary root', async () => {
+    await expect(start({ mode: 'acceptEdits', tmp: false })).rejects.toThrow(
+      /requires private session and temporary directories/,
+    );
+    expect(h!.runner.started).toEqual([]);
     expect(readdirSync(h!.sessionFoldersDir!)).toEqual([]);
   });
 
@@ -453,10 +457,10 @@ describe('the session folder and the temporary directory of a Codex session (PM-
     // Below the parent, and above it.
     for (const tmp of [join(parent, 'tmp', 'abcd'), base]) {
       await h?.cleanup();
-      await start({ mode: 'acceptEdits', tmp, heavyLockDir: join(parent, 'heavy') });
-      const { env } = h!.runner.lastStarted().sandbox!;
-      expect(env).not.toHaveProperty('PROJECTMAN_SESSION_DIR');
-      expect(h!.runner.lastStarted().sandbox!.portable?.tmpDir).toBeUndefined();
+      await expect(start({ mode: 'acceptEdits', tmp, heavyLockDir: join(parent, 'heavy') })).rejects.toThrow(
+        /requires private session and temporary directories/,
+      );
+      expect(h!.runner.started).toEqual([]);
       // The refusal is logged as an error, which the harness would fail on.
       expect(h!.log.errors).toHaveLength(1);
       expect(((h!.log.errors[0] as unknown[])[0] as { err: Error }).err.message).toContain('overlap');
@@ -467,12 +471,14 @@ describe('the session folder and the temporary directory of a Codex session (PM-
   it('sees the overlap through a link: a queue folder given by a link to the temporary root’s parent', async () => {
     // The sandboxes canonicalize paths: `<base>/link/heavy` is `<base>/heavy`, so `<base>` is written.
     symlinkSync(realpathSync(base), join(base, 'link'));
-    await start({
-      mode: 'acceptEdits',
-      tmp: join(realpathSync(base), 'projectman-501-tmp', 'abcd'),
-      heavyLockDir: join(base, 'link', 'heavy'),
-    });
-    expect(h!.runner.lastStarted().sandbox!.portable?.tmpDir).toBeUndefined();
+    await expect(
+      start({
+        mode: 'acceptEdits',
+        tmp: join(realpathSync(base), 'projectman-501-tmp', 'abcd'),
+        heavyLockDir: join(base, 'link', 'heavy'),
+      }),
+    ).rejects.toThrow(/requires private session and temporary directories/);
+    expect(h!.runner.started).toEqual([]);
     expect(h!.log.errors).toHaveLength(1);
     expect(((h!.log.errors[0] as unknown[])[0] as { err: Error }).err.message).toContain('overlap');
     expect(existsSync(join(realpathSync(base), 'projectman-501-tmp'))).toBe(false);

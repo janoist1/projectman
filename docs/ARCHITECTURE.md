@@ -3889,7 +3889,21 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   off only the npm registry.
   Codex has its own permission mapping in `runner/providers/codex/args.ts`: local sessions
   receive an inline `projectman` profile extending `:read-only`, with `sensitivePaths` and
-  the adapter's Codex home denied (PM-356). Writing sessions retain workspace protections
+  the adapter's Codex home denied (PM-356).
+  PM-360 adds the shared `SessionReadBoundary` schema and optional
+  `AgentSandbox.portable.readBoundary` to the strict `session.start` contract. For Codex/NanoGPT
+  task-worktree placements it is mandatory, including resume and plan/read-only mode.
+  `runtime/sessions/session-policy.ts` builds typed file/directory read exceptions from the
+  same list as Claude; user home, app home and the applicable shared temp roots are soft
+  denials, separate from the unconditional policy/runner/adapter denials. Local adapters
+  resolve lexical/physical paths before rendering; `engine-link/engine-limit.ts` adds its
+  own homes/temp roots, validates exceptions against local session/read roots, and adds
+  local sensitive paths. A writing start requires its private session and temp directories.
+  **Remote engine:** the engine's `paths()` supplies these paths; only the validated portable
+  contract crosses the boundary, never authentication files. Each OS/provider needs its own
+  native probe of the new reopenings (`docs/SANDBOX-PROBE.md`); prior PM-356 evidence does not
+  certify them. Approved host commands and the parent CLI remain outside this boundary.
+  Writing sessions retain workspace protections
   and the roots of `AgentSandbox.portable` (the member's npm cache and development data,
   the queue's parent, the session folder and
   the own tmp, PM-339). With an own tmp, no shared `/tmp` or CLI `$TMPDIR` write is inherited.

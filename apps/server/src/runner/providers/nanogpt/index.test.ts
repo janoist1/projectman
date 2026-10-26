@@ -1,9 +1,11 @@
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { homedir } from 'node:os';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildChildEnv } from '../../env';
 import { FAKE_CODEX, silentLogger, tempDirs } from '../../test-helpers';
 import { createNanogptAdapter } from './index';
+import type { StartSessionSpec } from '../../../contracts';
 
 describe('NanoGPT adapter', () => {
   const dirs = tempDirs();
@@ -42,6 +44,54 @@ describe('NanoGPT adapter', () => {
   it('takes the capabilities of Codex, except that an image in a tool result is not promised (PM-518)', async () => {
     const { adapter } = await harness();
     expect(adapter.capabilities).toMatchObject({ toolGate: 'permission_request', mcpImageResults: false });
+  });
+  it.each(['missing', 'invalid'] as const)(
+    'refuses a %s worktree boundary before using the key',
+    async (reason) => {
+      const h = await harness();
+      await expect(
+        h.adapter.launch({
+          ...h.input,
+          spec: {
+            ...h.input.spec,
+            policy: { access: 'task_worktree' },
+            sandbox:
+              reason === 'invalid'
+                ? { portable: { readBoundary: { deniedRoots: [], allowedPaths: [{}] } } }
+                : undefined,
+          } as unknown as StartSessionSpec,
+        }),
+      ).rejects.toMatchObject({
+        code: 'nanogpt_setup_incomplete',
+        details: { problem: 'read_boundary', reason },
+      });
+    },
+  );
+  it('rejects an unknown CLI below the soft home boundary before using the key', async () => {
+    const h = await harness();
+    const cwd = h.input.spec.cwd;
+    await expect(
+      h.adapter.launch({
+        ...h.input,
+        spec: {
+          ...h.input.spec,
+          policy: {
+            access: 'task_worktree',
+            placement: { kind: 'task_worktree', path: cwd },
+            permissions: { sandbox: 'read-only' },
+            filesystem: { readableRoots: [cwd] },
+          },
+          sandbox: {
+            portable: {
+              allowWrite: [],
+              env: {},
+              readBoundary: { deniedRoots: [homedir()], allowedPaths: [{ path: cwd, kind: 'directory' }] },
+            },
+          },
+        } as unknown as StartSessionSpec,
+        cliPath: path.join(homedir(), 'unknown-cli/bin/codex'),
+      }),
+    ).rejects.toMatchObject({ code: 'nanogpt_setup_incomplete', details: { problem: 'cli_location' } });
   });
   it('uses custom provider arguments and private home and hides keys from shells', async () => {
     const h = await harness();

@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { homedir } from 'node:os';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { StartSessionSpec } from '../../../contracts';
 import { silentLogger, tempDirs } from '../../test-helpers';
@@ -24,6 +25,66 @@ describe('Codex launch workspace check (PM-357)', () => {
   afterEach(async () => {
     vi.restoreAllMocks();
     await dirs.cleanup();
+  });
+  it.each(['missing', 'invalid'] as const)(
+    'refuses a %s worktree boundary before launching',
+    async (reason) => {
+      const adapter = createCodexAdapter({
+        bin: 'codex',
+        codexHome: await dirs.make(),
+        logger: silentLogger(),
+      });
+      await expect(
+        adapter.launch({
+          spec: {
+            cwd: await dirs.make(),
+            policy: { access: 'task_worktree' },
+            sandbox:
+              reason === 'invalid'
+                ? { portable: { readBoundary: { deniedRoots: [], allowedPaths: [{}] } } }
+                : undefined,
+          } as unknown as StartSessionSpec,
+          hookUrl: '',
+          sessionConfigDir: await dirs.make(),
+          permissionTimeoutMs: 1000,
+        }),
+      ).rejects.toMatchObject({
+        code: 'codex_setup_incomplete',
+        details: { problem: 'read_boundary', reason },
+      });
+    },
+  );
+  it('rejects an unknown CLI below the soft home boundary before workspace setup', async () => {
+    const cwd = await dirs.make();
+    const adapter = createCodexAdapter({
+      bin: 'codex',
+      codexHome: await dirs.make(),
+      logger: silentLogger(),
+    });
+    await expect(
+      adapter.launch({
+        spec: {
+          cwd,
+          policy: {
+            access: 'task_worktree',
+            placement: { kind: 'task_worktree', path: cwd },
+            permissions: { sandbox: 'read-only' },
+            filesystem: { readableRoots: [cwd] },
+          },
+          sandbox: {
+            portable: {
+              allowWrite: [],
+              env: {},
+              readBoundary: { deniedRoots: [homedir()], allowedPaths: [{ path: cwd, kind: 'directory' }] },
+            },
+          },
+        } as unknown as StartSessionSpec,
+        cliPath: path.join(homedir(), 'unknown-cli/bin/codex'),
+        hookUrl: '',
+        sessionConfigDir: await dirs.make(),
+        permissionTimeoutMs: 1000,
+      }),
+    ).rejects.toMatchObject({ code: 'codex_setup_incomplete', details: { problem: 'cli_location' } });
   });
   it.each([false, true])('rejects before building arguments, including resume=%s', async (resume) => {
     const cwd = await dirs.make();

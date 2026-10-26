@@ -26,7 +26,7 @@ import {
   placementReadsOnly,
   usesCodexCli,
 } from '@projectman/shared';
-import type { AgentProvider, RoleId, ProjectConfig, Task } from '@projectman/shared';
+import type { AgentProvider, RoleId, ProjectConfig, Task, SessionReadBoundary } from '@projectman/shared';
 import {
   BROWSERS_PATH_VARIABLE,
   MEMBER_SANDBOX_DIRS,
@@ -124,13 +124,15 @@ function portableOf(shared: {
   allowWrite: string[];
   env: Record<string, string>;
   tmpDir?: string;
+  readBoundary?: SessionReadBoundary;
 }): Pick<AgentSandbox, 'portable'> {
-  if (shared.allowWrite.length === 0 && !shared.tmpDir) return {};
+  if (shared.allowWrite.length === 0 && !shared.tmpDir && !shared.readBoundary) return {};
   return {
     portable: {
       allowWrite: [...shared.allowWrite],
       env: { ...shared.env },
       ...(shared.tmpDir ? { tmpDir: shared.tmpDir } : {}),
+      ...(shared.readBoundary ? { readBoundary: shared.readBoundary } : {}),
     },
   };
 }
@@ -338,22 +340,37 @@ function worktreeSandbox(policy: SessionPolicy, paths: SandboxPaths): AgentSandb
     ...(gitDir && defaultBranch ? sharedGitDenials(gitDir, defaultBranch) : []),
     ...sharedTmp.denyWrite,
   ];
-  const allowRead = [
-    ...sharedTmp.allowRead,
-    ...policy.filesystem.readableRoots,
-    ...(policy.filesystem.readOnlyPaths ?? []),
-    ...own.map((dir) => dir.path),
-    ...(gitConfig ? [gitConfig] : []),
-    ...(gitDir ? [gitDir] : []),
+  const directory = (path: string) => ({ path, kind: 'directory' as const });
+  const file = (path: string) => ({ path, kind: 'file' as const });
+  const candidates: SessionReadBoundary['allowedPaths'] = [
+    ...(tmpDir ? [directory(tmpDir)] : []),
+    ...policy.filesystem.readableRoots.map(directory),
+    directory(policy.placement.path),
+    ...(policy.filesystem.readOnlyPaths ?? []).map(directory),
+    ...own.map((dir) => directory(dir.path)),
+    ...(gitConfig ? [file(gitConfig)] : []),
+    ...(gitDir ? [directory(gitDir)] : []),
     // The instance's whole folder root: every member's folder is read, only its own is written (PM-333).
-    ...(sessionDir ? [path.dirname(sessionDir)] : []),
-    ...(browsersDir ? [browsersDir] : []),
-    ...SANDBOX_HOME_READS.map((name) => path.join(userHome, name)),
+    ...(sessionDir ? [directory(path.dirname(sessionDir))] : []),
+    ...(browsersDir ? [directory(browsersDir)] : []),
+    ...SANDBOX_HOME_READS.map((name) =>
+      name === '.gitconfig' ? file(path.join(userHome, name)) : directory(path.join(userHome, name)),
+    ),
     // Never the home or a directory above it, whatever the config says.
     ...(excludesFile && !isWithin(excludesFile, userHome) && !(appHome && isWithin(appHome, excludesFile))
-      ? [excludesFile]
+      ? [file(excludesFile)]
       : []),
-  ].filter((dir) => !isWithinAny(denied, dir));
+    ...heavy.allowWrite.map(directory),
+  ];
+  const readBoundary: SessionReadBoundary = {
+    deniedRoots: [...new Set([userHome, ...(appHome ? [appHome] : []), ...sharedTmp.denyRead])],
+    allowedPaths: [
+      ...new Map(
+        candidates.filter((entry) => !isWithinAny(denied, entry.path)).map((entry) => [entry.path, entry]),
+      ).values(),
+    ],
+  };
+  const allowRead = readBoundary.allowedPaths.map((entry) => entry.path);
   return {
     allowWrite: [
       ...writableOwn.map((dir) => dir.path),
@@ -362,14 +379,7 @@ function worktreeSandbox(policy: SessionPolicy, paths: SandboxPaths): AgentSandb
       ...sharedTmp.allowWrite,
     ],
     ...(denyWrite.length > 0 ? { denyWrite } : {}),
-    denyRead: [
-      ...new Set([
-        userHome,
-        ...(appHome && !isWithin(userHome, appHome) ? [appHome] : []),
-        ...denied,
-        ...sharedTmp.denyRead,
-      ]),
-    ],
+    denyRead: [...new Set([...readBoundary.deniedRoots, ...denied, ...sharedTmp.denyRead])],
     allowRead: [...new Set(allowRead)],
     env: {
       ...Object.fromEntries(own.map((dir) => [dir.variable, dir.path])),
@@ -382,14 +392,15 @@ function worktreeSandbox(policy: SessionPolicy, paths: SandboxPaths): AgentSandb
     deniedEnvVars: [...SANDBOX_DENIED_ENV_VARS],
     ...sandboxNetwork(policy),
     allowLocalBinding: true,
-    ...portableOf(
-      portableShared(heavy, {
+    ...portableOf({
+      ...portableShared(heavy, {
         memberDirs: writableOwn,
         sessionDir,
         browsersDir,
         tmpDir,
       }),
-    ),
+      readBoundary,
+    }),
   };
 }
 

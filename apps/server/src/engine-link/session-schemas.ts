@@ -1,5 +1,11 @@
 import { z } from 'zod';
-import { AgentEffort, AgentProvider, EngineId, LOCAL_PUBLISHING_OPERATIONS } from '@projectman/shared';
+import {
+  AgentEffort,
+  AgentProvider,
+  EngineId,
+  LOCAL_PUBLISHING_OPERATIONS,
+  SessionReadBoundary,
+} from '@projectman/shared';
 import type { AgentSandbox, SessionPolicy, StartSessionSpec } from '../contracts';
 
 const text = z.string();
@@ -76,7 +82,12 @@ const Sandbox: z.ZodType<AgentSandbox> = z.strictObject({
   env: z.record(text, text).optional(),
   excludedCommands: texts.optional(),
   portable: z
-    .strictObject({ allowWrite: texts, env: z.record(text, text), tmpDir: text.optional() })
+    .strictObject({
+      allowWrite: texts,
+      env: z.record(text, text),
+      tmpDir: text.optional(),
+      readBoundary: SessionReadBoundary.optional(),
+    })
     .optional(),
 });
 export type EngineStartSpec = Omit<StartSessionSpec, 'mcpUrl'> & { mcpToken: string };

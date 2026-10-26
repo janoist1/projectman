@@ -337,6 +337,45 @@ credential and no live data:
    (`kill -TERM <pid of node scripts/shots.mjs>`) the same holds and the exit code is 1.
 6. Record each line as `pass`, `fail` or `unverified` with the raw output in the task.
 
+## PM-360: worktree home read boundary
+
+This probe is **not yet certified**. Run only with separate owner authorization, outside a
+member session and automated tests, using disposable fictional files and an interactive
+subscription CLI. Repeat for **both Codex and NanoGPT**, for new and resumed processes;
+record each OS/architecture, CLI version/provenance, commit, exact arguments, rendered
+profile and sanitized results. PM-356's earlier result does not cover these home reopenings.
+
+Place the own checkout and another member's checkout below the fixture app home, itself
+below the fixture user home. Include another project, an unopened home file and a fictional
+PNG, plus direct and symlink paths to them. Reproduce the runtime's
+`portable.readBoundary`: deny both homes and applicable shared temp roots; reopen the own
+cwd/readable roots, own/parent attachments, own npm-cache/projectman-dev, the member's exact
+gitconfig file, the common git directory, installation session-output root, browsers,
+private tmp and the validated heavy-lock parent. Technical home exceptions are only the
+exact `.gitconfig` and existing regular `core.excludesfile`, and the `.config/git` and
+`.claude/shell-snapshots` directories. Keep sensitive denials unconditional. If necessary,
+reopen only the validated CLI `packages/standalone` ancestor, never its parent.
+
+Use the rendered inline `projectman` profile extending `:read-only`, with `:root = 'read'`.
+Do not add `--sandbox`, `sandbox_mode`, `sandbox_workspace_write`, `:workspace`, inherited
+temp writes, shell startup files or version-manager directories. Inspect the actual profile:
+cwd has explicit access, `.git`/`.codex`/`.agents` protections have absolute rules, and
+only the established shared-git or marked independent-clone grants reopen git writes.
+
+Check direct and symlink reads of the other checkout/project/unopened home file: all must
+be denied. The fictional forbidden image must also be denied by `view_image`. Positive
+controls must read own cwd, `.gitconfig`, attachments and a teammate screenshot; write own
+session/cache/tmp; run `git status`, `git add`, `git commit`, the existing narrow git
+operations, npm cache/npx, a targeted test, workspace typecheck and `npm run heavy -- true`.
+Verify that shared tmp and protected git configuration writes stay denied. Repeat plan/read-only
+mode: the read boundary remains and none of these newly writable directories is granted.
+
+Classify missing dependencies, a shell/Node installed under the home, absent fixtures or
+offline failures separately from denials. A needed new home exception is an architecture
+question; do not widen the list during the probe. Record the remaining approved-host-command,
+parent-CLI, network/local-port, readable shared-git-history and teammate-output risks.
+Apply this result only to restarted processes on the tested OS/provider.
+
 ## PM-356: restricted-read Codex permission profile
 
 **Native result recorded on PM-356, 2026-10-06.** The owner-authorized integrator ran

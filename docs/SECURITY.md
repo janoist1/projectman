@@ -770,7 +770,15 @@ are neither written nor read.
 local ports, so they also reach the live instance's port 4800, readers included; the owner decided
 that port stays reachable (PM-156). A reader's sandbox reaches the npm registry. A
 Codex member uses its own permission profile: it denies `sensitivePaths`
-and its Codex home, but reads other paths broadly (PM-356; the wider boundary is PM-360).
+and its Codex home (PM-356). PM-360 adds a reopenable user-home and app-home denial for
+Codex and NanoGPT `task_worktree` placements, including plan/read-only starts. Typed read
+exceptions come from the same runtime list as Claude's sandbox: own checkout/cache/tmp,
+attachments, shared git, installation session outputs and the narrow technical home files.
+The engine supplies its own mandatory roots and checks exceptions; local adapters also reject
+missing/invalid boundaries and denied required paths. Writing starts require private session
+and tmp directories. Reader placements retain broad reads until PM-425. This is a rendered
+policy guarantee; native enforcement of the new home reopenings still needs the separate
+PM-360 probe on each OS/provider before it is reported as verified.
 A developer's file tools have no such `Edit` deny rules outside its
 worktree (its own worktree is inside the app home, and a deny rule wins over an allow rule): there
 the CLI's own questions and Auto's classifier hold. The sandbox's denials were checked on the
@@ -879,8 +887,10 @@ Remaining risks: a Claude session without a safe tmp root (folders or tmp off, a
 the shared root and does not get it denied (fail-open: the CLI would otherwise fall back to a
 path it cannot use); a session that is already running gets the rule at its next start; a
 reader's file tools still read the user's home and the other PM-339 folders (PM-425); Codex on the
-PM-339 base still reads what its profile opens (PM-360); NanoGPT members (PM-365) and Gemini (no OS
-sandbox) are not covered by the sandbox rules.
+PM-339 base uses the PM-360 worktree read boundary for Codex and NanoGPT; Gemini (no OS
+sandbox) is not covered by that boundary. Approved host commands and the parent CLI remain
+outside the native command sandbox. Shared git history and installation session outputs
+remain readable; home-installed shell/Node dependencies may fail under the narrower profile.
 
 ## The feedback tool's public API (PM-506, PM-509)
 

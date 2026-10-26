@@ -10,7 +10,7 @@ import { DENY_DEFAULT, type HookPayload } from '../../hook-payload';
 import { parseCodexLoginStatus } from '../login';
 import { writeHookConfig } from '../../session-config';
 import type { ProviderAdapter, SessionTiming, TranscriptLineParser } from '../types';
-import { buildCodexArgs, codexCliReadRoot, codexDeniedPaths } from './args';
+import { buildCodexArgs, codexCliReadRoot, codexCliDenials, validateCodexReadBoundary } from './args';
 import { CodexPlanUsage } from './plan-usage';
 import { CodexTranscriptParser } from './transcript';
 import { assertCodexMemberWorkspace, inspectCodexMcpServers, type AmbientIssue } from '../../ambient-config';
@@ -20,7 +20,9 @@ export class CodexStartError extends Error {
   readonly code = 'codex_setup_incomplete';
   readonly details: Record<string, unknown>;
   constructor(details: {
-    problem: 'cli_missing' | 'cli_too_old' | 'sandbox_config' | 'mcp_config' | 'cli_location';
+    problem:
+      'cli_missing' | 'cli_too_old' | 'sandbox_config' | 'mcp_config' | 'cli_location' | 'read_boundary';
+    reason?: 'missing' | 'invalid' | 'required_path_denied';
     cliPath?: string;
     cliVersion?: string;
     minCliVersion?: string;
@@ -187,9 +189,11 @@ export function createCodexAdapter(opts: CodexAdapterOptions): ProviderAdapter {
     inputTools: CODEX_INPUT_TOOLS,
 
     async launch({ spec, hookUrl, permissionTimeoutMs, cliPath, sessionConfigDir }) {
+      const boundaryProblem = validateCodexReadBoundary({ spec, codexHome: opts.codexHome });
+      if (boundaryProblem) throw new CodexStartError({ problem: 'read_boundary', reason: boundaryProblem });
       if (
         cliPath &&
-        codexCliReadRoot(cliPath, codexDeniedPaths({ spec, codexHome: opts.codexHome })).kind === 'misplaced'
+        codexCliReadRoot(cliPath, codexCliDenials({ spec, codexHome: opts.codexHome })).kind === 'misplaced'
       )
         throw new CodexStartError({ problem: 'cli_location', cliPath });
       const realCwd = await realpath(spec.cwd).catch(() => spec.cwd);

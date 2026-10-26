@@ -17,7 +17,7 @@ import {
   coordinationMemberOf,
   questionPayloadOf,
   isIntegratorFixLimitDecision,
-  isIntegratorInboxItem,
+  operatorOwesInboxItem,
   memberOf,
   memberQueueSourceOf,
   messageRoute,
@@ -310,7 +310,7 @@ export class MemberQueue {
       { member: string; kind: 'todo' | 'fix_limit' | 'screening'; from: string | null }
     >();
     const operator = operatorOf(config);
-    if (item.state === 'open' && isIntegratorInboxItem(item) && operator)
+    if (operatorOwesInboxItem(item) && operator)
       wanted.set(operator.handle, {
         member: operator.handle,
         kind: isIntegratorFixLimitDecision(item) ? 'fix_limit' : 'todo',

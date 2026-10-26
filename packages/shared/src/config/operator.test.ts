@@ -24,6 +24,19 @@ import { actorMoveRefusal } from './project-manager';
 import { AiMemberConfig, ProjectConfig } from './schema';
 import { DEFAULT_NEW_MEMBER_APPROVER, DEFAULT_PERMISSION_MODE } from '../domain/member';
 import { cardMerger, mergerOf } from './merger';
+import { integratorSideAvailable } from '../domain/member-queue';
+
+it.each(['active', 'on_leave', 'ai_off', 'absent'] as const)(
+  'keeps integrator work on its side when the Operator is %s',
+  (state) => {
+    const c = config();
+    const operator = operatorOf(c)!;
+    if (state === 'on_leave') operator.onLeave = true;
+    if (state === 'ai_off') c.team.limits.aiEnabled = false;
+    if (state === 'absent') c.team.members = c.team.members.filter((member) => member !== operator);
+    expect(integratorSideAvailable(c)).toBe(state !== 'absent');
+  },
+);
 
 function config() {
   return ProjectConfig.parse({
@@ -324,7 +337,7 @@ describe('approval waiver eligibility (PM-691)', () => {
     ['GitHub identity', (n) => (ai(n, 'writer').githubLogin = 'different-author')],
     ['member instructions', (n) => (ai(n, 'writer').instructions = 'Use another workflow.')],
     ['temporary status', (n) => (ai(n, 'writer').temp = true)],
-    ['senior status', (n) => (ai(n, 'writer').senior = true)],
+    ['complexity limit', (n) => (ai(n, 'writer').complexityLimit = 13)],
     ['workspace', (n) => (n.project.workspacePath = '/elsewhere')],
     ['repository', (n) => (n.project.repos[0]!.path = 'other')],
     ['new repository', (n) => n.project.repos.push({ name: 'new', path: 'new', defaultBranch: 'main' })],
@@ -445,7 +458,7 @@ describe('approval waiver eligibility (PM-691)', () => {
     ['githubLogin', 'different-author'],
     ['instructions', 'Use another workflow.'],
     ['temp', true],
-    ['senior', true],
+    ['complexityLimit', 13],
   ])('requires a click when a presence change includes non-whitelisted %s', (field, value) => {
     const { previous, next, result } = hire({ [String(field)]: value });
     expect(result.waiverEligible).toBe(false);

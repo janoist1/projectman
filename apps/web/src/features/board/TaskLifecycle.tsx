@@ -183,6 +183,9 @@ export function TaskAssigneeSelect({
               disabled={member.onLeave === true && member.handle !== task.assignee}
             >
               {nameOf(member.handle, members, myHandle)}
+              {task.complexity && member.complexityLimit !== undefined
+                ? ` · ${t('team.limit', { limit: member.complexityLimit })}`
+                : ''}
               {leaveSuffix(member)}
               {hasConversation &&
               member.kind === 'ai' &&
@@ -193,6 +196,17 @@ export function TaskAssigneeSelect({
             </option>
           ))}
       </select>
+      {task.complexity &&
+      current?.complexityLimit !== undefined &&
+      current.complexityLimit < task.complexity.points ? (
+        <p role="status" className={`${drawer.propWide} ${styles.complexityWarning}`}>
+          {t('task.complexity.assigneeWarning', {
+            points: task.complexity.points,
+            limit: current.complexityLimit,
+            name: current.displayName,
+          })}
+        </p>
+      ) : null}
       {update.isError ? (
         <div className={drawer.propWide}>
           <p role="alert" className={drawer.error}>

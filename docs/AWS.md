@@ -1305,6 +1305,10 @@ cheap and can be removed by hand in the owner's account.
 does not reach the queue: SES bounces such a mail. Replies are short text, so this is accepted; a later card
 can switch the rule to an S3 action and read the mail from the bucket if it proves too small.
 
+**Mail to a member (PM-989).** The same rule receives the mail written to an AI member's own address
+(`<mailbox>@<replyDomain>`, no new DNS, rule or queue). The 150 kB limit above counts the attachments of
+such a mail too.
+
 **The reader.** `createSqsInboundSource` (`apps/server/src/services/email-channel/sqs-source.ts`) long-polls
 the queue (up to 10 messages, 20 s wait, 60 s visibility), hands a mail or a delivery event to the channel
 and deletes the message when it is handled, a duplicate, ignored or dropped. When handling throws, the message

@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { isOperatorActor, isSuperOperatorActor } from '../config/operator-member';
 import { isProjectManagerActor } from '../config/project-manager';
 import type { ProjectConfig } from '../config/schema';
-import { TaskDeveloperLevel } from './developer-level';
+import { TaskComplexity } from './complexity';
 import { EngineId } from './engine';
 import type { Actor } from './event';
 import { FullTestErrorReason, FullTestStatus } from './full-test';
@@ -282,8 +282,7 @@ export const Task = z.object({
   themeKey: TaskKey.nullable().optional(),
   /** One level of subtasks; omitted by older clients. */
   parentKey: TaskKey.nullable().optional(),
-  /** The developer the card is recommended for (PM-347); absent: no recommendation, which counts as `any`. */
-  developerLevel: TaskDeveloperLevel.optional(),
+  complexity: TaskComplexity.optional(),
   startWaiting: TaskStartWaiting.optional(),
   /** Computed on reads; never stored. */
   readyHold: TaskReadyHold.optional(),

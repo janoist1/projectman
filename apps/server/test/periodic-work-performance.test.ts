@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import os from 'node:os';
 import { performance } from 'node:perf_hooks';
 import Database from 'better-sqlite3';
-import { LOCAL_ENGINE_ID, MessageKind, TaskDeveloperLevel } from '@projectman/shared';
+import { LOCAL_ENGINE_ID, MessageKind, TaskComplexity } from '@projectman/shared';
 import type { ProjectConfig, Task, TeamMessage, TimelineEvent } from '@projectman/shared';
 import { describe, expect, it, vi } from 'vitest';
 import { migrate, migrations } from '../src/db';
@@ -308,10 +308,10 @@ function instrument() {
     if (counts) counts.decodedMessages++;
     return messageParse.apply(MessageKind, args);
   };
-  const taskParse = TaskDeveloperLevel.safeParse;
-  TaskDeveloperLevel.safeParse = (...args) => {
+  const taskParse = TaskComplexity.safeParse;
+  TaskComplexity.safeParse = (...args) => {
     if (counts) counts.decodedTasks++;
-    return taskParse.apply(TaskDeveloperLevel, args);
+    return taskParse.apply(TaskComplexity, args);
   };
   return {
     start() {
@@ -327,7 +327,7 @@ function instrument() {
       for (const [method, descriptor] of structuralDescriptors)
         Object.defineProperty(StructuralPatterns.prototype, method, descriptor);
       MessageKind.safeParse = messageParse;
-      TaskDeveloperLevel.safeParse = taskParse;
+      TaskComplexity.safeParse = taskParse;
     },
   };
 }

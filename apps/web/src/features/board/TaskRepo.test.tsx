@@ -227,8 +227,14 @@ describe('the repository of a task in the drawer', () => {
   });
 
   describe('starting a task that names none', () => {
+    const startableProject = (repos?: string[]) => {
+      const project = projectWith(repos);
+      // These cases exercise repository selection and need a free AI developer.
+      project.backend.sessions = project.backend.sessions.filter((session) => session.member !== 'be-1');
+      return project;
+    };
     it('refuses in a project with several repositories, and starts once one is picked', async () => {
-      const project = projectWith();
+      const project = startableProject();
       project.backend.updateTask('AC-24', { repo: null });
       project.render(drawer, '/p/AC/tasks/AC-24');
 
@@ -246,7 +252,7 @@ describe('the repository of a task in the drawer', () => {
     });
 
     it('starts in a project with one repository, which the task works in', async () => {
-      const project = projectWith(['shop']);
+      const project = startableProject(['shop']);
       project.backend.updateTask('AC-24', { repo: null });
       project.render(drawer, '/p/AC/tasks/AC-24');
 

@@ -111,7 +111,7 @@ export function memberQueueSourceOf(type: MemberQueueSource['type'], id: string)
   }
 }
 
-/** Why a todo or decision item went to the owner instead of being done by the Operator. */
+/** Why the Operator handed an item off: owner_reserved goes to the owner, every other reason to the super side. */
 export const OPERATOR_HANDOFF_REASONS = [
   'owner_reserved',
   'no_typed_operation',
@@ -133,7 +133,14 @@ export const OperatorQueueOutcome = z.object({
   operationIds: z.array(z.string().max(100)).max(20),
   /** True when any of its operations ran on the supervisor (an administration command): the UI's "(super)" mark. */
   machine: z.boolean(),
-  handoff: z.object({ reason: OperatorHandoffReason, inboxItemId: z.string() }).nullable(),
+  handoff: z
+    .object({
+      reason: OperatorHandoffReason,
+      inboxItemId: z.string(),
+      /** Missing on old rows: the owner. */
+      to: z.enum(['owner', 'super']).optional(),
+    })
+    .nullable(),
 });
 export type OperatorQueueOutcome = z.infer<typeof OperatorQueueOutcome>;
 
@@ -242,11 +249,19 @@ export function memberQueueStartLimits(
 
 /**
  * The Operator processes its queue: one exists (`operatorOf`), not on leave, and the team's AI is enabled
- * (PM-885). Otherwise todos and fix-limit decisions stay the owner's (`integrator_unavailable`).
+ * (PM-885).
  */
 export function operatorQueueAvailable(config: Pick<ProjectConfig, 'team'>): boolean {
   const operator = operatorOf(config);
   return !!operator && !isOnLeave(operator) && config.team.limits.aiEnabled;
+}
+
+/**
+ * Integrator items stay with the Operator's side while the project has an Operator (PM-1003): on leave
+ * or with AI off they wait for it or the super side; only without one do they go to the owners.
+ */
+export function integratorSideAvailable(config: Pick<ProjectConfig, 'team'>): boolean {
+  return !!operatorOf(config);
 }
 
 /**

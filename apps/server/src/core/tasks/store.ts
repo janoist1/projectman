@@ -295,7 +295,9 @@ export class TaskStore {
   write(task: Task, patch: TaskPatch): Task {
     this.ctx.repos.tasks.update(task.id, patch);
     const written = Object.entries(patch).filter(([, value]) => value !== undefined);
-    return { ...task, ...Object.fromEntries(written) };
+    const next = { ...task, ...Object.fromEntries(written) };
+    if (patch.complexity === null) delete next.complexity;
+    return next;
   }
 
   publish(task: Task): void {

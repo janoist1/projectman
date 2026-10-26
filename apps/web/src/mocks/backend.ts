@@ -1,10 +1,11 @@
-import type { ProviderLoginStatus, ServerVersionView } from '@projectman/shared';
+import type { MemberContextPreview, ProviderLoginStatus, ServerVersionView } from '@projectman/shared';
 import {
   checklistConditionHolds,
   checklistProgress,
   SetChecklistItemStateRequest,
   type ProjectChecklist,
   applyMemberEmailChange,
+  emailMailboxTaken,
   CreateOperatorGrantRequest,
   superAccessVerdict,
   superDecisionRefusal,
@@ -14,7 +15,7 @@ import {
   humanInboxAssignment,
   isIntegratorTodo,
   planIntegratorInboxEscalation,
-  operatorQueueAvailable,
+  integratorSideAvailable,
   ownerHandles,
   superActorOf,
   ownerReservedEffect,
@@ -217,12 +218,17 @@ import {
   fixLimitPlannerForOwner,
   fixLimitReached,
   maxFixRoundsOf,
-  developerLevelOf,
-  isSenior,
-  pickDeveloper,
+  complexityOf,
+  complexityLimitOf,
+  isDeveloper,
+  canSetComplexity,
+  isComplexityPoints,
+  chooseDeveloper,
+  humanStageOwner,
+  reachingDevelopers,
+  stageDevelopers,
   seniorWaitDecisionOf,
   seniorWaitMinutesOf,
-  seniorsOf,
   SENIOR_WAIT_OPTIONS,
   SENIOR_WAIT_OPTION_ANY,
   SENIOR_WAIT_OPTION_WAIT,
@@ -744,7 +750,12 @@ export class MockBackend {
       .filter((session) => session.member === member.handle)
       .flatMap((session) => taskWorkOf(session) ?? [])
       .filter((work) => open.has(work.taskKey));
-    return { ...clone(member), taskWork };
+    const config = memberOf(this.config, member.handle);
+    const result = { ...clone(member), taskWork };
+    if (config?.kind === 'ai' && isDeveloper(this.config, config))
+      result.complexityLimit = complexityLimitOf(config);
+    else delete result.complexityLimit;
+    return result;
   }
 
   /** The viewer as the shared task rules know them. */
@@ -876,6 +887,39 @@ export class MockBackend {
     if ('stageId' in patch || 'labels' in patch || 'assignee' in patch || 'repo' in patch)
       this.reconcileMerge(task);
     return task;
+  }
+
+  setTaskComplexity(taskKey: string, value: { points: number | null; reason?: string | null }): MockResponse {
+    const task = this.findTask(taskKey);
+    if (!task) return error(404, 'not_found', 'Unknown task');
+    if (!canSetComplexity(this.config, this.viewerHandle))
+      return error(403, 'complexity_forbidden', 'Cannot set complexity');
+    if (isTheme(task)) return error(400, 'task_is_theme', 'A theme has no complexity');
+    if (!isOpenTask(task)) return error(409, 'task_closed', 'The task is closed');
+    if (value.points !== null && !isComplexityPoints(value.points))
+      return error(422, 'complexity_points_invalid', 'Invalid points');
+    const previous = task.complexity ?? null;
+    const complexity = isComplexityPoints(value.points)
+      ? {
+          points: value.points,
+          reason: value.reason?.trim() || null,
+          setBy: this.viewerHandle,
+          setAt: nowIso(),
+        }
+      : null;
+    if (
+      (previous?.points ?? null) === value.points &&
+      (previous?.reason ?? null) === (complexity?.reason ?? null)
+    )
+      return ok(this.taskDetail(task));
+    this.updateTask(taskKey, { complexity: complexity ?? undefined });
+    this.addTimeline(taskKey, this.viewerHandle, 'task_complexity_changed', {
+      points: complexity?.points ?? null,
+      reason: complexity?.reason ?? null,
+      previous: previous ? { points: previous.points, reason: previous.reason } : null,
+    });
+    this.settleSeniorWaits();
+    return ok(this.taskDetail(task));
   }
 
   addTimeline(
@@ -1805,7 +1849,7 @@ export class MockBackend {
 
   sweepIntegratorTodos(now: string): void {
     // Like the server: the Operator's items go to the owners only when it does not work its queue (no clock).
-    if (operatorQueueAvailable(this.config)) return;
+    if (integratorSideAvailable(this.config)) return;
     for (const item of this.inbox) {
       const patch = planIntegratorInboxEscalation(
         item,
@@ -2805,12 +2849,50 @@ export class MockBackend {
         unreadCount: this.messages.filter((message) => isUnreadBy(message, this.viewerHandle)).length,
       });
     }
-    if ((m = /^\/members\/([a-z0-9-]+)\/(profile|memories|conversation|remove)$/.exec(rest))) {
+    if ((m = /^\/members\/([a-z0-9-]+)\/(profile|memories|conversation|remove|context)$/.exec(rest))) {
       const handle = m[1]!;
+      if (m[2] === 'context' && (this.viewerAccess() !== 'owner' || this.integratorMode))
+        return error(403, 'insufficient_access', 'Owner login required');
       const member = this.findMember(handle);
       const original = memberOf(this.config, handle);
       if (!member || !original || member.status === 'retired')
         return error(404, 'not_found', 'Unknown member');
+      if (m[2] === 'context' && method === 'GET') {
+        if (original.kind !== 'ai') return error(400, 'not_ai_member', 'Only AI members have context');
+        const taskKey = query.get('task');
+        const task = taskKey === null ? undefined : this.tasks.find((entry) => entry.key === taskKey);
+        if (taskKey !== null && !task) return error(404, 'task_not_found', 'Unknown task');
+        if (task && isTheme(task)) return error(400, 'task_is_theme', 'A theme has no work context');
+        // Fixed UI sample: prompt construction and tool visibility are tested at the server boundary.
+        const text = 'You are an AI member of the team.\nWork with the current project rules.';
+        const initial = task ? `Work on ${task.key}: ${task.title}` : 'Help the owner with the project.';
+        const preview: MemberContextPreview = {
+          generatedAt: new Date().toISOString(),
+          member: {
+            handle,
+            role: original.role,
+            duties: memberDuties(this.config, original),
+            onLeave: original.onLeave ?? false,
+          },
+          situation: task ? { kind: 'task', taskKey: task.key, stageId: task.stageId } : { kind: 'general' },
+          prompt: {
+            text,
+            chars: [...text].length,
+            sections: [{ id: 'identity', title: 'Who you are', text, chars: [...text].length }],
+          },
+          initialMessage: { text: initial, chars: [...initial].length },
+          guides: [{ topic: 'rules', title: 'Team rules', text: 'Follow the task gates.', chars: 22 }],
+          tools: [
+            {
+              name: 'get_task',
+              title: 'Read a task',
+              description: 'Read the current task and its timeline.',
+            },
+            { name: 'get_guide', title: 'Read a guide', description: 'Read the guide for a topic.' },
+          ],
+        };
+        return ok(preview);
+      }
       if (m[2] === 'conversation' && method === 'POST') return this.startConversation(handle);
       if (m[2] === 'memories' && method === 'GET') {
         if (member.kind !== 'ai') return error(400, 'not_ai_member', 'Only AI members have memory');
@@ -3423,9 +3505,12 @@ export class MockBackend {
     const member = this.findMember(handle);
     const config = memberOf(this.config, handle);
     if (!member || !config) return error(404, 'not_found', 'Unknown member');
-    // Like the server: only an AI member that is no stand-in can be the Senior (PM-347).
-    if (input.senior !== undefined && (config.kind === 'human' || config.temp))
-      return error(400, 'senior_not_allowed', 'Only a permanent AI member can be the Senior');
+    // The shared rule restricts configurable limits to permanent AI developers.
+    if (
+      input.complexityLimit !== undefined &&
+      (config.kind !== 'ai' || config.temp || !isDeveloper(this.config, config))
+    )
+      return error(422, 'complexity_limit_not_developer', 'Only a permanent developer can have a limit');
     if (input.roles !== undefined) {
       if (config.kind !== 'human') return error(400, 'not_human_member', 'Not a human member');
       for (const role of input.roles) {
@@ -3457,11 +3542,19 @@ export class MockBackend {
     }
     const next = clone(this.config);
     const nextMember = memberOf(next, handle)!;
+    // The same rule as the server: a mailbox name is unique across the projects of the server.
+    const mailbox = input.email?.mailbox;
+    if (
+      mailbox !== undefined &&
+      emailMailboxTaken([next, ...this.email.otherProjects], next.project.key, handle, mailbox)
+    )
+      return error(409, 'email_mailbox_taken', 'The mailbox name is taken', { mailbox });
     if (nextMember.kind === 'ai') {
       if (input.permissionMode !== undefined) nextMember.permissionMode = input.permissionMode;
       if (input.approver !== undefined) nextMember.approver = input.approver;
       if (input.outboundNetwork !== undefined) nextMember.outboundNetwork = input.outboundNetwork;
-      if (input.email !== undefined) nextMember.email = applyMemberEmailChange(nextMember.email, input.email);
+      if (input.email !== undefined)
+        nextMember.email = applyMemberEmailChange(nextMember.email, input.email, handle);
     }
     if (input.access !== undefined && nextMember.kind !== 'human')
       return error(400, 'not_human_member', 'Access is for humans');
@@ -3502,20 +3595,19 @@ export class MockBackend {
           delete config.cheapSubagent;
         } else member.cheapSubagent = config.cheapSubagent = input.cheapSubagent;
       }
-      if (input.senior !== undefined) {
-        if (input.senior) member.senior = config.senior = true;
-        else {
-          delete member.senior;
-          delete config.senior;
-        }
+      if (input.complexityLimit !== undefined) {
+        if (input.complexityLimit === null) delete config.complexityLimit;
+        else config.complexityLimit = input.complexityLimit;
       }
+      if (isDeveloper(this.config, config)) member.complexityLimit = complexityLimitOf(config);
+      else delete member.complexityLimit;
       if (input.schedule !== undefined) config.schedule = input.schedule ?? undefined;
       if (input.instructions !== undefined) config.instructions = input.instructions.trim();
       if (input.permissionMode !== undefined) config.permissionMode = input.permissionMode;
       if (input.approver !== undefined) config.approver = input.approver;
       if (input.outboundNetwork !== undefined) config.outboundNetwork = input.outboundNetwork;
       if (input.email !== undefined) {
-        config.email = applyMemberEmailChange(config.email, input.email);
+        config.email = applyMemberEmailChange(config.email, input.email, handle);
         member.email = {
           enabled: config.email.enabled,
           sendWithoutApproval: config.email.sendWithoutApproval ?? false,
@@ -4996,6 +5088,13 @@ export class MockBackend {
   private createTask(body: unknown): MockResponse {
     const input = parseBody(CreateTaskRequest, body);
     if (!input) return error(400, 'invalid_request', 'Invalid task');
+    if (input.complexity !== undefined) {
+      if (!canSetComplexity(this.config, this.viewerHandle))
+        return error(403, 'complexity_forbidden', 'Cannot set complexity');
+      if (input.kind === 'theme') return error(400, 'task_is_theme', 'A theme has no complexity');
+      if (input.complexity.points !== null && !isComplexityPoints(input.complexity.points))
+        return error(422, 'complexity_points_invalid', 'Invalid points');
+    }
     if (this.integratorMode && input.importedAt !== undefined)
       return error(403, 'owner_approval_required', 'Historical human attribution requires an own login');
     const actor = this.viewerActor();
@@ -5025,6 +5124,16 @@ export class MockBackend {
     }
     const at = input.importedAt ?? nowIso();
     const task: Task = {
+      ...(input.complexity && isComplexityPoints(input.complexity.points)
+        ? {
+            complexity: {
+              points: input.complexity.points,
+              reason: input.complexity.reason?.trim() || null,
+              setBy: this.viewerHandle,
+              setAt: nowIso(),
+            },
+          }
+        : {}),
       ...(kind === 'theme' ? { kind } : {}),
       ...(input.themeKey ? { themeKey: input.themeKey } : {}),
       parentKey: input.parentKey ?? null,
@@ -5070,6 +5179,12 @@ export class MockBackend {
     this.lastTaskSeq += 1;
     task.key = nextKey;
     this.tasks.push(task);
+    if (task.complexity)
+      this.addTimeline(task.key, this.viewerHandle, 'task_complexity_changed', {
+        points: task.complexity.points,
+        reason: task.complexity.reason,
+        previous: null,
+      });
     // A new card goes to the top of its column (no rank for a theme, nor in a column of finished work).
     if (!isTheme(task)) this.enterColumn(task);
     this.emit({ type: 'task_upserted', projectKey: task.projectKey, task: clone(task) });
@@ -5146,13 +5261,20 @@ export class MockBackend {
     );
     let assignee: string | null = input.assignee ?? null;
     if (!assignee && workStage) {
-      // The automatic choice is the shared rule (PM-348): a Senior card goes to a free Senior or waits for one.
+      // The shared choice respects limits, load and the recorded override decision.
       const pick = this.pickAutomatic(task, workStage, developers);
       if (pick.kind === 'senior_busy') return this.waitForSenior(task, workStage, pick.seniors);
       if (pick.kind === 'member') assignee = pick.handle;
+      if (pick.kind === 'none') assignee = humanStageOwner(this.config, eligible)?.handle ?? null;
+      if (
+        task.complexity &&
+        reachingDevelopers(stageDevelopers(this.config, workStage), complexityOf(task)).length === 0
+      )
+        this.addTimeline(task.key, null, 'task_senior_wait', {
+          phase: 'no_senior',
+          points: task.complexity.points,
+        });
     }
-    assignee ??=
-      [...developers].sort((a, b) => a.currentTaskKeys.length - b.currentTaskKeys.length)[0]?.handle ?? null;
     if (!assignee) return error(409, 'no_free_member', 'No developer available');
     if (!eligible.includes(assignee))
       return error(400, 'not_stage_owner', 'Assignee must own the work stage');
@@ -5198,7 +5320,7 @@ export class MockBackend {
         ? [
             {
               handle: member.handle,
-              senior: isSenior(member),
+              limit: complexityLimitOf(member),
               temp: !!member.temp,
               load: this.memberLoad(member.handle),
               index,
@@ -5206,12 +5328,10 @@ export class MockBackend {
           ]
         : [],
     );
-    return pickDeveloper({
-      level: developerLevelOf(task),
+    return chooseDeveloper({
+      points: complexityOf(task),
       anyDecided: this.seniorWaits.get(task.key)?.decision?.decision === 'any',
-      seniors: seniorsOf(this.config, workStage)
-        .map((member) => member.handle)
-        .filter((handle) => stageOwners(this.config, workStage).includes(handle)),
+      reaching: reachingDevelopers(stageDevelopers(this.config, workStage), complexityOf(task)),
       free,
     });
   }
@@ -5265,7 +5385,8 @@ export class MockBackend {
           since: wait.since,
           minutes,
           seniors,
-          reason: task.developerLevel?.reason ?? null,
+          reason: task.complexity?.reason ?? null,
+          ...(task.complexity ? { points: task.complexity.points } : {}),
         },
       },
       options: clone(SENIOR_WAIT_OPTIONS),
@@ -5313,15 +5434,20 @@ export class MockBackend {
       const stage = task ? stageOf(this.config, task.stageId) : undefined;
       let ended: 'senior' | 'ended' | null = null;
       if (!task || !isOpenTask(task) || stage?.kind !== 'work') ended = 'ended';
-      else if (task.assignee) ended = isSenior(memberOf(this.config, task.assignee)) ? 'senior' : 'ended';
-      else if (developerLevelOf(task) !== 'senior') ended = 'ended';
-      else if (seniorsOf(this.config, stage).length === 0) ended = 'ended';
+      else if (task.assignee) {
+        const member = memberOf(this.config, task.assignee);
+        ended =
+          member?.kind === 'ai' && task.complexity && complexityLimitOf(member) >= task.complexity.points
+            ? 'senior'
+            : 'ended';
+      } else if (!task.complexity) ended = 'ended';
+      else if (reachingDevelopers(stageDevelopers(this.config, stage), complexityOf(task)).length === 0)
+        ended = 'ended';
       if (ended) {
+        const wasWaiting = task?.startWaiting?.reason === 'senior_busy';
         this.endSeniorWait(taskKey, wait, ended === 'senior');
-        // A card that lost its Senior wait goes to any developer; the start tries again.
-        if (task && !task.assignee && task.startWaiting?.reason === 'senior_busy' && stage?.kind === 'work') {
-          if (seniorsOf(this.config, stage).length === 0)
-            this.addTimeline(taskKey, null, 'task_senior_wait', { phase: 'no_senior' });
+        // Retry the shared selection after the reason for this wait disappears.
+        if (task && !task.assignee && wasWaiting && stage?.kind === 'work') {
           this.startDeveloper(task, {});
         }
         continue;

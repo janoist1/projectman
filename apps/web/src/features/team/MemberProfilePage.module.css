@@ -5,6 +5,9 @@
   max-width: 1200px;
   margin: auto;
 }
+.contextHint {
+  color: var(--c-ink-3);
+}
 .involvement {
   margin: 4px 0;
   color: var(--c-ink-3);

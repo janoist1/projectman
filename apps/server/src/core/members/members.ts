@@ -15,7 +15,9 @@ import {
   isOperator,
   isRequiredOperator,
   isRequiredProjectManager,
-  isSenior,
+  isDeveloper,
+  isComplexityPoints,
+  complexityLimitOf,
   MemberHandle,
   memberDuties,
   memberOf,
@@ -48,7 +50,7 @@ import type {
 import { aiMemberDefaults } from '@projectman/templates';
 import type { MemberCapacity, MemberProfileSessions } from './ports';
 import { findHumanByEmail, requireAiMember, requireHuman } from './access';
-import { applyMemberEmailChange, ownerHandles } from '@projectman/shared';
+import { applyMemberEmailChange, emailMailboxTaken, ownerHandles } from '@projectman/shared';
 import type { ProjectAccess } from './access';
 import { isoNow } from '../base';
 import type { DomainContext } from '../base';
@@ -162,7 +164,6 @@ export class MemberService {
           currentTaskKeys,
           sponsor: null,
           temp: false,
-          senior: false,
         };
       }
       const state = states.get(m.handle);
@@ -211,7 +212,7 @@ export class MemberService {
         ...(m.cheapSubagent ? { cheapSubagent: m.cheapSubagent } : {}),
         ...permissionView(config, m),
         ...(m.onLeave ? { onLeave: true } : {}),
-        senior: isSenior(m),
+        ...(isDeveloper(config, m) ? { complexityLimit: complexityLimitOf(m) } : {}),
       };
     });
   }
@@ -377,6 +378,16 @@ export class MemberService {
     return view;
   }
 
+  /** 409 `email_mailbox_taken` when another AI member, in this or any other project, has this mailbox name (PM-989). */
+  private assertMailboxFree(draft: ProjectConfig, handle: string, mailbox: string): void {
+    const others = this.projects
+      .summaries()
+      .filter((project) => project.key !== draft.project.key)
+      .flatMap((project) => this.projects.cachedConfig(project.key) ?? []);
+    if (emailMailboxTaken([draft, ...others], draft.project.key, handle, mailbox))
+      throw conflict('email_mailbox_taken', `the mailbox name ${mailbox} is taken`, { mailbox });
+  }
+
   /** Mutates only the in-memory draft; shared by execution and Operator previews. */
   prepareUpdate(
     draft: ProjectConfig,
@@ -386,14 +397,6 @@ export class MemberService {
     const member = memberOf(draft, handle);
     if (!member) throw notFound('member', handle);
     const fields: string[] = [];
-    // Only an AI member that is no stand-in can be the Senior (PM-347).
-    if (req.senior !== undefined && (member.kind === 'human' || member.temp))
-      throw invalid(
-        'senior_not_allowed',
-        member.kind === 'human'
-          ? 'a person cannot be the Senior: only an AI member can'
-          : 'a temp worker cannot be the Senior',
-      );
     if (member.kind === 'human') {
       if (req.access !== undefined) {
         member.access = req.access;
@@ -505,7 +508,8 @@ export class MemberService {
         fields.push('outbound network');
       }
       if (req.email !== undefined) {
-        member.email = applyMemberEmailChange(member.email, req.email);
+        if (req.email.mailbox !== undefined) this.assertMailboxFree(draft, handle, req.email.mailbox);
+        member.email = applyMemberEmailChange(member.email, req.email, handle);
         fields.push('email');
       }
       if (req.onLeave !== undefined) {
@@ -513,11 +517,18 @@ export class MemberService {
         else delete member.onLeave;
         fields.push(req.onLeave ? 'sent on leave' : 'called back from leave');
       }
-      if (req.senior !== undefined) {
-        if (req.senior) member.senior = true;
-        else delete member.senior;
-        fields.push(req.senior ? 'marked as the Senior' : 'no longer the Senior');
-      }
+    }
+    if (req.complexityLimit !== undefined) {
+      if (member.kind !== 'ai' || member.temp || !isDeveloper(draft, member))
+        throw invalid(
+          'complexity_limit_not_developer',
+          'only permanent AI developers have a configurable complexity limit',
+        );
+      if (req.complexityLimit !== null && !isComplexityPoints(req.complexityLimit))
+        throw invalid('complexity_points_invalid', 'complexity limit must be 1, 2, 3, 5, 8 or 13');
+      if (req.complexityLimit === null) delete member.complexityLimit;
+      else member.complexityLimit = req.complexityLimit;
+      fields.push('complexity limit');
     }
     if (req.displayName !== undefined) {
       member.displayName = req.displayName;

@@ -94,6 +94,17 @@ export function describeEvent(
       const verb = event.type === 'task_relation_added' ? 'added' : 'removed';
       return `${verb} the relation: this card ${relationPhrase(text('kind') ?? '')} ${text('ref') ?? '?'}`;
     }
+    case 'task_complexity_changed': {
+      const reason = text('reason');
+      const previous = data.previous;
+      const before =
+        previous && typeof previous === 'object' && 'points' in previous
+          ? ` (was ${oneLine(String(previous.points), textLimit)} points)`
+          : '';
+      return data.points === null
+        ? `removed complexity${before}`
+        : `set complexity to ${text('points') ?? '?'} points${reason ? ` — ${reason}` : ''}${before}`;
+    }
     case 'task_level_changed': {
       const reason = text('reason');
       const previous = data.previous;

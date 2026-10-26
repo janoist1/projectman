@@ -84,7 +84,7 @@ export const DUTIES: Record<DutyId, DutyDefinition> = {
     group: 'direction',
     holders: 'both',
     prompt:
-      'Split work into independently testable tasks with create_task and record dependencies. Set the recommended developer of every developer card you plan or create with update_task or create_task: developer_level senior, with developer_level_reason, for the runner, the sandbox, security, delicate concurrency and debugging; any for UI and well-bounded parts with an exact contract.',
+      'Split work into independently testable tasks with create_task and record dependencies. Give a developer card complexity points (1, 2, 3, 5, 8, 13) with complexity_reason when that helps or the team agreed on it; a card that would be above 13 must be split.',
     toolPolicy: 'read_only',
     meetings: [],
     events: [],

@@ -11,6 +11,7 @@ import {
   formatTimestamp,
   linkTarget,
   oneLine,
+  operatorQueueText,
   recentTimeline,
   truncate,
   type TextStyle,
@@ -44,6 +45,39 @@ function event(
 }
 
 describe('free text', () => {
+  it('includes queue handoff routing and the item id in the Operator frame', () => {
+    const text = operatorQueueText({
+      itemId: 'mqi_test',
+      kind: 'todo',
+      from: null,
+      taskKey: null,
+      title: 'Measure',
+      body: 'Measure the hub',
+      options: [],
+      reminded: true,
+    });
+    for (const required of ['mqi_test', 'finish_queue_item', 'owner_reserved', 'no_grant', 'super side'])
+      expect(text).toContain(required);
+  });
+  it('shows the question of an answerable todo and the answered outcome, and only then', () => {
+    const frame = {
+      itemId: 'mqi_test',
+      kind: 'todo' as const,
+      from: 'dev',
+      taskKey: null,
+      title: 'Rerun',
+      body: 'What: rerun',
+      options: [],
+      reminded: false,
+    };
+    const asked = operatorQueueText({
+      ...frame,
+      question: { asker: 'dev', text: 'May I rerun the flaky test?', options: ['Yes'], recommended: 'Yes' },
+    });
+    expect(asked).toContain('May I rerun the flaky test?');
+    expect(asked).toContain('"answered"');
+    expect(operatorQueueText(frame)).not.toContain('answered');
+  });
   it('names permission deciders in the brief worker line', () => {
     expect(
       cardWorkerLines([
@@ -104,6 +138,13 @@ describe('links', () => {
 });
 
 describe('describeEvent', () => {
+  it.each([
+    [{ points: 5, reason: 'two modules', previous: null }, ['5', 'two modules']],
+    [{ points: null, reason: null, previous: { points: 8, reason: null } }, ['removed', '8']],
+  ])('describes a complexity change: %j', (data, required) => {
+    const text = describeEvent(event('task_complexity_changed', data), 280);
+    for (const part of required) expect(text).toContain(part);
+  });
   it('describes priority changes by name, including clearing, and keeps legacy updates readable', () => {
     expect(
       describeEvent(

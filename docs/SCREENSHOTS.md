@@ -238,21 +238,28 @@ Inspect the two picker images before attaching them: Chromium may omit an operat
 popup from a page screenshot. If the options are missing, capture the open native picker manually
 at the same widths; keep the real select rather than replacing it with a simulated menu.
 
-### PM-349: the recommended developer (Senior)
+### PM-349 / PM-1008: complexity points and developer limits
 
-Run `npm run shots -- scripts/scenarios/senior-developer.mjs --timeout 600 --widths 1512,390`. The
-scenario makes one AI developer the Senior, keeps them busy on a card, recommends the Senior for two more
-cards and sets the wait limit to 5 minutes (the smallest the settings allow). The last scene waits for the
-server's question to the owners (a one-minute sweep after the limit), so the run takes about 7 minutes.
+Run `npm run shots -- scripts/scenarios/complexity-points.mjs --timeout 600 --widths 1512,390`.
+The scenario replaces the old Senior scenario with PM-1001's a–k review list. It uses real API data,
+with browser-only fixtures for a refused save, a temp member view and a historical recommendation event.
+The last scene waits for the real five-minute timeout and the server's minute sweep.
 
-| Images                                | What to inspect                                                                            |
-| ------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `a-board-mark`                        | The Senior chip on the Senior card only; none on cards without a recommendation.           |
-| `b-who-takes`, `b-confirm`            | "Ki vigye?" names the Senior and why; the confirm dialog for a developer who is no Senior. |
-| `c-level-row`, `c-level-editor`       | The "Ajánlott" row with the reason, and its inline editor.                                 |
-| `d-waiting-drawer`, `d-waiting-board` | A card started while the Senior is busy: "A Seniorra vár", no assignee, the hint text.     |
-| `e-team`, `e-member-form`, `e-limits` | The Senior chip, the "Senior fejlesztő" checkbox and the "Senior-várakozás (perc)" field.  |
-| `f-inbox-question`                    | The question after the wait limit, with its two answers and what each does.                |
+| Images                                  | What to inspect                                                                                                                               |
+| --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `a-board`, `a-compact-board`            | Scored and unscored cards, including compact cards behind the drawer.                                                                         |
+| `b-architect`, `b-developer`            | Editable and read-only complexity rows.                                                                                                       |
+| `c-editor-13`, `c-editor-error`         | Seven accessible choices, optional reason, retained error state.                                                                              |
+| `d-none-reach`, `d-none-reach-editor`   | Fallback explanation and Team link.                                                                                                           |
+| `e-start`, `e-confirm`                  | Start threshold, developer limits and manual override warning.                                                                                |
+| `f-assignment`                          | Nonblocking status warning below the assignee select.                                                                                         |
+| `g-team`, `g-team-lower`, `g-team-full` | Limits 13, 5, 3 and a temp developer. The full-page image expands the scroll container and hides the fixed phone tab bar to reveal every row. |
+| `h-developer`, `h-temp`, `h-qa`         | Editable limit, fixed temp limit, no field for QA.                                                                                            |
+| `i-inbox`                               | The real wait question with points, reason and both choices.                                                                                  |
+| `j-limits`                              | Suitable-developer timeout setting and explanation.                                                                                           |
+| `k-timeline`                            | New point changes alongside a historical recommendation event.                                                                                |
+
+Also run `scripts/scenarios/why-waiting.mjs` at 1512 and 390 px for the precise waiting explanation.
 
 ### Widths
 

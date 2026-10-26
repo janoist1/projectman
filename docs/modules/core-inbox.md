@@ -76,10 +76,12 @@ Question addressing is durable payload data (`requestedRecipient`, `recipient`,
 New `screen_question.todo` input requires a recipient; decisions, fallback and unscreened reasks
 always remain owner work. Shared rules select the recipient, protect approvals even with malformed
 raw payload fields, restrict human visibility to owners, exclude integrator work from human counts
-and plan the handoff to the owners (no clock: on a pass-on or an unavailable Operator). Assignees remain real human handles.
+and plan the handoff to the owners (no clock: on an explicit owner pass-on or without an Operator).
+Assignees remain real human handles.
 
-`IntegratorTodoAccess` is a boolean port, defaulting to unavailable. `app.ts` checks current owners,
-users, active explicit super credentials and `superAccessVerdict`; assembly passes it to inbox.
+`IntegratorTodoAccess` is a boolean port, defaulting to unavailable. `app.ts` supplies the shared
+`integratorSideAvailable` rule: an Operator exists, including on leave or with AI off (PM-1003);
+assembly passes it to inbox. Super credentials are checked when a client resolves the item.
 `resolveIntegratorTodo` is reached through the super-only REST/MCP adapter in
 `services/super-operator/todo.ts`. It uses the same question lock and transactional answer delivery
 as owner resolution, rechecking authenticated execution before persistence. The result carries
@@ -90,18 +92,26 @@ cleanup outside the caller's execution scope; generic label edits keep all crede
 
 The hub's `integrator-todos` maintenance job sweeps at startup and every 30 seconds, independently
 of AI availability or engine connectivity. Handoff and resolution serialize on the same lock.
-The sweep hands an item over only when the Operator does not work its queue (`integrator_unavailable`);
+The sweep hands an item over only when the project has no Operator (`integrator_unavailable`);
 there is no 24-hour clock. A resolution accepted under the lock finishes first. Handoff records
 `question_recipient_escalated` atomically with owner addressing and current owner assignees;
 it sends no answer and does not release the waiting label. Existing inbox change triggers journal
 opening, handoff and closure. No new machine operation or engine-boundary method is needed.
+
+`passOnToSuper` (PM-1003) holds the same question lock and, in a unit of work, adds `operatorHandoff`
+to an open integrator item still owed by the Operator. Recipient, assignees and options stay the same;
+there is no new timeline event. `operatorOwesInboxItem` then excludes it from the Operator queue, whose
+planned `handed_off` close records the outcome. Machine work waits in the super inbox, including when
+the Operator is on leave or AI is off. Message handoffs open an integrator todo with this same marker;
+only `owner_reserved` opens or reuses an owner item. Closed items are refused with `inbox_item_closed`,
+other or already handed-off items with `super_relay_refused`.
 
 ### Fix limit decisions (PM-801)
 
 A fix-limit decision (`payload.fixLimit`, source `system`, only fix-limit options) can be addressed to the
 integrator by `selectFixLimitRecipient` when the three extra rounds are used up, the lead passed it on, or no AI
 member can decide; any other shape stays with the owners. `isIntegratorInboxItem` covers todos and these
-decisions, so the sweep escalates both when the Operator is unavailable (`planIntegratorInboxEscalation`, event
+decisions, so the sweep escalates both when the Operator is absent (`planIntegratorInboxEscalation`, event
 `fix_limit_recipient_escalated`). The integrator resolves only through `resolveIntegratorFixLimit` (same question
 lock, `integratorExecution()` and owner access checked again): `replan`, `reassign`, `another_round`, or passing
 the same item to the owners with a reason. The text is built by `fix-limit-text.ts` in the project language.

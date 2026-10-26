@@ -10,11 +10,12 @@ export const OPERATOR_QUEUE_TOOL_GROUP: TeamToolGroup = {
       title: 'End an item of your work queue',
       readOnly: false,
       description:
-        'The Operator ends the work queue item it was given (the message names its id). outcome "done": you did what it asked; summary says what you did, and operation_ids names the operations you ran (execute_operation). A held fix round decision also needs fix_limit_option (replan, reassign or another_round); a todo is closed as done with your summary. outcome "handed_off": the owner has to do it; handoff.reason is owner_reserved (the action is reserved to the owner; with operation_id when the operation already asks the owner), no_typed_operation (no typed operation does this) or no_grant (you have no grant for it), handoff.action is the imperative step the owner takes (one sentence), handoff.detail the context. Nothing waits for the owner here: the item ends at once and the owner gets a todo. Only the item your session is working on can be ended (409 queue_item_not_processing otherwise).',
+        'The Operator ends the work queue item it was given (the message names its id). outcome "done": you did what it asked; summary says what you did, and operation_ids names the operations you ran (execute_operation). A held fix round decision also needs fix_limit_option (replan, reassign or another_round); a todo is closed as done with your summary. outcome "handed_off": handoff.reason owner_reserved goes to the owner (the action is reserved to the owner; with operation_id when the operation already asks the owner). no_typed_operation (no typed operation does this) and no_grant (you have no grant for it) go to the super side’s queue, where the item waits. handoff.action is the imperative step the super side takes, or the owner for owner_reserved (one sentence); handoff.detail is the context. The Operator queue item ends at once. outcome "answered": only on a todo that is the question of an AI member; answer is what the asker receives, as the Operator\'s answer (not a person\'s), and summary is your reasoning. If the question is about deleting something, security, paid cost or the direction of the project, hand it off with owner_reserved instead. On any other item: 400 invalid_request; on a todo that is not an answerable question: 403 question_not_answerable. Only the item your session is working on can be ended (409 queue_item_not_processing otherwise).',
       input: {
         item_id: z.string().min(1).max(100),
-        outcome: z.enum(['done', 'handed_off']),
+        outcome: z.enum(['done', 'handed_off', 'answered']),
         summary: z.string().trim().min(1).max(2000),
+        answer: z.string().trim().min(1).max(10000).optional(),
         operation_ids: z.array(z.string().max(100)).max(20).optional(),
         fix_limit_option: z.enum(['replan', 'reassign', 'another_round']).optional(),
         handoff: z
@@ -33,6 +34,7 @@ export const OPERATOR_QUEUE_TOOL_GROUP: TeamToolGroup = {
             itemId: args.item_id,
             outcome: args.outcome,
             summary: args.summary,
+            ...(args.answer ? { answer: args.answer } : {}),
             operationIds: args.operation_ids ?? [],
             ...(args.fix_limit_option ? { fixLimitOption: args.fix_limit_option } : {}),
             ...(handoff

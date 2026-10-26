@@ -595,21 +595,40 @@ describe('team tools', () => {
     );
   });
 
-  it('get_task shows the recommended developer only when one is set (PM-347)', async () => {
+  it('task tools show points and acknowledge setting and removing complexity', async () => {
     const { client } = await startTools();
-
-    expect(text(await call(client, 'get_task', { task_key: 'AR-21' }))).not.toContain(
-      'Recommended developer',
-    );
-    await call(client, 'update_task', {
+    expect(text(await call(client, 'get_task', { task_key: 'AR-21' }))).not.toContain('Complexity:');
+    const created = text(await call(client, 'create_task', { title: 'Scored', complexity: 5 }));
+    expect(created).toContain('complexity set');
+    const scored = await call(client, 'update_task', {
       task_key: 'AR-21',
-      developer_level: 'senior',
-      developer_level_reason: 'the runner',
+      complexity: 8,
+      complexity_reason: 'two modules',
     });
+    expect(text(scored)).toContain('complexity set');
     expect(text(await call(client, 'get_task', { task_key: 'AR-21' }))).toContain(
-      'Recommended developer: senior (the runner)',
+      'Complexity: 8 points — two modules',
     );
+    const removed = await call(client, 'update_task', { task_key: 'AR-21', complexity: null });
+    expect(text(removed)).toContain('complexity removed');
+    expect(text(await call(client, 'get_task', { task_key: 'AR-21' }))).not.toContain('Complexity:');
   });
+
+  it.each([
+    ['update_task', { task_key: 'AR-21' }],
+    ['create_task', { title: 'Planned' }],
+  ])(
+    '%s points the removed developer_level to complexity and calls nothing (PM-1007)',
+    async (tool, base) => {
+      const { client, handler } = await startTools();
+      for (const removed of [{ developer_level: 'senior' }, { developer_level_reason: 'the runner' }]) {
+        const result = await call(client, tool, { ...base, ...removed });
+        expect(result.isError).toBe(true);
+        expect(text(result)).toContain('use complexity');
+      }
+      expect(handler.calls).toEqual([]);
+    },
+  );
 
   it('update_task passes each field on, trimmed and in the shape of the handler', async () => {
     const { client, handler } = await startTools();
@@ -620,6 +639,12 @@ describe('team tools', () => {
         { title: 'New title', description: '## Goal\nText.' },
       ],
       ['repo', { repo: ' api ' }, { repo: 'api' }],
+      [
+        'complexity',
+        { complexity: 8, complexity_reason: '  two modules  ' },
+        { complexity: { points: 8, reason: 'two modules' } },
+      ],
+      ['complexity removed', { complexity: null }, { complexity: { points: null, reason: null } }],
       ['repo cleared', { repo: null }, { repo: null }],
       ['priority', { priority: 'high' }, { priority: 'high' }],
       ['priority cleared', { priority: null }, { priority: null }],
@@ -641,16 +666,6 @@ describe('team tools', () => {
             remove: [{ kind: 'prerequisite_of', key: 'AR-22' }],
           },
         },
-      ],
-      [
-        'recommended developer',
-        { developer_level: 'senior', developer_level_reason: 'the runner' },
-        { developerLevel: { level: 'senior', reason: 'the runner' } },
-      ],
-      [
-        'recommended developer without a reason',
-        { developer_level: 'any' },
-        { developerLevel: { level: 'any', reason: null } },
       ],
       ['theme', { theme_key: 'AR-30' }, { themeKey: 'AR-30' }],
       ['theme removed', { theme_key: null }, { themeKey: null }],
@@ -682,16 +697,16 @@ describe('team tools', () => {
       'update_task',
       [
         { priority: 'medium' },
+        { complexity_reason: 'reason' },
+        { complexity: null, complexity_reason: 'reason' },
+        { complexity: 5, complexity_reason: '' },
+        { complexity: 5, complexity_reason: 'x'.repeat(301) },
         { description: '   ' },
         { repo: '' },
         { repo: '   ' },
         { repo: 'x'.repeat(65) },
         { repo: 42 },
         { theme_key: 'nope' },
-        { developer_level: 'boss' },
-        { developer_level_reason: 'why' },
-        { developer_level: 'senior', developer_level_reason: '' },
-        { developer_level: 'senior', developer_level_reason: 'x'.repeat(301) },
         // A relation kind that cannot be added, a bad card key, a kind that does not exist.
         { add_relations: [{ kind: 'prerequisite_of', task_key: 'AR-19' }] },
         { add_relations: [{ kind: 'duplicated_by', task_key: 'AR-19' }] },
@@ -724,14 +739,14 @@ describe('team tools', () => {
         { title: 'Follow-up', relations: [{ kind: 'prerequisite', key: 'AR-21' }] },
       ],
       ['parent', { title: 'Child', parent_key: 'AR-21' }, { title: 'Child', parentKey: 'AR-21' }],
+      [
+        'complexity',
+        { title: 'Scored', complexity: 3 },
+        { title: 'Scored', complexity: { points: 3, reason: null } },
+      ],
       ['theme of the card', { title: 'Card', theme_key: 'AR-30' }, { title: 'Card', themeKey: 'AR-30' }],
       ['theme kind', { title: 'Epic', kind: 'theme' }, { title: 'Epic', kind: 'theme' }],
       ['plain kind is no kind to send', { title: 'Plain', kind: 'task' }, { title: 'Plain' }],
-      [
-        'recommended developer',
-        { title: 'Planned', developer_level: 'senior', developer_level_reason: 'the sandbox' },
-        { title: 'Planned', developerLevel: { level: 'senior', reason: 'the sandbox' } },
-      ],
     ];
     for (const [label, args, expected] of cases) {
       const result = await call(client, 'create_task', args);
@@ -756,7 +771,7 @@ describe('team tools', () => {
 
     await expectRefused(session, 'create_task', [
       { title: 'Card', kind: 'epic' },
-      { title: 'Card', developer_level_reason: 'why' },
+      { title: 'Card', complexity_reason: 'why' },
     ]);
   });
 

@@ -10,7 +10,6 @@ import { PriorityMark } from '../../components/PriorityMark';
 import { StageProgress } from '../../components/StageProgress';
 import { formatAge, formatDuration } from '../../i18n/format';
 import { t } from '../../i18n/t';
-import { seniorMarkLabel, showsSeniorMark } from '../../lib/developerLevel';
 import { handoffMsLeft, handoffPair } from '../../lib/handoff';
 import { useNow } from '../../lib/useNow';
 import { loopSummary } from '../../lib/loop';
@@ -139,7 +138,6 @@ export function TaskCard({
   // Said by the status line already when the card stands on it: never twice on one card.
   const prerequisite = state.prerequisite?.key && !state.prerequisite.inLabel ? state.prerequisite : null;
   const workerRows = cardWorkerRows(state);
-  const seniorMark = showsSeniorMark(task, pipeline);
   return (
     <Link
       to={to}
@@ -168,6 +166,17 @@ export function TaskCard({
             </span>
           </span>
         ) : null}
+        {task.complexity ? (
+          <span
+            className={styles.points}
+            title={t('task.complexity.mark', { points: task.complexity.points })}
+          >
+            <span aria-hidden="true">{task.complexity.points}</span>
+            <span className="visually-hidden">
+              {t('task.complexity.mark', { points: task.complexity.points })}
+            </span>
+          </span>
+        ) : null}
         <StageProgress
           pipeline={pipeline}
           stageId={task.stageId}
@@ -187,18 +196,9 @@ export function TaskCard({
       <span className={styles.titleRow}>
         <span className={styles.title}>{task.title}</span>
       </span>
-      {task.parentKey || subtasks.length || prerequisite || task.loop || task.handoff || seniorMark ? (
+      {task.parentKey || subtasks.length || prerequisite || task.loop || task.handoff ? (
         <span className={styles.meta}>
           {task.handoff ? <HandoffMark handoff={task.handoff} members={members} myHandle={myHandle} /> : null}
-          {seniorMark ? (
-            <span
-              className={clsx(styles.label, styles.senior)}
-              title={seniorMarkLabel(task)}
-              aria-label={seniorMarkLabel(task)}
-            >
-              {t('task.level.mark')}
-            </span>
-          ) : null}
           {task.loop ? (
             <span
               className={clsx(styles.label, styles.loop)}

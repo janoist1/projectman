@@ -364,7 +364,7 @@ including complete added/removed entities. AI permission/network/approver change
 labels and their setters/holders, reviewer and authorization duties, gates, effective merger
 and merge target, stage order, workspace/repository/test/integrator/remote access, sharing,
 and the Operator's own settings/watch/waiver remain approval-bound. `githubLogin`, member
-`instructions`, `temp`, `senior` and unknown fields are outside the waiver whitelist. Template
+`instructions`, `temp`, `complexityLimit` and unknown fields are outside the waiver whitelist. Template
 permission, `none` approver, default network, empty instructions and `temp: false` on a new
 implementer grant no extra authority. Approval and permission/boundary decision tools remain
 forbidden to the Operator; this classification opens no boundary-request exception.

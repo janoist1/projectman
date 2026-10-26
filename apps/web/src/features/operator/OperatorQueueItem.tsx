@@ -85,7 +85,7 @@ function Outcome({ item }: { item: MemberQueueItem }) {
   const { outcome } = item;
   const summary = outcome?.summary ? <span className={styles.summary}>{outcome.summary}</span> : null;
   const inbox =
-    outcome?.handoff && isOwner ? (
+    outcome?.handoff && outcome.handoff.to !== 'super' && isOwner ? (
       <Link to={`/p/${key}/inbox#${inboxItemDomId(outcome.handoff.inboxItemId)}`} className={styles.inbox}>
         {t('operator.queue.outcome.inbox')} ›
       </Link>
@@ -107,7 +107,13 @@ function Outcome({ item }: { item: MemberQueueItem }) {
         <div className={clsx(styles.did, styles.didFailed)}>
           <Icon name="alertCircle" size={15} />
           <span>
-            {t(isOwner ? 'operator.queue.outcome.failed' : 'operator.queue.outcome.failedOwner')}{' '}
+            {t(
+              handoff.to === 'super'
+                ? 'operator.queue.outcome.failedSuper'
+                : isOwner
+                  ? 'operator.queue.outcome.failed'
+                  : 'operator.queue.outcome.failedOwner',
+            )}{' '}
             {item.attempts > 1 ? `${t('operator.queue.outcome.attempts', { count: item.attempts })} ` : null}
             {inbox}
             {summary}
@@ -115,14 +121,21 @@ function Outcome({ item }: { item: MemberQueueItem }) {
         </div>
       );
     }
-    const reasons = isOwner ? 'reasons' : 'reasonsOther';
+    const reasons = isOwner && handoff?.to !== 'super' ? 'reasons' : 'reasonsOther';
     return (
       <div className={clsx(styles.did, styles.didHanded)}>
         <span>
           {handoff
-            ? t(isOwner ? 'operator.queue.outcome.handedOff' : 'operator.queue.outcome.handedOffOwner', {
-                reason: tDynamic(`operator.queue.outcome.${reasons}.${handoff.reason}`, handoff.reason),
-              })
+            ? t(
+                handoff.to === 'super'
+                  ? 'operator.queue.outcome.handedOffSuper'
+                  : isOwner
+                    ? 'operator.queue.outcome.handedOff'
+                    : 'operator.queue.outcome.handedOffOwner',
+                {
+                  reason: tDynamic(`operator.queue.outcome.${reasons}.${handoff.reason}`, handoff.reason),
+                },
+              )
             : t(
                 isOwner
                   ? 'operator.queue.outcome.handedOffPlain'

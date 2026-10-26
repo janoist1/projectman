@@ -83,6 +83,14 @@
   overflow-wrap: anywhere;
 }
 
+.emailMark {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 12px;
+  color: var(--c-ink-4);
+}
+
 /* A narrow list is a glance: the full text is on the Messages page. */
 .compact .body {
   display: -webkit-box;

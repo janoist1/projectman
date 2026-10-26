@@ -939,6 +939,7 @@ export function createDomain(opts: DomainOptions) {
     repo: opts.repos.emailChannel,
     inbox,
     messaging,
+    messageAttachments,
     projects,
     tasks,
     redactionContext: () => systemFeedbackContext.current(),
@@ -1989,7 +1990,7 @@ export function createDomain(opts: DomainOptions) {
   });
   events.on('task_stage_changed', (change) => seniorWaits.settleCard(change.task));
   events.on('task_cancelled', (task) => seniorWaits.settleCard(task));
-  events.on('task_level_changed', ({ task }) => {
+  events.on('task_complexity_changed', ({ task }) => {
     seniorWaits.settleCard(task);
     retryDeferredStarts();
   });

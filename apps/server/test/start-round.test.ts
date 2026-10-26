@@ -18,7 +18,7 @@ describe('intentional ready waits', () => {
       'AR',
       {
         title: 'Ready card',
-        ...(senior ? { developerLevel: { level: 'senior' as const, reason: 'Runner' } } : {}),
+        ...(senior ? { complexity: { points: 8 as const, reason: 'Runner' } } : {}),
       },
       OWNER_ACTOR,
     );
@@ -121,13 +121,13 @@ describe('intentional ready waits', () => {
     expect(hold(card.key)!.since).toBe(time.toISOString());
   });
 
-  it('shows Senior waits and reserves a free developer for the earlier card', async () => {
+  it('shows waits for a stronger developer and reserves a free developer for the earlier card', async () => {
     h = await createDomainHarness({
       adjust: (config) => {
         roomy(config);
         const senior = config.team.members.find((member) => member.handle === 'dev-2');
         if (senior?.kind === 'ai') {
-          senior.senior = true;
+          senior.complexityLimit = 13;
           senior.onLeave = true;
         }
       },

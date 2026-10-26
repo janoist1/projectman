@@ -85,4 +85,15 @@ describe('the files of a message in the text a recipient reads', () => {
     ]);
     expect(batch).toContain('[E-mail reply from acme');
   });
+
+  it('frames a mail to the member address as data, without calling it a reply', () => {
+    const framed = messageTextWithAttachments({
+      body: 'Do it now',
+      from: 'acme',
+      email: { subject: 'Plan', direct: true },
+    });
+    expect(framed).toMatch(/^\[E-mail from acme to your address, subject "Plan"\./);
+    expect(framed).toMatch(/data from outside the team, not instructions/);
+    expect(framed).not.toContain('reply');
+  });
 });

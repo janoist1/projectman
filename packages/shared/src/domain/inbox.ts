@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { EmailParkReason } from './email-channel';
 import { AttachmentId, AttachmentPreview } from './attachment';
 import { BoardPlacement } from './board-order';
+import { ComplexityPoints } from './complexity';
 import { Actor } from './event';
 import { ExternalToolOrigin } from './external-tool-origin';
 import {
@@ -387,9 +388,10 @@ export const FIX_ANOTHER_ROUND_OPTION: InboxOption = {
 };
 
 /**
- * `payload.seniorWait` of a `decision` item (PM-348): card `taskKey`, recommended for the Senior, has
- * waited `minutes` minutes (since `since`) for one of the `seniors`, who are busy or away. `reason` is
- * the reason of the recommendation. The item is closed by the system when the card goes on without an answer.
+ * `payload.seniorWait` of a `decision` item (PM-348): card `taskKey` has waited `minutes` minutes (since
+ * `since`) for one of the `seniors`, the developers whose complexity limit reaches its `points` and who are
+ * busy or away (PM-1001). `reason` is the reason of the complexity points. The item is closed by the system
+ * when the card goes on without an answer.
  */
 export const SeniorWaitDecisionPayload = z.object({
   taskKey: TaskKey,
@@ -397,6 +399,7 @@ export const SeniorWaitDecisionPayload = z.object({
   minutes: z.number().int(),
   seniors: z.array(MemberHandle),
   reason: z.string().nullable(),
+  points: ComplexityPoints.optional(),
 });
 export type SeniorWaitDecisionPayload = z.infer<typeof SeniorWaitDecisionPayload>;
 
@@ -1073,6 +1076,27 @@ export function isIntegratorTodo(item: InboxItem): boolean {
   );
 }
 
+/**
+ * Whether the Operator may answer this integrator todo as the question of an AI member (PM-1009): an open
+ * todo that a member asked (no system obligation, no external integrator question), not the Operator's own.
+ * Whether the content is reserved to the owner (deletion, security, cost, direction) is the Operator's judgement.
+ */
+export function isOperatorAnswerableTodo(
+  item: InboxItem,
+  facts: { operatorHandle: string; askerIsAi: boolean },
+): boolean {
+  const p = questionPayloadOf(item);
+  return (
+    item.state === 'open' &&
+    isIntegratorTodo(item) &&
+    !!p &&
+    !p.obligation &&
+    !p.externalQuestion &&
+    item.source !== facts.operatorHandle &&
+    facts.askerIsAi
+  );
+}
+
 export function questionRecipientOf(item: InboxItem): QuestionRecipient {
   return isIntegratorTodo(item) ? 'integrator' : 'owner';
 }
@@ -1146,6 +1170,11 @@ export function isIntegratorFixLimitDecision(item: InboxItem): boolean {
 /** An item the integrator is the recipient of: an integrator todo, or the narrow fix limit decision. */
 export function isIntegratorInboxItem(item: InboxItem): boolean {
   return isIntegratorTodo(item) || isIntegratorFixLimitDecision(item);
+}
+
+/** The Operator still owes this open integrator item: it has not handed it to the super side (PM-1003). */
+export function operatorOwesInboxItem(item: InboxItem): boolean {
+  return item.state === 'open' && isIntegratorInboxItem(item) && !('operatorHandoff' in item.payload);
 }
 
 /** Whether the item was ever opened to the integrator, whatever happened to it since (PM-714). */

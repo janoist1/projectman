@@ -201,10 +201,16 @@ export function MemberProfilePage() {
         subtitle={
           <>
             <code>{member.handle}</code> ·{' '}
-            {member.senior ? (
+            {member.complexityLimit !== undefined ? (
               <>
-                <Chip tone="accent" title={t('team.seniorTitle')}>
-                  {t('team.senior')}
+                <Chip
+                  title={
+                    member.complexityLimit === 13
+                      ? t('team.limitUnlimited')
+                      : t('team.limitTitle', { limit: member.complexityLimit })
+                  }
+                >
+                  {t('team.limit', { limit: member.complexityLimit })}
                 </Chip>{' '}
                 ·{' '}
               </>
@@ -364,6 +370,12 @@ export function MemberProfilePage() {
               </pre>
             </div>
           </Fold>
+        ) : null}
+        {ai && access === 'owner' ? (
+          <p>
+            <Link to={`/p/${key}/team/${handle}/context`}>{t('memberContext.entry')} →</Link>{' '}
+            <small className={styles.contextHint}>{t('memberContext.entryHint')}</small>
+          </p>
         ) : null}
       </section>
       <div className={styles.grid}>

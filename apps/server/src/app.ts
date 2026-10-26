@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, realpathSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { CONTROL_SOCKET_NAME, operatorQueueAvailable } from '@projectman/shared';
+import { CONTROL_SOCKET_NAME, integratorSideAvailable } from '@projectman/shared';
 import type { HybridReleaseTarget, ReleaseEngineStatus } from '@projectman/shared';
 import fastifyCookie from '@fastify/cookie';
 import fastifyStatic from '@fastify/static';
@@ -520,7 +520,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       revokeIntegratorAccessKey: (userId, keyId) => auth.revokeIntegratorAccessKey(userId, keyId),
       operatorGrants: auth.operatorGrantGate,
       // The Operator works the todos and fix limit decisions itself (PM-885); no key is needed any more.
-      integratorTodoAccess: { available: operatorQueueAvailable },
+      integratorTodoAccess: { available: integratorSideAvailable },
       appVersion: options.appVersion ?? 'dev',
       ...(options.appTag ? { appTag: options.appTag } : {}),
       ...(options.releaseTarget ? { releaseTarget: options.releaseTarget } : {}),

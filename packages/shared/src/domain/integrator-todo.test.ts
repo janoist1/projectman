@@ -11,6 +11,8 @@ import {
   isIntegratorFixLimitDecision,
   isIntegratorInboxItem,
   isIntegratorTodo,
+  isOperatorAnswerableTodo,
+  operatorOwesInboxItem,
   planIntegratorInboxEscalation,
   selectFixLimitRecipient,
   wasIntegratorInboxItem,
@@ -49,7 +51,41 @@ function todo(): InboxItem {
   };
 }
 
+describe('the todos the Operator may answer as a member question', () => {
+  const facts = { operatorHandle: 'operator', askerIsAi: true };
+  it('accepts an open screened todo of an AI member', () => {
+    expect(isOperatorAnswerableTodo(todo(), facts)).toBe(true);
+  });
+  it.each([
+    { name: 'a system obligation', change: (i: InboxItem) => void (i.payload.obligation = { id: 'obl_1' }) },
+    { name: 'a closed item', change: (i: InboxItem) => void (i.state = 'resolved') },
+    { name: 'its own todo', change: (i: InboxItem) => void (i.source = 'operator') },
+    { name: 'an external question', change: (i: InboxItem) => void (i.payload.externalQuestion = {}) },
+    {
+      name: 'a protected payload',
+      change: (i: InboxItem) => void (i.payload.approvalLabel = 'code-review-ok'),
+    },
+  ])('refuses $name', ({ change }) => {
+    const item = todo();
+    change(item);
+    expect(isOperatorAnswerableTodo(item, facts)).toBe(false);
+  });
+  it('refuses a question that did not come from an AI member', () => {
+    expect(isOperatorAnswerableTodo(todo(), { ...facts, askerIsAi: false })).toBe(false);
+  });
+});
+
 describe('durable integrator todo rules', () => {
+  it.each([
+    { state: 'open' as const, handed: false, expected: true },
+    { state: 'open' as const, handed: true, expected: false },
+    { state: 'resolved' as const, handed: false, expected: false },
+  ])('owes the Operator work for $state, handed=$handed: $expected', ({ state, handed, expected }) => {
+    const item = todo();
+    item.state = state;
+    if (handed) item.payload.operatorHandoff = {};
+    expect(operatorOwesInboxItem(item)).toBe(expected);
+  });
   it('keeps old stored todos valid and requires a recipient on new screening inputs', () => {
     const old = { what: 'Measure', where: 'Hub', expected: 'Result' };
     expect(QuestionTodo.safeParse(old).success).toBe(true);

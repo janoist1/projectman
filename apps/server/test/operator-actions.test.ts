@@ -1158,9 +1158,9 @@ describe('Operator actions and owner approvals (PM-464)', () => {
     });
   });
 
-  it('reports which Senior the card waits for without assigning a developer', async () => {
+  it('reports which developers the card waits for without assigning one', async () => {
     await setup(false, (config) => {
-      (memberOf(config, 'dev-2') as AiMemberConfig).senior = true;
+      (memberOf(config, 'dev-2') as AiMemberConfig).complexityLimit = 13;
     });
     const busy = await h.domain.tasks.create('AR', { title: 'Busy', stageId: 'ready' }, OWNER_ACTOR);
     await startAsPm({ taskKey: busy.key, assignee: 'dev-2' });
@@ -1169,7 +1169,7 @@ describe('Operator actions and owner approvals (PM-464)', () => {
       {
         title: 'Senior work',
         stageId: 'ready',
-        developerLevel: { level: 'senior', reason: 'Runner changes' },
+        complexity: { points: 8, reason: 'Runner changes' },
       },
       OWNER_ACTOR,
     );

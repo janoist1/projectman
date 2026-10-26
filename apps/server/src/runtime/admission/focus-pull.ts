@@ -1,11 +1,12 @@
 import {
-  developerLevelOf,
+  chooseDeveloper,
+  complexityOf,
   developmentStage,
   isWorkPaused,
-  pickDeveloper,
   pullCandidates,
   pullSourceStage,
-  seniorsOf,
+  reachingDevelopers,
+  stageDevelopers,
   stageOwners,
   startClass,
 } from '@projectman/shared';
@@ -32,7 +33,8 @@ import type { WorkStarts } from './work-starts';
  * pipeline has no queue before the development stage. A developer is free when they own the development
  * stage (not a temp worker, not on leave), have capacity, and no stored deferred start waits for them (that
  * one goes first). The candidates (`pullCandidates`) are taken in order and the developer is picked as for any
- * start (`pickDeveloper`), so a Senior card is never given to someone else; one developer takes at most one
+ * start (`chooseDeveloper`), so a card is never given to a developer whose limit is below its points
+ * while one that reaches it is only busy; one developer takes at most one
  * card per round. A refusal because of the card moves on to the next card; one because of the developer (capacity,
  * provider, engine, limits, disk, pause) leaves the developer out of the round. Refusals are logged at debug
  * level only and write no timeline, so the 30-second round does not fill the log.
@@ -124,18 +126,19 @@ export class FocusPull implements FocusPulling {
     });
     if (candidates.length === 0) return;
     const owners = stageOwners(config, development);
-    const seniors = seniorsOf(config, development)
-      .map((senior) => senior.handle)
-      .filter((handle) => owners.includes(handle));
+    const developers = stageDevelopers(config, development).filter((developer) =>
+      owners.includes(developer.handle),
+    );
     for (const card of candidates) {
       if (free.length === 0) break;
-      const pick = pickDeveloper({
-        level: developerLevelOf(card),
+      const points = complexityOf(card);
+      const pick = chooseDeveloper({
+        points,
         anyDecided: this.seniorWaits.decisionFor(projectKey, card.key)?.decision === 'any',
-        seniors,
+        reaching: reachingDevelopers(developers, points),
         free,
       });
-      // The card waits for a Senior, or nobody can take it: the next card.
+      // The card waits for a developer whose limit reaches its points, or nobody can take it: the next card.
       if (pick.kind !== 'member') {
         this.ctx.logger.debug({ taskKey: card.key, pick: pick.kind }, 'focus pull skipped a card');
         continue;

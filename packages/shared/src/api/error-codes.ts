@@ -18,6 +18,7 @@ export const ERROR_CODES = [
   'email_contact_refused',
   'email_unknown',
   'email_send_failed',
+  'email_mailbox_taken',
   'web_push_unavailable',
   'web_push_endpoint_invalid',
   'web_push_device_limit',
@@ -167,10 +168,9 @@ export const ERROR_CODES = [
   'update_not_applied',
   'label_not_allowed',
   'comment_required',
-  // The recommended developer of a card (PM-347)
-  'developer_level_forbidden',
-  'developer_level_reason_required',
-  'senior_not_allowed',
+  'complexity_forbidden',
+  'complexity_points_invalid',
+  'complexity_limit_not_developer',
   'self_review_forbidden',
   'release_four_eyes',
   // The handed-over work has uncommitted changes (PM-183)
@@ -194,6 +194,8 @@ export const ERROR_CODES = [
   // question is not in screening; the outcome's fields do not fit; the question may not be asked again unscreened.
   'todo_reason_required',
   'question_not_screening',
+  // The Operator may not answer this queue item as a member's question (PM-1009).
+  'question_not_answerable',
   'question_group_incompatible',
   'invalid_outcome_fields',
   'reask_not_allowed',

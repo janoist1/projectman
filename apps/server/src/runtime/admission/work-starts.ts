@@ -23,8 +23,9 @@ type WorkStartSpec = Extract<StartSpec, { kind: 'work_start' }>;
  * still in the stage it was moved into, still without an assignee other than the one this start
  * assigned itself, is started: a move, a closure, someone's assignment or the Start button ends the
  * wait. A missing repository is not waited for (`repo_required`; the card shows it, see `TaskStore`).
- * A card recommended for the Senior waits for one the same way (`senior_busy`, PM-348): the start is
- * deferred while every Senior is busy, and `SeniorWaits` asks the owners after the wait limit.
+ * A card whose points only some developers' limit reaches waits for one the same way (`senior_busy`,
+ * PM-348, PM-1001): the start is deferred while every such developer is busy, and `SeniorWaits` asks
+ * the owners after the wait limit.
  */
 export class WorkStarts implements LabelWait, SeniorWait {
   private readonly projects: ProjectService;
@@ -107,7 +108,7 @@ export class WorkStarts implements LabelWait, SeniorWait {
   }
 
   /**
-   * PM-348: the person's Start on a card recommended for the Senior, with every Senior busy, leaves
+   * PM-348: the person's Start on a card for the Senior-limit developers, all of them busy, leaves
    * the card in the work stage without an assignee and keeps its start as a work start that waits
    * (`SeniorWait`, under the admission lock). The stage move's own `begin` may have made a start
    * for the card too: both use the same key, so the deferral that is stored replaces the other and

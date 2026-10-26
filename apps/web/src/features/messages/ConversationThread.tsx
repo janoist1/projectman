@@ -31,6 +31,7 @@ import {
 import type { ThreadEntry } from './conversations';
 import { ContactNote } from './ContactNote';
 import { DeliveryStatus } from './DeliveryStatus';
+import { EmailMessageHead } from './EmailMessageHead';
 import { useContacts } from './useContacts';
 import { TaskChip } from './TaskChip';
 import styles from './ConversationThread.module.css';
@@ -547,6 +548,7 @@ function MessageBubble({
           <TaskChip projectKey={projectKey} taskKey={message.taskKey} title={titles.get(message.taskKey)} />
         ) : null}
         <div className={styles.bubble}>
+          {message.email ? <EmailMessageHead email={message.email} /> : null}
           {message.body.trim() ? <Markdown text={message.body} /> : null}
           <MessageAttachments files={message.attachments ?? []} from={message.from} />
         </div>

@@ -2284,6 +2284,23 @@ migrations.push({
 });
 migrations.push({
   version: 109,
+  name: 'task complexity',
+  sql: 'ALTER TABLE tasks ADD COLUMN complexity TEXT;',
+});
+migrations.push({
+  version: 110,
+  name: 'senior recommendation to complexity',
+  // PM-1007: a card recommended for the Senior (PM-347) is an 8-point card, the old Senior's limit
+  // becoming 13. The `developer_level` column stays but nothing reads or writes it any more.
+  sql: `UPDATE tasks SET complexity = json_object('points', 8,
+    'reason', json_extract(developer_level, '$.reason'),
+    'setBy', json_extract(developer_level, '$.setBy'),
+    'setAt', json_extract(developer_level, '$.setAt'))
+  WHERE complexity IS NULL AND json_valid(developer_level)
+    AND json_extract(developer_level, '$.level') = 'senior';`,
+});
+migrations.push({
+  version: 111,
   name: 'autonomous lessons writes',
   sql: `ALTER TABLE doc_writes ADD COLUMN autonomous_lessons INTEGER NOT NULL DEFAULT 0 CHECK (autonomous_lessons IN (0,1));`,
 });

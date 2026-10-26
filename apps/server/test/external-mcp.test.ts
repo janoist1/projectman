@@ -114,6 +114,24 @@ describe('the bearer MCP endpoint (PM-760)', () => {
         { id: 'todo_cannot', label: 'Cannot', style: 'secondary' },
       ],
     });
+    await domain.inbox.passOnToSuper('AR', item.id, {
+      queueItemId: 'mqi_handoff',
+      reason: 'no_grant',
+      action: 'Measure the machine',
+      detail: 'The Operator needs the latency report.',
+      operationId: null,
+    });
+    const listed = await call(secret, 'list_integrator_inbox', { project_key: 'AR' });
+    const text = listed.content[0]!.text!;
+    for (const field of [
+      'What: Measure',
+      'Where: Hub',
+      'Expected: Result',
+      'no_grant',
+      'Measure the machine',
+      'latency report',
+    ])
+      expect(text).toContain(field);
     const result = await call(secret, 'resolve_integrator_todo', {
       project_key: 'AR',
       item_id: item.id,
@@ -274,7 +292,10 @@ describe('the bearer MCP endpoint (PM-760)', () => {
     const projects = await call(secret, 'list_projects');
     expect(projects.structuredContent).toEqual({ projects: [{ key: 'AR', name: 'acme' }] });
 
-    const created = await call(secret, 'create_task', { project_key: 'AR', title: 'Over MCP' });
+    const created = await call(secret, 'create_task', {
+      project_key: 'AR',
+      title: 'Over MCP',
+    });
     expect(created.isError).toBeUndefined();
     const task = h.app.projectman.domain.tasks.list('AR').find((entry) => entry.title === 'Over MCP');
     expect(task).toBeDefined();
@@ -283,6 +304,40 @@ describe('the bearer MCP endpoint (PM-760)', () => {
     expect(listed.content[0]!.text).toContain('Over MCP');
     const detail = await call(secret, 'get_task', { project_key: 'AR', task_key: task!.key });
     expect(detail.content[0]!.text).toContain('Over MCP');
+  });
+
+  it('lets the owner score cards through the bearer handler while keeping the Operator planning restriction', async () => {
+    const { secret } = key('legacy');
+    const created = await call(secret, 'create_task', { project_key: 'AR', title: 'Scored', complexity: 5 });
+    expect(created.isError, created.content[0]!.text).toBeUndefined();
+    const task = h.app.projectman.domain.tasks.list('AR')[0]!;
+    expect(task.complexity?.points).toBe(5);
+    expect(created.content[0]!.text).toContain('complexity set');
+    const listed = await call(secret, 'list_tasks', { project_key: 'AR' });
+    expect(JSON.parse(listed.content[0]!.text!)[0]).toHaveProperty('complexity', 5);
+    const detail = await call(secret, 'get_task', { project_key: 'AR', task_key: task.key });
+    expect(detail.content[0]!.text).toContain('Complexity: 5 points');
+    const forbidden = await call(key('super').secret, 'update_task', {
+      project_key: 'AR',
+      task_key: task.key,
+      complexity: 8,
+    });
+    expect(forbidden.structuredContent?.errorCode).toBe('complexity_forbidden');
+    const invalid = await call(secret, 'update_task', {
+      project_key: 'AR',
+      task_key: task!.key,
+      complexity_reason: 'reason',
+    });
+    expect(invalid.isError).toBe(true);
+    expect(invalid.content[0]!.text).toContain('invalid_request');
+    const removed = await call(secret, 'update_task', {
+      project_key: 'AR',
+      task_key: task!.key,
+      complexity: null,
+    });
+    expect(removed.isError).toBeUndefined();
+    expect(removed.content[0]!.text).toContain('complexity removed');
+    expect(h.app.projectman.domain.tasks.get('AR', task!.key)).not.toHaveProperty('complexity');
   });
 
   it('refuses GET and DELETE with 405 and Allow: POST, and a missing or wrong credential with 401', async () => {

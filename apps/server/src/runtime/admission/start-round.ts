@@ -10,7 +10,7 @@ import {
   planStarts,
   projectManagerOf,
   pullSourceStage,
-  seniorsOf,
+  stageDevelopers,
   stageOwners,
   startableCards,
 } from '@projectman/shared';
@@ -286,9 +286,9 @@ export class StartRound implements StartRounding {
       ...this.unstarted(config, development),
     ];
     const owners = stageOwners(config, development);
-    const seniors = seniorsOf(config, development)
-      .map((member) => member.handle)
-      .filter((handle) => owners.includes(handle));
+    const developers = stageDevelopers(config, development).filter((developer) =>
+      owners.includes(developer.handle),
+    );
     const anyDecided = new Set(
       cards
         .filter((card) => seniorWaits.decisionFor(key, card.key)?.decision === 'any')
@@ -299,7 +299,7 @@ export class StartRound implements StartRounding {
       cards,
       places,
       free,
-      seniors,
+      developers,
       anyDecided,
       offered: new Set(live.map((row) => row.taskKey)),
     });

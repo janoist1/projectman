@@ -278,23 +278,28 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,
       "properties": {
+        "complexity": {
+          "anyOf": [
+            {
+              "maximum": 9007199254740991,
+              "minimum": -9007199254740991,
+              "type": "integer",
+            },
+            {
+              "type": "null",
+            },
+          ],
+          "description": "Optional complexity points: 1, 2, 3, 5, 8 or 13; null removes the points. 13 is the maximum; split larger cards.",
+        },
+        "complexity_reason": {
+          "description": "Optional reason for the complexity, 1–300 characters; only with a numeric complexity.",
+          "maxLength": 300,
+          "minLength": 1,
+          "type": "string",
+        },
         "description": {
           "description": "Markdown: what and why, and what done means (for a bug: steps to reproduce, expected and actual behaviour, environment). Mention the task it came from, if any.",
           "maxLength": 20000,
-          "type": "string",
-        },
-        "developer_level": {
-          "description": "The recommended developer of the card: senior (a task that suits the Senior; developer_level_reason is required) or any (any developer may take it). Only an owner, or a member who plans tasks or analyses requirements, may set it; it can be changed on a card that has started too, and it does not replace the developer who already carries the card.",
-          "enum": [
-            "senior",
-            "any",
-          ],
-          "type": "string",
-        },
-        "developer_level_reason": {
-          "description": "Why the card is recommended for that developer, at most 300 characters; required with developer_level senior, and only with developer_level.",
-          "maxLength": 300,
-          "minLength": 1,
           "type": "string",
         },
         "kind": {
@@ -1746,6 +1751,41 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                                 },
                               ],
                             },
+                            "complexityLimit": {
+                              "anyOf": [
+                                {
+                                  "anyOf": [
+                                    {
+                                      "const": 1,
+                                      "type": "number",
+                                    },
+                                    {
+                                      "const": 2,
+                                      "type": "number",
+                                    },
+                                    {
+                                      "const": 3,
+                                      "type": "number",
+                                    },
+                                    {
+                                      "const": 5,
+                                      "type": "number",
+                                    },
+                                    {
+                                      "const": 8,
+                                      "type": "number",
+                                    },
+                                    {
+                                      "const": 13,
+                                      "type": "number",
+                                    },
+                                  ],
+                                },
+                                {
+                                  "type": "null",
+                                },
+                              ],
+                            },
                             "effort": {
                               "anyOf": [
                                 {
@@ -1768,6 +1808,10 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                               "properties": {
                                 "enabled": {
                                   "type": "boolean",
+                                },
+                                "mailbox": {
+                                  "pattern": "^(?!r-)[a-z0-9][a-z0-9-]{0,31}$",
+                                  "type": "string",
                                 },
                                 "sendWithoutApproval": {
                                   "type": "boolean",
@@ -1834,9 +1878,6 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                                   "type": "null",
                                 },
                               ],
-                            },
-                            "senior": {
-                              "type": "boolean",
                             },
                             "specialty": {
                               "type": "string",
@@ -2128,6 +2169,41 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                         },
                       ],
                     },
+                    "complexityLimit": {
+                      "anyOf": [
+                        {
+                          "anyOf": [
+                            {
+                              "const": 1,
+                              "type": "number",
+                            },
+                            {
+                              "const": 2,
+                              "type": "number",
+                            },
+                            {
+                              "const": 3,
+                              "type": "number",
+                            },
+                            {
+                              "const": 5,
+                              "type": "number",
+                            },
+                            {
+                              "const": 8,
+                              "type": "number",
+                            },
+                            {
+                              "const": 13,
+                              "type": "number",
+                            },
+                          ],
+                        },
+                        {
+                          "type": "null",
+                        },
+                      ],
+                    },
                     "displayName": {
                       "minLength": 1,
                       "type": "string",
@@ -2154,6 +2230,10 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                       "properties": {
                         "enabled": {
                           "type": "boolean",
+                        },
+                        "mailbox": {
+                          "pattern": "^(?!r-)[a-z0-9][a-z0-9-]{0,31}$",
+                          "type": "string",
                         },
                         "sendWithoutApproval": {
                           "type": "boolean",
@@ -2222,9 +2302,6 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                           "type": "null",
                         },
                       ],
-                    },
-                    "senior": {
-                      "type": "boolean",
                     },
                     "specialty": {
                       "type": "string",
@@ -2670,17 +2747,19 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                 },
                 "request": {
                   "properties": {
-                    "description": {
-                      "type": "string",
-                    },
-                    "developerLevel": {
+                    "complexity": {
                       "properties": {
-                        "level": {
-                          "enum": [
-                            "senior",
-                            "any",
+                        "points": {
+                          "anyOf": [
+                            {
+                              "maximum": 9007199254740991,
+                              "minimum": -9007199254740991,
+                              "type": "integer",
+                            },
+                            {
+                              "type": "null",
+                            },
                           ],
-                          "type": "string",
                         },
                         "reason": {
                           "anyOf": [
@@ -2695,9 +2774,12 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                         },
                       },
                       "required": [
-                        "level",
+                        "points",
                       ],
                       "type": "object",
+                    },
+                    "description": {
+                      "type": "string",
                     },
                     "importedAt": {
                       "format": "date-time",
@@ -2797,20 +2879,19 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                         },
                       ],
                     },
-                    "description": {
-                      "type": "string",
-                    },
-                    "despitePrerequisites": {
-                      "type": "boolean",
-                    },
-                    "developerLevel": {
+                    "complexity": {
                       "properties": {
-                        "level": {
-                          "enum": [
-                            "senior",
-                            "any",
+                        "points": {
+                          "anyOf": [
+                            {
+                              "maximum": 9007199254740991,
+                              "minimum": -9007199254740991,
+                              "type": "integer",
+                            },
+                            {
+                              "type": "null",
+                            },
                           ],
-                          "type": "string",
                         },
                         "reason": {
                           "anyOf": [
@@ -2825,9 +2906,15 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                         },
                       },
                       "required": [
-                        "level",
+                        "points",
                       ],
                       "type": "object",
+                    },
+                    "description": {
+                      "type": "string",
+                    },
+                    "despitePrerequisites": {
+                      "type": "boolean",
                     },
                     "labels": {
                       "items": {
@@ -3179,11 +3266,16 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": false,
       "title": "End an item of your work queue",
     },
-    "description": "The Operator ends the work queue item it was given (the message names its id). outcome "done": you did what it asked; summary says what you did, and operation_ids names the operations you ran (execute_operation). A held fix round decision also needs fix_limit_option (replan, reassign or another_round); a todo is closed as done with your summary. outcome "handed_off": the owner has to do it; handoff.reason is owner_reserved (the action is reserved to the owner; with operation_id when the operation already asks the owner), no_typed_operation (no typed operation does this) or no_grant (you have no grant for it), handoff.action is the imperative step the owner takes (one sentence), handoff.detail the context. Nothing waits for the owner here: the item ends at once and the owner gets a todo. Only the item your session is working on can be ended (409 queue_item_not_processing otherwise).",
+    "description": "The Operator ends the work queue item it was given (the message names its id). outcome "done": you did what it asked; summary says what you did, and operation_ids names the operations you ran (execute_operation). A held fix round decision also needs fix_limit_option (replan, reassign or another_round); a todo is closed as done with your summary. outcome "handed_off": handoff.reason owner_reserved goes to the owner (the action is reserved to the owner; with operation_id when the operation already asks the owner). no_typed_operation (no typed operation does this) and no_grant (you have no grant for it) go to the super side’s queue, where the item waits. handoff.action is the imperative step the super side takes, or the owner for owner_reserved (one sentence); handoff.detail is the context. The Operator queue item ends at once. outcome "answered": only on a todo that is the question of an AI member; answer is what the asker receives, as the Operator's answer (not a person's), and summary is your reasoning. If the question is about deleting something, security, paid cost or the direction of the project, hand it off with owner_reserved instead. On any other item: 400 invalid_request; on a todo that is not an answerable question: 403 question_not_answerable. Only the item your session is working on can be ended (409 queue_item_not_processing otherwise).",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,
       "properties": {
+        "answer": {
+          "maxLength": 10000,
+          "minLength": 1,
+          "type": "string",
+        },
         "fix_limit_option": {
           "enum": [
             "replan",
@@ -3239,6 +3331,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
           "enum": [
             "done",
             "handed_off",
+            "answered",
           ],
           "type": "string",
         },
@@ -5381,6 +5474,41 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                         },
                       ],
                     },
+                    "complexityLimit": {
+                      "anyOf": [
+                        {
+                          "anyOf": [
+                            {
+                              "const": 1,
+                              "type": "number",
+                            },
+                            {
+                              "const": 2,
+                              "type": "number",
+                            },
+                            {
+                              "const": 3,
+                              "type": "number",
+                            },
+                            {
+                              "const": 5,
+                              "type": "number",
+                            },
+                            {
+                              "const": 8,
+                              "type": "number",
+                            },
+                            {
+                              "const": 13,
+                              "type": "number",
+                            },
+                          ],
+                        },
+                        {
+                          "type": "null",
+                        },
+                      ],
+                    },
                     "effort": {
                       "anyOf": [
                         {
@@ -5403,6 +5531,10 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                       "properties": {
                         "enabled": {
                           "type": "boolean",
+                        },
+                        "mailbox": {
+                          "pattern": "^(?!r-)[a-z0-9][a-z0-9-]{0,31}$",
+                          "type": "string",
                         },
                         "sendWithoutApproval": {
                           "type": "boolean",
@@ -5469,9 +5601,6 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                           "type": "null",
                         },
                       ],
-                    },
-                    "senior": {
-                      "type": "boolean",
                     },
                     "specialty": {
                       "type": "string",
@@ -7004,6 +7133,41 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                           },
                         ],
                       },
+                      "complexityLimit": {
+                        "anyOf": [
+                          {
+                            "anyOf": [
+                              {
+                                "const": 1,
+                                "type": "number",
+                              },
+                              {
+                                "const": 2,
+                                "type": "number",
+                              },
+                              {
+                                "const": 3,
+                                "type": "number",
+                              },
+                              {
+                                "const": 5,
+                                "type": "number",
+                              },
+                              {
+                                "const": 8,
+                                "type": "number",
+                              },
+                              {
+                                "const": 13,
+                                "type": "number",
+                              },
+                            ],
+                          },
+                          {
+                            "type": "null",
+                          },
+                        ],
+                      },
                       "effort": {
                         "anyOf": [
                           {
@@ -7026,6 +7190,10 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                         "properties": {
                           "enabled": {
                             "type": "boolean",
+                          },
+                          "mailbox": {
+                            "pattern": "^(?!r-)[a-z0-9][a-z0-9-]{0,31}$",
+                            "type": "string",
                           },
                           "sendWithoutApproval": {
                             "type": "boolean",
@@ -7092,9 +7260,6 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                             "type": "null",
                           },
                         ],
-                      },
-                      "senior": {
-                        "type": "boolean",
                       },
                       "specialty": {
                         "type": "string",
@@ -7731,7 +7896,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": false,
       "title": "Screen an AI member’s question",
     },
-    "description": "Only the selected PM in its internal general conversation; needs no owner request. Settle a question an AI member asked a person, which waits for you in the inbox state screening (the notice lists them). Always give note, the reason or background (the owner and the timeline see it). Outcomes: answered (a fact you found on the card, in the decision log, the roadmap, the code or an earlier owner answer; needs answer, name the source in note; the member is told the answer is yours and may ask a person again), forwarded (answering is another AI member’s part of the work; needs forward_to, an AI member other than the asker and you; that member is woken), moot (the question is obsolete; also works on a question that already went to the people), decision (a person must decide: it opens in the inbox as asked), todo (an owner or external integrator step; needs what, where, expected and recipient: owner or integrator. Independently choose the actual recipient, explain changes in note. Use forwarded for AI teammate work and decision for approvals. The inbox shows Done / Cannot do it). Other fields than the outcome needs are refused (invalid_outcome_fields). After the ten minutes are over the question belongs to the people: question_not_screening, except moot.",
+    "description": "Only the selected PM in its internal general conversation; needs no owner request. Settle a question an AI member asked a person, which waits for you in the inbox state screening (the notice lists them). Always give note, the reason or background (the owner and the timeline see it). Outcomes: answered (a fact you found on the card, in the decision log, the roadmap, the code or an earlier owner answer; needs answer, name the source in note; the member is told the answer is yours and may ask a person again), forwarded (answering is another AI member’s part of the work; needs forward_to, an AI member other than the asker and you; that member is woken), moot (the question is obsolete; also works on a question that already went to the people), decision (a person must decide: it opens in the inbox as asked), todo (an owner or external integrator step; an integrator todo reaches your work queue first, where you may answer an AI member’s technical question yourself; needs what, where, expected and recipient: owner or integrator. Independently choose the actual recipient, explain changes in note. Use forwarded for AI teammate work and decision for approvals. The inbox shows Done / Cannot do it). Other fields than the outcome needs are refused (invalid_outcome_fields). After the ten minutes are over the question belongs to the people: question_not_screening, except moot.",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,
@@ -8510,7 +8675,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": false,
       "title": "Update a task",
     },
-    "description": "Record progress on a task: add or remove labels, add a note, rewrite its title or description (for example a specification with acceptance criteria, or a technical plan), set the repository it works in and/or move it to another stage. The outcome of a review, a test or a client answer is a label from the project's label list (in your instructions: meaning, who may set it). Some labels require a note, and labels only humans may set (approvals) are refused. Stage gates are enforced: a move is refused while a label its gate requires is missing or a blocking label is on the task. One call is all or nothing: labels and the note are recorded before the stage move, and if a label is refused or the gate blocks the move, nothing is recorded. A move that needs a human approval records the rest and waits for the approval. Relations between cards (part of, prerequisite, related, duplicate of) are set with add_relations and removed with remove_relations, in the same call: give the order of work as a prerequisite relation, not as a "Dependencies" text in the description. You cannot mark a card that has started as a duplicate. theme_key puts the card into a theme (an open card of kind theme in this project; null removes it); a card belongs to one theme, a subtask takes the theme of its parent and cannot be given one, and a theme cannot be given one or moved. developer_level (with developer_level_reason) sets the recommended developer of the card.",
+    "description": "Record progress on a task: add or remove labels, add a note, rewrite its title or description (for example a specification with acceptance criteria, or a technical plan), set the repository it works in and/or move it to another stage. The outcome of a review, a test or a client answer is a label from the project's label list (in your instructions: meaning, who may set it). Some labels require a note, and labels only humans may set (approvals) are refused. Stage gates are enforced: a move is refused while a label its gate requires is missing or a blocking label is on the task. One call is all or nothing: labels and the note are recorded before the stage move, and if a label is refused or the gate blocks the move, nothing is recorded. A move that needs a human approval records the rest and waits for the approval. Relations between cards (part of, prerequisite, related, duplicate of) are set with add_relations and removed with remove_relations, in the same call: give the order of work as a prerequisite relation, not as a "Dependencies" text in the description. You cannot mark a card that has started as a duplicate. theme_key puts the card into a theme (an open card of kind theme in this project; null removes it); a card belongs to one theme, a subtask takes the theme of its parent and cannot be given one, and a theme cannot be given one or moved. complexity (with complexity_reason) sets the complexity points of the card.",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,
@@ -8554,23 +8719,28 @@ exports[`team tool definitions > preserves the public tool definitions across mo
           "maxItems": 10,
           "type": "array",
         },
-        "description": {
-          "description": "New description (markdown). It replaces the whole description, so include everything that should stay; read the current one with get_task first, all of it if get_task says it is cut.",
-          "maxLength": 20000,
+        "complexity": {
+          "anyOf": [
+            {
+              "maximum": 9007199254740991,
+              "minimum": -9007199254740991,
+              "type": "integer",
+            },
+            {
+              "type": "null",
+            },
+          ],
+          "description": "Optional complexity points: 1, 2, 3, 5, 8 or 13; null removes the points. 13 is the maximum; split larger cards.",
+        },
+        "complexity_reason": {
+          "description": "Optional reason for the complexity, 1–300 characters; only with a numeric complexity.",
+          "maxLength": 300,
           "minLength": 1,
           "type": "string",
         },
-        "developer_level": {
-          "description": "The recommended developer of the card: senior (a task that suits the Senior; developer_level_reason is required) or any (any developer may take it). Only an owner, or a member who plans tasks or analyses requirements, may set it; it can be changed on a card that has started too, and it does not replace the developer who already carries the card.",
-          "enum": [
-            "senior",
-            "any",
-          ],
-          "type": "string",
-        },
-        "developer_level_reason": {
-          "description": "Why the card is recommended for that developer, at most 300 characters; required with developer_level senior, and only with developer_level.",
-          "maxLength": 300,
+        "description": {
+          "description": "New description (markdown). It replaces the whole description, so include everything that should stay; read the current one with get_task first, all of it if get_task says it is cut.",
+          "maxLength": 20000,
           "minLength": 1,
           "type": "string",
         },

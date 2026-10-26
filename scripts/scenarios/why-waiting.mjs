@@ -2,8 +2,8 @@
  * Scenario for PM-461 (docs/SCREENSHOTS.md): "Miért áll?" on the screen. The owner is the card mover, so a
  * developer's finished step becomes a "Vidd tovább" item. It shoots, at 1512 and 390 px:
  *
- *   a. the board: a card that waits for the busy Senior, a "Rád vár · vidd tovább" card and an approval card
- *   b. the drawer of the Senior-waiting card: the box with three rows, no button
+ *   a. the board: a card waiting for a suitable developer, a "Rád vár · vidd tovább" card and an approval card
+ *   b. the drawer of the card waiting for a suitable developer: three rows, no button
  *   c. the drawer of the hand-on card as the card mover: the box with the four rows and "Tovább: …"
  *   d. the same card as a colleague who is not the card mover: the box without a button
  *   e. the drawer of the approval card: the "Hová lépne" row
@@ -28,8 +28,8 @@ export default async ({ instance, open, shoot, step, log }) => {
   const developers = members.filter((member) => member.kind === 'ai' && member.role === 'developer');
   // Only the fake Claude runs the scripted calls ("CALLS"): the developer who finishes the step is one of its members.
   const developer = developers.find((member) => (member.provider ?? 'claude') === 'claude');
-  const senior = developers.find((member) => member !== developer);
-  if (!developer || !senior)
+  const suitable = developers.find((member) => member !== developer);
+  if (!developer || !suitable)
     throw new Error('The demo project needs two AI developers, one of them on Claude.');
   const owner = members.find((member) => member.kind === 'human').handle;
   const stages = config.pipeline.stages;
@@ -72,9 +72,9 @@ export default async ({ instance, open, shoot, step, log }) => {
       },
     },
   });
-  await instance.api(`/api/projects/AC/members/${senior.handle}`, {
+  await instance.api(`/api/projects/AC/members/${suitable.handle}`, {
     method: 'PATCH',
-    body: { senior: true },
+    body: { complexityLimit: 13 },
   });
 
   const card = async (title) =>
@@ -85,14 +85,14 @@ export default async ({ instance, open, shoot, step, log }) => {
       })
     ).key;
 
-  // 1. The Senior is busy, so a Senior card that is started waits for them (the capacity wait).
+  // 1. The only developer whose limit reaches 8 points is busy (the capacity wait).
   const busy = await card('Migrate the order history');
-  const busySession = await instance.startSession('AC', busy, senior.handle);
+  const busySession = await instance.startSession('AC', busy, suitable.handle);
   await instance.waitIdle('AC', busySession);
   const capacity = await card('Add tiered shipping rates');
   await instance.api(`/api/projects/AC/tasks/${capacity}`, {
     method: 'PATCH',
-    body: { developerLevel: { level: 'senior', reason: REASON } },
+    body: { complexity: { points: 8, reason: REASON } },
   });
   await instance.api(`/api/projects/AC/tasks/${capacity}/start`, { method: 'POST', body: {} });
 
@@ -126,7 +126,9 @@ export default async ({ instance, open, shoot, step, log }) => {
     method: 'POST',
     body: { add: ['code-review-ok'] },
   });
-  log(`cards: ${capacity} waits for the Senior, ${handOn} asks ${owner}, ${approval} waits for an approval`);
+  log(
+    `cards: ${capacity} waits for a suitable developer, ${handOn} asks ${owner}, ${approval} waits for an approval`,
+  );
 
   const colleague = await instance.invite({
     project: 'AC',
@@ -143,7 +145,7 @@ export default async ({ instance, open, shoot, step, log }) => {
     await shoot(page, 'a-board', { widths: WIDTHS });
   });
 
-  await step('b. the card that waits for the Senior', async () => {
+  await step('b. the card that waits for a suitable developer', async () => {
     const page = await open({ path: `/p/AC/tasks/${capacity}` });
     await box(page).waitFor();
     await shoot(page, 'b-capacity', { widths: WIDTHS });

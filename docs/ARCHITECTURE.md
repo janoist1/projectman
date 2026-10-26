@@ -435,19 +435,26 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   through (the label set, or `ui` removed). A move, a cancel or an assignment ends the wait like
   for the other work starts. Only a person's start (`StartTaskOptions.startSetters`, set by the
   route) starts setters.
-  **The Senior card** (PM-348, decisions K2 and K3 of PM-338): the automatic developer choice is
-  `pickDeveloper` in `packages/shared` (a Senior card to a free Senior; any other card to the least
-  loaded free member, a Senior last; a Senior card never to a temp worker). While every Senior is busy
-  or away, `startLocked` leaves the card in the work stage unassigned and the start waits as a
-  `work_start` deferral (`startWaiting.reason` `senior_busy`, with `seniors`); a person's Start gets a
-  normal response with that wait. `SeniorWaits` (`admission/senior-waits.ts`, table `senior_waits`, one
-  open row per card) keeps when the wait began, the question and the answer over a restart. After
-  `seniorWaitMinutes` (30) the 60 s sweep asks the owners once (an inbox decision, `wait_for_senior` or
-  `any_developer`); "any" lets a free developer take it, never a temp worker. A freed Senior takes the
-  card first (`retryDeferred` tries `senior_busy` deferrals first) and the question closes
-  (`senior_took`); an assignment, move, closure, level change or the end of the team's Senior closes it
-  (`senior_wait_ended`). A team without a Senior starts the card by the "any" rule (`no_senior` event).
-  No machine-dependent part is affected.
+  **The complexity limit** (PM-1007, replaces the Senior mark of PM-348): the automatic developer
+  choice is `chooseDeveloper` in `packages/shared`. A card's points (`Task.complexity`, PM-1006) are
+  compared with each developer's `complexityLimit` (a temp worker's is always 5). Among the free
+  developers whose limit reaches the points the one with the smallest limit wins (then the least
+  loaded, then the team order), so a small card does not take the strongest developer; an unscored
+  card goes the same way among all free developers. While every developer who reaches the points is
+  busy or away, `startLocked` leaves the card in the work stage unassigned and the start waits as a
+  `work_start` deferral (`startWaiting.reason` `senior_busy`, with `seniors`: the handles whose limit
+  reaches the points); a person's Start gets a normal response with that wait. A card of up to 5
+  points may go to a temp worker instead of waiting. `SeniorWaits` (`admission/senior-waits.ts`, table
+  `senior_waits`, one open row per card) keeps when the wait began, the question and the answer over a
+  restart. After `seniorWaitMinutes` (30) the 60 s sweep asks the owners once (an inbox decision,
+  `wait_for_senior` or `any_developer`); "any" lets the free non-temp developer with the largest limit
+  take it. A freed developer who reaches the points takes the card first (`retryDeferred` tries
+  `senior_busy` deferrals first) and the question closes (`senior_took`); an assignment, move,
+  closure, a change of the card's points (`task_complexity_changed`) or of the team's limits closes it
+  (`senior_wait_ended`). When no developer's limit reaches the points the card starts by the "any"
+  rule (`no_senior` event). The names `senior_*`, `seniors` and `wait_for_senior` are kept because
+  stored rows and events carry them. A config migration turns the old `senior` mark into limit 13 and
+  a DB migration turns a "senior" recommendation into 8 points. No machine-dependent part is affected.
 - **Stage hand-over** — when a task enters a later stage owned by AI members, by anyone's
   move, the least loaded free owner (never the task's assignee) gets a session for the task.
   An owner that already has a session for the task gets a notice instead. A card sent back into the
@@ -940,9 +947,11 @@ Every AI member has one durable queue of what is waiting for them: a message, an
   remember it. A message gets an item for each AI recipient it is pending for (a receipt without `deliveredAt`; the
   `team_message_pending` table is gone since migration 99); the item closes
   `done`/`delivered` on delivery and `cancelled`/`source_closed` when the receipt is settled any other way. An open
-  inbox item that is addressed to the integrator (`isIntegratorInboxItem`: a todo or the narrow fix limit decision)
-  gets an Operator item with `wake: true`; it closes `done`/`resolved` when the integrator answered, else
-  `cancelled`/`source_closed` (escalation to the owner included). Both reconcilers are idempotent and a failure is
+  inbox item still owed by the Operator (`operatorOwesInboxItem`: an integrator todo or narrow fix limit decision
+  without `operatorHandoff`) gets an Operator item with `wake: true`; it closes `done`/`resolved` when the integrator
+  answered, or with the Operator's planned outcome when handed off, else `cancelled`/`source_closed`.
+  A handoff to the super side keeps integrator addressing and sets `operatorHandoff`, so reconciliation closes
+  the Operator row and never queues the item again (PM-1003). Both reconcilers are idempotent and a failure is
   logged and never changes what the source write does.
 - **Invariant**: the open message items are exactly the messages pending for an AI recipient. `recover()` runs at
   startup (after `messageAttachments.recover()`) and fills in what is missing or closes what is stale; running it again
@@ -971,6 +980,16 @@ Every AI member has one durable queue of what is waiting for them: a message, an
   `engine_offline` as the item's wait, and the sweep starts it when the engine is back.
 
 ## Durable super-mode handoff (PM-762, part of the super mode PM-757)
+
+The Operator's queue handoffs (PM-1003) use the existing integrator inbox: `no_grant`, `no_typed_operation`
+and `processing_failed` leave machine work there, with `payload.operatorHandoff` describing the action and
+context. The super client lists it through `list_integrator_inbox` and resolves it through
+`resolve_integrator_todo` or `resolve_integrator_fix_limit` (MCP, including the CLI proxy). With no super
+client running, it waits; held cards remain held. Operator leave or AI being off does not send this work to
+the owner (`integratorSideAvailable` checks only that an Operator exists). Only `owner_reserved` goes to
+the owner, using the operation's existing question when available. The queue outcome records
+`handoff.to` (`super` or `owner`; missing on old rows means owner). The web shows a short outcome, without
+an owner inbox link for super work; no extra owner notification or badge is created.
 
 `request_super_operation` (the base Operator, in its own general conversation during an open owner request;
 retired by PM-888, whose `execute_operation` runs the command directly, see "In-app Operator on the shared path"
@@ -2451,6 +2470,11 @@ workers follow the machine's size.
   `cloud.env` (read in `index.ts` only); the CLI runs on the owner's POSIX administration machine with AWS CLI
   v2 profiles and the Cloudflare DNS token, like the SES provisioning entry. **Does this work on a remote
   engine?** Yes: the reader runs on the hub only; an engine gets no queue, no key and no protocol change.
+  **Member addresses (PM-989):** the same receipt rule also takes mail to `<mailbox>@<reply domain>`, the
+  permanent address of an AI member (`services/email-channel/inbound.ts`, `receiveDirect`; the mailbox name
+  is the handle or `ai.email.mailbox`, unique server-wide). The mail lands in the member's conversation as a
+  team message, and its attachments go through the message-attachments storage on the hub, so nothing new
+  crosses to an engine.
 
 - **Feedback widget public entrance and screenshot store (PM-506, PM-508)** —
   `apps/server/src/services/feedback/{service,screenshots,notices,widget}.ts`, `apps/server/src/api/feedback.ts`,
@@ -2712,9 +2736,10 @@ workers follow the machine's size.
     `engine_offline` (`releaseForEngine`, `retryDeferredStarts`). Real Mac, sleep and network
     trials belong to PM-664.
     Integrator todo handoff (PM-782, `core/inbox/inbox.ts`, assembly maintenance) has no clock since
-    PM-885 and PM-938: an Operator todo goes to the owners when the Operator passes it on
-    (`integrator_passed_on`) or does not work its queue (`integrator_unavailable`, swept by
-    `sweepIntegratorTodos` whatever the engine or AI state). The hub alone persists and publishes the handoff;
+    PM-885 and PM-938: since PM-1003, machine work handed off by the Operator stays in the integrator inbox;
+    only owner-reserved work is passed to the owners (`integrator_passed_on`). The sweep gives integrator
+    work to the owners only when no Operator exists (`integrator_unavailable`); on leave or with AI off it
+    waits for the Operator or super side. The hub alone persists and publishes the handoff;
     no engine operation or credential crosses the boundary. PM-801 puts the integrator's fix-limit
     decisions on the same sweep (`planIntegratorInboxEscalation`): hub-side only.
     PM-712 applies the same server-owned queue and receipt pattern to suspected loops:
@@ -4602,10 +4627,10 @@ later parts of PM-427 (the order of deferred starts, the AI members' brief, the 
   place. A candidate is an active card, not a theme or a collector with any subtasks (closed ones included, PM-818), with no assignee,
   no open prerequisite, no start block
   (`startBlock`, so no `waiting-answer`) and nothing more asked by the gates on the way: a card that would need
-  `approvals` is left out, so a pull never requests one. The developer is picked as for any start (`pickDeveloper`: a
-  Senior card waits for a Senior, never goes to another developer) among the AI owners of the work stage who are not
+  `approvals` is left out, so a pull never requests one. The developer is picked as for any start (`chooseDeveloper`: a card
+  whose points exceed a developer's limit never goes to that developer) among the AI owners of the work stage who are not
   temp workers, not on leave, have capacity and are not waited for by a stored deferral (that one goes first, a
-  `senior_busy` wait waits for its Seniors). One card per developer per round; nothing is pulled while AI work is off or
+  `senior_busy` wait waits for the developers whose limit reaches its points). One card per developer per round; nothing is pulled while AI work is off or
   the project or the instance is paused, and no temp worker is hired. `WorkStarts.pull` takes the admission lock per
   card and starts it like a deferred start (`startLocked` in the system's name, `automatic`, `StartTaskOptions.pulled`
   into the stage change), so the Start button and a pull on the same card make one start; a failure after the

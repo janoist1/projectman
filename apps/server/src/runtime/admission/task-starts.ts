@@ -8,20 +8,22 @@ import {
   aiLabelSetters,
   canAutomaticallyStartTask,
   coordinationActorRefusal,
+  chooseDeveloper,
+  complexityLimitOf,
+  complexityOf,
   DEFAULT_AGENT_PROVIDER,
-  developerLevelOf,
   evaluateStart,
+  humanStageOwner,
   isOnLeave,
   isOpenTask,
-  isSenior,
   isTheme,
   isOperatorActor,
   isSuperOperatorActor,
   memberOf,
-  pickDeveloper,
   projectRefines,
+  reachingDevelopers,
   roleBundle,
-  seniorsOf,
+  stageDevelopers,
   stageIndex,
   stageOwners,
   startBlock,
@@ -222,7 +224,9 @@ export class TaskStarts implements WorkEntryCheck {
   assertMemberFree(config: ProjectConfig, task: Task, target: Stage): void {
     const chosen = this.chooseMember(config, task, target, undefined, []);
     if (chosen.kind === 'senior_busy')
-      throw conflict('senior_busy', `task ${task.key} waits for a Senior`, { seniors: chosen.seniors });
+      throw conflict('senior_busy', `task ${task.key} waits for a developer whose limit reaches its points`, {
+        seniors: chosen.seniors,
+      });
     if (!chosen.member && !this.mayHireTempWorker(config, target, chosen.tempAllowed))
       throw conflict('no_free_member', 'every developer is at capacity');
   }
@@ -346,7 +350,7 @@ export class TaskStarts implements WorkEntryCheck {
       !!this.fixLimit?.humanStart(task, opts.actor);
     if (task.assignee !== member.handle) {
       // Said before the assignment, which ends a wait for a Senior as "assigned".
-      if (chosen.noSenior) this.seniorWaits.noSenior(task);
+      if (chosen.noneReaches) this.seniorWaits.noSenior(task);
       task = this.tasks.assign(projectKey, taskKey, member.handle, opts.actor, { handoff: 'auto_assign' });
       opts.onAssigned?.(member.handle);
     }
@@ -412,7 +416,8 @@ export class TaskStarts implements WorkEntryCheck {
   }
 
   /**
-   * A card recommended for the Senior while every Senior is busy or away (PM-348): nobody is chosen,
+   * A card whose points only some developers' limit reaches, while all of them are busy or away
+   * (PM-348, PM-1001): nobody is chosen,
    * hired or assigned. The gates hold as for any start, admission checks only what needs no member
    * (`checkWait`), and a card still in an earlier stage moves into the work stage without an assignee.
    * The automatic start then opens the wait and is refused with `senior_busy`, which it waits for; a
@@ -442,7 +447,10 @@ export class TaskStarts implements WorkEntryCheck {
     const waitDecidedBy = decision?.decision === 'wait' ? decision.by : undefined;
     if (opts.automatic) {
       this.seniorWaits.open(task, seniors);
-      throw conflict('senior_busy', `task ${task.key} waits for a Senior`, { seniors, waitDecidedBy });
+      throw conflict('senior_busy', `task ${task.key} waits for a developer whose limit reaches its points`, {
+        seniors,
+        waitDecidedBy,
+      });
     }
     this.seniorWait?.awaitSenior({
       projectKey,
@@ -577,12 +585,12 @@ export class TaskStarts implements WorkEntryCheck {
 
   /**
    * The explicit assignee (an owner of the work stage), else the current assignee if it owns
-   * the stage, else the automatic choice (`pickDeveloper`, PM-348) among the free AI owners not on
-   * leave: a Senior card goes to a free Senior, or waits for one (`senior_busy`); any other card to the
-   * least loaded free member, a Senior last; else a human owner; null when nobody is free (a temp
+   * the stage, else the automatic choice (`chooseDeveloper`, PM-348, PM-1001) among the free AI owners
+   * not on leave: a scored card goes to the free developer with the smallest limit that reaches its
+   * points, or waits for one (`senior_busy`); else a human owner; null when nobody is free (a temp
    * worker is hired, if `tempAllowed`). An explicit or current assignee on leave is refused by
-   * admission (`member_on_leave`) rather than replaced. `noSenior`: a Senior card went by the "any"
-   * rule because the work stage has no Senior.
+   * admission (`member_on_leave`) rather than replaced. `noneReaches`: a scored card went by the
+   * "any" rule because no developer's limit of the work stage reaches its points.
    */
   private chooseMember(
     config: ProjectConfig,
@@ -591,14 +599,14 @@ export class TaskStarts implements WorkEntryCheck {
     assignee: string | undefined,
     exclude: string[],
   ):
-    | { kind: 'member'; member: MemberConfig | null; tempAllowed: boolean; noSenior: boolean }
+    | { kind: 'member'; member: MemberConfig | null; tempAllowed: boolean; noneReaches: boolean }
     | { kind: 'senior_busy'; seniors: string[] } {
     const projectKey = config.project.key;
     const eligible = stageOwners(config, stage).filter(
       (handle) => assignee === handle || !exclude.includes(handle),
     );
     const given = (member: MemberConfig) =>
-      ({ kind: 'member', member, tempAllowed: true, noSenior: false }) as const;
+      ({ kind: 'member', member, tempAllowed: true, noneReaches: false }) as const;
     if (assignee) {
       const member = memberOf(config, assignee);
       if (!member) throw notFound('member', assignee);
@@ -627,30 +635,36 @@ export class TaskStarts implements WorkEntryCheck {
       )
       .map((c) => ({
         handle: c.m.handle,
-        senior: isSenior(c.m),
+        limit: complexityLimitOf(c.m),
         temp: !!c.m.temp,
         load: c.load,
         index: c.index,
       }));
-    const level = developerLevelOf(task);
-    const seniors = seniorsOf(config, stage)
-      .map((senior) => senior.handle)
-      .filter((handle) => eligible.includes(handle));
-    const pick = pickDeveloper({
-      level,
+    const points = complexityOf(task);
+    const reaching = reachingDevelopers(
+      stageDevelopers(config, stage).filter((developer) => eligible.includes(developer.handle)),
+      points,
+    );
+    const pick = chooseDeveloper({
+      points,
       anyDecided: this.seniorWaits.decisionFor(projectKey, task.key)?.decision === 'any',
-      seniors,
+      reaching,
       free,
     });
     if (pick.kind === 'senior_busy') return pick;
-    const noSenior = level === 'senior' && seniors.length === 0;
+    const noneReaches = points !== null && reaching.length === 0;
     if (pick.kind === 'member')
-      return { kind: 'member', member: memberOf(config, pick.handle) ?? null, tempAllowed: true, noSenior };
+      return {
+        kind: 'member',
+        member: memberOf(config, pick.handle) ?? null,
+        tempAllowed: true,
+        noneReaches,
+      };
     return {
       kind: 'member',
-      member: config.team.members.find((m) => m.kind === 'human' && eligible.includes(m.handle)) ?? null,
+      member: humanStageOwner(config, eligible),
       tempAllowed: pick.tempAllowed,
-      noSenior,
+      noneReaches,
     };
   }
 }

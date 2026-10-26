@@ -6,7 +6,7 @@ import type {
   TimelineEvent,
   TimelineEventType,
 } from '@projectman/shared';
-import { BUILT_IN_ROLE_DUTIES, DEFAULT_OPERATOR_PREFERENCE } from '@projectman/shared';
+import { BUILT_IN_ROLE_DUTIES, DEFAULT_OPERATOR_PREFERENCE, TaskComplexity } from '@projectman/shared';
 import { TeamToolError, type TeamToolsHandler, type ToolContext, type MemberAudience } from '../contracts';
 
 export const operatorAudience: MemberAudience = {
@@ -560,7 +560,16 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       await enter('listTasks', ctx, args);
       return [...tasks.values()].map(({ task }) => {
         const { key, title, stageId, status, assignee, labels, updatedAt } = task;
-        return { key, title, stageId, status, assignee, labels, updatedAt };
+        return {
+          key,
+          title,
+          stageId,
+          status,
+          assignee,
+          labels,
+          updatedAt,
+          ...(task.complexity ? { complexity: task.complexity.points } : {}),
+        };
       });
     },
 
@@ -662,21 +671,23 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       }
       detail.task = {
         ...detail.task,
+        ...(args.complexity
+          ? {
+              complexity:
+                args.complexity.points === null
+                  ? undefined
+                  : TaskComplexity.parse({
+                      ...args.complexity,
+                      setBy: ctx.member,
+                      setAt: '2026-09-28T08:00:00.000Z',
+                    }),
+            }
+          : {}),
         title: args.title ?? detail.task.title,
         description: args.description ?? detail.task.description,
         repo: args.repo !== undefined ? args.repo : detail.task.repo,
         labels,
         stageId: args.stageId ?? detail.task.stageId,
-        ...(args.developerLevel
-          ? {
-              developerLevel: {
-                level: args.developerLevel.level,
-                reason: args.developerLevel.reason || null,
-                setBy: ctx.member,
-                setAt: '2026-09-28T08:00:00.000Z',
-              },
-            }
-          : {}),
       };
       return { task: detail.task };
     },
@@ -688,6 +699,15 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
         pullRequests: [],
         task: {
           ...initial.task,
+          ...(args.complexity?.points != null
+            ? {
+                complexity: TaskComplexity.parse({
+                  ...args.complexity,
+                  setBy: ctx.member,
+                  setAt: '2026-09-28T08:00:00.000Z',
+                }),
+              }
+            : {}),
           id: `task_${key}`,
           key,
           title: args.title,
@@ -699,16 +719,6 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
           labels: args.labels ?? [],
           links: [],
           createdBy: ctx.member,
-          ...(args.developerLevel
-            ? {
-                developerLevel: {
-                  level: args.developerLevel.level,
-                  reason: args.developerLevel.reason || null,
-                  setBy: ctx.member,
-                  setAt: '2026-09-28T08:00:00.000Z',
-                },
-              }
-            : {}),
         },
         timeline: [],
         sessions: [],

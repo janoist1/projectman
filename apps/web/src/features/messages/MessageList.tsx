@@ -110,7 +110,24 @@ export function MessageList({
                   {formatStamp(message.createdAt)}
                 </time>
               </div>
-              {message.body.trim() ? <p className={styles.body}>{message.body}</p> : null}
+              {message.email || message.body.trim() ? (
+                <p className={styles.body}>
+                  {message.email ? (
+                    <>
+                      <span className={styles.emailMark} title={t('messages.email.received')}>
+                        <Icon name="mail" size={12} strokeWidth={2} /> {t('messages.email.short')}
+                      </span>{' '}
+                      {message.email.subject ? (
+                        <>
+                          <strong>{message.email.subject}</strong>
+                          {message.body.trim() ? ' · ' : null}
+                        </>
+                      ) : null}
+                    </>
+                  ) : null}
+                  {message.body}
+                </p>
+              ) : null}
               {message.attachments?.length ? (
                 <p className={styles.body}>
                   <Icon name="paperclip" size={12} /> {attachmentPreview(message)}

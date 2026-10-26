@@ -245,19 +245,19 @@ The scenario replaces the old Senior scenario with PM-1001's a–k review list. 
 with browser-only fixtures for a refused save, a temp member view and a historical recommendation event.
 The last scene waits for the real five-minute timeout and the server's minute sweep.
 
-| Images                                | What to inspect                                                       |
-| ------------------------------------- | --------------------------------------------------------------------- |
-| `a-board`, `a-compact-board`          | Scored and unscored cards, including compact cards behind the drawer. |
-| `b-architect`, `b-developer`          | Editable and read-only complexity rows.                               |
-| `c-editor-13`, `c-editor-error`       | Seven accessible choices, optional reason, retained error state.      |
-| `d-none-reach`, `d-none-reach-editor` | Fallback explanation and Team link.                                   |
-| `e-start`, `e-confirm`                | Start threshold, developer limits and manual override warning.        |
-| `f-assignment`                        | Nonblocking status warning below the assignee select.                 |
-| `g-team`                              | Limits 13, 5, 3 and a temp developer.                                 |
-| `h-developer`, `h-temp`, `h-qa`       | Editable limit, fixed temp limit, no field for QA.                    |
-| `i-inbox`                             | The real wait question with points, reason and both choices.          |
-| `j-limits`                            | Suitable-developer timeout setting and explanation.                   |
-| `k-timeline`                          | New point changes alongside a historical recommendation event.        |
+| Images                                  | What to inspect                                                                                                                               |
+| --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `a-board`, `a-compact-board`            | Scored and unscored cards, including compact cards behind the drawer.                                                                         |
+| `b-architect`, `b-developer`            | Editable and read-only complexity rows.                                                                                                       |
+| `c-editor-13`, `c-editor-error`         | Seven accessible choices, optional reason, retained error state.                                                                              |
+| `d-none-reach`, `d-none-reach-editor`   | Fallback explanation and Team link.                                                                                                           |
+| `e-start`, `e-confirm`                  | Start threshold, developer limits and manual override warning.                                                                                |
+| `f-assignment`                          | Nonblocking status warning below the assignee select.                                                                                         |
+| `g-team`, `g-team-lower`, `g-team-full` | Limits 13, 5, 3 and a temp developer. The full-page image expands the scroll container and hides the fixed phone tab bar to reveal every row. |
+| `h-developer`, `h-temp`, `h-qa`         | Editable limit, fixed temp limit, no field for QA.                                                                                            |
+| `i-inbox`                               | The real wait question with points, reason and both choices.                                                                                  |
+| `j-limits`                              | Suitable-developer timeout setting and explanation.                                                                                           |
+| `k-timeline`                            | New point changes alongside a historical recommendation event.                                                                                |
 
 Also run `scripts/scenarios/why-waiting.mjs` at 1512 and 390 px for the precise waiting explanation.
 

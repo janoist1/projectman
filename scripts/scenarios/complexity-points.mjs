@@ -163,6 +163,14 @@ export default async ({ instance, open, shoot, step, log }) => {
     await page.reload();
     await page.getByText('demo-temp', { exact: true }).first().waitFor();
     await capture(page, 'g-team');
+    await capture(page, 'g-team-lower', `a[href="/p/AC/team/${large.handle}"]`);
+    // Expand the app's scroll container for the inventory; keep the fixed tab bar off the content.
+    const expanded = await page.addStyleTag({
+      content:
+        'html, body, #root { height: auto !important; overflow: visible !important; } main { overflow: visible !important; } nav[class*="_tabbar_"] { visibility: hidden !important; }',
+    });
+    await capture(page, 'g-team-full');
+    await expanded.evaluate((node) => node.remove());
   });
   await step('h. member dialogs', async () => {
     const members = await instance.api('/api/projects/AC/members');

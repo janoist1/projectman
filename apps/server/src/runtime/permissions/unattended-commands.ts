@@ -55,6 +55,8 @@ interface UnattendedCommandsInput {
    * for a human.
    */
   codex?: boolean;
+  /** Omit command examples from the restriction index, keeping all restrictions. */
+  brief?: boolean;
 }
 
 /**
@@ -126,8 +128,13 @@ export function describeSandbox(input: {
     return [
       "Claude Code's sandbox allows commands without special forms or approval; refusals are final, never retry around them.",
       (sandbox.denyWrite ?? []).includes(cwd)
-        ? 'The working directory is read-only; write only to the permitted temp and session folders.'
+        ? 'The working directory is read-only; send caches/output to `$TMPDIR` or the session folder; load Vite/Vitest with `--configLoader runner`.'
         : 'Write only within session policy/sandbox roots and commit on your task branch; shared git refs and configuration stay closed.',
+      ...(sandbox.env?.[SESSION_DIR_VARIABLE]
+        ? [
+            `Session folder: ${code(sandbox.env[SESSION_DIR_VARIABLE]!)} (${code(`$${SESSION_DIR_VARIABLE}`)}); put screenshots and files to attach here; attach_file takes absolute paths; attach before session stop deletes the folder.`,
+          ]
+        : []),
       'Keep cache, development-data and test environment variables set; credentials and live data stay closed.',
       ...(localOnly ? ['Local-only repository: no `git push`, `gh pr create` or `gh pr merge`.'] : []),
       'Read get_guide with topic `sandbox` for roots, network, gh exceptions, here-documents, browsers and heavy queue; ask_human for other required actions.',
@@ -274,10 +281,10 @@ export function describeUnattendedCommands(input: UnattendedCommandsInput): stri
     `- Chaining: ${code('&&')}, ${code('||')} and ${code(';')} between commands, ${code('|')} between the stages of a pipeline, all on one line (a newline between commands is refused). Redirections: only ${SHELL_REDIRECTIONS.map(code).join(', ')}.`,
     `- Quotes: put a pattern or a message in single quotes, which are literal: ${code("grep -n 'task\\.(edit|save)' src")}. Double quotes work too, but a ${code('$')} or a backtick inside them refuses the command, and a backslash there escapes only ${code('$')}, a backtick, ${code('"')} and ${code('\\')}. A text with an apostrophe goes in double quotes.`,
     `- Paths: relative or absolute, but inside the directories above; no ${code('~')}, no ${code('..')} behind a directory name. ${code('cd')} only into such a directory; ${code('git -C <dir>')} only when the directory is the one you are in. When a chain changes directory, join its parts with ${code('&&')}, not ${code(';')} or ${code('||')}: otherwise the server checks later relative paths from every possible directory, since an earlier ${code('cd')} may have failed or been skipped. For example, ${code('cd apps/server && npx vitest run test/member-instructions.test.ts 2>&1 | tail -15; cd ../web && npx vitest run src/features/team 2>&1 | tail -15')} waits for a human; ${code('cd apps/server && npx vitest run test/member-instructions.test.ts 2>&1 | tail -15 && cd ../web && npx vitest run src/features/team 2>&1 | tail -15')} runs without asking.`,
-    `- ${codex ? 'Never without asking, as an escalation' : 'Never without asking'}: interpreters and shells (${code('python')}, ${code('node')}, ${code('perl')}, ${code('sed')}, ${code('bash -c')}), shell variables and substitution (${code('$VAR')}, ${code('$(...)')}, backticks), ${code('{a,b}')} braces, ${code('~')}, ${code('!')}, a single ${code('&')}, here-documents and any redirection into a file (${code('>')}, ${code('>>')}, ${code('<')}). Change files with your file-editing tools, not through the shell.`,
+    `- ${codex ? 'Never without asking, as an escalation' : 'Never without asking'}: interpreters/shells${input.brief ? '' : ` (${['python', 'node', 'perl', 'sed', 'bash -c'].map(code).join(', ')})`}, variables/substitution${input.brief ? '' : ` (${code('$VAR')}, ${code('$(...)')}, backticks)`}, ${['{a,b}', '~', '!', '&'].map(code).join(', ')}, here-documents, file redirection; use file tools.`,
   );
   lines.push(
-    `- Refused without asking anyone: a command that rewrites a file in place (${code('sed -i')}, ${code('sed --in-place')}, ${code('perl -i')}, ${code('perl -pi -e ...')}), alone or in a chain. It is answered at once with a pointer to your ${code('Edit')} and ${code('Write')} tools, which need no permission: use them.`,
+    `- Refused without asking anyone: in-place shell edits (${(input.brief ? ['sed -i', 'perl -i'] : ['sed -i', 'sed --in-place', 'perl -i', 'perl -pi -e ...']).map(code).join(', ')}).`,
   );
   if (localOnly) {
     lines.push(

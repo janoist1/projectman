@@ -72,7 +72,13 @@ describe('context preview sections', () => {
         'session_folder',
         ...(provider === undefined || provider === 'claude' ? ['commands'] : []),
       ];
-      expect(preview.sections).toEqual(launch.sections.filter((section) => !deferred.includes(section.id)));
+      expect(preview.sections.filter((section) => section.id !== 'untested_checks')).toEqual(
+        launch.sections.filter((section) => !deferred.includes(section.id)),
+      );
+      if (provider === undefined || provider === 'claude') {
+        const checks = preview.sections.find((section) => section.id === 'untested_checks')!.text;
+        expect(launch.sections.find((section) => section.id === 'commands')!.text).toContain(checks);
+      }
       expect(preview.appendSystemPrompt).toBe(preview.sections.map((section) => section.text).join('\n\n'));
       expect(launch.appendSystemPrompt).toBe(launch.sections.map((section) => section.text).join('\n\n'));
       const guides = { ...launch.guide };
@@ -3503,6 +3509,8 @@ describe("the CLI's own sandbox (PM-167)", () => {
     );
     const text = section(pack.appendSystemPrompt, '# Your sandbox');
     expect(text).toContain('read-only');
+    expect(text).toContain('$TMPDIR');
+    expect(text).toContain('--configLoader runner');
     expect(text).toContain('get_guide with topic `sandbox`');
     expect(text).not.toContain('/work/acme');
     expect(pack.guide.sandbox).toContain('/work/acme');
@@ -3673,7 +3681,7 @@ describe("the CLI's own sandbox (PM-167)", () => {
     expect(prompt).not.toContain('Browsers:');
   });
 
-  it('does not give a Claude developer the Codex folder section', () => {
+  it('keeps the Claude attachment folder in the short sandbox section', () => {
     const developerPolicy = buildSessionPolicy({
       config: project,
       role: 'developer',
@@ -3692,6 +3700,12 @@ describe("the CLI's own sandbox (PM-167)", () => {
     ).appendSystemPrompt;
     expect(prompt).not.toContain('# Your session folder');
     expect(section(prompt, '# Your sandbox')).toContain('session policy');
+    const text = section(prompt, '# Your sandbox');
+    expect(text).toContain('/tmp/s/ses_1.0123');
+    expect(text).toContain('$PROJECTMAN_SESSION_DIR');
+    expect(text).toContain('attach_file');
+    expect(text).toContain('attach before session stop');
+    expect(text.length).toBeLessThan(1300);
   });
 });
 

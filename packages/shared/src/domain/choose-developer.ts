@@ -1,6 +1,6 @@
 import { stageOwners } from '../config/duties';
 import { complexityLimitOf } from '../config/complexity';
-import type { AiMemberConfig, ProjectConfig } from '../config/schema';
+import type { AiMemberConfig, HumanMemberConfig, ProjectConfig } from '../config/schema';
 import type { ComplexityPoints } from './complexity';
 import type { Stage } from './pipeline';
 import type { Task } from './task';
@@ -46,6 +46,18 @@ export function stageDevelopers(config: Pick<ProjectConfig, 'team'>, stage: Stag
   return config.team.members
     .filter((m): m is AiMemberConfig => m.kind === 'ai' && owners.has(m.handle) && !m.temp)
     .map((m) => ({ handle: m.handle, limit: complexityLimitOf(m) }));
+}
+
+/** The first eligible human in team order, used when no AI developer can be chosen. */
+export function humanStageOwner(
+  config: Pick<ProjectConfig, 'team'>,
+  eligible: readonly string[],
+): HumanMemberConfig | null {
+  return (
+    config.team.members.find(
+      (member): member is HumanMemberConfig => member.kind === 'human' && eligible.includes(member.handle),
+    ) ?? null
+  );
 }
 
 /** The handles whose limit reaches the points; none when the card is not scored. */

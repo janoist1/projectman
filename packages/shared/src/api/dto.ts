@@ -1,7 +1,6 @@
 import { z } from 'zod';
 
 import { BoardPlacement } from '../domain/board-order';
-import { DEVELOPER_LEVEL_REASON_MAX, DeveloperLevel } from '../domain/developer-level';
 import { ComplexityPoints, COMPLEXITY_REASON_MAX } from '../domain/complexity';
 import { DutyId } from '../domain/duty';
 import { ChatItem } from '../chat/chat';
@@ -646,12 +645,6 @@ export const MemberView = z.object({
    * a test fake) is read as on.
    */
   outboundNetwork: z.boolean().optional(),
-  /**
-   * @deprecated The server no longer fills it in (PM-1007); use `complexityLimit`. Removed with PM-1008.
-   * The team's Senior (PM-347, `isSenior`): an AI member marked so, and not a temp worker. The server
-   * always fills it in; a missing value (an older server, a test fake) is `false`.
-   */
-  senior: z.boolean().optional(),
 });
 export type MemberView = z.infer<typeof MemberView>;
 
@@ -715,8 +708,6 @@ export const UpdateMemberRequest = z.object({
   schedule: MemberSchedule.nullable().optional(),
   /** AI only; true sends the member on leave, false calls it back. */
   onLeave: z.boolean().optional(),
-  /** @deprecated The server ignores it (PM-1007); use `complexityLimit`. AI only (PM-347): marks the team's Senior. */
-  senior: z.boolean().optional(),
   /** AI only; the member's own instructions (English prompt text); an empty string clears them. */
   instructions: z.string().optional(),
   /** AI only, owners only: the CLI permission mode (not `bypassPermissions`). */
@@ -1084,17 +1075,6 @@ export const TaskDetail = z.object({
 });
 export type TaskDetail = z.infer<typeof TaskDetail>;
 
-/**
- * @deprecated Replaced by `ComplexityRequest` (PM-1001); removed with PM-1008.
- * The recommended developer in a request (PM-347). The reason is required for `senior` (checked by the
- * server: `developer_level_reason_required`); an empty one counts as none.
- */
-export const DeveloperLevelRequest = z.object({
-  level: DeveloperLevel,
-  reason: z.string().trim().max(DEVELOPER_LEVEL_REASON_MAX).nullable().optional(),
-});
-export type DeveloperLevelRequest = z.infer<typeof DeveloperLevelRequest>;
-
 export const ComplexityRequest = z.object({
   points: z.number().int().nullable(),
   reason: z.string().max(COMPLEXITY_REASON_MAX).nullable().optional(),
@@ -1103,8 +1083,6 @@ export type ComplexityRequest = z.infer<typeof ComplexityRequest>;
 
 export const CreateTaskRequest = z.object({
   complexity: ComplexityRequest.optional(),
-  /** @deprecated The server ignores it (PM-1007); send `complexity`. Removed with PM-1008. */
-  developerLevel: DeveloperLevelRequest.optional(),
   parentKey: TaskKey.optional(),
   importedAt: z.string().datetime().optional(),
   title: z.string().min(1),
@@ -1123,8 +1101,6 @@ export type CreateTaskRequest = z.infer<typeof CreateTaskRequest>;
 
 export const UpdateTaskRequest = z.object({
   complexity: ComplexityRequest.optional(),
-  /** @deprecated The server ignores it (PM-1007); send `complexity`. Removed with PM-1008. */
-  developerLevel: DeveloperLevelRequest.optional(),
   /** People only (PM-287); null clears it. */
   priority: TaskPriority.nullable().optional(),
   parentKey: TaskKey.nullable().optional(),

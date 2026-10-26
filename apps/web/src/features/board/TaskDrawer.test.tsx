@@ -747,6 +747,12 @@ describe('who works on the card (PM-237)', () => {
 });
 
 describe('starting a card whose prerequisite is open (PM-204)', () => {
+  const startableProject = () => {
+    const project = mockProject();
+    // Automatic selection now respects capacity; these cases exercise prerequisite confirmation.
+    project.backend.sessions = project.backend.sessions.filter((session) => session.member !== 'be-1');
+    return project;
+  };
   const startButton = async () => screen.findByRole('button', { name: t('task.start') });
   const startRequests = (project: ReturnType<typeof mockProject>) =>
     project.requests.filter((request) => request.method === 'POST' && request.path.endsWith('/start'));
@@ -769,7 +775,7 @@ describe('starting a card whose prerequisite is open (PM-204)', () => {
   });
 
   it('starts with the warning accepted, and says so in the request', async () => {
-    const project = mockProject();
+    const project = startableProject();
     project.render(drawer, '/p/AC/tasks/AC-23');
 
     fireEvent.click(await startButton());
@@ -780,7 +786,7 @@ describe('starting a card whose prerequisite is open (PM-204)', () => {
   });
 
   it('asks nothing of a card without an open prerequisite', async () => {
-    const project = mockProject();
+    const project = startableProject();
     project.render(drawer, '/p/AC/tasks/AC-24');
 
     fireEvent.click(await startButton());
@@ -791,7 +797,7 @@ describe('starting a card whose prerequisite is open (PM-204)', () => {
   });
 
   it('shows the same warning when the server refuses a start the board did not see coming', async () => {
-    const project = mockProject();
+    const project = startableProject();
     project.render(drawer, '/p/AC/tasks/AC-24');
     const button = await startButton();
     // The prerequisite was added after the board loaded.
@@ -825,7 +831,7 @@ describe('starting a card whose prerequisite is open (PM-204)', () => {
   });
 
   it('offers the Start button on a card that waits for its prerequisites in the work stage', async () => {
-    const project = mockProject();
+    const project = startableProject();
     const task = project.backend.findTask('AC-20')!;
     task.assignee = null;
     task.links = [{ kind: 'prerequisite', ref: 'AC-17' }];

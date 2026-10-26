@@ -414,9 +414,10 @@ export function seniorWaitDecisionText(
   const wait = seniorWaitDecisionOf(item);
   if (!wait) return null;
   const reason = wait.reason?.trim();
-  return t('inbox.seniorWait.body', {
+  return t(wait.points !== undefined ? 'inbox.seniorWait.bodyPoints' : 'inbox.seniorWait.body', {
     key: wait.taskKey,
     minutes: wait.minutes,
+    points: wait.points ?? '',
     names: joinNames(namesOf(wait.seniors, members, myHandle)),
     reason: reason ? t('inbox.seniorWait.reason', { reason }) : '',
   });

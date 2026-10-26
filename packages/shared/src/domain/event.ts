@@ -1,7 +1,6 @@
 import { z } from 'zod';
 import type { ConfigChangeRow } from '../config/operator';
 import type { OperatorKnowledgeChange } from './operator-knowledge';
-import type { DeveloperLevel } from './developer-level';
 import type { ComplexityPoints } from './complexity';
 import type { FixLimitAssessment } from './fix-limit';
 import type { FullTestErrorReason } from './full-test';
@@ -268,9 +267,9 @@ export interface TimelineEventData {
   };
   /** The recommended developer of the card was set or changed (PM-347); `previous` null: there was none. */
   task_level_changed: {
-    level: DeveloperLevel;
+    level: 'senior' | 'any';
     reason: string | null;
-    previous: { level: DeveloperLevel; reason: string | null } | null;
+    previous: { level: 'senior' | 'any'; reason: string | null } | null;
   };
   task_complexity_changed: {
     points: ComplexityPoints | null;

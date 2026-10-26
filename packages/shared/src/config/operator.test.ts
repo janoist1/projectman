@@ -337,7 +337,6 @@ describe('approval waiver eligibility (PM-691)', () => {
     ['GitHub identity', (n) => (ai(n, 'writer').githubLogin = 'different-author')],
     ['member instructions', (n) => (ai(n, 'writer').instructions = 'Use another workflow.')],
     ['temporary status', (n) => (ai(n, 'writer').temp = true)],
-    ['senior status', (n) => (ai(n, 'writer').senior = true)],
     ['complexity limit', (n) => (ai(n, 'writer').complexityLimit = 13)],
     ['workspace', (n) => (n.project.workspacePath = '/elsewhere')],
     ['repository', (n) => (n.project.repos[0]!.path = 'other')],
@@ -459,7 +458,7 @@ describe('approval waiver eligibility (PM-691)', () => {
     ['githubLogin', 'different-author'],
     ['instructions', 'Use another workflow.'],
     ['temp', true],
-    ['senior', true],
+    ['complexityLimit', 13],
   ])('requires a click when a presence change includes non-whitelisted %s', (field, value) => {
     const { previous, next, result } = hire({ [String(field)]: value });
     expect(result.waiverEligible).toBe(false);

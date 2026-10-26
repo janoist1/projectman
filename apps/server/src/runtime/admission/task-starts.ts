@@ -13,6 +13,7 @@ import {
   complexityOf,
   DEFAULT_AGENT_PROVIDER,
   evaluateStart,
+  humanStageOwner,
   isOnLeave,
   isOpenTask,
   isTheme,
@@ -661,7 +662,7 @@ export class TaskStarts implements WorkEntryCheck {
       };
     return {
       kind: 'member',
-      member: config.team.members.find((m) => m.kind === 'human' && eligible.includes(m.handle)) ?? null,
+      member: humanStageOwner(config, eligible),
       tempAllowed: pick.tempAllowed,
       noneReaches,
     };

@@ -256,7 +256,7 @@ describe('deriveNext: the card row of "Miért áll?" (PM-461)', () => {
     )!;
     expect(senior).toMatchObject({
       who: [],
-      noWho: 'Senior fejlesztő: aki elsőként felszabadul',
+      noWho: t('task.whyBox.nobodySenior'),
       noWhoKind: 'ai',
     });
     const member = deriveNext(

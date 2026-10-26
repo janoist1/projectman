@@ -8,6 +8,7 @@ const t = (key, params) =>
 
 /** PM-1008: PM-1001's a–k review scenes at desktop and phone widths.
  * Real API data except the deliberate save error, a temp member view and a legacy timeline event.
+ * The compact scene enables the real TaskCard's compact prop in its browser-served module.
  * The inbox scene waits for the real five-minute timer; allow 600 seconds.
  */
 const WIDTHS = [1512, 390];
@@ -39,8 +40,21 @@ export default async ({ instance, open, shoot, step, log }) => {
   await instance.api(`/api/projects/AC/tasks/${waiting}/start`, { method: 'POST', body: {} });
   const unscored = await card('Adjust the order summary');
   log(`scored ${scored}, unscored ${unscored}, waiting ${waiting}`);
-  const capture = (page, name, highlight) =>
-    shoot(page, name, { widths: WIDTHS, fullPage: true, ...(highlight ? { highlight } : {}) });
+  const capture = async (page, name, highlight, focus) => {
+    for (const width of WIDTHS) {
+      await page.setViewportSize({ width, height: width === 390 ? 844 : 982 });
+      if (focus) {
+        await focus.scrollIntoViewIfNeeded();
+        await focus.evaluate((node) => node.scrollIntoView({ block: 'center' }));
+      }
+      await shoot(page, name, {
+        widths: [width],
+        fullPage: true,
+        ...(highlight ? { highlight } : {}),
+      });
+    }
+  };
+  const complexityRow = (page) => page.getByText(hu.task.complexity.label, { exact: true }).locator('..');
   const edit = async (page) => page.getByRole('button', { name: hu.task.complexity.edit }).click();
 
   await step('a. board and compact cards', async () => {
@@ -50,9 +64,18 @@ export default async ({ instance, open, shoot, step, log }) => {
       .first()
       .waitFor();
     await capture(page, 'a-board');
-    const drawer = await open({ path: `/p/AC/tasks/${scored}` });
-    await drawer.getByText(hu.task.complexity.label, { exact: true }).waitFor();
-    await capture(drawer, 'a-compact-board');
+    // No product route currently passes compact: use the actual component, with only its default prop enabled.
+    const compact = await open({ path: '/p/AC' });
+    await compact.route('**/src/features/board/TaskCard.tsx*', async (route) => {
+      const response = await route.fetch();
+      const source = await response.text();
+      if (!source.includes('compact = false')) throw new Error('The TaskCard compact prop was not found.');
+      await route.fulfill({ response, body: source.replace('compact = false', 'compact = true') });
+    });
+    await compact.reload();
+    const mark = compact.getByTitle(t('task.complexity.mark', { points: 8 })).first();
+    await mark.waitFor();
+    await capture(compact, 'a-compact-board', undefined, mark);
   });
   await step('b. architect and developer reading views', async () => {
     const architect = await instance.invite({
@@ -77,7 +100,7 @@ export default async ({ instance, open, shoot, step, log }) => {
     });
     const reader = await open({ as: developer, path: `/p/AC/tasks/${scored}` });
     await reader.getByText(hu.task.complexity.label, { exact: true }).waitFor();
-    await capture(reader, 'b-developer', `text=${hu.task.complexity.label}`);
+    await capture(reader, 'b-developer', `text=${hu.task.complexity.label}`, complexityRow(reader));
   });
   await step('c. 13-point editor and refused save', async () => {
     const page = await open({ path: `/p/AC/tasks/${scored}` });
@@ -103,7 +126,7 @@ export default async ({ instance, open, shoot, step, log }) => {
     });
     const page = await open({ path: `/p/AC/tasks/${scored}` });
     await page.getByText(t('task.complexity.noneReach', { points: 8 }), { exact: true }).waitFor();
-    await capture(page, 'd-none-reach', `text=${hu.task.complexity.label}`);
+    await capture(page, 'd-none-reach', `text=${hu.task.complexity.label}`, complexityRow(page));
     await edit(page);
     await capture(page, 'd-none-reach-editor', 'form:has([role="radiogroup"])');
     await instance.api(`/api/projects/AC/members/${large.handle}`, {

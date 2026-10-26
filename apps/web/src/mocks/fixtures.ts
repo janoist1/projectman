@@ -16,7 +16,6 @@ import type {
   Session,
   Task,
   TeamMessage,
-  TemplateSummary,
   TimelineEvent,
   TimelineEventType,
 } from '@projectman/shared';
@@ -226,41 +225,6 @@ export const DECISION_OPTIONS: InboxOption[] = [
   { id: 'reject', label: 'reject', style: 'danger' },
 ];
 const ANSWER_OPTION: InboxOption = { id: 'answer', label: 'answer', style: 'secondary' };
-
-export const templates: TemplateSummary[] = [
-  {
-    id: 'web-client-project',
-    nameKey: 'templates.web-client-project.name',
-    descriptionKey: 'templates.web-client-project.description',
-    memberCount: { human: 1, ai: 7 },
-    stageCount: 9,
-    checklist: ['guests', 'feedback_marks', 'qa', 'client_test', 'code_review'],
-  },
-  {
-    id: 'small-team',
-    nameKey: 'templates.small-team.name',
-    descriptionKey: 'templates.small-team.description',
-    memberCount: { human: 1, ai: 2 },
-    stageCount: 5,
-    checklist: ['code_review'],
-  },
-  {
-    id: 'internal-tool',
-    nameKey: 'templates.internal-tool.name',
-    descriptionKey: 'templates.internal-tool.description',
-    memberCount: { human: 1, ai: 4 },
-    stageCount: 6,
-    checklist: ['code_review', 'deploy'],
-  },
-  {
-    id: 'daily-routine',
-    nameKey: 'templates.daily-routine.name',
-    descriptionKey: 'templates.daily-routine.description',
-    memberCount: { human: 1, ai: 1 },
-    stageCount: 3,
-    checklist: ['schedule'],
-  },
-];
 
 export function buildConfig(): ProjectConfig {
   return {

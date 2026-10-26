@@ -941,7 +941,7 @@ Every AI member has one durable queue of what is waiting for them: a message, an
   the member works it in (a card, or `general` = the member's desk with no workspace), `wake`, `state`
   (`queued`, `processing`, `done`, `cancelled`), the close reason, `attempts`, a wait code and the Operator's outcome.
   The contract is `packages/shared/src/domain/member-queue.ts` (`MemberQueueItem`, `MemberQueueView`,
-  `MemberQueuesView`, `nominalMessagePlace`, `memberQueueSourceId`).
+  `nominalMessagePlace`, `memberQueueSourceId`).
 - **Enqueue**: `core/member-queue` (`MemberQueue`). The two source repositories run listeners inside the transaction of
   every write (`messages.onPendingChange`, `inbox.onChange`), so a row commits with its source and no call site has to
   remember it. A message gets an item for each AI recipient it is pending for (a receipt without `deliveredAt`; the
@@ -2063,7 +2063,7 @@ workers follow the machine's size.
   `services/super-operator/handoffs.ts` (`SuperHandoffService`), `db/super-handoffs.ts` (migration 83:
   `super_handoffs`, `super_operations`), `packages/shared/src/{api/super-handoff,config/super-command}.ts`,
   `core/inbox/inbox.ts` (the owner's-own-login rule, the relay), the Operator MCP tool `request_super_operation`
-  (retired by PM-888) and the routes `routes.superHandoffs` / `routes.executeSuperHandoff` / `routes.relayOwnerAnswer`. The base
+  (retired by PM-888) and the routes `routes.superHandoffs` / `routes.relayOwnerAnswer` (execution is the MCP tool only, PM-1030). The base
   Operator records a command and a reason; nothing runs until the owner's integrator (a super token) starts it with
   a request id. A command with a deletion, security or cost effect waits for the owner's own login
   to answer a bound question (24 hours; the question names the command hash, the config version and the token). The

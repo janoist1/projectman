@@ -3,14 +3,19 @@ import {
   MEMBER_QUEUE_CLOSED_LIMIT,
   MEMBER_QUEUE_ITEM_KINDS,
   memberQueueUrgency,
-  MemberQueuesView,
   MemberQueueView,
   pendingRecipientsOf,
   routes,
-  TODO_DONE_OPTION,
 } from '@projectman/shared';
 import type { InboxItem, ServerEvent } from '@projectman/shared';
-import { addHumanAndLogin, createAppHarness, createProject, setupOwner } from './helpers/app-harness';
+import { resolveIntegratorTodo } from '../src/services/super-operator';
+import {
+  addHumanAndLogin,
+  createAppHarness,
+  createProject,
+  setupOwner,
+  asSuperIntegrator,
+} from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 
 const START = '2026-10-18T10:00:00.000Z';
@@ -222,13 +227,9 @@ describe('member queue', () => {
           from: null,
         }),
       ]);
-      const response = await h.app.inject({
-        method: 'POST',
-        url: routes.resolveIntegratorTodo('AR', todo.id),
-        headers: { authorization: `Bearer ${superSecret}` },
-        payload: { optionId: TODO_DONE_OPTION.id },
-      });
-      expect(response.statusCode, response.body).toBe(200);
+      await asSuperIntegrator(h, superSecret, (access) =>
+        resolveIntegratorTodo(domain(), 'AR', todo.id, { optionId: 'todo_done' }, access),
+      );
       expect(view('operator').items).toHaveLength(0);
       expect(view('operator').closed[0]).toMatchObject({ state: 'done', closeReason: 'resolved' });
     });
@@ -316,43 +317,44 @@ describe('member queue', () => {
   describe('API', () => {
     const get = (url: string, headers: Record<string, string> = { cookie }) => h.app.inject({ url, headers });
 
-    it('lists every AI member in configuration order with zeros', async () => {
-      send(['dev-2']);
-      send(['dev-2']);
-      const response = await get(routes.memberQueues('AR'));
-      expect(response.statusCode, response.body).toBe(200);
-      const { members } = MemberQueuesView.parse(response.json());
-      const ai = (await domain().projects.config('AR')).team.members.filter((m) => m.kind === 'ai');
-      expect(members.map((m) => m.member)).toEqual(ai.map((m) => m.handle));
-      expect(members.find((m) => m.member === 'dev-2')).toMatchObject({
-        queued: 2,
-        processing: 0,
-        oldestQueuedAt: START,
-      });
-      expect(members.find((m) => m.member === 'dev-1')).toMatchObject({
-        queued: 0,
-        waking: 0,
-        oldestQueuedAt: null,
-      });
-    });
-
-    it('shows one member’s queue and limits the closed items by closedSince', async () => {
-      const first = send(['dev-1']);
-      now = new Date(Date.parse(START) + 3_600_000);
-      domain().messages.markRecipientDelivered(first.id, 'dev-1');
-      send(['dev-1'], 'Second message');
-      const later = new Date(now.getTime() + 60_000).toISOString();
-      const all = MemberQueueView.parse((await get(routes.memberQueue('AR', 'dev-1'))).json());
-      expect(all.items.map((i) => i.title)).toEqual(['Second message']);
-      expect(all.closed).toHaveLength(1);
+    it('shows the Operator’s queue and limits the closed items by closedSince', async () => {
+      await openedTodo();
+      const view = MemberQueueView.parse((await get(routes.operatorQueue('AR'))).json());
+      expect(view.member).toBe('operator');
+      expect(view.items).toHaveLength(1);
+      const later = new Date(Date.parse(START) + 3_600_000).toISOString();
       const recent = MemberQueueView.parse(
-        (await get(`${routes.memberQueue('AR', 'dev-1')}?closedSince=${encodeURIComponent(later)}`)).json(),
+        (await get(`${routes.operatorQueue('AR')}?closedSince=${encodeURIComponent(later)}`)).json(),
       );
       expect(recent.closed).toHaveLength(0);
       expect(recent.everQueued).toBe(true);
     });
 
-    it('lists at most MEMBER_QUEUE_CLOSED_LIMIT closed items, the newest first', async () => {
+    it('answers 400 invalid_request for a bad closedSince', async () => {
+      const response = await get(`${routes.operatorQueue('AR')}?closedSince=yesterday`);
+      expect(response.statusCode).toBe(400);
+      expect(response.json().error.code).toBe('invalid_request');
+    });
+
+    it('refuses a client and answers a developer', async () => {
+      const client = await addHumanAndLogin(h.app, { handle: 'visitor', access: 'client' });
+      const developer = await addHumanAndLogin(h.app, { handle: 'coder', access: 'developer' });
+      const url = routes.operatorQueue('AR');
+      expect((await get(url, { cookie: client })).statusCode).toBe(403);
+      expect((await get(url, { cookie: developer })).statusCode).toBe(200);
+    });
+
+    it('lets the read and super keys read and refuses the legacy key', async () => {
+      for (const secret of [readSecret, superSecret])
+        expect(
+          (await get(routes.operatorQueue('AR'), { authorization: `Bearer ${secret}` })).statusCode,
+        ).toBe(200);
+      const operator = await get(routes.operatorQueue('AR'), { authorization: `Bearer ${legacySecret}` });
+      expect(operator.statusCode).toBe(403);
+      expect(operator.json().error.code).toBe('operator_owner_only');
+    });
+
+    it('lists at most MEMBER_QUEUE_CLOSED_LIMIT closed items by the service, the newest first', () => {
       const ids: string[] = [];
       for (let i = 0; i <= MEMBER_QUEUE_CLOSED_LIMIT; i++) {
         now = new Date(Date.parse(START) + i * 1000);
@@ -360,63 +362,9 @@ describe('member queue', () => {
         domain().messages.markRecipientDelivered(message.id, 'dev-1');
         ids.push(message.id);
       }
-      const body = MemberQueueView.parse((await get(routes.memberQueue('AR', 'dev-1'))).json());
-      expect(body.closed).toHaveLength(MEMBER_QUEUE_CLOSED_LIMIT);
-      expect(body.closed[0]!.source).toEqual({ type: 'message', messageId: ids.at(-1) });
-    });
-
-    it('answers 404 unknown_member for a handle that is not an AI member', async () => {
-      for (const handle of ['owner', 'nobody']) {
-        const response = await get(routes.memberQueue('AR', handle));
-        expect(response.statusCode).toBe(404);
-        expect(response.json().error.code).toBe('unknown_member');
-      }
-    });
-
-    it('answers 400 invalid_request for a bad closedSince', async () => {
-      const response = await get(`${routes.memberQueue('AR', 'dev-1')}?closedSince=yesterday`);
-      expect(response.statusCode).toBe(400);
-      expect(response.json().error.code).toBe('invalid_request');
-    });
-
-    it('shows the Operator’s queue', async () => {
-      await openedTodo();
-      const view = MemberQueueView.parse((await get(routes.operatorQueue('AR'))).json());
-      expect(view.member).toBe('operator');
-      expect(view.items).toHaveLength(1);
-    });
-
-    it('refuses a client and answers a developer', async () => {
-      const client = await addHumanAndLogin(h.app, { handle: 'visitor', access: 'client' });
-      const developer = await addHumanAndLogin(h.app, { handle: 'coder', access: 'developer' });
-      for (const url of [
-        routes.memberQueues('AR'),
-        routes.memberQueue('AR', 'dev-1'),
-        routes.operatorQueue('AR'),
-      ]) {
-        expect((await get(url, { cookie: client })).statusCode, url).toBe(403);
-        expect((await get(url, { cookie: developer })).statusCode, url).toBe(200);
-      }
-    });
-
-    it('lets the read and super keys read and refuses the legacy key', async () => {
-      for (const secret of [readSecret, superSecret]) {
-        for (const url of [
-          routes.memberQueues('AR'),
-          routes.memberQueue('AR', 'dev-1'),
-          routes.operatorQueue('AR'),
-        ])
-          expect((await get(url, { authorization: `Bearer ${secret}` })).statusCode, url).toBe(200);
-      }
-      const legacy = { authorization: `Bearer ${legacySecret}` };
-      for (const url of [routes.memberQueues('AR'), routes.memberQueue('AR', 'dev-1')]) {
-        const response = await get(url, legacy);
-        expect(response.statusCode, url).toBe(403);
-        expect(response.json().error.code).toBe('insufficient_access');
-      }
-      const operator = await get(routes.operatorQueue('AR'), legacy);
-      expect(operator.statusCode).toBe(403);
-      expect(operator.json().error.code).toBe('operator_owner_only');
+      const view = domain().memberQueue.view('AR', 'dev-1');
+      expect(view.closed).toHaveLength(MEMBER_QUEUE_CLOSED_LIMIT);
+      expect(view.closed[0]!.source).toEqual({ type: 'message', messageId: ids.at(-1) });
     });
   });
 });

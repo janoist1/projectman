@@ -118,8 +118,21 @@ export function describeSandbox(input: {
   cwd: string;
   /** The repository is local-only: publishing is refused. */
   localOnly: boolean;
+  /** Full operational details for the on-demand sandbox guide. */
+  details?: boolean;
 }): string[] {
   const { sandbox, cwd, localOnly } = input;
+  if (!input.details) {
+    return [
+      "Claude Code's sandbox allows commands without special forms or approval; refusals are final, never retry around them.",
+      (sandbox.denyWrite ?? []).includes(cwd)
+        ? 'The working directory is read-only; write only to the permitted temp and session folders.'
+        : 'Write only within session policy/sandbox roots and commit on your task branch; shared git refs and configuration stay closed.',
+      'Keep cache, development-data and test environment variables set; credentials and live data stay closed.',
+      ...(localOnly ? ['Local-only repository: no `git push`, `gh pr create` or `gh pr merge`.'] : []),
+      'Read get_guide with topic `sandbox` for roots, network, gh exceptions, here-documents, browsers and heavy queue; ask_human for other required actions.',
+    ];
+  }
   // A reader's working directory is `denyWrite`; a developer's `denyWrite` holds only files of the
   // shared git directory (PM-153).
   const readOnly = (sandbox.denyWrite ?? []).includes(cwd);

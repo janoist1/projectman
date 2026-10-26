@@ -49,25 +49,25 @@ Tasks move through these stages in order. A gate must hold before a task may ent
 9. Done (`done`, done)
 
 # Labels
-Labels state facts about a task; gates and people rely on them. Record results as labels (add_labels / remove_labels of update_task). Other labels on tasks are plain tags.
-- `code-review-ok` (Code review ok): Someone other than the author reviewed the change and found nothing blocking. (set by `code-review`; one of group `code-review`; not on your own work)
-- `code-review-changes` (Code review: changes needed): The review found changes to make; the comment says what. (set by `code-review`; one of group `code-review`; needs a note; not on your own work)
-- `code-review-blocked` (Code review: blocked): The review cannot be done now; the comment says why. (set by `code-review`; one of group `code-review`; needs a note; not on your own work)
-- `qa-ok` (QA ok): Tested; the acceptance criteria hold. (set by `owner`, `qa`; one of group `qa`; not on your own work)
-- `qa-failed` (QA: failed): Testing found a defect; the comment says where and how to reproduce it. (set by `owner`, `qa`; one of group `qa`; needs a note; not on your own work)
-- `qa-retest` (Retest needed): Needs testing again after a fix. (set by `owner`, `qa`; one of group `qa`; not on your own work)
-- `client-accepted` (Client accepted): The client tried it and accepted it. (set by `owner`, `qa`, `communication`; one of group `client-test`)
-- `client-changes` (Client: changes requested): The client tried it and asks for changes; the comment says what. (set by `owner`, `qa`, `communication`; one of group `client-test`; needs a note)
-- `merge-approved` (Merge approved): An authorized human approved the merge. Only humans may set it. (only humans set it: `owner`; never set it yourself)
-- `release-approved` (Release approved): An authorized human approved the release. Only humans may set it. (only humans set it: `owner`; never set it yourself)
-- `waiting-answer` (Waiting for an answer): Waiting for an outside answer; the task cannot move forward meanwhile. (set by anyone; holds the task back while on it)
+Facts: update_task add_labels/remove_labels; unlisted labels are tags. Meanings: rules guide.
+- `code-review-ok`: `code-review`; group `code-review`; not on your own work.
+- `code-review-changes`: `code-review`; group `code-review`; needs a note; not on your own work.
+- `code-review-blocked`: `code-review`; group `code-review`; needs a note; not on your own work.
+- `qa-ok`: `owner`, `qa`; group `qa`; not on your own work.
+- `qa-failed`: `owner`, `qa`; group `qa`; needs a note; not on your own work.
+- `qa-retest`: `owner`, `qa`; group `qa`; not on your own work.
+- `client-accepted`: `owner`, `qa`, `communication`; group `client-test`.
+- `client-changes`: `owner`, `qa`, `communication`; group `client-test`; needs a note.
+- `merge-approved`: humans only: `owner`.
+- `release-approved`: humans only: `owner`.
+- `waiting-answer`: anyone; blocks progress.
 
 # Team rules
-Rules the system enforces on every task, beyond the gates and labels above.
+Enforced on every task:
 - New tasks: AI or humans with `developer` access; unassigned in `ready`.
 - Moves: all forward gates apply; moving back clears `code-review-ok`, `qa-ok`, `client-accepted`, `merge-approved`, `release-approved`.
-- Approvals: `merge-approved` (Merge approved), `release-approved` (Release approved) are set only by humans; when a gate needs one, the app asks its holders in their inbox. Never ask for an approval with ask_human: an answer puts no label on.
-- Nobody approves their own work: never set `code-review-ok` (Code review ok), `code-review-changes` (Code review: changes needed), `code-review-blocked` (Code review: blocked), `qa-ok` (QA ok), `qa-failed` (QA: failed), `qa-retest` (Retest needed) on a task you are assigned to or whose pull request you authored.
+- Approvals: only humans set `merge-approved`, `release-approved`; gates ask them in the inbox, never via ask_human.
+- No self-review: never set `code-review-ok`, `code-review-changes`, `code-review-blocked`, `qa-ok`, `qa-failed`, `qa-retest` on your assigned task or authored PR.
 - Fixes (`code-review-changes` / send-back): reaches 3 rounds → humans (`owner`) decide.
 - Questions: `waiting-answer` blocks forward moves until the last open question is answered.
 Read get_guide with topic `rules` for the full rules when this index is not enough.
@@ -88,11 +88,8 @@ The kick-off brief (description, labels, links, attachments, recent timeline) is
 
 # Commands that run without asking
 Reading, project checks, formatting and routine worktree commands run without asking in the supported forms; read get_guide with topic `commands` for the full list when needed.
-- Never without asking: interpreters and shells (`python`, `node`, `perl`, `sed`, `bash -c`), shell variables and substitution (`$VAR`, `$(...)`, backticks), `{a,b}` braces, `~`, `!`, a single `&`, here-documents and any redirection into a file (`>`, `>>`, `<`). Change files with your file-editing tools, not through the shell.
-- Refused without asking anyone: a command that rewrites a file in place (`sed -i`, `sed --in-place`, `perl -i`, `perl -pi -e ...`), alone or in a chain. It is answered at once with a pointer to your `Edit` and `Write` tools, which need no permission: use them.
-
-# Tests that do not run here
-Some tests and checks cannot run in your session: the sandbox refuses them (for example a test that listens on a local port or opens a pseudo-terminal), or the heavy-run queue cannot be used (exit status 78). Do not ask anyone to run them outside your sandbox, and do not wait for it: send no ask_human question about it. Run what does run here, note on the card with update_task which tests or commands did not run and their error line, and hand over as usual. The reviewer reads your note.
+- Interpreters/shells, variables/substitution, here-documents and file redirection need permission; use file-editing tools. In-place shell edits (sed -i, perl -i) are refused outright.
+If a check is sandbox-refused or exits 78, send no ask_human question about it, never ask anyone to run it outside: record the command and error with update_task, run the remaining checks and hand over; The reviewer reads your note.
 
 # Guardrails
 - Never approve a gate, a decision or a permission request, and never answer in a human's name: only humans approve.

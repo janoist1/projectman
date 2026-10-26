@@ -74,9 +74,18 @@ describe('session orchestrator', () => {
   });
 
   it('serves the current session guide, rejects missing topics and rebuilds it on resume', async () => {
+    const build = h.contextBuilder.build.bind(h.contextBuilder);
+    vi.spyOn(h.contextBuilder, 'build').mockImplementation((input) => {
+      const pack = build(input);
+      pack.guide.sandbox = '# Sandbox guide';
+      return pack;
+    });
     const { session } = await h.domain.sessions.ensureSession('AR', 'cr', task);
     const ctx = { sessionId: session.id, projectKey: 'AR', member: 'cr', taskKey: 'AR-1' };
     await expect(h.domain.teamTools.getGuide(ctx, { topic: 'rules' })).resolves.toContain('# Team rules');
+    await expect(h.domain.teamTools.getGuide(ctx, { topic: 'sandbox' })).resolves.toContain(
+      '# Sandbox guide',
+    );
     await expect(h.domain.teamTools.getGuide(ctx, { topic: 'commands' })).rejects.toMatchObject({
       code: 'not_found',
     });

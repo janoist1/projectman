@@ -20,7 +20,6 @@ export { AttachmentTools } from './attachments';
 export { MergeTools } from './merges';
 export { ReleaseTools } from './releases';
 export { ToolCaller } from './caller';
-export { BoundaryTools } from './boundary';
 export { GithubTools } from './github';
 export { ScreenshotTools } from './full-tests';
 export { ProjectDocTools } from './project-docs';

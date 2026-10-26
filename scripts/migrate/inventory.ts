@@ -275,8 +275,6 @@ const COUNTED_TABLES = [
   'attachments',
   'member_workspaces',
   'task_workspace_bindings',
-  'boundary_requests',
-  'boundary_grants',
   'feedback_marks',
 ];
 

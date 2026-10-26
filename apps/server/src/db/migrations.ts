@@ -2310,4 +2310,19 @@ migrations.push({
   sql: `ALTER TABLE email_messages ADD COLUMN mime_message_id TEXT;
   ALTER TABLE email_messages ADD COLUMN mime_references TEXT;`,
 });
+migrations.push({
+  version: 113,
+  name: 'drop external operation requests',
+  // PM-1035: the boundary requests and grants are gone (no adapter was ever wired in, so every request was
+  // refused), and so are the inbox items and member queue rows made for them. The two egress tables of the
+  // removed VM network boundary (PM-140) go with them: `egress_allowances.request_id` references
+  // `boundary_requests`, and nothing reads either table. `team.boundary` stays in the configuration: the
+  // delegation of permission requests uses it.
+  sql: `DROP TABLE egress_allowances;
+  DROP TABLE egress_operations;
+  DROP TABLE boundary_grants;
+  DROP TABLE boundary_requests;
+  DELETE FROM inbox_items WHERE kind = 'boundary';
+  DELETE FROM member_queue_items WHERE kind = 'boundary' OR source_type = 'boundary';`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

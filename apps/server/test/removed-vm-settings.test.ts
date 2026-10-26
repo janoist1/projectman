@@ -12,7 +12,6 @@ describe('removed VM installation settings', () => {
   it.each([false, true])('starts the server with obsolete settings present=%s', async (obsolete) => {
     const home = await dirs.make();
     const removed = {
-      PROJECTMAN_BOUNDARY_CONFIG: '/nonexistent/obsolete-boundary.json',
       PROJECTMAN_EXECUTION_PROFILE: 'obsolete-invalid-profile',
       PROJECTMAN_VM_READINESS_REPORT: '/nonexistent/obsolete-report.json',
       PROJECTMAN_VM_REPORT_MAX_AGE_MINUTES: 'invalid-age',

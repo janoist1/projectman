@@ -196,13 +196,6 @@ export function createInboxRepository(db: Db) {
       );
       return get(id);
     },
-    updateBoundary(id: string, payload: Record<string, unknown>, assignees: string[], at: string): void {
-      changing(id, () =>
-        db
-          .prepare('UPDATE inbox_items SET payload = ?, assignees = ?, updated_at = ? WHERE id = ?')
-          .run(toJson(payload), toJson(assignees), at, id),
-      );
-    },
     /**
      * The payload and the assignees of an item still open (a delegated permission question, PM-169); the body
      * only when given (a fix limit decision that changes hands, PM-801).

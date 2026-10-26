@@ -79,9 +79,9 @@ export const hu: TemplateLocale = {
   },
   duties: {
     boundary_authorization: {
-      name: 'Külső műveletek engedélyezése',
+      name: 'Engedélykérések eldöntése',
       description:
-        'A delegálható külső műveletekről dönt. Költség, éles rendszer, új hozzáférés és tartós határtágítás esetén a tulajdonos dönt.',
+        'A delegálható engedélykérésekről dönt. Költség, éles rendszer, új hozzáférés és tartós határtágítás esetén a tulajdonos dönt.',
     },
     prioritization: {
       name: 'Prioritáskezelés',

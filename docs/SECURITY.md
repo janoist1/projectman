@@ -367,8 +367,8 @@ and merge target, stage order, workspace/repository/test/integrator/remote acces
 and the Operator's own settings/watch/waiver remain approval-bound. `githubLogin`, member
 `instructions`, `temp`, `complexityLimit` and unknown fields are outside the waiver whitelist. Template
 permission, `none` approver, default network, empty instructions and `temp: false` on a new
-implementer grant no extra authority. Approval and permission/boundary decision tools remain
-forbidden to the Operator; this classification opens no boundary-request exception.
+implementer grant no extra authority. Approval and permission decision tools remain
+forbidden to the Operator; this classification opens no exception.
 
 ### PM coordination (PM-707)
 
@@ -440,7 +440,7 @@ PM, who may have no role on the card. The recipient may be the Operator; its exi
 owner-request guards still apply, so forwarding grants no Operator authority. `decision` and
 `todo` hand the question to people. Resolution rechecks project, question kind and state under
 the lock. A PM answer is attributed to the PM and never sets an approval label or decides a
-permission, boundary, release or Operator approval item. These items keep their human routes.
+permission, release or Operator approval item. These items keep their human routes.
 Counterweights remain the asker's one-time `reask_of` after `answered`, `forwarded` or `moot`
 in the same project, the timeline of every outcome, and the owner/admin-only screened-question
 endpoint. If the PM cannot be woken or does not settle in time, the question opens for people

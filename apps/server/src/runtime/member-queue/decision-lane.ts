@@ -4,7 +4,7 @@ import { isDeferrableCode } from '../admission';
 import type { SessionStartCause } from '../sessions';
 import type { MemberQueueLane } from './lane';
 
-/** What one kind of decision (a permission request, a boundary request, a held fix limit) tells the lane. */
+/** What one kind of decision (a permission request, a held fix limit) tells the lane. */
 interface DecisionSource {
   /** The text the decider is given; null when the request is gone. */
   prompt(item: StoredMemberQueueItem): string | null;
@@ -21,7 +21,6 @@ interface DecisionSource {
 interface DecisionLaneDeps {
   ctx: DomainContext;
   permission: DecisionSource;
-  boundary: DecisionSource;
   fixLimit: DecisionSource;
 }
 
@@ -41,7 +40,7 @@ const isHardWait = (code: string): boolean => HARD_WAITS.has(code) || !isDeferra
 const UNAVAILABLE = '(The request is no longer open.)';
 
 /**
- * The lane of the decisions an AI member makes at its desk (PM-926): a permission request, a boundary request,
+ * The lane of the decisions an AI member makes at its desk (PM-926): a permission request and
  * the lead's decision about a held fix limit. A decision needs no workspace (`decide_permission_request` and the
  * like work from any session), so its items start a general session of the decider and never wait for a card's
  * workspace. The item stays `processing` until its source closes it (`completion: 'source'`); the time to decide
@@ -50,7 +49,7 @@ const UNAVAILABLE = '(The request is no longer open.)';
 export function decisionLane(deps: DecisionLaneDeps): MemberQueueLane {
   const { ctx } = deps;
   const sourceOf = (item: StoredMemberQueueItem): DecisionSource =>
-    item.kind === 'permission' ? deps.permission : item.kind === 'boundary' ? deps.boundary : deps.fixLimit;
+    item.kind === 'permission' ? deps.permission : deps.fixLimit;
 
   /** The request goes to a person when every decider it was given to is held back for good. */
   const noDeciderLeft = async (item: StoredMemberQueueItem): Promise<void> => {
@@ -62,7 +61,7 @@ export function decisionLane(deps: DecisionLaneDeps): MemberQueueLane {
   };
 
   return {
-    kinds: ['permission', 'boundary', 'fix_limit'],
+    kinds: ['permission', 'fix_limit'],
     completion: 'source',
     oneAtATime: false,
     // The Operator's fix limit items (an inbox source) are not the lead's decision.

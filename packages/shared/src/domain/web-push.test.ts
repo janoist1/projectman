@@ -33,7 +33,6 @@ describe('push eligibility', () => {
     ['decision', 'decision'],
     ['approval', 'approval'],
     ['permission', 'permission'],
-    ['boundary', 'permission'],
     ['release', 'release'],
     ['hand_on', 'decision'],
     ['merge_request', 'decision'],

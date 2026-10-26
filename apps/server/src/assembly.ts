@@ -8,7 +8,6 @@ import {
   MergeTools,
   ReleaseTools,
   ToolCaller,
-  BoundaryTools,
   GithubTools,
   ScreenshotTools,
   ProjectDocTools,
@@ -83,7 +82,6 @@ import type { EngineCounters } from './runtime/sessions';
 import type {
   AdministrationPort,
   AttachmentStorage,
-  BoundaryOperationAdapter,
   ConfigStore,
   ContextPackBuilder,
   EngineAttachments,
@@ -143,7 +141,6 @@ import { QuestionScreening } from './core/inbox';
 import { ProjectManagerChannels } from './services/operator';
 import { ProjectState } from './services/operator';
 import { PmReplyRelay } from './services/operator';
-import { BoundaryService, boundaryNotice } from './services/boundary';
 import { CardQuestions } from './core/inbox';
 import { createDomainContext, defaultTemplateRegistry, isoNow } from './core/base';
 import type { DomainContext, TemplateRegistry } from './core/base';
@@ -266,7 +263,6 @@ export interface DomainOptions {
   appVersion?: string;
   /** The release tag on the running build's commit (PM-542); absent: none. */
   appTag?: () => Promise<string | null>;
-  boundaryAdapter?: BoundaryOperationAdapter;
   repos: Repositories;
   configStore: ConfigStore;
   logger: FastifyBaseLogger;
@@ -981,37 +977,6 @@ export function createDomain(opts: DomainOptions) {
     messageRouter,
     delivery,
   });
-  const boundary = new BoundaryService({
-    ctx,
-    projects,
-    inbox,
-    timeline,
-    adapter: {
-      resolve: (requester, operationId) => opts.boundaryAdapter?.resolve(requester, operationId) ?? null,
-    },
-    notify(request, recipients) {
-      const config = projects.cachedConfig(request.projectKey);
-      // Humans receive the localized inbox/timeline; this English message is an agent prompt.
-      const agents = recipients.filter((h) => config && memberOf(config, h)?.kind === 'ai');
-      if (!agents.length) return;
-      background.run(
-        () =>
-          messaging
-            .send(
-              request.projectKey,
-              'system',
-              {
-                to: agents,
-                taskKey: request.taskKey,
-                text: boundaryNotice(request),
-              },
-              { actor: SYSTEM_ACTOR },
-            )
-            .then(() => undefined),
-        () => opts.logger.warn({ requestId: request.id }, 'boundary notification failed'),
-      );
-    },
-  });
   // The wait of a card recommended for the Senior (PM-348); an answer tries the deferred starts again.
   const seniorWaits = new SeniorWaits({
     ctx,
@@ -1120,13 +1085,6 @@ export function createDomain(opts: DomainOptions) {
         delivered: (item, at) => inbox.recordDelegationDelivered(item.source.id, at),
         unreachable: (item) => inbox.escalateUnreached(item.projectKey, item.source.id, 'unavailable'),
         exhausted: (item) => inbox.escalateUnreached(item.projectKey, item.source.id, 'timeout'),
-      },
-      boundary: {
-        prompt: (item) => boundary.decisionPromptOf(item.source.id),
-        owed: (item) => boundary.waitsFor(item.source.id, item.member),
-        delivered: (item, at) => boundary.recordDelivered(item.source.id, at),
-        unreachable: (item) => boundary.escalateUnreached(item.projectKey, item.source.id),
-        exhausted: (item) => boundary.escalateUnreached(item.projectKey, item.source.id),
       },
       fixLimit: {
         prompt: (item) => fixLimit.leadPromptOf(item.taskKey ?? '', heldAtOf(item), item.member),
@@ -1799,7 +1757,6 @@ export function createDomain(opts: DomainOptions) {
       }),
       merges: new MergeTools({ calls: toolCaller, merges }),
       screenshots: new ScreenshotTools({ calls: toolCaller, screenshots: screenshotRuns }),
-      boundary: new BoundaryTools({ calls: toolCaller, boundary }),
       inbox: new InboxTools({ calls: toolCaller, ctx, inbox, humanQuestions }),
       messages: new MessageTools({ calls: toolCaller, ctx, messaging, operatorRequests, messageAttachments }),
       admission: new AdmissionTools({ calls: toolCaller, handoffs }),
@@ -1947,10 +1904,8 @@ export function createDomain(opts: DomainOptions) {
     tasks.handOverTasks(change.projectKey, removed, change.actor, change.handovers);
   });
   events.on('config_changed', (change) => sessions.handleConfigChange(change));
-  events.on('config_changed', () => boundary.sweep());
   events.on('config_changed', () => inbox.sweepDelegations());
   events.on('config_changed', (change) => emailChannel.onConfigChanged(change.projectKey));
-  events.on('task_cancelled', () => boundary.sweep());
   // AI work switched back on: the deferred starts continue.
   events.on('config_changed', (change) => {
     if (change.previous?.team.limits.aiEnabled === false && change.next.team.limits.aiEnabled)
@@ -2441,7 +2396,6 @@ export function createDomain(opts: DomainOptions) {
     projectFocus,
     projects,
     inbox,
-    boundary,
     runnerModule,
     providerKeys,
     presence,
@@ -2531,7 +2485,6 @@ export function createDomain(opts: DomainOptions) {
       await superHandoffs.settleOpen().catch((error: unknown) => {
         opts.logger.warn({ err: error }, 'settling the detached super operations failed');
       });
-      await boundary.sweep();
       // Uploads and deletions the last run left half done (files and rows share no transaction).
       await attachments.recover();
       await messageAttachments.recover();
@@ -2655,13 +2608,10 @@ export function createDomain(opts: DomainOptions) {
           onError: (err) => opts.logger.warn({ err }, 'outage check failed'),
         },
         {
-          name: 'boundary',
+          name: 'delegations',
           everyMs: 1000,
-          run: async () => {
-            await boundary.sweep();
-            await inbox.sweepDelegations();
-          },
-          onError: () => opts.logger.warn('boundary deadline sweep failed'),
+          run: () => inbox.sweepDelegations(),
+          onError: () => opts.logger.warn('delegation deadline sweep failed'),
         },
         // The branch of a task in review must stay at the commit handed over (PM-183).
         {

@@ -227,7 +227,6 @@ describe('team tool registration', () => {
         'cancel_task',
         'start_member',
       ],
-      'services/boundary': ['submit_boundary_request', 'get_boundary_request', 'decide_boundary_request'],
       'services/feedback': [
         'get_feedback',
         'reply_feedback',

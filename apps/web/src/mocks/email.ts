@@ -153,6 +153,6 @@ export class MockEmail {
       ...this.log,
     ];
     this.host.emit({ type: 'email_changed', projectKey: this.host.config().project.key });
-    return { status: 200, body: this.view() };
+    return { status: 200, body: this.view().contacts.find((contact) => contact.handle === handle)! };
   }
 }

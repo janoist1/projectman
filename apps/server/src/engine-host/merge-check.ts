@@ -1,17 +1,20 @@
 import { lstat, mkdir, readdir, readFile as readFileBytes, realpath, rm, unlink } from 'node:fs/promises';
 import path from 'node:path';
+import { isRegeneratedPathPattern } from '@projectman/shared';
 import {
   MERGE_CHECK_DIR,
   mergeCheckPath,
   MergeError,
   type BranchMerger,
+  type MergeRegeneratedResult,
   type MergeRepoRef,
 } from '../contracts';
 import { isWithin } from '../kernel';
 import { copyDependencyTrees, DEPENDENCY_LOCKFILE, findDependencyReference } from '../worktree';
 import { runGit } from './merge-git';
-import { invalidInput, isMergeId, type MergeArgs } from './merge-input';
-import { listWorktrees, must } from './merge-repo';
+import { invalidInput, isMergeId, isMergeMessage, type MergeArgs } from './merge-input';
+import { identityOf, listWorktrees, must } from './merge-repo';
+import { commitRegeneratedFiles } from './regenerated-files';
 
 /**
  * The check checkout of a merge and the dependencies copied into it (PM-451, PM-580): a detached
@@ -66,7 +69,7 @@ export async function sweepStaleChecks(
 
 export function createMergeChecks(
   options: MergeCheckOptions,
-): Pick<BranchMerger, 'checkoutForCheck' | 'releaseCheck'> {
+): Pick<BranchMerger, 'checkoutForCheck' | 'releaseCheck' | 'commitRegenerated'> {
   const { args, platform } = options;
 
   const checkPath = async (mergeId: string): Promise<string> => {
@@ -200,5 +203,46 @@ export function createMergeChecks(
     await release(repo, await checkPath(input.mergeId));
   };
 
-  return { checkoutForCheck, releaseCheck };
+  const commitRegenerated = async (
+    ref: MergeRepoRef,
+    input: {
+      mergeId: string;
+      onto: string;
+      commit: string;
+      message: string;
+      paths: string[];
+      patterns: string[];
+    },
+  ): Promise<MergeRegeneratedResult> => {
+    const repo = args.repo(ref);
+    if (!isMergeId(input.mergeId)) invalidInput('Not a merge id');
+    const onto = args.commit(input.onto, 'The base commit');
+    const commit = args.commit(input.commit, 'The commit');
+    if (!isMergeMessage(input.message) || input.message.trim().length === 0)
+      invalidInput('Not a commit message');
+    if (input.patterns.length === 0 || !input.patterns.every(isRegeneratedPathPattern))
+      invalidInput('Not a pattern of generated files');
+    if (
+      input.paths.length > 50 ||
+      input.paths.some(
+        (entry) =>
+          entry === '' ||
+          entry.startsWith('/') ||
+          entry.includes('\0') ||
+          entry.split('/').some((segment) => segment === '' || segment === '.' || segment === '..'),
+      )
+    )
+      invalidInput('Not a set of paths');
+    const identity = await identityOf(repo);
+    return commitRegeneratedFiles(repo, await checkPath(input.mergeId), {
+      onto,
+      commit,
+      message: input.message,
+      paths: input.paths,
+      patterns: input.patterns,
+      identity,
+    });
+  };
+
+  return { checkoutForCheck, releaseCheck, commitRegenerated };
 }

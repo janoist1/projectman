@@ -4204,7 +4204,7 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   invokes `listPaths`, `readFile` and `changedPaths`. Git and repository registration stay
   on the selected engine; remote engines return bounded file names and descriptor text.
   Merging a card's approved commit into the repository's default branch and sending it up is git work on
-  the repository and uses this machine's git login (the owner's). It runs as eight calls — `merge.prepare`
+  the repository and uses this machine's git login (the owner's). It runs as nine calls — `merge.prepare`
   (fetch of the upstream and the state of the base), `merge.is_ancestor`, `merge.build` (a merge commit made
   with `merge-tree`/`commit-tree`, the branch not moved), `merge.checkout_conflicts`,
   `merge.checkout_for_check` and `merge.release_check` (a detached check checkout under
@@ -4250,6 +4250,17 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   Conflicting train sources use that same server-side requeue with a one-card limit (PM-778);
   individual attempts read current main and retain the full check and review gates. Git and checks
   still run on the selected engine through the existing RPCs, with no new machine assumption.
+  Generated files (PM-1050): when `reviewTest.regenerate` names path patterns and command, a standalone
+  merge whose conflict is only in files matching them calls `merge.build` again with `regenerate`; the
+  engine answers the conflict with a `provisional` merge commit (parents `onto` and the commit) made
+  without those files, in a temporary index file in the engine's `os.tmpdir()` (the checkout's index is
+  never used). The server runs the configured command in the full test sandbox on a `_merge/<mergeId>`
+  checkout of it (`full_test.run`, not recorded as a merge check), then `merge.commit_regenerated` has
+  the engine commit the written files, only regular, single-link files inside the patterns, written
+  with `hash-object --no-filters` and never `git add`, and the merge check checks that commit as
+  always. Any other conflict, any refusal and any failure keeps the old `conflict` failure; an engine
+  from before the field refuses `regenerate` (`invalid_params`) and the merge fails as before. The
+  call count above is nine with `merge.commit_regenerated`; no other machine assumption is added.
   Member workspaces (PM-739): a developer's commit lives only in their remote-less clone, so before the
   first `merge.prepare`, `merge.is_ancestor` or `merge.build` of a standalone merge, a train (also its
   recovery and its candidate selection) and the merge gate, the server calls

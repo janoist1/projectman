@@ -1432,9 +1432,52 @@ describe('engine local limit', () => {
             message: 'Docs',
           },
         ],
+        ['merge.build', { ref, onto: sha, commit: other, message: 'Merge PM-1', regenerate: ['gen/**'] }],
+        [
+          'merge.commit_regenerated',
+          {
+            ref,
+            mergeId,
+            onto: sha,
+            commit: other,
+            message: 'Merge PM-1',
+            paths: ['gen/a.snap'],
+            patterns: ['gen/**'],
+          },
+        ],
       ];
       for (const [method, params] of calls)
         await expect(limit.check(method, params as never), method).resolves.toBeDefined();
+    });
+
+    it('refuses a regeneration with a bad pattern, a bad path or a bad id', async () => {
+      const limit = merging();
+      const regenerated = {
+        ref,
+        mergeId,
+        onto: sha,
+        commit: other,
+        message: 'Merge PM-1',
+        paths: ['gen/a.snap'],
+        patterns: ['gen/**'],
+      };
+      for (const bad of ['*/x', '/abs', '../x', '.git/**', 'a\\b', ':(top)x'])
+        await refused(
+          limit,
+          'merge.build',
+          { ref, onto: sha, commit: other, message: 'm', regenerate: [bad] },
+          'invalid_params',
+        );
+      await refused(
+        limit,
+        'merge.commit_regenerated',
+        { ...regenerated, patterns: ['*/x'] },
+        'invalid_params',
+      );
+      for (const bad of ['', '/abs', '../x', 'a/../b', 'a\0b'])
+        await refused(limit, 'merge.commit_regenerated', { ...regenerated, paths: [bad] }, 'invalid_params');
+      await refused(limit, 'merge.commit_regenerated', { ...regenerated, onto: 'main' }, 'invalid_params');
+      await refused(limit, 'merge.commit_regenerated', { ...regenerated, message: ' ' }, 'invalid_params');
     });
 
     it('refuses a document read or commit with a bad path, too much text, too many files or a bad id', async () => {

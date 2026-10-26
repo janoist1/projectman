@@ -145,7 +145,19 @@ const mergeState = z.strictObject({
 });
 const mergeBuilt = z.discriminatedUnion('ok', [
   z.strictObject({ ok: z.literal(true), mergeCommit: mergeText, changed: z.array(text).max(1000) }),
-  z.strictObject({ ok: z.literal(false), conflict: z.array(text).max(50) }),
+  z.strictObject({
+    ok: z.literal(false),
+    conflict: z.array(text).max(50),
+    provisional: mergeText.optional(),
+  }),
+]);
+const mergeRegenerated = z.discriminatedUnion('ok', [
+  z.strictObject({ ok: z.literal(true), mergeCommit: mergeText, changed: z.array(text).max(1000) }),
+  z.strictObject({
+    ok: z.literal(false),
+    reason: z.enum(['outside', 'missing', 'not_regular']),
+    paths: z.array(text).max(50),
+  }),
 ]);
 const mergePushed = z.discriminatedUnion('ok', [
   z.strictObject({ ok: z.literal(true) }),
@@ -258,6 +270,7 @@ type ContractResults = {
   'merge.prepare': BranchMerger['prepare'];
   'merge.is_ancestor': BranchMerger['isAncestor'];
   'merge.build': BranchMerger['build'];
+  'merge.commit_regenerated': BranchMerger['commitRegenerated'];
   'merge.checkout_conflicts': BranchMerger['checkoutConflicts'];
   'merge.checkout_for_check': BranchMerger['checkoutForCheck'];
   'merge.release_check': BranchMerger['releaseCheck'];
@@ -301,6 +314,7 @@ type ContractParams = {
   'merge.prepare': { ref: MergeRepoRef } & Parameters<BranchMerger['prepare']>[1];
   'merge.is_ancestor': { ref: MergeRepoRef } & Parameters<BranchMerger['isAncestor']>[1];
   'merge.build': { ref: MergeRepoRef } & Parameters<BranchMerger['build']>[1];
+  'merge.commit_regenerated': { ref: MergeRepoRef } & Parameters<BranchMerger['commitRegenerated']>[1];
   'merge.checkout_conflicts': { ref: MergeRepoRef } & Parameters<BranchMerger['checkoutConflicts']>[1];
   'merge.checkout_for_check': { ref: MergeRepoRef } & Parameters<BranchMerger['checkoutForCheck']>[1];
   'merge.release_check': { ref: MergeRepoRef } & Parameters<BranchMerger['releaseCheck']>[1];
@@ -629,8 +643,24 @@ export const methods = {
   'merge.prepare': method(mergeCall({ base: mergeText, commit: mergeText }), mergeState),
   'merge.is_ancestor': method(mergeCall({ ancestor: mergeText, commit: mergeText }), z.boolean().nullable()),
   'merge.build': method(
-    mergeCall({ onto: mergeText, commit: mergeText, message: text.max(2000) }),
+    mergeCall({
+      onto: mergeText,
+      commit: mergeText,
+      message: text.max(2000),
+      regenerate: z.array(text.max(200)).max(10).optional(),
+    }),
     mergeBuilt,
+  ),
+  'merge.commit_regenerated': method(
+    mergeCall({
+      mergeId: mergeText,
+      onto: mergeText,
+      commit: mergeText,
+      message: text.max(2000),
+      paths: z.array(text.max(4096)).max(50),
+      patterns: z.array(text.max(200)).max(10),
+    }),
+    mergeRegenerated,
   ),
   'merge.checkout_conflicts': method(
     mergeCall({ base: mergeText, changed: z.array(text).max(1000) }),

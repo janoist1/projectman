@@ -1,7 +1,13 @@
 import { readlinkSync, realpathSync, statSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { isReleaseTagName, usesCodexCli, SessionReadBoundary, type ProjectConfig } from '@projectman/shared';
+import {
+  isRegeneratedPathPattern,
+  isReleaseTagName,
+  usesCodexCli,
+  SessionReadBoundary,
+  type ProjectConfig,
+} from '@projectman/shared';
 import type { AgentSandbox, EnginePaths, MachineProbe, ProcessRecord } from '../contracts';
 import {
   OPEN_OUTBOUND_DOMAINS,
@@ -277,6 +283,10 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
   };
   const mergeIdOf = (id: string) => {
     if (!isMergeId(id)) refuse('invalid_params', 'Not a merge id');
+  };
+  const regeneratePatterns = (patterns: readonly string[]) => {
+    if (!patterns.every(isRegeneratedPathPattern))
+      refuse('invalid_params', 'Not a pattern of generated files');
   };
 
   const withDenials = <T extends { denyRead?: string[]; denyWrite?: string[]; deniedEnvVars?: string[] }>(
@@ -738,6 +748,24 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
       commitIds(params.onto, params.commit);
       if (!isMergeMessage(params.message) || params.message.trim().length === 0)
         refuse('invalid_params', 'Not a commit message');
+      regeneratePatterns(params.regenerate ?? []);
+      return params;
+    },
+    'merge.commit_regenerated': (params) => {
+      mergeRepo(params.ref);
+      mergeIdOf(params.mergeId);
+      commitIds(params.onto, params.commit);
+      if (!isMergeMessage(params.message) || params.message.trim().length === 0)
+        refuse('invalid_params', 'Not a commit message');
+      regeneratePatterns(params.patterns);
+      for (const entry of params.paths)
+        if (
+          entry === '' ||
+          entry.startsWith('/') ||
+          entry.includes('\0') ||
+          entry.split('/').some((segment) => segment === '..')
+        )
+          refuse('invalid_params', 'Not a path');
       return params;
     },
     'merge.checkout_conflicts': async (params) => {

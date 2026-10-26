@@ -111,7 +111,7 @@ function withDocs(config: ProjectConfig): void {
 
 async function setup(
   merger: ReturnType<typeof fakeDocsMerger> | null = fakeDocsMerger(),
-  opts: { docs?: boolean; persistent?: boolean } = {},
+  opts: { docs?: boolean; persistent?: boolean; pm?: boolean } = {},
 ) {
   h = await createDomainHarness({
     merger,
@@ -119,6 +119,10 @@ async function setup(
     persistent: opts.persistent,
     adjust(config) {
       if (opts.docs !== false) withDocs(config);
+      if (opts.pm) {
+        const pm = config.team.members.find((member) => member.handle === 'pm');
+        if (pm?.kind === 'ai') pm.onLeave = false;
+      }
       config.team.members.push({
         kind: 'human',
         handle: 'cleo',
@@ -134,8 +138,8 @@ async function setup(
   return merger;
 }
 
-async function say(from: string, text = 'Please update the log') {
-  await h.domain.messaging.sendReporting('AR', from, { to: ['operator'], text });
+async function say(from: string, text = 'Please update the log', to = 'operator') {
+  await h.domain.messaging.sendReporting('AR', from, { to: [to], text });
   await settle();
 }
 const operatorSessions = (): Session[] => h.domain.sessions.list('AR', { member: 'operator' });
@@ -143,14 +147,16 @@ const ownerConversation = (): Session =>
   operatorSessions().find((s) => s.workItem.type === 'general' && s.workItem.with === undefined)!;
 const toolOf = (session: Session): ToolContext => ({
   projectKey: 'AR',
-  member: 'operator',
+  member: session.member,
   sessionId: session.id,
   taskKey: null,
 });
-/** The owner asks the Operator something: its conversation and an open request. */
-async function ownerAsks(): Promise<{ ctx: ToolContext; requestId: string }> {
-  await say('owner');
-  const session = ownerConversation();
+/** The owner asks the document maintainer something: its conversation and an open request. */
+async function ownerAsks(member = 'operator'): Promise<{ ctx: ToolContext; requestId: string }> {
+  await say('owner', undefined, member);
+  const session = h.domain.sessions
+    .list('AR', { member })
+    .find((session) => session.workItem.type === 'general' && session.workItem.with === undefined)!;
   return { ctx: toolOf(session), requestId: h.repos.operatorRequests.openOfSession(session.id)[0]!.id };
 }
 const stepsOf = (requestId: string) => h.repos.operatorRequests.steps(requestId);
@@ -159,6 +165,115 @@ const append = (text: string) => ({ doc: 'decisions' as const, old_text: '', new
 type Edit = { doc: ProjectDoc; old_text: string; new_text: string };
 const write = (ctx: ToolContext, edits: Edit[] = [append('3. Third')], baseCommit = BASE) =>
   h.domain.teamTools.writeProjectDocs(ctx, { baseCommit, message: 'Add decision 3', edits });
+
+describe('project manager documents (PM-1044)', () => {
+  async function internal(): Promise<ToolContext> {
+    const { session } = await h.domain.sessions.ensureSession('AR', 'pm', { type: 'general' });
+    await settle();
+    return toolOf(session);
+  }
+
+  it('reads and publishes decisions and roadmap for its own owner request', async () => {
+    await setup(fakeDocsMerger(), { pm: true });
+    const { ctx, requestId } = await ownerAsks('pm');
+    const read = await h.domain.teamTools.readProjectDoc(ctx, { doc: 'decisions' });
+    const result = await write(
+      ctx,
+      [append('3. Third'), { doc: 'roadmap', old_text: '', new_text: 'Next step' }],
+      read.commit,
+    );
+    expect(result).toMatchObject({ state: 'published', paths: [DECISIONS, ROADMAP] });
+    expect(h.repos.docWrites.get(result.write_id)).toMatchObject({
+      author: 'pm',
+      requestedBy: 'owner',
+      requestId,
+    });
+    expect(stepsOf(requestId)).toMatchObject([{ action: 'docs_write', status: 'done' }]);
+  });
+
+  it('reads decisions without an owner request', async () => {
+    await setup(fakeDocsMerger(), { pm: true });
+    const ctx = await internal();
+    expect(await h.domain.teamTools.readProjectDoc(ctx, { doc: 'decisions' })).toMatchObject({
+      commit: BASE,
+    });
+  });
+
+  it('refuses decision writes without an owner request', async () => {
+    const merger = (await setup(fakeDocsMerger(), { pm: true }))!;
+    expect(await refusal(write(await internal()))).toMatch(/^operator_no_request:/);
+    expect(merger.commitFiles).not.toHaveBeenCalled();
+  });
+
+  it('does not inherit an owner request sent to the Operator', async () => {
+    await setup(fakeDocsMerger(), { pm: true });
+    await ownerAsks();
+    expect(await refusal(write(await internal()))).toMatch(/^operator_no_request:/);
+  });
+
+  it('maintains lessons without an owner request through the publication recheck', async () => {
+    await setup(fakeDocsMerger(), { pm: true });
+    const ctx = await internal();
+    const read = await h.domain.teamTools.readProjectDoc(ctx, { doc: 'lessons' });
+    const result = await write(ctx, [{ doc: 'lessons', old_text: '', new_text: 'A lesson' }], read.commit);
+    expect(result).toMatchObject({ state: 'published', paths: [LESSONS] });
+    expect(h.repos.docWrites.get(result.write_id)).toMatchObject({
+      author: 'pm',
+      autonomousLessons: true,
+      requestId: null,
+      requestedBy: null,
+    });
+  });
+
+  it('refuses documents in the PM guest conversation', async () => {
+    await setup(fakeDocsMerger(), { pm: true });
+    const { session } = await h.domain.sessions.ensureSession('AR', 'pm', {
+      type: 'general',
+      with: 'cleo',
+    });
+    const ctx = toolOf(session);
+    await expect(h.domain.teamTools.readProjectDoc(ctx, { doc: 'decisions' })).rejects.toThrow(
+      'project_manager_only',
+    );
+    await expect(write(ctx)).rejects.toThrow('project_manager_only');
+    await expect(write(ctx, [{ doc: 'lessons', old_text: '', new_text: 'A lesson' }])).rejects.toThrow(
+      'project_manager_only',
+    );
+  });
+
+  it('refuses a PM who is no longer the selected coordinator', async () => {
+    await setup(fakeDocsMerger(), { pm: true });
+    const ctx = await internal();
+    const pm = h.domain.projects.cachedConfig('AR')!.team.members.find((member) => member.handle === 'pm');
+    if (pm?.kind === 'ai') pm.onLeave = true;
+    await expect(h.domain.teamTools.readProjectDoc(ctx, { doc: 'decisions' })).rejects.toThrow(
+      'operator_only',
+    );
+    await expect(write(ctx)).rejects.toThrow('operator_only');
+  });
+
+  it.each(['decisions', 'lessons'] as const)(
+    'refuses %s writes during an approval continuation',
+    async (doc) => {
+      await setup(fakeDocsMerger(), { pm: true });
+      const ctx = await internal();
+      h.repos.operatorRequests.insert({
+        id: 'opr_pm_approval',
+        projectKey: 'AR',
+        sessionId: ctx.sessionId,
+        source: 'approval',
+        messageId: null,
+        inboxItemId: null,
+        fromHandle: 'owner',
+        quote: 'An unrelated approval',
+        openedAt: new Date().toISOString(),
+      });
+      await expect(write(ctx, [{ doc, old_text: '', new_text: 'An entry' }])).rejects.toThrow(
+        'operator_no_request',
+      );
+    },
+  );
+});
 
 it('migrates old document writes without granting autonomous lessons authority', () => {
   const db = new Database(':memory:');

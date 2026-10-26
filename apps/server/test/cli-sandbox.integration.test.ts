@@ -212,7 +212,8 @@ it(
       expect(profile).not.toContain(`"${home}"="deny"`);
       expect(profile).toContain(':workspace_roots');
       expect(profile).toContain(`"${join(userHome, '.ssh')}"="deny"`);
-      expect(profile).not.toContain(':slash_tmp');
+      expect(profile).toContain('":tmpdir"="write"');
+      expect(profile).toContain('":slash_tmp"="write"');
       expect(argv.includes('resume')).toBe(resume);
       await domain.sessions.stop('AR', running.id);
       await waitFor(() => !app.projectman.runnerModule.runner.isRunning(running.id), {

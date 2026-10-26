@@ -39,7 +39,13 @@ export interface EmailChannelService {
   send(
     projectKey: string,
     caller: string,
-    input: { to: string; subject: string; text: string; taskKey: string | null },
+    input: {
+      to: string;
+      subject: string | null;
+      text: string;
+      taskKey: string | null;
+      replyTo: string | null;
+    },
   ): Promise<{ emailId: string; status: 'pending_approval' | 'sent' }>;
   setContactByMember(
     projectKey: string,

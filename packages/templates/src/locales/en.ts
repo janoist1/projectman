@@ -418,6 +418,7 @@ export const en: TemplateLocale = {
       `Your login code: ${code}\n\nThe code works once and is valid until ${validUntil}.\n\nIf you did not ask for it, ignore this message.\n`,
   },
   email: {
+    quoteHeader: ({ date, name }) => `On ${date}, ${name} wrote:`,
     firstNotice: ({ member, project }) =>
       `${member} (AI member, ${project} project). If you'd rather not get more e-mail, just reply and say so.`,
   },

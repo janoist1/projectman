@@ -1,5 +1,6 @@
 import { EMAIL_INBOUND_TEXT_MAX } from '@projectman/shared';
 import { describe, expect, it } from 'vitest';
+import { getLocale } from '@projectman/templates';
 import { cleanReplyText, htmlToText } from './reply-text';
 
 describe('cleanReplyText', () => {
@@ -10,6 +11,11 @@ describe('cleanReplyText', () => {
     { name: 'a From and Sent pair', header: 'From: Dev <dev@example.test>\nSent: Monday, 5 October 2026' },
   ])('cuts the history after $name', ({ header }) => {
     expect(cleanReplyText(`Thanks!\n\n${header}\nThe earlier text\nmore`)).toBe('Thanks!');
+  });
+
+  it.each(['hu', 'en'] as const)('cuts our %s quote header', (language) => {
+    const header = getLocale(language).email.quoteHeader({ date: 'Oct 26, 2026', name: 'Owner' });
+    expect(cleanReplyText(`Thanks!\n\n${header}\nEarlier text`)).toBe('Thanks!');
   });
 
   it('keeps a From line that no date line follows', () => {

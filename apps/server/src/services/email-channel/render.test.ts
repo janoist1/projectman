@@ -17,6 +17,19 @@ describe('renderEmail', () => {
     expect(rendered.html).not.toContain('Notice & "more"');
   });
 
+  it('quotes the history after the notice and escapes its HTML', () => {
+    const rendered = renderEmail({
+      text: 'Answer',
+      notice: 'Notice',
+      quote: { header: 'Owner <name> wrote:', text: 'First & last\nSecond' },
+    });
+    expect(rendered.text).toBe('Answer\n\n-- \nNotice\n\nOwner <name> wrote:\n> First & last\n> Second\n');
+    expect(rendered.html).toContain('<div class="gmail_attr">Owner &lt;name&gt; wrote:</div>');
+    expect(rendered.html).toContain('<blockquote class="gmail_quote"');
+    expect(rendered.html).toContain('First &amp; last<br>Second');
+    expect(rendered.html.indexOf('Notice')).toBeLessThan(rendered.html.indexOf('gmail_quote'));
+  });
+
   it('adds no separator or notice paragraph without a notice', () => {
     const rendered = renderEmail({ text: 'One' });
     expect(rendered.text).toBe('One\n');

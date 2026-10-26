@@ -338,6 +338,10 @@ export function emailContactChangeRefusal(input: EmailContactChangeInput): Email
   return null;
 }
 
+export function emailReplySubject(subject: string): string {
+  return (/^(re|aw|sv|vá|válasz):/i.test(subject) ? subject : `Re: ${subject}`).slice(0, EMAIL_SUBJECT_MAX);
+}
+
 export function emailReplyAddress(projectKey: string, token: string, domain: string): string {
   return `r-${projectKey.toLowerCase()}-${token}@${domain}`;
 }

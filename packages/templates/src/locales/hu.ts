@@ -432,6 +432,7 @@ export const hu: TemplateLocale = {
       `A belépési kódod: ${code}\n\nA kód egyszer használható, és eddig érvényes: ${validUntil}.\n\nHa nem te kérted, hagyd figyelmen kívül ezt a levelet.\n`,
   },
   email: {
+    quoteHeader: ({ date, name }) => `${date}, ${name} ezt írta:`,
     firstNotice: ({ member, project }) =>
       `${member} (AI-tag, ${project} projekt). Ha nem kérsz több levelet, írd meg válaszban.`,
   },

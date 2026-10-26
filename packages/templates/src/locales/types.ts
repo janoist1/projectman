@@ -195,6 +195,7 @@ export interface TemplateLocale {
   /** Text of the outgoing channel e-mail (PM-941). */
   email: {
     /** The short notice under the first mail a member sends to a contact (PM-1017). */
+    quoteHeader: (input: { date: string; name: string }) => string;
     firstNotice: (input: { member: string; project: string }) => string;
   };
   webPush: WebPushText;

@@ -37,6 +37,10 @@ describe('createSesEmailSender', () => {
       from: FROM,
       fromName: 'Dev "D"',
       replyTo: 'r-ar-token@example.test',
+      headers: [
+        { name: 'In-Reply-To', value: '<parent@example.test>' },
+        { name: 'References', value: '<root@example.test> <parent@example.test>' },
+      ],
       subject: 'Summary',
       text: 'Ready',
       html: '<p>Ready</p>',
@@ -55,6 +59,14 @@ describe('createSesEmailSender', () => {
     );
     const command = sesMocks.send.mock.calls[0]![0] as unknown as { input: Record<string, unknown> };
     expect(command.input).toMatchObject({
+      Content: {
+        Simple: {
+          Headers: [
+            { Name: 'In-Reply-To', Value: '<parent@example.test>' },
+            { Name: 'References', Value: '<root@example.test> <parent@example.test>' },
+          ],
+        },
+      },
       Destination: { ToAddresses: ['person@example.test'] },
       ReplyToAddresses: ['r-ar-token@example.test'],
     });

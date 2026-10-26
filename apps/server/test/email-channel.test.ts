@@ -26,6 +26,8 @@ const message = (
   providerId: null,
   inboxItemId: null,
   messageId: null,
+  mimeMessageId: null,
+  mimeReferences: null,
   decidedBy: null,
   decidedAt: null,
   createdAt: now,
@@ -79,6 +81,30 @@ describe('email channel repository', () => {
       old.close();
     }
   });
+
+  it('adds nullable MIME fields while preserving historical email rows', () => {
+    const old = new Database(':memory:');
+    try {
+      for (const migration of migrations.filter((entry) => entry.version < 112)) old.exec(migration.sql);
+      old.pragma('user_version = 111');
+      old
+        .prepare(
+          `INSERT INTO email_messages (id, project_key, direction, subject, text, status, created_at, updated_at)
+        VALUES ('eml_old', 'AR', 'inbound', 'Old', 'Body', 'delivered', ?, ?)`,
+        )
+        .run(now, now);
+      migrate(old);
+      expect(createRepositories(old).emailChannel.messages.get('eml_old')).toMatchObject({
+        subject: 'Old',
+        text: 'Body',
+        mimeMessageId: null,
+        mimeReferences: null,
+      });
+    } finally {
+      old.close();
+    }
+  });
+
   it('upserts a contact and retains each attributed setting event', () => {
     const event = repo.contacts.set(contact);
     expect(event.id).toMatch(/^emc_/);

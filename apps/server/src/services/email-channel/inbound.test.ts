@@ -7,7 +7,7 @@ import {
   OWNER_ACTOR,
   type DomainHarness,
 } from '../../../test/helpers/domain-harness';
-import type { OutboundMail } from './ses-sender';
+import { EmailSendError, type OutboundMail } from './ses-sender';
 import type { DeliveryEvent, InboundMail } from './types';
 
 const env = {
@@ -81,6 +81,7 @@ describe('EmailInbound', () => {
         env,
         sender: {
           async send(input) {
+            if (input.from !== env.from) throw new EmailSendError('unavailable', true);
             sent.push(input);
             return { providerId: `out-${sent.length}` };
           },
@@ -99,6 +100,7 @@ describe('EmailInbound', () => {
     const card = await tasks.create('AR', { title: 'Customer card' }, OWNER_ACTOR);
     await emailChannel.send('AR', 'dev-1', {
       to: 'owner',
+      replyTo: null,
       subject: 'Summary',
       text: 'Ready.',
       taskKey: card.key,
@@ -131,6 +133,126 @@ describe('EmailInbound', () => {
   }
 
   describe('receive', () => {
+    it('authenticates a header-linked reply before linking it', async () => {
+      const { harness, emailChannel, reply } = await setup();
+      const mail = reply({
+        to: 'dev-1@reply.example.test',
+        verdicts: { dmarc: 'fail' },
+        raw: mime({ From: 'owner@example.com', 'In-Reply-To': '<out-1@ses.example.test>' }, 'Answer'),
+      });
+      expect(await emailChannel.inbound.receive(mail)).toBe('parked');
+      expect(harness.repos.emailChannel.messages.byProviderId(mail.providerId)).toMatchObject({
+        inReplyTo: null,
+        parkReason: 'authentication_failed',
+      });
+    });
+
+    it.each(['In-Reply-To', 'References'])(
+      'links a member-address reply using %s after consent is withdrawn',
+      async (header) => {
+        const { harness, emailChannel, card, reply } = await setup();
+        emailChannel.setContact('AR', 'owner', false, { handle: 'owner' });
+        const mail = reply({
+          to: 'dev-1@reply.example.test',
+          raw: mime(
+            {
+              From: 'owner@example.com',
+              Subject: 'Re: Summary',
+              [header]:
+                header === 'References'
+                  ? '<unknown@example.test> <out-1@ses.example.test>'
+                  : '<out-1@ses.example.test>',
+            },
+            'Answer',
+          ),
+        });
+        expect(await emailChannel.inbound.receive(mail)).toBe('delivered');
+        const row = harness.repos.emailChannel.messages.byProviderId(mail.providerId)!;
+        expect(row).toMatchObject({
+          taskKey: card.key,
+          inReplyTo: harness.repos.emailChannel.messages.byProviderId('out-1')!.id,
+        });
+        expect(harness.repos.messages.get(row.messageId!)!.email).not.toHaveProperty('direct');
+      },
+    );
+
+    it.each(['contact', 'expired', 'member', 'project', 'direction', 'missing'])(
+      'does not link a reply with an ineligible %s parent',
+      async (reason) => {
+        const { harness, emailChannel, reply } = await setup();
+        const parent = harness.repos.emailChannel.messages.byProviderId('out-1')!;
+        if (reason === 'contact') harness.repos.emailChannel.messages.update(parent.id, { contact: 'other' });
+        if (reason === 'member') harness.repos.emailChannel.messages.update(parent.id, { member: 'dev-2' });
+        if (reason === 'direction')
+          harness.repos.emailChannel.messages.update(parent.id, { direction: 'inbound' });
+        if (reason === 'expired')
+          harness.repos.db
+            .prepare('UPDATE email_messages SET created_at = ? WHERE id = ?')
+            .run('2020-01-01T00:00:00.000Z', parent.id);
+        if (reason === 'project')
+          harness.repos.db
+            .prepare('UPDATE email_messages SET project_key = ? WHERE id = ?')
+            .run('OTHER', parent.id);
+        emailChannel.setContact('AR', 'owner', false, { handle: 'owner' });
+        const mail = reply({
+          to: 'dev-1@reply.example.test',
+          raw: mime(
+            {
+              From: 'owner@example.com',
+              Subject: 'Re: Summary',
+              ...(reason === 'missing' ? {} : { 'In-Reply-To': '<out-1@ses.example.test>' }),
+            },
+            'Answer',
+          ),
+        });
+        expect(await emailChannel.inbound.receive(mail)).toBe('parked');
+        expect(harness.repos.emailChannel.messages.byProviderId(mail.providerId)).toMatchObject({
+          inReplyTo: null,
+          parkReason: 'sender_not_allowed',
+        });
+      },
+    );
+
+    it.each([true, false])(
+      'normalizes MIME ids on delivered and parked mail (deliver=%s)',
+      async (deliver) => {
+        const { harness, emailChannel, reply } = await setup();
+        const ids = Array.from({ length: 22 }, (_, i) => `<ref-${i}@example.test>`);
+        if (!deliver) emailChannel.setContact('AR', 'owner', false, { handle: 'owner' });
+        const mail = reply({
+          to: 'dev-1@reply.example.test',
+          raw: mime(
+            {
+              From: 'owner@example.com',
+              Subject: 'Question',
+              'Message-ID': '<received@example.test>',
+              'In-Reply-To': 'invalid',
+              References: `bad <bad> <${'x'.repeat(251)}@example.test> ${ids.join(' ')}`,
+            },
+            'Answer',
+          ),
+        });
+        await emailChannel.inbound.receive(mail);
+        expect(harness.repos.emailChannel.messages.byProviderId(mail.providerId)).toMatchObject({
+          mimeMessageId: '<received@example.test>',
+          mimeReferences: ids.slice(-20).join(' '),
+          inReplyTo: null,
+        });
+      },
+    );
+
+    it('discards an invalid MIME Message-ID', async () => {
+      const { harness, emailChannel, reply } = await setup();
+      const mail = reply({
+        raw: mime({ From: 'owner@example.com', 'Message-ID': '<invalid>', References: 'invalid' }, 'Answer'),
+      });
+      await emailChannel.inbound.receive(mail);
+      expect(harness.repos.emailChannel.messages.byProviderId(mail.providerId)).toMatchObject({
+        mimeMessageId: null,
+        mimeReferences: null,
+      });
+    });
+
     it('hands the text of a verified reply to the AI member as a message', async () => {
       const { harness, emailChannel, card, reply, inboundRows, alerts } = await setup();
       const mail = reply({ body: 'Thanks, this is fine.\n\nOn Mon, Owner wrote:\n> Ready.' });

@@ -5,6 +5,7 @@ import type { ToolContext } from '../../contracts';
 import type { ProjectService } from '../../core/projects';
 import type { EmailChannelService } from '../../services/email-channel';
 import type { ToolCaller } from '../caller';
+import { EMAIL_CHANNEL_TOOL_GROUP } from './tools';
 import { EmailChannelTools } from './handler';
 
 const ctx: ToolContext = {
@@ -84,7 +85,13 @@ describe('EmailChannelTools', () => {
   ])('refuses every tool when $name', async ({ configured, projectOn, senderOn, code }) => {
     const channel = tools(senderConfig(base, projectOn, senderOn), configured);
     const calls = [
-      channel.sendEmail(ctx, { to: 'owner', subject: 'Summary', text: 'Ready.', taskKey: null }),
+      channel.sendEmail(ctx, {
+        to: 'owner',
+        subject: 'Summary',
+        text: 'Ready.',
+        taskKey: null,
+        replyTo: null,
+      }),
       channel.setEmailContact(ctx, { handle: 'owner', wants: true, requestedBy: 'owner' }),
       channel.listEmailContacts(ctx),
     ];
@@ -101,4 +108,14 @@ describe('EmailChannelTools', () => {
     ]);
     expect(Object.keys(result[0]!).sort()).toEqual(['displayName', 'handle', 'hasAddress', 'wants']);
   });
+});
+
+it('requires a subject or reply_to in the send_email schema', () => {
+  const tool = EMAIL_CHANNEL_TOOL_GROUP.tools.find((tool) => tool.name === 'send_email')!;
+  const args = { to: 'owner', text: 'Answer' };
+  const result = tool.inputSchema.safeParse(args);
+  expect(result.success).toBe(false);
+  if (!result.success)
+    expect(result.error.issues).toEqual([expect.objectContaining({ path: ['subject'], code: 'custom' })]);
+  expect(tool.inputSchema.safeParse({ ...args, reply_to: 'eml_parent' }).success).toBe(true);
 });

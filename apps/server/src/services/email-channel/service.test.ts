@@ -19,7 +19,7 @@ const env = {
   queueUrl: null,
 } as const;
 
-const mail = { to: 'owner', subject: 'Summary', text: 'Ready.', taskKey: null };
+const mail = { replyTo: null, to: 'owner', subject: 'Summary', text: 'Ready.', taskKey: null };
 
 describe('EmailChannelService', () => {
   const harnesses: DomainHarness[] = [];
@@ -83,14 +83,125 @@ describe('EmailChannelService', () => {
     return { harness, emailChannel, sent, outbound, pendingItem, approve, update };
   }
 
+  function received(harness: DomainHarness) {
+    const at = new Date().toISOString();
+    return harness.repos.emailChannel.messages.insert({
+      projectKey: 'AR',
+      direction: 'inbound',
+      member: 'dev-1',
+      contact: 'owner',
+      taskKey: null,
+      subject: 'Question',
+      text: 'Original <text>',
+      status: 'delivered',
+      parkReason: null,
+      note: null,
+      fromAddress: 'owner@example.com',
+      attachmentNames: [],
+      replyTokenHash: null,
+      replyExpiresAt: null,
+      inReplyTo: null,
+      providerId: 'received-1',
+      inboxItemId: null,
+      messageId: null,
+      mimeMessageId: '<parent@example.test>',
+      mimeReferences: '<root@example.test>',
+      decidedBy: null,
+      decidedAt: null,
+      createdAt: at,
+      updatedAt: at,
+    });
+  }
+
   describe('send', () => {
-    it('sends without approval and records the provider id and a reply address', async () => {
+    it('keeps reply metadata through approval and filters only the authored text', async () => {
+      const { harness, emailChannel, sent, approve, pendingItem } = await setup();
+      const parent = received(harness);
+      harness.repos.emailChannel.messages.update(parent.id, { text: 'Contact stranger@external.test.' });
+      const result = await emailChannel.send('AR', 'dev-1', { ...mail, subject: null, replyTo: parent.id });
+      expect(result.status).toBe('pending_approval');
+      expect(pendingItem()).toMatchObject({ body: mail.text });
+      expect(sent).toHaveLength(0);
+      await approve('approve');
+      expect(sent[0]!.headers).toContainEqual({ name: 'In-Reply-To', value: '<parent@example.test>' });
+      expect(sent[0]!.text).toContain('> Contact stranger@external.test.');
+    });
+
+    it('inherits the subject and card and quotes a received mail with MIME headers', async () => {
+      const { harness, emailChannel, sent } = await setup({ withoutApproval: true });
+      const card = await harness.domain.tasks.create('AR', { title: 'Question' }, OWNER_ACTOR);
+      const parent = received(harness);
+      harness.repos.emailChannel.messages.update(parent.id, { taskKey: card.key });
+      const result = await emailChannel.send('AR', 'dev-1', { ...mail, subject: null, replyTo: parent.id });
+      expect(harness.repos.emailChannel.messages.get(result.emailId)).toMatchObject({
+        subject: 'Re: Question',
+        taskKey: card.key,
+        inReplyTo: parent.id,
+      });
+      expect(sent[0]!.headers).toEqual([
+        { name: 'In-Reply-To', value: '<parent@example.test>' },
+        { name: 'References', value: '<root@example.test> <parent@example.test>' },
+      ]);
+      expect(sent[0]!.text).toContain('> Original <text>');
+      expect(sent[0]!.html).toContain('Original &lt;text&gt;');
+    });
+
+    it('keeps the first and newest references within the header limit', async () => {
+      const { harness, emailChannel, sent } = await setup({ withoutApproval: true });
+      const parent = received(harness);
+      const ids = Array.from({ length: 20 }, (_, i) => `<${i}-${'x'.repeat(70)}@example.test>`);
+      harness.repos.emailChannel.messages.update(parent.id, { mimeReferences: ids.join(' ') });
+      await emailChannel.send('AR', 'dev-1', { ...mail, replyTo: parent.id });
+      const references = sent[0]!.headers!.find((header) => header.name === 'References')!.value;
+      expect(references.length).toBeLessThanOrEqual(900);
+      expect(references.split(' ')[0]).toBe(ids[0]);
+      expect(references.endsWith(`${ids.at(-1)} <parent@example.test>`)).toBe(true);
+      expect(references).not.toContain(ids[1]);
+    });
+
+    it('sends a reply without MIME headers when the parent has no Message-ID', async () => {
+      const { harness, emailChannel, sent } = await setup({ withoutApproval: true });
+      const parent = received(harness);
+      harness.repos.emailChannel.messages.update(parent.id, { mimeMessageId: null });
+      await emailChannel.send('AR', 'dev-1', { ...mail, subject: null, replyTo: parent.id });
+      expect(sent[0]).toMatchObject({ subject: 'Re: Question' });
+      expect(sent[0]).not.toHaveProperty('headers');
+    });
+
+    it.each([
+      { projectKey: 'OTHER' },
+      { member: 'dev-2' },
+      { contact: 'acme' },
+      { direction: 'outbound' as const },
+      { status: 'parked' as const },
+    ])('rejects an ineligible parent %o', async (patch) => {
+      const { harness, emailChannel } = await setup({ withoutApproval: true });
+      const parent = received(harness);
+      if ('projectKey' in patch)
+        harness.repos.db
+          .prepare('UPDATE email_messages SET project_key = ? WHERE id = ?')
+          .run(patch.projectKey, parent.id);
+      else harness.repos.emailChannel.messages.update(parent.id, patch);
+      await expect(emailChannel.send('AR', 'dev-1', { ...mail, replyTo: parent.id })).rejects.toMatchObject({
+        code: 'email_unknown',
+        status: 404,
+      });
+    });
+
+    it('requires a subject or a reply parent', async () => {
+      const { emailChannel } = await setup({ withoutApproval: true });
+      await expect(emailChannel.send('AR', 'dev-1', { ...mail, subject: null })).rejects.toMatchObject({
+        code: 'invalid_request',
+        status: 400,
+      });
+    });
+
+    it('sends without approval and records the provider id', async () => {
       const { emailChannel, sent, outbound } = await setup({ withoutApproval: true });
       expect(await emailChannel.send('AR', 'dev-1', mail)).toMatchObject({ status: 'sent' });
       expect(sent[0]).toMatchObject({
         to: 'owner@example.com',
         subject: 'Summary',
-        replyTo: expect.stringMatching(/^r-ar-[a-z2-7]{26}@reply\.example\.test$/),
       });
       expect(outbound()[0]).toMatchObject({ status: 'sent' });
     });
@@ -102,14 +213,16 @@ describe('EmailChannelService', () => {
       return row?.fromAddress;
     };
 
-    it('writes from the member address under its own name, and keeps the token reply address', async () => {
+    it('writes from the member address without a reply token', async () => {
       const { harness, emailChannel, sent } = await setup({ withoutApproval: true });
       await emailChannel.send('AR', 'dev-1', mail);
       expect(sent[0]).toMatchObject({
         from: 'dev-1@reply.example.test',
         fromName: expect.not.stringContaining('·'),
-        replyTo: expect.stringMatching(/^r-ar-/),
       });
+      expect(sent[0]).not.toHaveProperty('replyTo');
+      const row = harness.repos.emailChannel.messages.byProviderId('provider-1')!;
+      expect(row).toMatchObject({ replyTokenHash: null, replyExpiresAt: null });
       expect(fromAddressOf(harness)).toBe('dev-1@reply.example.test');
     });
 
@@ -139,6 +252,11 @@ describe('EmailChannelService', () => {
       expect(await emailChannel.send('AR', 'dev-1', mail)).toMatchObject({ status: 'sent' });
       expect(sent.map((input) => input.from)).toEqual(['dev-1@reply.example.test', env.from]);
       expect(sent[1]!.fromName).toContain('·');
+      expect(sent[1]!.replyTo).toMatch(/^r-ar-/);
+      expect(harness.repos.emailChannel.messages.byProviderId('provider-1')).toMatchObject({
+        replyTokenHash: expect.any(String),
+        replyExpiresAt: expect.any(String),
+      });
       expect(fromAddressOf(harness)).toBe(env.from);
       expect(outbound()[0]).toMatchObject({ status: 'sent' });
     });

@@ -1299,6 +1299,10 @@ policy as drift until upgraded.
 The topic admits only `ses.amazonaws.com` of this account (`aws:SourceAccount`), the queue only this topic
 (`aws:SourceArn`).
 
+Channel mails go out from the member's own mailbox on the reply domain (PM-1017). Until the sender's
+`ses:FromAddress` condition admits those addresses, SES refuses them (`AccessDenied`); the hub then sends the
+mail once more from `PROJECTMAN_SES_FROM` and logs a warning naming `ses receive-configure`.
+
 **Cost** (printed by the plan; check [SES pricing](https://aws.amazon.com/ses/pricing/) for the current
 figures): receiving about 0.10 USD per 1000 mails plus about 0.09 USD per 1000 chunks of 256 kB of incoming
 mail; the SNS and SQS requests of a few hundred mails stay inside the free tier. Sending is unchanged.

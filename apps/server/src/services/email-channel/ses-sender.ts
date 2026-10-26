@@ -3,8 +3,11 @@ import type { EmailSendFailure } from '@projectman/shared';
 
 export interface OutboundMail {
   to: string;
+  /** The sender address: the service decides which one. */
+  from: string;
   fromName: string;
-  replyTo: string;
+  /** Absent: no `ReplyToAddresses`. */
+  replyTo?: string;
   subject: string;
   text: string;
   html: string;
@@ -24,13 +27,18 @@ export function isSesRegion(region: string): boolean {
 
 export class EmailSendError extends Error {
   readonly reason: EmailSendFailure;
+  /** The provider refused this sender address (the IAM `ses:FromAddress` condition). */
+  readonly fromRefused: boolean;
 
-  constructor(reason: EmailSendFailure) {
+  constructor(reason: EmailSendFailure, fromRefused = false) {
     super('the e-mail could not be sent');
     this.name = 'EmailSendError';
     this.reason = reason;
+    this.fromRefused = fromRefused;
   }
 }
+
+const FROM_REFUSED = new Set(['AccessDeniedException', 'AccessDenied']);
 
 const REASONS: Readonly<Record<string, EmailSendFailure>> = {
   MessageRejected: 'rejected',
@@ -55,7 +63,6 @@ export function encodedFrom(fromName: string, from: string): string {
 
 export interface SesEmailSenderOptions {
   region: string;
-  from: string;
   credentials: { accessKeyId: string; secretAccessKey: string; sessionToken?: string };
   configurationSet: string | null;
   endpoint?: string;
@@ -71,13 +78,13 @@ export function createSesEmailSender(options: SesEmailSenderOptions): EmailSende
   let client: SESv2Client | undefined;
   return {
     async send(input: OutboundMail) {
-      if (!ADDRESS.test(input.to) || !ADDRESS.test(options.from)) throw new EmailSendError('not_configured');
+      if (!ADDRESS.test(input.to) || !ADDRESS.test(input.from)) throw new EmailSendError('not_configured');
       const { SESv2Client, SendEmailCommand } = await (ses ??= import('@aws-sdk/client-sesv2'));
       client ??= new SESv2Client(clientOptions);
       const command = new SendEmailCommand({
-        FromEmailAddress: encodedFrom(input.fromName, options.from),
+        FromEmailAddress: encodedFrom(input.fromName, input.from),
         Destination: { ToAddresses: [input.to] },
-        ReplyToAddresses: [input.replyTo],
+        ...(input.replyTo ? { ReplyToAddresses: [input.replyTo] } : {}),
         ...(options.configurationSet ? { ConfigurationSetName: options.configurationSet } : {}),
         Content: {
           Simple: {
@@ -93,7 +100,8 @@ export function createSesEmailSender(options: SesEmailSenderOptions): EmailSende
         const result = await client.send(command);
         return { providerId: result.MessageId ?? '' };
       } catch (providerError) {
-        throw new EmailSendError(reasonOf(providerError));
+        const name = providerError instanceof Error ? providerError.name : '';
+        throw new EmailSendError(reasonOf(providerError), FROM_REFUSED.has(name));
       }
     },
   };

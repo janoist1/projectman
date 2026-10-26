@@ -5937,7 +5937,7 @@ export const hu = {
       channel: {
         label: 'E-mail levelezés',
         hint: 'Az erre engedélyezett AI-tagok e-mailt írhatnak azoknak, akik kérnek, és megkapják a válaszukat. Kikapcsolva semmi nem megy ki, és a beérkező leveleket nem dolgozzuk fel.',
-        from: 'Feladó: {address}',
+        from: 'A tagok a saját címükről írnak; közös feladó (rendszerlevelek, tartalék): {address}',
         notConfigured:
           'Ezen a példányon nincs beállítva az e-mail küldés, ezért a levelezés nem kapcsolható be.',
         confirmTitle: 'Bekapcsolod az e-mail levelezést?',

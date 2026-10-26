@@ -152,6 +152,15 @@ export function createEmailChannelRepository(db: Db) {
       get: (id: string) => getMessage('id', id),
       byTokenHash: (hash: string) => getMessage('reply_token_hash', hash),
       byProviderId: (id: string) => getMessage('provider_id', id),
+      /** Whether this member has already mailed this contact (a delivered or bounced mail counts). */
+      sentBefore(projectKey: string, member: string, contact: string): boolean {
+        return !!db
+          .prepare(
+            `SELECT 1 FROM email_messages WHERE project_key = ? AND direction = 'outbound'
+            AND member = ? AND contact = ? AND status IN ('sent', 'bounced', 'complained') LIMIT 1`,
+          )
+          .get(projectKey, member, contact);
+      },
       update(
         id: string,
         patch: Partial<Omit<EmailMessageRecord, 'id' | 'projectKey' | 'createdAt'>>,

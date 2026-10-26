@@ -122,35 +122,53 @@ export function createEmailChannelService(deps: {
     if (!member || recipient?.kind !== 'human' || !recipient.email)
       throw refused('email_recipient_refused', 'the recipient is no longer valid');
     const { sender, env, replyKey } = configuredParts();
-    const address =
+    const own =
       member.kind === 'ai'
         ? emailOwnAddress(await projectConfigs(projects), projectKey, member, env.replyDomain)
         : null;
     const rendered = renderEmail({
       text: record.text,
-      footer: getLocale(config.project.language).email.footer({
-        member: member.displayName,
-        project: config.project.name,
-        ...(address ? { address } : {}),
-      }),
+      ...(repo.messages.sentBefore(projectKey, member.handle, recipient.handle)
+        ? {}
+        : {
+            notice: getLocale(config.project.language).email.firstNotice({
+              member: member.displayName,
+              project: config.project.name,
+            }),
+          }),
     });
+    const shared = { from: env.from, fromName: `${member.displayName} · ${config.project.name}` };
+    const sentFrom = own ? { from: own, fromName: member.displayName } : shared;
     const at = now().toISOString();
     repo.messages.update(record.id, {
       status: 'sending',
+      fromAddress: sentFrom.from,
       replyTokenHash: replyTokenHash(replyKey, token),
       replyExpiresAt: new Date(now().getTime() + EMAIL_REPLY_TOKEN_DAYS * DAY_MS).toISOString(),
       updatedAt: at,
     });
     changed(projectKey);
+    const mail = (from: { from: string; fromName: string }): OutboundMail => ({
+      to: recipient.email!,
+      ...from,
+      replyTo: emailReplyAddress(projectKey, token, env.replyDomain),
+      subject: record.subject,
+      text: rendered.text,
+      html: rendered.html,
+    });
     try {
-      const result = await sender.send({
-        to: recipient.email,
-        fromName: `${member.displayName} · ${config.project.name}`,
-        replyTo: emailReplyAddress(projectKey, token, env.replyDomain),
-        subject: record.subject,
-        text: rendered.text,
-        html: rendered.html,
-      } satisfies OutboundMail);
+      let result: { providerId: string };
+      try {
+        result = await sender.send(mail(sentFrom));
+      } catch (error) {
+        if (!(error instanceof EmailSendError && error.fromRefused && sentFrom !== shared)) throw error;
+        ctx.logger.warn(
+          { projectKey, member: record.member, from: sentFrom.from },
+          'the provider refused the member address; sent from the shared address instead: run `npm run cloud -- ses receive-configure`',
+        );
+        repo.messages.update(record.id, { fromAddress: shared.from, updatedAt: now().toISOString() });
+        result = await sender.send(mail(shared));
+      }
       repo.messages.update(record.id, {
         status: 'sent',
         providerId: result.providerId,

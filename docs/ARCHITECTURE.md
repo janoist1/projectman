@@ -2447,7 +2447,8 @@ workers follow the machine's size.
   `apps/server/src/mcp/email-channel/`, `apps/server/src/api/email-channel.ts`,
   `apps/server/src/auth/secret.ts` (`deriveEmailReplyKey`). **What it does:** an enabled AI member sends a
   filtered, rate-limited e-mail to a consenting human, immediately or after owner approval; the hub stores
-  only a hash of the reply token. **Machine assumptions:** the hub reads `PROJECTMAN_EMAIL_CHANNEL_ENABLED`,
+  only a hash of the reply token. From: the member's mailbox on the reply domain, falling back to
+  `PROJECTMAN_SES_FROM` (a mailbox conflict, or the provider refusing the address). **Machine assumptions:** the hub reads `PROJECTMAN_EMAIL_CHANNEL_ENABLED`,
   `PROJECTMAN_SES_*`, `PROJECTMAN_EMAIL_*` from `cloud.env` in `index.ts`, deletes them before starting a
   child process, and makes the outgoing HTTPS call to the region's SES v2 endpoint with explicit keys.
   **Does this work on a remote engine?** Yes: sending, filtering, approval and token generation all run on

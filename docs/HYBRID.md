@@ -633,7 +633,7 @@ gets there from the single-machine mode, how it comes back, and what stays where
 **This page is not a permission to move.** The live instance is never stopped, changed or updated by
 anything here until the owner has said so for the concrete move.
 
-The tool is `npm run migrate -- …` ([MIGRATION.md](MIGRATION.md) has the general rules: the source is only
+The tool is `npm run migrate -- …` (the source is only
 read, a package is a secret, only one copy works). The engine's own commands are `npm run engine -- …`.
 
 For the EC2-specific owner execution sheet, exact CLI order, approval boundaries and

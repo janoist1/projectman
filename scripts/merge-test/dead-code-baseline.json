@@ -149,9 +149,6 @@
   "[\"types\",\"scripts/migrate/inventory.ts\",\"BranchInfo\"]",
   "[\"types\",\"scripts/migrate/inventory.ts\",\"ProjectInventory\"]",
   "[\"types\",\"scripts/migrate/inventory.ts\",\"Severity\"]",
-  "[\"types\",\"scripts/migrate/package.ts\",\"PackageKind\"]",
-  "[\"types\",\"scripts/migrate/package.ts\",\"PackagedRepo\"]",
-  "[\"types\",\"scripts/migrate/package.ts\",\"PackagedTranscript\"]",
   "[\"types\",\"scripts/release/commands.ts\",\"PortsInput\"]",
   "[\"types\",\"scripts/release/config.ts\",\"HybridReleaseConfig\"]",
   "[\"types\",\"scripts/release/ports.ts\",\"CoordinatorConfig\"]"

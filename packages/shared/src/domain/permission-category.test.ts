@@ -14,7 +14,7 @@ describe('permissionOwnerCategory', () => {
     ['gh release create v1', 'production'],
     ['npm publish --access public', 'production'],
     ['pnpm publish', 'production'],
-    ['bash deploy/vm/bootstrap.sh', 'production'],
+    ['bash deploy/aws/ec2-bootstrap.sh', 'production'],
     ['./switch-live3.sh', 'production'],
     ['cat ~/.projectman/db.sqlite', 'production'],
     ['ls /home/me/.projectman/customization', 'production'],

@@ -6,7 +6,7 @@ on a human sponsor's subscription. The team works through a configurable pipelin
 (for example development → code review → QA → client test → merge → release). Every step is
 attributed, and everything that waits for a human lands in one inbox ("Rád vár"). It runs on
 the owner's machine, reachable from a phone through Tailscale; [DEPLOY.md](DEPLOY.md) covers
-running it on a server.
+deployment and operation.
 
 Documentation map:
 
@@ -1329,14 +1329,11 @@ server (no role is never read as active), and the server never writes it: only a
 `scripts/migrate/cli.ts instance …`. An older build ignores it, which is why the live Mac checkout has to be
 updated to a build that knows it before the old home is called retired.
 
-The move tool (`scripts/migrate/`) is outside the server and uses it only for the schema version, the marker and
-the configuration loader. It reads a **stopped** source (its database from a scratch copy of the main file and
-its log, never in place), writes a checksummed secret package (the home without worktrees, workspaces and the
-retired publishing data; a git bundle per repository; the dirty files of every checkout; the transcripts the
-database names), and `apply` turns it into a standby home: the database migrated by this build, the stored
-paths translated by explicit mappings, the workspace paths committed in the copy's customization history, the
-repositories rebuilt from their bundles, the old machine's uncommitted work kept as pending items. The procedure,
-the rollback and the evidence are in [MIGRATION.md](MIGRATION.md).
+The hybrid move tool (`scripts/migrate/`) inventories a stopped local source, writes a checksummed
+cloud package and prepares the Mac engine identity. Source repositories, worktrees and CLI
+transcripts stay on the Mac. The return path restores final cloud data before activation;
+[HYBRID.md](HYBRID.md) documents the procedure and rollback. VM packaging, path remapping and
+repository restoration were removed in PM-1033; legacy migrated homes retain their activation checks.
 
 ## Review at a pinned commit (PM-183, part of PM-176 rule 1)
 
@@ -4259,10 +4256,11 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   commit or merge id as a commit id. No new machine-dependent part is added (`engine-host/path-reads.ts`).
   **Module:** `services/merges`
 - **Disposable instances and migration tools** — `scripts/lib/{instance,ports,processes}.mjs`,
-  `scripts/migrate/{inventory,paths,database,git,apply,instance,copy}.ts` (PM-270, PM-143, PM-923).
+  `scripts/migrate/{inventory,database,git,instance,copy,package}.ts` (PM-270, PM-318, PM-923, PM-1033).
   Disposable instances reserve loopback ports, spawn local server/web process groups and
   use local temp homes; migration inventories local repositories, paths and database use,
-  packages data and remaps paths. Home copies restore source directory modes after `cpSync`
+  packages only hybrid cloud entries; repositories and their paths stay on the engine host.
+  Home copies restore source directory modes after `cpSync`
   (Node 22 can otherwise widen 0700 to 0755); the permission walk uses `lstat` and never follows
   symlinks. This requires POSIX modes on both source and destination. Cross-machine activation already requires a person's
   confirmation that the source is retired. **Remote engine:** execute local probes and

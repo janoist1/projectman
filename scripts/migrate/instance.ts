@@ -13,9 +13,13 @@ import {
 } from '../../apps/server/src/engine-link/engine-config';
 import { readEngineStatus } from '../../apps/server/src/engine-link/engine-status';
 import { installedServiceFor } from '../engine/service';
-import { ACTIVATED_FILE, APPLY_REPORT_FILE, MIGRATED_DIR } from './apply';
 import { databaseInUse, snapshotDatabase } from './database';
 import { MigrationRefused } from './package';
+
+// Legacy migrated homes retain their activation safety checks (PM-143).
+export const MIGRATED_DIR = 'migrated';
+export const APPLY_REPORT_FILE = 'report.json';
+export const ACTIVATED_FILE = 'activated.json';
 
 /**
  * Who may work (PM-143): the person's commands that change the role marker of a home. Only one copy

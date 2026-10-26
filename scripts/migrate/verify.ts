@@ -3,7 +3,7 @@ import { join, resolve } from 'node:path';
 import { createConfigStore } from '../../apps/server/src/config';
 import { LATEST_SCHEMA_VERSION } from '../../apps/server/src/db';
 import { instanceRole, InstanceMarkerError } from '../../apps/server/src/instance';
-import { ACTIVATED_FILE, APPLY_REPORT_FILE, MIGRATED_DIR } from './apply';
+import { ACTIVATED_FILE, APPLY_REPORT_FILE, MIGRATED_DIR } from './instance';
 import { databaseInUse, snapshotDatabase } from './database';
 import { git, isGitRepository } from './git';
 import { forbiddenEntries } from './hybrid-entries';
@@ -12,8 +12,7 @@ import type { Finding } from './inventory';
 
 /**
  * Checks that a home directory is whole and consistent (PM-143): after a copy, after a restore, on a
- * backup extracted to a scratch directory. It decides nothing about the machine (that is
- * `deploy/vm/verify.sh`); it reads the home and returns findings, and `ok` only when there is no
+ * backup extracted to a scratch directory. It reads the home and returns findings, and `ok` only when there is no
  * blocker. The server must not be running on the home (the database is read from a scratch copy).
  */
 

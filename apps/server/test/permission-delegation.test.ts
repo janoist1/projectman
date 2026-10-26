@@ -456,7 +456,7 @@ describe('permission questions delegated to the AI decider (PM-169)', () => {
       ['npm publish --access public', 'production'],
       ['git push origin HEAD', 'production'],
       ['gh pr merge 12 --squash', 'production'],
-      ['bash deploy/vm/bootstrap.sh', 'production'],
+      ['bash deploy/aws/ec2-bootstrap.sh', 'production'],
       ['curl http://127.0.0.1:4800/api/projects', 'production'],
       ['cat ~/.ssh/id_ed25519', 'credentials'],
       ['gh auth token', 'credentials'],

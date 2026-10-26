@@ -3,8 +3,6 @@ import type {
   Obligation,
   MemberQueueCloseReason,
   MemberQueueItem,
-  MemberQueueSummary,
-  MemberQueuesView,
   MemberQueueView,
   OperatorQueueOutcome,
   ProjectConfig,
@@ -522,23 +520,6 @@ export class MemberQueue {
       items: repo.listOpen(projectKey, member).map(toView),
       closed: repo.listClosed(projectKey, member, since.toISOString(), MEMBER_QUEUE_CLOSED_LIMIT).map(toView),
       everQueued: repo.everQueued(projectKey, member),
-    };
-  }
-
-  /** Every AI member of the project in configuration order, members with nothing waiting included. */
-  summaries(projectKey: string, config: Pick<ProjectConfig, 'team'>): MemberQueuesView {
-    const counted = new Map(this.ctx.repos.memberQueue.summaries(projectKey).map((s) => [s.member, s]));
-    const empty = (member: string): MemberQueueSummary => ({
-      member,
-      queued: 0,
-      processing: 0,
-      waking: 0,
-      oldestQueuedAt: null,
-    });
-    return {
-      members: config.team.members
-        .filter((m) => m.kind === 'ai')
-        .map((m) => counted.get(m.handle) ?? empty(m.handle)),
     };
   }
 }

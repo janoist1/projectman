@@ -12,7 +12,6 @@ import { registerInboxRoutes } from './inbox';
 import { registerInvolvementRoutes } from './involvements';
 import { registerFeedbackRoutes } from './feedback';
 import { registerFeedbackWidgetRoutes } from './feedback-widget';
-import { registerProjectFocusRoutes } from './project-focus';
 import { registerProjectEventRoutes } from './project-events';
 import { registerStructureRoutes } from './structure';
 import { registerBoundaryRoutes } from './boundary';
@@ -25,7 +24,6 @@ import { registerProjectRoutes } from './projects';
 import { registerRoleRoutes } from './roles';
 import { registerPauseRoutes } from './pause';
 import { registerMachineRoutes } from './machine';
-import { registerSystemFeedbackRoutes } from './system-feedback';
 import { registerScheduleRoutes } from './schedules';
 import { registerSessionRoutes } from './sessions';
 import { registerTaskRoutes } from './tasks';
@@ -105,11 +103,9 @@ export function registerApiRoutes(app: FastifyInstance, services: ApiServices): 
   registerMachineRoutes(app, domain);
   registerInboxRoutes(app, domain);
   registerInvolvementRoutes(app, domain);
-  registerProjectFocusRoutes(app, domain);
   registerProjectEventRoutes(app, services);
   registerStructureRoutes(app, domain);
   registerFeedbackRoutes(app, domain);
-  registerSystemFeedbackRoutes(app, domain);
   registerFeedbackWidgetRoutes(app, {
     domain,
     clientIpHeader: services.clientIpHeader,

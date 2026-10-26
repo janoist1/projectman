@@ -6,7 +6,6 @@ import {
   RelayOwnerAnswerRequest,
   ResolveInboxRequest,
   ResolveIntegratorFixLimitRequest,
-  ResolveIntegratorTodoRequest,
   humanInboxAssignment,
   routes,
   visibleQuestionItem,
@@ -18,11 +17,7 @@ import { canSeeInboxItem } from '../core/projects';
 import { requireAccess } from './context';
 import { parseBody } from '../http';
 import { notFound } from '../kernel';
-import {
-  relayOwnerAnswer,
-  resolveIntegratorFixLimit,
-  resolveIntegratorTodo,
-} from '../services/super-operator';
+import { relayOwnerAnswer, resolveIntegratorFixLimit } from '../services/super-operator';
 
 type ProjectParams = { Params: { key: string } };
 type ItemParams = { Params: { key: string; itemId: string } };
@@ -84,18 +79,6 @@ export function registerInboxRoutes(app: FastifyInstance, domain: ApiDomain): vo
       return relayOwnerAnswer(domain, key, itemId, body.answer, access);
     },
   );
-
-  app.post<ItemParams>(routes.resolveIntegratorTodo(':key', ':itemId'), async (request) => {
-    const { key, itemId } = request.params;
-    const access = await requireAccess(domain, request, key);
-    return resolveIntegratorTodo(
-      domain,
-      key,
-      itemId,
-      parseBody(ResolveIntegratorTodoRequest, request.body),
-      access,
-    );
-  });
 
   /**
    * The integrator in super mode decides the fix round limit item addressed to it, or hands it on to the

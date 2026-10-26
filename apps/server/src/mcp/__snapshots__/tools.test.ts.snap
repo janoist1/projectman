@@ -3455,7 +3455,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": true,
       "title": "Read the project startup checklist",
     },
-    "description": "Only the Operator or the project manager in their internal general session, never a guest. Needs no owner request. Returns the startup checklist (items with state, reason, condition and whether the condition holds now; progress; the base template) and, for each template, the item ids it would add. When there is no list yet, the answer says so; the Operator creates it with update_checklist op init.",
+    "description": "Only the Operator or the project manager in their internal general session, never a guest. Needs no owner request. Returns the startup checklist (items with state, reason, condition and whether the condition holds now; progress; the base template) and, for each template, the item ids it would add. When there is no list yet, the answer says so; create it with update_checklist op init.",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,
@@ -5955,7 +5955,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": false,
       "title": "Propose shared Operator knowledge",
     },
-    "description": "Only the Operator during an open owner message or answer. Propose an agreement replacement, principle put or removal with the current expected_revision. A null principle id gets a server id. Writes nothing until an owner approves in the inbox. Only agreement_replace accepts recommended operations (at most ten); even immediate operations must wait for this approval and protected configuration operations still require a separate approval. Never import principles automatically from memory or documents.",
+    "description": "The Operator, or the selected project manager in its internal general session, during an open owner message or answer. Propose an agreement replacement, principle put or removal with the current expected_revision. A null principle id gets a server id. Writes nothing until an owner approves in the inbox. Only the Operator’s agreement_replace accepts recommended operations (at most ten); even immediate operations must wait for this approval and protected configuration operations still require a separate approval. Never import principles automatically from memory or documents.",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,
@@ -8654,7 +8654,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": false,
       "title": "Change the project startup checklist",
     },
-    "description": "Only the Operator in its internal general session, never a guest; it is your own tool, so it needs no owner request. One operation per call. init: create the base list for a project that has none. add: a new item (title, optional hint and condition); the server gives it a custom_<n> id. edit: item_id with a new title and/or hint. set_condition: item_id and condition (null takes it off); a done item can get only a condition that holds. set_state: item_id and state open, done or not_needed; not_needed always needs a reason, and done is refused while the item condition does not hold (checklist_condition_unmet). apply_template: template_id adds the template items the list does not have yet and sets the base template; it deletes and overwrites nothing. Nothing is deleted: to override the owner, apply another template or set items to not_needed with a reason. The system, not you, keeps the rule that a conditional item is done only while its condition holds.",
+    "description": "Only the Operator or the selected project manager in their internal general session, never a guest; it is your own tool, so it needs no owner request. One operation per call. init: create the base list for a project that has none. add: a new item (title, optional hint and condition); the server gives it a custom_<n> id. edit: item_id with a new title and/or hint. set_condition: item_id and condition (null takes it off); a done item can get only a condition that holds. set_state: item_id and state open, done or not_needed; not_needed always needs a reason, and done is refused while the item condition does not hold (checklist_condition_unmet). apply_template: template_id adds the template items the list does not have yet and sets the base template; it deletes and overwrites nothing. Nothing is deleted: to override the owner, apply another template or set items to not_needed with a reason. The system, not you, keeps the rule that a conditional item is done only while its condition holds.",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,

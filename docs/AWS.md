@@ -998,8 +998,9 @@ steps without writes and skips the live login check.
 
 ## Verification
 
-`npm run cloud -- check --login-json <file>` runs the checks of [DEPLOY.md](DEPLOY.md) and
-[HYBRID.md](HYBRID.md) against `https://<cloudflare.hostname>`. Before the first run sign in to
+`npm run cloud -- check --login-json <file>` verifies the Cloudflare security conditions in
+[SECURITY.md](SECURITY.md#public-entrance-through-cloudflare-pm-200-pm-210) and the deployment in
+[HYBRID.md](HYBRID.md#smoke-test) against `https://<cloudflare.hostname>`. Before the first run sign in to
 Access as yourself: `cloudflared access login https://<hostname>` (an e-mail PIN from the list in
 `access.emails`). `<file>` is a mode-600 JSON file with `{"email": "…", "password": "…"}` of a board
 account; the command reads it only to hand it to `deploy/cloudflare/check.sh`, in the environment

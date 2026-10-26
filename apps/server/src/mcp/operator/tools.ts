@@ -157,7 +157,7 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       title: 'Read the project startup checklist',
       readOnly: true,
       description:
-        'Only the Operator or the project manager in their internal general session, never a guest. Needs no owner request. Returns the startup checklist (items with state, reason, condition and whether the condition holds now; progress; the base template) and, for each template, the item ids it would add. When there is no list yet, the answer says so; the Operator creates it with update_checklist op init.',
+        'Only the Operator or the project manager in their internal general session, never a guest. Needs no owner request. Returns the startup checklist (items with state, reason, condition and whether the condition holds now; progress; the base template) and, for each template, the item ids it would add. When there is no list yet, the answer says so; create it with update_checklist op init.',
       input: {},
       async run({ ctx, handler }) {
         const view = await handler.getChecklist(ctx);
@@ -168,11 +168,11 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
     }),
     defineTool({
       name: 'update_checklist',
-      audience: { roles: ['operator'] },
+      audience: { roles: ['operator', 'project_manager'] },
       title: 'Change the project startup checklist',
       readOnly: false,
       description:
-        'Only the Operator in its internal general session, never a guest; it is your own tool, so it needs no owner request. One operation per call. init: create the base list for a project that has none. add: a new item (title, optional hint and condition); the server gives it a custom_<n> id. edit: item_id with a new title and/or hint. set_condition: item_id and condition (null takes it off); a done item can get only a condition that holds. set_state: item_id and state open, done or not_needed; not_needed always needs a reason, and done is refused while the item condition does not hold (checklist_condition_unmet). apply_template: template_id adds the template items the list does not have yet and sets the base template; it deletes and overwrites nothing. Nothing is deleted: to override the owner, apply another template or set items to not_needed with a reason. The system, not you, keeps the rule that a conditional item is done only while its condition holds.',
+        'Only the Operator or the selected project manager in their internal general session, never a guest; it is your own tool, so it needs no owner request. One operation per call. init: create the base list for a project that has none. add: a new item (title, optional hint and condition); the server gives it a custom_<n> id. edit: item_id with a new title and/or hint. set_condition: item_id and condition (null takes it off); a done item can get only a condition that holds. set_state: item_id and state open, done or not_needed; not_needed always needs a reason, and done is refused while the item condition does not hold (checklist_condition_unmet). apply_template: template_id adds the template items the list does not have yet and sets the base template; it deletes and overwrites nothing. Nothing is deleted: to override the owner, apply another template or set items to not_needed with a reason. The system, not you, keeps the rule that a conditional item is done only while its condition holds.',
       input: {
         op: z.enum(['init', 'add', 'edit', 'set_condition', 'set_state', 'apply_template']),
         item_id: z
@@ -236,11 +236,11 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
     }),
     defineTool({
       name: 'propose_operator_knowledge',
-      audience: { roles: ['operator'] },
+      audience: { roles: ['operator', 'project_manager'] },
       title: 'Propose shared Operator knowledge',
       readOnly: false,
       description:
-        'Only the Operator during an open owner message or answer. Propose an agreement replacement, principle put or removal with the current expected_revision. A null principle id gets a server id. Writes nothing until an owner approves in the inbox. Only agreement_replace accepts recommended operations (at most ten); even immediate operations must wait for this approval and protected configuration operations still require a separate approval. Never import principles automatically from memory or documents.',
+        'The Operator, or the selected project manager in its internal general session, during an open owner message or answer. Propose an agreement replacement, principle put or removal with the current expected_revision. A null principle id gets a server id. Writes nothing until an owner approves in the inbox. Only the Operator’s agreement_replace accepts recommended operations (at most ten); even immediate operations must wait for this approval and protected configuration operations still require a separate approval. Never import principles automatically from memory or documents.',
       input: ProposeOperatorKnowledgeRequest.shape,
       check(args, issue) {
         if (args.change.kind !== 'agreement_replace' && args.operations.length)

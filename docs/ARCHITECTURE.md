@@ -6,7 +6,7 @@ on a human sponsor's subscription. The team works through a configurable pipelin
 (for example development → code review → QA → client test → merge → release). Every step is
 attributed, and everything that waits for a human lands in one inbox ("Rád vár"). It runs on
 the owner's machine, reachable from a phone through Tailscale; [DEPLOY.md](DEPLOY.md) covers
-running it on a server.
+deployment and operation.
 
 Documentation map:
 
@@ -543,9 +543,9 @@ claude | codex ── transcript JSONL ────────────▶ r
 
 - One HTTP port, bound to loopback. `/hooks` and `/mcp` accept only local connections with a
   per-session random token. Everything under `/api` and `/ws` requires a login cookie.
-  Remote access goes through `tailscale serve` ([SECURITY.md](SECURITY.md)); the owner's live
-  instance is also public at chopper.istvan.io through a Cloudflare Tunnel behind Cloudflare
-  Access ([DEPLOY.md](DEPLOY.md), PM-200), which still ends at this one loopback port.
+  Local single-machine remote access can use `tailscale serve` ([SECURITY.md](SECURITY.md)).
+  The cloud hub's public entrance uses a Cloudflare Tunnel and Access
+  ([HYBRID.md](HYBRID.md#the-cloudflare-tunnel-and-access)), ending at the container's loopback port.
 - Session states come from hooks: SessionStart → idle, UserPromptSubmit → working,
   PermissionRequest → waiting_permission (a blocking call answered by the inbox decision,
   with a timeout), Stop → idle, SessionEnd or exit → exited; a lost login → failed.
@@ -948,7 +948,7 @@ Every AI member has one durable queue of what is waiting for them: a message, an
   the member works it in (a card, or `general` = the member's desk with no workspace), `wake`, `state`
   (`queued`, `processing`, `done`, `cancelled`), the close reason, `attempts`, a wait code and the Operator's outcome.
   The contract is `packages/shared/src/domain/member-queue.ts` (`MemberQueueItem`, `MemberQueueView`,
-  `MemberQueuesView`, `nominalMessagePlace`, `memberQueueSourceId`).
+  `nominalMessagePlace`, `memberQueueSourceId`).
 - **Enqueue**: `core/member-queue` (`MemberQueue`). The two source repositories run listeners inside the transaction of
   every write (`messages.onPendingChange`, `inbox.onChange`), so a row commits with its source and no call site has to
   remember it. A message gets an item for each AI recipient it is pending for (a receipt without `deliveredAt`; the
@@ -975,12 +975,9 @@ Every AI member has one durable queue of what is waiting for them: a message, an
   delivers as before (receipt and item close together). Items a session works (`processing`) return to the queue
   when the session is gone, after `MEMBER_QUEUE_MAX_ATTEMPTS` they are handed off, and after 45 minutes the session is
   stopped. An old `message_wake` deferred-start row is read once (`ensure`) and deleted.
-- **API** (`apps/server/src/api/member-queue.ts`): `GET /api/projects/:key/member-queues` (every AI member in
-  configuration order, zeros included), `GET /api/projects/:key/members/:handle/queue?closedSince=` (open items and the
-  items closed since; default 24 hours; an unknown or non-AI handle is 404 `unknown_member`, a bad date 400
-  `invalid_request`) and `GET /api/projects/:key/operator/queue`. Access: a person's own login (developer or more) or
-  an integrator read or super key; the legacy integrator key is refused (`insufficient_access`, on the Operator route
-  `operator_owner_only`). The Operator channel (`OperatorChannel.queue`) carries the open count and the item in work.
+- **API** (`apps/server/src/api/member-queue.ts`): `GET /api/projects/:key/operator/queue` only (PM-1030 deleted the
+  per-member and all-members routes; nothing called them). Access: a person's own login (developer or more) or
+  an integrator read or super key; the legacy integrator key is refused (`operator_owner_only`). The Operator channel (`OperatorChannel.queue`) carries the open count and the item in work.
 - **WebSocket**: `member_queue_changed {projectKey, member}`, once per member per unit of work. Clients do not see it.
 - **Remote engine**: no machine-dependent part is added. The queue, the driver and the sweep live on the hub with the
   database; only the session start crosses to an engine, as before. A member whose engine is offline waits with
@@ -1003,8 +1000,8 @@ retired by PM-888, whose `execute_operation` runs the command directly, see "In-
 below; the schema and the stored handoffs stay) stores a `SuperHandoff`: one `SuperCommand` of a closed set (`operate`, `member_update`, `invite_create`,
 `merge`, `merge_order`, `administration`), a reason and, optionally, the configuration version it was made
 against. It grants no execution right and no approval. The integrator lists the handoffs (`GET
-…/operator-super/handoffs`) and starts one with `POST …/handoffs/:id/execute {requestId}` (202 `{operation}`),
-authenticated by the owner's super token; one `(project, token, request id)` is one `SuperOperation`, so a retry
+…/operator-super/handoffs`) and starts one with the `execute_super_handoff` MCP tool (there is no REST execute route,
+PM-1030), authenticated by the owner's super token; one `(project, token, request id)` is one `SuperOperation`, so a retry
 returns the same record and a different command under the same id is 409 `super_request_conflict`.
 
 The server classifies the command itself (`superCommandEffects`, a projection onto the closed mutation list of
@@ -1086,10 +1083,10 @@ to an engine.
 ## Super-mode diagnostics, test and build (PM-764, part of the super mode PM-757)
 
 The integrator (a super token, an owner's access) reads and starts what it needs to prepare a release, every call
-bound to the project and to an engine linked to it. `GET …/operator-super/administration/status?target=hub|<engineId>`
-and `…/logs?target=…&limit=50` (at most 200) answer from the supervisor's sanitized view
+bound to the project and to an engine linked to it. The MCP tools `get_administration_status` (`target=hub|<engineId>`)
+and `get_administration_logs` (`limit` at most 200) answer from the supervisor's sanitized view
 (503 `administration_unavailable` where the instance has no adapter, 403 `administration_target_mismatch` for an
-engine that is not linked). `POST …/operator-super/diagnostics/query {query, taskKey?, limit}` reads a closed
+engine that is not linked); the REST routes were deleted in PM-1030, nothing called them. The `query_super_diagnostics` tool reads a closed
 catalogue by name (`tasks`, `sessions`, `merges`, `operations`), each with the fixed columns of
 `SUPER_DIAGNOSTIC_COLUMNS`: there is no SQL, no table or column argument, and no user, key, secret, inbox text or
 personal data in any column. `POST …/operator-super/operations {requestId, taskKey?, command}` starts a
@@ -1331,14 +1328,11 @@ server (no role is never read as active), and the server never writes it: only a
 `scripts/migrate/cli.ts instance …`. An older build ignores it, which is why the live Mac checkout has to be
 updated to a build that knows it before the old home is called retired.
 
-The move tool (`scripts/migrate/`) is outside the server and uses it only for the schema version, the marker and
-the configuration loader. It reads a **stopped** source (its database from a scratch copy of the main file and
-its log, never in place), writes a checksummed secret package (the home without worktrees, workspaces and the
-retired publishing data; a git bundle per repository; the dirty files of every checkout; the transcripts the
-database names), and `apply` turns it into a standby home: the database migrated by this build, the stored
-paths translated by explicit mappings, the workspace paths committed in the copy's customization history, the
-repositories rebuilt from their bundles, the old machine's uncommitted work kept as pending items. The procedure,
-the rollback and the evidence are in [MIGRATION.md](MIGRATION.md).
+The hybrid move tool (`scripts/migrate/`) inventories a stopped local source, writes a checksummed
+cloud package and prepares the Mac engine identity. Source repositories, worktrees and CLI
+transcripts stay on the Mac. The return path restores final cloud data before activation;
+[HYBRID.md](HYBRID.md) documents the procedure and rollback. VM packaging, path remapping and
+repository restoration were removed in PM-1033; legacy migrated homes retain their activation checks.
 
 ## Review at a pinned commit (PM-183, part of PM-176 rule 1)
 
@@ -2070,7 +2064,7 @@ workers follow the machine's size.
   `services/super-operator/handoffs.ts` (`SuperHandoffService`), `db/super-handoffs.ts` (migration 83:
   `super_handoffs`, `super_operations`), `packages/shared/src/{api/super-handoff,config/super-command}.ts`,
   `core/inbox/inbox.ts` (the owner's-own-login rule, the relay), the Operator MCP tool `request_super_operation`
-  (retired by PM-888) and the routes `routes.superHandoffs` / `routes.executeSuperHandoff` / `routes.relayOwnerAnswer`. The base
+  (retired by PM-888) and the routes `routes.superHandoffs` / `routes.relayOwnerAnswer` (execution is the MCP tool only, PM-1030). The base
   Operator records a command and a reason; nothing runs until the owner's integrator (a super token) starts it with
   a request id. A command with a deletion, security or cost effect waits for the owner's own login
   to answer a bound question (24 hours; the question names the command hash, the config version and the token). The
@@ -2090,9 +2084,8 @@ workers follow the machine's size.
   `planLabelChange` as `authority`; owner-reserved labels stay refused.
 
 - **Super-mode diagnostics, full test, image build and release preparation (PM-764, Super mode 8/10)** —
-  hub: `services/super-operator/{administration,facade,rights,diagnostics}.ts`, the five routes
-  `routes.superOperations|superOperation|superAdministrationStatus|superAdministrationLogs|superDiagnosticsQuery`
-  (`api/operator.ts`), `packages/shared/src/api/super-operate.ts`. Builder (the machine that tests and builds):
+  hub: `services/super-operator/{administration,facade,rights,diagnostics}.ts`, the two routes
+  `routes.superOperations|superOperation` (`api/operator.ts`; the status, logs and diagnostics reads are MCP tools only), `packages/shared/src/api/super-operate.ts`. Builder (the machine that tests and builds):
   `apps/server/src/administration/executors.ts` (`createBuilderExecutors`, `FULL_TEST_COMMANDS`),
   `scripts/administration/builder.ts` (the real toolbox) and `scripts/administration/supervisor.ts`, which installs
   the executors only where the supervisor configuration names a builder (`SupervisorConfig.builder {repo, root}`,
@@ -2146,7 +2139,12 @@ workers follow the machine's size.
   allows the selected PM to read/write its current direct owner's five style fields in an
   internal general conversation, sharing the Operator document and CAS. PM-689 adds
   owner-approved agreement/principle CAS and marker recovery under the server's configuration
-  lock; the store remains private. Missing documents start at revision zero; invalid documents are refused
+  lock; the store remains private. PM-1043 (PM-1023 K4): the selected PM now leads the agreement,
+  the principles and the setup checklist: it reads the project knowledge and proposes changes
+  (`propose_operator_knowledge`, without recommended operations) in its internal general
+  conversation, and the checklist notices go to its queue; the store, its path and the owner's
+  approval are unchanged, and the PM reaches the store only through the server (a remote engine
+  needs nothing new). Missing documents start at revision zero; invalid documents are refused
   without overwriting. **Machine assumption:** one server process owns a private writable home,
   with POSIX directory/file permissions (0700/0600), no-follow file opens and same-directory atomic
   rename. Target-file CAS writes are serialized within that process, including multiple store
@@ -4268,10 +4266,11 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   commit or merge id as a commit id. No new machine-dependent part is added (`engine-host/path-reads.ts`).
   **Module:** `services/merges`
 - **Disposable instances and migration tools** — `scripts/lib/{instance,ports,processes}.mjs`,
-  `scripts/migrate/{inventory,paths,database,git,apply,instance,copy}.ts` (PM-270, PM-143, PM-923).
+  `scripts/migrate/{inventory,database,git,instance,copy,package}.ts` (PM-270, PM-318, PM-923, PM-1033).
   Disposable instances reserve loopback ports, spawn local server/web process groups and
   use local temp homes; migration inventories local repositories, paths and database use,
-  packages data and remaps paths. Home copies restore source directory modes after `cpSync`
+  packages only hybrid cloud entries; repositories and their paths stay on the engine host.
+  Home copies restore source directory modes after `cpSync`
   (Node 22 can otherwise widen 0700 to 0755); the permission walk uses `lstat` and never follows
   symlinks. This requires POSIX modes on both source and destination. Cross-machine activation already requires a person's
   confirmation that the source is retired. **Remote engine:** execute local probes and
@@ -4630,9 +4629,8 @@ later parts of PM-427 (the order of deferred starts, the AI members' brief, the 
 - **Who sets it.** A person (`actor.kind === 'human'`, through the integrator too) who owns the project
   (`ownerHandles`) or holds the `prioritization` duty (`dutyMembers`); no approval. An AI member or the system gets
   `focus_humans_only`, any other person `focus_not_allowed`.
-- **API.** `GET /api/projects/:key/focus` (`ProjectFocusView`, with `canEdit`), `POST .../focus/items`,
-  `PATCH` and `DELETE .../focus/items/:taskKey`, and `GET .../focus/changes?limit=` (the project's `focus_changed`
-  events, newest first). Every member reads (`requireAccess`); the writes are refused by the domain to anyone without the prioritization duty.
+- **Access.** There is no REST route for the focus list (PM-1030 deleted them; nothing called them): the MCP tools and
+  `ProjectFocusService` read and write it, and the domain refuses a write to anyone without the prioritization duty.
 - **Timeline.** `focus_changed` (`added`/`removed` on the item's own card or theme, `moved` without a card, so it shows
   only in the project's changes). `task_stage_changed.data.pulled` (`StagePull`: `{ reason: 'urgent' }` or
   `{ reason: 'focus', position, key, title }`) marks a card the system pulled into the work stage (below).
@@ -5130,8 +5128,8 @@ deploy; decision 32). The runner's part is `SessionRunner.pause` / `forcePause` 
   pause that was open before are cut with one Esc (`forcePause`), so the stop waits for none of them longer.
   After the start `resumeAfterStartup` (in the background, after `restoreDeferred`) ends the `shutdown`
   pauses, so the sessions start again with a nudge that says their process is new; a pause a person made stays.
-  A crash and a second Ctrl-C after 3 s do not pause. Under systemd this needs `KillMode=mixed` and
-  `TimeoutStopSec=90` ([DEPLOY.md](DEPLOY.md)).
+  A crash and a second Ctrl-C after 3 s do not pause. The service manager must allow the shutdown
+  pause to finish before terminating child sessions.
 - **Access.** `GET` of a project's pause: an internal member; changing it: admin or owner. The instance's pause
   may be seen by anyone who is internal in some project, with only the sessions of the viewer's projects, and
   changed by an owner of every project (`canManageInstancePause`).

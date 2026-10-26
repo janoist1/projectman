@@ -314,8 +314,9 @@ relative file/key names to the server.
 
 ## Shared Operator knowledge approval (PM-689)
 
-`propose_operator_knowledge` requires an internal Operator general session with an open owner
-message or answer request. Signal, watch, web and approval-continuation requests cannot propose
+`propose_operator_knowledge` requires an internal general session of the Operator or the selected
+project manager (PM-1043; a project manager proposal carries no recommended operations) with an
+open owner message or answer request. Signal, watch, web and approval-continuation requests cannot propose
 knowledge. A proposal writes an approval inbox item and a step, without changing the private
 knowledge or configuration. Only an owner using their own login may approve, reject or dismiss
 through the registered `operator_knowledge` decider; AI members, admins and integrators cannot
@@ -1368,11 +1369,11 @@ macOS probe.
 
 ### Public entrance through Cloudflare (PM-200, PM-210)
 
-The Cloudflare variant of points 2 and 3, for the live instance on the owner's Mac (set-up and
-verification: [DEPLOY.md](DEPLOY.md), [deploy/cloudflare](../deploy/cloudflare)) and for the cloud
-board (PM-532, PM-536: `npm run cloud -- edge`, `publish` and `check` create and verify the same
-settings through the Cloudflare API; see "Cloudflare" and "Verification" in [AWS.md](AWS.md)). On the
-cloud board the one service is `127.0.0.1:4700`, not `4800`; the rest below holds for both:
+The Cloudflare variant of points 2 and 3 for the cloud board (PM-532, PM-536):
+`npm run cloud -- edge`, `publish` and `check` create and verify the settings through the
+Cloudflare API; see [AWS.md, Cloudflare](AWS.md#cloudflare) and
+[Verification](AWS.md#verification). Manual token-tunnel setup is in
+[HYBRID.md](HYBRID.md#the-cloudflare-tunnel-and-access). The one service is `127.0.0.1:4700`:
 
 1. HTTPS ends at Cloudflare; `cloudflared` reaches the app over loopback and the edge sends
    `X-Forwarded-Proto: https`, so cookies are Secure. The Host is preserved (no `httpHostHeader`
@@ -1392,7 +1393,7 @@ cloud board the one service is `127.0.0.1:4700`, not `4800`; the rest below hold
    never there. The tunnel's `originRequest.access` makes `cloudflared` check the Access token (team
    name and AUD tag) too. Login is by Google or a one-time code, with a stated session length.
 3. The tunnel answers 404 for `/hooks` and `/mcp/` and for everything but the one hostname. The
-   only service is `127.0.0.1:4800`; the development ports are not served.
+   only service is the cloud container's `127.0.0.1:4700`; the Mac's development ports are not served.
 4. Edge: Always Use HTTPS and HSTS on; nothing cached; Rocket Loader, Email Obfuscation, the
    automatic Web Analytics beacon and every other script injection off; a response-header rule
    sets `X-Frame-Options: DENY` (Set) and **adds** `Content-Security-Policy: frame-ancestors
@@ -1468,7 +1469,8 @@ frame-ancestors 'none'`) for uploads shown inline: a Set rule would replace it a
 ### The widget's public hostname (PM-506, PM-513)
 
 The marking widget runs on a customer's page, so it cannot pass Access. It gets **a hostname of
-its own on the same tunnel with no Access application** (setup: [DEPLOY.md](DEPLOY.md) step 7).
+its own on the same tunnel with no Access application**
+(setup: [HYBRID.md, The marking widget's public hostname](HYBRID.md#the-marking-widgets-public-hostname-pm-513)).
 The Access application of the application's hostname is not weakened and no Bypass policy is
 added (the public board's one Bypass policy belongs to the board's own page, not to this feature). What is reachable without Access is exactly `/feedback/widget.js` and `/feedback/api/v1/*`;
 their session, origin and limit rules are in "The feedback tool's public API".

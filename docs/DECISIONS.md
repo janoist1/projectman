@@ -490,3 +490,16 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     words: „a PM alapvetően emberibb hangot üt meg, közérthetően kommunikál, de képes tech
     nyelven is részletekre válaszolni. Ez alapból legyen a tag létrehozásánál, át lehet írni
     aki akarja másik projektben, de ugye ez is tanul menet közben hasonlóan az Op-hoz”.
+65. **The project manager runs the project; the Operator is the owner's Swiss army knife.**
+    Decided by the owner on 2026-10-26; refines decisions 52–55. Everything about a project's
+    work (cards, rules, questions, starting and moving work) belongs to the project manager,
+    who is the project's contact in the top right corner, for the owner and for clients. The
+    Operator is like a system administrator: it does little on its own, and helps the owner
+    develop, and bridge missing or broken functionality. It works across all projects, not per
+    project. Whether it stays a fixed in-app member or exists only while the owner is
+    connected (Claude Desktop or Claude Code) is still open; it is planned from what the
+    in-app Operator actually did. The owner's words: „inkább a pm lenne a jobb felső sarokban”,
+    „az operátor inkább teljes globálisan lehetne nem per projekt”, „az operátor az kb egy
+    rendszergazda és magától nem csinál sokat, legalábbis minden ticket szabály stb stb azt a
+    pm-nek kéne. az operátor segít nekem fejleszteni, hibás vagy hiányzó funkcionalitást
+    áthidalni, svájci bicska”.

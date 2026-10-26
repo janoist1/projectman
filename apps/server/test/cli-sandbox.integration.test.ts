@@ -34,7 +34,7 @@ interface Started {
 }
 
 it(
-  'hands native reader and developer profiles to the CLIs, including the Codex worktree read boundary',
+  'hands native reader and developer profiles to the CLIs without an automatic Codex home boundary',
   { timeout: 90_000 },
   async () => {
     h = await createAppHarness({ runner: 'fake-cli' });
@@ -208,10 +208,10 @@ it(
       const argv = await start('dev-2', 'codex');
       const running = await waitForSession(domain, { member: 'dev-2' });
       const profile = argv.find((arg) => arg.startsWith('permissions.projectman='))!;
-      expect(profile).toContain(`"${userHome}"="deny"`);
-      expect(profile).toContain(`"${home}"="deny"`);
-      expect(profile).toContain(`"${running.cwd}"="write"`);
-      expect(profile).toContain(`"${running.cwd}/.codex"="read"`);
+      expect(profile).not.toContain(`"${userHome}"="deny"`);
+      expect(profile).not.toContain(`"${home}"="deny"`);
+      expect(profile).toContain(':workspace_roots');
+      expect(profile).toContain(`"${join(userHome, '.ssh')}"="deny"`);
       expect(profile).not.toContain(':slash_tmp');
       expect(argv.includes('resume')).toBe(resume);
       await domain.sessions.stop('AR', running.id);

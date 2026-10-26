@@ -339,9 +339,9 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
         }
       }
       let sandbox = spec.sandbox;
-      if (usesCodexCli(spec.provider ?? 'claude') && policy.access === 'task_worktree') {
+      if (usesCodexCli(spec.provider ?? 'claude') && sandbox?.portable?.readBoundary !== undefined) {
         const boundary = SessionReadBoundary.safeParse(sandbox?.portable?.readBoundary);
-        if (!boundary.success) refuse('invalid_params', 'A worktree session needs a valid read boundary');
+        if (!boundary.success) refuse('invalid_params', 'The explicit read boundary is invalid');
         const portable = sandbox!.portable!;
         const valid = (value: string) =>
           path.isAbsolute(value) && !/[\0*?\[\]]/.test(value) && path.normalize(value) === value;
@@ -406,7 +406,6 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
           paths.workspacesRoot,
           memberCaches,
           attachmentsCache,
-          ...config.projects.map((project) => project.workspacePath),
         ]);
         const allowedPaths = boundary.data.allowedPaths.filter((entry) => {
           const real = resolveReal(entry.path);

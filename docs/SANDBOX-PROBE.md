@@ -337,9 +337,13 @@ credential and no live data:
    (`kill -TERM <pid of node scripts/shots.mjs>`) the same holds and the exit code is 1.
 6. Record each line as `pass`, `fail` or `unverified` with the raw output in the task.
 
-## PM-360: worktree home read boundary
+## PM-360: explicitly supplied read boundary
 
-This probe is **not yet certified**. Run only with separate owner authorization, outside a
+This optional boundary is **not yet certified**. The owner's 2026-10-26 scope decision keeps
+the developer's existing default profile: runtime does not automatically close the whole
+home or require new session/tmp prerequisites. This procedure is for a policy that explicitly
+enables `portable.readBoundary` (including PM-425's reader rollout), not a new approval gate
+for ordinary developer starts. Run only with separate owner authorization, outside a
 member session and automated tests, using disposable fictional files and an interactive
 subscription CLI. Repeat for **both Codex and NanoGPT**, for new and resumed processes;
 record each OS/architecture, CLI version/provenance, commit, exact arguments, rendered
@@ -347,7 +351,7 @@ profile and sanitized results. PM-356's earlier result does not cover these home
 
 Place the own checkout and another member's checkout below the fixture app home, itself
 below the fixture user home. Include another project, an unopened home file and a fictional
-PNG, plus direct and symlink paths to them. Reproduce the runtime's
+PNG, plus direct and symlink paths to them. Supply the test policy's explicit
 `portable.readBoundary`: deny both homes and applicable shared temp roots; reopen the own
 cwd/readable roots, own/parent attachments, own npm-cache/projectman-dev, the member's exact
 gitconfig file, the common git directory, installation session-output root, browsers,

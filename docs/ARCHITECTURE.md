@@ -3891,18 +3891,22 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   receive an inline `projectman` profile extending `:read-only`, with `sensitivePaths` and
   the adapter's Codex home denied (PM-356).
   PM-360 adds the shared `SessionReadBoundary` schema and optional
-  `AgentSandbox.portable.readBoundary` to the strict `session.start` contract. For Codex/NanoGPT
-  task-worktree placements it is mandatory, including resume and plan/read-only mode.
-  `runtime/sessions/session-policy.ts` builds typed file/directory read exceptions from the
-  same list as Claude; user home, app home and the applicable shared temp roots are soft
-  denials, separate from the unconditional policy/runner/adapter denials. Local adapters
-  resolve lexical/physical paths before rendering; `engine-link/engine-limit.ts` adds its
-  own homes/temp roots, validates exceptions against local session/read roots, and adds
-  local sensitive paths. A writing start requires its private session and temp directories.
-  **Remote engine:** the engine's `paths()` supplies these paths; only the validated portable
-  contract crosses the boundary, never authentication files. Each OS/provider needs its own
-  native probe of the new reopenings (`docs/SANDBOX-PROBE.md`); prior PM-356 evidence does not
-  certify them. Approved host commands and the parent CLI remain outside this boundary.
+  `AgentSandbox.portable.readBoundary` to the strict `session.start` contract. Under the owner's
+  2026-10-26 scope decision, developer runtime paths do not automatically populate it:
+  absent means the existing broad non-sensitive home reads and session/tmp behavior.
+  Claude's existing `worktreeSandbox` read/write rules remain unchanged. Explicit boundaries
+  contain reopenable roots and typed file/directory exceptions, separate from unconditional
+  policy/adapter denials. Local adapters resolve lexical/physical paths and reject invalid
+  explicit inputs; `engine-link/engine-limit.ts` adds its own homes/temp roots and checks
+  exceptions and required private directories only when a boundary is supplied. Existing
+  engine-root, permission-mode, environment and sensitive-path checks always apply.
+  **Remote engine:** `paths()` supplies the executing engine's roots; only the optional,
+  validated portable contract crosses the boundary, never authentication files. This uses
+  the same policy locally and remotely and introduces no new mode or switch. A cloud hub
+  does not isolate an engine's disk; OS-user/VM/container and tenant isolation are separate
+  requirements. Explicit boundaries need their own OS/provider native probe when enabled
+  (`docs/SANDBOX-PROBE.md`); prior PM-356 evidence does not certify them. Approved host commands
+  and the parent CLI remain outside this boundary. PM-425 owns the reader's policy and rollout.
   Writing sessions retain workspace protections
   and the roots of `AgentSandbox.portable` (the member's npm cache and development data,
   the queue's parent, the session folder and

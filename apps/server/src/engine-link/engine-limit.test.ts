@@ -169,10 +169,12 @@ describe('engine local limit', () => {
     };
 
     it.each(['codex', 'nanogpt'] as const)(
-      'requires the portable boundary for %s worktrees',
+      'keeps the existing %s worktree start when the optional boundary is absent',
       async (provider) => {
         const input = worktreeStart(provider);
-        await refused(make(), 'session.start', { ...input, sandbox: undefined }, 'invalid_params');
+        const checked = await make().check('session.start', { ...input, sandbox: undefined } as never);
+        expect(checked.sandbox?.portable?.readBoundary).toBeUndefined();
+        expect(checked.policy?.filesystem.deniedPaths).toContain(path.join(home, 'secret'));
       },
     );
 
@@ -183,6 +185,19 @@ describe('engine local limit', () => {
         deniedRoots: [userHome, home],
         allowedPaths: [{ path: input.cwd, kind: 'directory' }],
       });
+    });
+
+    it('rejects an explicitly malformed boundary for a read-only placement', async () => {
+      await refused(
+        make(),
+        'session.start',
+        start({
+          provider: 'codex',
+          policy: { ...policy(), access: 'read_only' },
+          sandbox: sandbox({ portable: { allowWrite: [], env: {}, readBoundary: null } }),
+        }),
+        'invalid_params',
+      );
     });
 
     it.each([false, true])(

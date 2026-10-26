@@ -68,76 +68,30 @@ function codexOverrides(args: string[]) {
 }
 
 describe('provider-neutral session policy', () => {
-  it.each(['clone', 'linked'] as const)(
-    'carries the complete typed read boundary for a %s checkout through the strict wire schema',
-    (kind) => {
-      const userHome = '/fictional/user';
-      const appHome = `${userHome}/app`;
-      const cwd = `${appHome}/work/own`;
-      const p = policy('developer', {
-        kind: 'task_worktree',
-        path: cwd,
-        ...(kind === 'clone'
-          ? { workspace: { branch: 'PM-360', baseCommit: null } }
-          : { gitDir: sharedGit, worktreeGitDir: `${sharedGit}/worktrees/own` }),
-      });
-      p.filesystem.readOnlyPaths = [`${appHome}/attachments/PM-360`];
-      const sandbox = sessionSandbox(p, {
-        userHome,
-        appHome,
-        memberDir: `${appHome}/member-caches/PM/dev`,
-        sessionDir: '/fictional/outputs/own',
-        browsersDir: '/fictional/browsers',
-        tmpDir: '/fictional/tmp/own',
-        sharedTmpRoots: ['/fictional/tmp'],
-        heavyLockDir: '/fictional/queue/lock',
-      })!;
-      const s = { ...spec(p, false), sandbox };
-      const { mcpUrl: _url, ...wire } = s;
-      const parsed = EngineStartSpec.parse({ ...wire, mcpToken: 'fictional-token' });
-      const boundary = parsed.sandbox!.portable!.readBoundary!;
-      expect(boundary.deniedRoots).toEqual([userHome, appHome, '/fictional/tmp']);
-      expect(boundary.allowedPaths).toEqual(
-        expect.arrayContaining([
-          { path: cwd, kind: 'directory' },
-          { path: '/fictional/tmp/own', kind: 'directory' },
-          { path: '/fictional/outputs', kind: 'directory' },
-          { path: '/fictional/browsers', kind: 'directory' },
-          { path: '/fictional/queue', kind: 'directory' },
-          { path: `${appHome}/attachments/PM-360`, kind: 'directory' },
-          { path: `${userHome}/.gitconfig`, kind: 'file' },
-          { path: `${appHome}/member-caches/PM/dev/gitconfig`, kind: 'file' },
-        ]),
-      );
-      expect(boundary.allowedPaths.map((entry) => entry.path)).toEqual(sandbox.allowRead);
-      const profile = codexOverrides(
-        buildCodexArgs({ spec: s, realCwd: cwd, hookConfigPath: HOOK_CONFIG, permissionTimeoutMs: 1000 })
-          .args,
-      ).get('permissions.projectman')!;
-      expect(profile).toContain(`"${cwd}"="write"`);
-      expect(profile).toContain(`"${cwd}/.codex"="read"`);
-      expect(profile).toContain(
-        kind === 'clone' ? `"${cwd}/.git"="write"` : `"${sharedGit}/objects"="write"`,
-      );
-    },
-  );
-
-  it('keeps the boundary with no portable writes and gives plan mode no new write grant', () => {
+  it('preserves an explicitly supplied read boundary on the wire and in a plan profile', () => {
     const p = policy('developer', { kind: 'task_worktree', path: source }, 'plan');
+    const readBoundary = {
+      deniedRoots: ['/fictional/user', '/fictional/app'],
+      allowedPaths: [
+        { path: source, kind: 'directory' as const },
+        { path: '/fictional/user/.gitconfig', kind: 'file' as const },
+      ],
+    };
     const sandbox = sessionSandbox(p, { userHome: '/fictional/user', appHome: '/fictional/app' })!;
-    expect(sandbox.portable).toMatchObject({
-      allowWrite: [],
-      readBoundary: { deniedRoots: ['/fictional/user', '/fictional/app'] },
-    });
+    const s = {
+      ...spec(p, false),
+      sandbox: { ...sandbox, portable: { allowWrite: [], env: {}, readBoundary } },
+    };
+    const { mcpUrl: _url, ...wire } = s;
+    expect(
+      EngineStartSpec.parse({ ...wire, mcpToken: 'fictional-token' }).sandbox?.portable?.readBoundary,
+    ).toEqual(readBoundary);
     const profile = codexOverrides(
-      buildCodexArgs({
-        spec: { ...spec(p, false), sandbox },
-        realCwd: source,
-        hookConfigPath: HOOK_CONFIG,
-        permissionTimeoutMs: 1000,
-      }).args,
+      buildCodexArgs({ spec: s, realCwd: source, hookConfigPath: HOOK_CONFIG, permissionTimeoutMs: 1000 })
+        .args,
     ).get('permissions.projectman');
     expect(profile).toContain('"/fictional/user"="deny"');
+    expect(profile).toContain('"/fictional/user/.gitconfig"="read"');
     expect(profile).not.toContain('"write"');
   });
   it('grants a lead developer writes only to their named merge-fix placement', () => {
@@ -194,6 +148,8 @@ describe('provider-neutral session policy', () => {
       const p = development();
       const memberDir = '/fictional/app/member-caches/PM/dev';
       const sandbox = sessionSandbox(p, { userHome: '/fictional/user', memberDir })!;
+      expect(sandbox.portable?.readBoundary).toBeUndefined();
+      expect(sandbox.denyRead).toContain('/fictional/user');
       const s = { ...spec(p, false), sandbox };
       const c = codexOverrides(
         buildCodexArgs({
@@ -204,9 +160,9 @@ describe('provider-neutral session policy', () => {
           permissionTimeoutMs: 1000,
         }).args,
       );
-      expect(c.get('permissions.projectman')).toContain('"/fictional/user"="deny"');
-      expect(c.get('permissions.projectman')).toContain(`"${memberDir}/npm-cache"="write"`);
-      expect(c.get('permissions.projectman')).not.toContain(':slash_tmp');
+      expect(c.get('permissions.projectman')).toBe(
+        '{extends=":read-only",filesystem={":root"="read",":workspace_roots"={"."="write",".git"="read",".codex"="read",".agents"="read"},"/fictional/app/member-caches/PM/dev/npm-cache"="write","/fictional/app/member-caches/PM/dev/projectman-dev"="write",":tmpdir"="write",":slash_tmp"="write"}}',
+      );
       expect(c.get('shell_environment_policy.set.npm_config_cache')).toBe(
         tomlValue(`${memberDir}/npm-cache`),
       );
@@ -257,16 +213,13 @@ describe('provider-neutral session policy', () => {
     const p = development();
     p.filesystem.deniedPaths = [`${memberDir}/npm-cache`];
     const sandbox = sessionSandbox(p, { userHome: '/fictional/user', memberDir })!;
-    expect(sandbox.portable).toMatchObject({
+    expect(sandbox.portable).toEqual({
       allowWrite: [`${memberDir}/projectman-dev`],
       env: { PROJECTMAN_HOME: `${memberDir}/projectman-dev` },
     });
     expect(sessionSandbox(review(), { memberDir })!.portable).toBeUndefined();
     p.filesystem.deniedPaths = [memberDir];
-    expect(sessionSandbox(p, { userHome: '/fictional/user', memberDir })!.portable).toMatchObject({
-      allowWrite: [],
-      readBoundary: { deniedRoots: ['/fictional/user'] },
-    });
+    expect(sessionSandbox(p, { userHome: '/fictional/user', memberDir })!.portable).toBeUndefined();
   });
 
   it('refuses unsupported strict enforcement instead of rendering a weaker profile', () => {

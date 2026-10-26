@@ -189,9 +189,6 @@ function codexDeniedPaths(input: Pick<CodexArgsInput, 'spec' | 'codexHome'>): st
   return [
     ...new Set([
       ...(input.spec.policy?.filesystem.deniedPaths ?? []),
-      ...(input.spec.sandbox?.denyRead ?? []).filter(
-        (entry) => !input.spec.sandbox?.portable?.readBoundary?.deniedRoots.includes(entry),
-      ),
       ...(input.codexHome ? [input.codexHome] : []),
     ]),
   ];
@@ -234,9 +231,9 @@ export function validateCodexReadBoundary(
   input: Pick<CodexArgsInput, 'spec' | 'codexHome'>,
 ): ReadBoundaryProblem | undefined {
   const { spec } = input;
-  if (spec.policy?.access !== 'task_worktree') return;
   const raw = spec.sandbox?.portable?.readBoundary;
-  if (!raw) return 'missing';
+  if (raw === undefined) return;
+  if (!spec.policy) return 'invalid';
   const parsed = SessionReadBoundary.safeParse(raw);
   if (!parsed.success) return 'invalid';
   const boundary = parsed.data;
@@ -533,7 +530,7 @@ export function buildCodexArgs(input: CodexArgsInput): CodexCommandLine {
               .filter((entry) => !sharedGit?.writable.includes(entry))
           : []),
         ...(sharedGit?.readOnly ?? []),
-        ...(spec.policy?.filesystem.readOnlyPaths ?? []),
+        ...(portable?.readBoundary ? (spec.policy?.filesystem.readOnlyPaths ?? []) : []),
       ],
       tmpDir,
       cliPath: input.cliPath,

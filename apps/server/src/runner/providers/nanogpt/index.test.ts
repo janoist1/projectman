@@ -6,6 +6,8 @@ import { buildChildEnv } from '../../env';
 import { FAKE_CODEX, silentLogger, tempDirs } from '../../test-helpers';
 import { createNanogptAdapter } from './index';
 import type { StartSessionSpec } from '../../../contracts';
+import { buildSessionPolicy } from '../../../../test/helpers/session-policy';
+import { testConfig } from '../../../../test/helpers/test-template';
 
 describe('NanoGPT adapter', () => {
   const dirs = tempDirs();
@@ -45,28 +47,22 @@ describe('NanoGPT adapter', () => {
     const { adapter } = await harness();
     expect(adapter.capabilities).toMatchObject({ toolGate: 'permission_request', mcpImageResults: false });
   });
-  it.each(['missing', 'invalid'] as const)(
-    'refuses a %s worktree boundary before using the key',
-    async (reason) => {
-      const h = await harness();
-      await expect(
-        h.adapter.launch({
-          ...h.input,
-          spec: {
-            ...h.input.spec,
-            policy: { access: 'task_worktree' },
-            sandbox:
-              reason === 'invalid'
-                ? { portable: { readBoundary: { deniedRoots: [], allowedPaths: [{}] } } }
-                : undefined,
-          } as unknown as StartSessionSpec,
-        }),
-      ).rejects.toMatchObject({
-        code: 'nanogpt_setup_incomplete',
-        details: { problem: 'read_boundary', reason },
-      });
-    },
-  );
+  it('refuses an explicitly invalid worktree boundary before using the key', async () => {
+    const h = await harness();
+    await expect(
+      h.adapter.launch({
+        ...h.input,
+        spec: {
+          ...h.input.spec,
+          policy: { access: 'task_worktree' },
+          sandbox: { portable: { readBoundary: { deniedRoots: [], allowedPaths: [{}] } } },
+        } as unknown as StartSessionSpec,
+      }),
+    ).rejects.toMatchObject({
+      code: 'nanogpt_setup_incomplete',
+      details: { problem: 'read_boundary', reason: 'invalid' },
+    });
+  });
   it('rejects an unknown CLI below the soft home boundary before using the key', async () => {
     const h = await harness();
     const cwd = h.input.spec.cwd;
@@ -95,7 +91,22 @@ describe('NanoGPT adapter', () => {
   });
   it('uses custom provider arguments and private home and hides keys from shells', async () => {
     const h = await harness();
-    const launch = await h.adapter.launch(h.input);
+    const input = {
+      ...h.input,
+      spec: {
+        ...h.input.spec,
+        policy: buildSessionPolicy({
+          config: testConfig(),
+          role: 'developer',
+          task: { repo: 'web' },
+          placement: { kind: 'task_worktree', path: h.input.spec.cwd },
+          permissionMode: 'auto',
+        }),
+        sandbox: { allowWrite: [], allowedDomains: [], allowLocalBinding: false, denyRead: [homedir()] },
+      },
+    };
+    const launch = await h.adapter.launch(input);
+    expect(launch.cliArgs.join('\n')).not.toContain(`"${homedir()}"="deny"`);
     expect(launch.cliArgs).toContain('model_provider="nanogpt"');
     expect(launch.cliArgs).toContain(
       'model_providers.nanogpt={name="NanoGPT",base_url="https://nano-gpt.com/api/v1",env_key="NANOGPT_API_KEY",wire_api="responses"}',
@@ -115,9 +126,9 @@ describe('NanoGPT adapter', () => {
     expect(await h.adapter.planUsage.get()).toBeNull();
     // Every start has a private folder of its own.
     const resume = await h.adapter.launch({
-      ...h.input,
+      ...input,
       sessionConfigDir: await dirs.make(),
-      spec: { ...h.input.spec, resume: true },
+      spec: { ...input.spec, resume: true },
     });
     expect(resume.cliArgs[0]).toBe('resume');
     expect(resume.env).toEqual(launch.env);

@@ -340,37 +340,22 @@ function worktreeSandbox(policy: SessionPolicy, paths: SandboxPaths): AgentSandb
     ...(gitDir && defaultBranch ? sharedGitDenials(gitDir, defaultBranch) : []),
     ...sharedTmp.denyWrite,
   ];
-  const directory = (path: string) => ({ path, kind: 'directory' as const });
-  const file = (path: string) => ({ path, kind: 'file' as const });
-  const candidates: SessionReadBoundary['allowedPaths'] = [
-    ...(tmpDir ? [directory(tmpDir)] : []),
-    ...policy.filesystem.readableRoots.map(directory),
-    directory(policy.placement.path),
-    ...(policy.filesystem.readOnlyPaths ?? []).map(directory),
-    ...own.map((dir) => directory(dir.path)),
-    ...(gitConfig ? [file(gitConfig)] : []),
-    ...(gitDir ? [directory(gitDir)] : []),
+  const allowRead = [
+    ...sharedTmp.allowRead,
+    ...policy.filesystem.readableRoots,
+    ...(policy.filesystem.readOnlyPaths ?? []),
+    ...own.map((dir) => dir.path),
+    ...(gitConfig ? [gitConfig] : []),
+    ...(gitDir ? [gitDir] : []),
     // The instance's whole folder root: every member's folder is read, only its own is written (PM-333).
-    ...(sessionDir ? [directory(path.dirname(sessionDir))] : []),
-    ...(browsersDir ? [directory(browsersDir)] : []),
-    ...SANDBOX_HOME_READS.map((name) =>
-      name === '.gitconfig' ? file(path.join(userHome, name)) : directory(path.join(userHome, name)),
-    ),
+    ...(sessionDir ? [path.dirname(sessionDir)] : []),
+    ...(browsersDir ? [browsersDir] : []),
+    ...SANDBOX_HOME_READS.map((name) => path.join(userHome, name)),
     // Never the home or a directory above it, whatever the config says.
     ...(excludesFile && !isWithin(excludesFile, userHome) && !(appHome && isWithin(appHome, excludesFile))
-      ? [file(excludesFile)]
+      ? [excludesFile]
       : []),
-    ...heavy.allowWrite.map(directory),
-  ];
-  const readBoundary: SessionReadBoundary = {
-    deniedRoots: [...new Set([userHome, ...(appHome ? [appHome] : []), ...sharedTmp.denyRead])],
-    allowedPaths: [
-      ...new Map(
-        candidates.filter((entry) => !isWithinAny(denied, entry.path)).map((entry) => [entry.path, entry]),
-      ).values(),
-    ],
-  };
-  const allowRead = readBoundary.allowedPaths.map((entry) => entry.path);
+  ].filter((dir) => !isWithinAny(denied, dir));
   return {
     allowWrite: [
       ...writableOwn.map((dir) => dir.path),
@@ -379,7 +364,14 @@ function worktreeSandbox(policy: SessionPolicy, paths: SandboxPaths): AgentSandb
       ...sharedTmp.allowWrite,
     ],
     ...(denyWrite.length > 0 ? { denyWrite } : {}),
-    denyRead: [...new Set([...readBoundary.deniedRoots, ...denied, ...sharedTmp.denyRead])],
+    denyRead: [
+      ...new Set([
+        userHome,
+        ...(appHome && !isWithin(userHome, appHome) ? [appHome] : []),
+        ...denied,
+        ...sharedTmp.denyRead,
+      ]),
+    ],
     allowRead: [...new Set(allowRead)],
     env: {
       ...Object.fromEntries(own.map((dir) => [dir.variable, dir.path])),
@@ -392,15 +384,14 @@ function worktreeSandbox(policy: SessionPolicy, paths: SandboxPaths): AgentSandb
     deniedEnvVars: [...SANDBOX_DENIED_ENV_VARS],
     ...sandboxNetwork(policy),
     allowLocalBinding: true,
-    ...portableOf({
-      ...portableShared(heavy, {
+    ...portableOf(
+      portableShared(heavy, {
         memberDirs: writableOwn,
         sessionDir,
         browsersDir,
         tmpDir,
       }),
-      readBoundary,
-    }),
+    ),
   };
 }
 

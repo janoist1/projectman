@@ -49,7 +49,7 @@ describe('the heavy-run queue folder of a Codex developer session (PM-346)', () 
     const spec = await start();
     expect(spec.provider).toBe('codex');
     const memberDir = join(base, 'app-home', 'member-caches', 'AR', 'dev-1');
-    expect(spec.sandbox!.portable).toMatchObject({
+    expect(spec.sandbox!.portable).toEqual({
       allowWrite: [lockParent, join(memberDir, 'npm-cache'), join(memberDir, 'projectman-dev')],
       env: {
         PROJECTMAN_HEAVY_LOCK_DIR: lockDir,

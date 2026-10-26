@@ -768,8 +768,37 @@ are neither written nor read.
 
 **Residual risk (owner's decision, decision 24 and PM-156).** Sandboxed commands may listen on
 local ports, so they also reach the live instance's port 4800, readers included; the owner decided
-that port stays reachable (PM-156). A reader's sandbox reaches the npm registry. A
-Codex member uses its own permission profile: it denies `sensitivePaths`
+that port stays reachable (PM-156). A reader's sandbox reaches the npm registry.
+
+**Probe of closing port 4800 (PM-811, 2026-10-26): it cannot be closed from the sandbox rules.**
+Done from a developer session's own sandbox (Claude Code, outbound network on: `allowedDomains`
+`['*']`, `deniedDomains` `localhost` and `127.0.0.1`, `allowLocalBinding: true`), against throwaway
+listeners on high local ports, not against 4800 itself (the live instance is not touched by
+members; the rule is the same for every port):
+
+| Address     | Through the sandbox proxy (`-x $HTTP_PROXY`) | Direct (no proxy) |
+| ----------- | -------------------------------------------- | ----------------- |
+| `127.0.0.1` | refused, 403 (host on the deny list)         | connects          |
+| `localhost` | refused, 403 (host on the deny list)         | connects          |
+| `[::1]`     | not refused (502 from the upstream)          | connects          |
+
+A listener's own port works for bind and connect on `127.0.0.1`, `localhost` and `[::1]`, so the
+tests are not affected by `deniedDomains`. The deny list only acts on traffic that goes through
+the proxy, and the sandbox's own `NO_PROXY` names the loopback addresses (`localhost`, `127.0.0.1`,
+`::1`), so ordinary tools (`curl`, `fetch` in Node) go direct and are not filtered at all.
+`allowLocalBinding: true` (decision 24) lets the sandbox connect to loopback ports directly, and
+`deniedDomains` has no per-port form, so a port 4800 entry is not possible either. `[::1]` is not
+in `HARD_DENIED_HOSTS`: it would close only the proxied path (a `WebFetch` and a tool that ignores
+`NO_PROXY`), not the direct one, and whether the deny list takes an IPv6 literal is not verified.
+The allowlist mode (outbound network off) was not probed: it has no deny list, and its direct
+loopback path is the same `allowLocalBinding` one, so it is read as open as well.
+What stays: the live instance's port 4800 is reachable from every Claude Code member's sandboxed
+commands, and only the instance's own login protects it. Closing it needs a change outside the
+sandbox rules: `allowLocalBinding: false` (breaks the tests' local ports, against decision 24), or
+the instance not listening on a port the sandbox can reach (a Unix socket, or a separate user).
+Not decided here.
+
+A Codex member uses its own permission profile: it denies `sensitivePaths`
 and its Codex home, but reads other paths broadly (PM-356; the wider boundary is PM-360).
 A developer's file tools have no such `Edit` deny rules outside its
 worktree (its own worktree is inside the app home, and a deny rule wins over an allow rule): there

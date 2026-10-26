@@ -839,6 +839,11 @@ function operatorIndex(project: ContextPackInput['project']): string {
  * The guide takes `dutyPrompt` as it is, so the merge-fix and local-only texts keep their precedence.
  */
 const GUIDED_DUTIES: Partial<Record<DutyId, { title: string; short: string }>> = {
+  testing_acceptance: {
+    title: 'Testing',
+    short:
+      'Test expected/risky paths in a test environment. Use update_task: result label, repro note. Never certify your own work.',
+  },
   ux_design: {
     title: 'Design states, accessibility and complete review',
     short:
@@ -921,12 +926,15 @@ function roleSection(input: ContextPackInput, guide: ContextPack['guide']): stri
     ...(isOperator(member) ? [operatorIndex(project)] : []),
     ...(details.length
       ? [
-          [
-            ...(dutyDetails.length
-              ? [`Role guide index: ${dutyDetails.map(({ title }) => title).join('; ')}.`]
-              : []),
-            'Before an indexed role procedure, read get_guide with topic `role` when this index is not enough.',
-          ].join(' '),
+          // The testing duty is already short: the normal index would cost more than it saves.
+          dutyDetails.length === 1 && guidedHeld[0]?.id === 'testing_acceptance' && details.length === 1
+            ? 'Testing: get_guide with topic `role` if needed.'
+            : [
+                ...(dutyDetails.length
+                  ? [`Role guide index: ${dutyDetails.map(({ title }) => title).join('; ')}.`]
+                  : []),
+                'Before an indexed role procedure, read get_guide with topic `role` when this index is not enough.',
+              ].join(' '),
         ]
       : []),
     bundle.instructions.trim(),

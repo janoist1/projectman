@@ -165,7 +165,7 @@ describe('Operator checklist onboarding', () => {
 });
 
 it.each(
-  ['code-review', 'operator', 'pm'].flatMap((handle) =>
+  ['code-review', 'operator', 'pm', 'qa'].flatMap((handle) =>
     (['claude', 'codex', 'gemini', 'nanogpt', 'sandbox'] as const).map((provider) => ({
       handle,
       provider,
@@ -4031,6 +4031,86 @@ describe('structural decisions (PM-223)', () => {
     await expect(`${roleText(pack.appendSystemPrompt)}\n`).toMatchFileSnapshot(
       '__snapshots__/architect.role-instructions.txt',
     );
+  });
+});
+
+describe('QA role guide (PM-996)', () => {
+  it('snapshots the full prompt and guide and measures the starting context', async () => {
+    const pack = builder.build(input({ handle: 'qa', task: makeTask({ stageId: 'qa' }) }));
+    await expect(`${pack.appendSystemPrompt}\n`).toMatchFileSnapshot(
+      '__snapshots__/qa-stage.system-prompt.txt',
+    );
+    await expect(`${pack.guide.role}\n`).toMatchFileSnapshot('__snapshots__/qa-stage.role-guide.txt');
+    // Same fixture before PM-996: prompt 12,690 B, role 207 B, no guide; final newline included.
+    expect(Buffer.byteLength(`${pack.appendSystemPrompt}\n`)).toBeLessThanOrEqual(12_679);
+    expect(
+      Buffer.byteLength(`${section(pack.appendSystemPrompt, '# Your role instructions').trimEnd()}\n`),
+    ).toBeLessThanOrEqual(196);
+    expect(pack.guide.role).toContain(dutyPrompt(input({ handle: 'qa' }), 'testing_acceptance'));
+    expect([...pack.guide.role!.matchAll(/^## (.+)$/gm)].map((match) => match[1])).toEqual(['Testing']);
+    expect(pack.appendSystemPrompt).toContain('Testing: get_guide with topic `role`');
+  });
+
+  it.each(['qa', 'dev'])('keeps the output and recipient visible in %s', (stageId) => {
+    const pack = builder.build(input({ handle: 'qa', task: makeTask({ stageId }) }));
+    const steps = doneSteps(pack.appendSystemPrompt);
+    for (const key of ['update_task', 'qa-ok', 'qa-failed', 'send_message']) expect(steps).toContain(key);
+    if (stageId === 'qa') {
+      expect(steps).toContain('`fe-1`');
+      expect(steps).toContain('`communication`');
+      expect(steps).toContain('client_test');
+    } else {
+      expect(steps).toContain('sender');
+      expect(steps).not.toContain('client_test');
+    }
+    expect(pack.guide.role).not.toContain('qa-ok');
+  });
+
+  it('keeps the self-certification prohibition visible on an assigned card', () => {
+    const pack = builder.build(input({ handle: 'qa', task: makeTask({ stageId: 'qa', assignee: 'qa' }) }));
+    expect(section(pack.appendSystemPrompt, '# Your role instructions')).toContain(
+      'Never certify your own work',
+    );
+    expect(section(pack.appendSystemPrompt, '# Team rules')).toContain('Nobody approves their own work');
+  });
+
+  it('follows custom and override duties and preserves other instructions', () => {
+    const custom = buildProject();
+    const duties: DutyId[] = ['testing_acceptance', 'triage'];
+    custom.team.roles.push({
+      id: 'custom_tester',
+      name: 'Tester',
+      summary: '',
+      notTheirJob: '',
+      holders: 'both',
+      duties,
+      instructions: 'Keep bundle instructions.',
+    });
+    addMember(custom, 'tester', 'custom_tester');
+    const overridden = buildProject();
+    addMember(overridden, 'tester', 'qa');
+    overridden.team.roleOverrides = { qa: { duties, instructions: 'Keep bundle instructions.' } };
+    const packs = [custom, overridden].map((project) => {
+      const source = input({ project, handle: 'tester' });
+      source.member = { ...source.member, instructions: 'Keep member instructions.' };
+      return builder.build(source);
+    });
+    const [a, b] = packs;
+    const role = section(a!.appendSystemPrompt, '# Your role instructions');
+    expect(role).toBe(section(b!.appendSystemPrompt, '# Your role instructions'));
+    expect(a!.guide.role).toBe(b!.guide.role);
+    const order = [
+      'Test expected/risky paths',
+      DUTIES.triage.prompt,
+      'Keep bundle instructions.',
+      'Keep member instructions.',
+    ].map((text) => role.indexOf(text));
+    expect(order.every((at) => at >= 0)).toBe(true);
+    expect(order).toEqual([...order].sort((x, y) => x - y));
+    for (const text of [DUTIES.triage.prompt, 'Keep bundle instructions.', 'Keep member instructions.'])
+      expect(a!.guide.role).not.toContain(text);
+    overridden.team.roleOverrides.qa!.duties = ['triage'];
+    expect(builder.build(input({ project: overridden, handle: 'tester' })).guide.role).toBeUndefined();
   });
 });
 

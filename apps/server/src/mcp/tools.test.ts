@@ -113,6 +113,16 @@ describe('tool audience', () => {
   it.each([
     { audience: { ...developerAudience, projectManager: true }, present: 'start_task', absent: 'operate' },
     {
+      audience: { ...developerAudience, projectManager: true },
+      present: 'get_operator_preference',
+      absent: 'propose_operator_knowledge',
+    },
+    {
+      audience: { ...developerAudience, projectManager: true },
+      present: 'set_operator_preference',
+      absent: 'execute_operation',
+    },
+    {
       audience: { ...developerAudience, duties: new Set(['feedback_processing'] as const) },
       present: 'get_feedback',
       absent: 'start_task',

@@ -2,9 +2,11 @@ import path from 'node:path';
 import {
   CardBusyDetails,
   coordinationActorRefusal,
+  coordinationMemberOf,
   ERROR_CODES,
   ownerHandles,
   isOperator,
+  isProjectManager,
   isLessonsOnly,
   MAX_ATTACHMENT_BYTES,
   memberOf,
@@ -345,6 +347,26 @@ export class ToolCaller {
         `${ctx.member} is not an active AI member of this team, so the team tools are not available.`,
       );
     const operator = isOperator(member);
+    if (!operator && (tool === 'get_operator_preference' || tool === 'set_operator_preference')) {
+      if (!isProjectManager(member))
+        throw new TeamToolError('forbidden', 'operator_only: preferences require the Operator or PM.');
+      if (coordinationMemberOf(config)?.handle !== ctx.member)
+        throw new TeamToolError('forbidden', 'project_manager_only: preferences require the selected PM.');
+      const session = this.ctx.repos.sessions.get(ctx.sessionId);
+      if (
+        !session ||
+        session.projectKey !== ctx.projectKey ||
+        session.member !== ctx.member ||
+        session.workItem.type !== 'general' ||
+        session.workItem.with !== undefined
+      )
+        throw new TeamToolError(
+          'forbidden',
+          'operator_owner_only: preferences require your internal conversation.',
+        );
+      // This grants only entry to OperatorPreferences, which rechecks the current person and request.
+      return { config, request: null, guest: null };
+    }
     if (operator && (tool === 'get_operator_preference' || tool === 'set_operator_preference')) {
       const session = this.ctx.repos.sessions.get(ctx.sessionId);
       if (

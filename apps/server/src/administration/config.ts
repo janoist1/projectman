@@ -33,6 +33,10 @@ export async function loadSupervisorConfig(file: string): Promise<SupervisorConf
     );
   if (config.builder && (!path.isAbsolute(config.builder.repo) || !path.isAbsolute(config.builder.root)))
     throw new AdministrationSetupError('unsupported', 'the builder paths must be absolute');
+  if (config.appHome !== undefined && (!path.isAbsolute(config.appHome) || config.appHome.includes('\0')))
+    throw new AdministrationSetupError('unsupported', 'the app home must be an absolute path without NUL');
+  if (config.builder && config.appHome === undefined)
+    throw new AdministrationSetupError('unsupported', 'a builder requires an app home');
   if (config.service.kind === 'launchd' && config.service.logFile && !path.isAbsolute(config.service.logFile))
     throw new AdministrationSetupError('unsupported', 'the service log file path must be absolute');
   await assertPrivateDir(config.stateDir);

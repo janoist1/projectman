@@ -171,6 +171,7 @@ export const ERROR_CODES = [
   'complexity_forbidden',
   'complexity_points_invalid',
   'complexity_limit_not_developer',
+  'specialty_labels_not_developer',
   'self_review_forbidden',
   'release_four_eyes',
   // The handed-over work has uncommitted changes (PM-183)

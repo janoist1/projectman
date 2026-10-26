@@ -213,6 +213,7 @@ export class MemberService {
         ...permissionView(config, m),
         ...(m.onLeave ? { onLeave: true } : {}),
         ...(isDeveloper(config, m) ? { complexityLimit: complexityLimitOf(m) } : {}),
+        ...(isDeveloper(config, m) && m.specialtyLabels ? { specialtyLabels: m.specialtyLabels } : {}),
       };
     });
   }
@@ -404,6 +405,7 @@ export class MemberService {
       }
       if (
         req.specialty !== undefined ||
+        req.specialtyLabels !== undefined ||
         req.model !== undefined ||
         req.schedule !== undefined ||
         req.provider !== undefined ||
@@ -421,7 +423,7 @@ export class MemberService {
       ) {
         throw invalid(
           'not_ai_member',
-          'specialty, provider, model, effort, compaction window, cheap subagent, schedule, leave, instructions, permission mode, approver, outbound network and email settings apply to AI members only',
+          'specialty, specialty labels, provider, model, effort, compaction window, cheap subagent, schedule, leave, instructions, permission mode, approver, outbound network and email settings apply to AI members only',
         );
       }
       if (req.roles !== undefined) {
@@ -517,6 +519,17 @@ export class MemberService {
         else delete member.onLeave;
         fields.push(req.onLeave ? 'sent on leave' : 'called back from leave');
       }
+    }
+    if (req.specialtyLabels !== undefined) {
+      if (member.kind !== 'ai' || member.temp || !isDeveloper(draft, member))
+        throw invalid(
+          'specialty_labels_not_developer',
+          'only permanent AI developers have configurable specialty labels',
+        );
+      const labels = [...new Set(req.specialtyLabels?.map((label) => label.trim()) ?? [])];
+      if (labels.length === 0) delete member.specialtyLabels;
+      else member.specialtyLabels = labels;
+      fields.push('specialty labels');
     }
     if (req.complexityLimit !== undefined) {
       if (member.kind !== 'ai' || member.temp || !isDeveloper(draft, member))

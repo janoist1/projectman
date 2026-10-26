@@ -319,7 +319,14 @@ export class Admission {
       if (!this.providerAvailable(member.provider ?? DEFAULT_AGENT_PROVIDER)) return;
       const load = this.memberLoad(config, member.handle);
       if (load >= member.capacity) return;
-      free.push({ handle: member.handle, limit: complexityLimitOf(member), temp: false, load, index });
+      free.push({
+        handle: member.handle,
+        limit: complexityLimitOf(member),
+        specialtyLabels: member.specialtyLabels,
+        temp: false,
+        load,
+        index,
+      });
     });
     return free;
   }
@@ -346,7 +353,7 @@ export class Admission {
     assertNotPaused(this.ctx.repos.pauses, config.project.key);
     const stage = workStageOf(config, task);
     const reaching = new Set(
-      stage ? reachingDevelopers(stageDevelopers(config, stage), complexityOf(task)) : [],
+      stage ? reachingDevelopers(stageDevelopers(config, stage), complexityOf(task), task.labels) : [],
     );
     const roles = new Set(
       config.team.members.flatMap((m) => (m.kind === 'ai' && reaching.has(m.handle) ? [m.role] : [])),

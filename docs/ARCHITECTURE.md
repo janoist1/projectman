@@ -6,7 +6,7 @@ on a human sponsor's subscription. The team works through a configurable pipelin
 (for example development → code review → QA → client test → merge → release). Every step is
 attributed, and everything that waits for a human lands in one inbox ("Rád vár"). It runs on
 the owner's machine, reachable from a phone through Tailscale; [DEPLOY.md](DEPLOY.md) covers
-running it on a server.
+deployment and operation.
 
 Documentation map:
 
@@ -438,6 +438,8 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   **The complexity limit** (PM-1007, replaces the Senior mark of PM-348): the automatic developer
   choice is `chooseDeveloper` in `packages/shared`. A card's points (`Task.complexity`, PM-1006) are
   compared with each developer's `complexityLimit` (a temp worker's is always 5). Among the free
+  developers, optional `specialtyLabels` first restricts automatic assignment to cards carrying at
+  least one matching label; explicit assignees remain unrestricted (PM-1038). Among matching free
   developers whose limit reaches the points the one with the smallest limit wins (then the least
   loaded, then the team order), so a small card does not take the strongest developer; an unscored
   card goes the same way among all free developers. While every developer who reaches the points is
@@ -541,9 +543,9 @@ claude | codex ── transcript JSONL ────────────▶ r
 
 - One HTTP port, bound to loopback. `/hooks` and `/mcp` accept only local connections with a
   per-session random token. Everything under `/api` and `/ws` requires a login cookie.
-  Remote access goes through `tailscale serve` ([SECURITY.md](SECURITY.md)); the owner's live
-  instance is also public at chopper.istvan.io through a Cloudflare Tunnel behind Cloudflare
-  Access ([DEPLOY.md](DEPLOY.md), PM-200), which still ends at this one loopback port.
+  Local single-machine remote access can use `tailscale serve` ([SECURITY.md](SECURITY.md)).
+  The cloud hub's public entrance uses a Cloudflare Tunnel and Access
+  ([HYBRID.md](HYBRID.md#the-cloudflare-tunnel-and-access)), ending at the container's loopback port.
 - Session states come from hooks: SessionStart → idle, UserPromptSubmit → working,
   PermissionRequest → waiting_permission (a blocking call answered by the inbox decision,
   with a timeout), Stop → idle, SessionEnd or exit → exited; a lost login → failed.
@@ -789,12 +791,17 @@ This module needs no Effect program: retries belong to admission, reply relay us
 
 Personal conversational style (PM-688) lives in `services/operator/preferences.ts`.
 `get_operator_preference` and `set_operator_preference` choose the person from the
-authenticated Operator session and its current human request; they accept no person,
+authenticated Operator session and its current human request, or the selected active PM's
+internal general session and open direct owner message/answer (PM-1021); they accept no person,
 project or path selector. Guests gain only this personal write. REST exposes self reads
 and owner/admin lists through personal logins, with no preference write route.
 The session launcher requests only its current human's five enum fields through a
 server port; signal and question-screening launches receive none. Guest contexts omit
 member memory. Style is rendered as validated JSON data and grants no authority.
+The PM shares the same per-person document and CAS with the Operator, with no owner fallback
+in background rounds. Only direct current-owner message/answer/conversation launches receive
+PM style data. Its overridable template style precedes project role and member instructions;
+explicit style requests or corrections teach preferences, not a single technical question.
 
 Shared approved agreement and principles (PM-689) live in `services/operator/knowledge.ts`.
 Only an Operator owner message/answer can propose them. The inbox's registered
@@ -1324,14 +1331,11 @@ server (no role is never read as active), and the server never writes it: only a
 `scripts/migrate/cli.ts instance …`. An older build ignores it, which is why the live Mac checkout has to be
 updated to a build that knows it before the old home is called retired.
 
-The move tool (`scripts/migrate/`) is outside the server and uses it only for the schema version, the marker and
-the configuration loader. It reads a **stopped** source (its database from a scratch copy of the main file and
-its log, never in place), writes a checksummed secret package (the home without worktrees, workspaces and the
-retired publishing data; a git bundle per repository; the dirty files of every checkout; the transcripts the
-database names), and `apply` turns it into a standby home: the database migrated by this build, the stored
-paths translated by explicit mappings, the workspace paths committed in the copy's customization history, the
-repositories rebuilt from their bundles, the old machine's uncommitted work kept as pending items. The procedure,
-the rollback and the evidence are in [MIGRATION.md](MIGRATION.md).
+The hybrid move tool (`scripts/migrate/`) inventories a stopped local source, writes a checksummed
+cloud package and prepares the Mac engine identity. Source repositories, worktrees and CLI
+transcripts stay on the Mac. The return path restores final cloud data before activation;
+[HYBRID.md](HYBRID.md) documents the procedure and rollback. VM packaging, path remapping and
+repository restoration were removed in PM-1033; legacy migrated homes retain their activation checks.
 
 ## Review at a pinned commit (PM-183, part of PM-176 rule 1)
 
@@ -2089,11 +2093,18 @@ workers follow the machine's size.
   `apps/server/src/administration/executors.ts` (`createBuilderExecutors`, `FULL_TEST_COMMANDS`),
   `scripts/administration/builder.ts` (the real toolbox) and `scripts/administration/supervisor.ts`, which installs
   the executors only where the supervisor configuration names a builder (`SupervisorConfig.builder {repo, root}`,
-  both absolute paths); `scripts/cloud/images.ts` (`buildPinnedImage`). **Machine assumptions:** the builder
-  repository holds the card's commit (`git cat-file`); the full test checks the commit out into a detached
-  worktree below `builder.root` (`createLocalBranchMerger.checkoutForCheck`) and runs `npm run merge-test` (or
+  both absolute paths) and an absolute, NUL-free top-level `appHome` (PM-816); `scripts/cloud/images.ts`
+  (`buildPinnedImage`). The protected config supplies the app home, with no environment or home-directory
+  fallback; a builder configuration missing it refuses to start. `prepare --app-home` writes it on both platforms.
+  **Machine assumptions:** the builder repository holds the card's commit (`git cat-file`); the full test checks
+  the commit out into a detached worktree below `builder.root` (`createLocalBranchMerger.checkoutForCheck`) and
+  runs `npm run merge-test` (or
   `-- --all`) in the full-test sandbox (`sandbox-exec` on macOS) at its turn in the machine's heavy-run queue
-  (`defaultHeavyLockDir`, `requireHeavyLock`); the image build exports the commit with `git archive` (tracked files
+  (`defaultHeavyLockDir`, `requireHeavyLock`). Both the test and its sandboxed `npm ci` deny the configured app
+  home and the shared Claude temporary roots (including `CLAUDE_CODE_TMPDIR`), `defaultSessionTmpRoot()` and
+  canonical `os.tmpdir()/projectman-sessions`; the run's own sandbox, checkout and git metadata stay readable,
+  as in "Server full test before review". The builder resolves these roots on its own machine, never from hub
+  paths or environment (PM-816). The image build exports the commit with `git archive` (tracked files
   only, symbolic links and secret-named paths refused) and runs `docker buildx build --output type=docker,dest=…`
   into `<builder.root>/_image-build`, with no `docker load`, no registry push and no deploy. **Remote engine:**
   yes, and that is the design: the hub never reads a path or runs a test or a build. It sends the strict command
@@ -2128,7 +2139,9 @@ workers follow the machine's size.
   (example, principle and effect), and each member's enumerated conversational preferences in
   `<server home>/operator-data/<projectKey>/knowledge.json` and `preferences/<handle>.json`.
   These records are outside the public repository and the customization git history. PM-688 adds
-  a session-bound personal preference MCP writer and authenticated REST reads. PM-689 adds
+  a session-bound personal preference MCP writer and authenticated REST reads. PM-1021 also
+  allows the selected PM to read/write its current direct owner's five style fields in an
+  internal general conversation, sharing the Operator document and CAS. PM-689 adds
   owner-approved agreement/principle CAS and marker recovery under the server's configuration
   lock; the store remains private. Missing documents start at revision zero; invalid documents are refused
   without overwriting. **Machine assumption:** one server process owns a private writable home,
@@ -2139,7 +2152,8 @@ workers follow the machine's size.
   root to member file tools and the existing session-policy/provider consumers; no separate
   provider rule or new permission is added.
   **Remote engine:** storage stays on the server, with no file mount on an engine. Context/MCP
-  services send the current person's five preference enums (PM-688), or the filtered shared
+  services send the current person's five preference enums to authorized Operator/PM contexts
+  and MCP calls (PM-688, PM-1021), or the filtered shared
   revision/agreement/principles to internal Operator/PM contexts and authorized MCP reads
   (PM-689), across the existing boundary. Markers never enter context. No new engine file or
   machine assumption is introduced.
@@ -4251,10 +4265,11 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   commit or merge id as a commit id. No new machine-dependent part is added (`engine-host/path-reads.ts`).
   **Module:** `services/merges`
 - **Disposable instances and migration tools** — `scripts/lib/{instance,ports,processes}.mjs`,
-  `scripts/migrate/{inventory,paths,database,git,apply,instance,copy}.ts` (PM-270, PM-143, PM-923).
+  `scripts/migrate/{inventory,database,git,instance,copy,package}.ts` (PM-270, PM-318, PM-923, PM-1033).
   Disposable instances reserve loopback ports, spawn local server/web process groups and
   use local temp homes; migration inventories local repositories, paths and database use,
-  packages data and remaps paths. Home copies restore source directory modes after `cpSync`
+  packages only hybrid cloud entries; repositories and their paths stay on the engine host.
+  Home copies restore source directory modes after `cpSync`
   (Node 22 can otherwise widen 0700 to 0755); the permission walk uses `lstat` and never follows
   symlinks. This requires POSIX modes on both source and destination. Cross-machine activation already requires a person's
   confirmation that the source is retired. **Remote engine:** execute local probes and
@@ -5119,8 +5134,8 @@ deploy; decision 32). The runner's part is `SessionRunner.pause` / `forcePause` 
   pause that was open before are cut with one Esc (`forcePause`), so the stop waits for none of them longer.
   After the start `resumeAfterStartup` (in the background, after `restoreDeferred`) ends the `shutdown`
   pauses, so the sessions start again with a nudge that says their process is new; a pause a person made stays.
-  A crash and a second Ctrl-C after 3 s do not pause. Under systemd this needs `KillMode=mixed` and
-  `TimeoutStopSec=90` ([DEPLOY.md](DEPLOY.md)).
+  A crash and a second Ctrl-C after 3 s do not pause. The service manager must allow the shutdown
+  pause to finish before terminating child sessions.
 - **Access.** `GET` of a project's pause: an internal member; changing it: admin or owner. The instance's pause
   may be seen by anyone who is internal in some project, with only the sessions of the viewer's projects, and
   changed by an owner of every project (`canManageInstancePause`).

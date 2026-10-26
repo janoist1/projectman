@@ -768,8 +768,37 @@ are neither written nor read.
 
 **Residual risk (owner's decision, decision 24 and PM-156).** Sandboxed commands may listen on
 local ports, so they also reach the live instance's port 4800, readers included; the owner decided
-that port stays reachable (PM-156). A reader's sandbox reaches the npm registry. A
-Codex member uses its own permission profile: it denies `sensitivePaths`
+that port stays reachable (PM-156). A reader's sandbox reaches the npm registry.
+
+**Probe of closing port 4800 (PM-811, 2026-10-26): it cannot be closed from the sandbox rules.**
+Done from a developer session's own sandbox (Claude Code, outbound network on: `allowedDomains`
+`['*']`, `deniedDomains` `localhost` and `127.0.0.1`, `allowLocalBinding: true`), against throwaway
+listeners on high local ports, not against 4800 itself (the live instance is not touched by
+members; the rule is the same for every port):
+
+| Address     | Through the sandbox proxy (`-x $HTTP_PROXY`) | Direct (no proxy) |
+| ----------- | -------------------------------------------- | ----------------- |
+| `127.0.0.1` | refused, 403 (host on the deny list)         | connects          |
+| `localhost` | refused, 403 (host on the deny list)         | connects          |
+| `[::1]`     | not refused (502 from the upstream)          | connects          |
+
+A listener's own port works for bind and connect on `127.0.0.1`, `localhost` and `[::1]`, so the
+tests are not affected by `deniedDomains`. The deny list only acts on traffic that goes through
+the proxy, and the sandbox's own `NO_PROXY` names the loopback addresses (`localhost`, `127.0.0.1`,
+`::1`), so ordinary tools (`curl`, `fetch` in Node) go direct and are not filtered at all.
+`allowLocalBinding: true` (decision 24) lets the sandbox connect to loopback ports directly, and
+`deniedDomains` has no per-port form, so a port 4800 entry is not possible either. `[::1]` is not
+in `HARD_DENIED_HOSTS`: it would close only the proxied path (a `WebFetch` and a tool that ignores
+`NO_PROXY`), not the direct one, and whether the deny list takes an IPv6 literal is not verified.
+The allowlist mode (outbound network off) was not probed: it has no deny list, and its direct
+loopback path is the same `allowLocalBinding` one, so it is read as open as well.
+What stays: the live instance's port 4800 is reachable from every Claude Code member's sandboxed
+commands, and only the instance's own login protects it. Closing it needs a change outside the
+sandbox rules: `allowLocalBinding: false` (breaks the tests' local ports, against decision 24), or
+the instance not listening on a port the sandbox can reach (a Unix socket, or a separate user).
+Not decided here.
+
+A Codex member uses its own permission profile: it denies `sensitivePaths`
 and its Codex home, but reads other paths broadly (PM-356; the wider boundary is PM-360).
 A developer's file tools have no such `Edit` deny rules outside its
 worktree (its own worktree is inside the app home, and a deny rule wins over an allow rule): there
@@ -1211,6 +1240,15 @@ network, SSM or shell, only one Unix socket.
   OS user as the supervisor, so the sandbox is what keeps them from the 0600 socket: the state and the socket
   directory must therefore lie below `<app home>/administration`. `npm run administration -- prepare` takes
   `--app-home` and refuses any other place, on the hub host and on an engine machine alike.
+- **Builder full-test sandbox (PM-816).** The administration builder's `full_test` and its `npm ci` both use
+  the full-test sandbox: the user's home, the protected configuration's `appHome` and the shared temporary
+  roots are denied for reading. These include the default, configured (`CLAUDE_CODE_TMPDIR`) and canonical
+  Claude roots, `defaultSessionTmpRoot()` and canonical `os.tmpdir()/projectman-sessions`. The checkout, its git
+  directory and the run's own `pmft-*/sandbox` stay readable; no shared root is reopened. Only the installer
+  may reach `registry.npmjs.org` and `nodejs.org`; the test has no outward network access. A builder without a
+  valid absolute app home in `supervisor.json` refuses to start, and failure to resolve temporary roots never
+  falls back to an unrestricted run. The paths and environment are resolved on the builder machine, including
+  for a remote engine.
 - **Owner-approved shell (PM-887).** The protected config must explicitly set `ownerCommand.shell` to an
   absolute shell path (`prepare --owner-command-shell <path>`); otherwise the capability is absent and the
   command is unavailable. Every command is a `security` effect in a fresh `waiting_owner` operation and needs
@@ -1330,11 +1368,11 @@ macOS probe.
 
 ### Public entrance through Cloudflare (PM-200, PM-210)
 
-The Cloudflare variant of points 2 and 3, for the live instance on the owner's Mac (set-up and
-verification: [DEPLOY.md](DEPLOY.md), [deploy/cloudflare](../deploy/cloudflare)) and for the cloud
-board (PM-532, PM-536: `npm run cloud -- edge`, `publish` and `check` create and verify the same
-settings through the Cloudflare API; see "Cloudflare" and "Verification" in [AWS.md](AWS.md)). On the
-cloud board the one service is `127.0.0.1:4700`, not `4800`; the rest below holds for both:
+The Cloudflare variant of points 2 and 3 for the cloud board (PM-532, PM-536):
+`npm run cloud -- edge`, `publish` and `check` create and verify the settings through the
+Cloudflare API; see [AWS.md, Cloudflare](AWS.md#cloudflare) and
+[Verification](AWS.md#verification). Manual token-tunnel setup is in
+[HYBRID.md](HYBRID.md#the-cloudflare-tunnel-and-access). The one service is `127.0.0.1:4700`:
 
 1. HTTPS ends at Cloudflare; `cloudflared` reaches the app over loopback and the edge sends
    `X-Forwarded-Proto: https`, so cookies are Secure. The Host is preserved (no `httpHostHeader`
@@ -1354,7 +1392,7 @@ cloud board the one service is `127.0.0.1:4700`, not `4800`; the rest below hold
    never there. The tunnel's `originRequest.access` makes `cloudflared` check the Access token (team
    name and AUD tag) too. Login is by Google or a one-time code, with a stated session length.
 3. The tunnel answers 404 for `/hooks` and `/mcp/` and for everything but the one hostname. The
-   only service is `127.0.0.1:4800`; the development ports are not served.
+   only service is the cloud container's `127.0.0.1:4700`; the Mac's development ports are not served.
 4. Edge: Always Use HTTPS and HSTS on; nothing cached; Rocket Loader, Email Obfuscation, the
    automatic Web Analytics beacon and every other script injection off; a response-header rule
    sets `X-Frame-Options: DENY` (Set) and **adds** `Content-Security-Policy: frame-ancestors
@@ -1430,7 +1468,8 @@ frame-ancestors 'none'`) for uploads shown inline: a Set rule would replace it a
 ### The widget's public hostname (PM-506, PM-513)
 
 The marking widget runs on a customer's page, so it cannot pass Access. It gets **a hostname of
-its own on the same tunnel with no Access application** (setup: [DEPLOY.md](DEPLOY.md) step 7).
+its own on the same tunnel with no Access application**
+(setup: [HYBRID.md, The marking widget's public hostname](HYBRID.md#the-marking-widgets-public-hostname-pm-513)).
 The Access application of the application's hostname is not weakened and no Bypass policy is
 added (the public board's one Bypass policy belongs to the board's own page, not to this feature). What is reachable without Access is exactly `/feedback/widget.js` and `/feedback/api/v1/*`;
 their session, origin and limit rules are in "The feedback tool's public API".

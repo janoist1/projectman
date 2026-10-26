@@ -38,8 +38,8 @@ outage; buffered exit results are delivered after reconnect. `process_group` mea
 not contained execution (PM-701).
 
 - A Cloudflare account with a zone, and Zero Trust (the free plan is enough): the tunnel, and
-  Access in front of it ([DEPLOY.md](DEPLOY.md), "Public entry through Cloudflare Tunnel and
-  Access", steps 1 to 3, applies as is).
+  Access in front of it (see [AWS.md, Cloudflare](AWS.md#cloudflare) and
+  [the tunnel and Access setup below](#the-cloudflare-tunnel-and-access)).
 - A container host with a **persistent volume** and no public port needed. This guide uses Fly.io
   (`deploy/cloud/fly.toml`); any host that runs a container with one writable volume works.
 - Two S3-compatible buckets (or one bucket, two prefixes), for example Cloudflare R2 or Backblaze B2.
@@ -180,7 +180,8 @@ image's default command.
 ## The Cloudflare tunnel and Access
 
 The image runs a **token-managed** tunnel (`cloudflared tunnel run` with `TUNNEL_TOKEN`): the
-ingress is set in the Cloudflare dashboard, not in a config file as in the PM-200 guide on the Mac.
+ingress is set in the Cloudflare dashboard or through `npm run cloud -- edge`
+([AWS.md, Cloudflare](AWS.md#cloudflare)).
 
 For SES email login, the owner runs `npm run cloud -- ses plan`, then `ses configure --dry-run`
 and a separately approved `ses configure`; `ses request-production --dry-run` and its approved live request
@@ -247,8 +248,10 @@ machine key, and the integrator its bearer key. A service token alone gets nowhe
 ### The marking widget's public hostname (PM-513)
 
 The marking widget on a customer's page cannot pass Access, so it needs a hostname without it
-(the reasoning and the checks: [DEPLOY.md](DEPLOY.md) step 7, [SECURITY.md](SECURITY.md) "The
-widget's public hostname"). On the token-managed tunnel the same thing is done in the dashboard:
+(the security conditions: [SECURITY.md, The widget's public hostname](SECURITY.md#the-widgets-public-hostname-pm-506-pm-513)).
+On AWS, `cloudflare.feedbackHostname`, `publish --feedback` and `check` configure and verify it
+([AWS.md, Making the name public](AWS.md#making-the-name-public-publish),
+[Verification](AWS.md#verification)). For a manually managed token tunnel, use the dashboard:
 
 1. Add a **second public hostname**, for example `jelolo.example.com`, with the path `^/feedback/`
    and the service `http://127.0.0.1:4700`. Again **no HTTP Host header override**: the server's
@@ -350,7 +353,8 @@ the host, deploy as above with the same secrets (and the `RESTIC_PASSWORD` from 
 manager), on a new volume. Logins survive (the `secret` is restored).
 
 Never run a restored copy beside the original: one container replicates into one replica
-([DEPLOY.md](DEPLOY.md), the `instance.json` paragraph). Stop the old one first.
+([ARCHITECTURE.md, Instance role and the move](ARCHITECTURE.md#instance-role-and-the-move-pm-143-part-of-pm-135)).
+Stop the old one first.
 
 ### The restore rehearsal
 
@@ -633,7 +637,7 @@ gets there from the single-machine mode, how it comes back, and what stays where
 **This page is not a permission to move.** The live instance is never stopped, changed or updated by
 anything here until the owner has said so for the concrete move.
 
-The tool is `npm run migrate -- …` ([MIGRATION.md](MIGRATION.md) has the general rules: the source is only
+The tool is `npm run migrate -- …` (the source is only
 read, a package is a secret, only one copy works). The engine's own commands are `npm run engine -- …`.
 
 For the EC2-specific owner execution sheet, exact CLI order, approval boundaries and

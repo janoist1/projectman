@@ -21,7 +21,13 @@ import type {
   TimelineEventType,
   WorkItemRef,
 } from '@projectman/shared';
-import { aiMemberDefaults, getLocale, getTemplate, standardLabelsFor } from '@projectman/templates';
+import {
+  aiMemberDefaults,
+  getLocale,
+  getTemplate,
+  standardLabelsFor,
+  PROJECT_MANAGER_STYLE_INSTRUCTIONS,
+} from '@projectman/templates';
 import type {
   CardQuestion,
   CardWorker,
@@ -330,7 +336,8 @@ describe('operating agreement and conversation guidance (PM-690)', () => {
     const index = prompt({}, 'pm');
     expect(index).toContain('never another person’s conversational preferences');
     expect(index).toContain('Suggest a changed common principle to the Operator as information');
-    expect(index).toContain('Never operate, write private knowledge');
+    expect(index).toContain('Never operate or waive approval');
+    expect(index).toContain('set_operator_preference');
     expect(index).not.toContain('# Personal conversation style');
   });
 });
@@ -1401,7 +1408,49 @@ describe('system prompt', () => {
       return project;
     };
 
-    it('gives the dispatcher role and the order of the report to the project manager alone', () => {
+    it('gives an uncustomized PM the shared style before role and member overrides', () => {
+      const project = withPm('en');
+      const member = project.team.members.find((m) => m.handle === 'pm')!;
+      expect(member.kind === 'ai' && member.instructions).toBe('');
+      expect(roleOf(builder.build(input({ project, handle: 'pm' })).appendSystemPrompt)).toContain(
+        PROJECT_MANAGER_STYLE_INSTRUCTIONS,
+      );
+      project.team.roleOverrides = { project_manager: { duties: [], instructions: 'ROLE_STYLE_OVERRIDE' } };
+      if (member.kind === 'ai') member.instructions = 'MEMBER_STYLE_OVERRIDE';
+      const role = roleOf(builder.build(input({ project, handle: 'pm' })).appendSystemPrompt);
+      expect(role.indexOf(PROJECT_MANAGER_STYLE_INSTRUCTIONS)).toBeLessThan(
+        role.indexOf('ROLE_STYLE_OVERRIDE'),
+      );
+      expect(role.indexOf('ROLE_STYLE_OVERRIDE')).toBeLessThan(role.indexOf('MEMBER_STYLE_OVERRIDE'));
+    });
+
+    it('renders PM style data only in the selected internal general conversation', () => {
+      const project = withPm('en');
+      const source = input({
+        project,
+        handle: 'pm',
+        workItem: { type: 'general' },
+        task: null,
+        operatorPreference: {
+          length: 'detailed',
+          technicalLevel: 'technical',
+          detail: 'include',
+          clarity: 'precise',
+          background: 'contextual',
+        },
+      });
+      const pack = builder.build(source);
+      expect(pack.appendSystemPrompt).toContain(JSON.stringify(source.operatorPreference));
+      expect(pack.guide.role).not.toContain(JSON.stringify(source.operatorPreference));
+      expect(
+        builder.build({ ...source, workItem: { type: 'general', with: 'owner' } }).appendSystemPrompt,
+      ).not.toContain('# Personal conversation style');
+      expect(
+        builder.build({ ...source, workItem: { type: 'task', taskKey: 'AR-1' } }).appendSystemPrompt,
+      ).not.toContain('# Personal conversation style');
+    });
+
+    it('gives the dispatcher role to the project manager alone', () => {
       const project = withPm('en');
       const pm = roleOf(builder.build(input({ project, handle: 'pm' })).appendSystemPrompt);
       expect(pm).toContain(
@@ -1449,22 +1498,6 @@ describe('system prompt', () => {
       const work = project.pipeline.stages.find((stage) => stage.id === 'dev')!;
       const queued = input({ project, handle: 'fe-1', task: makeTask({ stageId: queue.id }) });
       expect(handover(queued, work)).not.toContain('the card waits for them');
-    });
-
-    it('writes the labels of the report in the language of the project', () => {
-      const english = roleOf(
-        builder.build(input({ project: withPm('en'), handle: 'pm' })).appendSystemPrompt,
-      );
-      expect(english).toContain(
-        'each opening with its bold label: **Done**, **New card**, **Forwarded** (card → member: why), **Waiting for you** (what the owner must do, with the card key where they can do it; if nothing: Nothing.)',
-      );
-      const hungarian = roleOf(
-        builder.build(input({ project: withPm('hu'), handle: 'pm' })).appendSystemPrompt,
-      );
-      expect(hungarian).toContain(
-        'each opening with its bold label: **Megtettem**, **Új kártya**, **Továbbadtam** (card → member: why), **Rád vár** (what the owner must do, with the card key where they can do it; if nothing: Semmi.)',
-      );
-      expect(hungarian).not.toContain('**Done**');
     });
   });
 
@@ -1609,8 +1642,9 @@ describe('system prompt', () => {
       const withDocs = buildProject();
       withDocs.project.repos[0]!.docs = { decisions: 'docs/DECISIONS.md', roadmap: 'docs/ROADMAP.md' };
       const pack = builder.build(input({ project: withDocs, handle: 'pm' }));
+      expect(pack.appendSystemPrompt).toContain('Project documents:');
+      expect(builder.build(input({ handle: 'pm' })).appendSystemPrompt).not.toContain('Project documents:');
       for (const key of ['write_project_docs', 'mark_decision_candidates']) {
-        expect(pack.appendSystemPrompt).toContain(key);
         expect(pack.guide.role).toContain(key);
         expect(builder.build(input({ handle: 'pm' })).guide.role).not.toContain(key);
         const operator = builder.build(input({ project: withDocs, handle: 'operator' }));
@@ -1630,12 +1664,8 @@ describe('system prompt', () => {
       const without = builder.build(input({ project, handle: 'pm' }));
       project.project.repos[0]!.docs = { lessons: 'docs/LESSONS.md' };
       const withLessons = builder.build(input({ project, handle: 'pm' }));
-      for (const part of ['appendSystemPrompt', 'guide'] as const) {
-        const text = part === 'guide' ? withLessons.guide.role : withLessons[part];
-        const before = part === 'guide' ? without.guide.role : without[part];
-        expect(text).toContain('doc lessons');
-        expect(before).not.toContain('doc lessons');
-      }
+      expect(withLessons.guide.role).toContain('doc lessons');
+      expect(without.guide.role).not.toContain('doc lessons');
       const operator = builder.build(input({ project, handle: 'operator' }));
       expect(operator.appendSystemPrompt).not.toContain('doc lessons');
       expect(operator.guide.role).not.toContain('doc lessons');

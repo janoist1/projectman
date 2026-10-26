@@ -640,9 +640,8 @@ anything here until the owner has said so for the concrete move.
 The tool is `npm run migrate -- …` (the source is only
 read, a package is a secret, only one copy works). The engine's own commands are `npm run engine -- …`.
 
-For the EC2-specific owner execution sheet, exact CLI order, approval boundaries and
-rollback checks, use [CLOUD-CUTOVER.md](CLOUD-CUTOVER.md) (PM-674). Its public stage
-waits for the completed login and public-edge changes; a private publish does not enable them.
+For the data-preserving return from EC2 to Mac single,
+use [CLOUD-CUTOVER.md](CLOUD-CUTOVER.md) (PM-674).
 
 ## What goes where
 

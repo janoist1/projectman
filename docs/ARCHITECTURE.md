@@ -730,8 +730,7 @@ Only `assembly` and `entry` remain unsealed in the assembly layer. Other layers 
 import them. The `context` facade exposes `createContextPackBuilder` and
 `createMemberMemoryStore`; prompt and formatting helpers remain internal.
 
-No exception has a `core/*` source. The fifteen original pairs are accounted for in
-[the phase 5 closure inventory](refactor-core-closure.md): PM-612 removed one, and
+No exception has a `core/*` source. Of the fifteen original pairs, PM-612 removed one, and
 PM-632–635 removed fourteen. PM-646 removed the four connector exceptions
 (`api/auth/ws → assembly`, `instance → entry`). PM-648 moved composition to
 `assembly.ts` and removed compatibility exports; callers import the owning module.
@@ -1808,7 +1807,7 @@ workers follow the machine's size.
   run in the same Claude Code sandbox, excluding PTY files, took 306.14 s (collect
   47.00 s, tests 1,145.95 s), with 538 files and 12,427 tests. Four files failed because
   a long temporary path exceeded the macOS Unix-socket limit; all four passed when
-  rerun with a short TMPDIR (75 passed, one skipped). In the replay, cloud-trial-reset-host
+  rerun with a short TMPDIR (75 passed, one skipped). In the replay, one host test
   uses its successful 17.9 s rather than the failed JSON's 1.68 s. This raises the
   estimated complete server wall time to about **310–322 s**, below the 600 s target.
   Registered test counts did not decrease. The corrected wall improvement over the
@@ -2161,23 +2160,11 @@ workers follow the machine's size.
 
 - **Cloud provisioning from the owner's machine (PM-532)** — `scripts/cloud/*` (`npm run cloud`),
   `deploy/aws/`, `docs/AWS.md`, `apps/server/test/cloud-*.test.ts`.
-  PM-674's [owner cutover sheet](CLOUD-CUTOVER.md) coordinates explicit account/cost previews,
-  separate AWS/SES/edge approvals and retention of existing Cloudflare DNS/mail. It adds no
-  CLI/config contract; credentials stay on the administration machine, outside member sessions.
+  PM-674's [rollback sheet](CLOUD-CUTOVER.md) preserves the final stopped-cloud data before
+  Mac single activation. Credentials stay on the administration machine, outside member sessions.
   PM-717 adds a mandatory first-start seed integrity gate in `scripts/cloud/machine.ts`: the
   administration machine hashes the closed package DB before/after upload and compares hash/bytes
   with the stopped host through the existing SSH boundary; no engine RPC or credentials are added.
-  PM-719 adds `trial-reset-plan`/`trial-reset-apply` in `scripts/cloud/trial-reset.ts`: the admin
-  hashes the retained final return copy and exact mode 0600 plan bytes, checks explicit EC2
-  account/profile/region/instance/network and two never-versioned trial buckets, and requires a
-  separately owner-approved plan hash. It creates a durable one-use local result receipt, archives
-  the stopped/disabled host before any deletion, and deletes only enumerated keys with exact ETag
-  conditions and expected owner. AWS CLI model support is required; delete operations set
-  AWS_MAX_ATTEMPTS=1/standard mode. Partial results preserve receipts/copies and require separate
-  recovery approval; no retry, resource teardown, seed or start is implicit. The two round runbook
-  retains the final download and host archive through round two's full backup/isolated restore.
-  **Remote engine:** plans/copies and AWS CLI remain on the administrator, not on an engine;
-  the existing SSH-over-SSM boundary returns only fixed metadata, hashes, counts and bytes.
   A tool the owner runs on their Mac
   that creates and maintains the cloud board on AWS EC2 or Lightsail: `preflight` and `aws` (PM-534: the machine,
   the firewall, the two S3 buckets, the two IAM users and their access keys), the machine part
@@ -2268,21 +2255,10 @@ workers follow the machine's size.
 (publickey...)` line (plus `Warning:`/SSM session noise) means `commandStarted: 'no'`; any other output
   that mentions it stays `unknown`, not retryable. Reads keep the loose match. **Remote engine:** unchanged,
   admin machine only. Related task: PM-753.
-  PM-719 adds three fixed-path `host.sh` operations: `trial-reset-inspect`, `trial-reset-archive`
-  and read-only `trial-reset-verify`. The last two accept only UUIDv4 and exact SHA-256/none
-  arguments, with no payload/path override. An embedded existing Python3 standard-library program
-  runs with `-I -S`; Linux/POSIX dir_fd/no-follow descriptors and `/proc/self/mountinfo` are required
-  before writes. Missing interpreter/capabilities refuse without installation or fallback.
-  It reads systemd/Docker and process writers, hashes the full UTF-8 byte-sorted NUL inventory,
-  refuses symlinks/special entries/mounts/detectable changes and takes the existing `.image.lock`
-  without creating or changing it (a previously deployed trial target must have this lock).
-  Archive uses root-only 0700 `/var/lib/projectman/trial-archive/<UUID>` and atomic 0600 reset.json,
-  preserves deploy.json/image.env before same-filesystem data rename, and creates empty 0700
-  uid/gid 10001 active data. cloud.env and other credentials/images stay in place. Incomplete
-  markers block further resets. Final verify rehashes the specified archive after S3 deletion,
-  checks its strict archived receipt, missing active metadata, empty data and stopped state.
-  **Remote engine:** Python and filesystem mutations run only on EC2 through the same SSH/SSM
-  path; Node/AWS CLI stay on the admin machine. No engine RPC, secret or inbound Mac port is added.
+  PM-1029 removes the completed PM-675 trial commands and their embedded host program.
+  Host administration no longer needs Python3 or provides trial archival/deletion operations.
+  **Remote engine:** the remaining host operations still run on EC2 through SSH/SSM from the
+  administration machine; no engine RPC or new machine assumption is added.
   PM-717 carries `seed-digest` over this same SSH/SSM session, with no arguments or stdin payload:
   only the database SHA-256 and byte count return. On Ubuntu 24.04 the host uses coreutils to read
   the fixed `/var/lib/projectman/data/db.sqlite`, refuses live/starting units, non-regular/symlink
@@ -2920,14 +2896,6 @@ workers follow the machine's size.
 - **Cloud deployment and backup** — `deploy/cloud/{Dockerfile,entrypoint.sh,backup.sh,litestream.yml,fly.toml,smoke.sh,memory-probe.mjs,memory-profile.mjs,heap-summary.mjs,history-semantic-profile.mjs,history-semantic-fixture.mjs,history-semantic-image-check.mjs}`,
   `.github/workflows/history-semantic-profile.yml` (the release measurement on a GitHub-hosted `ubuntu-24.04-arm` runner, PM-913),
   `.dockerignore`, `auth/setup-code.ts`, `auth/index.ts` (the first setup), `apps/server/test/deploy-cloud.test.ts` (PM-317).
-  PM-719's trial reset (admin `scripts/cloud/trial-reset.ts`, EC2 `deploy/aws/host.sh`) refuses
-  active unit/container/backup writers, bucket versioning including Suspended, Object Lock,
-  replication and multipart uploads. Automatic Litestream/restic writes can exist even when
-  round one's backup acceptance was omitted, so both full inventories are always read.
-  It preserves the host archive and final Mac download, retains the EC2/buckets/IAM/credentials,
-  and leaves the host disabled with empty active data. Only an exact separately approved reset
-  plan may conditionally delete the trial objects. Round two uses a new stopped-source package;
-  no backup process or seed/start is invoked by reset. This adds no engine-side dependency.
   PM-718 adds `scripts/cloud/images.ts`: an admin builder with existing Docker/Buildx docker-container
   driver and native builders/emulation exports separate single-platform Docker archives (PM-916:
   by default only the target machine's platform, `targetPlatform(config)`; `--all-platforms` both;
@@ -2946,10 +2914,8 @@ workers follow the machine's size.
   `/engine` paths with 404 instead of the web app's index.html (hub HTTP routing only).
   PM-750's entry "Admin release preparation" runs that builder
   from its own clean checkout and smokes each image by its image ID before the receipt exists.
-  PM-674's [cutover runbook](CLOUD-CUTOVER.md) pins the accepted SHA for both cloud and engine,
-  requires a stopped-source seed into empty host/buckets, first successful file backup and
-  isolated recovery checks. Public activation waits for completed auth/edge code and independent
-  security results plus a separate owner decision. Deployment and backup remain on EC2;
+  PM-674's [rollback runbook](CLOUD-CUTOVER.md) closes the public edge and stops the cloud
+  before downloading final data for Mac single activation. Deployment and backup remain on EC2;
   the single-Mac live watcher does not update either the cloud or the separate engine checkout.
   On AWS Lightsail the same image runs under systemd on one Ubuntu machine, installed and operated by
   `npm run cloud` (the entry "The Lightsail machine and its operation (PM-535)").
@@ -4298,9 +4264,9 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   process management on the target host, inventory engine state separately, and preserve
   explicit source retirement and rollback checks rather than inferring remote liveness.
   **Hybrid move (PM-318, `scripts/migrate/{hybrid,hybrid-entries}.ts`, [HYBRID.md](HYBRID.md)):**
-  PM-674's [execution and rollback sheet](CLOUD-CUTOVER.md) uses protected package/return
-  directories outside the source and repositories, retires both Mac live agents before packaging,
-  and brings final stopped-cloud data back before activation. Package/home is the seed input;
+  PM-674's [rollback sheet](CLOUD-CUTOVER.md) uses protected package/return
+  directories outside the source and repositories and brings final stopped-cloud data back
+  before activation. Package/home is the seed input;
   seed dry-run checks buckets, while the live host check precedes upload. No second writer or
   automatic clearing of used targets is allowed; data transport is the owner's administration path.
   `hybrid plan|package|back` and `instance engine` move the Mac between the single-machine mode and the
@@ -4330,9 +4296,8 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   **Module:** `scripts`
 
 - **Engine service (launchd)** — `scripts/engine/{service,commands,cli}.ts`,
-  PM-674's [owner runbook](CLOUD-CUTOVER.md) checks the same accepted cloud/engine SHA,
-  installs the protected Access header file, verifies foreground startup before launchd,
-  and uninstalls KeepAlive before hybrid back. Updates are manual owner-approved steps in
+  PM-674's [rollback runbook](CLOUD-CUTOVER.md) uninstalls KeepAlive before hybrid back.
+  Updates are manual owner-approved steps in
   the engine's own checkout; neither credentials nor launchd operations cross engine RPC.
   `deploy/mac/com.projectman.engine.plist` (PM-318). `npm run engine -- service install|uninstall|status`
   renders the plist template with this machine's absolute paths (node, the checkout, the home, the

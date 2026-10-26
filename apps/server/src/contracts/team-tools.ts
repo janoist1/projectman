@@ -1090,6 +1090,19 @@ export interface OperatorToolsHandler {
     args: { member: string; text: string; taskKey?: string; signalId?: string; despiteWorkers?: boolean },
   ): Promise<MemberStartResult>;
   /**
+   * reassign_task (PM-1040): the selected PM changes a card's assignee (null clears it) and says why; the reason
+   * is on the card's timeline. A started card hands its work over (PM-342). Needs no open owner request.
+   */
+  reassignTask(
+    ctx: ToolContext,
+    args: { taskKey: string; assignee: string | null; reason: string },
+  ): Promise<{ task_key: string; assignee: string | null; previous: string | null }>;
+  /** cancel_task (PM-1040): the selected PM closes a card as cancelled, with the reason on its timeline. */
+  cancelTask(
+    ctx: ToolContext,
+    args: { taskKey: string; reason: string },
+  ): Promise<{ task_key: string; status: string }>;
+  /**
    * screen_question (PM-558): the Operator settles a question of an AI member that waits for its screening:
    * `answered` (with `answer`), `forwarded` (to a member, `forwardTo`), `moot`, or sent on to the people as a
    * `decision` or a `todo` (with the todo's fields). `note` is always the reason. Only the Operator, not in a

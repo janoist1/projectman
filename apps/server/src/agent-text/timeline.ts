@@ -71,8 +71,10 @@ export function describeEvent(
       const files = list('failedFiles');
       return `${test} failed on commit ${commit}${files.length > 0 ? `: ${oneLine(files.join(', '), textLimit)}` : ''}${page}`;
     }
-    case 'task_assigned':
-      return text('assignee') ? `assigned it to ${member('assignee', '')}` : 'unassigned it';
+    case 'task_assigned': {
+      const why = text('note') ? `: ${text('note')}` : '';
+      return (text('assignee') ? `assigned it to ${member('assignee', '')}` : 'unassigned it') + why;
+    }
     case 'task_labels_changed': {
       const added = list('added').map((id) => style.label(id));
       const removed = list('removed').map((id) => style.label(id));

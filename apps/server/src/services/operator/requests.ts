@@ -84,6 +84,12 @@ export const OPERATOR_SCREENING_TOOLS: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * The PM's card tools (PM-1040): reassign and cancel a card with a reason on the timeline. The selected PM in its
+ * internal conversation, with no owner request; refused in an approval continuation.
+ */
+export const PM_CARD_TOOLS: readonly string[] = ['reassign_task', 'cancel_task'];
+
+/**
  * The team tools the Operator never calls, request or not: decisions of other members, handovers and
  * publishing outside the machine.
  */

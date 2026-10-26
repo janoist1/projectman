@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ToolContext } from '../contracts';
-import { createDomainHarness, waitForSession } from '../../test/helpers/domain-harness';
+import type { Actor } from '@projectman/shared';
+import { createDomainHarness, OWNER_ACTOR, waitForSession } from '../../test/helpers/domain-harness';
 import type { DomainHarness } from '../../test/helpers/domain-harness';
 import { settle } from '../../test/helpers/fakes';
 import { TEAM_TOOLS, toolOutputText } from './tools';
@@ -108,6 +109,37 @@ describe('Operator MCP tools', () => {
       { signal_id: 'ops_1', note: 'x'.repeat(1001) },
     ])
       expect(tool.inputSchema.safeParse(input).success).toBe(false);
+  });
+  it('reassign_task and cancel_task require a bounded reason and forward the card changes', async () => {
+    const reassign = TEAM_TOOLS.find((t) => t.name === 'reassign_task')!;
+    const cancel = TEAM_TOOLS.find((t) => t.name === 'cancel_task')!;
+    const handler = createFakeTeamToolsHandler();
+    const reassignArgs = reassign.inputSchema.parse({
+      task_key: 'AR-1',
+      assignee: 'dev-1',
+      reason: '  Capacity moved.  ',
+    });
+    await reassign.run({ ctx: devContext, args: reassignArgs, handler });
+    await cancel.run({
+      ctx: devContext,
+      args: cancel.inputSchema.parse({ task_key: 'AR-1', reason: 'Obsolete' }),
+      handler,
+    });
+    expect(handler.calls).toMatchObject([
+      { method: 'reassignTask', args: { taskKey: 'AR-1', assignee: 'dev-1', reason: 'Capacity moved.' } },
+      { method: 'cancelTask', args: { taskKey: 'AR-1', reason: 'Obsolete' } },
+    ]);
+    expect(
+      reassign.inputSchema.safeParse({ task_key: 'AR-1', assignee: null, reason: 'Unassign' }).success,
+    ).toBe(true);
+    for (const input of [
+      { task_key: 'AR-1', assignee: 'dev-1' },
+      { task_key: 'AR-1', assignee: 'dev-1', reason: ' ' },
+      { task_key: 'AR-1', assignee: 'dev-1', reason: 'x'.repeat(501) },
+    ])
+      expect(reassign.inputSchema.safeParse(input).success).toBe(false);
+    for (const input of [{ task_key: 'AR-1' }, { task_key: 'AR-1', reason: 'x'.repeat(501) }])
+      expect(cancel.inputSchema.safeParse(input).success).toBe(false);
   });
   it('open_integrator_todo forwards the todo fields and tells who got it', async () => {
     const tool = TEAM_TOOLS.find((t) => t.name === 'open_integrator_todo')!;
@@ -486,5 +518,87 @@ describe('dismiss_signal authorization and domain errors', () => {
       code: 'invalid',
       message: 'operator_signal_closed: the signal is no longer open',
     });
+  });
+});
+
+describe('reassign_task and cancel_task (PM-1040)', () => {
+  let h: DomainHarness;
+  let pm: ToolContext;
+  beforeEach(async () => {
+    h = await createDomainHarness({
+      adjust: (config) => {
+        const member = config.team.members.find((m) => m.handle === 'pm')!;
+        if (member.kind === 'ai') member.onLeave = false;
+      },
+    });
+    const { session } = await h.domain.sessions.ensureSession('AR', 'pm', { type: 'general' });
+    pm = { projectKey: 'AR', member: 'pm', sessionId: session.id, taskKey: null };
+  });
+  afterEach(async () => {
+    await h?.cleanup();
+  });
+  const timelineOf = (key: string, type: string) =>
+    h.domain.timeline.list('AR', { taskKey: key }).filter((event) => event.type === type);
+
+  it('lets the PM reassign a card with the reason on the timeline, in the PM name', async () => {
+    const card = await h.domain.tasks.create('AR', { title: 'Card' }, OWNER_ACTOR);
+    await expect(
+      h.domain.teamTools.reassignTask(pm, { taskKey: card.key, assignee: 'dev-1', reason: 'Dev is free' }),
+    ).resolves.toEqual({ task_key: card.key, assignee: 'dev-1', previous: null });
+    expect(h.domain.tasks.get('AR', card.key).assignee).toBe('dev-1');
+    expect(timelineOf(card.key, 'task_assigned')).toMatchObject([
+      { actor: { kind: 'ai', handle: 'pm' }, data: { assignee: 'dev-1', note: 'Dev is free' } },
+    ]);
+  });
+
+  it('lets the PM cancel a card with the reason on the timeline, in the PM name', async () => {
+    const card = await h.domain.tasks.create('AR', { title: 'Card' }, OWNER_ACTOR);
+    await expect(
+      h.domain.teamTools.cancelTask(pm, { taskKey: card.key, reason: 'Obsolete' }),
+    ).resolves.toEqual({ task_key: card.key, status: 'cancelled' });
+    expect(timelineOf(card.key, 'task_updated')).toMatchObject([
+      { actor: { kind: 'ai', handle: 'pm' }, data: { action: 'cancelled', reason: 'Obsolete' } },
+    ]);
+  });
+
+  it('refuses a closed card and an unknown member through the existing checks', async () => {
+    const card = await h.domain.tasks.create('AR', { title: 'Card' }, OWNER_ACTOR);
+    await expect(
+      h.domain.teamTools.reassignTask(pm, { taskKey: card.key, assignee: 'nobody', reason: 'Why' }),
+    ).rejects.toMatchObject({ message: expect.stringContaining('unknown member') });
+    await h.domain.teamTools.cancelTask(pm, { taskKey: card.key, reason: 'Done with it' });
+    await expect(
+      h.domain.teamTools.cancelTask(pm, { taskKey: card.key, reason: 'Again' }),
+    ).rejects.toMatchObject({ message: expect.stringContaining('cancelled') });
+  });
+
+  it('refuses any other member at the tool', async () => {
+    const card = await h.domain.tasks.create('AR', { title: 'Card' }, OWNER_ACTOR);
+    const dev = { ...pm, member: 'dev-1' };
+    for (const call of [
+      h.domain.teamTools.reassignTask(dev, { taskKey: card.key, assignee: 'dev-1', reason: 'Mine' }),
+      h.domain.teamTools.cancelTask(dev, { taskKey: card.key, reason: 'Mine' }),
+    ])
+      await expect(call).rejects.toMatchObject({ message: expect.stringContaining('project_manager_only') });
+    expect(h.domain.tasks.get('AR', card.key)).toMatchObject({ assignee: null, status: 'active' });
+  });
+
+  it('keeps the service refusing another AI member, the PM through an integrator, and keeps the admin path', async () => {
+    const card = await h.domain.tasks.create('AR', { title: 'Card' }, OWNER_ACTOR);
+    const dev: Actor = { kind: 'ai', handle: 'dev-1' };
+    const viaIntegrator: Actor = { kind: 'ai', handle: 'pm', via: 'integrator' };
+    for (const actor of [dev, viaIntegrator]) {
+      await expect(
+        h.domain.tasks.update('AR', card.key, { assignee: 'dev-1', assigneeReason: 'Mine' }, actor),
+      ).rejects.toMatchObject({ code: 'insufficient_access' });
+      await expect(h.domain.tasks.cancel('AR', card.key, { reason: 'Mine' }, actor)).rejects.toMatchObject({
+        code: 'insufficient_access',
+      });
+    }
+    await h.domain.tasks.update('AR', card.key, { assignee: 'dev-1' }, OWNER_ACTOR);
+    expect(h.domain.tasks.get('AR', card.key).assignee).toBe('dev-1');
+    expect(timelineOf(card.key, 'task_assigned')).toMatchObject([{ data: { assignee: 'dev-1' } }]);
+    await h.domain.tasks.cancel('AR', card.key, {}, OWNER_ACTOR);
+    expect(h.domain.tasks.get('AR', card.key).status).toBe('cancelled');
   });
 });

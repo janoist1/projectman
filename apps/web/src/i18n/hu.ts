@@ -4988,6 +4988,7 @@ export const hu = {
         'A tulajdonos értesítve: az emlékeztető ({name}) után is a kezdő lépésben maradt részek: {parts}.',
       theme_closed: 'Lezárta a témát.',
       assignment_previous: '{assignment} Előző felelős: {previous}.',
+      assignment_note: '{line} Indok: {note}',
       task_created_imported: 'Létrehozva (importálva)',
       task_created: 'Létrehozta a feladatot',
       task_updated: 'Módosította: {fields}',

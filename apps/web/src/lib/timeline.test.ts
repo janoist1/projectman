@@ -265,6 +265,16 @@ describe('parts left after a breakdown on the timeline (PM-480)', () => {
   });
 });
 
+describe('the reason of a reassignment on the timeline (PM-1040)', () => {
+  it('adds the note to the assignment line', () => {
+    const line = describeEvent(
+      { ...creation, type: 'task_assigned', data: { assignee: 'dev-1', note: 'dev-2 is busy' } },
+      context,
+    ).text;
+    expect(line).toContain('dev-2 is busy');
+  });
+});
+
 describe('open-step reminders on the timeline (PM-806)', () => {
   const row = (type: 'obligation_woken' | 'obligation_handed_over', data: Record<string, unknown>) =>
     describeEvent({ ...creation, actor: { kind: 'system', handle: null }, type, data }, context).text;

@@ -478,6 +478,12 @@ export class TeamToolsService implements TeamToolsHandler {
   ): Promise<{ signalId: string; state: 'dismissed' }> {
     return this.tools.operator.dismissSignal(ctx, args);
   }
+  async reassignTask(ctx: ToolContext, args: Parameters<OperatorToolsHandler['reassignTask']>[1]) {
+    return this.tools.operator.reassignTask(ctx, args);
+  }
+  async cancelTask(ctx: ToolContext, args: Parameters<OperatorToolsHandler['cancelTask']>[1]) {
+    return this.tools.operator.cancelTask(ctx, args);
+  }
   async openIntegratorTodo(
     ctx: ToolContext,
     args: Parameters<OperatorToolsHandler['openIntegratorTodo']>[1],

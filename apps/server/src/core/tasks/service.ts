@@ -32,6 +32,7 @@ import {
   boardColumnOf,
   dropStageOfColumn,
   evaluateMove,
+  isCoordinationActor,
   isHandleOnLeave,
   isOpenTask,
   isTheme,
@@ -120,8 +121,10 @@ interface TaskUpdate {
    * Refused while a session of the task is running: its worktree is in the old repository.
    */
   repo?: string | null;
-  /** Owner/admin only; null clears the assignee. Starting work is a separate call. */
+  /** Owner/admin or the selected PM; null clears the assignee. Starting work is a separate call. */
   assignee?: string | null;
+  /** Why the assignee changes, as the PM gives it (PM-1040): on the `task_assigned` event as `note`. */
+  assigneeReason?: string;
   /** The whole label set: turned into additions and removals. */
   labels?: string[];
   addLabels?: string[];
@@ -434,7 +437,7 @@ export class TaskService implements TaskSchedulingReader {
   ): Promise<Task & { handoffStart?: HandoffStart }> {
     const config =
       change.assignee !== undefined
-        ? await this.requireLifecycleAccess(projectKey, actor)
+        ? await this.requireLifecycleAccess(projectKey, actor, { coordinator: true })
         : await this.projects.config(projectKey);
     assertIntegratorAccess(config, 'write', actor);
     const effects: Effect[] = [];
@@ -776,7 +779,11 @@ export class TaskService implements TaskSchedulingReader {
           taskKey: task.key,
           actor,
           type: 'task_assigned',
-          data: { assignee: next.assignee, previous: task.assignee },
+          data: {
+            assignee: next.assignee,
+            previous: task.assignee,
+            ...(change.assigneeReason !== undefined ? { note: change.assigneeReason } : {}),
+          },
         });
         handoffStart =
           this.handoff?.({ task: next, previous: task.assignee, actor, reason: 'manual' }) ?? undefined;
@@ -899,7 +906,7 @@ export class TaskService implements TaskSchedulingReader {
 
   /** Closes the task and stops its sessions while preserving assignment, stage and files. */
   async cancel(projectKey: string, taskKey: string, req: CancelTaskRequest, actor: Actor): Promise<Task> {
-    await this.requireLifecycleAccess(projectKey, actor);
+    await this.requireLifecycleAccess(projectKey, actor, { coordinator: true });
     const effects: Effect[] = [];
     const next = this.ctx.unitOfWork(() => {
       const task = this.get(projectKey, taskKey);
@@ -1023,8 +1030,14 @@ export class TaskService implements TaskSchedulingReader {
     });
   }
 
-  private async requireLifecycleAccess(projectKey: string, actor: Actor): Promise<ProjectConfig> {
+  /** An admin; with `coordinator` also the selected PM acting directly (PM-1040: reassign and cancel). */
+  private async requireLifecycleAccess(
+    projectKey: string,
+    actor: Actor,
+    opts: { coordinator?: boolean } = {},
+  ): Promise<ProjectConfig> {
     const config = await this.projects.config(projectKey);
+    if (opts.coordinator && isCoordinationActor(config, actor)) return config;
     requireHuman(config, actor, 'admin');
     return config;
   }

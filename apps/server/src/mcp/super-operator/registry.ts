@@ -54,6 +54,8 @@ export const EXTERNAL_DENIED: Partial<Record<TeamToolName, string>> = {
   triage_loop: OPERATOR,
   start_task: OPERATOR,
   start_member: OPERATOR,
+  reassign_task: OPERATOR,
+  cancel_task: OPERATOR,
   submit_boundary_request: DECISION,
   get_boundary_request: DECISION,
   decide_boundary_request: DECISION,

@@ -103,7 +103,7 @@ describe('EmailInbound', () => {
       text: 'Ready.',
       taskKey: card.key,
     });
-    const replyTo = sent[0]!.replyTo;
+    const replyTo = sent[0]!.replyTo!;
     let counter = 0;
     const reply = (options: ReplyOptions = {}): InboundMail => {
       counter += 1;

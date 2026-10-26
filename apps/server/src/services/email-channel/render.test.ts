@@ -2,25 +2,30 @@ import { describe, expect, it } from 'vitest';
 import { renderEmail } from './render';
 
 describe('renderEmail', () => {
-  it('appends the footer to plain text and escapes the HTML body', () => {
+  it('escapes the HTML body and puts the notice under a signature separator', () => {
     const rendered = renderEmail({
       text: 'Summary <script>\n\nLink: https://example.test/a?b=c',
-      footer: 'Footer & "more"',
+      notice: 'Notice & "more"',
     });
     expect(rendered.text).toBe(
-      'Summary <script>\n\nLink: https://example.test/a?b=c\n\n-- \nFooter & "more"\n',
+      'Summary <script>\n\nLink: https://example.test/a?b=c\n\n-- \nNotice & "more"\n',
     );
     expect(rendered.html).toContain(
-      'Summary &lt;script&gt;</p><p style="margin:0 0 16px">Link: <a href="https://example.test/a?b=c">https://example.test/a?b=c</a></p>',
+      'Summary &lt;script&gt;</p><p>Link: <a href="https://example.test/a?b=c">https://example.test/a?b=c</a></p>',
     );
-    expect(rendered.html).toContain('max-width:600px');
-    expect(rendered.html).not.toContain('Footer & "more"');
+    expect(rendered.html).toContain('Notice &amp; &quot;more&quot;');
+    expect(rendered.html).not.toContain('Notice & "more"');
+  });
+
+  it('adds no separator or notice paragraph without a notice', () => {
+    const rendered = renderEmail({ text: 'One' });
+    expect(rendered.text).toBe('One\n');
+    expect(rendered.html).toBe('<!doctype html><html><body><p>One</p></body></html>');
   });
 
   it('links only https URLs and leaves quotes and trailing punctuation outside the link', () => {
     const rendered = renderEmail({
       text: 'See "https://example.test/a." or http://plain.test or javascript:alert(1)',
-      footer: 'Footer',
     });
     expect(rendered.html).toContain('&quot;<a href="https://example.test/a">https://example.test/a</a>.');
     expect(rendered.html).not.toContain('href="http://');
@@ -28,7 +33,7 @@ describe('renderEmail', () => {
   });
 
   it('breaks a line with <br> and a blank line into a paragraph', () => {
-    const rendered = renderEmail({ text: 'One\nTwo\r\n\r\nThree', footer: 'Footer' });
-    expect(rendered.html).toContain('One<br>Two</p><p style="margin:0 0 16px">Three</p>');
+    const rendered = renderEmail({ text: 'One\nTwo\r\n\r\nThree' });
+    expect(rendered.html).toContain('One<br>Two</p><p>Three</p>');
   });
 });

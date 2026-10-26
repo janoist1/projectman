@@ -192,10 +192,10 @@ export interface TemplateLocale {
     subject: string;
     text: (input: { code: string; validUntil: string }) => string;
   };
-  /** The footer of every outgoing channel e-mail (PM-941). */
+  /** Text of the outgoing channel e-mail (PM-941). */
   email: {
-    /** `address`: the member's own address, offered for a new mail (PM-989); absent: none. */
-    footer: (input: { member: string; project: string; address?: string }) => string;
+    /** The short notice under the first mail a member sends to a contact (PM-1017). */
+    firstNotice: (input: { member: string; project: string }) => string;
   };
   webPush: WebPushText;
   /** The fix round limit decision item the server makes (PM-714). */

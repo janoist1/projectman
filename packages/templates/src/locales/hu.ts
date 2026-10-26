@@ -432,8 +432,8 @@ export const hu: TemplateLocale = {
       `A belépési kódod: ${code}\n\nA kód egyszer használható, és eddig érvényes: ${validUntil}.\n\nHa nem te kérted, hagyd figyelmen kívül ezt a levelet.\n`,
   },
   email: {
-    footer: ({ member, project, address }) =>
-      `Ezt a levelet a ${project} projekt AI-tagja (${member}) írta, a projectmanből. Válaszolj nyugodtan, a válaszod hozzá kerül. ${address ? `Új levelet is írhatsz neki: ${address}. ` : ''}Ha nem kérsz több levelet, írd meg válaszban, és nem írunk többet.`,
+    firstNotice: ({ member, project }) =>
+      `${member} (AI-tag, ${project} projekt). Ha nem kérsz több levelet, írd meg válaszban.`,
   },
   fixLimitItem: {
     title: 'Javítási körök határa: {key}',

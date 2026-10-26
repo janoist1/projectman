@@ -418,8 +418,8 @@ export const en: TemplateLocale = {
       `Your login code: ${code}\n\nThe code works once and is valid until ${validUntil}.\n\nIf you did not ask for it, ignore this message.\n`,
   },
   email: {
-    footer: ({ member, project, address }) =>
-      `This message was written by the ${project} project's AI member (${member}) from projectman. Reply whenever you like; your reply reaches them. ${address ? `You can also write to them directly: ${address}. ` : ''}If you do not want more messages, say so in a reply and no more will be sent.`,
+    firstNotice: ({ member, project }) =>
+      `${member} (AI member, ${project} project). If you'd rather not get more e-mail, just reply and say so.`,
   },
   fixLimitItem: {
     title: 'Fix round limit: {key}',

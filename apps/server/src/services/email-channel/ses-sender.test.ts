@@ -3,10 +3,11 @@ import { EmailSendError, createSesEmailSender, encodedFrom } from './ses-sender'
 
 const options = {
   region: 'eu-central-1',
-  from: 'project@example.test',
   credentials: { accessKeyId: 'key', secretAccessKey: 'secret' },
   configurationSet: null,
 } as const;
+
+const FROM = 'project@example.test';
 
 const sesMocks = vi.hoisted(() => {
   const send = vi.fn(async (command: { input: Record<string, unknown> }) => ({
@@ -33,6 +34,7 @@ describe('createSesEmailSender', () => {
     const mailer = createSesEmailSender({ ...options, endpoint: 'https://ses.example.test' });
     const result = await mailer.send({
       to: 'person@example.test',
+      from: FROM,
       fromName: 'Dev "D"',
       replyTo: 'r-ar-token@example.test',
       subject: 'Summary',
@@ -41,8 +43,8 @@ describe('createSesEmailSender', () => {
     });
 
     expect(result).toEqual({ providerId: 'provider-id' });
-    expect(encodedFrom('Dev "D"', options.from)).toBe(
-      `=?UTF-8?B?${Buffer.from('Dev  D').toString('base64')}?= <${options.from}>`,
+    expect(encodedFrom('Dev "D"', FROM)).toBe(
+      `=?UTF-8?B?${Buffer.from('Dev  D').toString('base64')}?= <${FROM}>`,
     );
     expect(sesMocks.constructor).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -64,6 +66,7 @@ describe('createSesEmailSender', () => {
     await expect(
       mailer.send({
         to: 'not an address',
+        from: FROM,
         fromName: 'Dev',
         replyTo: 'r-ar-token@example.test',
         subject: 'Summary',
@@ -71,5 +74,37 @@ describe('createSesEmailSender', () => {
         html: '<p>Ready</p>',
       }),
     ).rejects.toMatchObject(new EmailSendError('not_configured'));
+  });
+
+  it('sends no ReplyToAddresses without a reply address', async () => {
+    sesMocks.send.mockClear();
+    const mailer = createSesEmailSender(options);
+    await mailer.send({
+      to: 'person@example.test',
+      from: FROM,
+      fromName: 'Dev',
+      subject: 'Summary',
+      text: 'Ready',
+      html: '<p>Ready</p>',
+    });
+    const command = sesMocks.send.mock.calls[0]![0] as unknown as { input: Record<string, unknown> };
+    expect(command.input).not.toHaveProperty('ReplyToAddresses');
+  });
+
+  it('turns an IAM sender refusal into fromRefused', async () => {
+    sesMocks.send.mockRejectedValueOnce(
+      Object.assign(new Error('denied'), { name: 'AccessDeniedException' }),
+    );
+    const mailer = createSesEmailSender(options);
+    await expect(
+      mailer.send({
+        to: 'person@example.test',
+        from: FROM,
+        fromName: 'Dev',
+        subject: 'Summary',
+        text: 'Ready',
+        html: '<p>Ready</p>',
+      }),
+    ).rejects.toMatchObject({ reason: 'unavailable', fromRefused: true });
   });
 });

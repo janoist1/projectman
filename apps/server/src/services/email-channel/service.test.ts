@@ -95,10 +95,83 @@ describe('EmailChannelService', () => {
       expect(outbound()[0]).toMatchObject({ status: 'sent' });
     });
 
-    it('shows the member its own address in the footer of the mail', async () => {
+    const fromAddressOf = (harness: DomainHarness) => {
+      const [row] = harness.repos.db
+        .prepare("SELECT from_address AS fromAddress FROM email_messages WHERE direction = 'outbound'")
+        .all() as { fromAddress: string }[];
+      return row?.fromAddress;
+    };
+
+    it('writes from the member address under its own name, and keeps the token reply address', async () => {
+      const { harness, emailChannel, sent } = await setup({ withoutApproval: true });
+      await emailChannel.send('AR', 'dev-1', mail);
+      expect(sent[0]).toMatchObject({
+        from: 'dev-1@reply.example.test',
+        fromName: expect.not.stringContaining('·'),
+        replyTo: expect.stringMatching(/^r-ar-/),
+      });
+      expect(fromAddressOf(harness)).toBe('dev-1@reply.example.test');
+    });
+
+    it('writes from the shared address when the mailbox is in conflict', async () => {
+      const { harness, emailChannel, sent } = await setup({
+        withoutApproval: true,
+        adjust(config) {
+          const member = config.team.members.find((candidate) => candidate.handle === 'dev-2');
+          if (member?.kind === 'ai') member.email = { enabled: true, mailbox: 'dev-1' };
+        },
+      });
+      await emailChannel.send('AR', 'dev-1', mail);
+      expect(sent[0]).toMatchObject({ from: env.from, fromName: expect.stringContaining('·') });
+      expect(fromAddressOf(harness)).toBe(env.from);
+    });
+
+    it('resends once from the shared address when the provider refuses the member address', async () => {
+      const sent: OutboundMail[] = [];
+      const sender: EmailSender = {
+        async send(input) {
+          sent.push(input);
+          if (input.from !== env.from) throw new EmailSendError('unavailable', true);
+          return { providerId: 'provider-1' };
+        },
+      };
+      const { harness, emailChannel, outbound } = await setup({ withoutApproval: true, sender });
+      expect(await emailChannel.send('AR', 'dev-1', mail)).toMatchObject({ status: 'sent' });
+      expect(sent.map((input) => input.from)).toEqual(['dev-1@reply.example.test', env.from]);
+      expect(sent[1]!.fromName).toContain('·');
+      expect(fromAddressOf(harness)).toBe(env.from);
+      expect(outbound()[0]).toMatchObject({ status: 'sent' });
+    });
+
+    it('does not resend after another failure', async () => {
+      const sent: OutboundMail[] = [];
+      const sender: EmailSender = {
+        async send(input) {
+          sent.push(input);
+          throw new EmailSendError('throttled');
+        },
+      };
+      const { emailChannel } = await setup({ withoutApproval: true, sender });
+      await expect(emailChannel.send('AR', 'dev-1', mail)).rejects.toMatchObject({
+        code: 'email_send_failed',
+      });
+      expect(sent).toHaveLength(1);
+    });
+
+    it('puts the notice on the first mail to a contact only', async () => {
       const { emailChannel, sent } = await setup({ withoutApproval: true });
       await emailChannel.send('AR', 'dev-1', mail);
-      expect(sent[0]!.text).toContain('dev-1@reply.example.test');
+      await emailChannel.send('AR', 'dev-1', mail);
+      await emailChannel.send('AR', 'dev-1', { ...mail, to: 'acme' });
+      expect(sent.map((input) => input.text.includes('\n-- \n'))).toEqual([true, false, true]);
+      expect(sent[0]!.html).toContain('color:');
+      expect(sent[1]!.html).not.toContain('color:');
+    });
+
+    it('sends plain HTML without a card or a background', async () => {
+      const { emailChannel, sent } = await setup({ withoutApproval: true });
+      await emailChannel.send('AR', 'dev-1', mail);
+      expect(sent[0]!.html).not.toMatch(/background|border-radius|font-family/);
     });
 
     it('lets the member write its own address in the text', async () => {

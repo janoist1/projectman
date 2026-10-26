@@ -419,7 +419,7 @@ function fixLimitSource(deps: SourceDeps): ObligationSource {
 /**
  * The offer to start a ready card (PM-804): the start round opens the row with `open` when it asks the
  * card mover to start the card, and says through `startOffers` whether the offer still stands. The row ends
- * with the card's move into development or an assignee (fulfilled), or when the card does not stand in the
+ * when the card's developer session exists (fulfilled), or when the card does not stand in the
  * queue any more or the round no longer offers it (cancelled).
  */
 function startSource(deps: SourceDeps): ObligationSource {
@@ -430,12 +430,17 @@ function startSource(deps: SourceDeps): ObligationSource {
       backStageId: config.pipeline.stages[0]?.id ?? 'the first stage',
     };
   };
+  const startAction = (row: Obligation, project: ProjectView, toStageId: string) =>
+    project.tasks.get(row.taskKey)?.assignee
+      ? `start ${row.taskKey} with start_task`
+      : `move ${row.taskKey} to ${toStageId} with update_task (stage_id ${toStageId})`;
   return {
     kind: 'start',
     derivesWhilePaused: true,
     derive(project) {
       const queue = pullSourceStage(project.config);
       if (!queue) return null;
+      const development = developmentStage(project.config);
       const cards = [...project.tasks.values()];
       const found: DerivedObligation[] = [];
       for (const row of project.live) {
@@ -445,8 +450,10 @@ function startSource(deps: SourceDeps): ObligationSource {
           !task ||
           !canAutomaticallyStartTask(task, cards) ||
           !isOpenTask(task) ||
-          task.assignee ||
-          task.stageId !== queue.id
+          (task.stageId !== queue.id && task.stageId !== development?.id) ||
+          (task.stageId === development?.id &&
+            !!task.assignee &&
+            deps.sessions.ofMember(row.projectKey, row.taskKey, task.assignee).length > 0)
         )
           continue;
         const state = deps.startOffers.stateOf(row.projectKey, row.taskKey);
@@ -475,7 +482,7 @@ function startSource(deps: SourceDeps): ObligationSource {
       const { toStageId, backStageId } = targets(project);
       return (
         `projectman reminder: ${row.taskKey} has waited ${ago(waited)} to be started by you. ` +
-        `Move it to ${toStageId} with update_task (stage_id ${toStageId}), ` +
+        `Please ${startAction(row, project, toStageId)}, ` +
         `or open an integrator todo to move it back to ${backStageId} if the owner holds it. ` +
         `If nothing happens in ${ago(minutes)}, the step goes to the integrator.`
       );
@@ -487,7 +494,7 @@ function startSource(deps: SourceDeps): ObligationSource {
         waited,
         `started ${row.taskKey}`,
         `${row.taskKey}, stage ${stageOf(project.config, project.tasks.get(row.taskKey)?.stageId ?? '')?.name ?? 'the queue'}`,
-        `move ${row.taskKey} to ${toStageId}, or, if the owner holds it, back to ${backStageId}`,
+        `${startAction(row, project, toStageId)}, or, if the owner holds it, move it back to ${backStageId}`,
       );
     },
   };

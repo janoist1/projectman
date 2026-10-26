@@ -4,7 +4,7 @@ import type { ProjectConfig } from '@projectman/shared';
 import { aiActor, SYSTEM_AUTHOR } from '../src/kernel';
 import { createDomainHarness, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
-import { flush } from './helpers/fakes';
+import { flush, planUsage } from './helpers/fakes';
 import { obligationReminders } from './helpers/deferred-starts';
 
 /**
@@ -264,6 +264,7 @@ describe('the start offer to the project manager', () => {
     await settle();
     expect(offers().filter((m) => m.taskKey === key)).toHaveLength(1);
     expect(startRows(key)).toMatchObject([{ responsible: 'pm', state: 'open' }]);
+    await sweep();
     await settle();
     expect(offers().filter((m) => m.taskKey === key)).toHaveLength(1);
     expect(offers().find((m) => m.taskKey === key)!.body).toContain('start_task');
@@ -295,6 +296,7 @@ describe('the start offer to the project manager', () => {
       expect(startText(key)[0]!.body).toContain('start_task');
       expect(startRows(key)).toMatchObject([{ responsible: 'pm', state: 'open' }]);
       const row = startRows(key)[0]!.id;
+      await sweep();
       await settle();
       expect(startText(key)).toHaveLength(1);
       await h.domain.taskStarts.start('AR', key, {
@@ -319,6 +321,37 @@ describe('the start offer to the project manager', () => {
       expect(startText(key)).toHaveLength(1);
       expect(startText(other)).toEqual([]);
     });
+  });
+
+  it('reports a blocked assigned part once across sweeps and offers it once admission clears (PM-1048)', async () => {
+    await harness();
+    h.runnerModule.planUsage.value = planUsage(99);
+    const collector = await idea('Collector');
+    const part = await idea('Assigned part', { parentKey: collector });
+    h.domain.tasks.assign('AR', part, 'dev-1', OWNER_ACTOR);
+    h.repos.tasks.update(task(part).id, { stageId: 'development' });
+    await settle();
+    const notices = () => offers().filter((m) => m.taskKey === collector);
+    expect(notices()).toMatchObject([{ kind: 'info' }]);
+    expect(notices()[0]!.body).toContain('plan_usage_paused');
+    expect(notices()[0]!.body).toContain(part);
+    for (let round = 0; round < 3; round++) {
+      minutes(1);
+      await sweep();
+      await settle();
+    }
+    expect(notices()).toHaveLength(1);
+    expect(startRows(part)).toEqual([]);
+
+    h.runnerModule.planUsage.value = planUsage(0);
+    minutes(1);
+    await settle();
+    expect(notices()).toMatchObject([{ kind: 'info' }, { kind: 'action' }]);
+    const row = startRows(part)[0]!.id;
+    await sweep();
+    await settle();
+    expect(notices()).toHaveLength(2);
+    expect(startRows(part)[0]!.id).toBe(row);
   });
 
   describe('urgent and focus cards', () => {

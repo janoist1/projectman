@@ -31,6 +31,7 @@ import {
 } from '@projectman/shared';
 import type {
   Actor,
+  AgentProvider,
   AiMemberConfig,
   GateEvaluation,
   MemberConfig,
@@ -41,7 +42,7 @@ import type {
   Task,
 } from '@projectman/shared';
 import { ownerHandles } from '@projectman/shared';
-import { conflict, forbidden, invalid, notFound, themeRefused } from '../../kernel';
+import { conflict, DomainError, forbidden, invalid, notFound, themeRefused } from '../../kernel';
 import type { MemberService } from '../../core/members';
 import type { Author, ProjectService } from '../../core/projects';
 import type { SessionOrchestrator } from '../sessions';
@@ -151,6 +152,7 @@ export interface SeniorWait {
 
 /** What a person's Start needs of the fix round limit (PM-262): to end the hold, then let the waiting messages through. */
 interface FixLimitStart {
+  heldFor(task: Task, config: ProjectConfig): boolean;
   humanStart(task: Task, actor: Actor): boolean;
   releaseMessages(task: Task): void;
 }
@@ -289,28 +291,59 @@ export class TaskStarts implements WorkEntryCheck {
       if (waiting) return { ...skipped, task: this.tasks.get(projectKey, taskKey), awaiting: waiting };
     }
 
-    const chosen = this.chooseMember(config, task, workStage, opts.assignee, opts.excludeMembers ?? []);
-    if (chosen.kind === 'senior_busy')
-      return this.waitForSenior(config, task, workStage, opts, needsMove, chosen.seniors);
-    let member: MemberConfig | null = chosen.member;
-    assertSuperMutation(
-      config,
-      { kind: 'runtime_start', providers: member?.kind === 'ai' ? [member.provider ?? 'claude'] : [] },
-      opts.actor,
-    );
-    opts.onChosen?.(member);
     const workItem = { type: 'task', taskKey } as const;
-    const alreadyRunning =
-      member?.kind === 'ai' && this.sessions.findRunning(projectKey, member.handle, workItem);
-    // A temp worker (no member yet) is hired with the default provider.
-    if ((member === null || member.kind === 'ai') && !alreadyRunning)
-      await this.admission.check({
+    // The providers admission refused as on hold while an automatic choice was being checked (PM-1051): the
+    // choice is made again without their members, at most once per provider.
+    const heldProviders = new Set<AgentProvider>();
+    let chosen: ChosenMember;
+    let member: MemberConfig | null;
+    for (;;) {
+      const pick = this.chooseMember(
         config,
-        member: member ?? undefined,
-        workItem,
-        // The current assignee keeps its task whatever else it carries.
-        capacity: opts.assignee !== undefined || member?.handle !== task.assignee,
-      });
+        task,
+        workStage,
+        opts.assignee,
+        opts.excludeMembers ?? [],
+        heldProviders,
+      );
+      if (pick.kind === 'senior_busy')
+        return this.waitForSenior(config, task, workStage, opts, needsMove, pick.seniors);
+      chosen = pick;
+      member = pick.member;
+      assertSuperMutation(
+        config,
+        { kind: 'runtime_start', providers: member?.kind === 'ai' ? [member.provider ?? 'claude'] : [] },
+        opts.actor,
+      );
+      opts.onChosen?.(member);
+      const alreadyRunning =
+        member?.kind === 'ai' && this.sessions.findRunning(projectKey, member.handle, workItem);
+      // A temp worker (no member yet) is hired with the default provider.
+      if (!((member === null || member.kind === 'ai') && !alreadyRunning)) break;
+      try {
+        await this.admission.check({
+          config,
+          member: member ?? undefined,
+          workItem,
+          // The current assignee keeps its task whatever else it carries.
+          capacity: opts.assignee !== undefined || member?.handle !== task.assignee,
+        });
+        break;
+      } catch (err) {
+        const provider = member?.kind === 'ai' ? (member.provider ?? DEFAULT_AGENT_PROVIDER) : undefined;
+        if (
+          opts.assignee !== undefined ||
+          !provider ||
+          heldProviders.has(provider) ||
+          !(
+            err instanceof DomainError &&
+            (err.code === 'provider_rate_limited' || err.code === 'plan_usage_paused')
+          )
+        )
+          throw err;
+        heldProviders.add(provider);
+      }
+    }
 
     // Again: admission and a hire waited since the first check, and labels may have changed.
     if (needsMove) await this.passEntryGates(config, task, workStage, opts);
@@ -319,7 +352,9 @@ export class TaskStarts implements WorkEntryCheck {
       const current = this.tasks.get(projectKey, taskKey);
       return (
         (!opts.automatic || this.canStartAutomatically(current)) &&
-        (!opts.stillWanted || opts.stillWanted(current))
+        (!opts.stillWanted || opts.stillWanted(current)) &&
+        // The replaced assignee stays if work or a handoff appeared on the card meanwhile (PM-1051).
+        (!chosen.replaces || this.stillReplaceable(config, current, chosen.replaces))
       );
     };
     let hired: AiMemberConfig | null = null;
@@ -590,7 +625,10 @@ export class TaskStarts implements WorkEntryCheck {
    * points, or waits for one (`senior_busy`); else a human owner; null when nobody is free (a temp
    * worker is hired, if `tempAllowed`). An explicit or current assignee on leave is refused by
    * admission (`member_on_leave`) rather than replaced. `noneReaches`: a scored card went by the
-   * "any" rule because no developer's limit of the work stage reaches its points.
+   * "any" rule because no developer's limit of the work stage reaches its points. The automatic choice
+   * skips members whose provider is on hold (a quota cooldown or a plan usage pause, PM-1051), and so
+   * does `heldProviders`, the providers admission has just refused. A current assignee on such a
+   * provider is replaced (`replaces`) when no work has begun on the card; otherwise it keeps the card.
    */
   private chooseMember(
     config: ProjectConfig,
@@ -598,9 +636,8 @@ export class TaskStarts implements WorkEntryCheck {
     stage: Stage,
     assignee: string | undefined,
     exclude: string[],
-  ):
-    | { kind: 'member'; member: MemberConfig | null; tempAllowed: boolean; noneReaches: boolean }
-    | { kind: 'senior_busy'; seniors: string[] } {
+    heldProviders: ReadonlySet<AgentProvider> = new Set(),
+  ): ChosenMember | { kind: 'senior_busy'; seniors: string[] } {
     const projectKey = config.project.key;
     const eligible = stageOwners(config, stage).filter(
       (handle) => assignee === handle || !exclude.includes(handle),
@@ -614,9 +651,16 @@ export class TaskStarts implements WorkEntryCheck {
         throw invalid('not_stage_owner', 'assignee must own the work stage');
       return given(member);
     }
+    // The current assignee keeps the card, unless its provider is on hold and the work has not begun (PM-1051).
+    let replaces: string | undefined;
     if (task.assignee) {
       const current = memberOf(config, task.assignee);
-      if (current && eligible.includes(current.handle)) return given(current);
+      if (current && eligible.includes(current.handle)) {
+        const held = current.kind === 'ai' && heldProviders.has(current.provider ?? DEFAULT_AGENT_PROVIDER);
+        if (!this.admission.canReplaceAssignee(config, task, this.replacement(config, task, held)))
+          return given(current);
+        replaces = current.handle;
+      }
     }
     const free = config.team.members
       .map((m, index) => ({ m, index }))
@@ -625,7 +669,8 @@ export class TaskStarts implements WorkEntryCheck {
           c.m.kind === 'ai' &&
           eligible.includes(c.m.handle) &&
           !isOnLeave(c.m) &&
-          this.admission.providerAvailable(c.m.provider ?? DEFAULT_AGENT_PROVIDER),
+          this.admission.providerAvailable(config, c.m.provider ?? DEFAULT_AGENT_PROVIDER) &&
+          !heldProviders.has(c.m.provider ?? DEFAULT_AGENT_PROVIDER),
       )
       .map((c) => ({ ...c, load: this.admission.memberLoad(config, c.m.handle) }))
       .filter(
@@ -654,7 +699,19 @@ export class TaskStarts implements WorkEntryCheck {
       reaching,
       free,
     });
-    if (pick.kind === 'senior_busy') return pick;
+    // A replaced assignee stays with the card when nobody fitting is free: nothing is assigned, waited for or
+    // written, and the refusal is the one a card without an assignee gets (PM-1051).
+    if (pick.kind === 'senior_busy') {
+      if (replaces)
+        throw conflict(
+          'senior_busy',
+          `task ${task.key} waits for a developer whose limit reaches its points`,
+          {
+            seniors: pick.seniors,
+          },
+        );
+      return pick;
+    }
     const noneReaches = points !== null && reaching.length === 0;
     if (pick.kind === 'member')
       return {
@@ -662,12 +719,36 @@ export class TaskStarts implements WorkEntryCheck {
         member: memberOf(config, pick.handle) ?? null,
         tempAllowed: true,
         noneReaches,
+        replaces,
       };
     return {
       kind: 'member',
-      member: humanStageOwner(config, eligible),
+      member: replaces ? null : humanStageOwner(config, eligible),
       tempAllowed: pick.tempAllowed,
       noneReaches,
+      replaces,
     };
   }
+
+  /** What `Admission.canReplaceAssignee` needs besides the card: the fix round limit's hold, and a provider just refused. */
+  private replacement(config: ProjectConfig, task: Task, providerHeld: boolean) {
+    return { fixLimitHeld: () => !!this.fixLimit?.heldFor(task, config), providerHeld };
+  }
+
+  /** The card still has the assignee that was to be replaced, and still nothing of its work has begun. */
+  private stillReplaceable(config: ProjectConfig, current: Task, previous: string): boolean {
+    return (
+      current.assignee === previous &&
+      this.admission.canReplaceAssignee(config, current, this.replacement(config, current, true))
+    );
+  }
 }
+
+/** The member a start chose: `replaces` is the unstarted assignee whose provider is on hold that it takes the card from (PM-1051). */
+type ChosenMember = {
+  kind: 'member';
+  member: MemberConfig | null;
+  tempAllowed: boolean;
+  noneReaches: boolean;
+  replaces?: string | undefined;
+};

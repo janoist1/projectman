@@ -65,7 +65,10 @@ interface StartRoundDeps {
   tasks: Pick<TaskService, 'readSchedulingTasks'>;
   focus: Pick<ProjectFocusService, 'covered'>;
   seniorWaits: Pick<SeniorWaits, 'decisionFor'>;
-  admission: Pick<Admission, 'freeDevelopers' | 'startFrame' | 'engineOffline' | 'check'>;
+  admission: Pick<
+    Admission,
+    'freeDevelopers' | 'startFrame' | 'engineOffline' | 'check' | 'canReplaceAssignee'
+  >;
   messaging: Pick<Messaging, 'send'>;
   waits: Pick<TaskWaits, 'of'>;
 }
@@ -306,6 +309,19 @@ export class StartRound implements StartRounding {
         .map((card) => card.key),
     );
     const places = focus.covered(key).places;
+    // An assigned card whose assignee's provider is on hold and who has not begun it goes to another member (PM-1051).
+    const reassignableTaskKeys = new Set(
+      cards
+        .filter(
+          (card) =>
+            card.assignee &&
+            owners.includes(card.assignee) &&
+            admission.canReplaceAssignee(config, card, {
+              fixLimitHeld: () => !!this.fixLimit?.heldFor(card, config),
+            }),
+        )
+        .map((card) => card.key),
+    );
     const plan = planStarts({
       cards,
       places,
@@ -313,6 +329,7 @@ export class StartRound implements StartRounding {
       developers,
       anyDecided,
       offered: new Set(live.map((row) => row.taskKey)),
+      reassignableTaskKeys,
     });
     for (const [taskKey, entry] of plan) {
       if (entry.kind === 'hold') {

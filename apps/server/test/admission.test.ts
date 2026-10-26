@@ -144,6 +144,7 @@ function admissionFor(world: World = {}) {
         usageRequests.push(provider);
         return world.usage?.[provider] ?? null;
       },
+      peek: (provider: AgentProvider = 'claude') => world.usage?.[provider] ?? null,
     },
     tasks: { publish: (t: Task) => published.push(t.key) } as unknown as TaskService,
     projects: {

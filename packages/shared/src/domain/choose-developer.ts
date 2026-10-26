@@ -72,6 +72,21 @@ export function fitsSpecialty(
   );
 }
 
+/**
+ * Whether the AI assignee of a card that is not under way may be replaced by the automatic choice
+ * (PM-1051): its provider is on hold (quota cooldown or plan usage pause) and nothing of the work has
+ * begun. Work that began (any session of the assignee on the card, a source trace), an open handoff and
+ * the fix round limit's hold keep the card with its assignee.
+ */
+export function canReplaceUnstartedAssignee(input: {
+  providerBlocked: boolean;
+  hasWorkSession: boolean;
+  handoffOpen: boolean;
+  fixLimitHeld: boolean;
+}): boolean {
+  return input.providerBlocked && !input.hasWorkSession && !input.handoffOpen && !input.fixLimitHeld;
+}
+
 /** The matching developers whose limit reaches the points; none for an unscored card. */
 export function reachingDevelopers(
   developers: readonly StageDeveloper[],

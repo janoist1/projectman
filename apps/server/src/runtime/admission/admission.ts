@@ -1,9 +1,11 @@
 import {
   aiLimitReached,
+  canReplaceUnstartedAssignee,
   compareStartClass,
   DEFAULT_AGENT_PROVIDER,
   OUTAGE_REFUSALS,
   pausesOnPlanUsage,
+  planUsagePause,
   isHandleOnLeave,
   isOpenTask,
   isOperator,
@@ -29,6 +31,7 @@ import type {
   EngineId,
   FocusPlace,
   FreeDeveloper,
+  PlanUsage,
   ProjectConfig,
   Task,
   TaskStartWaiting,
@@ -39,7 +42,6 @@ import { isoNow } from '../../core/base';
 import type { DomainContext } from '../../core/base';
 import type { DiskGuard } from '../watchers';
 import { conflict, DomainError } from '../../kernel';
-import { highestUsagePercent } from '../usage';
 import type { PlanUsageCache } from '../usage';
 import type { ProjectService } from '../../core/projects';
 import type { EnsureSessionResult, SessionOrchestrator, SessionStartCause } from '../sessions';
@@ -106,7 +108,7 @@ export interface StartRounding {
 export class Admission {
   private readonly ctx: DomainContext;
   private readonly sessions: SessionOrchestrator;
-  private readonly planUsage: Pick<PlanUsageCache, 'get'>;
+  private readonly planUsage: Pick<PlanUsageCache, 'get' | 'peek'>;
   private readonly tasks: TaskService;
   private readonly projects: Pick<ProjectService, 'config'>;
   private readonly deferred: DeferredStarts;
@@ -128,7 +130,7 @@ export class Admission {
   constructor(deps: {
     ctx: DomainContext;
     sessions: SessionOrchestrator;
-    planUsage: Pick<PlanUsageCache, 'get'>;
+    planUsage: Pick<PlanUsageCache, 'get' | 'peek'>;
     tasks: TaskService;
     projects: Pick<ProjectService, 'config'>;
     deferred: DeferredStarts;
@@ -267,15 +269,8 @@ export class Admission {
     // A provider that is not logged in cannot run the session (PM-324): the start waits for the login.
     if (member) await this.sessions.assertProviderReady(provider, member.handle, engineId);
     if (pausesOnPlanUsage(provider)) {
-      const percent = highestUsagePercent(await this.planUsage.get(provider));
-      const threshold = config.team.limits.pauseAbovePlanUsagePercent;
-      if (percent !== null && percent > threshold) {
-        throw conflict(
-          'plan_usage_paused',
-          `${provider} plan usage is ${percent}% (pause above ${threshold}%)`,
-          { percent, threshold, provider },
-        );
-      }
+      const usage = await this.planUsage.get(provider);
+      this.assertUsageBelowPause(config, provider, usage);
     }
     // Last, because it measures the disk (PM-243).
     await this.disk?.assertRoom(config, engineId);
@@ -316,7 +311,7 @@ export class Admission {
     config.team.members.forEach((member, index) => {
       if (member.kind !== 'ai' || member.temp || !owners.has(member.handle)) return;
       if (isHandleOnLeave(config, member.handle) || waitedFor.has(member.handle)) return;
-      if (!this.providerAvailable(member.provider ?? DEFAULT_AGENT_PROVIDER)) return;
+      if (!this.providerAvailable(config, member.provider ?? DEFAULT_AGENT_PROVIDER)) return;
       const load = this.memberLoad(config, member.handle);
       if (load >= member.capacity) return;
       free.push({
@@ -331,15 +326,76 @@ export class Admission {
     return free;
   }
 
-  /** Automatic choices skip providers on hold; explicit choices still receive the refusal. */
-  providerAvailable(provider: AgentProvider): boolean {
+  /**
+   * Automatic choices skip providers on hold (a quota cooldown or a plan usage pause, PM-1051); explicit
+   * choices still receive the refusal. It reads the last known usage and starts nothing.
+   */
+  providerAvailable(config: ProjectConfig, provider: AgentProvider): boolean {
     try {
-      this.sessions.assertProviderCooldown(provider);
+      this.assertProviderAvailable(config, provider);
       return true;
     } catch (err) {
-      if (err instanceof DomainError && err.code === 'provider_rate_limited') return false;
+      if (
+        err instanceof DomainError &&
+        (err.code === 'provider_rate_limited' || err.code === 'plan_usage_paused')
+      )
+        return false;
       throw err;
     }
+  }
+
+  /**
+   * Whether the AI assignee of an unstarted card may be replaced (`canReplaceUnstartedAssignee`, PM-1051):
+   * its provider is on hold (or `providerHeld`: admission just refused it) and the facts read now show no work
+   * begun: no session of the assignee on the card, no source trace of any session, no open handoff.
+   * `fixLimitHeld` is the fix round limit's hold, which the caller reads.
+   */
+  canReplaceAssignee(
+    config: ProjectConfig,
+    task: Task,
+    held: { fixLimitHeld: () => boolean; providerHeld?: boolean },
+  ): boolean {
+    const assignee = task.assignee ? memberOf(config, task.assignee) : undefined;
+    if (assignee?.kind !== 'ai') return false;
+    const providerBlocked =
+      held.providerHeld === true ||
+      !this.providerAvailable(config, assignee.provider ?? DEFAULT_AGENT_PROVIDER);
+    // The hold of the fix round limit is read last, and only for a card that could be replaced: reading it may open one.
+    if (!providerBlocked) return false;
+    const { sessions, taskHandoffs } = this.ctx.repos;
+    const projectKey = config.project.key;
+    return canReplaceUnstartedAssignee({
+      providerBlocked,
+      hasWorkSession:
+        !!sessions.findByWorkItem(projectKey, assignee.handle, { type: 'task', taskKey: task.key }) ||
+        !!sessions.latestSourceOfTask(projectKey, task.key),
+      handoffOpen: !!taskHandoffs.open(task.key),
+      fixLimitHeld: held.fixLimitHeld(),
+    });
+  }
+
+  /**
+   * The assignment guard of the task service (`ProviderAssignmentCheck`, PM-1051): a card is not given to
+   * a member whose provider is on hold now, because that member could not start it. Synchronous, from the
+   * quota hold and the last known usage.
+   */
+  assertProviderAvailable(config: ProjectConfig, provider: AgentProvider): void {
+    this.sessions.assertProviderCooldown(provider);
+    this.assertUsageBelowPause(config, provider, this.planUsage.peek(provider));
+  }
+
+  private assertUsageBelowPause(
+    config: ProjectConfig,
+    provider: AgentProvider,
+    usage: PlanUsage | null,
+  ): void {
+    const pause = planUsagePause(provider, usage, config.team.limits.pauseAbovePlanUsagePercent);
+    if (pause)
+      throw conflict(
+        'plan_usage_paused',
+        `${provider} plan usage is ${pause.percent}% (pause above ${pause.threshold}%)`,
+        { percent: pause.percent, threshold: pause.threshold, provider },
+      );
   }
 
   /**

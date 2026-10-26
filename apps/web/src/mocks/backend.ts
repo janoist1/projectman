@@ -68,7 +68,7 @@ import {
   CustomRoleRequest,
   DEFAULT_AGENT_PROVIDER,
   hasPlanUsage,
-  pausesOnPlanUsage,
+  planUsagePause,
   HireMemberRequest,
   INLINE_MEDIA_TYPES,
   InvitationView,
@@ -5300,7 +5300,10 @@ export class MockBackend {
   private pickAutomatic(task: Task, workStage: Stage, developers: readonly MemberView[]) {
     const eligible = new Set(developers.map((member) => member.handle));
     const free = this.config.team.members.flatMap((member, index) =>
-      member.kind === 'ai' && eligible.has(member.handle) && this.memberLoad(member.handle) < member.capacity
+      member.kind === 'ai' &&
+      eligible.has(member.handle) &&
+      this.memberLoad(member.handle) < member.capacity &&
+      !this.providerPaused(member)
         ? [
             {
               handle: member.handle,
@@ -5843,12 +5846,18 @@ export class MockBackend {
       if (!this.nanogptKeyStatus.set) return 'nanogpt_key_missing';
     }
     if (!this.providerLoggedIn[provider]) return 'provider_not_logged_in';
-    if (
-      pausesOnPlanUsage(provider) &&
-      Math.max(plan?.fiveHourPercent ?? 0, plan?.weeklyPercent ?? 0) > limits.pauseAbovePlanUsagePercent
-    )
-      return 'plan_usage_paused';
+    if (planUsagePause(provider, plan, limits.pauseAbovePlanUsagePercent)) return 'plan_usage_paused';
     return null;
+  }
+
+  /** Whether the member's provider is over the plan usage limit: the automatic choice leaves them out (PM-1051). */
+  private providerPaused(member: AiMemberConfig): boolean {
+    const provider = member.provider ?? DEFAULT_AGENT_PROVIDER;
+    return !!planUsagePause(
+      provider,
+      this.planUsageFor(provider),
+      this.config.team.limits.pauseAbovePlanUsagePercent,
+    );
   }
 
   /**

@@ -3904,7 +3904,28 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   off only the npm registry.
   Codex has its own permission mapping in `runner/providers/codex/args.ts`: local sessions
   receive an inline `projectman` profile extending `:read-only`, with `sensitivePaths` and
-  the adapter's Codex home denied (PM-356). Writing sessions retain workspace protections
+  the adapter's Codex home denied (PM-356).
+  PM-360 adds the shared `SessionReadBoundary` schema and optional
+  `AgentSandbox.portable.readBoundary` to the strict `session.start` contract. Under the owner's
+  2026-10-26 scope decision, developer runtime paths do not automatically populate it:
+  absent means the existing broad non-sensitive home reads and session/tmp behavior.
+  Claude's existing `worktreeSandbox` read/write rules remain unchanged. Explicit boundaries
+  contain reopenable roots and typed file/directory exceptions, separate from unconditional
+  policy/adapter denials. Local adapters resolve lexical/physical paths and reject invalid
+  explicit inputs using the shared `runner/tool-decision.ts` matcher (exported through
+  `runner/index.ts` for the engine): glob component boundaries, case handling and macOS
+  `/System/Volumes/Data` firmlink aliases have one implementation. The engine
+  (`engine-link/engine-limit.ts`) adds its own homes/temp roots and checks
+  exceptions and required private directories only when a boundary is supplied. Existing
+  engine-root, permission-mode, environment and sensitive-path checks always apply.
+  **Remote engine:** `paths()` supplies the executing engine's roots; only the optional,
+  validated portable contract crosses the boundary, never authentication files. This uses
+  the same policy locally and remotely and introduces no new mode or switch. A cloud hub
+  does not isolate an engine's disk; OS-user/VM/container and tenant isolation are separate
+  requirements. Explicit boundaries need their own OS/provider native probe when enabled
+  (`docs/SANDBOX-PROBE.md`); prior PM-356 evidence does not certify them. Approved host commands
+  and the parent CLI remain outside this boundary. PM-425 owns the reader's policy and rollout.
+  Writing sessions retain workspace protections
   and the roots of `AgentSandbox.portable` (the member's npm cache and development data,
   the queue's parent, the session folder and
   the own tmp, PM-339). With an own tmp, no shared `/tmp` or CLI `$TMPDIR` write is inherited.

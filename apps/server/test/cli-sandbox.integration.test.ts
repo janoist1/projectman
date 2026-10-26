@@ -34,7 +34,7 @@ interface Started {
 }
 
 it(
-  'hands the reader and the developer sandbox to Claude Code, and leaves Codex as it was',
+  'hands native reader and developer profiles to the CLIs without an automatic Codex home boundary',
   { timeout: 90_000 },
   async () => {
     h = await createAppHarness({ runner: 'fake-cli' });
@@ -198,5 +198,27 @@ it(
     expect(option(codexArgs, '--ask-for-approval')).toBe('on-request');
     expect(JSON.stringify(codexArgs)).not.toContain('sandbox_workspace_write');
     expect(JSON.stringify(codexArgs)).not.toContain('denyWrite');
+
+    await domain.projects.update('AR', author, (config) => {
+      const dev = config.team.members.find((m) => m.handle === 'dev-2');
+      if (dev?.kind === 'ai') dev.provider = 'codex';
+      return 'Run a developer on Codex';
+    });
+    for (const resume of [false, true]) {
+      const argv = await start('dev-2', 'codex');
+      const running = await waitForSession(domain, { member: 'dev-2' });
+      const profile = argv.find((arg) => arg.startsWith('permissions.projectman='))!;
+      expect(profile).not.toContain(`"${userHome}"="deny"`);
+      expect(profile).not.toContain(`"${home}"="deny"`);
+      expect(profile).toContain(':workspace_roots');
+      expect(profile).toContain(`"${join(userHome, '.ssh')}"="deny"`);
+      expect(profile).toContain('":tmpdir"="write"');
+      expect(profile).toContain('":slash_tmp"="write"');
+      expect(argv.includes('resume')).toBe(resume);
+      await domain.sessions.stop('AR', running.id);
+      await waitFor(() => !app.projectman.runnerModule.runner.isRunning(running.id), {
+        what: 'the Codex developer to stop',
+      });
+    }
   },
 );

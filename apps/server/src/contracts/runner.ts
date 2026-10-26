@@ -9,6 +9,7 @@ import type {
   PlanUsage,
   ProviderProblem,
   SessionState,
+  SessionReadBoundary,
   TokenUsage,
 } from '@projectman/shared';
 import type { SessionPolicy } from './session-policy';
@@ -96,6 +97,7 @@ export interface AgentSandbox {
      * ones (`/tmp`, the CLI's own TMPDIR) are no longer writable. Absent: the CLI's default.
      */
     tmpDir?: string;
+    readBoundary?: SessionReadBoundary;
   };
 }
 

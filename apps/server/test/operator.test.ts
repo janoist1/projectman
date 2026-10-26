@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { isOperator, operatorOf } from '@projectman/shared';
 import type { AiMemberConfig, HumanMemberConfig, ProjectConfig } from '@projectman/shared';
 import { aiActor, SYSTEM_ACTOR, SYSTEM_AUTHOR } from '../src/kernel';
@@ -304,7 +304,9 @@ describe('the Operator works only on the owner’s request (PM-447)', () => {
   it('starts it for the owner’s own message', async () => {
     h = await createDomainHarness();
     expect(await noWake('owner')).toEqual([{ handle: 'operator', delivery: 'wake' }]);
-    expect(h.runner.started.length).toBeGreaterThan(0);
+    await vi.waitFor(() =>
+      expect(h.runner.started).toContainEqual(expect.objectContaining({ member: 'operator' })),
+    );
   });
 
   it('does not start it for an information message from another AI member', async () => {

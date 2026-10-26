@@ -164,7 +164,7 @@ Any card adding a merge check that can run quickly in the developer's worktree m
 the developer hand-over checklist in the same change.
 When a merge fails a check the developer could have run locally, the merger names that
 command in the send-back note; if it was missing from the checklist, propose adding it
-and send the lesson to the Operator for `docs/LESSONS.md`.
+and send the lesson to the project manager for `docs/LESSONS.md`.
 Shared code or configuration changes require the whole suite; workspace checks do not queue
 (decision 40, PM-380, PM-386). If a heavy command says its queue cannot be used
 (exit status 78), or the sandbox refuses a test (a local port, a pseudo-terminal), it did not

@@ -1,6 +1,6 @@
 import { compareBoardOrder } from './board-order';
-import { developerLevelOf, pickDeveloper } from './developer-level';
-import type { DeveloperCandidate } from './developer-level';
+import { chooseDeveloper, complexityOf, reachingDevelopers } from './choose-developer';
+import type { FreeDeveloper, StageDeveloper } from './choose-developer';
 import { compareStartClass, startClass } from './project-focus';
 import type { FocusPlace } from './project-focus';
 import type { Task } from './task';
@@ -31,12 +31,13 @@ export function compareStartOrder(a: Task, b: Task, places: ReadonlyMap<string, 
 export function planStarts(input: {
   cards: readonly Task[];
   places: ReadonlyMap<string, FocusPlace>;
-  free: readonly DeveloperCandidate[];
-  seniors: readonly string[];
+  free: readonly FreeDeveloper[];
+  /** All the work stage's developers, free or not (see `stageDevelopers`). */
+  developers: readonly StageDeveloper[];
   anyDecided: ReadonlySet<string>;
   offered?: ReadonlySet<string>;
 }): Map<string, StartPlanEntry> {
-  const { cards, places, seniors, anyDecided, offered } = input;
+  const { cards, places, developers, anyDecided, offered } = input;
   let free = [...input.free];
   const plan = new Map<string, StartPlanEntry>();
   // The assigned cards reserve their own developer first, so no other card takes the member they wait for.
@@ -57,13 +58,10 @@ export function planStarts(input: {
       }
       continue;
     }
-    const choose = (candidates: readonly DeveloperCandidate[]) =>
-      pickDeveloper({
-        level: developerLevelOf(card),
-        anyDecided: anyDecided.has(card.key),
-        seniors: [...seniors],
-        free: [...candidates],
-      });
+    const points = complexityOf(card);
+    const reaching = reachingDevelopers(developers, points);
+    const choose = (candidates: readonly FreeDeveloper[]) =>
+      chooseDeveloper({ points, anyDecided: anyDecided.has(card.key), reaching, free: [...candidates] });
     const pick = choose(free);
     if (pick.kind === 'member') {
       plan.set(card.key, {

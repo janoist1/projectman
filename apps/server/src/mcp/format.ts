@@ -1,10 +1,4 @@
-import {
-  complexityText,
-  developerLevelText,
-  isCardLink,
-  isTheme,
-  QUESTION_SCREENING_MINUTES,
-} from '@projectman/shared';
+import { complexityText, isCardLink, isTheme, QUESTION_SCREENING_MINUTES } from '@projectman/shared';
 import type {
   Attachment,
   MemberView,
@@ -101,7 +95,7 @@ const waitingExplanations: Record<NonNullable<TaskStateReport['startWaiting']>['
   nanogpt_setup_incomplete: 'NanoGPT setup is incomplete.',
   codex_setup_incomplete: 'Codex setup is incomplete.',
   workspace_codex_config: 'Workspace Codex configuration prevents the start.',
-  senior_busy: 'No Senior is currently available.',
+  senior_busy: "No developer whose complexity limit reaches the card's points is currently available.",
   handoff_open: 'The assignee handoff has not finished.',
   engine_offline: 'The execution engine is offline.',
 };
@@ -151,7 +145,7 @@ export function formatProjectState(
       );
     const holds = {
       fix_limit: 'The fix round limit requires a decision.',
-      senior_wait: 'The card waits for a Senior.',
+      senior_wait: 'The card waits for a developer whose complexity limit reaches its points.',
       loop: 'An open conversation loop is being watched.',
       paused: 'Work is paused.',
     };
@@ -398,7 +392,6 @@ export function formatTaskDetail(
     ...(!theme ? [`Repo: ${repo} · Priority: ${task.priority ?? 'none'}`] : []),
     ...(detail.wait ? [`Waiting: ${describeTaskWait(detail.wait)}`] : []),
     ...(detail.focus ? [`Focus: ${focusPlaceText(detail.focus)}`] : []),
-    ...(task.developerLevel ? [`Recommended developer: ${developerLevelText(task.developerLevel)}`] : []),
     ...(task.complexity ? [`Complexity: ${complexityText(task.complexity)}`] : []),
     // Links to other cards are the relations below, from both cards' sides.
     `Links: ${links.length > 0 ? links.map((l) => describeLink(l)).join('; ') : 'none'}`,
@@ -656,8 +649,6 @@ export function formatTaskUpdate(
     themeKey?: string | null | undefined;
     /** The priority the call set (null: cleared); undefined when it did not touch it (PM-433). */
     priority?: string | null | undefined;
-    /** The call set the recommended developer (PM-347); the line shows what the card has now. */
-    developerLevel?: boolean;
     complexity?: boolean;
   },
 ): string {
@@ -687,12 +678,9 @@ export function formatTaskUpdate(
           `The move to ${task.handOn.toStageId} goes to ${change.moverName ?? task.handOn.mover} (${task.handOn.mover}), who moves cards on in this project; the card waits for them. Your work on this stage is done.`,
         ]
       : [];
-  if (change.developerLevel) done.push('recommended developer set');
   if (change.complexity) done.push(task.complexity ? 'complexity set' : 'complexity removed');
-  const level = change.developerLevel ? [recommendedDeveloperLine(task)] : [];
   return [
     `Updated ${task.key}: ${done.join('; ')}.`,
-    ...level,
     ...(change.complexity && task.complexity ? [`Complexity: ${complexityText(task.complexity)}`] : []),
     ...handOn,
     `Now: ${taskStatusLine(task)}`,
@@ -718,13 +706,6 @@ function handoffLines(task: Pick<Task, 'handoff' | 'lastHandoff'>): string[] {
   ];
 }
 
-/** `Recommended developer: senior — <reason>`; a card without a recommendation reads `any`. */
-function recommendedDeveloperLine(task: Pick<Task, 'developerLevel'>): string {
-  const level = task.developerLevel;
-  const reason = level?.reason ? ` — ${oneLine(level.reason, 300)}` : '';
-  return `Recommended developer: ${level?.level ?? 'any'}${reason}`;
-}
-
 /** What the call did; what happens next with the task is in the tool's description. */
 export function formatTaskCreated(task: Task, complexityRequested = false): string {
   const labels = task.labels.length > 0 ? ` · Labels: ${task.labels.join(', ')}` : '';
@@ -735,7 +716,6 @@ export function formatTaskCreated(task: Task, complexityRequested = false): stri
     );
   return (
     `Created ${task.key} "${oneLine(task.title, 200)}" in stage ${task.stageId}, unassigned${labels}.` +
-    (task.developerLevel ? `\n${recommendedDeveloperLine(task)}` : '') +
     (task.complexity
       ? `\ncomplexity set\nComplexity: ${complexityText(task.complexity)}`
       : complexityRequested

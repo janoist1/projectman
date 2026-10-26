@@ -15,7 +15,7 @@ export function workStageOf(
   return current?.kind === 'work' ? current : config.pipeline.stages.find((s) => s.kind === 'work');
 }
 
-/** The owners of the stage who are Seniors; a Senior on leave is one too. */
+/** @deprecated Replaced by `stageDevelopers`. The owners of the stage who are Seniors; a Senior on leave is one too. */
 export function seniorsOf(config: Pick<ProjectConfig, 'team'>, stage: Stage): AiMemberConfig[] {
   const owners = new Set(stageOwners(config, stage));
   return config.team.members.filter(
@@ -24,13 +24,14 @@ export function seniorsOf(config: Pick<ProjectConfig, 'team'>, stage: Stage): Ai
   );
 }
 
-/** Whether the work stage of the card has a Senior among its owners. */
+/** @deprecated Replaced by `reachingDevelopers`. Whether the work stage of the card has a Senior among its owners. */
 export function hasActiveSenior(config: ProjectConfig, task: Pick<Task, 'stageId'>): boolean {
   const stage = workStageOf(config, task);
   return !!stage && seniorsOf(config, stage).length > 0;
 }
 
 /**
+ * @deprecated Use `canSetComplexity`.
  * Who may set the recommended developer of a card (PM-347): a person with `owner` access, or a
  * member (a person or an AI member) that holds the task breakdown or the requirements analysis duty.
  */

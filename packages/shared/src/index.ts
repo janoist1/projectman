@@ -7,6 +7,7 @@ export * from './domain/label';
 export * from './domain/task';
 export * from './domain/developer-level';
 export * from './domain/complexity';
+export * from './domain/choose-developer';
 export * from './config/complexity';
 export * from './domain/board-order';
 export * from './domain/relations';

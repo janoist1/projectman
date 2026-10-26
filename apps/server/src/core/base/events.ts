@@ -53,7 +53,6 @@ export interface DomainEventMap {
   /** A task's assignee changed (PM-262), after the change committed. `previous` is the one it had. */
   task_assigned: { task: Task; previous: string | null; actor: Actor };
   /** A card's recommended developer was set or changed (PM-347), after the change committed. */
-  task_level_changed: { task: Task; actor: Actor };
   task_complexity_changed: { task: Task; actor: string };
   /** A card's priority was set or changed (PM-427), after the change committed: an urgent card is pulled into development. */
   task_priority_changed: { task: Task; actor: Actor };

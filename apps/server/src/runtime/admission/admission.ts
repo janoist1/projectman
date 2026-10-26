@@ -11,11 +11,13 @@ import {
   isTheme,
   isWorkingOnTask,
   isWorkPaused,
-  isSenior,
+  complexityLimitOf,
+  complexityOf,
+  reachingDevelopers,
+  stageDevelopers,
   stageOwners,
   memberOf,
   openPrerequisites,
-  seniorsOf,
   sessionWorkItemOf,
   startClass,
   workStageOf,
@@ -24,9 +26,9 @@ import type {
   AiMemberConfig,
   AgentProvider,
   CapacityHolder,
-  DeveloperCandidate,
   EngineId,
   FocusPlace,
+  FreeDeveloper,
   ProjectConfig,
   Task,
   TaskStartWaiting,
@@ -305,19 +307,19 @@ export class Admission {
   }
 
   /** AI owners with capacity and no deferred start waiting for them. */
-  freeDevelopers(config: ProjectConfig, stageId: string): DeveloperCandidate[] {
+  freeDevelopers(config: ProjectConfig, stageId: string): FreeDeveloper[] {
     const stage = config.pipeline.stages.find((s) => s.id === stageId);
     if (!stage) return [];
     const owners = new Set(stageOwners(config, stage));
     const waitedFor = this.membersWaitedFor(config.project.key);
-    const free: DeveloperCandidate[] = [];
+    const free: FreeDeveloper[] = [];
     config.team.members.forEach((member, index) => {
       if (member.kind !== 'ai' || member.temp || !owners.has(member.handle)) return;
       if (isHandleOnLeave(config, member.handle) || waitedFor.has(member.handle)) return;
       if (!this.providerAvailable(member.provider ?? DEFAULT_AGENT_PROVIDER)) return;
       const load = this.memberLoad(config, member.handle);
       if (load >= member.capacity) return;
-      free.push({ handle: member.handle, senior: isSenior(member), temp: false, load, index });
+      free.push({ handle: member.handle, limit: complexityLimitOf(member), temp: false, load, index });
     });
     return free;
   }
@@ -334,15 +336,21 @@ export class Admission {
   }
 
   /**
-   * What a card that waits for the Senior (PM-348) needs before it may wait: no member is chosen yet,
-   * so only the checks that do not depend on one: the project's AI switch, the pause, and a
-   * repository for the role of the Seniors (the wait would never end otherwise).
+   * What a card that waits for a developer whose limit reaches its points (PM-348, PM-1001) needs
+   * before it may wait: no member is chosen yet, so only the checks that do not depend on one: the
+   * project's AI switch, the pause, and a repository for the role of those developers (the wait
+   * would never end otherwise).
    */
   checkWait(config: ProjectConfig, task: Task): void {
     assertAiEnabled(config);
     assertNotPaused(this.ctx.repos.pauses, config.project.key);
     const stage = workStageOf(config, task);
-    const roles = new Set((stage ? seniorsOf(config, stage) : []).map((senior) => senior.role));
+    const reaching = new Set(
+      stage ? reachingDevelopers(stageDevelopers(config, stage), complexityOf(task)) : [],
+    );
+    const roles = new Set(
+      config.team.members.flatMap((m) => (m.kind === 'ai' && reaching.has(m.handle) ? [m.role] : [])),
+    );
     for (const role of roles) assertRepoChosen(config, role, task);
   }
 

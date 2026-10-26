@@ -1,7 +1,5 @@
 import {
   AddableRelationKind,
-  DEVELOPER_LEVEL_REASON_MAX,
-  DeveloperLevel,
   COMPLEXITY_REASON_MAX,
   MemberHandle,
   StageId,
@@ -9,13 +7,20 @@ import {
   TaskRelationKind,
   TaskStatus,
 } from '@projectman/shared';
-import type { ComplexityRequest, DeveloperLevelRequest, MemberView, Task } from '@projectman/shared';
+import type { ComplexityRequest, MemberView, Task } from '@projectman/shared';
 import { z } from 'zod';
 import { TeamToolError } from '../../contracts';
 import type { ListTasksInput, TaskSummary, TaskToolDetail, TaskToolsHandler } from '../../contracts';
 import { formatTaskCreated, formatTaskDetail, formatTaskUpdate, MAX_DESCRIPTION_CHARS } from '../format';
 
-import { defineTool, type TeamToolGroup, unique, taskKeyInput, TASK_VISIBILITY_REMOVED } from '../kit';
+import {
+  DEVELOPER_LEVEL_REFUSED,
+  defineTool,
+  type TeamToolGroup,
+  unique,
+  taskKeyInput,
+  TASK_VISIBILITY_REMOVED,
+} from '../kit';
 const MAX_NOTE_CHARS = 10_000;
 
 const complexityInput = z
@@ -43,37 +48,6 @@ function complexityArg(args: {
   return args.complexity === undefined
     ? undefined
     : { points: args.complexity, reason: args.complexity_reason ?? null };
-}
-
-const developerLevelInput = DeveloperLevel.optional().describe(
-  'The recommended developer of the card: senior (a task that suits the Senior; developer_level_reason is ' +
-    'required) or any (any developer may take it). Only an owner, or a member who plans tasks or analyses ' +
-    'requirements, may set it; it can be changed on a card that has started too, and it does not replace the ' +
-    'developer who already carries the card.',
-);
-
-const developerLevelReasonInput = z
-  .string()
-  .trim()
-  .min(1)
-  .max(DEVELOPER_LEVEL_REASON_MAX)
-  .optional()
-  .describe(
-    `Why the card is recommended for that developer, at most ${DEVELOPER_LEVEL_REASON_MAX} characters; ` +
-      'required with developer_level senior, and only with developer_level.',
-  );
-
-/** The recommended developer the call asked for; a reason without a level is refused. */
-function developerLevelArg(args: {
-  developer_level?: DeveloperLevel | undefined;
-  developer_level_reason?: string | undefined;
-}): DeveloperLevelRequest | undefined {
-  if (args.developer_level === undefined) {
-    if (args.developer_level_reason !== undefined)
-      throw new TeamToolError('invalid', 'developer_level_reason needs developer_level: pass both.');
-    return undefined;
-  }
-  return { level: args.developer_level, reason: args.developer_level_reason ?? null };
 }
 
 const MAX_TITLE_CHARS = 200;
@@ -132,8 +106,6 @@ interface UpdateTaskArgs {
   complexity?: number | null | undefined;
   complexity_reason?: string | undefined;
   task_key: string;
-  developer_level?: DeveloperLevel | undefined;
-  developer_level_reason?: string | undefined;
   stage_id?: string | undefined;
   add_labels?: string[] | undefined;
   remove_labels?: string[] | undefined;
@@ -173,13 +145,11 @@ async function runUpdateTask<C>({
     remove_relations: removeRelations,
     theme_key: themeKey,
   } = args;
-  const developerLevel = developerLevelArg(args);
   const complexity = complexityArg(args);
   if (
     !stageId &&
     themeKey === undefined &&
     priority === undefined &&
-    !developerLevel &&
     !complexity &&
     !addLabels?.length &&
     !removeLabels?.length &&
@@ -193,7 +163,7 @@ async function runUpdateTask<C>({
     throw new TeamToolError(
       'invalid',
       'Nothing to update: pass stage_id, add_labels, remove_labels, note, title, description, repo, ' +
-        'add_relations, remove_relations, theme_key, priority, complexity and/or developer_level.',
+        'add_relations, remove_relations, theme_key, priority and/or complexity.',
     );
   }
   const relations = {
@@ -212,7 +182,6 @@ async function runUpdateTask<C>({
     ...(relations.add.length + relations.remove.length > 0 ? { relations } : {}),
     ...(themeKey !== undefined ? { themeKey } : {}),
     ...(priority !== undefined ? { priority } : {}),
-    ...(developerLevel ? { developerLevel } : {}),
     ...(complexity ? { complexity } : {}),
   });
   const moverName =
@@ -223,7 +192,6 @@ async function runUpdateTask<C>({
     ...(moverName ? { moverName } : {}),
     stageId,
     ...(priority !== undefined ? { priority } : {}),
-    ...(developerLevel ? { developerLevel: true } : {}),
     ...(complexity ? { complexity: true } : {}),
     ...(themeKey !== undefined ? { themeKey } : {}),
     labels: { added: addLabels ?? [], removed: removeLabels ?? [] },
@@ -245,8 +213,6 @@ interface CreateTaskArgs {
   description?: string | undefined;
   labels?: string[] | undefined;
   relations?: { kind: AddableRelationKind; task_key: string }[] | undefined;
-  developer_level?: DeveloperLevel | undefined;
-  developer_level_reason?: string | undefined;
 }
 
 async function runCreateTask<C>({
@@ -258,11 +224,9 @@ async function runCreateTask<C>({
   CreateTaskArgs,
   { createTask(ctx: C, args: Parameters<TaskToolsHandler['createTask']>[1]): Promise<{ task: Task }> }
 >) {
-  const developerLevel = developerLevelArg(args);
   const complexity = complexityArg(args);
   const { task } = await handler.createTask(ctx, {
     title: args.title,
-    ...(developerLevel ? { developerLevel } : {}),
     ...(complexity ? { complexity } : {}),
     ...(args.relations?.length
       ? { relations: args.relations.map((r) => ({ kind: r.kind, key: r.task_key })) }
@@ -355,13 +319,12 @@ export const TASK_TOOL_GROUP: TeamToolGroup = {
         'description. You cannot mark a card that has started as a duplicate. theme_key puts the card into a ' +
         'theme (an open card of kind theme in this project; null removes it); a card belongs to one theme, ' +
         'a subtask takes the theme of its parent and cannot be given one, and a theme cannot be given one or ' +
-        'moved. developer_level (with developer_level_reason) sets the recommended developer of the card.',
+        'moved. complexity (with complexity_reason) sets the complexity points of the card.',
+      refused: DEVELOPER_LEVEL_REFUSED,
       input: {
         task_key: taskKeyInput,
-        developer_level: developerLevelInput,
         complexity: complexityInput,
         complexity_reason: complexityReasonInput,
-        developer_level_reason: developerLevelReasonInput,
         stage_id: StageId.optional().describe(
           'Id of the stage to move the task to (the pipeline is in your instructions).',
         ),
@@ -461,6 +424,7 @@ export const TASK_TOOL_GROUP: TeamToolGroup = {
     defineTool({
       name: 'create_task',
       refused: {
+        ...DEVELOPER_LEVEL_REFUSED,
         visibility: TASK_VISIBILITY_REMOVED,
         priority:
           'priority is set by people only: AI members can read it (get_task, list_tasks) but cannot set it. ' +
@@ -512,10 +476,8 @@ export const TASK_TOOL_GROUP: TeamToolGroup = {
               ADDED_RELATIONS_HELP +
               ' One refused relation refuses the creation.',
           ),
-        developer_level: developerLevelInput,
         complexity: complexityInput,
         complexity_reason: complexityReasonInput,
-        developer_level_reason: developerLevelReasonInput,
       },
       external: { access: 'write', run: runCreateTask },
       run: runCreateTask,

@@ -302,20 +302,6 @@ exports[`team tool definitions > preserves the public tool definitions across mo
           "maxLength": 20000,
           "type": "string",
         },
-        "developer_level": {
-          "description": "The recommended developer of the card: senior (a task that suits the Senior; developer_level_reason is required) or any (any developer may take it). Only an owner, or a member who plans tasks or analyses requirements, may set it; it can be changed on a card that has started too, and it does not replace the developer who already carries the card.",
-          "enum": [
-            "senior",
-            "any",
-          ],
-          "type": "string",
-        },
-        "developer_level_reason": {
-          "description": "Why the card is recommended for that developer, at most 300 characters; required with developer_level senior, and only with developer_level.",
-          "maxLength": 300,
-          "minLength": 1,
-          "type": "string",
-        },
         "kind": {
           "description": "task (default) or theme: a card that groups other cards; no stage, no work.",
           "enum": [
@@ -8731,7 +8717,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": false,
       "title": "Update a task",
     },
-    "description": "Record progress on a task: add or remove labels, add a note, rewrite its title or description (for example a specification with acceptance criteria, or a technical plan), set the repository it works in and/or move it to another stage. The outcome of a review, a test or a client answer is a label from the project's label list (in your instructions: meaning, who may set it). Some labels require a note, and labels only humans may set (approvals) are refused. Stage gates are enforced: a move is refused while a label its gate requires is missing or a blocking label is on the task. One call is all or nothing: labels and the note are recorded before the stage move, and if a label is refused or the gate blocks the move, nothing is recorded. A move that needs a human approval records the rest and waits for the approval. Relations between cards (part of, prerequisite, related, duplicate of) are set with add_relations and removed with remove_relations, in the same call: give the order of work as a prerequisite relation, not as a "Dependencies" text in the description. You cannot mark a card that has started as a duplicate. theme_key puts the card into a theme (an open card of kind theme in this project; null removes it); a card belongs to one theme, a subtask takes the theme of its parent and cannot be given one, and a theme cannot be given one or moved. developer_level (with developer_level_reason) sets the recommended developer of the card.",
+    "description": "Record progress on a task: add or remove labels, add a note, rewrite its title or description (for example a specification with acceptance criteria, or a technical plan), set the repository it works in and/or move it to another stage. The outcome of a review, a test or a client answer is a label from the project's label list (in your instructions: meaning, who may set it). Some labels require a note, and labels only humans may set (approvals) are refused. Stage gates are enforced: a move is refused while a label its gate requires is missing or a blocking label is on the task. One call is all or nothing: labels and the note are recorded before the stage move, and if a label is refused or the gate blocks the move, nothing is recorded. A move that needs a human approval records the rest and waits for the approval. Relations between cards (part of, prerequisite, related, duplicate of) are set with add_relations and removed with remove_relations, in the same call: give the order of work as a prerequisite relation, not as a "Dependencies" text in the description. You cannot mark a card that has started as a duplicate. theme_key puts the card into a theme (an open card of kind theme in this project; null removes it); a card belongs to one theme, a subtask takes the theme of its parent and cannot be given one, and a theme cannot be given one or moved. complexity (with complexity_reason) sets the complexity points of the card.",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,
@@ -8797,20 +8783,6 @@ exports[`team tool definitions > preserves the public tool definitions across mo
         "description": {
           "description": "New description (markdown). It replaces the whole description, so include everything that should stay; read the current one with get_task first, all of it if get_task says it is cut.",
           "maxLength": 20000,
-          "minLength": 1,
-          "type": "string",
-        },
-        "developer_level": {
-          "description": "The recommended developer of the card: senior (a task that suits the Senior; developer_level_reason is required) or any (any developer may take it). Only an owner, or a member who plans tasks or analyses requirements, may set it; it can be changed on a card that has started too, and it does not replace the developer who already carries the card.",
-          "enum": [
-            "senior",
-            "any",
-          ],
-          "type": "string",
-        },
-        "developer_level_reason": {
-          "description": "Why the card is recommended for that developer, at most 300 characters; required with developer_level senior, and only with developer_level.",
-          "maxLength": 300,
           "minLength": 1,
           "type": "string",
         },

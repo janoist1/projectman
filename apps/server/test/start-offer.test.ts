@@ -10,7 +10,7 @@ import { obligationReminders } from './helpers/deferred-starts';
 /**
  * PM-804 (PM-795 part 2): the start round offers a startable card to the card mover (the pm) in one action
  * message and opens a `start` obligation. The system never starts a card by itself: the pm moves it and the
- * system picks the developer. `dev-2` is the Senior, `dev-1` the other developer, both with capacity 1. The
+ * system picks the developer. `dev-2` has the limit 13, `dev-1` the default 5, both with capacity 1. The
  * queue stage before development is `ready` (the pm moves cards from there); `backlog` is the idea stage.
  */
 describe('the start offer to the project manager', () => {
@@ -22,7 +22,7 @@ describe('the start offer to the project manager', () => {
   const roomy = (c: ProjectConfig) => {
     c.team.limits.maxConcurrentAi = 10;
     const senior = c.team.members.find((m) => m.handle === 'dev-2');
-    if (senior?.kind === 'ai') senior.senior = true;
+    if (senior?.kind === 'ai') senior.complexityLimit = 13;
     // A member on leave is not started, so the wake of the pm would never run.
     const pm = c.team.members.find((m) => m.handle === 'pm');
     if (pm?.kind === 'ai') pm.onLeave = false;
@@ -107,7 +107,7 @@ describe('the start offer to the project manager', () => {
 
   it('sends one action message and opens a start obligation; the pm move starts the right developer', async () => {
     await harness();
-    const key = await create('Runner work', { developerLevel: { level: 'senior', reason: 'The runner' } });
+    const key = await create('Runner work', { complexity: { points: 8, reason: 'The runner' } });
     await settle();
     expect(offers()).toHaveLength(1);
     expect(offers()[0]).toMatchObject({ from: 'system', to: ['pm'], kind: 'action', taskKey: key });

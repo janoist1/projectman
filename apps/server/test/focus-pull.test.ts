@@ -7,7 +7,7 @@ import { flush } from './helpers/fakes';
 /**
  * PM-436 (PM-427): deferred starts are retried urgent first, then by the focus's order, then as before; a free
  * developer takes a ready urgent card, else the next focus card, from the queue stage into development. `dev-2`
- * is the Senior and `dev-1` the other developer, both with capacity 1 (the test project's queue is `backlog`).
+ * has the limit 13 and `dev-1` the default 5, both with capacity 1 (the test project's queue is `backlog`).
  */
 describe('the order of deferred starts and the focus pull', () => {
   let h: DomainHarness;
@@ -20,7 +20,7 @@ describe('the order of deferred starts and the focus pull', () => {
     c.team.limits.maxConcurrentAi = 10;
     c.pipeline.labels.push({ id: WAITING, name: 'Waiting for an answer', setBy: 'anyone', blocks: true });
     const senior = c.team.members.find((m) => m.handle === 'dev-2');
-    if (senior?.kind === 'ai') senior.senior = true;
+    if (senior?.kind === 'ai') senior.complexityLimit = 13;
   };
   /** Only `dev-1` can take a card: the Senior is on leave. */
   const oneDeveloper = (c: ProjectConfig) => {
@@ -32,19 +32,14 @@ describe('the order of deferred starts and the focus pull', () => {
     h = await createDomainHarness({ adjust });
   };
 
-  const create = async (
-    title: string,
-    extra: { developerLevel?: 'senior' | 'any'; themeKey?: string } = {},
-  ) =>
+  const create = async (title: string, extra: { heavy?: boolean; themeKey?: string } = {}) =>
     (
       await h.domain.tasks.create(
         'AR',
         {
           title,
           ...(extra.themeKey ? { themeKey: extra.themeKey } : {}),
-          ...(extra.developerLevel === 'senior'
-            ? { developerLevel: { level: 'senior' as const, reason: 'the runner' } }
-            : {}),
+          ...(extra.heavy ? { complexity: { points: 8 as const, reason: 'the runner' } } : {}),
         },
         OWNER_ACTOR,
       )
@@ -80,13 +75,13 @@ describe('the order of deferred starts and the focus pull', () => {
   };
   /** The Senior works on a card of its own; the cards that follow, recommended for the Senior, are deferred. */
   const busySenior = async () => {
-    const key = await create('Senior busy', { developerLevel: 'senior' });
+    const key = await create('Senior busy', { heavy: true });
     await move(key);
     await waitFor(key, 'dev-2');
     return key;
   };
   const deferred = async (title: string) => {
-    const key = await create(title, { developerLevel: 'senior' });
+    const key = await create(title, { heavy: true });
     await move(key);
     await vi.waitFor(() => expect(task(key).startWaiting).toMatchObject({ reason: 'senior_busy' }));
     return key;
@@ -254,7 +249,7 @@ describe('the order of deferred starts and the focus pull', () => {
       const waiting = await create('Waits for an answer');
       await h.domain.tasks.update('AR', waiting, { addLabels: [WAITING] }, OWNER_ACTOR);
       const parent = await theme('A theme');
-      const senior = await create('Senior card', { developerLevel: 'senior' });
+      const senior = await create('Senior card', { heavy: true });
       const plain = await create('Neither urgent nor in the focus');
       const assigned = await create('Somebody else has it');
       await h.domain.tasks.update('AR', assigned, { assignee: 'cr' }, OWNER_ACTOR);

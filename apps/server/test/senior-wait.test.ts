@@ -7,11 +7,12 @@ import { flush } from './helpers/fakes';
 import { deferredStartRecords } from './helpers/deferred-starts';
 
 /**
- * PM-348: a card recommended for the Senior waits for the Senior, the owners are asked once after the
- * wait limit, and an any card goes to the Senior only when no other developer is free. `dev-2` is the
- * Senior here (not the first developer), so that the team order cannot explain a choice.
+ * PM-348, PM-1007: a card whose points only a stronger developer reaches waits for that developer,
+ * the owners are asked once after the wait limit, and an unscored card goes to the stronger developer
+ * only when no smaller one is free. `dev-2` has the limit 13 here (not the first developer), so that
+ * the team order cannot explain a choice; the others keep the default 5.
  */
-describe('the Senior card: assignment, wait and the question', () => {
+describe('the heavy card: assignment, wait and the question', () => {
   let h: DomainHarness;
   let clock = new Date('2026-10-05T10:00:00.000Z');
   afterEach(() => h?.cleanup());
@@ -21,7 +22,7 @@ describe('the Senior card: assignment, wait and the question', () => {
   const roomy = (c: ProjectConfig) => {
     c.team.limits.maxConcurrentAi = 10;
     const senior = c.team.members.find((m) => m.handle === 'dev-2');
-    if (senior?.kind === 'ai') senior.senior = true;
+    if (senior?.kind === 'ai') senior.complexityLimit = 13;
   };
   const withTemp = (c: ProjectConfig) => {
     roomy(c);
@@ -36,7 +37,7 @@ describe('the Senior card: assignment, wait and the question', () => {
     (
       await h.domain.tasks.create(
         'AR',
-        { title, ...(level === 'senior' ? { developerLevel: { level, reason: 'the runner' } } : {}) },
+        { title, ...(level === 'senior' ? { complexity: { points: 8, reason: 'the runner' } } : {}) },
         OWNER_ACTOR,
       )
     ).key;
@@ -190,13 +191,13 @@ describe('the Senior card: assignment, wait and the question', () => {
       expect(phases(key)).toEqual(['no_senior']);
     });
 
-    it('lets the card go by the any rule when the Senior mark is taken away during the wait', async () => {
+    it('lets the card go to the largest free developer when the limit that reached it is lowered during the wait', async () => {
       await harness();
       await busySenior();
       const key = await create('Waits');
       await move(key);
       await vi.waitFor(() => expect(waiting(key)).toMatchObject({ reason: 'senior_busy' }));
-      await h.domain.members.update('AR', 'dev-2', { senior: false }, by());
+      await h.domain.members.update('AR', 'dev-2', { complexityLimit: null }, by());
       await vi.waitFor(() => expect(task(key).assignee).toBe('dev-1'));
       expect(waitRow(key)).toBeNull();
       expect(phases(key)).toEqual(['no_senior']);
@@ -239,7 +240,9 @@ describe('the Senior card: assignment, wait and the question', () => {
         source: 'system',
         taskKey: key,
         assignees: ['owner'],
-        payload: { seniorWait: { taskKey: key, minutes: 30, seniors: ['dev-2'], reason: 'the runner' } },
+        payload: {
+          seniorWait: { taskKey: key, minutes: 30, seniors: ['dev-2'], reason: 'the runner', points: 8 },
+        },
       });
       expect(item!.options.map((o) => o.id)).toEqual(['wait_for_senior', 'any_developer']);
       expect(phases(key)).toEqual(['asked']);
@@ -381,13 +384,21 @@ describe('the Senior card: assignment, wait and the question', () => {
       });
     });
 
-    it('ends the wait when the recommendation is set to any', async () => {
+    it('ends the wait when the points are removed', async () => {
       await harness();
       const { key, item } = await askedCard();
-      await h.domain.tasks.update('AR', key, { developerLevel: { level: 'any' } }, OWNER_ACTOR);
+      await h.domain.tasks.update('AR', key, { complexity: { points: null } }, OWNER_ACTOR);
       expect(waitRow(key)).toBeNull();
       expect(h.domain.inbox.get('AR', item.id).resolution).toMatchObject({ rule: 'senior_wait_ended' });
       await vi.waitFor(() => expect(task(key).assignee).toBe('dev-1'));
+    });
+
+    it('gives the card to the free developer whose limit reaches the lowered points', async () => {
+      await harness();
+      const { key } = await askedCard();
+      await h.domain.tasks.update('AR', key, { complexity: { points: 5 } }, OWNER_ACTOR);
+      await vi.waitFor(() => expect(task(key).assignee).toBe('dev-1'));
+      expect(waitRow(key)).toBeNull();
     });
   });
 

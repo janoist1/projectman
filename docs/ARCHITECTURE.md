@@ -2464,7 +2464,8 @@ workers follow the machine's size.
   the message only when it was handled. `ses receive-plan|receive-configure [--dry-run]|receive-check` of the
   provisioning CLI create and verify the MX record, the reply identity, the topic, queues, subscription,
   configuration set, receipt rule set and the extension of the sender's IAM policy (the SQS read on one queue
-  and `ses:SendEmail` on the configuration set). **Machine assumptions:** the hub makes outgoing HTTPS calls
+  and `ses:SendEmail` on the configuration set and from member addresses on the reply domain identity,
+  PM-1016). **Machine assumptions:** the hub makes outgoing HTTPS calls
   to the region's SQS endpoint with the existing `PROJECTMAN_SES_*` key and reads
   `PROJECTMAN_EMAIL_QUEUE_URL`, `PROJECTMAN_EMAIL_REPLY_DOMAIN`, `PROJECTMAN_EMAIL_CONFIGURATION_SET` from
   `cloud.env` (read in `index.ts` only); the CLI runs on the owner's POSIX administration machine with AWS CLI

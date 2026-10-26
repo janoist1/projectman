@@ -110,13 +110,15 @@ async function awsState(context: CloudContext) {
 
 /** The names of the e-mail channel's receiving resources the sender's policy refers to (PM-945). */
 export interface SesInboundNames {
+  replyDomain: string;
   configurationSet: string;
   queue: string;
 }
 
 /**
  * No SendRawEmail, wildcard resource, sender authorization or other permissions. With `inbound` the
- * channel's configuration set may be named in a send, and the one mail queue may be read and emptied.
+ * member addresses may send, the channel's configuration set may be named in a send, and the one mail
+ * queue may be read and emptied.
  */
 export function sesPolicy(
   ses: Pick<SesConfig, 'region' | 'domain' | 'from'>,
@@ -138,8 +140,16 @@ export function sesPolicy(
             {
               Effect: 'Allow',
               Action: 'ses:SendEmail',
+              Resource: `arn:aws:ses:${ses.region}:${account}:identity/${inbound.replyDomain}`,
+              Condition: { StringLike: { 'ses:FromAddress': `*@${inbound.replyDomain}` } },
+            },
+            {
+              Effect: 'Allow',
+              Action: 'ses:SendEmail',
               Resource: `arn:aws:ses:${ses.region}:${account}:configuration-set/${inbound.configurationSet}`,
-              Condition: fromAddress,
+              Condition: {
+                StringLike: { 'ses:FromAddress': [ses.from, `*@${inbound.replyDomain}`] },
+              },
             },
             {
               Effect: 'Allow',
@@ -163,11 +173,33 @@ export function wantedSesPolicy(
   document: unknown,
 ) {
   const inbound = {
+    replyDomain: context.config.ses?.inbound?.replyDomain,
     configurationSet: `${context.config.aws.instanceName}-email`,
     queue: `${context.config.aws.instanceName}-email-in`,
   };
-  const withInbound = sesPolicy(ses, account, inbound);
-  return policyMatches(document, withInbound) ? withInbound : sesPolicy(ses, account);
+  const senderOnly = sesPolicy(ses, account);
+  // PM-945 allowed only the system sender on the configuration set. Recognise that exact policy
+  // even without inbound config, so configure never removes its receiving permissions.
+  const legacy = {
+    ...senderOnly,
+    Statement: [
+      ...senderOnly.Statement,
+      {
+        Effect: 'Allow',
+        Action: 'ses:SendEmail',
+        Resource: `arn:aws:ses:${ses.region}:${account}:configuration-set/${inbound.configurationSet}`,
+        Condition: { StringEquals: { 'ses:FromAddress': ses.from } },
+      },
+      {
+        Effect: 'Allow',
+        Action: ['sqs:ReceiveMessage', 'sqs:DeleteMessage', 'sqs:ChangeMessageVisibility'],
+        Resource: `arn:aws:sqs:${ses.region}:${account}:${inbound.queue}`,
+      },
+    ],
+  };
+  if (!inbound.replyDomain) return policyMatches(document, legacy) ? legacy : senderOnly;
+  const withInbound = sesPolicy(ses, account, { ...inbound, replyDomain: inbound.replyDomain });
+  return policyMatches(document, withInbound) || policyMatches(document, legacy) ? withInbound : senderOnly;
 }
 
 export function policyMatches(document: unknown, wanted: unknown): boolean {

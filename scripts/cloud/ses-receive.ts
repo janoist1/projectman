@@ -552,11 +552,12 @@ async function gather(context: CloudContext, readOnly: boolean): Promise<State> 
     },
   );
 
-  // The sender's IAM policy gains the configuration set and the queue; no key is made.
+  // The sender's IAM policy gains member sends, the configuration set and the queue; no key is made.
   const iam = await iamState(context, cli, account, env);
   if (!iam.user || !iam.hasKey)
     conflicts.push('the sender IAM user or its key is missing; run ses configure first');
   const wantedPolicy = sesPolicy(ses, account, {
+    replyDomain,
     configurationSet: names.configurationSet,
     queue: names.queue,
   });

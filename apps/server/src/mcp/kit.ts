@@ -50,6 +50,8 @@ export const TEAM_TOOL_NAMES = [
   'triage_loop',
   'start_task',
   'start_member',
+  'reassign_task',
+  'cancel_task',
   'submit_boundary_request',
   'get_boundary_request',
   'decide_boundary_request',

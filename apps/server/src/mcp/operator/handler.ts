@@ -360,6 +360,45 @@ export class OperatorTools implements OperatorToolsHandler {
     });
   }
 
+  async reassignTask(ctx: ToolContext, args: { taskKey: string; assignee: string | null; reason: string }) {
+    return this.calls.guard(async () => {
+      await this.calls.callerWithRequest(ctx, 'reassign_task');
+      const taskKey = this.calls.validTaskKey(ctx, args.taskKey);
+      try {
+        const previous = this.tasks.get(ctx.projectKey, taskKey).assignee;
+        const task = await this.tasks.update(
+          ctx.projectKey,
+          taskKey,
+          { assignee: args.assignee, assigneeReason: args.reason },
+          aiActor(ctx.member),
+        );
+        return { task_key: task.key, assignee: task.assignee, previous };
+      } catch (err) {
+        if (err instanceof DomainError) throw toToolError(err);
+        throw err;
+      }
+    });
+  }
+
+  async cancelTask(ctx: ToolContext, args: { taskKey: string; reason: string }) {
+    return this.calls.guard(async () => {
+      await this.calls.callerWithRequest(ctx, 'cancel_task');
+      const taskKey = this.calls.validTaskKey(ctx, args.taskKey);
+      try {
+        const task = await this.tasks.cancel(
+          ctx.projectKey,
+          taskKey,
+          { reason: args.reason },
+          aiActor(ctx.member),
+        );
+        return { task_key: task.key, status: task.status };
+      } catch (err) {
+        if (err instanceof DomainError) throw toToolError(err);
+        throw err;
+      }
+    });
+  }
+
   async openIntegratorTodo(
     ctx: ToolContext,
     args: { taskKey?: string; question: string; what: string; where: string; expected: string },

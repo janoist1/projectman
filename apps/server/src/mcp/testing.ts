@@ -478,6 +478,14 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       await enter('dismissSignal', ctx, args);
       return { signalId: args.signalId, state: 'dismissed' };
     },
+    async reassignTask(ctx, args) {
+      await enter('reassignTask', ctx, args);
+      return { task_key: args.taskKey, assignee: args.assignee, previous: null };
+    },
+    async cancelTask(ctx, args) {
+      await enter('cancelTask', ctx, args);
+      return { task_key: args.taskKey, status: 'cancelled' };
+    },
     async openIntegratorTodo(ctx, args) {
       await enter('openIntegratorTodo', ctx, args);
       return { itemId: 'inb_todo_1', recipient: 'integrator', recipientRefusal: null };

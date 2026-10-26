@@ -37,6 +37,7 @@ import {
   OPERATOR_READ_TOOLS,
   OPERATOR_SCREENING_TOOLS,
   OPERATOR_TOOL_ACTIONS,
+  PM_CARD_TOOLS,
 } from '../services/operator';
 import type { CoordinationRequests, OperatorRequests, OperatorSteps } from '../services/operator';
 import type { Viewer } from '../core/projects';
@@ -281,6 +282,7 @@ export class ToolCaller {
         'start_task',
         'start_member',
         'request_structural_review',
+        ...PM_CARD_TOOLS,
       ].includes(tool)
     ) {
       this.assertCoordinationSession(ctx, config);
@@ -291,7 +293,8 @@ export class ToolCaller {
           'forbidden',
           'operator_no_request: structural approval permits only its review start.',
         );
-      if (OPERATOR_SCREENING_TOOLS.has(tool)) return { config, request: null, guest: null };
+      if (OPERATOR_SCREENING_TOOLS.has(tool) || PM_CARD_TOOLS.includes(tool))
+        return { config, request: null, guest: null };
       // A signal always keeps its exact binding and budget, even when an owner request is open.
       if (signalStep) return this.signalStepCaller(ctx, config, signalStep);
       if (!request)

@@ -569,6 +569,42 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
     }),
 
     defineTool({
+      name: 'reassign_task',
+      audience: { roles: ['project_manager'] },
+      title: 'Reassign a task',
+      readOnly: false,
+      description:
+        "Only the selected PM in its internal general conversation; needs no owner request. Change a card's assignee (null clears it) and give the reason: it is on the card's timeline under your name. On a started card the old assignee hands its work over (a note first), as for a person's reassignment. The member must exist and not be on leave; a closed card or a theme is refused. This does not start work: use start_task for that.",
+      input: {
+        task_key: TaskKey,
+        assignee: MemberHandle.nullable(),
+        reason: z.string().trim().min(1).max(500),
+      },
+      async run({ ctx, args, handler }) {
+        return JSON.stringify(
+          await handler.reassignTask(ctx, {
+            taskKey: args.task_key,
+            assignee: args.assignee,
+            reason: args.reason,
+          }),
+        );
+      },
+    }),
+
+    defineTool({
+      name: 'cancel_task',
+      audience: { roles: ['project_manager'] },
+      title: 'Cancel a task',
+      readOnly: false,
+      description:
+        "Only the selected PM in its internal general conversation; needs no owner request. Close a card as cancelled (its sessions stop; assignee, stage and files stay) and give the reason: it is on the card's timeline under your name. A closed card or a theme is refused. Deleting a card stays with the owners.",
+      input: { task_key: TaskKey, reason: z.string().trim().min(1).max(500) },
+      async run({ ctx, args, handler }) {
+        return JSON.stringify(await handler.cancelTask(ctx, { taskKey: args.task_key, reason: args.reason }));
+      },
+    }),
+
+    defineTool({
       name: 'start_member',
       audience: { roles: ['project_manager'] },
       title: 'Start a member on work without a card',

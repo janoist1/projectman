@@ -237,6 +237,8 @@ export interface TimelineEventData {
     previous?: string | null;
     reason?: 'member_removed' | 'handover';
     from?: string;
+    /** Why the project manager reassigned the card (PM-1040); free text, unlike `reason`. */
+    note?: string;
   };
   task_merge_requested: { mergeId: string; merger: string; repo: string; base: string; toStageId: string };
   /** The card went to the front of the repository's merge queue; `before`: the card it went ahead of (null: none waited). */

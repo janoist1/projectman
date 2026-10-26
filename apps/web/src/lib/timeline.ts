@@ -606,14 +606,13 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
       const assignment = d.assignee
         ? t('timeline.events.task_assigned', { assignee: nameOf(str(d.assignee), ctx.members, ctx.myHandle) })
         : t('timeline.events.task_unassigned');
-      return normal(
-        d.previous
-          ? t('timeline.events.assignment_previous', {
-              assignment,
-              previous: nameOf(str(d.previous), ctx.members, ctx.myHandle),
-            })
-          : assignment,
-      );
+      const line = d.previous
+        ? t('timeline.events.assignment_previous', {
+            assignment,
+            previous: nameOf(str(d.previous), ctx.members, ctx.myHandle),
+          })
+        : assignment;
+      return normal(d.note ? t('timeline.events.assignment_note', { line, note: str(d.note) }) : line);
     }
     case 'task_check_changed':
       return normal(checkLine(str(d.check), str(d.to)));

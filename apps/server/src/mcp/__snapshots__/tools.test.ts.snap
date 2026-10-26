@@ -173,6 +173,37 @@ exports[`team tool definitions > preserves the public tool definitions across mo
     "annotations": {
       "destructiveHint": false,
       "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Cancel a task",
+    },
+    "description": "Only the selected PM in its internal general conversation; needs no owner request. Close a card as cancelled (its sessions stop; assignee, stage and files stay) and give the reason: it is on the card's timeline under your name. A closed card or a theme is refused. Deleting a card stays with the owners.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "reason": {
+          "maxLength": 500,
+          "minLength": 1,
+          "type": "string",
+        },
+        "task_key": {
+          "pattern": "^[A-Z][A-Z0-9]{0,9}-\\d+$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "task_key",
+        "reason",
+      ],
+      "type": "object",
+    },
+    "name": "cancel_task",
+    "title": "Cancel a task",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
       "readOnlyHint": true,
       "title": "Check a release",
     },
@@ -7808,6 +7839,49 @@ exports[`team tool definitions > preserves the public tool definitions across mo
     },
     "name": "read_project_doc",
     "title": "Read a project document",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Reassign a task",
+    },
+    "description": "Only the selected PM in its internal general conversation; needs no owner request. Change a card's assignee (null clears it) and give the reason: it is on the card's timeline under your name. On a started card the old assignee hands its work over (a note first), as for a person's reassignment. The member must exist and not be on leave; a closed card or a theme is refused. This does not start work: use start_task for that.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "assignee": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z0-9][a-z0-9-]{0,31}$",
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "reason": {
+          "maxLength": 500,
+          "minLength": 1,
+          "type": "string",
+        },
+        "task_key": {
+          "pattern": "^[A-Z][A-Z0-9]{0,9}-\\d+$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "task_key",
+        "assignee",
+        "reason",
+      ],
+      "type": "object",
+    },
+    "name": "reassign_task",
+    "title": "Reassign a task",
   },
   {
     "annotations": {

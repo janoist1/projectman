@@ -24,6 +24,12 @@ interface OperatorQueueInbox {
     note: string,
     operator: string,
   ): Promise<InboxItem>;
+  answerForOperatorQueue(
+    projectKey: string,
+    id: string,
+    answer: string,
+    operator: string,
+  ): Promise<InboxItem>;
   passOnToOwners(
     projectKey: string,
     id: string,
@@ -48,8 +54,10 @@ interface FinishQueueItemInput {
   /** The session the call comes from; the item must be processing in it. */
   sessionId: string;
   itemId: string;
-  outcome: 'done' | 'handed_off';
+  outcome: 'done' | 'handed_off' | 'answered';
   summary: string;
+  /** The answer to the asking member (outcome `answered` only); the summary is the Operator's reasoning. */
+  answer?: string;
   operationIds: string[];
   fixLimitOption?: FixLimitOptionId;
   handoff?: {
@@ -100,7 +108,7 @@ export class OperatorQueueFinisher {
     this.assertCombination(item, input);
     const operations = this.operationsOf(input);
 
-    if (input.outcome === 'done') {
+    if (input.outcome !== 'handed_off') {
       const outcome: OperatorQueueOutcome = {
         summary: input.summary,
         operationIds: input.operationIds,
@@ -108,6 +116,15 @@ export class OperatorQueueFinisher {
         handoff: null,
       };
       await this.close(item, { state: 'done', reason: 'finished', outcome }, async () => {
+        if (input.outcome === 'answered') {
+          await this.inbox.answerForOperatorQueue(
+            item.projectKey,
+            item.source.id,
+            input.answer as string,
+            input.member,
+          );
+          return;
+        }
         if (item.kind === 'message') return;
         const option = item.kind === 'fix_limit' ? (input.fixLimitOption as string) : TODO_DONE_OPTION.id;
         await this.inbox.resolveForOperatorQueue(
@@ -127,6 +144,15 @@ export class OperatorQueueFinisher {
   }
 
   private assertCombination(item: StoredMemberQueueItem, input: FinishQueueItemInput): void {
+    if (input.outcome === 'answered') {
+      if (item.kind !== 'todo')
+        throw invalid('invalid_request', "answered belongs to a todo that is a member's question");
+      if (!input.answer) throw invalid('invalid_request', 'an answered item needs the answer');
+      if (input.handoff || input.fixLimitOption)
+        throw invalid('invalid_request', 'an answered item has no handoff or fix_limit_option');
+      return;
+    }
+    if (input.answer) throw invalid('invalid_request', 'answer belongs to the outcome answered only');
     if (input.outcome === 'done') {
       if (input.handoff) throw invalid('invalid_request', 'a finished item has no handoff');
       if (item.kind === 'fix_limit' && !input.fixLimitOption)

@@ -1,5 +1,6 @@
 import type { TeamMessage } from '@projectman/shared';
 import {
+  isOperatorAnswerableTodo,
   memberOf,
   operatorOf,
   pendingRecipientsOf,
@@ -97,9 +98,32 @@ export function operatorLane(deps: OperatorLaneDeps): MemberQueueLane {
       const body = todo
         ? [`What: ${todo.what}`, `Where: ${todo.where}`, `Expected: ${todo.expected}`].join('\n')
         : (inbox?.body ?? inbox?.title ?? '');
+      const config = deps.projects.cachedConfig(item.projectKey);
+      const payload = inbox && questionPayloadOf(inbox);
+      const answerable =
+        !!inbox &&
+        !!payload &&
+        !!config &&
+        isOperatorAnswerableTodo(inbox, {
+          operatorHandle: item.member,
+          askerIsAi: memberOf(config, inbox.source)?.kind === 'ai',
+        });
       return operatorQueueText({
         ...frame,
         body,
+        ...(answerable
+          ? {
+              question: {
+                asker: inbox.source,
+                text: payload.question,
+                options: payload.options ?? [],
+                recommended: payload.recommended
+                  ? (inbox.options.find((option) => option.id === payload.recommended)?.label ??
+                    payload.recommended)
+                  : null,
+              },
+            }
+          : {}),
         options:
           item.kind === 'fix_limit'
             ? (inbox?.options ?? []).map((option) => ({ id: option.id, label: option.label }))

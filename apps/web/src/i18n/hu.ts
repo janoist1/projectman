@@ -1505,6 +1505,7 @@ export const hu = {
       answer_required: 'Írj választ, mielőtt elküldöd.',
       todo_reason_required: 'Írd le, miért nem végezhető el a teendő.',
       question_not_screening: 'Ezt a kérdést az Operátor már nem szűri.',
+      question_not_answerable: 'Erre a kérdésre az Operátor nem válaszolhat.',
       question_group_incompatible: 'Ezek a kérdések nem vonhatók közös döntésbe.',
       invalid_outcome_fields: 'A kimenethez hiányzik vagy fölösleges egy mező.',
       reask_not_allowed: 'Ezt a kérdést nem lehet szűrés nélkül újra feltenni.',

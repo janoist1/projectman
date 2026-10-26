@@ -863,8 +863,10 @@ export interface OperatorQueueToolsHandler {
     ctx: ToolContext,
     args: {
       itemId: string;
-      outcome: 'done' | 'handed_off';
+      outcome: 'done' | 'handed_off' | 'answered';
       summary: string;
+      /** The answer to the asking AI member (outcome `answered`, PM-1009); the summary is the Operator's reasoning. */
+      answer?: string;
       operationIds: string[];
       fixLimitOption?: 'replan' | 'reassign' | 'another_round';
       handoff?: {

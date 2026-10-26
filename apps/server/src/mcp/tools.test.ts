@@ -114,8 +114,13 @@ describe('tool audience', () => {
     { audience: { ...developerAudience, projectManager: true }, present: 'start_task', absent: 'operate' },
     {
       audience: { ...developerAudience, projectManager: true },
-      present: 'get_operator_preference',
-      absent: 'propose_operator_knowledge',
+      present: 'propose_operator_knowledge',
+      absent: 'execute_operation',
+    },
+    {
+      audience: { ...developerAudience, projectManager: true },
+      present: 'update_checklist',
+      absent: 'get_machine_status',
     },
     {
       audience: { ...developerAudience, projectManager: true },

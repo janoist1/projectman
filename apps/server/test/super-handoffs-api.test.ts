@@ -4,13 +4,19 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   CreatedIntegratorAccessKey,
-  ExecuteSuperHandoffResponse,
   ListSuperHandoffsResponse,
   SuperHandoffDetail,
   routes,
 } from '@projectman/shared';
 import type { SuperCommand } from '@projectman/shared';
-import { addHumanAndLogin, createAppHarness, createProject, inject, setupOwner } from './helpers/app-harness';
+import {
+  addHumanAndLogin,
+  createAppHarness,
+  createProject,
+  inject,
+  setupOwner,
+  asSuperIntegrator,
+} from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 
 const PAUSE: SuperCommand = { kind: 'operate', operation: { op: 'project_pause' } };
@@ -52,12 +58,9 @@ describe('super-mode handoff routes (PM-762)', () => {
 
   it('reads an older handoff by id with the same access as the list', async () => {
     const pending = await handoff();
-    await app.app.inject({
-      method: 'POST',
-      url: routes.executeSuperHandoff('AR', pending.id),
-      headers: bearer,
-      payload: { requestId: randomUUID() },
-    });
+    await asSuperIntegrator(app, secret, (access) =>
+      app.app.projectman.domain.superHandoffs.execute('AR', pending.id, randomUUID(), access),
+    );
     const made = app.app.projectman.domain.superHandoffs.handoff('AR', pending.id);
     for (let i = 0; i < 51; i++) await handoff();
     const list = await inject(app.app, 'GET', routes.superHandoffs('AR'), cookie);
@@ -116,79 +119,6 @@ describe('super-mode handoff routes (PM-762)', () => {
     const response = await inject(app.app, 'GET', routes.superHandoff('BR', made.id), cookie);
     expect(response.statusCode).toBe(404);
     expect(response.json().error.code).toBe('not_found');
-  });
-
-  it('executes with the token only: 202 and the operation, the same request again is the same operation', async () => {
-    const made = await handoff();
-    const url = routes.executeSuperHandoff('AR', made.id);
-    const requestId = randomUUID();
-    const run = () => app.app.inject({ method: 'POST', url, headers: bearer, payload: { requestId } });
-    const first = await run();
-    expect(first.statusCode, first.body).toBe(202);
-    const operation = ExecuteSuperHandoffResponse.parse(first.json()).operation;
-    expect(operation).toMatchObject({ state: 'succeeded', handoffId: made.id, requestId });
-    const again = await run();
-    expect(again.statusCode).toBe(202);
-    expect(ExecuteSuperHandoffResponse.parse(again.json()).operation.id).toBe(operation.id);
-    expect(ran).toBe(1);
-    const closed = await app.app.inject({
-      method: 'POST',
-      url,
-      headers: bearer,
-      payload: { requestId: randomUUID() },
-    });
-    expect(closed.statusCode).toBe(409);
-    expect(closed.json().error.code).toBe('super_handoff_closed');
-  });
-
-  it('refuses the owner`s plain login, a bad body and an unknown handoff', async () => {
-    const made = await handoff();
-    const url = routes.executeSuperHandoff('AR', made.id);
-    const plain = await inject(app.app, 'POST', url, cookie, { requestId: randomUUID() });
-    expect(plain.statusCode).toBe(403);
-    expect(plain.json().error.code).toBe('integrator_not_allowed');
-    const bad = await app.app.inject({
-      method: 'POST',
-      url,
-      headers: bearer,
-      payload: { requestId: 'nope' },
-    });
-    expect(bad.statusCode).toBe(400);
-    const stray = await app.app.inject({
-      method: 'POST',
-      url,
-      headers: bearer,
-      payload: { requestId: randomUUID(), extra: 1 },
-    });
-    expect(stray.statusCode).toBe(400);
-    const unknown = await app.app.inject({
-      method: 'POST',
-      url: routes.executeSuperHandoff('AR', 'sho_missing'),
-      headers: bearer,
-      payload: { requestId: randomUUID() },
-    });
-    expect(unknown.statusCode).toBe(404);
-    expect(ran).toBe(0);
-  });
-
-  it('answers 503 while no executor is wired for the kind of the command', async () => {
-    const made = await app.app.projectman.domain.superHandoffs.request(
-      'AR',
-      { kind: 'ai', handle: 'operator' },
-      {
-        reason: 'A fictional reason',
-        command: { kind: 'administration', request: { kind: 'deploy', releaseId: 'rel_fixture' } },
-        requestId: randomUUID(),
-      },
-    );
-    const response = await app.app.inject({
-      method: 'POST',
-      url: routes.executeSuperHandoff('AR', made.id),
-      headers: bearer,
-      payload: { requestId: randomUUID() },
-    });
-    expect(response.statusCode).toBe(503);
-    expect(response.json().error.code).toBe('super_executor_unavailable');
   });
 
   describe('relaying an owner answer', () => {

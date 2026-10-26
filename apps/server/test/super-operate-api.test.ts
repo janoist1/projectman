@@ -2,7 +2,6 @@ import { randomUUID } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   CreatedIntegratorAccessKey,
-  SuperDiagnosticsResponse,
   SuperOperateResponse,
   SuperOperationDetail,
   routes,
@@ -89,51 +88,6 @@ describe('super-mode operation, status and diagnostics routes (PM-764)', () => {
     );
     expect((await app.app.inject({ method: 'POST', url, payload: {} })).statusCode).toBe(401);
     expect(ran).toBe(0);
-  });
-
-  it('has no administration adapter here: status and logs are 503, a bad target is 400', async () => {
-    const status = await get(`${routes.superAdministrationStatus('AR')}?target=hub`);
-    expect(status.statusCode).toBe(503);
-    expect(status.json().error.code).toBe('administration_unavailable');
-    expect((await get(`${routes.superAdministrationLogs('AR')}?target=hub&limit=5`)).statusCode).toBe(503);
-    expect((await get(routes.superAdministrationStatus('AR'))).statusCode).toBe(400);
-    expect((await get(`${routes.superAdministrationStatus('AR')}?target=web`)).statusCode).toBe(400);
-    expect((await get(`${routes.superAdministrationLogs('AR')}?target=hub&limit=201`)).statusCode).toBe(400);
-    expect((await get(`${routes.superAdministrationLogs('AR')}?target=hub&limit=0`)).statusCode).toBe(400);
-    const admin = await addHumanAndLogin(app.app, { handle: 'ada', access: 'admin' });
-    expect(
-      (await get(`${routes.superAdministrationStatus('AR')}?target=hub`, { cookie: admin })).statusCode,
-    ).toBe(403);
-    expect(
-      (await app.app.inject({ method: 'GET', url: routes.superAdministrationStatus('AR') })).statusCode,
-    ).toBe(401);
-  });
-
-  it('answers a closed diagnostics catalogue for the owner and the token, and nothing else', async () => {
-    const url = routes.superDiagnosticsQuery('AR');
-    for (const headers of [bearer, { cookie }]) {
-      const response = await post(url, { query: 'operations' }, headers);
-      expect(response.statusCode, response.body).toBe(200);
-      expect(SuperDiagnosticsResponse.parse(response.json())).toMatchObject({
-        columns: ['id', 'taskKey', 'state', 'operation', 'createdAt', 'updatedAt'],
-        truncated: false,
-      });
-    }
-    await post(routes.superOperations('AR'), { requestId: randomUUID(), command: PAUSE });
-    const rows = SuperDiagnosticsResponse.parse((await post(url, { query: 'operations' })).json()).rows;
-    expect(rows).toHaveLength(1);
-    expect(rows[0]![3]).toBe('operate:project_pause');
-    for (const body of [
-      { query: 'users' },
-      { query: 'tasks', sql: 'select 1' },
-      { query: 'tasks', limit: 1000 },
-      {},
-    ])
-      expect((await post(url, body)).statusCode, JSON.stringify(body)).toBe(400);
-    expect((await post(url, { query: 'tasks', taskKey: 'ZZ-1' })).statusCode).toBe(404);
-    const admin = await addHumanAndLogin(app.app, { handle: 'ada', access: 'admin' });
-    expect((await post(url, { query: 'tasks' }, { cookie: admin })).statusCode).toBe(403);
-    expect((await app.app.inject({ method: 'POST', url, payload: { query: 'tasks' } })).statusCode).toBe(401);
   });
 
   it('refuses the administration command here as unavailable when no executor is wired (503)', async () => {

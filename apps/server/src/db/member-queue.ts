@@ -4,7 +4,6 @@ import type {
   MemberQueueItemKind,
   MemberQueueSource,
   MemberQueueState,
-  MemberQueueSummary,
   OperatorQueueOutcome,
   WorkItemRef,
 } from '@projectman/shared';
@@ -138,14 +137,6 @@ export function createMemberQueueRepository(db: Db) {
     close: db.prepare(
       `UPDATE member_queue_items SET state = @state, close_reason = @reason, closed_at = @at, outcome = @outcome
        WHERE id = @id AND state IN ('queued','processing')`,
-    ),
-    summaries: db.prepare(
-      `SELECT member,
-         SUM(CASE WHEN state = 'queued' THEN 1 ELSE 0 END) AS queued,
-         SUM(CASE WHEN state = 'processing' THEN 1 ELSE 0 END) AS processing,
-         SUM(CASE WHEN state = 'queued' AND wake = 1 THEN 1 ELSE 0 END) AS waking,
-         MIN(CASE WHEN state = 'queued' THEN queued_at END) AS oldest
-       FROM member_queue_items WHERE project_key = ? AND state IN ('queued','processing') GROUP BY member`,
     ),
     everQueued: db.prepare('SELECT 1 FROM member_queue_items WHERE project_key = ? AND member = ? LIMIT 1'),
     openOfType: db.prepare(
@@ -291,24 +282,6 @@ export function createMemberQueueRepository(db: Db) {
         }
         return closed;
       })();
-    },
-    /** The open counts per member that has any; a member with no open item is absent. */
-    summaries(projectKey: string): MemberQueueSummary[] {
-      return (
-        statements.summaries.all(projectKey) as Array<{
-          member: string;
-          queued: number;
-          processing: number;
-          waking: number;
-          oldest: string | null;
-        }>
-      ).map((row) => ({
-        member: row.member,
-        queued: row.queued,
-        processing: row.processing,
-        waking: row.waking,
-        oldestQueuedAt: row.oldest,
-      }));
     },
     everQueued(projectKey: string, member: string): boolean {
       return !!statements.everQueued.get(projectKey, member);

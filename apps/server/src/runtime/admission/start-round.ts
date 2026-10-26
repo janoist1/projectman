@@ -32,6 +32,7 @@ import { startContext } from '../../core/tasks';
 import type { ProjectFocusService, TaskService, TaskWaits } from '../../core/tasks';
 import type { Admission, StartRounding } from './admission';
 import type { SeniorWaits } from './senior-waits';
+import { DomainError } from '../../kernel';
 
 interface ProjectRound {
   sourceStageId: string;
@@ -43,6 +44,8 @@ interface ProjectRound {
   wanted: Set<string>;
   /** The open `start` offers of the project's cards, by card key. */
   offers: Map<string, TaskStartOffer>;
+  /** Admission refusals already reported, by card, developer and reason. */
+  refusals: Map<string, string>;
 }
 
 /** The part of the obligation tracking the round needs (the assembly adapts `ObligationsService.open`). */
@@ -62,7 +65,7 @@ interface StartRoundDeps {
   tasks: Pick<TaskService, 'readSchedulingTasks'>;
   focus: Pick<ProjectFocusService, 'covered'>;
   seniorWaits: Pick<SeniorWaits, 'decisionFor'>;
-  admission: Pick<Admission, 'freeDevelopers' | 'startFrame' | 'engineOffline'>;
+  admission: Pick<Admission, 'freeDevelopers' | 'startFrame' | 'engineOffline' | 'check'>;
   messaging: Pick<Messaging, 'send'>;
   waits: Pick<TaskWaits, 'of'>;
 }
@@ -109,7 +112,14 @@ export class StartRound implements StartRounding {
   /** The open offer to start the card, while the round still stands behind it (a hold or a frame shows the hold). */
   startOfferOf(task: Task): TaskStartOffer | undefined {
     const state = this.stateOfQueued(task, true);
-    if (!state || state.frame || state.holds.has(task.key) || !state.wanted.has(task.key)) return undefined;
+    if (
+      !state ||
+      state.frame ||
+      state.holds.has(task.key) ||
+      state.refusals.has(task.key) ||
+      !state.wanted.has(task.key)
+    )
+      return undefined;
     return state.offers.get(task.key);
   }
 
@@ -122,7 +132,7 @@ export class StartRound implements StartRounding {
     const state = this.states.get(projectKey);
     if (!state) return null;
     if (this.started(projectKey, taskKey, state)) return 'ended';
-    if (state.frame || state.holds.has(taskKey)) return 'paused';
+    if (state.frame || state.holds.has(taskKey) || state.refusals.has(taskKey)) return 'paused';
     return state.wanted.has(taskKey) ? 'offered' : 'ended';
   }
 
@@ -251,6 +261,7 @@ export class StartRound implements StartRounding {
       holds: new Map(),
       wanted: new Set(),
       offers: new Map(live.map((row) => [row.taskKey, { to: row.responsible, since: row.openedAt }])),
+      refusals: new Map(),
     };
     const frame = (hold: TaskReadyHold) => {
       state.frame = keepSince(hold, old?.frame);
@@ -311,6 +322,33 @@ export class StartRound implements StartRounding {
     }
     // The state is set before the offers open: the obligation tracking asks the round about every row it reads.
     this.states.set(key, state);
+    for (const card of cards) {
+      const entry = plan.get(card.key);
+      if (entry?.kind !== 'offer') continue;
+      const member = memberOf(config, entry.developer);
+      if (member?.kind !== 'ai') continue;
+      try {
+        await admission.check({ config, member, workItem: { type: 'task', taskKey: card.key } });
+      } catch (err) {
+        if (!(err instanceof DomainError)) throw err;
+        const refusal = `${card.stageId}:${member.handle}:${err.code}`;
+        state.refusals.set(card.key, refusal);
+        if (old?.refusals.get(card.key) === refusal) continue;
+        const recipient =
+          cardMoverHandle(config) ?? projectManagerOf(config)?.handle ?? operatorOf(config)?.handle;
+        if (recipient && memberOf(config, recipient)?.kind === 'ai' && !isHandleOnLeave(config, recipient))
+          await this.deps.messaging.send(
+            key,
+            SYSTEM_SENDER,
+            {
+              to: [recipient],
+              taskKey: card.parentKey ?? card.key,
+              text: `${card.key} cannot start: ${member.handle} is blocked (${err.code}). The system will offer it when admission allows the start.`,
+            },
+            { kind: 'info' },
+          );
+      }
+    }
     await this.offer({ config, state, cards, plan, places, toStageId: development.id });
   }
 
@@ -333,7 +371,12 @@ export class StartRound implements StartRounding {
     if (!recipient || memberOf(config, recipient)?.kind !== 'ai' || !this.obligations) return;
     if (isHandleOnLeave(config, recipient)) return;
     const fresh = cards
-      .filter((card) => plan.get(card.key)?.kind === 'offer' && !state.offers.has(card.key))
+      .filter(
+        (card) =>
+          plan.get(card.key)?.kind === 'offer' &&
+          !state.offers.has(card.key) &&
+          !state.refusals.has(card.key),
+      )
       .sort((a, b) => compareStartOrder(a, b, places));
     if (fresh.length === 0) return;
     // The parts of a collecting card go together, the other cards alone, in the order of their first card.

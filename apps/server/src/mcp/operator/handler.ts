@@ -1,5 +1,6 @@
 import {
   isOperator,
+  isProjectManager,
   memberOf,
   roleBundle,
   ScreeningTodo as ScreeningTodoSchema,
@@ -300,8 +301,9 @@ export class OperatorTools implements OperatorToolsHandler {
 
   private async preferenceCall<T>(ctx: ToolContext, tool: string, run: () => Promise<T>): Promise<T> {
     const config = await this.projects.config(ctx.projectKey);
-    if (!isOperator(memberOf(config, ctx.member)))
-      throw new TeamToolError('forbidden', 'operator_only: only the Operator may use preferences.');
+    const member = memberOf(config, ctx.member);
+    if (!isOperator(member) && !isProjectManager(member))
+      throw new TeamToolError('forbidden', 'operator_only: only the Operator or PM may use preferences.');
     await this.calls.callerWithRequest(ctx, tool);
     try {
       return await run();

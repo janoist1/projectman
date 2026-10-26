@@ -252,10 +252,10 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
     }),
     defineTool({
       name: 'get_operator_preference',
-      audience: { roles: ['operator'] },
+      audience: { roles: ['operator', 'project_manager'] },
       title: 'Read personal conversation preferences',
       description:
-        'Only the Operator in the current person’s general conversation. Read their personal style and revision. The server chooses the person from the session; no handle, project or path is accepted. These five style fields never authorize project changes.',
+        'The Operator in the current person’s general conversation, or the selected active PM with an open direct owner message/answer in its internal general session. Read their personal style and revision. The server chooses the person; no handle, project or path is accepted. These five style fields never authorize project changes.',
       readOnly: true,
       input: {},
       async run({ ctx, handler }) {
@@ -264,10 +264,10 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
     }),
     defineTool({
       name: 'set_operator_preference',
-      audience: { roles: ['operator'] },
+      audience: { roles: ['operator', 'project_manager'] },
       title: 'Set personal conversation preferences',
       description:
-        'Only the Operator, for the person currently speaking in their own conversation, including guests. Read get_operator_preference first and pass its revision as expected_revision. Changes only this person’s five style fields; grants no other write. Confirm the new style in one sentence in the project language. To reset, use brief/plain/offer/plain/minimal. On operator_knowledge_stale read again before retrying.',
+        'The Operator for the person currently speaking in their own conversation, including guests, or the selected active PM with an open direct owner message/answer in its internal general session. Learn only from explicit style requests or corrections. Read get_operator_preference first and pass its revision as expected_revision. Changes only this person’s five style fields; grants no other write. Confirm the new style in one sentence in the project language. To reset, use brief/plain/offer/plain/minimal. On operator_knowledge_stale read again before retrying.',
       readOnly: false,
       input: { expected_revision: z.number().int().nonnegative(), preference: OperatorPreferenceData },
       async run({ ctx, args, handler }) {

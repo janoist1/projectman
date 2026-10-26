@@ -1211,6 +1211,15 @@ network, SSM or shell, only one Unix socket.
   OS user as the supervisor, so the sandbox is what keeps them from the 0600 socket: the state and the socket
   directory must therefore lie below `<app home>/administration`. `npm run administration -- prepare` takes
   `--app-home` and refuses any other place, on the hub host and on an engine machine alike.
+- **Builder full-test sandbox (PM-816).** The administration builder's `full_test` and its `npm ci` both use
+  the full-test sandbox: the user's home, the protected configuration's `appHome` and the shared temporary
+  roots are denied for reading. These include the default, configured (`CLAUDE_CODE_TMPDIR`) and canonical
+  Claude roots, `defaultSessionTmpRoot()` and canonical `os.tmpdir()/projectman-sessions`. The checkout, its git
+  directory and the run's own `pmft-*/sandbox` stay readable; no shared root is reopened. Only the installer
+  may reach `registry.npmjs.org` and `nodejs.org`; the test has no outward network access. A builder without a
+  valid absolute app home in `supervisor.json` refuses to start, and failure to resolve temporary roots never
+  falls back to an unrestricted run. The paths and environment are resolved on the builder machine, including
+  for a remote engine.
 - **Owner-approved shell (PM-887).** The protected config must explicitly set `ownerCommand.shell` to an
   absolute shell path (`prepare --owner-command-shell <path>`); otherwise the capability is absent and the
   command is unavailable. Every command is a `security` effect in a fresh `waiting_owner` operation and needs

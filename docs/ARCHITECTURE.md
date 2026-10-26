@@ -2089,11 +2089,18 @@ workers follow the machine's size.
   `apps/server/src/administration/executors.ts` (`createBuilderExecutors`, `FULL_TEST_COMMANDS`),
   `scripts/administration/builder.ts` (the real toolbox) and `scripts/administration/supervisor.ts`, which installs
   the executors only where the supervisor configuration names a builder (`SupervisorConfig.builder {repo, root}`,
-  both absolute paths); `scripts/cloud/images.ts` (`buildPinnedImage`). **Machine assumptions:** the builder
-  repository holds the card's commit (`git cat-file`); the full test checks the commit out into a detached
-  worktree below `builder.root` (`createLocalBranchMerger.checkoutForCheck`) and runs `npm run merge-test` (or
+  both absolute paths) and an absolute, NUL-free top-level `appHome` (PM-816); `scripts/cloud/images.ts`
+  (`buildPinnedImage`). The protected config supplies the app home, with no environment or home-directory
+  fallback; a builder configuration missing it refuses to start. `prepare --app-home` writes it on both platforms.
+  **Machine assumptions:** the builder repository holds the card's commit (`git cat-file`); the full test checks
+  the commit out into a detached worktree below `builder.root` (`createLocalBranchMerger.checkoutForCheck`) and
+  runs `npm run merge-test` (or
   `-- --all`) in the full-test sandbox (`sandbox-exec` on macOS) at its turn in the machine's heavy-run queue
-  (`defaultHeavyLockDir`, `requireHeavyLock`); the image build exports the commit with `git archive` (tracked files
+  (`defaultHeavyLockDir`, `requireHeavyLock`). Both the test and its sandboxed `npm ci` deny the configured app
+  home and the shared Claude temporary roots (including `CLAUDE_CODE_TMPDIR`), `defaultSessionTmpRoot()` and
+  canonical `os.tmpdir()/projectman-sessions`; the run's own sandbox, checkout and git metadata stay readable,
+  as in "Server full test before review". The builder resolves these roots on its own machine, never from hub
+  paths or environment (PM-816). The image build exports the commit with `git archive` (tracked files
   only, symbolic links and secret-named paths refused) and runs `docker buildx build --output type=docker,dest=…`
   into `<builder.root>/_image-build`, with no `docker load`, no registry push and no deploy. **Remote engine:**
   yes, and that is the design: the hub never reads a path or runs a test or a build. It sends the strict command

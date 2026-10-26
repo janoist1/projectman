@@ -968,12 +968,9 @@ Every AI member has one durable queue of what is waiting for them: a message, an
   delivers as before (receipt and item close together). Items a session works (`processing`) return to the queue
   when the session is gone, after `MEMBER_QUEUE_MAX_ATTEMPTS` they are handed off, and after 45 minutes the session is
   stopped. An old `message_wake` deferred-start row is read once (`ensure`) and deleted.
-- **API** (`apps/server/src/api/member-queue.ts`): `GET /api/projects/:key/member-queues` (every AI member in
-  configuration order, zeros included), `GET /api/projects/:key/members/:handle/queue?closedSince=` (open items and the
-  items closed since; default 24 hours; an unknown or non-AI handle is 404 `unknown_member`, a bad date 400
-  `invalid_request`) and `GET /api/projects/:key/operator/queue`. Access: a person's own login (developer or more) or
-  an integrator read or super key; the legacy integrator key is refused (`insufficient_access`, on the Operator route
-  `operator_owner_only`). The Operator channel (`OperatorChannel.queue`) carries the open count and the item in work.
+- **API** (`apps/server/src/api/member-queue.ts`): `GET /api/projects/:key/operator/queue` only (PM-1030 deleted the
+  per-member and all-members routes; nothing called them). Access: a person's own login (developer or more) or
+  an integrator read or super key; the legacy integrator key is refused (`operator_owner_only`). The Operator channel (`OperatorChannel.queue`) carries the open count and the item in work.
 - **WebSocket**: `member_queue_changed {projectKey, member}`, once per member per unit of work. Clients do not see it.
 - **Remote engine**: no machine-dependent part is added. The queue, the driver and the sweep live on the hub with the
   database; only the session start crosses to an engine, as before. A member whose engine is offline waits with
@@ -996,8 +993,8 @@ retired by PM-888, whose `execute_operation` runs the command directly, see "In-
 below; the schema and the stored handoffs stay) stores a `SuperHandoff`: one `SuperCommand` of a closed set (`operate`, `member_update`, `invite_create`,
 `merge`, `merge_order`, `administration`), a reason and, optionally, the configuration version it was made
 against. It grants no execution right and no approval. The integrator lists the handoffs (`GET
-…/operator-super/handoffs`) and starts one with `POST …/handoffs/:id/execute {requestId}` (202 `{operation}`),
-authenticated by the owner's super token; one `(project, token, request id)` is one `SuperOperation`, so a retry
+…/operator-super/handoffs`) and starts one with the `execute_super_handoff` MCP tool (there is no REST execute route,
+PM-1030), authenticated by the owner's super token; one `(project, token, request id)` is one `SuperOperation`, so a retry
 returns the same record and a different command under the same id is 409 `super_request_conflict`.
 
 The server classifies the command itself (`superCommandEffects`, a projection onto the closed mutation list of
@@ -1079,10 +1076,10 @@ to an engine.
 ## Super-mode diagnostics, test and build (PM-764, part of the super mode PM-757)
 
 The integrator (a super token, an owner's access) reads and starts what it needs to prepare a release, every call
-bound to the project and to an engine linked to it. `GET …/operator-super/administration/status?target=hub|<engineId>`
-and `…/logs?target=…&limit=50` (at most 200) answer from the supervisor's sanitized view
+bound to the project and to an engine linked to it. The MCP tools `get_administration_status` (`target=hub|<engineId>`)
+and `get_administration_logs` (`limit` at most 200) answer from the supervisor's sanitized view
 (503 `administration_unavailable` where the instance has no adapter, 403 `administration_target_mismatch` for an
-engine that is not linked). `POST …/operator-super/diagnostics/query {query, taskKey?, limit}` reads a closed
+engine that is not linked); the REST routes were deleted in PM-1030, nothing called them. The `query_super_diagnostics` tool reads a closed
 catalogue by name (`tasks`, `sessions`, `merges`, `operations`), each with the fixed columns of
 `SUPER_DIAGNOSTIC_COLUMNS`: there is no SQL, no table or column argument, and no user, key, secret, inbox text or
 personal data in any column. `POST …/operator-super/operations {requestId, taskKey?, command}` starts a
@@ -2083,9 +2080,8 @@ workers follow the machine's size.
   `planLabelChange` as `authority`; owner-reserved labels stay refused.
 
 - **Super-mode diagnostics, full test, image build and release preparation (PM-764, Super mode 8/10)** —
-  hub: `services/super-operator/{administration,facade,rights,diagnostics}.ts`, the five routes
-  `routes.superOperations|superOperation|superAdministrationStatus|superAdministrationLogs|superDiagnosticsQuery`
-  (`api/operator.ts`), `packages/shared/src/api/super-operate.ts`. Builder (the machine that tests and builds):
+  hub: `services/super-operator/{administration,facade,rights,diagnostics}.ts`, the two routes
+  `routes.superOperations|superOperation` (`api/operator.ts`; the status, logs and diagnostics reads are MCP tools only), `packages/shared/src/api/super-operate.ts`. Builder (the machine that tests and builds):
   `apps/server/src/administration/executors.ts` (`createBuilderExecutors`, `FULL_TEST_COMMANDS`),
   `scripts/administration/builder.ts` (the real toolbox) and `scripts/administration/supervisor.ts`, which installs
   the executors only where the supervisor configuration names a builder (`SupervisorConfig.builder {repo, root}`,
@@ -4613,9 +4609,8 @@ later parts of PM-427 (the order of deferred starts, the AI members' brief, the 
 - **Who sets it.** A person (`actor.kind === 'human'`, through the integrator too) who owns the project
   (`ownerHandles`) or holds the `prioritization` duty (`dutyMembers`); no approval. An AI member or the system gets
   `focus_humans_only`, any other person `focus_not_allowed`.
-- **API.** `GET /api/projects/:key/focus` (`ProjectFocusView`, with `canEdit`), `POST .../focus/items`,
-  `PATCH` and `DELETE .../focus/items/:taskKey`, and `GET .../focus/changes?limit=` (the project's `focus_changed`
-  events, newest first). Every member reads (`requireAccess`); the writes are refused by the domain to anyone without the prioritization duty.
+- **Access.** There is no REST route for the focus list (PM-1030 deleted them; nothing called them): the MCP tools and
+  `ProjectFocusService` read and write it, and the domain refuses a write to anyone without the prioritization duty.
 - **Timeline.** `focus_changed` (`added`/`removed` on the item's own card or theme, `moved` without a card, so it shows
   only in the project's changes). `task_stage_changed.data.pulled` (`StagePull`: `{ reason: 'urgent' }` or
   `{ reason: 'focus', position, key, title }`) marks a card the system pulled into the work stage (below).

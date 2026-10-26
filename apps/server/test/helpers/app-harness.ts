@@ -332,7 +332,7 @@ export async function asSuperIntegrator<T>(
   body: (access: ProjectAccess) => Promise<T>,
 ): Promise<T> {
   const { auth, domain } = h.app.projectman;
-  const principal = auth.resolveIntegratorCredential(secret, 'rest')!;
+  const principal = auth.resolveIntegratorCredential(secret, 'mcp')!;
   const config = await domain.projects.config('AR');
   const access = bindSuperPrincipal(config, projectAccessFor(config, OWNER_LOGIN.email)!, principal);
   return domain.superOperator.run(

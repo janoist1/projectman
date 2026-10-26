@@ -1303,12 +1303,15 @@ describe('system prompt', () => {
     });
   });
 
-  it('includes the e-mail channel only for an enabled sender in an enabled project', () => {
+  it('includes the e-mail channel only for an enabled sender in an enabled project', async () => {
     const heading = '# E-mail channel';
     const project = buildProject();
     project.project.email = { enabled: true };
     aiMember(project, 'fe-1').email = { enabled: true };
-    expect(builder.build(input({ project, handle: 'fe-1' })).appendSystemPrompt).toContain(heading);
+    const pack = builder.build(input({ project, handle: 'fe-1' }));
+    expect(pack.appendSystemPrompt).toContain(heading);
+    const section = pack.sections.find((section) => section.text.startsWith(heading))!;
+    await expect(`${section.text}\n`).toMatchFileSnapshot('__snapshots__/email-channel.section.txt');
 
     const projectOff = buildProject();
     aiMember(projectOff, 'fe-1').email = { enabled: true };

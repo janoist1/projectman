@@ -670,7 +670,13 @@ export interface ReleaseToolsHandler {
 export interface EmailToolsHandler {
   sendEmail(
     ctx: ToolContext,
-    args: { to: string; subject: string; text: string; taskKey: string | null },
+    args: {
+      to: string;
+      subject: string | null;
+      text: string;
+      taskKey: string | null;
+      replyTo: string | null;
+    },
   ): Promise<{ emailId: string; status: 'pending_approval' | 'sent' }>;
   setEmailContact(
     ctx: ToolContext,

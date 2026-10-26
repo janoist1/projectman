@@ -14,6 +14,7 @@ import {
   emailOwnAddress,
   emailRecipientRefusal,
   emailReplyAddress,
+  emailReplySubject,
   emailSenderOf,
   ownerHandles,
 } from '@projectman/shared';
@@ -116,7 +117,6 @@ export function createEmailChannelService(deps: {
     config: ProjectConfig,
     record: EmailMessageRecord,
   ): Promise<void> {
-    const token = replyToken();
     const member = config.team.members.find((candidate) => candidate.handle === record.member);
     const recipient = config.team.members.find((candidate) => candidate.handle === record.contact);
     if (!member || recipient?.kind !== 'human' || !recipient.email)
@@ -126,7 +126,33 @@ export function createEmailChannelService(deps: {
       member.kind === 'ai'
         ? emailOwnAddress(await projectConfigs(projects), projectKey, member, env.replyDomain)
         : null;
+    const parent = record.inReplyTo ? repo.messages.get(record.inReplyTo) : null;
+    const received = parent?.direction === 'inbound' ? parent : null;
+    const headers: OutboundMail['headers'] = [];
+    if (received?.mimeMessageId) {
+      const ids = [...(received.mimeReferences?.split(' ') ?? []), received.mimeMessageId];
+      while (ids.join(' ').length > 900 && ids.length > 1) ids.splice(1, 1);
+      headers.push(
+        { name: 'In-Reply-To', value: received.mimeMessageId },
+        { name: 'References', value: ids.join(' ') },
+      );
+    }
     const rendered = renderEmail({
+      ...(received
+        ? {
+            quote: {
+              header: getLocale(config.project.language).email.quoteHeader({
+                date: new Intl.DateTimeFormat(config.project.language, {
+                  dateStyle: 'medium',
+                  timeStyle: 'short',
+                  timeZone: config.project.timezone,
+                }).format(new Date(received.createdAt)),
+                name: recipient.displayName,
+              }),
+              text: received.text,
+            },
+          }
+        : {}),
       text: record.text,
       ...(repo.messages.sentBefore(projectKey, member.handle, recipient.handle)
         ? {}
@@ -139,19 +165,29 @@ export function createEmailChannelService(deps: {
     });
     const shared = { from: env.from, fromName: `${member.displayName} · ${config.project.name}` };
     const sentFrom = own ? { from: own, fromName: member.displayName } : shared;
+    let token: string | null = null;
+    const tokenFields = (fallback: boolean) => {
+      if (fallback) token ??= replyToken();
+      return {
+        replyTokenHash: fallback ? replyTokenHash(replyKey, token!) : null,
+        replyExpiresAt: fallback
+          ? new Date(now().getTime() + EMAIL_REPLY_TOKEN_DAYS * DAY_MS).toISOString()
+          : null,
+      };
+    };
     const at = now().toISOString();
     repo.messages.update(record.id, {
       status: 'sending',
       fromAddress: sentFrom.from,
-      replyTokenHash: replyTokenHash(replyKey, token),
-      replyExpiresAt: new Date(now().getTime() + EMAIL_REPLY_TOKEN_DAYS * DAY_MS).toISOString(),
+      ...tokenFields(!own),
       updatedAt: at,
     });
     changed(projectKey);
     const mail = (from: { from: string; fromName: string }): OutboundMail => ({
       to: recipient.email!,
       ...from,
-      replyTo: emailReplyAddress(projectKey, token, env.replyDomain),
+      ...(from === shared ? { replyTo: emailReplyAddress(projectKey, token!, env.replyDomain) } : {}),
+      ...(headers.length ? { headers } : {}),
       subject: record.subject,
       text: rendered.text,
       html: rendered.html,
@@ -166,7 +202,11 @@ export function createEmailChannelService(deps: {
           { projectKey, member: record.member, from: sentFrom.from },
           'the provider refused the member address; sent from the shared address instead: run `npm run cloud -- ses receive-configure`',
         );
-        repo.messages.update(record.id, { fromAddress: shared.from, updatedAt: now().toISOString() });
+        repo.messages.update(record.id, {
+          fromAddress: shared.from,
+          ...tokenFields(true),
+          updatedAt: now().toISOString(),
+        });
         result = await sender.send(mail(shared));
       }
       repo.messages.update(record.id, {
@@ -423,7 +463,20 @@ export function createEmailChannelService(deps: {
 
     async send(projectKey, caller, input) {
       const { env } = configuredParts();
-      if (!input.subject.trim() || input.subject.length > EMAIL_SUBJECT_MAX)
+      const parent = input.replyTo ? repo.messages.get(input.replyTo) : null;
+      if (
+        input.replyTo &&
+        (!parent ||
+          parent.projectKey !== projectKey ||
+          parent.direction !== 'inbound' ||
+          parent.status !== 'delivered' ||
+          parent.member !== caller ||
+          parent.contact !== input.to)
+      )
+        throw refused('email_unknown', 'unknown received e-mail', 404);
+      const subject = input.subject ?? (parent ? emailReplySubject(parent.subject) : null);
+      const taskKey = input.taskKey ?? parent?.taskKey ?? null;
+      if (!subject?.trim() || subject.length > EMAIL_SUBJECT_MAX)
         throw refused('invalid_request', 'the subject is invalid', 400);
       if (!input.text.trim() || input.text.length > EMAIL_TEXT_MAX)
         throw refused('invalid_request', 'the text is invalid', 400);
@@ -449,9 +502,9 @@ export function createEmailChannelService(deps: {
       )
         throw refused('email_rate_limited', 'the daily e-mail limit is reached', 429);
       const refusals = await contentRefusals(projectKey, config, input.to, caller, {
-        subject: input.subject,
+        subject,
         text: input.text,
-        taskKey: input.taskKey,
+        taskKey,
       });
       if (refusals[0])
         throw refused('email_content_refused', 'the e-mail content is not allowed', 403, refusals[0]);
@@ -461,8 +514,8 @@ export function createEmailChannelService(deps: {
           direction: 'outbound',
           member: caller,
           contact: input.to,
-          taskKey: input.taskKey,
-          subject: input.subject,
+          taskKey,
+          subject,
           text: input.text,
           status: 'sending',
           parkReason: null,
@@ -471,10 +524,12 @@ export function createEmailChannelService(deps: {
           attachmentNames: [],
           replyTokenHash: null,
           replyExpiresAt: null,
-          inReplyTo: null,
+          inReplyTo: parent?.id ?? null,
           providerId: null,
           inboxItemId: null,
           messageId: null,
+          mimeMessageId: null,
+          mimeReferences: null,
           decidedBy: null,
           decidedAt: null,
           createdAt: at.toISOString(),
@@ -483,11 +538,9 @@ export function createEmailChannelService(deps: {
         changed(projectKey);
         try {
           await deliver(projectKey, config, record);
-          await notify(projectKey, caller, input.taskKey, 'Your e-mail was sent.');
+          await notify(projectKey, caller, taskKey, 'Your e-mail was sent.');
         } catch (error) {
-          await notify(projectKey, caller, input.taskKey, 'Your e-mail could not be sent.').catch(
-            () => undefined,
-          );
+          await notify(projectKey, caller, taskKey, 'Your e-mail could not be sent.').catch(() => undefined);
           throw error;
         }
         return { emailId: record.id, status: 'sent' };
@@ -499,8 +552,8 @@ export function createEmailChannelService(deps: {
           direction: 'outbound',
           member: caller,
           contact: input.to,
-          taskKey: input.taskKey,
-          subject: input.subject,
+          taskKey,
+          subject,
           text: input.text,
           status: 'pending_approval',
           parkReason: null,
@@ -509,10 +562,12 @@ export function createEmailChannelService(deps: {
           attachmentNames: [],
           replyTokenHash: null,
           replyExpiresAt: null,
-          inReplyTo: null,
+          inReplyTo: parent?.id ?? null,
           providerId: null,
           inboxItemId: null,
           messageId: null,
+          mimeMessageId: null,
+          mimeReferences: null,
           decidedBy: null,
           decidedAt: null,
           createdAt: at.toISOString(),
@@ -523,8 +578,8 @@ export function createEmailChannelService(deps: {
           kind: 'approval',
           assignees: ownerHandles(config),
           source: caller,
-          taskKey: input.taskKey,
-          title: `E-mail approval: ${input.subject}`,
+          taskKey,
+          title: `E-mail approval: ${subject}`,
           body: input.text,
           payload: {
             email: {
@@ -532,8 +587,8 @@ export function createEmailChannelService(deps: {
               member: caller,
               contact: input.to,
               contactName: recipientMember.displayName,
-              taskKey: input.taskKey,
-              subject: input.subject,
+              taskKey,
+              subject,
               text: input.text,
             },
           },

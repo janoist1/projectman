@@ -2475,6 +2475,7 @@ workers follow the machine's size.
   **Member addresses (PM-989):** the same receipt rule also takes mail to `<mailbox>@<reply domain>`, the
   permanent address of an AI member (`services/email-channel/inbound.ts`, `receiveDirect`; the mailbox name
   is the handle or `ai.email.mailbox`, unique server-wide). The mail lands in the member's conversation as a
+  reply linked by MIME headers when answering a member's mail (PM-1018), otherwise as a direct
   team message, and its attachments go through the message-attachments storage on the hub, so nothing new
   crosses to an engine.
 

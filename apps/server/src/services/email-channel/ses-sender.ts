@@ -8,6 +8,7 @@ export interface OutboundMail {
   fromName: string;
   /** Absent: no `ReplyToAddresses`. */
   replyTo?: string;
+  headers?: { name: 'In-Reply-To' | 'References'; value: string }[];
   subject: string;
   text: string;
   html: string;
@@ -88,6 +89,9 @@ export function createSesEmailSender(options: SesEmailSenderOptions): EmailSende
         ...(options.configurationSet ? { ConfigurationSetName: options.configurationSet } : {}),
         Content: {
           Simple: {
+            ...(input.headers?.length
+              ? { Headers: input.headers.map(({ name, value }) => ({ Name: name, Value: value })) }
+              : {}),
             Subject: { Data: input.subject.replace(/[\r\n]+/g, ' ').trim(), Charset: 'UTF-8' },
             Body: {
               Text: { Data: input.text, Charset: 'UTF-8' },

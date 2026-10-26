@@ -6,6 +6,7 @@ import {
   EMAIL_INBOUND_TEXT_MAX,
   EMAIL_PARKED_ALERTS_PER_DAY,
   EMAIL_SUBJECT_MAX,
+  EMAIL_REPLY_TOKEN_DAYS,
   MAX_MESSAGE_ATTACHMENTS,
   SYSTEM_SENDER,
   emailChannelOn,
@@ -39,6 +40,9 @@ const ATTACHMENT_NAME_MAX = 200;
 const ADDRESS_MAX = 320;
 
 type Parsed = {
+  mimeMessageId: string | null;
+  mimeReferences: string | null;
+  inReplyTo: string | null;
   fromAddress: string;
   subject: string;
   text: string;
@@ -70,7 +74,16 @@ async function parse(raw: Uint8Array): Promise<Parsed | null> {
     if (!fromAddress) return null;
     const body = email.text?.trim() ? email.text : htmlToText(email.html ?? '');
     const name = (filename: string | null) => limited(filename ?? 'attachment', ATTACHMENT_NAME_MAX);
+    const validId = (value: string | undefined): string | null =>
+      value && value.length <= 250 && /^<[^<>\s]+@[^<>\s]+>$/.test(value) ? value : null;
+    const references = (email.references ?? '')
+      .split(/\s+/)
+      .filter((id) => validId(id))
+      .slice(-20);
     return {
+      mimeMessageId: validId(email.messageId),
+      mimeReferences: references.length ? references.join(' ') : null,
+      inReplyTo: validId(email.inReplyTo),
       fromAddress: limited(fromAddress, ADDRESS_MAX),
       subject: limited((email.subject ?? '').trim(), EMAIL_SUBJECT_MAX),
       text: cleanReplyText(body),
@@ -159,6 +172,8 @@ export function createEmailInbound(deps: {
         providerId: mail.providerId,
         inboxItemId: null,
         messageId: null,
+        mimeMessageId: parsed?.mimeMessageId ?? null,
+        mimeReferences: parsed?.mimeReferences ?? null,
         decidedBy: null,
         decidedAt: null,
         createdAt: at,
@@ -252,6 +267,8 @@ export function createEmailInbound(deps: {
         providerId: mail.providerId,
         inboxItemId: null,
         messageId: null,
+        mimeMessageId: parsed.mimeMessageId,
+        mimeReferences: parsed.mimeReferences,
         decidedBy: null,
         decidedAt: null,
         createdAt: at,
@@ -368,6 +385,32 @@ export function createEmailInbound(deps: {
     const { dmarc, spam, virus } = mail.verdicts;
     if (dmarc !== 'pass' || spam === 'fail' || virus === 'fail')
       return park(projectKey, config, mail, 'authentication_failed', parsed, known);
+    const candidates = [parsed.inReplyTo, ...(parsed.mimeReferences?.split(' ').reverse() ?? [])];
+    for (const id of candidates) {
+      if (!id) continue;
+      const parent = repo.messages.byProviderId(id.slice(1, id.indexOf('@')));
+      if (
+        !parent ||
+        parent.direction !== 'outbound' ||
+        parent.projectKey !== projectKey ||
+        parent.member !== handle ||
+        parent.contact !== sender.handle
+      )
+        continue;
+      const age = now().getTime() - Date.parse(parent.createdAt);
+      if (!Number.isFinite(age) || age < 0 || age > EMAIL_REPLY_TOKEN_DAYS * DAY_MS) continue;
+      return deliverMail({
+        projectKey,
+        config,
+        mail,
+        parsed,
+        member: handle,
+        contact: sender.handle,
+        taskKey: parent.taskKey,
+        inReplyTo: parent.id,
+        direct: false,
+      });
+    }
     // The same rules as a message written in the app: the sender's consent to e-mail, and a client writes
     // only to the contacts (`opts.email` exempts a reply from the second, a mail to an address is not one).
     const wants = repo.contacts.get(projectKey, sender.handle)?.wants ?? false;

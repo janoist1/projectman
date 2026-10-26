@@ -1322,6 +1322,9 @@ such a mail too. Members also send from their own address; the system sender rem
 codes. After merging PM-1016, the owner runs `npm run cloud -- ses receive-configure --dry-run`, approves
 the IAM change, then runs `npm run cloud -- ses receive-configure` and `npm run cloud -- ses receive-check`.
 The existing reply identity and DKIM are reused; no new DNS record is needed for member sending.
+Replies arrive at the member's own address; In-Reply-To or References headers link them to the
+conversation and card (PM-1018). Token reply addresses remain for the shared-sender fallback and
+older mail, until their 60-day expiry.
 
 **The reader.** `createSqsInboundSource` (`apps/server/src/services/email-channel/sqs-source.ts`) long-polls
 the queue (up to 10 messages, 20 s wait, 60 s visibility), hands a mail or a delivery event to the channel

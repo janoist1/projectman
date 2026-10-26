@@ -47,7 +47,13 @@ export class EmailChannelTools {
 
   async sendEmail(
     ctx: ToolContext,
-    args: { to: string; subject: string; text: string; taskKey: string | null },
+    args: {
+      to: string;
+      subject: string | null;
+      text: string;
+      taskKey: string | null;
+      replyTo: string | null;
+    },
   ) {
     try {
       await this.allowed(ctx, 'send_email');
@@ -56,6 +62,7 @@ export class EmailChannelTools {
         subject: args.subject,
         text: args.text,
         taskKey: args.taskKey,
+        replyTo: args.replyTo,
       });
     } catch (err) {
       throw emailToolError(err);

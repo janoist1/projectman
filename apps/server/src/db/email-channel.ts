@@ -52,6 +52,8 @@ export interface EmailMessageRecord {
   providerId: string | null;
   inboxItemId: string | null;
   messageId: string | null;
+  mimeMessageId: string | null;
+  mimeReferences: string | null;
   decidedBy: string | null;
   decidedAt: string | null;
   createdAt: string;
@@ -78,6 +80,8 @@ const messageColumns = {
   providerId: 'provider_id',
   inboxItemId: 'inbox_item_id',
   messageId: 'message_id',
+  mimeMessageId: 'mime_message_id',
+  mimeReferences: 'mime_references',
   decidedBy: 'decided_by',
   decidedAt: 'decided_at',
   createdAt: 'created_at',

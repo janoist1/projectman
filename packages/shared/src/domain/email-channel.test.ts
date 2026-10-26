@@ -13,6 +13,8 @@ import {
   emailMailboxTaken,
   emailMemberAddress,
   emailReplyAddress,
+  emailReplySubject,
+  EMAIL_SUBJECT_MAX,
   parseEmailMemberAddress,
   parseEmailReplyAddress,
 } from './email-channel';
@@ -360,5 +362,18 @@ describe('email inbox payloads', () => {
     expect(alertPayloadOf({ kind: 'alert', payload })).toEqual(payload);
     expect(EmailParkedAlert.safeParse({ ...payload, subject: 'a'.repeat(201) }).success).toBe(false);
     expect(EmailParkedAlert.safeParse({ ...payload, excerpt: 'a'.repeat(1001) }).success).toBe(false);
+  });
+});
+
+describe('emailReplySubject', () => {
+  it.each(['Re: Plan', 'rE: Plan', 'AW: Plan', 'sv: Plan', 'VÁ: Plan', 'Válasz: Plan'])(
+    'keeps the reply prefix of %s',
+    (subject) => {
+      expect(emailReplySubject(subject)).toBe(subject);
+    },
+  );
+  it('prefixes a new subject and bounds its length', () => {
+    expect(emailReplySubject('Plan')).toBe('Re: Plan');
+    expect(emailReplySubject('a'.repeat(EMAIL_SUBJECT_MAX))).toHaveLength(EMAIL_SUBJECT_MAX);
   });
 });

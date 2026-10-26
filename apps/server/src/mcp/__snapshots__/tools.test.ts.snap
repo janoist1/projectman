@@ -3522,6 +3522,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
             "commands",
             "rules",
             "role",
+            "sandbox",
           ],
           "type": "string",
         },

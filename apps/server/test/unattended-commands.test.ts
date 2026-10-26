@@ -296,7 +296,7 @@ describe('describeSandbox: the session folder and the browsers', () => {
     allowLocalBinding: true,
   };
   const text = (sandbox: AgentSandbox) =>
-    describeSandbox({ sandbox, cwd: '/fictional/work', localOnly: false }).join('\n');
+    describeSandbox({ sandbox, cwd: '/fictional/work', localOnly: false, details: true }).join('\n');
 
   it('tells a reader it writes its folder too, where it is, that it goes away and where the browsers are', () => {
     const out = text({

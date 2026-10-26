@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_OPERATOR_PREFERENCE, MemberContextPreview, routes } from '@projectman/shared';
+import type { Merger } from '@projectman/shared';
 import type { ContextPackInput } from '../src/contracts';
 import { createContextPackBuilder } from '../src/context';
 import { humanActor } from '../src/kernel';
@@ -134,6 +135,29 @@ describe('member context preview', () => {
     }
     expect(new Set(lists.map((list) => JSON.stringify(list))).size).toBe(3);
   });
+
+  it.each<{ merger?: Merger; handle: string; visible: boolean }>([
+    { handle: 'cr', visible: true },
+    { handle: 'dev-1', visible: false },
+    { merger: { kind: 'developer' }, handle: 'dev-1', visible: true },
+    { merger: { kind: 'developer' }, handle: 'operator', visible: false },
+    { merger: { kind: 'member', handle: 'cr' }, handle: 'cr', visible: true },
+    { merger: { kind: 'member', handle: 'cr' }, handle: 'dev-1', visible: false },
+  ])(
+    'resolves merge tool visibility for $handle with policy $merger',
+    async ({ merger, handle, visible }) => {
+      const config = structuredClone(await h.domain.projects.config('AR'));
+      config.team.merger = merger;
+      const audience = memberAudience(config, handle);
+      expect(audience.merger).toBe(visible);
+      if (!audience.operator) {
+        const names = visibleTeamTools(audience).map((tool) => tool.name);
+        for (const tool of ['merge_task', 'prioritize_merge']) {
+          expect(names.includes(tool)).toBe(visible);
+        }
+      }
+    },
+  );
 
   it.each([
     { channel: true, member: true, email: true },

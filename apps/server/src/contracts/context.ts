@@ -32,7 +32,7 @@ import type {
 export interface ContextPackInput {
   /** Preview only: placement and its sandbox have not been allocated. */
   placementDeferred?: true;
-  /** Current checklist data for the Operator; absent for other members or older projects. */
+  /** Current checklist data for the selected project manager; absent for other members or older projects. */
   checklist?: Pick<ProjectChecklist, 'items'>;
   /**
    * The server runs the full test before review on this task's handed-over commits (PM-217, PM-332): the

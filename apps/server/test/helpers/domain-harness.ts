@@ -42,7 +42,7 @@ import {
 import { readEntries, seedCustomizationRepository, writeEntries } from './customization-seed';
 import type { SeedEntry } from './customization-seed';
 import { openMigratedMemoryDatabase, seedDatabaseFile } from './database-seed';
-import { testTemplate } from './test-template';
+import { testTemplate, testTemplateWithActivePm } from './test-template';
 import { withoutOnboarding } from './onboarding';
 
 export const OWNER = { name: 'Owner', email: 'owner@example.com' };
@@ -112,6 +112,8 @@ export async function createDomainHarness(
     snapshot?: HarnessSnapshot;
     /** Exercise project creation's automatic Operator greeting; other tests start after onboarding. */
     onboarding?: boolean;
+    /** The project manager is on duty from project creation (default: on leave, so it starts no sessions). */
+    pmOnDuty?: boolean;
     /** Wraps the real attachment storage (fault injection); default: the storage as it is. */
     attachmentStorage?: (inner: AttachmentStorage) => AttachmentStorage;
     /**
@@ -314,7 +316,7 @@ export async function createDomainHarness(
         }
       : {}),
     processExists: (pid) => liveProcesses.has(pid),
-    templates: createTemplateRegistry([testTemplate]),
+    templates: createTemplateRegistry([opts.pmOnDuty ? testTemplateWithActivePm : testTemplate]),
     planUsageTtlMs: 0,
     now: opts.now,
     scheduleTimer: opts.scheduleTimer,

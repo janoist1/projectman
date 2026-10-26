@@ -1,11 +1,14 @@
-import { operatorOf } from '@projectman/shared';
+import { coordinationMemberOf } from '@projectman/shared';
 import type { DomainContext } from '../../core/base';
 import type { MemberQueue } from '../../core/member-queue';
 import type { ProjectService } from '../../core/projects';
 import type { StoredMemberQueueItem } from '../../db';
 import type { MemberQueueLane } from './lane';
 
-/** Checklist notices use the ordinary queue's delivery, login waits and engine admission. */
+/**
+ * Checklist notices use the ordinary queue's delivery, login waits and engine admission. They go to the
+ * selected project manager, who leads the setup checklist (PM-1043).
+ */
 export function checklistLane(deps: {
   ctx: DomainContext;
   projects: Pick<ProjectService, 'cachedConfig'>;
@@ -14,11 +17,11 @@ export function checklistLane(deps: {
   const { ctx, projects, memberQueue } = deps;
   const enqueue = (projectKey: string, noticeId: string, title: string) => {
     const config = projects.cachedConfig(projectKey);
-    const operator = config && operatorOf(config);
-    if (!operator) return;
+    const pm = config && coordinationMemberOf(config);
+    if (!pm) return;
     memberQueue.add({
       projectKey,
-      member: operator.handle,
+      member: pm.handle,
       kind: 'checklist',
       source: { type: 'checklist', id: noticeId },
       place: { type: 'general' },
@@ -45,7 +48,7 @@ export function checklistLane(deps: {
     completion: 'delivery',
     oneAtATime: false,
     cause: () => ({ kind: 'member_queue' }),
-    appliesTo: (item, config) => operatorOf(config)?.handle === item.member,
+    appliesTo: (item, config) => coordinationMemberOf(config)?.handle === item.member,
     render: (item) => {
       if (item.source.id === 'onboarding')
         return 'This project is new. First call get_checklist. Then send the owner a short introduction and one first question with your recommendation using send_message (kind info, in the project language). Guide setup step by step using the checklist and existing tools and approval levels.';

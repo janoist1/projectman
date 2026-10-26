@@ -2139,7 +2139,12 @@ workers follow the machine's size.
   allows the selected PM to read/write its current direct owner's five style fields in an
   internal general conversation, sharing the Operator document and CAS. PM-689 adds
   owner-approved agreement/principle CAS and marker recovery under the server's configuration
-  lock; the store remains private. Missing documents start at revision zero; invalid documents are refused
+  lock; the store remains private. PM-1043 (PM-1023 K4): the selected PM now leads the agreement,
+  the principles and the setup checklist: it reads the project knowledge and proposes changes
+  (`propose_operator_knowledge`, without recommended operations) in its internal general
+  conversation, and the checklist notices go to its queue; the store, its path and the owner's
+  approval are unchanged, and the PM reaches the store only through the server (a remote engine
+  needs nothing new). Missing documents start at revision zero; invalid documents are refused
   without overwriting. **Machine assumption:** one server process owns a private writable home,
   with POSIX directory/file permissions (0700/0600), no-follow file opens and same-directory atomic
   rename. Target-file CAS writes are serialized within that process, including multiple store

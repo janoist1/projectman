@@ -199,6 +199,8 @@ export interface MemberAudience {
   operator: boolean;
   projectManager: boolean;
   merger: boolean;
+  /** The project's e-mail channel is on and this member may send e-mail (the e-mail tools' handler check). */
+  email: boolean;
   duties: ReadonlySet<DutyId>;
 }
 

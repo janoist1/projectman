@@ -135,6 +135,22 @@ describe('member context preview', () => {
     expect(new Set(lists.map((list) => JSON.stringify(list))).size).toBe(3);
   });
 
+  it.each([
+    { channel: true, member: true, email: true },
+    { channel: true, member: false, email: false },
+    { channel: false, member: true, email: false },
+  ])(
+    'marks e-mail sending in the audience (channel $channel, member $member)',
+    async ({ channel, member, email }) => {
+      const config = structuredClone(await h.domain.projects.config('AR'));
+      config.project.email = { enabled: channel };
+      for (const candidate of config.team.members)
+        if (candidate.kind === 'ai' && candidate.handle === 'dev-1')
+          candidate.email = { enabled: member, sendWithoutApproval: false };
+      expect(memberAudience(config, 'dev-1').email).toBe(email);
+    },
+  );
+
   it('previews leave and task contexts without sessions, timeline writes, branch links or placement', async () => {
     const task = await h.domain.tasks.create('AR', { title: 'Read only preview' }, OWNER_ACTOR);
     const timeline = h.domain.timeline.list('AR', { limit: 100 });

@@ -101,7 +101,7 @@ export const handoffInstruction: ContextPackBuilder['handoffInstruction'] = (inp
   [
     `The card ${input.taskKey} is being handed over${input.to ? ` to ${code(input.to)}${input.toProvider ? ` (${PROVIDER_NAME[input.toProvider]})` : ''}` : ' to nobody for now'}.`,
     'Do not start new work.',
-    'Commit your work on your own branch, then call the hand_off tool with a note: what is done, what is left, pitfalls, the files involved, open questions and the last commit. Name anything that stays uncommitted.',
+    'Commit your work on your own branch, then call the hand_off tool with a note: what is done, what is left, pitfalls, the files involved, open questions and the last commit. Name anything that stays uncommitted. The tool records the note and closes your session: do nothing after it.',
     ...(input.deadlineAt ? [`The note is due by ${input.deadlineAt}.`] : []),
     'If the receiver runs on another provider, they get only your note, not your conversation: write it so it stands alone.',
   ].join(' ');

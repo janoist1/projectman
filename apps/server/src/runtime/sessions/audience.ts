@@ -1,4 +1,13 @@
-import { DUTY_IDS, dutyMembers, isOperator, isProjectManager, memberOf, mergerOf } from '@projectman/shared';
+import {
+  DUTY_IDS,
+  dutyMembers,
+  emailChannelOn,
+  emailSenderOf,
+  isOperator,
+  isProjectManager,
+  memberOf,
+  mergerOf,
+} from '@projectman/shared';
 import type { MemberHandle, ProjectConfig } from '@projectman/shared';
 import type { MemberAudience } from '../../contracts';
 
@@ -10,6 +19,7 @@ export function memberAudience(config: ProjectConfig, handle: MemberHandle): Mem
     operator: isOperator(member),
     projectManager: isProjectManager(member),
     merger: merger.kind === 'member' && merger.handle === handle,
+    email: emailChannelOn(config) && emailSenderOf(config, handle) !== null,
     duties: new Set(
       DUTY_IDS.filter((duty) => dutyMembers(config, duty).some((holder) => holder.handle === handle)),
     ),

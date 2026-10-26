@@ -1874,9 +1874,6 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                                 },
                               ],
                             },
-                            "senior": {
-                              "type": "boolean",
-                            },
                             "specialty": {
                               "type": "string",
                             },
@@ -2300,9 +2297,6 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                           "type": "null",
                         },
                       ],
-                    },
-                    "senior": {
-                      "type": "boolean",
                     },
                     "specialty": {
                       "type": "string",
@@ -2782,32 +2776,6 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                     "description": {
                       "type": "string",
                     },
-                    "developerLevel": {
-                      "properties": {
-                        "level": {
-                          "enum": [
-                            "senior",
-                            "any",
-                          ],
-                          "type": "string",
-                        },
-                        "reason": {
-                          "anyOf": [
-                            {
-                              "maxLength": 300,
-                              "type": "string",
-                            },
-                            {
-                              "type": "null",
-                            },
-                          ],
-                        },
-                      },
-                      "required": [
-                        "level",
-                      ],
-                      "type": "object",
-                    },
                     "importedAt": {
                       "format": "date-time",
                       "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
@@ -2942,32 +2910,6 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                     },
                     "despitePrerequisites": {
                       "type": "boolean",
-                    },
-                    "developerLevel": {
-                      "properties": {
-                        "level": {
-                          "enum": [
-                            "senior",
-                            "any",
-                          ],
-                          "type": "string",
-                        },
-                        "reason": {
-                          "anyOf": [
-                            {
-                              "maxLength": 300,
-                              "type": "string",
-                            },
-                            {
-                              "type": "null",
-                            },
-                          ],
-                        },
-                      },
-                      "required": [
-                        "level",
-                      ],
-                      "type": "object",
                     },
                     "labels": {
                       "items": {
@@ -5644,9 +5586,6 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                         },
                       ],
                     },
-                    "senior": {
-                      "type": "boolean",
-                    },
                     "specialty": {
                       "type": "string",
                     },
@@ -7300,9 +7239,6 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                             "type": "null",
                           },
                         ],
-                      },
-                      "senior": {
-                        "type": "boolean",
                       },
                       "specialty": {
                         "type": "string",

@@ -171,6 +171,14 @@ describe('complexity on the board and drawer', () => {
 });
 
 describe('starting and assigning scored cards', () => {
+  it('falls back to a human stage owner when every AI developer is busy', () => {
+    const project = complexityProject(false);
+    const stage = project.backend.config.pipeline.stages.find((stage) => stage.kind === 'work')!;
+    stage.owners = ['fe-1', 'be-1', 'dev-1', 'owner'];
+    const result = project.backend.handle('POST', '/api/projects/AC/tasks/AC-24/start', {});
+    expect(result.status).toBe(200);
+    expect(project.backend.findTask('AC-24')!.assignee).toBe('owner');
+  });
   it('does not assign a busy developer when the shared choice finds nobody free', () => {
     const project = complexityProject(false);
     const result = project.backend.handle('POST', '/api/projects/AC/tasks/AC-24/start', {});

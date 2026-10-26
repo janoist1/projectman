@@ -5264,7 +5264,11 @@ export class MockBackend {
       const pick = this.pickAutomatic(task, workStage, developers);
       if (pick.kind === 'senior_busy') return this.waitForSenior(task, workStage, pick.seniors);
       if (pick.kind === 'member') assignee = pick.handle;
-      if (pick.kind === 'none') return error(409, 'no_free_member', 'No developer available');
+      if (pick.kind === 'none')
+        assignee =
+          this.config.team.members.find(
+            (member) => member.kind === 'human' && eligible.includes(member.handle),
+          )?.handle ?? null;
       if (
         task.complexity &&
         reachingDevelopers(stageDevelopers(this.config, workStage), complexityOf(task)).length === 0

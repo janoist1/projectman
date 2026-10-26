@@ -35,7 +35,6 @@ import type {
   HumanAccess,
   OwnerOnlyChange,
   PatchConfigRequest,
-  ProjectPreview,
   ProjectSummary,
   SuperActor,
   OperatorOperation,
@@ -352,12 +351,6 @@ export class ProjectService {
       });
     }
     return parsed.data;
-  }
-
-  /** What a create with this request would make and what is wrong with it; no side effects. */
-  preview(req: CreateProjectRequest, creator: Author): ProjectPreview {
-    const config = this.buildConfig(req, creator);
-    return { config, issues: validateProjectConfig(config) };
   }
 
   async create(req: CreateProjectRequest, creator: Author): Promise<ProjectSummary> {

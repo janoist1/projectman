@@ -2254,14 +2254,6 @@ export class MockBackend {
         })),
       });
     }
-    if (path === '/api/templates') return ok(clone(fixtures.templates));
-    if (path === '/api/projects/preview' && method === 'POST') {
-      const input = parseBody(CreateProjectRequest, body);
-      if (!input) return error(400, 'invalid_request', 'Invalid project');
-      const draft = this.projectDraft(input);
-      if ('status' in draft) return draft;
-      return ok({ config: draft, issues: validateProjectConfig(draft) });
-    }
     if (path === '/api/projects') {
       if (method === 'POST') {
         const input = parseBody(CreateProjectRequest, body);
@@ -2557,12 +2549,6 @@ export class MockBackend {
         this.feedback.handle(method, rest.slice('/feedback'.length), body, query) ??
         error(404, 'not_found', 'Unknown route')
       );
-    if (rest === '' && method === 'GET')
-      return ok({
-        ...fixtures.projectSummary,
-        name: this.config.project.name,
-        configVersion: this.configVersion,
-      });
     if (rest === '/schedules' && method === 'GET') return ok(this.schedulesView());
     const scheduleMatch = /^\/members\/([\w-]+)\/schedule\/run$/.exec(rest);
     if (scheduleMatch && method === 'POST') return this.runSchedule(scheduleMatch[1]!);
@@ -2602,11 +2588,8 @@ export class MockBackend {
       return ok({ checklist: clone(this.checklist), canEdit: access === 'owner' });
     }
     if (rest === '/operator' && method === 'GET') return this.operatorChannel();
-    if (rest === '/member-queues' && method === 'GET') return this.memberQueue(null, query);
     if (rest === '/operator/queue' && method === 'GET')
       return this.memberQueue(operatorOf(this.config)?.handle ?? 'operator', query);
-    const queueMatch = /^\/members\/([\w-]+)\/queue$/.exec(rest);
-    if (queueMatch && method === 'GET') return this.memberQueue(queueMatch[1]!, query);
     if (rest === '/operator/preferences/me' && method === 'GET')
       return ok(
         clone(
@@ -6073,28 +6056,15 @@ export class MockBackend {
   }
 
   /**
-   * The member queues (PM-894), computed from `queueItems` (`handle` null: the summaries of all AI members).
-   * The closed items are those closed since `closedSince` (default 24 hours), the newest first, at most the
-   * limit. Access and the unknown-member answer follow the server.
+   * The Operator's queue (PM-894), computed from `queueItems`. The closed items are those closed since
+   * `closedSince` (default 24 hours), the newest first, at most the limit. Access and the unknown-member
+   * answer follow the server.
    */
-  private memberQueue(handle: string | null, query = new URLSearchParams()): MockResponse {
+  private memberQueue(handle: string, query = new URLSearchParams()): MockResponse {
     const viewer = memberOf(this.config, this.viewerHandle);
     if (viewer?.kind === 'human' && !hasAccess(viewer.access, 'developer'))
       return error(403, 'insufficient_access', 'Requires developer access');
     const ai = this.config.team.members.filter((m) => m.kind === 'ai');
-    if (handle === null)
-      return ok({
-        members: ai.map((m) => {
-          const open = this.openQueueItems(m.handle);
-          return {
-            member: m.handle,
-            queued: open.filter((item) => item.state === 'queued').length,
-            processing: open.filter((item) => item.state === 'processing').length,
-            waking: 0,
-            oldestQueuedAt: open[0]?.queuedAt ?? null,
-          };
-        }),
-      });
     if (!ai.some((m) => m.handle === handle)) return error(404, 'unknown_member', 'Unknown AI member');
     const since = new Date(query.get('closedSince') ?? Date.now() - 24 * 60 * 60_000).getTime();
     const own = this.queueItems.filter((item) => item.member === handle);

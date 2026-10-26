@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { stringify } from 'yaml';
-import { ProjectConfig, ProjectPreview, routes } from '@projectman/shared';
+import { ProjectConfig, routes } from '@projectman/shared';
 import type { ConfigView } from '@projectman/shared';
 import { getTemplate, type ProjectTemplate } from '@projectman/templates';
 import { parseYamlFile } from '../src/config/layout';
@@ -21,7 +21,7 @@ const ownerlessTemplate: ProjectTemplate = {
   },
 };
 
-describe('project preview and creation with a card mover (PM-459)', () => {
+describe('project creation with a card mover (PM-459)', () => {
   let h: AppHarness;
   let cookie: string;
   beforeEach(async () => {
@@ -37,67 +37,34 @@ describe('project preview and creation with a card mover (PM-459)', () => {
     templateId: 'test',
     ...overrides,
   });
-  const preview = (body: unknown, as = cookie) => inject(h.app, 'POST', routes.projectPreview(), as, body);
+  const create = (body: unknown, as = cookie) => inject(h.app, 'POST', routes.projects(), as, body);
   const projectKeys = async () =>
     (await inject(h.app, 'GET', routes.projects(), cookie)).json<Array<{ key: string }>>().map((p) => p.key);
 
-  it('answers the configuration a create would save and its issues, and changes nothing', async () => {
-    const res = await preview(request({ cardMover: 'creator' }));
-    expect(res.statusCode, res.body).toBe(200);
-    const body = ProjectPreview.parse(res.json());
-    expect(body.config.project).toMatchObject({ key: 'BB', name: 'Brand new', templateId: 'test' });
-    expect(body.config.team.cardMover).toEqual({ kind: 'human', handle: 'owner' });
-    expect(body.issues.filter((issue) => issue.severity !== 'warning')).toEqual([]);
-    expect(await projectKeys()).toEqual([]);
-  });
-
   it('maps the mover choices and defaults to the worker', async () => {
-    const moverOf = async (cardMover?: string) =>
-      ProjectPreview.parse((await preview(request(cardMover ? { cardMover } : {}))).json()).config.team
-        .cardMover;
-    expect(await moverOf()).toEqual({ kind: 'worker' });
-    expect(await moverOf('worker')).toEqual({ kind: 'worker' });
-    expect(await moverOf('project_manager')).toEqual({ kind: 'project_manager' });
-    expect(await moverOf('creator')).toEqual({ kind: 'human', handle: 'owner' });
-    expect((await preview(request({ cardMover: 'nobody' }))).statusCode).toBe(400);
+    const moverOf = async (cardMover: string | undefined, key: string) => {
+      const res = await create(request({ key, ...(cardMover ? { cardMover } : {}) }));
+      expect(res.statusCode, res.body).toBe(201);
+      return (await h.app.projectman.configStore.load(key)).config.team.cardMover;
+    };
+    expect(await moverOf(undefined, 'BA')).toEqual({ kind: 'worker' });
+    expect(await moverOf('worker', 'BB')).toEqual({ kind: 'worker' });
+    expect(await moverOf('project_manager', 'BC')).toEqual({ kind: 'project_manager' });
+    expect(await moverOf('creator', 'BD')).toEqual({ kind: 'human', handle: 'owner' });
+    expect((await create(request({ key: 'BE', cardMover: 'nobody' }))).statusCode).toBe(400);
   });
 
-  it('reads no disk: a workspace that does not exist and a taken key are not its business', async () => {
-    await createProject(h, cookie);
-    const res = await preview(request({ key: 'AR', workspacePath: join(h.home, 'does-not-exist') }));
-    expect(res.statusCode, res.body).toBe(200);
-  });
-
-  it('lists what is wrong with a combination', async () => {
-    const res = await preview(request({ templateId: 'ownerless' }));
-    expect(res.statusCode, res.body).toBe(200);
-    expect(ProjectPreview.parse(res.json()).issues).toContainEqual({
-      code: 'stage_without_owner',
-      path: 'pipeline.stages[2]',
-      detail: 'code_review',
-    });
-  });
-
-  it('refuses an unknown template as the create does', async () => {
-    const asPreview = await preview(request({ templateId: 'nope' }));
-    const asCreate = await inject(h.app, 'POST', routes.projects(), cookie, request({ templateId: 'nope' }));
-    expect([asPreview.statusCode, asPreview.json().error.code]).toEqual([400, 'unknown_template']);
-    expect([asCreate.statusCode, asCreate.json().error.code]).toEqual([400, 'unknown_template']);
+  it('refuses an unknown template', async () => {
+    const res = await create(request({ templateId: 'nope' }));
+    expect([res.statusCode, res.json().error.code]).toEqual([400, 'unknown_template']);
   });
 
   it('is for the host owner alone', async () => {
     await createProject(h, cookie);
     const admin = await addHumanAndLogin(h.app, { handle: 'ada', access: 'admin' });
-    const res = await preview(request(), admin);
+    const res = await create(request(), admin);
     expect([res.statusCode, res.json().error.code]).toEqual([403, 'owner_only']);
-    expect((await inject(h.app, 'POST', routes.projectPreview(), '', request())).statusCode).toBe(401);
-  });
-
-  it('creates the project with the creator as the card mover', async () => {
-    const res = await inject(h.app, 'POST', routes.projects(), cookie, request({ cardMover: 'creator' }));
-    expect(res.statusCode, res.body).toBe(201);
-    const { config } = await h.app.projectman.configStore.load('BB');
-    expect(config.team.cardMover).toEqual({ kind: 'human', handle: 'owner' });
+    expect((await create(request(), '')).statusCode).toBe(401);
   });
 
   it('creates a starter without a template id in the requested language and provider', async () => {

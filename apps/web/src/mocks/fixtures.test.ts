@@ -13,7 +13,6 @@ import {
   Task,
   TaskDetail,
   TeamMessage,
-  TemplateSummary,
   TimelineEvent,
   validateProjectConfig,
 } from '@projectman/shared';
@@ -75,7 +74,6 @@ describe('mock fixtures satisfy the shared contracts', () => {
     check(TeamMessage, fixtures.teamMessages, 'messages');
     check(TimelineEvent, fixtures.timeline, 'timeline');
     check(ChatItem, Object.values(fixtures.chats).flat(), 'chat');
-    check(TemplateSummary, fixtures.templates, 'templates');
   });
 
   it('builds a configuration that holds every invariant', () => {

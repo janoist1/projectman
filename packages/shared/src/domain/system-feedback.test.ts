@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { OperatorStep, SetSystemFeedbackForwardingRequest, SystemFeedbackPrepared, routes } from '../index';
+import { OperatorStep, SetSystemFeedbackForwardingRequest, SystemFeedbackPrepared } from '../index';
 import {
   SYSTEM_FEEDBACK_PREFILL_URL_MAX,
   SYSTEM_FEEDBACK_REPOSITORY,
@@ -328,10 +328,5 @@ describe('contract', () => {
         systemFeedback: { id: 'fb_1', title: 't', occurrence: 2 },
       }).success,
     ).toBe(true);
-  });
-
-  it('builds the paths', () => {
-    expect(routes.systemFeedbackCard('fb_1')).toBe('/api/system-feedback/fb_1/card');
-    expect(routes.systemFeedbackSummary()).toBe('/api/system-feedback/summary');
   });
 });

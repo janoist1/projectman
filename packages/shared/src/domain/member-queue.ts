@@ -184,19 +184,6 @@ export const MemberQueueView = z.object({
 });
 export type MemberQueueView = z.infer<typeof MemberQueueView>;
 
-export const MemberQueueSummary = z.object({
-  member: MemberHandle,
-  queued: z.number().int(),
-  processing: z.number().int(),
-  /** Queued items that wake the member. */
-  waking: z.number().int(),
-  oldestQueuedAt: z.string().nullable(),
-});
-export type MemberQueueSummary = z.infer<typeof MemberQueueSummary>;
-
-export const MemberQueuesView = z.object({ members: z.array(MemberQueueSummary) });
-export type MemberQueuesView = z.infer<typeof MemberQueuesView>;
-
 /** The query of a member's queue: how far back the closed items go. */
 export const MemberQueueQuery = z.strictObject({ closedSince: z.iso.datetime({ offset: true }).optional() });
 export type MemberQueueQuery = z.infer<typeof MemberQueueQuery>;

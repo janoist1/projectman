@@ -5,16 +5,9 @@ import type { WebPushService } from '../services/web-push';
 import type { SuperAdministration, SuperHandoffService, SuperOperator } from '../services/super-operator';
 import type { StructureService } from '../services/structure';
 import type { RunnerModule } from '../contracts';
-import type { ChangeJournal, TemplateRegistry } from '../core/base';
+import type { ChangeJournal } from '../core/base';
 import type { AttachmentService, MessageAttachmentService } from '../core/attachments';
-import type {
-  BoardService,
-  CardMeasure,
-  InvolvementService,
-  ProjectFocusService,
-  TaskService,
-  TaskWaits,
-} from '../core/tasks';
+import type { BoardService, CardMeasure, InvolvementService, TaskService, TaskWaits } from '../core/tasks';
 import type { ProjectService, RoleService, ChecklistService } from '../core/projects';
 import type { InvitationService, MemberService, MemberProfiles, ProjectAccess } from '../core/members';
 import type { MessageService, Messaging } from '../core/messages';
@@ -25,7 +18,7 @@ import type { HandoffService, MessageStarts, TaskStarts } from '../runtime/admis
 import type { PauseService, SessionOrchestrator } from '../runtime/sessions';
 import type { MachineMonitor, WorkOutages } from '../runtime/watchers';
 import type { ProviderKeys } from '../runtime/usage';
-import type { FeedbackService, FeedbackWidgetService, SystemFeedbackService } from '../services/feedback';
+import type { FeedbackService, FeedbackWidgetService } from '../services/feedback';
 import type { BoundaryService } from '../services/boundary';
 import type { Merges } from '../services/merges';
 import type { ScheduleService } from '../services/schedules';
@@ -52,7 +45,6 @@ export interface ApiDomain extends AuthDomain {
   readonly cardMeasure: CardMeasure;
   readonly feedback: FeedbackService;
   readonly feedbackWidget: FeedbackWidgetService;
-  readonly systemFeedback: SystemFeedbackService;
   readonly handoffs: HandoffService;
   readonly inbox: InboxService;
   readonly invitations: InvitationService;
@@ -72,7 +64,6 @@ export interface ApiDomain extends AuthDomain {
   readonly outages: WorkOutages;
   readonly pauses: PauseService;
   readonly profiles: MemberProfiles;
-  readonly projectFocus: ProjectFocusService;
   readonly projectManagerChannels: ProjectManagerChannels;
   readonly projects: ProjectService;
   readonly providerKeys: ProviderKeys | null;
@@ -85,6 +76,5 @@ export interface ApiDomain extends AuthDomain {
   readonly taskStarts: TaskStarts;
   readonly taskWaits: TaskWaits;
   readonly tasks: TaskService;
-  readonly templates: TemplateRegistry;
   accessFor(projectKey: string, email: string): Promise<ProjectAccess | null>;
 }

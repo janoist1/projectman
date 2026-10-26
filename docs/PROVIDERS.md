@@ -1227,7 +1227,9 @@ and enforcement of either type remain version-specific observations to reproduce
 Current source differs from that probe: the developer sandbox allows npm/development-data writes
 and local binding, and closes the home but its own work (PM-153). Codex's normal session spec
 no longer grants the shared git root (PM-131). Its local permission profile now implements the
-PM-356 sensitive-path deny list, while the wider home boundary remains PM-360.
+PM-356 sensitive-path deny list; a reading session (PM-425) also gets the typed read boundary of
+PM-360 (home and app home closed, only its own project and card reopened), the developer's wider
+home reads stay as they were.
 Command-rule approval of Codex escalations is host execution,
 not strict isolation. PM-134's transitional Claude setup is not the final PM-128/129 proof.
 

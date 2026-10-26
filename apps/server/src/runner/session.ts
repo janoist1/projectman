@@ -26,7 +26,7 @@ import type { ProviderAdapter, SessionTiming, TranscriptLineParser } from './pro
 import { nextState, type SessionSignal, type StateSnapshot } from './state';
 import { HeadlessScreen } from './terminal';
 import { needsDependencies, toolActivity } from './tools';
-import { TOOL_DENY_MESSAGES } from './tool-decision';
+import { TOOL_DENY_MESSAGES, claudeFileToolPaths, decideToolCall } from './tool-decision';
 import { readTranscriptText } from './transcript/reader';
 import { TranscriptTailer } from './transcript/tailer';
 
@@ -877,6 +877,12 @@ export class AgentSession {
           }
           return output;
         }
+        // A reader's file tool below the closed home is refused before anything else, in every mode (PM-425).
+        if (this.readBoundaryVerdict(payload) === 'refuse') {
+          this.log.info({ sessionId: this.id, tool: name }, 'file tool call refused by the read boundary');
+          const message = TOOL_DENY_MESSAGES.denied_path;
+          return this.adapter.refuseToolOutput?.(message) ?? this.adapter.denyOutput(message);
+        }
         // A late call after the turn ended (e.g. the CLI loading a deferred tool) must not reopen it.
         if (this.turnEnded && !this.adapter.inputTools.has(name)) {
           this.noteLateTool(payload, name);
@@ -1073,8 +1079,31 @@ export class AgentSession {
       this.apply({ kind: 'pre_tool', activity, needsInput: true });
       return null;
     }
+    // A reader's file tool: refused below the closed home, allowed where the boundary leaves it open (PM-425).
+    const verdict = this.readBoundaryVerdict(payload);
+    if (verdict === 'refuse') return this.adapter.denyOutput(TOOL_DENY_MESSAGES.denied_path);
+    if (verdict === 'free') return this.adapter.permissionOutput({ behavior: 'allow' }, payload);
     if (!payload.agent_id) this.waitingTool = toolName;
     return this.permissions.request(payload, activity, withdrawn);
+  }
+
+  /**
+   * What the read boundary (PM-425) says about a Claude Code file tool call of a reading session: `refuse`
+   * (a denied path, or a closed root outside the allowed places), `free` (a read the boundary leaves
+   * open), or nothing (no boundary, another tool, or another CLI: Gemini decides in `decideToolCall`).
+   */
+  private readBoundaryVerdict(payload: HookPayload): 'refuse' | 'free' | undefined {
+    const policy = this.spec.policy;
+    if (!policy?.filesystem.readBoundary || this.adapter.capabilities.toolGate !== 'permission_request')
+      return undefined;
+    const target = claudeFileToolPaths(payload.tool_name ?? '', payload.tool_input);
+    if (!target) return undefined;
+    const decision = decideToolCall(policy, {
+      category: target.reads ? 'read' : 'edit',
+      paths: target.paths,
+    });
+    if (decision.decision === 'deny' && decision.reason === 'denied_path') return 'refuse';
+    return target.reads && decision.decision === 'allow' ? 'free' : undefined;
   }
 
   // ---------------------------------------------------------------- transcript

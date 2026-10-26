@@ -486,15 +486,26 @@ describe('session orchestrator', () => {
     // credentials unreadable. A local-only repository has no pull request: no `gh` outside it.
     const reviewer = h.runner.lastStarted();
     expect(reviewer.policy!.access).toBe('read_only');
-    expect(reviewer.sandbox).toEqual({
+    expect(reviewer.sandbox).toMatchObject({
       allowWrite: [],
       denyWrite: [h.workspace, developer.session.cwd, join(h.dir, 'worktrees')],
-      denyRead: reviewer.policy!.filesystem.deniedPaths,
       allowedDomains: ['*'],
       deniedDomains: expect.any(Array),
       allowLocalBinding: true,
       env: SANDBOX_PTY_ENV,
     });
+    // It reads nothing below the user's home but its own places (PM-425): the home is closed, the
+    // credentials and every Claude transcript stay denied, the developer's worktree is reopened.
+    const boundary = reviewer.policy!.filesystem.readBoundary!;
+    expect(reviewer.sandbox!.denyRead).toEqual(
+      expect.arrayContaining([...boundary.deniedRoots, ...reviewer.policy!.filesystem.deniedPaths!]),
+    );
+    expect(reviewer.policy!.filesystem.deniedPaths).toContainEqual(
+      expect.stringMatching(/\/\.claude\/projects$/),
+    );
+    expect(boundary.allowedPaths).toContainEqual({ path: developer.session.cwd, kind: 'directory' });
+    expect(reviewer.sandbox!.allowRead).toEqual(expect.arrayContaining([developer.session.cwd]));
+    expect(reviewer.sandbox!.portable!.readBoundary).toEqual(boundary);
     expect(h.worktrees.calls).toHaveLength(1);
   });
 

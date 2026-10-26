@@ -3564,7 +3564,8 @@ describe("the CLI's own sandbox (PM-167)", () => {
     expect(text).toContain('get_guide with topic `sandbox`');
     expect(text).not.toContain('/work/acme');
     expect(pack.guide.sandbox).toContain('/work/acme');
-    expect(pack.guide.sandbox).toContain('/home/anna/.ssh');
+    // The reader reads only its own places below the home (PM-425), and the guide names them.
+    expect(pack.guide.sandbox).toContain('/home/anna/.gitconfig');
     expect(pack.guide.sandbox).not.toContain('`gh pr view`');
     expect(pack.guide.sandbox).toContain('`git push`');
   });

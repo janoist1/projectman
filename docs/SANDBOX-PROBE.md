@@ -380,6 +380,30 @@ question; do not widen the list during the probe. Record the remaining approved-
 parent-CLI, network/local-port, readable shared-git-history and teammate-output risks.
 Apply this result only to restarted processes on the tested OS/provider.
 
+### PM-425: the reader rollout (Claude, Codex, NanoGPT, Gemini)
+
+The reading sessions (a `read_only` placement, a review copy, a taskless chat, the non-super
+Operator) now get this boundary from `sessionSandbox`. **The native probe has not been run**: the
+developer session that implemented it had no pseudo-terminal and could not start a nested
+sandbox, so the tests cover only the rendered policy (`session-policy-model.test.ts`,
+`tool-decision.test.ts`, `session.test.ts`, `engine-limit.test.ts`, gemini `hooks.test.ts`). Run it
+with separate owner authorization, per provider, for new and resumed processes, with fictional
+files:
+
+- Claude reader: a `Read`/`Grep`/`Glob` of another project below the fictional home and of
+  `~/.claude/projects` is refused with no question; a read of the own cwd, an attachment, a
+  teammate's session-folder screenshot and `/etc/hosts` works; a command inside the sandbox
+  (`cat` of the other project, `ls ~/.claude/projects`) fails with a permission error; `git status`,
+  `git show <branch>:<file>`, a targeted test, the typecheck and `npm run shots` work; `gh pr view`
+  and `gh pr diff` work outside the sandbox.
+- Codex/NanoGPT reader: the same reads through the rendered `projectman` profile.
+- Gemini reader: the file tools refuse the other project; record that its commands are not
+  sandboxed (PM-361).
+- Regression: a developer's and the super Operator's sandbox are unchanged (PM-153).
+
+Classify a missing dependency or an absent fixture separately from a denial, and record an omitted
+check as `unverified`, not as a pass.
+
 ## PM-356: restricted-read Codex permission profile
 
 **Native result recorded on PM-356, 2026-10-06.** The owner-authorized integrator ran

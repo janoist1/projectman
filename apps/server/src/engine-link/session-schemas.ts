@@ -55,6 +55,7 @@ const Policy: z.ZodType<SessionPolicy> = z.strictObject({
     deniedPaths: texts.optional(),
     sessionFolder: text.optional(),
     sessionFoldersRoot: text.optional(),
+    readBoundary: SessionReadBoundary.optional(),
   }),
   deniedOperations: z.array(z.enum(LOCAL_PUBLISHING_OPERATIONS)),
   network: z.strictObject({

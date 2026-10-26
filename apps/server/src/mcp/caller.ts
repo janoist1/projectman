@@ -5,6 +5,7 @@ import {
   ERROR_CODES,
   ownerHandles,
   isOperator,
+  isLessonsOnly,
   MAX_ATTACHMENT_BYTES,
   memberOf,
   OPERATOR_SIGNAL_STEP_GAP_MINUTES,
@@ -18,6 +19,7 @@ import type {
   OperatorAction,
   OperatorOperation,
   ProjectConfig,
+  ProjectDoc,
   Session,
 } from '@projectman/shared';
 import { TeamToolError, WorkspaceFileRefusal } from '../contracts';
@@ -199,6 +201,49 @@ export class ToolCaller {
   }
   /** Signals with an own step of the Operator running now (PM-545); one at a time, whatever the budget left. */
   private readonly signalStepsRunning = new Set<string>();
+  /** Lessons alone may be maintained in the Operator's own internal conversation and verified queue. */
+  async projectDocCaller(
+    ctx: ToolContext,
+    edits: readonly { doc: ProjectDoc }[],
+    tool: 'read_project_doc' | 'write_project_docs' = 'write_project_docs',
+  ): Promise<CallerWithRequest> {
+    if (!isLessonsOnly(edits)) return this.callerWithRequest(ctx, tool);
+    const config = await this.projects.config(ctx.projectKey);
+    if (!isOperator(memberOf(config, ctx.member)))
+      throw new TeamToolError('forbidden', 'operator_only: only the Operator may maintain lessons.');
+    const session = this.ctx.repos.sessions.get(ctx.sessionId);
+    const request = this.operatorRequests.openFor(ctx.sessionId);
+    if (
+      !session ||
+      session.projectKey !== ctx.projectKey ||
+      session.member !== ctx.member ||
+      session.workItem.type !== 'general' ||
+      session.workItem.with !== undefined
+    )
+      throw new TeamToolError('forbidden', `${OWNER_ONLY}: lessons require your own internal conversation.`);
+    if (request?.source === 'approval')
+      throw new TeamToolError(
+        'forbidden',
+        'operator_no_request: lessons are not allowed in an approval continuation.',
+      );
+    if (request?.source === 'queue') {
+      const item = request.queueItemId ? this.ctx.repos.memberQueue.get(request.queueItemId) : null;
+      if (
+        !item ||
+        item.projectKey !== ctx.projectKey ||
+        item.member !== ctx.member ||
+        item.sessionId !== ctx.sessionId ||
+        item.state !== 'processing'
+      )
+        throw new TeamToolError(
+          'forbidden',
+          `${OWNER_ONLY}: the queue item is not processing in your session.`,
+        );
+    } else if (request && !isOwner(config, request.fromHandle)) {
+      throw new TeamToolError('forbidden', `${OWNER_ONLY}: lessons are not allowed for a guest request.`);
+    }
+    return { config, request, guest: null };
+  }
   /**
    * `caller`, plus the owner request the guard let the Operator's call through on (null for any other
    * caller and for a reading tool with none open). The step log must use this very request: opening it

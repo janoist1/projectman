@@ -2299,4 +2299,9 @@ migrations.push({
   WHERE complexity IS NULL AND json_valid(developer_level)
     AND json_extract(developer_level, '$.level') = 'senior';`,
 });
+migrations.push({
+  version: 111,
+  name: 'autonomous lessons writes',
+  sql: `ALTER TABLE doc_writes ADD COLUMN autonomous_lessons INTEGER NOT NULL DEFAULT 0 CHECK (autonomous_lessons IN (0,1));`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

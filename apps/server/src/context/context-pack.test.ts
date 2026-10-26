@@ -1619,6 +1619,19 @@ describe('system prompt', () => {
       expect(operatorPrompt('en')).not.toContain('mark_decision_candidates');
     });
 
+    it('includes autonomous lessons guidance only when lessons are configured (PM-1004)', () => {
+      const project = buildProject();
+      const without = builder.build(input({ project, handle: 'operator' }));
+      project.project.repos[0]!.docs = { lessons: 'docs/LESSONS.md' };
+      const withLessons = builder.build(input({ project, handle: 'operator' }));
+      for (const part of ['appendSystemPrompt', 'guide'] as const) {
+        const text = part === 'guide' ? withLessons.guide.role : withLessons[part];
+        const before = part === 'guide' ? without.guide.role : without[part];
+        expect(text).toContain('doc lessons');
+        expect(before).not.toContain('doc lessons');
+      }
+    });
+
     it('tells the Operator the release and merge checks, and never to ask the owner to relay (PM-544)', () => {
       const operator = operatorPrompt('en');
       for (const key of ['check_release', 'Never ask the owner to relay anything'])
@@ -1735,7 +1748,11 @@ describe('system prompt', () => {
 
     it('gives the Operator on a project with docs a full prompt snapshot (PM-895)', async () => {
       const project = buildProject();
-      project.project.repos[0]!.docs = { decisions: 'docs/DECISIONS.md', roadmap: 'docs/ROADMAP.md' };
+      project.project.repos[0]!.docs = {
+        decisions: 'docs/DECISIONS.md',
+        roadmap: 'docs/ROADMAP.md',
+        lessons: 'docs/LESSONS.md',
+      };
       const pack = builder.build(
         input({ project, handle: 'operator', workItem: { type: 'general' }, task: null, stage: null }),
       );

@@ -26,11 +26,11 @@ export interface DocWriteRecord {
   message: string;
   /** The Operator's handle. */
   author: string;
-  /** The owner whose request it ran under; null for a write made through the bearer MCP (PM-784). */
+  /** The owner whose request it ran under; null for bearer MCP or autonomous lessons writes. */
   requestedBy: string | null;
-  /** The Operator request it ran under; null for a write made through the bearer MCP. */
+  /** The Operator request it ran under; null for bearer MCP or autonomous lessons writes. */
   requestId: string | null;
-  /** The Operator step that tracks it; null for a write made through the bearer MCP. */
+  /** The Operator step that tracks it; null for bearer MCP or autonomous lessons writes. */
   stepId: string | null;
   engineId: string;
   state: DocWriteState;
@@ -45,6 +45,8 @@ export interface DocWriteRecord {
    * from before. Provenance only: the key and the owner's membership are checked again whenever it is used.
    */
   externalOrigin: ExternalToolOrigin | null;
+  /** Only requestLessons sets this provenance marker; it carries no owner request (PM-1004). */
+  autonomousLessons: boolean;
 }
 
 interface DocWriteRow {
@@ -66,6 +68,7 @@ interface DocWriteRow {
   created_at: string;
   updated_at: string;
   external_origin: string | null;
+  autonomous_lessons: number;
 }
 
 const toRecord = (row: DocWriteRow): DocWriteRecord => ({
@@ -89,6 +92,7 @@ const toRecord = (row: DocWriteRow): DocWriteRecord => ({
   externalOrigin: row.external_origin
     ? parseExternalToolOrigin(parseJson<unknown>(row.external_origin, null))
     : null,
+  autonomousLessons: row.autonomous_lessons === 1,
 });
 
 /** What `update` may change; `updatedAt` is always set by the caller. */
@@ -101,9 +105,9 @@ export function createDocWriteRepository(db: Db) {
   const statements = {
     insert: db.prepare(`INSERT INTO doc_writes
       (id, project_key, repo, base, base_commit, edits, message, author, requested_by, request_id, step_id,
-       engine_id, state, commit_sha, error, created_at, updated_at, external_origin)
+       engine_id, state, commit_sha, error, created_at, updated_at, external_origin, autonomous_lessons)
       VALUES (@id, @projectKey, @repo, @base, @baseCommit, @edits, @message, @author, @requestedBy, @requestId,
-       @stepId, @engineId, @state, @commitSha, @error, @createdAt, @updatedAt, @externalOrigin)`),
+       @stepId, @engineId, @state, @commitSha, @error, @createdAt, @updatedAt, @externalOrigin, @autonomousLessons)`),
     get: db.prepare('SELECT * FROM doc_writes WHERE id = ?'),
     openOf: db.prepare("SELECT * FROM doc_writes WHERE project_key = ? AND state IN ('queued','running')"),
     list: db.prepare('SELECT * FROM doc_writes WHERE state = ? ORDER BY created_at, rowid'),
@@ -115,6 +119,7 @@ export function createDocWriteRepository(db: Db) {
         edits: toJson(record.edits),
         error: record.error ? toJson(record.error) : null,
         externalOrigin: record.externalOrigin ? toJson(record.externalOrigin) : null,
+        autonomousLessons: record.autonomousLessons ? 1 : 0,
       });
     },
     get(id: string): DocWriteRecord | null {

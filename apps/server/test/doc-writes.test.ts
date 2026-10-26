@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { superActorOf } from '@projectman/shared';
-import type { ProjectConfig, Session } from '@projectman/shared';
+import Database from 'better-sqlite3';
+import { operatorQueueAvailable, superActorOf } from '@projectman/shared';
+import type { ProjectConfig, ProjectDoc, Session } from '@projectman/shared';
 import { TeamToolError } from '../src/contracts';
 import type {
   BranchMerger,
@@ -12,9 +13,11 @@ import type {
 } from '../src/contracts';
 import { createDomainContext } from '../src/core/base';
 import { runIntegratorExecution } from '../src/kernel';
+import { createRepositories, migrate } from '../src/db';
+import { migrations } from '../src/db/migrations';
 import { DocWrites } from '../src/services/project-docs';
 import { waitFor } from '../src/runner/test-helpers';
-import { createDomainHarness, restartDomainHarness } from './helpers/domain-harness';
+import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { rejection } from './helpers/errors';
 import { settle } from './helpers/fakes';
@@ -27,13 +30,20 @@ afterEach(async () => {
 const BASE = 'b'.repeat(40);
 const DECISIONS = 'docs/DECISIONS.md';
 const ROADMAP = 'docs/ROADMAP.md';
+const LESSONS = 'docs/LESSONS.md';
 const LOG = '# Decisions\n1. First\n2. Second\n';
 
 /**
  * A repository's default branch as a map of commits to files. `readFile` of a base is the remote head;
  * `commitFiles` makes `w1`, `w2`, ...; `push` and `advance` move the heads.
  */
-function fakeDocsMerger(initial: Record<string, string> = { [DECISIONS]: LOG, [ROADMAP]: '# Roadmap\n' }) {
+function fakeDocsMerger(
+  initial: Record<string, string> = {
+    'docs/DECISIONS.md': '# Decisions\n1. First\n2. Second\n',
+    'docs/ROADMAP.md': '# Roadmap\n',
+  },
+) {
+  const BASE = 'b'.repeat(40);
   const trees = new Map<string, Record<string, string>>([[BASE, initial]]);
   const state = {
     local: BASE,
@@ -96,7 +106,7 @@ function fakeDocsMerger(initial: Record<string, string> = { [DECISIONS]: LOG, [R
 }
 
 function withDocs(config: ProjectConfig): void {
-  config.project.repos[0]!.docs = { decisions: DECISIONS, roadmap: ROADMAP };
+  config.project.repos[0]!.docs = { decisions: DECISIONS, roadmap: ROADMAP, lessons: LESSONS };
 }
 
 async function setup(
@@ -105,6 +115,7 @@ async function setup(
 ) {
   h = await createDomainHarness({
     merger,
+    integratorTodoAccess: { available: operatorQueueAvailable },
     persistent: opts.persistent,
     adjust(config) {
       if (opts.docs !== false) withDocs(config);
@@ -145,9 +156,31 @@ async function ownerAsks(): Promise<{ ctx: ToolContext; requestId: string }> {
 const stepsOf = (requestId: string) => h.repos.operatorRequests.steps(requestId);
 const refusal = async (promise: Promise<unknown>) => (await rejection(promise, TeamToolError)).message;
 const append = (text: string) => ({ doc: 'decisions' as const, old_text: '', new_text: text });
-type Edit = { doc: 'decisions' | 'roadmap'; old_text: string; new_text: string };
+type Edit = { doc: ProjectDoc; old_text: string; new_text: string };
 const write = (ctx: ToolContext, edits: Edit[] = [append('3. Third')], baseCommit = BASE) =>
   h.domain.teamTools.writeProjectDocs(ctx, { baseCommit, message: 'Add decision 3', edits });
+
+it('migrates old document writes without granting autonomous lessons authority', () => {
+  const db = new Database(':memory:');
+  try {
+    const version = migrations.find((migration) => migration.name === 'autonomous lessons writes')!.version;
+    for (const migration of migrations.filter((migration) => migration.version < version))
+      db.exec(migration.sql);
+    db.pragma(`user_version = ${version - 1}`);
+    db.exec(`INSERT INTO doc_writes (id, project_key, repo, base, base_commit, edits, message, author,
+      engine_id, state, created_at, updated_at)
+      VALUES ('dw_old', 'AR', 'repo', 'main', '${BASE}', '[]', 'Old write', 'operator',
+        'local', 'queued', '2026-01-01', '2026-01-01');`);
+    migrate(db);
+    expect(createRepositories(db).docWrites.get('dw_old')).toMatchObject({
+      autonomousLessons: false,
+      externalOrigin: null,
+      requestId: null,
+    });
+  } finally {
+    db.close();
+  }
+});
 
 describe('read_project_doc (PM-495)', () => {
   it('reads the lines asked for at the head of the default branch, with the commit', async () => {
@@ -330,6 +363,23 @@ describe('write_project_docs (PM-495)', () => {
     ]);
     expect(result).toMatchObject({ state: 'published', paths: [DECISIONS, ROADMAP] });
     expect(merger.commitFiles).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses a third document path before queueing a write or a step', async () => {
+    const merger = (await setup())!;
+    const { ctx, requestId } = await ownerAsks();
+    expect(
+      await refusal(
+        write(ctx, [
+          append('Third'),
+          { doc: 'roadmap', old_text: '', new_text: 'Next' },
+          { doc: 'lessons', old_text: '', new_text: 'Lesson' },
+        ]),
+      ),
+    ).toContain('invalid_request:');
+    expect(h.repos.docWrites.openOf('AR')).toBeNull();
+    expect(stepsOf(requestId)).toMatchObject([{ status: 'refused' }]);
+    expect(merger.commitFiles).not.toHaveBeenCalled();
   });
 
   it('allows a line inserted in the middle of the decision log', async () => {
@@ -659,6 +709,7 @@ describe('write_project_docs (PM-495)', () => {
         createdAt: now,
         updatedAt: now,
         externalOrigin: null,
+        autonomousLessons: false,
       });
       return { merger, requestId };
     }
@@ -705,6 +756,346 @@ describe('write_project_docs (PM-495)', () => {
       await settle();
       expect(h.repos.docWrites.get('dw_left')).toMatchObject({ state: 'published' });
     });
+  });
+});
+
+describe('autonomous lessons (PM-1004)', () => {
+  const lesson = (old_text = '', new_text = '# Lessons\n') => ({
+    doc: 'lessons' as const,
+    old_text,
+    new_text,
+  });
+  async function internal() {
+    const { ctx, requestId } = await ownerAsks();
+    h.repos.operatorRequests.close(requestId, new Date().toISOString());
+    return ctx;
+  }
+  async function fromQueue(from: 'system' | 'dev-1') {
+    if (from === 'system') {
+      await h.domain.inbox.openIntegratorTodo({
+        projectKey: 'AR',
+        taskKey: null,
+        askedBy: 'system',
+        question: 'Record the lesson',
+        todo: { what: 'Record a lesson', where: 'Project documents', expected: 'A recorded lesson' },
+      });
+    } else {
+      await h.domain.messaging.send(
+        'AR',
+        from,
+        { to: ['operator'], text: 'Record the lesson' },
+        { kind: 'action' },
+      );
+    }
+    await settle();
+    const item = h.repos.memberQueue.listOpen('AR', 'operator').find((item) => item.state === 'processing')!;
+    expect(item).toBeDefined();
+    expect(h.repos.operatorRequests.openOfSession(item.sessionId!)[0]).toMatchObject({
+      source: 'queue',
+      queueItemId: item.id,
+      fromHandle: from,
+    });
+    return { ctx: toolOf(ownerConversation()), item };
+  }
+
+  it('reads and creates missing lessons without an owner request or owner attribution', async () => {
+    const merger = (await setup())!;
+    const ctx = await internal();
+    const read = await h.domain.teamTools.readProjectDoc(ctx, { doc: 'lessons' });
+    expect(read).toMatchObject({ path: LESSONS, commit: BASE, exists: false });
+    const result = await write(ctx, [lesson()], read.commit);
+    expect(result).toMatchObject({ state: 'published', paths: [LESSONS] });
+    expect(h.repos.docWrites.get(result.write_id)).toMatchObject({
+      autonomousLessons: true,
+      externalOrigin: null,
+      requestedBy: null,
+      requestId: null,
+      stepId: null,
+    });
+    expect(merger.commitFiles.mock.calls[0]![1].message.split('\n')).toEqual([
+      'Add decision 3',
+      '',
+      'Projectman-Operator: operator',
+      'Projectman-Operator-Mode: autonomous-lessons',
+    ]);
+  });
+
+  it('rewrites existing lessons rather than requiring append-only text', async () => {
+    const merger = (await setup(fakeDocsMerger({ [LESSONS]: '# Lessons\nOld lesson\n' })))!;
+    const ctx = await internal();
+    expect(await write(ctx, [lesson('Old lesson', 'New lesson')])).toMatchObject({ state: 'published' });
+    expect(merger.trees.get(merger.state.remote)![LESSONS]).toBe('# Lessons\nNew lesson\n');
+  });
+
+  it('requires an explicitly configured lessons path', async () => {
+    await setup(fakeDocsMerger(), { docs: false });
+    const ctx = await internal();
+    expect(await refusal(write(ctx, [lesson()]))).toMatch(/^docs_not_configured:/);
+  });
+
+  it.each(['system', 'dev-1'] as const)(
+    'reads and writes lessons from a real %s queue request',
+    async (from) => {
+      await setup();
+      const { ctx } = await fromQueue(from);
+      const read = await h.domain.teamTools.readProjectDoc(ctx, { doc: 'lessons' });
+      expect(await write(ctx, [lesson()], read.commit)).toMatchObject({ state: 'published' });
+    },
+  );
+
+  it.each(['session', 'project', 'member', 'state', 'missing'] as const)(
+    'rejects a queue request with an invalid %s binding for reads and writes',
+    async (binding) => {
+      const merger = (await setup())!;
+      const { ctx, item } = await fromQueue('system');
+      const request = h.repos.operatorRequests.openOfSession(ctx.sessionId)[0]!;
+      if (binding === 'missing') {
+        h.repos.db.prepare('UPDATE operator_requests SET queue_item_id = NULL WHERE id = ?').run(request.id);
+      } else {
+        const column = { session: 'session_id', project: 'project_key', member: 'member', state: 'state' }[
+          binding
+        ];
+        const value = binding === 'state' ? 'queued' : binding === 'project' ? 'OTHER' : 'other';
+        if (binding === 'project') {
+          h.repos.db
+            .prepare("INSERT INTO projects VALUES ('OTHER', 'Other', NULL, 'v1', '2026-01-01', '2026-01-01')")
+            .run();
+          h.repos.db
+            .prepare('UPDATE member_queue_items SET project_key = ? WHERE id = ?')
+            .run(value, item.id);
+        } else
+          h.repos.db.prepare(`UPDATE member_queue_items SET ${column} = ? WHERE id = ?`).run(value, item.id);
+      }
+      expect(await refusal(h.domain.teamTools.readProjectDoc(ctx, { doc: 'lessons' }))).toMatch(
+        /^operator_owner_only:/,
+      );
+      expect(await refusal(write(ctx, [lesson()]))).toMatch(/^operator_owner_only:/);
+      expect(merger.commitFiles).not.toHaveBeenCalled();
+    },
+  );
+
+  it('keeps mixed and other documents behind the owner-request guard in the queue', async () => {
+    await setup();
+    const { ctx } = await fromQueue('dev-1');
+    for (const edits of [
+      [lesson(), append('Third')],
+      [{ doc: 'roadmap' as const, old_text: '', new_text: 'Next' }],
+    ])
+      expect(await refusal(write(ctx, edits))).toMatch(/^operator_owner_only:/);
+    expect(await refusal(h.domain.teamTools.readProjectDoc(ctx, { doc: 'decisions' }))).toMatch(
+      /^operator_owner_only:/,
+    );
+    expect(h.repos.docWrites.openOf('AR')).toBeNull();
+  });
+
+  it('keeps mixed edits behind the owner-request guard with no request', async () => {
+    await setup();
+    const ctx = await internal();
+    expect(await refusal(write(ctx, [lesson(), append('Third')]))).toMatch(/^operator_no_request:/);
+  });
+
+  it('refuses lessons in a guest conversation', async () => {
+    await setup();
+    await say('cleo');
+    const guest = operatorSessions().find(
+      (s) => s.workItem.type === 'general' && s.workItem.with === 'cleo',
+    )!;
+    const ctx = toolOf(guest);
+    expect(await refusal(h.domain.teamTools.readProjectDoc(ctx, { doc: 'lessons' }))).toMatch(
+      /^operator_owner_only:/,
+    );
+    expect(await refusal(write(ctx, [lesson()]))).toMatch(/^operator_owner_only:/);
+  });
+
+  it.each(['approval', 'message', 'answer'] as const)(
+    'refuses a non-owner %s request in the internal conversation',
+    async (source) => {
+      await setup();
+      const ctx = await internal();
+      h.repos.operatorRequests.insert({
+        id: 'opr_disallowed',
+        projectKey: 'AR',
+        sessionId: ctx.sessionId,
+        source,
+        messageId: null,
+        inboxItemId: null,
+        queueItemId: null,
+        fromHandle: source === 'approval' ? 'owner' : 'dev-1',
+        quote: 'Record lessons',
+        openedAt: new Date().toISOString(),
+      });
+      const code = source === 'approval' ? /^operator_no_request:/ : /^operator_owner_only:/;
+      expect(await refusal(h.domain.teamTools.readProjectDoc(ctx, { doc: 'lessons' }))).toMatch(code);
+      expect(await refusal(write(ctx, [lesson()]))).toMatch(code);
+    },
+  );
+
+  it('rejects a context that does not identify the Operator session', async () => {
+    await setup();
+    const ctx = { ...(await internal()), sessionId: 'unknown' };
+    expect(await refusal(write(ctx, [lesson()]))).toMatch(/^operator_owner_only:/);
+  });
+
+  it('continues a delayed lessons write after a restart and sends its result without an owner step', async () => {
+    const merger = (await setup(fakeDocsMerger(), { persistent: true }))!;
+    const ctx = await internal();
+    vi.spyOn(h.domain.merges, 'busy').mockReturnValue(true);
+    const queued = await write(ctx, [lesson()]);
+    expect(queued.state).toBe('queued');
+    h = await restartDomainHarness(h, { merger });
+    await settle();
+    expect(h.repos.docWrites.get(queued.write_id)).toMatchObject({ state: 'published', stepId: null });
+    const messages = h.repos.messages.list('AR', { member: 'operator' }).filter((m) => m.from === 'system');
+    expect(messages).toMatchObject([{ kind: 'info', body: expect.stringContaining(queued.write_id) }]);
+  });
+
+  it.each([false, true])(
+    'reauthorizes a running autonomous write after restart (reconfigured: %s)',
+    async (reconfigured) => {
+      const merger = (await setup(fakeDocsMerger(), { persistent: true }))!;
+      const ctx = await internal();
+      vi.spyOn(h.domain.merges, 'busy').mockReturnValue(true);
+      const queued = await write(ctx, [lesson()]);
+      const commit = 'c'.repeat(40);
+      merger.state.remote = commit;
+      merger.state.remoteHas.add(commit);
+      merger.trees.set(commit, { [LESSONS]: '# Lessons\n' });
+      h.repos.docWrites.update(queued.write_id, {
+        state: 'running',
+        commitSha: commit,
+        updatedAt: new Date().toISOString(),
+      });
+      if (reconfigured)
+        await h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (config) => {
+          config.project.repos[0]!.docs!.lessons = 'docs/MOVED.md';
+          return 'Move lessons';
+        });
+      h = await restartDomainHarness(h, { merger });
+      await settle();
+      if (reconfigured) {
+        expect(h.repos.docWrites.get(queued.write_id)).toMatchObject({
+          state: 'failed',
+          error: { code: 'authorization_revoked' },
+        });
+        expect(merger.advance).not.toHaveBeenCalled();
+      } else {
+        expect(h.repos.docWrites.get(queued.write_id)).toMatchObject({
+          state: 'published',
+          commitSha: commit,
+        });
+        expect(merger.advance).toHaveBeenCalledWith(expect.anything(), {
+          base: 'main',
+          from: BASE,
+          to: commit,
+        });
+      }
+      expect(merger.push).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['mixed', 'empty', 'author'] as const)(
+    'enforces the lessons-only service entry against %s input',
+    async (invalid) => {
+      await setup();
+      const input = {
+        projectKey: 'AR',
+        author: invalid === 'author' ? 'dev-1' : 'operator',
+        baseCommit: BASE,
+        message: 'Record lesson',
+        edits: invalid === 'empty' ? [] : invalid === 'mixed' ? [lesson(), append('Third')] : [lesson()],
+      };
+      await expect(h.domain.docWrites.requestLessons(input)).rejects.toMatchObject({
+        code: invalid === 'author' ? 'operator_only' : 'operator_owner_only',
+      });
+      expect(h.repos.docWrites.openOf('AR')).toBeNull();
+    },
+  );
+
+  it.each(['lessons', 'repo', 'base', 'operator'] as const)(
+    'revokes a queued write when its %s authorization changes',
+    async (change) => {
+      const merger = (await setup())!;
+      const ctx = await internal();
+      const busy = vi.spyOn(h.domain.merges, 'busy').mockReturnValue(true);
+      const queued = await write(ctx, [lesson()]);
+      const config = structuredClone(await h.domain.projects.config('AR'));
+      if (change === 'operator')
+        config.team.members = config.team.members.filter((m) => m.handle !== 'operator');
+      else if (change === 'lessons') delete config.project.repos[0]!.docs!.lessons;
+      else if (change === 'repo') config.project.repos[0]!.name = 'other';
+      else config.project.repos[0]!.defaultBranch = 'other';
+      vi.spyOn(h.domain.projects, 'config').mockResolvedValue(config);
+      busy.mockReturnValue(false);
+      h.domain.docWrites.pump();
+      await settle();
+      expect(h.repos.docWrites.get(queued.write_id)).toMatchObject({
+        state: 'failed',
+        error: { code: 'authorization_revoked' },
+      });
+      expect(merger.commitFiles).not.toHaveBeenCalled();
+      expect(merger.push).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    { change: 'lessons', remote: true },
+    { change: 'operator', remote: true },
+    { change: 'lessons', remote: false },
+  ])('rechecks $change immediately before publication (remote: $remote)', async ({ change, remote }) => {
+    const merger = (await setup())!;
+    const ctx = await internal();
+    if (!remote)
+      merger.prepare.mockResolvedValue({
+        local: BASE,
+        remote: null,
+        relation: 'same',
+        contains: { local: true, remote: null },
+        checkout: null,
+      });
+    merger.checkoutConflicts.mockImplementationOnce(async () => {
+      const config = structuredClone(await h.domain.projects.config('AR'));
+      if (change === 'operator')
+        config.team.members = config.team.members.filter((m) => m.handle !== 'operator');
+      else config.project.repos[0]!.docs!.lessons = 'other.md';
+      vi.spyOn(h.domain.projects, 'config').mockResolvedValue(config);
+      return [];
+    });
+    expect(await refusal(write(ctx, [lesson()]))).toContain('authorization_revoked');
+    expect(merger.push).not.toHaveBeenCalled();
+    expect(merger.advance).not.toHaveBeenCalled();
+  });
+
+  it('rejects an autonomous marker combined with an owner request after restart', async () => {
+    const merger = (await setup(fakeDocsMerger(), { persistent: true }))!;
+    const { ctx, requestId } = await ownerAsks();
+    vi.spyOn(h.domain.merges, 'busy').mockReturnValue(true);
+    const queued = await write(ctx, [lesson()]);
+    h.repos.db
+      .prepare('UPDATE doc_writes SET request_id = ?, state = ?, commit_sha = ? WHERE id = ?')
+      .run(requestId, 'running', BASE, queued.write_id);
+    h = await restartDomainHarness(h, { merger });
+    await settle();
+    expect(h.repos.docWrites.get(queued.write_id)).toMatchObject({
+      state: 'failed',
+      error: { code: 'authorization_revoked' },
+    });
+    expect(merger.advance).not.toHaveBeenCalled();
+  });
+
+  it('reports stale lessons with a retry instead of requesting owner approval', async () => {
+    const merger = (await setup())!;
+    const ctx = await internal();
+    const busy = vi.spyOn(h.domain.merges, 'busy').mockReturnValue(true);
+    const queued = await write(ctx, [lesson()]);
+    merger.state.remote = 'e'.repeat(40);
+    merger.trees.set(merger.state.remote, { [LESSONS]: 'Changed' });
+    busy.mockReturnValue(false);
+    h.domain.docWrites.pump();
+    await settle();
+    expect(h.repos.docWrites.get(queued.write_id)?.state).toBe('stale');
+    const message = h.repos.messages.list('AR', { member: 'operator' }).find((m) => m.from === 'system')!;
+    expect(message.body).toContain('retry');
+    expect(message.body).not.toContain('owner');
   });
 });
 
@@ -765,13 +1156,19 @@ describe('write_project_docs through the bearer MCP (PM-784)', () => {
     });
     return writes;
   }
-  const request = (writes: DocWrites, s: IntegratorExecutionScope, base = BASE, text = '3. Third') =>
+  const request = (
+    writes: DocWrites,
+    s: IntegratorExecutionScope,
+    base = BASE,
+    text = '3. Third',
+    doc: ProjectDoc = 'decisions',
+  ) =>
     runIntegratorExecution(s, () =>
       writes.requestExternal({
         projectKey: 'AR',
         baseCommit: base,
         message: 'Add decision 3',
-        edits: [append(text)],
+        edits: [{ doc, old_text: '', new_text: text }],
       }),
     );
   const allowing: DocWriteExternalRunner = { run: async (_key, _origin, action) => action(async () => {}) };
@@ -819,6 +1216,24 @@ describe('write_project_docs through the bearer MCP (PM-784)', () => {
     ).rejects.toMatchObject({ code: 'not_found' });
   });
 
+  it('refuses an autonomous marker on an external write instead of bypassing key authorization', async () => {
+    const merger = (await setup())!;
+    const writes = externalWrites(merger, allowing);
+    const outcome = await request(writes, await scope(), BASE, 'A lesson', 'lessons');
+    expect(outcome.state).toBe('published');
+    merger.push.mockClear();
+    h.repos.db
+      .prepare("UPDATE doc_writes SET autonomous_lessons = 1, state = 'queued' WHERE id = ?")
+      .run(outcome.id);
+    writes.pump();
+    await settle();
+    expect(h.repos.docWrites.get(outcome.id)).toMatchObject({
+      state: 'failed',
+      error: { code: 'authorization_revoked' },
+    });
+    expect(merger.push).not.toHaveBeenCalled();
+  });
+
   it('keeps the decision log append-only and a stale base out, before anything is queued', async () => {
     const merger = (await setup())!;
     const writes = externalWrites(merger, allowing);
@@ -857,6 +1272,27 @@ describe('write_project_docs through the bearer MCP (PM-784)', () => {
     expect(h.repos.docWrites.list('queued')).toEqual([]);
   });
 
+  it('refuses a third document path through the external write entry before queueing', async () => {
+    const merger = (await setup())!;
+    const writes = externalWrites(merger, allowing);
+    await expect(
+      runIntegratorExecution(await scope(), () =>
+        writes.requestExternal({
+          projectKey: 'AR',
+          baseCommit: BASE,
+          message: 'Update documents',
+          edits: ['decisions', 'roadmap', 'lessons'].map((doc) => ({
+            doc: doc as ProjectDoc,
+            old_text: '',
+            new_text: 'New',
+          })),
+        }),
+      ),
+    ).rejects.toMatchObject({ code: 'invalid_request', status: 422 });
+    expect(h.repos.docWrites.openOf('AR')).toBeNull();
+    expect(merger.commitFiles).not.toHaveBeenCalled();
+  });
+
   it('ends a queued write as authorization_revoked when the key is gone at its start, and pushes nothing', async () => {
     const merger = (await setup())!;
     const revoked: DocWriteExternalRunner = {
@@ -865,7 +1301,7 @@ describe('write_project_docs through the bearer MCP (PM-784)', () => {
       },
     };
     const writes = externalWrites(merger, revoked);
-    const outcome = await request(writes, await scope());
+    const outcome = await request(writes, await scope(), BASE, 'A lesson', 'lessons');
     expect(outcome).toMatchObject({ state: 'failed', failure: 'authorization_revoked' });
     expect(merger.commitFiles).not.toHaveBeenCalled();
     expect(merger.push).not.toHaveBeenCalled();
@@ -890,7 +1326,7 @@ describe('write_project_docs through the bearer MCP (PM-784)', () => {
         }),
     };
     const writes = externalWrites(merger, revokedMidway);
-    const outcome = await request(writes, await scope());
+    const outcome = await request(writes, await scope(), BASE, 'A lesson', 'lessons');
     expect(outcome).toMatchObject({ state: 'failed', failure: 'authorization_revoked' });
     expect(merger.push).not.toHaveBeenCalled();
     expect(merger.state.remote).toBe(BASE);
@@ -940,6 +1376,7 @@ describe('write_project_docs through the bearer MCP (PM-784)', () => {
       createdAt: now,
       updatedAt: now,
       externalOrigin: null,
+      autonomousLessons: false,
     });
     h = await restartDomainHarness(h, { merger });
     await settle();

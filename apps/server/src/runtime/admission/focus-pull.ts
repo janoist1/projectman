@@ -134,8 +134,9 @@ export class FocusPull implements FocusPulling {
       const points = complexityOf(card);
       const pick = chooseDeveloper({
         points,
+        labels: card.labels,
         anyDecided: this.seniorWaits.decisionFor(projectKey, card.key)?.decision === 'any',
-        reaching: reachingDevelopers(developers, points),
+        reaching: reachingDevelopers(developers, points, card.labels),
         free,
       });
       // The card waits for a developer whose limit reaches its points, or nobody can take it: the next card.

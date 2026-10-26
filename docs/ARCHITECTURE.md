@@ -438,6 +438,8 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   **The complexity limit** (PM-1007, replaces the Senior mark of PM-348): the automatic developer
   choice is `chooseDeveloper` in `packages/shared`. A card's points (`Task.complexity`, PM-1006) are
   compared with each developer's `complexityLimit` (a temp worker's is always 5). Among the free
+  developers, optional `specialtyLabels` first restricts automatic assignment to cards carrying at
+  least one matching label; explicit assignees remain unrestricted (PM-1038). Among matching free
   developers whose limit reaches the points the one with the smallest limit wins (then the least
   loaded, then the team order), so a small card does not take the strongest developer; an unscored
   card goes the same way among all free developers. While every developer who reaches the points is

@@ -636,6 +636,7 @@ export class TaskStarts implements WorkEntryCheck {
       .map((c) => ({
         handle: c.m.handle,
         limit: complexityLimitOf(c.m),
+        specialtyLabels: c.m.specialtyLabels,
         temp: !!c.m.temp,
         load: c.load,
         index: c.index,
@@ -644,9 +645,11 @@ export class TaskStarts implements WorkEntryCheck {
     const reaching = reachingDevelopers(
       stageDevelopers(config, stage).filter((developer) => eligible.includes(developer.handle)),
       points,
+      task.labels,
     );
     const pick = chooseDeveloper({
       points,
+      labels: task.labels,
       anyDecided: this.seniorWaits.decisionFor(projectKey, task.key)?.decision === 'any',
       reaching,
       free,

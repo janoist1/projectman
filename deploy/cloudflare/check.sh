@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Checks the public entrance of the live projectman (PM-200, PM-210): Cloudflare Access in front,
-# the tunnel, the edge settings and the server's own origin/cookie rules. Guide: docs/DEPLOY.md,
-# section "Public entry through Cloudflare Tunnel and Access". It extends the curl checks of the
-# tailnet section to the public address. Run it as the owner, from any machine with curl and
-# cloudflared.
+# the tunnel, the edge settings and the server's own origin/cookie rules. Guides: docs/AWS.md,
+# "Verification", and docs/SECURITY.md, "Public entrance through Cloudflare".
+# With FEEDBACK_ORIGIN it also checks docs/HYBRID.md, "The marking widget's public hostname".
+# Run it as the owner, from any machine with curl and cloudflared.
 #
 # Usage:
 #   cloudflared access login https://chopper.istvan.io >/dev/null   # once; your own login

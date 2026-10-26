@@ -1882,6 +1882,22 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                             "specialty": {
                               "type": "string",
                             },
+                            "specialtyLabels": {
+                              "anyOf": [
+                                {
+                                  "items": {
+                                    "maxLength": 40,
+                                    "minLength": 1,
+                                    "type": "string",
+                                  },
+                                  "maxItems": 10,
+                                  "type": "array",
+                                },
+                                {
+                                  "type": "null",
+                                },
+                              ],
+                            },
                           },
                           "type": "object",
                         },
@@ -2305,6 +2321,22 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                     },
                     "specialty": {
                       "type": "string",
+                    },
+                    "specialtyLabels": {
+                      "anyOf": [
+                        {
+                          "items": {
+                            "maxLength": 40,
+                            "minLength": 1,
+                            "type": "string",
+                          },
+                          "maxItems": 10,
+                          "type": "array",
+                        },
+                        {
+                          "type": "null",
+                        },
+                      ],
                     },
                   },
                   "type": "object",
@@ -3423,7 +3455,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": true,
       "title": "Read the project startup checklist",
     },
-    "description": "Only the Operator or the project manager in their internal general session, never a guest. Needs no owner request. Returns the startup checklist (items with state, reason, condition and whether the condition holds now; progress; the base template) and, for each template, the item ids it would add. When there is no list yet, the answer says so; the Operator creates it with update_checklist op init.",
+    "description": "Only the Operator or the project manager in their internal general session, never a guest. Needs no owner request. Returns the startup checklist (items with state, reason, condition and whether the condition holds now; progress; the base template) and, for each template, the item ids it would add. When there is no list yet, the answer says so; create it with update_checklist op init.",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,
@@ -3490,6 +3522,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
             "commands",
             "rules",
             "role",
+            "sandbox",
           ],
           "type": "string",
         },
@@ -3741,7 +3774,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": true,
       "title": "Read personal conversation preferences",
     },
-    "description": "Only the Operator in the current person’s general conversation. Read their personal style and revision. The server chooses the person from the session; no handle, project or path is accepted. These five style fields never authorize project changes.",
+    "description": "The Operator in the current person’s general conversation, or the selected active PM with an open direct owner message/answer in its internal general session. Read their personal style and revision. The server chooses the person; no handle, project or path is accepted. These five style fields never authorize project changes.",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,
@@ -4048,7 +4081,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": true,
       "title": "List the owners’ answers that may be decisions",
     },
-    "description": "Only the Operator, not in guest conversations; needs no open owner request. The questions an owner answered on cards since you last looked, which they have not given a verdict on yet, the earliest answer first. Offer them to the owner in your answer to their message; the call counts as a look, so the same answers come back only if you did not mark them. Refused with docs_not_configured when the project has no decision log. more true: there are further candidates, call again after marking these.",
+    "description": "Only the selected project manager in its internal general conversation, or the transitional app Operator; never in guest conversations. Needs no open owner request. The questions an owner answered on cards since you last looked, which they have not given a verdict on yet, the earliest answer first. Offer them to the owner in your answer to their message; the call counts as a look, so the same answers come back only if you did not mark them. Refused with docs_not_configured when the project has no decision log. more true: there are further candidates, call again after marking these.",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,
@@ -4238,7 +4271,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": false,
       "title": "Mark the offered decision candidates",
     },
-    "description": "Only the Operator, in the owner's own conversation, during an open owner request. Record what the owner said about the candidates you offered: recorded (they said yes and the entry is in the decision log; decision is its number, 1–10 characters), declined (they said no: never offer it again) or skipped (not a decision). All or nothing: one unknown item_id refuses the whole call with not_found. An item already marked can be marked again when the owner asks.",
+    "description": "Only the selected project manager in its internal general conversation, or the transitional app Operator, in the owner's own conversation, during an open owner request. Record what the owner said about the candidates you offered: recorded (they said yes and the entry is in the decision log; decision is its number, 1–10 characters), declined (they said no: never offer it again) or skipped (not a decision). All or nothing: one unknown item_id refuses the whole call with not_found. An item already marked can be marked again when the owner asks.",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,
@@ -5605,6 +5638,22 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                     "specialty": {
                       "type": "string",
                     },
+                    "specialtyLabels": {
+                      "anyOf": [
+                        {
+                          "items": {
+                            "maxLength": 40,
+                            "minLength": 1,
+                            "type": "string",
+                          },
+                          "maxItems": 10,
+                          "type": "array",
+                        },
+                        {
+                          "type": "null",
+                        },
+                      ],
+                    },
                   },
                   "type": "object",
                 },
@@ -5906,7 +5955,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": false,
       "title": "Propose shared Operator knowledge",
     },
-    "description": "Only the Operator during an open owner message or answer. Propose an agreement replacement, principle put or removal with the current expected_revision. A null principle id gets a server id. Writes nothing until an owner approves in the inbox. Only agreement_replace accepts recommended operations (at most ten); even immediate operations must wait for this approval and protected configuration operations still require a separate approval. Never import principles automatically from memory or documents.",
+    "description": "The Operator, or the selected project manager in its internal general session, during an open owner message or answer. Propose an agreement replacement, principle put or removal with the current expected_revision. A null principle id gets a server id. Writes nothing until an owner approves in the inbox. Only the Operator’s agreement_replace accepts recommended operations (at most ten); even immediate operations must wait for this approval and protected configuration operations still require a separate approval. Never import principles automatically from memory or documents.",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,
@@ -7264,6 +7313,22 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                       "specialty": {
                         "type": "string",
                       },
+                      "specialtyLabels": {
+                        "anyOf": [
+                          {
+                            "items": {
+                              "maxLength": 40,
+                              "minLength": 1,
+                              "type": "string",
+                            },
+                            "maxItems": 10,
+                            "type": "array",
+                          },
+                          {
+                            "type": "null",
+                          },
+                        ],
+                      },
                     },
                     "type": "object",
                   },
@@ -7710,7 +7775,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": true,
       "title": "Read a project document",
     },
-    "description": "Only the Operator, not in guest conversations; needs no open owner request. Read the decision log (decisions), roadmap (roadmap) or lessons (lessons) as it is on the head of the project's default branch, fresh from the remote. Lessons may also be read from your own processing queue item. The answer names the commit it was read at: pass it as base_commit to write_project_docs. A long file is read in parts with from_line and line_count; total_lines says how long it is. exists false: the file is not in the repository yet (the first write creates it).",
+    "description": "Only the selected project manager in its internal general conversation, or the transitional app Operator; never in guest conversations. Needs no open owner request. Read the decision log (decisions), roadmap (roadmap) or lessons (lessons) as it is on the head of the project's default branch, fresh from the remote. Lessons may also be read from the Operator's own processing queue item. The answer names the commit it was read at: pass it as base_commit to write_project_docs. A long file is read in parts with from_line and line_count; total_lines says how long it is. exists false: the file is not in the repository yet (the first write creates it).",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,
@@ -8286,7 +8351,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": false,
       "title": "Set personal conversation preferences",
     },
-    "description": "Only the Operator, for the person currently speaking in their own conversation, including guests. Read get_operator_preference first and pass its revision as expected_revision. Changes only this person’s five style fields; grants no other write. Confirm the new style in one sentence in the project language. To reset, use brief/plain/offer/plain/minimal. On operator_knowledge_stale read again before retrying.",
+    "description": "The Operator for the person currently speaking in their own conversation, including guests, or the selected active PM with an open direct owner message/answer in its internal general session. Learn only from explicit style requests or corrections. Read get_operator_preference first and pass its revision as expected_revision. Changes only this person’s five style fields; grants no other write. Confirm the new style in one sentence in the project language. To reset, use brief/plain/offer/plain/minimal. On operator_knowledge_stale read again before retrying.",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,
@@ -8589,7 +8654,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": false,
       "title": "Change the project startup checklist",
     },
-    "description": "Only the Operator in its internal general session, never a guest; it is your own tool, so it needs no owner request. One operation per call. init: create the base list for a project that has none. add: a new item (title, optional hint and condition); the server gives it a custom_<n> id. edit: item_id with a new title and/or hint. set_condition: item_id and condition (null takes it off); a done item can get only a condition that holds. set_state: item_id and state open, done or not_needed; not_needed always needs a reason, and done is refused while the item condition does not hold (checklist_condition_unmet). apply_template: template_id adds the template items the list does not have yet and sets the base template; it deletes and overwrites nothing. Nothing is deleted: to override the owner, apply another template or set items to not_needed with a reason. The system, not you, keeps the rule that a conditional item is done only while its condition holds.",
+    "description": "Only the Operator or the selected project manager in their internal general session, never a guest; it is your own tool, so it needs no owner request. One operation per call. init: create the base list for a project that has none. add: a new item (title, optional hint and condition); the server gives it a custom_<n> id. edit: item_id with a new title and/or hint. set_condition: item_id and condition (null takes it off); a done item can get only a condition that holds. set_state: item_id and state open, done or not_needed; not_needed always needs a reason, and done is refused while the item condition does not hold (checklist_condition_unmet). apply_template: template_id adds the template items the list does not have yet and sets the base template; it deletes and overwrites nothing. Nothing is deleted: to override the owner, apply another template or set items to not_needed with a reason. The system, not you, keeps the rule that a conditional item is done only while its condition holds.",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,
@@ -8904,7 +8969,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": false,
       "title": "Write the project documents",
     },
-    "description": "Only the Operator. Lessons-only edits need no owner request or approval in your own internal conversation, including your processing queue item; never in a guest conversation or approval continuation. Any decisions, roadmap or mixed edits require an open owner request in the owner's own conversation: show the owner the text first. Replace text in at most TWO document files as ONE commit on the default branch, pushed to its remote; use separate calls for three files. base_commit is the commit read_project_doc returned; edits are applied in order. Each edit replaces old_text, which must occur exactly once in the file, with new_text; an empty old_text appends new_text at the end of the file. The decision log is append-only: no existing line may change or go. Lessons and roadmap may be rewritten. Refused when a file changed since base_commit (docs_stale: read it again and retry lessons; show the owner changes to other documents), when an old_text is not found or is ambiguous, or when nothing changes. The write runs in the repository's merge slot: it may answer queued or running (not finished within 60 seconds); a system message reports its eventual result. message is the commit subject: one line, English.",
+    "description": "Only the selected project manager in its internal general conversation, or the transitional app Operator. Lessons-only edits need no owner request or approval in your own internal conversation, including the Operator's own processing queue item; never in a guest conversation or approval continuation. Any decisions, roadmap or mixed edits require an open owner request in the owner's own conversation: show the owner the text first. Replace text in at most TWO document files as ONE commit on the default branch, pushed to its remote; use separate calls for three files. base_commit is the commit read_project_doc returned; edits are applied in order. Each edit replaces old_text, which must occur exactly once in the file, with new_text; an empty old_text appends new_text at the end of the file. The decision log is append-only: no existing line may change or go. Lessons and roadmap may be rewritten. Refused when a file changed since base_commit (docs_stale: read it again and retry lessons; show the owner changes to other documents), when an old_text is not found or is ambiguous, or when nothing changes. The write runs in the repository's merge slot: it may answer queued or running (not finished within 60 seconds); a system message reports its eventual result. message is the commit subject: one line, English.",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,

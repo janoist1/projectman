@@ -551,21 +551,6 @@ export const CreateProjectRequest = z.object({
 });
 export type CreateProjectRequest = z.infer<typeof CreateProjectRequest>;
 
-/** What `POST /api/projects/preview` answers: the configuration a create would save and its issues. */
-export const ProjectPreview = z.object({
-  config: ProjectConfig,
-  /** The fields of `ConfigIssue`; an absent severity is an error. */
-  issues: z.array(
-    z.object({
-      code: z.string(),
-      severity: z.enum(['error', 'warning']).optional(),
-      path: z.string(),
-      detail: z.string().optional(),
-    }),
-  ),
-});
-export type ProjectPreview = z.infer<typeof ProjectPreview>;
-
 export const TemplateSummary = z.object({
   id: z.string(),
   /** i18n keys; the web app translates them. */
@@ -594,6 +579,7 @@ export type MemberQuotaWaiting = z.infer<typeof MemberQuotaWaiting>;
 
 export const MemberView = z.object({
   complexityLimit: ComplexityPoints.optional(),
+  specialtyLabels: z.array(LabelId).optional(),
   /** AI members: the server always supplies the effective email settings. */
   email: z.object({ enabled: z.boolean(), sendWithoutApproval: z.boolean() }).optional(),
   outage: WorkOutage.optional(),
@@ -678,6 +664,7 @@ export type HireMemberRequest = z.infer<typeof HireMemberRequest>;
 /** PATCH of a member; omitted fields stay as they are. */
 export const UpdateMemberRequest = z.object({
   complexityLimit: ComplexityPoints.nullable().optional(),
+  specialtyLabels: z.array(LabelId).max(10).nullable().optional(),
   /** AI only; omitted values retain their settings. */
   email: z
     .strictObject({

@@ -4,6 +4,7 @@ import { makeDocWriteQueue, type DocWriteQueueEffects } from './write-queue';
 import type { DocWriteSlotPeer } from './ports';
 import {
   DocWriteFailure as DocWriteFailureSchema,
+  coordinationMemberOf,
   LOCAL_ENGINE_ID,
   isLessonsOnly,
   isOperator,
@@ -237,8 +238,8 @@ export class DocWrites {
     const { ctx } = this.deps;
     const { projectKey } = input;
     const config = await this.deps.projects.config(projectKey);
-    if (!isOperator(memberOf(config, input.author)))
-      throw forbidden('operator_only', 'only the Operator may maintain lessons');
+    if (!isOperator(memberOf(config, input.author)) && coordinationMemberOf(config)?.handle !== input.author)
+      throw forbidden('operator_only', 'only the selected project manager or Operator may maintain lessons');
     if (!isLessonsOnly(input.edits))
       throw forbidden('operator_owner_only', 'autonomous writes may only edit lessons');
     const { docs, edits } = await this.checkedEdits(projectKey, input.author, input.baseCommit, input.edits);
@@ -499,7 +500,7 @@ export class DocWrites {
         row.requestedBy !== null ||
         row.requestId !== null ||
         row.stepId !== null ||
-        !isOperator(memberOf(config, row.author)) ||
+        (!isOperator(memberOf(config, row.author)) && coordinationMemberOf(config)?.handle !== row.author) ||
         !docs?.lessons ||
         docs.repo.name !== row.repo ||
         docs.repo.defaultBranch !== row.base ||

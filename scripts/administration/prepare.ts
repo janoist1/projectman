@@ -106,7 +106,8 @@ export function prepareFiles(input: PrepareInput): PreparedFile[] {
   if (stateDir === socketDir) throw new PrepareError('the state and the socket directories must differ');
   // Member sessions run as the same OS user, and their sandbox denies `<app home>/administration` only
   // (contracts/sandbox.ts); a directory anywhere else would leave the 0600 socket reachable from a session.
-  const protectedRoot = path.join(checkPath('the app home', input.appHome), ADMINISTRATION_FOLDER);
+  const appHome = checkPath('the app home', input.appHome);
+  const protectedRoot = path.join(appHome, ADMINISTRATION_FOLDER);
   for (const [label, dir] of [
     ['the state directory', stateDir],
     ['the socket directory', socketDir],
@@ -127,6 +128,7 @@ export function prepareFiles(input: PrepareInput): PreparedFile[] {
     target: parseTarget(input.target),
     stateDir,
     socketPath,
+    appHome,
     ...(input.ownerCommandShell !== undefined
       ? { ownerCommand: { shell: checkPath('the owner command shell', input.ownerCommandShell) } }
       : {}),

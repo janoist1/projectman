@@ -73,7 +73,8 @@ function renderLayout(
   );
 }
 
-const button = () => screen.findByRole('button', { name: new RegExp(`^${t('operator.panel.label')}`) });
+const button = () =>
+  screen.findByRole('button', { name: new RegExp(`^${t('operator.button.aria', { status: '' })}`) });
 const operatorName = (project: Project) => project.backend.findMember('operator')!.displayName;
 const posted = (project: Project, suffix: string) =>
   project.requests.filter((r) => r.method === 'POST' && r.path.endsWith(suffix));
@@ -218,7 +219,9 @@ describe('the Operator button', () => {
     renderLayout(project, '/p/AC', { viewer: 'kata', contacts: ['fe-1'] });
     await screen.findByText('board');
     await waitFor(() => expect(project.requests.some((r) => r.path.endsWith('/config'))).toBe(true));
-    expect(screen.queryByRole('button', { name: new RegExp(`^${t('operator.panel.label')}`) })).toBeNull();
+    expect(
+      screen.queryByRole('button', { name: new RegExp(`^${t('operator.button.aria', { status: '' })}`) }),
+    ).toBeNull();
   });
 });
 

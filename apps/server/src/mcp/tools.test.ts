@@ -96,8 +96,37 @@ describe('tool audience', () => {
     }
   });
 
+  it.each([true, false])(
+    'lists document tools only for project managers and the Operator (%s)',
+    async (pm) => {
+      const names = visibleTeamTools({ ...developerAudience, projectManager: pm }).map((tool) => tool.name);
+      for (const name of [
+        'read_project_doc',
+        'write_project_docs',
+        'list_decision_candidates',
+        'mark_decision_candidates',
+      ])
+        expect(names.includes(name)).toBe(pm);
+    },
+  );
+
   it.each([
     { audience: { ...developerAudience, projectManager: true }, present: 'start_task', absent: 'operate' },
+    {
+      audience: { ...developerAudience, projectManager: true },
+      present: 'propose_operator_knowledge',
+      absent: 'execute_operation',
+    },
+    {
+      audience: { ...developerAudience, projectManager: true },
+      present: 'update_checklist',
+      absent: 'get_machine_status',
+    },
+    {
+      audience: { ...developerAudience, projectManager: true },
+      present: 'set_operator_preference',
+      absent: 'execute_operation',
+    },
     {
       audience: { ...developerAudience, duties: new Set(['feedback_processing'] as const) },
       present: 'get_feedback',

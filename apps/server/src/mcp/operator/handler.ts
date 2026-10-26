@@ -1,5 +1,6 @@
 import {
   isOperator,
+  isProjectManager,
   memberOf,
   roleBundle,
   ScreeningTodo as ScreeningTodoSchema,
@@ -14,6 +15,7 @@ import type {
   ProposeOperatorKnowledgeRequest,
   OperatorPlan,
   OperatorPreferenceData,
+  ProjectConfig,
   ScreeningOutcome,
   ScreeningTodo,
   Task,
@@ -146,16 +148,21 @@ export class OperatorTools implements OperatorToolsHandler {
     );
   }
 
+  /** The Operator's own internal session, or the selected project manager's (PM-1043). */
+  private assertChecklistSession(ctx: ToolContext, config: ProjectConfig): void {
+    if (isOperator(memberOf(config, ctx.member))) {
+      if (!this.ownInternalSession(ctx))
+        throw new TeamToolError(
+          'forbidden',
+          'operator_owner_only: the checklist requires your own internal conversation.',
+        );
+    } else this.calls.assertCoordinationSession(ctx, config);
+  }
+
   async getChecklist(ctx: ToolContext): Promise<ChecklistToolView> {
     return this.calls.guard(async () => {
       const config = await this.calls.caller(ctx, 'get_checklist');
-      if (isOperator(memberOf(config, ctx.member))) {
-        if (!this.ownInternalSession(ctx))
-          throw new TeamToolError(
-            'forbidden',
-            'operator_owner_only: the checklist requires your own internal conversation.',
-          );
-      } else this.calls.assertCoordinationSession(ctx, config);
+      this.assertChecklistSession(ctx, config);
       return {
         checklist: await this.checklist.get(ctx.projectKey),
         templates: this.checklist.templateBases(),
@@ -166,13 +173,12 @@ export class OperatorTools implements OperatorToolsHandler {
   async updateChecklist(ctx: ToolContext, args: UpdateChecklistInput): Promise<UpdateChecklistResult> {
     return this.calls.guard(async () => {
       const config = await this.calls.caller(ctx, 'update_checklist');
-      if (!isOperator(memberOf(config, ctx.member)))
-        throw new TeamToolError('forbidden', 'operator_only: only the Operator may change the checklist.');
-      if (!this.ownInternalSession(ctx))
+      if (!isOperator(memberOf(config, ctx.member)) && !isProjectManager(memberOf(config, ctx.member)))
         throw new TeamToolError(
           'forbidden',
-          'operator_owner_only: the checklist requires your own internal conversation.',
+          'operator_only: only the Operator or the project manager may change the checklist.',
         );
+      this.assertChecklistSession(ctx, config);
       try {
         return await this.runChecklistOp(ctx.projectKey, ctx.member, args);
       } catch (err) {
@@ -275,8 +281,13 @@ export class OperatorTools implements OperatorToolsHandler {
 
   async proposeOperatorKnowledge(ctx: ToolContext, args: ProposeOperatorKnowledgeRequest) {
     const config = await this.projects.config(ctx.projectKey);
-    if (!isOperator(memberOf(config, ctx.member)))
-      throw new TeamToolError('forbidden', 'operator_only: only the Operator may propose shared knowledge.');
+    const member = memberOf(config, ctx.member);
+    if (!isOperator(member) && !isProjectManager(member))
+      throw new TeamToolError(
+        'forbidden',
+        'operator_only: only the Operator or the project manager may propose shared knowledge.',
+      );
+    if (!isOperator(member)) this.calls.assertCoordinationSession(ctx, config);
     await this.calls.callerWithRequest(ctx, 'propose_operator_knowledge');
     return this.operatorKnowledge.propose(ctx, args).catch((err: unknown) => {
       if (err instanceof DomainError)
@@ -300,8 +311,9 @@ export class OperatorTools implements OperatorToolsHandler {
 
   private async preferenceCall<T>(ctx: ToolContext, tool: string, run: () => Promise<T>): Promise<T> {
     const config = await this.projects.config(ctx.projectKey);
-    if (!isOperator(memberOf(config, ctx.member)))
-      throw new TeamToolError('forbidden', 'operator_only: only the Operator may use preferences.');
+    const member = memberOf(config, ctx.member);
+    if (!isOperator(member) && !isProjectManager(member))
+      throw new TeamToolError('forbidden', 'operator_only: only the Operator or PM may use preferences.');
     await this.calls.callerWithRequest(ctx, tool);
     try {
       return await run();

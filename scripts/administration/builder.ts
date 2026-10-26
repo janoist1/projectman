@@ -2,13 +2,18 @@
 // commit, run on this machine. Both read the commit out of the builder repository (a detached check checkout,
 // `git archive`), never the repository's working tree, and only digests and counts go back to the hub.
 import { randomBytes } from 'node:crypto';
+import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import Fastify from 'fastify';
 import { createBuilderExecutors } from '../../apps/server/src/administration';
 import type { BuilderToolbox } from '../../apps/server/src/administration';
 import type { AdministrationExecutors } from '../../apps/server/src/contracts';
-import { createLocalBranchMerger } from '../../apps/server/src/engine-host';
+import {
+  createLocalBranchMerger,
+  defaultSessionTmpRoot,
+  sharedClaudeTmpRoots,
+} from '../../apps/server/src/engine-host';
 import { execCommand } from '../../apps/server/src/exec';
 import { createFullTestExecutor, defaultHeavyLockDir } from '../../apps/server/src/full-test';
 import { fullTestSandbox } from '../../apps/server/src/runtime/sessions';
@@ -20,7 +25,16 @@ const MAX_WORKERS = 4;
 const TIMEOUT_MS = 60 * 60_000;
 const BUILDER_REF = { projectKey: 'BUILDER', repo: 'builder' };
 
-export function createBuilderToolbox(builder: { repo: string; root: string }): BuilderToolbox {
+type BuilderPaths = { repo: string; root: string; appHome: string };
+
+export function createBuilderToolbox(builder: BuilderPaths): BuilderToolbox {
+  const closedTmpRoots = [
+    ...new Set([
+      ...sharedClaudeTmpRoots({ claudeTmpBase: process.env.CLAUDE_CODE_TMPDIR || undefined }),
+      defaultSessionTmpRoot(),
+      path.join(fs.realpathSync(os.tmpdir()), 'projectman-sessions'),
+    ]),
+  ];
   const merger = createLocalBranchMerger({ repoPath: () => builder.repo, worktreesRoot: builder.root });
   const executor = createFullTestExecutor({
     logger: Fastify({ logger: true }).log,
@@ -64,7 +78,8 @@ export function createBuilderToolbox(builder: { repo: string; root: string }): B
               checkout: checkout.path,
               gitDir: checkout.gitDir,
               userHome,
-              appHome: path.join(userHome, '.projectman'),
+              appHome: builder.appHome,
+              closedTmpRoots,
             }),
           },
           signal,
@@ -101,8 +116,6 @@ export function createBuilderToolbox(builder: { repo: string; root: string }): B
 }
 
 /** The executors of an installation with a builder; none without one, so the commands stay unavailable. */
-export function builderExecutors(
-  builder: { repo: string; root: string } | undefined,
-): AdministrationExecutors | undefined {
+export function builderExecutors(builder: BuilderPaths | undefined): AdministrationExecutors | undefined {
   return builder ? createBuilderExecutors(createBuilderToolbox(builder)) : undefined;
 }

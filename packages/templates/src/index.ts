@@ -22,7 +22,7 @@ export {
   roleName,
   uniqueHandle,
 } from './members';
-export { projectManagerMember } from './project-manager';
+export { projectManagerMember, PROJECT_MANAGER_STYLE_INSTRUCTIONS } from './project-manager';
 export { operatorMember } from './operator';
 export { roleViews } from './role-views';
 export { DAILY_WORKER_SCHEDULE } from './templates/daily-routine';

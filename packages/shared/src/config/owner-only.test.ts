@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { humanApprovalChanged, approvalPolicyChanged, ownerOnlyChanges } from './owner-only';
+import { approvalPolicyChanged, ownerOnlyChanges } from './owner-only';
 import type { OwnerOnlyChange } from './owner-only';
 import { ProjectConfig } from './schema';
 
@@ -246,9 +246,5 @@ describe('ownerOnlyChanges', () => {
     expect(changed((c) => void (human(c, 'ann').email = 'new@example.com'), binding)).toEqual([
       'admin_or_account',
     ]);
-  });
-
-  it('keeps the old name of the approval policy check', () => {
-    expect(humanApprovalChanged).toBe(approvalPolicyChanged);
   });
 });

@@ -150,7 +150,7 @@ export function TeamPage() {
           </>
         }
       >
-        {(board.data?.aiEnabled ?? limits?.aiEnabled) === false ? (
+        {board.data?.aiEnabled === false ? (
           <div role="status" className={styles.limit}>
             <span>{t('team.aiDisabled')}</span>
             {can.manageTeam ? (

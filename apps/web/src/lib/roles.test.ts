@@ -9,6 +9,7 @@ const custom: RoleView = {
   name: 'Acme data steward',
   summary: 'Keeps reference data clean.',
   notTheirJob: 'Does not change schemas.',
+  whenToAsk: '',
   holders: 'both',
   builtIn: false,
 };

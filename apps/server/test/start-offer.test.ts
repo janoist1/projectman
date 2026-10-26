@@ -416,7 +416,7 @@ describe('the start offer to the project manager', () => {
       const [busyCodex] = await busyDevelopers();
       pauseClaude();
       const key = await assigned('Waiting assigned card', 'dev-1');
-      await expect(startAsPm(key)).rejects.toBeTruthy();
+      await expect(startAsPm(key)).rejects.toMatchObject({ code: 'plan_usage_paused' });
       expect(task(key).assignee).toBe('dev-1');
       expect(sessionsOf(key)).toEqual([]);
 

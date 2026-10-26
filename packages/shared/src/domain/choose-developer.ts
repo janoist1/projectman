@@ -9,12 +9,14 @@ import type { Task } from './task';
 export interface StageDeveloper {
   handle: string;
   limit: ComplexityPoints;
+  specialtyLabels?: readonly string[];
 }
 
 /** A free AI owner of the work stage, as the automatic choice sees it (PM-348, PM-1001). */
 export interface FreeDeveloper {
   handle: string;
   limit: ComplexityPoints;
+  specialtyLabels?: readonly string[];
   temp: boolean;
   /** What the member works on now. */
   load: number;
@@ -45,7 +47,7 @@ export function stageDevelopers(config: Pick<ProjectConfig, 'team'>, stage: Stag
   const owners = new Set(stageOwners(config, stage));
   return config.team.members
     .filter((m): m is AiMemberConfig => m.kind === 'ai' && owners.has(m.handle) && !m.temp)
-    .map((m) => ({ handle: m.handle, limit: complexityLimitOf(m) }));
+    .map((m) => ({ handle: m.handle, limit: complexityLimitOf(m), specialtyLabels: m.specialtyLabels }));
 }
 
 /** The first eligible human in team order, used when no AI developer can be chosen. */
@@ -60,13 +62,24 @@ export function humanStageOwner(
   );
 }
 
-/** The handles whose limit reaches the points; none when the card is not scored. */
+/** Whether automatic assignment may give a card with these labels to the developer (PM-1038). */
+export function fitsSpecialty(
+  developer: Pick<StageDeveloper, 'specialtyLabels'>,
+  labels: readonly string[],
+): boolean {
+  return (
+    !developer.specialtyLabels?.length || developer.specialtyLabels.some((label) => labels.includes(label))
+  );
+}
+
+/** The matching developers whose limit reaches the points; none for an unscored card. */
 export function reachingDevelopers(
   developers: readonly StageDeveloper[],
   points: ComplexityPoints | null,
+  labels: readonly string[],
 ): string[] {
   if (points === null) return [];
-  return developers.filter((d) => d.limit >= points).map((d) => d.handle);
+  return developers.filter((d) => fitsSpecialty(d, labels) && d.limit >= points).map((d) => d.handle);
 }
 
 const byLoad = (a: FreeDeveloper, b: FreeDeveloper) => a.load - b.load || a.index - b.index;
@@ -84,13 +97,15 @@ const byLoad = (a: FreeDeveloper, b: FreeDeveloper) => a.load - b.load || a.inde
  */
 export function chooseDeveloper(input: {
   points: ComplexityPoints | null;
+  labels: readonly string[];
   /** The owners chose that any free developer may take the card. */
   anyDecided: boolean;
   /** The developers whose limit reaches the points, free or not. */
   reaching: string[];
   free: FreeDeveloper[];
 }): DeveloperChoice {
-  const { points, anyDecided, reaching, free } = input;
+  const { points, anyDecided, reaching } = input;
+  const free = input.free.filter((developer) => fitsSpecialty(developer, input.labels));
   const fitting = free
     .filter((d) => points === null || d.limit >= points)
     .sort((a, b) => a.limit - b.limit || byLoad(a, b))[0];

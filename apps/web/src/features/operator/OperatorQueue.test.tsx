@@ -85,7 +85,8 @@ function renderLayout(project: Project, options: { viewer?: 'owner' | 'kata'; ac
   );
 }
 
-const button = () => screen.findByRole('button', { name: new RegExp(`^${t('operator.panel.label')}`) });
+const button = () =>
+  screen.findByRole('button', { name: new RegExp(`^${t('operator.button.aria', { status: '' })}`) });
 const toggle = () => screen.findByRole('button', { name: new RegExp(`^${t('operator.queue.toggle')}`) });
 const closedList = () => screen.findByRole('list', { name: t('operator.queue.closedList') });
 

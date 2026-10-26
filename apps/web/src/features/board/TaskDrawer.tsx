@@ -7,6 +7,7 @@ import {
   canSeeTeamMessage,
   cardWorkerSessions,
   reachingDevelopers,
+  fitsSpecialty,
   stageDevelopers,
   workStageOf,
   fixLimitDecisionOf,
@@ -146,9 +147,12 @@ function StartPanel({
   const workStage = config && workStageOf(config, task);
   const reaches =
     config && workStage
-      ? reachingDevelopers(stageDevelopers(config, workStage), points ?? null).length > 0
+      ? reachingDevelopers(stageDevelopers(config, workStage), points ?? null, task.labels).length > 0
       : developers.some(
-          (member) => member.complexityLimit !== undefined && member.complexityLimit >= (points ?? 0),
+          (member) =>
+            fitsSpecialty(member, task.labels) &&
+            member.complexityLimit !== undefined &&
+            member.complexityLimit >= (points ?? 0),
         );
   const hint = !points
     ? undefined

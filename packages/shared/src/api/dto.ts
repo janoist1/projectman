@@ -594,6 +594,7 @@ export type MemberQuotaWaiting = z.infer<typeof MemberQuotaWaiting>;
 
 export const MemberView = z.object({
   complexityLimit: ComplexityPoints.optional(),
+  specialtyLabels: z.array(LabelId).optional(),
   /** AI members: the server always supplies the effective email settings. */
   email: z.object({ enabled: z.boolean(), sendWithoutApproval: z.boolean() }).optional(),
   outage: WorkOutage.optional(),
@@ -678,6 +679,7 @@ export type HireMemberRequest = z.infer<typeof HireMemberRequest>;
 /** PATCH of a member; omitted fields stay as they are. */
 export const UpdateMemberRequest = z.object({
   complexityLimit: ComplexityPoints.nullable().optional(),
+  specialtyLabels: z.array(LabelId).max(10).nullable().optional(),
   /** AI only; omitted values retain their settings. */
   email: z
     .strictObject({

@@ -85,6 +85,17 @@ describe('the heavy card: assignment, wait and the question', () => {
   };
 
   describe('assignment', () => {
+    it('skips a free specialist when the card has no matching label', async () => {
+      await harness((config) => {
+        roomy(config);
+        const specialist = config.team.members.find((member) => member.handle === 'dev-1');
+        if (specialist?.kind === 'ai') specialist.specialtyLabels = ['ui'];
+      });
+      const key = await create('Unlabelled card', 'any');
+      await move(key);
+      await vi.waitFor(() => expect(task(key).assignee).toBe('dev-2'));
+    });
+
     it('gives a Senior card to a free Senior, though another developer is first in the team', async () => {
       await harness();
       const key = await create('Senior card');

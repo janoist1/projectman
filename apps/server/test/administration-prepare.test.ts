@@ -83,6 +83,7 @@ describe('prepare', () => {
     expect(config).toEqual({
       version: 1,
       target: { kind: 'hub' },
+      appHome: APP,
       stateDir: stateOf(),
       socketPath: path.join(runOf(), 'supervisor.sock'),
       service: { kind: 'systemd', unit: 'projectman.service' },
@@ -116,6 +117,7 @@ describe('prepare', () => {
     ]);
     expect(JSON.parse(files[0]!.content)).toMatchObject({
       target: { kind: 'engine', id: 'eng_abcdefghij12' },
+      appHome: APP,
       service: { kind: 'launchd', label: 'com.projectman.engine' },
     });
     const plist = files[1]!.content;
@@ -188,6 +190,7 @@ describe('prepare', () => {
       expect((await lstat(path.join(out, name))).mode & 0o777).toBe(0o600);
     const config = await loadSupervisorConfig(path.join(out, 'supervisor.json'));
     expect(config.target).toEqual({ kind: 'hub' });
+    expect(config.appHome).toBe(root);
     // Only the two prepared files exist: no state or socket directory was created and nothing was started.
     expect((await readdir(out)).sort()).toEqual(['projectman-administration.service', 'supervisor.json']);
   });

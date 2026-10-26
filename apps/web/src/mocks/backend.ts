@@ -5268,7 +5268,8 @@ export class MockBackend {
       if (pick.kind === 'none') assignee = humanStageOwner(this.config, eligible)?.handle ?? null;
       if (
         task.complexity &&
-        reachingDevelopers(stageDevelopers(this.config, workStage), complexityOf(task)).length === 0
+        reachingDevelopers(stageDevelopers(this.config, workStage), complexityOf(task), task.labels)
+          .length === 0
       )
         this.addTimeline(task.key, null, 'task_senior_wait', {
           phase: 'no_senior',
@@ -5321,6 +5322,7 @@ export class MockBackend {
             {
               handle: member.handle,
               limit: complexityLimitOf(member),
+              specialtyLabels: member.specialtyLabels,
               temp: !!member.temp,
               load: this.memberLoad(member.handle),
               index,
@@ -5330,8 +5332,9 @@ export class MockBackend {
     );
     return chooseDeveloper({
       points: complexityOf(task),
+      labels: task.labels,
       anyDecided: this.seniorWaits.get(task.key)?.decision?.decision === 'any',
-      reaching: reachingDevelopers(stageDevelopers(this.config, workStage), complexityOf(task)),
+      reaching: reachingDevelopers(stageDevelopers(this.config, workStage), complexityOf(task), task.labels),
       free,
     });
   }
@@ -5441,7 +5444,9 @@ export class MockBackend {
             ? 'senior'
             : 'ended';
       } else if (!task.complexity) ended = 'ended';
-      else if (reachingDevelopers(stageDevelopers(this.config, stage), complexityOf(task)).length === 0)
+      else if (
+        reachingDevelopers(stageDevelopers(this.config, stage), complexityOf(task), task.labels).length === 0
+      )
         ended = 'ended';
       if (ended) {
         const wasWaiting = task?.startWaiting?.reason === 'senior_busy';

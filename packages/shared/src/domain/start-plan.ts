@@ -59,9 +59,15 @@ export function planStarts(input: {
       continue;
     }
     const points = complexityOf(card);
-    const reaching = reachingDevelopers(developers, points);
+    const reaching = reachingDevelopers(developers, points, card.labels);
     const choose = (candidates: readonly FreeDeveloper[]) =>
-      chooseDeveloper({ points, anyDecided: anyDecided.has(card.key), reaching, free: [...candidates] });
+      chooseDeveloper({
+        points,
+        labels: card.labels,
+        anyDecided: anyDecided.has(card.key),
+        reaching,
+        free: [...candidates],
+      });
     const pick = choose(free);
     if (pick.kind === 'member') {
       plan.set(card.key, {

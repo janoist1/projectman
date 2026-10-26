@@ -1882,6 +1882,22 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                             "specialty": {
                               "type": "string",
                             },
+                            "specialtyLabels": {
+                              "anyOf": [
+                                {
+                                  "items": {
+                                    "maxLength": 40,
+                                    "minLength": 1,
+                                    "type": "string",
+                                  },
+                                  "maxItems": 10,
+                                  "type": "array",
+                                },
+                                {
+                                  "type": "null",
+                                },
+                              ],
+                            },
                           },
                           "type": "object",
                         },
@@ -2305,6 +2321,22 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                     },
                     "specialty": {
                       "type": "string",
+                    },
+                    "specialtyLabels": {
+                      "anyOf": [
+                        {
+                          "items": {
+                            "maxLength": 40,
+                            "minLength": 1,
+                            "type": "string",
+                          },
+                          "maxItems": 10,
+                          "type": "array",
+                        },
+                        {
+                          "type": "null",
+                        },
+                      ],
                     },
                   },
                   "type": "object",
@@ -5605,6 +5637,22 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                     "specialty": {
                       "type": "string",
                     },
+                    "specialtyLabels": {
+                      "anyOf": [
+                        {
+                          "items": {
+                            "maxLength": 40,
+                            "minLength": 1,
+                            "type": "string",
+                          },
+                          "maxItems": 10,
+                          "type": "array",
+                        },
+                        {
+                          "type": "null",
+                        },
+                      ],
+                    },
                   },
                   "type": "object",
                 },
@@ -7263,6 +7311,22 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                       },
                       "specialty": {
                         "type": "string",
+                      },
+                      "specialtyLabels": {
+                        "anyOf": [
+                          {
+                            "items": {
+                              "maxLength": 40,
+                              "minLength": 1,
+                              "type": "string",
+                            },
+                            "maxItems": 10,
+                            "type": "array",
+                          },
+                          {
+                            "type": "null",
+                          },
+                        ],
                       },
                     },
                     "type": "object",

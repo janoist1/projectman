@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ComplexityPoints } from '../domain/complexity';
+import { LabelId } from '../domain/label';
 import { AgentEffort, CheapSubagentModel } from '../domain/member';
 import {
   AgentProvider,
@@ -135,6 +136,8 @@ export const AiMemberConfig = z.object({
   /** Temporary stand-in ("beugró"): hired for one task, retired when it is done. */
   temp: z.boolean().default(false),
   complexityLimit: ComplexityPoints.optional(),
+  /** Automatic assignment requires at least one of these labels; explicit assignees are unrestricted. */
+  specialtyLabels: z.array(LabelId).min(1).max(10).optional(),
   /** Recurring runs, e.g. every weekday morning. */
   schedule: MemberSchedule.optional(),
   /**

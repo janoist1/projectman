@@ -1429,6 +1429,7 @@ export const hu = {
       complexity_forbidden: 'A pontot nem módosíthatod.',
       complexity_points_invalid: 'A pont csak 1, 2, 3, 5, 8 vagy 13 lehet.',
       complexity_limit_not_developer: 'Határ csak fejlesztő tagnak állítható.',
+      specialty_labels_not_developer: 'Szakterületi címke csak állandó AI-fejlesztőnek állítható.',
       board_stale: 'A tábla közben változott, frissítettük. Próbáld újra.',
       board_column_chronological: 'A Kész oszlop időrendben marad, abban nem lehet sorrendet változtatni.',
       unknown_column: 'Ilyen oszlop nincs a táblán.',

@@ -289,10 +289,10 @@ describe('task lifecycle', () => {
     });
   });
 
-  it('keeps team tools unchanged and rejects lifecycle fields in update_task', () => {
-    expect(TEAM_TOOL_NAMES).not.toContain('cancel_task');
+  it('gives cancel and reassign only to the project manager and rejects lifecycle fields in update_task', () => {
     expect(TEAM_TOOL_NAMES).not.toContain('reopen_task');
-    expect(TEAM_TOOL_NAMES).not.toContain('reassign_task');
+    for (const name of ['cancel_task', 'reassign_task'])
+      expect(TEAM_TOOLS.find((t) => t.name === name)?.audience).toEqual({ roles: ['project_manager'] });
     const tool = TEAM_TOOLS.find((t) => t.name === 'update_task')!;
     for (const extra of [{ assignee: 'dev-2' }, { assignee: null }, { status: 'cancelled' }]) {
       expect(tool.inputSchema.safeParse({ task_key: 'AR-1', ...extra }).success).toBe(false);

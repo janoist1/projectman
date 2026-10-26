@@ -533,8 +533,8 @@ export function useSetEmailContact(key: string) {
   return useMutation({
     mutationFn: ({ handle, wants }: { handle: string; wants: boolean }) =>
       api.setEmailContact(key, handle, { wants }),
-    onSuccess: (view) => {
-      client.setQueryData(queryKeys.emailChannel(key), view);
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: queryKeys.emailChannel(key) });
       void client.invalidateQueries({ queryKey: queryKeys.emailLog(key) });
     },
   });

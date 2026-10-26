@@ -116,7 +116,7 @@ describe('the e-mail settings section', () => {
     expect((channel as HTMLInputElement).disabled).toBe(true);
   });
 
-  it('saves who asks for mail and says who changed it', async () => {
+  it('reloads the channel after saving a contact and keeps the settings visible', async () => {
     const p = mailProject();
     await open(p);
     const kata = await screen.findByRole('switch', {
@@ -135,6 +135,12 @@ describe('the e-mail settings section', () => {
     const own = t('settings.email.contacts.bySelf', { state: t('settings.email.contacts.on'), time: '@' });
     await waitFor(() => expect(row.textContent).toContain(own.slice(0, own.indexOf('@') - 3)));
     expect((kata as HTMLInputElement).checked).toBe(true);
+    expect(
+      p.requests.filter((request) => request.method === 'GET' && request.path.endsWith('/email')),
+    ).toHaveLength(2);
+    expect(screen.getByRole('switch', { name: t('settings.email.channel.label') })).toBeTruthy();
+    expect(screen.getByText('fe-1@mail.example.com')).toBeTruthy();
+    expect(screen.queryByText(t('settings.email.contacts.nobody'))).toBeNull();
   });
 
   it('shows the channel card and the future addresses, not the contacts or the log, while the channel is off', async () => {

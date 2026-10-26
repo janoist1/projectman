@@ -2,6 +2,7 @@ import {
   ProjectChecklistView,
   ServerVersionView,
   EmailChannelView,
+  EmailContact,
   EmailLogResponse,
   OperatorGrantAuditPage,
   PushDeviceView,
@@ -470,7 +471,7 @@ export const api = {
       schema: EmailLogResponse,
     }),
   setEmailContact: (key: string, handle: string, body: SetEmailContactRequest) =>
-    apiRequest(routes.emailContact(key, handle), { method: 'PUT', body, schema: EmailChannelView }),
+    apiRequest(routes.emailContact(key, handle), { method: 'PUT', body, schema: EmailContact }),
 
   config: (key: string) => apiRequest(routes.config(key), { schema: ConfigView }),
   patchConfig: (key: string, body: PatchConfigRequest) =>

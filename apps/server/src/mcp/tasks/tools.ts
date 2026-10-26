@@ -2,13 +2,14 @@ import {
   AddableRelationKind,
   DEVELOPER_LEVEL_REASON_MAX,
   DeveloperLevel,
+  COMPLEXITY_REASON_MAX,
   MemberHandle,
   StageId,
   TaskPriority,
   TaskRelationKind,
   TaskStatus,
 } from '@projectman/shared';
-import type { DeveloperLevelRequest, MemberView, Task } from '@projectman/shared';
+import type { ComplexityRequest, DeveloperLevelRequest, MemberView, Task } from '@projectman/shared';
 import { z } from 'zod';
 import { TeamToolError } from '../../contracts';
 import type { ListTasksInput, TaskSummary, TaskToolDetail, TaskToolsHandler } from '../../contracts';
@@ -16,6 +17,33 @@ import { formatTaskCreated, formatTaskDetail, formatTaskUpdate, MAX_DESCRIPTION_
 
 import { defineTool, type TeamToolGroup, unique, taskKeyInput, TASK_VISIBILITY_REMOVED } from '../kit';
 const MAX_NOTE_CHARS = 10_000;
+
+const complexityInput = z
+  .number()
+  .int()
+  .nullable()
+  .optional()
+  .describe(
+    'Optional complexity points: 1, 2, 3, 5, 8 or 13; null removes the points. 13 is the maximum; split larger cards.',
+  );
+const complexityReasonInput = z
+  .string()
+  .trim()
+  .min(1)
+  .max(COMPLEXITY_REASON_MAX)
+  .optional()
+  .describe('Optional reason for the complexity, 1–300 characters; only with a numeric complexity.');
+
+function complexityArg(args: {
+  complexity?: number | null | undefined;
+  complexity_reason?: string | undefined;
+}): ComplexityRequest | undefined {
+  if (args.complexity_reason !== undefined && typeof args.complexity !== 'number')
+    throw new TeamToolError('invalid', 'complexity_reason needs a numeric complexity.');
+  return args.complexity === undefined
+    ? undefined
+    : { points: args.complexity, reason: args.complexity_reason ?? null };
+}
 
 const developerLevelInput = DeveloperLevel.optional().describe(
   'The recommended developer of the card: senior (a task that suits the Senior; developer_level_reason is ' +
@@ -101,6 +129,8 @@ async function runGetTask<C>({
 }
 
 interface UpdateTaskArgs {
+  complexity?: number | null | undefined;
+  complexity_reason?: string | undefined;
   task_key: string;
   developer_level?: DeveloperLevel | undefined;
   developer_level_reason?: string | undefined;
@@ -144,11 +174,13 @@ async function runUpdateTask<C>({
     theme_key: themeKey,
   } = args;
   const developerLevel = developerLevelArg(args);
+  const complexity = complexityArg(args);
   if (
     !stageId &&
     themeKey === undefined &&
     priority === undefined &&
     !developerLevel &&
+    !complexity &&
     !addLabels?.length &&
     !removeLabels?.length &&
     !note &&
@@ -161,7 +193,7 @@ async function runUpdateTask<C>({
     throw new TeamToolError(
       'invalid',
       'Nothing to update: pass stage_id, add_labels, remove_labels, note, title, description, repo, ' +
-        'add_relations, remove_relations, theme_key, priority and/or developer_level.',
+        'add_relations, remove_relations, theme_key, priority, complexity and/or developer_level.',
     );
   }
   const relations = {
@@ -181,6 +213,7 @@ async function runUpdateTask<C>({
     ...(themeKey !== undefined ? { themeKey } : {}),
     ...(priority !== undefined ? { priority } : {}),
     ...(developerLevel ? { developerLevel } : {}),
+    ...(complexity ? { complexity } : {}),
   });
   const moverName =
     task.handOn && stageId
@@ -191,6 +224,7 @@ async function runUpdateTask<C>({
     stageId,
     ...(priority !== undefined ? { priority } : {}),
     ...(developerLevel ? { developerLevel: true } : {}),
+    ...(complexity ? { complexity: true } : {}),
     ...(themeKey !== undefined ? { themeKey } : {}),
     labels: { added: addLabels ?? [], removed: removeLabels ?? [] },
     note: !!note,
@@ -202,6 +236,8 @@ async function runUpdateTask<C>({
 }
 
 interface CreateTaskArgs {
+  complexity?: number | null | undefined;
+  complexity_reason?: string | undefined;
   kind?: 'task' | 'theme' | undefined;
   theme_key?: string | undefined;
   parent_key?: string | undefined;
@@ -223,9 +259,11 @@ async function runCreateTask<C>({
   { createTask(ctx: C, args: Parameters<TaskToolsHandler['createTask']>[1]): Promise<{ task: Task }> }
 >) {
   const developerLevel = developerLevelArg(args);
+  const complexity = complexityArg(args);
   const { task } = await handler.createTask(ctx, {
     title: args.title,
     ...(developerLevel ? { developerLevel } : {}),
+    ...(complexity ? { complexity } : {}),
     ...(args.relations?.length
       ? { relations: args.relations.map((r) => ({ kind: r.kind, key: r.task_key })) }
       : {}),
@@ -235,7 +273,7 @@ async function runCreateTask<C>({
     ...(args.description ? { description: args.description } : {}),
     ...(args.labels ? { labels: unique(args.labels) } : {}),
   });
-  return formatTaskCreated(task);
+  return formatTaskCreated(task, complexity !== undefined);
 }
 export const TASK_TOOL_GROUP: TeamToolGroup = {
   module: 'core/tasks',
@@ -321,6 +359,8 @@ export const TASK_TOOL_GROUP: TeamToolGroup = {
       input: {
         task_key: taskKeyInput,
         developer_level: developerLevelInput,
+        complexity: complexityInput,
+        complexity_reason: complexityReasonInput,
         developer_level_reason: developerLevelReasonInput,
         stage_id: StageId.optional().describe(
           'Id of the stage to move the task to (the pipeline is in your instructions).',
@@ -473,6 +513,8 @@ export const TASK_TOOL_GROUP: TeamToolGroup = {
               ' One refused relation refuses the creation.',
           ),
         developer_level: developerLevelInput,
+        complexity: complexityInput,
+        complexity_reason: complexityReasonInput,
         developer_level_reason: developerLevelReasonInput,
       },
       external: { access: 'write', run: runCreateTask },

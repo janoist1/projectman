@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ComplexityPoints } from '../domain/complexity';
 import { AgentEffort, CheapSubagentModel } from '../domain/member';
 import {
   AgentProvider,
@@ -138,6 +139,7 @@ export const AiMemberConfig = z.object({
    * a temp worker is never one.
    */
   senior: z.boolean().optional(),
+  complexityLimit: ComplexityPoints.optional(),
   /** Recurring runs, e.g. every weekday morning. */
   schedule: MemberSchedule.optional(),
   /**

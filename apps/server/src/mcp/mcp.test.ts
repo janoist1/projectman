@@ -595,6 +595,25 @@ describe('team tools', () => {
     );
   });
 
+  it('task tools show points and acknowledge setting and removing complexity', async () => {
+    const { client } = await startTools();
+    expect(text(await call(client, 'get_task', { task_key: 'AR-21' }))).not.toContain('Complexity:');
+    const created = text(await call(client, 'create_task', { title: 'Scored', complexity: 5 }));
+    expect(created).toContain('complexity set');
+    const scored = await call(client, 'update_task', {
+      task_key: 'AR-21',
+      complexity: 8,
+      complexity_reason: 'two modules',
+    });
+    expect(text(scored)).toContain('complexity set');
+    expect(text(await call(client, 'get_task', { task_key: 'AR-21' }))).toContain(
+      'Complexity: 8 points — two modules',
+    );
+    const removed = await call(client, 'update_task', { task_key: 'AR-21', complexity: null });
+    expect(text(removed)).toContain('complexity removed');
+    expect(text(await call(client, 'get_task', { task_key: 'AR-21' }))).not.toContain('Complexity:');
+  });
+
   it('get_task shows the recommended developer only when one is set (PM-347)', async () => {
     const { client } = await startTools();
 
@@ -620,6 +639,12 @@ describe('team tools', () => {
         { title: 'New title', description: '## Goal\nText.' },
       ],
       ['repo', { repo: ' api ' }, { repo: 'api' }],
+      [
+        'complexity',
+        { complexity: 8, complexity_reason: '  two modules  ' },
+        { complexity: { points: 8, reason: 'two modules' } },
+      ],
+      ['complexity removed', { complexity: null }, { complexity: { points: null, reason: null } }],
       ['repo cleared', { repo: null }, { repo: null }],
       ['priority', { priority: 'high' }, { priority: 'high' }],
       ['priority cleared', { priority: null }, { priority: null }],
@@ -682,6 +707,10 @@ describe('team tools', () => {
       'update_task',
       [
         { priority: 'medium' },
+        { complexity_reason: 'reason' },
+        { complexity: null, complexity_reason: 'reason' },
+        { complexity: 5, complexity_reason: '' },
+        { complexity: 5, complexity_reason: 'x'.repeat(301) },
         { description: '   ' },
         { repo: '' },
         { repo: '   ' },
@@ -724,6 +753,11 @@ describe('team tools', () => {
         { title: 'Follow-up', relations: [{ kind: 'prerequisite', key: 'AR-21' }] },
       ],
       ['parent', { title: 'Child', parent_key: 'AR-21' }, { title: 'Child', parentKey: 'AR-21' }],
+      [
+        'complexity',
+        { title: 'Scored', complexity: 3 },
+        { title: 'Scored', complexity: { points: 3, reason: null } },
+      ],
       ['theme of the card', { title: 'Card', theme_key: 'AR-30' }, { title: 'Card', themeKey: 'AR-30' }],
       ['theme kind', { title: 'Epic', kind: 'theme' }, { title: 'Epic', kind: 'theme' }],
       ['plain kind is no kind to send', { title: 'Plain', kind: 'task' }, { title: 'Plain' }],
@@ -757,6 +791,7 @@ describe('team tools', () => {
     await expectRefused(session, 'create_task', [
       { title: 'Card', kind: 'epic' },
       { title: 'Card', developer_level_reason: 'why' },
+      { title: 'Card', complexity_reason: 'why' },
     ]);
   });
 

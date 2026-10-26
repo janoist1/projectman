@@ -1,4 +1,4 @@
-import { TaskDeveloperLevel, taskSeq } from '@projectman/shared';
+import { TaskComplexity, TaskDeveloperLevel, taskSeq } from '@projectman/shared';
 import type { CollectingSourceEvidence, RankedCard, Task, TaskLink, TaskPriority } from '@projectman/shared';
 import { legacyCheckLabels } from '@projectman/templates';
 import type { Statement } from 'better-sqlite3';
@@ -39,6 +39,7 @@ interface TaskRow {
   closed_at: string | null;
   /** A JSON `TaskDeveloperLevel`; NULL: no recommendation. */
   developer_level: string | null;
+  complexity: string | null;
 }
 
 interface LinkRow {
@@ -82,7 +83,7 @@ export type TaskPatch = Partial<
     /** The recommended developer (PM-347). */
     | 'developerLevel'
   >
->;
+> & { complexity?: TaskComplexity | null };
 
 const COLUMNS: Record<keyof TaskPatch, string> = {
   title: 'title',
@@ -100,6 +101,7 @@ const COLUMNS: Record<keyof TaskPatch, string> = {
   parentKey: 'parent_key',
   themeKey: 'theme_key',
   developerLevel: 'developer_level',
+  complexity: 'complexity',
 };
 
 /**
@@ -161,11 +163,13 @@ function toDeveloperLevel(text: string | null): TaskDeveloperLevel | undefined {
 
 function toTask(r: TaskRow, links: TaskLink[]): Task {
   const developerLevel = toDeveloperLevel(r.developer_level);
+  const complexity = TaskComplexity.safeParse(parseJson<unknown>(r.complexity, null));
   return {
     // Only what is not the default is present, so a plain card reads as it did before themes.
     ...(r.kind === 'theme' ? { kind: 'theme' as const } : {}),
     ...(r.effective_theme ? { themeKey: r.effective_theme } : {}),
     ...(developerLevel ? { developerLevel } : {}),
+    ...(complexity.success ? { complexity: complexity.data } : {}),
     parentKey: r.parent_key,
     id: r.id,
     projectKey: r.project_key,
@@ -245,8 +249,8 @@ export function createTaskRepository(db: Db) {
     insert: db.prepare(
       `INSERT INTO tasks (id, project_key, key, seq, title, description, stage_id, status, assignee,
          repo, priority, labels, checks, visibility, created_by, created_at, stage_entered_at, updated_at, closed_at, parent_key,
-         kind, theme_key, board_rank, developer_level)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         kind, theme_key, board_rank, developer_level, complexity)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ),
     setBoardRank: db.prepare('UPDATE tasks SET board_rank = ? WHERE key = ? AND project_key = ?'),
     // The open cards of a project that stand in these stages (themes are no cards of the board).
@@ -461,6 +465,7 @@ export function createTaskRepository(db: Db) {
           task.parentKey ? null : (task.themeKey ?? null),
           task.boardRank ?? 0,
           task.developerLevel ? toJson(task.developerLevel) : null,
+          task.complexity ? toJson(task.complexity) : null,
         );
         for (const link of task.links) upsertLink(task.id, link, task.createdAt);
       })();
@@ -608,6 +613,8 @@ export function createTaskRepository(db: Db) {
         values.priority = patch.priority === null ? null : PRIORITY_COLUMN[patch.priority];
       if (patch.labels) values.labels = toJson(patch.labels);
       if (patch.developerLevel) values.developerLevel = toJson(patch.developerLevel);
+      if (patch.complexity !== undefined)
+        values.complexity = patch.complexity === null ? null : toJson(patch.complexity);
       statement.run(values);
     },
 

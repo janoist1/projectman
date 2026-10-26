@@ -23,6 +23,21 @@ describe('team tools', () => {
   });
   afterEach(() => h.cleanup());
 
+  it('includes complexity points in task summaries and formatted details', async () => {
+    await h.domain.tasks.update(
+      'AR',
+      'AR-1',
+      { complexity: { points: 8, reason: 'two modules' } },
+      OWNER_ACTOR,
+    );
+    expect((await h.domain.teamTools.listTasks(dev, {})).find((t) => t.key === 'AR-1')).toHaveProperty(
+      'complexity',
+      8,
+    );
+    const detail = await h.domain.teamTools.getTask(dev, { taskKey: 'AR-1' });
+    expect(formatTaskDetail(detail)).toContain('Complexity: 8 points — two modules');
+  });
+
   it('omits an empty cardWorkers list and excludes the caller while preserving working session ids', async () => {
     const own = await h.domain.teamTools.getTask(dev, { taskKey: 'AR-1' });
     expect(own).not.toHaveProperty('cardWorkers');

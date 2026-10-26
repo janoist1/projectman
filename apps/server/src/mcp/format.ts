@@ -1,4 +1,10 @@
-import { developerLevelText, isCardLink, isTheme, QUESTION_SCREENING_MINUTES } from '@projectman/shared';
+import {
+  complexityText,
+  developerLevelText,
+  isCardLink,
+  isTheme,
+  QUESTION_SCREENING_MINUTES,
+} from '@projectman/shared';
 import type {
   Attachment,
   MemberView,
@@ -393,6 +399,7 @@ export function formatTaskDetail(
     ...(detail.wait ? [`Waiting: ${describeTaskWait(detail.wait)}`] : []),
     ...(detail.focus ? [`Focus: ${focusPlaceText(detail.focus)}`] : []),
     ...(task.developerLevel ? [`Recommended developer: ${developerLevelText(task.developerLevel)}`] : []),
+    ...(task.complexity ? [`Complexity: ${complexityText(task.complexity)}`] : []),
     // Links to other cards are the relations below, from both cards' sides.
     `Links: ${links.length > 0 ? links.map((l) => describeLink(l)).join('; ') : 'none'}`,
     ...handoffLines(task),
@@ -651,6 +658,7 @@ export function formatTaskUpdate(
     priority?: string | null | undefined;
     /** The call set the recommended developer (PM-347); the line shows what the card has now. */
     developerLevel?: boolean;
+    complexity?: boolean;
   },
 ): string {
   const done: string[] = [];
@@ -680,10 +688,12 @@ export function formatTaskUpdate(
         ]
       : [];
   if (change.developerLevel) done.push('recommended developer set');
+  if (change.complexity) done.push(task.complexity ? 'complexity set' : 'complexity removed');
   const level = change.developerLevel ? [recommendedDeveloperLine(task)] : [];
   return [
     `Updated ${task.key}: ${done.join('; ')}.`,
     ...level,
+    ...(change.complexity && task.complexity ? [`Complexity: ${complexityText(task.complexity)}`] : []),
     ...handOn,
     `Now: ${taskStatusLine(task)}`,
   ].join('\n');
@@ -716,7 +726,7 @@ function recommendedDeveloperLine(task: Pick<Task, 'developerLevel'>): string {
 }
 
 /** What the call did; what happens next with the task is in the tool's description. */
-export function formatTaskCreated(task: Task): string {
+export function formatTaskCreated(task: Task, complexityRequested = false): string {
   const labels = task.labels.length > 0 ? ` · Labels: ${task.labels.join(', ')}` : '';
   if (isTheme(task))
     return (
@@ -725,7 +735,12 @@ export function formatTaskCreated(task: Task): string {
     );
   return (
     `Created ${task.key} "${oneLine(task.title, 200)}" in stage ${task.stageId}, unassigned${labels}.` +
-    (task.developerLevel ? `\n${recommendedDeveloperLine(task)}` : '')
+    (task.developerLevel ? `\n${recommendedDeveloperLine(task)}` : '') +
+    (task.complexity
+      ? `\ncomplexity set\nComplexity: ${complexityText(task.complexity)}`
+      : complexityRequested
+        ? '\ncomplexity removed'
+        : '')
   );
 }
 

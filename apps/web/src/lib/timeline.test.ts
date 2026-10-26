@@ -693,6 +693,15 @@ describe('Senior timeline texts (PM-349)', () => {
   const text = (type: TimelineEvent['type'], data: Record<string, unknown>) =>
     describeEvent({ ...creation, type, data }, context).text;
 
+  it.each([
+    [{ points: 5, reason: 'reason', previous: null }, ['5', 'reason']],
+    [{ points: 8, reason: null, previous: { points: 5, reason: null } }, ['5', '8']],
+    [{ points: null, reason: null, previous: { points: 8, reason: null } }, ['8']],
+  ])('renders complexity events: %j', (data, required) => {
+    const rendered = text('task_complexity_changed', data);
+    for (const part of required) expect(rendered).toContain(part);
+  });
+
   it('tells a first recommendation, a change, and the reason', () => {
     expect(text('task_level_changed', { level: 'senior', reason: 'Kényes migráció' })).toBe(
       t('timeline.levelSet', { level: t('timeline.levelSenior') }) +

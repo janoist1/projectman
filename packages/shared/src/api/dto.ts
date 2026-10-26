@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import { BoardPlacement } from '../domain/board-order';
 import { DEVELOPER_LEVEL_REASON_MAX, DeveloperLevel } from '../domain/developer-level';
+import { ComplexityPoints, COMPLEXITY_REASON_MAX } from '../domain/complexity';
 import { DutyId } from '../domain/duty';
 import { ChatItem } from '../chat/chat';
 import {
@@ -593,6 +594,7 @@ export const MemberQuotaWaiting = z.object({
 export type MemberQuotaWaiting = z.infer<typeof MemberQuotaWaiting>;
 
 export const MemberView = z.object({
+  complexityLimit: ComplexityPoints.optional(),
   /** AI members: the server always supplies the effective email settings. */
   email: z.object({ enabled: z.boolean(), sendWithoutApproval: z.boolean() }).optional(),
   outage: WorkOutage.optional(),
@@ -681,6 +683,7 @@ export type HireMemberRequest = z.infer<typeof HireMemberRequest>;
 
 /** PATCH of a member; omitted fields stay as they are. */
 export const UpdateMemberRequest = z.object({
+  complexityLimit: ComplexityPoints.nullable().optional(),
   /** AI only; omitted values retain their settings. */
   email: z
     .strictObject({
@@ -1090,7 +1093,14 @@ export const DeveloperLevelRequest = z.object({
 });
 export type DeveloperLevelRequest = z.infer<typeof DeveloperLevelRequest>;
 
+export const ComplexityRequest = z.object({
+  points: z.number().int().nullable(),
+  reason: z.string().max(COMPLEXITY_REASON_MAX).nullable().optional(),
+});
+export type ComplexityRequest = z.infer<typeof ComplexityRequest>;
+
 export const CreateTaskRequest = z.object({
+  complexity: ComplexityRequest.optional(),
   /** The developer the card is recommended for (PM-347); only whoever `canSetDeveloperLevel` may send it. */
   developerLevel: DeveloperLevelRequest.optional(),
   parentKey: TaskKey.optional(),
@@ -1110,6 +1120,7 @@ export const CreateTaskRequest = z.object({
 export type CreateTaskRequest = z.infer<typeof CreateTaskRequest>;
 
 export const UpdateTaskRequest = z.object({
+  complexity: ComplexityRequest.optional(),
   /** The developer the card is recommended for (PM-347); only whoever `canSetDeveloperLevel` may send it. */
   developerLevel: DeveloperLevelRequest.optional(),
   /** People only (PM-287); null clears it. */

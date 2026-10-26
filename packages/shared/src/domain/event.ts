@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { ConfigChangeRow } from '../config/operator';
 import type { OperatorKnowledgeChange } from './operator-knowledge';
 import type { DeveloperLevel } from './developer-level';
+import type { ComplexityPoints } from './complexity';
 import type { FixLimitAssessment } from './fix-limit';
 import type { FullTestErrorReason } from './full-test';
 import type { MergeBlockReason, MergeFailure, TaskMerged } from './merge';
@@ -68,6 +69,7 @@ export const TimelineEventType = z.enum([
   'task_hand_on_requested',
   'task_assigned',
   'task_level_changed',
+  'task_complexity_changed',
   'task_senior_wait',
   'task_check_changed',
   'task_labels_changed',
@@ -269,6 +271,11 @@ export interface TimelineEventData {
     level: DeveloperLevel;
     reason: string | null;
     previous: { level: DeveloperLevel; reason: string | null } | null;
+  };
+  task_complexity_changed: {
+    points: ComplexityPoints | null;
+    reason: string | null;
+    previous: { points: ComplexityPoints; reason: string | null } | null;
   };
   /**
    * The wait of a Senior card for a Senior (PM-348, actor system unless `by`): `asked` the question went

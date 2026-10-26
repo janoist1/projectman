@@ -16,6 +16,9 @@ import {
   isRequiredOperator,
   isRequiredProjectManager,
   isSenior,
+  isDeveloper,
+  isComplexityPoints,
+  complexityLimitOf,
   MemberHandle,
   memberDuties,
   memberOf,
@@ -212,6 +215,7 @@ export class MemberService {
         ...permissionView(config, m),
         ...(m.onLeave ? { onLeave: true } : {}),
         senior: isSenior(m),
+        ...(isDeveloper(config, m) ? { complexityLimit: complexityLimitOf(m) } : {}),
       };
     });
   }
@@ -529,6 +533,18 @@ export class MemberService {
         else delete member.senior;
         fields.push(req.senior ? 'marked as the Senior' : 'no longer the Senior');
       }
+    }
+    if (req.complexityLimit !== undefined) {
+      if (member.kind !== 'ai' || member.temp || !isDeveloper(draft, member))
+        throw invalid(
+          'complexity_limit_not_developer',
+          'only permanent AI developers have a configurable complexity limit',
+        );
+      if (req.complexityLimit !== null && !isComplexityPoints(req.complexityLimit))
+        throw invalid('complexity_points_invalid', 'complexity limit must be 1, 2, 3, 5, 8 or 13');
+      if (req.complexityLimit === null) delete member.complexityLimit;
+      else member.complexityLimit = req.complexityLimit;
+      fields.push('complexity limit');
     }
     if (req.displayName !== undefined) {
       member.displayName = req.displayName;

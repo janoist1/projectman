@@ -49,6 +49,28 @@ describe('REST API', () => {
     return { status: res.statusCode, body: (res.body ? res.json() : null) as T, res };
   }
 
+  it('accepts complexity through REST and returns the scale error without saving an invalid patch', async () => {
+    const cookie = await setupOwner(h.app);
+    await createProject(h, cookie);
+    const created = await call<Task>('POST', '/api/projects/AR/tasks', cookie, {
+      title: 'Scored',
+      complexity: { points: 5, reason: '  ' },
+    });
+    expect(created.status).toBe(201);
+    expect(created.body.complexity).toMatchObject({ points: 5, reason: null, setBy: 'owner' });
+    const invalid = await call<ApiError>('PATCH', '/api/projects/AR/tasks/AR-1', cookie, {
+      title: 'Invalid',
+      complexity: { points: 4 },
+    });
+    expect(invalid.status).toBe(400);
+    expect(invalid.body.error.code).toBe('complexity_points_invalid');
+    const removed = await call<Task>('PATCH', '/api/projects/AR/tasks/AR-1', cookie, {
+      complexity: { points: null },
+    });
+    expect(removed.status).toBe(200);
+    expect(removed.body).not.toHaveProperty('complexity');
+  });
+
   it.each(['POST', 'PATCH'] as const)('ignores legacy task visibility in %s requests', async (method) => {
     const cookie = await setupOwner(h.app);
     await createProject(h, cookie);

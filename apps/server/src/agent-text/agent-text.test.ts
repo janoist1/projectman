@@ -119,6 +119,13 @@ describe('links', () => {
 });
 
 describe('describeEvent', () => {
+  it.each([
+    [{ points: 5, reason: 'two modules', previous: null }, ['5', 'two modules']],
+    [{ points: null, reason: null, previous: { points: 8, reason: null } }, ['removed', '8']],
+  ])('describes a complexity change: %j', (data, required) => {
+    const text = describeEvent(event('task_complexity_changed', data), 280);
+    for (const part of required) expect(text).toContain(part);
+  });
   it('describes priority changes by name, including clearing, and keeps legacy updates readable', () => {
     expect(
       describeEvent(

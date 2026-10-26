@@ -28,3 +28,23 @@ describe('developer level migration (PM-347)', () => {
     }
   });
 });
+
+describe('task complexity migration', () => {
+  it('adds a nullable column to existing cards and is idempotent', () => {
+    const version = migrations.find((m) => m.name === 'task complexity')!.version;
+    const db = new Database(':memory:');
+    try {
+      for (const migration of migrations.filter((m) => m.version < version)) db.exec(migration.sql);
+      db.pragma(`user_version = ${version - 1}`);
+      db.exec(`INSERT INTO projects VALUES ('AR', 'Example', NULL, 'v1', '2026-01-01', '2026-01-01');`);
+      db.exec(`INSERT INTO tasks (id, project_key, key, seq, title, stage_id, status, visibility, created_by, created_at, updated_at)
+        VALUES ('t1', 'AR', 'AR-1', 1, 'Old card', 'backlog', 'active', 'internal', 'owner', '2026-01-01', '2026-01-01')`);
+      expect(migrate(db)).toBe(LATEST_SCHEMA_VERSION);
+      expect(db.prepare('SELECT complexity FROM tasks').get()).toEqual({ complexity: null });
+      expect(createRepositories(db).tasks.get('AR-1')).not.toHaveProperty('complexity');
+      expect(migrate(db)).toBe(LATEST_SCHEMA_VERSION);
+    } finally {
+      db.close();
+    }
+  });
+});

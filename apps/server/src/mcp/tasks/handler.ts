@@ -13,6 +13,7 @@ import type {
   TaskPriority,
   AddRelationRef,
   DeveloperLevelRequest,
+  ComplexityRequest,
   RelationsChange,
 } from '@projectman/shared';
 import { taskWaitShort } from '../../agent-text';
@@ -108,22 +109,25 @@ export class TaskTools implements TaskToolsHandler {
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.key.localeCompare(b.key))
         .slice(0, limit);
       const waits = this.taskWaits.of(config, cards);
-      return cards.map(({ key, title, stageId, status, assignee, labels, updatedAt, kind, priority }) => {
-        const wait = waits.get(key);
-        return {
-          key,
-          title,
-          stageId,
-          status,
-          assignee,
-          labels,
-          updatedAt,
-          ...(kind === 'theme' ? { kind } : {}),
-          ...(priority !== null ? { priority } : {}),
-          ...(places.has(key) ? { focus: places.get(key) } : {}),
-          ...(wait ? { waitsFor: taskWaitShort(wait) } : {}),
-        };
-      });
+      return cards.map(
+        ({ key, title, stageId, status, assignee, labels, updatedAt, kind, priority, complexity }) => {
+          const wait = waits.get(key);
+          return {
+            key,
+            title,
+            stageId,
+            status,
+            assignee,
+            labels,
+            updatedAt,
+            ...(kind === 'theme' ? { kind } : {}),
+            ...(complexity ? { complexity: complexity.points } : {}),
+            ...(priority !== null ? { priority } : {}),
+            ...(places.has(key) ? { focus: places.get(key) } : {}),
+            ...(wait ? { waitsFor: taskWaitShort(wait) } : {}),
+          };
+        },
+      );
     });
   }
 
@@ -151,6 +155,7 @@ export class TaskTools implements TaskToolsHandler {
       themeKey?: string | null;
       priority?: TaskPriority | null;
       developerLevel?: DeveloperLevelRequest;
+      complexity?: ComplexityRequest;
     },
   ): Promise<{ task: Task }> {
     return this.calls.guard(async () => {
@@ -185,6 +190,7 @@ export class TaskTools implements TaskToolsHandler {
       kind?: TaskKind;
       themeKey?: string;
       developerLevel?: DeveloperLevelRequest;
+      complexity?: ComplexityRequest;
     },
   ): Promise<{ task: Task }> {
     return this.calls.guard(async () => {
@@ -209,6 +215,7 @@ export class TaskTools implements TaskToolsHandler {
               ...(args.kind ? { kind: args.kind } : {}),
               ...(args.themeKey ? { themeKey: args.themeKey } : {}),
               ...(args.developerLevel ? { developerLevel: args.developerLevel } : {}),
+              ...(args.complexity ? { complexity: args.complexity } : {}),
             },
             aiActor(ctx.member),
             { sessionId: ctx.sessionId },
@@ -338,6 +345,7 @@ export class TaskTools implements TaskToolsHandler {
           ...(args.themeKey !== undefined ? { themeKey: args.themeKey } : {}),
           ...(args.priority !== undefined ? { priority: args.priority } : {}),
           ...(args.developerLevel ? { developerLevel: args.developerLevel } : {}),
+          ...(args.complexity ? { complexity: args.complexity } : {}),
           addLabels: args.addLabels,
           removeLabels: args.removeLabels,
           note: args.note,

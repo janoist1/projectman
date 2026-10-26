@@ -2224,6 +2224,29 @@ describe('kick-off brief', () => {
     expect(brief.length).toBeLessThan(14_000);
   });
 
+  it('includes complexity only on scored cards', () => {
+    const brief = (task: Task) => builder.build(input({ task })).initialMessage ?? '';
+    expect(brief(makeTask({}))).not.toContain('- Complexity:');
+    expect(
+      brief(
+        makeTask({
+          complexity: { points: 8, reason: 'two modules', setBy: 'arch', setAt: '2026-10-25T22:00:00Z' },
+        }),
+      ),
+    ).toContain('- Complexity: 8 points (two modules)');
+  });
+
+  it('includes the effective developer limit only for developers', () => {
+    const source = input({ handle: 'fe-1' });
+    source.member.complexityLimit = 13;
+    expect(builder.build(source).initialMessage).toContain('- Your complexity limit: 13 points');
+    source.member.temp = true;
+    expect(builder.build(source).initialMessage).toContain('- Your complexity limit: 5 points');
+    expect(builder.build(input({ handle: 'code-review' })).initialMessage).not.toContain(
+      '- Your complexity limit:',
+    );
+  });
+
   it('names the recommended developer only when the card has one (PM-347)', () => {
     const line = (task: Task) =>
       (builder.build(input({ task })).initialMessage ?? '')

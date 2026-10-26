@@ -170,6 +170,9 @@ export const ERROR_CODES = [
   'comment_required',
   // The recommended developer of a card (PM-347)
   'developer_level_forbidden',
+  'complexity_forbidden',
+  'complexity_points_invalid',
+  'complexity_limit_not_developer',
   'developer_level_reason_required',
   'senior_not_allowed',
   'self_review_forbidden',

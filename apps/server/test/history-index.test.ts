@@ -402,6 +402,8 @@ describe('history index', () => {
       old.exec('ALTER TABLE team_messages DROP COLUMN email');
       // Migration 108 (PM-983) added a column; migrating adds it again.
       old.exec('ALTER TABLE member_state DROP COLUMN activity_task_key');
+      // Migration 109 (PM-1006) added a column; migrating adds it again.
+      old.exec('ALTER TABLE tasks DROP COLUMN complexity');
       old.pragma('user_version = 83');
       expect(old.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE name LIKE 'history%'").get()).toEqual(
         { n: 0 },

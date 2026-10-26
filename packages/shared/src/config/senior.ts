@@ -1,7 +1,8 @@
 import { isSenior } from '../domain/developer-level';
 import type { Stage } from '../domain/pipeline';
 import type { Task } from '../domain/task';
-import { memberDuties, stageOwners } from './duties';
+import { stageOwners } from './duties';
+import { canSetComplexity } from './complexity';
 import { stageOf } from './lookup';
 import type { AiMemberConfig, ProjectConfig } from './schema';
 
@@ -34,9 +35,5 @@ export function hasActiveSenior(config: ProjectConfig, task: Pick<Task, 'stageId
  * member (a person or an AI member) that holds the task breakdown or the requirements analysis duty.
  */
 export function canSetDeveloperLevel(config: Pick<ProjectConfig, 'team'>, handle: string): boolean {
-  const member = config.team.members.find((m) => m.handle === handle);
-  if (!member) return false;
-  if (member.kind === 'human' && member.access === 'owner') return true;
-  const duties = memberDuties(config, member);
-  return duties.includes('task_breakdown') || duties.includes('requirements_analysis');
+  return canSetComplexity(config, handle);
 }

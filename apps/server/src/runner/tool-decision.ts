@@ -221,10 +221,32 @@ export function readBoundaryVerdict(
   options: { home?: string; caseInsensitive?: boolean } = {},
 ): 'refuse' | 'inside' | 'open' {
   const home = options.home ?? homedir();
-  const caseInsensitive = options.caseInsensitive ?? CASE_INSENSITIVE_FILESYSTEM;
+  const zones = boundaryZones(boundary, cwd, home, options.caseInsensitive ?? CASE_INSENSITIVE_FILESYSTEM);
+  let inside = rawPaths.length > 0;
+  for (const raw of rawPaths) {
+    for (const form of toolPathForms(cwd, raw, home)) {
+      if (zones.allowed(form)) continue;
+      if (zones.closed(form)) return 'refuse';
+      inside = false;
+    }
+  }
+  return inside ? 'inside' : 'open';
+}
+
+/** A read boundary as tests over resolved paths: in a closed root, or in an allowed place. */
+function boundaryZones(
+  boundary: SessionReadBoundary,
+  cwd: string,
+  home: string,
+  caseInsensitive: boolean,
+): {
+  closed: (path: string) => boolean;
+  allowed: (path: string) => boolean;
+  closedRoots: string[];
+} {
   const fold = (path: string): string =>
     caseInsensitive ? withoutFirmlink(path).toLowerCase() : withoutFirmlink(path);
-  const closed = rootForms(cwd, boundary.deniedRoots, home);
+  const closedRoots = rootForms(cwd, boundary.deniedRoots, home);
   const directories = rootForms(
     cwd,
     boundary.allowedPaths.filter((entry) => entry.kind === 'directory').map((entry) => entry.path),
@@ -237,15 +259,11 @@ export function readBoundaryVerdict(
       home,
     ).map(fold),
   );
-  let inside = rawPaths.length > 0;
-  for (const raw of rawPaths) {
-    for (const form of toolPathForms(cwd, raw, home)) {
-      if (underAny(form, directories, caseInsensitive) || files.has(fold(form))) continue;
-      if (underAny(form, closed, caseInsensitive)) return 'refuse';
-      inside = false;
-    }
-  }
-  return inside ? 'inside' : 'open';
+  return {
+    closedRoots,
+    closed: (path) => underAny(path, closedRoots, caseInsensitive),
+    allowed: (path) => underAny(path, directories, caseInsensitive) || files.has(fold(path)),
+  };
 }
 
 /** The directory a glob pattern starts in: its leading components without `*`, `?`, `[` or `{`. */
@@ -285,6 +303,10 @@ export function claudeFileToolPaths(
           ...text('pattern')
             .filter((pattern) => isAbsolute(pattern))
             .map(globBase),
+          // A relative pattern that climbs (`../../Dev/x/**`) starts in its `path` or the working directory.
+          ...text('pattern')
+            .filter((pattern) => !isAbsolute(pattern) && pattern.split('/').includes('..'))
+            .map((pattern) => join(text('path')[0] ?? '.', globBase(pattern))),
         ],
         reads: true,
       };
@@ -789,21 +811,69 @@ function commandTouchesDenied(
       if (spellingPattern(spelling, caseInsensitive).test(line)) return true;
     }
   }
-  // A `cd` moves the relative words after it; where the line really stands is not known, so a
-  // relative word is read from the working directory and from every directory a `cd` named.
+  return commandWordsReach(
+    cwd,
+    home,
+    parsed,
+    (path) => underAny(path, denied, caseInsensitive),
+    // The shell has not expanded the pattern yet: could it name a denied path?
+    (lexical) => denied.some((root) => patternMayReach(lexical, root, caseInsensitive)),
+  );
+}
+
+/**
+ * Whether a reader's command names a place the read boundary (PM-425) closes: a path word, a redirection
+ * or a `cd` target in a closed root that is not an allowed place, or a pattern that may expand into one.
+ * Only the words are read, as the sandbox of a Claude command is the stricter line; the boundary
+ * refuses where a decision would otherwise be asked, so no approver can open it.
+ */
+function commandTouchesClosed(
+  cwd: string,
+  home: string,
+  boundary: SessionReadBoundary,
+  parsed: ParsedCommand,
+  caseInsensitive: boolean,
+): boolean {
+  const zones = boundaryZones(boundary, cwd, home, caseInsensitive);
+  return commandWordsReach(
+    cwd,
+    home,
+    parsed,
+    (path) => zones.closed(path) && !zones.allowed(path),
+    (lexical) => {
+      // A pattern below an allowed directory stays there; any other may expand into a closed root.
+      const fixed = lexical.split('/');
+      const first = fixed.findIndex((part) => GLOB_CHARACTERS.test(part));
+      const prefix = (first < 0 ? fixed : fixed.slice(0, first)).join('/') || '/';
+      if (zones.allowed(prefix)) return false;
+      return zones.closedRoots.some((root) => patternMayReach(lexical, root, caseInsensitive));
+    },
+  );
+}
+
+/**
+ * The scan both command rules share. A `cd` moves the relative words after it; where the line really
+ * stands is not known, so a relative word is read from the working directory and from every directory
+ * a `cd` named. `hitPath` judges a resolved path, `hitPattern` an unexpanded pattern.
+ */
+function commandWordsReach(
+  cwd: string,
+  home: string,
+  parsed: ParsedCommand,
+  hitPath: (path: string) => boolean,
+  hitPattern: (lexical: string) => boolean,
+): boolean {
   const bases = [cwd];
   const touches = (word: string): boolean =>
     pathCandidates(word, home).some((candidate) =>
       bases.some((base) => {
         if (GLOB_CHARACTERS.test(candidate)) {
-          // The shell has not expanded the pattern yet: could it name a denied path?
           const expanded = expandHome(candidate, home);
-          const lexical = isAbsolute(expanded) ? normalize(expanded) : resolve(base, expanded);
-          return denied.some((root) => patternMayReach(lexical, root, caseInsensitive));
+          return hitPattern(isAbsolute(expanded) ? normalize(expanded) : resolve(base, expanded));
         }
         return (
           isPathLike(candidate) ? toolPathForms(base, candidate, home) : [resolve(base, candidate)]
-        ).some((path) => underAny(path, denied, caseInsensitive));
+        ).some(hitPath);
       }),
     );
   for (const { words } of parsed.units) {
@@ -931,6 +1001,16 @@ export function decideToolCall(
     boundary &&
     (call.category === 'read' || call.category === 'edit') &&
     readBoundaryVerdict(boundary, cwd, call.paths, { home, caseInsensitive }) === 'refuse'
+  ) {
+    return deny('denied_path');
+  }
+  // A reader's command that names a closed place is refused too, never asked (K4): no approver opens it.
+  if (
+    boundary &&
+    parsed &&
+    toolPathForms(cwd, call.cwd ?? cwd, home).some((base) =>
+      commandTouchesClosed(base, home, boundary, parsed, caseInsensitive),
+    )
   ) {
     return deny('denied_path');
   }

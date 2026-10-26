@@ -825,7 +825,9 @@ The file tools follow the same list: Claude's PreToolUse hook and `permissionReq
 `Read`/`Grep`/`Glob`/edit call into the closed part (a denial, never an approval prompt), the
 blanket `Read`/`Grep`/`Glob` allow rules are gone, and a read outside the home (the system, the
 installed tools) is answered by the hook without asking; Gemini's hook applies the same list in
-`decideToolCall`; Codex/NanoGPT get it as the permission profile (`validateCodexReadBoundary`).
+`decideToolCall`, to its file tools and also to a command (the path words, redirections, `cd`
+targets and patterns of the line: a closed place is a denial there, never a permission request;
+what a quoted script or a variable hides is the unsandboxed-command gap below); Codex/NanoGPT get it as the permission profile (`validateCodexReadBoundary`).
 `git show <branch>:<file>` and `gh` queries (outside the sandbox) keep working. The engine validates
 and canonicalises the list from its own home and app home (`engine-limit`); there is no new RPC.
 Native enforcement of an explicit boundary must be verified on each OS/provider when that boundary

@@ -641,6 +641,36 @@ describe('a reader’s read boundary (PM-425)', () => {
     expect(decide(policy, read(join(work, 'src', 'a.ts')))).toEqual(ALLOW);
   });
 
+  it('denies a command that names a closed place instead of asking, whatever form the path takes', () => {
+    const policy = bounded();
+    for (const line of [
+      `cat ${join(sibling, '.env')}`,
+      'cat ~/Dev/other/.env',
+      'cat $HOME/Dev/other/.env',
+      `cat < ${join(sibling, '.env')}`,
+      `cd ${sibling} && cat .env`,
+      `grep -r key ${home}/*`,
+      'ls ~/Dev/*/.env',
+      'cat ../home/notes.txt',
+    ]) {
+      expect(decide(policy, command(line)), line).toEqual(denied('denied_path'));
+    }
+  });
+
+  it('does not deny a command that stays in its allowed places, or leaves the home alone', () => {
+    const policy = bounded();
+    for (const line of [
+      'cat src/a.ts',
+      `grep -r key ${work}/*`,
+      `cat ${join(extra, 'a.ts')}`,
+      'cat ~/.gitconfig',
+      'cat /etc/hosts',
+    ]) {
+      expect(decide(policy, command(line)).decision, line).not.toBe('deny');
+    }
+    expect(decide(reader('default'), command('cat ~/Dev/other/.env')).decision).toBe('ask');
+  });
+
   it('keeps the Claude transcripts closed, even below an allowed directory', () => {
     const policy = bounded({
       readBoundary: {
@@ -671,6 +701,14 @@ describe('a reader’s read boundary (PM-425)', () => {
       reads: true,
     });
     expect(claudeFileToolPaths('Glob', { pattern: '**/*.ts' })).toEqual({ paths: [], reads: true });
+    expect(claudeFileToolPaths('Glob', { pattern: '../../Dev/x/**' })).toEqual({
+      paths: ['../../Dev/x'],
+      reads: true,
+    });
+    expect(claudeFileToolPaths('Glob', { pattern: '../x/*.ts', path: '/a' })).toEqual({
+      paths: ['/a', '/x'],
+      reads: true,
+    });
     expect(claudeFileToolPaths('Write', { file_path: '/a/b' })).toEqual({ paths: ['/a/b'], reads: false });
     expect(claudeFileToolPaths('Bash', { command: 'ls' })).toBeNull();
   });

@@ -218,12 +218,16 @@ import {
   fixLimitPlannerForOwner,
   fixLimitReached,
   maxFixRoundsOf,
-  developerLevelOf,
-  isSenior,
-  pickDeveloper,
+  complexityOf,
+  complexityLimitOf,
+  isDeveloper,
+  canSetComplexity,
+  isComplexityPoints,
+  chooseDeveloper,
+  reachingDevelopers,
+  stageDevelopers,
   seniorWaitDecisionOf,
   seniorWaitMinutesOf,
-  seniorsOf,
   SENIOR_WAIT_OPTIONS,
   SENIOR_WAIT_OPTION_ANY,
   SENIOR_WAIT_OPTION_WAIT,
@@ -745,7 +749,12 @@ export class MockBackend {
       .filter((session) => session.member === member.handle)
       .flatMap((session) => taskWorkOf(session) ?? [])
       .filter((work) => open.has(work.taskKey));
-    return { ...clone(member), taskWork };
+    const config = memberOf(this.config, member.handle);
+    const result = { ...clone(member), taskWork };
+    if (config?.kind === 'ai' && isDeveloper(this.config, config))
+      result.complexityLimit = complexityLimitOf(config);
+    else delete result.complexityLimit;
+    return result;
   }
 
   /** The viewer as the shared task rules know them. */
@@ -877,6 +886,39 @@ export class MockBackend {
     if ('stageId' in patch || 'labels' in patch || 'assignee' in patch || 'repo' in patch)
       this.reconcileMerge(task);
     return task;
+  }
+
+  setTaskComplexity(taskKey: string, value: { points: number | null; reason?: string | null }): MockResponse {
+    const task = this.findTask(taskKey);
+    if (!task) return error(404, 'not_found', 'Unknown task');
+    if (!canSetComplexity(this.config, this.viewerHandle))
+      return error(403, 'complexity_forbidden', 'Cannot set complexity');
+    if (isTheme(task)) return error(400, 'task_is_theme', 'A theme has no complexity');
+    if (!isOpenTask(task)) return error(409, 'task_closed', 'The task is closed');
+    if (value.points !== null && !isComplexityPoints(value.points))
+      return error(422, 'complexity_points_invalid', 'Invalid points');
+    const previous = task.complexity ?? null;
+    const complexity = isComplexityPoints(value.points)
+      ? {
+          points: value.points,
+          reason: value.reason?.trim() || null,
+          setBy: this.viewerHandle,
+          setAt: nowIso(),
+        }
+      : null;
+    if (
+      (previous?.points ?? null) === value.points &&
+      (previous?.reason ?? null) === (complexity?.reason ?? null)
+    )
+      return ok(this.taskDetail(task));
+    this.updateTask(taskKey, { complexity: complexity ?? undefined });
+    this.addTimeline(taskKey, this.viewerHandle, 'task_complexity_changed', {
+      points: complexity?.points ?? null,
+      reason: complexity?.reason ?? null,
+      previous: previous ? { points: previous.points, reason: previous.reason } : null,
+    });
+    this.settleSeniorWaits();
+    return ok(this.taskDetail(task));
   }
 
   addTimeline(
@@ -3462,9 +3504,12 @@ export class MockBackend {
     const member = this.findMember(handle);
     const config = memberOf(this.config, handle);
     if (!member || !config) return error(404, 'not_found', 'Unknown member');
-    // Like the server: only an AI member that is no stand-in can be the Senior (PM-347).
-    if (input.senior !== undefined && (config.kind === 'human' || config.temp))
-      return error(400, 'senior_not_allowed', 'Only a permanent AI member can be the Senior');
+    // The shared rule restricts configurable limits to permanent AI developers.
+    if (
+      input.complexityLimit !== undefined &&
+      (config.kind !== 'ai' || config.temp || !isDeveloper(this.config, config))
+    )
+      return error(422, 'complexity_limit_not_developer', 'Only a permanent developer can have a limit');
     if (input.roles !== undefined) {
       if (config.kind !== 'human') return error(400, 'not_human_member', 'Not a human member');
       for (const role of input.roles) {
@@ -3549,13 +3594,12 @@ export class MockBackend {
           delete config.cheapSubagent;
         } else member.cheapSubagent = config.cheapSubagent = input.cheapSubagent;
       }
-      if (input.senior !== undefined) {
-        if (input.senior) member.senior = config.senior = true;
-        else {
-          delete member.senior;
-          delete config.senior;
-        }
+      if (input.complexityLimit !== undefined) {
+        if (input.complexityLimit === null) delete config.complexityLimit;
+        else config.complexityLimit = input.complexityLimit;
       }
+      if (isDeveloper(this.config, config)) member.complexityLimit = complexityLimitOf(config);
+      else delete member.complexityLimit;
       if (input.schedule !== undefined) config.schedule = input.schedule ?? undefined;
       if (input.instructions !== undefined) config.instructions = input.instructions.trim();
       if (input.permissionMode !== undefined) config.permissionMode = input.permissionMode;
@@ -5043,6 +5087,13 @@ export class MockBackend {
   private createTask(body: unknown): MockResponse {
     const input = parseBody(CreateTaskRequest, body);
     if (!input) return error(400, 'invalid_request', 'Invalid task');
+    if (input.complexity !== undefined) {
+      if (!canSetComplexity(this.config, this.viewerHandle))
+        return error(403, 'complexity_forbidden', 'Cannot set complexity');
+      if (input.kind === 'theme') return error(400, 'task_is_theme', 'A theme has no complexity');
+      if (input.complexity.points !== null && !isComplexityPoints(input.complexity.points))
+        return error(422, 'complexity_points_invalid', 'Invalid points');
+    }
     if (this.integratorMode && input.importedAt !== undefined)
       return error(403, 'owner_approval_required', 'Historical human attribution requires an own login');
     const actor = this.viewerActor();
@@ -5072,6 +5123,16 @@ export class MockBackend {
     }
     const at = input.importedAt ?? nowIso();
     const task: Task = {
+      ...(input.complexity && isComplexityPoints(input.complexity.points)
+        ? {
+            complexity: {
+              points: input.complexity.points,
+              reason: input.complexity.reason?.trim() || null,
+              setBy: this.viewerHandle,
+              setAt: nowIso(),
+            },
+          }
+        : {}),
       ...(kind === 'theme' ? { kind } : {}),
       ...(input.themeKey ? { themeKey: input.themeKey } : {}),
       parentKey: input.parentKey ?? null,
@@ -5117,6 +5178,12 @@ export class MockBackend {
     this.lastTaskSeq += 1;
     task.key = nextKey;
     this.tasks.push(task);
+    if (task.complexity)
+      this.addTimeline(task.key, this.viewerHandle, 'task_complexity_changed', {
+        points: task.complexity.points,
+        reason: task.complexity.reason,
+        previous: null,
+      });
     // A new card goes to the top of its column (no rank for a theme, nor in a column of finished work).
     if (!isTheme(task)) this.enterColumn(task);
     this.emit({ type: 'task_upserted', projectKey: task.projectKey, task: clone(task) });
@@ -5193,13 +5260,20 @@ export class MockBackend {
     );
     let assignee: string | null = input.assignee ?? null;
     if (!assignee && workStage) {
-      // The automatic choice is the shared rule (PM-348): a Senior card goes to a free Senior or waits for one.
+      // The shared choice respects limits, load and the recorded override decision.
       const pick = this.pickAutomatic(task, workStage, developers);
       if (pick.kind === 'senior_busy') return this.waitForSenior(task, workStage, pick.seniors);
       if (pick.kind === 'member') assignee = pick.handle;
+      if (pick.kind === 'none') return error(409, 'no_free_member', 'No developer available');
+      if (
+        task.complexity &&
+        reachingDevelopers(stageDevelopers(this.config, workStage), complexityOf(task)).length === 0
+      )
+        this.addTimeline(task.key, null, 'task_senior_wait', {
+          phase: 'no_senior',
+          points: task.complexity.points,
+        });
     }
-    assignee ??=
-      [...developers].sort((a, b) => a.currentTaskKeys.length - b.currentTaskKeys.length)[0]?.handle ?? null;
     if (!assignee) return error(409, 'no_free_member', 'No developer available');
     if (!eligible.includes(assignee))
       return error(400, 'not_stage_owner', 'Assignee must own the work stage');
@@ -5245,7 +5319,7 @@ export class MockBackend {
         ? [
             {
               handle: member.handle,
-              senior: isSenior(member),
+              limit: complexityLimitOf(member),
               temp: !!member.temp,
               load: this.memberLoad(member.handle),
               index,
@@ -5253,12 +5327,10 @@ export class MockBackend {
           ]
         : [],
     );
-    return pickDeveloper({
-      level: developerLevelOf(task),
+    return chooseDeveloper({
+      points: complexityOf(task),
       anyDecided: this.seniorWaits.get(task.key)?.decision?.decision === 'any',
-      seniors: seniorsOf(this.config, workStage)
-        .map((member) => member.handle)
-        .filter((handle) => stageOwners(this.config, workStage).includes(handle)),
+      reaching: reachingDevelopers(stageDevelopers(this.config, workStage), complexityOf(task)),
       free,
     });
   }
@@ -5312,7 +5384,8 @@ export class MockBackend {
           since: wait.since,
           minutes,
           seniors,
-          reason: task.developerLevel?.reason ?? null,
+          reason: task.complexity?.reason ?? null,
+          ...(task.complexity ? { points: task.complexity.points } : {}),
         },
       },
       options: clone(SENIOR_WAIT_OPTIONS),
@@ -5360,15 +5433,20 @@ export class MockBackend {
       const stage = task ? stageOf(this.config, task.stageId) : undefined;
       let ended: 'senior' | 'ended' | null = null;
       if (!task || !isOpenTask(task) || stage?.kind !== 'work') ended = 'ended';
-      else if (task.assignee) ended = isSenior(memberOf(this.config, task.assignee)) ? 'senior' : 'ended';
-      else if (developerLevelOf(task) !== 'senior') ended = 'ended';
-      else if (seniorsOf(this.config, stage).length === 0) ended = 'ended';
+      else if (task.assignee) {
+        const member = memberOf(this.config, task.assignee);
+        ended =
+          member?.kind === 'ai' && task.complexity && complexityLimitOf(member) >= task.complexity.points
+            ? 'senior'
+            : 'ended';
+      } else if (!task.complexity) ended = 'ended';
+      else if (reachingDevelopers(stageDevelopers(this.config, stage), complexityOf(task)).length === 0)
+        ended = 'ended';
       if (ended) {
+        const wasWaiting = task?.startWaiting?.reason === 'senior_busy';
         this.endSeniorWait(taskKey, wait, ended === 'senior');
-        // A card that lost its Senior wait goes to any developer; the start tries again.
-        if (task && !task.assignee && task.startWaiting?.reason === 'senior_busy' && stage?.kind === 'work') {
-          if (seniorsOf(this.config, stage).length === 0)
-            this.addTimeline(taskKey, null, 'task_senior_wait', { phase: 'no_senior' });
+        // Retry the shared selection after the reason for this wait disappears.
+        if (task && !task.assignee && wasWaiting && stage?.kind === 'work') {
           this.startDeveloper(task, {});
         }
         continue;

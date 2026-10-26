@@ -101,9 +101,15 @@ function MemberIdentity({
                 provider={member.provider}
                 status={providers?.find((entry) => entry.provider === (member.provider ?? 'claude'))}
               />
-              {member.senior ? (
-                <Chip tone="accent" title={t('team.seniorTitle')}>
-                  {t('team.senior')}
+              {member.complexityLimit !== undefined ? (
+                <Chip
+                  title={
+                    member.complexityLimit === 13
+                      ? t('team.limitUnlimited')
+                      : t('team.limitTitle', { limit: member.complexityLimit })
+                  }
+                >
+                  {t('team.limit', { limit: member.complexityLimit })}
                 </Chip>
               ) : null}
             </>

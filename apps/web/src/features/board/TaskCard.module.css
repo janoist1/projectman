@@ -173,11 +173,21 @@
   color: var(--c-ink-3);
 }
 
-/* "Senior": the card is a task for the team's Senior (PM-349); text, not only colour. */
-.senior {
-  background: var(--c-accent-bg);
-  color: var(--c-accent-text);
-  animation: pm-fade-in 160ms ease-out;
+.points {
+  min-width: 20px;
+  height: 18px;
+  padding: 0 4px;
+  border: 1px solid var(--c-line);
+  border-radius: 5px;
+  background: var(--c-muted);
+  color: var(--c-ink-2);
+  font-size: var(--text-2xs);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  display: inline-grid;
+  place-items: center;
+  line-height: 1;
+  flex-shrink: 0;
 }
 
 .stageRows {

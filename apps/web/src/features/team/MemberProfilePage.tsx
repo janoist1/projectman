@@ -201,10 +201,16 @@ export function MemberProfilePage() {
         subtitle={
           <>
             <code>{member.handle}</code> ·{' '}
-            {member.senior ? (
+            {member.complexityLimit !== undefined ? (
               <>
-                <Chip tone="accent" title={t('team.seniorTitle')}>
-                  {t('team.senior')}
+                <Chip
+                  title={
+                    member.complexityLimit === 13
+                      ? t('team.limitUnlimited')
+                      : t('team.limitTitle', { limit: member.complexityLimit })
+                  }
+                >
+                  {t('team.limit', { limit: member.complexityLimit })}
                 </Chip>{' '}
                 ·{' '}
               </>

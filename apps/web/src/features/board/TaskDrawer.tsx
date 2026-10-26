@@ -6,10 +6,12 @@ import {
   alertPayloadOf,
   canSeeTeamMessage,
   cardWorkerSessions,
-  developerLevelOf,
+  reachingDevelopers,
+  stageDevelopers,
+  workStageOf,
   fixLimitDecisionOf,
-  hasActiveSenior,
   isOnLeave,
+  isDeveloper,
   isTheme,
   loopDecisionOf,
 } from '@projectman/shared';
@@ -45,13 +47,12 @@ import { isApiError } from '../../api/client';
 import { useDocumentTitle, useIsMobile, useMediaQuery } from '../../lib/hooks';
 import { nameOf } from '../../lib/members';
 import { canStartRefinement } from '../../lib/refinement';
-import { isDeveloperRole } from '../../lib/roles';
 import type { MemberIndex } from '../../lib/members';
 import { InboxCard } from '../inbox/InboxCard';
 import { showInboxItem } from '../inbox/Question';
 import { Todo as OutageTodoBox } from '../inbox/OutageAlert';
 import { openPrerequisiteKeys, PrerequisiteWarning, refusedPrerequisites } from './PrerequisiteWarning';
-import { SeniorWarning } from './SeniorWarning';
+import { ComplexityWarning } from './ComplexityWarning';
 import { CardSizeProvider, SIZE_PARAM, withCardSize } from './cardSize';
 import type { CardSize } from './cardSize';
 import { useDrawerBase, withQueryParam } from './drawerBase';
@@ -104,8 +105,8 @@ function StartPanel({
   const [assignee, setAssignee] = useState('');
   // The open prerequisites the person is warned about before the start goes ahead (PM-204).
   const [warning, setWarning] = useState<string[] | null>(null);
-  // A non-Senior member chosen for a Senior card: asked first, before the prerequisite warning (PM-349).
-  const [seniorWarning, setSeniorWarning] = useState(false);
+  // Confirm a manual assignment above the limit before asking about prerequisites.
+  const [complexityWarning, setComplexityWarning] = useState(false);
   const send = (despitePrerequisites: boolean) =>
     start.mutate(
       {
@@ -118,7 +119,7 @@ function StartPanel({
       {
         onSuccess: (started) => {
           setWarning(null);
-          // A Senior card whose Seniors are all busy waits instead of starting: the response says which.
+          // The response identifies a card held for a suitable developer.
           if (started.task.startWaiting?.reason === 'senior_busy' && !started.task.assignee)
             toast.show(t('task.startedSeniorWait', { key: task.key }), 'info');
           else toast.show(t('task.started', { key: task.key }));
@@ -132,21 +133,28 @@ function StartPanel({
       },
     );
   const openKeys = openPrerequisiteKeys(task, tasks);
-  const developers = [...members.values()].filter(
-    (member) => member.kind === 'ai' && isDeveloperRole(member.role) && member.status !== 'retired',
-  );
-  // The default row of a Senior card names the Senior (PM-349). The shared rule decides whether the team
-  // has one; without the configuration (it needs the right to read it) the members' own marks do.
-  const seniorCard = developerLevelOf(task) === 'senior';
-  const hasSenior = config ? hasActiveSenior(config, task) : developers.some((member) => member.senior);
-  const reason = task.developerLevel?.reason ?? null;
-  const hint = !seniorCard
+  const developers = [...members.values()].filter((member) => {
+    const original = config?.team.members.find((entry) => entry.handle === member.handle);
+    return (
+      member.kind === 'ai' &&
+      member.status !== 'retired' &&
+      (original && config ? isDeveloper(config, original) : member.complexityLimit !== undefined)
+    );
+  });
+  // The shared stage rule includes busy developers and developers on leave.
+  const points = task.complexity?.points;
+  const workStage = config && workStageOf(config, task);
+  const reaches =
+    config && workStage
+      ? reachingDevelopers(stageDevelopers(config, workStage), points ?? null).length > 0
+      : developers.some(
+          (member) => member.complexityLimit !== undefined && member.complexityLimit >= (points ?? 0),
+        );
+  const hint = !points
     ? undefined
-    : !hasSenior
-      ? t('task.assigneeHintNoSenior')
-      : reason
-        ? t('task.assigneeHintSenior', { reason })
-        : t('task.assigneeHintSeniorNoReason');
+    : !reaches
+      ? t('task.complexity.startNoneReach', { points })
+      : t('task.complexity.startHint', { points });
   const chosen = developers.find((member) => member.handle === assignee);
   const goOn = () => (openKeys.length > 0 ? setWarning(openKeys) : send(false));
   return (
@@ -157,14 +165,14 @@ function StartPanel({
         hint={hint}
         onChange={(event) => setAssignee(event.target.value)}
       >
-        <option value="">
-          {seniorCard && hasSenior ? t('task.assigneeAutoSenior') : t('task.assigneeAuto')}
-        </option>
+        <option value="">{points ? t('task.complexity.auto', { points }) : t('task.assigneeAuto')}</option>
         {developers.map((member) => (
           // The server refuses a start for a member on leave (member_on_leave): not offered as a pick.
           <option key={member.handle} value={member.handle} disabled={isOnLeave(member)}>
             {`${member.displayName} · ${member.handle}`}
-            {member.senior ? ` · ${t('task.level.mark')}` : ''}
+            {points && member.complexityLimit !== undefined
+              ? ` · ${t('team.limit', { limit: member.complexityLimit })}`
+              : ''}
             {isOnLeave(member) ? leaveSuffix(member) : ` · ${t(`memberStatus.${member.status}`)}`}
           </option>
         ))}
@@ -187,20 +195,23 @@ function StartPanel({
         loading={start.isPending}
         {...held.buttonProps}
         onClick={() =>
-          seniorCard && hasSenior && chosen && !chosen.senior ? setSeniorWarning(true) : goOn()
+          points && chosen?.complexityLimit !== undefined && chosen.complexityLimit < points
+            ? setComplexityWarning(true)
+            : goOn()
         }
       >
         {start.isPending ? t('task.starting') : t('task.start')}
       </Button>
       {held.note}
-      <SeniorWarning
-        name={seniorWarning && chosen ? chosen.displayName : null}
-        reason={reason}
+      <ComplexityWarning
+        name={complexityWarning && chosen ? chosen.displayName : null}
+        points={points ?? 0}
+        limit={chosen?.complexityLimit ?? 5}
         onConfirm={() => {
-          setSeniorWarning(false);
+          setComplexityWarning(false);
           goOn();
         }}
-        onClose={() => setSeniorWarning(false)}
+        onClose={() => setComplexityWarning(false)}
       />
       <PrerequisiteWarning
         keys={warning}

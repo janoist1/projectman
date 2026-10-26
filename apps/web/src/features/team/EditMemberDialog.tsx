@@ -10,6 +10,9 @@ import {
   holdersAllow,
   HumanAccess,
   isOperator,
+  isDeveloper,
+  COMPLEXITY_POINTS,
+  ComplexityPoints,
 } from '@projectman/shared';
 import type {
   AgentProvider,
@@ -72,9 +75,9 @@ function EditMemberForm({
   const [compactWindow, setCompactWindow] = useState(
     String(ai?.autoCompactWindowTokens ?? member.autoCompactWindowTokens ?? ''),
   );
-  // The Senior (PM-347) is an AI member that is no stand-in; the choice is the form's own, saved with it.
-  const canBeSenior = member.kind === 'ai' && !member.temp;
-  const [senior, setSenior] = useState(member.senior === true);
+  // Resolve eligibility from the draft roles, using the shared work-stage rule.
+  const canSetLimit = !!config && !!ai && isDeveloper(config, { ...ai, role: selected[0] ?? ai.role });
+  const [limit, setLimit] = useState(String(member.complexityLimit ?? 5));
   // The e-mail channel (PM-942): whether the member may write, and whether its mail goes out unapproved
   // (that one is the owner's alone).
   const [emailEnabled, setEmailEnabled] = useState(member.email?.enabled === true);
@@ -126,8 +129,10 @@ function EditMemberForm({
             : {
                 displayName: displayName.trim(),
                 specialty: specialty.trim(),
-                // Sent only when it changes: a stand-in has none, and the server refuses it for one.
-                ...(canBeSenior && senior !== (member.senior === true) ? { senior } : {}),
+                // A stand-in's limit is fixed; 5 clears the explicit setting.
+                ...(canSetLimit && !member.temp
+                  ? { complexityLimit: limit === '5' ? null : ComplexityPoints.parse(Number(limit)) }
+                  : {}),
                 ...(Object.keys(emailChange).length > 0 ? { email: emailChange } : {}),
                 provider,
                 effort: effort ?? null,
@@ -218,21 +223,27 @@ function EditMemberForm({
               value={specialty}
               onChange={(event) => setSpecialty(event.target.value)}
             />
-            {canBeSenior ? (
-              <div>
-                <label className={styles.toggle}>
-                  <input
-                    type="checkbox"
-                    checked={senior}
-                    aria-describedby={`${formId}-senior`}
-                    onChange={(event) => setSenior(event.target.checked)}
-                  />
-                  {t('memberEdit.senior')}
-                </label>
-                <p id={`${formId}-senior`} className={styles.toggleHint}>
-                  {t('memberEdit.seniorHint')}
-                </p>
-              </div>
+            {canSetLimit ? (
+              member.temp ? (
+                <p className={styles.toggleHint}>{t('memberEdit.tempLimit')}</p>
+              ) : (
+                <SelectField
+                  label={t('memberEdit.limit')}
+                  hint={t('memberEdit.limitHint')}
+                  value={limit}
+                  onChange={(event) => setLimit(event.target.value)}
+                >
+                  {COMPLEXITY_POINTS.map((points) => (
+                    <option key={points} value={points}>
+                      {points === 5
+                        ? t('memberEdit.limitDefault')
+                        : points === 13
+                          ? t('memberEdit.limitUnlimited')
+                          : t('task.complexity.points', { points })}
+                    </option>
+                  ))}
+                </SelectField>
+              )
             ) : null}
             <div>
               <label className={styles.toggle}>

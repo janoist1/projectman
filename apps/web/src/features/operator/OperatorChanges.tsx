@@ -30,7 +30,7 @@ const FIELDS = [
   'autoCompactWindowTokens',
   'sponsor',
   'temp',
-  'senior',
+  'complexityLimit',
   'role',
   'access',
   'path',

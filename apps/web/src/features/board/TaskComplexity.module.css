@@ -1,0 +1,62 @@
+/* The complexity editor opens in place; reduced motion disables the fade-in. */
+.editor {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  min-width: 0;
+  animation: pm-fade-in 160ms ease-out;
+}
+
+/* Keep all seven segments in one row on a phone. */
+.segments {
+  width: max-content;
+  max-width: 100%;
+}
+
+.note {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--c-ink-3);
+}
+
+.warning {
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--c-needs-text);
+}
+
+.fields {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.value {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.points {
+  min-width: 20px;
+  height: 18px;
+  padding: 0 4px;
+  border: 1px solid var(--c-line);
+  border-radius: 5px;
+  background: var(--c-muted);
+  color: var(--c-ink-2);
+  font-size: var(--text-2xs);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  display: inline-grid;
+  place-items: center;
+  line-height: 1;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}

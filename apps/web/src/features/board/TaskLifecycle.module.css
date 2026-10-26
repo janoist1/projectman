@@ -27,3 +27,8 @@
   gap: 6px;
   min-width: 0;
 }
+.complexityWarning {
+  margin: 0;
+  color: var(--c-needs-text);
+  font-size: var(--text-sm);
+}

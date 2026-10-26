@@ -1,7 +1,15 @@
+import { z } from 'zod';
 import { DUTIES } from '../domain/duty';
 import type { PermissionMode } from '../domain/member';
 import { REVIEW_DUTIES, roleBundle, roleUsesWorktree } from './duties';
 import type { ProjectConfig } from './schema';
+
+/** Read denials that may be reopened by exact files or directory subtrees. */
+export const SessionReadBoundary = z.strictObject({
+  deniedRoots: z.array(z.string().min(1)),
+  allowedPaths: z.array(z.strictObject({ path: z.string().min(1), kind: z.enum(['directory', 'file']) })),
+});
+export type SessionReadBoundary = z.infer<typeof SessionReadBoundary>;
 
 /** Where a session works. */
 export type SessionAccess = 'task_worktree' | 'review_copy' | 'read_only';

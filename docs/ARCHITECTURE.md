@@ -1652,12 +1652,12 @@ and fails is `check_failed`. On a remote engine this holds for an RPC timeout to
 installation stopped, the lock freed), so the checkout is removed after that; an engine that stays
 unreachable is `engine_offline`.
 
-`BranchMerger.readFile` and `BranchMerger.commitFiles` are for the Operator's document writing
-(PM-388, PM-494): the card merge never calls them. `RepoConfig.docs` (`project-docs.ts`) says where
+`BranchMerger.readFile` and `BranchMerger.commitFiles` are for project document writing
+(PM-388, PM-494, PM-1044): the card merge never calls them. `RepoConfig.docs` (`project-docs.ts`) says where
 the decision log, roadmap and lessons are (PM-1004); absent, the feature is off, and `projectDocsOf` takes the first
 repository that has a path. `PATCH /config` sets it with `repoDocs` (`docs: null` clears it).
 
-**The slot is shared with the Operator's document writes (PM-495).** `DocWrites` (`services/project-docs/doc-writes.ts`)
+**The slot is shared with project document writes (PM-495, PM-1044).** `DocWrites` (`services/project-docs/doc-writes.ts`)
 writes a row of `doc_writes` and runs it in the same repository slot as a merge: `Merges.pump` skips a
 repository while `DocWrites.busy` says a write runs there, and a merge fiber's observer calls `docWrites.pump()`
 before its own `pump()`, so a waiting write goes first when the slot frees (`DocWrites.pump` skips a repository
@@ -1672,9 +1672,9 @@ the key's origin (`external_origin`), its commit has the key's trailers, and it 
 (`EXTERNAL_DOC_WRITE_WAIT_MS`) with `published`, `queued` or `running`; `get_project_doc_write` reads it on. A row
 without a request and without an origin never runs (`authorization_revoked`), except one explicitly marked
 `autonomous_lessons` by `requestLessons` (PM-1004). That write has no owner request or step. The hub verifies
-the Operator, repository/default branch and current lessons path at start, recovery and before publication;
+the selected project manager or transitional Operator, repository/default branch and current lessons path at start, recovery and before publication;
 conflicting provenance or revoked configuration ends it as `authorization_revoked`. Its result still reaches
-the Operator through the existing system-message path.
+the author through the existing system-message path.
 
 ## Heavy-run queue (PM-332)
 
@@ -3904,7 +3904,28 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   off only the npm registry.
   Codex has its own permission mapping in `runner/providers/codex/args.ts`: local sessions
   receive an inline `projectman` profile extending `:read-only`, with `sensitivePaths` and
-  the adapter's Codex home denied (PM-356). Writing sessions retain workspace protections
+  the adapter's Codex home denied (PM-356).
+  PM-360 adds the shared `SessionReadBoundary` schema and optional
+  `AgentSandbox.portable.readBoundary` to the strict `session.start` contract. Under the owner's
+  2026-10-26 scope decision, developer runtime paths do not automatically populate it:
+  absent means the existing broad non-sensitive home reads and session/tmp behavior.
+  Claude's existing `worktreeSandbox` read/write rules remain unchanged. Explicit boundaries
+  contain reopenable roots and typed file/directory exceptions, separate from unconditional
+  policy/adapter denials. Local adapters resolve lexical/physical paths and reject invalid
+  explicit inputs using the shared `runner/tool-decision.ts` matcher (exported through
+  `runner/index.ts` for the engine): glob component boundaries, case handling and macOS
+  `/System/Volumes/Data` firmlink aliases have one implementation. The engine
+  (`engine-link/engine-limit.ts`) adds its own homes/temp roots and checks
+  exceptions and required private directories only when a boundary is supplied. Existing
+  engine-root, permission-mode, environment and sensitive-path checks always apply.
+  **Remote engine:** `paths()` supplies the executing engine's roots; only the optional,
+  validated portable contract crosses the boundary, never authentication files. This uses
+  the same policy locally and remotely and introduces no new mode or switch. A cloud hub
+  does not isolate an engine's disk; OS-user/VM/container and tenant isolation are separate
+  requirements. Explicit boundaries need their own OS/provider native probe when enabled
+  (`docs/SANDBOX-PROBE.md`); prior PM-356 evidence does not certify them. Approved host commands
+  and the parent CLI remain outside this boundary. PM-425 owns the reader's policy and rollout.
+  Writing sessions retain workspace protections
   and the roots of `AgentSandbox.portable` (the member's npm cache and development data,
   the queue's parent, the session folder and
   the own tmp, PM-339). With an own tmp, no shared `/tmp` or CLI `$TMPDIR` write is inherited.
@@ -4870,10 +4891,16 @@ retired, `operator_required` 409; it cannot go on leave), `isOperatorActor` (an 
   `OperatorSignals.active`: delivered, unresolved, pending or open, oldest first, using the public schema.
   The tool uses the common Operator caller guard; guest conversations cannot read this internal report.
   It neither starts work nor contacts an engine.
-- **Operator documents (PM-495, PM-388, PM-1004).** Tools and their handler live in `mcp/project-docs/`. `read_project_doc { doc, from_line?, line_count? }` is a read tool
+- **Project manager documents (PM-495, PM-388, PM-1004, PM-1044).** Tools and their handler live in `mcp/project-docs/`.
+  `read_project_doc`, `write_project_docs`, `list_decision_candidates` and `mark_decision_candidates` belong to the
+  selected available project manager (`coordinationMemberOf`), only in its own internal general conversation.
+  The app Operator retains access until PM-1045 removes it. The PM uses its own `CoordinationRequests`;
+  an Operator request, guest conversation, signal or approval continuation grants no document-writing authority.
+  Document procedures and lessons guidance belong to the PM's prompt and role guide.
+  `read_project_doc { doc, from_line?, line_count? }` is a read tool
   (`OPERATOR_READ_TOOLS`, not a guest tool): decisions, roadmap or lessons at the fresh head of the default branch,
-  read through `BranchMerger.readFile` on the Operator's engine, with the commit it was read at.
-  `write_project_docs { base_commit, message, edits }` writes: the Operator only (`operator_only`), in the owners'
+  read through `BranchMerger.readFile` on the caller's engine, with the commit it was read at.
+  `write_project_docs { base_commit, message, edits }` writes: the selected PM or transitional Operator (`operator_only` otherwise), in the owners'
   own conversation (`{ type: 'general' }` without `with`, from an owner's request; `operator_owner_only`
   otherwise) and with an open request (`operator_no_request`); `OPERATOR_TOOL_ACTIONS` maps it to `docs_write`.
   The edits are checked against the text at `base_commit` first (`applyDocEdits`, `isAppendOnly`, both pure, in
@@ -4882,12 +4909,12 @@ retired, `operator_required` 409; it cannot go on leave), `isOperatorActor` (an 
   409 `docs_write_pending`) with an Operator step in `queued` status, and runs in the repository's merge slot (see
   "Merge"). The call waits up to 60 seconds for a write that starts at once and answers `published`, `queued` or
   `running`; a write that ends without a waiting call updates its step (`done`, `stale` or `refused`, with the
-  refusal: `updateStep(…, refusal)`) and sends the Operator an English `info` system message, read with the owner's
+  refusal: `updateStep(…, refusal)`) and sends the author an English `info` system message, read with the owner's
   next message. A file that changed since `base_commit` is `docs_stale`, never a blind edit. The commit carries the
   trailers `Projectman-Operator`, `Projectman-Request` and `Projectman-Requested-By`. Never forced. The server owns
   the queue, the lock and the step log; the git runs on the engine. No new machine-dependent part.
-  PM-1004 adds the narrow lessons-only exception (`isLessonsOnly` in shared): the Operator reads/writes lessons
-  in its own internal general session without an open owner request, including a queue request whose server-side
+  PM-1004 adds the narrow lessons-only exception (`isLessonsOnly` in shared): the selected PM or transitional Operator reads/writes lessons
+  in its own internal general session without an open owner request, including an Operator queue request whose server-side
   `queueItemId` identifies its own processing item in the same project and session. Guest conversations,
   non-owner message/answer requests and approval continuations remain forbidden. Mixed edits, decisions,
   roadmap and decision offers retain the owner-request rule. Paths are explicit in `RepoDocs.lessons`, with no
@@ -4895,7 +4922,7 @@ retired, `operator_required` 409; it cannot go on leave), `isOperatorActor` (an 
   paths (422 `invalid_request` before queueing). Autonomous rows alone carry `autonomous_lessons = 1`
   (migration 109), with null owner request, owner, step and external origin; the commit trailers are
   `Projectman-Operator` and `Projectman-Operator-Mode: autonomous-lessons`. Reauthorization at start/recovery
-  and before push/advance checks the current Operator, repository/default branch and lessons path; conflicting
+  and before push/advance checks the selected PM or transitional Operator, repository/default branch and lessons path; conflicting
   provenance is refused. Delayed results use the existing system-message path, and stale lessons request a
   reread and retry. Super MCP lessons still use `requestExternal`, key provenance and key/owner/Operator
   reauthorization; neither read nor legacy keys acquire write permission. See the `merge.read_file` /

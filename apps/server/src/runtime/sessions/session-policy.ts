@@ -26,7 +26,7 @@ import {
   placementReadsOnly,
   usesCodexCli,
 } from '@projectman/shared';
-import type { AgentProvider, RoleId, ProjectConfig, Task } from '@projectman/shared';
+import type { AgentProvider, RoleId, ProjectConfig, Task, SessionReadBoundary } from '@projectman/shared';
 import {
   BROWSERS_PATH_VARIABLE,
   MEMBER_SANDBOX_DIRS,
@@ -124,13 +124,15 @@ function portableOf(shared: {
   allowWrite: string[];
   env: Record<string, string>;
   tmpDir?: string;
+  readBoundary?: SessionReadBoundary;
 }): Pick<AgentSandbox, 'portable'> {
-  if (shared.allowWrite.length === 0 && !shared.tmpDir) return {};
+  if (shared.allowWrite.length === 0 && !shared.tmpDir && !shared.readBoundary) return {};
   return {
     portable: {
       allowWrite: [...shared.allowWrite],
       env: { ...shared.env },
       ...(shared.tmpDir ? { tmpDir: shared.tmpDir } : {}),
+      ...(shared.readBoundary ? { readBoundary: shared.readBoundary } : {}),
     },
   };
 }

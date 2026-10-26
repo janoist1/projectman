@@ -800,7 +800,15 @@ the instance not listening on a port the sandbox can reach (a Unix socket, or a 
 Not decided here.
 
 A Codex member uses its own permission profile: it denies `sensitivePaths`
-and its Codex home, but reads other paths broadly (PM-356; the wider boundary is PM-360).
+and its Codex home (PM-356). Under the owner's PM-360 scope decision (2026-10-26), the
+developer's ordinary profile keeps broad reads of non-denied home files, other projects and
+other members' checkouts. No new home/session/tmp prerequisite is imposed on these starts.
+PM-360 provides an optional typed `portable.readBoundary` for explicit policy inputs:
+reopenable roots and exact file/directory read exceptions are separate from unconditional
+secret denials. The adapters and engine reject an explicitly invalid boundary; an absent
+field keeps the existing profile and temp behavior. Claude's sandbox remains unchanged;
+PM-425 supplies its own reader policy. Native enforcement of an explicit boundary must be
+verified on each OS/provider when that boundary is enabled; it has not been certified here.
 A developer's file tools have no such `Edit` deny rules outside its
 worktree (its own worktree is inside the app home, and a deny rule wins over an allow rule): there
 the CLI's own questions and Auto's classifier hold. The sandbox's denials were checked on the
@@ -908,9 +916,12 @@ process ends, so a background command's output does not survive a restart.
 Remaining risks: a Claude session without a safe tmp root (folders or tmp off, an unusable root) keeps
 the shared root and does not get it denied (fail-open: the CLI would otherwise fall back to a
 path it cannot use); a session that is already running gets the rule at its next start; a
-reader's file tools still read the user's home and the other PM-339 folders (PM-425); Codex on the
-PM-339 base still reads what its profile opens (PM-360); NanoGPT members (PM-365) and Gemini (no OS
-sandbox) are not covered by the sandbox rules.
+reader's file tools still read the user's home and the other PM-339 folders (PM-425).
+Codex/NanoGPT developer profiles retain broad non-sensitive home reads; PM-360's optional
+boundary is not automatically enabled. Gemini has no OS sandbox. Approved host commands
+and the parent CLI remain outside the native command sandbox. Shared git history and
+installation session outputs remain readable. A cloud hub does not isolate an engine's
+local files; a shared or multi-tenant engine needs separately specified OS/VM/container isolation.
 
 ## The feedback tool's public API (PM-506, PM-509)
 

@@ -7,6 +7,7 @@ import { SANDBOX_HOME_READS } from '../src/contracts';
 import type { SessionPolicy, StartSessionSpec } from '../src/contracts';
 import { userExcludesFile } from '../src/engine-host';
 import { createEngineLimit } from '../src/engine-link';
+import { EngineStartSpec } from '../src/engine-link/session-schemas';
 import { attachmentToolRules, sensitivePaths, sessionSandbox } from '../src/runtime/sessions';
 import { buildSettings, buildClaudeArgs } from '../src/runner/providers/claude/args';
 import { buildCodexArgs, NANOGPT_CODEX_PROVIDER, tomlValue } from '../src/runner/providers/codex/args';
@@ -67,6 +68,32 @@ function codexOverrides(args: string[]) {
 }
 
 describe('provider-neutral session policy', () => {
+  it('preserves an explicitly supplied read boundary on the wire and in a plan profile', () => {
+    const p = policy('developer', { kind: 'task_worktree', path: source }, 'plan');
+    const readBoundary = {
+      deniedRoots: ['/fictional/user', '/fictional/app'],
+      allowedPaths: [
+        { path: source, kind: 'directory' as const },
+        { path: '/fictional/user/.gitconfig', kind: 'file' as const },
+      ],
+    };
+    const sandbox = sessionSandbox(p, { userHome: '/fictional/user', appHome: '/fictional/app' })!;
+    const s = {
+      ...spec(p, false),
+      sandbox: { ...sandbox, portable: { allowWrite: [], env: {}, readBoundary } },
+    };
+    const { mcpUrl: _url, ...wire } = s;
+    expect(
+      EngineStartSpec.parse({ ...wire, mcpToken: 'fictional-token' }).sandbox?.portable?.readBoundary,
+    ).toEqual(readBoundary);
+    const profile = codexOverrides(
+      buildCodexArgs({ spec: s, realCwd: source, hookConfigPath: HOOK_CONFIG, permissionTimeoutMs: 1000 })
+        .args,
+    ).get('permissions.projectman');
+    expect(profile).toContain('"/fictional/user"="deny"');
+    expect(profile).toContain('"/fictional/user/.gitconfig"="read"');
+    expect(profile).not.toContain('"write"');
+  });
   it('grants a lead developer writes only to their named merge-fix placement', () => {
     const task = {
       repo: 'web',
@@ -121,6 +148,8 @@ describe('provider-neutral session policy', () => {
       const p = development();
       const memberDir = '/fictional/app/member-caches/PM/dev';
       const sandbox = sessionSandbox(p, { userHome: '/fictional/user', memberDir })!;
+      expect(sandbox.portable?.readBoundary).toBeUndefined();
+      expect(sandbox.denyRead).toContain('/fictional/user');
       const s = { ...spec(p, false), sandbox };
       const c = codexOverrides(
         buildCodexArgs({

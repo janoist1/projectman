@@ -8,6 +8,7 @@ import {
   decideToolCall,
   resolveToolPath,
   toolPathForms,
+  pathPatternMatcher,
   type NormalizedToolCall,
   type ToolDecision,
 } from './tool-decision';
@@ -241,6 +242,11 @@ describe('toolPathForms', () => {
       join(work, 'gh', 'hosts.yml'),
     ]);
   });
+});
+
+it('matches a denied database glob through a case-insensitive firmlink alias', () => {
+  const matches = pathPatternMatcher(['/Users/anna/.projectman/db.sqlite*'], true);
+  expect(matches('/System/Volumes/Data/users/ANNA/.projectman/db.sqlite-wal')).toBe(true);
 });
 
 describe('row 1: denied paths, in every mode', () => {

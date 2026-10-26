@@ -10,7 +10,13 @@ import { resolveCommand, runQuietly } from '../../cli';
 import { inspectCodexMcpServers, inspectAmbientConfig } from '../../ambient-config';
 import { createCodexAdapter } from '../codex';
 import { CodexTranscriptParser } from '../codex/transcript';
-import { buildCodexArgs, codexCliReadRoot, codexDeniedPaths, NANOGPT_CODEX_PROVIDER } from '../codex/args';
+import {
+  buildCodexArgs,
+  codexCliReadRoot,
+  codexCliDenials,
+  validateCodexReadBoundary,
+  NANOGPT_CODEX_PROVIDER,
+} from '../codex/args';
 import { writeHookConfig } from '../../session-config';
 import type { ProviderAdapter } from '../types';
 
@@ -122,9 +128,15 @@ export function createNanogptAdapter(opts: {
       return status;
     },
     async launch(input) {
+      const boundaryProblem = validateCodexReadBoundary({ spec: input.spec, codexHome: opts.codexHome });
+      if (boundaryProblem)
+        throw new NanogptStartError('nanogpt_setup_incomplete', {
+          problem: 'read_boundary',
+          reason: boundaryProblem,
+        });
       if (
         input.cliPath &&
-        codexCliReadRoot(input.cliPath, codexDeniedPaths({ spec: input.spec, codexHome: opts.codexHome }))
+        codexCliReadRoot(input.cliPath, codexCliDenials({ spec: input.spec, codexHome: opts.codexHome }))
           .kind === 'misplaced'
       )
         throw new NanogptStartError('nanogpt_setup_incomplete', {

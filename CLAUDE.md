@@ -2,10 +2,10 @@
 
 Read `docs/ARCHITECTURE.md` first. Decisions and their reasons: `docs/DECISIONS.md`. What
 comes next and the owner's open questions: `docs/ROADMAP.md`. The lessons learned while
-building projectman are in `docs/LESSONS.md`.
+building projectman are in `docs/LESSONS.md`, maintained by the project manager.
 `docs/DECISIONS.md` records the owner's decisions and `docs/ROADMAP.md` the plan. Only the
-Operator writes them, at the owner's request or after the owner's yes (decision 50); nobody
-changes them on a card branch. An owner decision made on a card is offered by the Operator
+project manager writes them, at the owner's request or after the owner's yes (decision 50, PM-1023); nobody
+changes them on a card branch. An owner decision made on a card is offered by the project manager
 (`list_decision_candidates`, `mark_decision_candidates`). A choice of your own that the owner
 should confirm still goes to them as a question.
 
@@ -165,7 +165,7 @@ Any card adding a merge check that can run quickly in the developer's worktree m
 the developer hand-over checklist in the same change.
 When a merge fails a check the developer could have run locally, the merger names that
 command in the send-back note; if it was missing from the checklist, propose adding it
-and send the lesson to the Operator for `docs/LESSONS.md`.
+and send the lesson to the project manager for `docs/LESSONS.md`.
 Shared code or configuration changes require the whole suite; workspace checks do not queue
 (decision 40, PM-380, PM-386). If a heavy command says its queue cannot be used
 (exit status 78), or the sandbox refuses a test (a local port, a pseudo-terminal), it did not

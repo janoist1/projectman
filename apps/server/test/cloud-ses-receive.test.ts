@@ -12,8 +12,34 @@ const TOPIC_ARN = `arn:aws:sns:eu-central-1:${ACCOUNT}:${INSTANCE}-email-in`;
 const QUEUE_ARN = `arn:aws:sqs:eu-central-1:${ACCOUNT}:${INSTANCE}-email-in`;
 const DLQ_ARN = `${QUEUE_ARN}-dlq`;
 const QUEUE_URL = `https://sqs.eu-central-1.amazonaws.com/${ACCOUNT}/${INSTANCE}-email-in`;
-const INBOUND_NAMES = { configurationSet: `${INSTANCE}-email`, queue: `${INSTANCE}-email-in` };
+const INBOUND_NAMES = {
+  replyDomain: REPLY_DOMAIN,
+  configurationSet: `${INSTANCE}-email`,
+  queue: `${INSTANCE}-email-in`,
+};
 const INBOUND_CONFIG = { ...SES_CONFIG, inbound: { replyDomain: REPLY_DOMAIN } };
+const LEGACY_POLICY = {
+  Version: '2012-10-17',
+  Statement: [
+    {
+      Effect: 'Allow',
+      Action: 'ses:SendEmail',
+      Resource: `arn:aws:ses:eu-central-1:${ACCOUNT}:identity/${SES_CONFIG.domain}`,
+      Condition: { StringEquals: { 'ses:FromAddress': SES_CONFIG.from } },
+    },
+    {
+      Effect: 'Allow',
+      Action: 'ses:SendEmail',
+      Resource: `arn:aws:ses:eu-central-1:${ACCOUNT}:configuration-set/${INSTANCE}-email`,
+      Condition: { StringEquals: { 'ses:FromAddress': SES_CONFIG.from } },
+    },
+    {
+      Effect: 'Allow',
+      Action: ['sqs:ReceiveMessage', 'sqs:DeleteMessage', 'sqs:ChangeMessageVisibility'],
+      Resource: QUEUE_ARN,
+    },
+  ],
+};
 
 let world: SesWorld;
 beforeEach(() => {
@@ -59,12 +85,19 @@ describe('sesPolicy with the receiving statements', () => {
 
   it('adds the configuration set to the sends and the one queue to the reads, nothing wide', () => {
     const policy = sesPolicy(SES_CONFIG, ACCOUNT, INBOUND_NAMES);
+    expect(policy.Statement[0]).toEqual(LEGACY_POLICY.Statement[0]);
     expect(policy.Statement.slice(1)).toEqual([
       {
         Effect: 'Allow',
         Action: 'ses:SendEmail',
+        Resource: `arn:aws:ses:eu-central-1:${ACCOUNT}:identity/${REPLY_DOMAIN}`,
+        Condition: { StringLike: { 'ses:FromAddress': `*@${REPLY_DOMAIN}` } },
+      },
+      {
+        Effect: 'Allow',
+        Action: 'ses:SendEmail',
         Resource: `arn:aws:ses:eu-central-1:${ACCOUNT}:configuration-set/${INSTANCE}-email`,
-        Condition: { StringEquals: { 'ses:FromAddress': SES_CONFIG.from } },
+        Condition: { StringLike: { 'ses:FromAddress': [SES_CONFIG.from, `*@${REPLY_DOMAIN}`] } },
       },
       {
         Effect: 'Allow',
@@ -73,7 +106,7 @@ describe('sesPolicy with the receiving statements', () => {
       },
     ]);
     const text = JSON.stringify(policy);
-    expect(text).not.toContain('*');
+    expect(policy.Statement.every((statement) => !statement.Resource.includes('*'))).toBe(true);
     expect(text).not.toContain('SendRawEmail');
   });
 });
@@ -120,6 +153,53 @@ describe('ses.inbound configuration', () => {
 });
 
 describe('ses receive-plan and receive-configure', () => {
+  it('keeps a sender-only policy when inbound is configured but not provisioned', async () => {
+    await withSender();
+    expect(world.ses.inline.get('ses-send')).toEqual(sesPolicy(SES_CONFIG, ACCOUNT));
+    world.verify();
+    expect(await run('check')).toBe(0);
+    noWrites();
+  });
+
+  it('plans an update for the PM-945 policy and keeps the upgraded policy on the next plan', async () => {
+    await configureWithRetained();
+    world.ses.inline.set('ses-send', LEGACY_POLICY);
+    expect(await run('receive-configure', '--dry-run')).toBe(0);
+    expect(world.output).toContain(`update IAM policy ${INSTANCE}-ses/ses-send`);
+    noWrites();
+    clear();
+    expect(await run('receive-configure')).toBe(0);
+    expect(world.ses.inline.get('ses-send')).toEqual(sesPolicy(SES_CONFIG, ACCOUNT, INBOUND_NAMES));
+    clear();
+    expect(await run('receive-plan')).toBe(0);
+    expect(world.output).toContain(`unchanged IAM policy ${INSTANCE}-ses/ses-send`);
+    noWrites();
+  });
+
+  it('makes ses check reject the PM-945 policy and ses configure upgrade it without losing receiving', async () => {
+    await configureWithRetained();
+    world.ses.inline.set('ses-send', LEGACY_POLICY);
+    expect(await run('check')).toBe(1);
+    noWrites();
+    expect(await run('configure')).toBe(0);
+    expect(world.ses.inline.get('ses-send')).toEqual(sesPolicy(SES_CONFIG, ACCOUNT, INBOUND_NAMES));
+    expect(await run('check')).toBe(0);
+  });
+
+  it('retains the PM-945 policy when inbound configuration is absent', async () => {
+    await configureWithRetained();
+    world.ses.inline.set('ses-send', LEGACY_POLICY);
+    world.writeConfig({
+      aws: { ...(baseConfig().aws as object), profile: 'aroom' },
+      cloudflare: { zone: 'istvan.io', hostname: 'chopper.istvan.io' },
+      ses: SES_CONFIG,
+    });
+    expect(await run('configure')).toBe(0);
+    expect(world.ses.inline.get('ses-send')).toEqual(LEGACY_POLICY);
+    expect(await run('check')).toBe(0);
+    noWrites();
+  });
+
   it('plan reads only, shows the cost and what would be created', async () => {
     await withSender();
     expect(await run('receive-plan')).toBe(0);
@@ -333,6 +413,7 @@ describe('ses receive-check', () => {
     ['the event destination', () => (world.ses.eventDestinations = [])],
     ['the receipt rule', () => (world.ses.ruleSets.get(`${INSTANCE}-email`)![0]!.ScanEnabled = false)],
     ['the sender policy', () => world.ses.inline.set('ses-send', sesPolicy(SES_CONFIG, ACCOUNT))],
+    ['the PM-945 policy', () => world.ses.inline.set('ses-send', LEGACY_POLICY)],
     [
       'the MX record',
       () =>

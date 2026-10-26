@@ -1285,10 +1285,17 @@ tests use stateful fakes of `aws` and Cloudflare):
 receipt rule set in the region (an account has one active rule set; this command will not replace or change a
 foreign one); an existing topic, queue or other resource of the name that does not carry the tag
 `projectman=cloud`, or a foreign subscription or rule; a CNAME or a different MX at the reply name; no sender
-yet (run `ses configure` first). The sender's IAM user `<instanceName>-ses` gets two more statements next to the
-existing one: `ses:SendEmail` on the configuration set (same `ses:FromAddress` condition), and
-`sqs:ReceiveMessage`, `sqs:DeleteMessage`, `sqs:ChangeMessageVisibility` on the one queue; there is no
-wildcard and no `SendRawEmail`. `ses configure` and `ses check` recognise that extended policy and keep it.
+yet (run `ses configure` first). The sender's IAM user `<instanceName>-ses` has these statements:
+
+- `ses:SendEmail` on the sender domain identity, with `StringEquals ses:FromAddress` equal to `ses.from`.
+- `ses:SendEmail` on the reply domain identity, with `StringLike ses:FromAddress` equal to `*@<replyDomain>`.
+- `ses:SendEmail` on the configuration set, with `StringLike ses:FromAddress` allowing both `ses.from` and
+  `*@<replyDomain>`.
+- `sqs:ReceiveMessage`, `sqs:DeleteMessage`, `sqs:ChangeMessageVisibility` on the one queue.
+
+There is no wildcard resource and no `SendRawEmail`. `ses configure` preserves receiving permissions and
+upgrades the old PM-945 policy when `ses.inbound.replyDomain` is configured; `ses check` reports that old
+policy as drift until upgraded.
 The topic admits only `ses.amazonaws.com` of this account (`aws:SourceAccount`), the queue only this topic
 (`aws:SourceArn`).
 
@@ -1307,7 +1314,10 @@ can switch the rule to an S3 action and read the mail from the bucket if it prov
 
 **Mail to a member (PM-989).** The same rule receives the mail written to an AI member's own address
 (`<mailbox>@<replyDomain>`, no new DNS, rule or queue). The 150 kB limit above counts the attachments of
-such a mail too.
+such a mail too. Members also send from their own address; the system sender remains available for login
+codes. After merging PM-1016, the owner runs `npm run cloud -- ses receive-configure --dry-run`, approves
+the IAM change, then runs `npm run cloud -- ses receive-configure` and `npm run cloud -- ses receive-check`.
+The existing reply identity and DKIM are reused; no new DNS record is needed for member sending.
 
 **The reader.** `createSqsInboundSource` (`apps/server/src/services/email-channel/sqs-source.ts`) long-polls
 the queue (up to 10 messages, 20 s wait, 60 s visibility), hands a mail or a delivery event to the channel

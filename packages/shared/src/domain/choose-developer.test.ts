@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { chooseDeveloper, reachingDevelopers } from './choose-developer';
+import { chooseDeveloper, humanStageOwner, reachingDevelopers } from './choose-developer';
+import { ProjectConfig } from '../config/schema';
 import type { FreeDeveloper, StageDeveloper } from './choose-developer';
 import type { ComplexityPoints } from './complexity';
 
@@ -84,5 +85,22 @@ describe('reachingDevelopers', () => {
     expect(reachingDevelopers(team, 5)).toEqual(['small', 'big']);
     expect(reachingDevelopers(team, 8)).toEqual(['big']);
     expect(reachingDevelopers(team, null)).toEqual([]);
+  });
+});
+
+describe('humanStageOwner', () => {
+  it('selects eligible humans in team order rather than the stage owner order', () => {
+    const config = {
+      team: ProjectConfig.shape.team.parse({
+        limits: {},
+        members: [
+          { kind: 'human', handle: 'outside', displayName: 'Outside', access: 'owner', roles: [] },
+          { kind: 'ai', handle: 'dev', displayName: 'Dev', role: 'developer', sponsor: 'first' },
+          { kind: 'human', handle: 'first', displayName: 'First', access: 'developer', roles: [] },
+          { kind: 'human', handle: 'last', displayName: 'Last', access: 'developer', roles: [] },
+        ],
+      }),
+    };
+    expect(humanStageOwner(config, ['dev', 'last', 'first'])?.handle).toBe('first');
   });
 });

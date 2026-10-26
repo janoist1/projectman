@@ -224,6 +224,7 @@ import {
   canSetComplexity,
   isComplexityPoints,
   chooseDeveloper,
+  humanStageOwner,
   reachingDevelopers,
   stageDevelopers,
   seniorWaitDecisionOf,
@@ -5264,11 +5265,7 @@ export class MockBackend {
       const pick = this.pickAutomatic(task, workStage, developers);
       if (pick.kind === 'senior_busy') return this.waitForSenior(task, workStage, pick.seniors);
       if (pick.kind === 'member') assignee = pick.handle;
-      if (pick.kind === 'none')
-        assignee =
-          this.config.team.members.find(
-            (member) => member.kind === 'human' && eligible.includes(member.handle),
-          )?.handle ?? null;
+      if (pick.kind === 'none') assignee = humanStageOwner(this.config, eligible)?.handle ?? null;
       if (
         task.complexity &&
         reachingDevelopers(stageDevelopers(this.config, workStage), complexityOf(task)).length === 0

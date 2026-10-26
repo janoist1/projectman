@@ -486,6 +486,7 @@ describe('mock provider settings', () => {
 describe('mock repository of a task', () => {
   it('refuses to start a developer on a task without a repository in a project with several', () => {
     const backend = new MockBackend();
+    backend.sessions = backend.sessions.filter((session) => session.member !== 'be-1');
     backend.updateTask('AC-24', { repo: null });
     expect(backend.handle('POST', `${base}/tasks/AC-24/start`, {})).toMatchObject({
       status: 409,
@@ -501,6 +502,7 @@ describe('mock repository of a task', () => {
   it('starts a developer on a task without a repository when the project has one or none', () => {
     for (const repos of [[{ name: 'shop', path: 'shop', defaultBranch: 'main' }], []]) {
       const backend = new MockBackend();
+      backend.sessions = backend.sessions.filter((session) => session.member !== 'be-1');
       backend.config.project.repos = repos;
       backend.updateTask('AC-24', { repo: null });
       expect(backend.handle('POST', `${base}/tasks/AC-24/start`, {}).status, String(repos.length)).toBe(200);

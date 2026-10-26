@@ -253,17 +253,6 @@ describe('personal Operator preference authorization', () => {
     await expect(
       h.domain.teamTools.operate(pm, { title: 'Change project', operation: { op: 'project_pause' } }),
     ).rejects.toThrow();
-    await expect(
-      h.domain.teamTools.proposeOperatorKnowledge(pm, {
-        expected_revision: 0,
-        title: 'Change agreement',
-        change: {
-          kind: 'agreement_replace',
-          agreement: { summary: 'Changed', involvement: 'important', extraCritical: [] },
-        },
-        operations: [],
-      }),
-    ).rejects.toThrow('operator_only');
   });
 
   it.each(['missing', 'closed', 'expired', 'approval', 'signal', 'queue'] as const)(

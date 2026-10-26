@@ -314,8 +314,9 @@ relative file/key names to the server.
 
 ## Shared Operator knowledge approval (PM-689)
 
-`propose_operator_knowledge` requires an internal Operator general session with an open owner
-message or answer request. Signal, watch, web and approval-continuation requests cannot propose
+`propose_operator_knowledge` requires an internal general session of the Operator or the selected
+project manager (PM-1043; a project manager proposal carries no recommended operations) with an
+open owner message or answer request. Signal, watch, web and approval-continuation requests cannot propose
 knowledge. A proposal writes an approval inbox item and a step, without changing the private
 knowledge or configuration. Only an owner using their own login may approve, reject or dismiss
 through the registered `operator_knowledge` decider; AI members, admins and integrators cannot

@@ -137,14 +137,16 @@ describe('the Operator’s checklist tools', () => {
   });
 
   describe('permissions', () => {
-    it('lets the PM read the list but not change it', async () => {
+    it('lets the PM read and change the list in its own conversation, and no developer', async () => {
       await setup();
       const pm = sessionAs('pm', { type: 'general' });
       expect((await h.domain.teamTools.getChecklist(pm)).checklist?.items.length).toBeGreaterThan(0);
-      await expect(update({ op: 'add', title: 'x' }, pm)).rejects.toThrow('operator_only');
-      await expect(
-        h.domain.teamTools.getChecklist(sessionAs('dev-1', { type: 'general' })),
-      ).rejects.toThrow();
+      await expect(update({ op: 'add', title: 'x' }, pm)).resolves.toMatchObject({
+        itemId: expect.stringMatching(/^custom_/),
+      });
+      const dev = sessionAs('dev-1', { type: 'general' });
+      await expect(h.domain.teamTools.getChecklist(dev)).rejects.toThrow();
+      await expect(update({ op: 'add', title: 'y' }, dev)).rejects.toThrow('operator_only');
     });
 
     it('refuses both tools in a conversation with a guest and in a card session', async () => {

@@ -24,11 +24,10 @@ export const SESSION_TOOL_GROUP: TeamToolGroup = {
       readOnly: false,
       description:
         "Say, in one declarative sentence, what you are doing on your task's card now; the card shows it next " +
-        'to your name, e.g. "The gateway tests are being written". It always concerns your own session ' +
-        'and card. Call it at the start of a multi-step stretch of work (implementing, testing, fixing review ' +
-        'findings), not at every step and not for a short reply, and in the same response as your next ' +
-        'step, never on its own. Only the latest sentence is kept, and it disappears when your round ends. ' +
-        'Write it in the project language, without your name.',
+        'to your name, e.g. "The gateway tests are being written". Call it at the start of a multi-step ' +
+        'stretch of work, not at every step and not for a short reply, in the same response as your next ' +
+        'step. Only the latest sentence is kept, and it disappears when your round ends. Write it in the ' +
+        'project language, without your name.',
       input: {
         summary: WorkDoing.shape.summary.describe(
           `One line, at most ${WORK_DOING_SUMMARY_MAX} characters, the card shows it.`,

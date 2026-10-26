@@ -921,7 +921,7 @@ function leadNotice(
     `${rounds.designChangeRequests} UI/UX change requests and ${rounds.sendBacks} send-backs (${rounds.testsFailed} of them failed full tests).`,
     `Extra rounds given so far: ${extraRounds} of ${MAX_FIX_EXTRA_ROUNDS}; you can give ${left} more, after that the people decide at every limit.`,
     `Its implementer ${task.assignee ?? ''} is held back: what AI members write to it waits.`,
-    `Read the card and decide with decide_fix_limit (task_key ${task.key}, a reason in one or two sentences):`,
+    `Read the card and its timeline, then decide with decide_fix_limit (task_key ${task.key}, a reason in one or two sentences, no secrets: it is shown to the people and told to the implementer):`,
     '"continue" lets the implementer have one more round;',
     can.replan ? '"replan" asks another technical direction holder for a more exact plan first;' : null,
     '"to_owner" gives the decision to the people and REQUIRES an assessment:',

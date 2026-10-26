@@ -53,6 +53,8 @@ describe('tool audience', () => {
     },
     { audience: { roles: ['merger'] }, member: { ...developerAudience, merger: true }, visible: true },
     { audience: { duties: ['deployment'] }, member: developerAudience, visible: false },
+    { audience: { channels: ['email'] }, member: developerAudience, visible: false },
+    { audience: { channels: ['email'] }, member: { ...developerAudience, email: true }, visible: true },
     {
       audience: { duties: ['deployment', 'code_review'] },
       member: { ...developerAudience, duties: new Set(['code_review']) },
@@ -83,6 +85,7 @@ describe('tool audience', () => {
       after: Buffer.byteLength(JSON.stringify(after)),
       beforeCount: before.tools.length,
       afterCount: after.tools.length,
+      afterDescriptionChars: after.tools.reduce((sum, tool) => sum + (tool.description?.length ?? 0), 0),
     });
   });
 
@@ -109,6 +112,24 @@ describe('tool audience', () => {
         expect(names.includes(name)).toBe(pm);
     },
   );
+
+  it.each([
+    { tools: ['merge_task', 'prioritize_merge'], grant: { merger: true } },
+    { tools: ['send_email', 'set_email_contact', 'list_email_contacts'], grant: { email: true } },
+    { tools: ['decide_permission_request'], grant: { duties: new Set(['boundary_authorization'] as const) } },
+  ])('lists $tools only for who the handler allows', async ({ tools, grant }) => {
+    const without = (await listToolsFor(developerAudience)).tools.map((tool) => tool.name);
+    const withGrant = (await listToolsFor({ ...developerAudience, ...grant })).tools.map((tool) => tool.name);
+    for (const name of tools) {
+      expect(without).not.toContain(name);
+      expect(withGrant).toContain(name);
+    }
+  });
+
+  it('keeps the read-only merge check list for every member', async () => {
+    const names = (await listToolsFor(developerAudience)).tools.map((tool) => tool.name);
+    expect(names).toContain('list_merge_checks');
+  });
 
   it.each([
     { audience: { ...developerAudience, projectManager: true }, present: 'start_task', absent: 'operate' },

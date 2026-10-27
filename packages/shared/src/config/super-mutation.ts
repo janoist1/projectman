@@ -6,7 +6,8 @@ import type { AiMemberConfig, ProjectConfig } from './schema';
 import { canonical } from './canonical';
 import { ownerHandles } from './lookup';
 import { boundaryDelegationChanged, ownerOnlyChanges, permissionsChanged } from './owner-only';
-import { memberDuties, roleBundle } from './duties';
+import { dutyMembers, memberDuties, roleBundle } from './duties';
+import { labelHolders } from './labels';
 import { operatorFixedChange } from './operator';
 import { operatorOf } from './operator-member';
 import { coordinationMemberOf } from './project-manager';
@@ -61,14 +62,31 @@ export function memberRequestCommandRefusal(command: { kind: string }): 'operato
     : null;
 }
 
+/** Who may set each label that is not open to anyone, and who gives the release approval: derived from roles, duties and members. */
+function approvalHolders(config: ProjectConfig): string {
+  return canonical({
+    labels: config.pipeline.labels
+      .filter((label) => label.setBy !== 'anyone')
+      .map((label) => [label.id, labelHolders(config, label).sort()])
+      .sort(([a], [b]) => String(a).localeCompare(String(b))),
+    release: dutyMembers(config, 'release_approval')
+      .map((member) => member.handle)
+      .sort(),
+  });
+}
+
 /**
- * Whether a configuration change reaches who approves: the pipeline (labels, their holders, gates) or the
- * release four-eyes rule. Member roles and duties are covered by `superConfigMutations` already.
+ * Whether a configuration change reaches who approves: the pipeline (labels, their holders, gates), the
+ * release four-eyes rule, the merger, or who actually holds an approval label or the release approval. The
+ * holders follow from a member's role, the role overrides and the custom roles, so those are covered here:
+ * `superConfigMutations` marks only the boundary delegation and the coordinator's and Operator's own role.
  */
 export function approvalStructureChanged(previous: ProjectConfig, next: ProjectConfig): boolean {
   return (
     canonical(previous.pipeline) !== canonical(next.pipeline) ||
-    (previous.team.releaseFourEyes ?? false) !== (next.team.releaseFourEyes ?? false)
+    (previous.team.releaseFourEyes ?? false) !== (next.team.releaseFourEyes ?? false) ||
+    canonical(previous.team.merger ?? null) !== canonical(next.team.merger ?? null) ||
+    approvalHolders(previous) !== approvalHolders(next)
   );
 }
 

@@ -7,7 +7,7 @@ import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
 import { bindSuperPrincipal } from '../src/core/members';
 import type { ProjectAccess } from '../src/core/members';
-import { DomainError } from '../src/kernel';
+import { DomainError, integratorExecution, runIntegratorExecution } from '../src/kernel';
 import { relayOwnerAnswer } from '../src/services/super-operator';
 import type { SuperCommandExecutor, SuperExecutorJob } from '../src/services/super-operator';
 
@@ -72,7 +72,13 @@ describe('durable super-mode handoff (PM-762)', () => {
   /** Runs `body` as the integrator: authenticated by the owner's token, bound to the owner's access. */
   const asIntegrator = async <T>(
     body: (access: ProjectAccess) => Promise<T>,
-    opts: { secret?: string; key?: typeof KEY; requestId?: string; afterResolve?: () => void } = {},
+    opts: {
+      secret?: string;
+      key?: typeof KEY;
+      requestId?: string;
+      afterResolve?: () => void;
+      requestOrigin?: 'owner' | 'member';
+    } = {},
   ): Promise<T> => {
     const secret = ensureKey(opts.secret ?? SECRET, opts.key ?? KEY);
     const principal = h.auth.resolveIntegratorCredential(secret, 'rest')!;
@@ -85,7 +91,24 @@ describe('durable super-mode handoff (PM-762)', () => {
     );
     return h.domain.superOperator.run(
       { principal, email: OWNER.email, requestId: opts.requestId ?? randomUUID(), projectKey: 'AR' },
-      () => body(access),
+      () => {
+        const { requestOrigin } = opts;
+        const context = integratorExecution();
+        if (!requestOrigin || !context) return body(access);
+        // The stored-key principal is frozen and registered as issued: the origin an app session's open request
+        // gives is put on a scope nested inside it.
+        return runIntegratorExecution(
+          {
+            active: true,
+            context: { ...context, principal: { ...context.principal, requestOrigin } },
+            actorFor: () => context.actor,
+            assertAccess: () => undefined,
+            assertMutation: () => {},
+            authorizeMutation: async () => {},
+          },
+          () => body(access),
+        );
+      },
     );
   };
 
@@ -112,7 +135,12 @@ describe('durable super-mode handoff (PM-762)', () => {
   const execute = (
     handoffId: string,
     requestId: string,
-    opts: { secret?: string; key?: typeof KEY; afterResolve?: () => void } = {},
+    opts: {
+      secret?: string;
+      key?: typeof KEY;
+      afterResolve?: () => void;
+      requestOrigin?: 'owner' | 'member';
+    } = {},
   ) => asIntegrator((access) => h.domain.superHandoffs.execute('AR', handoffId, requestId, access), opts);
 
   const answerAsOwner = (itemId: string, optionId: 'yes' | 'no') =>
@@ -348,6 +376,37 @@ describe('durable super-mode handoff (PM-762)', () => {
       ).superOperation;
       expect(Date.parse(bound.expiresAt)).toBe(clock.getTime() + 24 * HOUR);
       expect(bound.expectedConfigVersion).toBe((await h.domain.projects.load('AR')).version);
+    });
+
+    describe('a change of who holds an approval (PM-1010)', () => {
+      // The test template's `code-review-ok` is set by the code review duty.
+      const GIVE_DEVELOPERS_REVIEW: SuperCommand = {
+        kind: 'operate',
+        operation: {
+          op: 'config_patch',
+          patch: {
+            roleOverrides: { developer: { duties: ['implementation', 'code_review'], instructions: '' } },
+          },
+        },
+      };
+
+      it('waits for the owner when a member`s request would make a role hold an approval', async () => {
+        await boot();
+        withExecutors();
+        const handoff = await request(GIVE_DEVELOPERS_REVIEW);
+        const operation = await execute(handoff.id, randomUUID(), { requestOrigin: 'member' });
+        expect(operation).toMatchObject({ state: 'waiting_owner' });
+        expect(calls).toHaveLength(0);
+      });
+
+      it('runs it on the owner`s own request', async () => {
+        await boot();
+        withExecutors();
+        const handoff = await request(GIVE_DEVELOPERS_REVIEW);
+        const operation = await execute(handoff.id, randomUUID(), { requestOrigin: 'owner' });
+        expect(operation).toMatchObject({ state: 'succeeded' });
+        expect(calls).toHaveLength(1);
+      });
     });
 
     it('runs after the owner`s own yes, the same request id, and lets the reserved effect pass only then', async () => {

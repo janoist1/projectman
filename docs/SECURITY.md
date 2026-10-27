@@ -535,10 +535,13 @@ On a `member` request:
 - `task_labels` runs with the session member's own label rights, not the key owner's
   (`delegatesOwnerAuthority`). The approval and human-only labels (`qa-ok`, `design-review-ok`,
   `scope-ok`, `plan-ok`, `analysis-ok`) are refused with `owner_approval` or `humans_only`.
-- A configuration change that reaches who approves (the pipeline's labels, holders and gates, or
-  `releaseFourEyes`; `approvalStructureChanged`) is a `security` effect, so the operation waits for
-  the owner's yes. Member roles and duties already were one. The Operator's own `operate` approval
-  layer asks the owner for such a change first; this is the second lock.
+- A configuration change that reaches who approves is a `security` effect, so the operation waits for
+  the owner's yes (`approvalStructureChanged`): the pipeline's labels and gates, `releaseFourEyes`,
+  the merger, and who actually holds each approval label or the release approval. The holders
+  follow from a member's role, the role overrides and the custom roles, so changing a role or its
+  duties counts when it changes a holder. (`superConfigMutations` marks only the boundary
+  delegation and the coordinator's and the Operator's own role.) The Operator's own `operate`
+  approval layer asks the owner for some of these changes first; this is the second lock.
 
 Residual risk: the other routine commands still run on a member's request (`task_create`,
 `task_update`, `task_start`, `task_cancel`, `message_send`, `session_stop`, pause and resume). They

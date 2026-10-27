@@ -67,6 +67,45 @@ describe('approvalStructureChanged (PM-1010)', () => {
     next.team.limits = { maxParallelSessions: 3 } as never;
     expect(approvalStructureChanged(config(), next)).toBe(false);
   });
+
+  describe('who holds an approval label follows from the member, not only from the pipeline', () => {
+    const withDutyLabel = () => {
+      const base = config();
+      base.pipeline.labels.push({
+        id: 'qa-ok',
+        name: 'QA ok',
+        color: 'green',
+        setBy: { duties: ['testing_acceptance'] },
+      } as never);
+      return base;
+    };
+    it('sees a member`s role change to the duty of an approval label', () => {
+      const next = withDutyLabel();
+      (next.team.members.find((m) => m.handle === 'dev-1') as AiMemberConfig).role = 'qa';
+      expect(approvalStructureChanged(withDutyLabel(), next)).toBe(true);
+    });
+    it('sees a role override that gives a role the duty', () => {
+      const next = withDutyLabel();
+      next.team.roleOverrides = { developer: { duties: ['testing_acceptance'], instructions: '' } } as never;
+      expect(approvalStructureChanged(withDutyLabel(), next)).toBe(true);
+    });
+    it('sees a role change to the release approval duty', () => {
+      const next = config();
+      (next.team.members.find((m) => m.handle === 'dev-1') as AiMemberConfig).role = 'operator';
+      expect(approvalStructureChanged(config(), next)).toBe(true);
+    });
+    it('ignores a role change that holds no approval', () => {
+      const next = withDutyLabel();
+      (next.team.members.find((m) => m.handle === 'dev-1') as AiMemberConfig).role = 'designer';
+      expect(approvalStructureChanged(withDutyLabel(), next)).toBe(false);
+    });
+  });
+
+  it('sees the merger change', () => {
+    const next = config();
+    next.team.merger = { kind: 'member', handle: 'dev-1' };
+    expect(approvalStructureChanged(config(), next)).toBe(true);
+  });
 });
 
 function config() {

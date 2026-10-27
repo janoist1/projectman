@@ -165,6 +165,13 @@ export class MemberQueueWorker implements MemberQueueDriver {
     return run.promise;
   }
 
+  /** The queue items already carry the new handle; what the driver remembers of the old lane goes. */
+  memberRenamed(projectKey: string, from: string): void {
+    const key = `${projectKey}\n${from}`;
+    for (const memory of [this.results, this.failures]) memory.delete(key);
+    for (const memory of [this.forced, this.boundaries, this.quotaWaits]) memory.delete(key);
+  }
+
   /** The timer's sweep tries a failed start again; a sweep an event asks for (`respectPause`) leaves it its pause. */
   async sweep(options: { respectPause?: boolean } = {}): Promise<void> {
     if (!this.begun) {
@@ -596,6 +603,8 @@ export class MemberQueueWorker implements MemberQueueDriver {
         this.settleAfterFirstInput(started.firstInput, started.sessionId, entries, at);
     } catch (err) {
       const code = err instanceof DomainError ? err.code : 'start_failed';
+      // The member is being renamed (PM-1025): a wait, not a failure; the items carry the new handle after it.
+      if (code === 'member_renaming') return { refused: code };
       if (isDeferrable(err)) {
         const waiting = waitingOf(err, { member: member.handle, at });
         this.results.set(resultKey, { state: 'waiting', reason: waiting.reason });

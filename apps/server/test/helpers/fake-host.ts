@@ -6,10 +6,10 @@ import type { CloudDeps, PipeEnd, RunOptions, RunResult } from '../../../../scri
 import { CloudWorld } from './fake-aws';
 
 /**
- * The machine side of the cloud commands (PM-535): a fake `ssh`, `git ls-remote`, `tar` pipe, the public-address
- * service and the clock, around the AWS fake of `fake-aws.ts`. The fake machine behaves like `deploy/aws/host.sh`
- * (same subcommands, same exit status 3 for a refusal, the same deploy.json rules) and records, at the moment of
- * every call, what a security test needs to know: the key files, the known_hosts file and the firewall.
+ * The machine side of the cloud commands (PM-535): a fake `ssh`, `git ls-remote`, `tar` pipe and the clock, around
+ * the AWS fake of `fake-aws.ts`. The fake machine behaves like `deploy/aws/host.sh` (same subcommands, same exit
+ * status 3 for a refusal, the same deploy.json rules) and records, at the moment of every call, what a security
+ * test needs to know: the key files and the known_hosts file.
  */
 
 export const REPO_ROOT = path.resolve(fileURLToPath(new URL('../../../../', import.meta.url)));
@@ -38,8 +38,6 @@ interface HostCall {
   sshArgs: string[];
   /** The whole remote command string (one argument of ssh). */
   remote: string;
-  /** `cidrs` of the 22/tcp entry when the call was made. */
-  sshCidrs: string[];
   keyFile: { exists: boolean; mode: number; content: string } | null;
   certFile: { exists: boolean; mode: number; content: string } | null;
   knownHosts: string;
@@ -284,9 +282,6 @@ export class HostWorld extends CloudWorld {
     { name: 'not-a-release', sha: '1'.repeat(40) },
   ];
   lsRemoteFails = false;
-  publicAddress: string | null = '198.51.100.20';
-  /** Set to make the next firewall-restoring `put-instance-public-ports` calls fail this many times. */
-  restoreFailures = 0;
   /** The folder of the pulled data: the fake `tar -x` writes a db.sqlite here. */
   pullWritesFiles = true;
   pipeCode = 0;
@@ -295,18 +290,6 @@ export class HostWorld extends CloudWorld {
   /** A world whose AWS side is ready: configuration, the secrets and a running machine. */
   static ready<T extends HostWorld>(this: new () => T): T {
     const world = new this();
-    world.aws.addInstance({
-      ports: [
-        {
-          fromPort: 22,
-          toPort: 22,
-          protocol: 'tcp',
-          cidrs: [],
-          ipv6Cidrs: [],
-          cidrListAliases: ['lightsail-connect'],
-        },
-      ],
-    });
     world.writeConfig();
     world.writeEnv();
     return world;
@@ -334,22 +317,6 @@ export class HostWorld extends CloudWorld {
     );
   }
 
-  /** The 22/tcp entry's `cidrs` right now. */
-  sshCidrs(): string[] {
-    return this.aws.instance?.ports.find((port) => port.fromPort === 22)?.cidrs ?? [];
-  }
-
-  /** Whether the firewall is the one `aws` made (22/tcp for lightsail-connect only). */
-  firewallIsClosed(): boolean {
-    const ports = this.aws.instance?.ports ?? [];
-    return (
-      ports.length === 1 &&
-      ports[0]!.fromPort === 22 &&
-      ports[0]!.cidrs.length === 0 &&
-      ports[0]!.cidrListAliases.join() === 'lightsail-connect'
-    );
-  }
-
   interrupt(): void {
     for (const handler of [...this.interruptHandlers]) handler();
   }
@@ -366,12 +333,8 @@ export class HostWorld extends CloudWorld {
         this.interruptHandlers.add(handler);
         return () => this.interruptHandlers.delete(handler);
       },
-      fetch: (async () => {
-        if (this.publicAddress === null) throw new Error('offline');
-        return new Response(`${this.publicAddress}\n`, { status: 200 });
-      }) as typeof fetch,
       run: async (command, args, options = {}) => {
-        if (command === 'aws') return this.awsWithFirewallFaults(baseRun, command, args);
+        if (command === 'aws') return baseRun(command, args);
         if (command === 'ssh') return this.ssh(args, options);
         if (command === 'git') return this.git(args);
         return { code: 127, stdout: '', stderr: `${command}: not found\n` };
@@ -379,28 +342,6 @@ export class HostWorld extends CloudWorld {
       pipe: (from, to) => this.pipe(from, to),
       ...overrides,
     });
-  }
-
-  private async awsWithFirewallFaults(
-    baseRun: (command: string, argv: string[]) => Promise<RunResult>,
-    command: string,
-    args: string[],
-  ): Promise<RunResult> {
-    const isClosing =
-      args[6] === 'lightsail' &&
-      args[7] === 'put-instance-public-ports' &&
-      !args.join(' ').includes('"cidrs":["');
-    if (isClosing && this.restoreFailures > 0) {
-      this.restoreFailures -= 1;
-      this.aws.calls.push({ args: args.slice(6), argv: args });
-      return {
-        code: 254,
-        stdout: '',
-        stderr:
-          '\nAn error occurred (ServiceUnavailableException) when calling the PutInstancePublicPorts operation: try later\n',
-      };
-    }
-    return baseRun(command, args);
   }
 
   private git(args: string[]): RunResult {
@@ -450,7 +391,6 @@ export class HostWorld extends CloudWorld {
       input: options.input,
       sshArgs,
       remote: last,
-      sshCidrs: this.sshCidrs(),
       keyFile: inspect(identity),
       certFile: inspect(certificate),
       knownHosts: knownHostsFile && existsSync(knownHostsFile) ? readFileSync(knownHostsFile, 'utf8') : '',

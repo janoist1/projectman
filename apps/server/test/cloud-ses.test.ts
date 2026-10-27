@@ -65,9 +65,9 @@ describe('SES config and command preconditions', () => {
     expect(world.ses.calls).toEqual([]);
   });
 
-  it('resolves a missing ses.profile to aws.profile, implicit i included, and takes an explicit one', () => {
+  it('resolves a missing ses.profile to aws.profile, and takes an explicit one', () => {
     const ses = { ...SES_CONFIG, domain: 'example.com', from: 'login@example.com' };
-    const resolve = (awsProfile: string | undefined, sesProfile?: string) =>
+    const resolve = (awsProfile: string, sesProfile?: string) =>
       parseConfig(
         {
           ...baseConfig(),
@@ -76,10 +76,8 @@ describe('SES config and command preconditions', () => {
         },
         world.home,
       ).ses!.profile;
-    expect(resolve(undefined)).toBe('i');
     expect(resolve('aroom')).toBe('aroom');
     expect(resolve('aroom', 'i')).toBe('i');
-    expect(resolve('i', 'aroom')).toBe('aroom');
   });
 
   it.each([['configure', '--rotate-keys'], ['plan', '--dry-run'], ['check', '--dry-run'], ['unknown']])(

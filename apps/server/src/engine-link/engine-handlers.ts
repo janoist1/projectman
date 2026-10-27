@@ -547,6 +547,9 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
     async 'merge.build'({ ref, ...input }) {
       return merger().build(ref, input);
     },
+    async 'merge.commit_regenerated'({ ref, ...input }) {
+      return merger().commitRegenerated(ref, input);
+    },
     async 'merge.checkout_conflicts'({ ref, ...input }) {
       return merger().checkoutConflicts(ref, input);
     },

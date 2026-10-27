@@ -1081,6 +1081,26 @@ describe('Operator actions and owner approvals (PM-464)', () => {
     expect(memberOf(await h.domain.projects.config('AR'), 'writer')).toBeUndefined();
   });
 
+  it('renames a member only after the owner approves, even when the Operator acts autonomously (PM-1025)', async () => {
+    autonomy.on = true;
+    await setup();
+    const result = await operate({ op: 'member_rename', handle: 'dev-1', to: 'builder' });
+    expect(result.status).toBe('awaiting_approval');
+    expect(await member()).toBeDefined();
+    await resolve(result.inbox_item_id!);
+    expect(await member('builder')).toMatchObject({ formerHandles: ['dev-1'] });
+    expect(memberOf(await h.domain.projects.config('AR'), 'dev-1')).toBeUndefined();
+  });
+
+  it('marks the approval of a rename stale once the member went by another handle (PM-1025)', async () => {
+    await setup();
+    const result = await operate({ op: 'member_rename', handle: 'dev-1', to: 'builder' });
+    await h.domain.members.rename('AR', 'dev-1', 'maker', by);
+    await flush();
+    await expect(resolve(result.inbox_item_id!)).rejects.toMatchObject({ code: 'operator_approval_stale' });
+    expect(memberOf(await h.domain.projects.config('AR'), 'builder')).toBeUndefined();
+  });
+
   it('judges a revert by its resulting changes and attributes the new commit', async () => {
     await setup();
     const version = (await h.domain.projects.load('AR')).version;

@@ -186,15 +186,7 @@ describe('Route 53 mapping', () => {
 
 describe('DNS commands', () => {
   it('reads the source zone and registrar from i while compute is configured for aroom', async () => {
-    world.writeConfig({
-      aws: {
-        region: 'eu-west-1',
-        profile: 'aroom',
-        databaseBucket: 'acme-projectman-db',
-        backupBucket: 'acme-projectman-backup',
-      },
-      route53: { profile: 'i' },
-    });
+    world.writeConfig({ route53: { profile: 'i' } });
     expect(await run('plan')).toBe(0);
     expect(awsCalls.length).toBeGreaterThan(0);
     expect(awsCalls.every((call) => call.slice(0, 4).join(' ') === '--profile i --region eu-west-1')).toBe(
@@ -417,6 +409,7 @@ describe('DNS commands', () => {
     expect(awsCalls.some((call) => call[7] === 'update-domain-nameservers')).toBe(false);
   });
   it('shows public delegation, DNSSEC, auto-renew, and requests activation', async () => {
+    world.writeConfig({ route53: { profile: 'i' } });
     world.cf.zones[0]!.status = 'pending';
     ds = ['123 13 2 digest'];
     autoRenew = false;
@@ -505,6 +498,7 @@ describe('up orchestration', () => {
 
 describe('registrar switch', () => {
   it('verifies in the same run, updates with the selected region, and is idempotent', async () => {
+    world.writeConfig({ route53: { profile: 'i' } });
     expect(await run('switch')).toBe(0);
     expect(dnsCalls.filter((call) => call.servers)).toHaveLength(12);
     const updates = awsCalls.filter((call) => call[7] === 'update-domain-nameservers');

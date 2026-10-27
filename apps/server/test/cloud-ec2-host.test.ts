@@ -133,10 +133,9 @@ describe('EC2 SSH through SSM', () => {
     expect(host.keyFile).toMatchObject({ mode: 0o600, exists: true });
     expect(
       world.transportCalls.some((call) =>
-        call.args.some((arg) => /lightsail|authorize-security-group-ingress|import-key-pair/.test(arg)),
+        call.args.some((arg) => /authorize-security-group-ingress|import-key-pair/.test(arg)),
       ),
     ).toBe(false);
-    expect(world.aws.callsTo('put-instance-public-ports')).toEqual([]);
     assertClean();
   });
 
@@ -263,7 +262,7 @@ describe('refusal and cleanup', () => {
       assertClean();
     },
   );
-  it('shows stopped EC2 status without contacting SSH or Lightsail', async () => {
+  it('shows stopped EC2 status without contacting SSH', async () => {
     world.instances[0]!.State.Name = 'stopped';
     expect(await run('status')).toBe(0);
     expect(world.output).toContain('the machine is stopped');

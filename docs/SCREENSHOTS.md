@@ -164,7 +164,9 @@ export default async ({ instance, open, shoot, snapshot, step, log }) => {
   );
   const sessionId = await instance.startSession('AC', 'AC-1', developer.handle);
   await instance.waitIdle('AC', sessionId);
-  await instance.setFakeCalls([{ tool: 'ask_human', arguments: { question: QUESTION } }]);
+  await instance.setFakeCalls([
+    { tool: 'ask_human', arguments: { question: QUESTION, options: ['Green', 'Blue'] } },
+  ]);
   await instance.say('AC', sessionId, 'CALLS please');
   await instance.waitIdle('AC', sessionId);
 

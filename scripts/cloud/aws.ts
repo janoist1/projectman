@@ -9,7 +9,7 @@ import { checkSecretsDir, inspectSecrets, newResticPassword, readEnvFile, update
 
 /**
  * The AWS steps of the cloud commands (PM-534, PM-676): `preflight` (the AWS part) and `aws`, which creates the
- * EC2 or Lightsail machine, the two S3 buckets, the two IAM users and their access keys. Resources are found by name, so a second
+ * EC2 machine, the two S3 buckets, the two IAM users and their access keys. Resources are found by name, so a second
  * run changes nothing; `--dry-run` runs only reading calls and prints what it would change.
  */
 
@@ -18,60 +18,15 @@ interface AwsOptions {
   rotateKeys: boolean;
 }
 
-const POLICY_NAME = 'bucket-access';
 const TAG_KEY = 'projectman';
 const TAG_VALUE = 'cloud';
-const FIREWALL_ALIAS = 'lightsail-connect';
+const POLICY_NAME = 'bucket-access';
 const LIFECYCLE_RULE_ID = 'abort-incomplete-multipart-uploads';
 const ABORT_AFTER_DAYS = 7;
-const WAIT_ATTEMPTS = 90;
-const WAIT_INTERVAL_MS = 5_000;
 
 // ---- the answers of the CLI that the steps read (loose: AWS may add fields) ----
 
 const identitySchema = z.looseObject({ Account: z.string().regex(/^\d{12}$/), Arn: z.string().optional() });
-const regionsSchema = z.looseObject({
-  regions: z.array(
-    z.looseObject({
-      name: z.string(),
-      availabilityZones: z.array(z.looseObject({ zoneName: z.string() })).optional(),
-    }),
-  ),
-});
-const bundlesSchema = z.looseObject({
-  bundles: z.array(z.looseObject({ bundleId: z.string(), isActive: z.boolean().optional() })),
-  nextPageToken: z.string().optional(),
-});
-const blueprintsSchema = z.looseObject({
-  blueprints: z.array(z.looseObject({ blueprintId: z.string(), isActive: z.boolean().optional() })),
-  nextPageToken: z.string().optional(),
-});
-const instanceSchema = z.looseObject({
-  instance: z.looseObject({
-    name: z.string(),
-    bundleId: z.string(),
-    blueprintId: z.string(),
-    state: z.looseObject({ name: z.string() }),
-    metadataOptions: z
-      .looseObject({
-        httpTokens: z.string().optional(),
-        httpPutResponseHopLimit: z.number().optional(),
-      })
-      .optional(),
-  }),
-});
-const portStatesSchema = z.looseObject({
-  portStates: z.array(
-    z.looseObject({
-      fromPort: z.number(),
-      toPort: z.number(),
-      protocol: z.string(),
-      cidrs: z.array(z.string()).optional(),
-      ipv6Cidrs: z.array(z.string()).optional(),
-      cidrListAliases: z.array(z.string()).optional(),
-    }),
-  ),
-});
 const publicAccessBlockSchema = z.looseObject({
   PublicAccessBlockConfiguration: z.looseObject({
     BlockPublicAcls: z.boolean().optional(),
@@ -210,71 +165,22 @@ export async function awsPreflight(context: CloudContext): Promise<void> {
       account = identity.Account;
       return {
         status: 'ok',
-        detail: `profile ${config.aws.profile}, account ${identity.Account}${identity.Arn ? ` (${identity.Arn})` : ''}${config.aws.compute === 'ec2' ? `, region ${config.aws.region}` : ''}`,
+        detail: `profile ${config.aws.profile}, account ${identity.Account}${identity.Arn ? ` (${identity.Arn})` : ''}, region ${config.aws.region}`,
       };
     });
     if (identified) {
-      if (config.aws.compute === 'ec2') {
-        await check('aws-ec2', async () => {
-          await ec2Preflight(context, cli, account);
-          return {
-            status: 'ok',
-            detail: `Ubuntu 24.04 ${config.aws.ec2?.architecture === 'arm64' ? 'arm64' : 'amd64'}, public subnet, outbound only`,
-          };
-        });
-      } else {
-        await check('aws-region', async () => {
-          const answer = await cli.callAs(
-            ['lightsail', 'get-regions', '--include-availability-zones'],
-            regionsSchema,
-          );
-          const region = answer.regions.find((item) => item.name === config.aws.region);
-          if (!region) throw refused(`Lightsail has no region ${config.aws.region}`);
-          const zones = region.availabilityZones?.map((zone) => zone.zoneName) ?? [];
-          if (zones.length > 0 && !zones.includes(config.aws.availabilityZone))
-            throw refused(
-              `${config.aws.availabilityZone} is not an availability zone of ${config.aws.region}`,
-            );
-          return { status: 'ok', detail: `${config.aws.region}, ${config.aws.availabilityZone}` };
-        });
-        await check('aws-bundle', async () => {
-          const bundles = await pages(
-            cli,
-            ['lightsail', 'get-bundles'],
-            bundlesSchema,
-            (page) => page.bundles,
-          );
-          const bundle = bundles.find((item) => item.bundleId === config.aws.bundleId);
-          if (!bundle || bundle.isActive === false)
-            throw refused(`the Lightsail bundle ${config.aws.bundleId} does not exist or is not active`);
-          return { status: 'ok', detail: config.aws.bundleId };
-        });
-        await check('aws-blueprint', async () => {
-          const blueprints = await pages(
-            cli,
-            ['lightsail', 'get-blueprints'],
-            blueprintsSchema,
-            (page) => page.blueprints,
-          );
-          const blueprint = blueprints.find((item) => item.blueprintId === config.aws.blueprintId);
-          if (!blueprint || blueprint.isActive === false)
-            throw refused(
-              `the Lightsail blueprint ${config.aws.blueprintId} does not exist or is not active`,
-            );
-          return { status: 'ok', detail: config.aws.blueprintId };
-        });
-      }
+      await check('aws-ec2', async () => {
+        await ec2Preflight(context, cli, account);
+        return {
+          status: 'ok',
+          detail: `Ubuntu 24.04 ${config.aws.ec2?.architecture === 'arm64' ? 'arm64' : 'amd64'}, public subnet, outbound only`,
+        };
+      });
+    } else {
+      context.report.step('skipped', 'aws-ec2', 'the login failed');
     }
-    if (!identified)
-      for (const step of config.aws.compute === 'ec2'
-        ? ['aws-ec2']
-        : ['aws-region', 'aws-bundle', 'aws-blueprint'])
-        context.report.step('skipped', step, 'the login failed');
   } else {
-    for (const step of [
-      'aws-login',
-      ...(config.aws.compute === 'ec2' ? ['aws-ec2'] : ['aws-region', 'aws-bundle', 'aws-blueprint']),
-    ])
+    for (const step of ['aws-login', 'aws-ec2'])
       context.report.step('skipped', step, 'the aws CLI check failed');
   }
 
@@ -289,23 +195,6 @@ export async function awsPreflight(context: CloudContext): Promise<void> {
     error.reported = true;
     throw error;
   }
-}
-
-async function pages<S extends z.ZodType<{ nextPageToken?: string | undefined }>, T>(
-  cli: AwsCli,
-  command: string[],
-  schema: S,
-  items: (page: z.output<S>) => T[],
-): Promise<T[]> {
-  const all: T[] = [];
-  let token: string | undefined;
-  for (let guard = 0; guard < 50; guard += 1) {
-    const page = await cli.callAs(token ? [...command, '--page-token', token] : command, schema);
-    all.push(...items(page));
-    token = page.nextPageToken;
-    if (!token) break;
-  }
-  return all;
 }
 
 // ---- the `aws` command ----
@@ -344,178 +233,18 @@ export async function runAws(context: CloudContext, options: AwsOptions): Promis
     report.step(
       'ok',
       'identity',
-      `profile ${config.aws.profile}, account ${identity.Account}${config.aws.compute === 'ec2' ? `, region ${config.aws.region}` : ''}`,
+      `profile ${config.aws.profile}, account ${identity.Account}, region ${config.aws.region}`,
     );
     return identity.Account;
   });
 
-  if (config.aws.compute === 'ec2') {
-    await report.guard('ec2', () => runEc2(context, cli, account, options.dryRun));
-  } else {
-    const instanceFound = await ensureInstance(context, cli, options);
-    await ensureMetadataOptions(context, cli, options, instanceFound);
-    await ensureFirewall(context, cli, options, instanceFound);
-  }
+  await report.guard('ec2', () => runEc2(context, cli, account, options.dryRun));
   for (const bucket of [config.aws.databaseBucket, config.aws.backupBucket])
     await ensureBucket(context, cli, options, account, bucket);
   const existing: Record<string, boolean> = {};
   for (const user of USERS) existing[user.suffix] = await ensureUser(context, cli, options, user);
   for (const user of USERS) await ensureKey(context, cli, options, user, existing[user.suffix]!);
   await ensureEnv(context, options);
-}
-
-// ---- the Lightsail machine ----
-
-type InstanceState = z.output<typeof instanceSchema>['instance'];
-
-async function readInstance(context: CloudContext, cli: AwsCli): Promise<InstanceState | null> {
-  const answer = await cli.callAsOrNull(
-    ['lightsail', 'get-instance', '--instance-name', context.config.aws.instanceName],
-    ['NotFoundException'],
-    instanceSchema,
-  );
-  return answer?.instance ?? null;
-}
-
-async function waitRunning(context: CloudContext, cli: AwsCli): Promise<InstanceState> {
-  for (let attempt = 0; attempt < WAIT_ATTEMPTS; attempt += 1) {
-    const instance = await readInstance(context, cli);
-    if (!instance) throw new CloudError(`the instance ${context.config.aws.instanceName} disappeared`);
-    const state = instance.state.name;
-    if (state === 'running') return instance;
-    if (state !== 'pending') throw new CloudError(`the instance is ${state}, not running`);
-    await context.deps.sleep(WAIT_INTERVAL_MS);
-  }
-  throw new CloudError('the instance did not reach the running state in time');
-}
-
-async function ensureInstance(
-  context: CloudContext,
-  cli: AwsCli,
-  options: AwsOptions,
-): Promise<InstanceState | null> {
-  const { aws } = context.config;
-  return context.report.guard('instance', async () => {
-    let instance = await readInstance(context, cli);
-    const describe = (state: string) => `${aws.instanceName} (${aws.bundleId}, ${aws.blueprintId}, ${state})`;
-    if (!instance) {
-      if (options.dryRun) {
-        context.report.step(
-          'skipped',
-          'instance',
-          `dry-run: would create ${describe('new')} in ${aws.availabilityZone}`,
-        );
-        return null;
-      }
-      await cli.call([
-        'lightsail',
-        'create-instances',
-        '--instance-names',
-        aws.instanceName,
-        '--availability-zone',
-        aws.availabilityZone,
-        '--blueprint-id',
-        aws.blueprintId,
-        '--bundle-id',
-        aws.bundleId,
-        '--ip-address-type',
-        'ipv4',
-        '--tags',
-        `key=${TAG_KEY},value=${TAG_VALUE}`,
-      ]);
-      instance = await waitRunning(context, cli);
-      context.report.step('created', 'instance', describe(instance.state.name));
-      return instance;
-    }
-    if (instance.bundleId !== aws.bundleId || instance.blueprintId !== aws.blueprintId)
-      throw refused(
-        `${aws.instanceName} exists with bundle ${instance.bundleId} and blueprint ${instance.blueprintId}, ` +
-          `not ${aws.bundleId} and ${aws.blueprintId}; nothing is changed (a different size or image means a new machine)`,
-      );
-    if (instance.state.name === 'pending' && !options.dryRun) instance = await waitRunning(context, cli);
-    context.report.step('unchanged', 'instance', describe(instance.state.name));
-    return instance;
-  });
-}
-
-async function ensureMetadataOptions(
-  context: CloudContext,
-  cli: AwsCli,
-  options: AwsOptions,
-  instance: InstanceState | null,
-): Promise<void> {
-  await context.report.run('imds', async (): Promise<StepResult> => {
-    if (!instance)
-      return {
-        status: 'skipped',
-        detail: 'dry-run: the instance does not exist yet; it would get IMDSv2 only',
-      };
-    const current = instance.metadataOptions;
-    if (current?.httpTokens === 'required' && current.httpPutResponseHopLimit === 1)
-      return { status: 'unchanged', detail: 'IMDSv2 required, hop limit 1' };
-    if (options.dryRun)
-      return { status: 'skipped', detail: 'dry-run: would require IMDSv2 and set the hop limit to 1' };
-    await cli.call([
-      'lightsail',
-      'update-instance-metadata-options',
-      '--instance-name',
-      context.config.aws.instanceName,
-      '--http-tokens',
-      'required',
-      '--http-put-response-hop-limit',
-      '1',
-    ]);
-    return { status: 'updated', detail: 'IMDSv2 required, hop limit 1' };
-  });
-}
-
-/** The only open port: SSH, for Lightsail's own browser client. Nothing else; the tunnel connects outwards. */
-export const FIREWALL_PORTS = [
-  { fromPort: 22, toPort: 22, protocol: 'tcp', cidrListAliases: [FIREWALL_ALIAS] },
-] as const;
-
-async function ensureFirewall(
-  context: CloudContext,
-  cli: AwsCli,
-  options: AwsOptions,
-  instance: InstanceState | null,
-): Promise<void> {
-  await context.report.run('firewall', async (): Promise<StepResult> => {
-    if (!instance)
-      return {
-        status: 'skipped',
-        detail: `dry-run: the instance does not exist yet; it would open 22/tcp to ${FIREWALL_ALIAS} only`,
-      };
-    const name = context.config.aws.instanceName;
-    const answer = await cli.callAs(
-      ['lightsail', 'get-instance-port-states', '--instance-name', name],
-      portStatesSchema,
-    );
-    const states = answer.portStates;
-    const [only] = states;
-    const matches =
-      states.length === 1 &&
-      only !== undefined &&
-      only.fromPort === 22 &&
-      only.toPort === 22 &&
-      only.protocol === 'tcp' &&
-      (only.cidrs ?? []).length === 0 &&
-      (only.ipv6Cidrs ?? []).length === 0 &&
-      canonical(only.cidrListAliases ?? []) === canonical([FIREWALL_ALIAS]);
-    const detail = `22/tcp for ${FIREWALL_ALIAS} only`;
-    if (matches) return { status: 'unchanged', detail };
-    if (options.dryRun)
-      return { status: 'skipped', detail: `dry-run: would replace the open ports with ${detail}` };
-    await cli.call([
-      'lightsail',
-      'put-instance-public-ports',
-      '--instance-name',
-      name,
-      '--port-infos',
-      JSON.stringify(FIREWALL_PORTS),
-    ]);
-    return { status: 'updated', detail };
-  });
 }
 
 // ---- the S3 buckets ----

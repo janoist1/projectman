@@ -573,18 +573,7 @@ export const hu = {
   },
   boundary: {
     heading: 'Külső művelet engedélyezése',
-    reason: 'A döntés indoka',
-    scope: 'Csak erre az egy műveletre szól.',
-    expiry: 'Érvényes eddig: {time}',
-    deadline: 'Vezetői határidő: {time}',
-    revoke: 'Engedély visszavonása',
-    consumed: 'Az engedélyt már felhasználták',
-    revokeFailed: 'Az engedélyt nem sikerült visszavonni.',
-    environment: 'Célkörnyezet: {environment}',
-    branch: 'Ág: {branch}',
-    environments: { development: 'Fejlesztés', production: 'Éles rendszer' },
     categories: {
-      delegable: 'Vezető által eldönthető',
       cost: 'Költség: tulajdonosi döntés',
       production: 'Éles rendszer vagy publikálás: tulajdonosi döntés',
       credentials: 'Új hozzáférés vagy titok: tulajdonosi döntés',
@@ -608,17 +597,6 @@ export const hu = {
       policy_changed: 'Megváltoztak a szabályok vagy a hozzáférés',
       lead_unavailable: 'A vezető nem döntött időben vagy nem elérhető',
     },
-    operations: {
-      read_external: 'Külső erőforrás olvasása',
-      publish_branch: 'Ág publikálása',
-      publish_main: 'Főág publikálása',
-      spend: 'Költséggel járó művelet',
-      production_change: 'Éles rendszer módosítása',
-      release: 'Kiadás',
-      create_account: 'Új fiók',
-      create_secret: 'Új titok vagy token',
-      expand_host: 'Tartós host-hozzáférés',
-    },
   },
   duties: {
     title: 'Szerepek és feladatkörök',
@@ -628,7 +606,7 @@ export const hu = {
     reset: 'Alapértelmezés visszaállítása',
     missing: 'Nincs felelőse',
     humanOnly: 'Csak ember töltheti be; a szerepet AI is viseli.',
-    ownerOnly: 'A kiadási és külső műveleti jogokat csak tulajdonos módosíthatja.',
+    ownerOnly: 'A kiadási és engedélykérés-döntési jogokat csak tulajdonos módosíthatja.',
     readOnly: 'A módosításhoz adminisztrátori hozzáférés kell.',
     fourEyes: 'A kiadás jóváhagyója legyen más, mint a megvalósító és a PR szerzője',
     extra: 'További felelősségek (csak az utasításban)',
@@ -1363,6 +1341,8 @@ export const hu = {
       operator_never:
         'Ezt az eszközt az Operátor nem használhatja: más tagok döntései és az átadások nem az övéi.',
       operator_only: 'Ezt a műveletet csak az Operátor használhatja.',
+      command_not_for_project_manager:
+        'Ezt a műveletet a projektmenedzser nem végezheti el. Nyiss integrátor-teendőt az open_integrator_todo eszközzel.',
       project_manager_only:
         'Ezt a műveletet csak az aktuális projektmenedzser használhatja a saját belső beszélgetésében.',
       operator_preference_no_person: 'Nem egyértelmű, kinek a beszélgetési stílusát kell beolvasni.',
@@ -1466,6 +1446,9 @@ export const hu = {
       duplicate_feedback_surface: 'Két felületnek azonos az azonosítója vagy a címe.',
       not_an_outage_alert: 'Ez nem kiesési figyelmeztetés.',
       handle_taken: 'Ez az azonosító már foglalt.',
+      member_session_live:
+        'A tag éppen dolgozik (futó munkamenet, foglalt munkaterület, feldolgozás alatt álló sorelem vagy halasztott indítás); az átnevezéshez várd meg, amíg befejezi.',
+      member_renaming: 'A tag átnevezése folyamatban van, próbáld újra egy pillanat múlva.',
       member_at_capacity: 'Ennek a tagnak most nincs szabad kapacitása.',
       member_on_leave: 'Ez a tag szabadságon van; amíg vissza nem hívod, nem kap munkát.',
       ai_limit_reached: 'Most dolgozik a megengedett számú AI-tag; az új munka később indul.',
@@ -2032,7 +2015,6 @@ export const hu = {
           permission: 'engedélyt ad',
           decision: 'dönt',
           approval: 'jóváhagy',
-          boundary: 'külső műveletet enged',
           alert: 'figyelmeztetést néz meg',
           other: 'teendője van',
         },
@@ -2043,7 +2025,6 @@ export const hu = {
           permissionNoName: 'engedélykérés',
           decision: 'döntés',
           approval: 'jóváhagyás',
-          boundary: 'külső művelet',
           alert: 'figyelmeztetés',
           other: 'teendőd van',
         },
@@ -3238,7 +3219,6 @@ export const hu = {
         fix_limit: 'Javítási kör',
         message: 'Üzenet',
         permission: 'Engedélykérés',
-        boundary: 'Határkérés',
         screening: 'Kérdésszűrés',
         signal: 'Jelzés',
         start: 'Indítás',
@@ -3399,6 +3379,7 @@ export const hu = {
         member_change: 'Tag módosítása',
         member_hire: 'Tag felvétele',
         member_retire: 'Tag elbocsátása',
+        member_rename: 'Tag átnevezése',
         config_revert: 'Beállítás visszaállítása',
         session_stop: 'Munkamenet leállítása',
         project_pause: 'A projekt szüneteltetése',
@@ -3518,6 +3499,8 @@ export const hu = {
         labels: 'A már felkerült címkék nem változnak, a szabály a következő döntéstől érvényes.',
         member_hire: 'Az új tag a mentés után azonnal munkát kaphat.',
         member_retire: 'A tag futó munkamenetei leállnak, a munkáját a csapat veszi át.',
+        member_rename:
+          'A tag azonosítója az új névre vált, a korábbi bejegyzések a régi névvel maradnak; a levelezési címe is az új azonosítót követi.',
         member_other: 'A tag futó munkamenetei nem változnak.',
         locations: 'A futó munkamenetek nem változnak; az új helyet az újonnan indulók használják.',
         review_test:
@@ -3937,8 +3920,8 @@ export const hu = {
     networkState: 'Kimenő hálózat: {value}',
     savedNetwork: '{name} kimenő hálózata: {value}. A következő munkamenettől érvényes.',
     blocked: {
-      delegation_off: 'Nem választható: a külső műveletek delegálása ki van kapcsolva.',
-      no_ai_decider: 'Nem választható: nincs olyan AI-tag, aki a külső műveletekről dönthetne.',
+      delegation_off: 'Nem választható: az engedélykérések delegálása ki van kapcsolva.',
+      no_ai_decider: 'Nem választható: nincs olyan AI-tag, aki az engedélykérésekről dönthetne.',
     },
     lostApprover: 'Nincs AI-döntnök, ezért a kérdések emberhez mennek: {names}.',
     lostApproverLabel: 'Döntnök figyelmeztetés',
@@ -3996,7 +3979,6 @@ export const hu = {
       permission: 'Engedély',
       hand_on: 'Vidd tovább',
       merge_request: 'Olvaszd be',
-      boundary: 'Külső művelet',
       decision: 'Döntés',
       question: 'Kérdés',
       approval: 'Jóváhagyás',
@@ -4009,7 +3991,6 @@ export const hu = {
       hand_on: 'továbbvitel',
       merge_request: 'beolvasztás',
       permission: 'engedély',
-      boundary: 'külső művelet',
       decision: 'döntés',
       question: 'kérdés',
       approval: 'jóváhagyás',
@@ -4023,7 +4004,7 @@ export const hu = {
       deny: 'Elutasítom',
       approve: 'Jóváhagyom',
       reject: 'Elutasítom',
-      answer: 'Saját válasz',
+      answer: 'Más válasz',
       seen: 'Láttam',
       stop_work: 'Leállítom a munkát',
       let_run: 'Hadd fusson',
@@ -4546,7 +4527,7 @@ export const hu = {
     answerLabel: 'Válaszod',
     answerPlaceholder: 'Írd ide a válaszod…',
     answerSubmit: 'Válasz küldése',
-    answerOwn: 'Saját válasz',
+    answerOwn: 'Más válasz',
     /** The files a question names (PM-498): tiles that open or download them. */
     attachments: {
       title: 'Csatolmányok a válaszhoz',
@@ -5150,6 +5131,7 @@ export const hu = {
       question_answer_delivered: 'Megkapta.',
       member_hired: 'Felvéve: {handle}',
       member_retired: 'Elbocsátva: {handle}',
+      member_renamed: 'Átnevezve: {from} → {to}',
       member_retired_handover: 'Elbocsátva: {handle}, a munkái átkerültek: {to}',
       config_changed: 'Beállítás módosítva: {message}',
       contactAdded: 'Kapcsolattartó lett: {name}',
@@ -5426,7 +5408,7 @@ export const hu = {
   },
 
   dutyNames: {
-    boundary_authorization: 'Külső műveletek engedélyezése',
+    boundary_authorization: 'Engedélykérések eldöntése',
     prioritization: 'Prioritáskezelés',
     requirements_analysis: 'Igényelemzés',
     task_breakdown: 'Feladatbontás',
@@ -6167,10 +6149,10 @@ export const hu = {
       },
     },
     limits: {
-      boundaryEnabled: 'Külső műveletek delegálása',
+      boundaryEnabled: 'Engedélykérések delegálása',
       boundaryTimeout: 'Vezetői döntés határideje (másodperc)',
       boundaryHelp:
-        'A vezető fejlesztő az egyszeri, delegálható műveletekről dönt. A határidő után a tulajdonos dönt; automatikus engedély nincs. Csak tulajdonos módosíthatja.',
+        'A feladatkör tulajdonosa az egyszeri, delegálható engedélykérésekről dönt. A határidő után a tulajdonos dönt; automatikus engedély nincs. Csak tulajdonos módosíthatja.',
       aiEnabled: 'AI-munka engedélyezve',
       aiWork: 'AI-munka',
       aiEnabledHelp:
@@ -6330,7 +6312,7 @@ export const hu = {
       mover_on_leave: 'A kártyákat továbbvivő Projektmenedzser szabadságon van.',
       operator_approver_fixed: 'Az Operátor engedélykérője csak ember lehet.',
       operator_merger_forbidden: 'Az Operátor nem lehet beolvasztó.',
-      operator_boundary_duty_forbidden: 'Az Operátor nem kaphat határkéréseket eldöntő feladatkört.',
+      operator_boundary_duty_forbidden: 'Az Operátor nem kaphat engedélykéréseket eldöntő feladatkört.',
       review_test_runner_github:
         'A GitHub Actions futtatóhoz a repónak meg kell adni a GitHub tulajdonos/név párját.',
     },

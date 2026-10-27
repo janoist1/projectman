@@ -466,6 +466,9 @@ export function buildCodexArgs(input: CodexArgsInput): CodexCommandLine {
 
   // Never infer a Codex grant from another provider's tool syntax.
   const approvals = spec.policy?.tools.team ?? { all: false, names: [] };
+  // The team server stays optional (PM-1070): `required = true` (PM-1055) made Codex exit at start
+  // ("agent CLI exited before it was ready") for every session, so a failing team MCP must only
+  // cost the tools, not the session.
   const team: Record<string, unknown> = { url: spec.mcpUrl };
   if (approvals.all) team.default_tools_approval_mode = 'approve';
   if (approvals.names.length > 0) {

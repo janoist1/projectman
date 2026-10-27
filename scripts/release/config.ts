@@ -304,7 +304,7 @@ export function loadHybridReleaseConfig(file: string, homeDir: string): LoadedHy
 
   if (!cloud.releaseTarget) throw refused('the cloud configuration has no releaseTarget');
   if (!cloud.hybrid) throw refused('the cloud configuration has no hybrid binding');
-  if (cloud.aws.compute !== 'ec2' || cloud.aws.ec2?.architecture !== 'arm64')
+  if (cloud.aws.ec2?.architecture !== 'arm64')
     throw refused('the hybrid release needs the EC2 ARM cloud machine');
   if (cloud.hybrid.engineId !== config.engineId)
     throw refused('hybrid.engineId of the cloud configuration differs from engineId');

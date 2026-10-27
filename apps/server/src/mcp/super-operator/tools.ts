@@ -10,12 +10,19 @@ import {
   RelayOwnerAnswerRequest,
   ResolveIntegratorFixLimitRequest,
   ResolveIntegratorTodoRequest,
+  OperatorAgreementData,
   OperatorHandoff,
+  OperatorPrincipleData,
   questionPayloadOf,
   SuperOperateArgs,
 } from '@projectman/shared';
 import { z } from 'zod';
-import { defineExternalTool, defineProjectlessTool, type ExternalRegisteredTool } from '../kit';
+import {
+  defineExternalTool,
+  defineProjectlessTool,
+  ProjectKeyArg,
+  type ExternalRegisteredTool,
+} from '../kit';
 
 /** The shared argument shapes of the super routes, without the `project_key` the adapter adds itself. */
 const withoutProject = <Shape extends { project_key: z.ZodType }>(schema: { shape: Shape }) => {
@@ -209,16 +216,19 @@ export const EXTERNAL_ONLY_TOOLS: readonly ExternalRegisteredTool[] = [
       };
     },
   }),
-  defineExternalTool({
+  defineProjectlessTool({
     name: 'list_integrator_inbox',
     title: 'List what is addressed to the integrator',
     description:
-      'The items addressed to you: your todos and the fix round limit decisions, including Operator handoffs with their action and context, each with its full text (the summary, the extra rounds, the lead’s assessment, every round, and per option its id, label and consequence), newest first: {items}. state is open (default) or all (every item that was ever opened to you, at most 500).',
+      'The items addressed to you: your todos and the fix round limit decisions, including Operator handoffs with their action and context, each with its full text (the summary, the extra rounds, the lead’s assessment, every round, and per option its id, label and consequence), newest first: {items}, each with its projectKey. Without project_key it lists the items of every project of this key; with it, that project’s only. state is open (default) or all (every item that was ever opened to you, at most 500).',
     access: 'read',
     modes: ['super'],
-    input: { state: z.enum(['open', 'all']).optional() },
-    async run({ ctx, args, handler }) {
-      const result = await handler.listIntegratorInbox(ctx, { state: args.state ?? 'open' });
+    input: { project_key: ProjectKeyArg.optional(), state: z.enum(['open', 'all']).optional() },
+    async run({ principal, requestId, args, handler }) {
+      const result = await handler.listIntegratorInbox(principal, requestId, {
+        ...(args.project_key ? { projectKey: args.project_key } : {}),
+        state: args.state ?? 'open',
+      });
       const text =
         result.items.length === 0
           ? 'Nothing is addressed to you.'
@@ -227,7 +237,7 @@ export const EXTERNAL_ONLY_TOOLS: readonly ExternalRegisteredTool[] = [
                 const todo = questionPayloadOf(item)?.screening?.todo;
                 const handoff = OperatorHandoff.safeParse(item.payload.operatorHandoff);
                 return [
-                  `## ${item.id} · ${item.kind} · ${item.state}${item.taskKey ? ` · ${item.taskKey}` : ''}`,
+                  `## ${item.id} · ${item.projectKey} · ${item.kind} · ${item.state}${item.taskKey ? ` · ${item.taskKey}` : ''}`,
                   item.title,
                   item.body ?? '',
                   ...(todo
@@ -246,6 +256,47 @@ export const EXTERNAL_ONLY_TOOLS: readonly ExternalRegisteredTool[] = [
               })
               .join('\n\n');
       return { structured: { ...result }, text };
+    },
+  }),
+  defineProjectlessTool({
+    name: 'get_operator_instance_knowledge',
+    title: 'Read the Operator’s own knowledge',
+    description:
+      'The global Operator’s own knowledge, one for the whole instance and the same for every project: {revision, agreement, principles}. Read it when you connect. It is not a project’s knowledge: that belongs to the project’s pm.',
+    access: 'read',
+    modes: ['super'],
+    input: {},
+    async run({ principal, requestId, handler }) {
+      const { revision, agreement, principles } = await handler.getInstanceKnowledge(principal, requestId);
+      return { structured: { revision, agreement, principles } };
+    },
+  }),
+  defineProjectlessTool({
+    name: 'update_operator_instance_knowledge',
+    title: 'Write the Operator’s own knowledge',
+    description:
+      'Replaces the agreement and/or the whole list of principles of the global Operator’s own knowledge: {revision, agreement, principles}. expected_revision is the revision you read; a changed one is refused (operator_knowledge_stale), so read again. It writes directly, with no approval in the app, and the super audit records it. A principle without an id gets one; keep the id of one you keep.',
+    access: 'write',
+    modes: ['super'],
+    input: {
+      expected_revision: z.number().int().nonnegative(),
+      agreement: OperatorAgreementData.optional(),
+      principles: z
+        .array(OperatorPrincipleData.extend({ id: OperatorPrincipleData.shape.id.optional() }))
+        .max(20)
+        .optional(),
+    },
+    async run({ principal, requestId, args, handler }) {
+      const { revision, agreement, principles } = await handler.updateInstanceKnowledge(
+        principal,
+        requestId,
+        {
+          expectedRevision: args.expected_revision,
+          ...(args.agreement ? { agreement: args.agreement } : {}),
+          ...(args.principles ? { principles: args.principles } : {}),
+        },
+      );
+      return { structured: { revision, agreement, principles } };
     },
   }),
   defineExternalTool({

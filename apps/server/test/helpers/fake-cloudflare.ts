@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { CloudDeps } from '../../../../scripts/cloud/deps';
-import { HostWorld } from './fake-host';
+import { Ec2HostWorld } from './fake-ec2-host';
 
 /**
  * A stateful fake of the Cloudflare API (PM-536): zones, zone settings, rulesets, identity providers, service
@@ -380,7 +380,7 @@ export class FakeCloudflare {
 }
 
 /** A world with a machine behind the fake ssh and a Cloudflare behind `api.cloudflare.com`. */
-export class CloudflareWorld extends HostWorld {
+export class CloudflareWorld extends Ec2HostWorld {
   readonly cf = new FakeCloudflare();
   /** What the public hostnames answer (the three engine doors, the check's own requests). */
   doors: (url: URL, init: RequestInit) => Response | Promise<Response> = () =>
@@ -409,10 +409,6 @@ export class CloudflareWorld extends HostWorld {
           typeof input === 'string' ? input : input instanceof URL ? input.href : input.url,
         );
         if (url.hostname === 'api.cloudflare.com') return this.cf.fetch(input, init);
-        if (url.hostname === 'checkip.amazonaws.com') {
-          if (this.publicAddress === null) throw new Error('offline');
-          return new Response(`${this.publicAddress}\n`, { status: 200 });
-        }
         this.doorCalls.push({
           url: url.href,
           headers: new Headers(init.headers),

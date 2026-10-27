@@ -37,7 +37,8 @@ export { createSuperAdministration } from './facade';
 export type { SuperAdministration } from './facade';
 export { relayOwnerAnswer } from './relay';
 export { resolveIntegratorTodo } from './todo';
-export { listIntegratorInbox, resolveIntegratorFixLimit } from './fix-limit';
+export { INTEGRATOR_INBOX_LIMIT, listIntegratorInbox, resolveIntegratorFixLimit } from './fix-limit';
+export { updateInstanceKnowledge } from './instance-knowledge';
 export { createSuperRights } from './rights';
 
 const principalActor = (config: ProjectConfig, principal: IntegratorPrincipal) =>

@@ -30,8 +30,6 @@ import {
   StopOrphansResult,
   AttachmentListResponse,
   BoardMoveResult,
-  BoundaryRequest,
-  BoundaryRequestView,
   ChangeTaskLabelsRequest,
   DeleteAttachmentResponse,
   TaskCoverResponse,
@@ -98,7 +96,6 @@ import type {
   StopOrphansRequest,
   BoardMoveRequest,
   SendTeamMessageRequest,
-  DecideBoundaryRequest,
   PatchConfigRequest,
   CreateInviteRequest,
   AcceptInviteRequest,
@@ -211,12 +208,6 @@ export const api = {
     apiRequest(routes.defaultEngine(id), { method: 'POST', body: {}, schema: EngineView.array() }),
   stopOrphans: (body: StopOrphansRequest) =>
     apiRequest(routes.machineOrphansStop(), { method: 'POST', body, schema: StopOrphansResult }),
-  boundaryRequest: (key: string, id: string) =>
-    apiRequest(routes.boundaryRequest(key, id), { schema: BoundaryRequestView }),
-  decideBoundary: (key: string, id: string, body: DecideBoundaryRequest) =>
-    apiRequest(routes.decideBoundary(key, id), { method: 'POST', body, schema: BoundaryRequest }),
-  revokeBoundary: (key: string, id: string) =>
-    apiRequest(routes.revokeBoundary(key, id), { method: 'POST', schema: BoundaryRequest }),
   addHumanMember: (key: string, body: AddHumanMemberRequest) =>
     apiRequest(routes.addHumanMember(key), { method: 'POST', body, schema: MemberView }),
   providers: () => apiRequest(routes.providers(), { schema: ProvidersView }),

@@ -31,7 +31,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
           "type": "string",
         },
         "options": {
-          "description": "Suggested answers shown as buttons: a short label and its consequence (a plain label string is accepted too). Offer them whenever the decision has alternatives; omit for a free-text answer.",
+          "description": "Suggested answers shown as buttons: a short label and its consequence (a plain label string is accepted too). Required for a decision, a yes/no question too; omit only with response_purpose information. The answerer can always write another answer.",
           "items": {
             "anyOf": [
               {
@@ -105,7 +105,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
           "type": "string",
         },
         "response_purpose": {
-          "description": "information: a plain factual question, no decision; the integrator may relay the answer. owner_decision (default): a choice or anything with cost, deletion or security; only the owner answers.",
+          "description": "information: a plain factual question, no decision; the integrator may relay the answer; needs no options. owner_decision (default): a choice or anything with cost, deletion or security; only the owner answers.",
           "enum": [
             "information",
             "owner_decision",
@@ -453,49 +453,6 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "destructiveHint": false,
       "openWorldHint": false,
       "readOnlyHint": false,
-      "title": "Decide a delegated boundary request",
-    },
-    "description": "Independent live holders of boundary_authorization may allow or deny a delegable request before its lead deadline. Inspect its exact target first. Cost, production/release/main publication, accounts/secrets and host expansion always require the owner. Late or self decisions are refused. Use a structured reason; never include credentials.",
-    "inputSchema": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "additionalProperties": false,
-      "properties": {
-        "decision": {
-          "enum": [
-            "allow",
-            "deny",
-          ],
-          "type": "string",
-        },
-        "reason": {
-          "enum": [
-            "scope_verified",
-            "unsafe_target",
-            "insufficient_context",
-            "not_needed",
-          ],
-          "type": "string",
-        },
-        "request_id": {
-          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
-          "type": "string",
-        },
-      },
-      "required": [
-        "request_id",
-        "decision",
-        "reason",
-      ],
-      "type": "object",
-    },
-    "name": "decide_boundary_request",
-    "title": "Decide a delegated boundary request",
-  },
-  {
-    "annotations": {
-      "destructiveHint": false,
-      "openWorldHint": false,
-      "readOnlyHint": false,
       "title": "Decide how a card at its fix round limit goes on",
     },
     "description": "Decide how a card at its fix round limit goes on, as the system message that named you describes: continue, replan or to_owner (which requires an assessment).",
@@ -674,7 +631,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": false,
       "title": "Execute one command as the Operator or PM",
     },
-    "description": "Only the Operator or selected PM, in its own general conversation during an open owner message or answer. The PM may use task_create, task_update, task_labels, task_start, task_cancel, member_update, merge_order and operate. Every other kind, including administration, is refused with command_not_for_project_manager; use open_integrator_todo for the integrator. Starts ONE command on the shared operation path, logged as you: {operation}. command is {kind, ...fields of that kind}. workspace_release frees the workspace an unresolved process cleanup keeps reserved without proof that the processes stopped: only on the owner’s explicit request in that conversation, never on a signal by itself; the server refuses it unless the open request is the owner’s own message or answer (operator_owner_only), not a queue item; reason is the owner’s stated reason. Use operate for configuration, member, session, message and project-pause changes. For the Operator, kinds operate and member_update are refused here with super_operation_unsupported. A K3 effect (deletion, security, cost, boundary and permission decisions) is not run: the operation waits in waiting_owner and the owner answers with their own login; after the owner’s yes the server runs it by itself, so do not repeat the call. Only the Operator may request machine operations (administration), which need the owner’s grant: without one the call fails with operator_grant_inactive, and you hand the matter over to the owner. request_key (1–100 characters of A-Z a-z 0-9 . _ -) names this call within the request: the same key is the same operation and never runs twice; the same key with another command is refused (super_request_conflict). Follow it with get_operation until the state is final.",
+    "description": "Only the Operator or selected PM, in its own general conversation during an open owner message or answer. The PM may use task_create, task_update, task_labels, task_start, task_cancel, member_update, merge_order and operate. Every other kind, including administration, is refused with command_not_for_project_manager; use open_integrator_todo for the integrator. Starts ONE command on the shared operation path, logged as you: {operation}. command is {kind, ...fields of that kind}. workspace_release frees the workspace an unresolved process cleanup keeps reserved without proof that the processes stopped: only on the owner’s explicit request in that conversation, never on a signal by itself; the server refuses it unless the open request is the owner’s own message or answer (operator_owner_only), not a queue item; reason is the owner’s stated reason. Use operate for configuration, member, session, message and project-pause changes. For the Operator, kinds operate and member_update are refused here with super_operation_unsupported. A K3 effect (deletion, security, cost and permission decisions) is not run: the operation waits in waiting_owner and the owner answers with their own login; after the owner’s yes the server runs it by itself, so do not repeat the call. Only the Operator may request machine operations (administration), which need the owner’s grant: without one the call fails with operator_grant_inactive, and you hand the matter over to the owner. request_key (1–100 characters of A-Z a-z 0-9 . _ -) names this call within the request: the same key is the same operation and never runs twice; the same key with another command is refused (super_request_conflict). Follow it with get_operation until the state is final.",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,
@@ -861,31 +818,6 @@ exports[`team tool definitions > preserves the public tool definitions across mo
     },
     "name": "forward_feedback",
     "title": "Forward a feedback mark to the owner",
-  },
-  {
-    "annotations": {
-      "destructiveHint": false,
-      "openWorldHint": false,
-      "readOnlyHint": true,
-      "title": "Inspect a boundary request",
-    },
-    "description": "Inspect a boundary request you raised or may decide. Pending requests require a later retry; expiry or escalation never automatically permits execution.",
-    "inputSchema": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "additionalProperties": false,
-      "properties": {
-        "request_id": {
-          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
-          "type": "string",
-        },
-      },
-      "required": [
-        "request_id",
-      ],
-      "type": "object",
-    },
-    "name": "get_boundary_request",
-    "title": "Inspect a boundary request",
   },
   {
     "annotations": {
@@ -1864,6 +1796,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                 "member_update",
                 "member_hire",
                 "member_retire",
+                "member_rename",
                 "config_revert",
                 "session_stop",
                 "project_pause",
@@ -2911,6 +2844,30 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                                       "minimum": 1,
                                       "type": "integer",
                                     },
+                                    "regenerate": {
+                                      "properties": {
+                                        "command": {
+                                          "maxLength": 500,
+                                          "minLength": 1,
+                                          "type": "string",
+                                        },
+                                        "paths": {
+                                          "items": {
+                                            "maxLength": 200,
+                                            "minLength": 1,
+                                            "type": "string",
+                                          },
+                                          "maxItems": 10,
+                                          "minItems": 1,
+                                          "type": "array",
+                                        },
+                                      },
+                                      "required": [
+                                        "paths",
+                                        "command",
+                                      ],
+                                      "type": "object",
+                                    },
                                     "runner": {
                                       "enum": [
                                         "engine",
@@ -3450,6 +3407,29 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                 "required": [
                   "op",
                   "handle",
+                ],
+                "type": "object",
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "handle": {
+                    "pattern": "^[a-z0-9][a-z0-9-]{0,31}$",
+                    "type": "string",
+                  },
+                  "op": {
+                    "const": "member_rename",
+                    "type": "string",
+                  },
+                  "to": {
+                    "pattern": "^[a-z0-9][a-z0-9-]{0,31}$",
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "op",
+                  "handle",
+                  "to",
                 ],
                 "type": "object",
               },
@@ -4544,36 +4524,6 @@ exports[`team tool definitions > preserves the public tool definitions across mo
     },
     "name": "start_task",
     "title": "Start work on a task",
-  },
-  {
-    "annotations": {
-      "destructiveHint": false,
-      "openWorldHint": false,
-      "readOnlyHint": false,
-      "title": "Submit a boundary request",
-    },
-    "description": "Request one external operation registered by the protected operation adapter. Supply its opaque operation id and a stable retry key. The server derives the exact target, category, scope and expiry. This returns immediately; inspect later with get_boundary_request. Never include commands, credentials or secrets. This does not approve CLI permissions, gates or releases.",
-    "inputSchema": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "additionalProperties": false,
-      "properties": {
-        "deduplication_key": {
-          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
-          "type": "string",
-        },
-        "operation_id": {
-          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$",
-          "type": "string",
-        },
-      },
-      "required": [
-        "operation_id",
-        "deduplication_key",
-      ],
-      "type": "object",
-    },
-    "name": "submit_boundary_request",
-    "title": "Submit a boundary request",
   },
   {
     "annotations": {

@@ -1,7 +1,5 @@
 import fs from 'node:fs';
 import type { CloudDeps, RunOptions } from '../../../../scripts/cloud/deps';
-import { ACCOUNT, baseConfig } from './fake-aws';
-import { EC2_CONFIG } from './fake-ec2';
 import { HostWorld, unquoteWords } from './fake-host';
 
 export const EC2_HOST_ID = 'i-0123456789abcdef0';
@@ -89,11 +87,7 @@ export class Ec2HostWorld extends HostWorld {
 
   static configured(): Ec2HostWorld {
     const world = Ec2HostWorld.ready();
-    world.aws.accounts.set('aroom', ACCOUNT);
-    world.writeConfig({
-      aws: { ...(baseConfig().aws as object), compute: 'ec2', profile: 'aroom', ec2: EC2_CONFIG },
-      route53: { profile: 'i' },
-    });
+    world.writeConfig({ route53: { profile: 'i' } });
     return world;
   }
 
@@ -126,8 +120,6 @@ export class Ec2HostWorld extends HostWorld {
         if (this.missingTool === command) return { code: 127, stdout: '', stderr: 'not found' };
         if (this.failOperation === operation)
           return { code: 254, stdout: 'sensitive-raw-output', stderr: 'sensitive-raw-error' };
-        if (command === 'aws' && args[0] === '--version')
-          return { code: 0, stdout: 'aws-cli/2.37.9', stderr: '' };
         if (command === 'session-manager-plugin' || (command === 'ssh' && args[0] === '-V')) return ok();
         if (command === 'ssh-keygen') {
           const key = flag(args, '-f');

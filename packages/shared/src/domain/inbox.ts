@@ -31,7 +31,6 @@ import type { TaskViewer } from './task';
  * - decision:   a gate that needs a human approval (merge, release, ...)
  * - question:   an AI member asked a human something (ask_human tool)
  * - approval:   a proposed change (e.g. an email draft or a config change)
- * - boundary:   an external operation a member asked for
  * - alert:      something the owners should notice, with nothing to decide ("Láttam"); see
  *               `AlertPayload`
  */
@@ -40,7 +39,6 @@ export const InboxKind = z.enum([
   'decision',
   'question',
   'approval',
-  'boundary',
   'alert',
   'hand_on',
   'merge_request',
@@ -910,7 +908,6 @@ export const APPROVAL_PAYLOAD_KEYS = [
   'gate',
   'release',
   'permission',
-  'boundary',
   'approval',
   'operatorApproval',
   'operatorKnowledge',
@@ -1009,7 +1006,6 @@ export function superDecisionRefusal(
   if (
     !facts.operatorHandle ||
     item.kind === 'permission' ||
-    item.kind === 'boundary' ||
     ['superOperation', 'operatorApproval', 'operatorKnowledge'].some((key) => key in item.payload) ||
     (item.kind === 'approval' && ('operator' in item.payload || 'email' in item.payload)) ||
     item.source === facts.operatorHandle ||

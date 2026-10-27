@@ -8,6 +8,12 @@ export interface OperatorKnowledgeStore {
     expectedRevision: number,
     next: OperatorKnowledgeDocument,
   ): Promise<OperatorKnowledgeDocument>;
+  /** The instance-level knowledge of the global Operator (PM-1046): one document for the whole server. */
+  readInstanceKnowledge(): Promise<OperatorKnowledgeDocument>;
+  compareAndSwapInstanceKnowledge(
+    expectedRevision: number,
+    next: OperatorKnowledgeDocument,
+  ): Promise<OperatorKnowledgeDocument>;
   readPreference(projectKey: string, handle: string): Promise<OperatorPreferenceDocument>;
   compareAndSwapPreference(
     projectKey: string,

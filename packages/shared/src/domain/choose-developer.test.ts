@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { chooseDeveloper, humanStageOwner, reachingDevelopers } from './choose-developer';
+import {
+  canReplaceUnstartedAssignee,
+  chooseDeveloper,
+  humanStageOwner,
+  reachingDevelopers,
+} from './choose-developer';
 import { ProjectConfig } from '../config/schema';
 import type { FreeDeveloper, StageDeveloper } from './choose-developer';
 import type { ComplexityPoints } from './complexity';
@@ -110,6 +115,27 @@ describe('reachingDevelopers', () => {
     expect(reachingDevelopers(team, 8, [])).toEqual(['big']);
     expect(reachingDevelopers(team, null, [])).toEqual([]);
   });
+});
+
+describe('canReplaceUnstartedAssignee (PM-1051)', () => {
+  const replaceable = {
+    providerBlocked: true,
+    hasWorkSession: false,
+    handoffOpen: false,
+    fixLimitHeld: false,
+  };
+
+  it('replaces an assignee only when their provider is blocked and they have not begun the card', () => {
+    expect(canReplaceUnstartedAssignee(replaceable)).toBe(true);
+    expect(canReplaceUnstartedAssignee({ ...replaceable, providerBlocked: false })).toBe(false);
+  });
+
+  it.each(['hasWorkSession', 'handoffOpen', 'fixLimitHeld'] as const)(
+    'keeps the assignee when %s',
+    (guard) => {
+      expect(canReplaceUnstartedAssignee({ ...replaceable, [guard]: true })).toBe(false);
+    },
+  );
 });
 
 describe('humanStageOwner', () => {

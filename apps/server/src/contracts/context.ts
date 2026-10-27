@@ -187,7 +187,7 @@ export interface RelatedSession {
   state: SessionState;
 }
 
-export const GUIDE_TOPICS = ['commands', 'rules', 'role', 'sandbox'] as const;
+export const GUIDE_TOPICS = ['commands', 'rules', 'role', 'sandbox', 'operations'] as const;
 export type GuideTopic = (typeof GUIDE_TOPICS)[number];
 
 const PROMPT_SECTION_IDS = [
@@ -206,7 +206,6 @@ const PROMPT_SECTION_IDS = [
   'heavy_commands',
   'untested_checks',
   'session_folder',
-  'boundary',
   'cheap_subagent',
   'guardrails',
   'role',

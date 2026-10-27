@@ -103,6 +103,11 @@ The output has one line per image, `shot <path> <width>x<height>` (the size of t
 
 ## The scenario
 
+`scripts/scenarios/` keeps the documented examples and test fixtures: `probe`, `why-waiting`,
+`complexity-points`, `priority`, `operator`, `work-outage`, `card-with-question` and
+`provider-not-logged-in`. It also retains `involvements` and `handoff` for the open PM-503
+follow-up. PM-1029 removed the unreferenced scenarios of completed cards; git preserves them.
+
 A scenario is an ES module whose default export is an async function:
 
 ```js
@@ -159,7 +164,9 @@ export default async ({ instance, open, shoot, snapshot, step, log }) => {
   );
   const sessionId = await instance.startSession('AC', 'AC-1', developer.handle);
   await instance.waitIdle('AC', sessionId);
-  await instance.setFakeCalls([{ tool: 'ask_human', arguments: { question: QUESTION } }]);
+  await instance.setFakeCalls([
+    { tool: 'ask_human', arguments: { question: QUESTION, options: ['Green', 'Blue'] } },
+  ]);
   await instance.say('AC', sessionId, 'CALLS please');
   await instance.waitIdle('AC', sessionId);
 

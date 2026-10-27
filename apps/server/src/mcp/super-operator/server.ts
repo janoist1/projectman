@@ -28,7 +28,14 @@ export interface ExternalCallState {
 const EXTERNAL_INSTRUCTIONS =
   'Integrator tools of projectman. Authenticate every request with the integrator key. There is no session and no ' +
   'current project: list_projects names the projects of this key, and every other tool takes project_key. ' +
-  'A refused call answers {errorCode, message}; the code is the domain’s own.';
+  'A refused call answers {errorCode, message}; the code is the domain’s own. ' +
+  'With a super key you are the global Operator: one for all projects, and the owner’s system administrator. ' +
+  'On connecting, read your own knowledge with get_operator_instance_knowledge (write it with ' +
+  'update_operator_instance_knowledge), then list_integrator_inbox without project_key: the integrator todos of ' +
+  'every project come first. You handle machine, system and development matters, and you do little on your own. ' +
+  'When a function is missing or broken, bridge the gap for the owner and record it as feedback ' +
+  '(record_system_feedback; if this connection does not offer it, tell the owner). ' +
+  'Project work is the project’s pm: do it only when the owner explicitly asks you to.';
 
 /** The JSON Schema of a tool does not change: it is built once per tool, not once per request. */
 const listed = new Map<string, Tool>();

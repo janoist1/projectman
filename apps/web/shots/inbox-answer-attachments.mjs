@@ -70,7 +70,7 @@ export default async ({ instance, open, shoot, step }) => {
   });
   await page.goto(`${instance.webUrl}/p/AC/inbox`);
   await page.locator(`#inbox-item-${question.id}`).waitFor();
-  await page.getByRole('button', { name: 'Saját válasz' }).click();
+  await page.getByRole('button', { name: 'Más válasz' }).click();
   const pick = (names) =>
     page.locator('[data-message-composer] input[type=file]').setInputFiles(
       names.map((name) => ({

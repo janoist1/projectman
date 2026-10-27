@@ -13,6 +13,7 @@ export const operatorAudience: MemberAudience = {
   operator: true,
   projectManager: false,
   merger: false,
+  email: false,
   duties: new Set(),
 };
 
@@ -308,10 +309,6 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
         proposers: ['devops'],
       };
     },
-    async submitBoundaryRequest(ctx, args) {
-      await enter('submitBoundaryRequest', ctx, args);
-      throw new TeamToolError('not_found', 'No protected operation adapter in this transport fake.');
-    },
     async getRoleConfiguration(ctx, args) {
       await enter('getRoleConfiguration', ctx, args);
       return {
@@ -502,14 +499,6 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
         data: args.preference,
         updatedAt: '2026-10-15T00:00:00.000Z',
       };
-    },
-    async getBoundaryRequest(ctx, args) {
-      await enter('getBoundaryRequest', ctx, args);
-      throw new TeamToolError('not_found', 'Unknown boundary request.');
-    },
-    async decideBoundaryRequest(ctx, args) {
-      await enter('decideBoundaryRequest', ctx, args);
-      throw new TeamToolError('not_found', 'Unknown boundary request.');
     },
     async decidePermissionRequest(ctx, args) {
       await enter('decidePermissionRequest', ctx, args);

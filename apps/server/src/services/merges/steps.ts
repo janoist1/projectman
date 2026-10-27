@@ -9,8 +9,15 @@ import {
   openPrerequisites,
   MERGE_ENGINE_WAIT_MINUTES,
 } from '@projectman/shared';
-import type { Actor, MergeBlockReason, MergeFailure, ProjectConfig, Task } from '@projectman/shared';
-import type { BranchMerger } from '../../contracts';
+import type {
+  Actor,
+  MergeBlockReason,
+  MergeFailure,
+  ProjectConfig,
+  RepoConfig,
+  Task,
+} from '@projectman/shared';
+import type { BranchMerger, EngineHost, MergeBuildResult } from '../../contracts';
 import { EngineLinkLostError, isEngineLinkLost } from '../../contracts';
 import { mergedState } from '../../db';
 import type { MergeRecord } from '../../db';
@@ -28,6 +35,8 @@ import {
   prepareMergeCheck,
 } from './check-preparation';
 import { flakyCheckFiles, flakyCheckNote } from './flaky';
+import { regenerateConflict } from './regenerate';
+import type { RegenerateResult } from './regenerate';
 import { notifyMerge } from './notify';
 import { MERGE_ENGINE_LOSSES, MERGE_ENGINE_WAIT_MS, waitForEngine } from './engine-wait';
 
@@ -306,6 +315,26 @@ export class MergeSteps {
     return true;
   }
 
+  /** Where the check checkout of a merge takes its dependencies from: the card's worktree, else the repository's own path. */
+  private async depsFrom(
+    engine: EngineHost,
+    config: ProjectConfig,
+    repo: RepoConfig,
+    task: Task,
+  ): Promise<string | null> {
+    const worktree = await engine.worktrees.find({
+      project: config,
+      repoName: repo.name,
+      taskKey: task.key,
+    });
+    return (
+      worktree?.path ??
+      (engine.workspacePath(task.projectKey)
+        ? path.resolve(engine.workspacePath(task.projectKey)!, repo.path)
+        : null)
+    );
+  }
+
   private async prepareMergeSource(
     config: ProjectConfig,
     task: Task,
@@ -418,19 +447,47 @@ export class MergeSteps {
         prs.push({ number: pr.number, url: pr.url });
       }
       if (!this.continue(running)) return;
-      const built = await merger.build(ref, {
+      const buildInput = {
         onto,
         commit: commit,
         message: `Merge ${task.key}: ${task.title.replace(/[\r\n]/g, ' ').slice(0, 100)}\n\nBranch ${branch}, approved commit ${commit}.`,
-      });
+      };
+      const first = await merger.build(ref, buildInput);
       if (!this.continue(running)) return;
-      if (!built.ok)
-        return this.fail(row, config, {
-          reason: 'conflict',
-          base: onto,
-          at: isoNow(ctx),
-          files: built.conflict.slice(0, 50),
-        });
+      let built: Extract<MergeBuildResult, { ok: true }>;
+      if (first.ok) built = first;
+      else {
+        // A conflict only in generated files is made again on the merge result (PM-1050).
+        const regenerated: RegenerateResult = repo.reviewTest?.regenerate
+          ? await regenerateConflict({
+              deps: this.deps,
+              engine,
+              ref,
+              mergeId: row.id,
+              projectKey: row.projectKey,
+              taskKey: row.taskKey,
+              base: row.base,
+              reviewTest: repo.reviewTest,
+              build: buildInput,
+              conflict: first.conflict,
+              depsFrom: await this.depsFrom(engine, config, repo, task),
+              signal: running.signal!,
+              proceed: () => this.continue(running),
+            })
+          : { ok: false };
+        if ('stopped' in regenerated) return;
+        if (!regenerated.ok)
+          return this.fail(row, config, {
+            reason: 'conflict',
+            base: onto,
+            at: isoNow(ctx),
+            files: first.conflict.slice(0, 50),
+            ...(regenerated.detail
+              ? { outputTail: `Generated files were not regenerated: ${regenerated.detail}`.slice(0, 8000) }
+              : {}),
+          });
+        built = regenerated.built;
+      }
       this.save(row, { mergeCommit: built.mergeCommit, pullRequests: prs, check: undefined });
       const conflicts = await merger.checkoutConflicts(ref, { base: row.base, changed: built.changed });
       if (!this.continue(running)) return;
@@ -451,16 +508,14 @@ export class MergeSteps {
       if (repo.reviewTest) {
         // The test may wait for the machine's heavy-run queue: `checking` starts when it really runs.
         this.save(row, { step: 'check_waiting' });
-        const passed = ctx.repos.fullTestRuns
-          .forCommit(task.key, commit)
-          .find(
-            // A GitHub Actions review result (PM-909) never stands in for the merge candidate's own check.
-            (run) =>
-              run.status === 'passed' &&
-              run.runner === 'engine' &&
-              run.projectKey === row.projectKey &&
-              run.repo === row.repo,
-          );
+        const passed = ctx.repos.fullTestRuns.forCommit(task.key, commit).find(
+          // A GitHub Actions review result (PM-909) never stands in for the merge candidate's own check.
+          (run) =>
+            run.status === 'passed' &&
+            run.runner === 'engine' &&
+            run.projectKey === row.projectKey &&
+            run.repo === row.repo,
+        );
         if (!row.diagnostic && passed && (await merger.isAncestor(ref, { ancestor: onto, commit: commit }))) {
           this.save(row, {
             step: 'checking',
@@ -480,22 +535,14 @@ export class MergeSteps {
           const runId = newId('mergecheck');
           let checkStep: 'check_waiting' | 'checking' = 'check_waiting';
           try {
-            const worktree = await engine.worktrees.find({
-              project: config,
-              repoName: repo.name,
-              taskKey: task.key,
-            });
+            const depsFrom = await this.depsFrom(engine, config, repo, task);
             if (!this.continue(running)) return;
             const prepared = await prepareMergeCheck(merger, {
               ref,
               mergeId: row.id,
               mergeCommit: built.mergeCommit,
               base: row.base,
-              depsFrom:
-                worktree?.path ??
-                (engine.workspacePath(row.projectKey)
-                  ? path.resolve(engine.workspacePath(row.projectKey)!, repo.path)
-                  : null),
+              depsFrom,
               runner,
               github: repo.github,
               checkSandbox: this.deps.checkSandbox,

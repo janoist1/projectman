@@ -244,6 +244,17 @@ describe('operating agreement and conversation guidance (PM-690)', () => {
     expect(operator.guide.role).toContain('server-delivered continuation');
   });
 
+  it('gives the Operator an operations guide generated from the schemas, and nobody else', () => {
+    const pack = (handle: string) =>
+      builder.build(input({ handle, task: null, workItem: { type: 'general' } }));
+    const operator = pack('operator');
+    expect(operator.appendSystemPrompt).toContain('get_guide with topic `operations`');
+    for (const tag of ['op=message_send', 'op=config_patch', 'kind=task_create', 'kind=workspace_release'])
+      expect(operator.guide.operations).toContain(tag);
+    expect(operator.guide.operations).toContain('"keyId"');
+    expect(pack('pm').guide.operations).toBeUndefined();
+  });
+
   it.each(['every_step', 'minimal'] as const)(
     'keeps %s involvement as approved data within effective settings',
     (involvement) => {
@@ -1353,6 +1364,14 @@ describe('system prompt', () => {
     expect(prompt).not.toContain('- `be-1`');
   });
 
+  it('names the earlier handles of a renamed member in the team list (PM-1025)', () => {
+    const project = buildProject();
+    const team = teamOf(project).map((m) => (m.handle === 'be-1' ? { ...m, formerHandles: ['old-be'] } : m));
+    const prompt = builder.build(input({ project, team, handle: 'fe-1' })).appendSystemPrompt;
+    expect(prompt).toMatch(/- `be-1`: .*formerly `old-be`/);
+    expect(prompt).not.toMatch(/- `fe-1`: .*formerly/);
+  });
+
   it('builds the roster from the configuration when no team view is given', () => {
     const prompt = builder.build(input({ team: [] })).appendSystemPrompt;
     expect(prompt).toContain('- `code-review`: Code reviewer (AI, code reviewer) ← you');
@@ -1468,7 +1487,7 @@ describe('system prompt', () => {
       expect(pm).toContain('(the system picks the member)');
       expect(pm).toContain("Never do another role's work: no code, no requirement, no plan, no review.");
       expect(pm).toContain('Only propose what needs the owner: stopping a session');
-      expect(pm).toContain('never decide permission or boundary requests, never release');
+      expect(pm).toContain('never decide permission requests, never release');
       const guide = builder.build(input({ project, handle: 'pm' })).guide.role;
       expect(guide).toContain(
         "A person's message on a card's conversation comes to you when nobody else is on the card",
@@ -3564,7 +3583,8 @@ describe("the CLI's own sandbox (PM-167)", () => {
     expect(text).toContain('get_guide with topic `sandbox`');
     expect(text).not.toContain('/work/acme');
     expect(pack.guide.sandbox).toContain('/work/acme');
-    expect(pack.guide.sandbox).toContain('/home/anna/.ssh');
+    // The reader reads only its own places below the home (PM-425), and the guide names them.
+    expect(pack.guide.sandbox).toContain('/home/anna/.gitconfig');
     expect(pack.guide.sandbox).not.toContain('`gh pr view`');
     expect(pack.guide.sandbox).toContain('`git push`');
   });

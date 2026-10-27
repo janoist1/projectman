@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { HOST_SUBCOMMANDS } from '../../../scripts/cloud/host';
 
 /**
- * The files for the Lightsail machine (PM-535, docs/AWS.md) cannot run in the test environment (no Ubuntu, no
+ * The files for the EC2 machine (PM-535, docs/AWS.md) cannot run in the test environment (no Ubuntu, no
  * Docker, no systemd). What is checked: the script parses, the unit and the script keep the container closed
  * (no published port, no host network, no extra privilege, no Docker socket), the build gets the full commit id,
  * and the subcommands the client calls exist in the script.

@@ -78,4 +78,6 @@ export interface MemberQueueDriver {
   /** `ensure` for every member that has an open item: the net under every event that could be lost. */
   sweep(options?: { respectPause?: boolean }): Promise<void>;
   register(lane: MemberQueueLane): void;
+  /** The member was renamed (PM-1025): forgets what the driver remembers under the old handle. */
+  memberRenamed(projectKey: string, from: string): void;
 }

@@ -299,6 +299,13 @@ describe('Codex settings from the member', () => {
 });
 
 describe('buildCodexArgs', () => {
+  it.each([false, true])('keeps the team MCP server optional with resume=%s (PM-1070)', (resume) => {
+    for (const provider of [undefined, NANOGPT_CODEX_PROVIDER]) {
+      const c = overrides(buildCodexArgs({ ...input, provider, spec: { ...spec, resume } }).args);
+      expect(c.has('mcp_optional_startup_grace_ms')).toBe(false);
+      expect(c.get('mcp_servers.team')).toBe('{url="http://127.0.0.1:4700/mcp/tok"}');
+    }
+  });
   it.each([false, true])(
     'disables plugins for both providers and ChatGPT services only for NanoGPT with resume=%s',
     (resume) => {

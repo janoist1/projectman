@@ -247,4 +247,31 @@ describe('ownerOnlyChanges', () => {
       'admin_or_account',
     ]);
   });
+
+  it.each([
+    (c: ProjectConfig) => {
+      c.team.boundary = { enabled: true, leadTimeoutSeconds: 120 };
+    },
+    (c: ProjectConfig) => {
+      c.team.roleOverrides = {
+        developer: { duties: ['implementation', 'boundary_authorization'], instructions: '' },
+      };
+    },
+    (c: ProjectConfig) => {
+      ai(c, 'dev-1').role = 'lead_developer';
+    },
+    (c: ProjectConfig) => {
+      c.team.roles.push({
+        id: 'new_lead',
+        name: 'Lead',
+        summary: 'Decide',
+        holders: 'both',
+        duties: ['boundary_authorization'],
+        instructions: '',
+        notTheirJob: '',
+      });
+    },
+  ])('requires owner access for delegation configuration and duty assignments', (edit) => {
+    expect(changed(edit)).toContain('approval_policy');
+  });
 });

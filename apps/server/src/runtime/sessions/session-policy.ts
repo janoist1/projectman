@@ -415,6 +415,8 @@ export function sessionSandbox(
   options: Partial<SandboxPaths> & {
     github?: boolean;
     readerDenyWrite?: readonly (string | undefined)[];
+    /** The shared git directories the reader's checkouts point to (a found worktree's `gitDir`, PM-425). */
+    gitDirs?: readonly string[];
   } = {},
 ): AgentSandbox | undefined {
   if (policy.access === 'task_worktree') {
@@ -453,12 +455,31 @@ export function sessionSandbox(
       ? options.tmpDir
       : undefined;
   const sharedTmp = sharedTmpRules(tmpDir, options.sharedTmpRoots);
-  const denyRead = [...new Set([...denied, ...sharedTmp.denyRead])];
+  // PM-425: with the user's home known, the reader reads nothing below it (nor the app home) but its own
+  // project and card; without it (a caller that has no home) the older, wider read rules stay.
+  const boundary = options.userHome
+    ? readerReadBoundary(policy, {
+        userHome: options.userHome,
+        appHome: options.appHome,
+        denied,
+        sessionDir,
+        browsersDir,
+        memberDir: options.memberDir,
+        excludesFile: options.excludesFile,
+        gitDirs: [
+          ...(policy.placement.kind === 'review_copy' ? [policy.placement.gitDir] : []),
+          ...(options.gitDirs ?? []),
+        ],
+        sharedTmp,
+      })
+    : undefined;
+  const denyRead = boundary ? boundary.denyRead : [...new Set([...denied, ...sharedTmp.denyRead])];
+  const allowRead = boundary ? boundary.allowRead : sharedTmp.allowRead;
   return {
     allowWrite: [...(sessionDir ? [sessionDir] : []), ...heavy.allowWrite, ...sharedTmp.allowWrite],
     denyWrite: [...denyWrite, ...sharedTmp.denyWrite],
     ...(denyRead.length > 0 ? { denyRead } : {}),
-    ...(sharedTmp.allowRead.length > 0 ? { allowRead: sharedTmp.allowRead } : {}),
+    ...(allowRead.length > 0 ? { allowRead } : {}),
     ...sandboxNetwork(policy),
     allowLocalBinding: true,
     env: {
@@ -468,13 +489,76 @@ export function sessionSandbox(
       ...heavy.env,
     },
     ...(options.github ? { excludedCommands: [...READER_UNSANDBOXED_COMMANDS] } : {}),
-    ...portableOf(
-      portableShared(heavy, {
+    ...portableOf({
+      ...portableShared(heavy, {
         sessionDir,
         browsersDir,
         tmpDir,
       }),
-    ),
+      ...(boundary ? { readBoundary: boundary.boundary } : {}),
+    }),
+  };
+}
+
+/**
+ * What a reading session (PM-425) reads below the user's home and the app home, in one list the CLI's
+ * sandbox (`denyRead`, `allowRead`), the file-tool rules and the runner's tool decision are all rendered
+ * from: its working directory and extra directories (the card's worktree among them), the card's
+ * attachments, the shared git directory it works with, its own session folder and the instance's other
+ * session folders (a teammate's screenshot), the browsers, its own temp and npm cache, and the
+ * technical home files git needs. The rest of the home and the app home, and the temp roots every session
+ * shares, stay closed; `deniedPaths` (credentials, the live instance's data, every Claude transcript and
+ * Claude Code's temp folders) stay closed whatever is allowed.
+ */
+function readerReadBoundary(
+  policy: SessionPolicy,
+  input: {
+    userHome: string;
+    appHome?: string;
+    denied: readonly string[];
+    sessionDir?: string;
+    browsersDir?: string;
+    memberDir?: string;
+    excludesFile?: string;
+    gitDirs: readonly string[];
+    sharedTmp: ReturnType<typeof sharedTmpRules>;
+  },
+): { boundary: SessionReadBoundary; denyRead: string[]; allowRead: string[] } {
+  const { userHome, appHome, denied } = input;
+  const directories = [
+    policy.placement.path,
+    ...policy.filesystem.readableRoots,
+    ...(policy.filesystem.readOnlyPaths ?? []),
+    ...input.gitDirs,
+    ...input.sharedTmp.allowRead,
+    // The instance's whole folder root: every member's folder is read, only its own is written (PM-333).
+    ...(input.sessionDir ? [path.dirname(input.sessionDir)] : []),
+    ...(input.browsersDir ? [input.browsersDir] : []),
+    // The member's own npm cache (read only: the reader runs the tests from its cache, never fills it).
+    ...(input.memberDir ? [path.join(input.memberDir, 'npm-cache')] : []),
+    ...SANDBOX_HOME_READS.filter((name) => name !== '.gitconfig').map((name) => path.join(userHome, name)),
+  ];
+  const files = [
+    path.join(userHome, '.gitconfig'),
+    // Never the home or a directory above it, nor a file in the app home, whatever the config says.
+    ...(input.excludesFile &&
+    !isWithin(input.excludesFile, userHome) &&
+    !(appHome && isWithin(appHome, input.excludesFile))
+      ? [input.excludesFile]
+      : []),
+  ];
+  const allowedPaths = [
+    ...directories.map((dir) => ({ path: path.resolve(dir), kind: 'directory' as const })),
+    ...files.map((file) => ({ path: path.resolve(file), kind: 'file' as const })),
+  ].filter(
+    (entry, index, list) =>
+      !isWithinAny(denied, entry.path) && list.findIndex((other) => other.path === entry.path) === index,
+  );
+  const closed = [...new Set([userHome, ...(appHome ? [appHome] : []), ...input.sharedTmp.denyRead])];
+  return {
+    boundary: { deniedRoots: closed, allowedPaths },
+    denyRead: [...new Set([...closed, ...denied])],
+    allowRead: allowedPaths.map((entry) => entry.path),
   };
 }
 
@@ -614,6 +698,23 @@ export function sessionFolderAccess(input: {
   // Without the short TMPDIR root the shared `/tmp` stays writable: no folder either.
   if (sandbox === 'workspace-write') return tmpRoot ? 'write' : null;
   return null;
+}
+
+/**
+ * A reading session never reads a Claude transcript, not even its own (PM-425): they hold every
+ * conversation of every project and every member. The developer's policy is unchanged (its
+ * `tool-results` below the same folder are read by its own tools).
+ */
+export function withReaderDenials(policy: SessionPolicy, userHome: string): SessionPolicy {
+  if (!placementReadsOnly(policy.access, { mode: policy.reviewCopyMode, enforcement: policy.enforcement }))
+    return policy;
+  return {
+    ...policy,
+    filesystem: {
+      ...policy.filesystem,
+      deniedPaths: [...(policy.filesystem.deniedPaths ?? []), path.join(userHome, '.claude', 'projects')],
+    },
+  };
 }
 
 /**

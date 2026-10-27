@@ -235,7 +235,7 @@ export function deriveNext(task: Task, wait: TaskWait, ctx: TaskNextContext): Ta
 
     case 'inbox': {
       const kind = wait.inboxKind ?? ctx.item?.kind ?? 'decision';
-      const known = ['question', 'permission', 'decision', 'approval', 'boundary', 'alert'] as const;
+      const known = ['question', 'permission', 'decision', 'approval', 'alert'] as const;
       const key = (known as readonly string[]).includes(kind) ? (kind as (typeof known)[number]) : 'other';
       const asker = ctx.item
         ? isOperatorInboxRequest(ctx.item)

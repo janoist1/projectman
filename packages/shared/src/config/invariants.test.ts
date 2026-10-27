@@ -412,6 +412,14 @@ describe('validateProjectConfig team and pipeline', () => {
       [{ code: 'duplicate_handle', path: 'team.members[4]', detail: 'ann' }],
     ],
     [
+      'a handle that is another member`s former handle',
+      (input) => {
+        members(input)[2]!.formerHandles = ['old'];
+        members(input).push({ kind: 'human', handle: 'old', displayName: 'Old', access: 'viewer' });
+      },
+      [{ code: 'duplicate_handle', path: 'team.members[4]', detail: 'old' }],
+    ],
+    [
       'a team without a human owner',
       (input) => {
         members(input)[0]!.access = 'admin';

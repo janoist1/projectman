@@ -2,7 +2,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { bucketPolicy } from '../../../scripts/cloud/aws';
 import { runCloud } from '../../../scripts/cloud/commands';
-import { CloudWorld } from './helpers/fake-aws';
+import { baseConfig, CloudWorld } from './helpers/fake-aws';
 
 /** `npm run cloud -- aws` (PM-534) against a fake `aws` CLI that keeps state. */
 
@@ -26,26 +26,7 @@ const envValues = () =>
 describe('aws: the first run', () => {
   it('creates the machine, the buckets, the users, the keys and cloud.env', async () => {
     expect(await run()).toBe(0);
-    const created = world.aws.callsTo('create-instances');
-    expect(created).toHaveLength(1);
-    expect(created[0]!.args).toEqual([
-      'lightsail',
-      'create-instances',
-      '--instance-names',
-      'projectman-cloud',
-      '--availability-zone',
-      'eu-west-1a',
-      '--blueprint-id',
-      'ubuntu_24_04',
-      '--bundle-id',
-      'small_3_0',
-      '--ip-address-type',
-      'ipv4',
-      '--tags',
-      'key=projectman,value=cloud',
-    ]);
-    expect(world.aws.instance?.state).toBe('running');
-    expect(world.aws.instance?.metadata).toEqual({ httpTokens: 'required', httpPutResponseHopLimit: 1 });
+    expect(world.aws.ec2.instances).toHaveLength(1);
     for (const name of ['acme-projectman-db', 'acme-projectman-backup']) {
       const bucket = world.aws.buckets.get(name)!;
       expect(bucket.location).toBe('eu-west-1');
@@ -98,25 +79,6 @@ describe('aws: the first run', () => {
     expect(statSync(world.envFile).mode & 0o777).toBe(0o600);
   });
 
-  it('opens one port only: 22/tcp for lightsail-connect', async () => {
-    expect(await run()).toBe(0);
-    expect(world.aws.instance?.ports).toEqual([
-      {
-        fromPort: 22,
-        toPort: 22,
-        protocol: 'tcp',
-        cidrs: [],
-        ipv6Cidrs: [],
-        cidrListAliases: ['lightsail-connect'],
-      },
-    ]);
-    const put = world.aws.callsTo('put-instance-public-ports');
-    expect(put).toHaveLength(1);
-    expect(JSON.parse(put[0]!.args[put[0]!.args.indexOf('--port-infos') + 1]!)).toEqual([
-      { fromPort: 22, toPort: 22, protocol: 'tcp', cidrListAliases: ['lightsail-connect'] },
-    ]);
-  });
-
   it('gives each user exactly the policy of its bucket', async () => {
     expect(await run()).toBe(0);
     const policy = world.aws.users.get('projectman-cloud-litestream')!.inline.get('bucket-access');
@@ -148,24 +110,28 @@ describe('aws: the first run', () => {
     const calls = world.aws.calls.filter((call) => call.args[0] !== '--version');
     expect(calls.length).toBeGreaterThan(20);
     for (const call of calls)
-      expect(call.argv.slice(0, 6)).toEqual(['--profile', 'i', '--region', 'eu-west-1', '--output', 'json']);
+      expect(call.argv.slice(0, 6)).toEqual([
+        '--profile',
+        'aroom',
+        '--region',
+        'eu-west-1',
+        '--output',
+        'json',
+      ]);
   });
 
   it('omits the location constraint in us-east-1', async () => {
     world.writeConfig({
-      aws: {
-        region: 'us-east-1',
-        databaseBucket: 'acme-projectman-db',
-        backupBucket: 'acme-projectman-backup',
-      },
+      aws: { ...(baseConfig().aws as object), region: 'us-east-1' },
     });
+    world.aws.ec2.subnet.AvailabilityZone = 'us-east-1b';
     // The fake only speaks eu-west-1: ask for the create call by running until the buckets.
     const deps = world.deps();
     const original = deps.run;
     deps.run = (command, args, options) =>
       original(
         command,
-        ['--profile', 'i', '--region', 'eu-west-1', '--output', 'json', ...args.slice(6)],
+        ['--profile', 'aroom', '--region', 'eu-west-1', '--output', 'json', ...args.slice(6)],
         options,
       );
     expect(await runCloud(['aws'], deps)).toBe(0);
@@ -195,49 +161,28 @@ describe('aws --dry-run', () => {
     expect(await run('--dry-run')).toBe(0);
     expect(world.aws.mutations()).toEqual([]);
     expect(existsSync(world.envFile)).toBe(false);
-    expect(world.output).toContain('dry-run: would create projectman-cloud');
+    expect(world.output).toContain('dry-run: would create one');
     expect(world.output).toContain('dry-run: would create it with the settings below');
     expect(world.output).toContain('would create it');
   });
 
   it('on a half-finished account prints each change and makes none', async () => {
-    world.aws.addInstance();
     world.aws.addBucket('acme-projectman-db');
     world.aws.addUser('projectman-cloud-litestream');
     expect(await run('--dry-run')).toBe(0);
     expect(world.aws.mutations()).toEqual([]);
-    expect(world.output).toContain('dry-run: would require IMDSv2');
-    expect(world.output).toContain('dry-run: would replace the open ports');
     expect(world.output).toContain('dry-run: would turn all four blocks on');
     expect(world.output).toContain('dry-run: would create a key and write it to cloud.env');
     expect(existsSync(world.envFile)).toBe(false);
   });
 });
 
-describe('aws: the instance', () => {
-  it('refuses a machine of another size without changing anything', async () => {
-    world.aws.addInstance({ bundleId: 'medium_3_0' });
-    expect(await run()).toBe(2);
-    expect(world.output).toContain('FAIL instance');
-    expect(world.output).toContain('medium_3_0');
-    expect(world.aws.mutations()).toEqual([]);
-  });
-
-  it('refuses a machine of another image', async () => {
-    world.aws.addInstance({ blueprintId: 'debian_12' });
-    expect(await run()).toBe(2);
-    expect(world.aws.mutations()).toEqual([]);
-  });
-});
-
 describe('aws: the buckets', () => {
   it('refuses a bucket name that belongs to someone else (403) and creates nothing after it', async () => {
-    world.aws.addInstance({ metadata: { httpTokens: 'required', httpPutResponseHopLimit: 1 } });
     world.aws.addBucket('acme-projectman-db', { owner: '999999999999' });
     expect(await run()).toBe(2);
     expect(world.output).toContain('FAIL bucket acme-projectman-db');
     expect(world.output).toContain('belongs to someone else');
-    expect(world.aws.mutations()).toEqual(['lightsail put-instance-public-ports']);
     expect(world.aws.callsTo('create-bucket')).toEqual([]);
     expect(world.aws.users.size).toBe(0);
   });

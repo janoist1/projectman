@@ -55,18 +55,18 @@ describe('session orchestrator', () => {
     expect(h.domain.sessions.audienceOf(ctx)).toMatchObject({
       operator: false,
       projectManager: false,
-      merger: false,
+      merger: true,
     });
     expect(h.domain.sessions.audienceOf(ctx).duties.has('deployment')).toBe(false);
     await h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (config) => {
-      config.team.merger = { kind: 'member', handle: 'dev-1' };
+      config.team.merger = { kind: 'member', handle: 'cr' };
       config.team.roleOverrides = {
         ...config.team.roleOverrides,
         developer: { duties: ['implementation', 'deployment'], instructions: '' },
       };
       return 'Change tool audience for the active member';
     });
-    expect(h.domain.sessions.audienceOf(ctx).merger).toBe(true);
+    expect(h.domain.sessions.audienceOf(ctx).merger).toBe(false);
     expect(h.domain.sessions.audienceOf(ctx).duties.has('deployment')).toBe(true);
     expect(h.domain.sessions.audienceOf({ ...ctx, member: 'pm' }).projectManager).toBe(true);
     expect(h.domain.sessions.audienceOf({ ...ctx, member: 'operator' }).operator).toBe(true);
@@ -486,15 +486,26 @@ describe('session orchestrator', () => {
     // credentials unreadable. A local-only repository has no pull request: no `gh` outside it.
     const reviewer = h.runner.lastStarted();
     expect(reviewer.policy!.access).toBe('read_only');
-    expect(reviewer.sandbox).toEqual({
+    expect(reviewer.sandbox).toMatchObject({
       allowWrite: [],
       denyWrite: [h.workspace, developer.session.cwd, join(h.dir, 'worktrees')],
-      denyRead: reviewer.policy!.filesystem.deniedPaths,
       allowedDomains: ['*'],
       deniedDomains: expect.any(Array),
       allowLocalBinding: true,
       env: SANDBOX_PTY_ENV,
     });
+    // It reads nothing below the user's home but its own places (PM-425): the home is closed, the
+    // credentials and every Claude transcript stay denied, the developer's worktree is reopened.
+    const boundary = reviewer.policy!.filesystem.readBoundary!;
+    expect(reviewer.sandbox!.denyRead).toEqual(
+      expect.arrayContaining([...boundary.deniedRoots, ...reviewer.policy!.filesystem.deniedPaths!]),
+    );
+    expect(reviewer.policy!.filesystem.deniedPaths).toContainEqual(
+      expect.stringMatching(/\/\.claude\/projects$/),
+    );
+    expect(boundary.allowedPaths).toContainEqual({ path: developer.session.cwd, kind: 'directory' });
+    expect(reviewer.sandbox!.allowRead).toEqual(expect.arrayContaining([developer.session.cwd]));
+    expect(reviewer.sandbox!.portable!.readBoundary).toEqual(boundary);
     expect(h.worktrees.calls).toHaveLength(1);
   });
 

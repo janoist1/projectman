@@ -52,9 +52,6 @@ export const TEAM_TOOL_NAMES = [
   'start_member',
   'reassign_task',
   'cancel_task',
-  'submit_boundary_request',
-  'get_boundary_request',
-  'decide_boundary_request',
   'decide_permission_request',
   'decide_fix_limit',
   'finish_queue_item',
@@ -125,6 +122,8 @@ export function toolOutputText(output: string | ToolOutput): string {
 export interface ToolAudience {
   roles?: readonly ('operator' | 'project_manager' | 'merger')[];
   duties?: readonly DutyId[];
+  /** Visible to a member who may use the channel (e-mail: the channel is on and the member may send). */
+  channels?: readonly 'email'[];
 }
 
 export function toolVisible(audience: ToolAudience | undefined, member: MemberAudience): boolean {
@@ -138,7 +137,8 @@ export function toolVisible(audience: ToolAudience | undefined, member: MemberAu
           : member.merger,
     ) ??
       false) ||
-    (audience.duties?.some((duty) => member.duties.has(duty)) ?? false)
+    (audience.duties?.some((duty) => member.duties.has(duty)) ?? false) ||
+    (audience.channels?.some((channel) => channel === 'email' && member.email) ?? false)
   );
 }
 
@@ -414,4 +414,4 @@ export const DEVELOPER_LEVEL_REFUSED: Record<string, string> = Object.fromEntrie
   ]),
 );
 
-export const taskKeyInput = TaskKey.describe('Task key, e.g. "AR-21".');
+export const taskKeyInput = TaskKey.describe('Task key.');

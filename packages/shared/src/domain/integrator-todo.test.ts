@@ -115,7 +115,6 @@ describe('durable integrator todo rules', () => {
     'gate',
     'release',
     'permission',
-    'boundary',
     'approval',
     'operatorApproval',
     'operatorKnowledge',

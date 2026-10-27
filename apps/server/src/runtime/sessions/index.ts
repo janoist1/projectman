@@ -6,6 +6,7 @@ export { PauseService } from './pause';
 export type { PauseRequester } from './pause';
 export { createPermissionBroker } from './permission-broker';
 export { SessionCloser } from './session-closer';
+export { StartHolds } from './start-holds';
 export { HYBRID_ARCHIVE_DIR, HYBRID_STAGING_DIR } from './session-policy';
 export {
   allowedToolsFor,

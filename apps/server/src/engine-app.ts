@@ -155,6 +155,22 @@ function jsonRpcError(reply: FastifyReply, status: number, message: string) {
     .send(JSON.stringify({ jsonrpc: '2.0', error: { code: -32000, message }, id: null }));
 }
 
+/** The JSON-RPC method of a team-tools call, read without parsing the body (its parameters stay unlogged). */
+const RPC_METHOD = /"method"\s*:\s*"([A-Za-z0-9/_.-]{1,64})"/;
+/** The calls that decide whether a session gets its team tools: a start that stops before them is visible. */
+const HANDSHAKE_METHODS: ReadonlySet<string> = new Set(['initialize', 'tools/list']);
+/** Only these names are logged; anything else a body matches (a nested field of a tool call) is not. */
+const LOGGED_RPC_METHODS: ReadonlySet<string> = new Set([
+  ...HANDSHAKE_METHODS,
+  'notifications/initialized',
+  'tools/call',
+  'ping',
+]);
+const rpcMethodOf = (body: string): string => {
+  const method = RPC_METHOD.exec(body)?.[1];
+  return method !== undefined && LOGGED_RPC_METHODS.has(method) ? method : 'other';
+};
+
 const headerText = (value: string | string[] | undefined, fallback: string): string => {
   const first = Array.isArray(value) ? value[0] : value;
   return typeof first === 'string' && first.length > 0 && first.length <= 256 ? first : fallback;
@@ -650,6 +666,10 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
       async handler(request, reply) {
         const { token } = request.params as { token: string };
         const body = typeof request.body === 'string' ? request.body : '';
+        // Only the method name is logged (never the token or the body): a Codex session without team
+        // tools leaves no other trace of where its handshake stopped (PM-1072).
+        const rpc = rpcMethodOf(body);
+        const startedAt = Date.now();
         try {
           const result = await client.call(
             'mcp.relay',
@@ -661,13 +681,21 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
             },
             { timeoutMs: options.relayWaitMs ?? ENGINE_RELAY_WAIT_MS },
           );
-          if (result.status < 200 || result.status > 599)
+          const elapsedMs = Date.now() - startedAt;
+          if (result.status < 200 || result.status > 599) {
+            log.warn({ rpc, status: result.status, elapsedMs }, 'team MCP relay: the cloud answered badly');
             return jsonRpcError(reply, 502, 'The cloud answered badly.');
+          }
+          if (result.status >= 300)
+            log.warn({ rpc, status: result.status, elapsedMs }, 'team MCP relay: the cloud refused the call');
+          else if (HANDSHAKE_METHODS.has(rpc))
+            log.info({ rpc, status: result.status, elapsedMs }, 'team MCP relay: handshake call answered');
           reply.code(result.status);
           if (result.contentType) reply.type(result.contentType);
           return reply.send(result.body.length > 0 ? result.body : undefined);
         } catch (error) {
           const code = error instanceof Error && 'linkCode' in error ? String(error.linkCode) : 'internal';
+          log.warn({ rpc, code, elapsedMs: Date.now() - startedAt }, 'team MCP relay: the call failed');
           if (code === 'link_down')
             return jsonRpcError(reply, 503, 'The engine is not connected to the cloud.');
           if (code === 'timeout') return jsonRpcError(reply, 504, 'The cloud did not answer in time.');

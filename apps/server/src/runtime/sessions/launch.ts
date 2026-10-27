@@ -9,6 +9,7 @@ import {
   isOperator,
   isTheme,
   memberOf,
+  memberStorageHandle,
   outboundNetworkOf,
   repoOf,
   routes,
@@ -56,6 +57,7 @@ import {
   sessionFolderAccess,
   sessionSandbox,
   usesWorktree,
+  withReaderDenials,
   withSessionFolders,
 } from './session-policy';
 import { aiActor, newId, newUuid, SYSTEM_ACTOR } from '../../kernel';
@@ -288,6 +290,8 @@ export class SessionLauncher {
     let cwd = workspaceRoot;
     let branch: string | null = null;
     let additionalDirectories: string[] | undefined;
+    // The shared git directories a reader's checkouts point to (PM-425): it reads them beside the checkout.
+    const readerGitDirs: string[] = [];
     // The repository the task's work happens in: its own, else the project's only one (see
     // `effectiveRepo`). Without one the session runs in the workspace root: a project without
     // repositories, or a role that only reads (the ones that change files were refused above).
@@ -375,7 +379,10 @@ export class SessionLauncher {
           repoName,
           taskKey: task.key,
         });
-        if (found) additionalDirectories = [found.path];
+        if (found) {
+          additionalDirectories = [found.path];
+          if (found.gitDir) readerGitDirs.push(found.gitDir);
+        }
       } catch (err) {
         this.ctx.logger.warn({ err, taskKey: task.key }, 'could not find the task worktree for review');
       }
@@ -440,36 +447,39 @@ export class SessionLauncher {
     // CLI itself still uses them otherwise). Every other provider closes them: its CLI does not.
     const claudeTmpRoots = paths.claudeTmpRoots;
     const claudeOwnTmp = provider === 'claude' && !!folders?.tmpRoot;
-    const policy = buildSessionPolicy({
-      config,
-      role: member.role,
-      member: member.handle,
-      task,
-      permissionMode,
-      deniedPaths: [
-        ...sensitivePaths({ userHome, appHome }),
-        ...(provider !== 'claude' || claudeOwnTmp ? claudeTmpRoots : []),
-      ],
-      outboundNetwork: outboundNetworkOf(member),
-      placement: ws
-        ? ws.placement
-        : placed
-          ? {
-              kind: 'task_worktree',
-              ...(mergeFix ? { mergeFix: { branch: branch! } } : {}),
-              path: cwd,
-              ...(placed.gitDir ? { gitDir: placed.gitDir } : {}),
-              ...(placed.worktreeGitDir ? { worktreeGitDir: placed.worktreeGitDir } : {}),
-            }
-          : ({ kind: 'read_only', path: cwd } satisfies SessionPolicy['placement']),
-      readableRoots: additionalDirectories,
-      ...(attachmentDirs.length > 0 ? { readOnlyPaths: attachmentDirs } : {}),
-      ...(guestOf !== undefined ? { teamToolsOnly: true } : {}),
-    });
+    const policy = withReaderDenials(
+      buildSessionPolicy({
+        config,
+        role: member.role,
+        member: member.handle,
+        task,
+        permissionMode,
+        deniedPaths: [
+          ...sensitivePaths({ userHome, appHome }),
+          ...(provider !== 'claude' || claudeOwnTmp ? claudeTmpRoots : []),
+        ],
+        outboundNetwork: outboundNetworkOf(member),
+        placement: ws
+          ? ws.placement
+          : placed
+            ? {
+                kind: 'task_worktree',
+                ...(mergeFix ? { mergeFix: { branch: branch! } } : {}),
+                path: cwd,
+                ...(placed.gitDir ? { gitDir: placed.gitDir } : {}),
+                ...(placed.worktreeGitDir ? { worktreeGitDir: placed.worktreeGitDir } : {}),
+              }
+            : ({ kind: 'read_only', path: cwd } satisfies SessionPolicy['placement']),
+        readableRoots: additionalDirectories,
+        ...(attachmentDirs.length > 0 ? { readOnlyPaths: attachmentDirs } : {}),
+        ...(guestOf !== undefined ? { teamToolsOnly: true } : {}),
+      }),
+      userHome,
+    );
     // A developer's npm cache and development data live in its own directory (PM-193).
     const memberDir =
       policy.access === 'task_worktree' && appHome
-        ? await this.prepareMemberSandboxDir(engine, appHome, projectKey, member.handle)
+        ? await this.prepareMemberSandboxDir(engine, appHome, projectKey, memberStorageHandle(member))
         : undefined;
     const excludesFile = paths.gitExcludesFile;
     // A session of the legacy profile gets its own folder (`sessionFolderAccess`, PM-268, PM-339,
@@ -500,6 +510,7 @@ export class SessionLauncher {
       ...(repoName ? { defaultBranch: repoOf(config, repoName)?.defaultBranch } : {}),
       ...(memberDir ? { memberDir } : {}),
       ...(excludesFile ? { excludesFile } : {}),
+      ...(readerGitDirs.length > 0 ? { gitDirs: readerGitDirs } : {}),
       github: Boolean(repoOf(config, effectiveRepo(config, task))?.github),
       // A reader changes no checkout of the project or the installation (PM-188).
       readerDenyWrite: [
@@ -518,7 +529,9 @@ export class SessionLauncher {
     const sessionFolder = sandbox?.env?.[SESSION_DIR_VARIABLE];
     // A team-tools-only guest conversation gets no session folder rules: it reads no file at all.
     const startPolicy = withSessionFolders(
-      policy,
+      sandbox?.portable?.readBoundary
+        ? { ...policy, filesystem: { ...policy.filesystem, readBoundary: sandbox.portable.readBoundary } }
+        : policy,
       sessionFolder && folders && guestOf === undefined
         ? { own: sessionFolder, root: folders.root }
         : undefined,

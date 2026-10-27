@@ -20,8 +20,8 @@ const now = '2026-09-29T10:00:00.000Z';
 describe('legacy task check migration', () => {
   function legacyTask(checks: string, labels: string[]) {
     const db = new Database(':memory:');
-    for (const migration of migrations.filter((item) => item.version <= 112)) db.exec(migration.sql);
-    db.pragma('user_version = 112');
+    for (const migration of migrations.filter((item) => item.version <= 113)) db.exec(migration.sql);
+    db.pragma('user_version = 113');
     const repos = createRepositories(db);
     repos.projects.insert({
       key: 'AR',

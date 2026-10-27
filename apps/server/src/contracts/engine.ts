@@ -182,7 +182,14 @@ export interface MergeBaseState {
 
 export type MergeBuildResult =
   | { ok: true; mergeCommit: string; changed: string[] } // paths differing between onto and mergeCommit, at most 1000
-  | { ok: false; conflict: string[] }; // sorted, at most 50
+  // sorted, at most 50. provisional (PM-1050): a merge commit (parents onto, commit) without the conflicting
+  // files; only when the caller gave `regenerate` and every conflicting path matches it.
+  | { ok: false; conflict: string[]; provisional?: string };
+
+/** The result of `BranchMerger.commitRegenerated` (PM-1050); `paths` are at most 50. */
+export type MergeRegeneratedResult =
+  | { ok: true; mergeCommit: string; changed: string[] } // changed: at most 1000
+  | { ok: false; reason: 'outside' | 'missing' | 'not_regular' | 'too_many'; paths: string[] };
 
 export type MergePushResult =
   { ok: true } | { ok: false; reason: 'non_fast_forward' | 'rejected' | 'unreachable'; message: string };
@@ -259,11 +266,34 @@ export interface BranchMerger {
   prepare(ref: MergeRepoRef, input: { base: string; commit: string }): Promise<MergeBaseState>;
   /** Whether `ancestor` is reachable from `commit`; null when either is unknown here. */
   isAncestor(ref: MergeRepoRef, input: { ancestor: string; commit: string }): Promise<boolean | null>;
-  /** The merge commit of `commit` onto `onto` (parents: onto, commit); no ref, index or working tree is touched. */
+  /**
+   * The merge commit of `commit` onto `onto` (parents: onto, commit); no ref, index or working tree is touched.
+   * `regenerate` (PM-1050): glob patterns of generated files; a conflict only on those gets a `provisional` commit.
+   */
   build(
     ref: MergeRepoRef,
-    input: { onto: string; commit: string; message: string },
+    input: { onto: string; commit: string; message: string; regenerate?: string[] },
   ): Promise<MergeBuildResult>;
+  /**
+   * The merge commit of a conflict whose generated files were made again in the check checkout of `mergeId`
+   * (PM-1050): the checkout's HEAD is the provisional commit (parents exactly onto, commit). The regenerating
+   * run could write only the literal directories of `patterns`; the engine moves them out of the checkout
+   * and takes, from the moved copy only, the files in `paths` and any other changed, new or deleted file
+   * matching `patterns`, nothing outside them: a change outside is `outside`, a path not rewritten
+   * `missing`, a file that is not a regular unlinked file under 1 MiB `not_regular`, more than 200 changes
+   * or too much to read `too_many`. No ref is touched.
+   */
+  commitRegenerated(
+    ref: MergeRepoRef,
+    input: {
+      mergeId: string;
+      onto: string;
+      commit: string;
+      message: string;
+      paths: string[];
+      patterns: string[];
+    },
+  ): Promise<MergeRegeneratedResult>;
   /** Uncommitted paths of the default branch's checkout that `changed` also touches; [] when it is not checked out. */
   checkoutConflicts(ref: MergeRepoRef, input: { base: string; changed: string[] }): Promise<string[]>;
   /** A detached worktree of `mergeCommit` for the check. `depsFrom` is the preferred source;

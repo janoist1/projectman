@@ -642,6 +642,21 @@ describe('engine process', () => {
       expect((await post()).status).toBe(502);
     });
 
+    it('logs where a handshake stops: the method and status, never the token or the body', async () => {
+      let status = 200;
+      cloud.handle('mcp.relay', () => ({ status, contentType: 'application/json', body: '{}' }));
+      await startEngine();
+      await cloud.connected();
+      await post();
+      status = 404;
+      await post();
+      const lines = logLines.filter((line) => line.includes('team MCP relay'));
+      expect(lines).toHaveLength(2);
+      expect(JSON.parse(lines[0]!)).toMatchObject({ level: 30, rpc: 'tools/list', status: 200 });
+      expect(JSON.parse(lines[1]!)).toMatchObject({ level: 40, rpc: 'tools/list', status: 404 });
+      expect(lines.join('\n')).not.toMatch(new RegExp(`${TOKEN}|SECRET-BODY-TEXT`));
+    });
+
     it('answers GET and DELETE with 405 and allow: POST', async () => {
       await startEngine();
       await cloud.connected();

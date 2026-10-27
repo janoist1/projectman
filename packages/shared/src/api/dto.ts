@@ -138,6 +138,7 @@ export const OperatorAction = z.enum([
   'member_change',
   'member_hire',
   'member_retire',
+  'member_rename',
   'config_revert',
   'session_stop',
   'project_pause',
@@ -633,8 +634,14 @@ export const MemberView = z.object({
   outboundNetwork: z.boolean().optional(),
   /** AI members only: the effective machine access (`machineAccessOf`, decision 66); missing (an older server): off. */
   machineAccess: z.boolean().optional(),
+  /** AI members only: the earlier handles, the oldest first (PM-1025); omitted: never renamed. */
+  formerHandles: z.array(MemberHandle).optional(),
 });
 export type MemberView = z.infer<typeof MemberView>;
+
+/** Renames an AI member (PM-1025): the new handle. Owner only. */
+export const RenameMemberRequest = z.strictObject({ handle: MemberHandle });
+export type RenameMemberRequest = z.infer<typeof RenameMemberRequest>;
 
 /** Adds an unclaimed human seat, without an account or invitation. */
 export const AddHumanMemberRequest = z.object({
@@ -740,6 +747,8 @@ export const OperatorOperation = z.discriminatedUnion('op', [
   z.strictObject({ op: z.literal('member_update'), handle: MemberHandle, changes: OperatorMemberChanges }),
   z.strictObject({ op: z.literal('member_hire'), request: HireMemberRequest }),
   z.strictObject({ op: z.literal('member_retire'), handle: MemberHandle }),
+  /** Renames an AI member's handle (PM-1025); `to` is the new handle. */
+  z.strictObject({ op: z.literal('member_rename'), handle: MemberHandle, to: MemberHandle }),
   z.strictObject({ op: z.literal('config_revert'), version: z.string() }),
   z.strictObject({ op: z.literal('session_stop'), sessionId: z.string() }),
   z.strictObject({ op: z.literal('project_pause'), reason: PauseRequest.shape.reason }),
@@ -868,6 +877,7 @@ export const OperatorConsequence = z.enum([
   'labels',
   'member_hire',
   'member_retire',
+  'member_rename',
   'member_other',
   'locations',
   'review_test',

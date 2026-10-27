@@ -167,27 +167,39 @@ export function emailMailboxOf(member: AiMemberConfig): string {
   return member.email?.mailbox ?? member.handle;
 }
 
-/** The AI members whose own address is live (channel on, member allowed to send) under this mailbox name. */
+/**
+ * The AI members whose own address is live (channel on, member allowed to send) under this mailbox name.
+ * The members that were once renamed from the name answer for it too (PM-1025), so a reply to a letter
+ * sent from the old address still arrives; with more than one owner the name is shared and its mail parks,
+ * as it would had nobody been renamed.
+ */
 export function emailMailboxOwners(
   configs: readonly ProjectConfig[],
   mailbox: string,
 ): { projectKey: string; handle: string }[] {
-  return configs.flatMap((config) =>
-    emailChannelOn(config)
-      ? config.team.members
-          .filter(
-            (member): member is AiMemberConfig =>
-              member.kind === 'ai' &&
-              !!emailSenderOf(config, member.handle) &&
-              emailMailboxOf(member) === mailbox,
-          )
-          .map((member) => ({ projectKey: config.project.key, handle: member.handle }))
-      : [],
+  const owners = (named: (member: AiMemberConfig) => boolean) =>
+    configs.flatMap((config) =>
+      emailChannelOn(config)
+        ? config.team.members
+            .filter(
+              (member): member is AiMemberConfig =>
+                member.kind === 'ai' && !!emailSenderOf(config, member.handle) && named(member),
+            )
+            .map((member) => ({ projectKey: config.project.key, handle: member.handle }))
+        : [],
+    );
+  const live = owners((member) => emailMailboxOf(member) === mailbox);
+  const former = owners((member) => member.formerHandles?.includes(mailbox) === true).filter(
+    (owner) => !live.some((o) => o.projectKey === owner.projectKey && o.handle === owner.handle),
   );
+  return [...live, ...former];
 }
 
-/** Whether another AI member, in any project and switches aside, already has this mailbox name. */
-export function emailMailboxTaken(
+/**
+ * Whether another AI member, in any project and switches aside, was once renamed from this mailbox name
+ * (PM-1025): the name stays that member's, so a reply to its old address never lands with someone else.
+ */
+export function emailMailboxReserved(
   configs: readonly ProjectConfig[],
   projectKey: string,
   handle: string,
@@ -198,8 +210,28 @@ export function emailMailboxTaken(
       (member) =>
         member.kind === 'ai' &&
         !(config.project.key === projectKey && member.handle === handle) &&
-        emailMailboxOf(member) === mailbox,
+        member.formerHandles?.includes(mailbox) === true,
     ),
+  );
+}
+
+/** Whether another AI member, in any project and switches aside, already has this mailbox name, live or reserved. */
+export function emailMailboxTaken(
+  configs: readonly ProjectConfig[],
+  projectKey: string,
+  handle: string,
+  mailbox: string,
+): boolean {
+  return (
+    emailMailboxReserved(configs, projectKey, handle, mailbox) ||
+    configs.some((config) =>
+      config.team.members.some(
+        (member) =>
+          member.kind === 'ai' &&
+          !(config.project.key === projectKey && member.handle === handle) &&
+          emailMailboxOf(member) === mailbox,
+      ),
+    )
   );
 }
 

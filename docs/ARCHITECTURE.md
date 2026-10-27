@@ -67,7 +67,19 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   (`memberStorageHandle`, PM-1024): the first of its `formerHandles` (earlier handles, oldest
   first, written by a rename), else the current handle. Renaming a member therefore moves
   nothing on disk, and the agent's conversations keep their working directory. The task and
-  session comparisons (assignee, `session.member`, bindings) use the current handle. Humans have an **access level** (`owner`, `admin`, `developer`, `client`,
+  session comparisons (assignee, `session.member`, bindings) use the current handle.
+  **Renaming an AI member** (PM-1025) is an owner-only operation (REST `POST
+/api/projects/:key/members/:handle/rename`, the Operator's `member_rename` with an approval):
+  `MemberService.rename` holds the member's starts (`StartHolds`, `member_renaming`), refuses with
+  `member_session_live` while a session, a held workspace reservation, a `processing` queue item or
+  a deferred start of the member exists, and commits one configuration change carrying
+  `renames: {from: to}`. In that commit the configuration listeners see the previous configuration
+  with the rename applied (so nothing is retired or hired), the handle columns of the database are
+  rewritten in the same step (`apps/server/src/db/member-handles.ts`, `REWRITTEN_HANDLE_COLUMNS`),
+  and a `member_renamed {from, to, version}` event is appended. The timeline's earlier events keep
+  the old handle; viewers and the agents' text resolve it through `formerHandles` (the **alias**: a
+  message to the old handle reaches the member, the context pack lists "formerly `x`"). The e-mail
+  mailbox follows the new handle (see "E-mail"). Humans have an **access level** (`owner`, `admin`, `developer`, `client`,
   `viewer`) that governs what they may do in the app, and may hold several roles. An AI
   member holds exactly one role and has a provider (`claude` or `codex`), a model and effort,
   an optional **cheap subagent** (PM-179: a Claude Code member's sessions get a `reader-<model>`
@@ -518,7 +530,9 @@ Enforced on every configuration change, whoever makes it
 (`packages/shared/src/config/invariants.ts`; the changes only an owner may make are in
 `packages/shared/src/config/owner-only.ts`):
 
-- handles are unique; at least one human owner exists; AI sponsors are humans;
+- handles are unique, and a handle once used is never reissued: the `formerHandles` of every AI
+  member and the `from` of every `member_renamed` event stay taken (PM-1025); at least one human
+  owner exists; AI sponsors are humans;
 - repository names, board column ids, stage ids and label ids are unique;
 - stage owners and members named by labels refer to existing members; every role a member
   holds exists and suits the kind of member; custom role ids are unique and never reuse a
@@ -949,6 +963,15 @@ two minutes, kept as hashes) and `feedback_sessions` (the tool's sessions on cus
 hashes); `member_queue_items` (PM-894, migration 98: one row per item in an AI member's queue, see "Member
 queue"; not journaled); `sessions.execution_profile` (PM-141) is a column, not a table. Schema changes are numbered migrations in `apps/server/src/db/migrations.ts`;
 the server refuses a database a newer build migrated.
+
+**Handle columns (PM-1025).** Every column that stores a member handle is registered in
+`apps/server/src/db/member-handles.ts`: either rewritten by a rename (`REWRITTEN_HANDLE_COLUMNS`,
+`REWRITTEN_HANDLE_JSON`: tasks, messages, inbox, sessions, `member_state`, `member_queue_items`,
+`task_workspace_bindings`, …) or deliberately not (`UNREWRITTEN_HANDLE_COLUMNS`: the storage keys,
+e.g. `member_workspaces.member`, which hold the storage handle, and the append-only timeline). A
+guard test (`member-handles-columns.test.ts`) fails when a new handle column is in neither list.
+The rewrite is idempotent; at startup `MemberService.recoverRenames` completes a rename whose
+configuration was saved but whose database step did not run.
 
 ## Member queue (PM-894)
 
@@ -2485,7 +2508,13 @@ workers follow the machine's size.
   is the handle or `ai.email.mailbox`, unique server-wide). The mail lands in the member's conversation as a
   reply linked by MIME headers when answering a member's mail (PM-1018), otherwise as a direct
   team message, and its attachments go through the message-attachments storage on the hub, so nothing new
-  crosses to an engine.
+  crosses to an engine. **Rename (PM-1025):** a rename deletes `ai.email.mailbox`, so the address becomes
+  `<new handle>@<reply domain>` (it is refused with `email_mailbox_taken` when that mailbox is another
+  member's). Mail to the old address still arrives: `emailMailboxOwners` also matches the `formerHandles`
+  of an AI member, so the old name resolves to the same member; a live holder of the same name does not
+  win over it but shares it, and the existing shared-name branch parks the mail. The old name stays reserved
+  in every project (`emailMailboxReserved`): no chosen mailbox, e-mail switch-on or rename may take it.
+  No new boundary: it is the same hub-only rule.
 
 - **Feedback widget public entrance and screenshot store (PM-506, PM-508)** —
   `apps/server/src/services/feedback/{service,screenshots,notices,widget}.ts`, `apps/server/src/api/feedback.ts`,
@@ -3686,13 +3715,19 @@ assumption or remote-engine RPC.
   PM-311). CLI hooks and MCP target the server's loopback URL (`127.0.0.1:4800` for the live
   instance; the port is configurable). The internal guard also checks the peer, Host and
   forwarding/origin headers; merely changing the URL to a public server cannot work.
-  **Codex catalog readiness (PM-1055):** `runner/providers/codex/args.ts` marks `team` as
-  required and disables the optional MCP startup grace (Codex 0.159.1 otherwise waits only
-  one second for an optional server's initial catalog). Its startup timeout is 20 seconds,
-  below the runner's 30-second stalled-start indication. This applies to new and resumed
-  Codex and NanoGPT sessions. **Remote engine:** these CLI settings run on the engine;
-  the existing token-bound loopback relay supplies the catalog. No new data crosses the
-  boundary and authentication is unchanged.
+  **Codex team server stays optional (PM-1070):** `runner/providers/codex/args.ts` passes
+  `mcp_servers.team` with only its `url` and tool approvals. PM-1055 had set
+  `required = true`, a 20-second startup timeout and `mcp_optional_startup_grace_ms = 0`;
+  from that deploy every Codex session exited at start ("agent CLI exited before it was
+  ready"), so it was reverted. A failing team MCP must cost the tools, not the session.
+  The root cause of the team MCP start failure is investigated separately.
+  **Remote engine:** unchanged; the token-bound loopback relay supplies the catalog.
+  **Team MCP relay log (PM-1072):** the engine logs each `initialize` and `tools/list` relay
+  (method, status, elapsed time) at info, and every refused (non-2xx), failed or badly
+  answered relay at warn; the cloud logs why it refused a relayed token. Neither logs the
+  token or the body. A Codex session without team tools therefore shows in the engine log
+  where its handshake stopped (no call, a slow one, a refusal); the cause of the intermittent
+  missing tools was not yet reproduced with a real Codex run.
   Submission timeouts (PM-442) log retry count, elapsed time, command/idle state and bounded
   CLI diagnostics from `runner/input-queue.ts` and `runner/session.ts`: prompt/resume flags,
   the last hook name/time, blocking-screen detection and at most 500 characters from the last

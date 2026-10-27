@@ -503,3 +503,15 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     rendszergazda és magától nem csinál sokat, legalábbis minden ticket szabály stb stb azt a
     pm-nek kéne. az operátor segít nekem fejleszteni, hibás vagy hiányzó funkcionalitást
     áthidalni, svájci bicska”.
+66. **No Operator; a connected Claude acts for its person or for a member.** Decided by the
+    owner on 2026-10-27; refines decision 65. There is no separate Operator actor. Members do
+    the project's work; a member may get "machine access" (the name is not final), which lets
+    it put machine tasks (installs, setup) into its owner's queue. Any person may connect their
+    own Claude (Claude Desktop or Claude Code) with their own key: it works the queue of their
+    projects, in the issuing member's name, and on its person's direct instruction in that
+    person's name, with that person's rights. The board's owner has global rights, so their
+    connected Claude reaches every project and the server (deploy, infrastructure). The
+    timeline shows who acted, through which connected Claude, and who approved. The owner's
+    words: „az Op az kizárólag az enyém”, „nem lenne jobb annak, aki kiadta? pl devops?” and,
+    on dropping the word Operator for one notion of a connected Claude: „rendben, ez így
+    sokkal tisztább. én is hajlok a B-re.”

@@ -133,7 +133,7 @@ describe('integrator key and involvement audit', () => {
   it('refuses approvals but accepts a forwarded answer with its integrator attribution', async () => {
     const { secret } = await key();
     const headers = { authorization: `Bearer ${secret}` };
-    for (const kind of ['decision', 'permission', 'approval', 'boundary'] as const) {
+    for (const kind of ['decision', 'permission', 'approval'] as const) {
       const item = h.app.projectman.domain.inbox.create({
         projectKey: 'AR',
         kind,
@@ -165,16 +165,6 @@ describe('integrator key and involvement audit', () => {
         ).toBe(200);
       }
     }
-    expect(
-      (
-        await h.app.inject({
-          method: 'POST',
-          url: routes.decideBoundary('AR', 'bnd_unavailable'),
-          headers,
-          payload: {},
-        })
-      ).statusCode,
-    ).toBe(403);
     const question = h.app.projectman.domain.inbox.create({
       projectKey: 'AR',
       kind: 'question',

@@ -15,7 +15,6 @@ import { createOperatorGrantRepository } from './operator-grants';
 import { createSuperAuditRepository } from './super-audit';
 import { createSuperHandoffRepository } from './super-handoffs';
 export type { StoredSuperHandoff, StoredSuperOperation } from './super-handoffs';
-import { createBoundaryRepository } from './boundary';
 import { createFeedbackRepository } from './feedback';
 import { createSystemFeedbackRepository } from './system-feedback';
 export type { SystemFeedbackItemRecord } from './system-feedback';
@@ -160,7 +159,6 @@ export function createRepositories(db: Db) {
     messages: createMessageRepository(db),
     memberQueue: createMemberQueueRepository(db),
     inbox: createInboxRepository(db),
-    boundary: createBoundaryRepository(db),
     memberState: createMemberStateRepository(db),
     memberHandles: createMemberHandleRepository(db),
     feedback: createFeedbackRepository(db),

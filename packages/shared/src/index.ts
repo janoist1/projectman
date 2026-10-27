@@ -44,7 +44,6 @@ export * from './domain/merge-input';
 export * from './domain/merge-test';
 export * from './domain/release';
 export * from './domain/work-map';
-export * from './domain/boundary';
 export * from './domain/permission-category';
 export * from './domain/permission-delegation';
 export * from './domain/handoff';

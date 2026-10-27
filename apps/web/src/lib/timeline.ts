@@ -1,7 +1,5 @@
 import {
-  BoundaryAuditReason,
   FixLimitAssessment,
-  BoundaryState,
   ReleaseFailure,
   ReleaseState,
   FullTestErrorReason,
@@ -455,11 +453,12 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
           return normal(t(`${key}.unknown`, { commit }));
       }
     }
+    // Kept for the events recorded before the external operation requests were removed (PM-1035).
     case 'boundary_changed': {
-      const state = BoundaryState.safeParse(d.state);
-      const reason = BoundaryAuditReason.safeParse(d.reason);
+      const state = str(d.state);
+      const reason = str(d.reason);
       return {
-        text: `${t('boundary.heading')}: ${str(d.resource)} · ${state.success ? t(`boundary.states.${state.data}`) : str(d.state)}${reason.success ? ` · ${t(`boundary.reasons.${reason.data}`)}` : ''}`,
+        text: `${t('boundary.heading')}: ${str(d.resource)} · ${tDynamic(`boundary.states.${state}`, state)}${reason ? ` · ${tDynamic(`boundary.reasons.${reason}`, reason)}` : ''}`,
         emphasis: ctx.openInboxIds.has(str(d.requestId)) ? 'needs' : 'normal',
       };
     }

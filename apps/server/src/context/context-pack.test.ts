@@ -1487,7 +1487,7 @@ describe('system prompt', () => {
       expect(pm).toContain('(the system picks the member)');
       expect(pm).toContain("Never do another role's work: no code, no requirement, no plan, no review.");
       expect(pm).toContain('Only propose what needs the owner: stopping a session');
-      expect(pm).toContain('never decide permission or boundary requests, never release');
+      expect(pm).toContain('never decide permission requests, never release');
       const guide = builder.build(input({ project, handle: 'pm' })).guide.role;
       expect(guide).toContain(
         "A person's message on a card's conversation comes to you when nobody else is on the card",

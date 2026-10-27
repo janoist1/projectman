@@ -103,8 +103,6 @@ export function pushCategoryOf(item: InboxItem): PushCategory | null {
     case 'hand_on':
     case 'merge_request':
       return 'decision';
-    case 'boundary':
-      return 'permission';
     default:
       return item.kind;
   }

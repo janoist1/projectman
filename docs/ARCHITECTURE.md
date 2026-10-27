@@ -97,13 +97,12 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   receives and its tool policy. A **role** is a named bundle of duties: 21 built-in roles with
   default bundles (`team.roleOverrides` replaces one) and custom roles defined in `team.yaml`.
   Release approval and final decision are human-only.
-- **External operation requests** — a protected adapter supplies exact, credential-free target
-  metadata for an opaque operation id. The server derives owner exceptions and routes other
-  requests to independent holders of `boundary_authorization` (the `lead_developer` bundle),
-  when the owner enables delegation. A persisted lead deadline escalates to owners, never
-  automatically allows; requests/grants and attributed audit survive restart. CLI permission
-  hooks and human gate/release decisions stay separate. See [BOUNDARY.md](BOUNDARY.md) for the
-  contracts, adapter integration and single-operation grant consumption.
+- **Permission request delegation** — when the owner enables `team.boundary`, the server routes
+  a permission request to independent holders of the `boundary_authorization` duty (the
+  `lead_developer` bundle) unless it is an owner exception. A persisted lead deadline escalates
+  to owners, never automatically allows. Human gate/release decisions stay separate. The
+  external operation requests and grants (PM-1035, PM-1019 B1) are removed: no adapter was ever
+  wired in.
 - **Pipeline** — ordered **stages** grouped into **board columns**. A stage has a kind:
   `queue` (waiting to start), `work` (the assignee builds it), `step` (the owners do one thing
   — review, deploy, test, client test, merge — as the stage's duty says, and record the result
@@ -722,7 +721,6 @@ construction order; the factories return the existing classes without changing b
 | `services/obligations`                            | Open-step deadlines, one reminder and one integrator todo (PM-806).         |
 | `services/feedback`                               | Feedback marks, screenshots and widget sessions.                            |
 | `services/project-docs`                           | Operator document writes and decision candidates.                           |
-| `services/boundary`                               | External operation authorization and boundary requests.                     |
 | `services/schedules`                              | Scheduled member work.                                                      |
 | `services/operator`                               | Operator actions, signals, requests and project management.                 |
 | `runner`                                          | Provider CLIs, PTYs, permission waits, transcripts, usage probes and trust. |
@@ -881,8 +879,8 @@ The programs, their files and facades, the pinned version and the rules are in
   rules; health, machine and outage watchers; provider usage, quota and managed keys.
 - `context/` — context packs, prompts, kick-off briefs and member memory.
 - `services/` — merges, full tests and screenshots, releases, GitHub synchronization and
-  publishing, feedback and widget sessions, project documents, boundary requests, schedules
-  and Operator actions (the nine service modules).
+  publishing, feedback and widget sessions, project documents, schedules
+  and Operator actions (the eight service modules).
 - `runner/` — provider CLIs and PTYs, the input queue, session clocks, permission gate,
   hooks and their forwarder, transcripts, provider usage probes, trust and login checks.
 - `worktree/` — task worktrees and branches, member workspaces and dependency refresh.
@@ -1177,8 +1175,8 @@ at)`, index `(project_key, seq)` (migration 81). `seq` never goes back, also not
   focus items) name the card key in kind `task` (a link names the card's project through the card, a
   card removed by a cascade is announced by its own row); `timeline_events`, `team_messages`,
   `message_attachments`, the inbox and its question groups, `task_handoffs`, the operator requests and
-  their steps (the step names its request and the request's project), the super-operation audit, boundary
-  requests, merges, merge trains, releases and doc writes have their own kinds; a pause of the whole
+  their steps (the step names its request and the request's project), the super-operation audit,
+  merges, merge trains, releases and doc writes have their own kinds; a pause of the whole
   instance is written for every project. `UNJOURNALED_TABLES` names every other table with the reason
   (credentials, login, usage, machine-local bookkeeping, Operator bookkeeping, the journal itself).
   `test/project-change-journal.test.ts` fails when a table is in neither list, in both, or a name is
@@ -3709,6 +3707,13 @@ assumption or remote-engine RPC.
   PM-311). CLI hooks and MCP target the server's loopback URL (`127.0.0.1:4800` for the live
   instance; the port is configurable). The internal guard also checks the peer, Host and
   forwarding/origin headers; merely changing the URL to a public server cannot work.
+  **Codex catalog readiness (PM-1055):** `runner/providers/codex/args.ts` marks `team` as
+  required and disables the optional MCP startup grace (Codex 0.159.1 otherwise waits only
+  one second for an optional server's initial catalog). Its startup timeout is 20 seconds,
+  below the runner's 30-second stalled-start indication. This applies to new and resumed
+  Codex and NanoGPT sessions. **Remote engine:** these CLI settings run on the engine;
+  the existing token-bound loopback relay supplies the catalog. No new data crosses the
+  boundary and authentication is unchanged.
   Submission timeouts (PM-442) log retry count, elapsed time, command/idle state and bounded
   CLI diagnostics from `runner/input-queue.ts` and `runner/session.ts`: prompt/resume flags,
   the last hook name/time, blocking-screen detection and at most 500 characters from the last

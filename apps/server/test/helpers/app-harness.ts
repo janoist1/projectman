@@ -10,7 +10,6 @@ import type { HumanAccess, ProjectConfig } from '@projectman/shared';
 import { buildApp } from '../../src/app';
 import { withoutOnboarding } from './onboarding';
 import type { AppModules, BuildAppOptions } from '../../src/app';
-import type { BoundaryOperationAdapter } from '../../src/contracts';
 import { createTemplateRegistry } from '../../src/core/base';
 import { bindSuperPrincipal, projectAccessFor } from '../../src/core/members';
 import type { ProjectAccess } from '../../src/core/members';
@@ -41,7 +40,6 @@ export const OWNER_LOGIN = { name: 'Owner', email: 'owner@example.com', password
 
 export interface AppHarnessOptions {
   nanogptKeyCheck?: AppModules['nanogptKeyCheck'];
-  boundaryAdapter?: BoundaryOperationAdapter;
   webDistDir?: string;
   now?: () => Date;
   scheduleTimer?: ScheduleTimer;
@@ -155,7 +153,6 @@ export async function createAppHarness(
   const real = opts.real ?? {};
   const modules: AppModules = {
     nanogptKeyCheck: opts.nanogptKeyCheck,
-    boundaryAdapter: opts.boundaryAdapter,
     createRunnerModule: (o) => runnerModule.create(o),
     createMcpModule: real.mcp ? undefined : (o) => mcp.create(o),
     github,

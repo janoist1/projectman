@@ -46,15 +46,6 @@ export function createIntegratorKeyRepository(db: Db) {
     return { ...row, revoked_at: row.revoked_at ?? at };
   };
   return {
-    /** The singular API remains a view of the legacy key only. */
-    latest(userId: string, now: string): IntegratorKeyInfo | null {
-      const row = db
-        .prepare(
-          "SELECT * FROM integrator_keys WHERE user_id = ? AND mode = 'legacy' ORDER BY rowid DESC LIMIT 1",
-        )
-        .get(userId) as KeyRow | undefined;
-      return row ? info(row, now) : null;
-    },
     list(userId: string, now: string): IntegratorAccessKeyInfo[] {
       return (
         db
@@ -69,10 +60,10 @@ export function createIntegratorKeyRepository(db: Db) {
       hash: string;
       at: string;
       expiresAt: string | null;
-      mode?: IntegratorKeyMode;
+      mode: 'super' | 'read';
     }): IntegratorAccessKeyInfo {
       return db.transaction(() => {
-        const mode = input.mode ?? 'legacy';
+        const mode = input.mode;
         const previous = db
           .prepare('SELECT * FROM integrator_keys WHERE user_id = ? AND mode = ? AND revoked_at IS NULL')
           .get(input.userId, mode) as KeyRow | undefined;
@@ -83,17 +74,6 @@ export function createIntegratorKeyRepository(db: Db) {
         const row = db.prepare('SELECT * FROM integrator_keys WHERE id = ?').get(input.id) as KeyRow;
         record(row, 'created', input.at);
         return accessInfo(row, input.at);
-      })();
-    },
-    revoke(userId: string, at: string): IntegratorKeyInfo | null {
-      return db.transaction(() => {
-        const row = db
-          .prepare(
-            `SELECT * FROM integrator_keys WHERE user_id = ? AND mode = 'legacy'
-           AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?)`,
-          )
-          .get(userId, at) as KeyRow | undefined;
-        return row ? info(revokeRow(row, at), at) : null;
       })();
     },
     revokeById(userId: string, id: string, at: string): IntegratorAccessKeyInfo | null {

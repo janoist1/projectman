@@ -2325,4 +2325,15 @@ migrations.push({
   DELETE FROM inbox_items WHERE kind = 'boundary';
   DELETE FROM member_queue_items WHERE kind = 'boundary' OR source_type = 'boundary';`,
 });
+migrations.push({
+  version: 114,
+  name: 'revoke legacy integrator keys',
+  sql: `INSERT INTO integrator_key_audit (key_id, owner_user_id, action, prefix, mode, at)
+    SELECT id, user_id, 'revoked', prefix, mode, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+    FROM integrator_keys WHERE mode = 'legacy' AND revoked_at IS NULL;
+  UPDATE integrator_keys SET revoked_at = (
+    SELECT at FROM integrator_key_audit WHERE key_id = integrator_keys.id AND action = 'revoked'
+    ORDER BY seq DESC LIMIT 1
+  ) WHERE mode = 'legacy' AND revoked_at IS NULL;`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

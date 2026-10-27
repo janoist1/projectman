@@ -154,20 +154,17 @@ export class ExternalTools implements ExternalToolsHandler {
     if (operation === 'write' && principal.mode === 'read')
       throw forbidden('integrator_read_only', 'a read-only credential cannot change anything');
     const owner = await this.owned(principal, projectKey);
-    const access =
-      principal.mode === 'legacy'
-        ? ({ ...owner, via: 'integrator' } satisfies ProjectAccess)
-        : await this.deps.superOperator.access(
-            { principal, email: this.holder(principal), requestId },
-            owner,
-            operation,
-          );
+    const access = await this.deps.superOperator.access(
+      { principal, email: this.holder(principal), requestId },
+      owner,
+      operation,
+    );
     const ctx: ExternalToolContext = { principal, projectKey, actor: attributedActor(access), requestId };
     this.accesses.set(ctx, access);
     return ctx;
   }
 
-  /** The tool calls run inside `execute`: the key, the audit and the project bound; a legacy key has no scope (as in REST). */
+  /** The tool calls run inside `execute`: the key, the audit and the project bound. */
   backend(): ExternalMcpBackend {
     return {
       handler: this,
@@ -175,7 +172,6 @@ export class ExternalTools implements ExternalToolsHandler {
       execute: async (context, target, run) => {
         const { principal } = context;
         await this.owned(principal, target.projectKey);
-        if (principal.mode === 'legacy') return run();
         return this.deps.superOperator.execute(
           { principal, email: this.holder(principal), requestId: context.requestId },
           target,

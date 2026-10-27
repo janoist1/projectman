@@ -103,7 +103,7 @@ A second, separate door for the integrator's MCP client: a bearer `pmi_` key, no
   or write access, how the project and card are named) and a method on `ExternalToolsHandler`; to refuse it, give the
   reason in `EXTERNAL_DENIED` (`super-operator/registry.ts`). A test fails for a tool that is neither. Tools only the
   integrator has (`list_projects`, the super tools) are in `super-operator/tools.ts`.
-- `tools/list` is filtered by the key's mode (`super`, `read`, `legacy`); a direct call of a tool the mode does not allow gets
+- Legacy keys fail authentication with 401 (PM-1037). `tools/list` is filtered by the key's mode (`super`, `read`); a direct call of a tool the mode does not allow gets
   a domain denial (`integrator_not_allowed`, `integrator_read_only`), the domain `errorCode` is kept in the structured
   result, and super tools answer with structured JSON.
 - The tunnel and proxy pass `/mcp` and refuse `/mcp/` and `/hooks`; see [DEPLOY.md](../../../../docs/DEPLOY.md).

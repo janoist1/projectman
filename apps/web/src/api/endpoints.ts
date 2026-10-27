@@ -71,8 +71,6 @@ import {
   TeamThreadsView,
   routes,
   InvolvementsResponse,
-  IntegratorKeyResponse,
-  CreatedIntegratorKey,
 } from '@projectman/shared';
 import type {
   SetChecklistItemStateRequest,
@@ -186,15 +184,6 @@ export const api = {
     }),
   involvements: (key: string, query = '') =>
     apiRequest(routes.involvements(key) + query, { schema: InvolvementsResponse }),
-  integratorKey: () => apiRequest(routes.integratorKey(), { schema: IntegratorKeyResponse }),
-  createIntegratorKey: (expiresInDays: 30 | 90 | 365 | null) =>
-    apiRequest(routes.integratorKey(), {
-      method: 'POST',
-      body: { expiresInDays },
-      schema: CreatedIntegratorKey,
-    }),
-  revokeIntegratorKey: () =>
-    apiRequest(routes.integratorKey(), { method: 'DELETE', schema: IntegratorKeyResponse }),
   machine: (panel: boolean, signal?: AbortSignal) =>
     apiRequest(`${routes.machine()}${panel ? '?panel=1' : ''}`, { schema: MachineView, signal }),
   /** Hybrid mode (PM-316): `single` on a one-machine installation, else the engines the viewer may see. */

@@ -73,7 +73,7 @@ function config(): ProjectConfig {
 
 describe('credential operation access (PM-759)', () => {
   const operations = ['read', 'write', 'approval', 'key_management'] as const;
-  for (const mode of ['legacy', 'super', 'read'] as const) {
+  for (const mode of ['super', 'read'] as const) {
     it.each(operations)(`${mode} checks %s independently of transport`, (operation) => {
       const project = config();
       project.team.members.push({
@@ -84,11 +84,9 @@ describe('credential operation access (PM-759)', () => {
       const code =
         mode === 'read' && operation !== 'read'
           ? 'integrator_read_only'
-          : operation === 'approval' && mode === 'legacy'
-            ? 'owner_approval_required'
-            : operation === 'key_management'
-              ? 'integrator_not_allowed'
-              : null;
+          : operation === 'key_management'
+            ? 'integrator_not_allowed'
+            : null;
       expect(superAccessVerdict(project, { mode, operation, ownerMembership: true })).toEqual(
         code ? { allowed: false, code } : { allowed: true },
       );

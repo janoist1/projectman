@@ -33,7 +33,7 @@ const withoutProject = <Shape extends { project_key: z.ZodType }>(schema: { shap
 /**
  * What only the bearer endpoint offers (PM-760): the project list and the super mode's tools. They answer
  * structured JSON, so the domain's `errorCode` stays visible to the integrator, and only the super mode sees
- * them: a read or legacy key is neither offered them nor allowed to call them.
+ * them: a read key is neither offered them nor allowed to call them.
  */
 export const EXTERNAL_ONLY_TOOLS: readonly ExternalRegisteredTool[] = [
   defineProjectlessTool({

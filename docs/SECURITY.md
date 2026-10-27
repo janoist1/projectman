@@ -1107,7 +1107,7 @@ the account boundary.
   an address, a code, an IP or a provider error text.
 - **Passwordless accounts.** A first redemption creates an account with no password. It cannot use
   `/api/auth/login` (the dummy hash runs, the answer is `invalid_credentials`), holds no integrator key
-  (`resolveIntegratorKey` and the key routes refuse it) and cannot accept a non-client invitation link
+  (`resolveIntegratorCredential` and the key routes refuse it) and cannot accept a non-client invitation link
   (`invite_password_account_required`). A client with a password keeps it and may use either way.
 - **Sessions.** A successful redemption revokes the presented session and starts a new one, like the
   password login. The routes are public and same-origin only.

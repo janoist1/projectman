@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   CreateIntegratorAccessKeyRequest,
-  CreateIntegratorKeyRequest,
   IntegratorAccessKeyInfo,
   IntegratorKeyAuditQuery,
   IntegratorKeyInfo,
@@ -9,8 +8,6 @@ import {
 
 describe('integrator credential contracts', () => {
   it('keeps issuance defaults and supports long-lived and non-expiring explicit modes', () => {
-    expect(CreateIntegratorKeyRequest.parse({})).toEqual({ expiresInDays: 90 });
-    expect(CreateIntegratorKeyRequest.parse({ expiresInDays: null })).toEqual({ expiresInDays: null });
     for (const mode of ['super', 'read']) {
       expect(CreateIntegratorAccessKeyRequest.parse({ mode })).toEqual({ mode, expiresInDays: 7 });
       for (const expiresInDays of [1, 7, 30, 365, null])

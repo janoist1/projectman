@@ -274,12 +274,7 @@ describe('integrator todo REST and durable lifecycle', () => {
 
   it('keeps normal resolve and relay closed to integrator todos, and permits the owner login', async () => {
     const item = await opened();
-    for (const auth of [
-      headers(),
-      {
-        authorization: `Bearer ${h.app.projectman.auth.createIntegratorKey(h.app.projectman.repos.users.list()[0]!.id, null).secret}`,
-      },
-    ]) {
+    for (const auth of [headers()]) {
       const response = await h.app.inject({
         method: 'POST',
         url: routes.resolveInbox('AR', item.id),

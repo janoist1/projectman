@@ -273,8 +273,6 @@ export const hu = {
     superSecretTitle: 'Új Claude Code-kulcs',
     emptyHint: 'Kulcs nélkül a Claude Code nem csatlakozhat. Az Operátor nélküle is dolgozik.',
     past: 'Korábbi kulcsok ({n})',
-    legacy: 'Ezzel a kulccsal a műveletek még a te neveden látszanak. Cserélj Claude Code-kulcsra.',
-    upgrade: 'Csere Claude Code-kulcsra',
     ownerOnly: 'A kulcsokat csak a tulajdonos kezelheti, a saját bejelentkezésével.',
     today:
       'A Claude Code-kulcs ma lejár. Adj újat időben, különben a Claude Code hívásai elutasítást kapnak.',

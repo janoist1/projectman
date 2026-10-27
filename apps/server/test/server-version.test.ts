@@ -116,13 +116,10 @@ describe('server version API', () => {
     expect((await inject(h!.app, 'GET', routes.serverVersion())).statusCode).toBe(401);
   });
 
-  it.each(['legacy', 'read', 'super'] as const)('allows an integrator in %s mode', async (mode) => {
+  it.each(['read', 'super'] as const)('allows an integrator in %s mode', async (mode) => {
     const { auth, repos } = await start();
     const userId = repos.users.list()[0]!.id;
-    const key =
-      mode === 'legacy'
-        ? auth.createIntegratorKey(userId, null)
-        : auth.createIntegratorAccessKey(userId, { mode, expiresInDays: 7 });
+    const key = auth.createIntegratorAccessKey(userId, { mode, expiresInDays: 7 });
     const response = await h!.app.inject({
       method: 'GET',
       url: routes.serverVersion(),

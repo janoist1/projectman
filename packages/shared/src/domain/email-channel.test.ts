@@ -293,6 +293,15 @@ describe('email member address', () => {
     expect(emailMailboxOwners(configs, 'pm')).toEqual([{ projectKey: 'BR', handle: 'pm' }]);
     expect(emailMailboxOwners(configs, 'nobody')).toEqual([]);
   });
+  it('leads a former handle to the renamed member, unless a live name bears it', () => {
+    const renamed = AiMemberConfig.parse({ ...ai, handle: 'haini', formerHandles: ['dev'], email: { enabled: true } });
+    expect(emailMailboxOwners([configOf('AR', [renamed])], 'dev')).toEqual([
+      { projectKey: 'AR', handle: 'haini' },
+    ]);
+    expect(emailMailboxOwners([configOf('AR', [renamed, on('dev')])], 'dev')).toEqual([
+      { projectKey: 'AR', handle: 'dev' },
+    ]);
+  });
   it('reports every owner when two members share a mailbox', () => {
     const configs = [configOf('AR', [on('pm')]), configOf('BR', [on('pm')])];
     expect(emailMailboxOwners(configs, 'pm')).toHaveLength(2);

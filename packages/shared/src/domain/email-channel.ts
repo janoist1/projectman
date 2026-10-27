@@ -167,23 +167,28 @@ export function emailMailboxOf(member: AiMemberConfig): string {
   return member.email?.mailbox ?? member.handle;
 }
 
-/** The AI members whose own address is live (channel on, member allowed to send) under this mailbox name. */
+/**
+ * The AI members whose own address is live (channel on, member allowed to send) under this mailbox name.
+ * When no live address bears the name, the members that were once renamed from it answer for it
+ * (PM-1025), so a reply to a letter sent from the old address still arrives; a live name wins.
+ */
 export function emailMailboxOwners(
   configs: readonly ProjectConfig[],
   mailbox: string,
 ): { projectKey: string; handle: string }[] {
-  return configs.flatMap((config) =>
-    emailChannelOn(config)
-      ? config.team.members
-          .filter(
-            (member): member is AiMemberConfig =>
-              member.kind === 'ai' &&
-              !!emailSenderOf(config, member.handle) &&
-              emailMailboxOf(member) === mailbox,
-          )
-          .map((member) => ({ projectKey: config.project.key, handle: member.handle }))
-      : [],
-  );
+  const owners = (named: (member: AiMemberConfig) => boolean) =>
+    configs.flatMap((config) =>
+      emailChannelOn(config)
+        ? config.team.members
+            .filter(
+              (member): member is AiMemberConfig =>
+                member.kind === 'ai' && !!emailSenderOf(config, member.handle) && named(member),
+            )
+            .map((member) => ({ projectKey: config.project.key, handle: member.handle }))
+        : [],
+    );
+  const live = owners((member) => emailMailboxOf(member) === mailbox);
+  return live.length > 0 ? live : owners((member) => member.formerHandles?.includes(mailbox) === true);
 }
 
 /** Whether another AI member, in any project and switches aside, already has this mailbox name. */

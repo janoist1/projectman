@@ -16,6 +16,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SandboxManager } from '@anthropic-ai/sandbox-runtime';
 import type { WorkspaceDependencyInstaller, WorkspaceDependencyRequest } from '../contracts';
 import { silentLogger } from '../runner/test-helpers';
+import { dependencyState } from '../worktree';
 import { acquireHeavyLock, HeavyLockError, readHeavyQueue } from './heavy-lock';
 import { npmDependencyKey } from './npm-dependency-key';
 import type { SandboxedEnd, SandboxedRun } from './run-sandboxed';
@@ -479,6 +480,15 @@ describe('engine-owned member dependency preparation', () => {
       await vi.waitFor(() => expect(existsSync(checkoutMarker())).toBe(true));
       expect(installs()).toHaveLength(0);
       expect(existsSync(path.join(request.repoPath, 'node_modules/stale.txt'))).toBe(false);
+    });
+
+    it('stamps a store copy as installed, so the checkout is fresh although the store is older', async () => {
+      seedMergeStore();
+      const store = path.join(root, 'worktrees/_merge-deps', hash(['PM', 'app']), 'current');
+      utimesSync(path.join(store, 'node_modules/.package-lock.json'), 1000, 1000);
+      refresh();
+      await vi.waitFor(() => expect(existsSync(checkoutMarker())).toBe(true));
+      expect(await dependencyState(request.repoPath)).toMatchObject({ fresh: true });
     });
 
     it('does nothing when the repository is not configured or the path is not the bound one', async () => {

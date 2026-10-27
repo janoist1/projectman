@@ -32,6 +32,20 @@ export async function dependencyState(target: string) {
   };
 }
 
+/**
+ * Stamps the hidden lockfile of a freshly copied tree as installed now: a clone-on-write copy keeps
+ * the source's older mtime, which would make the tree look stale to `dependencyState` and to the
+ * reference search (PM-1083). Never follows a symbolic link.
+ */
+export async function markDependenciesInstalled(target: string): Promise<void> {
+  const hidden = path.join(target, HIDDEN_LOCKFILE);
+  for (const entry of [path.join(target, 'node_modules'), hidden])
+    if ((await lstat(entry)).isSymbolicLink()) throw new Error('dependency tree contains a symbolic link');
+  const lockTime = await mtimeOrNull(path.join(target, DEPENDENCY_LOCKFILE));
+  const now = new Date(Math.max(Date.now(), Math.ceil(lockTime ?? 0)));
+  await utimes(hidden, now, now);
+}
+
 class Skip extends Error {
   readonly reason: DependencyCloneSkip;
 

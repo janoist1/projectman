@@ -10,7 +10,7 @@ import type {
   WorkspaceDependencyInstaller,
   WorkspaceDependencyRequest,
 } from '../contracts';
-import { copyDependencyTrees, dependencyState } from '../worktree';
+import { copyDependencyTrees, dependencyState, markDependenciesInstalled } from '../worktree';
 import { acquireHeavyLock, HeavyLockError } from './heavy-lock';
 import {
   checkPreparationEnd,
@@ -326,6 +326,8 @@ export function createWorkspaceDependencyInstaller(
               signal,
             });
             await installed(request.repoPath, copied, before.nodeModules);
+            // The copy keeps the store's older mtime; the checkout must look installed (PM-1083).
+            if (checkout) await markDependenciesInstalled(request.repoPath);
           } else {
             await execute(npmCiCommand(paths));
           }
@@ -417,6 +419,8 @@ export function createWorkspaceDependencyInstaller(
     const [boundReal, checkoutReal] = await Promise.all([realpath(bound), realpath(request.repoPath)]);
     // Only the engine's own checkout of the bound repository; any other worktree is left alone.
     if (boundReal !== checkoutReal || (await dependencyState(checkoutReal)).fresh) return;
+    // The installer may have been closed while the paths were resolved.
+    if (closed) return;
     let preparation = running.get(checkoutReal);
     if (!preparation) {
       const controller = new AbortController();

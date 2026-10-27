@@ -762,21 +762,30 @@ describe('advance', () => {
     expect(git(f.repo, 'rev-parse', 'main')).toBe(to);
   });
 
-  it('tells the owner of the checkout about a moved checkout, never for a ref move or a refusal', async () => {
+  it('tells the owner of the checkout about a moved checkout', async () => {
+    const seen: string[] = [];
+    const f = fixture({ withRemote: false, onCheckoutAdvanced: (_ref, checkout) => seen.push(checkout) });
+    const { from, to } = await merged(f);
+    await f.merger.advance(REF, { base: 'main', from, to });
+    expect(seen).toEqual([realpathSync(f.repo)]);
+  });
+
+  it('does not tell the owner of the checkout about a refused advance', async () => {
     const seen: string[] = [];
     const f = fixture({ withRemote: false, onCheckoutAdvanced: (_ref, checkout) => seen.push(checkout) });
     const { from, to } = await merged(f);
     write(f.repo, 'f.txt', 'untracked and in the way\n');
     await f.merger.advance(REF, { base: 'main', from, to });
     expect(seen).toEqual([]);
-    rmSync(path.join(f.repo, 'f.txt'));
+  });
+
+  it('does not tell the owner of the checkout about a ref move', async () => {
+    const seen: string[] = [];
+    const f = fixture({ withRemote: false, onCheckoutAdvanced: (_ref, checkout) => seen.push(checkout) });
+    const { from, to } = await merged(f);
+    git(f.repo, 'checkout', '-q', '-b', 'elsewhere');
     await f.merger.advance(REF, { base: 'main', from, to });
-    expect(seen).toEqual([realpathSync(f.repo)]);
-    const g = fixture({ withRemote: false, onCheckoutAdvanced: (_ref, checkout) => seen.push(checkout) });
-    const next = await merged(g);
-    git(g.repo, 'checkout', '-q', '-b', 'elsewhere');
-    await g.merger.advance(REF, { base: 'main', from: next.from, to: next.to });
-    expect(seen).toHaveLength(1);
+    expect(seen).toEqual([]);
   });
 
   it('reports moved when the branch is no longer at `from`', async () => {

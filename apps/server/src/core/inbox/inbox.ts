@@ -40,6 +40,7 @@ import {
   isPendingQuestion,
   isLinkedQuestion,
   isRelayableQuestionItem,
+  machineTodoIssuerAllowed,
   memberOf,
   operatorApprovalOf,
   operatorKnowledgeApprovalOf,
@@ -1851,6 +1852,7 @@ export class InboxService {
             current,
             release.todo!.recipient,
             this.integratorTodoAccess?.available(config) ?? false,
+            machineTodoIssuerAllowed(config, current.source),
           )
         : { recipient: 'owner' as const };
     const todo = release.todo ? { ...release.todo, recipient: selected.recipient } : undefined;

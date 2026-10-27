@@ -327,14 +327,6 @@ export const IntegratorKeyInfo = z.object({
   revokedAt: z.string().nullable(),
 });
 export type IntegratorKeyInfo = z.infer<typeof IntegratorKeyInfo>;
-export const IntegratorKeyResponse = z.object({ key: IntegratorKeyInfo.nullable() });
-export type IntegratorKeyResponse = z.infer<typeof IntegratorKeyResponse>;
-export const CreateIntegratorKeyRequest = z.object({
-  expiresInDays: z.union([z.literal(30), z.literal(90), z.literal(365), z.null()]).default(90),
-});
-export const CreatedIntegratorKey = z.object({ key: IntegratorKeyInfo, secret: z.string() });
-export type CreatedIntegratorKey = z.infer<typeof CreatedIntegratorKey>;
-
 export const IntegratorKeyMode = z.enum(['legacy', 'super', 'read']);
 export type IntegratorKeyMode = z.infer<typeof IntegratorKeyMode>;
 export const IntegratorChannel = z.enum(['mcp', 'cli', 'rest']);
@@ -631,6 +623,8 @@ export const MemberView = z.object({
    * always fills it in for AI members (a member without the setting reads `true`). Omitted for humans.
    */
   outboundNetwork: z.boolean().optional(),
+  /** AI members only: the effective machine access (`machineAccessOf`, decision 66); missing (an older server): off. */
+  machineAccess: z.boolean().optional(),
   /** AI members only: the earlier handles, the oldest first (PM-1025); omitted: never renamed. */
   formerHandles: z.array(MemberHandle).optional(),
 });
@@ -688,6 +682,8 @@ export const UpdateMemberRequest = z.object({
   autoCompactWindowTokens: AutoCompactWindowTokens.nullable().optional(),
   /** AI only, owner only (PM-355): whether the member's commands can reach the network. */
   outboundNetwork: z.boolean().optional(),
+  /** AI only, owner only (decision 66): whether the member may put machine work in the owners' queue. */
+  machineAccess: z.boolean().optional(),
   /** AI only; the cheap subagent's model (PM-179), null switches it off. */
   cheapSubagent: CheapSubagentModel.nullable().optional(),
   displayName: z.string().trim().min(1).optional(),

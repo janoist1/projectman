@@ -27,7 +27,7 @@ it.each(['agreement', 'principle'] as const)(
       ['vera', 'viewer'],
     ] as const)
       readers.push({ handle, access, cookie: await addHumanAndLogin(h.app, { handle, access }) });
-    const key = await inject(h.app, 'POST', routes.integratorKey(), owner, undefined);
+    const key = await inject(h.app, 'POST', routes.integratorKeys(), owner, { mode: 'read' });
     const domain = h.app.projectman.domain;
     await domain.messaging.sendReporting(
       'AR',
@@ -127,7 +127,7 @@ it.each(['agreement', 'principle'] as const)(
         headers: { authorization: `Bearer ${key.json().secret}` },
         payload: { optionId: 'approve' },
       });
-      expect(attempt.statusCode).toBe(404);
+      expect(attempt.statusCode).toBe(403);
       expect(
         canSeeProjectEvent(
           { handle: 'owner', access: 'owner', via: 'integrator' },
@@ -157,13 +157,12 @@ it('exposes shared knowledge only to owner/admin own logins and has no REST writ
       expect(OperatorKnowledgeDocument.parse(response.json()).revision).toBe(0);
     else expect(response.json().error.code).toBe('operator_owner_only');
   }
-  const key = await inject(h.app, 'POST', routes.integratorKey(), owner, undefined);
+  const key = await inject(h.app, 'POST', routes.integratorKeys(), owner, { mode: 'read' });
   const response = await h.app.inject({
     method: 'GET',
     url: routes.operatorKnowledge('AR'),
     headers: { authorization: `Bearer ${key.json().secret}` },
   });
-  expect(response.statusCode).toBe(403);
-  expect(response.json().error.code).toBe('operator_owner_only');
+  expect(response.statusCode).toBe(200);
   expect((await inject(h.app, 'PUT', routes.operatorKnowledge('AR'), owner, {})).statusCode).toBe(404);
 });

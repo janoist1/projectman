@@ -199,6 +199,8 @@ export interface MemberAudience {
   merger: boolean;
   /** The project's e-mail channel is on and this member may send e-mail (the e-mail tools' handler check). */
   email: boolean;
+  /** The member may put machine work in the owners' queue (`hasMachineAccess`, decision 66). */
+  machineAccess: boolean;
   duties: ReadonlySet<DutyId>;
 }
 

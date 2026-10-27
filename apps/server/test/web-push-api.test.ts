@@ -123,37 +123,28 @@ describe('personal push API', () => {
     await inject(h.app, 'POST', routes.pushUnsubscribe(), other, { endpoint: body().endpoint });
     expect((await inject(h.app, 'GET', routes.push(), cookie)).json().devices).toHaveLength(1);
   });
-  it.each(['legacy', 'read', 'super'] as const)(
-    'refuses a %s integrator key on every endpoint',
-    async (mode) => {
-      const key = await inject(
-        h.app,
-        'POST',
-        mode === 'legacy' ? routes.integratorKey() : routes.integratorKeys(),
-        cookie,
-        mode === 'legacy' ? {} : { mode },
-      );
-      expect(key.statusCode).toBe(201);
-      for (const [method, url] of [
-        ['GET', routes.push()],
-        ['PUT', routes.pushSettings()],
-        ['POST', routes.pushDevices()],
-        ['PATCH', routes.pushDevice('unknown')],
-        ['DELETE', routes.pushDevice('unknown')],
-        ['POST', routes.pushUnsubscribe()],
-        ['POST', routes.pushDeviceTest('unknown')],
-      ] as const) {
-        const response = await h.app.inject({
-          method,
-          url,
-          headers: { authorization: `Bearer ${key.json().secret}` },
-          ...(method === 'GET' || method === 'DELETE' ? {} : { payload: {} }),
-        });
-        expect(response.statusCode, response.body).toBe(403);
-        expect(response.json().error.code).toBe('web_push_integrator_refused');
-      }
-    },
-  );
+  it.each(['read', 'super'] as const)('refuses a %s integrator key on every endpoint', async (mode) => {
+    const key = await inject(h.app, 'POST', routes.integratorKeys(), cookie, { mode });
+    expect(key.statusCode).toBe(201);
+    for (const [method, url] of [
+      ['GET', routes.push()],
+      ['PUT', routes.pushSettings()],
+      ['POST', routes.pushDevices()],
+      ['PATCH', routes.pushDevice('unknown')],
+      ['DELETE', routes.pushDevice('unknown')],
+      ['POST', routes.pushUnsubscribe()],
+      ['POST', routes.pushDeviceTest('unknown')],
+    ] as const) {
+      const response = await h.app.inject({
+        method,
+        url,
+        headers: { authorization: `Bearer ${key.json().secret}` },
+        ...(method === 'GET' || method === 'DELETE' ? {} : { payload: {} }),
+      });
+      expect(response.statusCode, response.body).toBe(403);
+      expect(response.json().error.code).toBe('web_push_integrator_refused');
+    }
+  });
   it('requires login', async () => expect((await inject(h.app, 'GET', routes.push())).statusCode).toBe(401));
   it('dispatches an inbox bus event through the injected transport', async () => {
     await createProject(h, cookie);

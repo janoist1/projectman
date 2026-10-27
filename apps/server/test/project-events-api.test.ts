@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   ProjectChangeEventsResponse,
   decodeProjectEventCursor,
@@ -40,12 +40,28 @@ describe('project change events API (PM-761)', () => {
     expect(response.statusCode, response.body).toBe(201);
     return response.json().key as string;
   };
-  const legacyKey = async (expiresInDays?: number) => {
-    const response = await inject(h.app, 'POST', routes.integratorKey(), cookie, {
+  const readKey = async (expiresInDays?: number) => {
+    const response = await inject(h.app, 'POST', routes.integratorKeys(), cookie, {
+      mode: 'read',
       ...(expiresInDays === undefined ? {} : { expiresInDays }),
     });
     expect(response.statusCode, response.body).toBe(201);
     return response.json().secret as string;
+  };
+  const waitBeyondRequestAudit = () => {
+    const { domain, repos } = h.app.projectman;
+    const poll = domain.changes.poll.bind(domain.changes);
+    // Explicit keys audit the request before polling. Start beyond that audit to exercise the wait.
+    vi.spyOn(domain.changes, 'poll').mockImplementationOnce((input) =>
+      poll({
+        ...input,
+        after: encodeProjectEventCursor({
+          generation: repos.projectChanges.generation(),
+          projectKey: 'AR',
+          seq: repos.projectChanges.head('AR'),
+        }),
+      }),
+    );
   };
   const appendMany = (count: number, project = 'AR') => {
     const { repos } = h.app.projectman;
@@ -230,11 +246,19 @@ describe('project change events API (PM-761)', () => {
   });
 
   it('answers 401 to a reader whose key is revoked during the wait', async () => {
-    const secret = await legacyKey();
+    const secret = await readKey();
     const start = await page('waitMs=0', { bearer: secret });
+    waitBeyondRequestAudit();
     const waiting = events(`after=${start.nextCursor}&waitMs=10000`, { bearer: secret });
     await sleep(100);
-    const revoked = await inject(h.app, 'DELETE', routes.integratorKey(), cookie);
+    const revoked = await inject(
+      h.app,
+      'DELETE',
+      routes.integratorAccessKey(
+        h.app.projectman.auth.integratorAccessKeys(h.app.projectman.repos.users.list()[0]!.id)[0]!.id,
+      ),
+      cookie,
+    );
     expect(revoked.statusCode, revoked.body).toBeLessThan(300);
     const started = Date.now();
     const response = await waiting;
@@ -246,8 +270,9 @@ describe('project change events API (PM-761)', () => {
   });
 
   it('answers 401 to a reader whose key expires during the wait', async () => {
-    const secret = await legacyKey(30);
+    const secret = await readKey(30);
     const start = await page('waitMs=0', { bearer: secret });
+    waitBeyondRequestAudit();
     const waiting = events(`after=${start.nextCursor}&waitMs=10000`, { bearer: secret });
     await sleep(100);
     now = new Date(now.getTime() + 31 * 24 * 3600 * 1000);

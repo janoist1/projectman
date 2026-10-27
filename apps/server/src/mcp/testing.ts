@@ -14,6 +14,7 @@ export const operatorAudience: MemberAudience = {
   projectManager: false,
   merger: false,
   email: false,
+  machineAccess: false,
   duties: new Set(),
 };
 

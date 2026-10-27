@@ -630,21 +630,24 @@ describe('Operator actions and owner approvals (PM-464)', () => {
     const originalVersion = (await h.domain.projects.load('AR')).version;
     for (const meta of [admin, integrator])
       await expect(patchAs('unblock', meta)).rejects.toMatchObject({
-        code: meta === admin ? 'owner_only' : 'owner_login_required',
+        code: meta === admin ? 'owner_only' : 'insufficient_access',
         status: 403,
       });
     expect((await h.domain.projects.load('AR')).version).toBe(originalVersion);
     expect(operatorWatchOf((await patchAs('drive', by)).config)).toBe('drive');
     for (const meta of [admin, integrator])
       await expect(patchAs(null, meta)).rejects.toMatchObject({
-        code: meta === admin ? 'owner_only' : 'owner_login_required',
+        code: meta === admin ? 'owner_only' : 'insufficient_access',
         status: 403,
       });
     const cleared = await patchAs(null, by);
     expect(cleared.config.team).not.toHaveProperty('operatorWatch');
     expect(operatorWatchOf(cleared.config)).toBe('report');
     await expect(patchAs('report', admin)).resolves.toBeDefined();
-    await expect(patchAs(null, integrator)).resolves.toBeDefined();
+    await expect(patchAs(null, integrator)).rejects.toMatchObject({
+      code: 'insufficient_access',
+      status: 403,
+    });
   });
 
   it('changes and clears the watch level only after owner approval', async () => {

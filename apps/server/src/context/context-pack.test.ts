@@ -1447,6 +1447,21 @@ describe('system prompt', () => {
       expect(role.indexOf('ROLE_STYLE_OVERRIDE')).toBeLessThan(role.indexOf('MEMBER_STYLE_OVERRIDE'));
     });
 
+    it('tells the PM about the integrator todo only while it has machine access (decision 66)', () => {
+      const prompt = (machineAccess: boolean | undefined) => {
+        const project = withPm('en');
+        const member = project.team.members.find((m) => m.handle === 'pm')!;
+        if (member.kind === 'ai') member.machineAccess = machineAccess;
+        const pack = builder.build(
+          input({ project, handle: 'pm', workItem: { type: 'general' }, task: null }),
+        );
+        return `${pack.appendSystemPrompt}\n${pack.guide.role ?? ''}`;
+      };
+      expect(prompt(undefined)).toContain('open_integrator_todo');
+      expect(prompt(true)).toContain('open_integrator_todo');
+      expect(prompt(false)).not.toContain('open_integrator_todo');
+    });
+
     it('renders PM style data only in the selected internal general conversation', () => {
       const project = withPm('en');
       const source = input({

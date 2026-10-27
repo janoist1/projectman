@@ -105,7 +105,7 @@ describe('merge test scope', () => {
       'deploy/aws-extra/a.tf',
       'deploy/cloudflare/a.yml',
       'deploy/mac/a.plist',
-      'deploy/github/a.yml',
+      'deploy/other/a.yml',
       'deploy/projectman-administration.service',
       'apps/server/test/helpers/cloud-fixture.ts',
       'apps/server/test/fixtures/cloud-fake.mjs',

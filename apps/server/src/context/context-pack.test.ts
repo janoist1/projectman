@@ -244,6 +244,17 @@ describe('operating agreement and conversation guidance (PM-690)', () => {
     expect(operator.guide.role).toContain('server-delivered continuation');
   });
 
+  it('gives the Operator an operations guide generated from the schemas, and nobody else', () => {
+    const pack = (handle: string) =>
+      builder.build(input({ handle, task: null, workItem: { type: 'general' } }));
+    const operator = pack('operator');
+    expect(operator.appendSystemPrompt).toContain('get_guide with topic `operations`');
+    for (const tag of ['op=message_send', 'op=config_patch', 'kind=task_create', 'kind=workspace_release'])
+      expect(operator.guide.operations).toContain(tag);
+    expect(operator.guide.operations).toContain('"keyId"');
+    expect(pack('pm').guide.operations).toBeUndefined();
+  });
+
   it.each(['every_step', 'minimal'] as const)(
     'keeps %s involvement as approved data within effective settings',
     (involvement) => {

@@ -26,7 +26,6 @@ import { platformSchema, runImageBuild, selectedImage, sourceShaSchema, targetPl
 import { ENV_FILE_NAME, secretsDir } from './secrets';
 import { runSesCheck, runSesConfigure, runSesPlan, runSesRequestProduction } from './ses';
 import { runSesReceiveCheck, runSesReceiveConfigure, runSesReceivePlan } from './ses-receive';
-import { runTrialResetApply, runTrialResetPlan } from './trial-reset';
 
 const USAGE = `usage: npm run cloud -- <command> [options]
 commands:
@@ -47,10 +46,6 @@ commands:
                                      fill an empty machine with the package of \`npm run migrate -- hybrid package\`, then deploy
   pull-data --to <new dir> [--dry-run]
                                      copy the stopped board's data to a new directory on this computer
-  trial-reset-plan --from <FINAL_RETURN_DIRECTORY> --rollback-event <EVENT_ID> --out <NEW_PLAN_JSON> --config <file>
-                                     inventory the stopped EC2 trial target; write a private plan for owner approval
-  trial-reset-apply --plan <PLAN_JSON> --confirm-sha256 <PLAN_FILE_SHA256> [--dry-run] --config <file>
-                                     archive host data and conditionally delete only the approved trial objects
   edge [--dry-run] [--rotate-engine-token] [--rotate-integrator-token]
                                      set up Cloudflare: zone, edge settings, Access, service tokens, tunnel
                                      (access.boardMode: private = Access in front, public = the board's own login, only /engine guarded)
@@ -87,8 +82,7 @@ type Flag =
   | 'update'
   | 'back'
   | 'all-platforms';
-type ValueOption =
-  'ref' | 'lines' | 'from' | 'to' | 'login-json' | 'out' | 'rollback-event' | 'plan' | 'confirm-sha256';
+type ValueOption = 'ref' | 'lines' | 'from' | 'to' | 'login-json' | 'out';
 
 interface Invocation {
   dryRun: boolean;
@@ -149,32 +143,6 @@ export const COMMANDS: Record<string, CommandSpec> = {
     summary: 'relay one control request to the board',
     flags: [],
     run: (context) => runReleaseControl(context),
-  },
-  'trial-reset-plan': {
-    summary: 'write a private read-only EC2 trial reset plan',
-    flags: [],
-    values: ['from', 'rollback-event', 'out'],
-    required: ['from', 'rollback-event', 'out'],
-    run: (context, invocation) =>
-      runTrialResetPlan(
-        context,
-        invocation.values.from!,
-        invocation.values['rollback-event']!,
-        invocation.values.out!,
-      ),
-  },
-  'trial-reset-apply': {
-    summary: 'apply the exact owner-approved trial reset plan once',
-    flags: ['dry-run'],
-    values: ['plan', 'confirm-sha256'],
-    required: ['plan', 'confirm-sha256'],
-    run: (context, invocation) =>
-      runTrialResetApply(
-        context,
-        invocation.values.plan!,
-        invocation.values['confirm-sha256']!,
-        invocation.dryRun,
-      ),
   },
   'image-build': {
     summary: 'build the image bundle',
@@ -388,8 +356,6 @@ function parse(argv: readonly string[]): Parsed {
   }
   for (const name of spec.required ?? [])
     if (values[name] === undefined) throw badUsage(`${command} needs --${name}\n${USAGE}`);
-  if (command.startsWith('trial-reset-') && config === null)
-    throw badUsage(`${command} needs --config\n${USAGE}`);
   if (
     command === 'image-build' &&
     (!sourceShaSchema.safeParse(values.ref).success || /[\0\r\n,]/.test(values.out!))

@@ -63,7 +63,7 @@ describe('member context preview', () => {
     );
     expect(preview.prompt.chars).toBe(Array.from(pack.appendSystemPrompt).length);
     expect(preview.prompt.chars).toBeLessThan(preview.prompt.text.length);
-    expect(preview.guides.map((guide) => guide.topic)).toEqual(['rules', 'role']);
+    expect(preview.guides.map((guide) => guide.topic)).toEqual(['rules', 'role', 'operations']);
     for (const guide of preview.guides) {
       expect(guide.text).toBe(pack.guide[guide.topic as keyof typeof pack.guide]);
       expect(guide.chars).toBe(Array.from(guide.text).length);

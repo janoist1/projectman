@@ -344,6 +344,8 @@ describe('the start offer to the project manager', () => {
     expect(startRows(part)).toEqual([]);
 
     h.runnerModule.planUsage.value = planUsage(0);
+    // The background usage refresh (not running in this harness) is what lets the round see the drop.
+    await h.domain.planUsage.get();
     minutes(1);
     await settle();
     expect(notices()).toMatchObject([{ kind: 'info' }, { kind: 'action' }]);
@@ -352,6 +354,94 @@ describe('the start offer to the project manager', () => {
     await settle();
     expect(notices()).toHaveLength(2);
     expect(startRows(part)[0]!.id).toBe(row);
+  });
+
+  describe('an assigned card whose assignee is on a paused provider (PM-1051)', () => {
+    /** Claude (dev-1) is over the plan usage limit, Codex (dev-2) is not; the harness fake gives one usage to every provider. */
+    const pauseClaude = () => {
+      const usageOf = (provider = 'claude') => (provider === 'claude' ? planUsage(99) : planUsage(0));
+      vi.spyOn(h.domain.planUsage, 'get').mockImplementation(async (provider) => usageOf(provider));
+      vi.spyOn(h.domain.planUsage, 'peek').mockImplementation((provider) => usageOf(provider));
+    };
+    const unpauseClaude = () => {
+      vi.spyOn(h.domain.planUsage, 'get').mockImplementation(async () => planUsage(0));
+      vi.spyOn(h.domain.planUsage, 'peek').mockImplementation(() => planUsage(0));
+    };
+    const providerSetup = (c: ProjectConfig) => {
+      for (const member of c.team.members)
+        if (member.kind === 'ai' && member.handle === 'dev-1') member.provider = 'claude';
+        else if (member.kind === 'ai' && member.handle === 'dev-2') member.provider = 'codex';
+    };
+    const assigned = async (title = 'Assigned card', assignee = 'dev-1') => {
+      const key = await idea(title);
+      h.domain.tasks.assign('AR', key, assignee, OWNER_ACTOR);
+      await h.domain.tasks.moveToStage('AR', key, 'development', OWNER_ACTOR);
+      return key;
+    };
+    const startText = (key: string) => offers().filter((m) => m.taskKey === key);
+    const sessionsOf = (key: string) => h.domain.sessions.list('AR', { taskKey: key });
+    const startAsPm = (key: string) =>
+      h.domain.taskStarts.start('AR', key, { actor: aiActor('pm'), author: SYSTEM_AUTHOR });
+
+    it('is offered and started once at another free member instead of its assignee', async () => {
+      await harness(providerSetup);
+      pauseClaude();
+      const key = await assigned();
+      await settle();
+      expect(startText(key)).toHaveLength(1);
+      expect(startRows(key)).toMatchObject([{ responsible: 'pm', state: 'open' }]);
+
+      await startAsPm(key);
+      await settle();
+      expect(task(key).assignee).toBe('dev-2');
+      expect(sessionsOf(key).map((s) => s.member)).toEqual(['dev-2']);
+      await sweep();
+      expect(startRows(key)).toEqual([]);
+    });
+
+    it('keeps the assignee of a card they have begun', async () => {
+      await harness(providerSetup);
+      const key = await assigned();
+      const { session } = await startAsPm(key);
+      h.runner.setState(session!.id, 'failed', 'Fictional stop.');
+      await h.runner.stop(session!.id);
+      pauseClaude();
+      await expect(startAsPm(key)).rejects.toMatchObject({ code: 'plan_usage_paused' });
+      expect(task(key).assignee).toBe('dev-1');
+      expect(sessionsOf(key).map((s) => s.member)).toEqual(['dev-1']);
+    });
+
+    it('starts nobody and assigns nobody while no other member can take it, and starts it once the pause lifts', async () => {
+      await harness(providerSetup);
+      const [busyCodex] = await busyDevelopers();
+      pauseClaude();
+      const key = await assigned('Waiting assigned card', 'dev-1');
+      await expect(startAsPm(key)).rejects.toMatchObject({ code: 'plan_usage_paused' });
+      expect(task(key).assignee).toBe('dev-1');
+      expect(sessionsOf(key)).toEqual([]);
+
+      unpauseClaude();
+      await h.domain.tasks.cancel('AR', busyCodex!, { reason: 'Fictional.' }, OWNER_ACTOR);
+      await settle();
+      await startAsPm(key);
+      expect(task(key).assignee).toBe('dev-1');
+      expect(sessionsOf(key).map((s) => s.member)).toEqual(['dev-1']);
+    });
+
+    it('refuses a new assignee on a paused provider as a whole update, and allows other edits', async () => {
+      await harness(providerSetup);
+      pauseClaude();
+      const key = await idea('Unassigned card');
+      await expect(
+        h.domain.tasks.update('AR', key, { assignee: 'dev-1', description: 'Changed' }, OWNER_ACTOR),
+      ).rejects.toMatchObject({ code: 'plan_usage_paused' });
+      expect(task(key)).toMatchObject({ assignee: null, description: '' });
+      await h.domain.tasks.update('AR', key, { assignee: 'dev-2' }, OWNER_ACTOR);
+      expect(task(key).assignee).toBe('dev-2');
+      h.domain.tasks.assign('AR', key, 'dev-1', OWNER_ACTOR);
+      await h.domain.tasks.update('AR', key, { description: 'Still assigned to the old one' }, OWNER_ACTOR);
+      expect(task(key)).toMatchObject({ assignee: 'dev-1', description: 'Still assigned to the old one' });
+    });
   });
 
   describe('urgent and focus cards', () => {

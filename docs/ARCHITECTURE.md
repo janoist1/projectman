@@ -3660,6 +3660,13 @@ assumption or remote-engine RPC.
   PM-311). CLI hooks and MCP target the server's loopback URL (`127.0.0.1:4800` for the live
   instance; the port is configurable). The internal guard also checks the peer, Host and
   forwarding/origin headers; merely changing the URL to a public server cannot work.
+  **Codex catalog readiness (PM-1055):** `runner/providers/codex/args.ts` marks `team` as
+  required and disables the optional MCP startup grace (Codex 0.159.1 otherwise waits only
+  one second for an optional server's initial catalog). Its startup timeout is 20 seconds,
+  below the runner's 30-second stalled-start indication. This applies to new and resumed
+  Codex and NanoGPT sessions. **Remote engine:** these CLI settings run on the engine;
+  the existing token-bound loopback relay supplies the catalog. No new data crosses the
+  boundary and authentication is unchanged.
   Submission timeouts (PM-442) log retry count, elapsed time, command/idle state and bounded
   CLI diagnostics from `runner/input-queue.ts` and `runner/session.ts`: prompt/resume flags,
   the last hook name/time, blocking-screen detection and at most 500 characters from the last

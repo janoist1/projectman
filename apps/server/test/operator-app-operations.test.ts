@@ -324,6 +324,22 @@ describe('the in-app Operator on the shared super-operation path (PM-888)', () =
       expect(sessions.active({ ...principal, keyId: 'ses_pm_guest' })).toBe(false);
     });
 
+    it('waits for the owner before the PM changes its own instructions', async () => {
+      const before = (await h.domain.projects.config('AR')).team.members.find(
+        (member) => member.handle === 'pm',
+      )!;
+      const { operation } = await execute('pm-self-edit', {
+        kind: 'member_update',
+        handle: 'pm',
+        request: { instructions: 'Updated coordination instructions' },
+      });
+      expect(operation.state).toBe('waiting_owner');
+      expect(operation.ownerQuestionId).not.toBeNull();
+      expect(
+        (await h.domain.projects.config('AR')).team.members.find((member) => member.handle === 'pm'),
+      ).toEqual(before);
+    });
+
     it('uses the shared path for PM settings and resumes a K3 effect in the PM name', async () => {
       const result = await h.domain.teamTools.operate(ctx, {
         title: 'Change developer access',

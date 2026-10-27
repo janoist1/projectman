@@ -8,6 +8,7 @@ import {
   ownerReservedEffect,
   SUPER_ADMINISTRATION_COMMANDS,
   projectManagerCommandRefusal,
+  superConfigMutations,
 } from './super-mutation';
 
 it.each([
@@ -257,35 +258,56 @@ describe('super command classification (PM-762)', () => {
     expect(effects(command)).toEqual(['security']);
   });
 
-  it.each(['model', 'instructions', 'roleOverride'] as const)(
-    'reserves Operator self changes: %s',
-    (field) => {
-      const ctx = context();
-      ctx.config.team.members.push(
-        AiMemberConfig.parse({
-          handle: 'operator',
-          kind: 'ai',
-          displayName: 'Operator',
-          role: 'ai_operator',
-          sponsor: 'owner',
-        }),
-      );
-      const command: SuperCommand =
-        field === 'roleOverride'
-          ? operate({
-              op: 'config_patch',
-              patch: {
-                roleOverrides: {
-                  ai_operator: { duties: ['project_operation'], instructions: 'Updated role instructions' },
-                },
+  it.each([
+    ['operator', 'ai_operator', 'model'],
+    ['operator', 'ai_operator', 'instructions'],
+    ['operator', 'ai_operator', 'roleOverride'],
+    ['pm', 'project_manager', 'model'],
+    ['pm', 'project_manager', 'instructions'],
+    ['pm', 'project_manager', 'roleOverride'],
+  ] as const)('reserves %s self changes (%s): %s', (handle, role, field) => {
+    const ctx = context();
+    ctx.config.team.members.push(
+      AiMemberConfig.parse({
+        handle,
+        kind: 'ai',
+        displayName: 'Operator',
+        role,
+        sponsor: 'owner',
+      }),
+    );
+    const command: SuperCommand =
+      field === 'roleOverride'
+        ? operate({
+            op: 'config_patch',
+            patch: {
+              roleOverrides: {
+                [role]: { duties: ['project_operation'], instructions: 'Updated role instructions' },
               },
-            })
-          : { kind: 'member_update', handle: 'operator', request: { [field]: 'Updated value' } };
-      expect(superCommandMutations(command, ctx)).toContainEqual({
-        kind: 'permission_change',
-        handle: 'operator',
-      });
-      expect(superCommandEffects(command, ctx)).toEqual(['security']);
-    },
-  );
+            },
+          })
+        : { kind: 'member_update', handle, request: { [field]: 'Updated value' } };
+    expect(superCommandMutations(command, ctx)).toContainEqual({
+      kind: 'permission_change',
+      handle,
+    });
+    expect(superCommandEffects(command, ctx)).toEqual(['security']);
+  });
+
+  it('reserves a coordinator member edit at the final configuration boundary', () => {
+    const previous = config();
+    previous.team.members.push(
+      AiMemberConfig.parse({
+        kind: 'ai',
+        handle: 'pm',
+        displayName: 'PM',
+        role: 'project_manager',
+        sponsor: 'owner',
+      }),
+    );
+    const next = structuredClone(previous);
+    next.team.members.find((member) => member.handle === 'pm')!.displayName = 'Updated PM';
+    expect(superConfigMutations(previous, next)).toContainEqual({ kind: 'permission_change', handle: 'pm' });
+    expect(ownerReservedEffect(previous, { kind: 'config_change', next })).toBe('security');
+  });
 });

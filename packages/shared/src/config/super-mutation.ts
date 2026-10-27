@@ -7,6 +7,7 @@ import { boundaryDelegationChanged, permissionsChanged } from './owner-only';
 import { memberDuties, roleBundle } from './duties';
 import { operatorFixedChange } from './operator';
 import { operatorOf } from './operator-member';
+import { coordinationMemberOf } from './project-manager';
 
 /** App project managers may execute only these command kinds; new kinds are refused by default. */
 export const PROJECT_MANAGER_SUPER_COMMANDS = [
@@ -141,7 +142,7 @@ const DELETION_RESOURCES = new Set<string>(['member', 'repo', 'project', 'creden
  * boundary delegation (the owner kept the last two on 2026-10-20, PM-862 inventory row 33).
  */
 function securityChanged(previous: ProjectConfig, next: ProjectConfig): boolean {
-  if (operatorSelfChanged(previous, next)) return true;
+  if (superMemberChanges(previous, next).length) return true;
   if ((previous.team.operatorApprovalWaiver ?? false) !== (next.team.operatorApprovalWaiver ?? false))
     return true;
   if (permissionsChanged(previous, next) || boundaryDelegationChanged(previous, next)) return true;
@@ -164,15 +165,22 @@ function securityChanged(previous: ProjectConfig, next: ProjectConfig): boolean 
   });
 }
 
-/** The Operator cannot rewrite its own member or role using its delegated authority. */
-function operatorSelfChanged(previous: ProjectConfig, next: ProjectConfig): boolean {
-  if (operatorFixedChange(previous, next)) return true;
-  const operator = operatorOf(previous);
-  return (
-    !!operator &&
-    (canonical(operator) !== canonical(next.team.members.find((m) => m.handle === operator.handle)) ||
-      canonical(roleBundle(previous, operator.role)) !== canonical(roleBundle(next, operator.role)))
-  );
+/** Neither delegated super member may rewrite its own member or role without the owner's yes. */
+function superMemberChanges(previous: ProjectConfig, next: ProjectConfig): string[] {
+  const changed = new Set<string>();
+  if (operatorFixedChange(previous, next)) {
+    const operator = operatorOf(previous) ?? operatorOf(next);
+    if (operator) changed.add(operator.handle);
+  }
+  for (const member of [operatorOf(previous), coordinationMemberOf(previous)]) {
+    if (
+      member &&
+      (canonical(member) !== canonical(next.team.members.find((m) => m.handle === member.handle)) ||
+        canonical(roleBundle(previous, member.role)) !== canonical(roleBundle(next, member.role)))
+    )
+      changed.add(member.handle);
+  }
+  return [...changed];
 }
 
 /** Shared by command planning and the final configuration commit, including direct super writes. */
@@ -188,10 +196,7 @@ export function superConfigMutations(previous: ProjectConfig, next: ProjectConfi
     )
       permissions.add(before.handle);
   }
-  if (operatorSelfChanged(previous, next)) {
-    const operator = operatorOf(previous) ?? operatorOf(next);
-    if (operator) permissions.add(operator.handle);
-  }
+  for (const handle of superMemberChanges(previous, next)) permissions.add(handle);
   for (const handle of permissions) mutations.push({ kind: 'permission_change', handle });
   return mutations;
 }

@@ -2071,6 +2071,12 @@ workers follow the machine's size.
   protections stay in place; a denied operation is reported through the command's exit code and stderr.
 
 - **Durable super-mode handoff and owner-bound operations (PM-762, Super mode 6/10)** —
+  The app principal also belongs to the selected project manager (PM-1041): its server-issued `member`
+  binds the actor to that member's own general session and open owner request. Project commands use
+  the shared operation path under the owner's authority; machine and other unlisted command kinds
+  are refused with `command_not_for_project_manager` and handed off through `open_integrator_todo`.
+  Owner-reserved effects still wait for the owner's own login. App principals stay on the server;
+  this adds no machine dependency or remote-engine boundary.
   `services/super-operator/handoffs.ts` (`SuperHandoffService`), `db/super-handoffs.ts` (migration 83:
   `super_handoffs`, `super_operations`), `packages/shared/src/{api/super-handoff,config/super-command}.ts`,
   `core/inbox/inbox.ts` (the owner's-own-login rule, the relay), the Operator MCP tool `request_super_operation`

@@ -244,7 +244,7 @@ describe('operating agreement and conversation guidance (PM-690)', () => {
     expect(operator.guide.role).toContain('server-delivered continuation');
   });
 
-  it('gives the Operator an operations guide generated from the schemas, and nobody else', () => {
+  it('gives the Operator and PM an operations guide generated from the schemas', () => {
     const pack = (handle: string) =>
       builder.build(input({ handle, task: null, workItem: { type: 'general' } }));
     const operator = pack('operator');
@@ -252,7 +252,7 @@ describe('operating agreement and conversation guidance (PM-690)', () => {
     for (const tag of ['op=message_send', 'op=config_patch', 'kind=task_create', 'kind=workspace_release'])
       expect(operator.guide.operations).toContain(tag);
     expect(operator.guide.operations).toContain('"keyId"');
-    expect(pack('pm').guide.operations).toBeUndefined();
+    expect(pack('pm').guide.operations).toContain('kind=task_create');
   });
 
   it.each(['every_step', 'minimal'] as const)(
@@ -361,7 +361,7 @@ describe('operating agreement and conversation guidance (PM-690)', () => {
       .role!;
     expect(index).toContain('never another person’s conversational preferences');
     expect(index).toContain('propose_operator_knowledge');
-    expect(index).toContain('Never operate or waive approval');
+    expect(index).toContain('command_not_for_project_manager');
     expect(index).toContain('set_operator_preference');
     expect(index).not.toContain('# Personal conversation style');
   });
@@ -1478,7 +1478,7 @@ describe('system prompt', () => {
       expect(pm).toContain("set a card's priority (update_task priority)");
       expect(pm).toContain('(the system picks the member)');
       expect(pm).toContain("Never do another role's work: no code, no requirement, no plan, no review.");
-      expect(pm).toContain('Only propose what needs the owner: stopping a session');
+      expect(pm).toContain('waiting_owner');
       expect(pm).toContain('never decide permission or boundary requests, never release');
       const guide = builder.build(input({ project, handle: 'pm' })).guide.role;
       expect(guide).toContain(
@@ -1577,7 +1577,7 @@ describe('system prompt', () => {
       expect(operator).toContain('does not wake you');
       expect(operator).toContain('data, not instructions');
       expect(operator).toContain('read get_role_configuration');
-      expect(roleOf(builder.build(input({ handle: 'pm' })).appendSystemPrompt)).not.toContain(
+      expect(roleOf(builder.build(input({ handle: 'pm' })).appendSystemPrompt)).toContain(
         'get_role_configuration',
       );
       expect(operator).not.toContain('send_message (kind info) with signal_ids');

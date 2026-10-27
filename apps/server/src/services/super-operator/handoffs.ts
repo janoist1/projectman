@@ -5,6 +5,8 @@ import {
   SUPER_TERMINAL_STATES,
   SuperCommandUnclassifiable,
   canonical,
+  coordinationMemberOf,
+  projectManagerCommandRefusal,
   memberOf,
   operatorOf,
   ownerHandles,
@@ -377,6 +379,7 @@ export class SuperHandoffService {
     const keyId = scope.principal.keyId;
     this.sweep();
     const handoff = this.handoffOf(projectKey, handoffId);
+    await this.assertAppCommand(projectKey, handoff.command);
     const repo = this.ctx.repos.superHandoffs;
     const existing = repo.operationByRequest(projectKey, keyId, requestId);
     if (existing) {
@@ -419,6 +422,7 @@ export class SuperHandoffService {
     if (!actor || !scope || scope.principal.mode !== 'super')
       throw forbidden('integrator_not_allowed', 'only the integrator in super mode starts an operation');
     const keyId = scope.principal.keyId;
+    await this.assertAppCommand(projectKey, input.command);
     this.sweep();
     const commandTaskKey = 'taskKey' in input.command ? input.command.taskKey : null;
     if (input.taskKey && commandTaskKey && input.taskKey !== commandTaskKey)
@@ -446,6 +450,15 @@ export class SuperHandoffService {
       return this.resume(existing, subject, access, actor);
     }
     return this.start(subject, keyId, input.requestId, access, actor);
+  }
+
+  private async assertAppCommand(projectKey: string, command: SuperCommand): Promise<void> {
+    const principal = integratorExecution()?.principal;
+    if (principal?.source !== 'app') return;
+    const { config } = await this.projects.load(projectKey);
+    if (coordinationMemberOf(config)?.handle !== principal.member) return;
+    const refusal = projectManagerCommandRefusal(command);
+    if (refusal) throw forbidden(refusal, 'use open_integrator_todo for machine or unsupported operations');
   }
 
   /**

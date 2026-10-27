@@ -4,7 +4,20 @@ import { SuperCommand as SuperCommandSchema } from '../api/super-handoff';
 import { AiMemberConfig, ProjectConfig } from './schema';
 import { SuperCommandUnclassifiable, superCommandEffects, superCommandMutations } from './super-command';
 import type { SuperCommandContext } from './super-command';
-import { ownerReservedEffect, SUPER_ADMINISTRATION_COMMANDS } from './super-mutation';
+import {
+  ownerReservedEffect,
+  SUPER_ADMINISTRATION_COMMANDS,
+  projectManagerCommandRefusal,
+} from './super-mutation';
+
+it.each([
+  ['task_create', null],
+  ['merge', 'command_not_for_project_manager'],
+  ['administration', 'command_not_for_project_manager'],
+  ['future_command', 'command_not_for_project_manager'],
+])('checks the project manager command allowlist for %s', (kind, refusal) => {
+  expect(projectManagerCommandRefusal({ kind: kind! })).toBe(refusal);
+});
 
 function config() {
   return ProjectConfig.parse({

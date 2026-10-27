@@ -148,10 +148,9 @@ describe('targeted Operator role configuration (PM-746)', () => {
     );
   }
 
-  it('reads complete stored and default bundles without an open request or any writes', async () => {
+  it('reads complete stored and default bundles during an open owner request without any writes', async () => {
     await setup(false, withOverrides);
     const request = h.repos.operatorRequests.latest('AR', 1)[0]!;
-    h.repos.operatorRequests.close(request.id, new Date().toISOString());
     const before = await h.domain.projects.load('AR');
     const history = await h.domain.projects.history('AR');
     for (const role of ['developer', 'qa'] as const) {
@@ -165,7 +164,7 @@ describe('targeted Operator role configuration (PM-746)', () => {
     }
     expect((await h.domain.projects.load('AR')).version).toBe(before.version);
     expect(await h.domain.projects.history('AR')).toEqual(history);
-    expect(h.repos.operatorRequests.latest('AR', 10)).toEqual([{ ...request, closedAt: expect.any(String) }]);
+    expect(h.repos.operatorRequests.latest('AR', 10)).toEqual([request]);
     expect(h.repos.operatorRequests.steps(request.id)).toEqual([]);
     expect(h.repos.inbox.listOpen('approval')).toEqual([]);
   });
@@ -174,7 +173,7 @@ describe('targeted Operator role configuration (PM-746)', () => {
     await setup();
     await expect(
       h.domain.teamTools.getRoleConfiguration({ ...ctx, member: 'dev-1' }, { role: 'developer' }),
-    ).rejects.toThrow('operator_only');
+    ).rejects.toThrow('project_manager_only');
     await expect(
       h.domain.teamTools.getRoleConfiguration({ ...ctx, sessionId: 'missing' }, { role: 'developer' }),
     ).rejects.toThrow('operator_owner_only');

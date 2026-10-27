@@ -37,8 +37,14 @@ describe('the in-app Operator on the shared super-operation path (PM-888)', () =
       openedAt: new Date().toISOString(),
     });
 
-  const boot = async (administration?: AdministrationPort) => {
+  const boot = async (administration?: AdministrationPort, member = 'operator') => {
     h = await createDomainHarness({
+      adjust: (config) => {
+        if (member === 'pm') {
+          const pm = config.team.members.find((candidate) => candidate.handle === 'pm')!;
+          if (pm.kind === 'ai') pm.onLeave = false;
+        }
+      },
       ...(administration
         ? {
             administration: {
@@ -58,8 +64,8 @@ describe('the in-app Operator on the shared super-operation path (PM-888)', () =
       passwordHash: 'unused-test-hash',
       createdAt: NOW,
     });
-    const { session } = await h.domain.sessions.ensureSession('AR', 'operator', { type: 'general' });
-    ctx = { projectKey: 'AR', member: 'operator', sessionId: session.id, taskKey: null };
+    const { session } = await h.domain.sessions.ensureSession('AR', member, { type: 'general' });
+    ctx = { projectKey: 'AR', member, sessionId: session.id, taskKey: null };
     openRequest(session.id);
   };
 
@@ -228,6 +234,7 @@ describe('the in-app Operator on the shared super-operation path (PM-888)', () =
         prefix: OPERATOR_APP_CREDENTIAL_PREFIX,
         mode: 'super',
         source,
+        member: 'operator',
       });
       const base = h.repos.sessions.get(ctx.sessionId)!;
       h.repos.sessions.insert({
@@ -246,6 +253,123 @@ describe('the in-app Operator on the shared super-operation path (PM-888)', () =
       open.add(ctx.sessionId);
       h.repos.sessions.update(ctx.sessionId, { state: 'exited' });
       expect(sessions.active(principal(ctx.sessionId))).toBe(false);
+    });
+  });
+
+  describe('the project manager app path', () => {
+    beforeEach(() => boot(undefined, 'pm'));
+
+    it('executes and records a routine command as the PM', async () => {
+      const { operation } = await execute('pm-create');
+      expect(operation.state).toBe('succeeded');
+      expect(h.domain.timeline.list('AR', { taskKey: 'AR-1' })).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: 'task_created',
+            actor: expect.objectContaining({
+              kind: 'ai',
+              handle: 'pm',
+              via: 'integrator',
+              operatorMode: 'super',
+            }),
+          }),
+        ]),
+      );
+      expect((await h.domain.teamTools.getOperation(ctx, { operationId: operation.id })).operation.id).toBe(
+        operation.id,
+      );
+    });
+
+    it.each([
+      {
+        kind: 'administration',
+        request: { kind: 'restart', target: { kind: 'hub' }, expectedBootId: 'boot-1' },
+      },
+      { kind: 'credential_revoke', keyId: 'ikey_victim' },
+      { kind: 'workspace_release', scopeId: 'scp_0123456789abcdef', reason: 'Checked' },
+    ] satisfies SuperCommand[])('refuses a PM command of kind $kind', async (command) => {
+      await expect(execute('pm-refused', command)).rejects.toMatchObject({
+        code: 'forbidden',
+        message: expect.stringContaining('command_not_for_project_manager'),
+      });
+    });
+
+    it('requires an open owner request', async () => {
+      h.repos.operatorRequests.close(REQUEST, NOW);
+      await expect(execute('pm-closed')).rejects.toMatchObject({ code: 'forbidden' });
+      openRequest(ctx.sessionId, 'opr_pm_guest', 'message', 'dev-1');
+      await expect(execute('pm-guest')).rejects.toMatchObject({ code: 'forbidden' });
+    });
+
+    it('binds an app principal only to its own general session', () => {
+      const sessions = createOperatorAppSessions({
+        ctx: { repos: h.repos } as unknown as DomainContext,
+        projects: h.domain.projects,
+        hasOpenRequest: () => true,
+      });
+      const principal: IntegratorPrincipal = {
+        kind: 'integrator',
+        userId,
+        keyId: ctx.sessionId,
+        member: 'pm',
+        prefix: OPERATOR_APP_CREDENTIAL_PREFIX,
+        mode: 'super',
+        source: 'app',
+      };
+      expect(sessions.active(principal)).toBe(true);
+      expect(sessions.active({ ...principal, member: 'dev-1' })).toBe(false);
+      expect(sessions.active({ ...principal, member: undefined })).toBe(false);
+      const base = h.repos.sessions.get(ctx.sessionId)!;
+      h.repos.sessions.insert({ ...base, id: 'ses_pm_guest', workItem: { type: 'general', with: 'owner' } });
+      expect(sessions.active({ ...principal, keyId: 'ses_pm_guest' })).toBe(false);
+    });
+
+    it('uses the shared path for PM settings and resumes a K3 effect in the PM name', async () => {
+      const result = await h.domain.teamTools.operate(ctx, {
+        title: 'Change developer access',
+        operation: { op: 'member_update', handle: 'dev-1', changes: { outboundNetwork: false } },
+      });
+      expect(result.status).toBe('awaiting_approval');
+      const steps = h.repos.operatorRequests.steps(REQUEST);
+      const operationId = steps[0]!.operationId!;
+      expect(h.domain.superHandoffs.operation('AR', operationId).state).toBe('waiting_owner');
+      h.repos.operatorRequests.close(REQUEST, NOW);
+      h.repos.sessions.update(ctx.sessionId, { state: 'exited' });
+      await h.domain.inbox.resolve(
+        'AR',
+        result.inbox_item_id!,
+        { optionId: 'yes' },
+        { handle: 'owner', access: 'owner' },
+      );
+      await vi.waitFor(() =>
+        expect(['succeeded', 'failed']).toContain(h.domain.superHandoffs.operation('AR', operationId).state),
+      );
+      expect(h.domain.superHandoffs.operation('AR', operationId)).toMatchObject({
+        state: 'succeeded',
+        errorCode: null,
+      });
+      expect(
+        h.domain.timeline
+          .list('AR', {})
+          .filter((event) => event.type === 'super_operation_changed')
+          .every((event) => event.actor.kind !== 'ai' || event.actor.handle === 'pm'),
+      ).toBe(true);
+    });
+
+    it('pauses with the PM as the recorded actor', async () => {
+      const result = await h.domain.teamTools.operate(ctx, {
+        title: 'Pause',
+        operation: { op: 'project_pause' },
+      });
+      expect(result.status).toBe('done');
+      expect(h.domain.timeline.list('AR', {})).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: 'team_paused',
+            actor: expect.objectContaining({ kind: 'ai', handle: 'pm', operatorMode: 'super' }),
+          }),
+        ]),
+      );
     });
   });
 

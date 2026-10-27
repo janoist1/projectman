@@ -274,6 +274,8 @@ export const ERROR_CODES = [
   'operator_no_request',
   'operator_never',
   'operator_only',
+  // The app project manager must hand machine and unsupported commands to the integrator (403).
+  'command_not_for_project_manager',
   'project_manager_only',
   'operator_preference_no_person',
   'operator_approval_stale',

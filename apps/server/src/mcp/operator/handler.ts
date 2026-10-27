@@ -1,6 +1,10 @@
 import {
   isOperator,
   isProjectManager,
+  coordinationMemberOf,
+  canonical,
+  operatorCriticalOp,
+  OperatorPlan as OperatorPlanSchema,
   memberOf,
   roleBundle,
   ScreeningTodo as ScreeningTodoSchema,
@@ -19,6 +23,7 @@ import type {
   ScreeningOutcome,
   ScreeningTodo,
   Task,
+  SuperOperation,
 } from '@projectman/shared';
 import { TeamToolError } from '../../contracts';
 import type {
@@ -252,14 +257,7 @@ export class OperatorTools implements OperatorToolsHandler {
     args: { role: BuiltInRoleId },
   ): Promise<RoleConfigurationRead> {
     return this.calls.guard(async () => {
-      const config = await this.calls.caller(ctx, 'get_role_configuration');
-      if (!isOperator(memberOf(config, ctx.member)))
-        throw new TeamToolError('forbidden', 'operator_only: only the Operator may read role configuration.');
-      if (!this.ownInternalSession(ctx))
-        throw new TeamToolError(
-          'forbidden',
-          'operator_owner_only: role configuration requires your own owner general conversation.',
-        );
+      await this.appCaller(ctx, 'get_role_configuration');
       const loaded = await this.projects.load(ctx.projectKey);
       return {
         version: loaded.version,
@@ -464,6 +462,47 @@ export class OperatorTools implements OperatorToolsHandler {
     args: { title: string; operation: OperatorOperation; plan?: OperatorPlan },
   ) {
     const config = await this.projects.config(ctx.projectKey);
+    if (coordinationMemberOf(config)?.handle === ctx.member) {
+      if (operatorCriticalOp(args.operation.op) && !args.plan)
+        throw new TeamToolError('invalid', 'operator_plan_required: critical operations require a plan.');
+      if (args.plan) OperatorPlanSchema.parse(args.plan);
+      if (!args.title.trim() || args.title.length > 120)
+        throw new TeamToolError('invalid', 'invalid_request: title must have 1 to 120 characters.');
+      const caller = await this.appCaller(ctx, 'operate');
+      try {
+        const result = await this.calls.recorded(
+          caller,
+          {
+            action: 'operation',
+            taskKey: null,
+            madeOperation: (result: { operation: SuperOperation }) => ({
+              id: result.operation.id,
+              awaitsOwner: result.operation.state === 'waiting_owner',
+            }),
+          },
+          async () => ({
+            operation: await this.superPath().operations.execute(ctx.projectKey, ctx.sessionId, {
+              requestId: appRequestId(caller.request!.id, canonical(args.operation)),
+              command: { kind: 'operate', operation: args.operation },
+            }),
+          }),
+        );
+        const operation = result.operation;
+        return {
+          status:
+            operation.state === 'waiting_owner'
+              ? ('awaiting_approval' as const)
+              : operation.state === 'succeeded'
+                ? ('done' as const)
+                : ('refused' as const),
+          step_id: this.ctx.repos.operatorRequests.steps(caller.request!.id).at(-1)!.id,
+          changes: [],
+          ...(operation.ownerQuestionId ? { inbox_item_id: operation.ownerQuestionId } : {}),
+        };
+      } catch (err) {
+        throw this.appFailure(err);
+      }
+    }
     if (!isOperator(memberOf(config, ctx.member)))
       throw new TeamToolError('forbidden', 'operator_only: only the Operator may operate.');
     const caller = await this.calls.callerWithRequest(ctx, 'operate', undefined, undefined, args.operation);
@@ -486,8 +525,14 @@ export class OperatorTools implements OperatorToolsHandler {
    */
   private async appCaller(ctx: ToolContext, tool: string) {
     const caller = await this.calls.callerWithRequest(ctx, tool);
-    if (!isOperator(memberOf(caller.config, ctx.member)))
-      throw new TeamToolError('forbidden', 'operator_only: only the Operator may use the super operations.');
+    if (
+      !isOperator(memberOf(caller.config, ctx.member)) &&
+      coordinationMemberOf(caller.config)?.handle !== ctx.member
+    )
+      throw new TeamToolError(
+        'forbidden',
+        'operator_only: only the Operator or selected PM may use the super operations.',
+      );
     const session = this.ctx.repos.sessions.get(ctx.sessionId);
     if (
       !caller.request ||
@@ -519,7 +564,10 @@ export class OperatorTools implements OperatorToolsHandler {
     try {
       const caller = await this.appCaller(ctx, 'execute_operation');
       // `operate` and `member_update` have their own tool; the direct path takes the rest.
-      if (args.command.kind === 'operate' || args.command.kind === 'member_update')
+      if (
+        isOperator(memberOf(caller.config, ctx.member)) &&
+        (args.command.kind === 'operate' || args.command.kind === 'member_update')
+      )
         throw new TeamToolError(
           'invalid',
           `super_operation_unsupported: a ${args.command.kind} command is not run here; use operate.`,
@@ -529,8 +577,9 @@ export class OperatorTools implements OperatorToolsHandler {
       if (args.command.kind === 'workspace_release') {
         const request = caller.request!;
         if (
-          (request.source !== 'message' && request.source !== 'answer') ||
-          !isOwner(caller.config, request.fromHandle)
+          isOperator(memberOf(caller.config, ctx.member)) &&
+          ((request.source !== 'message' && request.source !== 'answer') ||
+            !isOwner(caller.config, request.fromHandle))
         )
           throw new TeamToolError(
             'forbidden',
@@ -573,7 +622,9 @@ export class OperatorTools implements OperatorToolsHandler {
 
   async getMachineStatus(ctx: ToolContext, args: { target: AdministrationTarget }) {
     try {
-      await this.appCaller(ctx, 'get_machine_status');
+      const caller = await this.appCaller(ctx, 'get_machine_status');
+      if (!isOperator(memberOf(caller.config, ctx.member)))
+        throw new TeamToolError('forbidden', 'operator_only: machine reads require the Operator.');
       const { administration } = this.superPath();
       const status = await administration.status(ctx.projectKey, args.target);
       const machine = status.capabilities.includes('machine')
@@ -587,7 +638,9 @@ export class OperatorTools implements OperatorToolsHandler {
 
   async getMachineLogs(ctx: ToolContext, args: { target: AdministrationTarget } & AdministrationLogsOptions) {
     try {
-      await this.appCaller(ctx, 'get_machine_logs');
+      const caller = await this.appCaller(ctx, 'get_machine_logs');
+      if (!isOperator(memberOf(caller.config, ctx.member)))
+        throw new TeamToolError('forbidden', 'operator_only: machine reads require the Operator.');
       const { target, ...options } = args;
       return await this.superPath().administration.logs(ctx.projectKey, target, options);
     } catch (err) {

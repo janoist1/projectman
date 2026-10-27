@@ -2103,6 +2103,7 @@ export function createDomain(opts: DomainOptions) {
     engineLinked,
   });
   const appOperations = createOperatorAppOperations({
+    ctx,
     credentials: appCredentials,
     superOperator,
     superAdministration,

@@ -8,6 +8,26 @@ import { memberDuties, roleBundle } from './duties';
 import { operatorFixedChange } from './operator';
 import { operatorOf } from './operator-member';
 
+/** App project managers may execute only these command kinds; new kinds are refused by default. */
+export const PROJECT_MANAGER_SUPER_COMMANDS = [
+  'task_create',
+  'task_update',
+  'task_labels',
+  'task_start',
+  'task_cancel',
+  'member_update',
+  'merge_order',
+  'operate',
+] as const;
+
+export function projectManagerCommandRefusal(command: {
+  kind: string;
+}): 'command_not_for_project_manager' | null {
+  return (PROJECT_MANAGER_SUPER_COMMANDS as readonly string[]).includes(command.kind)
+    ? null
+    : 'command_not_for_project_manager';
+}
+
 /**
  * What stays the owner's in super mode (owner decision of 2026-10-20, PM-862 K3): deleting a member, key,
  * project or repository; their own login and the security settings; the paid cost. Everything else the

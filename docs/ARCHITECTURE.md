@@ -816,6 +816,12 @@ This module needs no Effect program: retries belong to admission, reply relay us
 `background.run`, and the 60-second signal sweep runs in `kernel/sweeps.ts`; assembly
 (`assembly.ts`) declares the sweep list.
 
+The top right corner (PM-1042, decision 65) belongs to the project manager. `GET routes.projectManager`
+returns a `ProjectManagerCorner`: the manager's channel plus, for the viewer, the requests and steps, the
+signals and the manager's queue; a person who is not an owner gets `readOnly` and no signals or queue. The web
+queue view reads `routes.memberQueue` for the manager. The machine grant is shown on the machine panel and
+managed in Settings → Integrator. The Operator's own channel route stays until PM-1045.
+
 Personal conversational style (PM-688) lives in `services/operator/preferences.ts`.
 `get_operator_preference` and `set_operator_preference` choose the person from the
 authenticated Operator session and its current human request, or the selected active PM's

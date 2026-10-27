@@ -20,6 +20,8 @@ export const routes = {
   pushDeviceTest: (id: string) => `/api/me/push/devices/${id}/test`,
   pushUnsubscribe: () => '/api/me/push/unsubscribe',
   projectManager: (key: string) => `/api/projects/${key}/project-manager`,
+  /** GET the project manager's member queue (`MemberQueueView`, PM-894, PM-1042); `?closedSince=<iso>`. */
+  projectManagerQueue: (key: string) => `/api/projects/${key}/project-manager/queue`,
   /** GET the Operator's channel with its requests and steps (`OperatorChannel`, PM-463) of the viewer's own conversation (PM-475); a person's own login only. */
   operator: (key: string) => `/api/projects/${key}/operator`,
   /** GET the Operator's member queue (`MemberQueueView`, PM-894); `?closedSince=<iso>`. */

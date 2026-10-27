@@ -20,6 +20,7 @@ import { errorCode } from '../../lib/errors';
 import { defaultEngine } from '../engines/engineView';
 import { holdKeys, holdOrder, isDelayed, percent, sortSessions } from './machineView';
 import type { MachineSort } from './machineView';
+import { MachineGrantRow } from './MachineGrantRow';
 import { Confirm, Usage, SessionRow, OrphanRow } from './MachineRows';
 import type { Confirmation, Controls } from './MachineRows';
 import styles from './Machine.module.css';
@@ -554,6 +555,7 @@ export function MachinePanel({
           )}
         </>
       )}
+      <MachineGrantRow />
     </div>
   );
   if (phone)

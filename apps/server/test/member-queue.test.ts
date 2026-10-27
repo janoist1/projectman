@@ -327,6 +327,13 @@ describe('member queue', () => {
       expect(recent.everQueued).toBe(true);
     });
 
+    it('shows the project manager’s queue on its own route', async () => {
+      send(['pm']);
+      const view = MemberQueueView.parse((await get(routes.projectManagerQueue('AR'))).json());
+      expect(view.member).toBe('pm');
+      expect(view.items).toHaveLength(1);
+    });
+
     it('answers 400 invalid_request for a bad closedSince', async () => {
       const response = await get(`${routes.operatorQueue('AR')}?closedSince=yesterday`);
       expect(response.statusCode).toBe(400);

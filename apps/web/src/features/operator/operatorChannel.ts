@@ -1,8 +1,8 @@
-import type { OperatorChannel, OperatorGrantState, ProjectManagerChannel } from '@projectman/shared';
-import { daysBetween, formatDate, formatTime } from '../../i18n/format';
+import type { ProjectManagerChannel, ProjectManagerCorner } from '@projectman/shared';
+import { formatTime } from '../../i18n/format';
 import { t } from '../../i18n/t';
 
-/** What a message to the Operator waits for, if anything; it names the line under the message. */
+/** What a message to the project manager waits for, if anything; it names the line under the message. */
 export type OperatorWait = 'quota' | 'paused' | 'queued';
 
 /** The dot of the header button: green available, accent working, grey waiting. */
@@ -10,7 +10,7 @@ export type OperatorDot = 'available' | 'working' | 'waiting';
 
 const QUOTA_REASONS: readonly string[] = ['plan_usage_paused', 'provider_rate_limited'];
 
-/** Why the conversation cannot run now; null while the Operator is there or on its way (it is never on leave, PM-473). */
+/** Why the conversation cannot run now; null while the project manager is there, on its way or on leave (a message waits for it). */
 export function operatorWaitOf(channel: ProjectManagerChannel | undefined): OperatorWait | null {
   if (!channel) return null;
   if (channel.state === 'starting') return 'queued';
@@ -54,6 +54,8 @@ export function operatorStatusText(channel: ProjectManagerChannel | undefined): 
       return t('operator.status.working');
     case 'available':
       return t('operator.status.available');
+    case 'on_leave':
+      return t('operator.status.on_leave');
     case 'missing':
       return t('operator.status.missing');
     default:
@@ -61,8 +63,8 @@ export function operatorStatusText(channel: ProjectManagerChannel | undefined): 
   }
 }
 
-/** The status line with the length of the Operator's queue behind it: "Dolgozik… · sorban 3". */
-export function operatorStatusWithQueue(channel: OperatorChannel | undefined): string {
+/** The status line with the length of the project manager's queue behind it: "Dolgozik… · sorban 3". */
+export function operatorStatusWithQueue(channel: ProjectManagerCorner | undefined): string {
   const status = operatorStatusText(channel);
   const open = channel?.queue.open ?? 0;
   return open > 0
@@ -79,7 +81,7 @@ export type OperatorStrip =
   | { kind: 'starting' }
   | { kind: 'waiting'; status: string; open: number };
 
-export function operatorStripOf(channel: OperatorChannel | undefined): OperatorStrip | null {
+export function operatorStripOf(channel: ProjectManagerCorner | undefined): OperatorStrip | null {
   const queue = channel?.queue;
   if (!channel || !queue || queue.open <= 0) return null;
   if (queue.current) return { kind: 'now', title: queue.current.title, more: queue.open - 1 };
@@ -89,16 +91,7 @@ export function operatorStripOf(channel: OperatorChannel | undefined): OperatorS
   return { kind: 'starting' };
 }
 
-/** When the grant ends: "visszavonásig", "ma 20:55-ig" or "okt. 27. 20:55-ig". */
-export function operatorGrantExpiryText(grant: OperatorGrantState, now: Date = new Date()): string {
-  if (!grant.expiresAt) return t('operator.queue.grant.untilRevoked');
-  const time = formatTime(grant.expiresAt);
-  return daysBetween(grant.expiresAt, now) === 0
-    ? t('operator.queue.grant.untilToday', { time })
-    : t('operator.queue.grant.untilDate', { date: formatDate(grant.expiresAt, now), time });
-}
-
-/** The line under an own message that the Operator has not taken yet. */
+/** The line under an own message that the project manager has not taken yet. */
 export function operatorSentText(wait: OperatorWait | null): string {
   switch (wait) {
     case 'quota':

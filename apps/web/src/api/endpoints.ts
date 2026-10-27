@@ -42,9 +42,8 @@ import {
   MemberMemories,
   Session,
   TeamMessage,
-  OperatorChannel,
   OperatorSignal,
-  ProjectManagerChannel,
+  ProjectManagerCorner,
   ProvidersView,
   CreatedInvitation,
   InvitationsView,
@@ -345,13 +344,14 @@ export const api = {
   readTeamMessages: (key: string, ids: string[]) =>
     apiRequest(routes.readTeamMessages(key), { method: 'POST', body: { ids }, schema: TeamMessagesView }),
   teamThreads: (key: string) => apiRequest(routes.teamThreads(key), { schema: TeamThreadsView }),
-  /** The state of the project manager's channel: who it is and whether it can answer now (PM-434). */
-  projectManager: (key: string) => apiRequest(routes.projectManager(key), { schema: ProjectManagerChannel }),
-  /** The viewer's own conversation with the Operator: its state, requests with steps and signals (PM-463, PM-475). */
-  operator: (key: string) => apiRequest(routes.operator(key), { schema: OperatorChannel }),
-  /** The Operator's member queue: the open items and those closed since `closedSince` (PM-894). */
-  operatorQueue: (key: string, closedSince: string) =>
-    apiRequest(`${routes.operatorQueue(key)}?closedSince=${encodeURIComponent(closedSince)}`, {
+  /**
+   * The viewer's own conversation with the project manager: who it is, whether it can answer now, requests with
+   * steps, signals and the queue (PM-434, PM-475, PM-1042).
+   */
+  projectManager: (key: string) => apiRequest(routes.projectManager(key), { schema: ProjectManagerCorner }),
+  /** The project manager's queue: the open items and those closed since `closedSince` (PM-894, PM-1042). */
+  projectManagerQueue: (key: string, closedSince: string) =>
+    apiRequest(`${routes.projectManagerQueue(key)}?closedSince=${encodeURIComponent(closedSince)}`, {
       schema: MemberQueueView,
     }),
   /** The owner's grant of machine operations to the Operator, as the viewer may see it (PM-881). */

@@ -2553,7 +2553,8 @@ export class MockBackend {
       }
       return ok({ checklist: clone(this.checklist), canEdit: access === 'owner' });
     }
-    if (rest === '/operator' && method === 'GET') return this.operatorChannel();
+    if (rest === '/project-manager/queue' && method === 'GET')
+      return this.memberQueue(projectManagerOf(this.config)?.handle ?? 'pm', query);
     if (rest === '/operator/queue' && method === 'GET')
       return this.memberQueue(operatorOf(this.config)?.handle ?? 'operator', query);
     if (rest === '/operator/preferences/me' && method === 'GET')
@@ -5980,37 +5981,17 @@ export class MockBackend {
     }
   }
 
-  /** The project manager's channel (PM-434): the same order of conditions as the server's. */
+  /**
+   * The viewer's corner (PM-434, PM-447, PM-1042): the project manager's state in the server's order of conditions.
+   * Every human member has one; a viewer who is not an owner reads and answers only (`readOnly`, no signals and no
+   * queue).
+   */
   private projectManagerChannel(): MockResponse {
     const viewer = this.findMember(this.viewerHandle);
-    if (!viewer || viewer.kind !== 'human' || !['owner', 'admin', 'developer'].includes(viewer.role))
-      return error(403, 'insufficient_access', 'Developer access required');
+    if (!viewer || viewer.kind !== 'human') return error(403, 'insufficient_access', 'A member is required');
     const pm = projectManagerOf(this.config);
     const session = pm
       ? this.sessions.find((s) => s.member === pm.handle && s.workItem.type === 'general')
-      : undefined;
-    const sessionId = session?.id ?? null;
-    if (!pm) return ok({ member: null, state: 'missing', sessionId });
-    const member = { handle: pm.handle, displayName: pm.displayName, onLeave: isOnLeave(pm) };
-    if (member.onLeave) return ok({ member, state: 'on_leave', sessionId });
-    if (this.pauses.isPaused())
-      return ok({ member, state: 'waiting', waiting: { reason: 'team_paused', since: nowIso() }, sessionId });
-    if (session?.state === 'starting') return ok({ member, state: 'starting', sessionId });
-    if (session?.state === 'working' || session?.state === 'waiting_permission')
-      return ok({ member, state: 'working', sessionId });
-    return ok({ member, state: 'available', sessionId });
-  }
-
-  /**
-   * The viewer's Operator channel (PM-447): every human member has one; a viewer who is not an owner reads and
-   * answers only (`readOnly`, no signals). The state follows the project manager's rules.
-   */
-  private operatorChannel(): MockResponse {
-    const viewer = this.findMember(this.viewerHandle);
-    if (!viewer || viewer.kind !== 'human') return error(403, 'insufficient_access', 'A member is required');
-    const operator = operatorOf(this.config);
-    const session = operator
-      ? this.sessions.find((s) => s.member === operator.handle && s.workItem.type === 'general')
       : undefined;
     const sessionId = session?.id ?? null;
     const readOnly = viewer.role !== 'owner';
@@ -6020,14 +6001,11 @@ export class MockBackend {
       readOnly,
       signals: readOnly ? [] : clone(signals),
       openSignals: readOnly ? 0 : signals.filter((s) => s.state === 'open' && !s.resolvedAt).length,
-      queue: this.operatorQueueSummary(),
+      queue: readOnly ? { open: 0, current: null } : this.queueSummary(pm?.handle),
     };
-    if (!operator) return ok({ member: null, state: 'missing', sessionId, ...rest });
-    const member = {
-      handle: operator.handle,
-      displayName: operator.displayName,
-      onLeave: isOnLeave(operator),
-    };
+    if (!pm) return ok({ member: null, state: 'missing', sessionId, ...rest });
+    const member = { handle: pm.handle, displayName: pm.displayName, onLeave: isOnLeave(pm) };
+    if (member.onLeave) return ok({ member, state: 'on_leave', sessionId, ...rest });
     if (this.pauses.isPaused())
       return ok({
         member,
@@ -6042,10 +6020,12 @@ export class MockBackend {
     return ok({ member, state: 'available', sessionId, ...rest });
   }
 
-  /** The length of the Operator's queue and the item it works on, as its channel carries them. */
-  private operatorQueueSummary(): { open: number; current: { id: string; title: string } | null } {
-    const operator = operatorOf(this.config);
-    const open = operator ? this.openQueueItems(operator.handle) : [];
+  /** The length of one member's queue and the item it works on, as the corner carries them. */
+  private queueSummary(handle: string | undefined): {
+    open: number;
+    current: { id: string; title: string } | null;
+  } {
+    const open = handle ? this.openQueueItems(handle) : [];
     const current = open.find((item) => item.state === 'processing');
     return { open: open.length, current: current ? { id: current.id, title: current.title } : null };
   }

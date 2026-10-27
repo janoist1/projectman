@@ -146,11 +146,11 @@ describe('teamMessageRecipientRefusal', () => {
     });
   });
 
-  it('lets a viewer write to the Operator alone', () => {
-    expect(teamMessageRecipientRefusal(config, 'vic', ['op'])).toBeNull();
-    expect(teamMessageRecipientRefusal(config, 'vic', ['pm'])).toEqual({
+  it('lets a viewer write to the project manager and the Operator alone', () => {
+    expect(teamMessageRecipientRefusal(config, 'vic', ['pm', 'op'])).toBeNull();
+    expect(teamMessageRecipientRefusal(config, 'vic', ['pm', 'dev-1'])).toEqual({
       code: 'insufficient_access',
-      recipients: ['pm'],
+      recipients: ['dev-1'],
     });
   });
 

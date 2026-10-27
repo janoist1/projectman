@@ -273,22 +273,25 @@ export const OperatorSignal = z.object({
 });
 export type OperatorSignal = z.infer<typeof OperatorSignal>;
 /**
- * The viewer's Operator conversation as the project manager's, plus the last 50 requests (the newest last).
- * `readOnly` (PM-475): the conversation is with a person who is not an owner, so the Operator only reads and answers
- * (and the owners' system signals stay out of it).
+ * The viewer's conversation with the project manager in the top right corner (PM-1042), plus the last 50
+ * requests (the newest last). `readOnly` (PM-475, decision 59): the conversation is with a person who is not an
+ * owner, so the project manager only reads and answers (and the owners' system signals stay out of it).
  */
-export const OperatorChannel = ProjectManagerChannel.extend({
+export const ProjectManagerCorner = ProjectManagerChannel.extend({
   requests: z.array(OperatorRequestView),
   readOnly: z.boolean(),
   signals: z.array(OperatorSignal),
   openSignals: z.number().int(),
-  /** The Operator's member queue (PM-894): the open items and the one being processed. */
+  /** The project manager's member queue (PM-894): the open items and the one being processed. */
   queue: z.object({
     open: z.number().int().min(0),
     current: z.object({ id: z.string(), title: z.string() }).nullable(),
   }),
 });
-export type OperatorChannel = z.infer<typeof OperatorChannel>;
+export type ProjectManagerCorner = z.infer<typeof ProjectManagerCorner>;
+/** The corner's shape under its old name, until the Operator leaves the app (PM-1045). */
+export const OperatorChannel = ProjectManagerCorner;
+export type OperatorChannel = ProjectManagerCorner;
 
 /* ---------- auth ---------- */
 

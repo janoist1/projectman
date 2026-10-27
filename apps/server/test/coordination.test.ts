@@ -258,6 +258,25 @@ describe('separate PM and Operator authorization', () => {
     ).resolves.toMatchObject({ status: 'done' });
   });
 
+  it("gives the corner the PM's own requests and delivered signals, and a guest none of them", async () => {
+    await setup();
+    const { signal } = await idleSignal();
+    await deliverSignals();
+    const pm = await ownerMessage('pm');
+    const corner = await h.domain.projectManagerChannels.view('AR', 'owner');
+    expect(corner).toMatchObject({ member: { handle: 'pm' }, readOnly: false });
+    expect(corner.requests.map((r) => r.id)).toEqual([requests().openFor(pm.sessionId)!.id]);
+    expect(corner.signals.map((s) => s.id)).toContain(signal.id);
+    expect(corner.openSignals).toBeGreaterThan(0);
+    await expect(h.domain.projectManagerChannels.view('AR', 'guest')).resolves.toMatchObject({
+      readOnly: true,
+      requests: [],
+      signals: [],
+      openSignals: 0,
+      queue: { open: 0, current: null },
+    });
+  });
+
   it('opens nothing for another human, integrator, system signal, member message or knowledge approval', async () => {
     await setup();
     const pm = await internal();

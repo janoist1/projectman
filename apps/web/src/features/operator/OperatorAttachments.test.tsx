@@ -72,7 +72,7 @@ function seed(project: ReturnType<typeof mockProject>, name: string, type = 'ima
 }
 function sentMessage(project: ReturnType<typeof mockProject>, attachments: MessageAttachment[], text = '') {
   return project.backend.handle('POST', routes.sendTeamMessage('AC'), {
-    to: ['operator'],
+    to: ['pm'],
     text,
     attachmentIds: attachments.map((item) => item.id),
   }).body as TeamMessage;
@@ -330,7 +330,7 @@ describe('Operator message attachments', () => {
     const project = mockProject();
     const attachment = seed(project, 'received.png');
     project.backend.sendTeamMessage(
-      'operator',
+      'pm',
       ['kata'],
       null,
       'A shared message',
@@ -340,7 +340,7 @@ describe('Operator message attachments', () => {
       [attachment],
     );
     project.backend.viewerHandle = 'kata';
-    project.backend.config.team.contacts = ['operator'];
+    project.backend.config.team.contacts = ['pm'];
     project.render(<OperatorPanel returnFocusTo={{ current: null }} />, '/', {
       myHandle: 'kata',
       isOwner: false,

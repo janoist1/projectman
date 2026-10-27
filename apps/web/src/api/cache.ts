@@ -131,14 +131,13 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
     ].includes(event.type)
   ) {
     void client.invalidateQueries({ queryKey: queryKeys.projectManager(event.projectKey) });
-    void client.invalidateQueries({ queryKey: queryKeys.operator(event.projectKey) });
   }
   if (
     'projectKey' in event &&
     event.type === 'inbox_upserted' &&
     (operatorApprovalOf(event.item) || operatorKnowledgeApprovalOf(event.item))
   ) {
-    void client.invalidateQueries({ queryKey: queryKeys.operator(event.projectKey) });
+    void client.invalidateQueries({ queryKey: queryKeys.projectManager(event.projectKey) });
   }
   switch (event.type) {
     case 'task_upserted': {
@@ -301,20 +300,20 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       return;
     }
     case 'member_queue_changed': {
-      // An item came, was taken or was closed: the Operator's corner shows its count (PM-894), its panel the list.
-      void client.invalidateQueries({ queryKey: queryKeys.operator(event.projectKey) });
+      // An item came, was taken or was closed: the corner shows the count (PM-894), its panel the list.
+      void client.invalidateQueries({ queryKey: queryKeys.projectManager(event.projectKey) });
       void client.invalidateQueries({ queryKey: queryKeys.operatorQueueAll(event.projectKey) });
       return;
     }
     case 'operator_grant_changed': {
-      // The grant was given, replaced, revoked or expired (PM-881): the button's ring and the panel's line.
+      // The grant was given, replaced, revoked or expired (PM-881): the Gép button's dot and the panel's row.
       void client.invalidateQueries({ queryKey: queryKeys.operatorGrant });
       void client.invalidateQueries({ queryKey: queryKeys.operatorGrantAudit });
       return;
     }
     case 'operator_signal': {
       // A signal opened or was decided or resolved: the corner's channel carries it (PM-476).
-      void client.invalidateQueries({ queryKey: queryKeys.operator(event.projectKey) });
+      void client.invalidateQueries({ queryKey: queryKeys.projectManager(event.projectKey) });
       return;
     }
     case 'chat_appended': {

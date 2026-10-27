@@ -1,6 +1,7 @@
 import type { HumanAccess } from '../domain/member';
 import { memberOf } from './lookup';
 import { operatorOf } from './operator-member';
+import { projectManagerOf } from './project-manager';
 import type { ProjectConfig } from './schema';
 
 /** A member's access level as the rules below see it: `ai` for an AI member, absent for a non-member. */
@@ -58,7 +59,7 @@ export type TeamMessageRecipientRefusal = {
  * Whether a team message from `from` to `to` is refused for who the sender is (PM-985):
  * - a contact-restricted sender writes only to contacts: one recipient who is none refuses the whole
  *   message (`recipient_not_contact`), the Operator included;
- * - a read-only viewer writes only to the Operator (`insufficient_access`);
+ * - a read-only viewer writes only to the project manager and the Operator (`insufficient_access`);
  * - anyone else, and the system, has no limit here.
  * Not a membership check: the caller's own authentication and recipient checks stay.
  */
@@ -75,8 +76,9 @@ export function teamMessageRecipientRefusal(
     return refused.length > 0 ? { code: 'recipient_not_contact', recipients: refused } : null;
   }
   if (access === 'viewer') {
-    const operator = operatorOf(config)?.handle;
-    const refused = distinct.filter((handle) => handle !== operator);
+    // The project manager is the corner's contact; the Operator stays addressable until it leaves the app (PM-1045).
+    const allowed = [projectManagerOf(config)?.handle, operatorOf(config)?.handle];
+    const refused = distinct.filter((handle) => !allowed.includes(handle));
     return refused.length > 0 ? { code: 'insufficient_access', recipients: refused } : null;
   }
   return null;

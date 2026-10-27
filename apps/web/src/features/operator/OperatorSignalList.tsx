@@ -115,7 +115,7 @@ export function SignalRow({
         ...(signal.taskKey ? { taskKey: signal.taskKey } : {}),
       },
       {
-        onSettled: () => void client.invalidateQueries({ queryKey: queryKeys.operator(key) }),
+        onSettled: () => void client.invalidateQueries({ queryKey: queryKeys.projectManager(key) }),
       },
     );
   };

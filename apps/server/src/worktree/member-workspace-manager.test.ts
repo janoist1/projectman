@@ -132,7 +132,12 @@ describe('member workspaces', { timeout: 30_000 }, () => {
       rootDir: path.join(base, 'workspaces'),
       logger: silentLogger(),
       access: { ...localWorkspaceAccess(), ownerOf: () => 'worker' },
-      dependencies: { prepare, busy: () => false, close: async () => undefined },
+      dependencies: {
+        prepare,
+        busy: () => false,
+        refreshCheckout: () => undefined,
+        close: async () => undefined,
+      },
     });
     await manager.ensure(key('dev'));
     expect(await manager.prepareDependencies(key('dev'))).toEqual({
@@ -174,6 +179,7 @@ describe('member workspaces', { timeout: 30_000 }, () => {
         return { status: 'ready' as const, key: 'a'.repeat(64), changed: true };
       }),
       busy: () => busy,
+      refreshCheckout: () => undefined,
       close: async () => undefined,
     };
     manager = createMemberWorkspaceManager({
@@ -219,6 +225,7 @@ describe('member workspaces', { timeout: 30_000 }, () => {
             throw Object.assign(new Error('fixture failure'), { code, details });
           },
           busy: () => false,
+          refreshCheckout: () => undefined,
           close: async () => undefined,
         },
       });

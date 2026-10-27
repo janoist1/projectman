@@ -17,7 +17,7 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import type { BranchMerger } from '../contracts';
+import type { BranchMerger, MergeRepoRef } from '../contracts';
 import { newId } from '../kernel';
 import { createLocalBranchMerger } from './branch-merger';
 import { DEPENDENCIES_NOT_INSTALLED, MERGE_CHECK_DIR } from './merge-check';
@@ -57,7 +57,13 @@ interface Fixture {
 }
 
 /** A repository on `main` with a bare remote as its upstream; `withRemote: false` leaves it local only. */
-function fixture(options: { withRemote?: boolean; identity?: boolean } = {}): Fixture {
+function fixture(
+  options: {
+    withRemote?: boolean;
+    identity?: boolean;
+    onCheckoutAdvanced?: (ref: MergeRepoRef, checkout: string) => void;
+  } = {},
+): Fixture {
   counter += 1;
   const dir = path.join(root, `case-${counter}`);
   const repo = path.join(dir, 'repo');
@@ -71,6 +77,7 @@ function fixture(options: { withRemote?: boolean; identity?: boolean } = {}): Fi
   const merger = createLocalBranchMerger({
     repoPath: (projectKey, name) => (projectKey === 'PM' && name === 'projectman' ? repo : null),
     worktreesRoot,
+    ...(options.onCheckoutAdvanced ? { onCheckoutAdvanced: options.onCheckoutAdvanced } : {}),
   });
   return { repo, remote, worktreesRoot, merger };
 }
@@ -753,6 +760,32 @@ describe('advance', () => {
     git(f.repo, 'checkout', '-q', '-b', 'elsewhere');
     expect(await f.merger.advance(REF, { base: 'main', from, to })).toEqual({ ok: true });
     expect(git(f.repo, 'rev-parse', 'main')).toBe(to);
+  });
+
+  it('tells the owner of the checkout about a moved checkout', async () => {
+    const seen: string[] = [];
+    const f = fixture({ withRemote: false, onCheckoutAdvanced: (_ref, checkout) => seen.push(checkout) });
+    const { from, to } = await merged(f);
+    await f.merger.advance(REF, { base: 'main', from, to });
+    expect(seen).toEqual([realpathSync(f.repo)]);
+  });
+
+  it('does not tell the owner of the checkout about a refused advance', async () => {
+    const seen: string[] = [];
+    const f = fixture({ withRemote: false, onCheckoutAdvanced: (_ref, checkout) => seen.push(checkout) });
+    const { from, to } = await merged(f);
+    write(f.repo, 'f.txt', 'untracked and in the way\n');
+    await f.merger.advance(REF, { base: 'main', from, to });
+    expect(seen).toEqual([]);
+  });
+
+  it('does not tell the owner of the checkout about a ref move', async () => {
+    const seen: string[] = [];
+    const f = fixture({ withRemote: false, onCheckoutAdvanced: (_ref, checkout) => seen.push(checkout) });
+    const { from, to } = await merged(f);
+    git(f.repo, 'checkout', '-q', '-b', 'elsewhere');
+    await f.merger.advance(REF, { base: 'main', from, to });
+    expect(seen).toEqual([]);
   });
 
   it('reports moved when the branch is no longer at `from`', async () => {

@@ -454,6 +454,13 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
       workspacePath: (projectKey) =>
         resolved.projects.find((entry) => entry.project === projectKey)?.workspacePath ?? null,
       repoPath: boundRepoPath,
+      // A merge that moved the engine's own checkout keeps its dependencies installed (PM-1083).
+      onCheckoutAdvanced: (ref, checkout) =>
+        workspaceDependencies?.refreshCheckout({
+          project: ref.projectKey,
+          repo: ref.repo,
+          repoPath: checkout,
+        }),
       appHome: home,
       userHome,
       worktreesRootDir: roots.worktrees,
@@ -509,8 +516,12 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
     setupOf: (project, repo) =>
       resolved.repos.find((entry) => entry.project === project && entry.repo === repo)?.workspaceSetup ??
       null,
+    repoPathOf: boundRepoPath,
     logger: log.child({ module: 'workspace-dependencies' }),
   });
+  // The engine's own checkouts are installed at start too (PM-1083); a fresh one costs nothing.
+  for (const entry of resolved.repos)
+    workspaceDependencies.refreshCheckout({ project: entry.project, repo: entry.repo, repoPath: entry.path });
   mkdirSync(exportDir, { recursive: true, mode: 0o700 });
   const administration: { port: AdministrationPort; target: AdministrationTarget } | undefined =
     options.administrationSocket

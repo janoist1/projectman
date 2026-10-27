@@ -3456,6 +3456,21 @@ assumption or remote-engine RPC.
   refuse: the command waits at most 80 s and then runs (warn). Gemini's PreToolUse hook timeout grows by
   80 s. A command already running when an install starts is not stopped. A clone the registry does not
   know takes the worktree path above.
+  The same `workspaceSetup` switch also keeps the engine's own checkout of the repository (`repos[].path`)
+  installed (PM-1083, replacing the operator's polling `deps-watch.sh`): `refreshCheckout` in
+  `full-test/workspace-dependencies.ts` runs for each configured repository at engine start
+  (`engine-app.ts`) and after a merge `advance` that fast-forwarded a checked-out default branch
+  (`onCheckoutAdvanced` in `engine-host/branch-merger.ts`, passed through `local-engine.ts`); it
+  acts only when that checkout's real path equals the bound repository path. A fresh checkout (hidden npm
+  lockfile not older than `package-lock.json`, `worktree/dependencies.ts` `dependencyState`) runs nothing;
+  otherwise the same sandboxed preparation as a member clone runs in the background (copy from the
+  `_merge-deps` store on an identical key, else sandboxed `npm ci`), with marker
+  `<home>/workspace-deps/<sha256(JSON [project,repo])>/ready.json`, heavy-lock label
+  `workspace-deps <project>/<repo> (checkout)` and a per-path single flight. It never throws or delays the
+  merge: a failure is a log line and the next advance or start retries (10-minute memo). A newer advance
+  during the install changes the key, so the run publishes nothing and starts over. Machine assumption:
+  macOS/srt, npm and the repository checkout on the engine's own disk; a remote engine does the same
+  locally, behind the same `workspaceSetup` switch. Other worktrees are never touched.
   Target workspace ancestors must be real directories: component-wise `lstat` checks run
   during selection and immediately before every copy, rename and removal, including rollback
   and cleanup. Symlinked workspace paths skip the clone as unsupported. Node has no `openat`,

@@ -102,6 +102,26 @@ interface EngineBindingActor {
   actorIsProjectOwner: boolean;
 }
 
+interface EngineViewer {
+  viewerUserId: string;
+  viewerIsHostOwner: boolean;
+  /** The engine record's `created_by` (a user id). */
+  engineOwnerUserId: string;
+}
+
+/**
+ * Who sees an engine in the status list and in its change events (PM-1061): the host owner sees every one,
+ * an engine's owner their own, and a member the engines of their projects (`usedByViewerProject`).
+ */
+export function canSeeEngine(a: EngineViewer & { usedByViewerProject: boolean }): boolean {
+  return a.viewerIsHostOwner || a.engineOwnerUserId === a.viewerUserId || a.usedByViewerProject;
+}
+
+/** The machine's name and address are for the engine's owner and the host owner only. */
+export function canSeeEngineMachine(a: EngineViewer): boolean {
+  return a.viewerIsHostOwner || a.engineOwnerUserId === a.viewerUserId;
+}
+
 /** Binding an engine to a project takes both: the machine's owner lets it, the project's owner wants it. */
 export function canBindEngine(a: EngineBindingActor): boolean {
   return a.actorUserId === a.engineOwnerUserId && a.actorIsProjectOwner;

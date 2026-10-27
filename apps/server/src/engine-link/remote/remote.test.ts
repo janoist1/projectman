@@ -92,6 +92,7 @@ describe('cloud mode remote parts', () => {
       links: cloud.links,
       registry: cloud.registry,
       recordedEngine: (sessionId) => (sessionEngines.get(sessionId) as never) ?? null,
+      recordedProject: () => 'AR',
       spoolDir: path.join(spool, 'engine-spool'),
       logger: silentLogger(),
       now: () => Date.now() + skewMs,
@@ -792,6 +793,8 @@ describe('cloud mode remote parts', () => {
     let projectEngines: Record<string, string>;
     beforeEach(() => {
       projectEngines = { PA: A, PB: B };
+      cloud.registry.bindProject('PA', A as never);
+      cloud.registry.bindProject('PB', B as never);
     });
     const directory = {
       projectEngine: (projectKey: string) => (projectEngines[projectKey] ?? null) as never,
@@ -830,16 +833,19 @@ describe('cloud mode remote parts', () => {
           logger: silentLogger(),
         });
 
-      it('starts a session on its project engine, lets a chosen engine win and never falls back', async () => {
+      it('starts a session on its project engine, never on a chosen engine of another project, and never falls back', async () => {
         const { a, b } = await bothOnline((engine) =>
           engine.answer('session.start', (params) => running(params.sessionId)),
         );
         const runner = runnerOver();
         await runner.start(spec({ sessionId: 'sa', projectKey: 'PA' }));
         await runner.start(spec({ sessionId: 'sb', projectKey: 'PB' }));
-        await runner.start(spec({ sessionId: 'sc', projectKey: 'PB', engineId: A as never }));
-        expect(['sa', 'sb', 'sc'].map((id) => runner.engineOf(id))).toEqual([A, B, A]);
-        expect(asked(a, 'session.start')).toHaveLength(2);
+        // The chosen engine is checked too (PM-1061): A is not bound to PB, so nothing is sent.
+        await expect(
+          runner.start(spec({ sessionId: 'sc', projectKey: 'PB', engineId: A as never })),
+        ).rejects.toMatchObject({ code: 'engine_not_bound' });
+        expect(['sa', 'sb', 'sc'].map((id) => runner.engineOf(id))).toEqual([A, B, null]);
+        expect(asked(a, 'session.start')).toHaveLength(1);
         expect(asked(b, 'session.start')).toHaveLength(1);
         // The project is not part of what the engine is sent.
         expect(asked(b, 'session.start')[0]!.params).not.toHaveProperty('projectKey');
@@ -848,7 +854,7 @@ describe('cloud mode remote parts', () => {
         await expect(runner.start(spec({ sessionId: 'sd', projectKey: 'PB' }))).rejects.toMatchObject({
           code: 'engine_offline',
         });
-        expect(asked(a, 'session.start')).toHaveLength(2);
+        expect(asked(a, 'session.start')).toHaveLength(1);
       });
 
       it('refuses a start that names neither an engine nor a project', async () => {
@@ -1034,7 +1040,8 @@ describe('cloud mode remote parts', () => {
         const file = path.join(spool, 'x.pdf');
         writeFileSync(file, 'abc');
         sessionEngines.set('s1', B);
-        // The session ran on B although its project is on A.
+        // PA is also bound to B (a second binding): the session ran there, so the file goes there.
+        cloud.registry.bindAlso('PA', B as never);
         await expect(remote.attachments.materialize(input('s1', 'PA', file))).resolves.toBe(
           `/fictional/${B}/att1-x.pdf`,
         );
@@ -1049,6 +1056,18 @@ describe('cloud mode remote parts', () => {
           code: 'engine_offline',
         });
         expect(asked(a, 'files.materialize')).toHaveLength(1);
+      });
+
+      it('refuses a file of a project to an engine it is not bound to', async () => {
+        const { b } = await onBoth();
+        const file = path.join(spool, 'x.pdf');
+        writeFileSync(file, 'abc');
+        sessionEngines.set('s1', B);
+        // The session claims to be on B, but PA is bound to A only (PM-1061).
+        await expect(remote.attachments.materialize(input('s1', 'PA', file))).rejects.toMatchObject({
+          code: 'engine_not_bound',
+        });
+        expect(asked(b, 'files.materialize')).toHaveLength(0);
       });
 
       it('copies a message file into the folder of the engine the session folder is on', async () => {
@@ -1107,6 +1126,76 @@ describe('cloud mode remote parts', () => {
         });
         expect(asked(b, 'machine.signal')).toHaveLength(0);
       });
+    });
+  });
+
+  describe('two owners’ engines (PM-1061)', () => {
+    // A is the host owner's engine, B belongs to another owner; project PA runs on A and PB on B.
+    const A = 'eng_aaaaaaaaaaaa';
+    const B = 'eng_bbbbbbbbbbbb';
+    const asked = (engine: FakeEngine, method: string) =>
+      engine.requests.filter((item) => item.method === method);
+    let a: FakeEngine;
+    let b: FakeEngine;
+    beforeEach(async () => {
+      cloud.registry.bindProject('PA', A as never);
+      cloud.registry.bindProject('PB', B as never);
+      cloud.registry.setForeign(B as never);
+      const prepare = (engine: FakeEngine) => {
+        engine.answer('machine.processes', () => null);
+        engine.answer('workspace.home', () => '/fictional/home');
+        engine.answer('session.start', (params) => running(params.sessionId));
+      };
+      a = await online(A, {}, prepare);
+      b = await online(B, {}, prepare);
+    });
+    const homeCall = (engine: string, projectKey: string) =>
+      remote.hub.call(engine as never, 'workspace.home', [{ projectKey, member: 'dev' }]);
+
+    it('sends a call of a project only to an engine bound to it', async () => {
+      await homeCall(A, 'PA');
+      await homeCall(B, 'PB');
+      await expect(homeCall(B, 'PA')).rejects.toMatchObject({ code: 'engine_not_bound' });
+      await expect(homeCall(A, 'PB')).rejects.toMatchObject({ code: 'engine_not_bound' });
+      expect(asked(a, 'workspace.home')).toHaveLength(1);
+      expect(asked(b, 'workspace.home')).toHaveLength(1);
+    });
+
+    it('sends the machine and administration calls only to the host owner’s engine', async () => {
+      await remote.hub.call(A as never, 'machine.processes', {});
+      await expect(remote.hub.call(B as never, 'machine.processes', {})).rejects.toMatchObject({
+        code: 'engine_not_host',
+      });
+      await expect(remote.hub.call(B as never, 'admin.status', {} as never)).rejects.toMatchObject({
+        code: 'engine_not_host',
+      });
+      expect(b.requests).toEqual([]);
+    });
+
+    it('does not give the NanoGPT key to another owner’s engine, nor start a NanoGPT session on it', async () => {
+      await expect(b.call('secret.nanogpt_key', { sessionId: 's1' })).rejects.toMatchObject({
+        linkCode: 'secret_not_allowed',
+      });
+      await expect(
+        remote.runner.start(spec({ provider: 'nanogpt', projectKey: 'PB', engineId: B as never })),
+      ).rejects.toMatchObject({ code: 'nanogpt_key_not_for_engine' });
+    });
+
+    it('refuses a team tools relay and a permission request of a session of a project the engine is not bound to', async () => {
+      // The recorded session s1 runs on B, but its project (AR) is bound to A only.
+      cloud.registry.bindProject('AR', A as never);
+      sessionEngines.set('s1', B);
+      const body = {
+        token: 'tok-abc',
+        contentType: 'application/json',
+        accept: 'application/json, text/event-stream',
+        body: '{"jsonrpc":"2.0"}',
+      };
+      expect((await b.call('mcp.relay', body)).status).toBe(404);
+      await expect(
+        b.call('permission.decide', { request: permissionRequest('s1') } as never),
+      ).rejects.toMatchObject({ linkCode: 'not_running' });
+      expect(broker.decide).not.toHaveBeenCalled();
     });
   });
 

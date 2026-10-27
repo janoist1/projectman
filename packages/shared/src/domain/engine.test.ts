@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canBindEngine, canUnbindEngine, projectEngineOf } from './engine';
+import { canBindEngine, canSeeEngine, canSeeEngineMachine, canUnbindEngine, projectEngineOf } from './engine';
 import type { ProjectEngineBinding } from './engine';
 
 const A = 'eng_aaaaaaaaaaaa';
@@ -49,5 +49,29 @@ describe('binding rules', () => {
   ])('lets %s decide as the rules say', (_name, input, canBind, canUnbind) => {
     expect(canBindEngine(input)).toBe(canBind);
     expect(canUnbindEngine(input)).toBe(canUnbind);
+  });
+});
+
+describe('engine visibility (PM-1061)', () => {
+  const viewer = (viewerUserId: string, viewerIsHostOwner: boolean, engineOwnerUserId: string) => ({
+    viewerUserId,
+    viewerIsHostOwner,
+    engineOwnerUserId,
+  });
+
+  it.each([
+    ['the host owner', viewer('usr_host', true, 'usr_other'), false, true, true],
+    [
+      'the engine’s owner without a project on it',
+      viewer('usr_other', false, 'usr_other'),
+      false,
+      true,
+      true,
+    ],
+    ['a member of a project that uses it', viewer('usr_member', false, 'usr_other'), true, true, false],
+    ['someone with no project on it', viewer('usr_member', false, 'usr_other'), false, false, false],
+  ])('shows an engine to %s as the rules say', (_name, input, usedByViewerProject, sees, seesMachine) => {
+    expect(canSeeEngine({ ...input, usedByViewerProject })).toBe(sees);
+    expect(canSeeEngineMachine(input)).toBe(seesMachine);
   });
 });

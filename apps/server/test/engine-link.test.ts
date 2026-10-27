@@ -301,13 +301,15 @@ describe('cloud engine registry and link', () => {
     await expect(request).resolves.toBe(123);
   });
 
-  it('broadcasts status to the sockets of every member', async () => {
+  it('broadcasts the status of an engine only to whom it concerns', async () => {
     await createProjectThroughEngine();
     const developer = await addHumanAndLogin(h.app, { handle: 'human' });
     const client = await addHumanAndLogin(h.app, { handle: 'client', access: 'client' });
     const internalEvents: ServerEvent[] = [];
     const clientEvents: ServerEvent[] = [];
+    const hostEvents: ServerEvent[] = [];
     for (const [login, events] of [
+      [cookie, hostEvents],
       [developer, internalEvents],
       [client, clientEvents],
     ] as const) {
@@ -322,7 +324,14 @@ describe('cloud engine registry and link', () => {
       )) as unknown as Socket;
       sockets.push(ws);
     }
-    await create();
+    // An engine no project of theirs uses stays unknown to them (PM-1061); the host owner hears of it.
+    const unused = await create();
+    await vi.waitFor(() => expect(hostEvents.some((event) => event.type === 'engine_changed')).toBe(true));
+    expect([...internalEvents, ...clientEvents].filter((event) => event.type === 'engine_changed')).toEqual(
+      [],
+    );
+    // Once it is the engine their project falls back to, the members hear of it too.
+    await inject(h.app, 'POST', routes.defaultEngine(unused.engine.id), cookie);
     await vi.waitFor(() =>
       expect(internalEvents.some((event) => event.type === 'engine_changed')).toBe(true),
     );

@@ -708,6 +708,7 @@ describe('member initiated merge', () => {
           links: cloud.links,
           registry: cloud.registry,
           recordedEngine: () => null,
+          recordedProject: () => null,
           spoolDir: `${h!.dir}/refused-check-spool`,
           logger: h!.log.logger,
         });
@@ -751,6 +752,7 @@ describe('member initiated merge', () => {
           links: cloud.links,
           registry: cloud.registry,
           recordedEngine: () => null,
+          recordedProject: () => null,
           spoolDir: `${h!.dir}/reconnect-spool`,
           logger: h!.log.logger,
         });
@@ -911,6 +913,7 @@ describe('member initiated merge', () => {
         links: cloud.links,
         registry: cloud.registry,
         recordedEngine: () => null,
+        recordedProject: () => null,
         spoolDir: `${h!.dir}/shutdown-spool`,
         logger: h!.log.logger,
       });

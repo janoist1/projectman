@@ -2,7 +2,7 @@ import type { Me } from '@projectman/shared';
 import { randomUUID } from 'node:crypto';
 import type { RunnerModule, EventBus } from '../contracts';
 import type { TaskService } from '../core/tasks';
-import type { SessionOrchestrator } from '../runtime/sessions';
+import type { EngineRegistry, SessionOrchestrator } from '../runtime/sessions';
 import type { MessageService } from '../core/messages';
 import type { MemberService, PresenceService, ProjectAccess } from '../core/members';
 
@@ -71,7 +71,7 @@ function messageText(data: unknown): string {
  */
 export function registerWebsocket(
   app: FastifyInstance,
-  deps: { domain: WsDomain; auth: AuthService; heartbeatMs?: number },
+  deps: { domain: WsDomain; auth: AuthService; engineRegistry?: EngineRegistry; heartbeatMs?: number },
 ): void {
   const { domain } = deps;
   const runner = domain.runnerModule.runner;
@@ -121,12 +121,24 @@ export function registerWebsocket(
             continue;
           }
           if (event.type === 'engine_changed') {
-            if (deps.auth.isHostOwner(client.user.id)) send(client, event);
-            // A project–engine binding names its project (PM-1060): only a member of that project hears of it.
+            // Only whom the engine concerns (PM-1061): the host owner, the engine's owner (a project or not),
+            // a member of a project that uses it. A project–engine binding names its project (PM-1060).
+            const engines = deps.engineRegistry;
+            if (deps.auth.isHostOwner(client.user.id) || engines?.ownerOf(event.engine.id) === client.user.id)
+              send(client, event);
             else if (event.projectKey !== undefined) {
               const access = await domain.accessFor(event.projectKey, client.user.email).catch(() => null);
               if (access) send(client, event);
-            } else if ((await domain.projectsFor(client.user.email)).length > 0) send(client, event);
+            } else if (engines) {
+              const projects = await domain.projectsFor(client.user.email);
+              if (
+                engines.canSee(event.engine.id, {
+                  userId: client.user.id,
+                  projectKeys: projects.map((p) => p.key),
+                })
+              )
+                send(client, event);
+            }
             continue;
           }
           // System feedback (PM-472) belongs to the installation: the instance owner, and an owner of the

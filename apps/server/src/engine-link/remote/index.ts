@@ -19,7 +19,7 @@ import { registerCloudHandlers } from './handlers';
 import { createRemoteEngineDirectory } from './host';
 import type { RemoteEngineDirectory } from './host';
 import { createRemoteHub } from './hub';
-import type { RemoteHub } from './hub';
+import type { HubRegistry, RemoteHub } from './hub';
 import { createRemoteMachineProbe } from './machine';
 import type { RemoteMachineProbe } from './machine';
 import { createRemoteRunner } from './runner';
@@ -51,16 +51,11 @@ export interface CloudDomain {
 
 interface CloudRemoteOptions {
   links: EngineLinks;
-  registry: {
-    isOnline(id: EngineId): boolean;
-    defaultId(): EngineId | null;
-    projectEngine(projectKey: string): EngineId | null;
-    onProjectEngineChange(listener: (projectKey: string) => void): () => void;
-    ids(): EngineId[];
-    onOnlineChange(listener: (id: EngineId, online: boolean) => void): () => void;
-  };
+  registry: HubRegistry;
   /** The engine a session ran on according to the database (for one the engine does not report any more). */
   recordedEngine: (sessionId: string) => EngineId | null;
+  /** The project a session belongs to according to the database; null for a session that is unknown. */
+  recordedProject: (sessionId: string) => string | null;
   /** Where the files an engine uploads wait for their use (emptied at start). */
   spoolDir: string;
   logger: FastifyBaseLogger;
@@ -167,6 +162,14 @@ export function createCloudRemote(options: CloudRemoteOptions): CloudRemote {
       );
       return NOT_FOUND;
     }
+    // The token's session belongs to a project; the engine must be bound to it (PM-1061).
+    if (!hub.isBound(engineId, context.projectKey)) {
+      logger.warn(
+        { engineId, sessionId: context.sessionId },
+        'team MCP relay: the session belongs to a project not bound to the engine',
+      );
+      return NOT_FOUND;
+    }
     const response = await bound.app.inject({
       method: 'POST',
       url: routes.mcp(request.token),
@@ -196,6 +199,7 @@ export function createCloudRemote(options: CloudRemoteOptions): CloudRemote {
         runner,
         broker,
         nanogptKey,
+        projectOf: options.recordedProject,
         relayMcp,
         logger,
       });

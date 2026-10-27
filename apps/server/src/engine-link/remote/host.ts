@@ -609,7 +609,7 @@ export function createRemoteEngineDirectory(options: RemoteDirectoryOptions): Re
     // The selection only: whether the chosen engine is up is `get` / `hub.available`. A project's engine
     // comes from its binding (PM-1060); `hostEngine` is the machine-wide default, the host owner's machine.
     projectEngine: (projectKey: string) => hub.projectEngine(projectKey),
-    hostEngine: () => hub.defaultId(),
+    hostEngine: () => hub.hostEngine(),
     engineFor: (projectKey: string, _member: MemberHandle) => directory.projectEngine(projectKey),
     onChange: (listener) => hub.onChange(listener),
     awaitConnected: (id, waitMs, signal) => hub.awaitLink(id, waitMs, signal),

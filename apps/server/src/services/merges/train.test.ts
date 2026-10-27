@@ -164,6 +164,7 @@ describe('merge train execution', () => {
         links: cloud.links,
         registry: cloud.registry,
         recordedEngine: () => null,
+        recordedProject: () => null,
         spoolDir: `${h.dir}/refused-train-spool`,
         logger: h.log.logger,
       });

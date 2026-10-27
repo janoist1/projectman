@@ -9,7 +9,11 @@ it.each([
   '/api/invites/secret-token',
   '/api/invites/secret-token/accept',
   '/invite/secret-token',
+  '/api/owner-invites/secret-token',
+  '/api/owner-invites/secret-token/accept',
+  '/owner-invite/secret-token',
   '/login?next=%2Finvite%2Fsecret-token',
+  '/login?next=%2Fowner-invite%2Fsecret-token',
 ])('redacts invitation secrets in request logs for %s', async (url) => {
   const lines: string[] = [];
   const app = Fastify({

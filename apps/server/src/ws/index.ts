@@ -121,8 +121,12 @@ export function registerWebsocket(
             continue;
           }
           if (event.type === 'engine_changed') {
-            const memberships = await domain.projectsFor(client.user.email);
-            if (deps.auth.isHostOwner(client.user.id) || memberships.length > 0) send(client, event);
+            if (deps.auth.isHostOwner(client.user.id)) send(client, event);
+            // A project–engine binding names its project (PM-1060): only a member of that project hears of it.
+            else if (event.projectKey !== undefined) {
+              const access = await domain.accessFor(event.projectKey, client.user.email).catch(() => null);
+              if (access) send(client, event);
+            } else if ((await domain.projectsFor(client.user.email)).length > 0) send(client, event);
             continue;
           }
           // System feedback (PM-472) belongs to the installation: the instance owner, and an owner of the

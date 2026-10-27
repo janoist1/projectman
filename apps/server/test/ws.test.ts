@@ -5,6 +5,7 @@ import type { ServerEvent, Task, TaskDetail } from '@projectman/shared';
 import {
   addHumanAndLogin,
   createAppHarness,
+  createForeignProject,
   createProject,
   OWNER_LOGIN,
   setupOwner,
@@ -199,6 +200,29 @@ describe('websocket', () => {
     await new Promise((r) => setTimeout(r, 30));
     expect(owner.events.some((e) => e.type === 'terminal_data')).toBe(false);
     expect(h.runner.input).toEqual([]);
+  });
+
+  it('tells a project–engine binding only to the members of its project and the host owner (PM-1060)', async () => {
+    await createForeignProject(h, cookie, 'BR');
+    const viewerCookie = await addHumanAndLogin(h.app, {
+      handle: 'viewer',
+      name: 'Viewer',
+      access: 'viewer',
+    });
+    const viewer = await connect({ cookie: viewerCookie });
+    const owner = await connect();
+    await waitFor(viewer.events, ofType('hello'));
+    await waitFor(owner.events, ofType('hello'));
+
+    const engine = { id: 'e1', name: 'Engine', isDefault: false, online: true, lastSeenAt: null };
+    const bus = h.app.projectman.domain.bus;
+    bus.publish({ type: 'engine_changed', engine, projectKey: 'BR' });
+    bus.publish({ type: 'engine_changed', engine, projectKey: 'AR' });
+
+    const heard = (events: ServerEvent[]) =>
+      events.filter(ofType('engine_changed')).map((event) => event.projectKey);
+    await vi.waitFor(() => expect(heard(owner.events)).toEqual(['BR', 'AR']));
+    await vi.waitFor(() => expect(heard(viewer.events)).toEqual(['AR']));
   });
 
   it('lets a client watch a terminal like a viewer, but not type into it (PM-79)', async () => {

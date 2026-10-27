@@ -2851,6 +2851,7 @@ export function createDomain(opts: DomainOptions) {
         superAdministration,
         inbox,
         history,
+        operatorKnowledge: opts.operatorKnowledge,
       }).backend();
     },
 

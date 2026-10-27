@@ -2182,7 +2182,12 @@ workers follow the machine's size.
   (`propose_operator_knowledge`, without recommended operations) in its internal general
   conversation, and the checklist notices go to its queue; the store, its path and the owner's
   approval are unchanged, and the PM reaches the store only through the server (a remote engine
-  needs nothing new). Missing documents start at revision zero; invalid documents are refused
+  needs nothing new). PM-1046 (PM-1023 K7) adds the global Operator's own instance target,
+  `<server home>/operator-data/_instance/knowledge.json` (`readInstanceKnowledge`,
+  `compareAndSwapInstanceKnowledge`): the same format, revision and error codes, one document for the
+  whole server; `_instance` is no valid project key, so it never collides with a project. It is reached
+  only through the external MCP's super tools (below); the Operator runs on the owner's machine and the
+  document stays in the server's home. Missing documents start at revision zero; invalid documents are refused
   without overwriting. **Machine assumption:** one server process owns a private writable home,
   with POSIX directory/file permissions (0700/0600), no-follow file opens and same-directory atomic
   rename. Target-file CAS writes are serialized within that process, including multiple store
@@ -3080,6 +3085,14 @@ workers follow the machine's size.
   loopback peer, so the proxy or tunnel must run on the server's machine and keep Host and the protocol header) and a
   tunnel/proxy that refuses `/mcp/` and `/hooks` but passes `/mcp`. Remote engine: not affected; nothing of the endpoint
   runs on or crosses to an engine.
+  **The global Operator on the endpoint (PM-1046, PM-1023 K7):** in the super mode `get_operator_instance_knowledge`
+  and `update_operator_instance_knowledge` (`expected_revision`, `agreement?`, `principles?`) read and write the
+  Operator's own knowledge with no `project_key` (`services/super-operator/instance-knowledge.ts`); the write is
+  direct, with no app approval, and the super audit records it in every project the key's holder owns
+  (`SuperOperator.executeOwned`). `list_integrator_inbox` takes an optional `project_key`: without it the items of every
+  project of the key come in one list, each with its `projectKey`, and the access is checked per project. The
+  server's `instructions` describe the Operator's role (decision 65). Remote engine: not affected; the Operator
+  reaches the hub over HTTPS with the key and the knowledge stays in the hub's home.
   **Operator tools on the endpoint (PM-784):** `read_project_doc`, `write_project_docs`, `get_project_doc_write`,
   `get_role_configuration`, `propose_release`, `request_structural_review`, `ask_human`, `get_super_question`,
   `withdraw_question` and `read_attachment` (`mcp/*/tools.ts` `external` bindings, `mcp/super-operator/handler.ts`,
@@ -4110,6 +4123,17 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   In GitHub mode (`FullTestSpec.githubActions`, PM-900) the sandbox does not run: the engine's
   `withGithubActions` executor takes the request (see "GitHub Actions merge check").
   **Module:** `services/full-tests`
+- **Merge-test file watchdog (PM-1054)** — `scripts/merge-test/{npm,reporter}.ts`.
+  Every test invocation, including reruns, uses the default and hanging-process reporters plus
+  controller-side start/end events for each file (from collection through teardown). The npm
+  supervisor gives each active file 180 seconds, with 20-second test and hook defaults. On a
+  file deadline it prints all active file names as `FAIL` lines and stops the command through
+  the existing `scripts/lib/child-guard.mjs`; exit 1 and an unhandled-error diagnostic prevent
+  the flaky-file rerun rule from hiding the timeout. **Machine assumption:** POSIX process
+  groups, already required by the child guard, stop even synchronously blocked workers and
+  clean up descendants when the supervisor dies. **Remote engine:** the supervisor and guard
+  run where the tests execute (GitHub Actions or the engine); only existing output and verdict
+  data cross the boundary. No new server/engine contract.
 - **Merge-test step cache (PM-845, PM-841)** — `scripts/merge-test/{steps,run}.ts`,
   `full-test/{index,sandbox,step-cache}.ts`, `app.ts`, `engine-app.ts` and `index.ts`.
   The executor stores passed command keys in the engine-local
@@ -4229,7 +4253,7 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   invokes `listPaths`, `readFile` and `changedPaths`. Git and repository registration stay
   on the selected engine; remote engines return bounded file names and descriptor text.
   Merging a card's approved commit into the repository's default branch and sending it up is git work on
-  the repository and uses this machine's git login (the owner's). It runs as eight calls — `merge.prepare`
+  the repository and uses this machine's git login (the owner's). It runs as nine calls — `merge.prepare`
   (fetch of the upstream and the state of the base), `merge.is_ancestor`, `merge.build` (a merge commit made
   with `merge-tree`/`commit-tree`, the branch not moved), `merge.checkout_conflicts`,
   `merge.checkout_for_check` and `merge.release_check` (a detached check checkout under
@@ -4275,6 +4299,37 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   Conflicting train sources use that same server-side requeue with a one-card limit (PM-778);
   individual attempts read current main and retain the full check and review gates. Git and checks
   still run on the selected engine through the existing RPCs, with no new machine assumption.
+  Generated files (PM-1050): when `reviewTest.regenerate` names path patterns and command, a standalone
+  merge whose conflict is only in files matching them calls `merge.build` again with `regenerate`; the
+  engine answers the conflict with a `provisional` merge commit (parents `onto` and the commit) made
+  without those files, in a temporary index file in the engine's `os.tmpdir()` (the checkout's index is
+  never used). The server runs the configured command in the full test sandbox (`full_test.run`, not
+  recorded as a merge check) on a `_merge/<id>` checkout of it that has an id of its own (not the
+  merge's), so a process the run leaves behind never reaches the merge check's checkout. Only that run
+  may write: its spec carries `regenerate: { ref, mergeId, patterns }` (like `npmCi`), and the engine
+  derives the writable directories itself (`regeneratedWriteDirs`: the literal directories before the
+  last segment of each pattern; real directories of that canonical checkout, never links; the rest of
+  the checkout, its `.git` and `node_modules` stay read-only). A remote engine accepts that spec only
+  with the command of the repo's `regenerateCommand` in its `engine.json` (the owner sets it;
+  `fullTestCommand` may not run with the descriptor) and only for that repo's `_merge` checkout; without
+  `regenerateCommand` the merge falls back to the old `conflict` failure with that detail. A local
+  engine uses the server's `reviewTest.regenerate.command`. Then `merge.commit_regenerated` has the
+  engine commit the written files: it first `rename`s the writable directories below a fresh
+  `.pm-regenerated-*` directory of the checkout (no longer writable there) and reads only from that
+  copy: an `lstat` walk, each file through one `O_NOFOLLOW` descriptor and `fstat` (regular, one link,
+  at most 1 MB), hashed from the bytes read with `hash-object --no-filters`, never `git add`. Only
+  files that are new, changed or deleted against the provisional commit and match the patterns are
+  taken (never a `.git*` name, `.husky` or `node_modules`); a change in the directory outside the
+  patterns, a link, a flood of files (`too_many`) or a missing conflicting file refuses it. Git does
+  not discover the checkout: the worktree git directory is found from the repository and named in
+  `GIT_DIR`, and the indexes are temporary files outside the checkout. The merge check checks that
+  commit as always. Any other conflict, any refusal and any failure keeps the old `conflict` failure;
+  an engine from before the field refuses `regenerate` (`invalid_params`) and the merge fails as
+  before. The call count above is nine with `merge.commit_regenerated`.
+  Machine-dependent parts: the regeneration run and the commit step run on the card's engine in its
+  `_merge` checkouts, with the same sandbox assumptions as the full test (srt/Seatbelt write
+  allow-list, `rename` within the checkout filesystem); a remote engine additionally needs
+  `regenerateCommand` in its `engine.json`.
   Member workspaces (PM-739): a developer's commit lives only in their remote-less clone, so before the
   first `merge.prepare`, `merge.is_ancestor` or `merge.build` of a standalone merge, a train (also its
   recovery and its candidate selection) and the merge gate, the server calls

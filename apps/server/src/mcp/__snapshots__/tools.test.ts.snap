@@ -2911,6 +2911,30 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                                       "minimum": 1,
                                       "type": "integer",
                                     },
+                                    "regenerate": {
+                                      "properties": {
+                                        "command": {
+                                          "maxLength": 500,
+                                          "minLength": 1,
+                                          "type": "string",
+                                        },
+                                        "paths": {
+                                          "items": {
+                                            "maxLength": 200,
+                                            "minLength": 1,
+                                            "type": "string",
+                                          },
+                                          "maxItems": 10,
+                                          "minItems": 1,
+                                          "type": "array",
+                                        },
+                                      },
+                                      "required": [
+                                        "paths",
+                                        "command",
+                                      ],
+                                      "type": "object",
+                                    },
                                     "runner": {
                                       "enum": [
                                         "engine",

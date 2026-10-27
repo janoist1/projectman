@@ -1,7 +1,13 @@
 import { readlinkSync, realpathSync, statSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { isReleaseTagName, SessionReadBoundary, type ProjectConfig } from '@projectman/shared';
+import {
+  isRegeneratedPath,
+  isRegeneratedPathPattern,
+  isReleaseTagName,
+  SessionReadBoundary,
+  type ProjectConfig,
+} from '@projectman/shared';
 import type { AgentSandbox, EnginePaths, MachineProbe, ProcessRecord } from '../contracts';
 import {
   OPEN_OUTBOUND_DOMAINS,
@@ -21,7 +27,7 @@ import {
 import { userExcludesFile } from '../engine-host';
 import { isWithin } from '../kernel';
 import { BILLING_ENV_VARS, pathPatternMatcher, isReadBoundaryPath } from '../runner';
-import { assertNpmCiCheckout } from '../full-test';
+import { assertNpmCiCheckout, assertRegenerateCheckout } from '../full-test';
 import { engineFiles } from './engine-config';
 import type { ResolvedEngineConfig } from './engine-config';
 import type { EngineMethod, MethodParams } from './methods';
@@ -277,6 +283,10 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
   };
   const mergeIdOf = (id: string) => {
     if (!isMergeId(id)) refuse('invalid_params', 'Not a merge id');
+  };
+  const regeneratePatterns = (patterns: readonly string[]) => {
+    if (!patterns.every(isRegeneratedPathPattern))
+      refuse('invalid_params', 'Not a pattern of generated files');
   };
 
   const withDenials = <T extends { denyRead?: string[]; denyWrite?: string[]; deniedEnvVars?: string[] }>(
@@ -603,7 +613,23 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
     },
     'full_test.run': async (params) => {
       const { spec } = params;
-      if (
+      // The run that makes generated files again (PM-1050) is the only one with writable directories (the
+      // engine derives them from the patterns), and it runs the registered repo's own `regenerateCommand`,
+      // never its `fullTestCommand`; every other run runs the `fullTestCommand` and writes nothing.
+      if (spec.regenerate) {
+        const entry = mergeRepo(spec.regenerate.ref);
+        mergeIdOf(spec.regenerate.mergeId);
+        regeneratePatterns(spec.regenerate.patterns);
+        if (entry.regenerateCommand === undefined || entry.regenerateCommand !== spec.command)
+          refuse('command_not_allowed', 'The regeneration command is not configured for this repository');
+        if (spec.githubActions || (spec.npmCi && spec.npmCi.mergeId !== spec.regenerate.mergeId))
+          refuse('invalid_params', 'The regeneration runs in its own checkout, on this engine');
+        try {
+          await assertRegenerateCheckout(paths.worktreesRoot, spec);
+        } catch {
+          refuse('invalid_params', 'The regeneration needs the canonical merge checkout of its merge id');
+        }
+      } else if (
         !config.repos.some(
           (repo) => repo.fullTestCommand !== undefined && repo.fullTestCommand === spec.command,
         )
@@ -626,7 +652,7 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
       if (spec.npmCi) {
         const entry = mergeRepo(spec.npmCi.ref);
         mergeIdOf(spec.npmCi.mergeId);
-        if (entry.fullTestCommand !== spec.command)
+        if (!spec.regenerate && entry.fullTestCommand !== spec.command)
           refuse('command_not_allowed', 'The test command is not configured for this repository');
         try {
           await assertNpmCiCheckout(paths.worktreesRoot, spec);
@@ -749,6 +775,18 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
       commitIds(params.onto, params.commit);
       if (!isMergeMessage(params.message) || params.message.trim().length === 0)
         refuse('invalid_params', 'Not a commit message');
+      regeneratePatterns(params.regenerate ?? []);
+      return params;
+    },
+    'merge.commit_regenerated': (params) => {
+      mergeRepo(params.ref);
+      mergeIdOf(params.mergeId);
+      commitIds(params.onto, params.commit);
+      if (!isMergeMessage(params.message) || params.message.trim().length === 0)
+        refuse('invalid_params', 'Not a commit message');
+      regeneratePatterns(params.patterns);
+      if (params.paths.length > 50 || !params.paths.every(isRegeneratedPath))
+        refuse('invalid_params', 'Not a set of paths');
       return params;
     },
     'merge.checkout_conflicts': async (params) => {

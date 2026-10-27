@@ -333,7 +333,7 @@ describe('the Operator panel', () => {
     fireEvent.keyDown(composer, { key: 'Enter' });
     await waitFor(() =>
       expect(posted(project, '/messages')[0]?.body).toEqual({
-        to: ['operator'],
+        to: ['pm'],
         text: 'Általában kérdezek',
         location: { page: 'board' },
       }),
@@ -343,7 +343,7 @@ describe('the Operator panel', () => {
   describe('the places the Operator offers (PM-1071)', () => {
     const offer = (project: Project, places: UiPlace[]) =>
       project.backend.sendTeamMessage(
-        'operator',
+        'pm',
         ['owner'],
         null,
         'Itt találod.',

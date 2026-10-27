@@ -56,6 +56,7 @@ import { Session, TaskWork } from '../domain/session';
 import { CardRounds } from '../domain/card-measure';
 import { MemberUsage } from '../domain/token-usage';
 import { AddRelationRef, RelationsChange } from '../domain/relations';
+import { UiLocation } from '../domain/ui-place';
 import { CapacityHolder, Task, TaskKey, TaskKind, TaskPriority, TaskStartWaiting } from '../domain/task';
 
 export const ServerVersionView = z.object({
@@ -1287,6 +1288,8 @@ export const SendTeamMessageRequest = z
     taskKey: TaskKey.optional(),
     /** Uploaded files the message takes (`routes.messageAttachments`), each of the sender's and not sent yet. */
     attachmentIds: z.array(MessageAttachmentId).max(MAX_MESSAGE_ATTACHMENTS).optional(),
+    /** Where the sender is in the app (PM-1071); the recipient gets it as background. */
+    location: UiLocation.optional(),
   })
   .refine((request) => request.text !== '' || (request.attachmentIds?.length ?? 0) > 0, {
     path: ['text'],

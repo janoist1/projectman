@@ -394,6 +394,9 @@ export const ERROR_CODES = [
   'system_feedback_issue_url',
   // Only the Operator records system feedback (403).
   'system_feedback_operator_only',
+  // A place the project manager offers (PM-1071): a machine-level part, not the project's (403), or one the person does not see (403).
+  'place_not_target',
+  'place_not_visible',
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];

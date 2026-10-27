@@ -1,4 +1,12 @@
-import { MAX_MESSAGE_ATTACHMENTS, MemberHandle, TaskKey } from '@projectman/shared';
+import {
+  CardView,
+  MAX_MESSAGE_ATTACHMENTS,
+  MAX_MESSAGE_PLACES,
+  MemberHandle,
+  SettingsSection,
+  TaskKey,
+  UI_PLACE_PAGES,
+} from '@projectman/shared';
 import { z } from 'zod';
 import { TeamToolError } from '../../contracts';
 import { formatSentMessage } from '../format';
@@ -71,11 +79,36 @@ export const MESSAGE_TOOL_GROUP: TeamToolGroup = {
               'session folder). A human sees an image in the conversation. Say in text what the file is. If ' +
               'any file cannot be read, nothing is sent.',
           ),
+        places: z
+          .array(
+            z.strictObject({
+              page: z.enum(UI_PLACE_PAGES),
+              task_key: TaskKey.optional().describe('Required for page "card".'),
+              view: CardView.optional().describe('Only for page "card".'),
+              handle: MemberHandle.optional().describe('Required for page "member".'),
+              section: SettingsSection.optional().describe('Only for page "settings".'),
+            }),
+          )
+          .min(1)
+          .max(MAX_MESSAGE_PLACES)
+          .optional()
+          .describe(
+            "PM only: up to 3 places in the app offered to the person as 'go there' buttons under your message, " +
+              'when they ask to be taken somewhere or to find something. Only places every recipient can see. ' +
+              'The app writes the button text; a plain-text reply carries no buttons.',
+          ),
       },
       external: {
         access: 'write',
-        // The integrator has no session folder to attach from and is not the PM that presents signals.
-        omit: ['attachments', 'signal_id', 'signal_actionable', 'signal_ids', 'actionable_signal_ids'],
+        // The integrator has no session folder to attach from and is not the PM that presents signals or offers places.
+        omit: [
+          'attachments',
+          'signal_id',
+          'signal_actionable',
+          'signal_ids',
+          'actionable_signal_ids',
+          'places',
+        ],
         async run({ ctx, args, handler }) {
           const to = unique(args.to);
           const result = await handler.sendMessage(ctx, {
@@ -108,6 +141,7 @@ export const MESSAGE_TOOL_GROUP: TeamToolGroup = {
           signalIds: args.signal_ids,
           actionableSignalIds: args.actionable_signal_ids,
           ...(args.attachments ? { attachments: unique(args.attachments) } : {}),
+          ...(args.places ? { places: args.places } : {}),
           ...(taskKey ? { taskKey } : {}),
         });
         return formatSentMessage({ ...result, requested: to, taskKey });

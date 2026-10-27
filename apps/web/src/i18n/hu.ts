@@ -1343,6 +1343,8 @@ export const hu = {
       operator_only: 'Ezt a műveletet csak az Operátor használhatja.',
       project_manager_only:
         'Ezt a műveletet csak az aktuális projektmenedzser használhatja a saját belső beszélgetésében.',
+      place_not_target: 'Ide a projektmenedzser nem visz: ez nem a projekt része.',
+      place_not_visible: 'Ezt a helyet a címzett nem látja.',
       operator_preference_no_person: 'Nem egyértelmű, kinek a beszélgetési stílusát kell beolvasni.',
       operator_knowledge_invalid: 'Az Operátor adattára érvénytelen. A meglévő adatok megmaradtak.',
       operator_knowledge_unavailable: 'Az Operátor adattára most nem érhető el.',
@@ -3303,6 +3305,13 @@ export const hu = {
     context: {
       label: 'Ehhez: {key} {title}',
       remove: 'A kártya leválasztása az üzenetről',
+    },
+    /** The "go there" buttons under a project manager's message (PM-1071). */
+    place: {
+      go: 'Ugrás ide: {place}',
+      here: 'Itt vagy: {place}',
+      unavailable: 'Ez a hely neked nem érhető el.',
+      sessions: 'Munkamenetek',
     },
     composer: {
       label: 'Üzenet az Operátornak',

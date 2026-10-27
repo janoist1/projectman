@@ -62,6 +62,10 @@ interface RecordMessageInput {
   operatorSignal?: string;
   /** The files the message carries (PM-516), already bound to it by `MessageAttachmentService.bindForSend`. */
   attachments?: MessageAttachmentRef[];
+  /** Where the sender was in the app (PM-1071). */
+  location?: TeamMessage['location'];
+  /** The places the project manager offers under the message (PM-1071), already checked. */
+  places?: TeamMessage['places'];
 }
 
 /**
@@ -136,6 +140,8 @@ export class MessageService {
       ...(input.operatorRequest ? { operatorRequest: input.operatorRequest } : {}),
       ...(input.operatorSignal ? { operatorSignal: input.operatorSignal } : {}),
       ...(input.attachments?.length ? { attachments: input.attachments } : {}),
+      ...(input.location ? { location: input.location } : {}),
+      ...(input.places?.length ? { places: input.places } : {}),
     };
     return this.ctx.unitOfWork(() => {
       this.ctx.repos.messages.insert(message);

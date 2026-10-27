@@ -2325,4 +2325,12 @@ migrations.push({
   DELETE FROM inbox_items WHERE kind = 'boundary';
   DELETE FROM member_queue_items WHERE kind = 'boundary' OR source_type = 'boundary';`,
 });
+migrations.push({
+  version: 114,
+  name: 'message location and places',
+  // PM-1071: where the sender was in the app (JSON, NULL: unknown), and the places the project manager
+  // offers under the message as buttons (JSON list, NULL: none).
+  sql: `ALTER TABLE team_messages ADD COLUMN location TEXT;
+  ALTER TABLE team_messages ADD COLUMN places TEXT;`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

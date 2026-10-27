@@ -783,6 +783,15 @@ export interface InboxToolsHandler {
   withdrawQuestion(ctx: ToolContext, args: { itemId: string; reason: string }): Promise<{ itemId: string }>;
 }
 
+/** One place of `send_message`'s `places` (PM-1071), in the tool's own (snake case) names. */
+export interface MessagePlaceArg {
+  page: string;
+  task_key?: string;
+  view?: string;
+  handle?: string;
+  section?: string;
+}
+
 export interface MessageToolsHandler {
   /** send_message: deliver a message to team members (AI sessions or human inboxes). */
   sendMessage(
@@ -802,6 +811,8 @@ export interface MessageToolsHandler {
        * working directory, read as `attach_file` reads them. All or nothing; a bad file names itself.
        */
       attachments?: string[];
+      /** PM only (PM-1071): places in the app offered under the message as buttons, as the tool takes them. */
+      places?: MessagePlaceArg[];
     },
   ): Promise<{
     messageId: string;

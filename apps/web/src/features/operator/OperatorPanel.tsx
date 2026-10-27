@@ -1,8 +1,9 @@
 import clsx from 'clsx';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent, RefObject } from 'react';
-import { Link, useLocation, useMatch } from 'react-router';
+import { Link, useLocation } from 'react-router';
 import { canSeeOperatorSessions, canReadOperatorKnowledge, hasAccess } from '@projectman/shared';
+import type { UiLocation } from '@projectman/shared';
 import { useBoard, useSendTeamMessage } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Avatar } from '../../components/Avatar';
@@ -21,6 +22,7 @@ import { OperatorQueueStrip, OperatorQueueView } from './OperatorQueueView';
 import type { FailedOperatorMessage } from './OperatorThread';
 import { OperatorWaitBanner } from './OperatorWaitBanner';
 import { operatorGrantExpiryText, operatorStatusText } from './operatorChannel';
+import { useUiLocation } from './places';
 import { useOperator } from './useOperator';
 import styles from './OperatorPanel.module.css';
 
@@ -64,10 +66,10 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
   const sessionVisible = access !== undefined && canSeeOperatorSessions({ access });
   const readOnly = state?.readOnly ?? false;
 
-  // The open card is what the message is about, unless the writer takes it off.
-  const openCard = useMatch('/p/:projectKey/tasks/:taskKey/*')?.params.taskKey ?? null;
+  // The open card is what the message is about, unless the writer takes it off; then only the page goes along.
   const [dismissedCard, setDismissedCard] = useState<string | null>(null);
-  const contextCard = openCard && openCard !== dismissedCard ? openCard : null;
+  const location = useUiLocation(dismissedCard);
+  const contextCard = location.taskKey ?? null;
   const contextTitle = useMemo(
     () => board.data?.tasks.find((task) => task.key === contextCard)?.title ?? '',
     [board.data, contextCard],
@@ -87,6 +89,7 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
     text: string,
     taskKey: string | null,
     attachments: NonNullable<FailedOperatorMessage['attachments']> = [],
+    sentFrom: UiLocation = location,
   ) =>
     send
       .mutateAsync({
@@ -94,9 +97,10 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
         text,
         ...(taskKey ? { taskKey } : {}),
         ...(attachments.length ? { attachmentIds: attachments.map((file) => file.id) } : {}),
+        location: sentFrom,
       })
       .then(() => setFailed(null))
-      .catch(() => setFailed({ text, taskKey, attachments }));
+      .catch(() => setFailed({ text, taskKey, attachments, location: sentFrom }));
 
   // The focus goes into the panel on open and back to the button on close.
   useEffect(() => {
@@ -324,7 +328,9 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
             channel={state}
             failed={failed}
             onRetry={() =>
-              failed && !send.isPending && void post(failed.text, failed.taskKey, failed.attachments)
+              failed &&
+              !send.isPending &&
+              void post(failed.text, failed.taskKey, failed.attachments, failed.location)
             }
             onExample={(text) => setPrefill({ text, id: (prefill?.id ?? 0) + 1 })}
           />

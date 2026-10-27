@@ -26,6 +26,8 @@ import {
   stageOf,
   stageOwners,
   teamMessageRecipientRefusal,
+  uiPlaceKey,
+  uiPlaceRefusal,
 } from '@projectman/shared';
 import type {
   Actor,
@@ -37,6 +39,8 @@ import type {
   Task,
   TeamMessage,
   TeamMessageAnswer,
+  UiLocation,
+  UiPlace,
   WorkItemRef,
 } from '@projectman/shared';
 import { QUESTION_NOTICE_LIMIT, reaskHint, startReason, truncate } from '../../agent-text';
@@ -101,6 +105,20 @@ interface SendOptions {
   awaitWake?: boolean;
   /** Server-owned group fanout only; never accepted from send_message or an HTTP request. */
   questionGroupShare?: { primaryItemId: string; itemId: string };
+  /**
+   * Places in the app the project manager offers under the message as "go there" buttons (PM-1071). Only
+   * the coordination actor, only to people, only places every recipient sees. Not in an HTTP request.
+   */
+  places?: UiPlace[];
+}
+
+interface SendInput {
+  to: string[];
+  text: string;
+  taskKey?: string | null;
+  attachmentIds?: string[];
+  /** Where the sender is in the app (PM-1071). */
+  location?: UiLocation;
 }
 
 /** What presenting or accepting Operator signals records with the message (PM-593). */
@@ -193,7 +211,7 @@ export class Messaging {
   async send(
     projectKey: string,
     from: string,
-    input: { to: string[]; text: string; taskKey?: string | null; attachmentIds?: string[] },
+    input: SendInput,
     opts: SendOptions = {},
   ): Promise<TeamMessage> {
     return (await this.sendReporting(projectKey, from, input, opts)).message;
@@ -203,7 +221,7 @@ export class Messaging {
   sendReporting(
     projectKey: string,
     from: string,
-    input: { to: string[]; text: string; taskKey?: string | null; attachmentIds?: string[] },
+    input: SendInput,
     opts: SendOptions = {},
   ): Promise<{ message: TeamMessage; recipients: SentMessageRecipient[] }> {
     return this.prepareSend(projectKey, from, input, opts, (prepared) => prepared.deliver(prepared.record()));
@@ -213,7 +231,7 @@ export class Messaging {
   private async prepareSend<T>(
     projectKey: string,
     from: string,
-    input: { to: string[]; text: string; taskKey?: string | null; attachmentIds?: string[] },
+    input: SendInput,
     opts: SendOptions,
     complete: (prepared: PreparedSend) => T | Promise<T>,
   ): Promise<T> {
@@ -248,6 +266,8 @@ export class Messaging {
         details: { what: 'member', id: unknown[0], ids: unknown },
       });
     const coordinator = coordinationActorRefusal(config, opts.actor ?? humanActor(from)) === null;
+    if (opts.places?.length)
+      this.assertPlacesOffered(config, projectKey, recipients, coordinator, opts.places);
     const signals =
       opts.operatorSignals ??
       (coordinator && opts.operatorSignal !== undefined
@@ -432,6 +452,8 @@ export class Messaging {
               : undefined
             : opts.operatorSignal,
           version,
+          location: input.location,
+          places: opts.places,
         });
         for (const signal of signals)
           this.messageSignals!.present(projectKey, signal.id, recorded.id, signal.actionable);
@@ -457,6 +479,49 @@ export class Messaging {
       return decided instanceof Promise ? decided.then(report) : report(decided);
     };
     return complete({ record, deliver });
+  }
+
+  /**
+   * The places the project manager offers (PM-1071), checked before anything is written: the sender is the
+   * coordination actor, every recipient is a person who sees every place, and the card or member exists.
+   * 403 `project_manager_only`, `place_not_target` or `place_not_visible` (`details`: the recipient and
+   * the place's index); 400 `invalid_request` (`field: "places"`) for an AI recipient or a repeated place;
+   * 404 `not_found` (`what: "place"`).
+   */
+  private assertPlacesOffered(
+    config: ProjectConfig,
+    projectKey: string,
+    recipients: readonly string[],
+    coordinator: boolean,
+    places: readonly UiPlace[],
+  ): void {
+    if (!coordinator)
+      throw forbidden('project_manager_only', 'only the project manager offers places in the app');
+    const people = recipients.map((handle) => memberOf(config, handle));
+    if (people.some((member) => member?.kind !== 'human'))
+      throw invalid('invalid_request', 'places go only to people', { field: 'places' });
+    if (new Set(places.map(uiPlaceKey)).size !== places.length)
+      throw invalid('invalid_request', 'a place is offered twice', { field: 'places' });
+    places.forEach((place, index) => {
+      for (const member of people) {
+        if (member?.kind !== 'human') continue;
+        const refusal = uiPlaceRefusal(place, member.access);
+        if (refusal)
+          throw forbidden(refusal, `${place.page} is not offered to ${member.handle}`, {
+            recipient: member.handle,
+            index,
+          });
+      }
+      const missing =
+        place.page === 'card'
+          ? this.ctx.repos.tasks.get(place.taskKey!)?.projectKey !== projectKey
+          : place.page === 'member' && !memberOf(config, place.handle!);
+      if (missing)
+        throw new DomainError('not_found', `place not found: ${place.page}`, {
+          status: 404,
+          details: { what: 'place', index },
+        });
+    });
   }
 
   /**

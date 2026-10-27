@@ -7,9 +7,10 @@ import {
   memberOf,
   messageRoute,
   sessionWorkItemOf,
+  UiPlace,
 } from '@projectman/shared';
 import type { ProjectConfig, WorkItemRef } from '@projectman/shared';
-import type { MessageToolsHandler } from '../../contracts';
+import type { MessagePlaceArg, MessageToolsHandler } from '../../contracts';
 import type { SentMessageRecipient, WorkspaceFile } from '../../contracts';
 import type { DomainContext } from '../../core/base';
 import type { Messaging } from '../../core/messages';
@@ -41,6 +42,21 @@ export class MessageTools implements MessageToolsHandler {
     this.messageAttachments = deps.messageAttachments;
   }
 
+  /** The tool's `places` as typed places; a combination the contract refuses (a card without a key) is `invalid`. */
+  private placesOf(args: MessagePlaceArg[] | undefined): UiPlace[] | undefined {
+    if (!args) return undefined;
+    return args.map((arg, index) => {
+      const { task_key: taskKey, ...rest } = arg;
+      const parsed = UiPlace.safeParse({ ...rest, ...(taskKey !== undefined ? { taskKey } : {}) });
+      if (!parsed.success)
+        throw new TeamToolError(
+          'invalid',
+          `invalid_request: places[${index}] is not a place: ${parsed.error.issues.map((i) => i.message).join('; ')}.`,
+        );
+      return parsed.data;
+    });
+  }
+
   async sendMessage(
     ctx: ToolContext,
     args: {
@@ -55,6 +71,8 @@ export class MessageTools implements MessageToolsHandler {
       actionableSignalIds?: string[];
       /** Paths of files of the caller's session folder or working directory (PM-520). */
       attachments?: string[];
+      /** Places in the app offered under the message as buttons, in the tool's names (PM-1071). */
+      places?: MessagePlaceArg[];
     },
   ): Promise<{
     messageId: string;
@@ -78,6 +96,7 @@ export class MessageTools implements MessageToolsHandler {
       )
         throw new TeamToolError('invalid', 'invalid_request: invalid signal presentation arguments.');
       const signal = legacy || batch;
+      const places = this.placesOf(args.places);
       const who = await this.calls.callerWithRequest(
         ctx,
         'send_message',
@@ -145,6 +164,7 @@ export class MessageTools implements MessageToolsHandler {
                 sessionId: ctx.sessionId,
                 kind: args.kind,
                 workerCheck: !args.despiteWorkers,
+                ...(places ? { places } : {}),
                 // The report sits under the round of the own steps on signals when no request is open (PM-545).
                 operatorRequest:
                   who.request?.id ??

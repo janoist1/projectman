@@ -118,3 +118,4 @@ export * from './domain/structural-review';
 export * from './domain/timeline-visibility';
 export * from './domain/history';
 export * from './domain/web-push';
+export * from './domain/ui-place';

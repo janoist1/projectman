@@ -473,7 +473,6 @@ export class MergeSteps {
               depsFrom: await this.depsFrom(engine, config, repo, task),
               signal: running.signal!,
               proceed: () => this.continue(running),
-              release: () => this.release(row, merger),
             })
           : { ok: false };
         if ('stopped' in regenerated) return;

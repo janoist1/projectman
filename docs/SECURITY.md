@@ -1298,18 +1298,26 @@ A merge that conflicts only in generated files runs the repo's `reviewTest.regen
 configuration) in the full test sandbox, and the engine commits what it wrote: sandbox output reaches a
 commit that is pushed to a public `main`. The channel is narrow:
 
-- **Where the command may write.** Only the regenerating run gets write access, and only to the literal
-  directories of the patterns (`sandbox.writeDirs`): real directories of the check checkout, never links;
-  a pattern needs at least two segments and may not start with `.git*`, `.husky` or `node_modules`. The
-  rest of the checkout, its `.git` file and `node_modules` stay read-only, and the merge check's own spec
-  has no `writeDirs`. A remote engine accepts such a run only with the command in its `regenerateCommand`.
-- **What is taken.** Changed or new files that match the patterns; any other change, a `.git*` or `.husky`
-  name, a link, a hard link, a non-regular file, a file over 1 MB or more than 200 files refuses the
-  regeneration and the merge fails as a conflict. A file is read through one `O_NOFOLLOW` descriptor, its
-  path is checked again after the read (same device and inode, real path), and only the bytes read are
-  hashed (`--no-filters`); git never discovers the checkout (`GIT_DIR` is named), and the indexes are
-  temporary files outside it. A process the command left behind can therefore not swap a file or a
-  directory for a link between the check and the hash.
+- **Where the command may write.** Only the regenerating run gets write access: its spec carries a
+  `regenerate` descriptor (repo, merge id, patterns) and the engine derives the writable directories from
+  the patterns (`regeneratedWriteDirs`), never from a free list in the request. They are real directories
+  (no link component) of the canonical `_merge/<id>` checkout, which belongs to this run alone; a pattern
+  needs a literal directory before its last segment, the first segment may not start with `.`, and no
+  segment may be `.git*`, `.husky` or `node_modules`. The rest of the checkout, its `.git` file and
+  `node_modules` stay read-only, and the merge check runs in another checkout with no descriptor. A remote
+  engine accepts such a run only with the command in its `regenerateCommand` for that repo (the test
+  command may not run with the descriptor).
+- **What is taken.** After the run the engine moves the writable directories (`rename`) below a fresh
+  directory of the checkout, where the sandbox may no longer write, and reads only from there: an `lstat`
+  walk, then each file through one `O_NOFOLLOW` descriptor with `fstat` (regular file, one link, at most
+  1 MB), hashed from the bytes read (`hash-object --no-filters`). A dev/inode recheck is not used: the
+  sandbox could replace the writable directory itself, and `O_NOFOLLOW` covers only the last component.
+  New, changed or deleted files that match the patterns are taken; a changed or new file outside the
+  patterns, a `.git*`/`.husky`/`node_modules` name, a link, a hard link, a non-regular file, a file over
+  1 MB or more than 200 changed files (`too_many`) refuses the regeneration and the merge fails as a
+  conflict. Git never discovers the checkout: every call names `GIT_DIR` of the worktree, found from the
+  repository, runs with `core.fsmonitor=false` and a temporary index outside the checkout; there is no
+  `git status` or `git add` on its work tree.
 - **Limits that remain.** The sandbox can read what the full test sandbox reads, including the shared git
   directory's `config`; a generator that copies a secret it can read into a file under the patterns would put
   it into the commit. The patterns and the command are the owner's to choose; the merge check, code review

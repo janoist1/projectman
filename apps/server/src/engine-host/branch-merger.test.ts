@@ -1128,12 +1128,13 @@ describe('commitFiles', () => {
 });
 
 describe('regenerated conflicts (PM-1050)', () => {
-  const PATTERNS = ['gen/**'];
+  const PATTERNS = ['gen/*.txt'];
 
   /** `main` and a side branch both change `gen/snap.txt` (and `extra`, when given): a conflict. */
   function conflicting(extra?: string) {
     const { repo, merger, worktreesRoot } = fixture({ withRemote: false });
     write(repo, 'gen/snap.txt', 'base\n');
+    write(repo, 'gen/keep.txt', 'keep\n');
     if (extra) write(repo, extra, 'base\n');
     commit(repo, 'base');
     git(repo, 'checkout', '-q', '-b', 'feature');
@@ -1230,14 +1231,42 @@ describe('regenerated conflicts (PM-1050)', () => {
       await made.merger.releaseCheck(REF, { mergeId: made.mergeId });
     });
 
-    it('refuses a change outside the patterns', async () => {
+    it('takes a file the command removed and leaves what it did not touch', async () => {
+      const made = await checkout('mrg_regen017');
+      write(made.dir, 'gen/snap.txt', 'regenerated\n');
+      rmSync(path.join(made.dir, 'gen/keep.txt'));
+      write(made.dir, 'src/untouched.ts', 'outside the writable directory\n');
+      const result = await made.merger.commitRegenerated(REF, { mergeId: made.mergeId, ...input(made) });
+      if (!result.ok) throw new Error(`refused: ${result.reason}`);
+      expect(git(made.repo, 'ls-tree', '-r', '--name-only', result.mergeCommit)).not.toContain(
+        'gen/keep.txt',
+      );
+      expect(git(made.repo, 'ls-tree', '-r', '--name-only', result.mergeCommit)).not.toContain(
+        'src/untouched.ts',
+      );
+      await made.merger.releaseCheck(REF, { mergeId: made.mergeId });
+    });
+
+    it('refuses a new or changed file in the writable directory that matches no pattern', async () => {
       const made = await checkout('mrg_regen011');
       write(made.dir, 'gen/snap.txt', 'regenerated\n');
-      write(made.dir, 'src/evil.ts', 'x\n');
+      write(made.dir, 'gen/evil.js', 'x\n');
       expect(await made.merger.commitRegenerated(REF, { mergeId: made.mergeId, ...input(made) })).toEqual({
         ok: false,
         reason: 'outside',
-        paths: ['src/evil.ts'],
+        paths: ['gen/evil.js'],
+      });
+      await made.merger.releaseCheck(REF, { mergeId: made.mergeId });
+    });
+
+    it('refuses a flood of files', async () => {
+      const made = await checkout('mrg_regen018');
+      write(made.dir, 'gen/snap.txt', 'regenerated\n');
+      for (let i = 0; i < 201; i += 1) write(made.dir, `gen/many-${i}.txt`, `${i}\n`);
+      expect(await made.merger.commitRegenerated(REF, { mergeId: made.mergeId, ...input(made) })).toEqual({
+        ok: false,
+        reason: 'too_many',
+        paths: [],
       });
       await made.merger.releaseCheck(REF, { mergeId: made.mergeId });
     });
@@ -1270,6 +1299,7 @@ describe('regenerated conflicts (PM-1050)', () => {
     it('refuses files below a directory that is a link', async () => {
       const made = await checkout('mrg_regen015');
       write(made.dir, 'elsewhere/snap.txt', 'regenerated\n');
+      rmSync(path.join(made.dir, 'gen'), { recursive: true });
       symlinkSync(path.join(made.dir, 'elsewhere'), path.join(made.dir, 'gen'));
       expect(
         await made.merger.commitRegenerated(REF, { mergeId: made.mergeId, ...input(made) }),

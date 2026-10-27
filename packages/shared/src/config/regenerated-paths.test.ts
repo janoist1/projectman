@@ -1,12 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { isRegeneratedPathPattern, isRegeneratedWriteDir, regeneratedWriteDir } from './regenerated-paths';
+import {
+  isRegeneratedPath,
+  isRegeneratedPathPattern,
+  isRegeneratedWriteDir,
+  regeneratedWriteDirs,
+} from './regenerated-paths';
 import { ReviewTestConfig } from './schema';
 
 describe('isRegeneratedPathPattern', () => {
   it.each([
     ['a literal path', 'docs/GENERATED.md'],
     ['a glob below a literal directory', 'apps/server/src/context/__snapshots__/**'],
-    ['a dot directory that is not a git or hook one', '.generated/gen/*.yml'],
+    ['a dot directory below a literal one', 'docs/.generated/*.yml'],
   ])('accepts %s', (_name, pattern) => {
     expect(isRegeneratedPathPattern(pattern)).toBe(true);
   });
@@ -31,30 +36,48 @@ describe('isRegeneratedPathPattern', () => {
     ['a git settings file, in any case', '.GitAttributes/x'],
     ['a hook directory', '.husky/pre-commit'],
     ['node_modules', 'node_modules/gen/**'],
+    ['node_modules below a directory', 'gen/node_modules/*.js'],
+    ['a dot first segment', '.generated/gen/*.yml'],
+    ['a git name below a directory', 'gen/.git/config'],
   ])('refuses %s', (_name, pattern) => {
     expect(isRegeneratedPathPattern(pattern)).toBe(false);
   });
 });
 
-describe('regeneratedWriteDir', () => {
+describe('regeneratedWriteDirs', () => {
   it.each([
-    ['a glob below a directory', 'apps/server/__snapshots__/**', 'apps/server/__snapshots__'],
-    ['a wildcard in a later segment', 'gen/*/out/x.snap', 'gen'],
-    ['a literal path: its directory', 'docs/api/GENERATED.md', 'docs/api'],
-    ['a wildcard file name', 'gen/*.snap', 'gen'],
-  ])('is the literal leading directory of %s', (_name, pattern, dir) => {
-    expect(regeneratedWriteDir(pattern)).toBe(dir);
-    expect(isRegeneratedWriteDir(dir)).toBe(true);
+    ['a glob below a directory', ['apps/server/__snapshots__/**'], ['apps/server/__snapshots__']],
+    ['a wildcard in a later segment', ['gen/*/out/x.snap'], ['gen']],
+    ['a literal path: its directory', ['docs/api/GENERATED.md'], ['docs/api']],
+    ['a wildcard file name', ['gen/*.snap'], ['gen']],
+    ['the same directory once', ['gen/*.snap', 'gen/**'], ['gen']],
+    ['a directory inside another: the outer one', ['gen/sub/*.snap', 'gen/*.txt'], ['gen']],
+  ])('is the literal leading directories of %s', (_name, patterns, dirs) => {
+    expect(regeneratedWriteDirs(patterns)).toEqual(dirs);
+    expect(dirs.every(isRegeneratedWriteDir)).toBe(true);
   });
 
-  it('is null for an invalid pattern', () => {
-    expect(regeneratedWriteDir('.git/hooks/**')).toBeNull();
+  it('is null when a pattern is not valid', () => {
+    expect(regeneratedWriteDirs(['gen/**', '.git/hooks/**'])).toBeNull();
   });
 
-  it.each(['gen/*', '/abs', 'a/../b', '.git', '.github', 'node_modules', ''])(
+  it.each(['gen/*', '/abs', 'a/../b', '.git', '.github', 'node_modules', '.hidden/x', ''])(
     'refuses %j as a writable directory',
     (dir) => {
       expect(isRegeneratedWriteDir(dir)).toBe(false);
+    },
+  );
+});
+
+describe('isRegeneratedPath', () => {
+  it.each(['gen/a.snap', 'a/b/c.txt', '.eslintcache'])('accepts %s', (path) => {
+    expect(isRegeneratedPath(path)).toBe(true);
+  });
+
+  it.each(['', '/etc/x', 'a//b', 'a/../b', 'a/./b', 'gen/.gitattributes', '.husky/x', 'a/node_modules/x'])(
+    'refuses %j',
+    (path) => {
+      expect(isRegeneratedPath(path)).toBe(false);
     },
   );
 });

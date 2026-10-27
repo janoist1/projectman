@@ -83,13 +83,12 @@ const fullSpec: z.ZodType<FullTestSpec> = z.strictObject({
   command: text,
   maxWorkers: int,
   timeoutMs: int,
-  sandbox: z.strictObject({
-    denyRead: texts,
-    allowRead: texts,
-    writeDirs: z.array(text.max(200)).max(10).optional(),
-  }),
+  sandbox: z.strictObject({ denyRead: texts, allowRead: texts }),
   requireHeavyLock: z.boolean().optional(),
   npmCi: z.strictObject({ ref: mergeRef, mergeId: mergeText }).optional(),
+  regenerate: z
+    .strictObject({ ref: mergeRef, mergeId: mergeText, patterns: z.array(text.max(200)).min(1).max(10) })
+    .optional(),
   githubActions: z
     .strictObject({
       ref: mergeRef,
@@ -159,7 +158,7 @@ const mergeRegenerated = z.discriminatedUnion('ok', [
   z.strictObject({ ok: z.literal(true), mergeCommit: mergeText, changed: z.array(text).max(1000) }),
   z.strictObject({
     ok: z.literal(false),
-    reason: z.enum(['outside', 'missing', 'not_regular']),
+    reason: z.enum(['outside', 'missing', 'not_regular', 'too_many']),
     paths: z.array(text).max(50),
   }),
 ]);

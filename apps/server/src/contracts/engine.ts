@@ -189,7 +189,7 @@ export type MergeBuildResult =
 /** The result of `BranchMerger.commitRegenerated` (PM-1050); `paths` are at most 50. */
 export type MergeRegeneratedResult =
   | { ok: true; mergeCommit: string; changed: string[] } // changed: at most 1000
-  | { ok: false; reason: 'outside' | 'missing' | 'not_regular'; paths: string[] };
+  | { ok: false; reason: 'outside' | 'missing' | 'not_regular' | 'too_many'; paths: string[] };
 
 export type MergePushResult =
   { ok: true } | { ok: false; reason: 'non_fast_forward' | 'rejected' | 'unreachable'; message: string };
@@ -276,10 +276,12 @@ export interface BranchMerger {
   ): Promise<MergeBuildResult>;
   /**
    * The merge commit of a conflict whose generated files were made again in the check checkout of `mergeId`
-   * (PM-1050): the checkout's HEAD is the provisional commit (parents exactly onto, commit). Commits the
-   * files in `paths` and any other changed or new file matching `patterns`, nothing outside them: a change
-   * outside is `outside`, a path not rewritten `missing`, a file that is not a regular unlinked file under
-   * 1 MiB `not_regular`. No ref is touched.
+   * (PM-1050): the checkout's HEAD is the provisional commit (parents exactly onto, commit). The regenerating
+   * run could write only the literal directories of `patterns`; the engine moves them out of the checkout
+   * and takes, from the moved copy only, the files in `paths` and any other changed, new or deleted file
+   * matching `patterns`, nothing outside them: a change outside is `outside`, a path not rewritten
+   * `missing`, a file that is not a regular unlinked file under 1 MiB `not_regular`, more than 200 changes
+   * or too much to read `too_many`. No ref is touched.
    */
   commitRegenerated(
     ref: MergeRepoRef,

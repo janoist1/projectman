@@ -2,7 +2,7 @@ import { mkdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { FastifyBaseLogger } from 'fastify';
-import { mergeTestReport } from '@projectman/shared';
+import { mergeTestReport, regeneratedWriteDirs } from '@projectman/shared';
 import type { FullTestErrorReason } from '@projectman/shared';
 import { STALE_LEFTOVER_MS } from '../contracts';
 import type { FullTestExecutor, FullTestResult, FullTestSpec } from '../contracts';
@@ -23,9 +23,14 @@ import {
   sweepStaleRunDirs,
 } from './sandbox';
 import type { RunPaths } from './sandbox';
-import { assertNpmCiCheckout, DependencyPreparationError, prepareNpmCi } from './npm-ci';
+import {
+  assertNpmCiCheckout,
+  assertRegenerateCheckout,
+  DependencyPreparationError,
+  prepareNpmCi,
+} from './npm-ci';
 import { prepareStepCache } from './step-cache';
-export { assertNpmCiCheckout } from './npm-ci';
+export { assertNpmCiCheckout, assertRegenerateCheckout } from './npm-ci';
 export { withGithubActions } from './github-actions';
 export type { GithubActionsDeps } from './github-actions';
 export { createWorkspaceDependencyInstaller, WORKSPACE_DEPENDENCY_RETRY_MS } from './workspace-dependencies';
@@ -162,6 +167,16 @@ export function createFullTestExecutor(options: FullTestExecutorOptions): FullTe
           };
         }
       }
+      if (spec.regenerate) {
+        try {
+          await assertRegenerateCheckout(options.worktreesRoot, spec);
+        } catch (err) {
+          return {
+            ...failure('sandbox_unavailable', Date.now(), err instanceof Error ? err.message : ''),
+            durationMs: 0,
+          };
+        }
+      }
       // Behind the machine's other heavy runs (PM-332): the wait is not part of the run, so `started`
       // (the duration and the timeout) begins when the lock is held.
       let lock: HeavyLock | undefined;
@@ -232,7 +247,11 @@ export function createFullTestExecutor(options: FullTestExecutorOptions): FullTe
     // The directories the regenerating run may write (PM-1050): checked before anything is made or started.
     let writeDirs: string[] = [];
     try {
-      writeDirs = await resolveWriteDirs(spec.cwd, spec.sandbox.writeDirs ?? []);
+      if (spec.regenerate) {
+        const dirs = regeneratedWriteDirs(spec.regenerate.patterns);
+        if (dirs === null) throw new Error('A pattern of generated files is not allowed');
+        writeDirs = await resolveWriteDirs(spec.cwd, dirs);
+      }
     } catch (err) {
       logger.warn({ err, runId: spec.runId }, 'the writable directories of the full test are not usable');
       return failure('sandbox_unavailable', started, err instanceof Error ? err.message : '');

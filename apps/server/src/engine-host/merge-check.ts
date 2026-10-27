@@ -1,6 +1,6 @@
 import { lstat, mkdir, readdir, readFile as readFileBytes, realpath, rm, unlink } from 'node:fs/promises';
 import path from 'node:path';
-import { isRegeneratedPathPattern } from '@projectman/shared';
+import { isRegeneratedPath, isRegeneratedPathPattern } from '@projectman/shared';
 import {
   MERGE_CHECK_DIR,
   mergeCheckPath,
@@ -12,7 +12,7 @@ import {
 import { isWithin } from '../kernel';
 import { copyDependencyTrees, DEPENDENCY_LOCKFILE, findDependencyReference } from '../worktree';
 import { runGit } from './merge-git';
-import { invalidInput, isMergeId, isMergeMessage, isRepoFilePath, type MergeArgs } from './merge-input';
+import { invalidInput, isMergeId, isMergeMessage, type MergeArgs } from './merge-input';
 import { identityOf, listWorktrees, must } from './merge-repo';
 import { commitRegeneratedFiles } from './regenerated-files';
 
@@ -222,7 +222,7 @@ export function createMergeChecks(
       invalidInput('Not a commit message');
     if (input.patterns.length === 0 || !input.patterns.every(isRegeneratedPathPattern))
       invalidInput('Not a pattern of generated files');
-    if (input.paths.length > 50 || !input.paths.every(isRepoFilePath)) invalidInput('Not a set of paths');
+    if (input.paths.length > 50 || !input.paths.every(isRegeneratedPath)) invalidInput('Not a set of paths');
     const identity = await identityOf(repo);
     return commitRegeneratedFiles(repo, await checkPath(input.mergeId), {
       onto,

@@ -1,4 +1,4 @@
-import { regeneratedWriteDir, type ReviewTestConfig } from '@projectman/shared';
+import { regeneratedWriteDirs, type ReviewTestConfig } from '@projectman/shared';
 import { EngineLinkLostError, isEngineLinkLost } from '../../contracts';
 import type { EngineHost, MergeBuildResult, MergeRepoRef } from '../../contracts';
 import { newId, SYSTEM_ACTOR } from '../../kernel';
@@ -8,8 +8,8 @@ import { mergeCheckExecutor, prepareMergeCheck } from './check-preparation';
 /**
  * Generated files that a conflicting merge makes again (PM-1050). A merge that conflicts only in files
  * matching `reviewTest.regenerate.paths` runs the configured command on the merge result without those files,
- * in the full test sandbox of the card's engine, and commits what it wrote there. The merge check then
- * checks that commit as always. Any other conflict, and any failure here, is the conflict the merge
+ * in the full test sandbox of the card's engine, in a checkout of its own, and commits what it wrote there.
+ * The merge check then checks that commit as always, in the merge's own checkout. Any other conflict, and any failure here, is the conflict the merge
  * failed with before.
  */
 
@@ -29,7 +29,6 @@ interface RegenerateInput {
   signal: AbortSignal;
   /** The merge's checkpoint (`MergeSteps.continue`): false once the merge must not go on. */
   proceed: () => boolean;
-  release: () => Promise<void>;
 }
 
 export type RegenerateResult =
@@ -61,18 +60,19 @@ export async function regenerateConflict(input: RegenerateInput): Promise<Regene
   if (!proceed()) return { stopped: true };
   if (again.ok || again.provisional === undefined) return { ok: false };
   // The command may write only the directories the patterns name, nothing else of the checkout.
-  const writeDirs = [...new Set(regenerate.paths.map(regeneratedWriteDir))];
-  if (!writeDirs.every((dir): dir is string => dir !== null))
+  if (regeneratedWriteDirs(regenerate.paths) === null)
     return { ok: false, detail: 'a generated path pattern names no directory to write' };
   // The generator runs on the engine whatever runs the merge check: GitHub Actions cannot write back.
   const available = await mergeCheckExecutor(engine, 'engine');
   if (!available.ok) return { ok: false, detail: available.reason };
   if (!proceed()) return { stopped: true };
+  // The run has a checkout of its own: a process it leaves behind can never write into the merge check's.
+  const regenId = newId('merge');
   try {
     // Not a merge check: it is not recorded among the check runs.
     const prepared = await prepareMergeCheck(merger, {
       ref,
-      mergeId: input.mergeId,
+      mergeId: regenId,
       mergeCommit: again.provisional,
       base: input.base,
       depsFrom: input.depsFrom,
@@ -84,7 +84,7 @@ export async function regenerateConflict(input: RegenerateInput): Promise<Regene
     if (!proceed()) return { stopped: true };
     const spec = prepared.spec({ runId: newId('regen'), command: regenerate.command, reviewTest });
     const result = await available.executor.run(
-      { ...spec, sandbox: { ...spec.sandbox, writeDirs } },
+      { ...spec, regenerate: { ref, mergeId: regenId, patterns: regenerate.paths } },
       input.signal,
     );
     if (!proceed()) return { stopped: true };
@@ -93,7 +93,7 @@ export async function regenerateConflict(input: RegenerateInput): Promise<Regene
     if (result.outcome !== 'passed')
       return { ok: false, detail: result.outputTail.slice(-4000) || `the command ${result.outcome}` };
     const committed = await merger.commitRegenerated(ref, {
-      mergeId: input.mergeId,
+      mergeId: regenId,
       ...input.build,
       message: `${input.build.message}\n\nGenerated files regenerated with: ${regenerate.command}`,
       paths: [...input.conflict],
@@ -114,6 +114,6 @@ export async function regenerateConflict(input: RegenerateInput): Promise<Regene
     if (isEngineLinkLost(err)) throw err;
     return { ok: false, detail: messageOf(err) };
   } finally {
-    await input.release();
+    await merger.releaseCheck(ref, { mergeId: regenId }).catch(() => {});
   }
 }

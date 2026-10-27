@@ -11,12 +11,19 @@ export interface FullTestSandbox {
   denyRead: string[];
   /** Paths below a `denyRead` entry that are readable again (the checkout, its git directory). */
   allowRead: string[];
-  /**
-   * Only the run that makes generated files again (PM-1050): directories of the checkout (relative to
-   * `cwd`, `isRegeneratedWriteDir`) the command may write besides its own run directory. The executor makes
-   * each one writable only after it checked that it is a real directory of the checkout.
-   */
-  writeDirs?: string[];
+}
+
+/**
+ * The run that makes generated files of a conflicting merge again (PM-1050): the command writes, besides
+ * its own run directory, the literal directories of `patterns` (`regeneratedWriteDirs`) of the check
+ * checkout `mergeId` of the repository `ref`, and nowhere else. It has a checkout of its own, whose commit is
+ * the merge without the conflicting files; `commitRegenerated` then takes the files from it. Missing: the
+ * checkout is read-only, as for every other run.
+ */
+interface RegeneratePreparation {
+  ref: MergeRepoRef;
+  mergeId: string;
+  patterns: string[];
 }
 
 /**
@@ -74,6 +81,8 @@ export interface FullTestSpec {
    * the previous behaviour.
    */
   npmCi?: NpmCiPreparation;
+  /** Makes the run the regeneration of generated files (PM-1050): the only run with writable directories. */
+  regenerate?: RegeneratePreparation;
   /**
    * The merge check runs as GitHub Actions (PM-900): the engine's executor orchestrates the run and
    * the local executor refuses it as `github_unavailable`. Then `cwd` only informs, `sandbox` is empty,

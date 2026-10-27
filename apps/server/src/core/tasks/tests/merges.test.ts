@@ -1473,15 +1473,23 @@ describe('member initiated merge', () => {
         regenerate.command,
         reviewTest.command,
       ]);
-      // Only the regeneration may write, and only the directory of the pattern; the merge check stays read-only.
-      expect(vi.mocked(executor.run).mock.calls.map(([spec]) => spec.sandbox.writeDirs)).toEqual([
-        ['gen'],
-        undefined,
-      ]);
+      // Only the regeneration may write, in a checkout of its own; the merge check stays read-only.
+      const specs = vi.mocked(executor.run).mock.calls.map(([spec]) => spec);
+      const regenId = specs[0]!.regenerate!.mergeId;
+      expect(specs[0]!.regenerate).toEqual({
+        ref: expect.anything(),
+        mergeId: regenId,
+        patterns: regenerate.paths,
+      });
+      expect(specs[1]!.regenerate).toBeUndefined();
+      const checkoutIds = merger.checkoutForCheck.mock.calls.map(([, input]) => input.mergeId);
+      expect(checkoutIds[0]).toBe(regenId);
+      expect(checkoutIds[1]).not.toBe(regenId);
       expect(merger.commitRegenerated).toHaveBeenCalledWith(
         expect.anything(),
-        expect.objectContaining({ paths: ['gen/a.snap'], patterns: regenerate.paths }),
+        expect.objectContaining({ mergeId: regenId, paths: ['gen/a.snap'], patterns: regenerate.paths }),
       );
+      expect(merger.releaseCheck.mock.calls.map(([, input]) => input.mergeId)).toContain(regenId);
       expect(merger.checkoutForCheck.mock.calls.map(([, input]) => input.mergeCommit)).toEqual([
         'provisional',
         'regenerated',

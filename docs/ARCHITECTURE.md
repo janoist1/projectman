@@ -4254,20 +4254,33 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   merge whose conflict is only in files matching them calls `merge.build` again with `regenerate`; the
   engine answers the conflict with a `provisional` merge commit (parents `onto` and the commit) made
   without those files, in a temporary index file in the engine's `os.tmpdir()` (the checkout's index is
-  never used). The server runs the configured command in the full test sandbox on a `_merge/<mergeId>`
-  checkout of it (`full_test.run`, not recorded as a merge check). Only that run may write: its spec
-  carries `sandbox.writeDirs`, the literal directories of the patterns, and the executor makes just
-  those writable (real directories of the checkout, never links; the rest of the checkout, its `.git`
-  and `node_modules` stay read-only). A remote engine accepts that spec only with the command of the
-  repo's `regenerateCommand` in its `engine.json` (the owner sets it; `fullTestCommand` may not write)
-  and only in a `_merge` checkout. Then `merge.commit_regenerated` has the engine commit the written
-  files: only regular, single-link files inside the patterns (never a `.git*` name or `.husky`), each
-  read through one descriptor opened without following a link, checked again by path after the read,
-  and hashed from those bytes with `hash-object --no-filters`, never `git add`. Git does not discover
-  the checkout: its worktree git directory is found from the repository and named in `GIT_DIR` (only
-  `status` looks at the work tree). The merge check checks that commit as always. Any other conflict, any refusal and any failure keeps the old `conflict` failure; an engine
-  from before the field refuses `regenerate` (`invalid_params`) and the merge fails as before. The
-  call count above is nine with `merge.commit_regenerated`; no other machine assumption is added.
+  never used). The server runs the configured command in the full test sandbox (`full_test.run`, not
+  recorded as a merge check) on a `_merge/<id>` checkout of it that has an id of its own (not the
+  merge's), so a process the run leaves behind never reaches the merge check's checkout. Only that run
+  may write: its spec carries `regenerate: { ref, mergeId, patterns }` (like `npmCi`), and the engine
+  derives the writable directories itself (`regeneratedWriteDirs`: the literal directories before the
+  last segment of each pattern; real directories of that canonical checkout, never links; the rest of
+  the checkout, its `.git` and `node_modules` stay read-only). A remote engine accepts that spec only
+  with the command of the repo's `regenerateCommand` in its `engine.json` (the owner sets it;
+  `fullTestCommand` may not run with the descriptor) and only for that repo's `_merge` checkout; without
+  `regenerateCommand` the merge falls back to the old `conflict` failure with that detail. A local
+  engine uses the server's `reviewTest.regenerate.command`. Then `merge.commit_regenerated` has the
+  engine commit the written files: it first `rename`s the writable directories below a fresh
+  `.pm-regenerated-*` directory of the checkout (no longer writable there) and reads only from that
+  copy: an `lstat` walk, each file through one `O_NOFOLLOW` descriptor and `fstat` (regular, one link,
+  at most 1 MB), hashed from the bytes read with `hash-object --no-filters`, never `git add`. Only
+  files that are new, changed or deleted against the provisional commit and match the patterns are
+  taken (never a `.git*` name, `.husky` or `node_modules`); a change in the directory outside the
+  patterns, a link, a flood of files (`too_many`) or a missing conflicting file refuses it. Git does
+  not discover the checkout: the worktree git directory is found from the repository and named in
+  `GIT_DIR`, and the indexes are temporary files outside the checkout. The merge check checks that
+  commit as always. Any other conflict, any refusal and any failure keeps the old `conflict` failure;
+  an engine from before the field refuses `regenerate` (`invalid_params`) and the merge fails as
+  before. The call count above is nine with `merge.commit_regenerated`.
+  Machine-dependent parts: the regeneration run and the commit step run on the card's engine in its
+  `_merge` checkouts, with the same sandbox assumptions as the full test (srt/Seatbelt write
+  allow-list, `rename` within the checkout filesystem); a remote engine additionally needs
+  `regenerateCommand` in its `engine.json`.
   Member workspaces (PM-739): a developer's commit lives only in their remote-less clone, so before the
   first `merge.prepare`, `merge.is_ancestor` or `merge.build` of a standalone merge, a train (also its
   recovery and its candidate selection) and the merge gate, the server calls

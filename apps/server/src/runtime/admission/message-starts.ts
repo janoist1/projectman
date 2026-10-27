@@ -1,5 +1,12 @@
 import { assertIntegratorAccess, assertSuperMutation, SYSTEM_ACTOR } from '../../kernel';
-import { isOperator, memberOf, operatorConversationOf, sessionWorkItemOf, stageOf } from '@projectman/shared';
+import {
+  hasGuestConversations,
+  isOperator,
+  managerConversationOf,
+  memberOf,
+  sessionWorkItemOf,
+  stageOf,
+} from '@projectman/shared';
 import type { Actor, Session, Task, TaskStartWaiting, WorkItemRef } from '@projectman/shared';
 import { requireAiMember } from '../../core/members';
 import { DomainError } from '../../kernel';
@@ -60,11 +67,11 @@ export class MessageStarts {
       const member = requireAiMember(config, handle);
       assertIntegratorAccess(config, 'write', by);
       assertSuperMutation(config, { kind: 'runtime_start', providers: [member.provider ?? 'claude'] }, by);
-      // The Operator talks with each person in a conversation of their own (PM-475); only the
-      // owners' one stays outside the capacity.
+      // The Operator and the PM talk with each person in a conversation of their own (PM-475, PM-1080);
+      // only the Operator's owners' one stays outside the capacity.
       const workItem: WorkItemRef =
-        isOperator(member) && by?.kind === 'human' && by.handle
-          ? operatorConversationOf(config, by.handle)
+        hasGuestConversations(config, member) && by?.kind === 'human' && by.handle
+          ? managerConversationOf(config, by.handle)
           : { type: 'general' };
       return (
         await this.admission.start({

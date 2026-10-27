@@ -957,14 +957,13 @@ export class MemberProfiles {
       timeline: this.ctx.repos.timeline
         .forMember(projectKey, handle)
         .map((event) => visibleTimelineEvent(viewer, event, (id) => this.ctx.repos.messages.get(id))),
-      // The Operator's sessions are the owner's and the admin's to see (PM-475).
-      sessions:
-        canSeeOperatorSessions(viewer) || !isOperator(original)
-          ? this.sessions
-              .list(projectKey, { member: handle })
-              .map((session) => visibleSession(viewer, session, (id) => this.ctx.repos.messages.get(id)))
-              .sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt))
-          : [],
+      // The Operator's sessions and the PM's conversations with others are the owner's and the admin's to see
+      // (PM-475, PM-1080).
+      sessions: this.sessions
+        .list(projectKey, { member: handle })
+        .filter((session) => canSeeOperatorSessions(viewer) || !this.sessions.isRestrictedSession(session.id))
+        .map((session) => visibleSession(viewer, session, (id) => this.ctx.repos.messages.get(id)))
+        .sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt)),
       capacity: original.kind === 'ai' ? original.capacity : null,
       capacityUsed: capacityHolders ? capacityHolders.length : 0,
       ...(capacityHolders ? { capacityHolders } : {}),

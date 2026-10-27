@@ -165,7 +165,7 @@ export function registerWebsocket(
             const access = await domain.accessFor(event.projectKey, client.user.email).catch(() => null);
             if (!access) client.projects.delete(event.projectKey);
             else {
-              if (canSeeProjectEvent(access, event, (id) => domain.sessions.isOperatorSession(id)))
+              if (canSeeProjectEvent(access, event, (id) => domain.sessions.isRestrictedSession(id)))
                 send(
                   client,
                   visibleProjectEvent(access, event, (id) => domain.messages.get(id)),
@@ -190,11 +190,12 @@ export function registerWebsocket(
     if (!access || !hasAccess(access.access, minimum)) {
       throw forbidden('insufficient_access', 'no access to this terminal');
     }
-    // The Operator's terminals are the owner's and the admin's to see (PM-475).
-    if (!canSeeOperatorSessions(access) && domain.sessions.isOperatorSession(sessionId))
+    // The Operator's terminals and the PM's conversations with others are the owner's and the admin's to see
+    // (PM-475, PM-1080).
+    if (!canSeeOperatorSessions(access) && domain.sessions.isRestrictedSession(sessionId))
       throw forbidden('insufficient_access', 'no access to this terminal');
     // Raw input to the Operator is a request of the owner's: an admin watches, but does not type (PM-475).
-    if (options.operatorInput && access.access !== 'owner' && domain.sessions.isOperatorSession(sessionId))
+    if (options.operatorInput && access.access !== 'owner' && domain.sessions.isRestrictedSession(sessionId))
       throw forbidden('insufficient_access', 'only the owner types into the Operator’s terminal');
   };
 

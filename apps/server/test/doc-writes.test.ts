@@ -242,11 +242,11 @@ describe('project manager documents (PM-1044)', () => {
     });
     const ctx = toolOf(session);
     await expect(h.domain.teamTools.readProjectDoc(ctx, { doc: 'decisions' })).rejects.toThrow(
-      'project_manager_only',
+      'operator_owner_only',
     );
-    await expect(write(ctx)).rejects.toThrow('project_manager_only');
+    await expect(write(ctx)).rejects.toThrow('operator_owner_only');
     await expect(write(ctx, [{ doc: 'lessons', old_text: '', new_text: 'A lesson' }])).rejects.toThrow(
-      'project_manager_only',
+      'operator_owner_only',
     );
   });
 

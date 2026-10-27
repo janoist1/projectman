@@ -170,6 +170,7 @@ export class FeedbackTools implements FeedbackToolsHandler {
     try {
       const config = await this.projects.config(ctx.projectKey);
       const member = memberOf(config, ctx.member);
+      await this.calls.assertNotManagerGuest(ctx, 'feedback');
       if (member?.kind !== 'ai')
         throw new TeamToolError(
           'forbidden',

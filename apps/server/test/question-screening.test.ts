@@ -504,7 +504,7 @@ describe('the Operator screens AI members’ questions', () => {
         ),
       );
       expect(err.code).toBe('forbidden');
-      expect(err.message).toContain('project_manager_only');
+      expect(err.message).toContain('operator_owner_only');
       expect(item(inboxItemId).state).toBe('screening');
     });
 

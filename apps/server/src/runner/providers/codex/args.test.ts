@@ -224,7 +224,7 @@ describe('TOML values', () => {
     expect([...overrides(args)].filter(([key]) => key.startsWith('mcp_servers'))).toEqual([
       ['mcp_servers.node_repl.enabled', 'false'],
       ['mcp_servers.other-server.enabled', 'false'],
-      ['mcp_servers.team', '{url="http://127.0.0.1:4700/mcp/tok"}'],
+      ['mcp_servers.team', '{url="http://127.0.0.1:4700/mcp/tok",required=true,startup_timeout_sec=20}'],
     ]);
     for (const name of ['team', 'quoted.name', 'bad name'])
       expect(() => buildCodexArgs({ ...input, disabledMcpServers: [name] })).toThrow('Invalid user MCP');
@@ -299,6 +299,15 @@ describe('Codex settings from the member', () => {
 });
 
 describe('buildCodexArgs', () => {
+  it.each([false, true])('waits for the essential team catalog with resume=%s', (resume) => {
+    for (const provider of [undefined, NANOGPT_CODEX_PROVIDER]) {
+      const c = overrides(buildCodexArgs({ ...input, provider, spec: { ...spec, resume } }).args);
+      expect(c.get('mcp_optional_startup_grace_ms')).toBe('0');
+      expect(c.get('mcp_servers.team')).toBe(
+        '{url="http://127.0.0.1:4700/mcp/tok",required=true,startup_timeout_sec=20}',
+      );
+    }
+  });
   it.each([false, true])(
     'disables plugins for both providers and ChatGPT services only for NanoGPT with resume=%s',
     (resume) => {
@@ -408,7 +417,9 @@ describe('buildCodexArgs', () => {
     expect(c.get('projects')).toBe('{"/Users/anna/.projectman/worktrees/AR/AR-1"={trust_level="trusted"}}');
     expect(c.get('project_doc_fallback_filenames')).toBe('["CLAUDE.md"]');
     expect(c.get('developer_instructions')).toBe('"- You are fe-1.\\n- Speak Hungarian."');
-    expect(c.get('mcp_servers.team')).toBe('{url="http://127.0.0.1:4700/mcp/tok"}');
+    expect(c.get('mcp_servers.team')).toBe(
+      '{url="http://127.0.0.1:4700/mcp/tok",required=true,startup_timeout_sec=20}',
+    );
     expect(c.has('notice.hide_full_access_warning')).toBe(false);
     for (const event of CODEX_HOOK_EVENTS) expect(c.has(`hooks.${event}`)).toBe(true);
   });
@@ -767,7 +778,9 @@ describe('buildCodexArgs', () => {
     const c = overrides(args);
     expect(args).not.toContain('danger-full-access');
     expect(c.has('notice.hide_full_access_warning')).toBe(false);
-    expect(c.get('mcp_servers.team')).toBe('{url="http://127.0.0.1:4700/mcp/tok"}');
+    expect(c.get('mcp_servers.team')).toBe(
+      '{url="http://127.0.0.1:4700/mcp/tok",required=true,startup_timeout_sec=20}',
+    );
     expect(args).not.toContain('--sandbox');
     expect(c.get('default_permissions')).toBe('"projectman"');
     expect(c.get('permissions.projectman')).toContain('":workspace_roots"={"."="write"');

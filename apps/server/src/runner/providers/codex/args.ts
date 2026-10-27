@@ -466,7 +466,14 @@ export function buildCodexArgs(input: CodexArgsInput): CodexCommandLine {
 
   // Never infer a Codex grant from another provider's tool syntax.
   const approvals = spec.policy?.tools.team ?? { all: false, names: [] };
-  const team: Record<string, unknown> = { url: spec.mcpUrl };
+  // Team tools are essential: the optional-server grace is only 1 s in Codex 0.159.1.
+  // Wait for the live catalog, including over the engine relay, before the first turn.
+  c('mcp_optional_startup_grace_ms', 0);
+  const team: Record<string, unknown> = {
+    url: spec.mcpUrl,
+    required: true,
+    startup_timeout_sec: 20,
+  };
   if (approvals.all) team.default_tools_approval_mode = 'approve';
   if (approvals.names.length > 0) {
     team.tools = Object.fromEntries(approvals.names.map((t) => [t, { approval_mode: 'approve' }]));

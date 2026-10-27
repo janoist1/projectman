@@ -1364,6 +1364,14 @@ describe('system prompt', () => {
     expect(prompt).not.toContain('- `be-1`');
   });
 
+  it('names the earlier handles of a renamed member in the team list (PM-1025)', () => {
+    const project = buildProject();
+    const team = teamOf(project).map((m) => (m.handle === 'be-1' ? { ...m, formerHandles: ['old-be'] } : m));
+    const prompt = builder.build(input({ project, team, handle: 'fe-1' })).appendSystemPrompt;
+    expect(prompt).toMatch(/- `be-1`: .*formerly `old-be`/);
+    expect(prompt).not.toMatch(/- `fe-1`: .*formerly/);
+  });
+
   it('builds the roster from the configuration when no team view is given', () => {
     const prompt = builder.build(input({ team: [] })).appendSystemPrompt;
     expect(prompt).toContain('- `code-review`: Code reviewer (AI, code reviewer) ← you');

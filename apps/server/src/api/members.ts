@@ -4,6 +4,7 @@ import {
   MemberContextQuery,
   hasOperatorWaiverField,
   AddHumanMemberRequest,
+  RenameMemberRequest,
   RetireMemberRequest,
   routes,
   UpdateMemberRequest,
@@ -95,6 +96,17 @@ export function registerMemberRoutes(app: FastifyInstance, domain: ApiDomain): v
     const access = await requireAccess(domain, request, key, { minimum: 'admin' });
     const body = parseBody(UpdateMemberRequest, request.body);
     return domain.members.update(key, handle, body, {
+      actor: actorOf(access),
+      author: authorOf(request, access),
+    });
+  });
+
+  /** Renames an AI member (PM-1025); the owner's own call, refused while the member works. */
+  app.post<MemberParams>(routes.memberRename(':key', ':handle'), async (request): Promise<MemberView> => {
+    const { key, handle } = request.params;
+    const access = await requireAccess(domain, request, key, { minimum: 'owner' });
+    const body = parseBody(RenameMemberRequest, request.body);
+    return domain.members.rename(key, handle, body.handle, {
       actor: actorOf(access),
       author: authorOf(request, access),
     });

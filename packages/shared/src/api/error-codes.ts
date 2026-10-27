@@ -106,6 +106,10 @@ export const ERROR_CODES = [
   'project_manager_required',
   'operator_required',
   'operator_fixed',
+  // 409; `details.reason`: session | workspace | queue | deferred_start (PM-1025)
+  'member_session_live',
+  // 409: a start while the member is being renamed
+  'member_renaming',
   'project_manager_move_refused',
   'builtin_role',
   'role_id_mismatch',

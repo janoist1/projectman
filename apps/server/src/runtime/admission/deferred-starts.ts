@@ -103,6 +103,24 @@ export const StartSpec = z.discriminatedUnion('kind', [
 ]);
 export type StartSpec = z.infer<typeof StartSpec>;
 
+/** The members a start spec names (the ones whose handle a rename would change). */
+function specMembers(spec: StartSpec): string[] {
+  switch (spec.kind) {
+    case 'provider_resume':
+    case 'message_wake':
+    case 'handoff_takeover':
+      return [spec.handle];
+    case 'loop_notice':
+      return [spec.watcher];
+    case 'work_start':
+      return [spec.assignee, spec.developer, spec.actor.handle].filter((h): h is string => !!h);
+    case 'hand_over':
+      return spec.actor.handle ? [spec.actor.handle] : [];
+    default:
+      return [];
+  }
+}
+
 /**
  * An automatic session start (a stage hand-over, a message wake-up) that admission may refuse
  * for now; the refused start is kept and retried.
@@ -275,6 +293,15 @@ export class DeferredStarts {
       this.listing = false;
     }
     return [...entries.values()];
+  }
+
+  /** Whether a kept deferral of the project names the member: a handle rename waits until none does (PM-1025). */
+  names(projectKey: string, handle: string): boolean {
+    return this.list().some(
+      ({ start, waiting }) =>
+        start.projectKey === projectKey &&
+        (waiting.member === handle || specMembers(start.spec()).includes(handle)),
+    );
   }
 
   /** Binds what the member queue waits for (built after this store): its wake-ups are never deferred here. */

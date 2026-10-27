@@ -166,6 +166,8 @@ export const routes = {
   memberMemories: (key: string, handle: string) => `/api/projects/${key}/members/${handle}/memories`,
   startConversation: (key: string, handle: string) => `/api/projects/${key}/members/${handle}/conversation`,
   removeHuman: (key: string, handle: string) => `/api/projects/${key}/members/${handle}/remove`,
+  /** POST (owner, `RenameMemberRequest`): renames an AI member; answers the new `MemberView` (PM-1025). */
+  memberRename: (key: string, handle: string) => `/api/projects/${key}/members/${handle}/rename`,
   teamMessages: (key: string) => `/api/projects/${key}/messages`,
   /** GET: the viewer's conversations with the other members, with the unread count of each (PM-78). */
   teamThreads: (key: string) => `/api/projects/${key}/messages/threads`,

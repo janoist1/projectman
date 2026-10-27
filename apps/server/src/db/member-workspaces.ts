@@ -128,6 +128,7 @@ export function createMemberWorkspaceRepository(db: Db) {
   const statements = {
     get: db.prepare('SELECT * FROM member_workspaces WHERE id = ?'),
     find: db.prepare('SELECT * FROM member_workspaces WHERE project_key = ? AND member = ? AND repo = ?'),
+    listOfMember: db.prepare('SELECT * FROM member_workspaces WHERE project_key = ? AND member = ?'),
     findByPath: db.prepare('SELECT * FROM member_workspaces WHERE path = ?'),
     insert: db.prepare(
       `INSERT INTO member_workspaces (id, project_key, member, repo, path, generation, created_at)
@@ -181,6 +182,10 @@ export function createMemberWorkspaceRepository(db: Db) {
     find(projectKey: string, member: string, repo: string): MemberWorkspaceRecord | null {
       const row = statements.find.get(projectKey, member, repo) as WorkspaceRow | undefined;
       return row ? toWorkspace(row) : null;
+    },
+    /** The member's workspaces of the project, one per repository. */
+    listOfMember(projectKey: string, member: string): MemberWorkspaceRecord[] {
+      return (statements.listOfMember.all(projectKey, member) as WorkspaceRow[]).map(toWorkspace);
     },
     findByPath(path: string): MemberWorkspaceRecord | null {
       const row = statements.findByPath.get(path) as WorkspaceRow | undefined;

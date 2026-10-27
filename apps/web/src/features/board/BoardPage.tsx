@@ -12,6 +12,7 @@ import { EmptyState, ErrorState, LoadingState } from '../../components/States';
 import { t } from '../../i18n/t';
 import { useDocumentTitle, useIsMobile } from '../../lib/hooks';
 import type { MemberIndex } from '../../lib/members';
+import { columnHoldsStartable } from '../../lib/pipeline';
 import type { PipelineIndex } from '../../lib/pipeline';
 import type { TaskPhase } from '../../lib/taskState';
 import { dragHasFiles } from '../../lib/attachmentInput';
@@ -127,7 +128,10 @@ function Column({
   searching,
   members,
   myHandle,
+  rulesKnown,
 }: {
+  /** The configuration is loaded, so the cards' start state is known. */
+  rulesKnown: boolean;
   /** A filter or a search narrows the board: only then does an empty column say so. */
   filtered: boolean;
   /** A search shows every finished card; without one the finished column shows its newest few. */
@@ -158,6 +162,11 @@ function Column({
     ? [...entries.filter((entry) => entry.state.phase !== 'done'), ...done.shown]
     : entries;
   const chronological = isChronologicalColumn(pipeline.stages, column.id);
+  // Only where the start rule is known (not while the configuration loads) and an empty column says nothing new.
+  const startableCount =
+    rulesKnown && entries.length > 0 && columnHoldsStartable(pipeline, column)
+      ? entries.filter((entry) => entry.state.startable).length
+      : null;
   const hovered = drag.hover?.columnId === column.id;
   // Another column's card is held over this one: the column takes it by its first stage.
   const entering = hovered && drag.draggedColumn !== column.id;
@@ -188,6 +197,24 @@ function Column({
           <span className={styles.columnCount} aria-label={t('board.columnCount', { count: entries.length })}>
             {entries.length}
           </span>
+          {startableCount !== null ? (
+            <span
+              className={styles.startableChip}
+              data-none={startableCount === 0 ? '' : undefined}
+              aria-label={
+                startableCount > 0 ? t('board.startableLabel', { count: startableCount }) : undefined
+              }
+            >
+              {startableCount > 0 ? (
+                <>
+                  <Icon name="play" size={10} strokeWidth={2.6} />
+                  {t('board.startableCount', { count: startableCount })}
+                </>
+              ) : (
+                t('board.startableNone')
+              )}
+            </span>
+          ) : null}
           {chronological ? <span className={styles.columnOrder}>{t('board.doneChronological')}</span> : null}
         </div>
         {column.hint ? <span className={styles.columnHint}>{column.hint}</span> : null}
@@ -737,6 +764,7 @@ export function BoardPage() {
               searching={search !== ''}
               members={model.ctx.members}
               myHandle={myHandle}
+              rulesKnown={!!model.ctx.config}
             />
           ))}
         </div>

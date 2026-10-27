@@ -1732,6 +1732,10 @@ export const hu = {
     filteredEmpty: 'Ebben a szűrésben nincs kártya.',
     assigneeLabel: 'Felelős: {name}',
     columnCount: '{count} feladat',
+    /** The column head of the queue a work stage follows (PM-1079): is there anything a person can start. */
+    startableCount: '{count} indítható',
+    startableNone: 'nincs indítható',
+    startableLabel: '{count} kártya indítható',
     noResults: 'Nincs találat erre: „{query}”',
     workingNow: 'Most dolgozik',
     nobodyWorking: 'Most senki nem dolgozik.',
@@ -2187,9 +2191,16 @@ export const hu = {
     ready: 'Indítható',
     prerequisite: 'Előfeltételre vár',
     /** No article or suffix after the key: its letters and number differ by project. */
-    prerequisiteOn: 'Előfeltételre vár: {key}',
-    prerequisiteOnMore: 'Előfeltételre vár: {key} +{more}',
-    prerequisiteOnMoreLabel: 'Előfeltételre vár: {key} és még {more} kártya',
+    prerequisiteOn: 'Vár: {key}',
+    prerequisiteOnMore: 'Vár: {key} +{more}',
+    /** The stage is where the prerequisite stands now (PM-1079); left out where the viewer does not see it. */
+    prerequisiteOnStage: 'Vár: {key} ({stage})',
+    prerequisiteOnStageMore: 'Vár: {key} ({stage}) +{more}',
+    /** Spoken and tooltip forms of the same wait. */
+    prerequisiteLabel: 'Előfeltételre vár: {key}',
+    prerequisiteLabelStage: 'Előfeltételre vár: {key}, ez most itt tart: {stage}',
+    prerequisiteLabelMore: '{base}; és még {more} kártya',
+    prerequisiteLine: '{key} – {title} · {stage}',
     duplicateOf: 'Duplikátum: {key}',
     done: 'Kész · {when}',
     /** The TaskStatus values. */

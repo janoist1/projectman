@@ -52,6 +52,13 @@ export function nextStage(pipeline: PipelineIndex, stageId: string): Stage | nul
   return pipeline.stages[index + 1] ?? null;
 }
 
+/** Whether a card waiting in the column can be started: one of its stages is a queue that a work stage follows. */
+export function columnHoldsStartable(pipeline: PipelineIndex, column: BoardColumnView): boolean {
+  return stagesInColumn(pipeline, column).some(
+    (stage) => stage.kind === 'queue' && nextStage(pipeline, stage.id)?.kind === 'work',
+  );
+}
+
 /** Stages of the column a stage belongs to, in pipeline order. */
 export function stagesInColumn(pipeline: PipelineIndex, column: BoardColumnView): Stage[] {
   return pipeline.stages.filter((stage) => pipeline.columnOfStage.get(stage.id)?.id === column.id);

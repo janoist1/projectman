@@ -16,7 +16,12 @@ import { loopSummary } from '../../lib/loop';
 import { nameOf } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
 import type { PipelineIndex } from '../../lib/pipeline';
-import { cardWorkerRows, prerequisiteLabel } from '../../lib/taskState';
+import {
+  cardWorkerRows,
+  prerequisiteAriaLabel,
+  prerequisiteLabel,
+  prerequisiteTitle,
+} from '../../lib/taskState';
 import type { TaskState } from '../../lib/taskState';
 import { prChip, stageRows } from './cardModel';
 import { LabelChip } from '../../components/LabelChip';
@@ -153,6 +158,7 @@ export function TaskCard({
       aria-describedby={reorderHelpId}
       aria-keyshortcuts={reorderHelpId ? 'Alt+ArrowUp Alt+ArrowDown' : undefined}
       data-phase={state.phase}
+      data-startable={state.startable ? '' : undefined}
       data-file={fileState ?? undefined}
     >
       {coverSrc ? <CardCover key={coverSrc} src={coverSrc} thumbnail={compact} /> : null}
@@ -215,15 +221,8 @@ export function TaskCard({
           {prerequisite ? (
             <span
               className={clsx(styles.label, styles.prerequisite)}
-              title={prerequisite.cards.map((card) => `${card.key} – ${card.title}`).join('\n')}
-              aria-label={
-                prerequisite.more > 0
-                  ? t('taskStatus.prerequisiteOnMoreLabel', {
-                      key: prerequisite.key!,
-                      more: prerequisite.more,
-                    })
-                  : prerequisiteLabel(prerequisite)
-              }
+              title={prerequisiteTitle(prerequisite)}
+              aria-label={prerequisiteAriaLabel(prerequisite)}
             >
               <Icon name="wait" size={12} strokeWidth={2.4} />
               <span>{prerequisiteLabel(prerequisite)}</span>
@@ -279,7 +278,13 @@ export function TaskCard({
         </ul>
       ) : null}
       <span className={clsx(styles.status, workerRows && styles.statusRows)}>
-        <StatusDot phase={state.phase} pulse={state.phase === 'working'} />
+        {state.startable ? (
+          <span className={styles.startMark} aria-hidden="true">
+            <Icon name="play" size={11} strokeWidth={2.4} />
+          </span>
+        ) : (
+          <StatusDot phase={state.phase} pulse={state.phase === 'working'} />
+        )}
         {workerRows ? (
           <span className={styles.workerRows} title={state.workers.map((worker) => worker.line).join('\n')}>
             {workerRows.rows.map((worker, index) => (
@@ -324,7 +329,7 @@ export function TaskCard({
               state.workers.length > 0
                 ? state.workers.map((worker) => worker.sentence).join('\n')
                 : state.prerequisite?.inLabel
-                  ? state.prerequisite.cards.map((card) => `${card.key} – ${card.title}`).join('\n')
+                  ? prerequisiteTitle(state.prerequisite)
                   : state.title
             }
           >

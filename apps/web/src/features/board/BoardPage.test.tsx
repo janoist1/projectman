@@ -38,6 +38,20 @@ describe('desktop board moving', () => {
     expect(view.container.firstElementChild!.classList.contains(styles.page!)).toBe(true);
   });
 
+  it('counts the cards that can be started in the head of the queue before the work stage (PM-1079)', async () => {
+    const project = mockProject();
+    project.render(<BoardPage />);
+    const config = project.backend.config.pipeline;
+    const ready = await screen.findByRole('region', {
+      name: config.columns.find((entry) => entry.id === 'ready')!.name,
+    });
+    await waitFor(() => expect(ready.querySelector(`.${styles.startableChip}`)).toBeTruthy());
+    const dev = screen.getByRole('region', {
+      name: config.columns.find((entry) => entry.id === 'dev')!.name,
+    });
+    expect(dev.querySelector(`.${styles.startableChip}`)).toBeNull();
+  });
+
   it('shows the drop target and pending card, then rolls back a blocked move', async () => {
     const project = mockProject();
     let release!: () => void;

@@ -74,6 +74,7 @@ import {
   PatchConfigRequest,
   ReopenTaskRequest,
   ResolveInboxRequest,
+  RenameMemberRequest,
   RetireMemberRequest,
   RevertConfigRequest,
   SendMessageRequest,
@@ -139,6 +140,7 @@ import {
   MEMBER_QUEUE_CLOSED_LIMIT,
   memberOf,
   memberRoles,
+  renameMemberInConfig,
   modelForProvider,
   nextCronRun,
   OPERATOR_DISMISS_OPTION,
@@ -2796,6 +2798,8 @@ export class MockBackend {
         unreadCount: this.messages.filter((message) => isUnreadBy(message, this.viewerHandle)).length,
       });
     }
+    if ((m = /^\/members\/([a-z0-9-]+)\/rename$/.exec(rest)) && method === 'POST')
+      return this.renameMember(m[1]!, body);
     if ((m = /^\/members\/([a-z0-9-]+)\/(profile|memories|conversation|remove|context)$/.exec(rest))) {
       const handle = m[1]!;
       if (m[2] === 'context' && (this.viewerAccess() !== 'owner' || this.integratorMode))
@@ -5562,6 +5566,44 @@ export class MockBackend {
       this.config.team.members.find((m) => m.kind === 'human' && m.access === 'owner')?.handle ??
       this.viewerHandle
     );
+  }
+
+  /** Renames an AI member (PM-1026): the same refusals as the server, the configuration through the shared rule. */
+  private renameMember(handle: string, body: unknown): MockResponse {
+    if (this.viewerAccess() !== 'owner' || this.integratorMode)
+      return error(403, 'insufficient_access', 'Owner login required');
+    const input = parseBody(RenameMemberRequest, body);
+    if (!input) return error(400, 'invalid_request', 'Invalid handle');
+    const member = this.findMember(handle);
+    const config = memberOf(this.config, handle);
+    if (!member || !config || member.status === 'retired') return error(404, 'not_found', 'Unknown member');
+    if (config.kind !== 'ai') return error(400, 'not_ai_member', 'Only AI members can be renamed');
+    if (isOperator(config)) return error(409, 'operator_fixed', 'The Operator cannot be renamed');
+    const to = input.handle;
+    const former = this.members.flatMap((entry) => entry.formerHandles ?? []);
+    if (to === handle || this.takenHandles().has(to) || former.includes(to))
+      return error(409, 'handle_taken', 'Handle already used');
+    if (
+      config.email?.enabled &&
+      emailMailboxTaken([this.config, ...this.email.otherProjects], this.config.project.key, handle, to)
+    )
+      return error(409, 'email_mailbox_taken', 'The mailbox name is taken', { mailbox: to });
+    if (this.sessions.some((s) => s.member === handle && s.state !== 'exited' && s.state !== 'failed'))
+      return error(409, 'member_session_live', `${handle} is working`, { reason: 'session', member: handle });
+
+    const next = renameMemberInConfig(this.config, handle, to);
+    const failure = this.configChangeFailure(next);
+    if (failure) return failure;
+    this.config = next;
+    member.handle = to;
+    member.formerHandles = [...(member.formerHandles ?? []), handle];
+    for (const task of this.tasks) if (task.assignee === handle) task.assignee = to;
+    for (const session of this.sessions) if (session.member === handle) session.member = to;
+    this.addTimeline(null, this.owner, 'member_renamed', { from: handle, to, version: this.configVersion });
+    this.commitConfig(`Rename ${handle} to ${to}`);
+    this.emit({ type: 'member_changed', projectKey: fixtures.PROJECT_KEY, handle, member: null });
+    this.memberChanged(to);
+    return ok(this.viewOf(member));
   }
 
   private retire(handle: string, body: unknown): MockResponse {

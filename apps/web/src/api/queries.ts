@@ -44,6 +44,7 @@ import type {
   InboxView,
   LoginRequest,
   ResolveInboxRequest,
+  RenameMemberRequest,
   RetireMemberRequest,
   SessionDetail,
   SetupRequest,
@@ -788,6 +789,20 @@ function useProjectMutation<T, R>(key: string, mutationFn: (body: T) => Promise<
   });
 }
 
+/**
+ * Not awaiting the refresh: the page moves to the new handle's profile first, so the old one is never shown
+ * as missing (PM-1026).
+ */
+export function useRenameMember(key: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ handle, body }: { handle: string; body: RenameMemberRequest }) =>
+      api.renameMember(key, handle, body),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: queryKeys.project(key) });
+    },
+  });
+}
 export function useUpdateMember(key: string) {
   return useProjectMutation(key, ({ handle, body }: { handle: string; body: UpdateMemberRequest }) =>
     api.updateMember(key, handle, body),
@@ -1054,10 +1069,11 @@ export function useClosedCardsMeasure(key: string, days: number, enabled = true)
   });
 }
 
-export function useMemberProfile(key: string, handle: string) {
+export function useMemberProfile(key: string, handle: string, enabled = true) {
   return useQuery({
     queryKey: queryKeys.profile(key, handle),
     queryFn: () => api.memberProfile(key, handle),
+    enabled,
   });
 }
 export function useMemberMemories(key: string, handle: string, enabled: boolean) {

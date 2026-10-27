@@ -1,4 +1,4 @@
-import { hasSuperOrigin, isOnLeave, SYSTEM_SENDER } from '@projectman/shared';
+import { hasSuperOrigin, isOnLeave, isOperator, SYSTEM_SENDER } from '@projectman/shared';
 import type { Actor, InboxItem, MemberStatus, MemberView, PausedSession, RoleView } from '@projectman/shared';
 import type { IconName } from '../components/Icon';
 import { t } from '../i18n/t';
@@ -74,8 +74,27 @@ export function recordActor(record: { actor?: Actor; via?: 'integrator'; from: s
   return record.actor ?? { kind: 'human', handle: record.from, ...(record.via ? { via: record.via } : {}) };
 }
 
+/**
+ * Members by handle, and by each of their former handles (PM-1026): records written before a rename
+ * still name the member. A current handle wins over a former one.
+ */
 export function indexMembers(members: readonly MemberView[] | undefined): MemberIndex {
-  return new Map((members ?? []).map((member) => [member.handle, member]));
+  const all = members ?? [];
+  const index = new Map<string, MemberView>();
+  for (const member of all) for (const former of member.formerHandles ?? []) index.set(former, member);
+  for (const member of all) index.set(member.handle, member);
+  return index;
+}
+
+/** The current handle of the member a handle stands for, when that is another one (a renamed member); else null. */
+export function renamedTo(handle: string, index: MemberIndex): string | null {
+  const member = index.get(handle);
+  return member && member.handle !== handle ? member.handle : null;
+}
+
+/** Only the owner renames, and only an AI member other than the Operator (PM-1026). */
+export function canRenameMember(member: MemberView, isOwner: boolean): boolean {
+  return isOwner && member.kind === 'ai' && !isOperator(member);
 }
 
 /** Display name, with "Te" for the current user. */

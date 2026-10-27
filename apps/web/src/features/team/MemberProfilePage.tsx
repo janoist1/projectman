@@ -1,8 +1,8 @@
 import { InviteDialog } from './InviteDialog';
 import { describeStart, involvementText } from '../../lib/involvement';
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { providerModelLabel } from './providerModels';
-import { Link, useNavigate, useParams } from 'react-router';
+import { Link, Navigate, useNavigate, useParams } from 'react-router';
 import {
   cheapSubagentOf,
   DEFAULT_AGENT_PROVIDER,
@@ -49,7 +49,7 @@ import { formatStamp } from '../../i18n/format';
 import { errorMessage } from '../../lib/errors';
 import { capacityFrom } from '../../lib/capacity';
 import { inboxHeading } from '../../lib/inbox';
-import { memberStatusView } from '../../lib/members';
+import { canRenameMember, memberStatusView, renamedTo } from '../../lib/members';
 import { closureTexts, isLiveSession, sessionClosure } from '../../lib/sessions';
 import { aiRoleView, humanRoleName } from '../../lib/roles';
 import { useDocumentTitle } from '../../lib/hooks';
@@ -66,6 +66,7 @@ import { ProviderWarning } from './ProviderWarning';
 import { LeaveButton } from './LeaveButton';
 import { CapacityNote } from './CapacityNote';
 import { MemberMenu } from './MemberMenu';
+import { RenameMemberDialog } from './RenameMemberDialog';
 import { RetireDialog } from './RetireDialog';
 import { PermissionLevelControl } from './PermissionLevelControl';
 import { MemberScheduleControl } from './ScheduledRuns';
@@ -117,13 +118,15 @@ function MemberSchedule({
 
 export function MemberProfilePage() {
   const { handle = '' } = useParams();
-  const { key, myHandle, can, me, openOperator } = useProject();
+  const { key, myHandle, can, me, isOwner, openOperator } = useProject();
   const navigate = useNavigate();
   const requiredPm = useIsRequiredPm(handle);
-  const profile = useMemberProfile(key, handle);
   const board = useBoard(key);
-  const providers = useProviders();
   const indexes = useProjectIndexes(key);
+  // The old address of a renamed member goes to the new one, before any profile is asked for (PM-1026).
+  const movedTo = renamedTo(handle, indexes.members);
+  const profile = useMemberProfile(key, handle, movedTo === null && !board.isPending);
+  const providers = useProviders();
   const labels = useLabels(key);
   const roles = useRoles(key);
   const config = useConfig(key, can.manageTeam);
@@ -134,6 +137,7 @@ export function MemberProfilePage() {
   const toast = useToast();
   const [inviting, setInviting] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [renaming, setRenaming] = useState(false);
   const [retiring, setRetiring] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -149,6 +153,7 @@ export function MemberProfilePage() {
   const pausedRows = usePausedRows();
   const held = useHeldStart(useTeamPaused(), t('pause.disabled.newWork'));
   useDocumentTitle(profile.data?.member.displayName ?? t('profile.title'), board.data?.project.name);
+  if (movedTo) return <Navigate replace to={`/p/${key}/team/${movedTo}`} />;
   if (profile.error) return <ErrorState error={profile.error} onRetry={() => void profile.refetch()} />;
   if (!profile.data) return <LoadingState />;
   const data = profile.data;
@@ -200,7 +205,22 @@ export function MemberProfilePage() {
         title={member.displayName}
         subtitle={
           <>
-            <code>{member.handle}</code> ·{' '}
+            <code>{member.handle}</code>
+            {member.formerHandles?.length ? (
+              <>
+                {' '}
+                <span className={styles.former}>
+                  {t('memberRename.former')}{' '}
+                  {member.formerHandles.map((former, i) => (
+                    <Fragment key={former}>
+                      {i > 0 ? t('common.listSeparator') : null}
+                      <code>{former}</code>
+                    </Fragment>
+                  ))}
+                </span>
+              </>
+            ) : null}{' '}
+            ·{' '}
             {member.complexityLimit !== undefined ? (
               <>
                 <Chip
@@ -282,8 +302,10 @@ export function MemberProfilePage() {
           {can.manageTeam ? (
             <MemberMenu
               member={member}
+              align="row"
               editDisabled={!roles.data || (ai && !config.data)}
               onEdit={() => setEditing(true)}
+              onRename={canRenameMember(member, isOwner) ? () => setRenaming(true) : undefined}
               onInvite={() => setInviting(true)}
               onRetire={() => setRetiring(true)}
               onRemove={
@@ -627,6 +649,11 @@ export function MemberProfilePage() {
         config={config.data?.config}
         roles={roles.data?.roles ?? []}
         onClose={() => setEditing(false)}
+      />
+      <RenameMemberDialog
+        member={renaming ? member : null}
+        busyWith={live.length > 0 ? workName(live[0]!) : null}
+        onClose={() => setRenaming(false)}
       />
       <RetireDialog
         member={retiring ? member : null}

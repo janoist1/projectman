@@ -219,6 +219,15 @@ proposal, a stale one, the 409 after approving), Beállítások › Előzmények
 card, its menu and editor), Üzenetek (the pm as "elosztó"), the paused team, a failed send, and a
 non-owner (invited developer) in the corner.
 
+### PM-1026: renaming a member's handle
+
+`npm run shots -- scripts/scenarios/member-rename.mjs --widths 1512,390`. The rename itself is real
+(PM-1025); the browser's answers are varied for what the demo instance cannot show (the member's e-mail
+address, the `member_session_live` refusal, the task timeline rows of a renamed member). It shoots the
+⋯ menu, the dialog (with the e-mail line, a malformed handle, a taken handle, the refusal and a member
+that works), the profile after the rename (the "korábban:" line and the toast), the task timeline and
+the menu of an admin, who is not offered the rename.
+
 ### PM-287: card priority
 
 Run `npm run shots -- scripts/scenarios/priority.mjs --timeout 300` on the final PM-287 branch.

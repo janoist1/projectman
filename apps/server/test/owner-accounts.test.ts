@@ -20,8 +20,7 @@ import {
   setupOwner,
 } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
-import { connectFakeEngine } from './helpers/fake-engine-link';
-import type { FakeEngineLink } from './helpers/fake-engine-link';
+import { connectRawEngine, rawHello } from './helpers/cloud-engine';
 import { withoutOnboarding } from './helpers/onboarding';
 
 /** Owner accounts (PM-1062) over the whole cloud-mode app: the invitation, the account's own engine and project, the revocation. */
@@ -30,7 +29,16 @@ describe('owner accounts', () => {
   let host: string;
   let registry: EngineRegistry;
   let hostId: string;
-  const links: FakeEngineLink[] = [];
+  let now: Date;
+  const links: Awaited<ReturnType<typeof connectRawEngine>>[] = [];
+  /** An engine of the cloud on the real link: it answers the folder check with `isDirectory`. */
+  const connectEngine = async (key: string, isDirectory: (path: string) => boolean = () => true) => {
+    links.push(
+      await connectRawEngine(h.app, key, rawHello(), (method, params) =>
+        method === 'host.is_directory' ? isDirectory((params as { path: string }).path) : null,
+      ),
+    );
+  };
   const guest = { name: 'Guest Owner', email: 'guest@example.test', password: 'a long enough password' };
 
   const tokenOf = (invite: CreatedOwnerInvitation) => invite.path.split('/').pop()!;
@@ -61,7 +69,8 @@ describe('owner accounts', () => {
 
   beforeEach(async () => {
     // The host's project is made first (its folder is checked on the host's engine), then the same home starts as a cloud.
-    h = await createAppHarness();
+    now = new Date('2026-10-27T10:00:00.000Z');
+    h = await createAppHarness({ now: () => now });
     host = await setupOwner(h.app);
     await createProject(h, host, 'AR');
     h.app = await h.relaunch({ engineMode: 'cloud', appVersion: 'test', claudeTmpRoots: [] });
@@ -87,6 +96,17 @@ describe('owner accounts', () => {
       expect((await inject(h.app, 'DELETE', routes.ownerInvitation(created.id), host)).statusCode).toBe(204);
       const gone = await inject(h.app, 'GET', routes.ownerInvite(tokenOf(created)));
       expect([gone.statusCode, errorCode(gone)]).toEqual([404, 'invite_invalid']);
+    });
+
+    it('expires after seven days, and a late acceptance is refused', async () => {
+      const created = await invite();
+      expect(Date.parse(created.expiresAt) - Date.parse(created.createdAt)).toBe(7 * 24 * 60 * 60_000);
+      now = new Date(created.expiresAt);
+      for (const res of [
+        await inject(h.app, 'GET', routes.ownerInvite(tokenOf(created))),
+        await accept(created, null),
+      ])
+        expect([res.statusCode, errorCode(res)]).toEqual([404, 'invite_invalid']);
     });
 
     it('is refused to everyone but the host owner', async () => {
@@ -169,7 +189,7 @@ describe('owner accounts', () => {
     });
 
     it('creates a project on its connected engine and binds it as the default', async () => {
-      links.push(await connectFakeEngine(h.app, guestEngine.key));
+      await connectEngine(guestEngine.key);
       const res = await createGuestProject(guestCookie, { engineId: guestEngine.engine.id });
       expect(res.statusCode, res.body).toBe(201);
       expect((res.json() as ProjectSummary).key).toBe('GU');
@@ -182,7 +202,7 @@ describe('owner accounts', () => {
     });
 
     it('checks the folder on the chosen engine', async () => {
-      links.push(await connectFakeEngine(h.app, guestEngine.key, () => false));
+      await connectEngine(guestEngine.key, () => false);
       const res = await createGuestProject(guestCookie, { engineId: guestEngine.engine.id });
       expect([res.statusCode, errorCode(res)]).toEqual([400, 'workspace_not_found']);
       expect(h.app.projectman.domain.projects.has('GU')).toBe(false);
@@ -241,7 +261,7 @@ describe('owner accounts', () => {
       guestCookie = await acceptAsGuest();
       guestId = h.app.projectman.repos.users.findByEmail(guest.email)!.id;
       guestEngine = await createEngine(guestCookie);
-      links.push(await connectFakeEngine(h.app, guestEngine.key));
+      await connectEngine(guestEngine.key);
       expect((await createGuestProject(guestCookie, { engineId: guestEngine.engine.id })).statusCode).toBe(
         201,
       );

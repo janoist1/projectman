@@ -287,11 +287,13 @@ interface RawEngine {
 /**
  * A second engine as a bare socket on the cloud's real link route: it says hello with the key of another
  * engine record and can call the cloud, which is how a session token of one engine is tried from another.
+ * With `answer` it also replies to the cloud's requests (the result it returns); without, it leaves them unanswered.
  */
 export async function connectRawEngine(
   cloud: FastifyInstance,
   key: string,
   greeting: Hello = rawHello(),
+  answer?: (method: string, params: unknown) => unknown,
 ): Promise<RawEngine> {
   const frames: EngineFrame[] = [];
   let closed: number | undefined;
@@ -304,7 +306,14 @@ export async function connectRawEngine(
     {
       onInit: (raw) => {
         const socket = raw as unknown as RawSocket;
-        socket.on('message', (data) => frames.push(decodeFrame(data)));
+        socket.on('message', (data) => {
+          const frame = decodeFrame(data);
+          frames.push(frame);
+          if (answer && frame.t === 'req')
+            socket.send(
+              encodeFrame({ t: 'res', id: frame.id, ok: true, result: answer(frame.method, frame.params) }),
+            );
+        });
         socket.on('close', (code) => {
           closed = code;
         });

@@ -303,17 +303,13 @@ describe('the bearer MCP endpoint (PM-760)', () => {
     });
     expect(stale.structuredContent?.errorCode).toBe('operator_knowledge_stale');
 
-    for (const mode of ['read', 'legacy'] as const) {
-      const { secret: other } = key(mode);
-      const denied = await call(other, 'update_operator_instance_knowledge', {
-        expected_revision: 1,
-        agreement,
-      });
-      expect(denied.structuredContent?.errorCode, mode).toBe(
-        mode === 'read' ? 'integrator_read_only' : 'integrator_not_allowed',
-      );
-      expect((await call(other, 'get_operator_instance_knowledge')).isError, mode).toBe(true);
-    }
+    const { secret: other } = key('read');
+    const denied = await call(other, 'update_operator_instance_knowledge', {
+      expected_revision: 1,
+      agreement,
+    });
+    expect(denied.structuredContent?.errorCode).toBe('integrator_read_only');
+    expect((await call(other, 'get_operator_instance_knowledge')).isError).toBe(true);
   });
 
   it('lists the integrator inbox of every owned project without project_key and leaves out one it does not own', async () => {

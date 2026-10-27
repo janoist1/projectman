@@ -1,7 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import {
   routes,
-  TASK_CREATE_MIN_ACCESS,
   OperatorApprovalWaiverRequest,
   canReadOperatorKnowledge,
   SuperAuditQuery,
@@ -163,9 +162,18 @@ export function registerOperatorRoutes(app: FastifyInstance, deps: { domain: Api
     },
   );
 
+  /**
+   * The corner's conversation with the project manager (PM-1042): any person's own login; the owners share one,
+   * everyone else has theirs, read only. The integrator key never sees it.
+   */
   app.get<ProjectParams>(routes.projectManager(':key'), async (request) => {
-    await requireAccess(domain, request, request.params.key, { minimum: TASK_CREATE_MIN_ACCESS });
-    return domain.projectManagerChannels.view(request.params.key);
+    const access = await requireAccess(domain, request, request.params.key);
+    if (access.via)
+      throw forbidden(
+        'operator_owner_only',
+        "only a person's own login may see the project manager's conversation",
+      );
+    return domain.projectManagerChannels.view(request.params.key, access.handle);
   });
 
   /**

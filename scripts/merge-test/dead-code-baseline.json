@@ -12,7 +12,6 @@
   "[\"exports\",\"apps/server/src/services/email-channel/index.ts\",\"parseSesNotification\"]",
   "[\"exports\",\"apps/server/src/services/email-channel/index.ts\",\"renderEmail\"]",
   "[\"exports\",\"apps/web/src/api/client.ts\",\"checkContract\"]",
-  "[\"exports\",\"apps/web/src/api/queries.ts\",\"useProjectManagerChannel\"]",
   "[\"exports\",\"apps/web/src/api/queries.ts\",\"useUnreadTeamMessages\"]",
   "[\"exports\",\"apps/web/src/app/App.tsx\",\"AppRoutes\"]",
   "[\"exports\",\"apps/web/src/components/DescriptionEditor.tsx\",\"formatSelection\"]",

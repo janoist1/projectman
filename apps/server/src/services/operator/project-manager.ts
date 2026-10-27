@@ -1,6 +1,7 @@
 import type { OperatorPauses } from './ports';
 import {
   isOnLeave,
+  managerConversationOf,
   OPERATOR_SIGNAL_ROUND_FROM,
   operatorConversationOf,
   operatorOf,
@@ -9,7 +10,13 @@ import {
   sessionWorkItemOf,
   TaskStartWaiting,
 } from '@projectman/shared';
-import type { AiMemberConfig, OperatorChannel, ProjectManagerChannel, WorkItemRef } from '@projectman/shared';
+import type {
+  AiMemberConfig,
+  OperatorChannel,
+  ProjectManagerChannel,
+  ProjectManagerCorner,
+  WorkItemRef,
+} from '@projectman/shared';
 import { encodeWorkItem } from '../../db';
 import type { DomainContext } from '../../core/base';
 import type { OperatorRequests } from './requests';
@@ -30,32 +37,58 @@ export class ProjectManagerChannels {
     this.deps = deps;
   }
 
-  async view(projectKey: string): Promise<ProjectManagerChannel> {
-    const manager = projectManagerOf(await this.deps.projects.config(projectKey));
-    return this.channelOf(projectKey, manager);
+  /**
+   * The viewer's conversation with the project manager in the corner (PM-1042), plus its latest requests and
+   * their steps: the owners share one, every other person has their own and only reads and answers in it
+   * (PM-475, decision 59). The system signals and the queue are the owners' business, so a person reading along
+   * sees them empty.
+   */
+  async view(projectKey: string, viewer: string): Promise<ProjectManagerCorner> {
+    const config = await this.deps.projects.config(projectKey);
+    return this.cornerOf(
+      projectKey,
+      viewer,
+      projectManagerOf(config),
+      managerConversationOf(config, viewer),
+      ownerHandles(config),
+    );
   }
 
   /**
-   * The viewer's conversation with the Operator as the project manager's, plus its latest requests and their
-   * steps (PM-463): the owners share one, every other person has their own and only reads and answers in it (PM-475).
+   * The viewer's conversation with the Operator, shaped like the corner (PM-463, PM-475). Until the Operator
+   * leaves the app (PM-1045).
    */
   async operatorView(projectKey: string, viewer: string): Promise<OperatorChannel> {
     const config = await this.deps.projects.config(projectKey);
-    const operator = operatorOf(config);
-    const conversation = operatorConversationOf(config, viewer);
-    const channel = await this.channelOf(projectKey, operator, conversation);
+    return this.cornerOf(
+      projectKey,
+      viewer,
+      operatorOf(config),
+      operatorConversationOf(config, viewer),
+      // The owners' channel also lists the rounds of the Operator's own steps on signals (PM-545).
+      [...ownerHandles(config), OPERATOR_SIGNAL_ROUND_FROM],
+    );
+  }
+
+  private async cornerOf(
+    projectKey: string,
+    viewer: string,
+    member: AiMemberConfig | null,
+    conversation: WorkItemRef,
+    ownerRequestSenders: string[],
+  ): Promise<ProjectManagerCorner> {
+    const channel = await this.channelOf(projectKey, member, conversation);
     const readOnly = conversation.type === 'general' && conversation.with !== undefined;
     // Like the signals, the queue is the owners' business: a person reading along sees it empty.
     const queued =
-      operator && !readOnly ? this.deps.ctx.repos.memberQueue.listOpen(projectKey, operator.handle) : [];
+      member && !readOnly ? this.deps.ctx.repos.memberQueue.listOpen(projectKey, member.handle) : [];
     const current = queued.find((item) => item.state === 'processing');
     return {
       ...channel,
-      // The owners' channel also lists the rounds of the Operator's own steps on signals (PM-545).
       requests: this.deps.operatorRequests.views(
         projectKey,
-        readOnly ? [viewer] : [...ownerHandles(config), OPERATOR_SIGNAL_ROUND_FROM],
-        operator?.handle,
+        readOnly ? [viewer] : ownerRequestSenders,
+        member?.handle,
       ),
       readOnly,
       // The system signals are the owners' business (a card key, a subject): a person reading along sees none.

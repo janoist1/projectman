@@ -716,7 +716,7 @@ export function useResolveInbox(key: string, myHandle: string | null) {
       await client.invalidateQueries({ queryKey: queryKeys.board(key) });
       if (item.payload.operatorKnowledge) {
         await client.invalidateQueries({ queryKey: queryKeys.operatorKnowledge(key) });
-        await client.invalidateQueries({ queryKey: queryKeys.operator(key) });
+        await client.invalidateQueries({ queryKey: queryKeys.projectManager(key) });
       }
       // A merge request starts the merge: the open card shows it at once.
       if (item.kind === 'merge_request' && item.taskKey)
@@ -1115,7 +1115,11 @@ export function useTeamThreads(key: string) {
   return useQuery({ queryKey: queryKeys.teamThreads(key), queryFn: () => api.teamThreads(key) });
 }
 
-/** Who the project manager is and whether it can answer now; only for a viewer who may open cards (PM-429). */
+/**
+ * The viewer's own conversation with the project manager (PM-429, PM-1042): who it is, whether it can answer, the
+ * latest requests with their steps and, for an owner, the system signals and the queue. Every person of the project
+ * reads it.
+ */
 export function useProjectManagerChannel(key: string, enabled: boolean) {
   return useQuery({
     queryKey: queryKeys.projectManager(key),
@@ -1125,25 +1129,13 @@ export function useProjectManagerChannel(key: string, enabled: boolean) {
 }
 
 /**
- * The viewer's own conversation with the Operator (PM-447): who it is, whether it can answer, the latest
- * requests with their steps and, for an owner, the system signals. Every person of the project reads it.
+ * The project manager's queue (PM-890, PM-1042): the open items and those closed since `closedSince`. A new
+ * `closedSince` keeps the list on screen while it loads, and a refetch keeps the old list when it fails.
  */
-export function useOperatorChannel(key: string, enabled: boolean) {
+export function useOperatorQueue(key: string, handle: string, closedSince: string, enabled: boolean) {
   return useQuery({
-    queryKey: queryKeys.operator(key),
-    queryFn: () => api.operator(key),
-    enabled,
-  });
-}
-
-/**
- * The Operator's queue (PM-890): the open items and those closed since `closedSince`. A new `closedSince` keeps the
- * list on screen while it loads, and a refetch keeps the old list when it fails.
- */
-export function useOperatorQueue(key: string, closedSince: string, enabled: boolean) {
-  return useQuery({
-    queryKey: queryKeys.operatorQueue(key, closedSince),
-    queryFn: () => api.operatorQueue(key, closedSince),
+    queryKey: queryKeys.operatorQueue(key, handle, closedSince),
+    queryFn: () => api.memberQueue(key, handle, closedSince),
     placeholderData: keepPreviousData,
     enabled,
   });
@@ -1164,7 +1156,7 @@ export function useDismissOperatorSignal(key: string) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (signalId: string) => api.dismissOperatorSignal(key, signalId),
-    onSettled: () => client.invalidateQueries({ queryKey: queryKeys.operator(key) }),
+    onSettled: () => client.invalidateQueries({ queryKey: queryKeys.projectManager(key) }),
   });
 }
 

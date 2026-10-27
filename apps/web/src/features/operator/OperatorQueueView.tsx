@@ -1,8 +1,7 @@
 import clsx from 'clsx';
 import { useEffect, useId, useRef, useState } from 'react';
-import { Link } from 'react-router';
 import { MEMBER_QUEUE_CLOSED_LIMIT } from '@projectman/shared';
-import type { MemberQueueView, OperatorChannel, OperatorGrantState } from '@projectman/shared';
+import type { MemberQueueView, ProjectManagerCorner } from '@projectman/shared';
 import { useOperatorQueue } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
@@ -10,7 +9,7 @@ import { Icon } from '../../components/Icon';
 import { ErrorState } from '../../components/States';
 import { formatAgo, formatStamp, formatTime } from '../../i18n/format';
 import { t } from '../../i18n/t';
-import { operatorGrantExpiryText, operatorStripOf } from './operatorChannel';
+import { operatorStripOf } from './operatorChannel';
 import { ClosedQueueItem, OpenQueueItem } from './OperatorQueueItem';
 import { useOperator } from './useOperator';
 import styles from './OperatorQueue.module.css';
@@ -24,38 +23,6 @@ function weekAgo(dayStart: Date): Date {
   return new Date(dayStart.getFullYear(), dayStart.getMonth(), dayStart.getDate() - 7);
 }
 
-/** Whether the Operator works with the owner's grant for machine operations, until when, and where it is managed. */
-function GrantLine({ grant, failed }: { grant: OperatorGrantState | undefined; failed: boolean }) {
-  const { key } = useProject();
-  if (failed) return <p className={styles.grantLine}>{t('operator.queue.grant.unknown')}</p>;
-  if (!grant) return null;
-  const settings = `/p/${key}/settings/integrator`;
-  return (
-    <p className={styles.grantLine}>
-      {grant.active ? (
-        <>
-          <span className={styles.superChip}>{t('operator.queue.superChip')}</span>
-          <span className={styles.grantText}>
-            {t('operator.queue.grant.on', { expiry: operatorGrantExpiryText(grant) })}
-          </span>
-        </>
-      ) : (
-        <>
-          <span className={styles.offDot} aria-hidden="true" />
-          <span className={styles.grantText}>
-            {t(grant.canManage ? 'operator.queue.grant.off' : 'operator.queue.grant.offOther')}
-          </span>
-        </>
-      )}
-      {grant.canManage ? (
-        <Link to={settings}>
-          {t(grant.active ? 'operator.queue.grant.manage' : 'operator.queue.grant.give')}
-        </Link>
-      ) : null}
-    </p>
-  );
-}
-
 /** How long the oldest open item has waited: minutes while it is recent, then since when. */
 function oldestText(items: MemberQueueView['items']): string {
   const oldest = items[0];
@@ -66,7 +33,7 @@ function oldestText(items: MemberQueueView['items']): string {
     : t('operator.queue.summary.oldestSince', { since: formatStamp(oldest.queuedAt) });
 }
 
-function Summary({ view, channel }: { view: MemberQueueView; channel: OperatorChannel | undefined }) {
+function Summary({ view, channel }: { view: MemberQueueView; channel: ProjectManagerCorner | undefined }) {
   if (view.items.length === 0) {
     return (
       <p className={styles.summaryLine}>
@@ -86,12 +53,12 @@ function Summary({ view, channel }: { view: MemberQueueView; channel: OperatorCh
   );
 }
 
-/** The strip under the panel's head: what the Operator does now and how many wait; it opens the queue. */
+/** The strip under the panel's head: what the project manager does now and how many wait; it opens the queue. */
 export function OperatorQueueStrip({
   channel,
   onOpen,
 }: {
-  channel: OperatorChannel | undefined;
+  channel: ProjectManagerCorner | undefined;
   onOpen: () => void;
 }) {
   const hintId = useId();
@@ -131,16 +98,16 @@ export function OperatorQueueStrip({
 }
 
 /**
- * The Operator's queue (PM-890): what it works on and what waits, and the items it closed today (the earlier days
- * on request) with what it did. It reads the queue and the grant again by itself when they change, without a flash.
+ * The project manager's queue (PM-890, PM-1042): what it works on and what waits, and the items it closed today (the
+ * earlier days on request) with what it did. It reads the queue again by itself when it changes, without a flash.
  */
 export function OperatorQueueView({ onBack }: { onBack: () => void }) {
   const { key } = useProject();
-  const { state, grant, grantFailed } = useOperator();
+  const { state, handle } = useOperator();
   const [dayStart] = useState(() => startOfDay(new Date()));
   const [earlier, setEarlier] = useState(false);
   const closedSince = (earlier ? weekAgo(dayStart) : dayStart).toISOString();
-  const queue = useOperatorQueue(key, closedSince, true);
+  const queue = useOperatorQueue(key, handle ?? '', closedSince, handle !== null);
   const heading = useRef<HTMLHeadingElement>(null);
   const closedHeading = useRef<HTMLHeadingElement>(null);
   const earlierShown = useRef(false);
@@ -198,7 +165,6 @@ export function OperatorQueueView({ onBack }: { onBack: () => void }) {
               </Button>
             </div>
           ) : null}
-          <GrantLine grant={grant} failed={grantFailed} />
           {!view.everQueued ? (
             <div className={styles.empty}>
               <Icon name="list" size={28} />

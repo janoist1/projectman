@@ -129,15 +129,6 @@
   text-align: center;
 }
 
-/* The owner's grant for machine operations is active: a blue ring around the avatar. */
-.ring {
-  position: absolute;
-  inset: -3px;
-  border-radius: 50%;
-  border: 2px solid var(--c-accent);
-  pointer-events: none;
-}
-
 .narrow {
   display: none;
 }

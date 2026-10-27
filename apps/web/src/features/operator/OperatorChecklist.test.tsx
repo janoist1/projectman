@@ -218,7 +218,7 @@ describe('checklist in the project layout', () => {
       return fetch(path, init);
     });
     layout(project);
-    fireEvent.click(await screen.findByRole('button', { name: /^Beszélgetés az Operátorral/ }));
+    fireEvent.click(await screen.findByRole('button', { name: new RegExp(`^${t('operator.panel.label')}`) }));
     expect(screen.getAllByRole('status', { name: t('app.loading') }).length).toBeGreaterThan(0);
     expect(indicator()).toBeNull();
     release();
@@ -235,7 +235,7 @@ describe('checklist in the project layout', () => {
         : handle(method, path, body, query),
     );
     layout(project);
-    fireEvent.click(await screen.findByRole('button', { name: /^Beszélgetés az Operátorral/ }));
+    fireEvent.click(await screen.findByRole('button', { name: new RegExp(`^${t('operator.panel.label')}`) }));
     await screen.findByText(t('operator.checklist.loadFailed'));
     expect(indicator()).toBeNull();
     expect(screen.getByRole('textbox', { name: t('operator.composer.label') })).not.toBeNull();
@@ -282,7 +282,7 @@ describe('checklist in the project layout', () => {
   it('hides the completed indicator and defaults the panel checklist to collapsed', async () => {
     const project = projectWith([item('first', { state: 'done' })]);
     layout(project);
-    fireEvent.click(await screen.findByRole('button', { name: /^Beszélgetés az Operátorral/ }));
+    fireEvent.click(await screen.findByRole('button', { name: new RegExp(`^${t('operator.panel.label')}`) }));
     await screen.findByText('1/1');
     expect(indicator()).toBeNull();
     expect(head().getAttribute('aria-expanded')).toBe('false');
@@ -294,7 +294,7 @@ describe('checklist in the project layout', () => {
     const project = projectWith(items ?? []);
     if (items === null) project.backend.checklist = null;
     layout(project);
-    fireEvent.click(await screen.findByRole('button', { name: /^Beszélgetés az Operátorral/ }));
+    fireEvent.click(await screen.findByRole('button', { name: new RegExp(`^${t('operator.panel.label')}`) }));
     await waitFor(() =>
       expect(project.requests.some((request) => request.path.endsWith('/checklist'))).toBe(true),
     );
@@ -306,7 +306,7 @@ describe('checklist in the project layout', () => {
     const project = projectWith();
     project.context.me.projects[0]!.access = 'developer';
     layout(project);
-    fireEvent.click(await screen.findByRole('button', { name: /^Beszélgetés az Operátorral/ }));
+    fireEvent.click(await screen.findByRole('button', { name: new RegExp(`^${t('operator.panel.label')}`) }));
     await screen.findByRole('dialog');
     expect(indicator()).toBeNull();
     expect(project.requests.filter((request) => request.path.endsWith('/checklist'))).toHaveLength(0);

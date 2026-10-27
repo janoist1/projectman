@@ -13,7 +13,7 @@ import { inboxItemDomId } from '../../lib/inbox';
 import { createMockFetch, mockProject } from '../../test/mockProject';
 
 /**
- * The Operator's queue in the corner (PM-890), against the fake backend: the count and the grant on the button,
+ * The project manager's queue in the corner (PM-890, PM-1042), against the fake backend: the count on the button,
  * the strip in the panel, and the Sor view with its open list, today's closed items and the states around them.
  */
 afterEach(() => {
@@ -29,7 +29,7 @@ const ago = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOSt
 function item(partial: Partial<MemberQueueItem> & Pick<MemberQueueItem, 'id'>): MemberQueueItem {
   return {
     projectKey: 'AC',
-    member: 'operator',
+    member: 'pm',
     kind: 'todo',
     source: { type: 'inbox', inboxItemId: partial.id },
     place: { type: 'general' },
@@ -61,8 +61,8 @@ function renderLayout(project: Project, options: { viewer?: 'owner' | 'kata'; ac
   const viewer = options.viewer ?? 'owner';
   const access = options.access ?? (viewer === 'owner' ? 'owner' : 'developer');
   project.backend.viewerHandle = viewer;
-  // A client writes only to the contacts; the Operator is one (PM-985).
-  project.backend.config.team.contacts = ['operator'];
+  // A client writes only to the contacts; the project manager is one (PM-985).
+  project.backend.config.team.contacts = ['pm'];
   project.backend.config.team.members.forEach((member) => {
     if (member.kind === 'human' && member.handle === viewer) member.access = access;
   });
@@ -99,21 +99,18 @@ async function openQueue(project: Project, options: Parameters<typeof renderLayo
 }
 
 describe('the Operator button with a queue', () => {
-  it('names the queue length and the active grant, and shows the count and the ring', async () => {
+  it('names the queue length and shows the count', async () => {
     const project = mockProject();
     project.backend.queueItems = [item({ id: 'q1' }), item({ id: 'q2' })];
-    project.backend.operatorGrant = { ...project.backend.operatorGrant, active: true, grantId: 'g1' };
     renderLayout(project);
     const operator = await button();
     await waitFor(() =>
       expect(operator.getAttribute('aria-label')).toContain(t('operator.button.queue', { count: 2 })),
     );
-    await waitFor(() => expect(operator.getAttribute('aria-label')).toContain(t('operator.button.super')));
     expect(within(operator).getByTestId('operator-queue-count').textContent).toBe('2');
-    expect(within(operator).getByTestId('operator-super-ring')).toBeTruthy();
   });
 
-  it('has no count and no ring for an empty queue without a grant', async () => {
+  it('has no count for an empty queue', async () => {
     const project = mockProject();
     renderLayout(project);
     const operator = await button();
@@ -121,7 +118,6 @@ describe('the Operator button with a queue', () => {
       expect(operator.getAttribute('aria-label')).toContain(t('operator.status.available')),
     );
     expect(within(operator).queryByTestId('operator-queue-count')).toBeNull();
-    expect(within(operator).queryByTestId('operator-super-ring')).toBeNull();
   });
 });
 
@@ -162,16 +158,6 @@ describe('the strip in the panel', () => {
     expect(screen.queryByRole('button', { name: new RegExp(`^${t('operator.queue.toggle')}`) })).toBeNull();
     expect(screen.queryByTestId('operator-queue-strip')).toBeNull();
   });
-
-  it('shows the super chip beside the name in the head while the grant is active', async () => {
-    const project = mockProject();
-    project.backend.operatorGrant = { ...project.backend.operatorGrant, active: true, grantId: 'g1' };
-    renderLayout(project);
-    fireEvent.click(await button());
-    const panel = await screen.findByRole('dialog');
-    const chip = await within(panel).findByText(t('operator.queue.superChip'));
-    expect(chip.getAttribute('title')).toContain(t('operator.queue.grant.untilRevoked'));
-  });
 });
 
 describe('the Sor view', () => {
@@ -206,7 +192,7 @@ describe('the Sor view', () => {
       release = resolve;
     });
     setFetchImplementation(async (path, init) => {
-      if (path.includes('/operator/queue')) await gate;
+      if (path.includes('/members/pm/queue')) await gate;
       return fetch(path, init);
     });
     await openQueue(project);
@@ -221,7 +207,7 @@ describe('the Sor view', () => {
     const fetch = createMockFetch(project.backend, project.requests);
     let fail = true;
     setFetchImplementation(async (path, init) => {
-      if (fail && path.includes('/operator/queue'))
+      if (fail && path.includes('/members/pm/queue'))
         return new Response(JSON.stringify({ error: { code: 'internal', message: 'Failed' } }), {
           status: 500,
         });
@@ -240,7 +226,7 @@ describe('the Sor view', () => {
     const fetch = createMockFetch(project.backend, project.requests);
     let fail = false;
     setFetchImplementation(async (path, init) => {
-      if (fail && path.includes('/operator/queue'))
+      if (fail && path.includes('/members/pm/queue'))
         return new Response(JSON.stringify({ error: { code: 'internal', message: 'Failed' } }), {
           status: 500,
         });
@@ -249,7 +235,7 @@ describe('the Sor view', () => {
     const client = await openQueue(project);
     await screen.findByText('Marad');
     fail = true;
-    applyServerEvent(client, { type: 'member_queue_changed', projectKey: 'AC', member: 'operator' });
+    applyServerEvent(client, { type: 'member_queue_changed', projectKey: 'AC', member: 'pm' });
     expect(await screen.findByText(t('operator.queue.refreshFailed'))).toBeTruthy();
     expect(screen.getByText('Marad')).toBeTruthy();
   });
@@ -397,7 +383,7 @@ describe('the Sor view', () => {
     await openQueue(project);
     await closedList();
     expect(screen.getByText(t('operator.queue.limit', { count: MEMBER_QUEUE_CLOSED_LIMIT }))).toBeTruthy();
-    const queueRequests = () => project.requests.filter((r) => r.path.includes('/operator/queue'));
+    const queueRequests = () => project.requests.filter((r) => r.path.includes('/members/pm/queue'));
     const before = queueRequests().length;
     fireEvent.click(screen.getByRole('button', { name: t('operator.queue.earlier') }));
     await waitFor(() => expect(queueRequests().length).toBeGreaterThan(before));
@@ -409,49 +395,12 @@ describe('the Sor view', () => {
     ).toBeTruthy();
   });
 
-  it('shows the active grant with its end, and the way to manage it only to who can', async () => {
-    const project = mockProject();
-    project.backend.queueItems = [item({ id: 'q1' })];
-    project.backend.operatorGrant = {
-      active: true,
-      grantId: 'g1',
-      grantedAt: ago(10),
-      grantedBy: 'Te',
-      expiresAt: null,
-      lastUsedAt: null,
-      canManage: false,
-    };
-    await openQueue(project);
-    expect(
-      await screen.findByText(
-        t('operator.queue.grant.on', { expiry: t('operator.queue.grant.untilRevoked') }),
-      ),
-    ).toBeTruthy();
-    expect(screen.queryByRole('link', { name: t('operator.queue.grant.manage') })).toBeNull();
-  });
-
-  it('says the grant is unknown when it cannot be read, and keeps the queue', async () => {
-    const project = mockProject();
-    project.backend.queueItems = [item({ id: 'q1', title: 'Látszik' })];
-    const fetch = createMockFetch(project.backend, project.requests);
-    setFetchImplementation(async (path, init) => {
-      if (path.includes('/auth/operator-grant'))
-        return new Response(JSON.stringify({ error: { code: 'internal', message: 'Failed' } }), {
-          status: 500,
-        });
-      return fetch(path, init);
-    });
-    await openQueue(project);
-    expect(await screen.findByText(t('operator.queue.grant.unknown'))).toBeTruthy();
-    expect(screen.getByText('Látszik')).toBeTruthy();
-  });
-
   it('reads the queue again when the server says it changed', async () => {
     const project = mockProject();
     const client = await openQueue(project);
     await screen.findByText(t('operator.queue.first.title'));
     project.backend.queueItems = [item({ id: 'q1', title: 'Új tétel' })];
-    applyServerEvent(client, { type: 'member_queue_changed', projectKey: 'AC', member: 'operator' });
+    applyServerEvent(client, { type: 'member_queue_changed', projectKey: 'AC', member: 'pm' });
     expect(await screen.findByText('Új tétel')).toBeTruthy();
   });
 });

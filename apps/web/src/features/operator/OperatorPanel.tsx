@@ -20,7 +20,7 @@ import { OperatorKnowledgeView } from './OperatorKnowledgeView';
 import { OperatorQueueStrip, OperatorQueueView } from './OperatorQueueView';
 import type { FailedOperatorMessage } from './OperatorThread';
 import { OperatorWaitBanner } from './OperatorWaitBanner';
-import { operatorGrantExpiryText, operatorStatusText } from './operatorChannel';
+import { operatorStatusText } from './operatorChannel';
 import { useOperator } from './useOperator';
 import styles from './OperatorPanel.module.css';
 
@@ -28,18 +28,18 @@ import styles from './OperatorPanel.module.css';
 const PANEL_WIDTH = 440;
 
 /**
- * The Operator's conversation (PM-429, PM-447): a panel that slides in from the right (a sheet from
+ * The project manager's conversation (PM-429, PM-447, PM-1042): a panel that slides in from the right (a sheet from
  * the bottom on a phone) beside the page, without hiding it. Not modal: the board stays usable. Every
  * person of the project has their own conversation in it; on a read-only channel (not an owner) the
- * Operator only reads and answers.
+ * project manager only reads and answers.
  */
 export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTMLElement | null> }) {
-  const { key, me, closeOperator, operatorPrefill, operatorChecklistRequest } = useProject();
+  const { key, me, can, isOwner, closeOperator, operatorPrefill, operatorChecklistRequest } = useProject();
   const isMobile = useIsMobile();
   const { pathname } = useLocation();
   const openedAt = useRef(pathname);
   const board = useBoard(key);
-  const { channel, state, handle, member, grant } = useOperator();
+  const { channel, state, handle, member } = useOperator();
   const send = useSendTeamMessage(key);
   const uploads = useMessageAttachmentUploads(key);
   const [dragging, setDragging] = useState(false);
@@ -186,18 +186,10 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
             <h2 id={titleId} className={styles.name}>
               {name}
             </h2>
-            {grant?.active ? (
-              <span
-                className={styles.superChip}
-                title={t('operator.queue.superChipTitle', { expiry: operatorGrantExpiryText(grant) })}
-              >
-                {t('operator.queue.superChip')}
-              </span>
-            ) : null}
           </div>
           <div className={styles.status}>
             {status}
-            {status && !readOnly && !missing ? ` · ${t('operator.panel.subline')}` : ''}
+            {status && isOwner && !missing ? ` · ${t('operator.panel.subline')}` : ''}
           </div>
         </div>
         {state?.sessionId && sessionVisible ? (
@@ -304,9 +296,12 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
       ) : missing || !state || !handle ? (
         <div className={clsx(styles.body, styles.missing)}>
           <p>{t('operator.missing.title')}</p>
-          <ButtonLink to={`/p/${key}/team`} variant="secondary" size="md" onClick={closeOperator}>
-            {t('operator.missing.team')} →
-          </ButtonLink>
+          <p>{t('operator.missing.hint')}</p>
+          {can.manageTeam ? (
+            <ButtonLink to={`/p/${key}/team`} variant="secondary" size="md" onClick={closeOperator}>
+              {t('operator.missing.team')} →
+            </ButtonLink>
+          ) : null}
         </div>
       ) : (
         <>

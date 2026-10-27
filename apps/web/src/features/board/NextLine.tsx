@@ -12,6 +12,7 @@ export function NextLine({
   className,
   prefix,
   wrap,
+  clamp,
 }: {
   next: TaskNext;
   className?: string;
@@ -19,13 +20,15 @@ export function NextLine({
   prefix?: string;
   /** The row may run on to a second line (the drawer's header) instead of being cut. */
   wrap?: boolean;
+  /** The row runs on to a second line at most, then is cut (a card's row that names what it waits for). */
+  clamp?: boolean;
 }) {
   const lead = prefix ? `${prefix}${t('taskStatus.next.between')}` : '';
   const title = `${lead}${next.title}`;
   return (
     <span className={clsx(styles.line, className)} title={title}>
       <span className="visually-hidden">{title}</span>
-      <span aria-hidden="true" className={clsx(styles.text, wrap && styles.wrap)}>
+      <span aria-hidden="true" className={clsx(styles.text, wrap && styles.wrap, clamp && styles.clamp)}>
         {lead}
         <strong className={styles.head}>{next.head}</strong>
         {t('taskStatus.next.between')}

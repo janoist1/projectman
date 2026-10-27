@@ -321,7 +321,11 @@ export function TaskCard({
             ))}
           </span>
         ) : state.next ? (
-          <NextLine next={state.next} className={styles.statusText} />
+          <NextLine
+            next={state.next}
+            className={styles.statusText}
+            clamp={state.wait?.reason === 'prerequisite'}
+          />
         ) : (
           <span
             className={clsx(styles.statusText, state.phase === 'stuck' && styles.statusStuck)}

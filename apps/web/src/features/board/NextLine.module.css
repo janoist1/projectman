@@ -17,6 +17,17 @@
   white-space: normal;
 }
 
+/* Two lines at most, for a row whose end is the news (the card a card waits for, PM-1079). */
+.clamp {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  line-height: 1.35;
+  text-overflow: clip;
+}
+
 .head {
   font-weight: 800;
 }

@@ -2192,7 +2192,7 @@ export const hu = {
     ready: 'Indítható',
     prerequisite: 'Előfeltételre vár',
     /** No article or suffix after the key: its letters and number differ by project. */
-    prerequisiteOn: 'Vár: {ref}',
+    prerequisiteOn: 'Vár · {ref}',
     /** The stage is where the prerequisite stands now (PM-1079); left out where the viewer does not see it. */
     prerequisiteRef: '{key} ({stage})',
     prerequisiteMore: '{ref} +{more}',

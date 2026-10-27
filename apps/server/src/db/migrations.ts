@@ -2318,10 +2318,10 @@ migrations.push({
   // removed VM network boundary (PM-140) go with them: `egress_allowances.request_id` references
   // `boundary_requests`, and nothing reads either table. `team.boundary` stays in the configuration: the
   // delegation of permission requests uses it.
-  sql: `DROP TABLE egress_allowances;
-  DROP TABLE egress_operations;
-  DROP TABLE boundary_grants;
-  DROP TABLE boundary_requests;
+  sql: `DROP TABLE IF EXISTS egress_allowances;
+  DROP TABLE IF EXISTS egress_operations;
+  DROP TABLE IF EXISTS boundary_grants;
+  DROP TABLE IF EXISTS boundary_requests;
   DELETE FROM inbox_items WHERE kind = 'boundary';
   DELETE FROM member_queue_items WHERE kind = 'boundary' OR source_type = 'boundary';`,
 });

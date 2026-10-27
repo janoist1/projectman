@@ -1014,6 +1014,7 @@ describe('engine local limit', () => {
           command: 'npm run generate',
           cwd,
           regenerate: { ref, mergeId, patterns: ['gen/*.txt'], ...regenerate },
+          requireHeavyLock: true,
           ...overrides,
         });
       await expect(limit.check('full_test.run', regenerating() as never)).resolves.toBeDefined();
@@ -1029,6 +1030,13 @@ describe('engine local limit', () => {
       await refused(limit, 'full_test.run', regenerating({ patterns: ['.git/*'] }), 'invalid_params');
       await refused(limit, 'full_test.run', regenerating({ mergeId: newId('merge') }), 'invalid_params');
       await refused(limit, 'full_test.run', regenerating({}, { cwd: repo }), 'invalid_params');
+      await refused(
+        limit,
+        'full_test.run',
+        regenerating({}, { cwd: path.join(worktrees, '_merge') }),
+        'invalid_params',
+      );
+      await refused(limit, 'full_test.run', regenerating({}, { requireHeavyLock: false }), 'invalid_params');
     });
 
     it('passes the dependency preparation request of a registered merge repo on, and refuses others (PM-681)', async () => {

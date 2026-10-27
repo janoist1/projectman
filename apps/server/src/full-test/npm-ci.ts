@@ -78,8 +78,15 @@ export async function assertRegenerateCheckout(
   worktreesRoot: string | null | undefined,
   spec: FullTestSpec,
 ): Promise<string> {
-  if (!worktreesRoot || !spec.regenerate || !isMergeId(spec.regenerate.mergeId))
-    throw new DependencyPreparationError('the regeneration needs a worktrees root and a merge id');
+  if (
+    !worktreesRoot ||
+    !spec.regenerate ||
+    spec.requireHeavyLock !== true ||
+    !isMergeId(spec.regenerate.mergeId)
+  )
+    throw new DependencyPreparationError(
+      'the regeneration needs a worktrees root, a merge id and the heavy lock',
+    );
   return canonicalMergeCheckout(worktreesRoot, spec.regenerate.mergeId, spec.cwd);
 }
 

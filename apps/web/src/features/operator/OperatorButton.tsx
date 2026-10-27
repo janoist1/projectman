@@ -60,7 +60,7 @@ export function OperatorButton({ variant }: { variant: 'bar' | 'phone' | 'drawer
       onClick={() => (operatorOpen ? closeOperator() : openOperator(button.current))}
     >
       <span className={styles.avatar}>
-        <Avatar member={member} handle={handle ?? 'operator'} size="sm" />
+        <Avatar member={member} handle={handle ?? 'pm'} size="sm" />
         <span className={clsx(styles.dot, styles[`dot_${dot}`])} aria-hidden="true" />
         {newReply ? <span className={styles.newReply} aria-hidden="true" /> : null}
         {openSignals > 0 ? (

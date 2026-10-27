@@ -115,22 +115,36 @@
   border-color: var(--c-accent);
 }
 
-/* On a phone the full-session link keeps its icon and hides only its text. */
+/* The full-session link keeps its icon and hides only its text, so the manager's long name keeps its room (PM-1042). */
+.session {
+  position: relative;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+}
+
+.sessionLabel {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 @media (max-width: 767px) {
-  .session {
-    position: relative;
-    justify-content: center;
-    width: 44px;
-    height: 44px;
+  .head {
+    gap: 4px;
+    padding: 12px 4px 12px 12px;
   }
 
-  .sessionLabel {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
+  .who {
+    margin-right: 4px;
+  }
+
+  .session {
+    width: 44px;
+    height: 44px;
   }
 }
 

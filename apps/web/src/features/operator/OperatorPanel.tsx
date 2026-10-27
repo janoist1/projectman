@@ -180,7 +180,7 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
         </div>
       ) : null}
       <header className={styles.head}>
-        <Avatar member={member} handle={handle ?? 'operator'} size="lg" />
+        <Avatar member={member} handle={handle ?? 'pm'} size="lg" />
         <div className={styles.who}>
           <div className={styles.nameRow}>
             <h2 id={titleId} className={styles.name}>

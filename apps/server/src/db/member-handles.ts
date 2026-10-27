@@ -25,8 +25,6 @@ export const REWRITTEN_HANDLE_COLUMNS: readonly HandleTable[] = [
   { table: 'attachments', columns: ['uploaded_by_handle', 'deleted_by_handle'] },
   { table: 'message_attachments', columns: ['uploaded_by_handle', 'deleted_by_handle'] },
   { table: 'task_workspace_bindings', columns: ['member'] },
-  { table: 'egress_operations', columns: ['member'] },
-  { table: 'egress_allowances', columns: ['member', 'revoked_by'] },
   { table: 'token_usage', columns: ['member'] },
   { table: 'task_review_pins', columns: ['pinned_by'] },
   { table: 'task_covers', columns: ['set_by_handle'] },

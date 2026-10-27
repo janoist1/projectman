@@ -582,9 +582,11 @@ export class Messaging {
       },
       actor,
     );
-    // A person writes into their own conversation with the Operator, not into another person's (PM-475).
+    // A person writes into their own conversation with the Operator or the PM, not into another person's
+    // (PM-475, PM-1080). The PM's meetings, schedules and cards are not conversations: they stay as they were.
     if (
       hasGuestConversations(config, memberOf(config, session.member)) &&
+      session.workItem.type === 'general' &&
       memberOf(config, from)?.kind === 'human' &&
       !sameWorkItem(session.workItem, managerConversationOf(config, from))
     )

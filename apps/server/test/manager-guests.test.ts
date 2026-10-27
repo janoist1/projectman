@@ -161,3 +161,19 @@ describe('the PM only reads and answers in a guest’s conversation', () => {
     await h.domain.teamTools.sendMessage(ctx, { to: ['cleo'], text: 'It is under review.', kind: 'info' });
   });
 });
+
+describe('a person writes into the PM’s session chat', () => {
+  it('only in their own conversation, but an owner also into the PM’s card session', async () => {
+    await setup();
+    await say('cleo');
+    const cleo = conversationWith('cleo')!;
+    const { session: card } = await h.domain.sessions.ensureSession('AR', 'pm', {
+      type: 'task',
+      taskKey: 'AR-1',
+    });
+    const write = (id: string, from: string) => h.domain.sessionMessages.sendToSession('AR', id, 'Hi', from);
+    expect(await rejection(write(cleo.id, 'owner'))).toMatchObject({ code: 'operator_owner_only' });
+    await write(card.id, 'owner');
+    await write(cleo.id, 'cleo');
+  });
+});

@@ -1,3 +1,4 @@
+import { realpath } from 'node:fs/promises';
 import {
   MergeError,
   type BranchMerger,
@@ -42,6 +43,8 @@ export interface LocalBranchMergerOptions {
   /** The engine's worktrees root; the checks live in `<worktreesRoot>/_merge/<mergeId>`. null: no check checkouts. */
   worktreesRoot: string | null;
   platform?: NodeJS.Platform;
+  /** PM-1083: called after `advance` moved a checked-out default branch; `checkout` is the real path of that checkout. */
+  onCheckoutAdvanced?: (ref: MergeRepoRef, checkout: string) => void;
   /** The budget for copying dependencies into a check checkout. */
   copyTimeoutMs?: number;
   /** The time limit of a fetch or a push (default 120 s). */
@@ -264,7 +267,15 @@ export function createLocalBranchMerger(options: LocalBranchMergerOptions): Bran
       '--no-edit',
       to,
     ]);
-    if (merged.code === 0) return { ok: true };
+    if (merged.code === 0) {
+      if (options.onCheckoutAdvanced)
+        try {
+          options.onCheckoutAdvanced(ref, await realpath(checkout));
+        } catch {
+          /* The merge already happened; a follow-up never fails it. */
+        }
+      return { ok: true };
+    }
     const current = await head();
     if (current !== from) return moved(current);
     const changed = nulPaths(

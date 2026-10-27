@@ -472,6 +472,13 @@ export interface WorkspaceDependencyInstaller {
     opts: { waitMs: number },
   ): Promise<WorkspaceDependenciesResult>;
   busy(repoPath: string): boolean;
+  /**
+   * PM-1083: keeps the engine's own checkout of a repository (`repos[].path`) installed when its
+   * `workspaceSetup` is npm_ci. A fresh checkout (hidden npm lockfile not older than package-lock.json)
+   * is a no-op; otherwise the same sandboxed preparation as a member clone runs in the background,
+   * with its own marker sha256(JSON [project, repo]). Never throws: a failure is logged.
+   */
+  refreshCheckout(request: { project: string; repo: string; repoPath: string }): void;
   /** Aborts all preparations and awaits their process groups. */
   close(): Promise<void>;
 }

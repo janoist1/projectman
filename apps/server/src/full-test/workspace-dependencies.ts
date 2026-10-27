@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { lstat, mkdir, rename, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { FastifyBaseLogger } from 'fastify';
@@ -10,7 +10,7 @@ import type {
   WorkspaceDependencyInstaller,
   WorkspaceDependencyRequest,
 } from '../contracts';
-import { copyDependencyTrees } from '../worktree';
+import { copyDependencyTrees, dependencyState } from '../worktree';
 import { acquireHeavyLock, HeavyLockError } from './heavy-lock';
 import {
   checkPreparationEnd,
@@ -70,6 +70,8 @@ export interface WorkspaceDependencyInstallerOptions {
   worktreesRoot: string;
   denyRead: string[];
   setupOf(project: string, repo: string): { kind: 'npm_ci'; timeoutMs: number } | null;
+  /** The engine's own binding of a repository (`repos[].path`); null: not bound here. */
+  repoPathOf(project: string, repo: string): string | null;
   logger: FastifyBaseLogger;
   /** Tests replace sandbox execution; no real npm, network or agent CLI is needed. */
   execute?: typeof runSandboxed;
@@ -99,14 +101,23 @@ export function createWorkspaceDependencyInstaller(
     if (failure?.key === key && Date.now() - failure.at < WORKSPACE_DEPENDENCY_RETRY_MS) throw failure.error;
   };
 
-  async function run(request: WorkspaceDependencyRequest, timeoutMs: number, signal: AbortSignal) {
+  /** `checkout`: the engine's own checkout of the repository (PM-1083), not a member's clone. */
+  async function run(
+    request: WorkspaceDependencyRequest,
+    timeoutMs: number,
+    signal: AbortSignal,
+    checkout = false,
+  ) {
     const started = Date.now();
     let key: string | null = null;
     let waitedMs = 0;
     let outcome = 'ready';
     let exitCode: number | null = null;
     const store = path.join(options.home, 'workspace-deps');
-    const markerDir = path.join(store, hash([request.project, request.member, request.repo]));
+    const markerDir = path.join(
+      store,
+      hash(checkout ? [request.project, request.repo] : [request.project, request.member, request.repo]),
+    );
     const marker = path.join(markerDir, 'ready.json');
     // Set when the run directory is prepared (`sandboxFiles`); nothing reads it before that.
     let paths!: RunPaths;
@@ -262,7 +273,9 @@ export function createWorkspaceDependencyInstaller(
         const queued = Date.now();
         const lock = await acquireHeavyLock({
           dir: options.heavyLockDir,
-          label: `workspace-deps ${request.project}/${request.member}/${request.repo}`,
+          label: checkout
+            ? `workspace-deps ${request.project}/${request.repo} (checkout)`
+            : `workspace-deps ${request.project}/${request.member}/${request.repo}`,
           cwd: request.repoPath,
           maxWaitMs: 1_800_000,
           signal,
@@ -383,8 +396,9 @@ export function createWorkspaceDependencyInstaller(
       options.logger.info(
         {
           project: request.project,
-          member: request.member,
+          member: checkout ? null : request.member,
           repo: request.repo,
+          checkout,
           key,
           outcome,
           durationMs: Date.now() - started,
@@ -396,7 +410,38 @@ export function createWorkspaceDependencyInstaller(
     }
   }
 
+  async function refreshCheckout(request: Omit<WorkspaceDependencyRequest, 'member'>) {
+    const setup = options.setupOf(request.project, request.repo);
+    const bound = options.repoPathOf(request.project, request.repo);
+    if (!setup || !bound || closed) return;
+    const [boundReal, checkoutReal] = await Promise.all([realpath(bound), realpath(request.repoPath)]);
+    // Only the engine's own checkout of the bound repository; any other worktree is left alone.
+    if (boundReal !== checkoutReal || (await dependencyState(checkoutReal)).fresh) return;
+    let preparation = running.get(checkoutReal);
+    if (!preparation) {
+      const controller = new AbortController();
+      const promise = run(
+        { ...request, member: '', repoPath: checkoutReal },
+        setup.timeoutMs,
+        controller.signal,
+        true,
+      ).finally(() => running.delete(checkoutReal));
+      preparation = { startedAt: new Date().toISOString(), controller, promise };
+      running.set(checkoutReal, preparation);
+    }
+    // The run logged its own failure; only the caller's wait ends here.
+    await preparation.promise.catch(() => undefined);
+  }
+
   return {
+    refreshCheckout(request) {
+      refreshCheckout(request).catch((err: unknown) =>
+        options.logger.warn(
+          { err, project: request.project, repo: request.repo },
+          'engine checkout dependency refresh failed',
+        ),
+      );
+    },
     async prepare(request, { waitMs }) {
       const setup = options.setupOf(request.project, request.repo);
       if (!setup) return { status: 'skipped', reason: 'not_configured' };

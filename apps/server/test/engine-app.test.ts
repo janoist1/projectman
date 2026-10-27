@@ -220,6 +220,7 @@ describe('engine process', () => {
       const factory = vi.spyOn(fullTest, 'createWorkspaceDependencyInstaller').mockReturnValue({
         prepare: async () => ({ status: 'ready', key: 'a'.repeat(64), changed: true }),
         busy: () => false,
+        refreshCheckout: () => undefined,
         close,
       });
       try {

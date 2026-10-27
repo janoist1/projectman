@@ -75,6 +75,7 @@ describe('engine-owned member dependency preparation', () => {
         path.join(root, 'session-folders'),
       ],
       setupOf: () => (configured ? { kind: 'npm_ci', timeoutMs: 10_000 } : null),
+      repoPathOf: () => request.repoPath,
       logger,
       ...(execute
         ? {
@@ -147,8 +148,8 @@ describe('engine-owned member dependency preparation', () => {
     expect(installs()).toHaveLength(4);
   });
 
-  it('ignores a marker in the clone and replaces an old matching merge-store generation without npm ci', async () => {
-    write(request.repoPath, 'ready.json', '{"version":1,"key":"forged"}');
+  /** A complete merge-store generation with the key of the fixture's current inputs. */
+  const seedMergeStore = () => {
     const source = path.join(root, 'worktrees/_merge-deps', hash(['PM', 'app']), 'current');
     trees(source);
     const key = npmDependencyKey({
@@ -167,6 +168,12 @@ describe('engine-owned member dependency preparation', () => {
       'ready.json',
       JSON.stringify({ version: 1, key, nodeModules: ['node_modules', 'apps/server/node_modules'] }),
     );
+    return key;
+  };
+
+  it('ignores a marker in the clone and replaces an old matching merge-store generation without npm ci', async () => {
+    write(request.repoPath, 'ready.json', '{"version":1,"key":"forged"}');
+    const key = seedMergeStore();
     write(request.repoPath, 'node_modules/stale.txt', 'old');
     expect(await prepare()).toEqual({ status: 'ready', key, changed: true });
     expect(installs()).toHaveLength(0);
@@ -442,5 +449,63 @@ describe('engine-owned member dependency preparation', () => {
     installer = make(true, false);
     expect(await prepare()).toEqual({ status: 'skipped', reason: 'not_configured' });
     expect(calls).toHaveLength(0);
+  });
+
+  describe('the engine checkout (PM-1083)', () => {
+    const checkoutMarker = () => path.join(root, 'home/workspace-deps', hash(['PM', 'app']), 'ready.json');
+    const refresh = (repoPath = request.repoPath) =>
+      installer.refreshCheckout({ project: 'PM', repo: 'app', repoPath });
+    /** refreshCheckout returns at once; give a refresh that should do nothing time to prove it. */
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 50));
+
+    it('runs nothing for a fresh checkout', async () => {
+      trees(request.repoPath);
+      refresh();
+      await settle();
+      expect(calls).toHaveLength(0);
+    });
+
+    it('installs a stale checkout under its own marker, leaving the clone marker alone', async () => {
+      refresh();
+      await vi.waitFor(() => expect(existsSync(checkoutMarker())).toBe(true));
+      expect(installs()).toHaveLength(1);
+      expect(existsSync(marker())).toBe(false);
+    });
+
+    it('copies from the merge store of the identical key without npm ci', async () => {
+      seedMergeStore();
+      write(request.repoPath, 'node_modules/stale.txt', 'old');
+      refresh();
+      await vi.waitFor(() => expect(existsSync(checkoutMarker())).toBe(true));
+      expect(installs()).toHaveLength(0);
+      expect(existsSync(path.join(request.repoPath, 'node_modules/stale.txt'))).toBe(false);
+    });
+
+    it('does nothing when the repository is not configured or the path is not the bound one', async () => {
+      mkdirSync(path.join(root, 'elsewhere'));
+      refresh(path.join(root, 'elsewhere'));
+      await settle();
+      expect(calls).toHaveLength(0);
+      await installer.close();
+      installer = make(true, false);
+      refresh();
+      await settle();
+      expect(calls).toHaveLength(0);
+    });
+
+    it('logs a failed install without throwing', async () => {
+      const info = vi.spyOn(logger, 'info');
+      install = async () => end({ exitCode: 9 });
+      expect(() => refresh()).not.toThrow();
+      await vi.waitFor(() =>
+        expect(info.mock.calls.at(-1)?.[0]).toMatchObject({
+          project: 'PM',
+          repo: 'app',
+          checkout: true,
+          outcome: 'install_failed',
+          exitCode: 9,
+        }),
+      );
+    });
   });
 });

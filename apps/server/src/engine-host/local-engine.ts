@@ -7,6 +7,7 @@ import type {
   EnginePaths,
   FullTestExecutor,
   MemberWorkspaceManager,
+  MergeRepoRef,
   ScreenshotExecutor,
   WorktreeManager,
   ProcessProbe,
@@ -44,6 +45,8 @@ export interface LocalEngineOptions {
    * (`EngineHost.merger`); without it, it does not.
    */
   repoPath?: (projectKey: string, repo: string) => string | null;
+  /** PM-1083: called after a merge moved a checked-out default branch (`checkout`: its real path). */
+  onCheckoutAdvanced?: (ref: MergeRepoRef, checkout: string) => void;
   appHome?: string;
   userHome?: string;
   worktreesRootDir?: string;
@@ -115,6 +118,7 @@ export function createLocalEngine(opts: LocalEngineOptions, logger: FastifyBaseL
           merger: createLocalBranchMerger({
             repoPath: opts.repoPath,
             worktreesRoot: opts.worktreesRootDir ?? null,
+            ...(opts.onCheckoutAdvanced ? { onCheckoutAdvanced: opts.onCheckoutAdvanced } : {}),
           }),
         }
       : {}),

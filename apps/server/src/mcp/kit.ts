@@ -182,13 +182,13 @@ export interface ExternalStructured {
   text?: string;
 }
 
-/** read: a read-only key may call it too; write: only the super and legacy keys. */
+/** read: a read-only key may call it too; write: only the super key. */
 type ExternalAccess = 'read' | 'write';
 
 /** The credential modes that are offered, and may call, a tool of each access class. */
 const EXTERNAL_MODES: Record<ExternalAccess, readonly ExternalCredentialMode[]> = {
-  read: ['super', 'read', 'legacy'],
-  write: ['super', 'legacy'],
+  read: ['super', 'read'],
+  write: ['super'],
 };
 
 /** The call of a tool that belongs to no project (`list_projects`): the key, not a project context. */

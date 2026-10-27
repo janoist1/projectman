@@ -33,8 +33,7 @@ export function registerProjectRoutes(
   app.get(routes.projects(), async (request): Promise<ProjectSummary[]> => {
     const handles = await domain.handlesFor(authenticatedUser(request).email);
     const projects = domain.projects.summaries().filter((p) => handles[p.key] !== undefined);
-    if (request.principal && request.principal.mode !== 'legacy')
-      for (const project of projects) await requireAccess(domain, request, project.key);
+    if (request.principal) for (const project of projects) await requireAccess(domain, request, project.key);
     return projects;
   });
 

@@ -326,14 +326,6 @@ export const IntegratorKeyInfo = z.object({
   revokedAt: z.string().nullable(),
 });
 export type IntegratorKeyInfo = z.infer<typeof IntegratorKeyInfo>;
-export const IntegratorKeyResponse = z.object({ key: IntegratorKeyInfo.nullable() });
-export type IntegratorKeyResponse = z.infer<typeof IntegratorKeyResponse>;
-export const CreateIntegratorKeyRequest = z.object({
-  expiresInDays: z.union([z.literal(30), z.literal(90), z.literal(365), z.null()]).default(90),
-});
-export const CreatedIntegratorKey = z.object({ key: IntegratorKeyInfo, secret: z.string() });
-export type CreatedIntegratorKey = z.infer<typeof CreatedIntegratorKey>;
-
 export const IntegratorKeyMode = z.enum(['legacy', 'super', 'read']);
 export type IntegratorKeyMode = z.infer<typeof IntegratorKeyMode>;
 export const IntegratorChannel = z.enum(['mcp', 'cli', 'rest']);

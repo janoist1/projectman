@@ -34,7 +34,6 @@ describe('member queue', () => {
   let cookie: string;
   let superSecret: string;
   let readSecret: string;
-  let legacySecret: string;
 
   beforeEach(async () => {
     now = new Date(START);
@@ -45,9 +44,6 @@ describe('member queue', () => {
     const userId = repos.users.list()[0]!.id;
     superSecret = auth.createIntegratorAccessKey(userId, { mode: 'super', expiresInDays: 7 }).secret;
     readSecret = auth.createIntegratorAccessKey(userId, { mode: 'read', expiresInDays: 7 }).secret;
-    legacySecret = (
-      await h.app.inject({ method: 'POST', url: routes.integratorKey(), headers: { cookie }, payload: {} })
-    ).json().secret;
   });
   afterEach(async () => h.close());
 
@@ -344,14 +340,11 @@ describe('member queue', () => {
       expect((await get(url, { cookie: developer })).statusCode).toBe(200);
     });
 
-    it('lets the read and super keys read and refuses the legacy key', async () => {
+    it('lets the read and super keys read', async () => {
       for (const secret of [readSecret, superSecret])
         expect(
           (await get(routes.operatorQueue('AR'), { authorization: `Bearer ${secret}` })).statusCode,
         ).toBe(200);
-      const operator = await get(routes.operatorQueue('AR'), { authorization: `Bearer ${legacySecret}` });
-      expect(operator.statusCode).toBe(403);
-      expect(operator.json().error.code).toBe('operator_owner_only');
     });
 
     it('lists at most MEMBER_QUEUE_CLOSED_LIMIT closed items by the service, the newest first', () => {

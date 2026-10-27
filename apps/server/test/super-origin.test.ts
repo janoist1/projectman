@@ -667,7 +667,6 @@ describe('super-mode origin and audit (PM-757)', () => {
     });
 
     it.each([
-      ['a legacy key', () => principal('legacy'), () => access()],
       ['a read key', () => principal('read'), () => access()],
       [
         'a token owner who is no longer an owner',
@@ -706,14 +705,8 @@ describe('super-mode origin and audit (PM-757)', () => {
         ...extra,
       }) as unknown as FastifyRequest;
 
-    it('serves a legacy key and a login as before', () => {
+    it('serves a login', () => {
       expect(currentUser(fakeRequest(null)).email).toBe('owner@example.com');
-      expect(currentUser(fakeRequest('legacy')).email).toBe('owner@example.com');
-      expect(authorOf(fakeRequest('legacy'))).toEqual({
-        name: 'Owner',
-        email: 'owner@example.com',
-        via: 'integrator',
-      });
     });
 
     it.each(['super', 'read'] as const)('refuses a %s key outside a bound project route', (mode) => {
@@ -879,8 +872,8 @@ describe('super-mode audit route (PM-757)', () => {
     const admin = await addHumanAndLogin(app.app, { handle: 'ada', access: 'admin' });
     expect((await inject(app.app, 'GET', url, admin)).statusCode).toBe(403);
 
-    // The legacy integrator key is the owner's actor but not a person: it does not read the audit.
-    const key = await inject(app.app, 'POST', routes.integratorKey(), cookie, undefined);
+    // The super key acts as the Operator: it does not read the audit.
+    const key = await inject(app.app, 'POST', routes.integratorKeys(), cookie, { mode: 'super' });
     const via = await app.app.inject({
       method: 'GET',
       url,

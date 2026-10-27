@@ -1223,7 +1223,7 @@ describe('write_project_docs through the bearer MCP (PM-784)', () => {
   });
 
   /** A live scope of a key, as the authenticated facade makes it; the checks of membership are the facade's own. */
-  async function scope(mode: 'super' | 'read' | 'legacy' = 'super', userId = OWNER_USER) {
+  async function scope(mode: 'super' | 'read' = 'super', userId = OWNER_USER) {
     const config = await h.domain.projects.config('AR');
     const actor = superActorOf(config, KEY)!;
     return {
@@ -1369,14 +1369,11 @@ describe('write_project_docs through the bearer MCP (PM-784)', () => {
     expect(merger.commitFiles).not.toHaveBeenCalled();
   });
 
-  it('refuses a read key, a legacy key and a build without the runner', async () => {
+  it('refuses a read key and a build without the runner', async () => {
     const merger = (await setup())!;
     const writes = externalWrites(merger, allowing);
     await expect(request(writes, await scope('read'))).rejects.toMatchObject({
       code: 'integrator_read_only',
-    });
-    await expect(request(writes, await scope('legacy'))).rejects.toMatchObject({
-      code: 'integrator_not_allowed',
     });
     const without = externalWrites(merger, null);
     await expect(request(without, await scope())).rejects.toMatchObject({ code: 'integrator_not_allowed' });

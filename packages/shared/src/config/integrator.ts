@@ -19,7 +19,7 @@ export type SuperAccessVerdict =
 export function superAccessVerdict(
   config: ProjectConfig,
   facts: {
-    mode: 'legacy' | 'super' | 'read';
+    mode: 'super' | 'read';
     operation: 'read' | 'write' | 'approval' | 'key_management';
     ownerMembership: boolean;
   },
@@ -27,7 +27,7 @@ export function superAccessVerdict(
   if (facts.mode === 'read' && facts.operation !== 'read')
     return { allowed: false, code: 'integrator_read_only' };
   if (facts.operation === 'key_management') return { allowed: false, code: 'integrator_not_allowed' };
-  // The super key decides approvals in the Operator's own name (PM-870); the legacy key never does.
+  // The super key decides approvals in the Operator's own name (PM-870).
   if (facts.operation === 'approval' && facts.mode !== 'super')
     return { allowed: false, code: 'owner_approval_required' };
   if (!facts.ownerMembership) return { allowed: false, code: 'insufficient_access' };
@@ -48,11 +48,10 @@ export const IntegratorRefusal = z.enum([
 export type IntegratorRefusal = z.infer<typeof IntegratorRefusal>;
 
 /**
- * Why the legacy integrator key may not commit `next` over `previous`, or null when it may. Compares the
+ * Why an integrator configuration change may not commit `next` over `previous`, or null when it may. Compares the
  * end result, so PUT, PATCH, roles, members and revert are decided alike. Never 'invitations'.
  *
- * The key is the owner's actor for everything but approvals and owner-only rules: a rule that
- * weakened an approval, or made a human account, would let the key approve through the back door.
+ * These restrictions also classify configuration effects for the Operator's mutation policy.
  */
 export function integratorConfigRefusal(
   previous: ProjectConfig,

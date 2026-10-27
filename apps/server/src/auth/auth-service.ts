@@ -1,6 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { hash, verify } from '@node-rs/argon2';
-import { IntegratorKeyInfo } from '@projectman/shared';
 import type {
   CreateIntegratorAccessKeyRequest,
   IntegratorChannel,
@@ -51,15 +50,6 @@ export class AuthService {
 
   needsSetup(): boolean {
     return this.repos.users.count() === 0;
-  }
-
-  integratorKey(userId: string) {
-    return this.repos.integratorKeys.latest(userId, this.now().toISOString());
-  }
-
-  createIntegratorKey(userId: string, expiresInDays: number | null) {
-    const created = this.createKey(userId, 'legacy', expiresInDays);
-    return { ...created, key: IntegratorKeyInfo.parse(created.key) };
   }
 
   integratorAccessKeys(userId: string) {
@@ -125,31 +115,12 @@ export class AuthService {
     return { key, secret };
   }
 
-  revokeIntegratorKey(userId: string) {
-    const revoked = this.repos.integratorKeys.revoke(userId, this.now().toISOString());
-    this.keysChanged();
-    return revoked;
-  }
-
-  resolveIntegratorKey(secret: string): AuthUser | null {
-    return this.resolveIntegratorPrincipal(secret)?.user ?? null;
-  }
-
-  /**
-   * Compatibility for legacy callers that use the owner's identity. Explicit super/read keys must use
-   * resolveIntegratorCredential and their own execution policy instead.
-   */
-  resolveIntegratorPrincipal(secret: string): { user: AuthUser; principal: IntegratorPrincipal } | null {
-    const principal = this.resolveIntegratorCredential(secret, 'rest');
-    if (!principal || principal.mode !== 'legacy') return null;
-    return { user: this.user(principal.userId)!, principal };
-  }
-
   /** The common credential resolver for REST, external MCP and event polling. */
   resolveIntegratorCredential(secret: string, channel: IntegratorChannel): IntegratorPrincipal | null {
     const at = this.now().toISOString();
     const key = this.repos.integratorKeys.resolveKey(tokenId(secret), at);
-    if (!key || !this.isHostOwner(key.userId) || !this.hasPassword(key.userId)) return null;
+    if (!key || key.mode === 'legacy' || !this.isHostOwner(key.userId) || !this.hasPassword(key.userId))
+      return null;
     this.repos.integratorKeys.touch(key.id, at, channel);
     const principal = Object.freeze({
       kind: 'integrator' as const,
@@ -170,6 +141,7 @@ export class AuthService {
     const key = this.repos.integratorKeys.activeById(stored.keyId, this.now().toISOString());
     if (
       !key ||
+      key.mode === 'legacy' ||
       key.userId !== stored.userId ||
       key.prefix !== stored.prefix ||
       !this.isHostOwner(key.userId) ||
@@ -193,6 +165,7 @@ export class AuthService {
     if (
       !this.principals.has(principal) ||
       !key ||
+      key.mode === 'legacy' ||
       principal.kind !== 'integrator' ||
       key.userId !== principal.userId ||
       key.prefix !== principal.prefix ||

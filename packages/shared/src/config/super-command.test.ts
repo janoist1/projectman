@@ -7,7 +7,11 @@ import type { SuperCommandContext } from './super-command';
 import { coordinationMemberOf } from './project-manager';
 import { operatorOf } from './operator-member';
 import {
+  appRequestOrigin,
+  approvalStructureChanged,
+  memberRequestCommandRefusal,
   ownerReservedEffect,
+  OWNER_REQUEST_SUPER_COMMANDS,
   SUPER_ADMINISTRATION_COMMANDS,
   projectManagerCommandRefusal,
   superConfigMutations,
@@ -20,6 +24,49 @@ it.each([
   ['future_command', 'command_not_for_project_manager'],
 ])('checks the project manager command allowlist for %s', (kind, refusal) => {
   expect(projectManagerCommandRefusal({ kind: kind! })).toBe(refusal);
+});
+
+it.each([
+  ['message', 'owner', 'owner'],
+  ['answer', 'owner', 'owner'],
+  ['queue', 'owner', 'member'],
+  ['message', 'dev-1', 'member'],
+])('tells who stands behind a %s request from %s: %s (PM-1010)', (source, fromHandle, origin) => {
+  expect(appRequestOrigin(config(), { source, fromHandle })).toBe(origin);
+});
+
+it('treats a session with no open request as a member`s (PM-1010)', () => {
+  expect(appRequestOrigin(config(), null)).toBe('member');
+});
+
+it.each([...OWNER_REQUEST_SUPER_COMMANDS, 'task_labels', 'task_create'])(
+  'refuses %s on a member`s request only when it needs an owner`s own (PM-1010)',
+  (kind) => {
+    expect(memberRequestCommandRefusal({ kind })).toBe(
+      (OWNER_REQUEST_SUPER_COMMANDS as readonly string[]).includes(kind) ? 'operator_owner_only' : null,
+    );
+  },
+);
+
+describe('approvalStructureChanged (PM-1010)', () => {
+  const withLabel = (setBy: 'humans' | 'anyone') => {
+    const next = config();
+    next.pipeline.labels.push({ id: 'qa-ok', name: 'QA ok', color: 'green', setBy } as never);
+    return next;
+  };
+  it('sees a label holder change', () => {
+    expect(approvalStructureChanged(withLabel('humans'), withLabel('anyone'))).toBe(true);
+  });
+  it('sees the release four-eyes rule change', () => {
+    const next = config();
+    next.team.releaseFourEyes = true;
+    expect(approvalStructureChanged(config(), next)).toBe(true);
+  });
+  it('ignores another team field', () => {
+    const next = config();
+    next.team.limits = { maxParallelSessions: 3 } as never;
+    expect(approvalStructureChanged(config(), next)).toBe(false);
+  });
 });
 
 function config() {

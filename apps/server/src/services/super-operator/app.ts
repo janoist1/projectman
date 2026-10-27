@@ -1,5 +1,10 @@
 import { createHash } from 'node:crypto';
-import { OPERATOR_APP_CREDENTIAL_PREFIX, operatorOf, coordinationMemberOf } from '@projectman/shared';
+import {
+  OPERATOR_APP_CREDENTIAL_PREFIX,
+  appRequestOrigin,
+  operatorOf,
+  coordinationMemberOf,
+} from '@projectman/shared';
 import type {
   HumanMemberConfig,
   ProjectConfig,
@@ -93,6 +98,8 @@ interface OperatorAppCredentials {
 export function createOperatorAppCredentials(deps: {
   base: IntegratorCredentialAuthority | undefined;
   sessions: OperatorAppSessions;
+  /** The session's open request, when there is one: where it came from decides what the session may start. */
+  openRequest(sessionId: string): { source: string; fromHandle: string } | null;
   user(id: string): { email: string } | null;
   userByEmail(email: string): { id: string; email: string } | null;
 }): OperatorAppCredentials {
@@ -104,6 +111,7 @@ export function createOperatorAppCredentials(deps: {
     sessionId: string,
     owner: string | null,
     sessionMember: string,
+    requestOrigin: 'owner' | 'member',
   ): IntegratorPrincipal | null => {
     const owners = config.team.members
       .filter(
@@ -125,6 +133,7 @@ export function createOperatorAppCredentials(deps: {
           mode: 'super',
           source: 'app',
           member: sessionMember,
+          requestOrigin,
         } as const);
     }
     return null;
@@ -145,12 +154,20 @@ export function createOperatorAppCredentials(deps: {
       ...(deps.base?.reactivate ? { reactivate: (stored) => deps.base!.reactivate!(stored) } : {}),
     },
     issue(config, sessionId, member) {
-      const principal = principalOf(config, sessionId, null, member);
+      // The origin comes from the session's open request, never from the caller (PM-1010).
+      const principal = principalOf(
+        config,
+        sessionId,
+        null,
+        member,
+        appRequestOrigin(config, deps.openRequest(sessionId)),
+      );
       if (principal) live.add(principal);
       return principal;
     },
     issueApproved(config, sessionId, ownerHandle, member) {
-      const principal = principalOf(config, sessionId, ownerHandle, member);
+      // The owner's own yes stands behind the operation, so it runs with the owner's authority.
+      const principal = principalOf(config, sessionId, ownerHandle, member, 'owner');
       if (principal) {
         live.add(principal);
         approved.add(principal);

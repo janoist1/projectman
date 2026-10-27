@@ -6,7 +6,9 @@ import {
   SuperCommandUnclassifiable,
   canonical,
   coordinationMemberOf,
+  approvalStructureChanged,
   hasMachineAccess,
+  memberRequestCommandRefusal,
   projectManagerCommandRefusal,
   memberOf,
   operatorOf,
@@ -456,6 +458,12 @@ export class SuperHandoffService {
   private async assertAppCommand(projectKey: string, command: SuperCommand): Promise<void> {
     const principal = integratorExecution()?.principal;
     if (principal?.source !== 'app') return;
+    // An approval, merge or invitation takes an owner's own request; a member's message (a queue item) does not (PM-1010).
+    if (principal.requestOrigin === 'member' && memberRequestCommandRefusal(command))
+      throw forbidden(
+        'operator_owner_only',
+        "this command needs an owner's own message or answer; ask the owners with ask_human",
+      );
     const { config } = await this.projects.load(projectKey);
     const coordinator = coordinationMemberOf(config);
     if (!coordinator || coordinator.handle !== principal.member) return;
@@ -780,7 +788,16 @@ export class SuperHandoffService {
       }
       const fixed = next && operatorFixedChange(config, next);
       if (fixed) throw conflict('operator_fixed', 'the fixed Operator fields cannot change', fixed);
-      return superCommandEffects(command, context);
+      const effects = superCommandEffects(command, context);
+      // A member's request cannot reshape who approves without the owner's yes (PM-1010).
+      if (
+        integratorExecution()?.principal.requestOrigin === 'member' &&
+        next &&
+        approvalStructureChanged(config, next) &&
+        !effects.includes('security')
+      )
+        return [...effects, 'security'];
+      return effects;
     } catch (error) {
       if (error instanceof SuperCommandUnclassifiable)
         throw forbidden('integrator_not_allowed', 'this command cannot be classified, so it is not run');

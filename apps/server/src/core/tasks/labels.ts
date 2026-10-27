@@ -9,7 +9,7 @@ import type { Actor, LabelChangeReason, LabelClearTrigger, ProjectConfig, Task }
 import { isoNow } from '../base';
 import { forbidden, invalid } from '../../kernel';
 import { SYSTEM_ACTOR } from '../../kernel';
-import { assertIntegratorAccess, withoutIntegratorExecution } from '../../kernel';
+import { assertIntegratorAccess, delegatesOwnerAuthority, withoutIntegratorExecution } from '../../kernel';
 import { runEffects } from './store';
 import type { Effect, TaskStore } from './store';
 
@@ -44,7 +44,9 @@ export function planLabelsOrThrow(
 ): PlannedLabels {
   const owner = assertIntegratorAccess(config, 'write', actor);
   // The key owner's authority comes only from the authenticated scope, and only for a super-mode step (PM-831).
-  const authority = hasSuperOrigin(actor) && owner ? { authorizedBy: owner.handle } : undefined;
+  // A step on a member's request (a queue item) does not lend it (PM-1010).
+  const authority =
+    hasSuperOrigin(actor) && owner && delegatesOwnerAuthority() ? { authorizedBy: owner.handle } : undefined;
   const plan = planLabelChange(config, task, change, actor, comment, authority);
   if (plan.ok) return plan;
   const refusal = plan.refusal;

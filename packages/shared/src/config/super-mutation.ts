@@ -1,8 +1,10 @@
 import type { Actor } from '../domain/event';
 import type { AgentProvider, HumanAccess } from '../domain/member';
 import type { TaskKey } from '../domain/task';
+import type { SuperCommand } from '../api/super-handoff';
 import type { AiMemberConfig, ProjectConfig } from './schema';
 import { canonical } from './canonical';
+import { ownerHandles } from './lookup';
 import { boundaryDelegationChanged, ownerOnlyChanges, permissionsChanged } from './owner-only';
 import { memberDuties, roleBundle } from './duties';
 import { operatorFixedChange } from './operator';
@@ -27,6 +29,47 @@ export function projectManagerCommandRefusal(command: {
   return (PROJECT_MANAGER_SUPER_COMMANDS as readonly string[]).includes(command.kind)
     ? null
     : 'command_not_for_project_manager';
+}
+
+/**
+ * Who stands behind an app session's open request (PM-1010): an owner's own message or answer, or anyone else
+ * (a queue item, another member's message). Decided by the server from the open request, never by the caller.
+ */
+export function appRequestOrigin(
+  config: Pick<ProjectConfig, 'team'>,
+  request: { source: string; fromHandle: string } | null,
+): 'owner' | 'member' {
+  return request &&
+    (request.source === 'message' || request.source === 'answer') &&
+    ownerHandles(config).includes(request.fromHandle)
+    ? 'owner'
+    : 'member';
+}
+
+/** Commands an app session runs only on an owner's own request (PM-935, PM-1010): approvals, merges and invitations. */
+export const OWNER_REQUEST_SUPER_COMMANDS = [
+  'workspace_release',
+  'inbox_resolve',
+  'merge',
+  'merge_order',
+  'invite_create',
+] as const satisfies readonly SuperCommand['kind'][];
+
+export function memberRequestCommandRefusal(command: { kind: string }): 'operator_owner_only' | null {
+  return (OWNER_REQUEST_SUPER_COMMANDS as readonly string[]).includes(command.kind)
+    ? 'operator_owner_only'
+    : null;
+}
+
+/**
+ * Whether a configuration change reaches who approves: the pipeline (labels, their holders, gates) or the
+ * release four-eyes rule. Member roles and duties are covered by `superConfigMutations` already.
+ */
+export function approvalStructureChanged(previous: ProjectConfig, next: ProjectConfig): boolean {
+  return (
+    canonical(previous.pipeline) !== canonical(next.pipeline) ||
+    (previous.team.releaseFourEyes ?? false) !== (next.team.releaseFourEyes ?? false)
+  );
 }
 
 /**

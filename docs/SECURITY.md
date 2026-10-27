@@ -513,6 +513,39 @@ creation quotes user-supplied `Projectman-` lines, so a patch message cannot for
 Operator approval or hide integrator attribution. Attribution fields come from internal
 author metadata, never from the HTTP request body.
 
+### What a member's message may start (PM-1010)
+
+An AI member's `wake` message opens a queue item for the Operator, and the app Operator and the
+PM start work on the shared super-operation path (`SuperHandoffs.assertAppCommand`). Decision 7
+says AI never approves and decision 66 says queued work runs in the name of the issuing member, so
+a step that began with a member's message cannot borrow the owner's approving right (the owner's own
+message or answer is unchanged, decisions 55 and 66).
+
+The server decides where the request came from. `appRequestOrigin` reads the session's open request
+(`OperatorRequests.openFor`): only a `message` or `answer` from an owner is `owner`; a queue item or
+anyone else's message is `member`. The caller cannot state it. The origin is a field of the app
+principal (`requestOrigin`); a stored key's principal has none and keeps all it had. The owner's
+yes of a waiting operation makes the continuation `owner`.
+
+On a `member` request:
+
+- `workspace_release`, `inbox_resolve`, `merge`, `merge_order` and `invite_create` are refused with
+  `operator_owner_only` (`OWNER_REQUEST_SUPER_COMMANDS`). A release approval, a merge, a merge
+  order and an invitation to an outside address therefore need an owner's own request.
+- `task_labels` runs with the session member's own label rights, not the key owner's
+  (`delegatesOwnerAuthority`). The approval and human-only labels (`qa-ok`, `design-review-ok`,
+  `scope-ok`, `plan-ok`, `analysis-ok`) are refused with `owner_approval` or `humans_only`.
+- A configuration change that reaches who approves (the pipeline's labels, holders and gates, or
+  `releaseFourEyes`; `approvalStructureChanged`) is a `security` effect, so the operation waits for
+  the owner's yes. Member roles and duties already were one. The Operator's own `operate` approval
+  layer asks the owner for such a change first; this is the second lock.
+
+Residual risk: the other routine commands still run on a member's request (`task_create`,
+`task_update`, `task_start`, `task_cancel`, `message_send`, `session_stop`, pause and resume). They
+approve nothing and every gate still applies. A prompt-injected member can still make the
+Operator or the PM do those, so their effect is limited to what the gates allow. Which member stands
+behind the step in the record is PM-1074's work.
+
 ### The Operator talks with everyone, and obeys the owner (PM-475)
 
 Every person of the project has a conversation of their own with the Operator

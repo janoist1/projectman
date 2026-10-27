@@ -127,7 +127,9 @@ describe('the in-app Operator on the shared super-operation path (PM-888)', () =
         code: 'forbidden',
         message: expect.stringContaining('operator_owner_only'),
       });
-      expect(h.repos.operatorRequests.steps('opr_app_release')).toEqual([]);
+      expect(h.repos.operatorRequests.steps('opr_app_release')).toMatchObject([
+        { status: 'refused', refusal: { code: 'operator_owner_only' } },
+      ]);
       // A member's request is a guest request: refused before the command is looked at.
       h.repos.operatorRequests.close('opr_app_release', NOW);
       openRequest(ctx.sessionId, 'opr_app_member', 'message', 'dev-1');
@@ -142,6 +144,44 @@ describe('the in-app Operator on the shared super-operation path (PM-888)', () =
         reason: 'Checked',
       });
       expect(operation).toMatchObject({ state: 'failed' });
+    });
+
+    it('resolves no inbox item on a queue item, so no approval comes from a member`s message (PM-1010)', async () => {
+      const item = h.domain.inbox.create({
+        projectKey: 'AR',
+        kind: 'question',
+        source: 'dev-1',
+        assignees: ['owner'],
+        title: 'Approve it',
+        payload: { question: 'Approve?', responsePurpose: 'owner_decision' },
+        options: [{ id: 'yes', label: 'yes', style: 'primary' }],
+      });
+      const resolve: SuperCommand = { kind: 'inbox_resolve', itemId: item.id, request: { optionId: 'yes' } };
+      h.repos.operatorRequests.close(REQUEST, NOW);
+      openRequest(ctx.sessionId, 'opr_app_queue', 'queue');
+      await expect(execute('resolve', resolve)).rejects.toMatchObject({
+        code: 'forbidden',
+        message: expect.stringContaining('operator_owner_only'),
+      });
+      expect(h.domain.inbox.get('AR', item.id).state).toBe('open');
+      // The same command on the owner's own message goes through.
+      h.repos.operatorRequests.close('opr_app_queue', NOW);
+      openRequest(ctx.sessionId, 'opr_app_owner');
+      expect((await execute('resolve-owner', resolve)).operation.state).toBe('succeeded');
+    });
+
+    it('sets no approval label on a member`s request, and sets it on an owner`s own (PM-1010)', async () => {
+      await execute('card');
+      h.repos.operatorRequests.close(REQUEST, NOW);
+      openRequest(ctx.sessionId, 'opr_app_queue', 'queue');
+      const label: SuperCommand = { kind: 'task_labels', taskKey: 'AR-1', request: { add: ['merge-ok'] } };
+      const refused = (await execute('label', label)).operation;
+      expect(refused).toMatchObject({ state: 'failed' });
+      expect(h.repos.tasks.get('AR-1')?.labels).not.toContain('merge-ok');
+      h.repos.operatorRequests.close('opr_app_queue', NOW);
+      openRequest(ctx.sessionId, 'opr_app_owner');
+      expect((await execute('label-owner', label)).operation.state).toBe('succeeded');
+      expect(h.repos.tasks.get('AR-1')?.labels).toContain('merge-ok');
     });
 
     it('is refused to a member who is not the Operator and in a guest conversation', async () => {

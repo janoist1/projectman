@@ -14,6 +14,9 @@ import {
   stageIndex,
 } from '@projectman/shared';
 
+const watchKey = (projectKey: string, repo: string, number: number): string =>
+  `${projectKey}/${repo}#${number}`;
+
 /**
  * Keeps pull request links up to date: every linked PR that is not merged or closed yet is
  * watched through the GitHub service.
@@ -48,7 +51,8 @@ export class GithubSync {
 
   /** Startup: watch every open pull request link. */
   start(): void {
-    for (const link of this.ctx.repos.tasks.listWatchablePullRequests()) this.watch(link.repo, link.number);
+    for (const link of this.ctx.repos.tasks.listWatchablePullRequests())
+      this.watch(link.projectKey, link.repo, link.number);
   }
 
   stop(): void {
@@ -62,35 +66,47 @@ export class GithubSync {
     this.watches.clear();
   }
 
-  watch(repo: string, number: number): void {
-    const key = `${repo}#${number}`;
+  /** Watches a project's pull request: the same repo and number in another project is a watch of its own. */
+  watch(projectKey: string, repo: string, number: number): void {
+    const key = watchKey(projectKey, repo, number);
     if (this.watches.has(key)) return;
     try {
-      const unwatch = this.github.watch([{ repo, number }], (pr) => {
-        this.handleChange(pr).catch((err: unknown) =>
-          this.ctx.logger.error({ err, repo, number }, 'pull request update failed'),
+      const unwatch = this.github.watch(projectKey, [{ repo, number }], (pr) => {
+        this.handleChange(projectKey, pr).catch((err: unknown) =>
+          this.ctx.logger.error({ err, projectKey, repo, number }, 'pull request update failed'),
         );
       });
       this.watches.set(key, unwatch);
     } catch (err) {
-      this.ctx.logger.warn({ err, repo, number }, 'could not watch the pull request');
+      this.ctx.logger.warn({ err, projectKey, repo, number }, 'could not watch the pull request');
     }
   }
 
-  async handleChange(pr: PullRequestInfo): Promise<void> {
-    this.tasks.recordPullRequest(pr);
-    this.tasks.applyPullRequestUpdate(pr.repo, pr.number, { state: pr.state, title: pr.title });
-    if (pr.headSha) await this.clearAfterNewCommits(pr.repo, pr.number, pr.headSha);
-    if (pr.state === 'merged' || pr.state === 'closed') this.unwatch(pr.repo, pr.number);
+  async handleChange(projectKey: string, pr: PullRequestInfo): Promise<void> {
+    this.tasks.recordPullRequest(projectKey, pr);
+    this.tasks.applyPullRequestUpdate(projectKey, pr.repo, pr.number, { state: pr.state, title: pr.title });
+    if (pr.headSha) await this.clearAfterNewCommits(projectKey, pr.repo, pr.number, pr.headSha);
+    if (pr.state === 'merged' || pr.state === 'closed') this.unwatch(projectKey, pr.repo, pr.number);
     if (pr.state !== 'merged') return;
-    for (const link of this.ctx.repos.tasks.findByPullRequest(pr.repo, pr.number)) {
+    for (const link of this.ctx.repos.tasks.findByPullRequest(projectKey, pr.repo, pr.number)) {
       await this.advanceAfterMerge(link.projectKey, link.taskKey);
     }
   }
 
-  private async clearAfterNewCommits(repo: string, number: number, headSha: string): Promise<void> {
-    const moved = this.ctx.repos.tasks.recordPullRequestHead(repo, number, headSha, isoNow(this.ctx));
-    for (const { projectKey, taskKey } of moved) {
+  private async clearAfterNewCommits(
+    projectKey: string,
+    repo: string,
+    number: number,
+    headSha: string,
+  ): Promise<void> {
+    const moved = this.ctx.repos.tasks.recordPullRequestHead(
+      projectKey,
+      repo,
+      number,
+      headSha,
+      isoNow(this.ctx),
+    );
+    for (const { taskKey } of moved) {
       const task = this.tasks.find(projectKey, taskKey);
       if (!task || !isOpenTask(task)) continue;
       await this.tasks.clearLabels(projectKey, taskKey, 'pr_updated');
@@ -99,8 +115,8 @@ export class GithubSync {
     }
   }
 
-  private unwatch(repo: string, number: number): void {
-    const key = `${repo}#${number}`;
+  private unwatch(projectKey: string, repo: string, number: number): void {
+    const key = watchKey(projectKey, repo, number);
     const unwatch = this.watches.get(key);
     this.watches.delete(key);
     try {

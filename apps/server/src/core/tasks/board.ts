@@ -45,7 +45,7 @@ export class BoardService {
       ),
     ].filter(hasPlanUsage);
     const planUsageByProvider = Object.fromEntries(
-      providers.map((provider) => [provider, this.planUsage.peek(provider)]),
+      providers.map((provider) => [provider, this.planUsage.peek(projectKey, provider)]),
     );
     return {
       aiEnabled: config.team.limits.aiEnabled,

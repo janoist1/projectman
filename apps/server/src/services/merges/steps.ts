@@ -424,7 +424,7 @@ export class MergeSteps {
       )) {
         let pr;
         try {
-          pr = await github.getPullRequest(repo.github!, Number(link.ref));
+          pr = await github.getPullRequest(row.projectKey, repo.github!, Number(link.ref));
         } catch (err) {
           return this.block(
             running,

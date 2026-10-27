@@ -461,6 +461,14 @@ export interface EngineDirectory {
    * member's setting here. null: there is no engine.
    */
   engineFor(projectKey: string, member: MemberHandle): EngineId | null;
+  /**
+   * The engine the project's work (attachments, GitHub, the project's own reads) goes to. The choice
+   * is not the availability: the chosen engine may be offline, `get` / the hub say whether it is up.
+   * Today the default engine; the project binding (PM-1060) reads here. null: there is no engine.
+   */
+  projectEngine(projectKey: string): EngineId | null;
+  /** The engine of the host's own machine (machine view, orphan signals, the host's build). null: none. */
+  hostEngine(): EngineId | null;
   onChange(listener: (id: EngineId, online: boolean) => void): () => void;
   /** Waits until the engine's link is up and its connect steps ran, at most waitMs (0: answers at once). */
   awaitConnected?(

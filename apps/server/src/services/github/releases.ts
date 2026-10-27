@@ -1,5 +1,5 @@
 import { isReleaseTagName } from '@projectman/shared';
-import type { GithubService } from '../../contracts';
+import type { MachineGithubService } from '../../contracts';
 import { GithubError } from './errors';
 import { isValidRepo } from './refs';
 
@@ -20,11 +20,11 @@ function viewedUrl(stdout: string): string | null {
 }
 
 /**
- * `GithubService.publishRelease` (`publish_release`, PM-968): the public GitHub release of a tag that is on the
+ * `MachineGithubService.publishRelease` (`publish_release`, PM-968): the public GitHub release of a tag that is on the
  * remote already. A release that exists is reused (the call may be repeated after a failure); `--verify-tag`
  * makes gh refuse to create the tag itself. Nothing else on GitHub is written.
  */
-export function createReleasePublisher(run: RunGh): GithubService['publishRelease'] {
+export function createReleasePublisher(run: RunGh): MachineGithubService['publishRelease'] {
   return async (repo, input) => {
     if (!isValidRepo(repo))
       throw new GithubError('invalid_argument', `invalid repository "${repo}", expected owner/name`);

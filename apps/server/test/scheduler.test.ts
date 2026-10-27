@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { ServerEvent } from '@projectman/shared';
+import { LOCAL_ENGINE_ID, ServerEvent } from '@projectman/shared';
 import type { ProjectConfig, Task } from '@projectman/shared';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import { rejection } from './helpers/errors';
@@ -105,7 +105,7 @@ describe('scheduler', () => {
     expect(await code(start(h, 'AR-1'))).toBe('plan_usage_paused');
     h.runnerModule.planUsage.value = { ...h.runnerModule.planUsage.value, fiveHourPercent: 80 };
     // The member choice reads the last refreshed value, so refresh it as the background poll would.
-    await h.domain.planUsage.get();
+    await h.domain.planUsage.get('claude', LOCAL_ENGINE_ID);
     expect((await start(h, 'AR-1')).session).not.toBeNull();
   });
 

@@ -58,7 +58,11 @@ import { readHeavyRunSessions } from './full-test';
 import type { Domain } from './assembly';
 import type { ScheduleTimer } from './services/schedules';
 import type { TemplateRegistry } from './core/base';
-import { createGithubActionsClient, createGithubService } from './services/github';
+import {
+  createGithubActionsClient,
+  createGithubService,
+  createProjectGithubService,
+} from './services/github';
 import { parseFeedbackPublicUrl, registerFeedbackHostGuard, registerIntegratorHostGuard } from './http';
 import { assertHomeMayStart, RUN_MODES } from './instance';
 import type { RunMode } from './instance';
@@ -464,12 +468,14 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     const github =
       modules.github ??
       remote?.github ??
-      createGithubService({
-        ghBin: options.ghBin ?? APP_DEFAULTS.ghBin,
-        ghHost: options.ghHost ?? APP_DEFAULTS.ghHost,
-        pollIntervalMs: options.githubPollIntervalMs ?? APP_DEFAULTS.githubPollIntervalMs,
-        logger: log.child({ module: 'github' }),
-      });
+      createProjectGithubService(
+        createGithubService({
+          ghBin: options.ghBin ?? APP_DEFAULTS.ghBin,
+          ghHost: options.ghHost ?? APP_DEFAULTS.ghHost,
+          pollIntervalMs: options.githubPollIntervalMs ?? APP_DEFAULTS.githubPollIntervalMs,
+          logger: log.child({ module: 'github' }),
+        }),
+      );
     const contextBuilder = modules.contextPackBuilder ?? createContextPackBuilder();
     const memory = modules.memberMemory ?? createMemberMemoryStore({ rootDir: join(home, 'memory') });
     const worktrees =
@@ -539,7 +545,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
                 ids: () => [],
               },
               isEngineOnline: (id) => engineRegistry?.isOnline(id) ?? false,
-              builderEngine: () => engineRegistry?.defaultId() ?? null,
+              builderEngine: () => remote?.directory.hostEngine() ?? null,
             },
           }
         : {}),

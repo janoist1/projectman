@@ -1,6 +1,7 @@
 import type { FastifyBaseLogger } from 'fastify';
 import type { AgentProvider, EngineId } from '@projectman/shared';
 import type {
+  EngineDirectory,
   PauseOptions,
   PauseOutcome,
   PermissionBroker,
@@ -32,6 +33,8 @@ const FIRE_AND_FORGET_MS = 10_000;
 
 interface RemoteRunnerOptions {
   hub: RemoteHub;
+  /** Which engine a project's start goes to when the spec names none, and the host's for a status asked of none. */
+  directory: Pick<EngineDirectory, 'projectEngine' | 'hostEngine'>;
   /** Where the database says a session ran, for a session the engine does not report any more. */
   recordedEngine: (sessionId: string) => EngineId | null;
   logger: FastifyBaseLogger;
@@ -65,7 +68,8 @@ function mcpTokenOf(mcpUrl: string): string {
 }
 
 function toEngineSpec(spec: StartSessionSpec): EngineStartSpec {
-  const { mcpUrl, ...rest } = spec;
+  // `projectKey` only chooses the engine in the cloud; the engine's own start does not take it.
+  const { mcpUrl, projectKey: _projectKey, ...rest } = spec;
   return { ...rest, mcpToken: mcpTokenOf(mcpUrl) };
 }
 
@@ -120,8 +124,9 @@ export function createRemoteRunner(options: RemoteRunnerOptions): RemoteRunner {
     if (!id) throw new EngineRpcError('not_running', `Session ${sessionId} is not running`);
     return id;
   };
-  const defaultEngine = (): EngineId => {
-    const id = hub.defaultId();
+  /** The engine a start goes to: the spec's own, else the project's choice. */
+  const startEngine = (spec: Pick<StartSessionSpec, 'engineId' | 'projectKey'>): EngineId => {
+    const id = spec.engineId ?? (spec.projectKey ? options.directory.projectEngine(spec.projectKey) : null);
     if (!id) throw conflict('engine_offline', 'there is no engine to run the session on');
     return id;
   };
@@ -197,10 +202,12 @@ export function createRemoteRunner(options: RemoteRunnerOptions): RemoteRunner {
       return true;
     },
     async assertWorkspaceConfig({ provider, cwd, engineId }) {
-      await hub.call(engineId ?? defaultEngine(), 'session.assert_workspace_config', { provider, cwd });
+      // The launch names the engine it checks the workspace on; no path says which machine it is on.
+      if (!engineId) throw conflict('engine_offline', 'there is no engine to check the workspace on');
+      await hub.call(engineId, 'session.assert_workspace_config', { provider, cwd });
     },
     async start(spec) {
-      const engineId = spec.engineId ?? defaultEngine();
+      const engineId = startEngine(spec);
       if (!hub.available(engineId))
         throw conflict('engine_offline', `engine ${engineId} is not connected`, { engine: engineId });
       owners.set(spec.sessionId, engineId);
@@ -362,7 +369,8 @@ export function createRemoteRunner(options: RemoteRunnerOptions): RemoteRunner {
       return true;
     },
     async providerStatus(provider, opts) {
-      const engineId = opts?.engineId ?? hub.defaultId();
+      // Asked of no engine, it is the instance-level question of the host's machine.
+      const engineId = opts?.engineId ?? options.directory.hostEngine();
       if (!engineId || !hub.available(engineId))
         return {
           provider,

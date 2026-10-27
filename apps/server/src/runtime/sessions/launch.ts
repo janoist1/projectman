@@ -689,6 +689,7 @@ export class SessionLauncher {
         resume,
         cwd,
         engineId,
+        projectKey,
         member: member.handle,
         displayName: `${member.displayName} · ${workItemLabel(workItem, member)}`,
         model: member.model,

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { LOCAL_ENGINE_ID } from '@projectman/shared';
 import type { PlanUsage, Session } from '@projectman/shared';
 import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
@@ -157,7 +158,7 @@ describe('NanoGPT provider quota recovery', () => {
     await waitFor(() => waiting(task.key));
     h.runnerModule.planUsage.value = usage(40);
     h.domain.planUsage.invalidate();
-    await h.domain.planUsage.get('nanogpt');
+    await h.domain.planUsage.get('nanogpt', LOCAL_ENGINE_ID);
     expect(() => h.domain.sessions.assertProviderCooldown('nanogpt')).not.toThrow();
     await h.domain.admission.retryDeferred();
     expect(h.domain.sessions.findRunning('AR', 'dev-1', { type: 'task', taskKey: task.key })).not.toBeNull();

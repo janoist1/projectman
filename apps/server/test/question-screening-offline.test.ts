@@ -41,6 +41,12 @@ class TestEngines implements EngineDirectory {
   engineFor(_projectKey: string, member: MemberHandle): EngineId | null {
     return this.placement.has(member) ? this.placement.get(member)! : LOCAL_ENGINE_ID;
   }
+  projectEngine(_projectKey: string): EngineId | null {
+    return LOCAL_ENGINE_ID;
+  }
+  hostEngine(): EngineId | null {
+    return LOCAL_ENGINE_ID;
+  }
   onChange(listener: (id: EngineId, online: boolean) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);

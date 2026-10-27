@@ -26,7 +26,7 @@ describe('GitHub member authorship', () => {
       domain.tasks.addLink('AR', task.key, { kind: 'pull_request', repo: 'acme/web', ref: '7' }, OWNER_ACTOR);
       const published: unknown[] = [];
       domain.bus.subscribe((event) => published.push(event));
-      await domain.githubSync.handleChange(pullRequest({ authorLogin: 'ACME-Reviewer' }));
+      await domain.githubSync.handleChange('AR', pullRequest({ authorLogin: 'ACME-Reviewer' }));
       domain.tasks.assign('AR', task.key, 'dev-2', OWNER_ACTOR);
       expect(domain.tasks.get('AR', task.key).links[0]!.author).toBe('cr');
       expect((await domain.members.roster('AR')).find((member) => member.handle === 'cr')!.githubLogin).toBe(
@@ -37,7 +37,7 @@ describe('GitHub member authorship', () => {
         delete config.team.members.find((member) => member.handle === 'cr')!.githubLogin;
         return 'Remove fictional login mapping';
       });
-      await domain.githubSync.handleChange(pullRequest({ authorLogin: 'acme-reviewer' }));
+      await domain.githubSync.handleChange('AR', pullRequest({ authorLogin: 'acme-reviewer' }));
       await expect(
         domain.tasks.changeLabels('AR', task.key, { add: [`${check}-ok`] }, { kind: 'ai', handle: 'cr' }),
       ).rejects.toMatchObject({ code: 'self_review_forbidden' });
@@ -63,10 +63,10 @@ describe('GitHub member authorship', () => {
     const { domain } = h;
     const task = await domain.tasks.create('AR', { title: 'Fictional cached PR' }, OWNER_ACTOR);
     domain.tasks.assign('AR', task.key, 'dev-1', OWNER_ACTOR);
-    domain.tasks.recordPullRequest(pullRequest({ authorLogin: 'acme-owner' }));
+    domain.tasks.recordPullRequest('AR', pullRequest({ authorLogin: 'acme-owner' }));
     domain.tasks.addLink('AR', task.key, { kind: 'pull_request', repo: 'acme/web', ref: '7' }, OWNER_ACTOR);
     expect(domain.tasks.get('AR', task.key).links[0]!.author).toBe('owner');
-    domain.tasks.recordPullRequest(pullRequest({ number: 8, authorLogin: 'acme-external' }));
+    domain.tasks.recordPullRequest('AR', pullRequest({ number: 8, authorLogin: 'acme-external' }));
     domain.tasks.addLink('AR', task.key, { kind: 'pull_request', repo: 'acme/web', ref: '8' }, OWNER_ACTOR);
     expect(domain.tasks.get('AR', task.key).links[1]!.author).toBe('dev-1');
   });

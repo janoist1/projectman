@@ -17,7 +17,7 @@ import { buildEngineApp } from '../../src/engine-app';
 import type { EngineApp, EngineAppOptions } from '../../src/engine-app';
 import { freePort } from '../../src/runner/test-helpers';
 import { cookieOf, inject, OWNER_LOGIN } from './app-harness';
-import { createFakeRunnerModule, FakeContextBuilder, FakeGithub, FakeMemoryStore } from './fakes';
+import { createFakeRunnerModule, FakeContextBuilder, FakeMachineGithub, FakeMemoryStore } from './fakes';
 import type { FakeRunnerModule } from './fakes';
 import { stoppedSourceHomes } from './migration-source';
 import type { SourceHome } from './migration-source';
@@ -186,7 +186,7 @@ export async function createCloudEngineWorld(options: CloudEngineOptions = {}): 
         logger: false,
         modules: {
           createRunnerModule: (opts) => fake.create(opts),
-          github: new FakeGithub(),
+          github: new FakeMachineGithub(),
           createFullTestExecutor: () =>
             ({ available: async () => ({ ok: true }), run: async () => ({}) }) as never,
           createScreenshotExecutor: () => ({ run: async () => ({}) }) as never,

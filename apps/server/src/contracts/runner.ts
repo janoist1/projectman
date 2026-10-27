@@ -128,6 +128,11 @@ export interface StartSessionSpec {
    */
   engineId?: EngineId;
   /**
+   * The project the session belongs to. The cloud's remote runner chooses the project's engine by it when
+   * `engineId` is absent; it is not sent to the engine. The local runner ignores it.
+   */
+  projectKey?: string;
+  /**
    * Conversation id of the agent CLI. Claude Code: the session UUID (`--session-id` for new
    * sessions, `--resume` for resumed ones). Codex: ignored for new sessions (Codex picks its
    * own id, reported with a `provider_session_id` event); resumed ones use `codex resume <id>`.
@@ -524,7 +529,7 @@ export interface DependencyGate {
 
 export interface PlanUsageProvider {
   /** Current plan usage of the logged-in account (Claude, or ChatGPT for Codex), or null if unavailable. */
-  get(): Promise<PlanUsage | null>;
+  get(engineId?: EngineId): Promise<PlanUsage | null>;
 }
 
 /** How the runner starts the agent CLI's process: in a pseudo-terminal, or with plain pipes. */

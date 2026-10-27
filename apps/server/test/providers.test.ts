@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { permissionModeFitsProvider } from '@projectman/shared';
+import { LOCAL_ENGINE_ID, permissionModeFitsProvider } from '@projectman/shared';
 import type { AgentProvider, PlanUsage, ProjectConfig } from '@projectman/shared';
 import type { ProviderStatus, RunnerModule } from '../src/contracts';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
@@ -272,7 +272,7 @@ describe('agent providers', () => {
     // Claude's plan is unknown here, so a Claude member may start.
     const second = await h.domain.tasks.create('AR', { title: 'Claude task' }, OWNER_ACTOR);
     expect((await start(second.key, 'dev-1')).session).not.toBeNull();
-    expect(await h.domain.planUsage.get('codex')).toEqual(codexUsage);
-    expect(await h.domain.planUsage.get()).toBeNull();
+    expect(await h.domain.planUsage.get('codex', LOCAL_ENGINE_ID)).toEqual(codexUsage);
+    expect(await h.domain.planUsage.get('claude', LOCAL_ENGINE_ID)).toBeNull();
   });
 });

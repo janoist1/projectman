@@ -2929,6 +2929,23 @@ workers follow the machine's size.
   the existing RPC boundary and host requirements do not change.
   The idempotency store of a link keeps 10,000 results; the `usage` events replayed after a cloud restart
   can be counted twice, because the cloud's memory of handled events does not survive its restart.
+  **Engine per project (PM-1059).** The business code no longer asks the hub for "the" default engine;
+  it asks `EngineDirectory.projectEngine(projectKey)` (the project's base engine) or `hostEngine()` (the
+  machine that is not about one project: project-creation folder check, machine view and orphan
+  signal, host build, NanoGPT recovery, provider status without a project). `engineFor(projectKey, handle)`
+  names a member's engine. Today every selector answers the hub's default engine, so one engine
+  behaves as before; the point of choosing is the call site. The remote runner starts a session on the
+  spec's `engineId`, else the project's engine, and refuses (`engine_offline`) rather than falling back to
+  another engine; attachments and materialized files go to the session's or the project's engine. Plan
+  usage is measured and cached per `(engine, provider)`, shown on a board from the engine of the
+  project's first AI member of that provider, and published (`plan_usage`) only to the projects that run
+  on the measured engine; admission checks the starting member's engine. GitHub reads, release
+  publishing and PR watches go through `GithubService` (project-aware) to the project's engine
+  (`MachineGithubService` is the engine-side, project-less contract); the cloud keeps a watch per
+  `(project, repo, PR)` on the engine it subscribed on, resends only that engine's watches on
+  reconnect and drops a `github_changed` event from any other engine. Pull request snapshots, links,
+  heads and authors are keyed by project too. No new machine operation or RPC exists; moving a
+  watch to another engine when a project's engine changes is PM-1060 (`onProjectEngineChange`).
   **Does this work on a remote engine?** This entry is the cloud's side of the remote engine: nothing
   here starts a process on the cloud's host. Without a connected engine a project cannot be created
   (`isDirectory` answers `engine_offline`, HTTP 409), a full test is refused with `engine_offline`, and
@@ -4060,6 +4077,8 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   timestamped measurements; leave credentials there and retain subscription-only execution.
   **Cloud mode (PM-315):** `createRemotePlanUsage` (`engine-link/remote/transcripts.ts`) asks the engine
   (`usage.plan`, `provider.status`); the cloud keeps only the measurements, with the engine that sent them.
+  PM-1059: `usage.plan` is asked of one named engine; the monitor and the cache key a value by
+  `(engine, provider)` and a board reads the project's representative engine (see "Cloud composition").
   **Module:** `runtime/usage`
 - **Claude workspace trust** — `runner/providers/claude/trust.ts` (PM-341).
   The runner updates workspace trust in `~/.claude.json` (or the configured Claude config directory).

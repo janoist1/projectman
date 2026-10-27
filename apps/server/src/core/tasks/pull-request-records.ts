@@ -6,6 +6,9 @@ import type { ProjectService } from '../projects';
 import type { TimelineService } from '../timeline';
 import { SYSTEM_ACTOR } from '../../kernel';
 
+const recordKey = (projectKey: string, repo: string | undefined, number: number | string): string =>
+  `${projectKey}/${repo}#${number}`;
+
 /**
  * What GitHub told us about linked pull requests: the latest snapshot of each (kept in memory,
  * shown on the task), and who on the team authored it (matched by GitHub login, stored on the
@@ -41,7 +44,7 @@ export class PullRequestRecords {
       .flatMap((link) => {
         const number = Number(link.ref);
         if (!link.repo || !Number.isInteger(number) || number <= 0) return [];
-        const known = this.snapshots.get(`${link.repo}#${number}`);
+        const known = this.snapshots.get(recordKey(task.projectKey, link.repo, number));
         return [
           known ?? {
             repo: link.repo,
@@ -62,11 +65,17 @@ export class PullRequestRecords {
 
   /** The team member who authored a newly linked pull request, when GitHub told us. */
   authorOf(projectKey: string, link: Pick<TaskLink, 'repo' | 'ref'>): string | undefined {
-    return this.memberForGithubLogin(projectKey, this.authorLogins.get(`${link.repo}#${link.ref}`));
+    return this.memberForGithubLogin(
+      projectKey,
+      this.authorLogins.get(recordKey(projectKey, link.repo, link.ref)),
+    );
   }
 
-  /** Keeps the full snapshot already fetched by GitHub; unknown links remain nullable. */
-  record(pr: PullRequestInfo): void {
+  /**
+   * Keeps the full snapshot already fetched by GitHub for the project; unknown links remain nullable. The same
+   * pull request seen from another project (another engine, PM-1059) is another snapshot.
+   */
+  record(projectKey: string, pr: PullRequestInfo): void {
     const snapshot: TaskPullRequest = {
       repo: pr.repo,
       number: pr.number,
@@ -85,10 +94,11 @@ export class PullRequestRecords {
       additions: pr.additions,
       deletions: pr.deletions,
     };
-    if (pr.authorLogin) this.authorLogins.set(`${pr.repo}#${pr.number}`, pr.authorLogin);
+    const key = recordKey(projectKey, pr.repo, pr.number);
+    if (pr.authorLogin) this.authorLogins.set(key, pr.authorLogin);
     const authorChanged = this.ctx.unitOfWork(() => {
       let changed = false;
-      for (const link of this.ctx.repos.tasks.findByPullRequest(pr.repo, pr.number)) {
+      for (const link of this.ctx.repos.tasks.findByPullRequest(projectKey, pr.repo, pr.number)) {
         const author = this.memberForGithubLogin(link.projectKey, pr.authorLogin);
         if (author)
           changed =
@@ -102,19 +112,29 @@ export class PullRequestRecords {
       }
       return changed;
     });
-    const key = `${pr.repo}#${pr.number}`;
     if (!authorChanged && JSON.stringify(this.snapshots.get(key)) === JSON.stringify(snapshot)) return;
     this.snapshots.set(key, snapshot);
-    for (const link of this.ctx.repos.tasks.findByPullRequest(pr.repo, pr.number)) {
+    for (const link of this.ctx.repos.tasks.findByPullRequest(projectKey, pr.repo, pr.number)) {
       const task = this.find(link.projectKey, link.taskKey);
       if (task) this.publish(task);
     }
   }
 
-  /** A watched pull request changed: refresh every task link to it. Returns the tasks linking it. */
-  applyUpdate(repo: string, number: number, patch: { state: string; title?: string }): Task[] {
+  /** A watched pull request changed: refresh the project's task links to it. Returns the tasks linking it. */
+  applyUpdate(
+    projectKey: string,
+    repo: string,
+    number: number,
+    patch: { state: string; title?: string },
+  ): Task[] {
     return this.ctx.unitOfWork(() => {
-      const changed = this.ctx.repos.tasks.updatePullRequestLinks(repo, number, patch, isoNow(this.ctx));
+      const changed = this.ctx.repos.tasks.updatePullRequestLinks(
+        projectKey,
+        repo,
+        number,
+        patch,
+        isoNow(this.ctx),
+      );
       const tasks: Task[] = [];
       for (const key of changed) {
         const task = this.ctx.repos.tasks.get(key);

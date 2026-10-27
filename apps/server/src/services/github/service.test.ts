@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { GithubService, PullRequestInfo } from '../../contracts';
+import type { MachineGithubService, PullRequestInfo } from '../../contracts';
 import { GithubError, createGithubService, type GithubServiceOptions } from './index';
 import { PULL_REQUEST_JSON_FIELDS } from './pull-request';
 import {
@@ -29,7 +29,7 @@ afterEach(async () => {
 function service(
   scenario: FakeGhScenario,
   options: Partial<GithubServiceOptions> = {},
-): Promise<GithubService> {
+): Promise<MachineGithubService> {
   return fake.setScenario(scenario).then(() =>
     createGithubService({
       ghBin: fake.bin,

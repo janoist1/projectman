@@ -341,6 +341,7 @@ export class SessionOrchestrator {
     });
     this.limits = new ProviderLimits({
       ctx: this.ctx,
+      engines: deps.engines,
       projects: deps.projects,
       runner: deps.runner,
       ...(deps.usageAlerts ? { usageAlerts: deps.usageAlerts } : {}),
@@ -533,8 +534,8 @@ export class SessionOrchestrator {
     this.limits.useQuotaRecovery(usage, resume, reassign);
   }
 
-  observeProviderUsage(provider: AgentProvider, usage: PlanUsage | null): void {
-    this.limits.observeProviderUsage(provider, usage);
+  observeProviderUsage(provider: AgentProvider, engineId: EngineId, usage: PlanUsage | null): void {
+    this.limits.observeProviderUsage(provider, engineId, usage);
   }
 
   /** Persisted quota deferrals must check usage again before any restart-time inference. */

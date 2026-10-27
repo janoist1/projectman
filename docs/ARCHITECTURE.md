@@ -1064,10 +1064,10 @@ connection, `ToolContext` with a `sessionId`).
   shared ones with the reason (`EXTERNAL_DENIED`); a test checks that every shared tool is exactly one of the two.
 - **Project switching is stateless.** Every project tool takes a required `project_key`; `list_projects {}` returns the
   projects where the key's holder is an owner at this moment. An unknown project and one the holder does not own are
-  refused alike (`insufficient_access`). `tools/list` is filtered by the key's mode (`super`, `read`, `legacy`); a forbidden
+  refused alike (`insufficient_access`). `tools/list` is filtered by the key's mode (`super`, `read`); a forbidden
   tool called directly is refused by the same table (`integrator_not_allowed`, `integrator_read_only`).
 - **Same right, same audit.** A call runs through `SuperOperator.execute` (`super` and `read` keys: the REST scope; `super`:
-  the audit row `mcp_<tool>`); a `legacy` key keeps the unscoped, unaudited REST behaviour. The super tools
+  the audit row `mcp_<tool>`). Legacy keys fail authentication with 401 (PM-1037). The super tools
   (`list_super_handoffs`, `execute_super_handoff`, `super_operate`, `get_super_operation`, `query_super_diagnostics`,
   `get_administration_status`, `get_administration_logs`, `get_machine_snapshot`, `relay_owner_answer`) are `super` only and answer with structured
   JSON plus the domain `errorCode`.
@@ -4928,7 +4928,7 @@ retired, `operator_required` 409; it cannot go on leave), `isOperatorActor` (an 
   and before push/advance checks the selected PM or transitional Operator, repository/default branch and lessons path; conflicting
   provenance is refused. Delayed results use the existing system-message path, and stale lessons request a
   reread and retry. Super MCP lessons still use `requestExternal`, key provenance and key/owner/Operator
-  reauthorization; neither read nor legacy keys acquire write permission. See the `merge.read_file` /
+  reauthorization; read keys cannot write and legacy keys fail authentication (PM-1037). See the `merge.read_file` /
   `merge.commit_files` machine inventory above for the unchanged remote-engine boundary.
 - **Searchable document copies (PM-744, PM-788).** `services/history/document-sync.ts` maintains a cloud SQLite
   copy of each configured repository's fixed `docs/DECISIONS.md` and `docs/LESSONS.md` paths. The assembly reader

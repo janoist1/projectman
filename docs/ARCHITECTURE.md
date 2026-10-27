@@ -4094,6 +4094,17 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   In GitHub mode (`FullTestSpec.githubActions`, PM-900) the sandbox does not run: the engine's
   `withGithubActions` executor takes the request (see "GitHub Actions merge check").
   **Module:** `services/full-tests`
+- **Merge-test file watchdog (PM-1054)** — `scripts/merge-test/{npm,reporter}.ts`.
+  Every test invocation, including reruns, uses the default and hanging-process reporters plus
+  controller-side start/end events for each file (from collection through teardown). The npm
+  supervisor gives each active file 180 seconds, with 20-second test and hook defaults. On a
+  file deadline it prints all active file names as `FAIL` lines and stops the command through
+  the existing `scripts/lib/child-guard.mjs`; exit 1 and an unhandled-error diagnostic prevent
+  the flaky-file rerun rule from hiding the timeout. **Machine assumption:** POSIX process
+  groups, already required by the child guard, stop even synchronously blocked workers and
+  clean up descendants when the supervisor dies. **Remote engine:** the supervisor and guard
+  run where the tests execute (GitHub Actions or the engine); only existing output and verdict
+  data cross the boundary. No new server/engine contract.
 - **Merge-test step cache (PM-845, PM-841)** — `scripts/merge-test/{steps,run}.ts`,
   `full-test/{index,sandbox,step-cache}.ts`, `app.ts`, `engine-app.ts` and `index.ts`.
   The executor stores passed command keys in the engine-local

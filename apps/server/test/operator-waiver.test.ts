@@ -457,7 +457,7 @@ describe('owner-only waiver API', () => {
     const denied = await inject(app.app, 'PUT', routes.operatorApprovalWaiver('AR'), admin, body);
     expect(denied.statusCode).toBe(403);
     expect(denied.json().error.code).toBe('owner_approval_required');
-    const key = await inject(app.app, 'POST', routes.integratorKey(), cookie, undefined);
+    const key = await inject(app.app, 'POST', routes.integratorKeys(), cookie, { mode: 'super' });
     const via = await app.app.inject({
       method: 'PUT',
       url: routes.operatorApprovalWaiver('AR'),

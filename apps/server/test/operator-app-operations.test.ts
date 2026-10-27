@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OPERATOR_APP_CREDENTIAL_PREFIX } from '@projectman/shared';
 import type { SuperCommand } from '@projectman/shared';
-import { createDomainHarness, OWNER } from './helpers/domain-harness';
+import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import type { AdministrationPort, IntegratorPrincipal, ToolContext } from '../src/contracts';
 import type { DomainContext } from '../src/core/base';
@@ -291,6 +291,20 @@ describe('the in-app Operator on the shared super-operation path (PM-888)', () =
       await expect(execute('pm-refused', command)).rejects.toMatchObject({
         code: 'forbidden',
         message: expect.stringContaining('command_not_for_project_manager'),
+      });
+    });
+
+    it.each([true, false])('routes a refused PM command with machine access %s', async (machineAccess) => {
+      await h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (draft) => {
+        const member = draft.team.members.find((candidate) => candidate.handle === 'pm');
+        if (member?.kind === 'ai') member.machineAccess = machineAccess;
+        return 'Set machine access';
+      });
+      await expect(
+        execute('pm-route', { kind: 'credential_revoke', keyId: 'ikey_victim' }),
+      ).rejects.toMatchObject({
+        code: 'forbidden',
+        message: expect.stringContaining(machineAccess ? 'open_integrator_todo' : 'ask_human'),
       });
     });
 

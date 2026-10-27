@@ -71,8 +71,6 @@ import {
   TeamThreadsView,
   routes,
   InvolvementsResponse,
-  IntegratorKeyResponse,
-  CreatedIntegratorKey,
 } from '@projectman/shared';
 import type {
   SetChecklistItemStateRequest,
@@ -113,6 +111,7 @@ import type {
   AddHumanMemberRequest,
   LoginRequest,
   ResolveInboxRequest,
+  RenameMemberRequest,
   RetireMemberRequest,
   RevertConfigRequest,
   SendMessageRequest,
@@ -186,15 +185,6 @@ export const api = {
     }),
   involvements: (key: string, query = '') =>
     apiRequest(routes.involvements(key) + query, { schema: InvolvementsResponse }),
-  integratorKey: () => apiRequest(routes.integratorKey(), { schema: IntegratorKeyResponse }),
-  createIntegratorKey: (expiresInDays: 30 | 90 | 365 | null) =>
-    apiRequest(routes.integratorKey(), {
-      method: 'POST',
-      body: { expiresInDays },
-      schema: CreatedIntegratorKey,
-    }),
-  revokeIntegratorKey: () =>
-    apiRequest(routes.integratorKey(), { method: 'DELETE', schema: IntegratorKeyResponse }),
   machine: (panel: boolean, signal?: AbortSignal) =>
     apiRequest(`${routes.machine()}${panel ? '?panel=1' : ''}`, { schema: MachineView, signal }),
   /** Hybrid mode (PM-316): `single` on a one-machine installation, else the engines the viewer may see. */
@@ -306,6 +296,8 @@ export const api = {
     apiRequest<unknown>(routes.members(key), { method: 'POST', body }),
   retireMember: (key: string, handle: string, body: RetireMemberRequest) =>
     apiRequest<unknown>(routes.member(key, handle), { method: 'DELETE', body }),
+  renameMember: (key: string, handle: string, body: RenameMemberRequest) =>
+    apiRequest(routes.memberRename(key, handle), { method: 'POST', body, schema: MemberView }),
 
   session: (key: string, sessionId: string) =>
     apiRequest(routes.session(key, sessionId), { schema: SessionDetail }),

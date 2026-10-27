@@ -1,7 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import {
   CreateIntegratorAccessKeyRequest,
-  CreateIntegratorKeyRequest,
   CreateOperatorGrantRequest,
   IntegratorKeyAuditQuery,
   LoginRequest,
@@ -214,7 +213,6 @@ export function registerAuth(
       // The bearer MCP endpoint (`/mcp`) filters its tools by the key's mode itself (PM-760).
       // The grant's state is readable with any key; its routes refuse a key themselves (`operator_grant_owner_only`).
       if (
-        principal.mode !== 'legacy' &&
         path !== routes.operatorGrant() &&
         path !== routes.operatorGrantAudit() &&
         (path.startsWith('/api/auth/') ||
@@ -326,22 +324,6 @@ export function registerAuth(
       throw forbidden('owner_only', 'Only the host owner may manage this key');
     return request.user.id;
   };
-  app.get(routes.integratorKey(), async (request) => ({ key: auth.integratorKey(keyOwner(request)) }));
-  app.post(routes.integratorKey(), async (request, reply) => {
-    const userId = keyOwner(request);
-    const body = parseBody(CreateIntegratorKeyRequest, request.body ?? {});
-    const created = auth.createIntegratorKey(userId, body.expiresInDays);
-    app.log.info({ prefix: created.key.prefix, userId }, 'Integrator key created');
-    return reply.code(201).send(created);
-  });
-  app.delete(routes.integratorKey(), async (request) => {
-    const userId = keyOwner(request);
-    const key = auth.revokeIntegratorKey(userId);
-    if (!key) throw new DomainError('not_found', 'No active integrator key', { status: 404 });
-    app.log.info({ prefix: key.prefix, userId }, 'Integrator key revoked');
-    return { key };
-  });
-
   app.get(routes.integratorKeys(), async (request) => ({
     keys: auth.integratorAccessKeys(keyOwner(request)),
   }));

@@ -6,6 +6,7 @@ import {
   SuperCommandUnclassifiable,
   canonical,
   coordinationMemberOf,
+  hasMachineAccess,
   projectManagerCommandRefusal,
   memberOf,
   operatorOf,
@@ -456,9 +457,16 @@ export class SuperHandoffService {
     const principal = integratorExecution()?.principal;
     if (principal?.source !== 'app') return;
     const { config } = await this.projects.load(projectKey);
-    if (coordinationMemberOf(config)?.handle !== principal.member) return;
+    const coordinator = coordinationMemberOf(config);
+    if (!coordinator || coordinator.handle !== principal.member) return;
     const refusal = projectManagerCommandRefusal(command);
-    if (refusal) throw forbidden(refusal, 'use open_integrator_todo for machine or unsupported operations');
+    if (refusal)
+      throw forbidden(
+        refusal,
+        hasMachineAccess(config, coordinator.handle)
+          ? 'use open_integrator_todo for machine or unsupported operations'
+          : 'ask the owners with ask_human for machine or unsupported operations',
+      );
   }
 
   /**

@@ -88,11 +88,7 @@ export function registerOperatorRoutes(app: FastifyInstance, deps: { domain: Api
   );
   app.get<ProjectParams>(routes.operatorKnowledge(':key'), async (request) => {
     const access = await requireAccess(domain, request, request.params.key);
-    if (
-      (access.via && !request.principal) ||
-      request.principal?.mode === 'legacy' ||
-      !canReadOperatorKnowledge({ access: access.access })
-    )
+    if ((access.via && !request.principal) || !canReadOperatorKnowledge({ access: access.access }))
       throw forbidden(
         'operator_owner_only',
         'shared knowledge requires an owner or admin using their own login',
@@ -101,15 +97,11 @@ export function registerOperatorRoutes(app: FastifyInstance, deps: { domain: Api
   });
   app.get<ProjectParams>(routes.operatorPreferences(':key'), async (request) => {
     const access = await requireAccess(domain, request, request.params.key, { minimum: 'admin' });
-    if (access.via && request.principal?.mode === 'legacy')
-      throw forbidden('operator_owner_only', 'preferences require a person’s own login');
     return domain.operatorPreferences.list(request.params.key);
   });
 
   app.get<ProjectParams>(routes.operatorPreferenceMe(':key'), async (request) => {
     const access = await requireAccess(domain, request, request.params.key);
-    if (access.via && request.principal?.mode === 'legacy')
-      throw forbidden('operator_owner_only', 'preferences require a person’s own login');
     return domain.operatorPreferences.me(request.params.key, access.handle);
   });
 

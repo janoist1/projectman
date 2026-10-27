@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   CreatedIntegratorAccessKey,
@@ -33,6 +34,53 @@ describe('explicit integrator access key API', () => {
     expect(response.statusCode, response.body).toBe(201);
     return CreatedIntegratorAccessKey.parse(response.json());
   };
+
+  it('rejects a stored legacy key across REST, MCP and event reads without cookie fallback or usage writes', async () => {
+    await h.close();
+    h = await createAppHarness({ now: () => now, real: { mcp: true } });
+    cookie = await setupOwner(h.app);
+    await createProject(h, cookie);
+    const { repos, auth } = h.app.projectman;
+    const userId = repos.users.list()[0]!.id;
+    const secret = 'pmi_retired_test_credential';
+    repos.db
+      .prepare(
+        `INSERT INTO integrator_keys
+      (id, user_id, prefix, token_hash, created_at, mode)
+      VALUES (?, ?, ?, ?, ?, 'legacy')`,
+      )
+      .run(
+        'retired',
+        userId,
+        'pmi_retired',
+        createHash('sha256').update(secret).digest('hex'),
+        now.toISOString(),
+      );
+    for (const endpoint of [
+      { url: routes.projects() },
+      { url: routes.projectEvents('AR') + '?waitMs=0' },
+      { method: 'POST' as const, url: '/mcp', payload: { jsonrpc: '2.0', id: 1, method: 'tools/list' } },
+    ]) {
+      const response = await h.app.inject({
+        ...endpoint,
+        headers: { cookie, authorization: `Bearer ${secret}`, accept: 'application/json, text/event-stream' },
+      });
+      expect(response.statusCode, response.body).toBe(401);
+      expect(response.json().error.code).toBe('integrator_key_invalid');
+    }
+    expect(auth.reactivate({ keyId: 'retired', userId, prefix: 'pmi_retired' })).toBeNull();
+    expect(auth.integratorAccessKeys(userId)[0]).toMatchObject({ lastUsedAt: null, lastUsedChannel: null });
+  });
+
+  it.each(['GET', 'POST', 'DELETE'] as const)('removes the singular key endpoint (%s)', async (method) => {
+    const response = await h.app.inject({
+      method,
+      url: '/api/auth/integrator-key',
+      headers: { cookie },
+      ...(method === 'POST' ? { payload: {} } : {}),
+    });
+    expect(response.statusCode).toBe(404);
+  });
 
   it.each(['super', 'read'] as const)(
     'isolates %s bearer keys from human cookies before the public switch',
@@ -104,13 +152,7 @@ describe('explicit integrator access key API', () => {
     },
   );
 
-  it('creates expiring keys, lists newest first, and preserves the singular legacy API', async () => {
-    const legacy = await h.app.inject({
-      method: 'POST',
-      url: routes.integratorKey(),
-      headers: { cookie },
-      payload: {},
-    });
+  it('creates expiring keys and lists newest first', async () => {
     const first = await create();
     expect(first.key).toMatchObject({
       mode: 'super',
@@ -121,15 +163,12 @@ describe('explicit integrator access key API', () => {
     const newest = await create('super', 30);
     const response = await h.app.inject({ url: routes.integratorKeys(), headers: { cookie } });
     const keys = IntegratorAccessKeysResponse.parse(response.json()).keys;
-    expect(keys.map((key) => key.id)).toEqual([newest.key.id, read.key.id, first.key.id, keys[3]!.id]);
-    expect(keys.map((key) => key.state)).toEqual(['active', 'active', 'revoked', 'active']);
-    expect((await h.app.inject({ url: routes.integratorKey(), headers: { cookie } })).json()).toEqual({
-      key: legacy.json().key,
-    });
+    expect(keys.map((key) => key.id)).toEqual([newest.key.id, read.key.id, first.key.id]);
+    expect(keys.map((key) => key.state)).toEqual(['active', 'active', 'revoked']);
     const audit = await h.app.inject({ url: routes.integratorKeyAudit(), headers: { cookie } });
-    expect(IntegratorKeyAuditPage.parse(audit.json()).entries).toHaveLength(5);
+    expect(IntegratorKeyAuditPage.parse(audit.json()).entries).toHaveLength(4);
     for (const result of [response, audit]) {
-      for (const secret of [first.secret, read.secret, newest.secret, legacy.json().secret]) {
+      for (const secret of [first.secret, read.secret, newest.secret]) {
         expect(result.body).not.toContain(secret);
       }
       expect(result.body).not.toMatch(/token_hash|password|owner_user_id|secret/);
@@ -231,24 +270,9 @@ describe('explicit integrator access key API', () => {
       expect((await h.app.inject({ ...endpoint, headers: { cookie: other } })).statusCode).toBe(403);
       expect((await h.app.inject(endpoint)).statusCode).toBe(401);
     }
-    for (const mode of ['legacy', 'super', 'read'] as const) {
-      const secret =
-        mode === 'legacy'
-          ? (
-              await h.app.inject({
-                method: 'POST',
-                url: routes.integratorKey(),
-                headers: { cookie },
-                payload: {},
-              })
-            ).json().secret
-          : (await create(mode)).secret;
-      for (const endpoint of [
-        ...endpoints,
-        { method: 'GET', url: routes.integratorKey() },
-        { method: 'POST', url: routes.integratorKey(), payload: {} },
-        { method: 'DELETE', url: routes.integratorKey() },
-      ] as const) {
+    for (const mode of ['super', 'read'] as const) {
+      const secret = (await create(mode)).secret;
+      for (const endpoint of [...endpoints] as const) {
         const response = await h.app.inject({
           ...endpoint,
           headers: { cookie, authorization: `Bearer ${secret}` },

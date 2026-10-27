@@ -17,6 +17,67 @@ import { migrations } from '../src/db/migrations';
 
 const now = '2026-09-29T10:00:00.000Z';
 
+describe('legacy task check migration', () => {
+  function legacyTask(checks: string, labels: string[]) {
+    const db = new Database(':memory:');
+    for (const migration of migrations.filter((item) => item.version <= 114)) db.exec(migration.sql);
+    db.pragma('user_version = 114');
+    const repos = createRepositories(db);
+    repos.projects.insert({
+      key: 'AR',
+      name: 'Acme',
+      templateId: null,
+      configVersion: 'v1',
+      createdAt: now,
+      updatedAt: now,
+    });
+    repos.tasks.insert(sampleTask({ labels }));
+    db.prepare('UPDATE tasks SET checks = ? WHERE key = ?').run(checks, 'AR-1');
+    return repos;
+  }
+
+  it.each([
+    ['passed', ['code-review-ok', 'security-ok', 'qa-ok', 'client-accepted']],
+    ['failed', ['code-review-changes', 'security-changes', 'qa-failed', 'client-changes']],
+    ['blocked', ['code-review-blocked', 'security-changes', 'qa-failed', 'client-changes']],
+    ['retest_needed', ['code-review-changes', 'security-changes', 'qa-retest', 'client-changes']],
+    ['pending', []],
+  ] as const)('folds %s checks into labels without losing or duplicating labels', (state, expected) => {
+    const checks = JSON.stringify({
+      code_review: state,
+      security_review: state,
+      qa: state,
+      client_test: state,
+    });
+    const repos = legacyTask(checks, ['frontend', 'frontend', ...expected.slice(0, 1)]);
+    try {
+      migrate(repos.db);
+      expect(repos.tasks.get('AR-1')!.labels).toEqual(['frontend', ...expected]);
+      expect(repos.db.prepare('SELECT checks FROM tasks WHERE key = ?').get('AR-1')).toEqual({
+        checks: '{}',
+      });
+    } finally {
+      repos.db.close();
+    }
+  });
+
+  it.each(['{"unknown":"passed","qa":"unknown"}', 'invalid json', '{}'])(
+    'preserves labels when checks have no known state: %s',
+    (checks) => {
+      const repos = legacyTask(checks, ['frontend']);
+      try {
+        migrate(repos.db);
+        expect(repos.tasks.get('AR-1')!.labels).toEqual(['frontend']);
+        expect(repos.db.prepare('SELECT checks FROM tasks WHERE key = ?').get('AR-1')).toEqual({
+          checks: '{}',
+        });
+      } finally {
+        repos.db.close();
+      }
+    },
+  );
+});
+
 it('keeps legacy member activity with a null source card', () => {
   const db = new Database(':memory:');
   try {
@@ -390,11 +451,6 @@ describe('database', () => {
     repos.tasks.insert(sampleTask({ id: 'tsk_2', key: 'AR-2', title: 'Second', links: [] }));
     const task = repos.tasks.get('AR-1')!;
     expect(task.labels).toEqual(['frontend']);
-    // Checks recorded before labels read as their labels.
-    repos.db
-      .prepare(`UPDATE tasks SET checks = ? WHERE key = 'AR-2'`)
-      .run('{"code_review":"passed","qa":"pending"}');
-    expect(repos.tasks.get('AR-2')!.labels).toEqual(['frontend', 'code-review-ok']);
     expect(task.links).toEqual([{ kind: 'branch', ref: 'feature/login' }]);
 
     expect(
@@ -457,9 +513,6 @@ describe('database', () => {
       labels: ['frontend', 'waiting'],
       parentKey: null,
     });
-    // Writing labels replaces the legacy checks they were read with.
-    repos.db.prepare(`UPDATE tasks SET checks = ? WHERE key = 'AR-1'`).run('{"code_review":"passed"}');
-    expect(repos.tasks.get('AR-1')!.labels).toContain('code-review-ok');
     repos.tasks.update('tsk_1', { labels: ['frontend'] });
     expect(repos.tasks.get('AR-1')!.labels).toEqual(['frontend']);
 

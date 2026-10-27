@@ -1013,7 +1013,7 @@ Every AI member has one durable queue of what is waiting for them: a message, an
   stopped. An old `message_wake` deferred-start row is read once (`ensure`) and deleted.
 - **API** (`apps/server/src/api/member-queue.ts`): `GET /api/projects/:key/operator/queue` only (PM-1030 deleted the
   per-member and all-members routes; nothing called them). Access: a person's own login (developer or more) or
-  an integrator read or super key; the legacy integrator key is refused (`operator_owner_only`). The Operator channel (`OperatorChannel.queue`) carries the open count and the item in work.
+  an integrator read or super key. Legacy keys fail authentication with 401 (PM-1037). The Operator channel (`OperatorChannel.queue`) carries the open count and the item in work.
 - **WebSocket**: `member_queue_changed {projectKey, member}`, once per member per unit of work. Clients do not see it.
 - **Remote engine**: no machine-dependent part is added. The queue, the driver and the sweep live on the hub with the
   database; only the session start crosses to an engine, as before. A member whose engine is offline waits with
@@ -1100,10 +1100,10 @@ connection, `ToolContext` with a `sessionId`).
   shared ones with the reason (`EXTERNAL_DENIED`); a test checks that every shared tool is exactly one of the two.
 - **Project switching is stateless.** Every project tool takes a required `project_key`; `list_projects {}` returns the
   projects where the key's holder is an owner at this moment. An unknown project and one the holder does not own are
-  refused alike (`insufficient_access`). `tools/list` is filtered by the key's mode (`super`, `read`, `legacy`); a forbidden
+  refused alike (`insufficient_access`). `tools/list` is filtered by the key's mode (`super`, `read`); a forbidden
   tool called directly is refused by the same table (`integrator_not_allowed`, `integrator_read_only`).
 - **Same right, same audit.** A call runs through `SuperOperator.execute` (`super` and `read` keys: the REST scope; `super`:
-  the audit row `mcp_<tool>`); a `legacy` key keeps the unscoped, unaudited REST behaviour. The super tools
+  the audit row `mcp_<tool>`). Legacy keys fail authentication with 401 (PM-1037). The super tools
   (`list_super_handoffs`, `execute_super_handoff`, `super_operate`, `get_super_operation`, `query_super_diagnostics`,
   `get_administration_status`, `get_administration_logs`, `get_machine_snapshot`, `relay_owner_answer`) are `super` only and answer with structured
   JSON plus the domain `errorCode`.
@@ -2788,6 +2788,14 @@ workers follow the machine's size.
     waits for the Operator or super side. The hub alone persists and publishes the handoff;
     no engine operation or credential crosses the boundary. PM-801 puts the integrator's fix-limit
     decisions on the same sweep (`planIntegratorInboxEscalation`): hub-side only.
+    Machine access (decision 66, PM-1073): `AiMemberConfig.machineAccess` (shown as "Külső teendő (MCP)") lets an
+    AI member put machine todos in the owners' integrator queue. The rule is `machineAccessOf` /
+    `machineTodoIssuerAllowed` in `packages/shared/src/config/machine-access.ts`: an absent value follows the
+    role (the selected, non-temp project manager has it, nobody else; no migration), the system and the Operator
+    member issue as before. Only an owner changes it (`ownerOnlyChanges` `machine_access`); a role change pins
+    the effective value. `open_integrator_todo` is listed only to such members (`ToolAudience.capabilities`) and
+    the handler decides (`machine_access_required`); screening refuses the integrator recipient with
+    `no_machine_access`. Hub-side only: no engine operation, credential or process is added.
     PM-712 applies the same server-owned queue and receipt pattern to suspected loops:
     `runtime/watchers/loop-watch.ts` stores generation, assessment and the remaining ten-minute
     online budget in `task_loops.triage_json`; `services/operator/loop-triage.ts` sends a
@@ -3045,7 +3053,10 @@ workers follow the machine's size.
   The host owner's own login manages explicit `super`/`read` keys with 1/7/30/365-day expiry
   or no expiry (`expiresInDays: null`, PM-825; default 7 days). The hub already stores a null
   `expires_at` and authenticates it until revocation; no migration or engine operation is needed.
-  Existing keys and the singular API remain `legacy`. Replacement revokes only
+  Legacy keys are revoked with a lifecycle audit by migration 114 (PM-1037); the singular API is removed.
+  Authentication rejects legacy rows, which remain readable in key lists and audit history. Before release,
+  the owner must replace any active legacy credential on the integrator's machine with a super or read key.
+  Replacement revokes only
   the same mode, with a database uniqueness constraint and transactional lifecycle audit.
   The shared credential resolver returns the stored mode and key id; `assertActive` rechecks
   that row and its owner without updating usage. Authentication records `mcp`, `cli` or `rest`
@@ -5021,7 +5032,7 @@ retired, `operator_required` 409; it cannot go on leave), `isOperatorActor` (an 
   and before push/advance checks the selected PM or transitional Operator, repository/default branch and lessons path; conflicting
   provenance is refused. Delayed results use the existing system-message path, and stale lessons request a
   reread and retry. Super MCP lessons still use `requestExternal`, key provenance and key/owner/Operator
-  reauthorization; neither read nor legacy keys acquire write permission. See the `merge.read_file` /
+  reauthorization; read keys cannot write and legacy keys fail authentication (PM-1037). See the `merge.read_file` /
   `merge.commit_files` machine inventory above for the unchanged remote-engine boundary.
 - **Searchable document copies (PM-744, PM-788).** `services/history/document-sync.ts` maintains a cloud SQLite
   copy of each configured repository's fixed `docs/DECISIONS.md` and `docs/LESSONS.md` paths. The assembly reader

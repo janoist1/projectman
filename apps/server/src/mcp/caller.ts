@@ -316,7 +316,6 @@ export class ToolCaller {
         'combine_questions',
         'screen_question',
         'dismiss_signal',
-        'open_integrator_todo',
         'triage_loop',
         'start_task',
         'start_member',

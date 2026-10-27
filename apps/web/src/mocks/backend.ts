@@ -19,7 +19,6 @@ import {
   ownerHandles,
   superActorOf,
   ownerReservedEffect,
-  integratorConfigRefusal,
   canonical,
   canReadOperatorKnowledge,
   DEFAULT_OPERATOR_PREFERENCE,
@@ -31,7 +30,6 @@ import {
   CreateEngineRequest,
   StopOrphansRequest,
   StopSessionRequest,
-  CreateIntegratorKeyRequest,
   CreateIntegratorAccessKeyRequest,
   IntegratorKeyAuditQuery,
   SuperAuditQuery,
@@ -76,6 +74,7 @@ import {
   PatchConfigRequest,
   ReopenTaskRequest,
   ResolveInboxRequest,
+  RenameMemberRequest,
   RetireMemberRequest,
   RevertConfigRequest,
   SendMessageRequest,
@@ -141,6 +140,7 @@ import {
   MEMBER_QUEUE_CLOSED_LIMIT,
   memberOf,
   memberRoles,
+  renameMemberInConfig,
   modelForProvider,
   nextCronRun,
   OPERATOR_DISMISS_OPTION,
@@ -151,6 +151,7 @@ import {
   approverBlocker,
   ownerOnlyChanges,
   permissionView,
+  machineAccessOf,
   effectiveSessionPermissions,
   sessionApproverChangeRefusal,
   duplicateMarkRefusal,
@@ -478,7 +479,7 @@ export class MockBackend {
   setupCode: string | null = null;
   viewerHandle: string = fixtures.OWNER;
   /** Tests can exercise the same credential policy as REST without an HTTP bearer secret. */
-  integratorMode: 'legacy' | 'super' | 'read' | null = null;
+  integratorMode: 'super' | 'read' | null = null;
   private readonly mergeOrders = new Map<string, { revision: number; taskKeys: string[] }>();
   /** A release decision is refused with `owner_approval_required`, like an integrator key's (PM-491). */
   refuseReleaseApproval = false;
@@ -490,7 +491,6 @@ export class MockBackend {
   tasks: Task[] = clone(fixtures.tasks).map((task) => withPrMergedLabel(task, this.config));
   members: MemberView[] = clone(fixtures.members);
   timeline: TimelineEvent[] = clone(fixtures.timeline);
-  integratorKey: import('@projectman/shared').IntegratorKeyInfo | null = null;
   integratorKeys: import('@projectman/shared').IntegratorAccessKeyInfo[] = [];
   integratorKeyAudits: import('@projectman/shared').IntegratorKeyAuditEntry[] = [];
   superAudits: import('@projectman/shared').SuperOperationAudit[] = [];
@@ -1837,6 +1837,7 @@ export class MockBackend {
       delete member.permissionLegacy;
       delete member.aiApproverBlocker;
       Object.assign(member, permissionView(this.config, config));
+      member.machineAccess = machineAccessOf(config);
     }
   }
 
@@ -2140,34 +2141,6 @@ export class MockBackend {
         return ok({ key: clone(key) });
       }
       return ok({ keys: clone(this.integratorKeys) });
-    }
-    if (path === '/api/auth/integrator-key') {
-      if (!this.me().hostOwner) return error(403, 'owner_only', 'Only the host owner may manage the key');
-      if (method === 'POST') {
-        const input = parseBody(CreateIntegratorKeyRequest, body ?? {});
-        if (!input) return error(400, 'invalid_request', 'Invalid key request');
-        this.integratorKey = {
-          prefix: 'pmi_mock_key',
-          state: 'active',
-          createdAt: nowIso(),
-          expiresAt:
-            input.expiresInDays === null
-              ? null
-              : new Date(Date.now() + input.expiresInDays * 86_400_000).toISOString(),
-          lastUsedAt: null,
-          revokedAt: null,
-        };
-        return {
-          status: 201,
-          body: { key: clone(this.integratorKey), secret: 'pmi_mock_key_for_ui_tests_only' },
-        };
-      }
-      if (method === 'DELETE') {
-        if (!this.integratorKey || this.integratorKey.state !== 'active')
-          return error(404, 'not_found', 'No active key');
-        this.integratorKey = { ...this.integratorKey, state: 'revoked', revokedAt: nowIso() };
-      }
-      return ok({ key: clone(this.integratorKey) });
     }
     if (path === '/api/engines' || path.startsWith('/api/engines/'))
       return this.engineRoutes(method, path, body);
@@ -2825,6 +2798,8 @@ export class MockBackend {
         unreadCount: this.messages.filter((message) => isUnreadBy(message, this.viewerHandle)).length,
       });
     }
+    if ((m = /^\/members\/([a-z0-9-]+)\/rename$/.exec(rest)) && method === 'POST')
+      return this.renameMember(m[1]!, body);
     if ((m = /^\/members\/([a-z0-9-]+)\/(profile|memories|conversation|remove|context)$/.exec(rest))) {
       const handle = m[1]!;
       if (m[2] === 'context' && (this.viewerAccess() !== 'owner' || this.integratorMode))
@@ -3003,8 +2978,6 @@ export class MockBackend {
           effect,
         });
     }
-    if (this.integratorMode === 'legacy' && integratorConfigRefusal(this.config, next))
-      return error(403, 'owner_login_required', 'The legacy credential cannot change this setting');
     if (operatorWaiverChanged(this.config, next))
       return error(403, 'owner_approval_required', 'Use the dedicated owner waiver endpoint');
     const viewer = memberOf(this.config, this.viewerHandle);
@@ -3492,6 +3465,7 @@ export class MockBackend {
         input.instructions !== undefined ||
         input.permissionMode !== undefined ||
         input.outboundNetwork !== undefined ||
+        input.machineAccess !== undefined ||
         input.email !== undefined ||
         input.approver !== undefined)
     )
@@ -3514,6 +3488,7 @@ export class MockBackend {
       if (input.permissionMode !== undefined) nextMember.permissionMode = input.permissionMode;
       if (input.approver !== undefined) nextMember.approver = input.approver;
       if (input.outboundNetwork !== undefined) nextMember.outboundNetwork = input.outboundNetwork;
+      if (input.machineAccess !== undefined) nextMember.machineAccess = input.machineAccess;
       if (input.email !== undefined)
         nextMember.email = applyMemberEmailChange(nextMember.email, input.email, handle);
     }
@@ -3567,6 +3542,7 @@ export class MockBackend {
       if (input.permissionMode !== undefined) config.permissionMode = input.permissionMode;
       if (input.approver !== undefined) config.approver = input.approver;
       if (input.outboundNetwork !== undefined) config.outboundNetwork = input.outboundNetwork;
+      if (input.machineAccess !== undefined) config.machineAccess = input.machineAccess;
       if (input.email !== undefined) {
         config.email = applyMemberEmailChange(config.email, input.email, handle);
         member.email = {
@@ -5540,6 +5516,7 @@ export class MockBackend {
       permissionMode: defaults.permissionMode,
       approver: defaults.approver,
       outboundNetwork: input.outboundNetwork ?? defaults.outboundNetwork,
+      machineAccess: false,
       capacity: defaults.capacity,
       instructions: defaults.instructions,
       sponsor: this.sponsor(),
@@ -5589,6 +5566,44 @@ export class MockBackend {
       this.config.team.members.find((m) => m.kind === 'human' && m.access === 'owner')?.handle ??
       this.viewerHandle
     );
+  }
+
+  /** Renames an AI member (PM-1026): the same refusals as the server, the configuration through the shared rule. */
+  private renameMember(handle: string, body: unknown): MockResponse {
+    if (this.viewerAccess() !== 'owner' || this.integratorMode)
+      return error(403, 'insufficient_access', 'Owner login required');
+    const input = parseBody(RenameMemberRequest, body);
+    if (!input) return error(400, 'invalid_request', 'Invalid handle');
+    const member = this.findMember(handle);
+    const config = memberOf(this.config, handle);
+    if (!member || !config || member.status === 'retired') return error(404, 'not_found', 'Unknown member');
+    if (config.kind !== 'ai') return error(400, 'not_ai_member', 'Only AI members can be renamed');
+    if (isOperator(config)) return error(409, 'operator_fixed', 'The Operator cannot be renamed');
+    const to = input.handle;
+    const former = this.members.flatMap((entry) => entry.formerHandles ?? []);
+    if (to === handle || this.takenHandles().has(to) || former.includes(to))
+      return error(409, 'handle_taken', 'Handle already used');
+    if (
+      config.email?.enabled &&
+      emailMailboxTaken([this.config, ...this.email.otherProjects], this.config.project.key, handle, to)
+    )
+      return error(409, 'email_mailbox_taken', 'The mailbox name is taken', { mailbox: to });
+    if (this.sessions.some((s) => s.member === handle && s.state !== 'exited' && s.state !== 'failed'))
+      return error(409, 'member_session_live', `${handle} is working`, { reason: 'session', member: handle });
+
+    const next = renameMemberInConfig(this.config, handle, to);
+    const failure = this.configChangeFailure(next);
+    if (failure) return failure;
+    this.config = next;
+    member.handle = to;
+    member.formerHandles = [...(member.formerHandles ?? []), handle];
+    for (const task of this.tasks) if (task.assignee === handle) task.assignee = to;
+    for (const session of this.sessions) if (session.member === handle) session.member = to;
+    this.addTimeline(null, this.owner, 'member_renamed', { from: handle, to, version: this.configVersion });
+    this.commitConfig(`Rename ${handle} to ${to}`);
+    this.emit({ type: 'member_changed', projectKey: fixtures.PROJECT_KEY, handle, member: null });
+    this.memberChanged(to);
+    return ok(this.viewOf(member));
   }
 
   private retire(handle: string, body: unknown): MockResponse {

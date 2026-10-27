@@ -89,6 +89,14 @@ describe('tool audience', () => {
     });
   });
 
+  it.each([false, true])(
+    'lists the machine todo tool only with machine access (%s)',
+    async (machineAccess) => {
+      const result = await listToolsFor({ ...developerAudience, machineAccess });
+      expect(result.tools.some((tool) => tool.name === 'open_integrator_todo')).toBe(machineAccess);
+    },
+  );
+
   it.each([false, true])('lists deployment tools only for their duty holder (%s)', async (holdsDuty) => {
     const result = await listToolsFor({
       ...developerAudience,

@@ -8,7 +8,7 @@ import { parseBody } from '../http';
 
 /**
  * The Operator's queue (PM-894): the people of the team read it with their own login (a developer or more),
- * the integrator's read and super keys read too; the legacy integrator key does not.
+ * the integrator's read and super keys read too.
  */
 export function registerMemberQueueRoutes(app: FastifyInstance, deps: { domain: ApiDomain }): void {
   const { domain } = deps;
@@ -18,7 +18,7 @@ export function registerMemberQueueRoutes(app: FastifyInstance, deps: { domain: 
     async (request): Promise<MemberQueueView> => {
       const key = request.params.key;
       const access = await requireAccess(domain, request, key, { minimum: 'developer' });
-      if (access.via && (!request.principal || request.principal.mode === 'legacy'))
+      if (access.via && !request.principal)
         throw forbidden('operator_owner_only', 'the queues are for a person’s own login');
       const operator = operatorOf(await domain.projects.config(key));
       if (!operator)

@@ -16,8 +16,9 @@ function meWith(...keys: string[]): Me {
     name: 'Kata',
     email: 'kata@client.test',
     handles: {},
+    instanceOwner: false,
     projects: keys.map((key) => ({ key, name: key, access: 'client', roles: [] })),
-  } as Me;
+  };
 }
 
 describe('code helpers', () => {

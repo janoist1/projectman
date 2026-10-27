@@ -20,8 +20,7 @@ import type { Author } from '../core/projects';
  * opened to it that way fails closed instead of acting as the key's owner without the super attribution.
  */
 export function currentUser(request: FastifyRequest): AuthUser {
-  if (request.principal && request.principal.mode !== 'legacy')
-    throw forbidden('insufficient_access', 'this credential cannot use this endpoint');
+  if (request.principal) throw forbidden('insufficient_access', 'this credential cannot use this endpoint');
   return authenticatedUser(request);
 }
 
@@ -53,8 +52,7 @@ export async function requireAccess(
     throw forbidden('insufficient_access', `requires ${opts.minimum} access`);
   }
   const principal = request.principal;
-  if (!principal || principal.mode === 'legacy')
-    return { ...access, ...(request.via ? { via: request.via } : {}) };
+  if (!principal) return { ...access, ...(request.via ? { via: request.via } : {}) };
   // A key of the super or read mode (PM-757; the token lifecycle that issues them is PM-758): a read key
   // never writes, and a super key is bound to the project's Operator or refused.
   if (principal.mode === 'read') {
@@ -70,8 +68,8 @@ export async function requireAccess(
 
 /**
  * What only the owner's own login may do (PM-418): refuses a request made with the integrator key,
- * which is the owner's actor but not a person. The configuration commit has its own check
- * (`integratorConfigRefusal`); this one is for the actions outside it.
+ * which acts as the Operator rather than a person. The configuration commit has its own check
+ * (`operatorConfigVerdict` through `authorizeSuperMutation`); this one is for the actions outside it.
  */
 export function requireOwnLogin(
   by: { via?: 'integrator' | null; superActor?: unknown },
@@ -96,13 +94,13 @@ export async function requireInstanceOwner(domain: ApiDomain, request: FastifyRe
   return user;
 }
 
-/** Instance operations rebind a non-legacy credential in every project, never through the legacy user path. */
+/** Instance operations bind the integrator credential in every project. */
 export async function instanceUser(
   domain: ApiDomain,
   request: FastifyRequest,
   operation: 'read' | 'write',
 ): Promise<AuthUser> {
-  if (!request.principal || request.principal.mode === 'legacy') return currentUser(request);
+  if (!request.principal) return currentUser(request);
   const user = authenticatedUser(request);
   if (request.principal.mode === 'read' && operation === 'write')
     throw forbidden('integrator_read_only', 'a read-only credential cannot change anything');
@@ -128,12 +126,12 @@ export function senderOf(access: ProjectAccess): string {
 }
 
 /**
- * The commit author of a request. A request made with a non-legacy key (PM-757) needs the access bound by
+ * The commit author of a request. A request made with an integrator key (PM-757) needs the access bound by
  * `requireAccess`, which carries the super actor; one without it is refused rather than recorded as the owner.
  */
 export function authorOf(request: FastifyRequest, access?: ProjectAccess): Author {
   const user = authenticatedUser(request);
-  if (request.principal && request.principal.mode !== 'legacy' && !access?.superActor)
+  if (request.principal && !access?.superActor)
     throw forbidden('insufficient_access', 'this credential cannot make this change');
   return {
     name: user.name,

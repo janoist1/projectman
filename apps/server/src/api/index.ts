@@ -57,8 +57,7 @@ export function registerApiRoutes(app: FastifyInstance, services: ApiServices): 
     route.handler = function (request, reply) {
       if (route.url.startsWith('/api/me/push') && (request.via === 'integrator' || request.principal))
         throw forbidden('web_push_integrator_refused', 'Web push requires a personal login');
-      if (!request.principal || request.principal.mode === 'legacy')
-        return handler.call(this, request, reply);
+      if (!request.principal) return handler.call(this, request, reply);
       services.auth.assertActive(request.principal);
       if (request.principal.mode === 'read' && request.method !== 'GET' && request.method !== 'HEAD')
         throw forbidden('integrator_read_only', 'a read-only credential cannot change anything');

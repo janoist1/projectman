@@ -136,7 +136,7 @@ export const INBOX_TOOL_GROUP: TeamToolGroup = {
           .optional()
           .describe('Why a person must see it after all. Needs reask_of.'),
         recipient: QuestionRecipient.optional().describe(
-          'Suggested todo recipient (default owner); screening decides.',
+          'Suggested todo recipient (default owner); screening decides. integrator reaches the machine queue only from a member with machine access.',
         ),
         response_purpose: QuestionResponsePurpose.optional().describe(
           'information: a plain factual question, no decision; the integrator may relay the answer; needs no options. ' +

@@ -25,6 +25,18 @@ it('renders a PM loop assessment without exposing its private note', () => {
   expect(describeEvent(event, context).text).toBe(t('timeline.events.loop_triaged'));
 });
 
+it('renders a member rename with both handles as they were recorded (PM-1026)', () => {
+  const event: TimelineEvent = {
+    ...creation,
+    taskKey: null,
+    type: 'member_renamed',
+    data: { from: 'dev', to: 'haini', version: 'v1' },
+  };
+  expect(describeEvent(event, context).text).toBe(
+    t('timeline.events.member_renamed', { from: 'dev', to: 'haini' }),
+  );
+});
+
 describe('merge queue timeline text (PM-576)', () => {
   it('names the cards a merge was put ahead of and the reason', () => {
     const event: TimelineEvent = {

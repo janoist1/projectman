@@ -273,8 +273,6 @@ export const hu = {
     superSecretTitle: 'Új Claude Code-kulcs',
     emptyHint: 'Kulcs nélkül a Claude Code nem csatlakozhat. Az Operátor nélküle is dolgozik.',
     past: 'Korábbi kulcsok ({n})',
-    legacy: 'Ezzel a kulccsal a műveletek még a te neveden látszanak. Cserélj Claude Code-kulcsra.',
-    upgrade: 'Csere Claude Code-kulcsra',
     ownerOnly: 'A kulcsokat csak a tulajdonos kezelheti, a saját bejelentkezésével.',
     today:
       'A Claude Code-kulcs ma lejár. Adj újat időben, különben a Claude Code hívásai elutasítást kapnak.',
@@ -1169,6 +1167,14 @@ export const hu = {
     invalidResponse: 'A szerver válasza nem a várt formátumú.',
     /** Detail of `handover_uncommitted`: the working directory and how many files are uncommitted. */
     handoverUncommitted: 'A munkafa: {path}; mentetlen fájlok száma: {count}.',
+    /** `member_session_live` with what holds the member named (PM-1026). */
+    memberSessionLive: 'Most nem nevezhető át, mert {reason}. Próbáld újra, ha végzett.',
+    memberSessionLiveReason: {
+      session: 'éppen dolgozik egy munkamenetben',
+      workspace: 'a munkaterülete még foglalt egy kártyához',
+      queue: 'éppen feldolgoz egy neki küldött üzenetet',
+      deferred_start: 'egy munkája indulásra vár',
+    },
     /** `owner_login_required` with its category named (PM-418). */
     ownerLoginRequiredIn: 'Ezt csak a tulajdonos teheti meg, a saját bejelentkezésével: {what}.',
     ownerLoginRequiredCategory: {
@@ -1342,7 +1348,7 @@ export const hu = {
         'Ezt az eszközt az Operátor nem használhatja: más tagok döntései és az átadások nem az övéi.',
       operator_only: 'Ezt a műveletet csak az Operátor használhatja.',
       command_not_for_project_manager:
-        'Ezt a műveletet a projektmenedzser nem végezheti el. Nyiss integrátor-teendőt az open_integrator_todo eszközzel.',
+        'Ezt a műveletet a projektmenedzser nem végezheti el. Gépi hozzáféréssel integrátor-teendőt adhatsz, egyébként kérd a tulajdonos segítségét.',
       project_manager_only:
         'Ezt a műveletet csak az aktuális projektmenedzser használhatja a saját belső beszélgetésében.',
       operator_preference_no_person: 'Nem egyértelmű, kinek a beszélgetési stílusát kell beolvasni.',
@@ -1446,9 +1452,8 @@ export const hu = {
       duplicate_feedback_surface: 'Két felületnek azonos az azonosítója vagy a címe.',
       not_an_outage_alert: 'Ez nem kiesési figyelmeztetés.',
       handle_taken: 'Ez az azonosító már foglalt.',
-      member_session_live:
-        'A tag éppen dolgozik (futó munkamenet, foglalt munkaterület, feldolgozás alatt álló sorelem vagy halasztott indítás); az átnevezéshez várd meg, amíg befejezi.',
-      member_renaming: 'A tag átnevezése folyamatban van, próbáld újra egy pillanat múlva.',
+      member_session_live: 'Most nem nevezhető át, mert dolgozik.',
+      member_renaming: 'Ennek a tagnak most nevezzük át az azonosítóját. Pár másodperc múlva próbáld újra.',
       member_at_capacity: 'Ennek a tagnak most nincs szabad kapacitása.',
       member_on_leave: 'Ez a tag szabadságon van; amíg vissza nem hívod, nem kap munkát.',
       ai_limit_reached: 'Most dolgozik a megengedett számú AI-tag; az új munka később indul.',
@@ -3628,7 +3633,10 @@ export const hu = {
     emailSendWithoutApproval: 'Jóváhagyás nélkül küldhet',
     emailApprovalHint: 'Kikapcsolva minden levele előbb a Rád vár listádba kerül.',
     emailAutoHint: 'A levelei azonnal kimennek. Utólag a Beállítások › E-mail naplójában látod őket.',
-    emailOwnerOnly: 'Ezt csak a tulajdonos állíthatja.',
+    ownerOnly: 'Ezt csak a tulajdonos állíthatja.',
+    machineAccess: 'Külső teendőt adhat (MCP)',
+    machineAccessHint:
+      'Telepítést, beállítást tehet a tulajdonosok sorába. A sort a tulajdonos MCP-n csatlakozott Claude-ja dolgozza fel.',
     save: 'Mentés',
     saved: 'A tag adatai mentve.',
   },
@@ -5131,7 +5139,7 @@ export const hu = {
       question_answer_delivered: 'Megkapta.',
       member_hired: 'Felvéve: {handle}',
       member_retired: 'Elbocsátva: {handle}',
-      member_renamed: 'Átnevezve: {from} → {to}',
+      member_renamed: 'Azonosító átnevezve: {from} → {to}',
       member_retired_handover: 'Elbocsátva: {handle}, a munkái átkerültek: {to}',
       config_changed: 'Beállítás módosítva: {message}',
       contactAdded: 'Kapcsolattartó lett: {name}',
@@ -5397,6 +5405,36 @@ export const hu = {
     deleteDescription:
       'A NanoGPT-tagok új munkamenete nem indul, amíg új kulcsot nem adsz meg. A már futók nem állnak le.',
   },
+  /** Renaming an AI member's handle (PM-1026). */
+  memberRename: {
+    menu: 'Azonosító átnevezése',
+    menuFor: '{name} azonosítójának átnevezése',
+    title: '{name} azonosítójának átnevezése',
+    intro:
+      'Ezzel az azonosítóval hivatkoznak rá a csapatban, a kártyákon és az üzenetekben. A neve nem változik.',
+    label: 'Új azonosító',
+    hint: 'Kisbetű, szám és kötőjel, legfeljebb 32 karakter. Most: {handle}',
+    consequencesTitle: 'Mi történik?',
+    carriesOn:
+      'A kártyái, üzenetei és munkái az új azonosítóval mennek tovább; a munkaterülete és a beszélgetései megmaradnak.',
+    oldHandleReserved:
+      'A régi azonosító ({handle}) foglalt marad: más tag nem kaphatja meg, és a régi hivatkozások ide vezetnek.',
+    emailFollows: 'Az e-mail-címe {address} lesz; a régi címére küldött levelek is megérkeznek hozzá.',
+    emailFollowsNoDomain:
+      'Az e-mail-címe az új azonosítót követi; a régi címére küldött levelek is megérkeznek hozzá.',
+    newHandle: 'új azonosító',
+    notWhileWorking: 'Amíg dolgozik, nem nevezhető át.',
+    submit: 'Átnevezés',
+    submitting: 'Átnevezés…',
+    done: 'Átnevezve: {from} → {to}',
+    invalid:
+      'Kisbetűvel vagy számmal kezdődjön, és csak kisbetű, szám és kötőjel lehet benne (legfeljebb 32 karakter).',
+    unchanged: 'Ez a mostani azonosítója. Írj be egy újat.',
+    taken: 'A(z) „{handle}” azonosító foglalt: egy tag most vagy korábban ezt használta. Válassz másikat.',
+    mailboxTaken: 'Ezt az azonosítót e-mail-címként már egy másik tag használja. Válassz másikat.',
+    working: 'Most dolgozik ({work}). Ha végzett, átnevezheted.',
+    former: 'korábban:',
+  },
   retire: {
     title: 'Elbocsátás: {name}',
     body: 'A lépései és a futó feladatai átkerülnek, az előzményei megmaradnak. Kire szálljanak át?',
@@ -5458,6 +5496,7 @@ export const hu = {
     waiting: 'Döntésére vár',
     email: 'E-mail',
     capacity: 'Kapacitás: {used} / {max}',
+    machineAccess: 'Külső teendőt adhat a tulajdonosoknak (MCP).',
     /** A card waits for this member's place (PM-297). */
     full: 'Tele van.',
     fullOf: 'Tele van ({used}/{max}).',

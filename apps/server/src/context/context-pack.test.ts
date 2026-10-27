@@ -158,6 +158,15 @@ describe('Project manager checklist onboarding', () => {
     const section = text.split('\n\n').find((part) => part.startsWith('# Project onboarding checklist'));
     await expect(`${section}\n`).toMatchFileSnapshot('__snapshots__/pm-checklist.section.txt');
   });
+  it('routes checklist gaps to owners when PM machine access is disabled', () => {
+    const source = input({ handle: 'pm' });
+    source.member.machineAccess = false;
+    const pack = packOf({ checklist, project: source.project, member: source.member });
+    expect(pack.guide.role).toContain('operate');
+    expect(pack.guide.role).toContain('ask_human');
+    expect(pack.guide.role).not.toContain('open_integrator_todo');
+  });
+
   it('leaves the checklist to the project manager, not the Operator', () => {
     const pack = packOf({ checklist, member: input({ handle: 'operator' }).member });
     expect(pack.appendSystemPrompt).not.toContain('# Project onboarding checklist');
@@ -1445,6 +1454,21 @@ describe('system prompt', () => {
         role.indexOf('ROLE_STYLE_OVERRIDE'),
       );
       expect(role.indexOf('ROLE_STYLE_OVERRIDE')).toBeLessThan(role.indexOf('MEMBER_STYLE_OVERRIDE'));
+    });
+
+    it('tells the PM about the integrator todo only while it has machine access (decision 66)', () => {
+      const prompt = (machineAccess: boolean | undefined) => {
+        const project = withPm('en');
+        const member = project.team.members.find((m) => m.handle === 'pm')!;
+        if (member.kind === 'ai') member.machineAccess = machineAccess;
+        const pack = builder.build(
+          input({ project, handle: 'pm', workItem: { type: 'general' }, task: null }),
+        );
+        return `${pack.appendSystemPrompt}\n${pack.guide.role ?? ''}`;
+      };
+      expect(prompt(undefined)).toContain('open_integrator_todo');
+      expect(prompt(true)).toContain('open_integrator_todo');
+      expect(prompt(false)).not.toContain('open_integrator_todo');
     });
 
     it('renders PM style data only in the selected internal general conversation', () => {

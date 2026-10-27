@@ -598,6 +598,12 @@ describe('the bearer MCP endpoint (PM-760)', () => {
     }
   });
 
+  it('does not offer the places of a message to the integrator', async () => {
+    const send = (await listTools(key('super').secret)).find((tool) => tool.name === 'send_message');
+    expect(send).toBeDefined();
+    expect(Object.keys(send!.inputSchema.properties)).not.toContain('places');
+  });
+
   it('keeps projects apart: only the current owner projects, and no tell between unknown and foreign ones', async () => {
     const workspace = join(h.home, 'other-project');
     mkdirSync(workspace);

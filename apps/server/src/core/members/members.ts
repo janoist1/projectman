@@ -19,6 +19,8 @@ import {
   isComplexityPoints,
   complexityLimitOf,
   MemberHandle,
+  memberStorageHandle,
+  renameMemberInConfig,
   memberDuties,
   memberOf,
   memberRoles,
@@ -48,7 +50,7 @@ import type {
   OperatorMemberChanges,
 } from '@projectman/shared';
 import { aiMemberDefaults } from '@projectman/templates';
-import type { MemberCapacity, MemberProfileSessions } from './ports';
+import type { MemberCapacity, MemberProfileSessions, MemberRenameRuntime } from './ports';
 import { findHumanByEmail, requireAiMember, requireHuman } from './access';
 import { applyMemberEmailChange, emailMailboxTaken, ownerHandles } from '@projectman/shared';
 import type { ProjectAccess } from './access';
@@ -90,6 +92,7 @@ export class MemberService {
   private readonly presence: PresenceService;
   private readonly inbox: InboxService;
   private readonly outageOf?: (projectKey: string, handle: string) => WorkOutage | undefined;
+  private renameRuntime?: MemberRenameRuntime;
 
   constructor(deps: {
     ctx: DomainContext;
@@ -237,6 +240,11 @@ export class MemberService {
   /** Handles in use now or in the past (config, runtime state incl. retired, sessions). */
   takenHandles(projectKey: string, config: ProjectConfig): Set<string> {
     const taken = new Set(config.team.members.map((m) => m.handle));
+    // A renamed member keeps its old handles (PM-1025); the events cover a rename whose configuration was reverted.
+    for (const m of config.team.members)
+      for (const former of m.kind === 'ai' ? (m.formerHandles ?? []) : []) taken.add(former);
+    for (const e of this.ctx.repos.timeline.ofProjectType(projectKey, 'member_renamed', 1000))
+      taken.add((e.data as { from: string }).from);
     for (const s of this.ctx.repos.memberState.list(projectKey)) taken.add(s.handle);
     for (const s of this.ctx.repos.sessions.list(projectKey)) taken.add(s.member);
     return taken;
@@ -605,6 +613,69 @@ export class MemberService {
     }
   }
 
+  /** Binds what a handle rename needs from the runtime (built after this service). */
+  useRenameRuntime(runtime: MemberRenameRuntime): void {
+    this.renameRuntime = runtime;
+  }
+
+  /**
+   * Renames an AI member (PM-1025): the handle, and with it every operational reference, is the new one; the
+   * timeline and the storage keys (`memberStorageHandle`) stay. Refused while anything of the member runs. The
+   * member's starts are held back from the validation to the announcement, and the validation runs again under
+   * the configuration lock, so nothing starts under the old handle in between.
+   */
+  async rename(
+    projectKey: string,
+    handle: string,
+    to: string,
+    by: { actor: Actor; author: Author },
+  ): Promise<MemberView> {
+    requireAiMember(await this.projects.config(projectKey), handle);
+    const release = this.renameRuntime?.holdStarts(projectKey, handle);
+    try {
+      await this.projects.update(projectKey, { ...by, renames: { [handle]: to } }, (draft) => {
+        this.prepareRename(projectKey, draft, handle, to);
+        return `Rename ${handle} to ${to}`;
+      });
+    } finally {
+      release?.();
+    }
+    const view = (await this.roster(projectKey)).find((m) => m.handle === to);
+    if (!view) throw notFound('member', to);
+    return view;
+  }
+
+  /** Mutates only the draft; the commit rewrites the database and tells the listeners. */
+  prepareRename(projectKey: string, draft: ProjectConfig, handle: string, to: string): void {
+    const member = requireAiMember(draft, handle);
+    if (isOperator(member)) throw conflict('operator_fixed', 'the Operator cannot be renamed');
+    if (!MemberHandle.safeParse(to).success) throw invalid('invalid_request', `invalid handle: ${to}`);
+    if (to === handle || this.takenHandles(projectKey, draft).has(to))
+      throw conflict('handle_taken', `handle already used: ${to}`);
+    if (member.email?.enabled) this.assertMailboxFree(draft, handle, to);
+    this.assertIdle(projectKey, member);
+    Object.assign(draft, renameMemberInConfig(draft, handle, to));
+  }
+
+  /** 409 `member_session_live` while a session, a workspace, a queue item or a deferred start still holds the handle. */
+  private assertIdle(projectKey: string, member: AiMemberConfig): void {
+    const { repos } = this.ctx;
+    const handle = member.handle;
+    const busy = (reason: 'session' | 'workspace' | 'queue' | 'deferred_start'): DomainError =>
+      conflict('member_session_live', `${handle} is working: ${reason}`, { reason, member: handle });
+    if (
+      repos.sessions
+        .list(projectKey)
+        .some((s) => s.member === handle && LIVE_SESSION_STATES.includes(s.state))
+    )
+      throw busy('session');
+    if (repos.memberWorkspaces.listOfMember(projectKey, memberStorageHandle(member)).some((w) => w.holder))
+      throw busy('workspace');
+    if (repos.memberQueue.listOpen(projectKey, handle).some((item) => item.state === 'processing'))
+      throw busy('queue');
+    if (this.renameRuntime?.deferredStartNames(projectKey, handle)) throw busy('deferred_start');
+  }
+
   async removeHuman(projectKey: string, handle: string, by: { actor: Actor; author: Author }): Promise<void> {
     await this.projects.update(projectKey, by, (draft) => {
       const member = memberOf(draft, handle);
@@ -649,6 +720,41 @@ export class MemberService {
     )
       return;
     this.writeState(projectKey, handle, status, activity, activityTaskKey);
+  }
+
+  /**
+   * Startup, before anything reads the database: a rename whose configuration was saved but whose database step
+   * did not finish (PM-1025). Every link of a member's chain of former handles (a -> b -> c) without its
+   * `member_renamed` event is rewritten again (the rewrite is idempotent) and recorded.
+   */
+  recoverRenames(): void {
+    const { repos } = this.ctx;
+    for (const project of repos.projects.list()) {
+      const config = this.projects.cachedConfig(project.key);
+      if (!config) continue;
+      const done = new Set(
+        repos.timeline
+          .ofProjectType(project.key, 'member_renamed', 1000)
+          .map((e) => `${(e.data as { from: string }).from}\n${(e.data as { to: string }).to}`),
+      );
+      for (const member of config.team.members) {
+        if (member.kind !== 'ai' || !member.formerHandles?.length) continue;
+        const chain = [...member.formerHandles, member.handle];
+        for (let i = 0; i + 1 < chain.length; i++) {
+          const [from, to] = [chain[i]!, chain[i + 1]!];
+          if (done.has(`${from}\n${to}`)) continue;
+          this.ctx.unitOfWork(() => {
+            repos.memberHandles.rename(project.key, from, to);
+            this.timeline.append({
+              projectKey: project.key,
+              actor: { kind: 'system', handle: null },
+              type: 'member_renamed',
+              data: { from, to, version: project.configVersion },
+            });
+          });
+        }
+      }
+    }
   }
 
   /** Startup: no session survived the restart, so no AI member is working or waiting. */
@@ -696,6 +802,13 @@ export class MemberService {
     for (const handle of previousMembers.keys()) {
       if (!nextHandles.has(handle))
         this.ctx.bus.publish({ type: 'member_changed', projectKey, handle, member: null });
+    }
+    // A renamed member is the same in both configurations the listeners see, so the clients are told here:
+    // the old handle is gone and the new one is the member (PM-1025).
+    for (const [from, to] of Object.entries(change.renames ?? {})) {
+      this.ctx.bus.publish({ type: 'member_changed', projectKey, handle: from, member: null });
+      const member = this.rosterFor(next).find((view) => view.handle === to) ?? null;
+      this.ctx.bus.publish({ type: 'member_changed', projectKey, handle: to, member });
     }
   }
 

@@ -28,6 +28,12 @@ export interface IntegratorPrincipal {
   readonly source?: 'key' | 'app';
   /** Server-issued session member; present only for app principals (PM-1041). */
   readonly member?: string;
+  /**
+   * Whose request the app session acts on (PM-1010): an owner's own message or answer, or anyone else's (a
+   * queue item, another member's message). Server-set from the session's open request; absent on a stored
+   * key's principal, which keeps all it had.
+   */
+  readonly requestOrigin?: 'owner' | 'member';
 }
 
 /**

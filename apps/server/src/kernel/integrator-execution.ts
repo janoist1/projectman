@@ -36,6 +36,15 @@ export function integratorExecution() {
   return execution.getStore()?.context;
 }
 
+/**
+ * Whether the scope may lend the owner's own authority to a step (PM-1010). False only for an app session
+ * working on a member's request (a queue item): that step runs with the session member's own rights.
+ */
+export function delegatesOwnerAuthority(): boolean {
+  const principal = execution.getStore()?.context.principal;
+  return !(principal?.source === 'app' && principal.requestOrigin === 'member');
+}
+
 /** Existing autonomous system work receives no delegated request authority. */
 export function withoutIntegratorExecution<T>(run: () => T): T {
   return execution.run(undefined, run);

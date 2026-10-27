@@ -1979,6 +1979,7 @@ export function createDomain(opts: DomainOptions) {
         return source === 'message' || source === 'answer' || source === 'queue';
       },
     }),
+    openRequest: (sessionId) => operatorRequests.openFor(sessionId),
     user: (id) => ctx.repos.users.get(id),
     userByEmail: (email) => ctx.repos.users.findByEmail(email),
   });

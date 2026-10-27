@@ -44,6 +44,7 @@ export { createAttemptLimiter, MAX_FAILED_ATTEMPTS_ALL_CLIENTS } from './attempt
 export {
   runIntegratorExecution,
   integratorExecution,
+  delegatesOwnerAuthority,
   assertIntegratorAccess,
   assertOwnApproval,
   assertOwnOrSuperApproval,

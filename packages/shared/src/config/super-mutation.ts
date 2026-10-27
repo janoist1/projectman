@@ -1,10 +1,13 @@
 import type { Actor } from '../domain/event';
 import type { AgentProvider, HumanAccess } from '../domain/member';
 import type { TaskKey } from '../domain/task';
+import type { SuperCommand } from '../api/super-handoff';
 import type { AiMemberConfig, ProjectConfig } from './schema';
 import { canonical } from './canonical';
+import { ownerHandles } from './lookup';
 import { boundaryDelegationChanged, ownerOnlyChanges, permissionsChanged } from './owner-only';
-import { memberDuties, roleBundle } from './duties';
+import { dutyMembers, memberDuties, roleBundle } from './duties';
+import { labelHolders } from './labels';
 import { operatorFixedChange } from './operator';
 import { operatorOf } from './operator-member';
 import { coordinationMemberOf } from './project-manager';
@@ -27,6 +30,64 @@ export function projectManagerCommandRefusal(command: {
   return (PROJECT_MANAGER_SUPER_COMMANDS as readonly string[]).includes(command.kind)
     ? null
     : 'command_not_for_project_manager';
+}
+
+/**
+ * Who stands behind an app session's open request (PM-1010): an owner's own message or answer, or anyone else
+ * (a queue item, another member's message). Decided by the server from the open request, never by the caller.
+ */
+export function appRequestOrigin(
+  config: Pick<ProjectConfig, 'team'>,
+  request: { source: string; fromHandle: string } | null,
+): 'owner' | 'member' {
+  return request &&
+    (request.source === 'message' || request.source === 'answer') &&
+    ownerHandles(config).includes(request.fromHandle)
+    ? 'owner'
+    : 'member';
+}
+
+/** Commands an app session runs only on an owner's own request (PM-935, PM-1010): approvals, merges and invitations. */
+export const OWNER_REQUEST_SUPER_COMMANDS = [
+  'workspace_release',
+  'inbox_resolve',
+  'merge',
+  'merge_order',
+  'invite_create',
+] as const satisfies readonly SuperCommand['kind'][];
+
+export function memberRequestCommandRefusal(command: { kind: string }): 'operator_owner_only' | null {
+  return (OWNER_REQUEST_SUPER_COMMANDS as readonly string[]).includes(command.kind)
+    ? 'operator_owner_only'
+    : null;
+}
+
+/** Who may set each label that is not open to anyone, and who gives the release approval: derived from roles, duties and members. */
+function approvalHolders(config: ProjectConfig): string {
+  return canonical({
+    labels: config.pipeline.labels
+      .filter((label) => label.setBy !== 'anyone')
+      .map((label) => [label.id, labelHolders(config, label).sort()])
+      .sort(([a], [b]) => String(a).localeCompare(String(b))),
+    release: dutyMembers(config, 'release_approval')
+      .map((member) => member.handle)
+      .sort(),
+  });
+}
+
+/**
+ * Whether a configuration change reaches who approves: the pipeline (labels, their holders, gates), the
+ * release four-eyes rule, the merger, or who actually holds an approval label or the release approval. The
+ * holders follow from a member's role, the role overrides and the custom roles, so those are covered here:
+ * `superConfigMutations` marks only the boundary delegation and the coordinator's and Operator's own role.
+ */
+export function approvalStructureChanged(previous: ProjectConfig, next: ProjectConfig): boolean {
+  return (
+    canonical(previous.pipeline) !== canonical(next.pipeline) ||
+    (previous.team.releaseFourEyes ?? false) !== (next.team.releaseFourEyes ?? false) ||
+    canonical(previous.team.merger ?? null) !== canonical(next.team.merger ?? null) ||
+    approvalHolders(previous) !== approvalHolders(next)
+  );
 }
 
 /**

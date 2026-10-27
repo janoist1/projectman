@@ -343,6 +343,45 @@ describe('super command classification (PM-762)', () => {
     expect(superCommandEffects(command, ctx)).toEqual(['security']);
   });
 
+  it('reserves another member machine access before executing its update', () => {
+    const command: SuperCommand = {
+      kind: 'member_update',
+      handle: 'dev-1',
+      request: { machineAccess: true },
+    };
+    expect(superCommandMutations(command, context())).toContainEqual({
+      kind: 'permission_change',
+      handle: 'dev-1',
+    });
+    expect(effects(command)).toEqual(['security']);
+  });
+
+  it.each([true, false])(
+    'reserves an effective machine access change to %s at the configuration boundary',
+    (machineAccess) => {
+      const previous = config();
+      const member = previous.team.members.find((candidate) => candidate.handle === 'dev-1')!;
+      if (member.kind !== 'ai') throw new Error('expected AI fixture');
+      member.machineAccess = !machineAccess;
+      const next = structuredClone(previous);
+      const updated = next.team.members.find((candidate) => candidate.handle === member.handle)!;
+      if (updated.kind !== 'ai') throw new Error('expected AI fixture');
+      updated.machineAccess = machineAccess;
+      expect(
+        superConfigMutations(previous, next).map((mutation) => ownerReservedEffect(previous, mutation)),
+      ).toContain('security');
+    },
+  );
+
+  it('keeps restating the effective machine access default routine at the configuration boundary', () => {
+    const previous = config();
+    const next = structuredClone(previous);
+    const member = next.team.members.find((candidate) => candidate.handle === 'dev-1')!;
+    if (member.kind !== 'ai') throw new Error('expected AI fixture');
+    member.machineAccess = false;
+    expect(ownerReservedEffect(previous, { kind: 'config_change', next })).toBeNull();
+  });
+
   it('reserves a coordinator member edit at the final configuration boundary', () => {
     const previous = config();
     previous.team.members.push(

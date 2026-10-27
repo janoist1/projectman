@@ -354,6 +354,19 @@ describe('the in-app Operator on the shared super-operation path (PM-888)', () =
       ).toEqual(before);
     });
 
+    it('waits for owner approval before granting machine access to another member', async () => {
+      const { operation } = await execute('pm-grant-machine-access', {
+        kind: 'member_update',
+        handle: 'dev-1',
+        request: { machineAccess: true },
+      });
+      expect(operation.state).toBe('waiting_owner');
+      expect(operation.ownerQuestionId).not.toBeNull();
+      expect(
+        (await h.domain.projects.config('AR')).team.members.find((member) => member.handle === 'dev-1'),
+      ).not.toMatchObject({ machineAccess: true });
+    });
+
     it('uses the shared path for PM settings and resumes a K3 effect in the PM name', async () => {
       const result = await h.domain.teamTools.operate(ctx, {
         title: 'Change developer access',

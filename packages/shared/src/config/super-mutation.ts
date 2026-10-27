@@ -3,7 +3,7 @@ import type { AgentProvider, HumanAccess } from '../domain/member';
 import type { TaskKey } from '../domain/task';
 import type { AiMemberConfig, ProjectConfig } from './schema';
 import { canonical } from './canonical';
-import { boundaryDelegationChanged, permissionsChanged } from './owner-only';
+import { boundaryDelegationChanged, ownerOnlyChanges, permissionsChanged } from './owner-only';
 import { memberDuties, roleBundle } from './duties';
 import { operatorFixedChange } from './operator';
 import { operatorOf } from './operator-member';
@@ -146,6 +146,7 @@ function securityChanged(previous: ProjectConfig, next: ProjectConfig): boolean 
   if ((previous.team.operatorApprovalWaiver ?? false) !== (next.team.operatorApprovalWaiver ?? false))
     return true;
   if (permissionsChanged(previous, next) || boundaryDelegationChanged(previous, next)) return true;
+  if (ownerOnlyChanges(previous, next).includes('machine_access')) return true;
   // A human who is no longer a human under the same handle loses the login and the access level.
   if (
     previous.team.members.some(

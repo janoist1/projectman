@@ -20,6 +20,32 @@ import type { MessageStateReport, ProjectStateReport, TaskStateReport } from '..
 import { formatMemberStart, formatProjectState } from '../format';
 import { defineTool, type TeamToolGroup } from '../kit';
 
+/** The guide topic that lists the fields of every operation and command kind (generated from the schemas). */
+const OPERATIONS_GUIDE = 'get_guide with topic "operations"';
+
+/**
+ * The MCP input of a discriminated union keeps only its tag, so the tool description stays short (PM-1034);
+ * the fields pass through and `parseFull` checks them against the whole schema in `run`.
+ */
+function kindInput(key: string, options: readonly z.ZodObject[], what: string) {
+  const kinds = options.map((option) => (option.shape[key] as z.ZodLiteral<string>).value);
+  return z
+    .looseObject({
+      [key]: z.enum(kinds as [string, ...string[]]),
+    })
+    .describe(`${what}: ${key} plus its fields; the fields of each ${key} are in ${OPERATIONS_GUIDE}.`);
+}
+
+/** The full check behind `kindInput`: a refusal names the zod path of each faulty field and the guide topic. */
+function parseFull<T>(schema: z.ZodType<T>, value: unknown, parameter: string): T {
+  const parsed = schema.safeParse(value);
+  if (parsed.success) return parsed.data;
+  const faults = parsed.error.issues
+    .slice(0, 5)
+    .map((issue) => `${[parameter, ...issue.path].map(String).join('.')}: ${issue.message}`);
+  throw new TeamToolError('invalid', `${faults.join('; ')}. The fields of each kind: ${OPERATIONS_GUIDE}.`);
+}
+
 /** Serves the member tool and the bearer endpoint alike (PM-760); `C` is the caller's context type. */
 async function runGetProjectState<C>({
   ctx,
@@ -317,11 +343,12 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
         'Only the Operator, during an open owner request. Propose a configuration, member, session, message or project pause operation. The server executes immediate changes, requests owner approval for restricted changes, and refuses forbidden changes. Before changing a built-in role, use get_role_configuration, preserve existing instructions and other bundle fields, and send only the affected role in config_patch.roleOverrides. Each supplied bundle replaces that role completely; omitted roles stay unchanged. Set a role to null to reset only that role to built-in defaults; an empty map changes no roles. To add or change one pipeline label (name, color, meaning) send only that label in config_patch.labels, keyed by label id, e.g. {"bug": {"color": "red"}}; omitted fields and all other labels, stages and columns stay unchanged, and null removes the color or meaning. session_stop and message_send require plan (why, impact, reversible). message_send is for non-owner humans, with the exact text the owner approves. Title describes the result in the project language (1–120 characters).',
       input: {
         title: z.string().trim().min(1).max(120),
-        operation: OperatorOperation,
+        operation: kindInput('op', OperatorOperation.options, 'The operation'),
         plan: OperatorPlan.optional(),
       },
       async run({ ctx, args, handler }) {
-        return JSON.stringify(await handler.operate(ctx, args));
+        const operation = parseFull(OperatorOperation, args.operation, 'operation');
+        return JSON.stringify(await handler.operate(ctx, { ...args, operation }));
       },
     }),
 
@@ -331,7 +358,7 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       title: 'Execute one command as the Operator',
       readOnly: false,
       description:
-        'Only the Operator, in its own general conversation during an open owner message or answer. Starts ONE command on the shared operation path, logged as you: {operation}. command is {kind: task_create, request} | {kind: task_update, taskKey, request} | {kind: task_labels, taskKey, request} | {kind: task_start, taskKey, request} | {kind: task_cancel, taskKey, request} | {kind: invite_create, request} | {kind: merge, taskKey, request} | {kind: merge_order, repo, expectedRevision, taskKeys, reason} | {kind: administration, request} | {kind: credential_revoke, keyId} | {kind: workspace_release, scopeId, reason}. workspace_release frees the workspace an unresolved process cleanup keeps reserved without proof that the processes stopped: only on the owner’s explicit request in that conversation, never on a signal by itself; the server refuses it unless the open request is the owner’s own message or answer (operator_owner_only), not a queue item; reason is the owner’s stated reason. Configuration, member, session, message and project-pause changes stay with operate (kinds operate and member_update are refused with super_operation_unsupported). A K3 effect (deletion, security, cost, boundary and permission decisions) is not run: the operation waits in waiting_owner and the owner answers with their own login; after the owner’s yes the server runs it by itself, so do not repeat the call. Machine operations (administration) need the owner’s grant: without one the call fails with operator_grant_inactive, and you hand the matter over to the owner. request_key (1–100 characters of A-Z a-z 0-9 . _ -) names this call within the request: the same key is the same operation and never runs twice; the same key with another command is refused (super_request_conflict). Follow it with get_operation until the state is final.',
+        'Only the Operator, in its own general conversation during an open owner message or answer. Starts ONE command on the shared operation path, logged as you: {operation}. command is {kind, ...fields of that kind}. workspace_release frees the workspace an unresolved process cleanup keeps reserved without proof that the processes stopped: only on the owner’s explicit request in that conversation, never on a signal by itself; the server refuses it unless the open request is the owner’s own message or answer (operator_owner_only), not a queue item; reason is the owner’s stated reason. Configuration, member, session, message and project-pause changes stay with operate (kinds operate and member_update are refused with super_operation_unsupported). A K3 effect (deletion, security, cost, boundary and permission decisions) is not run: the operation waits in waiting_owner and the owner answers with their own login; after the owner’s yes the server runs it by itself, so do not repeat the call. Machine operations (administration) need the owner’s grant: without one the call fails with operator_grant_inactive, and you hand the matter over to the owner. request_key (1–100 characters of A-Z a-z 0-9 . _ -) names this call within the request: the same key is the same operation and never runs twice; the same key with another command is refused (super_request_conflict). Follow it with get_operation until the state is final.',
       input: {
         request_key: z
           .string()
@@ -340,14 +367,15 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
           .regex(/^[A-Za-z0-9._-]+$/)
           .describe('Names this call within the open request; repeat it only to retry the same call.'),
         task_key: TaskKey.optional().describe('The card the command is about, when there is one.'),
-        command: SuperCommand,
+        command: kindInput('kind', SuperCommand.options, 'The command'),
       },
       async run({ ctx, args, handler }) {
+        const command = parseFull(SuperCommand, args.command, 'command');
         return JSON.stringify(
           await handler.executeOperation(ctx, {
             requestKey: args.request_key,
             ...(args.task_key ? { taskKey: args.task_key } : {}),
-            command: args.command,
+            command,
           }),
         );
       },

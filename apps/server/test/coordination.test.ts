@@ -324,9 +324,12 @@ describe('separate PM and Operator authorization', () => {
     for (const ctx of [
       { ...pm, sessionId: operator.sessionId },
       { ...pm, sessionId: 'external' },
-      { ...pm, sessionId: 'ses_pm_guest' },
     ])
       await expect(h.domain.teamTools.getProjectState(ctx, {})).rejects.toThrow('project_manager_only');
+    // A guest conversation of the PM is limited to the guest tools before the coordination rule is asked (PM-1080).
+    await expect(
+      h.domain.teamTools.getProjectState({ ...pm, sessionId: 'ses_pm_guest' }, {}),
+    ).rejects.toThrow('operator_owner_only');
   });
 
   it('screens Operator questions through the PM, while PM own questions go straight to people', async () => {

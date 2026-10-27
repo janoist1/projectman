@@ -375,8 +375,8 @@ describe('mark_decision_candidates (PM-496)', () => {
       with: 'dana',
     });
     const ctx = toolOf(session);
-    await expect(h.domain.teamTools.listDecisionCandidates(ctx, {})).rejects.toThrow('project_manager_only');
-    await expect(mark(ctx, [])).rejects.toThrow('project_manager_only');
+    await expect(h.domain.teamTools.listDecisionCandidates(ctx, {})).rejects.toThrow('operator_owner_only');
+    await expect(mark(ctx, [])).rejects.toThrow('operator_owner_only');
   });
 });
 

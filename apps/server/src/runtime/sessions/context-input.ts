@@ -2,8 +2,8 @@ import {
   coordinationMemberOf,
   DEFAULT_AGENT_PROVIDER,
   effectiveSessionPermissions,
+  guestOfConversation,
   isOpenTask,
-  isOperator,
   isTheme,
   memberStorageHandle,
   stageOf,
@@ -41,12 +41,13 @@ interface ContextInputHost {
 
 /** The settings that apply to this conversation, without changing the member's configuration. */
 export function contextMember(
+  config: ProjectConfig,
   member: AiMemberConfig,
   workItem: WorkItemRef,
   existing: Session | null,
 ): AiMemberConfig {
   const permissions = effectiveSessionPermissions(member, existing ?? {});
-  const guestOf = isOperator(member) && workItem.type === 'general' ? workItem.with : undefined;
+  const guestOf = guestOfConversation(config, member, workItem);
   const permissionMode =
     guestOf !== undefined ? 'default' : (permissions.permissionMode ?? member.permissionMode);
   return { ...member, permissionMode, approver: permissions.approver };
@@ -71,7 +72,7 @@ export class SessionContextInput {
     opts: { placementDeferred?: true } = {},
   ) {
     const projectKey = config.project.key;
-    const guestOf = isOperator(member) && workItem.type === 'general' ? workItem.with : undefined;
+    const guestOf = guestOfConversation(config, member, workItem);
     const stage = task ? (stageOf(config, task.stageId) ?? null) : null;
     const memory =
       guestOf !== undefined
@@ -166,7 +167,7 @@ export class SessionContextInput {
       project: config,
       ...(checklist ? { checklist } : {}),
       // The settings that apply to this session: the system prompt tells the agent who answers.
-      member: contextMember(member, workItem, existing),
+      member: contextMember(config, member, workItem, existing),
       workItem,
       task,
       stage,

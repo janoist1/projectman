@@ -9,6 +9,7 @@ import {
   DEFAULT_AGENT_PROVIDER,
   currentHandleOf,
   formatInjectedTeamMessage,
+  hasGuestConversations,
   hasSuperOrigin,
   isOpenTask,
   isOperator,
@@ -19,7 +20,7 @@ import {
   operatorOf,
   ownerHandles,
   messageWakes,
-  operatorConversationOf,
+  managerConversationOf,
   routeFor,
   sameWorkItem,
   sessionWorkItemOf,
@@ -583,13 +584,13 @@ export class Messaging {
     );
     // A person writes into their own conversation with the Operator, not into another person's (PM-475).
     if (
-      isOperator(memberOf(config, session.member)) &&
+      hasGuestConversations(config, memberOf(config, session.member)) &&
       memberOf(config, from)?.kind === 'human' &&
-      !sameWorkItem(session.workItem, operatorConversationOf(config, from))
+      !sameWorkItem(session.workItem, managerConversationOf(config, from))
     )
       throw forbidden(
         'operator_owner_only',
-        'a person writes to the Operator only in their own conversation',
+        'a person writes to the Operator or the PM only in their own conversation',
       );
     const input = actor.via
       ? formatInjectedTeamMessage(

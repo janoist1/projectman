@@ -501,7 +501,7 @@ describe('dismiss_signal authorization and domain errors', () => {
         { ...operator, sessionId: guest.id },
         { signalId: 'unknown', note: 'Note' },
       ),
-    ).rejects.toMatchObject({ code: 'forbidden', message: expect.stringContaining('project_manager_only') });
+    ).rejects.toMatchObject({ code: 'forbidden', message: expect.stringContaining('operator_owner_only') });
   });
 
   it('dismisses without an owner request and hides the record-only note from the DTO', async () => {

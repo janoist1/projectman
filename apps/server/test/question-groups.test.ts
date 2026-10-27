@@ -238,7 +238,6 @@ describe('combined owner questions', () => {
       dev,
       { ...manager, member: 'operator' },
       { ...manager, member: 'owner' },
-      { ...manager, sessionId: 'ses_guest_pm' },
       { ...manager, sessionId: 'ses_card_pm' },
     ])
       await expect(
@@ -248,6 +247,13 @@ describe('combined owner questions', () => {
           note: 'Same',
         }),
       ).rejects.toThrow('project_manager_only');
+    // A guest conversation of the PM is limited to the guest tools before the coordination rule is asked (PM-1080).
+    await expect(
+      h.domain.teamTools.combineQuestions(
+        { ...manager, sessionId: 'ses_guest_pm' },
+        { itemIds: [first, second], question: 'Both?', note: 'Same' },
+      ),
+    ).rejects.toThrow('operator_owner_only');
   });
 
   it('falls back once at the earliest deadline and never opens a linked question', async () => {

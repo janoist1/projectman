@@ -168,13 +168,16 @@ describe('Operator member starts without a card (PM-546)', () => {
       { awaitWake: true },
     );
     await flush();
-    const session = await waitForSession(h.domain, { member: 'pm' });
-    ctx.sessionId = 'ses_pm_guest';
-    h.repos.sessions.insert({ ...session, id: ctx.sessionId, workItem: { type: 'general', with: 'guest' } });
+    // The person's message opened the PM's conversation with them (PM-1080).
+    const session = h.domain.sessions
+      .list('AR', { member: 'pm' })
+      .find((s) => s.workItem.type === 'general' && s.workItem.with === 'guest');
+    expect(session).toBeDefined();
+    ctx.sessionId = session!.id;
     const before = h.repos.messages.list('AR');
     await expect(start()).rejects.toMatchObject({
       code: 'forbidden',
-      message: expect.stringContaining('project_manager_only'),
+      message: expect.stringContaining('operator_owner_only'),
     });
     expect(h.repos.messages.list('AR')).toEqual(before);
     expect(steps()).toEqual([]);

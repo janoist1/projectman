@@ -201,11 +201,22 @@ export function memberSandboxDir(appHome: string, projectKey: string, handle: st
 }
 
 /**
- * The empty directory the Operator's conversation with someone who is not an owner runs in (PM-475):
- * not the workspace, so the conversation has a transcript of its own and nothing to read beside it.
+ * The empty directory the Operator's or the PM's conversation with someone who is not an owner runs in
+ * (PM-475, PM-1080): not the workspace, so the conversation has a transcript of its own and nothing to read
+ * beside it. The PM's is apart from the Operator's, so neither reads a file the other left.
  */
-export function guestSessionDir(appHome: string, projectKey: string, guestHandle: string): string {
-  return path.join(appHome, 'operator-guests', projectKey, guestHandle);
+export function guestSessionDir(
+  appHome: string,
+  projectKey: string,
+  guestHandle: string,
+  by: 'operator' | 'manager' = 'operator',
+): string {
+  return path.join(
+    appHome,
+    by === 'operator' ? 'operator-guests' : 'manager-guests',
+    projectKey,
+    guestHandle,
+  );
 }
 
 /**

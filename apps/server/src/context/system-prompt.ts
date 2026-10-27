@@ -9,6 +9,7 @@ import {
   coordinationMemberOf,
   dutyMembers,
   effectiveRepo,
+  guestOfConversation,
   isOperator,
   isProjectManager,
   machineAccessOf,
@@ -708,6 +709,10 @@ function machineHandoffInstruction(machineAccess: boolean): string {
   return machineAccess ? 'use open_integrator_todo for the global Operator' : 'ask the owners with ask_human';
 }
 
+/** The project manager's conversation with someone who is not an owner (PM-1080): the guest tools alone. */
+const MANAGER_GUEST_RULE =
+  'This is your conversation with a person who is not an owner. You have only the team tools for reading what that person can see and for answering them (send_message goes to them alone). Coordination, operations, project documents and every other write are refused here; for those, tell the person that the owner decides, or that the owner can ask you in the owners’ conversation.';
+
 /** The dispatcher keeps authority limits in the prompt and reads procedures on demand. */
 function projectManagerRule(
   project: ContextPackInput['project'],
@@ -996,7 +1001,10 @@ function roleSection(input: ContextPackInput, guide: ContextPack['guide']): stri
     details.push(operatorRule(project));
     guide.operations = operationsGuide();
   }
-  if (isProjectManager(member)) {
+  const managerGuest =
+    isProjectManager(member) && guestOfConversation(project, member, input.workItem) !== undefined;
+  // A guest conversation has the guest tools alone: no operations or coordination procedures to read.
+  if (isProjectManager(member) && !managerGuest) {
     guide.operations = operationsGuide();
     details.push(
       projectManagerGuide(
@@ -1024,6 +1032,7 @@ function roleSection(input: ContextPackInput, guide: ContextPack['guide']): stri
             operatorWatchOf(project),
             machineAccessOf(member),
           ),
+          ...(managerGuest ? [MANAGER_GUEST_RULE] : []),
         ]
       : []),
     ...(isOperator(member) ? [operatorIndex()] : []),

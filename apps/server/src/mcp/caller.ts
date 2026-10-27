@@ -4,6 +4,7 @@ import {
   coordinationActorRefusal,
   coordinationMemberOf,
   ERROR_CODES,
+  guestOfConversation,
   ownerHandles,
   isOperator,
   isProjectManager,
@@ -212,6 +213,7 @@ export class ToolCaller {
   ): Promise<CallerWithRequest> {
     if (!isLessonsOnly(edits)) return this.callerWithRequest(ctx, tool);
     const config = await this.projects.config(ctx.projectKey);
+    await this.assertNotManagerGuest(ctx, tool);
     if (!isOperator(memberOf(config, ctx.member))) this.assertCoordinationSession(ctx, config);
     const session = this.ctx.repos.sessions.get(ctx.sessionId);
     const request = this.operatorRequests.openFor(ctx.sessionId);
@@ -259,6 +261,17 @@ export class ToolCaller {
     operation?: OperatorOperation,
   ): Promise<CallerWithRequest> {
     const config = await this.projects.config(ctx.projectKey);
+    // The PM's conversation with someone who is not an owner (PM-1080): the guest tools alone, whatever
+    // else the PM may do in its internal conversation.
+    const managerGuest = this.managerGuestOf(ctx, config);
+    if (managerGuest) {
+      if (signal || !OPERATOR_GUEST_TOOLS.has(tool))
+        throw new TeamToolError(
+          'forbidden',
+          `${OWNER_ONLY}: ${tool} is not for a conversation with ${managerGuest.handle}.`,
+        );
+      return { config, request: null, guest: managerGuest };
+    }
     if (
       ['operate', 'execute_operation', 'get_operation', 'get_role_configuration'].includes(tool) &&
       !isOperator(memberOf(config, ctx.member))
@@ -770,6 +783,30 @@ export class ToolCaller {
         'forbidden',
         'project_manager_only: coordination requires the selected PM internal conversation.',
       );
+  }
+
+  /** Refuses a tool that does not go through `callerWithRequest` in a PM's guest conversation (PM-1080). */
+  async assertNotManagerGuest(ctx: ToolContext, tool: string): Promise<void> {
+    const guest = this.managerGuestOf(ctx, await this.projects.config(ctx.projectKey));
+    if (guest)
+      throw new TeamToolError(
+        'forbidden',
+        `${OWNER_ONLY}: ${tool} is not for a conversation with ${guest.handle}.`,
+      );
+  }
+
+  /**
+   * The person a project manager's session talks with in its conversation with someone who is not an owner
+   * (PM-1080), as their view of the project; null in any other session of a PM and for the Operator, whose
+   * guest `guestOf` finds. The session decides, not the selection: a `with` conversation stays restricted.
+   */
+  private managerGuestOf(ctx: ToolContext, config: ProjectConfig): GuestView | null {
+    const member = memberOf(config, ctx.member);
+    if (isOperator(member) || !isProjectManager(member)) return null;
+    const session = this.ctx.repos.sessions.get(ctx.sessionId);
+    const workItem = session?.workItem;
+    if (!workItem || guestOfConversation(config, member, workItem) === undefined) return null;
+    return this.guestOf(ctx, config, null);
   }
 
   /**

@@ -3672,7 +3672,7 @@ assumption or remote-engine RPC.
   whose CLI shows no image in an MCP tool result, the server has the caller's engine put a copy at
   `<session folder>/<id>-<name>` (0600, straight in the folder with no subdirectory since PM-523, see
   SECURITY.md; the same path for the same bytes) and the tool answers with that path. The caller is the session the MCP token names; the
-  target is its own folder only, and a guest conversation of the Operator (no folder, `teamToolsOnly`)
+  target is its own folder only, and a guest conversation of the Operator or of the project manager (no folder, `teamToolsOnly`)
   gets none. PM-1061: the copy goes only to the engine the session runs on, and the engine must be bound to the
   session's project (`files.materialize_into_session` is session-scoped, a project call is checked by the hub guard).
   A failure (engine offline or older, no folder, a disk error) is logged and the tool
@@ -5231,6 +5231,19 @@ listAnsweredQuestions`). `list_decision_candidates { limit? }` (1..50, default 2
   (`canSeeOperatorSessions`: REST, WebSocket events and terminal, the member profile). Capacity (1) counts the guest
   conversations only (`Admission.memberLoad`): the owner's never waits; a guest conversation closes after
   `OPERATOR_GUEST_IDLE_CLOSE_MINUTES` (5) idle. No machine-dependent part is affected.
+  **The project manager has the same guest conversations (PM-1080, PM-1023 K3b).** One rule decides who has them,
+  `hasGuestConversations(config, member)` in `packages/shared/src/config/project-manager.ts`: the Operator (until PM-1045)
+  or the selected project manager (`coordinationMemberOf`). The route (`nominalMessagePlace`, via
+  `managerConversationOf`; `operatorConversationOf` stays as an alias until PM-1045), the session start
+  (`message-starts.ts`), the write guard (`prepareSessionChat`), the message wait and the prompt all ask it instead of
+  `isOperator`. A `with` conversation of any project manager stays restricted even when it is no longer the selected one
+  (`guestOfConversation`, fail closed): `ToolCaller.callerWithRequest` lets it call `OPERATOR_GUEST_TOOLS` only (no new
+  tool; the refusal is the same `operator_owner_only`, the feedback tools and the lessons path ask
+  `assertNotManagerGuest`), the session is `teamToolsOnly` on Claude Code (another CLI is `provider_unsupported`), runs in
+  `manager-guests/<project>/<handle>` under the engine home (`guestSessionDir(…, 'manager')`, apart from the Operator's
+  `operator-guests`), and closes after the same idle time. The `with` conversation counts toward the PM's one shared
+  general conversation capacity; the owners' conversation and the PM's operations are unchanged (a PM request opens only
+  from the owner's own-login message). The Operator's capacity rule (`memberQueueStartLimits`) is unchanged.
 - **Owner requests** (migration 47, `OperatorRequests` in `services/operator/requests.ts`). A request opens when an
   owner's message, or the owner's answer to the Operator's question, is delivered into its session
   (`MessageService.markRecipientDelivered`); `quote` is the first 280 characters, line breaks as spaces. It closes on

@@ -274,7 +274,7 @@ describe('the permanent project manager channel', () => {
 
   it('shows a person who is not an owner the session their message really goes to', async () => {
     await harness();
-    const { session } = await h.domain.sessions.ensureSession('AR', 'pm', { type: 'general' });
+    const { session } = await h.domain.sessions.ensureSession('AR', 'pm', { type: 'general', with: 'kata' });
     h.repos.sessions.update(session.id, { state: 'working' });
     expect(await h.domain.projectManagerChannels.view('AR', 'kata')).toMatchObject({
       readOnly: true,

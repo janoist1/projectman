@@ -1,8 +1,8 @@
 import { z } from 'zod';
 import { memberOf } from '../config/lookup';
 import { isOnLeave } from '../config/leave';
-import { isOperator, operatorConversationOf, operatorOf } from '../config/operator-member';
-import { sessionWorkItemOf } from '../config/project-manager';
+import { isOperator, operatorOf } from '../config/operator-member';
+import { hasGuestConversations, managerConversationOf, sessionWorkItemOf } from '../config/project-manager';
 import type { ProjectConfig } from '../config/schema';
 import { MemberHandle } from './member';
 import { WorkItemRef } from './session';
@@ -245,8 +245,9 @@ export function integratorSideAvailable(config: Pick<ProjectConfig, 'team'>): bo
 }
 
 /**
- * The place a message is meant for, before running sessions count: the Operator's conversation with the
- * sender for the Operator, else the member's own work item (`sessionWorkItemOf`). `Messaging.place` starts with it.
+ * The place a message is meant for, before running sessions count: the conversation with the sender for a
+ * member who has guest conversations (`hasGuestConversations`), else the member's own work item
+ * (`sessionWorkItemOf`). `Messaging.place` starts with it.
  */
 export function nominalMessagePlace(
   config: Pick<ProjectConfig, 'team'>,
@@ -256,8 +257,8 @@ export function nominalMessagePlace(
 ): WorkItemRef {
   const recipient = memberOf(config, handle);
   return from !== undefined &&
-    isOperator(recipient) &&
+    hasGuestConversations(config, recipient) &&
     (workItem.type === 'task' || workItem.type === 'general')
-    ? operatorConversationOf(config, from)
+    ? managerConversationOf(config, from)
     : sessionWorkItemOf(recipient, workItem);
 }

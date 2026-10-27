@@ -5,6 +5,7 @@ import {
   DEFAULT_AGENT_PROVIDER,
   effectiveRepo,
   isMergeFixer,
+  guestOfConversation,
   handoffBlocksStart,
   isOperator,
   isTheme,
@@ -252,19 +253,19 @@ export class SessionLauncher {
     assertRepoChosen(config, member.role, task);
     const projectKey = config.project.key;
     const provider = member.provider ?? DEFAULT_AGENT_PROVIDER;
-    // The Operator's conversation with someone who is not an owner (PM-475) runs on the team tools
-    // alone: no file or shell tools, an empty directory of its own, and every other tool refused.
-    const guestOf = isOperator(member) && workItem.type === 'general' ? workItem.with : undefined;
+    // The Operator's or the PM's conversation with someone who is not an owner (PM-475, PM-1080) runs on the
+    // team tools alone: no file or shell tools, an empty directory of its own, and every other tool refused.
+    const guestOf = guestOfConversation(config, member, workItem);
     // Only the Claude Code adapter can leave a CLI with the team tools alone (`--tools` and deny rules);
     // the others keep their own shell and file tools, so a guest conversation fails closed on them.
     if (guestOf !== undefined && provider !== 'claude')
       throw conflict(
         'provider_unsupported',
-        `the Operator's conversation with others needs Claude Code; ${provider} cannot be limited to the team tools`,
+        `a conversation with others needs Claude Code; ${provider} cannot be limited to the team tools`,
         { provider },
       );
     // A resume keeps its permission overrides (PM-170); a guest uses team tools alone.
-    const acting = contextMember(member, workItem, existing);
+    const acting = contextMember(config, member, workItem, existing);
     const { permissionMode } = acting;
     // The engine the session runs on (PM-311): every path, worktree and folder below is its. A start
     // is refused while it is not connected (admission makes it wait).
@@ -332,7 +333,12 @@ export class SessionLauncher {
       }
     } else if (guestOf !== undefined) {
       // Its own empty directory: not the workspace, and its transcript is not the owner's conversation's.
-      cwd = guestSessionDir(paths.home ?? path.join(paths.userHome, '.projectman'), projectKey, guestOf);
+      cwd = guestSessionDir(
+        paths.home ?? path.join(paths.userHome, '.projectman'),
+        projectKey,
+        guestOf,
+        isOperator(member) ? 'operator' : 'manager',
+      );
       await engine.preparePortablePaths([cwd]);
     } else if (task && repoName && usesWorktree(member.role, config)) {
       // Code-changing roles work in the task's own worktree and branch; others in the workspace.

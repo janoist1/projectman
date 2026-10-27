@@ -1,5 +1,6 @@
 import {
   coordinationMemberOf,
+  hasGuestConversations,
   hasSuperOrigin,
   structuralReviewOf,
   structuralReviewContinuation,
@@ -8,7 +9,7 @@ import {
   isUnreadBy,
   memberOf,
   messageRoute,
-  operatorConversationOf,
+  managerConversationOf,
   operatorKnowledgeApprovalOf,
   operatorKnowledgeContinuationOf,
   sameWorkItem,
@@ -171,16 +172,17 @@ export class MessageService {
   waiting(projectKey: string, handle: string, workItem: WorkItemRef): TeamMessage[] {
     const config = this.projects.cachedConfig(projectKey);
     const recipient = config ? memberOf(config, handle) : undefined;
-    // The project manager has one conversation: every route lands in it. The Operator has one per person who is
-    // not an owner and one shared by the others (PM-475): a message lands in the one its route names.
-    const operator = workItem.type === 'general' && isOperator(recipient);
+    // The Operator and the selected project manager have one conversation per person who is not an owner and one
+    // shared by the others (PM-475, PM-1080): a message lands in the one its route names. Any other project
+    // manager has one conversation: every route lands in it.
+    const split = workItem.type === 'general' && !!config && hasGuestConversations(config, recipient);
     const allRoutes = workItem.type === 'general' && isProjectManager(recipient);
     // A task's session takes the messages routed to that task; any other chat takes everything not
     // routed to a task (general ones, and answers routed to a schedule run or meeting whose session ended).
     return this.ctx.repos.messages.pending(projectKey, handle).filter((m) => {
-      if (allRoutes) return true;
       const route = messageRoute(m, handle);
-      if (operator) return (route.type === 'general' ? route.with : undefined) === workItem.with;
+      if (split) return (route.type === 'general' ? route.with : undefined) === workItem.with;
+      if (allRoutes) return true;
       return workItem.type === 'task' ? sameWorkItem(route, workItem) : route.type !== 'task';
     });
   }
@@ -323,7 +325,7 @@ export class MessageService {
     const session = this.ctx.repos.sessions.findByWorkItem(
       message.projectKey,
       handle,
-      operatorConversationOf(config, message.from),
+      managerConversationOf(config, message.from),
     );
     if (!session) return;
     this.operatorRequests.open({

@@ -41,6 +41,36 @@ export function coordinationMemberOf(config: Pick<ProjectConfig, 'team'>): AiMem
   return member && !isOnLeave(member) ? member : null;
 }
 
+/**
+ * Whether people who are not owners talk to `member` in a conversation of their own, restricted to the
+ * guest tools (PM-475, PM-1080): the Operator (until PM-1045 retires it) and the selected coordinator.
+ * Where such a conversation runs is `managerConversationOf`; every guest condition asks this one rule.
+ */
+export function hasGuestConversations(
+  config: Pick<ProjectConfig, 'team'>,
+  member: MemberConfig | null | undefined,
+): boolean {
+  if (member?.kind !== 'ai') return false;
+  return (
+    isOperator(member) ||
+    (member.handle !== undefined && coordinationMemberOf(config)?.handle === member.handle)
+  );
+}
+
+/**
+ * The person a session of `member` in `workItem` talks with as a guest; undefined outside a guest conversation.
+ * Fails closed: a `with` conversation of any project manager stays restricted, also when that manager is no
+ * longer the selected coordinator (a switch or leave while the conversation exists).
+ */
+export function guestOfConversation(
+  config: Pick<ProjectConfig, 'team'>,
+  member: MemberConfig | null | undefined,
+  workItem: WorkItemRef,
+): string | undefined {
+  if (workItem.type !== 'general') return undefined;
+  return hasGuestConversations(config, member) || isProjectManager(member) ? workItem.with : undefined;
+}
+
 /** Coordination mutations require the selected PM acting directly, never an integrator or a human. */
 export function coordinationActorRefusal(
   config: Pick<ProjectConfig, 'team'>,

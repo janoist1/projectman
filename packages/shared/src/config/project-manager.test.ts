@@ -4,6 +4,8 @@ import {
   actorMoveRefusal,
   coordinationActorRefusal,
   coordinationMemberOf,
+  guestOfConversation,
+  hasGuestConversations,
   isCoordinationActor,
   isProjectManager,
   isRequiredProjectManager,
@@ -246,6 +248,37 @@ describe('managerConversationOf', () => {
     expect(managerConversationOf(config, 'pm')).toEqual({ type: 'general' });
     expect(managerConversationOf(config, 'cleo')).toEqual({ type: 'general', with: 'cleo' });
     expect(managerConversationOf(config, 'vic')).toEqual({ type: 'general', with: 'vic' });
+  });
+});
+
+describe('guest conversations', () => {
+  const config = configWith([
+    ai('away', { onLeave: true }),
+    ai('pm'),
+    ai('operator', { role: 'ai_operator' }),
+    ai('dev-1', { role: 'developer' }),
+    { kind: 'human', handle: 'cleo', displayName: 'Cleo', access: 'client' },
+  ]);
+
+  it('belong to the Operator and the selected PM alone', () => {
+    const has = (handle: string) => hasGuestConversations(config, memberOf(config, handle));
+    expect(has('pm')).toBe(true);
+    expect(has('operator')).toBe(true);
+    expect(has('away')).toBe(false);
+    expect(has('dev-1')).toBe(false);
+    expect(has('cleo')).toBe(false);
+    expect(hasGuestConversations(config, undefined)).toBe(false);
+  });
+
+  it('name the person the conversation is with, and stay restricted when the PM is no longer selected', () => {
+    const guest = { type: 'general', with: 'cleo' } as const;
+    expect(guestOfConversation(config, memberOf(config, 'pm'), guest)).toBe('cleo');
+    expect(guestOfConversation(config, memberOf(config, 'pm'), { type: 'general' })).toBeUndefined();
+    expect(
+      guestOfConversation(config, memberOf(config, 'pm'), { type: 'task', taskKey: 'AC-1' }),
+    ).toBeUndefined();
+    expect(guestOfConversation(config, memberOf(config, 'away'), guest)).toBe('cleo');
+    expect(guestOfConversation(config, memberOf(config, 'dev-1'), guest)).toBeUndefined();
   });
 });
 

@@ -81,7 +81,7 @@ export default async ({ instance, open, shoot, step, log }) => {
   ];
 
   // What the browser is told on top of the server's answers.
-  const state = { corner: {}, grant: null, messages: [] };
+  const state = { corner: {}, grant: null, messages: [], answer: 'ok' };
   const attach = async (page) => {
     page.on('response', (response) => {
       if (response.status() >= 400) log(`${response.status()} ${response.url()}`);
@@ -89,6 +89,10 @@ export default async ({ instance, open, shoot, step, log }) => {
     await page.route(
       (url) => url.pathname === '/api/projects/AC/project-manager',
       async (route) => {
+        // `loading` never answers; `error` answers with a failure.
+        if (state.answer === 'loading') return;
+        if (state.answer === 'error')
+          return json(route, { error: { code: 'internal', message: 'The corner could not be read' } }, 500);
         const response = await route.fetch();
         const body = await response.json();
         json(route, { ...body, ...state.corner }, response.status());
@@ -182,12 +186,22 @@ export default async ({ instance, open, shoot, step, log }) => {
         member: { handle: pm.handle, displayName: pm.displayName, onLeave: true },
       },
       'b-button-none': { openSignals: 0, signals: [], queue: { open: 0, current: null } },
+      'b-button-working': {
+        openSignals: 0,
+        signals: [],
+        queue: { open: 0, current: null },
+        state: 'working',
+      },
     };
     for (const [name, corner] of Object.entries(states)) {
       reset(corner);
       const page = await openWith();
       await shoot(page, name, { widths: WIDTHS, highlight: '[data-operator-button]' });
     }
+    // On a narrow desktop the label sheds the name and shows "PM".
+    reset({ openSignals: 0, signals: [], queue: { open: 0, current: null } });
+    const narrow = await openWith({ width: 1024 });
+    await shoot(narrow, 'b-button-narrow-desktop', { widths: [1024], highlight: '[data-operator-button]' });
   });
 
   await step('c. a client', async () => {
@@ -244,6 +258,25 @@ export default async ({ instance, open, shoot, step, log }) => {
       await openPanel(page, corner.state !== 'missing');
       await shoot(page, name, { widths: WIDTHS });
     }
+  });
+
+  await step('h. loading and error', async () => {
+    for (const [answer, width] of [
+      ['loading', 1512],
+      ['loading', 390],
+      ['error', 1512],
+      ['error', 390],
+    ]) {
+      reset();
+      state.answer = answer;
+      const page = await openWith({ width });
+      await openPanel(page, false);
+      // The failed query retries before the panel shows its error; a resize would restart it.
+      if (answer === 'error')
+        await page.getByRole('button', { name: 'Újra', exact: true }).waitFor({ timeout: 15000 });
+      await shoot(page, `h-${answer}`, { widths: [width] });
+    }
+    state.answer = 'ok';
   });
 
   await step('i. the machine panel: grant given and not given', async () => {

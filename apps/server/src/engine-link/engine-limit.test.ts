@@ -994,6 +994,42 @@ describe('engine local limit', () => {
       await refused(limit, 'full_test.run', fullTest({ cwd: outside }), 'path_outside_roots');
     });
 
+    it('lets a regeneration write directories only with the configured command in a merge check checkout (PM-1050)', async () => {
+      const cwd = path.join(worktrees, '_merge', newId('merge'));
+      mkdirSync(cwd, { recursive: true });
+      const limit = make({
+        repos: [
+          {
+            project: 'PM',
+            repo: 'projectman',
+            path: repo,
+            fullTestCommand: 'npm test',
+            regenerateCommand: 'npm run generate',
+            mergeBranch: 'main',
+            workspaceSetup: null,
+          },
+        ],
+      });
+      const regenerating = (overrides: Record<string, unknown> = {}, writeDirs = ['gen']) =>
+        fullTest({
+          command: 'npm run generate',
+          cwd,
+          sandbox: { allowRead: [], denyRead: [], denyWrite: [], allowWrite: [], writeDirs },
+          ...overrides,
+        });
+      await expect(limit.check('full_test.run', regenerating() as never)).resolves.toBeDefined();
+      // The test command may not write, and the regeneration command is not a test command.
+      await refused(limit, 'full_test.run', regenerating({ command: 'npm test' }), 'command_not_allowed');
+      await refused(
+        limit,
+        'full_test.run',
+        fullTest({ command: 'npm run generate', cwd }),
+        'command_not_allowed',
+      );
+      await refused(limit, 'full_test.run', regenerating({}, ['.git']), 'invalid_params');
+      await refused(limit, 'full_test.run', regenerating({ cwd: repo }), 'path_outside_roots');
+    });
+
     it('passes the dependency preparation request of a registered merge repo on, and refuses others (PM-681)', async () => {
       const ref = { projectKey: 'PM', repo: 'projectman' };
       const npmCi = { ref, mergeId: newId('merge') };

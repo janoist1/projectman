@@ -1,7 +1,7 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { fullTestSandbox } from '../runtime/sessions';
 import {
   failedFiles,
@@ -20,6 +20,7 @@ import {
   fullTestEnv,
   installerSettings,
   niceSrtCommand,
+  resolveWriteDirs,
   runDirOf,
   runPaths,
   srtSettings,
@@ -318,6 +319,12 @@ describe('the sandbox of a full test run', () => {
     expect(paths.settings).toBe('/tmp/projectman-full-test-ftr_1/settings.json');
   });
 
+  it('makes the directories of a regeneration writable too, and nothing else', () => {
+    const dirs = ['/work/checkout/gen'];
+    expect(srtSettings(spec, paths, dirs).filesystem.allowWrite).toEqual([paths.sandbox, ...dirs]);
+    expect(srtSettings(spec, paths).filesystem.allowWrite).toEqual([paths.sandbox]);
+  });
+
   it('opens Unix sockets only below the run own tmp, never all of them', () => {
     const { network } = srtSettings(spec, paths);
     expect(network.allowUnixSockets).toEqual([paths.tmp]);
@@ -443,5 +450,44 @@ describe('fullTestSandbox', () => {
       fullTestSandbox({ checkout: '/c', userHome: '/Users/anna', appHome: '/Users/anna/.projectman' })
         .denyRead,
     ).not.toContain('/tmp/claude-501');
+  });
+});
+
+describe('the writable directories of a regeneration (PM-1050)', () => {
+  const made: string[] = [];
+  const checkout = () => {
+    const dir = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'pm-write-dirs-')));
+    made.push(dir);
+    return dir;
+  };
+  afterEach(() => {
+    for (const dir of made.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('gives the real directories below the checkout, making one that is missing', async () => {
+    const cwd = checkout();
+    mkdirSync(path.join(cwd, 'gen'));
+    expect(await resolveWriteDirs(cwd, ['gen', 'gen', 'apps/web/snaps'])).toEqual([
+      path.join(cwd, 'gen'),
+      path.join(cwd, 'apps/web/snaps'),
+    ]);
+    expect(await resolveWriteDirs(cwd, [])).toEqual([]);
+  });
+
+  it.each(['.git', '.git/hooks', '../out', '/etc', 'node_modules/x', 'a/../b', 'gen/**'])(
+    'refuses the directory %s',
+    async (dir) => {
+      await expect(resolveWriteDirs(checkout(), [dir])).rejects.toThrow();
+    },
+  );
+
+  it('refuses a link, on the way or at the end, and a file', async () => {
+    const cwd = checkout();
+    const outside = checkout();
+    symlinkSync(outside, path.join(cwd, 'gen'));
+    await expect(resolveWriteDirs(cwd, ['gen'])).rejects.toThrow('not a real directory');
+    await expect(resolveWriteDirs(cwd, ['gen/sub'])).rejects.toThrow('not a real directory');
+    writeFileSync(path.join(cwd, 'file'), 'x');
+    await expect(resolveWriteDirs(cwd, ['file'])).rejects.toThrow('not a real directory');
   });
 });

@@ -1,4 +1,4 @@
-import type { ReviewTestConfig } from '@projectman/shared';
+import { regeneratedWriteDir, type ReviewTestConfig } from '@projectman/shared';
 import { EngineLinkLostError, isEngineLinkLost } from '../../contracts';
 import type { EngineHost, MergeBuildResult, MergeRepoRef } from '../../contracts';
 import { newId, SYSTEM_ACTOR } from '../../kernel';
@@ -60,6 +60,10 @@ export async function regenerateConflict(input: RegenerateInput): Promise<Regene
   }
   if (!proceed()) return { stopped: true };
   if (again.ok || again.provisional === undefined) return { ok: false };
+  // The command may write only the directories the patterns name, nothing else of the checkout.
+  const writeDirs = [...new Set(regenerate.paths.map(regeneratedWriteDir))];
+  if (!writeDirs.every((dir): dir is string => dir !== null))
+    return { ok: false, detail: 'a generated path pattern names no directory to write' };
   // The generator runs on the engine whatever runs the merge check: GitHub Actions cannot write back.
   const available = await mergeCheckExecutor(engine, 'engine');
   if (!available.ok) return { ok: false, detail: available.reason };
@@ -78,8 +82,9 @@ export async function regenerateConflict(input: RegenerateInput): Promise<Regene
       paths: engine.paths(),
     });
     if (!proceed()) return { stopped: true };
+    const spec = prepared.spec({ runId: newId('regen'), command: regenerate.command, reviewTest });
     const result = await available.executor.run(
-      prepared.spec({ runId: newId('regen'), command: regenerate.command, reviewTest }),
+      { ...spec, sandbox: { ...spec.sandbox, writeDirs } },
       input.signal,
     );
     if (!proceed()) return { stopped: true };

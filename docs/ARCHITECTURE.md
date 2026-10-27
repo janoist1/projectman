@@ -4255,10 +4255,17 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   engine answers the conflict with a `provisional` merge commit (parents `onto` and the commit) made
   without those files, in a temporary index file in the engine's `os.tmpdir()` (the checkout's index is
   never used). The server runs the configured command in the full test sandbox on a `_merge/<mergeId>`
-  checkout of it (`full_test.run`, not recorded as a merge check), then `merge.commit_regenerated` has
-  the engine commit the written files, only regular, single-link files inside the patterns, written
-  with `hash-object --no-filters` and never `git add`, and the merge check checks that commit as
-  always. Any other conflict, any refusal and any failure keeps the old `conflict` failure; an engine
+  checkout of it (`full_test.run`, not recorded as a merge check). Only that run may write: its spec
+  carries `sandbox.writeDirs`, the literal directories of the patterns, and the executor makes just
+  those writable (real directories of the checkout, never links; the rest of the checkout, its `.git`
+  and `node_modules` stay read-only). A remote engine accepts that spec only with the command of the
+  repo's `regenerateCommand` in its `engine.json` (the owner sets it; `fullTestCommand` may not write)
+  and only in a `_merge` checkout. Then `merge.commit_regenerated` has the engine commit the written
+  files: only regular, single-link files inside the patterns (never a `.git*` name or `.husky`), each
+  read through one descriptor opened without following a link, checked again by path after the read,
+  and hashed from those bytes with `hash-object --no-filters`, never `git add`. Git does not discover
+  the checkout: its worktree git directory is found from the repository and named in `GIT_DIR` (only
+  `status` looks at the work tree). The merge check checks that commit as always. Any other conflict, any refusal and any failure keeps the old `conflict` failure; an engine
   from before the field refuses `regenerate` (`invalid_params`) and the merge fails as before. The
   call count above is nine with `merge.commit_regenerated`; no other machine assumption is added.
   Member workspaces (PM-739): a developer's commit lives only in their remote-less clone, so before the

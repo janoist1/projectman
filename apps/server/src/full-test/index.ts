@@ -16,6 +16,7 @@ import {
   FULL_TEST_GIT_CONFIG,
   fullTestEnv,
   runDirOf,
+  resolveWriteDirs,
   runPaths,
   srtSettings,
   SHORT_ROOT,
@@ -228,6 +229,14 @@ export function createFullTestExecutor(options: FullTestExecutorOptions): FullTe
         : probe
           ? PROBE_TIMEOUT_MS
           : spec.timeoutMs;
+    // The directories the regenerating run may write (PM-1050): checked before anything is made or started.
+    let writeDirs: string[] = [];
+    try {
+      writeDirs = await resolveWriteDirs(spec.cwd, spec.sandbox.writeDirs ?? []);
+    } catch (err) {
+      logger.warn({ err, runId: spec.runId }, 'the writable directories of the full test are not usable');
+      return failure('sandbox_unavailable', started, err instanceof Error ? err.message : '');
+    }
     // Not recursive: a directory or a link someone made at that name beforehand is an error, never
     // reused, and never removed below.
     let created = false;
@@ -238,7 +247,9 @@ export function createFullTestExecutor(options: FullTestExecutorOptions): FullTe
       await mkdir(paths.tmp, { recursive: true });
       await mkdir(paths.npmCache, { recursive: true });
       await writeFile(paths.gitConfig, FULL_TEST_GIT_CONFIG);
-      await writeFile(paths.settings, JSON.stringify(srtSettings(spec, paths), null, 2), { mode: 0o600 });
+      await writeFile(paths.settings, JSON.stringify(srtSettings(spec, paths, writeDirs), null, 2), {
+        mode: 0o600,
+      });
     } catch (err) {
       logger.warn({ err, runId: spec.runId }, 'could not prepare the full test run directory');
       if (created) await rm(paths.runDir, { recursive: true, force: true }).catch(() => undefined);

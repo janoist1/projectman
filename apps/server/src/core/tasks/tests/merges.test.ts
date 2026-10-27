@@ -1473,6 +1473,11 @@ describe('member initiated merge', () => {
         regenerate.command,
         reviewTest.command,
       ]);
+      // Only the regeneration may write, and only the directory of the pattern; the merge check stays read-only.
+      expect(vi.mocked(executor.run).mock.calls.map(([spec]) => spec.sandbox.writeDirs)).toEqual([
+        ['gen'],
+        undefined,
+      ]);
       expect(merger.commitRegenerated).toHaveBeenCalledWith(
         expect.anything(),
         expect.objectContaining({ paths: ['gen/a.snap'], patterns: regenerate.paths }),

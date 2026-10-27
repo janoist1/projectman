@@ -1,4 +1,5 @@
-import { lstat, mkdtemp, realpath, rm } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { lstat, mkdtemp, open, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { isWithin } from '../kernel';
@@ -14,6 +15,12 @@ import { must } from './merge-repo';
  * merge commit. What the sandboxed generator wrote reaches a pushed commit this way, so nothing but
  * plain, unlinked, small files under the patterns is taken, and never through the checkout's own index
  * or git filters. The indexes are files of their own in a temporary directory, like `doc-files.ts`.
+ *
+ * The generator's process may outlive its run (a detached descendant), so nothing in the checkout is
+ * trusted twice: a file is read through one descriptor opened without following a link and checked on that
+ * descriptor, the same path is checked again after the read, and only the bytes read are hashed. Git never
+ * discovers the checkout by itself (its `.git` file is the generator's to leave alone but not to trust):
+ * only `status` looks at the work tree, with the verified git directory named explicitly.
  */
 
 const MAX_FILE_BYTES = 1024 * 1024;
@@ -26,10 +33,12 @@ const EMPTY_BLOB_MODE = '100644';
 const globPathspec = (pattern: string): string => `:(glob)${pattern}`;
 const PATHSPEC_ENV = { GIT_LITERAL_PATHSPECS: '0', GIT_NOGLOB_PATHSPECS: '0', GIT_GLOB_PATHSPECS: '0' };
 
-async function withScratchIndex<T>(run: (env: Record<string, string>) => Promise<T>): Promise<T> {
+async function withScratchIndex<T>(
+  run: (env: Record<string, string>, scratch: string) => Promise<T>,
+): Promise<T> {
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'projectman-index-'));
   try {
-    return await run({ ...PATHSPEC_ENV, GIT_INDEX_FILE: path.join(scratch, 'index') });
+    return await run({ ...PATHSPEC_ENV, GIT_INDEX_FILE: path.join(scratch, 'index') }, scratch);
   } finally {
     await rm(scratch, { recursive: true, force: true });
   }
@@ -131,96 +140,149 @@ export async function commitRegeneratedFiles(
   const known = await lstat(checkout).catch(() => null);
   if (!known?.isDirectory()) throw new MergeError('git_failed', 'The check checkout does not exist');
   const realCheckout = await realpath(checkout);
-  // The checkout must still be a worktree of this repository: the generator could have rewritten its `.git`.
-  const commonDir = (
-    await must(repo, ['rev-parse', '--path-format=absolute', '--git-common-dir'], 'rev-parse')
-  ).trim();
-  const gitDir = (
-    await must(checkout, ['rev-parse', '--path-format=absolute', '--git-dir'], 'rev-parse')
-  ).trim();
-  if (!isWithin(path.join(await realpath(commonDir), 'worktrees'), await realpath(gitDir)))
-    throw new MergeError('git_failed', 'The check checkout is not a worktree of the repository');
-  const head = (await must(checkout, ['rev-list', '--parents', '-n', '1', 'HEAD'], 'rev-list'))
+  const gitDir = await worktreeGitDir(repo, realCheckout);
+  const discovery = { GIT_DIR: gitDir, GIT_WORK_TREE: realCheckout, GIT_OPTIONAL_LOCKS: '0' };
+  const head = (
+    await must(repo, ['rev-list', '--parents', '-n', '1', 'HEAD'], 'rev-list', { env: discovery })
+  )
     .trim()
     .split(' ');
   if (head.length !== 3 || head[1] !== input.onto || head[2] !== input.commit)
     throw new MergeError('git_failed', 'The check checkout is not the provisional merge commit');
+  const headId = head[0] ?? '';
+  if (!isCommitId(headId)) throw new MergeError('git_failed', 'The check checkout has no commit');
 
+  // The only git command that looks at the work tree; the rest runs in the repository, on what is read here.
   const status = await must(
-    checkout,
+    realCheckout,
     ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--no-renames'],
     'status',
-    { env: { GIT_OPTIONAL_LOCKS: '0' } },
+    { env: discovery },
   );
   const files = [...new Set([...statusPaths(status), ...input.paths])].sort();
-  return withScratchIndex(async (env) => {
-    const matched = await matchedPaths(checkout, env, files, input.patterns);
-    const outside = files.filter((entry) => !matched.has(entry));
+  return withScratchIndex(async (env, scratch) => {
+    const matched = await matchedPaths(repo, env, files, input.patterns);
+    const outside = files.filter((entry) => !matched.has(entry) || !isTakenPath(entry));
     if (outside.length > 0) return { ok: false, reason: 'outside', paths: outside.slice(0, MAX_REPORTED) };
 
     const wanted = new Set(input.paths);
     const missing: string[] = [];
     const irregular: string[] = [];
     const removed: string[] = [];
-    const taken: { path: string; mode: string }[] = [];
+    const taken: { path: string; mode: string; bytes: Buffer }[] = [];
     for (const entry of files) {
-      const full = path.join(realCheckout, entry);
-      const info = await lstat(full).catch(() => null);
-      if (info === null) {
+      const read = await readPlainFile(realCheckout, entry);
+      if (read === 'missing') {
         // A file the generator deleted leaves the merge; a conflicting file it did not write is missing.
         if (wanted.has(entry)) missing.push(entry);
         else removed.push(entry);
-        continue;
-      }
-      // The directories on the way must be real ones too: a link there would lead out of the checkout.
-      const real = await realpath(full).catch(() => null);
-      if (
-        !info.isFile() ||
-        info.nlink !== 1 ||
-        info.size > MAX_FILE_BYTES ||
-        real !== full ||
-        taken.length >= MAX_FILES
-      ) {
-        irregular.push(entry);
-        continue;
-      }
-      taken.push({ path: entry, mode: info.mode & 0o111 ? '100755' : '100644' });
+      } else if (read === 'irregular' || taken.length >= MAX_FILES) irregular.push(entry);
+      else taken.push({ path: entry, ...read });
     }
     if (missing.length > 0) return { ok: false, reason: 'missing', paths: missing.slice(0, MAX_REPORTED) };
     if (irregular.length > 0)
       return { ok: false, reason: 'not_regular', paths: irregular.slice(0, MAX_REPORTED) };
 
-    await must(checkout, ['read-tree', 'HEAD'], 'read-tree', { env });
+    await must(repo, ['read-tree', headId], 'read-tree', { env });
     if (removed.length > 0)
-      await must(checkout, ['update-index', '--force-remove', '-z', '--stdin'], 'update-index', {
+      await must(repo, ['update-index', '--force-remove', '-z', '--stdin'], 'update-index', {
         env,
         input: removed.map((entry) => `${entry}\0`).join(''),
       });
     let entries = '';
+    const bytesFile = path.join(scratch, 'blob');
     for (const file of taken) {
-      // The bytes on disk, through no filter: what the sandboxed run wrote is what is committed.
-      const blob = await hashed(checkout, [
-        'hash-object',
-        '-w',
-        '-t',
-        'blob',
-        '--no-filters',
-        '--',
-        file.path,
-      ]);
+      // The bytes that were read, through no filter: what the sandboxed run wrote is what is committed.
+      await writeFile(bytesFile, file.bytes);
+      const blob = await hashed(repo, ['hash-object', '-w', '-t', 'blob', '--no-filters', '--', bytesFile]);
       entries += `${file.mode} ${blob}\t${file.path}\0`;
     }
     if (entries.length > 0)
-      await must(checkout, ['update-index', '--add', '--replace', '-z', '--index-info'], 'update-index', {
+      await must(repo, ['update-index', '--add', '--replace', '-z', '--index-info'], 'update-index', {
         env,
         input: entries,
       });
-    const made = await writeCommit(checkout, env, input);
+    const made = await writeCommit(repo, env, input);
     const diff = await must(
-      checkout,
+      repo,
       ['diff-tree', '-r', '--name-only', '-z', '--no-renames', '--no-commit-id', input.onto, made],
       'diff-tree',
     );
     return { ok: true, mergeCommit: made, changed: nulPaths(diff).sort().slice(0, MAX_CHANGED) };
   });
+}
+
+/**
+ * A path the merge commit may take from the checkout: git's own names (`.git*`: its hooks, attributes and
+ * modules) and the hook directory of husky never come out of a generator, whatever the patterns say.
+ */
+function isTakenPath(entry: string): boolean {
+  return entry.split('/').every((segment) => {
+    const lower = segment.toLowerCase();
+    return !lower.startsWith('.git') && lower !== '.husky';
+  });
+}
+
+/**
+ * The git directory of the worktree at `realCheckout`, found from the repository's side (the worktree's own
+ * `.git` file is not read): the entry of `<common dir>/worktrees` whose `gitdir` file points into it.
+ */
+async function worktreeGitDir(repo: string, realCheckout: string): Promise<string> {
+  const commonDir = await realpath(
+    (await must(repo, ['rev-parse', '--path-format=absolute', '--git-common-dir'], 'rev-parse')).trim(),
+  );
+  const root = path.join(commonDir, 'worktrees');
+  for (const name of await readdir(root).catch(() => [] as string[])) {
+    const dir = await realpath(path.join(root, name)).catch(() => null);
+    if (dir === null || !isWithin(root, dir)) continue;
+    const pointer = await readFile(path.join(dir, 'gitdir'), 'utf8').catch(() => null);
+    if (pointer === null || path.basename(pointer.trim()) !== '.git') continue;
+    if ((await realpath(path.dirname(pointer.trim())).catch(() => null)) === realCheckout) return dir;
+  }
+  throw new MergeError('git_failed', 'The check checkout is not a worktree of the repository');
+}
+
+/**
+ * The bytes and mode of the plain, unlinked, small file `entry` of the checkout, or why it is not one:
+ * `missing` (nothing there) or `irregular`. One descriptor opened without following a link is checked and
+ * read; afterwards the path must still lead to that same file through real directories, so a link or a
+ * directory swapped in and back while the file was read does not pass.
+ */
+async function readPlainFile(
+  realCheckout: string,
+  entry: string,
+): Promise<'missing' | 'irregular' | { mode: string; bytes: Buffer }> {
+  const full = path.join(realCheckout, entry);
+  let handle;
+  try {
+    handle = await open(full, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === 'ENOENT' ? 'missing' : 'irregular';
+  }
+  try {
+    const info = await handle.stat();
+    if (!info.isFile() || info.nlink !== 1 || info.size > MAX_FILE_BYTES) return 'irregular';
+    const bytes = Buffer.alloc(info.size);
+    let length = 0;
+    while (length < bytes.length) {
+      const { bytesRead } = await handle.read(bytes, length, bytes.length - length, length);
+      if (bytesRead === 0) break;
+      length += bytesRead;
+    }
+    const again = await lstat(full).catch(() => null);
+    const real = await realpath(full).catch(() => null);
+    if (
+      length !== info.size ||
+      again === null ||
+      !again.isFile() ||
+      again.dev !== info.dev ||
+      again.ino !== info.ino ||
+      again.nlink !== 1 ||
+      real !== full
+    )
+      return 'irregular';
+    return { mode: info.mode & 0o111 ? '100755' : '100644', bytes };
+  } finally {
+    await handle.close();
+  }
 }

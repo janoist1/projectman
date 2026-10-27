@@ -1,6 +1,7 @@
 import { realpathSync } from 'node:fs';
-import { lstat, readdir, rm } from 'node:fs/promises';
+import { lstat, mkdir, readdir, realpath, rm } from 'node:fs/promises';
 import path from 'node:path';
+import { isRegeneratedWriteDir } from '@projectman/shared';
 
 type SandboxSpec = { sandbox: { denyRead: string[]; allowRead: string[] } };
 
@@ -119,7 +120,7 @@ export const SRT_DEFAULT_TMP = ['/tmp/claude', '/private/tmp/claude'] as const;
  *   `tmp` (srt 0.0.78 on macOS binds and connects there; no other socket path, and not all of them);
  *   PTYs allowed (macOS only).
  */
-export function srtSettings(spec: SandboxSpec, paths: RunPaths) {
+export function srtSettings(spec: SandboxSpec, paths: RunPaths, writeDirs: readonly string[] = []) {
   return {
     network: {
       allowedDomains: [] as string[],
@@ -131,13 +132,44 @@ export function srtSettings(spec: SandboxSpec, paths: RunPaths) {
     filesystem: {
       denyRead: [...new Set(spec.sandbox.denyRead)],
       allowRead: [...new Set([...spec.sandbox.allowRead, paths.sandbox])],
-      allowWrite: [paths.sandbox],
+      allowWrite: [paths.sandbox, ...writeDirs],
       // srt always makes its own default temporary directory writable, outside `allowWrite`: it is shared
       // with the members' sandboxes and outlives the run, so a run may not write there.
       denyWrite: [...SRT_DEFAULT_TMP],
     },
     allowPty: true,
   };
+}
+
+/**
+ * The absolute directories of `spec.sandbox.writeDirs` (PM-1050) the regenerating run may write, below the
+ * canonical `cwd`. Each must be a safe relative directory (`isRegeneratedWriteDir`) whose every segment is a
+ * real directory of the checkout, never a link; one that does not exist yet is made. It throws for anything
+ * else, and the run does not start. Only the checkout's own directories qualify: its root, `.git`, hooks
+ * and `node_modules` stay read-only.
+ */
+export async function resolveWriteDirs(cwd: string, dirs: readonly string[]): Promise<string[]> {
+  if (dirs.length === 0) return [];
+  const root = await realpath(cwd);
+  const resolved = new Set<string>();
+  for (const dir of dirs) {
+    if (!isRegeneratedWriteDir(dir)) throw new Error(`A writable directory is not allowed: ${dir}`);
+    let current = root;
+    for (const segment of dir.split('/')) {
+      current = path.join(current, segment);
+      let info = await lstat(current).catch(() => null);
+      if (info === null) {
+        await mkdir(current);
+        info = await lstat(current);
+      }
+      if (!info.isDirectory() || info.isSymbolicLink())
+        throw new Error(`A writable directory is not a real directory of the checkout: ${dir}`);
+    }
+    if ((await realpath(current)) !== current)
+      throw new Error(`A writable directory is not a real directory of the checkout: ${dir}`);
+    resolved.add(current);
+  }
+  return [...resolved];
 }
 
 /** Installer writes only package trees; lifecycle scripts keep the source and git metadata read-only. */

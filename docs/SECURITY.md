@@ -1292,6 +1292,29 @@ network, SSM or shell, only one Unix socket.
   the service file into a private folder; it calls no `launchctl` or `systemctl`. Installing the files, creating
   the directories and starting the supervisors is a separate rollout that the owner approves.
 
+## Regenerated files of a conflicting merge (PM-1050)
+
+A merge that conflicts only in generated files runs the repo's `reviewTest.regenerate.command` (owner-only
+configuration) in the full test sandbox, and the engine commits what it wrote: sandbox output reaches a
+commit that is pushed to a public `main`. The channel is narrow:
+
+- **Where the command may write.** Only the regenerating run gets write access, and only to the literal
+  directories of the patterns (`sandbox.writeDirs`): real directories of the check checkout, never links;
+  a pattern needs at least two segments and may not start with `.git*`, `.husky` or `node_modules`. The
+  rest of the checkout, its `.git` file and `node_modules` stay read-only, and the merge check's own spec
+  has no `writeDirs`. A remote engine accepts such a run only with the command in its `regenerateCommand`.
+- **What is taken.** Changed or new files that match the patterns; any other change, a `.git*` or `.husky`
+  name, a link, a hard link, a non-regular file, a file over 1 MB or more than 200 files refuses the
+  regeneration and the merge fails as a conflict. A file is read through one `O_NOFOLLOW` descriptor, its
+  path is checked again after the read (same device and inode, real path), and only the bytes read are
+  hashed (`--no-filters`); git never discovers the checkout (`GIT_DIR` is named), and the indexes are
+  temporary files outside it. A process the command left behind can therefore not swap a file or a
+  directory for a link between the check and the hash.
+- **Limits that remain.** The sandbox can read what the full test sandbox reads, including the shared git
+  directory's `config`; a generator that copies a secret it can read into a file under the patterns would put
+  it into the commit. The patterns and the command are the owner's to choose; the merge check, code review
+  and the diff of the merge commit are the safeguards after that. Keep tokens out of remote URLs.
+
 ## Findings
 
 | Severity | Finding                                                                                                                  | Status                                                                                                                                                                                                                                                                                         |

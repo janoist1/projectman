@@ -1266,5 +1266,27 @@ describe('regenerated conflicts (PM-1050)', () => {
       });
       await made.merger.releaseCheck(REF, { mergeId: made.mergeId });
     });
+
+    it('refuses files below a directory that is a link', async () => {
+      const made = await checkout('mrg_regen015');
+      write(made.dir, 'elsewhere/snap.txt', 'regenerated\n');
+      symlinkSync(path.join(made.dir, 'elsewhere'), path.join(made.dir, 'gen'));
+      expect(
+        await made.merger.commitRegenerated(REF, { mergeId: made.mergeId, ...input(made) }),
+      ).toMatchObject({ ok: false });
+      await made.merger.releaseCheck(REF, { mergeId: made.mergeId });
+    });
+
+    it('refuses a git name below a pattern, whatever the pattern says', async () => {
+      const made = await checkout('mrg_regen016');
+      write(made.dir, 'gen/snap.txt', 'regenerated\n');
+      write(made.dir, 'gen/.gitattributes', '* filter=x\n');
+      expect(await made.merger.commitRegenerated(REF, { mergeId: made.mergeId, ...input(made) })).toEqual({
+        ok: false,
+        reason: 'outside',
+        paths: ['gen/.gitattributes'],
+      });
+      await made.merger.releaseCheck(REF, { mergeId: made.mergeId });
+    });
   });
 });

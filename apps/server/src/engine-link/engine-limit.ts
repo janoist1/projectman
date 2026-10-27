@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   isRegeneratedPathPattern,
+  isRegeneratedWriteDir,
   isReleaseTagName,
   usesCodexCli,
   SessionReadBoundary,
@@ -10,6 +11,7 @@ import {
 } from '@projectman/shared';
 import type { AgentSandbox, EnginePaths, MachineProbe, ProcessRecord } from '../contracts';
 import {
+  MERGE_CHECK_DIR,
   OPEN_OUTBOUND_DOMAINS,
   READER_UNSANDBOXED_COMMANDS,
   SANDBOX_DENIED_ENV_VARS,
@@ -602,7 +604,24 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
     },
     'full_test.run': async (params) => {
       const { spec } = params;
-      if (
+      // The run that makes generated files again (PM-1050) is the only one with writable directories, and it
+      // runs the engine's own `regenerateCommand`; the others run the `fullTestCommand` with none.
+      const writeDirs = spec.sandbox.writeDirs ?? [];
+      if (writeDirs.length > 0) {
+        if (
+          !config.repos.some(
+            (repo) => repo.regenerateCommand !== undefined && repo.regenerateCommand === spec.command,
+          )
+        )
+          refuse('command_not_allowed', 'The regeneration command is not the one configured on this engine');
+        if (!writeDirs.every(isRegeneratedWriteDir))
+          refuse('invalid_params', 'A writable directory of the regeneration is not allowed');
+        if (
+          !paths.worktreesRoot ||
+          !isWithin(resolveReal(path.join(paths.worktreesRoot, MERGE_CHECK_DIR)), resolveReal(spec.cwd))
+        )
+          refuse('path_outside_roots', 'The regeneration runs only in a merge check checkout');
+      } else if (
         !config.repos.some(
           (repo) => repo.fullTestCommand !== undefined && repo.fullTestCommand === spec.command,
         )
@@ -758,14 +777,8 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
       if (!isMergeMessage(params.message) || params.message.trim().length === 0)
         refuse('invalid_params', 'Not a commit message');
       regeneratePatterns(params.patterns);
-      for (const entry of params.paths)
-        if (
-          entry === '' ||
-          entry.startsWith('/') ||
-          entry.includes('\0') ||
-          entry.split('/').some((segment) => segment === '..')
-        )
-          refuse('invalid_params', 'Not a path');
+      if (params.paths.length > 50 || !params.paths.every(isRepoFilePath))
+        refuse('invalid_params', 'Not a set of paths');
       return params;
     },
     'merge.checkout_conflicts': async (params) => {

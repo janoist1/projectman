@@ -11,6 +11,12 @@ export interface FullTestSandbox {
   denyRead: string[];
   /** Paths below a `denyRead` entry that are readable again (the checkout, its git directory). */
   allowRead: string[];
+  /**
+   * Only the run that makes generated files again (PM-1050): directories of the checkout (relative to
+   * `cwd`, `isRegeneratedWriteDir`) the command may write besides its own run directory. The executor makes
+   * each one writable only after it checked that it is a real directory of the checkout.
+   */
+  writeDirs?: string[];
 }
 
 /**

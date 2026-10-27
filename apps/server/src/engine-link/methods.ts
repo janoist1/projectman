@@ -83,7 +83,11 @@ const fullSpec: z.ZodType<FullTestSpec> = z.strictObject({
   command: text,
   maxWorkers: int,
   timeoutMs: int,
-  sandbox: z.strictObject({ denyRead: texts, allowRead: texts }),
+  sandbox: z.strictObject({
+    denyRead: texts,
+    allowRead: texts,
+    writeDirs: z.array(text.max(200)).max(10).optional(),
+  }),
   requireHeavyLock: z.boolean().optional(),
   npmCi: z.strictObject({ ref: mergeRef, mergeId: mergeText }).optional(),
   githubActions: z

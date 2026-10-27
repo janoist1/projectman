@@ -12,7 +12,7 @@ import {
 import { isWithin } from '../kernel';
 import { copyDependencyTrees, DEPENDENCY_LOCKFILE, findDependencyReference } from '../worktree';
 import { runGit } from './merge-git';
-import { invalidInput, isMergeId, isMergeMessage, type MergeArgs } from './merge-input';
+import { invalidInput, isMergeId, isMergeMessage, isRepoFilePath, type MergeArgs } from './merge-input';
 import { identityOf, listWorktrees, must } from './merge-repo';
 import { commitRegeneratedFiles } from './regenerated-files';
 
@@ -222,17 +222,7 @@ export function createMergeChecks(
       invalidInput('Not a commit message');
     if (input.patterns.length === 0 || !input.patterns.every(isRegeneratedPathPattern))
       invalidInput('Not a pattern of generated files');
-    if (
-      input.paths.length > 50 ||
-      input.paths.some(
-        (entry) =>
-          entry === '' ||
-          entry.startsWith('/') ||
-          entry.includes('\0') ||
-          entry.split('/').some((segment) => segment === '' || segment === '.' || segment === '..'),
-      )
-    )
-      invalidInput('Not a set of paths');
+    if (input.paths.length > 50 || !input.paths.every(isRepoFilePath)) invalidInput('Not a set of paths');
     const identity = await identityOf(repo);
     return commitRegeneratedFiles(repo, await checkPath(input.mergeId), {
       onto,

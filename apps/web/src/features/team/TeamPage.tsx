@@ -19,7 +19,7 @@ import { SegmentedControl } from '../../components/SegmentedControl';
 import { EmptyState, ErrorState, LoadingState } from '../../components/States';
 import { t } from '../../i18n/t';
 import { useDocumentTitle, useIsMobile } from '../../lib/hooks';
-import { aiSponsors, memberStatusView, nameOf } from '../../lib/members';
+import { aiSponsors, canRenameMember, memberStatusView, nameOf } from '../../lib/members';
 import { MessageList } from '../messages/MessageList';
 import { usePausedRows } from '../pause/usePause';
 import { ClosedCardsComparison } from './ClosedCardsComparison';
@@ -33,6 +33,7 @@ import { AddHumanDialog } from './AddHumanDialog';
 import { InviteDialog } from './InviteDialog';
 import { PendingInvites } from './PendingInvites';
 import { HireDialog } from './HireDialog';
+import { RenameMemberDialog } from './RenameMemberDialog';
 import { RetireDialog } from './RetireDialog';
 import styles from './TeamPage.module.css';
 
@@ -44,6 +45,7 @@ type TeamDialog =
   | { kind: 'invite'; member: MemberView }
   | { kind: 'hire' }
   | { kind: 'edit'; member: MemberView }
+  | { kind: 'rename'; member: MemberView }
   | { kind: 'retire'; member: MemberView };
 
 const statusRank: Record<string, number> = {
@@ -62,7 +64,7 @@ const statusRank: Record<string, number> = {
 
 /** "Csapat": one roster of humans and AI members, hiring and retiring. */
 export function TeamPage() {
-  const { key, myHandle, can, me } = useProject();
+  const { key, myHandle, can, me, isOwner } = useProject();
   const access = me.projects.find((project) => project.key === key)?.access;
   const seesAllMessages = access ? canSeeAllTeamMessages({ access }) : false;
   const isMobile = useIsMobile();
@@ -129,11 +131,13 @@ export function TeamPage() {
         member={member}
         editDisabled={!roles.data || (member.kind === 'ai' && !config.data)}
         onEdit={() => setDialog({ kind: 'edit', member })}
+        onRename={canRenameMember(member, isOwner) ? () => setDialog({ kind: 'rename', member }) : undefined}
         onInvite={() => setDialog({ kind: 'invite', member })}
         onRetire={() => setDialog({ kind: 'retire', member })}
       />
     ) : null;
   const editing = dialog?.kind === 'edit' ? dialog.member : null;
+  const renaming = dialog?.kind === 'rename' ? dialog.member : null;
   const retiring = dialog?.kind === 'retire' ? dialog.member : null;
   const Roster = isMobile ? RosterCards : RosterTable;
 
@@ -279,6 +283,7 @@ export function TeamPage() {
         onClose={close}
       />
       <HireDialog open={dialog?.kind === 'hire'} onClose={close} config={config.data?.config} />
+      <RenameMemberDialog member={renaming} onClose={close} />
       <RetireDialog
         member={retiring}
         candidates={ai.filter((member) => member.handle !== retiring?.handle)}

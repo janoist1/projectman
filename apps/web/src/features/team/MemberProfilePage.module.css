@@ -24,6 +24,11 @@
   align-items: center;
   gap: 16px;
 }
+/* The handles the member had before (PM-1026): the old messages and branches still use them. */
+.former {
+  color: var(--c-ink-4);
+  overflow-wrap: anywhere;
+}
 .actions {
   display: flex;
   align-items: center;

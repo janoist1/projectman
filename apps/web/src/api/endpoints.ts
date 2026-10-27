@@ -113,6 +113,7 @@ import type {
   AddHumanMemberRequest,
   LoginRequest,
   ResolveInboxRequest,
+  RenameMemberRequest,
   RetireMemberRequest,
   RevertConfigRequest,
   SendMessageRequest,
@@ -306,6 +307,8 @@ export const api = {
     apiRequest<unknown>(routes.members(key), { method: 'POST', body }),
   retireMember: (key: string, handle: string, body: RetireMemberRequest) =>
     apiRequest<unknown>(routes.member(key, handle), { method: 'DELETE', body }),
+  renameMember: (key: string, handle: string, body: RenameMemberRequest) =>
+    apiRequest(routes.memberRename(key, handle), { method: 'POST', body, schema: MemberView }),
 
   session: (key: string, sessionId: string) =>
     apiRequest(routes.session(key, sessionId), { schema: SessionDetail }),

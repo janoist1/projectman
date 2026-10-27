@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { MemberView } from '@projectman/shared';
 import { members as fixtureMembers } from '../mocks/fixtures';
 import { t } from '../i18n/t';
-import { indexMembers, memberStatusView, nameOf } from './members';
+import { indexMembers, memberStatusView, nameOf, renamedTo } from './members';
 
 const member = (handle: string): MemberView => fixtureMembers.find((entry) => entry.handle === handle)!;
 
@@ -41,6 +41,31 @@ describe('memberStatusView with a pause', () => {
     expect(memberStatusView(member('owner'), [], 'owner', []).status).toBe(member('owner').status);
     const away: MemberView = { ...working, status: 'offline' };
     expect(memberStatusView(away, [], 'owner', []).status).toBe('offline');
+  });
+});
+
+describe('indexMembers with former handles (PM-1026)', () => {
+  const renamed = {
+    ...fixtureMembers.find((m) => m.handle === 'qa')!,
+    handle: 'tester',
+    formerHandles: ['qa'],
+  };
+
+  it('gives the member its name under a former handle too', () => {
+    expect(nameOf('qa', indexMembers([renamed]), 'owner')).toBe(renamed.displayName);
+  });
+
+  it('lets a current handle win over the same former handle of another member', () => {
+    const other = { ...fixtureMembers.find((m) => m.handle === 'devops')!, handle: 'qa' };
+    expect(indexMembers([renamed, other]).get('qa')).toBe(other);
+    expect(indexMembers([other, renamed]).get('qa')).toBe(other);
+  });
+
+  it('points a former handle at the current one, and a current handle nowhere', () => {
+    const index = indexMembers([renamed]);
+    expect(renamedTo('qa', index)).toBe('tester');
+    expect(renamedTo('tester', index)).toBeNull();
+    expect(renamedTo('unknown', index)).toBeNull();
   });
 });
 

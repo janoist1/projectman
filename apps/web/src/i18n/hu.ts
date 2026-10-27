@@ -1169,6 +1169,14 @@ export const hu = {
     invalidResponse: 'A szerver válasza nem a várt formátumú.',
     /** Detail of `handover_uncommitted`: the working directory and how many files are uncommitted. */
     handoverUncommitted: 'A munkafa: {path}; mentetlen fájlok száma: {count}.',
+    /** `member_session_live` with what holds the member named (PM-1026). */
+    memberSessionLive: 'Most nem nevezhető át, mert {reason}. Próbáld újra, ha végzett.',
+    memberSessionLiveReason: {
+      session: 'éppen dolgozik egy munkamenetben',
+      workspace: 'a munkaterülete még foglalt egy kártyához',
+      queue: 'éppen feldolgoz egy neki küldött üzenetet',
+      deferred_start: 'egy munkája indulásra vár',
+    },
     /** `owner_login_required` with its category named (PM-418). */
     ownerLoginRequiredIn: 'Ezt csak a tulajdonos teheti meg, a saját bejelentkezésével: {what}.',
     ownerLoginRequiredCategory: {
@@ -1444,9 +1452,8 @@ export const hu = {
       duplicate_feedback_surface: 'Két felületnek azonos az azonosítója vagy a címe.',
       not_an_outage_alert: 'Ez nem kiesési figyelmeztetés.',
       handle_taken: 'Ez az azonosító már foglalt.',
-      member_session_live:
-        'A tag éppen dolgozik (futó munkamenet, foglalt munkaterület, feldolgozás alatt álló sorelem vagy halasztott indítás); az átnevezéshez várd meg, amíg befejezi.',
-      member_renaming: 'A tag átnevezése folyamatban van, próbáld újra egy pillanat múlva.',
+      member_session_live: 'Most nem nevezhető át, mert dolgozik.',
+      member_renaming: 'Ennek a tagnak most nevezzük át az azonosítóját. Pár másodperc múlva próbáld újra.',
       member_at_capacity: 'Ennek a tagnak most nincs szabad kapacitása.',
       member_on_leave: 'Ez a tag szabadságon van; amíg vissza nem hívod, nem kap munkát.',
       ai_limit_reached: 'Most dolgozik a megengedett számú AI-tag; az új munka később indul.',
@@ -5129,7 +5136,7 @@ export const hu = {
       question_answer_delivered: 'Megkapta.',
       member_hired: 'Felvéve: {handle}',
       member_retired: 'Elbocsátva: {handle}',
-      member_renamed: 'Átnevezve: {from} → {to}',
+      member_renamed: 'Azonosító átnevezve: {from} → {to}',
       member_retired_handover: 'Elbocsátva: {handle}, a munkái átkerültek: {to}',
       config_changed: 'Beállítás módosítva: {message}',
       contactAdded: 'Kapcsolattartó lett: {name}',
@@ -5394,6 +5401,36 @@ export const hu = {
     deleteTitle: 'Törlöd a NanoGPT-kulcsot?',
     deleteDescription:
       'A NanoGPT-tagok új munkamenete nem indul, amíg új kulcsot nem adsz meg. A már futók nem állnak le.',
+  },
+  /** Renaming an AI member's handle (PM-1026). */
+  memberRename: {
+    menu: 'Azonosító átnevezése',
+    menuFor: '{name} azonosítójának átnevezése',
+    title: '{name} azonosítójának átnevezése',
+    intro:
+      'Ezzel az azonosítóval hivatkoznak rá a csapatban, a kártyákon és az üzenetekben. A neve nem változik.',
+    label: 'Új azonosító',
+    hint: 'Kisbetű, szám és kötőjel, legfeljebb 32 karakter. Most: {handle}',
+    consequencesTitle: 'Mi történik?',
+    carriesOn:
+      'A kártyái, üzenetei és munkái az új azonosítóval mennek tovább; a munkaterülete és a beszélgetései megmaradnak.',
+    oldHandleReserved:
+      'A régi azonosító ({handle}) foglalt marad: más tag nem kaphatja meg, és a régi hivatkozások ide vezetnek.',
+    emailFollows: 'Az e-mail-címe {address} lesz; a régi címére küldött levelek is megérkeznek hozzá.',
+    emailFollowsNoDomain:
+      'Az e-mail-címe az új azonosítót követi; a régi címére küldött levelek is megérkeznek hozzá.',
+    newHandle: 'új azonosító',
+    notWhileWorking: 'Amíg dolgozik, nem nevezhető át.',
+    submit: 'Átnevezés',
+    submitting: 'Átnevezés…',
+    done: 'Átnevezve: {from} → {to}',
+    invalid:
+      'Kisbetűvel vagy számmal kezdődjön, és csak kisbetű, szám és kötőjel lehet benne (legfeljebb 32 karakter).',
+    unchanged: 'Ez a mostani azonosítója. Írj be egy újat.',
+    taken: 'A(z) „{handle}” azonosító foglalt: egy tag most vagy korábban ezt használta. Válassz másikat.',
+    mailboxTaken: 'Ezt az azonosítót e-mail-címként már egy másik tag használja. Válassz másikat.',
+    working: 'Most dolgozik ({work}). Ha végzett, átnevezheted.',
+    former: 'korábban:',
   },
   retire: {
     title: 'Elbocsátás: {name}',

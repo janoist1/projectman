@@ -30,6 +30,12 @@ export function errorMessage(error: unknown): string {
           .filter(Boolean)
           .join(' ');
       }
+      if (error.code === 'member_session_live' && error.details && typeof error.details === 'object') {
+        const { reason } = error.details as { reason?: unknown };
+        const what =
+          typeof reason === 'string' ? tDynamic(`errors.memberSessionLiveReason.${reason}`, '') : '';
+        if (what) return t('errors.memberSessionLive', { reason: what });
+      }
       if (error.code === 'stage_in_use' && error.details && typeof error.details === 'object') {
         const details = error.details as { stageId?: unknown; tasks?: unknown };
         if (typeof details.stageId === 'string' && typeof details.tasks === 'number')

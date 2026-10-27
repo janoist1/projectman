@@ -9,13 +9,14 @@ import { LeaveButton } from './LeaveButton';
 import styles from './MemberMenu.module.css';
 
 /**
- * The "⋯" menu of a member, on the roster and on the profile: edit, invite (an unclaimed human),
+ * The "⋯" menu of a member, on the roster and on the profile: edit, rename (the owner, AI), invite (an unclaimed human),
  * leave (AI), retire (AI) and remove (human). An action is offered when its handler is given.
  */
 export function MemberMenu({
   member,
   onEdit,
   editDisabled = false,
+  onRename,
   onInvite,
   onRetire,
   onRemove,
@@ -23,6 +24,8 @@ export function MemberMenu({
   member: MemberView;
   onEdit: () => void;
   editDisabled?: boolean;
+  /** The owner's rename of an AI member's handle (PM-1026); the caller offers it only when allowed. */
+  onRename?: () => void;
   onInvite?: () => void;
   onRetire?: () => void;
   onRemove?: () => void;
@@ -64,6 +67,18 @@ export function MemberMenu({
           >
             {t('memberEdit.edit')}
           </Button>
+          {onRename ? (
+            <Button
+              variant="ghost"
+              onClick={() => {
+                onRename();
+                close();
+              }}
+              aria-label={t('memberRename.menuFor', { name: member.displayName })}
+            >
+              {t('memberRename.menu')}
+            </Button>
+          ) : null}
           {onInvite && member.kind === 'human' && member.status === 'no_account' ? (
             <Button
               variant="ghost"

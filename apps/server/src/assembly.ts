@@ -49,7 +49,6 @@ import { createMemberService } from './core/members';
 import { createTaskService } from './core/tasks';
 import { createProjectService, ChecklistService } from './core/projects';
 import {
-  canManageInstancePause,
   HISTORY_DOC_PATHS,
   isOnLeave,
   isOpenTask,
@@ -239,6 +238,8 @@ import type { EmailSender } from './services/email-channel';
 import { ProviderKeys } from './runtime/usage';
 
 export interface DomainOptions {
+  /** Whether the account with this e-mail is the chopper's host owner: the rule of the instance-level rights. */
+  instanceOwner: (email: string) => Promise<boolean>;
   /** The history's local embedding (PM-767); absent: the history search uses the words only. */
   historySemantic?: import('./contracts').HistorySemanticPort;
   webPush?: { enabled?: boolean; subject?: string };
@@ -2760,19 +2761,8 @@ export function createDomain(opts: DomainOptions) {
       await drained;
     },
 
-    /**
-     * Whether the user may manage the instance as a whole: the owner of every project, the same rule
-     * as the instance's pause (`canManageInstancePause`). The machine display is for them alone.
-     */
-    async instanceOwner(email: string): Promise<boolean> {
-      const accesses = await Promise.all(
-        projects.summaries().map(async (project) => {
-          const access = await this.accessFor(project.key, email);
-          return access?.access ?? null;
-        }),
-      );
-      return canManageInstancePause(accesses);
-    },
+    /** Whether the user is the chopper's host owner: the machine display and the instance's pause are theirs. */
+    instanceOwner: opts.instanceOwner,
 
     /**
      * The tools of the integrator's bearer MCP endpoint (PM-760), or undefined when the instance has no integrator

@@ -514,6 +514,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     });
     const domain = createDomain({
       historySemantic,
+      instanceOwner: (email) => auth.instanceOwner(email),
       integratorCredentials: auth,
       revokeIntegratorAccessKey: (userId, keyId) => auth.revokeIntegratorAccessKey(userId, keyId),
       operatorGrants: auth.operatorGrantGate,

@@ -36,7 +36,6 @@ import {
   ListSuperHandoffsQuery,
   SUPER_OPEN_STATES,
   InvolvementQuery,
-  canManageInstancePause,
   canManageProviderKeys,
   SetProviderKeyRequest,
   AcceptInviteRequest,
@@ -558,6 +557,7 @@ export class MockBackend {
       handle: this.viewerHandle,
       role: this.findMember(this.viewerHandle)?.role ?? '',
     }),
+    isHostOwner: () => this.isHostOwner(),
     isLive: (session) => this.isLive(session),
     isAiMember: (handle) => this.findMember(handle)?.kind === 'ai',
     emit: (event) => this.emit(event),
@@ -2261,12 +2261,17 @@ export class MockBackend {
     return this.handleProject(method, rest, body, query);
   }
 
+  /** The one fact behind `me().hostOwner`, `me().instanceOwner` and the instance's pause rights. */
+  private isHostOwner(): boolean {
+    return this.user.userId === fixtures.mockUser.userId;
+  }
+
   private me() {
     const member = memberOf(this.config, this.viewerHandle);
     return {
       ...this.user,
-      hostOwner: this.user.userId === fixtures.mockUser.userId,
-      instanceOwner: canManageInstancePause([member?.kind === 'human' ? member.access : null]),
+      hostOwner: this.isHostOwner(),
+      instanceOwner: this.isHostOwner(),
       handles: this.viewerHandle ? { [fixtures.PROJECT_KEY]: this.owner } : {},
       projects:
         member?.kind === 'human'
@@ -6343,13 +6348,13 @@ export class MockBackend {
     return ok(this.pauses.projectView());
   }
 
-  /** The instance's pause routes: an owner of every project changes it. */
+  /** The instance's pause routes: the host owner changes it, with or without a project membership. */
   private instancePause(method: string, path: string): MockResponse {
     const viewer = this.findMember(this.viewerHandle);
-    if (!viewer) return error(403, 'insufficient_access', 'Membership required');
+    if (!viewer && !this.isHostOwner()) return error(403, 'insufficient_access', 'Membership required');
     if (method === 'POST') {
       if (!this.pauses.instanceView().canManage)
-        return error(403, 'insufficient_access', 'Only an owner of every project may pause the instance');
+        return error(403, 'insufficient_access', 'Only the host owner may pause the instance');
       if (path === '/api/pause/resume') this.pauses.resume('instance');
       else if (path === '/api/pause/force') this.pauses.force('instance');
       else this.pauses.pauseInstance({ source: 'app', requestedBy: this.user.name });

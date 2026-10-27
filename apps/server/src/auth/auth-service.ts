@@ -271,6 +271,15 @@ export class AuthService {
     return this.repos.users.list()[0]?.id === userId;
   }
 
+  /**
+   * Whether the account with this e-mail is the chopper's host owner (`isHostOwner`): the one rule behind the
+   * instance-level rights (machine display, instance pause), independent of any project membership.
+   */
+  async instanceOwner(email: string): Promise<boolean> {
+    const user = this.repos.users.findByEmail(email.trim());
+    return user !== null && this.isHostOwner(user.id);
+  }
+
   /** First-run setup: creates the owner account; refused once any user exists. */
   async createFirstUser(input: { name: string; email: string; password: string }): Promise<UserRecord> {
     if (!this.needsSetup()) throw conflict('already_set_up', 'the owner account already exists');

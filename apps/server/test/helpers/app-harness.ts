@@ -320,6 +320,40 @@ export async function createProject(h: HarnessBase, cookie: string, key = 'AR'):
 }
 
 /**
+ * A project of another owner: the host owner creates it, then its owner member's e-mail becomes a stranger's, so
+ * the host owner holds no membership in it (the multi-owner case, PM-1058). Its key may sort before the first project's.
+ */
+export async function createForeignProject(h: HarnessBase, cookie: string, key = 'BR'): Promise<void> {
+  const workspace = join(h.home, `workspace-${key.toLowerCase()}`);
+  mkdirSync(workspace);
+  const res = await withoutOnboarding(h.app.projectman.domain, () =>
+    h.app.inject({
+      method: 'POST',
+      url: '/api/projects',
+      headers: { cookie },
+      payload: {
+        key,
+        name: key.toLowerCase(),
+        workspacePath: workspace,
+        templateId: 'test',
+        repos: [{ name: 'web', path: '.', github: 'acme/web' }],
+      },
+    }),
+  );
+  if (res.statusCode !== 201) throw new Error(`project creation failed: ${res.statusCode} ${res.body}`);
+  await h.app.projectman.domain.projects.update(
+    key,
+    { actor: humanActor('owner'), author: OWNER_LOGIN },
+    (draft) => {
+      for (const member of draft.team.members)
+        if (member.kind === 'human' && member.email === OWNER_LOGIN.email)
+          member.email = 'stranger@example.test';
+      return 'Hand the project to another owner';
+    },
+  );
+}
+
+/**
  * Runs `body` the way the external MCP does for a super key's secret in project AR: the credential is
  * authenticated, the access bound to the owner's, and the call runs in the super operator's scope.
  */

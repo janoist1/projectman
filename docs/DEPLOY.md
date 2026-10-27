@@ -345,7 +345,7 @@ The key's lifetime is separate from the Operator's machine-access grant.
 
 **Before deploying PM-1037:** the owner must check Settings → Integrator for an active
 “Régi kulcs” (legacy key). If one exists, issue a super or read key and replace the integrator's
-stored credential before approving the release. Migration 113 revokes legacy keys with an audit
+stored credential before approving the release. Migration 114 revokes legacy keys with an audit
 entry; their rows remain visible in history. Legacy credentials then receive 401 on REST, MCP
 and event reads. The singular `/api/auth/integrator-key` endpoint is removed.
 

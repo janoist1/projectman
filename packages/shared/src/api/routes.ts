@@ -71,9 +71,6 @@ export const routes = {
    * change journal (`ProjectChangeEventsResponse`, PM-761), waiting up to `waitMs` for a new entry. Internal members only.
    */
   projectEvents: (key: string) => `/api/projects/${key}/events`,
-  boundaryRequest: (key: string, id: string) => `/api/projects/${key}/boundary/${id}`,
-  decideBoundary: (key: string, id: string) => `/api/projects/${key}/boundary/${id}/decide`,
-  revokeBoundary: (key: string, id: string) => `/api/projects/${key}/boundary/${id}/revoke`,
   /** GET (owner): the network destinations opened for the project's members (PM-140). */
   /** POST (owner): closes an opened destination before it expires. */
   /** GET (any logged-in member): whether the VM boundary is configured and ready (PM-140). */
@@ -168,6 +165,8 @@ export const routes = {
   memberMemories: (key: string, handle: string) => `/api/projects/${key}/members/${handle}/memories`,
   startConversation: (key: string, handle: string) => `/api/projects/${key}/members/${handle}/conversation`,
   removeHuman: (key: string, handle: string) => `/api/projects/${key}/members/${handle}/remove`,
+  /** POST (owner, `RenameMemberRequest`): renames an AI member; answers the new `MemberView` (PM-1025). */
+  memberRename: (key: string, handle: string) => `/api/projects/${key}/members/${handle}/rename`,
   teamMessages: (key: string) => `/api/projects/${key}/messages`,
   /** GET: the viewer's conversations with the other members, with the unread count of each (PM-78). */
   teamThreads: (key: string) => `/api/projects/${key}/messages/threads`,

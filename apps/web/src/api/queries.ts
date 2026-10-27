@@ -53,7 +53,6 @@ import type {
   LabelView,
 } from '@projectman/shared';
 import { isApiError } from './client';
-import { BoundaryReason } from '@projectman/shared';
 import { invalidateAttachments, patchOpenInboxCount, upsertBy, writeTask, writeTaskDetail } from './cache';
 import { api } from './endpoints';
 import { unsubscribeThisDevice } from '../lib/pushDevice';
@@ -680,13 +679,7 @@ export interface ResolveVariables {
 export function useResolveInbox(key: string, myHandle: string | null) {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: ({ item, body }: ResolveVariables) =>
-      item.kind === 'boundary'
-        ? api.decideBoundary(key, item.id, {
-            decision: body.optionId === 'allow' ? 'allow' : 'deny',
-            reason: BoundaryReason.parse(body.note),
-          })
-        : api.resolveInbox(key, item.id, body),
+    mutationFn: ({ item, body }: ResolveVariables) => api.resolveInbox(key, item.id, body),
     onMutate: async ({ item, body }) => {
       await client.cancelQueries({ queryKey: queryKeys.inbox(key) });
       const previous = client.getQueryData<InboxView>(queryKeys.inbox(key));
@@ -743,14 +736,6 @@ export function useCheckOutage(key: string) {
 }
 
 /* ---------- config ---------- */
-export function useRevokeBoundary(key: string) {
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: (id: string) => api.revokeBoundary(key, id),
-    onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.inbox(key) }),
-  });
-}
-
 export function useConfig(key: string, enabled = true) {
   return useQuery({
     queryKey: queryKeys.config(key),

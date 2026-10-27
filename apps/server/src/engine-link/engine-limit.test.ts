@@ -1014,6 +1014,51 @@ describe('engine local limit', () => {
       await refused(limit, 'full_test.run', fullTest({ cwd: outside }), 'path_outside_roots');
     });
 
+    it('lets a regeneration write directories only with the configured command in a merge check checkout (PM-1050)', async () => {
+      const ref = { projectKey: 'PM', repo: 'projectman' };
+      const mergeId = newId('merge');
+      const cwd = path.join(worktrees, '_merge', mergeId);
+      mkdirSync(cwd, { recursive: true });
+      const entry = {
+        project: 'PM',
+        repo: 'projectman',
+        path: repo,
+        fullTestCommand: 'npm test',
+        regenerateCommand: 'npm run generate',
+        mergeBranch: 'main',
+        workspaceSetup: null,
+      };
+      const limit = make({ repos: [entry] });
+      const regenerating = (regenerate: Record<string, unknown> = {}, overrides = {}) =>
+        fullTest({
+          command: 'npm run generate',
+          cwd,
+          regenerate: { ref, mergeId, patterns: ['gen/*.txt'], ...regenerate },
+          requireHeavyLock: true,
+          ...overrides,
+        });
+      await expect(limit.check('full_test.run', regenerating() as never)).resolves.toBeDefined();
+      // The test command may not write, and the regeneration command is not a test command.
+      await refused(limit, 'full_test.run', regenerating({}, { command: 'npm test' }), 'command_not_allowed');
+      await refused(
+        make({ repos: [{ ...entry, regenerateCommand: undefined }] }),
+        'full_test.run',
+        regenerating(),
+        'command_not_allowed',
+      );
+      await refused(limit, 'full_test.run', regenerating({ patterns: ['*/x'] }), 'invalid_params');
+      await refused(limit, 'full_test.run', regenerating({ patterns: ['.git/*'] }), 'invalid_params');
+      await refused(limit, 'full_test.run', regenerating({ mergeId: newId('merge') }), 'invalid_params');
+      await refused(limit, 'full_test.run', regenerating({}, { cwd: repo }), 'invalid_params');
+      await refused(
+        limit,
+        'full_test.run',
+        regenerating({}, { cwd: path.join(worktrees, '_merge') }),
+        'invalid_params',
+      );
+      await refused(limit, 'full_test.run', regenerating({}, { requireHeavyLock: false }), 'invalid_params');
+    });
+
     it('passes the dependency preparation request of a registered merge repo on, and refuses others (PM-681)', async () => {
       const ref = { projectKey: 'PM', repo: 'projectman' };
       const npmCi = { ref, mergeId: newId('merge') };
@@ -1452,9 +1497,52 @@ describe('engine local limit', () => {
             message: 'Docs',
           },
         ],
+        ['merge.build', { ref, onto: sha, commit: other, message: 'Merge PM-1', regenerate: ['gen/**'] }],
+        [
+          'merge.commit_regenerated',
+          {
+            ref,
+            mergeId,
+            onto: sha,
+            commit: other,
+            message: 'Merge PM-1',
+            paths: ['gen/a.snap'],
+            patterns: ['gen/**'],
+          },
+        ],
       ];
       for (const [method, params] of calls)
         await expect(limit.check(method, params as never), method).resolves.toBeDefined();
+    });
+
+    it('refuses a regeneration with a bad pattern, a bad path or a bad id', async () => {
+      const limit = merging();
+      const regenerated = {
+        ref,
+        mergeId,
+        onto: sha,
+        commit: other,
+        message: 'Merge PM-1',
+        paths: ['gen/a.snap'],
+        patterns: ['gen/**'],
+      };
+      for (const bad of ['*/x', '/abs', '../x', '.git/**', 'a\\b', ':(top)x'])
+        await refused(
+          limit,
+          'merge.build',
+          { ref, onto: sha, commit: other, message: 'm', regenerate: [bad] },
+          'invalid_params',
+        );
+      await refused(
+        limit,
+        'merge.commit_regenerated',
+        { ...regenerated, patterns: ['*/x'] },
+        'invalid_params',
+      );
+      for (const bad of ['', '/abs', '../x', 'a/../b', 'a\0b'])
+        await refused(limit, 'merge.commit_regenerated', { ...regenerated, paths: [bad] }, 'invalid_params');
+      await refused(limit, 'merge.commit_regenerated', { ...regenerated, onto: 'main' }, 'invalid_params');
+      await refused(limit, 'merge.commit_regenerated', { ...regenerated, message: ' ' }, 'invalid_params');
     });
 
     it('refuses a document read or commit with a bad path, too much text, too many files or a bad id', async () => {

@@ -1,8 +1,10 @@
 import { z } from 'zod';
+import { memberDuties } from '../config/duties';
+import { isOnLeave } from '../config/leave';
 import { memberOf } from '../config/lookup';
 import { approverOf } from '../config/permission-level';
+import { isProjectManager } from '../config/project-manager';
 import type { ProjectConfig } from '../config/schema';
-import { boundaryLeads } from './boundary';
 import type { InboxItem } from './inbox';
 import { MemberHandle } from './member';
 import type { Approver } from './member';
@@ -72,6 +74,27 @@ export function permissionDelegationOf(item: Pick<InboxItem, 'payload'>): Permis
   return parsed.success ? parsed.data : null;
 }
 
+export function boundaryOwners(config: ProjectConfig): string[] {
+  return config.team.members.filter((m) => m.kind === 'human' && m.access === 'owner').map((m) => m.handle);
+}
+/**
+ * The members that may decide a delegated question of `requester`. The project manager never does,
+ * even with the duty (PM-433): it dispatches, it does not decide, and `permissionDeciders` builds on this.
+ */
+export function boundaryLeads(config: ProjectConfig, requester: string): string[] {
+  return config.team.members
+    .filter(
+      (m) =>
+        m.handle !== requester &&
+        !isOnLeave(m) &&
+        (m.kind === 'ai'
+          ? !isProjectManager(m) && config.team.limits.aiEnabled
+          : m.access !== 'viewer' && m.access !== 'client') &&
+        memberDuties(config, m).includes('boundary_authorization'),
+    )
+    .map((m) => m.handle);
+}
+
 /** The AI members that may decide a question of `requester` now: live, independent, holding the duty. */
 export function permissionDeciders(config: ProjectConfig, requester: string): string[] {
   if (config.team.boundary?.enabled !== true) return [];
@@ -130,7 +153,7 @@ export function routePermissionRequest(
 /**
  * Whether a delegated question still waits for its AI decider at `now`: the deadline has not passed,
  * delegation is still on and one of its deciders is still at work (not removed, not on leave, the AI
- * team not switched off). Otherwise it belongs to a person, the same rule as for external operations.
+ * team not switched off). Otherwise it belongs to a person.
  */
 export function permissionDelegationState(
   config: ProjectConfig,

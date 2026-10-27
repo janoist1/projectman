@@ -9,7 +9,6 @@ import type {
   TeamMessage,
 } from '@projectman/shared';
 import {
-  BoundaryRequest,
   MEMBER_QUEUE_CLOSED_DEFAULT_MS,
   MEMBER_QUEUE_CLOSED_LIMIT,
   coordinationMemberOf,
@@ -293,7 +292,7 @@ export class MemberQueue {
       this.ctx.logger.warn({ id: item.id }, 'the member queue has no configuration for an inbox item');
       return;
     }
-    if (item.kind === 'permission' || item.kind === 'boundary') {
+    if (item.kind === 'permission') {
       this.syncDecision(item, config);
       return;
     }
@@ -362,51 +361,38 @@ export class MemberQueue {
   }
 
   /**
-   * The decision lane's items of a permission request or a boundary request (PM-926): a row per AI decider
-   * while the decider still has it to decide, closed when anything ends that. The deciding member's row is
-   * done, the other deciders' are cancelled, and every row is handed off when the request went to a person.
+   * The decision lane's items of a permission request (PM-926): a row per AI decider while the decider still
+   * has it to decide, closed when anything ends that. The deciding member's row is done, the other deciders'
+   * are cancelled, and every row is handed off when the request went to a person.
    */
   private syncDecision(item: InboxItem, config: ProjectConfig): void {
     const repo = this.ctx.repos.memberQueue;
-    const boundary = item.kind === 'boundary' ? BoundaryRequest.safeParse(item.payload.boundary) : null;
-    if (boundary && !boundary.success) return;
-    const request = boundary?.data ?? null;
-    const delegation = request ? null : permissionDelegationOf(item);
-    const source: MemberQueueSourceKey = { type: request ? 'boundary' : 'inbox', id: item.id };
+    const delegation = permissionDelegationOf(item);
+    const source: MemberQueueSourceKey = { type: 'inbox', id: item.id };
     const touched: StoredMemberQueueItem[] = [];
     const at = isoNow(this.ctx);
-    const pending =
-      item.state === 'open' &&
-      (request ? request.state === 'pending_lead' : delegation?.state === 'pending_lead');
+    const pending = item.state === 'open' && delegation?.state === 'pending_lead';
     if (pending) {
-      const deciders = request ? request.assignees : (delegation?.leads ?? []);
-      for (const handle of new Set(deciders)) {
+      for (const handle of new Set(delegation.leads)) {
         if (memberOf(config, handle)?.kind !== 'ai') continue;
         const row = {
           id: newId('mqi'),
           projectKey: item.projectKey,
           member: handle,
-          kind: request ? ('boundary' as const) : ('permission' as const),
+          kind: 'permission' as const,
           source,
           place: { type: 'general' as const },
-          taskKey: request ? request.taskKey : item.taskKey,
+          taskKey: item.taskKey,
           wake: true,
           title: titleOf(item.title),
-          from: request ? request.member : item.source,
+          from: item.source,
           queuedAt: at,
         };
         if (repo.insert(row)) touched.push(repo.get(row.id)!);
       }
     } else {
-      const decider = request
-        ? request.state === 'allowed' || request.state === 'denied'
-          ? (request.decidedBy?.handle ?? null)
-          : null
-        : item.state === 'resolved'
-          ? (item.resolution?.by ?? null)
-          : null;
-      // A boundary request's inbox item stays open until it ends, so only its own state says a person has it.
-      const toPerson = request ? request.state === 'pending_owner' : item.state === 'open';
+      const decider = item.state === 'resolved' ? (item.resolution?.by ?? null) : null;
+      const toPerson = item.state === 'open';
       for (const open of repo.listOpenOfSource(item.projectKey, source)) {
         const decided = open.member === decider;
         touched.push(
@@ -483,11 +469,8 @@ export class MemberQueue {
       for (const { key } of this.projects.summaries())
         for (const item of repos.inbox.list(key, { state: 'screening', kind: 'question' }))
           this.guarded('inbox', item.id, () => this.syncInbox(item));
-      // A boundary request's item is the inbox item of its id; a fix limit's is made true by its lane (`stillOwed`).
-      for (const row of [
-        ...repos.memberQueue.listOpenOfType('inbox'),
-        ...repos.memberQueue.listOpenOfType('boundary'),
-      ]) {
+      // A fix limit's item is made true by its lane (`stillOwed`).
+      for (const row of repos.memberQueue.listOpenOfType('inbox')) {
         const item = repos.inbox.get(row.source.id);
         if (item) this.guarded('inbox', item.id, () => this.syncInbox(item));
         else

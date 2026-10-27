@@ -244,13 +244,6 @@ describe('the Operator’s write guard (PM-463)', () => {
           decision: 'allow',
           reason: 'x',
         }),
-      () =>
-        h.domain.teamTools.decideBoundaryRequest(tool(), {
-          requestId: 'x',
-          decision: 'approve',
-          reason: 'x',
-        } as never),
-      () => h.domain.teamTools.submitBoundaryRequest(tool(), { operationId: 'x' } as never),
       () => h.domain.teamTools.mergeTask(tool(), { taskKey: 'AR-1' }),
     ];
     for (const call of calls()) expect(await refusal(call())).toMatch(/^operator_never:/);

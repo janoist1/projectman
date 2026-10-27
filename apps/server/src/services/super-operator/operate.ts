@@ -116,6 +116,11 @@ export function createOperateExecutor(deps: OperateExecutorDeps): SuperCommandEx
       case 'member_retire':
         await deps.members.retire(projectKey, op.handle, {}, superJobIdentity(job, deps));
         return;
+      case 'member_rename':
+        // A handle rename is the owner's own call with their own login (PM-1025): never in super mode.
+        throw invalid('super_operation_unsupported', 'a member rename is not run in super mode', {
+          op: op.op,
+        });
     }
   };
 }

@@ -1364,6 +1364,14 @@ describe('system prompt', () => {
     expect(prompt).not.toContain('- `be-1`');
   });
 
+  it('names the earlier handles of a renamed member in the team list (PM-1025)', () => {
+    const project = buildProject();
+    const team = teamOf(project).map((m) => (m.handle === 'be-1' ? { ...m, formerHandles: ['old-be'] } : m));
+    const prompt = builder.build(input({ project, team, handle: 'fe-1' })).appendSystemPrompt;
+    expect(prompt).toMatch(/- `be-1`: .*formerly `old-be`/);
+    expect(prompt).not.toMatch(/- `fe-1`: .*formerly/);
+  });
+
   it('builds the roster from the configuration when no team view is given', () => {
     const prompt = builder.build(input({ team: [] })).appendSystemPrompt;
     expect(prompt).toContain('- `code-review`: Code reviewer (AI, code reviewer) ← you');
@@ -1479,7 +1487,7 @@ describe('system prompt', () => {
       expect(pm).toContain('(the system picks the member)');
       expect(pm).toContain("Never do another role's work: no code, no requirement, no plan, no review.");
       expect(pm).toContain('Only propose what needs the owner: stopping a session');
-      expect(pm).toContain('never decide permission or boundary requests, never release');
+      expect(pm).toContain('never decide permission requests, never release');
       const guide = builder.build(input({ project, handle: 'pm' })).guide.role;
       expect(guide).toContain(
         "A person's message on a card's conversation comes to you when nobody else is on the card",

@@ -460,6 +460,7 @@ export function createRemoteEngineDirectory(options: RemoteDirectoryOptions): Re
       prepare: (ref, input) => merge('merge.prepare', { ref, ...input }, MERGE_NETWORK_WAIT_MS),
       isAncestor: (ref, input) => merge('merge.is_ancestor', { ref, ...input }, MERGE_WAIT_MS),
       build: (ref, input) => merge('merge.build', { ref, ...input }, MERGE_WAIT_MS),
+      commitRegenerated: (ref, input) => merge('merge.commit_regenerated', { ref, ...input }, MERGE_WAIT_MS),
       checkoutConflicts: (ref, input) => merge('merge.checkout_conflicts', { ref, ...input }, MERGE_WAIT_MS),
       checkoutForCheck: async (ref, input) => {
         try {

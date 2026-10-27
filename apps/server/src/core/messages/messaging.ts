@@ -7,6 +7,7 @@ import {
   cardBusyGroups,
   coordinationActorRefusal,
   DEFAULT_AGENT_PROVIDER,
+  currentHandleOf,
   formatInjectedTeamMessage,
   hasSuperOrigin,
   isOpenTask,
@@ -224,7 +225,10 @@ export class Messaging {
     // Empty text is a message of files alone (PM-516).
     if (!text && attachmentIds.length === 0)
       throw invalid('invalid_request', 'the message text is empty', { field: 'text' });
-    const recipients = unique(input.to).filter((handle) => handle !== from);
+    // A renamed member still answers to its old handles (PM-1025).
+    const recipients = unique(input.to.map((handle) => currentHandleOf(config, handle) ?? handle)).filter(
+      (handle) => handle !== from,
+    );
     assertSuperMutation(
       config,
       {

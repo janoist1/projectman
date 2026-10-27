@@ -2312,6 +2312,21 @@ migrations.push({
 });
 migrations.push({
   version: 113,
+  name: 'drop external operation requests',
+  // PM-1035: the boundary requests and grants are gone (no adapter was ever wired in, so every request was
+  // refused), and so are the inbox items and member queue rows made for them. The two egress tables of the
+  // removed VM network boundary (PM-140) go with them: `egress_allowances.request_id` references
+  // `boundary_requests`, and nothing reads either table. `team.boundary` stays in the configuration: the
+  // delegation of permission requests uses it.
+  sql: `DROP TABLE IF EXISTS egress_allowances;
+  DROP TABLE IF EXISTS egress_operations;
+  DROP TABLE IF EXISTS boundary_grants;
+  DROP TABLE IF EXISTS boundary_requests;
+  DELETE FROM inbox_items WHERE kind = 'boundary';
+  DELETE FROM member_queue_items WHERE kind = 'boundary' OR source_type = 'boundary';`,
+});
+migrations.push({
+  version: 114,
   name: 'revoke legacy integrator keys',
   sql: `INSERT INTO integrator_key_audit (key_id, owner_user_id, action, prefix, mode, at)
     SELECT id, user_id, 'revoked', prefix, mode, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')

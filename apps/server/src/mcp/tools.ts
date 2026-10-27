@@ -10,7 +10,6 @@ import { HISTORY_TOOL_GROUP } from './history';
 import { FEEDBACK_TOOL_GROUP } from './feedback';
 import { GITHUB_TOOL_GROUP } from './github';
 import { SCREENSHOT_TOOL_GROUP } from './full-tests';
-import { BOUNDARY_TOOL_GROUP } from './boundary';
 import { RELEASE_TOOL_GROUP } from './releases';
 import { OPERATOR_TOOL_GROUP } from './operator';
 import { INBOX_TOOL_GROUP } from './inbox';
@@ -39,7 +38,6 @@ export const TEAM_TOOL_GROUPS: readonly TeamToolGroup[] = [
   FEEDBACK_TOOL_GROUP,
   GITHUB_TOOL_GROUP,
   SCREENSHOT_TOOL_GROUP,
-  BOUNDARY_TOOL_GROUP,
   RELEASE_TOOL_GROUP,
   OPERATOR_TOOL_GROUP,
   PROJECT_DOC_TOOL_GROUP,

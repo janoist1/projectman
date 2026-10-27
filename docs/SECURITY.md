@@ -368,8 +368,8 @@ and merge target, stage order, workspace/repository/test/integrator/remote acces
 and the Operator's own settings/watch/waiver remain approval-bound. `githubLogin`, member
 `instructions`, `temp`, `complexityLimit` and unknown fields are outside the waiver whitelist. Template
 permission, `none` approver, default network, empty instructions and `temp: false` on a new
-implementer grant no extra authority. Approval and permission/boundary decision tools remain
-forbidden to the Operator; this classification opens no boundary-request exception.
+implementer grant no extra authority. Approval and permission decision tools remain
+forbidden to the Operator; this classification opens no exception.
 
 ### PM coordination (PM-707)
 
@@ -441,7 +441,7 @@ PM, who may have no role on the card. The recipient may be the Operator; its exi
 owner-request guards still apply, so forwarding grants no Operator authority. `decision` and
 `todo` hand the question to people. Resolution rechecks project, question kind and state under
 the lock. A PM answer is attributed to the PM and never sets an approval label or decides a
-permission, boundary, release or Operator approval item. These items keep their human routes.
+permission, release or Operator approval item. These items keep their human routes.
 Counterweights remain the asker's one-time `reask_of` after `answered`, `forwarded` or `moot`
 in the same project, the timeline of every outcome, and the owner/admin-only screened-question
 endpoint. If the PM cannot be woken or does not settle in time, the question opens for people
@@ -1319,6 +1319,37 @@ network, SSM or shell, only one Unix socket.
 - **Nothing is installed by the code.** `npm run administration -- prepare` only writes the configuration and
   the service file into a private folder; it calls no `launchctl` or `systemctl`. Installing the files, creating
   the directories and starting the supervisors is a separate rollout that the owner approves.
+
+## Regenerated files of a conflicting merge (PM-1050)
+
+A merge that conflicts only in generated files runs the repo's `reviewTest.regenerate.command` (owner-only
+configuration) in the full test sandbox, and the engine commits what it wrote: sandbox output reaches a
+commit that is pushed to a public `main`. The channel is narrow:
+
+- **Where the command may write.** Only the regenerating run gets write access: its spec carries a
+  `regenerate` descriptor (repo, merge id, patterns) and the engine derives the writable directories from
+  the patterns (`regeneratedWriteDirs`), never from a free list in the request. They are real directories
+  (no link component) of the canonical `_merge/<id>` checkout, which belongs to this run alone; a pattern
+  needs a literal directory before its last segment, the first segment may not start with `.`, and no
+  segment may be `.git*`, `.husky` or `node_modules`. The rest of the checkout, its `.git` file and
+  `node_modules` stay read-only, and the merge check runs in another checkout with no descriptor. A remote
+  engine accepts such a run only with the command in its `regenerateCommand` for that repo (the test
+  command may not run with the descriptor).
+- **What is taken.** After the run the engine moves the writable directories (`rename`) below a fresh
+  directory of the checkout, where the sandbox may no longer write, and reads only from there: an `lstat`
+  walk, then each file through one `O_NOFOLLOW` descriptor with `fstat` (regular file, one link, at most
+  1 MB), hashed from the bytes read (`hash-object --no-filters`). A dev/inode recheck is not used: the
+  sandbox could replace the writable directory itself, and `O_NOFOLLOW` covers only the last component.
+  New, changed or deleted files that match the patterns are taken; a changed or new file outside the
+  patterns, a `.git*`/`.husky`/`node_modules` name, a link, a hard link, a non-regular file, a file over
+  1 MB or more than 200 changed files (`too_many`) refuses the regeneration and the merge fails as a
+  conflict. Git never discovers the checkout: every call names `GIT_DIR` of the worktree, found from the
+  repository, runs with `core.fsmonitor=false` and a temporary index outside the checkout; there is no
+  `git status` or `git add` on its work tree.
+- **Limits that remain.** The sandbox can read what the full test sandbox reads, including the shared git
+  directory's `config`; a generator that copies a secret it can read into a file under the patterns would put
+  it into the commit. The patterns and the command are the owner's to choose; the merge check, code review
+  and the diff of the merge commit are the safeguards after that. Keep tokens out of remote URLs.
 
 ## Findings
 

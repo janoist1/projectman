@@ -486,6 +486,12 @@ Codex is started as `codex [resume] --no-alt-screen --no-daemon
 check off, the directory trusted, hooks, the team MCP server with its tools pre-approved,
 developer instructions); nothing is written to `~/.codex`.
 
+The team server must stay optional (PM-1070). PM-1055 made it `required = true` (with a
+20-second startup timeout and `mcp_optional_startup_grace_ms = 0`), and every Codex
+session then exited at start with "agent CLI exited before it was ready", because a
+required server that fails to start ends the CLI. Do not set `required` again unless the
+cause of the team MCP start failure is fixed and proven with a real `codex` run.
+
 The bypass flag lets our own hooks run without the one-time review in `/hooks`; it also runs
 any other enabled hooks of the user's Codex config and of the trusted project's `.codex/`
 folder, the same exposure as pre-trusting a Claude Code workspace (backlog PM-49).

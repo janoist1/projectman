@@ -9,7 +9,6 @@ import { createConfigStore, createOperatorKnowledgeStore } from '../../src/confi
 import { createRepositories, openDatabase } from '../../src/db';
 import type {
   AttachmentStorage,
-  BoundaryOperationAdapter,
   EngineAttachments,
   EngineDirectory,
   BranchMerger,
@@ -82,7 +81,6 @@ export interface HarnessSnapshot {
  */
 export async function createDomainHarness(
   opts: {
-    boundaryAdapter?: BoundaryOperationAdapter;
     /** Wraps the configuration store for read-failure injection. */
     configStore?: (inner: ReturnType<typeof createConfigStore>) => ReturnType<typeof createConfigStore>;
     adjust?: (config: ProjectConfig) => void;
@@ -288,7 +286,6 @@ export async function createDomainHarness(
     claudeTmpRoots: opts.claudeTmpRoots ?? sharedClaudeTmpRoots({ uid: 'test' }),
     browsersDir: opts.browsersDir,
     heavyLockDir: opts.heavyLockDir,
-    boundaryAdapter: opts.boundaryAdapter,
     repos,
     configStore,
     logger: log.logger,

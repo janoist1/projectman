@@ -67,7 +67,19 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   (`memberStorageHandle`, PM-1024): the first of its `formerHandles` (earlier handles, oldest
   first, written by a rename), else the current handle. Renaming a member therefore moves
   nothing on disk, and the agent's conversations keep their working directory. The task and
-  session comparisons (assignee, `session.member`, bindings) use the current handle. Humans have an **access level** (`owner`, `admin`, `developer`, `client`,
+  session comparisons (assignee, `session.member`, bindings) use the current handle.
+  **Renaming an AI member** (PM-1025) is an owner-only operation (REST `POST
+/api/projects/:key/members/:handle/rename`, the Operator's `member_rename` with an approval):
+  `MemberService.rename` holds the member's starts (`StartHolds`, `member_renaming`), refuses with
+  `member_session_live` while a session, a held workspace reservation, a `processing` queue item or
+  a deferred start of the member exists, and commits one configuration change carrying
+  `renames: {from: to}`. In that commit the configuration listeners see the previous configuration
+  with the rename applied (so nothing is retired or hired), the handle columns of the database are
+  rewritten in the same step (`apps/server/src/db/member-handles.ts`, `REWRITTEN_HANDLE_COLUMNS`),
+  and a `member_renamed {from, to, version}` event is appended. The timeline's earlier events keep
+  the old handle; viewers and the agents' text resolve it through `formerHandles` (the **alias**: a
+  message to the old handle reaches the member, the context pack lists "formerly `x`"). The e-mail
+  mailbox follows the new handle (see "E-mail"). Humans have an **access level** (`owner`, `admin`, `developer`, `client`,
   `viewer`) that governs what they may do in the app, and may hold several roles. An AI
   member holds exactly one role and has a provider (`claude` or `codex`), a model and effort,
   an optional **cheap subagent** (PM-179: a Claude Code member's sessions get a `reader-<model>`
@@ -85,13 +97,12 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   receives and its tool policy. A **role** is a named bundle of duties: 21 built-in roles with
   default bundles (`team.roleOverrides` replaces one) and custom roles defined in `team.yaml`.
   Release approval and final decision are human-only.
-- **External operation requests** — a protected adapter supplies exact, credential-free target
-  metadata for an opaque operation id. The server derives owner exceptions and routes other
-  requests to independent holders of `boundary_authorization` (the `lead_developer` bundle),
-  when the owner enables delegation. A persisted lead deadline escalates to owners, never
-  automatically allows; requests/grants and attributed audit survive restart. CLI permission
-  hooks and human gate/release decisions stay separate. See [BOUNDARY.md](BOUNDARY.md) for the
-  contracts, adapter integration and single-operation grant consumption.
+- **Permission request delegation** — when the owner enables `team.boundary`, the server routes
+  a permission request to independent holders of the `boundary_authorization` duty (the
+  `lead_developer` bundle) unless it is an owner exception. A persisted lead deadline escalates
+  to owners, never automatically allows. Human gate/release decisions stay separate. The
+  external operation requests and grants (PM-1035, PM-1019 B1) are removed: no adapter was ever
+  wired in.
 - **Pipeline** — ordered **stages** grouped into **board columns**. A stage has a kind:
   `queue` (waiting to start), `work` (the assignee builds it), `step` (the owners do one thing
   — review, deploy, test, client test, merge — as the stage's duty says, and record the result
@@ -519,7 +530,9 @@ Enforced on every configuration change, whoever makes it
 (`packages/shared/src/config/invariants.ts`; the changes only an owner may make are in
 `packages/shared/src/config/owner-only.ts`):
 
-- handles are unique; at least one human owner exists; AI sponsors are humans;
+- handles are unique, and a handle once used is never reissued: the `formerHandles` of every AI
+  member and the `from` of every `member_renamed` event stay taken (PM-1025); at least one human
+  owner exists; AI sponsors are humans;
 - repository names, board column ids, stage ids and label ids are unique;
 - stage owners and members named by labels refer to existing members; every role a member
   holds exists and suits the kind of member; custom role ids are unique and never reuse a
@@ -708,7 +721,6 @@ construction order; the factories return the existing classes without changing b
 | `services/obligations`                            | Open-step deadlines, one reminder and one integrator todo (PM-806).         |
 | `services/feedback`                               | Feedback marks, screenshots and widget sessions.                            |
 | `services/project-docs`                           | Operator document writes and decision candidates.                           |
-| `services/boundary`                               | External operation authorization and boundary requests.                     |
 | `services/schedules`                              | Scheduled member work.                                                      |
 | `services/operator`                               | Operator actions, signals, requests and project management.                 |
 | `runner`                                          | Provider CLIs, PTYs, permission waits, transcripts, usage probes and trust. |
@@ -867,8 +879,8 @@ The programs, their files and facades, the pinned version and the rules are in
   rules; health, machine and outage watchers; provider usage, quota and managed keys.
 - `context/` — context packs, prompts, kick-off briefs and member memory.
 - `services/` — merges, full tests and screenshots, releases, GitHub synchronization and
-  publishing, feedback and widget sessions, project documents, boundary requests, schedules
-  and Operator actions (the nine service modules).
+  publishing, feedback and widget sessions, project documents, schedules
+  and Operator actions (the eight service modules).
 - `runner/` — provider CLIs and PTYs, the input queue, session clocks, permission gate,
   hooks and their forwarder, transcripts, provider usage probes, trust and login checks.
 - `worktree/` — task worktrees and branches, member workspaces and dependency refresh.
@@ -951,6 +963,15 @@ two minutes, kept as hashes) and `feedback_sessions` (the tool's sessions on cus
 hashes); `member_queue_items` (PM-894, migration 98: one row per item in an AI member's queue, see "Member
 queue"; not journaled); `sessions.execution_profile` (PM-141) is a column, not a table. Schema changes are numbered migrations in `apps/server/src/db/migrations.ts`;
 the server refuses a database a newer build migrated.
+
+**Handle columns (PM-1025).** Every column that stores a member handle is registered in
+`apps/server/src/db/member-handles.ts`: either rewritten by a rename (`REWRITTEN_HANDLE_COLUMNS`,
+`REWRITTEN_HANDLE_JSON`: tasks, messages, inbox, sessions, `member_state`, `member_queue_items`,
+`task_workspace_bindings`, …) or deliberately not (`UNREWRITTEN_HANDLE_COLUMNS`: the storage keys,
+e.g. `member_workspaces.member`, which hold the storage handle, and the append-only timeline). A
+guard test (`member-handles-columns.test.ts`) fails when a new handle column is in neither list.
+The rewrite is idempotent; at startup `MemberService.recoverRenames` completes a rename whose
+configuration was saved but whose database step did not run.
 
 ## Member queue (PM-894)
 
@@ -1154,8 +1175,8 @@ at)`, index `(project_key, seq)` (migration 81). `seq` never goes back, also not
   focus items) name the card key in kind `task` (a link names the card's project through the card, a
   card removed by a cascade is announced by its own row); `timeline_events`, `team_messages`,
   `message_attachments`, the inbox and its question groups, `task_handoffs`, the operator requests and
-  their steps (the step names its request and the request's project), the super-operation audit, boundary
-  requests, merges, merge trains, releases and doc writes have their own kinds; a pause of the whole
+  their steps (the step names its request and the request's project), the super-operation audit,
+  merges, merge trains, releases and doc writes have their own kinds; a pause of the whole
   instance is written for every project. `UNJOURNALED_TABLES` names every other table with the reason
   (credentials, login, usage, machine-local bookkeeping, Operator bookkeeping, the journal itself).
   `test/project-change-journal.test.ts` fails when a table is in neither list, in both, or a name is
@@ -2487,7 +2508,13 @@ workers follow the machine's size.
   is the handle or `ai.email.mailbox`, unique server-wide). The mail lands in the member's conversation as a
   reply linked by MIME headers when answering a member's mail (PM-1018), otherwise as a direct
   team message, and its attachments go through the message-attachments storage on the hub, so nothing new
-  crosses to an engine.
+  crosses to an engine. **Rename (PM-1025):** a rename deletes `ai.email.mailbox`, so the address becomes
+  `<new handle>@<reply domain>` (it is refused with `email_mailbox_taken` when that mailbox is another
+  member's). Mail to the old address still arrives: `emailMailboxOwners` also matches the `formerHandles`
+  of an AI member, so the old name resolves to the same member; a live holder of the same name does not
+  win over it but shares it, and the existing shared-name branch parks the mail. The old name stays reserved
+  in every project (`emailMailboxReserved`): no chosen mailbox, e-mail switch-on or rename may take it.
+  No new boundary: it is the same hub-only rule.
 
 - **Feedback widget public entrance and screenshot store (PM-506, PM-508)** —
   `apps/server/src/services/feedback/{service,screenshots,notices,widget}.ts`, `apps/server/src/api/feedback.ts`,
@@ -3012,7 +3039,7 @@ workers follow the machine's size.
   The host owner's own login manages explicit `super`/`read` keys with 1/7/30/365-day expiry
   or no expiry (`expiresInDays: null`, PM-825; default 7 days). The hub already stores a null
   `expires_at` and authenticates it until revocation; no migration or engine operation is needed.
-  Legacy keys are revoked with a lifecycle audit by migration 113 (PM-1037); the singular API is removed.
+  Legacy keys are revoked with a lifecycle audit by migration 114 (PM-1037); the singular API is removed.
   Authentication rejects legacy rows, which remain readable in key lists and audit history. Before release,
   the owner must replace any active legacy credential on the integrator's machine with a super or read key.
   Replacement revokes only
@@ -3683,6 +3710,19 @@ assumption or remote-engine RPC.
   PM-311). CLI hooks and MCP target the server's loopback URL (`127.0.0.1:4800` for the live
   instance; the port is configurable). The internal guard also checks the peer, Host and
   forwarding/origin headers; merely changing the URL to a public server cannot work.
+  **Codex team server stays optional (PM-1070):** `runner/providers/codex/args.ts` passes
+  `mcp_servers.team` with only its `url` and tool approvals. PM-1055 had set
+  `required = true`, a 20-second startup timeout and `mcp_optional_startup_grace_ms = 0`;
+  from that deploy every Codex session exited at start ("agent CLI exited before it was
+  ready"), so it was reverted. A failing team MCP must cost the tools, not the session.
+  The root cause of the team MCP start failure is investigated separately.
+  **Remote engine:** unchanged; the token-bound loopback relay supplies the catalog.
+  **Team MCP relay log (PM-1072):** the engine logs each `initialize` and `tools/list` relay
+  (method, status, elapsed time) at info, and every refused (non-2xx), failed or badly
+  answered relay at warn; the cloud logs why it refused a relayed token. Neither logs the
+  token or the body. A Codex session without team tools therefore shows in the engine log
+  where its handshake stopped (no call, a slow one, a refusal); the cause of the intermittent
+  missing tools was not yet reproduced with a real Codex run.
   Submission timeouts (PM-442) log retry count, elapsed time, command/idle state and bounded
   CLI diagnostics from `runner/input-queue.ts` and `runner/session.ts`: prompt/resume flags,
   the last hook name/time, blocking-screen detection and at most 500 characters from the last
@@ -4097,6 +4137,17 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   In GitHub mode (`FullTestSpec.githubActions`, PM-900) the sandbox does not run: the engine's
   `withGithubActions` executor takes the request (see "GitHub Actions merge check").
   **Module:** `services/full-tests`
+- **Merge-test file watchdog (PM-1054)** — `scripts/merge-test/{npm,reporter}.ts`.
+  Every test invocation, including reruns, uses the default and hanging-process reporters plus
+  controller-side start/end events for each file (from collection through teardown). The npm
+  supervisor gives each active file 180 seconds, with 20-second test and hook defaults. On a
+  file deadline it prints all active file names as `FAIL` lines and stops the command through
+  the existing `scripts/lib/child-guard.mjs`; exit 1 and an unhandled-error diagnostic prevent
+  the flaky-file rerun rule from hiding the timeout. **Machine assumption:** POSIX process
+  groups, already required by the child guard, stop even synchronously blocked workers and
+  clean up descendants when the supervisor dies. **Remote engine:** the supervisor and guard
+  run where the tests execute (GitHub Actions or the engine); only existing output and verdict
+  data cross the boundary. No new server/engine contract.
 - **Merge-test step cache (PM-845, PM-841)** — `scripts/merge-test/{steps,run}.ts`,
   `full-test/{index,sandbox,step-cache}.ts`, `app.ts`, `engine-app.ts` and `index.ts`.
   The executor stores passed command keys in the engine-local
@@ -4216,7 +4267,7 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   invokes `listPaths`, `readFile` and `changedPaths`. Git and repository registration stay
   on the selected engine; remote engines return bounded file names and descriptor text.
   Merging a card's approved commit into the repository's default branch and sending it up is git work on
-  the repository and uses this machine's git login (the owner's). It runs as eight calls — `merge.prepare`
+  the repository and uses this machine's git login (the owner's). It runs as nine calls — `merge.prepare`
   (fetch of the upstream and the state of the base), `merge.is_ancestor`, `merge.build` (a merge commit made
   with `merge-tree`/`commit-tree`, the branch not moved), `merge.checkout_conflicts`,
   `merge.checkout_for_check` and `merge.release_check` (a detached check checkout under
@@ -4262,6 +4313,37 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   Conflicting train sources use that same server-side requeue with a one-card limit (PM-778);
   individual attempts read current main and retain the full check and review gates. Git and checks
   still run on the selected engine through the existing RPCs, with no new machine assumption.
+  Generated files (PM-1050): when `reviewTest.regenerate` names path patterns and command, a standalone
+  merge whose conflict is only in files matching them calls `merge.build` again with `regenerate`; the
+  engine answers the conflict with a `provisional` merge commit (parents `onto` and the commit) made
+  without those files, in a temporary index file in the engine's `os.tmpdir()` (the checkout's index is
+  never used). The server runs the configured command in the full test sandbox (`full_test.run`, not
+  recorded as a merge check) on a `_merge/<id>` checkout of it that has an id of its own (not the
+  merge's), so a process the run leaves behind never reaches the merge check's checkout. Only that run
+  may write: its spec carries `regenerate: { ref, mergeId, patterns }` (like `npmCi`), and the engine
+  derives the writable directories itself (`regeneratedWriteDirs`: the literal directories before the
+  last segment of each pattern; real directories of that canonical checkout, never links; the rest of
+  the checkout, its `.git` and `node_modules` stay read-only). A remote engine accepts that spec only
+  with the command of the repo's `regenerateCommand` in its `engine.json` (the owner sets it;
+  `fullTestCommand` may not run with the descriptor) and only for that repo's `_merge` checkout; without
+  `regenerateCommand` the merge falls back to the old `conflict` failure with that detail. A local
+  engine uses the server's `reviewTest.regenerate.command`. Then `merge.commit_regenerated` has the
+  engine commit the written files: it first `rename`s the writable directories below a fresh
+  `.pm-regenerated-*` directory of the checkout (no longer writable there) and reads only from that
+  copy: an `lstat` walk, each file through one `O_NOFOLLOW` descriptor and `fstat` (regular, one link,
+  at most 1 MB), hashed from the bytes read with `hash-object --no-filters`, never `git add`. Only
+  files that are new, changed or deleted against the provisional commit and match the patterns are
+  taken (never a `.git*` name, `.husky` or `node_modules`); a change in the directory outside the
+  patterns, a link, a flood of files (`too_many`) or a missing conflicting file refuses it. Git does
+  not discover the checkout: the worktree git directory is found from the repository and named in
+  `GIT_DIR`, and the indexes are temporary files outside the checkout. The merge check checks that
+  commit as always. Any other conflict, any refusal and any failure keeps the old `conflict` failure;
+  an engine from before the field refuses `regenerate` (`invalid_params`) and the merge fails as
+  before. The call count above is nine with `merge.commit_regenerated`.
+  Machine-dependent parts: the regeneration run and the commit step run on the card's engine in its
+  `_merge` checkouts, with the same sandbox assumptions as the full test (srt/Seatbelt write
+  allow-list, `rename` within the checkout filesystem); a remote engine additionally needs
+  `regenerateCommand` in its `engine.json`.
   Member workspaces (PM-739): a developer's commit lives only in their remote-less clone, so before the
   first `merge.prepare`, `merge.is_ancestor` or `merge.build` of a standalone merge, a train (also its
   recovery and its candidate selection) and the merge gate, the server calls

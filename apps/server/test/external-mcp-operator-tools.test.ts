@@ -194,7 +194,11 @@ describe('the bearer MCP endpoint: the Operator tools (PM-784)', () => {
 
     it('shows a question only to the key owner who asked it and in its own project', async () => {
       const { secret } = key('super');
-      const asked = await call(secret, 'ask_human', { project_key: 'AR', question: 'Is this mine?' });
+      const asked = await call(secret, 'ask_human', {
+        project_key: 'AR',
+        question: 'Is this mine?',
+        options: ['Yes', 'No'],
+      });
       const itemId = asked.structuredContent!.inbox_item_id as string;
       expect(
         code(await call(secret, 'get_super_question', { project_key: 'AR', item_id: 'inb_nothing' })),
@@ -226,19 +230,41 @@ describe('the bearer MCP endpoint: the Operator tools (PM-784)', () => {
         { nope: 1 },
       ])
         expect(
-          code(await call(secret, 'ask_human', { project_key: 'AR', question: 'Hi?', ...extra })),
+          code(
+            await call(secret, 'ask_human', {
+              project_key: 'AR',
+              question: 'Hi?',
+              options: ['Yes', 'No'],
+              ...extra,
+            }),
+          ),
           JSON.stringify(extra),
         ).toBe('invalid_request');
       expect(code(await call(secret, 'ask_human', { project_key: 'AR' }))).toBe('invalid_request');
       expect(
-        code(await call(secret, 'ask_human', { project_key: 'AR', question: 'Hi?', to: ['nobody'] })),
+        code(
+          await call(secret, 'ask_human', {
+            project_key: 'AR',
+            question: 'Hi?',
+            options: ['Yes', 'No'],
+            to: ['nobody'],
+          }),
+        ),
       ).toBe('invalid_request');
+      // A decision without options is refused as well.
+      expect(code(await call(secret, 'ask_human', { project_key: 'AR', question: 'Hi?' }))).toBe(
+        'invalid_request',
+      );
       expect(inboxItems().filter((item) => item.kind === 'question')).toEqual([]);
     });
 
     it('audits the question without its text', async () => {
       const { secret } = key('super');
-      await call(secret, 'ask_human', { project_key: 'AR', question: 'A confidential question text?' });
+      await call(secret, 'ask_human', {
+        project_key: 'AR',
+        question: 'A confidential question text?',
+        options: ['Yes', 'No'],
+      });
       const entries = audit().filter((entry) => entry.operation === 'mcp_ask_human');
       expect(entries.map((entry) => entry.outcome)).toEqual(expect.arrayContaining(['started', 'succeeded']));
       expect(JSON.stringify(entries)).not.toContain('confidential');

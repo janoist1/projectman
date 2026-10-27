@@ -50,12 +50,7 @@ import {
   planRanks,
   stagesOfColumn,
   subtasksMovingAlong,
-  BoundaryRequest,
-  DecideBoundaryRequest,
   boundaryOwners,
-  boundaryWaitingState,
-  canDecideBoundary,
-  canReadBoundary,
   AddHumanMemberRequest,
   AgentProvider,
   CancelTaskRequest,
@@ -264,7 +259,6 @@ import type {
   LoopDecisionPayload,
   LoopTalk,
   TaskLoop,
-  BoundaryGrant,
   AiMemberConfig,
   ApprovalRequirement,
   Attachment,
@@ -572,7 +566,6 @@ export class MockBackend {
     },
   });
   inbox: InboxItem[] = clone(fixtures.inbox);
-  boundaryGrants = new Map<string, BoundaryGrant>();
   messages: TeamMessage[] = clone(fixtures.teamMessages);
   /** The feedback marks (PM-511); a project starts without surfaces and marks, a test or scenario fills it. */
   readonly feedback: MockFeedback = new MockFeedback({
@@ -2933,7 +2926,6 @@ export class MockBackend {
       }
     }
     if (rest === '/inbox') {
-      this.refreshBoundaryInbox();
       this.sweepIntegratorTodos(nowIso());
       // Use the shared privacy rule, including private knowledge approvals.
       return ok({
@@ -2950,20 +2942,6 @@ export class MockBackend {
       });
     }
     if (rest === '/inbox/screened' && method === 'GET') return this.screenedQuestions(query);
-    if ((m = /^\/boundary\/([\w-]+)$/.exec(rest)) && method === 'GET') {
-      this.refreshBoundaryInbox();
-      const item = this.inbox.find((i) => i.id === m![1] && i.kind === 'boundary');
-      const parsed = BoundaryRequest.safeParse(item?.payload.boundary);
-      if (!parsed.success) return error(404, 'not_found', 'Unknown boundary request');
-      if (!canReadBoundary(this.config, parsed.data, this.viewerHandle))
-        return error(403, 'not_an_assignee', 'Boundary request is private');
-      return ok({
-        request: clone(parsed.data),
-        grant: clone(this.boundaryGrants.get(parsed.data.id) ?? null),
-      });
-    }
-    if ((m = /^\/boundary\/([\w-]+)\/(decide|revoke)$/.exec(rest)) && method === 'POST')
-      return this.decideBoundary(m[1]!, body, m[2] === 'revoke');
     if ((m = /^\/inbox\/([\w-]+)\/resolve$/.exec(rest)) && method === 'POST')
       return this.resolve(m[1]!, body);
     if ((m = /^\/inbox\/([\w-]+)\/check$/.exec(rest)) && method === 'POST') return this.checkOutage(m[1]!);
@@ -6448,7 +6426,6 @@ export class MockBackend {
     }
     const viewer = memberOf(this.config, this.viewerHandle);
     if (viewer?.kind !== 'human') return error(403, 'ai_approval_forbidden', 'Only humans may approve');
-    if (item.kind === 'boundary') return error(403, 'insufficient_access', 'Use the boundary endpoint');
     const operatorApproval = operatorApprovalOf(item);
     const knowledge = operatorKnowledgeApprovalOf(item);
     if (knowledge) {
@@ -6616,134 +6593,6 @@ export class MockBackend {
       }
     }
     return ok(clone(resolved));
-  }
-
-  private refreshBoundaryInbox(): void {
-    for (const item of this.inbox.filter((entry) => entry.kind === 'boundary')) {
-      const parsed = BoundaryRequest.safeParse(item.payload.boundary);
-      if (!parsed.success) continue;
-      const request = parsed.data;
-      const grant = this.boundaryGrants.get(request.id);
-      if (request.consumedAt || grant?.state === 'consumed' || grant?.consumedAt) continue;
-      const state = boundaryWaitingState(this.config, request, Date.now());
-      if (state === request.state) continue;
-      if (grant?.state === 'active' && state === 'expired')
-        this.boundaryGrants.set(request.id, { ...grant, state: 'expired', revokedAt: nowIso() });
-      const next = {
-        ...request,
-        state,
-        updatedAt: nowIso(),
-        assignees: state === 'pending_owner' ? boundaryOwners(this.config) : request.assignees,
-        ...(state === 'expired'
-          ? {
-              invalidation: {
-                actor: { kind: 'system', handle: null },
-                reason: 'deadline_expired',
-                at: nowIso(),
-              },
-            }
-          : {}),
-      };
-      this.upsertInbox({
-        ...item,
-        payload: { boundary: next },
-        assignees: [...new Set([...next.assignees, ...boundaryOwners(this.config)])],
-        state: state === 'expired' && item.state === 'open' ? 'expired' : item.state,
-      });
-    }
-  }
-
-  private decideBoundary(id: string, body: unknown, revoke: boolean): MockResponse {
-    this.refreshBoundaryInbox();
-    const item = this.inbox.find((entry) => entry.id === id && entry.kind === 'boundary');
-    const parsed = BoundaryRequest.safeParse(item?.payload.boundary);
-    if (!item || !parsed.success) return error(404, 'not_found', 'Unknown boundary request');
-    const request = parsed.data;
-    const viewer = memberOf(this.config, this.viewerHandle);
-    if (revoke && (viewer?.kind !== 'human' || viewer.access !== 'owner'))
-      return error(403, 'owner_only', 'Only owners may revoke');
-    const storedGrant = this.boundaryGrants.get(id);
-    if (revoke && (request.consumedAt || storedGrant?.state === 'consumed' || storedGrant?.consumedAt))
-      return error(409, 'inbox_item_closed', 'Boundary grant was already consumed');
-    if (
-      revoke ? !['pending_lead', 'pending_owner', 'allowed'].includes(request.state) : item.state !== 'open'
-    )
-      return error(409, 'inbox_item_closed', 'Boundary request closed');
-    const input = revoke ? null : parseBody(DecideBoundaryRequest, body);
-    if (!revoke && !input) return error(400, 'invalid_request', 'Invalid decision');
-    if (!revoke && !canDecideBoundary(this.config, request, this.viewerHandle))
-      return error(403, 'not_an_assignee', 'No live authorization duty');
-    const state = revoke ? 'revoked' : input!.decision === 'allow' ? 'allowed' : 'denied';
-    const reason = revoke ? 'owner_revoked' : input!.reason;
-    const next: BoundaryRequest = {
-      ...request,
-      state,
-      reason: revoke && request.decidedBy ? request.reason : reason,
-      updatedAt: nowIso(),
-      decidedBy: revoke ? request.decidedBy : { kind: viewer!.kind, handle: viewer!.handle },
-      ...(revoke
-        ? {
-            invalidation: {
-              actor: { kind: viewer!.kind, handle: viewer!.handle },
-              reason: 'owner_revoked' as const,
-              at: nowIso(),
-            },
-          }
-        : {}),
-    };
-    if (state === 'allowed')
-      this.boundaryGrants.set(id, {
-        id: `grt_${id.slice(-100)}`,
-        requestId: id,
-        projectKey: request.projectKey,
-        member: request.member,
-        sessionId: request.sessionId,
-        taskKey: request.taskKey,
-        operationId: request.operationId,
-        target: request.target,
-        policyVersion: request.policyVersion,
-        state: 'active',
-        decidedBy: next.decidedBy!,
-        reason: input!.reason,
-        createdAt: nowIso(),
-        expiresAt: request.expiresAt,
-        revokedAt: null,
-        consumedAt: null,
-      });
-    const grant = this.boundaryGrants.get(id);
-    if (revoke && grant?.state === 'active')
-      this.boundaryGrants.set(id, { ...grant, state: 'revoked', revokedAt: nowIso() });
-    this.upsertInbox({
-      ...item,
-      state: revoke && item.state === 'open' ? 'cancelled' : 'resolved',
-      payload: { boundary: next },
-      resolution:
-        revoke && item.resolution
-          ? item.resolution
-          : {
-              optionId: state === 'allowed' ? 'allow' : 'deny',
-              by: this.viewerHandle,
-              at: nowIso(),
-              note: reason,
-            },
-    });
-    this.addTimeline(
-      item.taskKey,
-      this.viewerHandle,
-      'boundary_changed',
-      {
-        requestId: id,
-        state,
-        reason,
-        operation: request.target.operation,
-        resource: request.target.resource,
-        category: request.category,
-        assignees: request.assignees,
-        policyVersion: request.policyVersion,
-      },
-      item.sessionId,
-    );
-    return ok(clone(next));
   }
 
   /** What the server does with a decision: record it, answer the asker, apply a gate decision. */

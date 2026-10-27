@@ -27,8 +27,8 @@ import { MessageOrigin } from './involvement';
 
 describe('superDecisionRefusal', () => {
   const item = { kind: 'question' as const, source: 'dev', payload: {} };
-  it.each(['permission', 'boundary'] as const)('reserves %s to a person', (kind) => {
-    expect(superDecisionRefusal({ ...item, kind }, { operatorHandle: 'operator' })).toBe(
+  it('reserves a permission to a person', () => {
+    expect(superDecisionRefusal({ ...item, kind: 'permission' }, { operatorHandle: 'operator' })).toBe(
       'owner_approval_required',
     );
   });

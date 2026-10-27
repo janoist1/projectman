@@ -20,6 +20,7 @@ import {
   hasSuperOrigin,
   operatorConfigVerdict,
   operatorApprovalOf,
+  renameMemberInConfig,
   canonical,
   ownerOnlyChanges,
   unknownPatchRepo,
@@ -108,6 +109,8 @@ interface ConfigChangeMeta {
   invitationBinding?: { handle: string; email: string };
   /** Members who leave in this change and who takes over their open tasks (handle -> handle). */
   handovers?: Readonly<Record<string, string>>;
+  /** AI members whose handle changes in this change (old handle -> new handle; PM-1025). */
+  renames?: Readonly<Record<string, string>>;
 }
 
 /** A human's edit of the configuration (settings: replace, patch or revert). */
@@ -129,6 +132,8 @@ export interface ConfigChange {
   actor: Actor;
   /** Members who left in this change and who takes over their open tasks (handle -> handle). */
   handovers?: Readonly<Record<string, string>>;
+  /** AI members whose handle changed in this change (old handle -> new handle; PM-1025). */
+  renames?: Readonly<Record<string, string>>;
 }
 
 /** Handle of the human who creates a project from a template. */
@@ -751,14 +756,20 @@ export class ProjectService {
     this.cache.set(key, loaded);
     if (version !== current.version) {
       this.touchRecord(key, loaded);
+      const renames = meta.renames;
+      // A rename switches the database to the new handle in the same step as the cache and the announcement (no
+      // await between), and the listeners are told the old configuration with the rename applied: they see no
+      // member leave or join (PM-1025).
+      if (renames) this.applyRenames(key, renames, version, meta.actor);
       await this.announce(
         {
           projectKey: key,
-          previous: current.config,
+          previous: renames ? this.renamed(current.config, renames) : current.config,
           next: loaded.config,
           version,
           actor: meta.actor,
           ...(meta.handovers ? { handovers: meta.handovers } : {}),
+          ...(renames ? { renames } : {}),
         },
         meta.message,
       );
@@ -835,6 +846,30 @@ export class ProjectService {
     this.cache.set(key, loaded);
     this.touchRecord(key, loaded);
     this.finishOperatorExecution(key, stepId, version, actor);
+  }
+
+  private renamed(config: ProjectConfig, renames: Readonly<Record<string, string>>): ProjectConfig {
+    return Object.entries(renames).reduce((acc, [from, to]) => renameMemberInConfig(acc, from, to), config);
+  }
+
+  /** Rewrites the handle in the database and records `member_renamed`, in one transaction (idempotent). */
+  private applyRenames(
+    key: string,
+    renames: Readonly<Record<string, string>>,
+    version: string,
+    actor: Actor,
+  ): void {
+    this.ctx.unitOfWork(() => {
+      for (const [from, to] of Object.entries(renames)) {
+        this.ctx.repos.memberHandles.rename(key, from, to);
+        this.timeline.append({
+          projectKey: key,
+          actor,
+          type: 'member_renamed',
+          data: { from, to, version },
+        });
+      }
+    });
   }
 
   private touchRecord(key: string, loaded: LoadedProject): void {

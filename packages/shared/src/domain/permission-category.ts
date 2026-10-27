@@ -1,11 +1,8 @@
-import type { BoundaryCategory } from './boundary';
-
 /**
- * The owner's categories an AI decider never decides (PM-169): the same four as for external
- * operations (`BoundaryCategory` without `delegable`). `cost` is listed for completeness: what a
+ * The owner's categories an AI decider never decides (PM-169). `cost` is listed for completeness: what a
  * command spends cannot be read from its text, so only the decider's own judgement sends it on.
  */
-export type PermissionOwnerCategory = Exclude<BoundaryCategory, 'delegable'>;
+export type PermissionOwnerCategory = 'cost' | 'production' | 'credentials' | 'host_expansion';
 
 /** Tools that change a file; their path is checked against the session's roots. */
 const WRITING_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);

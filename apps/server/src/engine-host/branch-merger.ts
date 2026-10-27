@@ -7,12 +7,14 @@ import {
   type MergePushResult,
   type MergeRepoRef,
 } from '../contracts';
+import { isRegeneratedPathPattern } from '@projectman/shared';
 import { createDocFiles } from './doc-files';
 import { classifyPush, nulPaths, overlappingPaths } from './git-output';
 import { createMergeChecks } from './merge-check';
 import { NETWORK_GIT_TIMEOUT_MS, outputTail, runGit } from './merge-git';
 import { invalidInput, isCommitId, isMergeMessage, mergeArgs } from './merge-input';
 import { createPathReads } from './path-reads';
+import { provisionalMerge } from './regenerated-files';
 import { createReleaseTags } from './release-tags';
 import {
   dirtyPaths,
@@ -105,13 +107,15 @@ export function createLocalBranchMerger(options: LocalBranchMergerOptions): Bran
 
   const build = async (
     ref: MergeRepoRef,
-    input: { onto: string; commit: string; message: string },
+    input: { onto: string; commit: string; message: string; regenerate?: readonly string[] },
   ): Promise<MergeBuildResult> => {
     const repo = args.repo(ref);
     const onto = args.commit(input.onto, 'The base commit');
     const commit = args.commit(input.commit, 'The commit');
     if (!isMergeMessage(input.message) || input.message.trim().length === 0)
       invalidInput('Not a commit message');
+    const patterns = input.regenerate ?? [];
+    if (!patterns.every(isRegeneratedPathPattern)) invalidInput('Not a pattern of generated files');
     await requireCommit(repo, onto, 'The base commit');
     await requireCommit(repo, commit, 'The commit');
     // The identity first: a repository without one is told so before any work is done.
@@ -126,11 +130,27 @@ export function createLocalBranchMerger(options: LocalBranchMergerOptions): Bran
       commit,
     ]);
     if (merged.code === 1) {
-      const [, ...rest] = merged.stdout.split('\0');
+      const [conflictTree, ...rest] = merged.stdout.split('\0');
       const conflict = [
         ...new Set(rest.slice(0, rest.indexOf('') === -1 ? undefined : rest.indexOf(''))),
       ].sort();
-      return { ok: false, conflict: conflict.slice(0, MAX_CONFLICTS) };
+      const failed = { ok: false, conflict: conflict.slice(0, MAX_CONFLICTS) } as const;
+      if (patterns.length === 0 || conflict.length > MAX_CONFLICTS || !isCommitId(conflictTree!.trim()))
+        return failed;
+      // A conflict only in generated files: the caller gets a commit without them to make them again in.
+      const provisional = await provisionalMerge(repo, {
+        tree: conflictTree!.trim(),
+        conflicts: conflict,
+        patterns,
+        onto,
+        commit,
+        message: input.message,
+        identity,
+      }).catch((error: unknown) => {
+        if (error instanceof MergeError) return undefined;
+        throw error;
+      });
+      return provisional === undefined ? failed : { ...failed, provisional };
     }
     if (merged.code !== 0)
       throw new MergeError(

@@ -101,6 +101,7 @@ function fakeDocsMerger(
       truncated: false,
     })),
     changedPaths: vi.fn<BranchMerger['changedPaths']>(async () => []),
+    commitRegenerated: vi.fn<BranchMerger['commitRegenerated']>(),
   };
   return merger;
 }

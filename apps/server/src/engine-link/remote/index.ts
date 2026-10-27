@@ -146,10 +146,23 @@ export function createCloudRemote(options: CloudRemoteOptions): CloudRemote {
 
   /** One team-tools request of an engine's session, run through the MCP routes of this very server. */
   const relayMcp: Parameters<typeof registerCloudHandlers>[0]['relayMcp'] = async (engineId, request) => {
-    if (!bound) return { status: 503, contentType: 'application/json', body: '{"error":"starting"}' };
+    if (!bound) {
+      logger.warn({ engineId }, 'team MCP relay: the server is still starting');
+      return { status: 503, contentType: 'application/json', body: '{"error":"starting"}' };
+    }
     const context = bound.domain.sessions.resolveToken(request.token);
     // A token works for the engine its session runs on and for no other.
-    if (!context || bound.domain.sessions.engineOf(context.sessionId) !== engineId) return NOT_FOUND;
+    if (!context) {
+      logger.warn({ engineId }, 'team MCP relay: the token is unknown or revoked');
+      return NOT_FOUND;
+    }
+    if (bound.domain.sessions.engineOf(context.sessionId) !== engineId) {
+      logger.warn(
+        { engineId, sessionId: context.sessionId },
+        'team MCP relay: the session runs on another engine',
+      );
+      return NOT_FOUND;
+    }
     const response = await bound.app.inject({
       method: 'POST',
       url: routes.mcp(request.token),

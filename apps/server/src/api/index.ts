@@ -14,7 +14,6 @@ import { registerFeedbackRoutes } from './feedback';
 import { registerFeedbackWidgetRoutes } from './feedback-widget';
 import { registerProjectEventRoutes } from './project-events';
 import { registerStructureRoutes } from './structure';
-import { registerBoundaryRoutes } from './boundary';
 import { registerInvitationRoutes } from './invitations';
 import { registerMemberRoutes } from './members';
 import { registerEmailChannelRoutes } from './email-channel';
@@ -110,7 +109,6 @@ export function registerApiRoutes(app: FastifyInstance, services: ApiServices): 
     clientIpHeader: services.clientIpHeader,
     widgetFile: services.feedbackWidgetFile ?? null,
   });
-  registerBoundaryRoutes(app, domain);
   registerConfigRoutes(app, domain);
   registerInvitationRoutes(app, services);
 }

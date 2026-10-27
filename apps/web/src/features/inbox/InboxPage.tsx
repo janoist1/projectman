@@ -15,8 +15,7 @@ import {
   wasIntegratorInboxItem,
 } from '@projectman/shared';
 import type { InboxItem, SuperOperationDetail } from '@projectman/shared';
-import { useBoard, useConfig, useInbox, useResolveInbox, useRevokeBoundary } from '../../api/queries';
-import { Button } from '../../components/Button';
+import { useBoard, useConfig, useInbox, useResolveInbox } from '../../api/queries';
 import { ActorName } from '../../components/ActorName';
 import { useProject, useProjectIndexes } from '../../app/contexts';
 import { Icon } from '../../components/Icon';
@@ -36,7 +35,6 @@ import {
   approvalHintOf,
   decisionSubject,
   decisionToast,
-  boundaryOf,
   detailsHrefFor,
   displayKindOf,
   handOnResolvedText,
@@ -96,19 +94,16 @@ function RecentRow({
   members,
   myHandle,
   pipeline,
-  onRevoke,
 }: {
   item: InboxItem;
   members: MemberIndex;
   myHandle: string | null;
   pipeline?: PipelineIndex | null | undefined;
-  onRevoke?: ((id: string) => void) | undefined;
 }) {
   const mark = resolutionMark(item);
   const group = questionPayloadOf(item)?.group;
   const note = resolutionNote(item);
   const delivery = answerDeliveryText(item, members, myHandle);
-  const boundary = boundaryOf(item);
   const subject =
     item.kind === 'hand_on' && item.state === 'resolved'
       ? handOnResolvedText(item, members, myHandle, pipeline)
@@ -160,17 +155,6 @@ function RecentRow({
         ) : null}
         {note ? <span className={styles.recentNote}>{note}</span> : null}
         {delivery ? <span className={styles.recentNote}>{delivery}</span> : null}
-        {boundary ? (
-          <span className={styles.recentNote}>
-            {boundary.consumedAt ? t('boundary.consumed') : t(`boundary.states.${boundary.state}`)}
-            {boundary.invalidation ? ` · ${t(`boundary.reasons.${boundary.invalidation.reason}`)}` : ''}
-          </span>
-        ) : null}
-        {onRevoke && boundary?.state === 'allowed' && !boundary.consumedAt ? (
-          <Button variant="ghost" onClick={() => onRevoke(item.id)}>
-            {t('boundary.revoke')}
-          </Button>
-        ) : null}
       </div>
     </li>
   );
@@ -186,14 +170,12 @@ function RecentDecisions({
   members,
   myHandle,
   pipeline,
-  onRevoke,
 }: {
   items: InboxItem[];
   automatic: InboxItem[];
   members: MemberIndex;
   myHandle: string | null;
   pipeline?: PipelineIndex | null | undefined;
-  onRevoke?: (id: string) => void;
 }) {
   // Nothing decided yet: no empty box.
   if (items.length === 0 && automatic.length === 0) return null;
@@ -204,14 +186,7 @@ function RecentDecisions({
       </h2>
       <ul className={styles.recentList}>
         {items.map((item) => (
-          <RecentRow
-            key={item.id}
-            item={item}
-            members={members}
-            myHandle={myHandle}
-            pipeline={pipeline}
-            onRevoke={onRevoke}
-          />
+          <RecentRow key={item.id} item={item} members={members} myHandle={myHandle} pipeline={pipeline} />
         ))}
       </ul>
       {automatic.length > 0 ? (
@@ -239,12 +214,8 @@ export function InboxPage() {
   const config = useConfig(key, can.readConfig).data?.config;
   const { members, pipeline } = useProjectIndexes(key);
   const resolve = useResolveInbox(key, myHandle);
-  const revoke = useRevokeBoundary(key);
   const toast = useToast();
   const queryClient = useQueryClient();
-  const onRevoke = isOwner
-    ? (id: string) => revoke.mutate(id, { onError: () => toast.show(t('boundary.revokeFailed'), 'error') })
-    : undefined;
   const [filter, setFilter] = useState<KindFilter>('all');
   useDocumentTitle(t('inbox.title'), board.data?.project.name);
 
@@ -592,7 +563,6 @@ export function InboxPage() {
               members={members}
               myHandle={myHandle}
               pipeline={pipeline}
-              onRevoke={onRevoke}
             />
             {can.manageTeam ? (
               <OperatorTrail projectKey={key} members={members} myHandle={myHandle} taskHrefOf={taskHrefOf} />
@@ -608,7 +578,6 @@ export function InboxPage() {
             members={members}
             myHandle={myHandle}
             pipeline={pipeline}
-            onRevoke={onRevoke}
           />
           {can.manageTeam ? (
             <OperatorTrail projectKey={key} members={members} myHandle={myHandle} taskHrefOf={taskHrefOf} />

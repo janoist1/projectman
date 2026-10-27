@@ -677,10 +677,10 @@ describe('credential REST and domain access (PM-759)', () => {
     expect(waiver.json().error.code).toBe('owner_approval_required');
   });
 
-  it('keeps permission and boundary decisions exclusive to a person at REST and domain entry', async () => {
+  it('keeps permission decisions exclusive to a person at REST and domain entry', async () => {
     const { context, headers } = await credential('super');
     const { domain } = h.app.projectman;
-    for (const kind of ['permission', 'boundary'] as const) {
+    for (const kind of ['permission'] as const) {
       const item = domain.inbox.create({
         projectKey: 'AR',
         kind,
@@ -706,11 +706,6 @@ describe('credential REST and domain access (PM-759)', () => {
       ).rejects.toMatchObject({ code: 'owner_approval_required' });
       expect(domain.inbox.get('AR', item.id).state).toBe('open');
     }
-    await expect(
-      domain.superOperator.run(context!, () =>
-        domain.boundary.decide('AR', 'bnd_unknown', 'owner', { decision: 'allow', reason: 'scope_verified' }),
-      ),
-    ).rejects.toMatchObject({ code: 'owner_approval_required' });
     await expect(
       domain.superOperator.run(context!, () =>
         domain.inbox.resolveDelegated('AR', 'missing', 'operator', { decision: 'allow', reason: 'Checked' }),

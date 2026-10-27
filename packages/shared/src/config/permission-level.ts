@@ -1,6 +1,6 @@
-import { boundaryLeads } from '../domain/boundary';
 import type { Approver, MemberKind, PermissionMode } from '../domain/member';
 import { DEFAULT_OUTBOUND_NETWORK } from '../domain/member';
+import { boundaryLeads } from '../domain/permission-delegation';
 import { memberOf } from './lookup';
 import { isOperator } from './operator-member';
 import type { ProjectConfig } from './schema';

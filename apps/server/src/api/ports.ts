@@ -19,7 +19,6 @@ import type { PauseService, SessionOrchestrator } from '../runtime/sessions';
 import type { MachineMonitor, WorkOutages } from '../runtime/watchers';
 import type { ProviderKeys } from '../runtime/usage';
 import type { FeedbackService, FeedbackWidgetService } from '../services/feedback';
-import type { BoundaryService } from '../services/boundary';
 import type { Merges } from '../services/merges';
 import type { ScheduleService } from '../services/schedules';
 import type { EmailChannelService } from '../services/email-channel';
@@ -40,7 +39,6 @@ export interface ApiDomain extends AuthDomain {
   readonly structure: StructureService;
   readonly attachments: AttachmentService;
   readonly board: BoardService;
-  readonly boundary: BoundaryService;
   readonly changes: ChangeJournal;
   readonly cardMeasure: CardMeasure;
   readonly feedback: FeedbackService;

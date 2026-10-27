@@ -306,7 +306,6 @@ describe('integrator todo REST and durable lifecycle', () => {
     'gate',
     'release',
     'permission',
-    'boundary',
     'approval',
     'operatorApproval',
     'operatorKnowledge',

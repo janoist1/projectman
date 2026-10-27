@@ -211,6 +211,8 @@ export const ERROR_CODES = [
   'engine_revoked',
   // Project–engine binding (PM-1060): not the engine's owner, a session still on it, the project's base engine.
   'engine_not_owned',
+  // Owner accounts (PM-1062): the e-mail is the host owner's, or already has an active owner account (409).
+  'owner_account_exists',
   'engine_in_use',
   'engine_is_default',
   // Isolation on the hub (PM-1061): a call for a project the engine is not bound to (409), a machine or

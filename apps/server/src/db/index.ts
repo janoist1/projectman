@@ -36,6 +36,9 @@ import { createEmailLoginRepository } from './email-login';
 export { EMAIL_LOGIN_MAX_FAILED_ATTEMPTS } from './email-login';
 export type { EmailLoginCodeRecord, EmailLoginEventKind } from './email-login';
 import { createInvitationRepository } from './invitations';
+import { createOwnerAccountRepository } from './owner-accounts';
+import { createOwnerInvitationRepository } from './owner-invitations';
+export type { OwnerInvitationRecord } from './owner-invitations';
 import type { Db } from './database';
 import { createDeferredStartRepository } from './deferred-starts';
 import { createDecisionOfferRepository } from './decision-offers';
@@ -121,6 +124,8 @@ export function createRepositories(db: Db) {
     superAudit: createSuperAuditRepository(db),
     superHandoffs: createSuperHandoffRepository(db),
     invitations: createInvitationRepository(db),
+    ownerAccounts: createOwnerAccountRepository(db),
+    ownerInvitations: createOwnerInvitationRepository(db),
     emailLogin: createEmailLoginRepository(db),
     authSessions: createAuthSessionRepository(db),
     projects: createProjectRepository(db),

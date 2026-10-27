@@ -3,7 +3,6 @@ import { CreateProjectRequest, SetChecklistItemStateRequest, routes } from '@pro
 import type { BoardView, ProjectSummary } from '@projectman/shared';
 import type { AuthService } from '../auth';
 import type { ApiDomain } from './ports';
-import { forbidden } from '../kernel';
 import { authenticatedUser, authorOf, currentUser, requireAccess } from './context';
 import { parseBody } from '../http';
 
@@ -38,11 +37,15 @@ export function registerProjectRoutes(
   });
 
   app.post(routes.projects(), async (request, reply) => {
-    // Selecting host filesystem workspaces is a host-owner operation.
-    if (!auth.isHostOwner(currentUser(request).id))
-      throw forbidden('owner_only', 'only the initial host owner may create projects');
+    // The host owner and an owner account create projects (PM-1062); the service refuses everyone else and
+    // checks that the folder is on an engine of the creator's.
+    const user = currentUser(request);
     const body = parseBody(CreateProjectRequest, request.body);
-    const summary = await domain.projects.create(body, authorOf(request));
+    const summary = await domain.projects.create(body, authorOf(request), {
+      userId: user.id,
+      isHostOwner: auth.isHostOwner(user.id),
+      isOwnerAccount: auth.isOwnerAccount(user.id),
+    });
     return reply.code(201).send(summary);
   });
 

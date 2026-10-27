@@ -4,6 +4,7 @@ export function createProjectService(deps: ConstructorParameters<typeof ProjectS
 
 import { isAbsolute } from 'node:path';
 import {
+  canCreateProject,
   hasPendingOperatorAgreement,
   hasOperatorWaiverField,
   operatorWaiverChanged,
@@ -32,6 +33,7 @@ import type {
   CardMover,
   ConfigVersionEntry,
   CreateProjectRequest,
+  EngineId,
   HumanAccess,
   OwnerOnlyChange,
   PatchConfigRequest,
@@ -193,6 +195,33 @@ function asConfigEditError(err: unknown): never {
   throw err;
 }
 
+/** Who creates a project: decides whether they may (`canCreateProject`) and which engine the folder is on. */
+export interface ProjectCreator {
+  userId: string;
+  isHostOwner: boolean;
+  isOwnerAccount: boolean;
+}
+
+/** Internal callers (the host's own setup, tests) create as the host owner. */
+const HOST_CREATOR: ProjectCreator = { userId: '', isHostOwner: true, isOwnerAccount: false };
+
+/**
+ * The engines a new project is created on (PM-1062). The folder of the new project is checked on the engine the
+ * creator chose, and that engine becomes the project's default binding once the project exists.
+ */
+export interface NewProjectEngines {
+  /**
+   * The engine the project is created on, refused with the engine's own error codes (`engine_not_found`,
+   * `engine_not_owned`, `engine_revoked`, `engine_offline`, `invalid_request`). null: the host's own way, no
+   * binding is written (the folder is checked on the host's engine).
+   */
+  chooseForNewProject(input: ProjectCreator & { engineId?: EngineId }): EngineId | null;
+  /** Whether the path is a directory on the engine; null is the host's engine. */
+  isDirectory(engineId: EngineId | null, path: string): Promise<boolean>;
+  /** Binds the engine to the created project as its default. */
+  bind(projectKey: string, engineId: EngineId, userId: string): void;
+}
+
 function toSummary(p: ProjectRecord): ProjectSummary {
   return { key: p.key, name: p.name, templateId: p.templateId, configVersion: p.configVersion };
 }
@@ -207,7 +236,7 @@ export class ProjectService {
   private readonly templates: TemplateRegistry;
   private readonly timeline: TimelineService;
   private readonly superAudit: SuperAuditService;
-  private readonly isDirectory: (projectKey: string, path: string) => Promise<boolean>;
+  private readonly engines: NewProjectEngines;
   private readonly cache = new Map<string, LoadedProject>();
   private readonly locks = new KeyedMutex();
   private operatorAuthorization?: OperatorConfigAuthorization;
@@ -262,15 +291,15 @@ export class ProjectService {
     timeline: TimelineService;
     /** The super-mode audit (PM-757); one is made from `ctx` when the caller has none to share. */
     superAudit?: SuperAuditService;
-    /** Whether a path is a directory on the engine the project's work runs on (PM-312). */
-    isDirectory: (projectKey: string, path: string) => Promise<boolean>;
+    /** The engine a new project is created on and where its folder is checked (PM-312, PM-1062). */
+    engines: NewProjectEngines;
   }) {
     this.ctx = deps.ctx;
     this.configStore = deps.configStore;
     this.templates = deps.templates;
     this.timeline = deps.timeline;
     this.superAudit = deps.superAudit ?? createSuperAuditService(deps.ctx);
-    this.isDirectory = deps.isDirectory;
+    this.engines = deps.engines;
   }
 
   summaries(): ProjectSummary[] {
@@ -358,13 +387,23 @@ export class ProjectService {
     return parsed.data;
   }
 
-  async create(req: CreateProjectRequest, creator: Author): Promise<ProjectSummary> {
+  /**
+   * Creates a project (PM-1062: the host owner or an owner account, `canCreateProject`). The folder is checked on
+   * the engine the creator chose, and that engine becomes the project's default binding.
+   */
+  async create(
+    req: CreateProjectRequest,
+    creator: Author,
+    rights: ProjectCreator = HOST_CREATOR,
+  ): Promise<ProjectSummary> {
+    if (!canCreateProject(rights)) throw forbidden('owner_only', 'only an owner may create projects');
     return this.locks.run(`config:${req.key}`, async () => {
       if (this.has(req.key) || (await this.configStore.list()).includes(req.key)) {
         throw conflict('project_exists', `project ${req.key} already exists`);
       }
       const config = this.buildConfig(req, creator);
-      if (!isAbsolute(req.workspacePath) || !(await this.isDirectory(req.key, req.workspacePath))) {
+      const engineId = this.engines.chooseForNewProject({ ...rights, engineId: req.engineId });
+      if (!isAbsolute(req.workspacePath) || !(await this.engines.isDirectory(engineId, req.workspacePath))) {
         throw invalid('workspace_not_found', `workspace directory not found: ${req.workspacePath}`);
       }
       // The rule is the invariant's (one place); creation answers it with a code of its own.
@@ -393,6 +432,15 @@ export class ProjectService {
       };
       this.ctx.repos.projects.insert(record);
       this.cache.set(req.key, { config, version });
+      if (engineId) {
+        // A failed binding leaves the project unbound (its work waits for an engine), which is safe; the
+        // creator binds an engine later.
+        try {
+          this.engines.bind(req.key, engineId, rights.userId);
+        } catch (err) {
+          this.ctx.logger.error({ err, projectKey: req.key, engineId }, 'binding the new project failed');
+        }
+      }
       await this.announce(
         {
           projectKey: req.key,

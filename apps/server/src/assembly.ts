@@ -166,7 +166,7 @@ import { LoopWatch } from './runtime/watchers';
 import { HumanQuestions, OpenQuestionLabel } from './core/inbox';
 import { ApprovalQuestions } from './core/inbox';
 import { QuestionClosing } from './core/inbox';
-import { InvitationService } from './core/members';
+import { InvitationService, OwnerInvitationService } from './core/members';
 import { MemberProfiles, MemberService } from './core/members';
 import { MessageService, Messaging, RelationNotices } from './core/messages';
 import { MemberQueue, OperatorQueueFinisher } from './core/member-queue';
@@ -194,7 +194,8 @@ import { HandoffService } from './runtime/admission';
 import { PauseService } from './runtime/sessions';
 import { MachineMonitor } from './runtime/watchers';
 import { createMachineProbe } from './machine';
-import { LocalEngineDirectory } from './runtime/sessions';
+import { createNewProjectEngines, LocalEngineDirectory } from './runtime/sessions';
+import type { EngineRegistry } from './runtime/sessions';
 import { createCheckBranchGit, createLocalEngine } from './engine-host';
 import { createAdministrationService } from './administration';
 import type { EngineAdministration } from './administration';
@@ -286,6 +287,8 @@ export interface DomainOptions {
    * the options below (`worktrees`, `memberWorkspaces`, the directories, the executors).
    */
   engines?: EngineDirectory;
+  /** The registry of the engines' machine keys (cloud mode); a new project is bound to the engine it is created on (PM-1062). */
+  engineRegistry?: EngineRegistry;
   /** The attachments' way to a remote engine (PM-315, cloud mode); absent: the sessions read the stored files. */
   engineAttachments?: EngineAttachments;
   /** Where the files of task attachments live (PROJECTMAN_HOME/attachments). */
@@ -564,15 +567,8 @@ export function createDomain(opts: DomainOptions) {
     templates,
     timeline,
     superAudit,
-    // The new project has no engine binding yet, so the folder is checked on the host's engine
-    // (`engines` is built below, so it is looked up when asked).
-    isDirectory: async (_projectKey, path) => {
-      const engineId = engines.hostEngine();
-      const engine = engineId ? engines.get(engineId) : null;
-      // The folder can only be checked where it is: no engine to ask is a refusal, not "not a folder" (PM-315).
-      if (!engine) throw conflict('engine_offline', 'The engine the project would run on is not connected');
-      return engine.isDirectory(path);
-    },
+    // `engines` is built below, so it is looked up when asked.
+    engines: createNewProjectEngines({ engines: () => engines, registry: opts.engineRegistry }),
   });
   // A session on a remote engine reads a card's attachments from that engine's cache (PM-315).
   const attachmentDirectory = (projectKey: string, taskKey: string) =>
@@ -1783,6 +1779,7 @@ export function createDomain(opts: DomainOptions) {
   const board = new BoardService({ projects, tasks, members, inbox, planUsage: usage, pauses });
   const profiles = new MemberProfiles({ ctx, projects, members, tasks, inbox, sessions, admission });
   const invitations = new InvitationService({ ctx, projects, members, accounts: opts.accounts });
+  const ownerInvitations = new OwnerInvitationService({ ctx, accounts: opts.accounts });
   const emailLogin =
     opts.emailCodeMailer && opts.emailLoginKey
       ? createEmailLoginService({
@@ -2466,6 +2463,7 @@ export function createDomain(opts: DomainOptions) {
     board,
     profiles,
     invitations,
+    ownerInvitations,
     emailChannel,
     emailLogin,
     history,

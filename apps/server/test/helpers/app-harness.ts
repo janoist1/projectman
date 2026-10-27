@@ -304,15 +304,15 @@ export async function setupOwner(app: FastifyInstance): Promise<string> {
 }
 
 /** Creates project AR from the test template (workspace + one repo). */
-export async function createProject(h: HarnessBase, cookie: string): Promise<void> {
+export async function createProject(h: HarnessBase, cookie: string, key = 'AR'): Promise<void> {
   const res = await withoutOnboarding(h.app.projectman.domain, () =>
     h.app.inject({
       method: 'POST',
       url: '/api/projects',
       headers: { cookie },
       payload: {
-        key: 'AR',
-        name: 'acme',
+        key,
+        name: key === 'AR' ? 'acme' : key.toLowerCase(),
         workspacePath: h.workspace,
         templateId: 'test',
         repos: [{ name: 'web', path: '.', github: 'acme/web' }],

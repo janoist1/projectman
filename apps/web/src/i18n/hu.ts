@@ -1347,6 +1347,8 @@ export const hu = {
       operator_never:
         'Ezt az eszközt az Operátor nem használhatja: más tagok döntései és az átadások nem az övéi.',
       operator_only: 'Ezt a műveletet csak az Operátor használhatja.',
+      command_not_for_project_manager:
+        'Ezt a műveletet a projektmenedzser nem végezheti el. Gépi hozzáféréssel integrátor-teendőt adhatsz, egyébként kérd a tulajdonos segítségét.',
       project_manager_only:
         'Ezt a műveletet csak az aktuális projektmenedzser használhatja a saját belső beszélgetésében.',
       operator_preference_no_person: 'Nem egyértelmű, kinek a beszélgetési stílusát kell beolvasni.',

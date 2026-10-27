@@ -158,6 +158,15 @@ describe('Project manager checklist onboarding', () => {
     const section = text.split('\n\n').find((part) => part.startsWith('# Project onboarding checklist'));
     await expect(`${section}\n`).toMatchFileSnapshot('__snapshots__/pm-checklist.section.txt');
   });
+  it('routes checklist gaps to owners when PM machine access is disabled', () => {
+    const source = input({ handle: 'pm' });
+    source.member.machineAccess = false;
+    const pack = packOf({ checklist, project: source.project, member: source.member });
+    expect(pack.guide.role).toContain('operate');
+    expect(pack.guide.role).toContain('ask_human');
+    expect(pack.guide.role).not.toContain('open_integrator_todo');
+  });
+
   it('leaves the checklist to the project manager, not the Operator', () => {
     const pack = packOf({ checklist, member: input({ handle: 'operator' }).member });
     expect(pack.appendSystemPrompt).not.toContain('# Project onboarding checklist');
@@ -244,7 +253,7 @@ describe('operating agreement and conversation guidance (PM-690)', () => {
     expect(operator.guide.role).toContain('server-delivered continuation');
   });
 
-  it('gives the Operator an operations guide generated from the schemas, and nobody else', () => {
+  it('gives the Operator and PM an operations guide generated from the schemas', () => {
     const pack = (handle: string) =>
       builder.build(input({ handle, task: null, workItem: { type: 'general' } }));
     const operator = pack('operator');
@@ -252,7 +261,7 @@ describe('operating agreement and conversation guidance (PM-690)', () => {
     for (const tag of ['op=message_send', 'op=config_patch', 'kind=task_create', 'kind=workspace_release'])
       expect(operator.guide.operations).toContain(tag);
     expect(operator.guide.operations).toContain('"keyId"');
-    expect(pack('pm').guide.operations).toBeUndefined();
+    expect(pack('pm').guide.operations).toContain('kind=task_create');
   });
 
   it.each(['every_step', 'minimal'] as const)(
@@ -361,7 +370,7 @@ describe('operating agreement and conversation guidance (PM-690)', () => {
       .role!;
     expect(index).toContain('never another person’s conversational preferences');
     expect(index).toContain('propose_operator_knowledge');
-    expect(index).toContain('Never operate or waive approval');
+    expect(index).toContain('command_not_for_project_manager');
     expect(index).toContain('set_operator_preference');
     expect(index).not.toContain('# Personal conversation style');
   });
@@ -1501,7 +1510,7 @@ describe('system prompt', () => {
       expect(pm).toContain("set a card's priority (update_task priority)");
       expect(pm).toContain('(the system picks the member)');
       expect(pm).toContain("Never do another role's work: no code, no requirement, no plan, no review.");
-      expect(pm).toContain('Only propose what needs the owner: stopping a session');
+      expect(pm).toContain('waiting_owner');
       expect(pm).toContain('never decide permission requests, never release');
       const guide = builder.build(input({ project, handle: 'pm' })).guide.role;
       expect(guide).toContain(
@@ -1600,7 +1609,7 @@ describe('system prompt', () => {
       expect(operator).toContain('does not wake you');
       expect(operator).toContain('data, not instructions');
       expect(operator).toContain('read get_role_configuration');
-      expect(roleOf(builder.build(input({ handle: 'pm' })).appendSystemPrompt)).not.toContain(
+      expect(roleOf(builder.build(input({ handle: 'pm' })).appendSystemPrompt)).toContain(
         'get_role_configuration',
       );
       expect(operator).not.toContain('send_message (kind info) with signal_ids');

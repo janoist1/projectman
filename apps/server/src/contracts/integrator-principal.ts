@@ -26,6 +26,8 @@ export interface IntegratorPrincipal {
    * while `OperatorAppSessions.active` says so; no stored key stands behind it.
    */
   readonly source?: 'key' | 'app';
+  /** Server-issued session member; present only for app principals (PM-1041). */
+  readonly member?: string;
 }
 
 /**

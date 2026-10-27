@@ -233,12 +233,23 @@ describe('separate PM and Operator authorization', () => {
     const channel = await h.domain.projectManagerChannels.operatorView('AR', 'owner');
     expect(channel.requests).toHaveLength(1);
     expect(channel.requests[0]?.id).not.toBe(requests().openFor(pm.sessionId)?.id);
+    // The app super path resolves the owner's account, unlike the legacy Operator path.
+    h.repos.users.insert({
+      id: 'usr_coordination_owner',
+      name: OWNER.name,
+      email: OWNER.email,
+      passwordHash: 'unused-test-hash',
+      createdAt: now.toISOString(),
+    });
     await expect(
       h.domain.teamTools.operate(pm, {
         title: 'Change capacity',
         operation: { op: 'member_update', handle: 'dev-1', changes: { capacity: 2 } },
       }),
-    ).rejects.toThrow('operator_only');
+    ).resolves.toMatchObject({ status: 'done' });
+    expect(
+      (await h.domain.projects.config('AR')).team.members.find((member) => member.handle === 'dev-1'),
+    ).toMatchObject({ capacity: 2 });
     await expect(
       h.domain.teamTools.operate(operator, {
         title: 'Change capacity',

@@ -753,7 +753,15 @@ export class PauseService {
         if (!member) continue;
         // A super request is the project's Operator only while its token owner is an owner there.
         const superActor =
-          by.credential && member.access === 'owner' ? superActorOf(config, by.credential) : null;
+          by.credential && member.access === 'owner'
+            ? superActorOf(
+                config,
+                by.credential,
+                integratorExecution()?.principal.source === 'app'
+                  ? integratorExecution()?.principal.member
+                  : undefined,
+              )
+            : null;
         actors.set(
           projectKey,
           attributedActor({ handle: member.handle, via: by.via, superActor: superActor ?? undefined }),

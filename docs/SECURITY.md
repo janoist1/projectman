@@ -142,7 +142,8 @@ tenants into separate OS accounts or machines.
   store and the `providers` directory, using a restricted-read permission profile.
   The native Codex 0.159.1 probe on macOS 14.6 arm64 (2026-10-06) denied credentials,
   secrets, database glob matches and symlink traversal; `view_image` also respected the denial.
-  The profile is a deny list: other members' worktrees remain readable (PM-360).
+  The developer profile is a deny list: other members' worktrees remain readable to a developer
+  (PM-360). A reading session (reviewer, QA, analyst…) is closed to them since PM-425.
   Commands approved by a human or an AI approver outside the sandbox still execute as
   the host user; NanoGPT has no automatic command approval. The NanoGPT CLI process retains
   the key in its environment: commands approved by a human or an AI approver outside the sandbox may inspect it,
@@ -806,9 +807,31 @@ other members' checkouts. No new home/session/tmp prerequisite is imposed on the
 PM-360 provides an optional typed `portable.readBoundary` for explicit policy inputs:
 reopenable roots and exact file/directory read exceptions are separate from unconditional
 secret denials. The adapters and engine reject an explicitly invalid boundary; an absent
-field keeps the existing profile and temp behavior. Claude's sandbox remains unchanged;
-PM-425 supplies its own reader policy. Native enforcement of an explicit boundary must be
-verified on each OS/provider when that boundary is enabled; it has not been certified here.
+field keeps the existing profile and temp behavior. PM-425 enables the boundary for every
+reading session (`placementReadsOnly`: a `read_only` placement, a review copy without the test
+permission, a taskless chat, the non-super Operator), and only for those; the developer's and the
+super Operator's sandboxes are unchanged. The owner's decision (2026-10-26): a reader reads nothing
+on the machine outside its own project and card, even with approval; the rest is the (super)
+Operator's job. The aim is targeted protection against accidental cross-reading, not isolation from
+a hostile member. One list, built in `sessionSandbox` (`readerReadBoundary`), renders everything:
+the user's home and the app home are closed (`denyRead`), and only these are reopened (`allowRead`,
+`portable.readBoundary.allowedPaths`): the working directory, the extra directories (the card's
+worktree), the card's attachments, the shared git directory the checkout points to, the instance's
+session folders root, the Playwright browsers, the member's own npm cache (read only), the technical
+home files git needs (`SANDBOX_HOME_READS`, the global excludes file) and the shared temp roots'
+allowed parts. Always closed, whatever is reopened: `sensitivePaths`, every Claude transcript
+(`~/.claude/projects`, the reader's own too), Claude Code's temp folders and other cards' worktrees.
+The file tools follow the same list: Claude's PreToolUse hook and `permissionRequest()` refuse a
+`Read`/`Grep`/`Glob`/edit call into the closed part (a denial, never an approval prompt), the
+blanket `Read`/`Grep`/`Glob` allow rules are gone, and a read outside the home (the system, the
+installed tools) is answered by the hook without asking; Gemini's hook applies the same list in
+`decideToolCall`, to its file tools and also to a command (the path words, redirections, `cd`
+targets and patterns of the line: a closed place is a denial there, never a permission request;
+what a quoted script or a variable hides is the unsandboxed-command gap below); Codex/NanoGPT get it as the permission profile (`validateCodexReadBoundary`).
+`git show <branch>:<file>` and `gh` queries (outside the sandbox) keep working. The engine validates
+and canonicalises the list from its own home and app home (`engine-limit`); there is no new RPC.
+Native enforcement of an explicit boundary must be verified on each OS/provider when that boundary
+is enabled (docs/SANDBOX-PROBE.md); it has not been certified here.
 A developer's file tools have no such `Edit` deny rules outside its
 worktree (its own worktree is inside the app home, and a deny rule wins over an allow rule): there
 the CLI's own questions and Auto's classifier hold. The sandbox's denials were checked on the
@@ -915,10 +938,15 @@ process ends, so a background command's output does not survive a restart.
 
 Remaining risks: a Claude session without a safe tmp root (folders or tmp off, an unusable root) keeps
 the shared root and does not get it denied (fail-open: the CLI would otherwise fall back to a
-path it cannot use); a session that is already running gets the rule at its next start; a
-reader's file tools still read the user's home and the other PM-339 folders (PM-425).
-Codex/NanoGPT developer profiles retain broad non-sensitive home reads; PM-360's optional
-boundary is not automatically enabled. Gemini has no OS sandbox. Approved host commands
+path it cannot use); a session that is already running gets the rule at its next start. A
+reader's reads are closed to the rest of the home and the app home (PM-425, above), but the reader
+keeps the temp folder of its own sandbox and the session folders root (a teammate's screenshot).
+Because the reader's `claudeTmpRoots` denial stays conditional (see above), a reader without a
+safe tmp root can still reach the shared Claude temp root. A Claude Code release that fails its
+hooks open, or an older one, is not fully fail-closed for the file tools (the sandbox's `denyRead`
+still holds for commands). Codex/NanoGPT developer profiles retain broad non-sensitive home reads.
+Gemini has no OS sandbox, and its commands run unsandboxed: a script or interpreter can read
+indirectly what its file tools cannot (PM-361). Approved host commands
 and the parent CLI remain outside the native command sandbox. Shared git history and
 installation session outputs remain readable. A cloud hub does not isolate an engine's
 local files; a shared or multi-tenant engine needs separately specified OS/VM/container isolation.

@@ -18,6 +18,7 @@ import {
   roleBundle,
   isWorkPaused,
   memberOf,
+  memberStorageHandle,
   permissionDecidersNow,
   messageRoute,
   sameWorkItem,
@@ -1113,8 +1114,8 @@ export class SessionOrchestrator {
   }
 
   async memory(projectKey: string, handle: string): Promise<string> {
-    requireAiMember(await this.deps.projects.config(projectKey), handle);
-    return this.deps.memory.read(projectKey, handle);
+    const member = requireAiMember(await this.deps.projects.config(projectKey), handle);
+    return this.deps.memory.read(projectKey, memberStorageHandle(member));
   }
 
   /** Stops a session; `stop` is why (PM-288), recorded on the session and its `session_ended` event. */

@@ -88,7 +88,9 @@ export class FakeEc2 {
     const hostName = 'projectman-cloud-host';
     switch (operation) {
       case 'describe-regions':
-        return ok({ Regions: [{ RegionName: 'eu-west-1', OptInStatus: 'opt-in-not-required' }] });
+        return ok({
+          Regions: [{ RegionName: flag(args, '--region-names'), OptInStatus: 'opt-in-not-required' }],
+        });
       case 'describe-images':
         return ok({ Images: [this.image] });
       case 'describe-vpcs':

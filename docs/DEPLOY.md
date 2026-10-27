@@ -312,8 +312,7 @@ nothing new crosses the server and engine boundary.
 
 ## Cloud deployment of the hybrid mode (PM-317)
 
-The EC2 cutover from the owner's Mac, including stopping both live LaunchAgents,
-separate public approval and the data-preserving rollback, is in
+The data-preserving rollback from EC2 to the owner's Mac is in
 [CLOUD-CUTOVER.md](CLOUD-CUTOVER.md) (PM-674). The live watcher above continues to support
 single mode only; a hybrid installation is updated by the hybrid release watcher (PM-751, the
 section above).
@@ -335,7 +334,7 @@ cookie alone gets 401 there; the board refuses bearer authentication with 403
 `integrator_host_required` and closes bare `/mcp`. Human login, key management, super audit and
 owner decisions remain on the board's cookie API. Stage the server with
 `PROJECTMAN_INTEGRATOR_HOSTNAME` while the board is private, verify and move the client, then
-switch the board to public; see [CLOUD-CUTOVER.md](CLOUD-CUTOVER.md#4-saját-webes-belépés-és-nyilvános-kapcsolás).
+switch the board to public; see [the public board guide](AWS.md#the-public-board-pm-672-part-of-pm-664).
 
 The host owner can create an integrator key in Settings → Operator permissions → Claude Code
 on your machine, using their own login. Both `super` and `read` keys offer 1, 7, 30 or 365 days,

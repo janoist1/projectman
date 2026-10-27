@@ -37,6 +37,7 @@ import type {
   IntegratorCredentialAuthority,
   IntegratorPrincipal,
   ListTasksInput,
+  OperatorKnowledgeStore,
   ProjectDocWrite,
   ProposedRelease,
   TaskSummary,
@@ -64,10 +65,12 @@ import { docWindow } from '../../services/project-docs';
 import type { DocWrites } from '../../services/project-docs';
 import type { ReleaseService } from '../../services/releases';
 import {
+  INTEGRATOR_INBOX_LIMIT,
   listIntegratorInbox,
   relayOwnerAnswer,
   resolveIntegratorFixLimit,
   resolveIntegratorTodo,
+  updateInstanceKnowledge,
 } from '../../services/super-operator';
 import type { SuperAdministration, SuperHandoffService, SuperOperator } from '../../services/super-operator';
 
@@ -103,6 +106,10 @@ interface ExternalToolsDeps {
     'get' | 'list' | 'resolve' | 'resolveIntegratorTodo' | 'resolveIntegratorFixLimit'
   >;
   history: Pick<HistoryService, 'search' | 'read'>;
+  operatorKnowledge: Pick<
+    OperatorKnowledgeStore,
+    'readInstanceKnowledge' | 'compareAndSwapInstanceKnowledge'
+  >;
 }
 
 /**
@@ -502,8 +509,69 @@ export class ExternalTools implements ExternalToolsHandler {
     );
   }
 
-  async listIntegratorInbox(ctx: ExternalToolContext, args: { state: 'open' | 'all' }) {
-    return listIntegratorInbox(this.deps, ctx.projectKey, args.state, this.access(ctx));
+  /**
+   * What is addressed to the integrator: in one project, or without `projectKey` in every project of the key.
+   * The access is checked per project, so a project the holder does not own is left out, never an error.
+   */
+  async listIntegratorInbox(
+    principal: IntegratorPrincipal,
+    requestId: string,
+    args: { projectKey?: string; state: 'open' | 'all' },
+  ) {
+    const read = async (projectKey: string) => {
+      const ctx = await this.bind({ principal, projectKey, requestId }, 'read');
+      return listIntegratorInbox(this.deps, projectKey, args.state, this.access(ctx)).items;
+    };
+    if (args.projectKey !== undefined) {
+      const { projectKey } = args;
+      const target = { projectKey, operation: 'mcp_list_integrator_inbox' };
+      return {
+        items: await this.backend().execute({ principal, requestId }, target, () => read(projectKey)),
+      };
+    }
+    const email = this.holder(principal);
+    const items = await this.deps.superOperator.executeOwned(
+      { principal, email, requestId },
+      'mcp_list_integrator_inbox',
+      async (projects) => (await Promise.all(projects.map((project) => read(project.key)))).flat(),
+    );
+    return {
+      items: items.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, INTEGRATOR_INBOX_LIMIT),
+    };
+  }
+
+  /** The knowledge read needs at least one project the key's holder owns: the audit lands in those. */
+  private async instanceKnowledgeScope<T>(
+    principal: IntegratorPrincipal,
+    requestId: string,
+    operation: string,
+    run: () => Promise<T>,
+  ): Promise<T> {
+    return this.deps.superOperator.executeOwned(
+      { principal, email: this.holder(principal), requestId },
+      operation,
+      async (projects) => {
+        if (projects.length === 0)
+          throw forbidden('insufficient_access', 'the key’s holder is not an owner of any project');
+        return run();
+      },
+    );
+  }
+
+  async getInstanceKnowledge(principal: IntegratorPrincipal, requestId: string) {
+    return this.instanceKnowledgeScope(principal, requestId, 'mcp_get_operator_instance_knowledge', () =>
+      this.deps.operatorKnowledge.readInstanceKnowledge(),
+    );
+  }
+
+  async updateInstanceKnowledge(
+    principal: IntegratorPrincipal,
+    requestId: string,
+    args: Parameters<ExternalToolsHandler['updateInstanceKnowledge']>[2],
+  ) {
+    return this.instanceKnowledgeScope(principal, requestId, 'mcp_update_operator_instance_knowledge', () =>
+      updateInstanceKnowledge(this.deps.operatorKnowledge, args, new Date().toISOString()),
+    );
   }
 
   async relayOwnerAnswer(ctx: ExternalToolContext, args: { itemId: string; answer: string }) {

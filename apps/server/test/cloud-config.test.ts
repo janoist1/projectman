@@ -32,13 +32,12 @@ describe('the defaults', () => {
     expect(parsed).toEqual({
       version: 1,
       aws: {
-        compute: 'lightsail',
-        profile: 'i',
+        compute: 'ec2',
+        profile: 'aroom',
         region: 'eu-west-1',
         availabilityZone: 'eu-west-1a',
         instanceName: 'projectman-cloud',
-        bundleId: 'small_3_0',
-        blueprintId: 'ubuntu_24_04',
+        ec2: { ...EC2_CONFIG, architecture: 'x86_64' },
         databaseBucket: 'acme-projectman-db',
         backupBucket: 'acme-projectman-backup',
       },
@@ -55,8 +54,29 @@ describe('the defaults', () => {
         integratorServiceToken: false,
         boardMode: 'private',
       },
-      route53: { profile: 'i' },
+      route53: { profile: 'aroom' },
     });
+  });
+
+  it('refuses a stored Lightsail compute with a message that says what to set', () => {
+    const message = refusal(
+      config((value) => {
+        value.aws.compute = 'lightsail';
+      }),
+    );
+    expect(message).toContain('aws.compute');
+    expect(message).toContain('Lightsail is no longer supported');
+    expect(message).toContain('"ec2"');
+  });
+
+  it('refuses any other compute value', () => {
+    const message = refusal(
+      config((value) => {
+        value.aws.compute = 'fargate';
+      }),
+    );
+    expect(message).toContain('aws.compute');
+    expect(message).toContain('must be "ec2"');
   });
 
   it('takes the tunnel name from the instance name, and expands ~/ in the token file', () => {
@@ -179,8 +199,7 @@ describe('the validation', () => {
     expect(
       refusal(
         config((value) => {
-          value.aws.compute = 'ec2';
-          value.aws.profile = 'aroom';
+          delete value.aws.ec2;
         }),
       ),
     ).toContain('aws.ec2');
@@ -403,7 +422,7 @@ describe('the validation', () => {
 
     it('falls back to aws.profile, so an old configuration resolves to the same target', () => {
       expect(parseConfig(withSes(undefined, 'aroom'), HOME).ses).toEqual({ ...ses, profile: 'aroom' });
-      expect(parseConfig(withSes(undefined), HOME).ses).toEqual({ ...ses, profile: 'i' });
+      expect(parseConfig(withSes(undefined), HOME).ses).toEqual({ ...ses, profile: 'aroom' });
     });
 
     it('takes an explicit profile, including the registrar profile i beside another aws.profile', () => {

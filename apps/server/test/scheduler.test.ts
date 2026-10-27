@@ -104,6 +104,8 @@ describe('scheduler', () => {
     };
     expect(await code(start(h, 'AR-1'))).toBe('plan_usage_paused');
     h.runnerModule.planUsage.value = { ...h.runnerModule.planUsage.value, fiveHourPercent: 80 };
+    // The member choice reads the last refreshed value, so refresh it as the background poll would.
+    await h.domain.planUsage.get();
     expect((await start(h, 'AR-1')).session).not.toBeNull();
   });
 

@@ -33,6 +33,8 @@ export function createOperatorKnowledgeStore(opts: { rootDir: string }): Operato
       ? join(root, projectKey, 'knowledge.json')
       : join(root, projectKey, 'preferences', `${handle}.json`);
   }
+  // `_instance` is not a valid project key, so it never collides with a project's directory.
+  const instanceTarget = () => join(root, '_instance', 'knowledge.json');
   function preferenceTarget(projectKey: string, handle: string): string {
     if (!MemberHandle.safeParse(handle).success) throw invalid();
     return target(projectKey, handle);
@@ -161,19 +163,23 @@ export function createOperatorKnowledgeStore(opts: { rootDir: string }): Operato
       return parsed.data;
     });
   }
+  function checkedKnowledgeCas(file: string, revision: number, next: OperatorKnowledgeDocument) {
+    if (Array.isArray(next?.appliedProposalIds) && next.appliedProposalIds.length > 512) throw limit();
+    return cas(file, revision, next, OperatorKnowledgeDocument, emptyKnowledge, (previous, proposed) => {
+      if (previous.appliedProposalIds.some((id) => !proposed.appliedProposalIds.includes(id)))
+        throw invalid();
+    });
+  }
   return {
     readKnowledge: (key) => guarded(() => read(target(key), OperatorKnowledgeDocument, emptyKnowledge)),
+    readInstanceKnowledge: () =>
+      guarded(() => read(instanceTarget(), OperatorKnowledgeDocument, emptyKnowledge)),
+    compareAndSwapInstanceKnowledge: (revision, next) =>
+      guarded(async () => checkedKnowledgeCas(instanceTarget(), revision, next)),
     readPreference: (key, handle) =>
       guarded(() => read(preferenceTarget(key, handle), OperatorPreferenceDocument, emptyPreference)),
     compareAndSwapKnowledge: (key, revision, next) =>
-      guarded(async () => {
-        const file = target(key);
-        if (Array.isArray(next?.appliedProposalIds) && next.appliedProposalIds.length > 512) throw limit();
-        return cas(file, revision, next, OperatorKnowledgeDocument, emptyKnowledge, (previous, proposed) => {
-          if (previous.appliedProposalIds.some((id) => !proposed.appliedProposalIds.includes(id)))
-            throw invalid();
-        });
-      }),
+      guarded(async () => checkedKnowledgeCas(target(key), revision, next)),
     compareAndSwapPreference: (key, handle, revision, next) =>
       guarded(() =>
         cas(preferenceTarget(key, handle), revision, next, OperatorPreferenceDocument, emptyPreference),

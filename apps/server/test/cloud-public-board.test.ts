@@ -3,6 +3,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { runCloud } from '../../../scripts/cloud/commands';
 import { CloudflareWorld } from './helpers/fake-cloudflare';
+import { EC2_CONFIG } from './helpers/fake-ec2';
 import { SHA_NEW } from './helpers/fake-host';
 
 /** The public board of the cloud commands (PM-672): `access.boardMode: public` through edge, publish and check. */
@@ -20,7 +21,9 @@ const ENGINE_SECRET = 'engine-secret-value-0123456789abcdef';
 
 // SES uses aws.profile unless ses.profile names another account (config.ts, PM-729).
 const AWS = {
+  compute: 'ec2',
   profile: 'aroom',
+  ec2: EC2_CONFIG,
   region: 'eu-west-1',
   databaseBucket: 'acme-projectman-db',
   backupBucket: 'acme-projectman-backup',

@@ -14,6 +14,10 @@ integrator, with the full text) and `resolve_integrator_fix_limit`
 (`{item_id, option_id: replan | reassign | another_round | to_owner, note?}`; `to_owner` hands the same item to
 the owners and needs a reason in `note`). `decide_fix_limit` takes an `assessment` that `to_owner` requires.
 
+PM-1046: `list_integrator_inbox` takes an optional `project_key` (without it, every project of the key, each item
+with its `projectKey`), and super mode offers `get_operator_instance_knowledge` and
+`update_operator_instance_knowledge`, the global Operator's own knowledge, with no `project_key`.
+
 AI members (Claude Code or Codex sessions) reach their team through an MCP server named `team`;
 Claude sees its tools as `mcp__team__<tool>`. It replaces the desktop app's SendMessage between
 sessions. The handler contracts live in

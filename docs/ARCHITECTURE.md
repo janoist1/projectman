@@ -62,7 +62,12 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   on GitHub), a team, a pipeline with labels, and limits. Its configuration is YAML in the
   customization repository; its runtime state is in SQLite.
 - **Member** — human or AI, identified by a unique **handle** (`fe-1`, `qa`, `owner`) and a
-  display name. Humans have an **access level** (`owner`, `admin`, `developer`, `client`,
+  display name. An AI member's state on disk and on its engine (workspace, `.home`, sandbox
+  cache, memory file, snapshot refs) is kept under its **storage handle**
+  (`memberStorageHandle`, PM-1024): the first of its `formerHandles` (earlier handles, oldest
+  first, written by a rename), else the current handle. Renaming a member therefore moves
+  nothing on disk, and the agent's conversations keep their working directory. The task and
+  session comparisons (assignee, `session.member`, bindings) use the current handle. Humans have an **access level** (`owner`, `admin`, `developer`, `client`,
   `viewer`) that governs what they may do in the app, and may hold several roles. An AI
   member holds exactly one role and has a provider (`claude` or `codex`), a model and effort,
   an optional **cheap subagent** (PM-179: a Claude Code member's sessions get a `reader-<model>`
@@ -457,6 +462,17 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   rule (`no_senior` event). The names `senior_*`, `seniors` and `wait_for_senior` are kept because
   stored rows and events carry them. A config migration turns the old `senior` mark into limit 13 and
   a DB migration turns a "senior" recommendation into 8 points. No machine-dependent part is affected.
+  **A paused provider** (PM-1051): a member whose provider is held (`provider_rate_limited` cooldown) or
+  over the plan usage limit (`plan_usage_paused`, `planUsagePause` in `packages/shared`) is not free
+  (`Admission.providerAvailable`), so the automatic choice never picks them and a paused high-limit
+  developer causes no `no_senior`. An assigned card whose assignee is on such a provider and has not begun
+  it (no session, no source trace, no open handoff, no fix-limit hold: `canReplaceUnstartedAssignee`) is
+  planned like an unassigned one by `planStarts` (`reassignableTaskKeys`, always an offer) and started by
+  `start_task` at a fitting free member (points, label and specialty limits still apply); with none free
+  nothing is assigned and no session starts. Work already begun is never moved. A new assignee on a
+  paused provider is refused by `update_task` and the REST PATCH with the known 409 codes, the whole
+  update atomically (`TaskService.registerProviderAssignmentCheck`, `Admission.assertProviderAvailable`).
+  The check reads the last background usage (`PlanUsageCache.peek`); admission itself still refreshes.
 - **Stage hand-over** — when a task enters a later stage owned by AI members, by anyone's
   move, the least loaded free owner (never the task's assignee) gets a session for the task.
   An owner that already has a session for the task gets a notice instead. A card sent back into the
@@ -730,8 +746,7 @@ Only `assembly` and `entry` remain unsealed in the assembly layer. Other layers 
 import them. The `context` facade exposes `createContextPackBuilder` and
 `createMemberMemoryStore`; prompt and formatting helpers remain internal.
 
-No exception has a `core/*` source. The fifteen original pairs are accounted for in
-[the phase 5 closure inventory](refactor-core-closure.md): PM-612 removed one, and
+No exception has a `core/*` source. Of the fifteen original pairs, PM-612 removed one, and
 PM-632–635 removed fourteen. PM-646 removed the four connector exceptions
 (`api/auth/ws → assembly`, `instance → entry`). PM-648 moved composition to
 `assembly.ts` and removed compatibility exports; callers import the owning module.
@@ -1808,7 +1823,7 @@ workers follow the machine's size.
   run in the same Claude Code sandbox, excluding PTY files, took 306.14 s (collect
   47.00 s, tests 1,145.95 s), with 538 files and 12,427 tests. Four files failed because
   a long temporary path exceeded the macOS Unix-socket limit; all four passed when
-  rerun with a short TMPDIR (75 passed, one skipped). In the replay, cloud-trial-reset-host
+  rerun with a short TMPDIR (75 passed, one skipped). In the replay, one host test
   uses its successful 17.9 s rather than the failed JSON's 1.68 s. This raises the
   estimated complete server wall time to about **310–322 s**, below the 600 s target.
   Registered test counts did not decrease. The corrected wall improvement over the
@@ -2144,7 +2159,12 @@ workers follow the machine's size.
   (`propose_operator_knowledge`, without recommended operations) in its internal general
   conversation, and the checklist notices go to its queue; the store, its path and the owner's
   approval are unchanged, and the PM reaches the store only through the server (a remote engine
-  needs nothing new). Missing documents start at revision zero; invalid documents are refused
+  needs nothing new). PM-1046 (PM-1023 K7) adds the global Operator's own instance target,
+  `<server home>/operator-data/_instance/knowledge.json` (`readInstanceKnowledge`,
+  `compareAndSwapInstanceKnowledge`): the same format, revision and error codes, one document for the
+  whole server; `_instance` is no valid project key, so it never collides with a project. It is reached
+  only through the external MCP's super tools (below); the Operator runs on the owner's machine and the
+  document stays in the server's home. Missing documents start at revision zero; invalid documents are refused
   without overwriting. **Machine assumption:** one server process owns a private writable home,
   with POSIX directory/file permissions (0700/0600), no-follow file opens and same-directory atomic
   rename. Target-file CAS writes are serialized within that process, including multiple store
@@ -2161,26 +2181,14 @@ workers follow the machine's size.
 
 - **Cloud provisioning from the owner's machine (PM-532)** — `scripts/cloud/*` (`npm run cloud`),
   `deploy/aws/`, `docs/AWS.md`, `apps/server/test/cloud-*.test.ts`.
-  PM-674's [owner cutover sheet](CLOUD-CUTOVER.md) coordinates explicit account/cost previews,
-  separate AWS/SES/edge approvals and retention of existing Cloudflare DNS/mail. It adds no
-  CLI/config contract; credentials stay on the administration machine, outside member sessions.
+  PM-674's [rollback sheet](CLOUD-CUTOVER.md) preserves the final stopped-cloud data before
+  Mac single activation. Credentials stay on the administration machine, outside member sessions.
   PM-717 adds a mandatory first-start seed integrity gate in `scripts/cloud/machine.ts`: the
   administration machine hashes the closed package DB before/after upload and compares hash/bytes
   with the stopped host through the existing SSH boundary; no engine RPC or credentials are added.
-  PM-719 adds `trial-reset-plan`/`trial-reset-apply` in `scripts/cloud/trial-reset.ts`: the admin
-  hashes the retained final return copy and exact mode 0600 plan bytes, checks explicit EC2
-  account/profile/region/instance/network and two never-versioned trial buckets, and requires a
-  separately owner-approved plan hash. It creates a durable one-use local result receipt, archives
-  the stopped/disabled host before any deletion, and deletes only enumerated keys with exact ETag
-  conditions and expected owner. AWS CLI model support is required; delete operations set
-  AWS_MAX_ATTEMPTS=1/standard mode. Partial results preserve receipts/copies and require separate
-  recovery approval; no retry, resource teardown, seed or start is implicit. The two round runbook
-  retains the final download and host archive through round two's full backup/isolated restore.
-  **Remote engine:** plans/copies and AWS CLI remain on the administrator, not on an engine;
-  the existing SSH-over-SSM boundary returns only fixed metadata, hashes, counts and bytes.
   A tool the owner runs on their Mac
-  that creates and maintains the cloud board on AWS EC2 or Lightsail: `preflight` and `aws` (PM-534: the machine,
-  the firewall, the two S3 buckets, the two IAM users and their access keys), the machine part
+  that creates and maintains the cloud board on AWS EC2: `preflight` and `aws` (PM-534: the machine,
+  the security group, the two S3 buckets, the two IAM users and their access keys), the machine part
   (PM-535, the next entry), Cloudflare (PM-536, the entry after it) and the DNS move (PM-537,
   `scripts/cloud/dns.ts`: Route 53 read/import, authoritative verification using `CloudDeps.resolve`
   with name-server IPs resolved locally first, public delegation/DS through Cloudflare and Google DoH,
@@ -2219,7 +2227,7 @@ workers follow the machine's size.
   with no automatic destructive repair. `--dry-run` writes nothing. **Remote engine:** provisioning
   remains on the owner's machine for the central server, never on an engine; the Mac engine gets
   no AWS credentials, and no new server/engine RPC or payload crosses the boundary. SSH over SSM
-  host operation is provided by PM-677 (next entry); the Lightsail adapter remains its compatibility path.
+  host operation is provided by PM-677 (next entry); EC2 is the only compute (PM-1036).
   PM-718 adds explicit `aws.ec2.architecture` (`x86_64` by default, or `arm64`): the Canonical
   AMI name/Architecture, type capabilities and existing instance must agree. Native apt/snap
   bootstrap works on both; ARM requires an external image bundle. The approved PM-675 target is
@@ -2268,21 +2276,10 @@ workers follow the machine's size.
 (publickey...)` line (plus `Warning:`/SSM session noise) means `commandStarted: 'no'`; any other output
   that mentions it stays `unknown`, not retryable. Reads keep the loose match. **Remote engine:** unchanged,
   admin machine only. Related task: PM-753.
-  PM-719 adds three fixed-path `host.sh` operations: `trial-reset-inspect`, `trial-reset-archive`
-  and read-only `trial-reset-verify`. The last two accept only UUIDv4 and exact SHA-256/none
-  arguments, with no payload/path override. An embedded existing Python3 standard-library program
-  runs with `-I -S`; Linux/POSIX dir_fd/no-follow descriptors and `/proc/self/mountinfo` are required
-  before writes. Missing interpreter/capabilities refuse without installation or fallback.
-  It reads systemd/Docker and process writers, hashes the full UTF-8 byte-sorted NUL inventory,
-  refuses symlinks/special entries/mounts/detectable changes and takes the existing `.image.lock`
-  without creating or changing it (a previously deployed trial target must have this lock).
-  Archive uses root-only 0700 `/var/lib/projectman/trial-archive/<UUID>` and atomic 0600 reset.json,
-  preserves deploy.json/image.env before same-filesystem data rename, and creates empty 0700
-  uid/gid 10001 active data. cloud.env and other credentials/images stay in place. Incomplete
-  markers block further resets. Final verify rehashes the specified archive after S3 deletion,
-  checks its strict archived receipt, missing active metadata, empty data and stopped state.
-  **Remote engine:** Python and filesystem mutations run only on EC2 through the same SSH/SSM
-  path; Node/AWS CLI stay on the admin machine. No engine RPC, secret or inbound Mac port is added.
+  PM-1029 removes the completed PM-675 trial commands and their embedded host program.
+  Host administration no longer needs Python3 or provides trial archival/deletion operations.
+  **Remote engine:** the remaining host operations still run on EC2 through SSH/SSM from the
+  administration machine; no engine RPC or new machine assumption is added.
   PM-717 carries `seed-digest` over this same SSH/SSM session, with no arguments or stdin payload:
   only the database SHA-256 and byte count return. On Ubuntu 24.04 the host uses coreutils to read
   the fixed `/var/lib/projectman/data/db.sqlite`, refuses live/starting units, non-regular/symlink
@@ -2309,10 +2306,11 @@ workers follow the machine's size.
   **Remote engine:** configuration, apt, restart and store checks run only on the central Ubuntu
   host over the existing SSH/SSM channel. No new payload, credential or engine RPC is introduced.
 
-- **The Lightsail machine and its operation (PM-535, PM-718, PM-725)** — `scripts/cloud/{host,machine,images}.ts`,
+- **The cloud machine and its operation (PM-535, PM-718, PM-725; EC2 is the only compute since PM-1036)** —
+  `scripts/cloud/{host,machine,images}.ts`,
   `deploy/aws/{host.sh,projectman-cloud.service}`, `apps/server/test/{cloud-host,cloud-machine,deploy-aws}.test.ts`,
-  `apps/server/test/helpers/fake-host.ts`. PM-718's optional `deployment.imageBundle` also works on
-  this legacy amd64 transport. Without it, the existing amd64 host build remains; with it, import
+  `apps/server/test/helpers/fake-host.ts`. PM-718's optional `deployment.imageBundle`: without it, the
+  existing amd64 host build remains; with it, import
   precedes env/start without build fallback. History adds optional imageId/platform; status adds
   actual container imageId. Prebuilt start uses an immutable ID; health and rollback check/carry it
   and the source SHA. ARM refuses builds and digestless starts/rollback. Operations stay on the
@@ -2333,16 +2331,13 @@ workers follow the machine's size.
   `/etc/projectman/{cloud.env,image.env}`, `/var/lib/projectman/{data,deploy.json}` (`current`,
   `previous`, `lastStoppedAt`), the checkout `/opt/projectman/src`. **Machine assumptions:** the
   machine is Ubuntu 24.04 with `apt`, `systemd` and Docker from the distribution; the owner's Mac has
-  `ssh` (OpenSSH with certificate support) and reaches the machine on its public IPv4 address; the
-  session opens `22/tcp` for the Mac's own address only for the length of a command and puts the
-  firewall back afterwards (also on a failure or Ctrl-C), with host keys taken from Lightsail
-  (`StrictHostKeyChecking=yes`; `aws.sshIdentityFile` is the fallback for the identity, not for the
-  host keys). The build happens on the 2 GB machine (swap file, 3 GiB free-disk check). The released
+  `ssh` and reaches the machine through SSM with an ephemeral key (the EC2 host channel entry above;
+  no inbound rule, no public-address lookup). The build happens on the 2 GB machine (swap file, 3 GiB free-disk check). The released
   image is tagged with the full commit id, which is also `PROJECTMAN_VERSION`. **Does this work on a
   remote engine?** Nothing in it runs on an engine: it is the owner's own tool for the server side, and
   the engine neither calls nor depends on it. The entries "Cloud provisioning" and "Cloud deployment
   and backup" are the other parts of the same chain.
-  PM-717 applies the same mandatory `seed-digest` gate to this compatibility path: the owner tool
+  PM-717 applies the mandatory `seed-digest` gate here too: the owner tool
   compares source before/after SHA-256 and bytes with the stopped Ubuntu host before any build/start.
   It assumes coreutils `stat`/`sha256sum`, a closed package and a single administrator during cutover;
   no new port, persistent state, engine operation or server/engine payload is introduced.
@@ -2598,7 +2593,7 @@ workers follow the machine's size.
   (`cloudflared`) runs on the server's machine and forwards to its loopback port with the original `Host`
   (no `httpHostHeader`), which the guard reads; the Cloudflare account and the DNS record are outside the
   repository. The hybrid cloud image uses a token-managed tunnel, with the variable given by whoever
-  installs it (`docs/HYBRID.md`); on Lightsail `npm run cloud -- edge` sets the tunnel, the ingress and the
+  installs it (`docs/HYBRID.md`); on EC2 `npm run cloud -- edge` sets the tunnel, the ingress and the
   variable through the Cloudflare API (PM-536). **Remote engine:** the entrance belongs to the server
   (in the hybrid mode, the cloud one); an engine receives no such traffic and needs nothing from it.
   Security notes: `docs/SECURITY.md` "The widget's public hostname".
@@ -2917,17 +2912,9 @@ workers follow the machine's size.
   (a read-only sandbox root; never a working directory).
   **Module:** `engine-link`
 
-- **Cloud deployment and backup** — `deploy/cloud/{Dockerfile,entrypoint.sh,backup.sh,litestream.yml,fly.toml,smoke.sh,memory-probe.mjs,memory-profile.mjs,heap-summary.mjs,history-semantic-profile.mjs,history-semantic-fixture.mjs,history-semantic-image-check.mjs}`,
+- **Cloud deployment and backup** — `deploy/cloud/{Dockerfile,entrypoint.sh,backup.sh,litestream.yml,smoke.sh,memory-probe.mjs,memory-profile.mjs,heap-summary.mjs,history-semantic-profile.mjs,history-semantic-fixture.mjs,history-semantic-image-check.mjs}`,
   `.github/workflows/history-semantic-profile.yml` (the release measurement on a GitHub-hosted `ubuntu-24.04-arm` runner, PM-913),
   `.dockerignore`, `auth/setup-code.ts`, `auth/index.ts` (the first setup), `apps/server/test/deploy-cloud.test.ts` (PM-317).
-  PM-719's trial reset (admin `scripts/cloud/trial-reset.ts`, EC2 `deploy/aws/host.sh`) refuses
-  active unit/container/backup writers, bucket versioning including Suspended, Object Lock,
-  replication and multipart uploads. Automatic Litestream/restic writes can exist even when
-  round one's backup acceptance was omitted, so both full inventories are always read.
-  It preserves the host archive and final Mac download, retains the EC2/buckets/IAM/credentials,
-  and leaves the host disabled with empty active data. Only an exact separately approved reset
-  plan may conditionally delete the trial objects. Round two uses a new stopped-source package;
-  no backup process or seed/start is invoked by reset. This adds no engine-side dependency.
   PM-718 adds `scripts/cloud/images.ts`: an admin builder with existing Docker/Buildx docker-container
   driver and native builders/emulation exports separate single-platform Docker archives (PM-916:
   by default only the target machine's platform, `targetPlatform(config)`; `--all-platforms` both;
@@ -2946,13 +2933,11 @@ workers follow the machine's size.
   `/engine` paths with 404 instead of the web app's index.html (hub HTTP routing only).
   PM-750's entry "Admin release preparation" runs that builder
   from its own clean checkout and smokes each image by its image ID before the receipt exists.
-  PM-674's [cutover runbook](CLOUD-CUTOVER.md) pins the accepted SHA for both cloud and engine,
-  requires a stopped-source seed into empty host/buckets, first successful file backup and
-  isolated recovery checks. Public activation waits for completed auth/edge code and independent
-  security results plus a separate owner decision. Deployment and backup remain on EC2;
+  PM-674's [rollback runbook](CLOUD-CUTOVER.md) closes the public edge and stops the cloud
+  before downloading final data for Mac single activation. Deployment and backup remain on EC2;
   the single-Mac live watcher does not update either the cloud or the separate engine checkout.
-  On AWS Lightsail the same image runs under systemd on one Ubuntu machine, installed and operated by
-  `npm run cloud` (the entry "The Lightsail machine and its operation (PM-535)").
+  On AWS EC2 the same image runs under systemd on one Ubuntu machine, installed and operated by
+  `npm run cloud` (the entry "The cloud machine and its operation (PM-535)").
   PM-775 (part of PM-772) adds to the same entry: `apps/server/src/logging/memory-log.ts`
   (`PROJECTMAN_MEMORY_LOG_SECONDS`, read in `index.ts`: a `memory` log line every 60 to 86400 seconds, off
   at 0), `PROJECTMAN_HEAP_LIMIT_MB` (read only by `entrypoint.sh`, which gives the server node's
@@ -2977,7 +2962,7 @@ workers follow the machine's size.
   from the server log (`auth/setup-code.ts`): `isLocalRequest` is false behind the tunnel, because
   the tunnel must not rewrite the Host header, and the code replaces "localhost" as the proof.
   **Assumptions:** one container and one volume at a time (two would replicate into one replica);
-  the host knows the platform's volume semantics (Fly.io volumes are single-attach); the origin
+  the host knows the platform's volume semantics (a block volume attaches to one machine); the origin
   of the Cloudflare tunnel is `http://127.0.0.1:4700` with no Host override; the client address
   comes from `cf-connecting-ip` (`PROJECTMAN_CLIENT_IP_HEADER`), trusted from the loopback peer
   only; the Litestream replica is the SQLite database itself (not encrypted by Litestream), so the
@@ -3074,6 +3059,14 @@ workers follow the machine's size.
   loopback peer, so the proxy or tunnel must run on the server's machine and keep Host and the protocol header) and a
   tunnel/proxy that refuses `/mcp/` and `/hooks` but passes `/mcp`. Remote engine: not affected; nothing of the endpoint
   runs on or crosses to an engine.
+  **The global Operator on the endpoint (PM-1046, PM-1023 K7):** in the super mode `get_operator_instance_knowledge`
+  and `update_operator_instance_knowledge` (`expected_revision`, `agreement?`, `principles?`) read and write the
+  Operator's own knowledge with no `project_key` (`services/super-operator/instance-knowledge.ts`); the write is
+  direct, with no app approval, and the super audit records it in every project the key's holder owns
+  (`SuperOperator.executeOwned`). `list_integrator_inbox` takes an optional `project_key`: without it the items of every
+  project of the key come in one list, each with its `projectKey`, and the access is checked per project. The
+  server's `instructions` describe the Operator's role (decision 65). Remote engine: not affected; the Operator
+  reaches the hub over HTTPS with the key and the knowledge stays in the hub's home.
   **Operator tools on the endpoint (PM-784):** `read_project_doc`, `write_project_docs`, `get_project_doc_write`,
   `get_role_configuration`, `propose_release`, `request_structural_review`, `ask_human`, `get_super_question`,
   `withdraw_question` and `read_attachment` (`mcp/*/tools.ts` `external` bindings, `mcp/super-operator/handler.ts`,
@@ -3659,7 +3652,9 @@ assumption or remote-engine RPC.
   `packages/shared/src/domain/provider-model.ts` (PM-330); this changes no path or engine assumption.
   Claude conversations live under `~/.claude/projects`; Codex rollouts under
   `CODEX_HOME/sessions`. The server reads and tails hook-reported files, and resume eligibility
-  checks transcript content.
+  checks transcript content. A task session's cwd is the member's workspace, whose path uses the
+  member's storage handle (PM-1024), so a rename of the member leaves the cwd, and with it the
+  conversation's place under `~/.claude/projects`, unchanged.
   PM-342 adds `TranscriptReader.summary` (`runner/transcript/summary.ts`): when a member's new
   conversation replaces one that could not go on (provider changed, lost, moved) or a card is
   handed over without a note, the server reads the old transcript for the CLI's compaction
@@ -3751,7 +3746,11 @@ assumption or remote-engine RPC.
   on the card's engine. Task worktrees default to
   `~/.projectman/worktrees/<project>/<task>-<repo>`; git links them to the main repository's
   common git directory. Canonical paths, branch ownership and cleanup are local filesystem
-  operations. PM-368's `core/messages` and `runtime/delivery/delivery.ts` also use
+  operations. A member's workspace (`<workRoot>/workspaces/<project>/<member>/<repo>/repo`), its
+  `.home`, its sandbox directory (`member-caches/<project>/<member>`) and its `member_workspaces`
+  row use the member's storage handle (PM-1024), so a rename does not move them; the
+  `MemberWorkspaceKey.member` the server sends to the engine is that storage handle, and the engine
+  RPC schema is unchanged. PM-368's `core/messages` and `runtime/delivery/delivery.ts` also use
   `SessionOrchestrator.sourceHead` to snapshot the local branch for sent messages and input batches;
   PM-342's `runtime/admission` (`HandoffService`) uses it for the branch, last commit and uncommitted state of a handoff note or fallback.
   PM-712 uses the existing engine-local `sourceHead` read again before loop triage and human
@@ -3889,7 +3888,7 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   (PM-846: a work root is used by its real path and lies inside the real home, so the `denyRead` of the
   home keeps the other members' worktrees unreadable; the engine limit's session roots name
   `<workRoot>/worktrees` and `<workRoot>/workspaces`)
-  (PM-87, PM-333, PM-355, PM-312; the canonical-path and directory checks of the domain are the
+  (PM-87, PM-333, PM-355, PM-312, PM-425; the canonical-path and directory checks of the domain are the
   engine's `realpath`, `isDirectory`, `isRealDirectory`). `runtime/sessions/permission-broker.ts` (PM-960)
   uses `EngineHost.realpath` to validate the tool's working directory and uses the runtime's
   policy functions directly; path validation still
@@ -3921,6 +3920,16 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   (`engine-link/engine-limit.ts`) adds its own homes/temp roots and checks
   exceptions and required private directories only when a boundary is supplied. Existing
   engine-root, permission-mode, environment and sensitive-path checks always apply.
+  PM-425 populates it for every reading session (`placementReadsOnly`: a `read_only` placement,
+  a review copy without the test permission, a taskless chat, the non-super Operator) and for
+  every provider: `sessionSandbox` (`runtime/sessions/session-policy.ts`, `readerReadBoundary`)
+  builds one list; `launch.ts` copies it into `policy.filesystem.readBoundary` (new optional
+  field, `SessionPolicy.version` stays 1) and `withReaderDenials` adds `~/.claude/projects` to the
+  reader's `deniedPaths`. Rendered from it: Claude's `denyRead`/`allowRead` and file-tool rules
+  (`claudeToolRules` drops the blanket `Read`/`Grep`/`Glob` allow), the PreToolUse refusal and
+  `permissionRequest()` in `runner/session.ts` (`readBoundaryVerdict` in `runner/tool-decision.ts`),
+  Gemini's `decideToolCall` and the Codex/NanoGPT profile. `engine-limit` validates and
+  canonicalises the boundary for all providers and replaces the policy's copy with its own.
   **Remote engine:** `paths()` supplies the executing engine's roots; only the optional,
   validated portable contract crosses the boundary, never authentication files. This uses
   the same policy locally and remotely and introduces no new mode or switch. A cloud hub
@@ -4301,9 +4310,9 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   process management on the target host, inventory engine state separately, and preserve
   explicit source retirement and rollback checks rather than inferring remote liveness.
   **Hybrid move (PM-318, `scripts/migrate/{hybrid,hybrid-entries}.ts`, [HYBRID.md](HYBRID.md)):**
-  PM-674's [execution and rollback sheet](CLOUD-CUTOVER.md) uses protected package/return
-  directories outside the source and repositories, retires both Mac live agents before packaging,
-  and brings final stopped-cloud data back before activation. Package/home is the seed input;
+  PM-674's [rollback sheet](CLOUD-CUTOVER.md) uses protected package/return
+  directories outside the source and repositories and brings final stopped-cloud data back
+  before activation. Package/home is the seed input;
   seed dry-run checks buckets, while the live host check precedes upload. No second writer or
   automatic clearing of used targets is allowed; data transport is the owner's administration path.
   `hybrid plan|package|back` and `instance engine` move the Mac between the single-machine mode and the
@@ -4333,9 +4342,8 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   **Module:** `scripts`
 
 - **Engine service (launchd)** — `scripts/engine/{service,commands,cli}.ts`,
-  PM-674's [owner runbook](CLOUD-CUTOVER.md) checks the same accepted cloud/engine SHA,
-  installs the protected Access header file, verifies foreground startup before launchd,
-  and uninstalls KeepAlive before hybrid back. Updates are manual owner-approved steps in
+  PM-674's [rollback runbook](CLOUD-CUTOVER.md) uninstalls KeepAlive before hybrid back.
+  Updates are manual owner-approved steps in
   the engine's own checkout; neither credentials nor launchd operations cross engine RPC.
   `deploy/mac/com.projectman.engine.plist` (PM-318). `npm run engine -- service install|uninstall|status`
   renders the plist template with this machine's absolute paths (node, the checkout, the home, the

@@ -36,21 +36,29 @@ export function planStarts(input: {
   developers: readonly StageDeveloper[];
   anyDecided: ReadonlySet<string>;
   offered?: ReadonlySet<string>;
+  /**
+   * The keys of the assigned cards whose assignee may be replaced because its provider is on hold and
+   * the work has not begun (`canReplaceUnstartedAssignee`, PM-1051). They are planned like unassigned
+   * cards, but only ever offered: the pull does not take an assigned card.
+   */
+  reassignableTaskKeys?: ReadonlySet<string>;
 }): Map<string, StartPlanEntry> {
   const { cards, places, developers, anyDecided, offered } = input;
+  const reassignable = input.reassignableTaskKeys ?? new Set<string>();
+  const keeps = (card: Task) => !!card.assignee && !reassignable.has(card.key);
   let free = [...input.free];
   const plan = new Map<string, StartPlanEntry>();
   // The assigned cards reserve their own developer first, so no other card takes the member they wait for.
   const ordered = [...cards].sort(
     (a, b) =>
-      Number(!!b.assignee) - Number(!!a.assignee) ||
+      Number(keeps(b)) - Number(keeps(a)) ||
       Number(offered?.has(b.key) ?? false) - Number(offered?.has(a.key) ?? false) ||
       compareStartOrder(a, b, places),
   );
   for (const card of ordered) {
     // An assigned card is started by its assignee when the pm starts it with start_task (PM-879): it keeps that developer when
     // they are free, and waits for them otherwise. The pull assigns a developer itself, so it never takes it.
-    if (card.assignee) {
+    if (keeps(card)) {
       const own = free.find((member) => member.handle === card.assignee);
       if (own) {
         plan.set(card.key, { kind: 'offer', developer: own.handle });
@@ -71,7 +79,7 @@ export function planStarts(input: {
     const pick = choose(free);
     if (pick.kind === 'member') {
       plan.set(card.key, {
-        kind: startClass(card, places).kind === 'other' ? 'offer' : 'pull',
+        kind: card.assignee || startClass(card, places).kind === 'other' ? 'offer' : 'pull',
         developer: pick.handle,
       });
       free = free.filter((member) => member.handle !== pick.handle);

@@ -11,6 +11,7 @@ import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from '.
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
 import { createDomainContext, createEventBus } from '../src/core/base';
+import { createMemberMemoryStore } from '../src/context';
 import { MemberWorkspaces } from '../src/runtime/sessions/workspaces';
 import { createMemberWorkspaceManager } from '../src/worktree';
 import { createGitSeed } from './helpers/git-seed';
@@ -126,6 +127,56 @@ describe('member workspaces (PM-138)', { timeout: 60_000 }, () => {
     // The project repository did not change branch, nor get the task branches.
     expect(await branchOf(h.workspace)).toBe('main');
     expect(await git(h.workspace, 'branch', '--list', 'AR-*')).toBe('');
+  });
+
+  it('keeps a renamed member`s workspace, home, sandbox and memory under its storage handle (PM-1024)', async () => {
+    const appHome = await mkdtemp(path.join(tmpdir(), 'pm-app-home-'));
+    try {
+      await setup({
+        appHome,
+        adjust: (c) => {
+          const dev = c.team.members.find((m) => m.handle === 'dev-1');
+          if (dev?.kind === 'ai') dev.formerHandles = ['old'];
+        },
+      });
+      const memoryRoot = path.join(appHome, 'memory');
+      const memory = createMemberMemoryStore({ rootDir: memoryRoot });
+      vi.spyOn(h.memory, 'read').mockImplementation(memory.read);
+      vi.spyOn(h.memory, 'append').mockImplementation(memory.append);
+      await memory.append('AR', 'old', 'The build needs node 22.');
+      await startTask('AR-1', 'dev-1');
+      const stored = await workspaceOf('old');
+      expect(h.runner.lastStarted()).toMatchObject({ cwd: stored });
+      expect(await exists(await workspaceOf('dev-1'))).toBe(false);
+      expect(await exists(path.join(appHome, 'member-caches', 'AR', 'old'))).toBe(true);
+      expect(await exists(path.join(appHome, 'member-caches', 'AR', 'dev-1'))).toBe(false);
+      expect(await h.domain.sessions.memory('AR', 'dev-1')).toContain('The build needs node 22.');
+      expect(h.contextBuilder.inputs.at(-1)?.memory).toContain('The build needs node 22.');
+      await h.domain.teamTools.saveMemory(
+        { projectKey: 'AR', member: 'dev-1', sessionId: h.runner.lastStarted().sessionId, taskKey: 'AR-1' },
+        { note: 'Keep the existing build cache.' },
+      );
+      expect(await readFile(path.join(memoryRoot, 'AR', 'old.md'), 'utf8')).toContain(
+        'Keep the existing build cache.',
+      );
+      expect(await exists(path.join(memoryRoot, 'AR', 'dev-1.md'))).toBe(false);
+      // The task's binding belongs to the current handle: the assignee finds its work again.
+      expect(h.repos.memberWorkspaces.bindingsOfTask('AR', 'AR-1')).toMatchObject([
+        { member: 'dev-1', kind: 'work' },
+      ]);
+      const record = h.repos.memberWorkspaces.find('AR', 'old', 'web')!;
+      expect(record).toMatchObject({ path: stored });
+      expect(h.repos.memberWorkspaces.find('AR', 'dev-1', 'web')).toBeNull();
+      const manager = createMemberWorkspaceManager({ rootDir: h.workspacesDir, logger: h.log.logger });
+      expect(await manager.home({ projectKey: record.projectKey, member: record.member })).toBe(
+        path.join(await realpath(h.workspacesDir), 'AR', 'old', '.home'),
+      );
+      // A second start continues in the same workspace on the same branch.
+      await ensure('dev-1', 'AR-1');
+      expect(await branchOf(stored)).toBe('AR-1-login-page');
+    } finally {
+      await rm(appHome, { recursive: true, force: true });
+    }
   });
 
   it('keeps a second task of the same repository waiting while the first one works there', async () => {

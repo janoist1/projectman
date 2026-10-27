@@ -111,6 +111,39 @@ describe('start plan', () => {
     ).toEqual({ kind: 'hold', reason: 'no_free_member' });
   });
 
+  it('offers a replaceable assigned card to another free developer and never pulls it (PM-1051)', () => {
+    const urgent = card(1, { assignee: 'away', priority: 'urgent' });
+    const plain = card(2, { assignee: 'away' });
+    const places = new Map();
+    // The assignee is not free (their provider is on hold): without the replacement the card gets no entry.
+    expect(planStarts({ ...base, cards: [plain], places, free: [big] }).has('AC-2')).toBe(false);
+    const plan = planStarts({
+      ...base,
+      cards: [urgent, plain],
+      places,
+      free: [dev, big],
+      reassignableTaskKeys: new Set(['AC-1', 'AC-2']),
+    });
+    expect(plan.get('AC-1')).toEqual({ kind: 'offer', developer: 'dev' });
+    expect(plan.get('AC-2')).toEqual({ kind: 'offer', developer: 'big' });
+  });
+
+  it('keeps the developer of an assigned card that is not replaceable (PM-1051)', () => {
+    const cards = [card(1, { assignee: 'dev' }), card(2, { assignee: 'away' })];
+    const plan = planStarts({ ...base, cards, free: [dev, big], reassignableTaskKeys: new Set(['AC-2']) });
+    expect(plan.get('AC-1')).toEqual({ kind: 'offer', developer: 'dev' });
+    expect(plan.get('AC-2')).toEqual({ kind: 'offer', developer: 'big' });
+  });
+
+  it('holds a replaceable card for a Senior or a free member instead of choosing a smaller developer (PM-1051)', () => {
+    const cards = [card(1, { assignee: 'away', ...scored(8) })];
+    expect(planStarts({ ...base, cards, reassignableTaskKeys: new Set(['AC-1']) }).get('AC-1')).toEqual({
+      kind: 'hold',
+      reason: 'senior_busy',
+      seniors: ['big'],
+    });
+  });
+
   it('lets offered cards choose before urgent and focus pull candidates', () => {
     const cards = [card(1, { priority: 'urgent' }), card(2), card(3)];
     const places = new Map([['AC-2', { position: 1 }]]);

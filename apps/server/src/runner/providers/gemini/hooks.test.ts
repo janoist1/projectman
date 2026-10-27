@@ -269,6 +269,52 @@ describe('Gemini hooks', () => {
     }
   });
 
+  it('refuses a read below the closed home with the same boundary the other providers get (PM-425)', () => {
+    const policy = geminiSpec().policy!;
+    policy.filesystem.readBoundary = {
+      deniedRoots: ['/fictional/home'],
+      allowedPaths: [{ path: '/work', kind: 'directory' }],
+    };
+    const check = (Path: string) =>
+      decideGeminiToolCall(
+        policy,
+        parseGeminiHook(
+          { conversationId: CONVERSATION_ID, stepIdx: 1, toolCall: { name: 'read_file', args: { Path } } },
+          'PreToolUse',
+        )!,
+        null,
+      );
+    expect(check('/fictional/home/Dev/other/a.ts')).toEqual({ decision: 'deny', reason: 'denied_path' });
+    expect(check('/work/a')).toEqual({ decision: 'allow' });
+  });
+
+  it('refuses a command that names a place below the closed home, and does not ask about it (PM-425)', () => {
+    const policy = geminiSpec().policy!;
+    policy.filesystem.readBoundary = {
+      deniedRoots: ['/fictional/home'],
+      allowedPaths: [{ path: '/work', kind: 'directory' }],
+    };
+    const check = (CommandLine: string) =>
+      decideGeminiToolCall(
+        policy,
+        parseGeminiHook(
+          {
+            conversationId: CONVERSATION_ID,
+            stepIdx: 1,
+            toolCall: { name: 'run_command', args: { CommandLine, Cwd: '/work' } },
+          },
+          'PreToolUse',
+        )!,
+        null,
+      );
+    expect(check('cat /fictional/home/Dev/other/.env')).toEqual({ decision: 'deny', reason: 'denied_path' });
+    expect(check('cd /fictional/home/Dev/other && cat .env')).toEqual({
+      decision: 'deny',
+      reason: 'denied_path',
+    });
+    expect(check('cat /work/src/a.ts').decision).not.toBe('deny');
+  });
+
   describe('the session folder (PM-522)', () => {
     const own = '/instance/folders/ses_gemini.0123456789abcdef';
     const other = '/instance/folders/ses_other.fedcba9876543210';

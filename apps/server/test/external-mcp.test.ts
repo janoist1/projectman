@@ -7,7 +7,7 @@ import type { CloudConfig } from '../../../scripts/cloud/config';
 import { DomainError, humanActor } from '../src/kernel';
 import { EXTERNAL_DENIED, EXTERNAL_TOOLS } from '../src/mcp/super-operator/registry';
 import { TEAM_TOOL_NAMES } from '../src/mcp';
-import { createAppHarness, createProject, setupOwner } from './helpers/app-harness';
+import { addHumanAndLogin, createAppHarness, createProject, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 
 type Mode = 'super' | 'read';
@@ -19,6 +19,13 @@ interface ToolResult {
 }
 
 const ACCEPT = 'application/json, text/event-stream';
+/** The tools that take no (or an optional) `project_key`. */
+const PROJECTLESS_TOOLS = [
+  'list_projects',
+  'list_integrator_inbox',
+  'get_operator_instance_knowledge',
+  'update_operator_instance_knowledge',
+];
 
 describe('the bearer MCP endpoint (PM-760)', () => {
   let h: AppHarness;
@@ -260,6 +267,112 @@ describe('the bearer MCP endpoint (PM-760)', () => {
     expect(member.structuredContent?.errorCode).toBe('integrator_not_allowed');
   });
 
+  it('reads and writes the Operator’s instance knowledge with a super key only, and audits the write', async () => {
+    const { secret } = key('super');
+    const agreement = { summary: 'Ask before risky steps', involvement: 'important', extraCritical: [] };
+    const principle = {
+      example: 'A failed deploy',
+      principle: 'Check the logs first',
+      effect: 'Less guessing',
+    };
+    expect((await call(secret, 'get_operator_instance_knowledge')).structuredContent).toMatchObject({
+      revision: 0,
+      agreement: null,
+      principles: [],
+    });
+
+    const written = await call(secret, 'update_operator_instance_knowledge', {
+      expected_revision: 0,
+      agreement,
+      principles: [principle],
+    });
+    expect(written.isError, written.content[0]!.text).toBeUndefined();
+    expect(written.structuredContent).toMatchObject({
+      revision: 1,
+      agreement: { version: 1, data: agreement },
+    });
+    const stored = (await call(secret, 'get_operator_instance_knowledge')).structuredContent!;
+    expect(stored.principles).toHaveLength(1);
+    expect(stored.principles[0]).toMatchObject(principle);
+    expect(stored.principles[0].id).toBeTruthy();
+    expect(audit().some((entry) => entry.operation === 'mcp_update_operator_instance_knowledge')).toBe(true);
+
+    const stale = await call(secret, 'update_operator_instance_knowledge', {
+      expected_revision: 0,
+      agreement,
+    });
+    expect(stale.structuredContent?.errorCode).toBe('operator_knowledge_stale');
+
+    for (const mode of ['read', 'legacy'] as const) {
+      const { secret: other } = key(mode);
+      const denied = await call(other, 'update_operator_instance_knowledge', {
+        expected_revision: 1,
+        agreement,
+      });
+      expect(denied.structuredContent?.errorCode, mode).toBe(
+        mode === 'read' ? 'integrator_read_only' : 'integrator_not_allowed',
+      );
+      expect((await call(other, 'get_operator_instance_knowledge')).isError, mode).toBe(true);
+    }
+  });
+
+  it('lists the integrator inbox of every owned project without project_key and leaves out one it does not own', async () => {
+    const { secret } = key('super');
+    await createProject(h, cookie, 'BR');
+    await createProject(h, cookie, 'CR');
+    // The key's holder stops being an owner of CR: another owner takes over in the same commit.
+    await addHumanAndLogin(h.app, {
+      handle: 'boss',
+      access: 'owner',
+      projectKey: 'CR',
+      adjust: (draft) => {
+        for (const member of draft.team.members)
+          if (member.kind === 'human' && member.handle === 'owner') member.access = 'developer';
+      },
+    });
+    const { domain } = h.app.projectman;
+    const todo = (projectKey: string, title: string) =>
+      domain.inbox.create({
+        projectKey,
+        kind: 'question',
+        source: 'dev-1',
+        assignees: ['owner'],
+        title,
+        payload: {
+          question: title,
+          recipient: 'integrator',
+          integratorOpenedAt: now.toISOString(),
+          screening: {
+            until: now.toISOString(),
+            outcome: 'todo',
+            todo: { what: title, where: 'Hub', expected: 'Result', recipient: 'integrator' },
+          },
+        },
+        options: [
+          { id: 'todo_done', label: 'Done', style: 'primary' },
+          { id: 'todo_cannot', label: 'Cannot', style: 'secondary' },
+        ],
+      });
+    const inAr = todo('AR', 'First todo');
+    now = new Date(now.getTime() + 1000);
+    const inBr = todo('BR', 'Second todo');
+    todo('CR', 'Foreign todo');
+
+    const all = await call(secret, 'list_integrator_inbox');
+    expect(all.isError, all.content[0]!.text).toBeUndefined();
+    expect(
+      all.structuredContent?.items.map((entry: { id: string; projectKey: string }) => [
+        entry.projectKey,
+        entry.id,
+      ]),
+    ).toEqual([
+      ['BR', inBr.id],
+      ['AR', inAr.id],
+    ]);
+    const only = await call(secret, 'list_integrator_inbox', { project_key: 'AR' });
+    expect(only.structuredContent?.items.map((entry: { id: string }) => entry.id)).toEqual([inAr.id]);
+  });
+
   it('initializes, lists, reads and writes with no session and no engine', async () => {
     const { secret } = key('super');
     const initialized = await post(
@@ -408,6 +521,8 @@ describe('the bearer MCP endpoint (PM-760)', () => {
       'resolve_integrator_todo',
       'resolve_integrator_fix_limit',
       'list_integrator_inbox',
+      'get_operator_instance_knowledge',
+      'update_operator_instance_knowledge',
     ];
     for (const name of superOnly) {
       expect(superTools, name).toContain(name);
@@ -474,8 +589,8 @@ describe('the bearer MCP endpoint (PM-760)', () => {
     const { secret } = key('super');
     const tools = await listTools(secret);
     for (const tool of tools) {
-      if (tool.name === 'list_projects') {
-        expect(tool.inputSchema.required ?? []).toEqual([]);
+      if (PROJECTLESS_TOOLS.includes(tool.name)) {
+        expect(tool.inputSchema.required ?? [], tool.name).not.toContain('project_key');
         continue;
       }
       expect(tool.inputSchema.required, tool.name).toContain('project_key');

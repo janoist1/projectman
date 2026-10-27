@@ -22,7 +22,7 @@ const DNS_LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const ZONE = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
 const EMAIL = /^[a-z0-9._%+-]+@[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?\.[a-z]{2,63}$/;
 
-export const bucketName = z
+const bucketName = z
   .string()
   .regex(BUCKET, 'an S3 bucket name: 3-63 lowercase letters, digits and hyphens, no dots')
   .refine((name) => !RESERVED_BUCKET_PARTS.some((part) => part.test(name)), 'a reserved S3 bucket name part')

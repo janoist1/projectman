@@ -199,6 +199,19 @@ describe('super-mode origin and audit (PM-757)', () => {
     await flush();
   });
 
+  it('refuses configuration changes by an integrator actor without super origin', async () => {
+    h = await createDomainHarness();
+    const loaded = await h.domain.projects.load('AR');
+    await expect(
+      h.domain.projects.patch(
+        'AR',
+        { baseVersion: loaded.version, project: { name: 'Unbound integrator change' } },
+        { actor: { ...OWNER_ACTOR, via: 'integrator' }, author: { ...OWNER, via: 'integrator' } },
+      ),
+    ).rejects.toMatchObject({ code: 'insufficient_access', status: 403 });
+    expect((await h.domain.projects.load('AR')).version).toBe(loaded.version);
+  });
+
   it('commits a configuration change in the super mode with trailers, history and an audit', async () => {
     h = await createDomainHarness();
     const loaded = await h.domain.projects.load('AR');

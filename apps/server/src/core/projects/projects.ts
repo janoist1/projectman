@@ -11,7 +11,6 @@ import {
   ProjectConfig,
   applyConfigPatch,
   configSchemaIssues,
-  integratorConfigRefusal,
   isTheme,
   memberOf,
   operatorFixedChange,
@@ -46,7 +45,7 @@ import type { ProjectRecord } from '../../db';
 import { projectAccessFor } from '../members';
 import { isoNow } from '../base';
 import type { DomainContext, TemplateRegistry } from '../base';
-import { conflict, DomainError, forbidden, invalid, notFound, ownerLoginRequired } from '../../kernel';
+import { conflict, DomainError, forbidden, invalid, notFound } from '../../kernel';
 import { createSuperAuditService } from '../timeline';
 import type { SuperAuditService, TimelineService } from '../timeline';
 import { humanActor, KeyedMutex } from '../../kernel';
@@ -666,10 +665,8 @@ export class ProjectService {
       ProjectService.assertChangeAllowed(previous, next, 'admin');
     }
     assertOperatorFixed(previous, next);
-    if (meta.actor.via === 'integrator' && !hasSuperOrigin(meta.actor)) {
-      const refusal = integratorConfigRefusal(previous, next);
-      if (refusal) throw ownerLoginRequired(refusal);
-    }
+    if (meta.actor.via === 'integrator' && !hasSuperOrigin(meta.actor))
+      throw forbidden('insufficient_access', 'integrator configuration changes require super origin');
     const stageIds = new Set(next.pipeline.stages.map((stage) => stage.id));
     const removed = previous.pipeline.stages.filter((stage) => !stageIds.has(stage.id));
     // A theme has the first stage's id because the field is required, but it is in no stage (PM-192).

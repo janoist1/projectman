@@ -30,7 +30,6 @@ const dockerfile = read('deploy/cloud/Dockerfile');
 const entrypoint = read('deploy/cloud/entrypoint.sh');
 const backup = read('deploy/cloud/backup.sh');
 const litestream = read('deploy/cloud/litestream.yml');
-const fly = read('deploy/cloud/fly.toml');
 const guide = read('docs/HYBRID.md');
 
 /** A shell function: its one line, or from `name() {` to the closing `}` at column 0. */
@@ -589,7 +588,6 @@ describe('deploy/cloud image', () => {
     expect(guide).toMatch(/passkey or a hardware security key/);
     expect(guide).toMatch(/5 to 10 USD a month/);
     expect(guide).toMatch(/No control socket client and no migration tools in the container/);
-    expect(fly).toContain('memory = "1gb"');
   });
 
   it('does not claim the processes are isolated from a compromised server', () => {
@@ -601,14 +599,6 @@ describe('deploy/cloud image', () => {
 });
 
 describe('deploy/cloud configuration', () => {
-  it('fly.toml has no public service and mounts the volume at the home', () => {
-    const settings = withoutComments(fly);
-    expect(settings).not.toMatch(/^\s*\[+(http_service|services)\]+/m);
-    expect(settings).not.toMatch(/^\s*(internal_port|force_https)/m);
-    expect(settings).toMatch(/destination = "\/data"/);
-    expect(settings).not.toMatch(/TUNNEL_TOKEN|SECRET|PASSWORD|ACCESS_KEY/);
-  });
-
   it('litestream.yml takes every credential from the environment', () => {
     expect(litestream).toContain('sync-interval: 1s');
     expect(entrypoint).toContain('BACKUP_INTERVAL_SECONDS:-21600');
@@ -628,8 +618,5 @@ describe('deploy/cloud configuration', () => {
     for (const name of [...names, 'TUNNEL_TOKEN']) expect(guide, name).toContain(name);
     for (const name of names.filter((name) => name.startsWith('LITESTREAM_')))
       expect(litestream, name).toContain(`\${${name}}`);
-    // fly.toml's plain settings are all names the entrypoint knows.
-    const flyEnv = [...fly.matchAll(/^\s{2}([A-Z_]+) = "/gm)].map((match) => match[1] ?? '');
-    for (const name of flyEnv) expect([...names, 'RESTIC_REGION'], name).toContain(name);
   });
 });

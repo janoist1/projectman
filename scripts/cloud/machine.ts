@@ -92,9 +92,6 @@ const objectsSchema = z.looseObject({
   Contents: z.array(z.looseObject({})).optional(),
   KeyCount: z.number().optional(),
 });
-const instanceStateSchema = z.looseObject({
-  state: z.looseObject({ name: z.string() }),
-});
 
 // ---- what to deploy ----
 
@@ -473,7 +470,7 @@ export async function runDeploy(context: CloudContext, options: DeployOptions): 
     report.step(
       'skipped',
       'deploy',
-      `dry-run: would ${config.aws.compute === 'ec2' ? 'connect by SSH through SSM' : 'open the SSH port for your address'}, bootstrap ${config.aws.instanceName}, ${image ? `receive verified image ${image.imageId}` : `build ${target.sha} there`}, send cloud.env, start it and wait up to ${HEALTH_SECONDS} s for health (back to the earlier image if it never comes)`,
+      `dry-run: would connect by SSH through SSM, bootstrap ${config.aws.instanceName}, ${image ? `receive verified image ${image.imageId}` : `build ${target.sha} there`}, send cloud.env, start it and wait up to ${HEALTH_SECONDS} s for health (back to the earlier image if it never comes)`,
     );
     return;
   }
@@ -561,27 +558,15 @@ export async function runStop(context: CloudContext, options: { dryRun: boolean 
 // ---- looking at the machine ----
 
 export async function runStatus(context: CloudContext): Promise<void> {
-  const { config, report, deps } = context;
-  const cli = new AwsCli(deps, config.aws);
+  const { config, report } = context;
   const state = await report.guard('machine', async () => {
-    if (config.aws.compute === 'ec2') {
-      const instance = await readEc2HostInstance(context);
-      report.step(
-        'ok',
-        'machine',
-        `${config.aws.instanceName} (${instance.InstanceId}): ${instance.State.Name}`,
-      );
-      return instance.State.Name;
-    }
-    const answer = await cli.callAsOrNull(
-      ['lightsail', 'get-instance-state', '--instance-name', config.aws.instanceName],
-      ['NotFoundException'],
-      instanceStateSchema,
+    const instance = await readEc2HostInstance(context);
+    report.step(
+      'ok',
+      'machine',
+      `${config.aws.instanceName} (${instance.InstanceId}): ${instance.State.Name}`,
     );
-    if (!answer)
-      throw refused(`there is no machine ${config.aws.instanceName}; run \`npm run cloud -- aws\` first`);
-    report.step('ok', 'machine', `${config.aws.instanceName}: ${answer.state.name}`);
-    return answer.state.name;
+    return instance.State.Name;
   });
   if (state !== 'running') {
     report.step('skipped', 'host', `the machine is ${state}`);

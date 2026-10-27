@@ -15,7 +15,7 @@ import {
 import type { CloudContext } from '../../../scripts/cloud/context';
 import { loadConfig } from '../../../scripts/cloud/config';
 import { Report } from '../../../scripts/cloud/report';
-import { HostWorld, SHA_NEW, SHA_OLD } from './helpers/fake-host';
+import { SHA_NEW, SHA_OLD } from './helpers/fake-host';
 import { Ec2HostWorld } from './helpers/fake-ec2-host';
 import { baseConfig } from './helpers/fake-aws';
 import { EC2_CONFIG } from './helpers/fake-ec2';
@@ -23,10 +23,10 @@ import { EC2_CONFIG } from './helpers/fake-ec2';
 const ID = `sha256:${'1'.repeat(64)}`;
 const OLD_ID = `sha256:${'2'.repeat(64)}`;
 const ALL_PLATFORMS = platformSchema.options;
-let world: HostWorld;
+let world: Ec2HostWorld;
 let directory: string;
 beforeEach(() => {
-  world = HostWorld.ready();
+  world = Ec2HostWorld.configured();
   directory = path.join(fs.realpathSync(world.home), 'bundle');
   fs.mkdirSync(directory);
 });
@@ -58,18 +58,9 @@ function context(): CloudContext {
   };
 }
 function arm() {
-  world.cleanup();
-  world = Ec2HostWorld.configured();
-  directory = path.join(fs.realpathSync(world.home), 'bundle');
-  fs.mkdirSync(directory);
   bundle();
   world.writeConfig({
-    aws: {
-      ...(baseConfig().aws as object),
-      compute: 'ec2',
-      profile: 'aroom',
-      ec2: { ...EC2_CONFIG, architecture: 'arm64' },
-    },
+    aws: { ...(baseConfig().aws as object), ec2: { ...EC2_CONFIG, architecture: 'arm64' } },
     deployment: { imageBundle: directory },
   });
 }

@@ -32,7 +32,7 @@ commands:
   image-build --ref <SHA40> --out <new directory> [--all-platforms] [--dry-run]
                                      build and verify the target machine's image archive (--all-platforms: amd64 and arm64) on the admin builder
   preflight                          check the aws CLI, the login, the region, the machine type and the secrets store
-  aws [--dry-run] [--rotate-keys]    create the EC2 or Lightsail machine, the S3 buckets, the IAM users and their keys
+  aws [--dry-run] [--rotate-keys]    create the EC2 machine, the S3 buckets, the IAM users and their keys
   deploy [--ref <tag|sha>] [--dry-run]
                                      install or update the board on the machine (default: the newest release tag)
   rollback [--dry-run]               go back to the previous image

@@ -3,7 +3,8 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { MAX_CONTROL_REQUEST_BYTES } from '@projectman/shared';
 import { runCloud } from '../../../scripts/cloud/commands';
-import { HostWorld, REPO_ROOT, unquoteWords } from './helpers/fake-host';
+import { Ec2HostWorld } from './helpers/fake-ec2-host';
+import { REPO_ROOT, unquoteWords } from './helpers/fake-host';
 
 /** `npm run cloud -- release-control` (PM-749): the Mac end of the protected admin channel. */
 
@@ -11,9 +12,9 @@ const TARGET = { projectKey: 'PM', repo: 'projectman' };
 const STATUS = '{"op":"status"}\n';
 const CLAIM = '{"op":"release_claim","releaseId":"rel_1","previousCommit":null}\n';
 
-let world: HostWorld;
+let world: Ec2HostWorld;
 beforeEach(() => {
-  world = HostWorld.ready();
+  world = Ec2HostWorld.configured();
   world.machine.preload('1'.repeat(40), 'v2026.10.1');
   world.writeConfig({ releaseTarget: TARGET });
 });
@@ -49,9 +50,9 @@ describe('the relay command', () => {
     expect(relayed()[0]!.args).toEqual([]);
     expect(relayed()[0]!.input).toBe(STATUS);
     expect(world.machine.controlInputs).toEqual([STATUS]);
-    // The report (the firewall steps and the like) is for the standard error, never the response channel.
-    expect(result.stderr).toContain('firewall-open');
-    expect(result.stdout).not.toContain('firewall');
+    // The report (the access steps and the like) is for the standard error, never the response channel.
+    expect(result.stderr).toContain('ssh-access');
+    expect(result.stdout).not.toContain('ssh-access');
   });
 
   it('puts nothing of the input into the remote command', async () => {

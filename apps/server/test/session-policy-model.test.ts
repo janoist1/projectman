@@ -996,8 +996,6 @@ describe('provider-neutral session policy', () => {
     expect(c.get('mcp_servers.team')).toBe(
       tomlValue({
         url: s.mcpUrl,
-        required: true,
-        startup_timeout_sec: 20,
         tools: {
           get_task: { approval_mode: 'approve' },
           send_message: { approval_mode: 'approve' },

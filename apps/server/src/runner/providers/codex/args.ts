@@ -466,14 +466,10 @@ export function buildCodexArgs(input: CodexArgsInput): CodexCommandLine {
 
   // Never infer a Codex grant from another provider's tool syntax.
   const approvals = spec.policy?.tools.team ?? { all: false, names: [] };
-  // Team tools are essential: the optional-server grace is only 1 s in Codex 0.159.1.
-  // Wait for the live catalog, including over the engine relay, before the first turn.
-  c('mcp_optional_startup_grace_ms', 0);
-  const team: Record<string, unknown> = {
-    url: spec.mcpUrl,
-    required: true,
-    startup_timeout_sec: 20,
-  };
+  // The team server stays optional (PM-1070): `required = true` (PM-1055) made Codex exit at start
+  // ("agent CLI exited before it was ready") for every session, so a failing team MCP must only
+  // cost the tools, not the session.
+  const team: Record<string, unknown> = { url: spec.mcpUrl };
   if (approvals.all) team.default_tools_approval_mode = 'approve';
   if (approvals.names.length > 0) {
     team.tools = Object.fromEntries(approvals.names.map((t) => [t, { approval_mode: 'approve' }]));

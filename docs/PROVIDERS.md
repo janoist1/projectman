@@ -486,16 +486,11 @@ Codex is started as `codex [resume] --no-alt-screen --no-daemon
 check off, the directory trusted, hooks, the team MCP server with its tools pre-approved,
 developer instructions); nothing is written to `~/.codex`.
 
-The team server is required (`mcp_servers.team.required = true`, PM-1055), with a
-20-second startup timeout and `mcp_optional_startup_grace_ms = 0` on starts and resumes,
-including NanoGPT. Codex 0.159.1 otherwise gives optional MCP servers only a one-second
-grace when building the initial tool catalog, so a slow relay can leave the first turn
-without team tools. The settings wait for the catalog instead of that optional grace;
-they do not change the session token or endpoint authentication. The timing of the
-reported live failures was not captured, so a timeout remains an inference, not a measured
-401 or latency finding. Source: the tagged
-[Codex configuration](https://github.com/openai/codex/blob/rust-v0.159.1/codex-rs/config/src/config_toml.rs)
-and [MCP server configuration](https://github.com/openai/codex/blob/rust-v0.159.1/codex-rs/config/src/mcp_types.rs).
+The team server must stay optional (PM-1070). PM-1055 made it `required = true` (with a
+20-second startup timeout and `mcp_optional_startup_grace_ms = 0`), and every Codex
+session then exited at start with "agent CLI exited before it was ready", because a
+required server that fails to start ends the CLI. Do not set `required` again unless the
+cause of the team MCP start failure is fixed and proven with a real `codex` run.
 
 The bypass flag lets our own hooks run without the one-time review in `/hooks`; it also runs
 any other enabled hooks of the user's Codex config and of the trusted project's `.codex/`

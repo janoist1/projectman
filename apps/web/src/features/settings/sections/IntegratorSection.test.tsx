@@ -324,7 +324,7 @@ describe('integrator key settings', () => {
       expiresInDays: 7,
     });
   });
-  it('shows channel, legacy migration and imminent expiry without interpreting an unknown channel', async () => {
+  it('shows channel, revoked legacy history and imminent expiry without interpreting an unknown channel', async () => {
     const project = mockProject();
     project.context.me.hostOwner = true;
     const base = {
@@ -336,14 +336,20 @@ describe('integrator key settings', () => {
     };
     project.backend.integratorKeys = [
       { ...base, id: 's', mode: 'super', prefix: 'pmi_super', lastUsedChannel: 'cli' },
-      { ...base, id: 'l', mode: 'legacy', prefix: 'pmi_legacy', lastUsedChannel: null },
+      {
+        ...base,
+        id: 'l',
+        mode: 'legacy',
+        prefix: 'pmi_legacy',
+        lastUsedChannel: null,
+        state: 'revoked',
+        revokedAt: base.createdAt,
+      },
     ];
     project.render(<IntegratorSection />);
     expect(await screen.findByText(t('integratorKey.today'))).toBeTruthy();
     expect(screen.getByText(/· parancssor/)).toBeTruthy();
-    expect(screen.getByText(t('integratorKey.legacy'))).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: t('integratorKey.upgrade') }));
-    expect(screen.getByText(t('integratorKey.replaceBody', { prefix: 'pmi_super' }))).toBeTruthy();
+    expect(screen.getByText(t('integratorKey.modes.legacy'))).toBeTruthy();
     expect([...document.querySelectorAll('a')].map((link) => link.getAttribute('href'))).toContain(
       '/p/AC/sessions?by=super&prefix=pmi_super',
     );

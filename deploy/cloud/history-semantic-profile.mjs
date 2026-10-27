@@ -1097,8 +1097,11 @@ const expectStatus = (response, ok, what) => {
   return response;
 };
 
+/** The factory template of the synthetic project (the template list route is gone). */
+const PROFILE_TEMPLATE_ID = 'starter';
+
 /**
- * The synthetic login: the first run's setup makes the owner, a project from the first template without AI members
+ * The synthetic login: the first run's setup makes the owner, a project from the `starter` template
  * and its workspace folder; later runs log in again. The e-mail is not a real address and the password lives only in
  * this process. Returns the session cookie, the owner's handle in the project and the first stage.
  */
@@ -1127,14 +1130,6 @@ async function establish(state, srv, { create }) {
   }
   if (!cookie) throw new MeasurementError('the login gave no session');
   if (create) {
-    const templates = expectStatus(
-      await request(base, { path: '/api/templates', cookie }),
-      [200],
-      'the templates',
-    ).json;
-    const template =
-      (Array.isArray(templates) ? templates : []).find((t) => t?.memberCount?.ai === 0) ?? templates?.[0];
-    if (!template?.id) throw new MeasurementError('there is no project template');
     expectStatus(
       await request(base, {
         method: 'POST',
@@ -1144,7 +1139,7 @@ async function establish(state, srv, { create }) {
           key: projectKey,
           name: 'History semantic profile',
           workspacePath: state.workspace,
-          templateId: template.id,
+          templateId: PROFILE_TEMPLATE_ID,
         },
       }),
       [201],

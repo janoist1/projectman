@@ -1,57 +1,38 @@
-import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { MemberQueueQuery, memberOf, operatorOf, routes } from '@projectman/shared';
-import type { ErrorCode, MemberQueuesView, MemberQueueView } from '@projectman/shared';
+import type { FastifyInstance } from 'fastify';
+import { MemberQueueQuery, operatorOf, projectManagerOf, routes } from '@projectman/shared';
+import type { MemberQueueView, ProjectConfig } from '@projectman/shared';
 import type { ApiDomain } from './ports';
 import { DomainError, forbidden } from '../kernel';
 import { requireAccess } from './context';
 import { parseBody } from '../http';
 
-type ProjectParams = { Params: { key: string } };
-
 /**
- * The member queues (PM-894): the people of the team read them with their own login (a developer or more),
- * the integrator's read and super keys read too; the legacy integrator key does not.
+ * The Operator's and the project manager's queues (PM-894, PM-1042): the people of the team read them with their
+ * own login (a developer or more), the integrator's read and super keys read too.
  */
 export function registerMemberQueueRoutes(app: FastifyInstance, deps: { domain: ApiDomain }): void {
   const { domain } = deps;
 
-  async function readerOf(request: FastifyRequest, key: string, refusal: ErrorCode): Promise<void> {
-    const access = await requireAccess(domain, request, key, { minimum: 'developer' });
-    if (access.via && (!request.principal || request.principal.mode === 'legacy'))
-      throw forbidden(refusal, 'the queues are for a person’s own login');
-  }
+  const registerQueue = (
+    path: string,
+    memberOf: (config: Pick<ProjectConfig, 'team'>) => { handle: string } | null,
+    absent: string,
+  ) =>
+    app.get<{ Params: { key: string } }>(path, async (request): Promise<MemberQueueView> => {
+      const key = request.params.key;
+      const access = await requireAccess(domain, request, key, { minimum: 'developer' });
+      if (access.via && !request.principal)
+        throw forbidden('operator_owner_only', 'the queues are for a person’s own login');
+      const member = memberOf(await domain.projects.config(key));
+      if (!member) throw new DomainError('unknown_member', absent, { status: 404 });
+      const { closedSince } = parseBody(MemberQueueQuery, request.query);
+      return domain.memberQueue.view(key, member.handle, closedSince ? new Date(closedSince) : undefined);
+    });
 
-  const unknownMember = (handle: string) =>
-    new DomainError('unknown_member', `no AI member ${handle} in this project`, { status: 404 });
-
-  const viewOf = async (key: string, handle: string, query: unknown): Promise<MemberQueueView> => {
-    const config = await domain.projects.config(key);
-    if (memberOf(config, handle)?.kind !== 'ai') throw unknownMember(handle);
-    const { closedSince } = parseBody(MemberQueueQuery, query);
-    return domain.memberQueue.view(key, handle, closedSince ? new Date(closedSince) : undefined);
-  };
-
-  app.get<ProjectParams>(routes.memberQueues(':key'), async (request): Promise<MemberQueuesView> => {
-    const key = request.params.key;
-    await readerOf(request, key, 'insufficient_access');
-    return domain.memberQueue.summaries(key, await domain.projects.config(key));
-  });
-
-  app.get<{ Params: { key: string; handle: string }; Querystring: unknown }>(
-    routes.memberQueue(':key', ':handle'),
-    async (request): Promise<MemberQueueView> => {
-      const { key, handle } = request.params;
-      await readerOf(request, key, 'insufficient_access');
-      return viewOf(key, handle, request.query);
-    },
+  registerQueue(routes.operatorQueue(':key'), operatorOf, 'no AI member operator in this project');
+  registerQueue(
+    routes.projectManagerQueue(':key'),
+    projectManagerOf,
+    'no AI member project manager in this project',
   );
-
-  /** The Operator's queue: the member queue of the project's Operator. */
-  app.get<ProjectParams>(routes.operatorQueue(':key'), async (request): Promise<MemberQueueView> => {
-    const key = request.params.key;
-    await readerOf(request, key, 'operator_owner_only');
-    const operator = operatorOf(await domain.projects.config(key));
-    if (!operator) throw unknownMember('operator');
-    return viewOf(key, operator.handle, request.query);
-  });
 }

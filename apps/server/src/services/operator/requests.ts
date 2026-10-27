@@ -48,7 +48,6 @@ export const OPERATOR_READ_TOOLS: ReadonlySet<string> = new Set([
   'list_attachments',
   'read_attachment',
   'read_message_attachment',
-  'get_boundary_request',
   'get_screenshot_run',
   'get_project_state',
   'get_operator_diagnostics',
@@ -79,9 +78,14 @@ export const OPERATOR_SCREENING_TOOLS: ReadonlySet<string> = new Set([
   'combine_questions',
   'screen_question',
   'dismiss_signal',
-  'open_integrator_todo',
   'triage_loop',
 ]);
+
+/**
+ * The PM's card tools (PM-1040): reassign and cancel a card with a reason on the timeline. The selected PM in its
+ * internal conversation, with no owner request; refused in an approval continuation.
+ */
+export const PM_CARD_TOOLS: readonly string[] = ['reassign_task', 'cancel_task'];
 
 /**
  * The team tools the Operator never calls, request or not: decisions of other members, handovers and
@@ -89,9 +93,7 @@ export const OPERATOR_SCREENING_TOOLS: ReadonlySet<string> = new Set([
  */
 export const OPERATOR_NEVER_TOOLS: ReadonlySet<string> = new Set([
   'decide_permission_request',
-  'decide_boundary_request',
   'decide_fix_limit',
-  'submit_boundary_request',
   'hand_off',
   'merge_task',
   'propose_release',

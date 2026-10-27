@@ -31,7 +31,6 @@ import type { TaskViewer } from './task';
  * - decision:   a gate that needs a human approval (merge, release, ...)
  * - question:   an AI member asked a human something (ask_human tool)
  * - approval:   a proposed change (e.g. an email draft or a config change)
- * - boundary:   an external operation a member asked for
  * - alert:      something the owners should notice, with nothing to decide ("Láttam"); see
  *               `AlertPayload`
  */
@@ -40,7 +39,6 @@ export const InboxKind = z.enum([
   'decision',
   'question',
   'approval',
-  'boundary',
   'alert',
   'hand_on',
   'merge_request',
@@ -636,7 +634,11 @@ export type ScreeningOutcome = z.infer<typeof ScreeningOutcome>;
 
 export const QuestionRecipient = z.enum(['owner', 'integrator']);
 export type QuestionRecipient = z.infer<typeof QuestionRecipient>;
-export const QuestionRecipientRefusal = z.enum(['protected_question', 'integrator_unavailable']);
+export const QuestionRecipientRefusal = z.enum([
+  'protected_question',
+  'integrator_unavailable',
+  'no_machine_access',
+]);
 export type QuestionRecipientRefusal = z.infer<typeof QuestionRecipientRefusal>;
 
 /** A task for a person that the Operator made out of a question: what to do, where, and what is expected. */
@@ -910,7 +912,6 @@ export const APPROVAL_PAYLOAD_KEYS = [
   'gate',
   'release',
   'permission',
-  'boundary',
   'approval',
   'operatorApproval',
   'operatorKnowledge',
@@ -1009,7 +1010,6 @@ export function superDecisionRefusal(
   if (
     !facts.operatorHandle ||
     item.kind === 'permission' ||
-    item.kind === 'boundary' ||
     ['superOperation', 'operatorApproval', 'operatorKnowledge'].some((key) => key in item.payload) ||
     (item.kind === 'approval' && ('operator' in item.payload || 'email' in item.payload)) ||
     item.source === facts.operatorHandle ||
@@ -1046,14 +1046,20 @@ function hasIntegratorTodoOrigin(payload: InboxItem['payload']): boolean {
   );
 }
 
+/**
+ * Where a todo goes. The machine queue (`integrator`) takes it only from an asker with machine access
+ * (`issuerAllowed`, decision 66); the refusals are checked in the order protected, no access, unavailable.
+ */
 export function selectTodoRecipient(
   item: InboxItem,
   requested: QuestionRecipient,
   integratorAvailable: boolean,
+  issuerAllowed: boolean,
 ): { recipient: QuestionRecipient; recipientRefusal?: QuestionRecipientRefusal } {
   if (requested === 'owner') return { recipient: 'owner' };
   if (hasProtectedQuestionPayload(item) || !questionPayloadOf(item) || 'group' in item.payload)
     return { recipient: 'owner', recipientRefusal: 'protected_question' };
+  if (!issuerAllowed) return { recipient: 'owner', recipientRefusal: 'no_machine_access' };
   if (!integratorAvailable) return { recipient: 'owner', recipientRefusal: 'integrator_unavailable' };
   return { recipient: 'integrator' };
 }

@@ -19,7 +19,6 @@ import {
   ownerHandles,
   superActorOf,
   ownerReservedEffect,
-  integratorConfigRefusal,
   canonical,
   canReadOperatorKnowledge,
   DEFAULT_OPERATOR_PREFERENCE,
@@ -31,7 +30,6 @@ import {
   CreateEngineRequest,
   StopOrphansRequest,
   StopSessionRequest,
-  CreateIntegratorKeyRequest,
   CreateIntegratorAccessKeyRequest,
   IntegratorKeyAuditQuery,
   SuperAuditQuery,
@@ -52,12 +50,7 @@ import {
   planRanks,
   stagesOfColumn,
   subtasksMovingAlong,
-  BoundaryRequest,
-  DecideBoundaryRequest,
   boundaryOwners,
-  boundaryWaitingState,
-  canDecideBoundary,
-  canReadBoundary,
   AddHumanMemberRequest,
   AgentProvider,
   CancelTaskRequest,
@@ -68,7 +61,7 @@ import {
   CustomRoleRequest,
   DEFAULT_AGENT_PROVIDER,
   hasPlanUsage,
-  pausesOnPlanUsage,
+  planUsagePause,
   HireMemberRequest,
   INLINE_MEDIA_TYPES,
   InvitationView,
@@ -81,6 +74,7 @@ import {
   PatchConfigRequest,
   ReopenTaskRequest,
   ResolveInboxRequest,
+  RenameMemberRequest,
   RetireMemberRequest,
   RevertConfigRequest,
   SendMessageRequest,
@@ -146,6 +140,7 @@ import {
   MEMBER_QUEUE_CLOSED_LIMIT,
   memberOf,
   memberRoles,
+  renameMemberInConfig,
   modelForProvider,
   nextCronRun,
   OPERATOR_DISMISS_OPTION,
@@ -156,6 +151,7 @@ import {
   approverBlocker,
   ownerOnlyChanges,
   permissionView,
+  machineAccessOf,
   effectiveSessionPermissions,
   sessionApproverChangeRefusal,
   duplicateMarkRefusal,
@@ -266,7 +262,6 @@ import type {
   LoopDecisionPayload,
   LoopTalk,
   TaskLoop,
-  BoundaryGrant,
   AiMemberConfig,
   ApprovalRequirement,
   Attachment,
@@ -484,7 +479,7 @@ export class MockBackend {
   setupCode: string | null = null;
   viewerHandle: string = fixtures.OWNER;
   /** Tests can exercise the same credential policy as REST without an HTTP bearer secret. */
-  integratorMode: 'legacy' | 'super' | 'read' | null = null;
+  integratorMode: 'super' | 'read' | null = null;
   private readonly mergeOrders = new Map<string, { revision: number; taskKeys: string[] }>();
   /** A release decision is refused with `owner_approval_required`, like an integrator key's (PM-491). */
   refuseReleaseApproval = false;
@@ -496,7 +491,6 @@ export class MockBackend {
   tasks: Task[] = clone(fixtures.tasks).map((task) => withPrMergedLabel(task, this.config));
   members: MemberView[] = clone(fixtures.members);
   timeline: TimelineEvent[] = clone(fixtures.timeline);
-  integratorKey: import('@projectman/shared').IntegratorKeyInfo | null = null;
   integratorKeys: import('@projectman/shared').IntegratorAccessKeyInfo[] = [];
   integratorKeyAudits: import('@projectman/shared').IntegratorKeyAuditEntry[] = [];
   superAudits: import('@projectman/shared').SuperOperationAudit[] = [];
@@ -575,7 +569,6 @@ export class MockBackend {
     },
   });
   inbox: InboxItem[] = clone(fixtures.inbox);
-  boundaryGrants = new Map<string, BoundaryGrant>();
   messages: TeamMessage[] = clone(fixtures.teamMessages);
   /** The feedback marks (PM-511); a project starts without surfaces and marks, a test or scenario fills it. */
   readonly feedback: MockFeedback = new MockFeedback({
@@ -1844,6 +1837,7 @@ export class MockBackend {
       delete member.permissionLegacy;
       delete member.aiApproverBlocker;
       Object.assign(member, permissionView(this.config, config));
+      member.machineAccess = machineAccessOf(config);
     }
   }
 
@@ -2148,34 +2142,6 @@ export class MockBackend {
       }
       return ok({ keys: clone(this.integratorKeys) });
     }
-    if (path === '/api/auth/integrator-key') {
-      if (!this.me().hostOwner) return error(403, 'owner_only', 'Only the host owner may manage the key');
-      if (method === 'POST') {
-        const input = parseBody(CreateIntegratorKeyRequest, body ?? {});
-        if (!input) return error(400, 'invalid_request', 'Invalid key request');
-        this.integratorKey = {
-          prefix: 'pmi_mock_key',
-          state: 'active',
-          createdAt: nowIso(),
-          expiresAt:
-            input.expiresInDays === null
-              ? null
-              : new Date(Date.now() + input.expiresInDays * 86_400_000).toISOString(),
-          lastUsedAt: null,
-          revokedAt: null,
-        };
-        return {
-          status: 201,
-          body: { key: clone(this.integratorKey), secret: 'pmi_mock_key_for_ui_tests_only' },
-        };
-      }
-      if (method === 'DELETE') {
-        if (!this.integratorKey || this.integratorKey.state !== 'active')
-          return error(404, 'not_found', 'No active key');
-        this.integratorKey = { ...this.integratorKey, state: 'revoked', revokedAt: nowIso() };
-      }
-      return ok({ key: clone(this.integratorKey) });
-    }
     if (path === '/api/engines' || path.startsWith('/api/engines/'))
       return this.engineRoutes(method, path, body);
     if (path === '/api/machine' || path === '/api/machine/orphans/stop') {
@@ -2253,14 +2219,6 @@ export class MockBackend {
           ...this.providerStatus[provider],
         })),
       });
-    }
-    if (path === '/api/templates') return ok(clone(fixtures.templates));
-    if (path === '/api/projects/preview' && method === 'POST') {
-      const input = parseBody(CreateProjectRequest, body);
-      if (!input) return error(400, 'invalid_request', 'Invalid project');
-      const draft = this.projectDraft(input);
-      if ('status' in draft) return draft;
-      return ok({ config: draft, issues: validateProjectConfig(draft) });
     }
     if (path === '/api/projects') {
       if (method === 'POST') {
@@ -2557,12 +2515,6 @@ export class MockBackend {
         this.feedback.handle(method, rest.slice('/feedback'.length), body, query) ??
         error(404, 'not_found', 'Unknown route')
       );
-    if (rest === '' && method === 'GET')
-      return ok({
-        ...fixtures.projectSummary,
-        name: this.config.project.name,
-        configVersion: this.configVersion,
-      });
     if (rest === '/schedules' && method === 'GET') return ok(this.schedulesView());
     const scheduleMatch = /^\/members\/([\w-]+)\/schedule\/run$/.exec(rest);
     if (scheduleMatch && method === 'POST') return this.runSchedule(scheduleMatch[1]!);
@@ -2601,9 +2553,10 @@ export class MockBackend {
       }
       return ok({ checklist: clone(this.checklist), canEdit: access === 'owner' });
     }
-    if (rest === '/member-queues' && method === 'GET') return this.memberQueue(null, query);
-    const queueMatch = /^\/members\/([\w-]+)\/queue$/.exec(rest);
-    if (queueMatch && method === 'GET') return this.memberQueue(queueMatch[1]!, query);
+    if (rest === '/project-manager/queue' && method === 'GET')
+      return this.memberQueue(projectManagerOf(this.config)?.handle ?? 'pm', query);
+    if (rest === '/operator/queue' && method === 'GET')
+      return this.memberQueue(operatorOf(this.config)?.handle ?? 'operator', query);
     if (rest === '/operator/preferences/me' && method === 'GET')
       return ok(
         clone(
@@ -2846,6 +2799,8 @@ export class MockBackend {
         unreadCount: this.messages.filter((message) => isUnreadBy(message, this.viewerHandle)).length,
       });
     }
+    if ((m = /^\/members\/([a-z0-9-]+)\/rename$/.exec(rest)) && method === 'POST')
+      return this.renameMember(m[1]!, body);
     if ((m = /^\/members\/([a-z0-9-]+)\/(profile|memories|conversation|remove|context)$/.exec(rest))) {
       const handle = m[1]!;
       if (m[2] === 'context' && (this.viewerAccess() !== 'owner' || this.integratorMode))
@@ -2978,7 +2933,6 @@ export class MockBackend {
       }
     }
     if (rest === '/inbox') {
-      this.refreshBoundaryInbox();
       this.sweepIntegratorTodos(nowIso());
       // Use the shared privacy rule, including private knowledge approvals.
       return ok({
@@ -2995,20 +2949,6 @@ export class MockBackend {
       });
     }
     if (rest === '/inbox/screened' && method === 'GET') return this.screenedQuestions(query);
-    if ((m = /^\/boundary\/([\w-]+)$/.exec(rest)) && method === 'GET') {
-      this.refreshBoundaryInbox();
-      const item = this.inbox.find((i) => i.id === m![1] && i.kind === 'boundary');
-      const parsed = BoundaryRequest.safeParse(item?.payload.boundary);
-      if (!parsed.success) return error(404, 'not_found', 'Unknown boundary request');
-      if (!canReadBoundary(this.config, parsed.data, this.viewerHandle))
-        return error(403, 'not_an_assignee', 'Boundary request is private');
-      return ok({
-        request: clone(parsed.data),
-        grant: clone(this.boundaryGrants.get(parsed.data.id) ?? null),
-      });
-    }
-    if ((m = /^\/boundary\/([\w-]+)\/(decide|revoke)$/.exec(rest)) && method === 'POST')
-      return this.decideBoundary(m[1]!, body, m[2] === 'revoke');
     if ((m = /^\/inbox\/([\w-]+)\/resolve$/.exec(rest)) && method === 'POST')
       return this.resolve(m[1]!, body);
     if ((m = /^\/inbox\/([\w-]+)\/check$/.exec(rest)) && method === 'POST') return this.checkOutage(m[1]!);
@@ -3039,8 +2979,6 @@ export class MockBackend {
           effect,
         });
     }
-    if (this.integratorMode === 'legacy' && integratorConfigRefusal(this.config, next))
-      return error(403, 'owner_login_required', 'The legacy credential cannot change this setting');
     if (operatorWaiverChanged(this.config, next))
       return error(403, 'owner_approval_required', 'Use the dedicated owner waiver endpoint');
     const viewer = memberOf(this.config, this.viewerHandle);
@@ -3528,6 +3466,7 @@ export class MockBackend {
         input.instructions !== undefined ||
         input.permissionMode !== undefined ||
         input.outboundNetwork !== undefined ||
+        input.machineAccess !== undefined ||
         input.email !== undefined ||
         input.approver !== undefined)
     )
@@ -3550,6 +3489,7 @@ export class MockBackend {
       if (input.permissionMode !== undefined) nextMember.permissionMode = input.permissionMode;
       if (input.approver !== undefined) nextMember.approver = input.approver;
       if (input.outboundNetwork !== undefined) nextMember.outboundNetwork = input.outboundNetwork;
+      if (input.machineAccess !== undefined) nextMember.machineAccess = input.machineAccess;
       if (input.email !== undefined)
         nextMember.email = applyMemberEmailChange(nextMember.email, input.email, handle);
     }
@@ -3603,6 +3543,7 @@ export class MockBackend {
       if (input.permissionMode !== undefined) config.permissionMode = input.permissionMode;
       if (input.approver !== undefined) config.approver = input.approver;
       if (input.outboundNetwork !== undefined) config.outboundNetwork = input.outboundNetwork;
+      if (input.machineAccess !== undefined) config.machineAccess = input.machineAccess;
       if (input.email !== undefined) {
         config.email = applyMemberEmailChange(config.email, input.email, handle);
         member.email = {
@@ -5265,7 +5206,8 @@ export class MockBackend {
       if (pick.kind === 'none') assignee = humanStageOwner(this.config, eligible)?.handle ?? null;
       if (
         task.complexity &&
-        reachingDevelopers(stageDevelopers(this.config, workStage), complexityOf(task)).length === 0
+        reachingDevelopers(stageDevelopers(this.config, workStage), complexityOf(task), task.labels)
+          .length === 0
       )
         this.addTimeline(task.key, null, 'task_senior_wait', {
           phase: 'no_senior',
@@ -5313,11 +5255,15 @@ export class MockBackend {
   private pickAutomatic(task: Task, workStage: Stage, developers: readonly MemberView[]) {
     const eligible = new Set(developers.map((member) => member.handle));
     const free = this.config.team.members.flatMap((member, index) =>
-      member.kind === 'ai' && eligible.has(member.handle) && this.memberLoad(member.handle) < member.capacity
+      member.kind === 'ai' &&
+      eligible.has(member.handle) &&
+      this.memberLoad(member.handle) < member.capacity &&
+      !this.providerPaused(member)
         ? [
             {
               handle: member.handle,
               limit: complexityLimitOf(member),
+              specialtyLabels: member.specialtyLabels,
               temp: !!member.temp,
               load: this.memberLoad(member.handle),
               index,
@@ -5327,8 +5273,9 @@ export class MockBackend {
     );
     return chooseDeveloper({
       points: complexityOf(task),
+      labels: task.labels,
       anyDecided: this.seniorWaits.get(task.key)?.decision?.decision === 'any',
-      reaching: reachingDevelopers(stageDevelopers(this.config, workStage), complexityOf(task)),
+      reaching: reachingDevelopers(stageDevelopers(this.config, workStage), complexityOf(task), task.labels),
       free,
     });
   }
@@ -5438,7 +5385,9 @@ export class MockBackend {
             ? 'senior'
             : 'ended';
       } else if (!task.complexity) ended = 'ended';
-      else if (reachingDevelopers(stageDevelopers(this.config, stage), complexityOf(task)).length === 0)
+      else if (
+        reachingDevelopers(stageDevelopers(this.config, stage), complexityOf(task), task.labels).length === 0
+      )
         ended = 'ended';
       if (ended) {
         const wasWaiting = task?.startWaiting?.reason === 'senior_busy';
@@ -5568,6 +5517,7 @@ export class MockBackend {
       permissionMode: defaults.permissionMode,
       approver: defaults.approver,
       outboundNetwork: input.outboundNetwork ?? defaults.outboundNetwork,
+      machineAccess: false,
       capacity: defaults.capacity,
       instructions: defaults.instructions,
       sponsor: this.sponsor(),
@@ -5617,6 +5567,44 @@ export class MockBackend {
       this.config.team.members.find((m) => m.kind === 'human' && m.access === 'owner')?.handle ??
       this.viewerHandle
     );
+  }
+
+  /** Renames an AI member (PM-1026): the same refusals as the server, the configuration through the shared rule. */
+  private renameMember(handle: string, body: unknown): MockResponse {
+    if (this.viewerAccess() !== 'owner' || this.integratorMode)
+      return error(403, 'insufficient_access', 'Owner login required');
+    const input = parseBody(RenameMemberRequest, body);
+    if (!input) return error(400, 'invalid_request', 'Invalid handle');
+    const member = this.findMember(handle);
+    const config = memberOf(this.config, handle);
+    if (!member || !config || member.status === 'retired') return error(404, 'not_found', 'Unknown member');
+    if (config.kind !== 'ai') return error(400, 'not_ai_member', 'Only AI members can be renamed');
+    if (isOperator(config)) return error(409, 'operator_fixed', 'The Operator cannot be renamed');
+    const to = input.handle;
+    const former = this.members.flatMap((entry) => entry.formerHandles ?? []);
+    if (to === handle || this.takenHandles().has(to) || former.includes(to))
+      return error(409, 'handle_taken', 'Handle already used');
+    if (
+      config.email?.enabled &&
+      emailMailboxTaken([this.config, ...this.email.otherProjects], this.config.project.key, handle, to)
+    )
+      return error(409, 'email_mailbox_taken', 'The mailbox name is taken', { mailbox: to });
+    if (this.sessions.some((s) => s.member === handle && s.state !== 'exited' && s.state !== 'failed'))
+      return error(409, 'member_session_live', `${handle} is working`, { reason: 'session', member: handle });
+
+    const next = renameMemberInConfig(this.config, handle, to);
+    const failure = this.configChangeFailure(next);
+    if (failure) return failure;
+    this.config = next;
+    member.handle = to;
+    member.formerHandles = [...(member.formerHandles ?? []), handle];
+    for (const task of this.tasks) if (task.assignee === handle) task.assignee = to;
+    for (const session of this.sessions) if (session.member === handle) session.member = to;
+    this.addTimeline(null, this.owner, 'member_renamed', { from: handle, to, version: this.configVersion });
+    this.commitConfig(`Rename ${handle} to ${to}`);
+    this.emit({ type: 'member_changed', projectKey: fixtures.PROJECT_KEY, handle, member: null });
+    this.memberChanged(to);
+    return ok(this.viewOf(member));
   }
 
   private retire(handle: string, body: unknown): MockResponse {
@@ -5852,12 +5840,18 @@ export class MockBackend {
       if (!this.nanogptKeyStatus.set) return 'nanogpt_key_missing';
     }
     if (!this.providerLoggedIn[provider]) return 'provider_not_logged_in';
-    if (
-      pausesOnPlanUsage(provider) &&
-      Math.max(plan?.fiveHourPercent ?? 0, plan?.weeklyPercent ?? 0) > limits.pauseAbovePlanUsagePercent
-    )
-      return 'plan_usage_paused';
+    if (planUsagePause(provider, plan, limits.pauseAbovePlanUsagePercent)) return 'plan_usage_paused';
     return null;
+  }
+
+  /** Whether the member's provider is over the plan usage limit: the automatic choice leaves them out (PM-1051). */
+  private providerPaused(member: AiMemberConfig): boolean {
+    const provider = member.provider ?? DEFAULT_AGENT_PROVIDER;
+    return !!planUsagePause(
+      provider,
+      this.planUsageFor(provider),
+      this.config.team.limits.pauseAbovePlanUsagePercent,
+    );
   }
 
   /**
@@ -6044,28 +6038,15 @@ export class MockBackend {
   }
 
   /**
-   * The member queues (PM-894), computed from `queueItems` (`handle` null: the summaries of all AI members).
-   * The closed items are those closed since `closedSince` (default 24 hours), the newest first, at most the
-   * limit. Access and the unknown-member answer follow the server.
+   * The Operator's queue (PM-894), computed from `queueItems`. The closed items are those closed since
+   * `closedSince` (default 24 hours), the newest first, at most the limit. Access and the unknown-member
+   * answer follow the server.
    */
-  private memberQueue(handle: string | null, query = new URLSearchParams()): MockResponse {
+  private memberQueue(handle: string, query = new URLSearchParams()): MockResponse {
     const viewer = memberOf(this.config, this.viewerHandle);
     if (viewer?.kind === 'human' && !hasAccess(viewer.access, 'developer'))
       return error(403, 'insufficient_access', 'Requires developer access');
     const ai = this.config.team.members.filter((m) => m.kind === 'ai');
-    if (handle === null)
-      return ok({
-        members: ai.map((m) => {
-          const open = this.openQueueItems(m.handle);
-          return {
-            member: m.handle,
-            queued: open.filter((item) => item.state === 'queued').length,
-            processing: open.filter((item) => item.state === 'processing').length,
-            waking: 0,
-            oldestQueuedAt: open[0]?.queuedAt ?? null,
-          };
-        }),
-      });
     if (!ai.some((m) => m.handle === handle)) return error(404, 'unknown_member', 'Unknown AI member');
     const since = new Date(query.get('closedSince') ?? Date.now() - 24 * 60 * 60_000).getTime();
     const own = this.queueItems.filter((item) => item.member === handle);
@@ -6473,7 +6454,6 @@ export class MockBackend {
     }
     const viewer = memberOf(this.config, this.viewerHandle);
     if (viewer?.kind !== 'human') return error(403, 'ai_approval_forbidden', 'Only humans may approve');
-    if (item.kind === 'boundary') return error(403, 'insufficient_access', 'Use the boundary endpoint');
     const operatorApproval = operatorApprovalOf(item);
     const knowledge = operatorKnowledgeApprovalOf(item);
     if (knowledge) {
@@ -6641,134 +6621,6 @@ export class MockBackend {
       }
     }
     return ok(clone(resolved));
-  }
-
-  private refreshBoundaryInbox(): void {
-    for (const item of this.inbox.filter((entry) => entry.kind === 'boundary')) {
-      const parsed = BoundaryRequest.safeParse(item.payload.boundary);
-      if (!parsed.success) continue;
-      const request = parsed.data;
-      const grant = this.boundaryGrants.get(request.id);
-      if (request.consumedAt || grant?.state === 'consumed' || grant?.consumedAt) continue;
-      const state = boundaryWaitingState(this.config, request, Date.now());
-      if (state === request.state) continue;
-      if (grant?.state === 'active' && state === 'expired')
-        this.boundaryGrants.set(request.id, { ...grant, state: 'expired', revokedAt: nowIso() });
-      const next = {
-        ...request,
-        state,
-        updatedAt: nowIso(),
-        assignees: state === 'pending_owner' ? boundaryOwners(this.config) : request.assignees,
-        ...(state === 'expired'
-          ? {
-              invalidation: {
-                actor: { kind: 'system', handle: null },
-                reason: 'deadline_expired',
-                at: nowIso(),
-              },
-            }
-          : {}),
-      };
-      this.upsertInbox({
-        ...item,
-        payload: { boundary: next },
-        assignees: [...new Set([...next.assignees, ...boundaryOwners(this.config)])],
-        state: state === 'expired' && item.state === 'open' ? 'expired' : item.state,
-      });
-    }
-  }
-
-  private decideBoundary(id: string, body: unknown, revoke: boolean): MockResponse {
-    this.refreshBoundaryInbox();
-    const item = this.inbox.find((entry) => entry.id === id && entry.kind === 'boundary');
-    const parsed = BoundaryRequest.safeParse(item?.payload.boundary);
-    if (!item || !parsed.success) return error(404, 'not_found', 'Unknown boundary request');
-    const request = parsed.data;
-    const viewer = memberOf(this.config, this.viewerHandle);
-    if (revoke && (viewer?.kind !== 'human' || viewer.access !== 'owner'))
-      return error(403, 'owner_only', 'Only owners may revoke');
-    const storedGrant = this.boundaryGrants.get(id);
-    if (revoke && (request.consumedAt || storedGrant?.state === 'consumed' || storedGrant?.consumedAt))
-      return error(409, 'inbox_item_closed', 'Boundary grant was already consumed');
-    if (
-      revoke ? !['pending_lead', 'pending_owner', 'allowed'].includes(request.state) : item.state !== 'open'
-    )
-      return error(409, 'inbox_item_closed', 'Boundary request closed');
-    const input = revoke ? null : parseBody(DecideBoundaryRequest, body);
-    if (!revoke && !input) return error(400, 'invalid_request', 'Invalid decision');
-    if (!revoke && !canDecideBoundary(this.config, request, this.viewerHandle))
-      return error(403, 'not_an_assignee', 'No live authorization duty');
-    const state = revoke ? 'revoked' : input!.decision === 'allow' ? 'allowed' : 'denied';
-    const reason = revoke ? 'owner_revoked' : input!.reason;
-    const next: BoundaryRequest = {
-      ...request,
-      state,
-      reason: revoke && request.decidedBy ? request.reason : reason,
-      updatedAt: nowIso(),
-      decidedBy: revoke ? request.decidedBy : { kind: viewer!.kind, handle: viewer!.handle },
-      ...(revoke
-        ? {
-            invalidation: {
-              actor: { kind: viewer!.kind, handle: viewer!.handle },
-              reason: 'owner_revoked' as const,
-              at: nowIso(),
-            },
-          }
-        : {}),
-    };
-    if (state === 'allowed')
-      this.boundaryGrants.set(id, {
-        id: `grt_${id.slice(-100)}`,
-        requestId: id,
-        projectKey: request.projectKey,
-        member: request.member,
-        sessionId: request.sessionId,
-        taskKey: request.taskKey,
-        operationId: request.operationId,
-        target: request.target,
-        policyVersion: request.policyVersion,
-        state: 'active',
-        decidedBy: next.decidedBy!,
-        reason: input!.reason,
-        createdAt: nowIso(),
-        expiresAt: request.expiresAt,
-        revokedAt: null,
-        consumedAt: null,
-      });
-    const grant = this.boundaryGrants.get(id);
-    if (revoke && grant?.state === 'active')
-      this.boundaryGrants.set(id, { ...grant, state: 'revoked', revokedAt: nowIso() });
-    this.upsertInbox({
-      ...item,
-      state: revoke && item.state === 'open' ? 'cancelled' : 'resolved',
-      payload: { boundary: next },
-      resolution:
-        revoke && item.resolution
-          ? item.resolution
-          : {
-              optionId: state === 'allowed' ? 'allow' : 'deny',
-              by: this.viewerHandle,
-              at: nowIso(),
-              note: reason,
-            },
-    });
-    this.addTimeline(
-      item.taskKey,
-      this.viewerHandle,
-      'boundary_changed',
-      {
-        requestId: id,
-        state,
-        reason,
-        operation: request.target.operation,
-        resource: request.target.resource,
-        category: request.category,
-        assignees: request.assignees,
-        policyVersion: request.policyVersion,
-      },
-      item.sessionId,
-    );
-    return ok(clone(next));
   }
 
   /** What the server does with a decision: record it, answer the asker, apply a gate decision. */

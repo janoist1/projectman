@@ -32,7 +32,7 @@ import type {
 export interface ContextPackInput {
   /** Preview only: placement and its sandbox have not been allocated. */
   placementDeferred?: true;
-  /** Current checklist data for the Operator; absent for other members or older projects. */
+  /** Current checklist data for the selected project manager; absent for other members or older projects. */
   checklist?: Pick<ProjectChecklist, 'items'>;
   /**
    * The server runs the full test before review on this task's handed-over commits (PM-217, PM-332): the
@@ -187,7 +187,7 @@ export interface RelatedSession {
   state: SessionState;
 }
 
-export const GUIDE_TOPICS = ['commands', 'rules', 'role'] as const;
+export const GUIDE_TOPICS = ['commands', 'rules', 'role', 'sandbox', 'operations'] as const;
 export type GuideTopic = (typeof GUIDE_TOPICS)[number];
 
 const PROMPT_SECTION_IDS = [
@@ -206,7 +206,6 @@ const PROMPT_SECTION_IDS = [
   'heavy_commands',
   'untested_checks',
   'session_folder',
-  'boundary',
   'cheap_subagent',
   'guardrails',
   'role',

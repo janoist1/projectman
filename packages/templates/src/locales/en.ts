@@ -70,9 +70,9 @@ export const en: TemplateLocale = {
   },
   duties: {
     boundary_authorization: {
-      name: 'External operation authorization',
+      name: 'Permission request decisions',
       description:
-        'Decide delegated external operations. Cost, production, new credentials and permanent host expansion require an owner.',
+        'Decide delegated permission requests. Cost, production, new credentials and permanent host expansion require an owner.',
     },
     prioritization: {
       name: 'Prioritization',
@@ -210,7 +210,8 @@ export const en: TemplateLocale = {
     },
     project_manager: {
       name: 'Project manager',
-      summary: 'Runs the schedule: standups, planning, deadlines, reminders and the weekly report.',
+      summary:
+        'Runs the schedule: standups, planning, deadlines, reminders and the weekly report. Maintains the decision log and roadmap on the owner’s request or yes, offers decision candidates, and records lessons.',
       notTheirJob: 'Does not set priorities or run the retro.',
       whenToAsk:
         'When you want to know where the work stands and what is due when, or need a reminder or a report.',
@@ -247,9 +248,9 @@ export const en: TemplateLocale = {
     },
     lead_developer: {
       name: 'Lead developer',
-      summary: 'Set technical direction, review completed work and decide delegated external operations.',
+      summary: 'Set technical direction, review completed work and decide delegated permission requests.',
       notTheirJob: 'Never decide your own requests or owner exceptions.',
-      whenToAsk: 'Technical direction, review or delegated external operation authorization.',
+      whenToAsk: 'Technical direction, review or delegated permission request decisions.',
     },
     code_review: {
       name: 'Code reviewer',

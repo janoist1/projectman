@@ -40,6 +40,7 @@ import {
   isPendingQuestion,
   isLinkedQuestion,
   isRelayableQuestionItem,
+  machineTodoIssuerAllowed,
   memberOf,
   operatorApprovalOf,
   operatorKnowledgeApprovalOf,
@@ -1233,14 +1234,14 @@ export class InboxService {
         'an integrator item needs the dedicated super endpoint or the owner login',
       );
     }
-    if (item.kind === 'permission' || item.kind === 'boundary') assertOwnApproval(by);
+    if (item.kind === 'permission') assertOwnApproval(by);
     else if (!['question', 'alert'].includes(item.kind)) assertOwnOrSuperApproval(by);
     if (req.attachmentIds !== undefined && item.kind !== 'question')
       throw invalid('invalid_request', 'only questions accept attachments', { field: 'attachmentIds' });
     if (
       by.via &&
       !['question', 'alert'].includes(item.kind) &&
-      (!by.superActor || item.kind === 'permission' || item.kind === 'boundary')
+      (!by.superActor || item.kind === 'permission')
     )
       throw forbidden(
         'owner_approval_required',
@@ -1305,8 +1306,6 @@ export class InboxService {
     const config = await this.projects.config(projectKey);
     if (memberOf(config, by.handle)?.kind !== 'human')
       throw forbidden('ai_approval_forbidden', 'only human members may resolve inbox items');
-    if (item.kind === 'boundary')
-      throw forbidden('insufficient_access', 'use the boundary decision endpoint');
     const gate = item.kind === 'decision' && req.optionId === 'approve' ? gateRequestOf(item) : null;
     if (gate?.label) {
       // Approving puts the label on in the approver's name: the label rules apply up front.
@@ -1853,6 +1852,7 @@ export class InboxService {
             current,
             release.todo!.recipient,
             this.integratorTodoAccess?.available(config) ?? false,
+            machineTodoIssuerAllowed(config, current.source),
           )
         : { recipient: 'owner' as const };
     const todo = release.todo ? { ...release.todo, recipient: selected.recipient } : undefined;

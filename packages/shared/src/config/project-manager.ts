@@ -52,6 +52,14 @@ export function coordinationActorRefusal(
     : 'project_manager_only';
 }
 
+/** Whether the selected PM acts directly, with no integrator in between (PM-1040). */
+export function isCoordinationActor(
+  config: Pick<ProjectConfig, 'team'>,
+  actor: Pick<Actor, 'kind' | 'handle' | 'via'>,
+): boolean {
+  return coordinationActorRefusal(config, actor) === null;
+}
+
 /**
  * The project manager among member views (`MemberView`): the same choice as `projectManagerOf`; a temp or
  * retired one never counts (PM-488).

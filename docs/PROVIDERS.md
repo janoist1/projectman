@@ -446,7 +446,8 @@ macOS Seatbelt as it is (2.1.284 lists it under "Denied" in `/sandbox`); its Lin
 (bubblewrap) leaves out the glob patterns it does not support and lists them in `/sandbox`
 (unverified for this one), and then the database files stay readable from the shell on Linux
 until they are named one by one. The `Read` deny rules of the file tools take the glob on both. Residual risk: port 4800 stays reachable from the shell
-(decision 24).
+(decision 24); the PM-811 probe found `deniedDomains` cannot close it (it acts only on proxied
+traffic, direct loopback connects pass), see `SECURITY.md`.
 Codex ignores the deny rules (its sandbox is its own, PM-166). See `SECURITY.md`.
 
 ### Questions at the terminal (PM-199)
@@ -484,6 +485,12 @@ Codex is started as `codex [resume] --no-alt-screen --no-daemon
 [--model <m>] -- [<id>] [<brief>]`. Every setting is a per-process `-c` override (update
 check off, the directory trusted, hooks, the team MCP server with its tools pre-approved,
 developer instructions); nothing is written to `~/.codex`.
+
+The team server must stay optional (PM-1070). PM-1055 made it `required = true` (with a
+20-second startup timeout and `mcp_optional_startup_grace_ms = 0`), and every Codex
+session then exited at start with "agent CLI exited before it was ready", because a
+required server that fails to start ends the CLI. Do not set `required` again unless the
+cause of the team MCP start failure is fixed and proven with a real `codex` run.
 
 The bypass flag lets our own hooks run without the one-time review in `/hooks`; it also runs
 any other enabled hooks of the user's Codex config and of the trusted project's `.codex/`
@@ -1226,7 +1233,9 @@ and enforcement of either type remain version-specific observations to reproduce
 Current source differs from that probe: the developer sandbox allows npm/development-data writes
 and local binding, and closes the home but its own work (PM-153). Codex's normal session spec
 no longer grants the shared git root (PM-131). Its local permission profile now implements the
-PM-356 sensitive-path deny list, while the wider home boundary remains PM-360.
+PM-356 sensitive-path deny list; a reading session (PM-425) also gets the typed read boundary of
+PM-360 (home and app home closed, only its own project and card reopened), the developer's wider
+home reads stay as they were.
 Command-rule approval of Codex escalations is host execution,
 not strict isolation. PM-134's transitional Claude setup is not the final PM-128/129 proof.
 

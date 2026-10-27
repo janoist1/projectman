@@ -4,6 +4,7 @@ import {
   FALLBACK_PERMISSION_MODE,
   hasPlanUsage,
   pausesOnPlanUsage,
+  planUsagePause,
   modelForProvider,
   PLAN_USAGE_PROVIDERS,
   PROVIDER_PERMISSION_MODES,
@@ -151,6 +152,37 @@ describe('permission modes per provider', () => {
     expect(hasPlanUsage('claude')).toBe(true);
     expect(hasPlanUsage('codex')).toBe(true);
     expect(hasPlanUsage('fictional' as never)).toBe(false);
+  });
+
+  it('pauses a threshold provider only when the higher plan usage is strictly above the threshold (PM-1051)', () => {
+    const usage = (fiveHourPercent: number | null, weeklyPercent: number | null) => ({
+      fiveHourPercent,
+      weeklyPercent,
+      fiveHourResetsAt: null,
+      weeklyResetsAt: null,
+      fetchedAt: '2026-10-27T10:00:00Z',
+    });
+    expect(planUsagePause('claude', usage(20, 96), 95)).toEqual({
+      provider: 'claude',
+      percent: 96,
+      threshold: 95,
+    });
+    expect(planUsagePause('codex', usage(97, null), 95)).toMatchObject({ percent: 97 });
+    expect(planUsagePause('claude', usage(95, 90), 95)).toBeNull();
+    expect(planUsagePause('claude', usage(null, null), 95)).toBeNull();
+    expect(planUsagePause('claude', null, 95)).toBeNull();
+  });
+
+  it('never pauses a provider without a plan usage threshold (PM-1051)', () => {
+    const usage = {
+      fiveHourPercent: 100,
+      weeklyPercent: 100,
+      fiveHourResetsAt: null,
+      weeklyResetsAt: null,
+      fetchedAt: '2026-10-27T10:00:00Z',
+    };
+    expect(planUsagePause('nanogpt', usage, 95)).toBeNull();
+    expect(planUsagePause('gemini', usage, 95)).toBeNull();
   });
 
   it('has a fallback every provider allows', () => {

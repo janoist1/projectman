@@ -96,7 +96,11 @@ export function bindSuperPrincipal(
   if (principal.mode !== 'super') throw forbidden('insufficient_access', 'not a super-mode credential');
   if (access.access !== 'owner' || access.projectKey !== config.project.key)
     throw forbidden('insufficient_access', 'the credential owner is no longer an owner of the project');
-  const superActor = superActorOf(config, { id: principal.keyId, prefix: principal.prefix });
+  const superActor = superActorOf(
+    config,
+    { id: principal.keyId, prefix: principal.prefix },
+    principal.source === 'app' ? principal.member : undefined,
+  );
   if (!superActor) throw forbidden('insufficient_access', 'the project has no Operator');
   return { ...access, via: 'integrator', superActor };
 }

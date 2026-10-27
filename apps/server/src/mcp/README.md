@@ -14,6 +14,10 @@ integrator, with the full text) and `resolve_integrator_fix_limit`
 (`{item_id, option_id: replan | reassign | another_round | to_owner, note?}`; `to_owner` hands the same item to
 the owners and needs a reason in `note`). `decide_fix_limit` takes an `assessment` that `to_owner` requires.
 
+PM-1046: `list_integrator_inbox` takes an optional `project_key` (without it, every project of the key, each item
+with its `projectKey`), and super mode offers `get_operator_instance_knowledge` and
+`update_operator_instance_knowledge`, the global Operator's own knowledge, with no `project_key`.
+
 AI members (Claude Code or Codex sessions) reach their team through an MCP server named `team`;
 Claude sees its tools as `mcp__team__<tool>`. It replaces the desktop app's SendMessage between
 sessions. The handler contracts live in
@@ -99,7 +103,7 @@ A second, separate door for the integrator's MCP client: a bearer `pmi_` key, no
   or write access, how the project and card are named) and a method on `ExternalToolsHandler`; to refuse it, give the
   reason in `EXTERNAL_DENIED` (`super-operator/registry.ts`). A test fails for a tool that is neither. Tools only the
   integrator has (`list_projects`, the super tools) are in `super-operator/tools.ts`.
-- `tools/list` is filtered by the key's mode (`super`, `read`, `legacy`); a direct call of a tool the mode does not allow gets
+- Legacy keys fail authentication with 401 (PM-1037). `tools/list` is filtered by the key's mode (`super`, `read`); a direct call of a tool the mode does not allow gets
   a domain denial (`integrator_not_allowed`, `integrator_read_only`), the domain `errorCode` is kept in the structured
   result, and super tools answer with structured JSON.
 - The tunnel and proxy pass `/mcp` and refuse `/mcp/` and `/hooks`; see [DEPLOY.md](../../../../docs/DEPLOY.md).
@@ -209,12 +213,22 @@ A second, separate door for the integrator's MCP client: a bearer `pmi_` key, no
   `signal_ids`; summarize only worthwhile reviews in one short owner message. Only the selected PM in its internal general conversation, without an owner
   request. Returns `{ signal_id, state: 'dismissed' }`; presented or ended cases return
   `operator_signal_closed`, other kinds `operator_signal_not_dismissible`. Handler: `dismissSignal`.
-- `open_integrator_todo { task_key?, question, what, where, expected }` (PM-808) lets only the selected PM's
-  internal general session open a todo in the integrator's queue itself, with no owner request: the same
-  `InboxService.openIntegratorTodo` the obligation tracking (PM-806) uses, with the PM as the asker, so the
-  integrator's answer (`todo_done`, `todo_cannot`) comes back to it. The owners get it when the integrator
-  is not available (the result says so). A card with an open or handed-over obligation is refused with
-  `obligation_tracked`. Returns text. Handler: `openIntegratorTodo`.
+- `open_integrator_todo { task_key?, question, what, where, expected }` (PM-808, PM-1073) lets a member with
+  machine access (`machineAccess`, decision 66; the project manager by default) open a todo in the integrator's
+  queue itself, from any of its sessions and with no owner request: the same `InboxService.openIntegratorTodo`
+  the obligation tracking (PM-806) uses, with the member as the asker, so the integrator's answer
+  (`todo_done`, `todo_cannot`) comes back to it. The tool is listed only to such members (`capabilities`) and
+  the handler refuses the rest with `machine_access_required`, a guest conversation with `operator_owner_only`.
+  The owners get it when the integrator is not available (the result says so). A project manager's card with
+  an open or handed-over obligation is refused with `obligation_tracked`. `ask_human` with
+  `recipient: integrator` from a member without machine access goes to the owners (`no_machine_access`).
+  Returns text. Handler: `openIntegratorTodo`.
+- `reassign_task { task_key, assignee | null, reason }` and `cancel_task { task_key, reason }` (PM-1040) let only
+  the selected PM's internal general session change a card's assignee or close it, with no owner request and
+  a reason of 1–500 characters. `TaskService.update` / `cancel` accept the selected PM acting directly
+  (`isCoordinationActor`); anyone else stays human-admin only. The reason is the `note` of the `task_assigned`
+  event and the `reason` of the cancel event, both under the PM's name. Deleting stays with the owners.
+  Handlers: `reassignTask`, `cancelTask`.
 - `combine_questions { item_ids, question, note }` (PM-695) lets only the selected PM's internal
   general session group 2–10 semantically equivalent screened owner decisions without an owner request.
   Owners, choices, recommendation and attachment sets must match. The oldest item represents the group;

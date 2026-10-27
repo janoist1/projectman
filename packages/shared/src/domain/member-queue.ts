@@ -19,7 +19,6 @@ export const MEMBER_QUEUE_ITEM_KINDS = [
   'todo',
   'fix_limit',
   'permission',
-  'boundary',
   'screening',
   'signal',
   'start',
@@ -51,7 +50,6 @@ export type MemberQueueCloseReason = z.infer<typeof MemberQueueCloseReason>;
 export const MemberQueueSource = z.discriminatedUnion('type', [
   z.object({ type: z.literal('message'), messageId: z.string() }),
   z.object({ type: z.literal('inbox'), inboxItemId: z.string() }),
-  z.object({ type: z.literal('boundary'), requestId: z.string() }),
   z.object({ type: z.literal('signal'), signalId: z.string(), followUpAt: z.string().nullable() }),
   z.object({ type: z.literal('fix_limit'), taskKey: TaskKey, heldAt: z.string() }),
   z.object({ type: z.literal('obligation'), obligationId: z.string() }),
@@ -67,8 +65,6 @@ export function memberQueueSourceId(source: MemberQueueSource): string {
       return source.messageId;
     case 'inbox':
       return source.inboxItemId;
-    case 'boundary':
-      return source.requestId;
     case 'signal':
       return `${source.signalId}@${source.followUpAt ?? 'first'}`;
     case 'fix_limit':
@@ -90,8 +86,6 @@ export function memberQueueSourceOf(type: MemberQueueSource['type'], id: string)
       return { type, messageId: id };
     case 'inbox':
       return { type, inboxItemId: id };
-    case 'boundary':
-      return { type, requestId: id };
     case 'signal': {
       const followUpAt = at < 0 ? 'first' : id.slice(at + 1);
       return {
@@ -184,19 +178,6 @@ export const MemberQueueView = z.object({
 });
 export type MemberQueueView = z.infer<typeof MemberQueueView>;
 
-export const MemberQueueSummary = z.object({
-  member: MemberHandle,
-  queued: z.number().int(),
-  processing: z.number().int(),
-  /** Queued items that wake the member. */
-  waking: z.number().int(),
-  oldestQueuedAt: z.string().nullable(),
-});
-export type MemberQueueSummary = z.infer<typeof MemberQueueSummary>;
-
-export const MemberQueuesView = z.object({ members: z.array(MemberQueueSummary) });
-export type MemberQueuesView = z.infer<typeof MemberQueuesView>;
-
 /** The query of a member's queue: how far back the closed items go. */
 export const MemberQueueQuery = z.strictObject({ closedSince: z.iso.datetime({ offset: true }).optional() });
 export type MemberQueueQuery = z.infer<typeof MemberQueueQuery>;
@@ -207,13 +188,12 @@ export const MEMBER_QUEUE_CLOSED_LIMIT = 50;
 export const MEMBER_QUEUE_CLOSED_DEFAULT_MS = 24 * 60 * 60_000;
 
 /**
- * How soon an item is looked at (PM-925), the smallest first: a member waits on a permission or a boundary
+ * How soon an item is looked at (PM-925), the smallest first: a member waits on a permission
  * decision, a held fix limit and a screening are the next, then todos, the starts, and the messages and signals last.
  */
 export function memberQueueUrgency(kind: MemberQueueItemKind): number {
   switch (kind) {
     case 'permission':
-    case 'boundary':
       return 0;
     case 'fix_limit':
     case 'screening':
@@ -243,7 +223,7 @@ export function memberQueueStartLimits(
 ): { capacity: boolean; aiLimit: boolean } {
   if (isOperator(memberOf(config, member)))
     return { capacity: place?.type === 'general' && place.with !== undefined, aiLimit: false };
-  const free = kind === 'permission' || kind === 'boundary' || kind === 'fix_limit' || kind === 'screening';
+  const free = kind === 'permission' || kind === 'fix_limit' || kind === 'screening';
   return { capacity: !free, aiLimit: !free };
 }
 

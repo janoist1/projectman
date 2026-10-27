@@ -13,6 +13,8 @@ export const operatorAudience: MemberAudience = {
   operator: true,
   projectManager: false,
   merger: false,
+  email: false,
+  machineAccess: false,
   duties: new Set(),
 };
 
@@ -308,10 +310,6 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
         proposers: ['devops'],
       };
     },
-    async submitBoundaryRequest(ctx, args) {
-      await enter('submitBoundaryRequest', ctx, args);
-      throw new TeamToolError('not_found', 'No protected operation adapter in this transport fake.');
-    },
     async getRoleConfiguration(ctx, args) {
       await enter('getRoleConfiguration', ctx, args);
       return {
@@ -478,6 +476,14 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       await enter('dismissSignal', ctx, args);
       return { signalId: args.signalId, state: 'dismissed' };
     },
+    async reassignTask(ctx, args) {
+      await enter('reassignTask', ctx, args);
+      return { task_key: args.taskKey, assignee: args.assignee, previous: null };
+    },
+    async cancelTask(ctx, args) {
+      await enter('cancelTask', ctx, args);
+      return { task_key: args.taskKey, status: 'cancelled' };
+    },
     async openIntegratorTodo(ctx, args) {
       await enter('openIntegratorTodo', ctx, args);
       return { itemId: 'inb_todo_1', recipient: 'integrator', recipientRefusal: null };
@@ -494,14 +500,6 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
         data: args.preference,
         updatedAt: '2026-10-15T00:00:00.000Z',
       };
-    },
-    async getBoundaryRequest(ctx, args) {
-      await enter('getBoundaryRequest', ctx, args);
-      throw new TeamToolError('not_found', 'Unknown boundary request.');
-    },
-    async decideBoundaryRequest(ctx, args) {
-      await enter('decideBoundaryRequest', ctx, args);
-      throw new TeamToolError('not_found', 'Unknown boundary request.');
     },
     async decidePermissionRequest(ctx, args) {
       await enter('decidePermissionRequest', ctx, args);

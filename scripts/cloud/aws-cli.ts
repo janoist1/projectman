@@ -14,10 +14,8 @@ interface AwsTarget {
 }
 
 interface AwsCallOptions {
-  /** Conditional trial deletes must never be retried, even by the AWS CLI. */
-  singleAttempt?: boolean;
   signal?: AbortSignal;
-  /** Suppress raw AWS output in the trial-reset protocol. */
+  /** Suppress raw AWS output in protected administration protocols. */
   redactErrors?: boolean;
 }
 
@@ -58,12 +56,11 @@ export class AwsCli {
     return this.deps.run('aws', this.argv(args), {
       timeoutMs: CALL_TIMEOUT_MS,
       ...(this.options.signal ? { signal: this.options.signal } : {}),
-      ...(this.options.singleAttempt || this.options.redactErrors
+      ...(this.options.redactErrors
         ? {
             env: {
               AWS_CLI_AUTO_PROMPT: 'off',
               AWS_PAGER: '',
-              ...(this.options.singleAttempt ? { AWS_MAX_ATTEMPTS: '1', AWS_RETRY_MODE: 'standard' } : {}),
             },
           }
         : {}),

@@ -2,12 +2,13 @@ import { developmentStage, stageOf } from '@projectman/shared';
 import type { ProjectConfig, TeamRule } from '@projectman/shared';
 import { code, codeList, labelRef, stageLabel } from './format';
 
-/** Short index entries; approval and self-review instructions remain complete. */
+/** Short index entries; full descriptions are served in the rules guide. */
 export function summarizeTeamRule(rule: TeamRule, _project: ProjectConfig): string | null {
   switch (rule.id) {
     case 'approvals':
+      return `Approvals: only humans set ${codeList(rule.labels)}; gates ask them in the inbox, never via ask_human.`;
     case 'self_review':
-      return null;
+      return `No self-review: never set ${codeList(rule.labels)} on your assigned task or authored PR.`;
     case 'new_card':
       return `New tasks: AI or humans with ${code(rule.minimumAccess)} access; unassigned in ${code(rule.firstStageId)}.`;
     case 'gates_in_order':

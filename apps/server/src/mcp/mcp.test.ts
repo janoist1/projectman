@@ -837,7 +837,7 @@ describe('team tools', () => {
     await expectRefused(session, 'ask_human', [
       { question, options, recommended: 'Dialog' },
       { question, recommended: 'Inline' },
-      { question, recommendation_reason: 'It is clearer.' },
+      { question, options, recommendation_reason: 'It is clearer.' },
       { question, options: [{ label: 'Inline', description: 'It is clearer.' }] },
     ]);
 
@@ -860,14 +860,24 @@ describe('team tools', () => {
   it('ask_human keeps every plain-language field optional', async () => {
     const { client, handler } = await startTools(qaContext);
 
-    const result = await call(client, 'ask_human', { question: 'Which staging URL should I test?' });
+    const result = await call(client, 'ask_human', {
+      question: 'Which staging URL should I test?',
+      response_purpose: 'information',
+    });
 
     expect(result.isError).toBeFalsy();
     expect(handler.calls[0]).toEqual({
       method: 'askHuman',
       ctx: qaContext,
-      args: { question: 'Which staging URL should I test?' },
+      args: { question: 'Which staging URL should I test?', responsePurpose: 'information' },
     });
+  });
+
+  it('ask_human refuses a decision without options, before the handler', async () => {
+    const session = await startTools();
+
+    await expectRefused(session, 'ask_human', [{ question: 'Should we turn auto-regeneration on?' }]);
+    expect(session.handler.calls).toEqual([]);
   });
 });
 

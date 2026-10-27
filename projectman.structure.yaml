@@ -265,12 +265,6 @@ modules:
     summary: Az Operátor dokumentumírásai és a döntésjelöltek.
     paths:
       - apps/server/src/services/project-docs/
-  - id: services/boundary
-    area: service
-    name: Külső műveletek
-    summary: Külső műveletek engedélyezése és határkérések.
-    paths:
-      - apps/server/src/services/boundary/
   - id: services/schedules
     area: service
     name: Ütemezések

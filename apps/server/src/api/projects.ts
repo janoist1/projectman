@@ -1,7 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { CreateProjectRequest, SetChecklistItemStateRequest, routes } from '@projectman/shared';
-import type { BoardView, ProjectPreview, ProjectSummary, TemplateSummary } from '@projectman/shared';
-import { summarizeTemplate } from '@projectman/templates';
+import type { BoardView, ProjectSummary } from '@projectman/shared';
 import type { AuthService } from '../auth';
 import type { ApiDomain } from './ports';
 import { forbidden } from '../kernel';
@@ -29,16 +28,12 @@ export function registerProjectRoutes(
       return { checklist: await domain.checklist.setState(key, itemId, body, access.handle), canEdit: true };
     },
   );
-  app.get(routes.templates(), async (): Promise<TemplateSummary[]> =>
-    domain.templates.list().map(summarizeTemplate),
-  );
 
   /** Projects the user is a member of. */
   app.get(routes.projects(), async (request): Promise<ProjectSummary[]> => {
     const handles = await domain.handlesFor(authenticatedUser(request).email);
     const projects = domain.projects.summaries().filter((p) => handles[p.key] !== undefined);
-    if (request.principal && request.principal.mode !== 'legacy')
-      for (const project of projects) await requireAccess(domain, request, project.key);
+    if (request.principal) for (const project of projects) await requireAccess(domain, request, project.key);
     return projects;
   });
 
@@ -49,18 +44,6 @@ export function registerProjectRoutes(
     const body = parseBody(CreateProjectRequest, request.body);
     const summary = await domain.projects.create(body, authorOf(request));
     return reply.code(201).send(summary);
-  });
-
-  /** What a create would make and its issues; nothing is saved. Host owner only, like the create. */
-  app.post(routes.projectPreview(), async (request): Promise<ProjectPreview> => {
-    if (!auth.isHostOwner(currentUser(request).id))
-      throw forbidden('owner_only', 'only the initial host owner may create projects');
-    return domain.projects.preview(parseBody(CreateProjectRequest, request.body), authorOf(request));
-  });
-
-  app.get<ProjectParams>(routes.project(':key'), async (request): Promise<ProjectSummary> => {
-    await requireAccess(domain, request, request.params.key);
-    return domain.projects.summary(request.params.key);
   });
 
   app.get<ProjectParams>(routes.board(':key'), async (request): Promise<BoardView> => {

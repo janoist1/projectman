@@ -29,7 +29,6 @@ import { createContextPackBuilder, createMemberMemoryStore } from './context';
 import type {
   AttachmentStorage,
   MessageAttachmentStorage,
-  BoundaryOperationAdapter,
   ContextPackBuilder,
   EmailCodeMailer,
   FullTestExecutor,
@@ -133,7 +132,6 @@ export function parseMode(value: string | undefined): RunMode {
 /** Module factories and instances; each can be replaced (tests inject fakes). */
 export interface AppModules {
   nanogptKeyCheck?: import('./runtime/usage').NanogptKeyCheck;
-  boundaryAdapter?: BoundaryOperationAdapter;
   createRunnerModule?: (opts: RunnerModuleOptions) => RunnerModule;
   createMcpModule?: (opts: McpModuleOptions) => McpModule;
   github?: GithubService;
@@ -545,7 +543,6 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
             },
           }
         : {}),
-      boundaryAdapter: modules.boundaryAdapter,
       nanogptKeyCheck: modules.nanogptKeyCheck,
       fullTestExecutor: remote
         ? undefined

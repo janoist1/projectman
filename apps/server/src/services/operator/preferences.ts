@@ -1,4 +1,11 @@
-import { isOperator, memberOf, OperatorPreferenceData, ownerHandles } from '@projectman/shared';
+import {
+  coordinationMemberOf,
+  isOperator,
+  isProjectManager,
+  memberOf,
+  OperatorPreferenceData,
+  ownerHandles,
+} from '@projectman/shared';
 import type { OperatorPreferenceDocument, SessionStartCause, WorkItemRef } from '@projectman/shared';
 import type { OperatorKnowledgeStore, ToolContext } from '../../contracts';
 import type { DomainContext } from '../../core/base';
@@ -66,7 +73,14 @@ export class OperatorPreferences {
   ): Promise<OperatorPreferenceData | undefined> {
     if (workItem.type !== 'general') return undefined;
     const config = await this.deps.projects.config(projectKey);
-    if (!isOperator(memberOf(config, member))) return undefined;
+    const caller = memberOf(config, member);
+    const pm = isProjectManager(caller);
+    if (
+      pm
+        ? coordinationMemberOf(config)?.handle !== member || workItem.with !== undefined
+        : !isOperator(caller)
+    )
+      return undefined;
     const by = cause?.by;
     if (
       !cause ||
@@ -84,8 +98,15 @@ export class OperatorPreferences {
 
   private async personFor(ctx: ToolContext, write: boolean): Promise<string> {
     const config = await this.deps.projects.config(ctx.projectKey);
-    if (!isOperator(memberOf(config, ctx.member)))
-      throw forbidden('operator_only', 'only the Operator may use conversational preferences');
+    const caller = memberOf(config, ctx.member);
+    const pm = isProjectManager(caller);
+    if (!isOperator(caller) && !pm)
+      throw forbidden(
+        'operator_only',
+        'only the Operator or project manager may use conversational preferences',
+      );
+    if (pm && coordinationMemberOf(config)?.handle !== ctx.member)
+      throw forbidden('project_manager_only', 'preferences require the selected active project manager');
     const session = this.deps.ctx.repos.sessions.get(ctx.sessionId);
     if (
       !session ||
@@ -96,6 +117,22 @@ export class OperatorPreferences {
       throw forbidden('operator_owner_only', 'preferences require the current Operator conversation');
     const request = this.deps.requests.openFor(session.id);
     const withHandle = session.workItem.with;
+    if (pm) {
+      if (withHandle !== undefined)
+        throw forbidden(
+          'operator_owner_only',
+          'preferences require the internal project manager conversation',
+        );
+      if (!request || !['message', 'answer'].includes(request.source))
+        throw forbidden('operator_no_request', 'preferences require an open personal owner request');
+      if (
+        request.projectKey !== ctx.projectKey ||
+        memberOf(config, request.fromHandle)?.kind !== 'human' ||
+        !ownerHandles(config).includes(request.fromHandle)
+      )
+        throw forbidden('operator_owner_only', 'the open request must belong to a current human owner');
+      return request.fromHandle;
+    }
     if (withHandle !== undefined) {
       const by = session.startCause?.by;
       if (

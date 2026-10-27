@@ -85,7 +85,8 @@ function renderLayout(project: Project, options: { viewer?: 'owner' | 'kata'; ac
   );
 }
 
-const button = () => screen.findByRole('button', { name: new RegExp(`^${t('operator.panel.label')}`) });
+const button = () =>
+  screen.findByRole('button', { name: new RegExp(`^${t('operator.button.aria', { status: '' })}`) });
 const toggle = () => screen.findByRole('button', { name: new RegExp(`^${t('operator.queue.toggle')}`) });
 const closedList = () => screen.findByRole('list', { name: t('operator.queue.closedList') });
 
@@ -192,7 +193,7 @@ describe('the Sor view', () => {
       release = resolve;
     });
     setFetchImplementation(async (path, init) => {
-      if (path.includes('/members/pm/queue')) await gate;
+      if (path.includes('/project-manager/queue')) await gate;
       return fetch(path, init);
     });
     await openQueue(project);
@@ -207,7 +208,7 @@ describe('the Sor view', () => {
     const fetch = createMockFetch(project.backend, project.requests);
     let fail = true;
     setFetchImplementation(async (path, init) => {
-      if (fail && path.includes('/members/pm/queue'))
+      if (fail && path.includes('/project-manager/queue'))
         return new Response(JSON.stringify({ error: { code: 'internal', message: 'Failed' } }), {
           status: 500,
         });
@@ -226,7 +227,7 @@ describe('the Sor view', () => {
     const fetch = createMockFetch(project.backend, project.requests);
     let fail = false;
     setFetchImplementation(async (path, init) => {
-      if (fail && path.includes('/members/pm/queue'))
+      if (fail && path.includes('/project-manager/queue'))
         return new Response(JSON.stringify({ error: { code: 'internal', message: 'Failed' } }), {
           status: 500,
         });
@@ -383,7 +384,7 @@ describe('the Sor view', () => {
     await openQueue(project);
     await closedList();
     expect(screen.getByText(t('operator.queue.limit', { count: MEMBER_QUEUE_CLOSED_LIMIT }))).toBeTruthy();
-    const queueRequests = () => project.requests.filter((r) => r.path.includes('/members/pm/queue'));
+    const queueRequests = () => project.requests.filter((r) => r.path.includes('/project-manager/queue'));
     const before = queueRequests().length;
     fireEvent.click(screen.getByRole('button', { name: t('operator.queue.earlier') }));
     await waitFor(() => expect(queueRequests().length).toBeGreaterThan(before));

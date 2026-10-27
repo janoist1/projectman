@@ -22,6 +22,8 @@ const detailed = {
 const plain = { ...DEFAULT_OPERATOR_PREFERENCE, length: 'balanced' as const };
 
 function people(config: ProjectConfig) {
+  const pm = config.team.members.find((member) => member.handle === 'pm');
+  if (pm?.kind === 'ai') pm.onLeave = false;
   for (const [handle, access] of [
     ['dana', 'developer'],
     ['cleo', 'client'],
@@ -77,11 +79,11 @@ describe('personal Operator preference authorization', () => {
     h.repos.sessions.update(id, { startCause: session.startCause });
     return { projectKey: 'AR', member, sessionId: id, taskKey: null };
   }
-  function request(ctx: ToolContext, from: string) {
+  function request(ctx: ToolContext, from: string, source: 'message' | 'answer' = 'message') {
     return new OperatorRequests({ ctx: h.domain.ctx }).open({
       projectKey: 'AR',
       sessionId: ctx.sessionId,
-      source: 'message',
+      source,
       messageId: null,
       from,
       text: 'Change my style',
@@ -229,6 +231,151 @@ describe('personal Operator preference authorization', () => {
     expect(await h.domain.teamTools.getOperatorPreference(ctx)).toMatchObject({ revision: 0 });
     await expect(set(ctx)).rejects.toThrow('operator_no_request');
   });
+
+  it('shares owner style between the PM and Operator with reset and CAS', async () => {
+    const operator = conversation();
+    request(operator, 'owner');
+    await set(operator);
+    const pm = conversation(undefined, 'pm');
+    request(pm, 'owner');
+    expect(await h.domain.teamTools.getOperatorPreference(pm)).toMatchObject({ revision: 1, data: detailed });
+    await set(pm, plain, 1);
+    expect(await h.domain.teamTools.getOperatorPreference(operator)).toMatchObject({
+      revision: 2,
+      data: plain,
+    });
+    await expect(set(operator, detailed, 1)).rejects.toThrow('operator_knowledge_stale');
+    await set(pm, { ...DEFAULT_OPERATOR_PREFERENCE }, 2);
+    expect(await h.domain.teamTools.getOperatorPreference(operator)).toMatchObject({
+      revision: 3,
+      data: DEFAULT_OPERATOR_PREFERENCE,
+    });
+    await expect(
+      h.domain.teamTools.operate(pm, { title: 'Change project', operation: { op: 'project_pause' } }),
+    ).rejects.toThrow();
+  });
+
+  it.each(['missing', 'closed', 'expired', 'approval', 'signal', 'queue'] as const)(
+    'rejects PM preference reads and writes for a %s request',
+    async (state) => {
+      const pm = conversation(undefined, 'pm');
+      if (state !== 'missing') {
+        const open = request(pm, 'owner');
+        if (state === 'closed') h.repos.operatorRequests.close(open.id, new Date().toISOString());
+        else {
+          h.repos.operatorRequests.close(open.id, new Date().toISOString());
+          h.repos.operatorRequests.insert({
+            ...open,
+            id: 'opr_variant',
+            ...(state === 'expired' ? { openedAt: '2000-01-01T00:00:00.000Z' } : { source: state }),
+          });
+        }
+      }
+      await expect(h.domain.teamTools.getOperatorPreference(pm)).rejects.toThrow('operator_no_request');
+      await expect(set(pm)).rejects.toThrow('operator_no_request');
+    },
+  );
+
+  it('accepts a direct owner answer as the PM personal request', async () => {
+    const pm = conversation(undefined, 'pm');
+    request(pm, 'owner', 'answer');
+    expect(await set(pm)).toMatchObject({ revision: 1, data: detailed });
+    expect(await h.domain.teamTools.getOperatorPreference(pm)).toMatchObject({ revision: 1, data: detailed });
+  });
+
+  it.each(['foreign-project', 'foreign-member', 'missing-session', 'task', 'guest'] as const)(
+    'rejects PM preferences from a %s session',
+    async (variant) => {
+      let pm = conversation(
+        undefined,
+        'pm',
+        variant === 'task'
+          ? { type: 'task', taskKey: 'AR-1' }
+          : variant === 'guest'
+            ? { type: 'general', with: 'owner' }
+            : undefined,
+        variant === 'foreign-project' ? 'OTHER' : 'AR',
+      );
+      request(pm, 'owner');
+      if (variant === 'foreign-member') pm = { ...pm, sessionId: conversation().sessionId };
+      if (variant === 'missing-session') pm = { ...pm, sessionId: 'ses_missing' };
+      await expect(h.domain.teamTools.getOperatorPreference(pm)).rejects.toThrow('operator_owner_only');
+      await expect(set(pm)).rejects.toThrow('operator_owner_only');
+    },
+  );
+
+  it.each(['dana', 'dev-1'])('rejects a PM request from non-owner %s', async (from) => {
+    const pm = conversation(undefined, 'pm');
+    request(pm, from);
+    await expect(h.domain.teamTools.getOperatorPreference(pm)).rejects.toThrow('operator_owner_only');
+    await expect(set(pm)).rejects.toThrow('operator_owner_only');
+  });
+
+  it('uses only the PM session request and rechecks its owner membership', async () => {
+    const operator = conversation();
+    request(operator, 'owner');
+    const pm = conversation(undefined, 'pm');
+    await expect(h.domain.teamTools.getOperatorPreference(pm)).rejects.toThrow('operator_no_request');
+    await h.domain.projects.update(
+      'AR',
+      { actor: humanActor('owner'), author: { name: 'Owner', email: 'owner@example.com' } },
+      (config) => {
+        const ada = config.team.members.find((m) => m.handle === 'ada')!;
+        if (ada.kind === 'human') ada.access = 'owner';
+        return 'Add second owner';
+      },
+    );
+    request(pm, 'owner');
+    await set(pm);
+    request(pm, 'ada');
+    expect(await h.domain.teamTools.getOperatorPreference(pm)).toMatchObject({ revision: 0 });
+    await set(pm, plain);
+    expect(await h.domain.operatorKnowledge.readPreference('AR', 'owner')).toMatchObject({ data: detailed });
+    await h.domain.projects.update(
+      'AR',
+      { actor: humanActor('owner'), author: { name: 'Owner', email: 'owner@example.com' } },
+      (config) => {
+        config.team.members = config.team.members.filter((m) => m.handle !== 'ada');
+        return 'Remove second owner';
+      },
+    );
+    await expect(h.domain.teamTools.getOperatorPreference(pm)).rejects.toThrow('operator_owner_only');
+    await expect(set(pm)).rejects.toThrow('operator_owner_only');
+  });
+
+  it.each(['unavailable', 'unselected'] as const)('rejects an %s PM', async (state) => {
+    const pm = conversation(undefined, 'pm');
+    request(pm, 'owner');
+    await h.domain.projects.update(
+      'AR',
+      { actor: humanActor('owner'), author: { name: 'Owner', email: 'owner@example.com' } },
+      (config) => {
+        const member = config.team.members.find((m) => m.handle === 'pm')!;
+        if (member.kind === 'ai') {
+          if (state === 'unselected') config.team.members.unshift({ ...member, handle: 'other-pm' });
+          else member.onLeave = true;
+        }
+        return 'Select another PM';
+      },
+    );
+    await expect(h.domain.teamTools.getOperatorPreference(pm)).rejects.toThrow('project_manager_only');
+    await expect(set(pm)).rejects.toThrow('project_manager_only');
+    await expect(h.domain.operatorPreferences.get(pm)).rejects.toMatchObject({
+      code: 'project_manager_only',
+    });
+  });
+
+  it('does not open a personal PM request for an integrator delivery', async () => {
+    const pm = conversation(undefined, 'pm');
+    await h.domain.messaging.sendReporting(
+      'AR',
+      'owner',
+      { to: ['pm'], text: 'Change my style' },
+      { awaitWake: true, actor: { kind: 'human', handle: 'owner', via: 'integrator' } },
+    );
+    await expect(h.domain.teamTools.getOperatorPreference(pm)).rejects.toThrow('operator_no_request');
+    await expect(set(pm)).rejects.toThrow('operator_no_request');
+  });
 });
 
 describe('preference MCP schemas', () => {
@@ -257,6 +404,87 @@ describe('personal preference context boundary', () => {
   let h: DomainHarness;
   afterEach(async () => {
     await h?.cleanup();
+  });
+
+  it('launches a direct PM owner conversation with shared style and opens its personal request', async () => {
+    h = await createDomainHarness({ adjust: people });
+    await h.domain.operatorKnowledge.compareAndSwapPreference('AR', 'owner', 0, {
+      schemaVersion: 1,
+      revision: 1,
+      data: detailed,
+      updatedAt: '2026-10-15T00:00:00.000Z',
+    });
+    await h.domain.messaging.sendReporting(
+      'AR',
+      'owner',
+      { to: ['pm'], text: 'Use my style' },
+      { awaitWake: true },
+    );
+    await settle();
+    const input = h.contextBuilder.inputs.at(-1)!;
+    expect(input.member.handle).toBe('pm');
+    expect(input.operatorPreference).toEqual(detailed);
+    expect(createContextPackBuilder().build(input).appendSystemPrompt).toContain(JSON.stringify(detailed));
+    const session = h.domain.sessions.list('AR', { member: 'pm' })[0]!;
+    const ctx = { projectKey: 'AR', member: 'pm', sessionId: session.id, taskKey: null };
+    expect(await h.domain.teamTools.getOperatorPreference(ctx)).toMatchObject({
+      revision: 1,
+      data: detailed,
+    });
+  });
+
+  it.each([
+    { kind: 'message', by: humanActor('owner'), allowed: true },
+    { kind: 'answer', by: humanActor('owner'), allowed: true },
+    { kind: 'conversation', by: humanActor('owner'), allowed: true },
+    { kind: 'operator_signal', by: humanActor('owner'), allowed: false },
+    { kind: 'question_screening', by: humanActor('owner'), allowed: false },
+    { kind: 'message', by: { ...humanActor('owner'), via: 'integrator' }, allowed: false },
+    { kind: 'message', by: humanActor('dana'), allowed: false },
+    { kind: 'message', by: { kind: 'ai', handle: 'dev-1' }, allowed: false },
+  ] as const)(
+    'selects PM launch style for $kind by $by only when authorized ($allowed)',
+    async ({ kind, by, allowed }) => {
+      h = await createDomainHarness({ adjust: people });
+      const result = await h.domain.operatorPreferences.forConversation(
+        'AR',
+        'pm',
+        { type: 'general' },
+        { kind, by },
+      );
+      expect(result).toEqual(allowed ? DEFAULT_OPERATOR_PREFERENCE : undefined);
+    },
+  );
+
+  it('omits PM style without a person, in guest conversations, or for an unavailable PM', async () => {
+    h = await createDomainHarness({ adjust: people });
+    const prefs = h.domain.operatorPreferences;
+    expect(await prefs.forConversation('AR', 'pm', { type: 'general' }, null)).toBeUndefined();
+    expect(
+      await prefs.forConversation(
+        'AR',
+        'pm',
+        { type: 'general', with: 'owner' },
+        { kind: 'message', by: humanActor('owner') },
+      ),
+    ).toBeUndefined();
+    await h.domain.projects.update(
+      'AR',
+      { actor: humanActor('owner'), author: { name: 'Owner', email: 'owner@example.com' } },
+      (config) => {
+        const pm = config.team.members.find((m) => m.handle === 'pm')!;
+        if (pm.kind === 'ai') pm.onLeave = true;
+        return 'Pause PM';
+      },
+    );
+    expect(
+      await prefs.forConversation(
+        'AR',
+        'pm',
+        { type: 'general' },
+        { kind: 'message', by: humanActor('owner') },
+      ),
+    ).toBeUndefined();
   });
   it.each(['owner', 'dana'])(
     'launches %s without style when their preference file is corrupt',
@@ -370,7 +598,7 @@ describe('personal preference context boundary', () => {
         { type: 'general' },
         { kind: 'message', by: humanActor('owner') },
       ),
-    ).toBeUndefined();
+    ).toEqual(DEFAULT_OPERATOR_PREFERENCE);
     expect(
       await prefs.forConversation(
         'AR',
@@ -434,19 +662,6 @@ describe('preference REST reads', () => {
             .items.map((item: { handle: string }) => item.handle)
             .sort(),
         ).toEqual([...cookies.keys()].sort());
-    }
-    const key = await inject(h.app, 'POST', routes.integratorKey(), owner, undefined);
-    for (const url of [routes.operatorPreferenceMe('AR'), routes.operatorPreferences('AR')]) {
-      const response = await h.app.inject({
-        method: 'GET',
-        url,
-        headers: { authorization: `Bearer ${key.json().secret}` },
-      });
-      expect(response.statusCode).toBe(403);
-      expect(response.json().error.code).toBe('operator_owner_only');
-      expect(
-        (await inject(h.app, 'PUT', url, cookies.get('ada')!, { preference: detailed })).statusCode,
-      ).toBe(404);
     }
   });
 });

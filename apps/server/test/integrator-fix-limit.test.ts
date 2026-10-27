@@ -3,8 +3,15 @@ import { randomUUID } from 'node:crypto';
 import { routes } from '@projectman/shared';
 import type { InboxItem, ProjectConfig } from '@projectman/shared';
 import { getLocale } from '@projectman/templates';
-import { aiActor, humanActor } from '../src/kernel';
-import { addHumanAndLogin, createAppHarness, createProject, setupOwner } from './helpers/app-harness';
+import { aiActor, DomainError, humanActor } from '../src/kernel';
+import { resolveIntegratorTodo } from '../src/services/super-operator';
+import {
+  addHumanAndLogin,
+  createAppHarness,
+  createProject,
+  setupOwner,
+  asSuperIntegrator,
+} from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 import { settle } from './helpers/fakes';
 
@@ -375,13 +382,8 @@ describe('integrator fix limit decision', () => {
     const { auth } = h.app.projectman;
     const user = repos().users.list()[0]!;
     const read = auth.createIntegratorAccessKey(user.id, { mode: 'read', expiresInDays: 7 });
-    const legacy = auth.createIntegratorKey(user.id, null);
     const refused = [
       [await decide(created.id, 'another_round', undefined, { authorization: `Bearer ${read.secret}` }), 403],
-      [
-        await decide(created.id, 'another_round', undefined, { authorization: `Bearer ${legacy.secret}` }),
-        403,
-      ],
       [await decide(created.id, 'another_round', undefined, { cookie }), 403],
     ] as const;
     for (const [response, status] of refused) expect(response.statusCode, response.body).toBe(status);
@@ -389,7 +391,7 @@ describe('integrator fix limit decision', () => {
     expect(record()).toMatchObject({ holdPhase: 'owner', extraRounds: 0 });
   });
 
-  it('keeps the generic resolve, the relay and the todo endpoint closed to the item', async () => {
+  it('keeps the generic resolve, the relay and the todo resolution closed to the item', async () => {
     const created = await passedOn();
     const generic = await h.app.inject({
       method: 'POST',
@@ -405,13 +407,11 @@ describe('integrator fix limit decision', () => {
       payload: { answer: 'Go on.' },
     });
     expect(relay.json().error.code).toBe('super_relay_refused');
-    const todo = await h.app.inject({
-      method: 'POST',
-      url: routes.resolveIntegratorTodo('AR', created.id),
-      headers: headers(),
-      payload: { optionId: 'todo_done' },
-    });
-    expect(todo.statusCode).toBeGreaterThanOrEqual(400);
+    await expect(
+      asSuperIntegrator(h, superKey.secret, (access) =>
+        resolveIntegratorTodo(domain(), 'AR', created.id, { optionId: 'todo_done' }, access),
+      ),
+    ).rejects.toBeInstanceOf(DomainError);
     expect(item(created.id).state).toBe('open');
     expect(record()).toMatchObject({ holdPhase: 'owner', extraRounds: 0 });
   });

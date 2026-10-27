@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_OPERATOR_PREFERENCE, MemberContextPreview, routes } from '@projectman/shared';
+import type { Merger } from '@projectman/shared';
 import type { ContextPackInput } from '../src/contracts';
 import { createContextPackBuilder } from '../src/context';
 import { humanActor } from '../src/kernel';
@@ -62,7 +63,7 @@ describe('member context preview', () => {
     );
     expect(preview.prompt.chars).toBe(Array.from(pack.appendSystemPrompt).length);
     expect(preview.prompt.chars).toBeLessThan(preview.prompt.text.length);
-    expect(preview.guides.map((guide) => guide.topic)).toEqual(['rules', 'role']);
+    expect(preview.guides.map((guide) => guide.topic)).toEqual(['rules', 'role', 'operations']);
     for (const guide of preview.guides) {
       expect(guide.text).toBe(pack.guide[guide.topic as keyof typeof pack.guide]);
       expect(guide.chars).toBe(Array.from(guide.text).length);
@@ -135,6 +136,45 @@ describe('member context preview', () => {
     expect(new Set(lists.map((list) => JSON.stringify(list))).size).toBe(3);
   });
 
+  it.each<{ merger?: Merger; handle: string; visible: boolean }>([
+    { handle: 'cr', visible: true },
+    { handle: 'dev-1', visible: false },
+    { merger: { kind: 'developer' }, handle: 'dev-1', visible: true },
+    { merger: { kind: 'developer' }, handle: 'operator', visible: false },
+    { merger: { kind: 'member', handle: 'cr' }, handle: 'cr', visible: true },
+    { merger: { kind: 'member', handle: 'cr' }, handle: 'dev-1', visible: false },
+  ])(
+    'resolves merge tool visibility for $handle with policy $merger',
+    async ({ merger, handle, visible }) => {
+      const config = structuredClone(await h.domain.projects.config('AR'));
+      config.team.merger = merger;
+      const audience = memberAudience(config, handle);
+      expect(audience.merger).toBe(visible);
+      if (!audience.operator) {
+        const names = visibleTeamTools(audience).map((tool) => tool.name);
+        for (const tool of ['merge_task', 'prioritize_merge']) {
+          expect(names.includes(tool)).toBe(visible);
+        }
+      }
+    },
+  );
+
+  it.each([
+    { channel: true, member: true, email: true },
+    { channel: true, member: false, email: false },
+    { channel: false, member: true, email: false },
+  ])(
+    'marks e-mail sending in the audience (channel $channel, member $member)',
+    async ({ channel, member, email }) => {
+      const config = structuredClone(await h.domain.projects.config('AR'));
+      config.project.email = { enabled: channel };
+      for (const candidate of config.team.members)
+        if (candidate.kind === 'ai' && candidate.handle === 'dev-1')
+          candidate.email = { enabled: member, sendWithoutApproval: false };
+      expect(memberAudience(config, 'dev-1').email).toBe(email);
+    },
+  );
+
   it('previews leave and task contexts without sessions, timeline writes, branch links or placement', async () => {
     const task = await h.domain.tasks.create('AR', { title: 'Read only preview' }, OWNER_ACTOR);
     const timeline = h.domain.timeline.list('AR', { limit: 100 });
@@ -196,14 +236,8 @@ describe('member context endpoint', () => {
     expect(response.json().error.code).toBe('insufficient_access');
   });
 
-  it.each(['legacy', 'super', 'read'] as const)('refuses a %s bearer principal', async (mode) => {
-    const issued = await inject(
-      h.app,
-      'POST',
-      mode === 'legacy' ? routes.integratorKey() : routes.integratorKeys(),
-      cookie,
-      mode === 'legacy' ? {} : { mode },
-    );
+  it.each(['super', 'read'] as const)('refuses a %s bearer principal', async (mode) => {
+    const issued = await inject(h.app, 'POST', routes.integratorKeys(), cookie, { mode });
     expect(issued.statusCode, issued.body).toBe(201);
     const response = await h.app.inject({
       url: url(),

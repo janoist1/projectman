@@ -1,7 +1,5 @@
 import {
-  BoundaryAuditReason,
   FixLimitAssessment,
-  BoundaryState,
   ReleaseFailure,
   ReleaseState,
   FullTestErrorReason,
@@ -455,11 +453,12 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
           return normal(t(`${key}.unknown`, { commit }));
       }
     }
+    // Kept for the events recorded before the external operation requests were removed (PM-1035).
     case 'boundary_changed': {
-      const state = BoundaryState.safeParse(d.state);
-      const reason = BoundaryAuditReason.safeParse(d.reason);
+      const state = str(d.state);
+      const reason = str(d.reason);
       return {
-        text: `${t('boundary.heading')}: ${str(d.resource)} · ${state.success ? t(`boundary.states.${state.data}`) : str(d.state)}${reason.success ? ` · ${t(`boundary.reasons.${reason.data}`)}` : ''}`,
+        text: `${t('boundary.heading')}: ${str(d.resource)} · ${tDynamic(`boundary.states.${state}`, state)}${reason ? ` · ${tDynamic(`boundary.reasons.${reason}`, reason)}` : ''}`,
         emphasis: ctx.openInboxIds.has(str(d.requestId)) ? 'needs' : 'normal',
       };
     }
@@ -606,14 +605,13 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
       const assignment = d.assignee
         ? t('timeline.events.task_assigned', { assignee: nameOf(str(d.assignee), ctx.members, ctx.myHandle) })
         : t('timeline.events.task_unassigned');
-      return normal(
-        d.previous
-          ? t('timeline.events.assignment_previous', {
-              assignment,
-              previous: nameOf(str(d.previous), ctx.members, ctx.myHandle),
-            })
-          : assignment,
-      );
+      const line = d.previous
+        ? t('timeline.events.assignment_previous', {
+            assignment,
+            previous: nameOf(str(d.previous), ctx.members, ctx.myHandle),
+          })
+        : assignment;
+      return normal(d.note ? t('timeline.events.assignment_note', { line, note: str(d.note) }) : line);
     }
     case 'task_check_changed':
       return normal(checkLine(str(d.check), str(d.to)));
@@ -1048,6 +1046,8 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
             })
           : t('timeline.events.member_retired', { handle: str(d.handle) }),
       );
+    case 'member_renamed':
+      return normal(t('timeline.events.member_renamed', { from: str(d.from), to: str(d.to) }));
     case 'config_changed':
       return normal(t('timeline.events.config_changed', { message: str(d.message) }));
     case 'team_contact_changed':

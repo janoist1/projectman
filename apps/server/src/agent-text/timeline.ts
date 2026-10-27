@@ -71,8 +71,10 @@ export function describeEvent(
       const files = list('failedFiles');
       return `${test} failed on commit ${commit}${files.length > 0 ? `: ${oneLine(files.join(', '), textLimit)}` : ''}${page}`;
     }
-    case 'task_assigned':
-      return text('assignee') ? `assigned it to ${member('assignee', '')}` : 'unassigned it';
+    case 'task_assigned': {
+      const why = text('note') ? `: ${text('note')}` : '';
+      return (text('assignee') ? `assigned it to ${member('assignee', '')}` : 'unassigned it') + why;
+    }
     case 'task_labels_changed': {
       const added = list('added').map((id) => style.label(id));
       const removed = list('removed').map((id) => style.label(id));
@@ -180,6 +182,8 @@ export function describeEvent(
       return `hired ${member('handle', 'a member')}`;
     case 'member_retired':
       return `retired ${member('handle', 'a member')}`;
+    case 'member_renamed':
+      return `renamed ${member('from', 'a member')} to ${member('to', 'a member')}`;
     case 'team_contact_changed':
       return `${data.contact === true ? 'made' : 'removed'} ${member('handle', 'a member')} ${data.contact === true ? 'a contact of the project' : 'from the contacts of the project'}`;
     case 'config_changed':

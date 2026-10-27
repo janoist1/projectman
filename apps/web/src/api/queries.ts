@@ -44,6 +44,7 @@ import type {
   InboxView,
   LoginRequest,
   ResolveInboxRequest,
+  RenameMemberRequest,
   RetireMemberRequest,
   SessionDetail,
   SetupRequest,
@@ -53,7 +54,6 @@ import type {
   LabelView,
 } from '@projectman/shared';
 import { isApiError } from './client';
-import { BoundaryReason } from '@projectman/shared';
 import { invalidateAttachments, patchOpenInboxCount, upsertBy, writeTask, writeTaskDetail } from './cache';
 import { api } from './endpoints';
 import { unsubscribeThisDevice } from '../lib/pushDevice';
@@ -680,13 +680,7 @@ export interface ResolveVariables {
 export function useResolveInbox(key: string, myHandle: string | null) {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: ({ item, body }: ResolveVariables) =>
-      item.kind === 'boundary'
-        ? api.decideBoundary(key, item.id, {
-            decision: body.optionId === 'allow' ? 'allow' : 'deny',
-            reason: BoundaryReason.parse(body.note),
-          })
-        : api.resolveInbox(key, item.id, body),
+    mutationFn: ({ item, body }: ResolveVariables) => api.resolveInbox(key, item.id, body),
     onMutate: async ({ item, body }) => {
       await client.cancelQueries({ queryKey: queryKeys.inbox(key) });
       const previous = client.getQueryData<InboxView>(queryKeys.inbox(key));
@@ -743,14 +737,6 @@ export function useCheckOutage(key: string) {
 }
 
 /* ---------- config ---------- */
-export function useRevokeBoundary(key: string) {
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: (id: string) => api.revokeBoundary(key, id),
-    onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.inbox(key) }),
-  });
-}
-
 export function useConfig(key: string, enabled = true) {
   return useQuery({
     queryKey: queryKeys.config(key),
@@ -803,6 +789,20 @@ function useProjectMutation<T, R>(key: string, mutationFn: (body: T) => Promise<
   });
 }
 
+/**
+ * Not awaiting the refresh: the page moves to the new handle's profile first, so the old one is never shown
+ * as missing (PM-1026).
+ */
+export function useRenameMember(key: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ handle, body }: { handle: string; body: RenameMemberRequest }) =>
+      api.renameMember(key, handle, body),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: queryKeys.project(key) });
+    },
+  });
+}
 export function useUpdateMember(key: string) {
   return useProjectMutation(key, ({ handle, body }: { handle: string; body: UpdateMemberRequest }) =>
     api.updateMember(key, handle, body),
@@ -1069,10 +1069,11 @@ export function useClosedCardsMeasure(key: string, days: number, enabled = true)
   });
 }
 
-export function useMemberProfile(key: string, handle: string) {
+export function useMemberProfile(key: string, handle: string, enabled = true) {
   return useQuery({
     queryKey: queryKeys.profile(key, handle),
     queryFn: () => api.memberProfile(key, handle),
+    enabled,
   });
 }
 export function useMemberMemories(key: string, handle: string, enabled: boolean) {
@@ -1135,7 +1136,7 @@ export function useProjectManagerChannel(key: string, enabled: boolean) {
 export function useOperatorQueue(key: string, handle: string, closedSince: string, enabled: boolean) {
   return useQuery({
     queryKey: queryKeys.operatorQueue(key, handle, closedSince),
-    queryFn: () => api.memberQueue(key, handle, closedSince),
+    queryFn: () => api.projectManagerQueue(key, closedSince),
     placeholderData: keepPreviousData,
     enabled,
   });

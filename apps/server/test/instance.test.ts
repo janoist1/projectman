@@ -155,7 +155,10 @@ describe('startInstance', () => {
       const sessionId = await instance.startSession('AC', 'AC-1', developer.handle);
       await instance.waitIdle('AC', sessionId);
       await instance.setFakeCalls([
-        { tool: 'ask_human', arguments: { question: 'Which colour should the basket button be?' } },
+        {
+          tool: 'ask_human',
+          arguments: { question: 'Which colour should the basket button be?', options: ['Green', 'Blue'] },
+        },
       ]);
       await instance.say('AC', sessionId, 'CALLS please');
       await instance.waitIdle('AC', sessionId);

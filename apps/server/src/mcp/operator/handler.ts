@@ -1,5 +1,11 @@
 import {
   isOperator,
+  isProjectManager,
+  coordinationMemberOf,
+  canonical,
+  operatorCriticalOp,
+  OperatorPlan as OperatorPlanSchema,
+  machineTodoIssuerAllowed,
   memberOf,
   roleBundle,
   ScreeningTodo as ScreeningTodoSchema,
@@ -14,9 +20,11 @@ import type {
   ProposeOperatorKnowledgeRequest,
   OperatorPlan,
   OperatorPreferenceData,
+  ProjectConfig,
   ScreeningOutcome,
   ScreeningTodo,
   Task,
+  SuperOperation,
 } from '@projectman/shared';
 import { TeamToolError } from '../../contracts';
 import type {
@@ -146,16 +154,21 @@ export class OperatorTools implements OperatorToolsHandler {
     );
   }
 
+  /** The Operator's own internal session, or the selected project manager's (PM-1043). */
+  private assertChecklistSession(ctx: ToolContext, config: ProjectConfig): void {
+    if (isOperator(memberOf(config, ctx.member))) {
+      if (!this.ownInternalSession(ctx))
+        throw new TeamToolError(
+          'forbidden',
+          'operator_owner_only: the checklist requires your own internal conversation.',
+        );
+    } else this.calls.assertCoordinationSession(ctx, config);
+  }
+
   async getChecklist(ctx: ToolContext): Promise<ChecklistToolView> {
     return this.calls.guard(async () => {
       const config = await this.calls.caller(ctx, 'get_checklist');
-      if (isOperator(memberOf(config, ctx.member))) {
-        if (!this.ownInternalSession(ctx))
-          throw new TeamToolError(
-            'forbidden',
-            'operator_owner_only: the checklist requires your own internal conversation.',
-          );
-      } else this.calls.assertCoordinationSession(ctx, config);
+      this.assertChecklistSession(ctx, config);
       return {
         checklist: await this.checklist.get(ctx.projectKey),
         templates: this.checklist.templateBases(),
@@ -166,13 +179,12 @@ export class OperatorTools implements OperatorToolsHandler {
   async updateChecklist(ctx: ToolContext, args: UpdateChecklistInput): Promise<UpdateChecklistResult> {
     return this.calls.guard(async () => {
       const config = await this.calls.caller(ctx, 'update_checklist');
-      if (!isOperator(memberOf(config, ctx.member)))
-        throw new TeamToolError('forbidden', 'operator_only: only the Operator may change the checklist.');
-      if (!this.ownInternalSession(ctx))
+      if (!isOperator(memberOf(config, ctx.member)) && !isProjectManager(memberOf(config, ctx.member)))
         throw new TeamToolError(
           'forbidden',
-          'operator_owner_only: the checklist requires your own internal conversation.',
+          'operator_only: only the Operator or the project manager may change the checklist.',
         );
+      this.assertChecklistSession(ctx, config);
       try {
         return await this.runChecklistOp(ctx.projectKey, ctx.member, args);
       } catch (err) {
@@ -246,14 +258,7 @@ export class OperatorTools implements OperatorToolsHandler {
     args: { role: BuiltInRoleId },
   ): Promise<RoleConfigurationRead> {
     return this.calls.guard(async () => {
-      const config = await this.calls.caller(ctx, 'get_role_configuration');
-      if (!isOperator(memberOf(config, ctx.member)))
-        throw new TeamToolError('forbidden', 'operator_only: only the Operator may read role configuration.');
-      if (!this.ownInternalSession(ctx))
-        throw new TeamToolError(
-          'forbidden',
-          'operator_owner_only: role configuration requires your own owner general conversation.',
-        );
+      await this.appCaller(ctx, 'get_role_configuration');
       const loaded = await this.projects.load(ctx.projectKey);
       return {
         version: loaded.version,
@@ -275,8 +280,13 @@ export class OperatorTools implements OperatorToolsHandler {
 
   async proposeOperatorKnowledge(ctx: ToolContext, args: ProposeOperatorKnowledgeRequest) {
     const config = await this.projects.config(ctx.projectKey);
-    if (!isOperator(memberOf(config, ctx.member)))
-      throw new TeamToolError('forbidden', 'operator_only: only the Operator may propose shared knowledge.');
+    const member = memberOf(config, ctx.member);
+    if (!isOperator(member) && !isProjectManager(member))
+      throw new TeamToolError(
+        'forbidden',
+        'operator_only: only the Operator or the project manager may propose shared knowledge.',
+      );
+    if (!isOperator(member)) this.calls.assertCoordinationSession(ctx, config);
     await this.calls.callerWithRequest(ctx, 'propose_operator_knowledge');
     return this.operatorKnowledge.propose(ctx, args).catch((err: unknown) => {
       if (err instanceof DomainError)
@@ -300,8 +310,9 @@ export class OperatorTools implements OperatorToolsHandler {
 
   private async preferenceCall<T>(ctx: ToolContext, tool: string, run: () => Promise<T>): Promise<T> {
     const config = await this.projects.config(ctx.projectKey);
-    if (!isOperator(memberOf(config, ctx.member)))
-      throw new TeamToolError('forbidden', 'operator_only: only the Operator may use preferences.');
+    const member = memberOf(config, ctx.member);
+    if (!isOperator(member) && !isProjectManager(member))
+      throw new TeamToolError('forbidden', 'operator_only: only the Operator or PM may use preferences.');
     await this.calls.callerWithRequest(ctx, tool);
     try {
       return await run();
@@ -348,6 +359,45 @@ export class OperatorTools implements OperatorToolsHandler {
     });
   }
 
+  async reassignTask(ctx: ToolContext, args: { taskKey: string; assignee: string | null; reason: string }) {
+    return this.calls.guard(async () => {
+      await this.calls.callerWithRequest(ctx, 'reassign_task');
+      const taskKey = this.calls.validTaskKey(ctx, args.taskKey);
+      try {
+        const previous = this.tasks.get(ctx.projectKey, taskKey).assignee;
+        const task = await this.tasks.update(
+          ctx.projectKey,
+          taskKey,
+          { assignee: args.assignee, assigneeReason: args.reason },
+          aiActor(ctx.member),
+        );
+        return { task_key: task.key, assignee: task.assignee, previous };
+      } catch (err) {
+        if (err instanceof DomainError) throw toToolError(err);
+        throw err;
+      }
+    });
+  }
+
+  async cancelTask(ctx: ToolContext, args: { taskKey: string; reason: string }) {
+    return this.calls.guard(async () => {
+      await this.calls.callerWithRequest(ctx, 'cancel_task');
+      const taskKey = this.calls.validTaskKey(ctx, args.taskKey);
+      try {
+        const task = await this.tasks.cancel(
+          ctx.projectKey,
+          taskKey,
+          { reason: args.reason },
+          aiActor(ctx.member),
+        );
+        return { task_key: task.key, status: task.status };
+      } catch (err) {
+        if (err instanceof DomainError) throw toToolError(err);
+        throw err;
+      }
+    });
+  }
+
   async openIntegratorTodo(
     ctx: ToolContext,
     args: { taskKey?: string; question: string; what: string; where: string; expected: string },
@@ -357,10 +407,26 @@ export class OperatorTools implements OperatorToolsHandler {
     recipientRefusal: QuestionRecipientRefusal | null;
   }> {
     return this.calls.guard(async () => {
-      await this.calls.callerWithRequest(ctx, 'open_integrator_todo');
-      const taskKey = args.taskKey ? this.calls.validTaskKey(ctx, args.taskKey) : null;
+      const { config } = await this.calls.callerWithRequest(ctx, 'open_integrator_todo');
+      // A guest cannot start an installation on the owner's machine.
+      const workItem = this.ctx.repos.sessions.get(ctx.sessionId)?.workItem;
+      if (workItem?.type === 'general' && workItem.with !== undefined)
+        throw new TeamToolError(
+          'forbidden',
+          'operator_owner_only: open_integrator_todo is not for a conversation with a guest.',
+        );
+      if (!machineTodoIssuerAllowed(config, ctx.member))
+        throw new TeamToolError(
+          'forbidden',
+          'machine_access_required: this member may not put machine work in the owners queue; an owner can switch it on in the member settings.',
+        );
+      const taskKey = this.calls.taskKeyFor(ctx, args.taskKey);
       // A followed step has its own wake-up and its own todo: the PM does not open a second one (PM-796 R2.7).
-      const tracked = taskKey ? this.obligations.listOpen(ctx.projectKey, taskKey)[0] : undefined;
+      // A developer on the card always has an open work obligation, which must not keep an installation out.
+      const tracked =
+        taskKey && isProjectManager(memberOf(config, ctx.member))
+          ? this.obligations.listOpen(ctx.projectKey, taskKey)[0]
+          : undefined;
       if (tracked)
         throw new TeamToolError(
           'invalid',
@@ -413,6 +479,47 @@ export class OperatorTools implements OperatorToolsHandler {
     args: { title: string; operation: OperatorOperation; plan?: OperatorPlan },
   ) {
     const config = await this.projects.config(ctx.projectKey);
+    if (coordinationMemberOf(config)?.handle === ctx.member) {
+      if (operatorCriticalOp(args.operation.op) && !args.plan)
+        throw new TeamToolError('invalid', 'operator_plan_required: critical operations require a plan.');
+      if (args.plan) OperatorPlanSchema.parse(args.plan);
+      if (!args.title.trim() || args.title.length > 120)
+        throw new TeamToolError('invalid', 'invalid_request: title must have 1 to 120 characters.');
+      const caller = await this.appCaller(ctx, 'operate');
+      try {
+        const result = await this.calls.recorded(
+          caller,
+          {
+            action: 'operation',
+            taskKey: null,
+            madeOperation: (result: { operation: SuperOperation }) => ({
+              id: result.operation.id,
+              awaitsOwner: result.operation.state === 'waiting_owner',
+            }),
+          },
+          async () => ({
+            operation: await this.superPath().operations.execute(ctx.projectKey, ctx.sessionId, {
+              requestId: appRequestId(caller.request!.id, canonical(args.operation)),
+              command: { kind: 'operate', operation: args.operation },
+            }),
+          }),
+        );
+        const operation = result.operation;
+        return {
+          status:
+            operation.state === 'waiting_owner'
+              ? ('awaiting_approval' as const)
+              : operation.state === 'succeeded'
+                ? ('done' as const)
+                : ('refused' as const),
+          step_id: this.ctx.repos.operatorRequests.steps(caller.request!.id).at(-1)!.id,
+          changes: [],
+          ...(operation.ownerQuestionId ? { inbox_item_id: operation.ownerQuestionId } : {}),
+        };
+      } catch (err) {
+        throw this.appFailure(err);
+      }
+    }
     if (!isOperator(memberOf(config, ctx.member)))
       throw new TeamToolError('forbidden', 'operator_only: only the Operator may operate.');
     const caller = await this.calls.callerWithRequest(ctx, 'operate', undefined, undefined, args.operation);
@@ -435,8 +542,14 @@ export class OperatorTools implements OperatorToolsHandler {
    */
   private async appCaller(ctx: ToolContext, tool: string) {
     const caller = await this.calls.callerWithRequest(ctx, tool);
-    if (!isOperator(memberOf(caller.config, ctx.member)))
-      throw new TeamToolError('forbidden', 'operator_only: only the Operator may use the super operations.');
+    if (
+      !isOperator(memberOf(caller.config, ctx.member)) &&
+      coordinationMemberOf(caller.config)?.handle !== ctx.member
+    )
+      throw new TeamToolError(
+        'forbidden',
+        'operator_only: only the Operator or selected PM may use the super operations.',
+      );
     const session = this.ctx.repos.sessions.get(ctx.sessionId);
     if (
       !caller.request ||
@@ -468,7 +581,10 @@ export class OperatorTools implements OperatorToolsHandler {
     try {
       const caller = await this.appCaller(ctx, 'execute_operation');
       // `operate` and `member_update` have their own tool; the direct path takes the rest.
-      if (args.command.kind === 'operate' || args.command.kind === 'member_update')
+      if (
+        isOperator(memberOf(caller.config, ctx.member)) &&
+        (args.command.kind === 'operate' || args.command.kind === 'member_update')
+      )
         throw new TeamToolError(
           'invalid',
           `super_operation_unsupported: a ${args.command.kind} command is not run here; use operate.`,
@@ -478,8 +594,9 @@ export class OperatorTools implements OperatorToolsHandler {
       if (args.command.kind === 'workspace_release') {
         const request = caller.request!;
         if (
-          (request.source !== 'message' && request.source !== 'answer') ||
-          !isOwner(caller.config, request.fromHandle)
+          isOperator(memberOf(caller.config, ctx.member)) &&
+          ((request.source !== 'message' && request.source !== 'answer') ||
+            !isOwner(caller.config, request.fromHandle))
         )
           throw new TeamToolError(
             'forbidden',
@@ -522,7 +639,9 @@ export class OperatorTools implements OperatorToolsHandler {
 
   async getMachineStatus(ctx: ToolContext, args: { target: AdministrationTarget }) {
     try {
-      await this.appCaller(ctx, 'get_machine_status');
+      const caller = await this.appCaller(ctx, 'get_machine_status');
+      if (!isOperator(memberOf(caller.config, ctx.member)))
+        throw new TeamToolError('forbidden', 'operator_only: machine reads require the Operator.');
       const { administration } = this.superPath();
       const status = await administration.status(ctx.projectKey, args.target);
       const machine = status.capabilities.includes('machine')
@@ -536,7 +655,9 @@ export class OperatorTools implements OperatorToolsHandler {
 
   async getMachineLogs(ctx: ToolContext, args: { target: AdministrationTarget } & AdministrationLogsOptions) {
     try {
-      await this.appCaller(ctx, 'get_machine_logs');
+      const caller = await this.appCaller(ctx, 'get_machine_logs');
+      if (!isOperator(memberOf(caller.config, ctx.member)))
+        throw new TeamToolError('forbidden', 'operator_only: machine reads require the Operator.');
       const { target, ...options } = args;
       return await this.superPath().administration.logs(ctx.projectKey, target, options);
     } catch (err) {

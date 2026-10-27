@@ -1,9 +1,11 @@
 import {
+  coordinationMemberOf,
   DEFAULT_AGENT_PROVIDER,
   effectiveSessionPermissions,
   isOpenTask,
   isOperator,
   isTheme,
+  memberStorageHandle,
   stageOf,
 } from '@projectman/shared';
 import type {
@@ -74,7 +76,7 @@ export class SessionContextInput {
     const memory =
       guestOf !== undefined
         ? ''
-        : await this.deps.memory.read(projectKey, member.handle).catch((err: unknown) => {
+        : await this.deps.memory.read(projectKey, memberStorageHandle(member)).catch((err: unknown) => {
             this.ctx.logger.warn({ err, member: member.handle }, 'could not read member memory');
             return '';
           });
@@ -154,7 +156,11 @@ export class SessionContextInput {
         this.ctx.logger.warn({ err, member: member.handle }, 'could not read operator preference');
         return undefined;
       });
-    const checklist = isOperator(member) ? this.ctx.repos.checklists.get(projectKey) : null;
+    // The selected project manager leads the setup checklist (PM-1043).
+    const checklist =
+      coordinationMemberOf(config)?.handle === member.handle
+        ? this.ctx.repos.checklists.get(projectKey)
+        : null;
     return {
       ...(task && this.host.fullTests()?.runsFor(task, config) ? { serverFullTest: true } : {}),
       project: config,

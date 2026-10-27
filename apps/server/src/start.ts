@@ -39,7 +39,7 @@ import { createSesEmailSender, parseEmailChannelEnv, scrubEmailChannelEnv } from
  *   CODEX_HOME (~/.codex): where the runner reads Codex's transcripts and plan usage,
  *   CLAUDE_CONFIG_DIR (~): where the runner finds Claude Code's .claude.json (workspace trust),
  *   GH_HOST (github.com): the host whose `gh` login the GitHub module checks,
- *   PROJECTMAN_BROWSERS_PATH (<home>/browsers): Playwright's browsers (PM-268, docs/DEPLOY.md), which
+ *   PROJECTMAN_BROWSERS_PATH (<home>/browsers): Playwright's browsers (PM-268, docs/PROVIDERS.md), which
  *   the members' sandboxed commands read and never write, in PLAYWRIGHT_BROWSERS_PATH.
  *   PROJECTMAN_HEAVY_LOCK_DIR (/tmp/projectman-<uid>/heavy): the machine's heavy-run queue (PM-332),
  *   shared by the members' sandboxes, the server's full test and `npm run heavy`.
@@ -50,7 +50,7 @@ import { createSesEmailSender, parseEmailChannelEnv, scrubEmailChannelEnv } from
  *   `claude` and `codex` are not interactive without a terminal, so it needs PROJECTMAN_HOME set to
  *   a development home, CLAUDE_BIN and CODEX_BIN set.
  *   PROJECTMAN_CLIENT_IP_HEADER (unset): the header the public entrance sets to the real client's
- *   address (`cf-connecting-ip` behind Cloudflare, PM-211, docs/DEPLOY.md). The login and invitation
+ *   address (`cf-connecting-ip` behind Cloudflare, PM-211, docs/HYBRID.md "The Cloudflare tunnel and Access"). The login and invitation
  *   limiters then count per that address instead of the proxy's, but only for requests from
  *   loopback whose header holds exactly one IP; unset (and always behind `tailscale serve`, which
  *   sets no such header) the connection's address counts. X-Forwarded-For is never read.
@@ -115,7 +115,6 @@ function warnRemovedManagedVmSettings(
   log: { warn: (object: { variables: string[] }, message: string) => void },
 ): void {
   const variables = [
-    'PROJECTMAN_BOUNDARY_CONFIG',
     'PROJECTMAN_EXECUTION_PROFILE',
     'PROJECTMAN_VM_READINESS_REPORT',
     'PROJECTMAN_VM_REPORT_MAX_AGE_MINUTES',

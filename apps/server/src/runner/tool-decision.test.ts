@@ -2,12 +2,16 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DEVELOPMENT_SHELL_TOOLS, REVIEW_SHELL_TOOLS } from '@projectman/shared';
+import type { SessionReadBoundary } from '@projectman/shared';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { SessionPolicy } from '../contracts';
 import {
+  claudeFileToolPaths,
   decideToolCall,
+  readBoundaryVerdict,
   resolveToolPath,
   toolPathForms,
+  pathPatternMatcher,
   type NormalizedToolCall,
   type ToolDecision,
 } from './tool-decision';
@@ -241,6 +245,11 @@ describe('toolPathForms', () => {
       join(work, 'gh', 'hosts.yml'),
     ]);
   });
+});
+
+it('matches a denied database glob through a case-insensitive firmlink alias', () => {
+  const matches = pathPatternMatcher(['/Users/anna/.projectman/db.sqlite*'], true);
+  expect(matches('/System/Volumes/Data/users/ANNA/.projectman/db.sqlite-wal')).toBe(true);
 });
 
 describe('row 1: denied paths, in every mode', () => {
@@ -567,6 +576,141 @@ describe('row 4: read', () => {
     });
     expect(decide(policy, read(join(extra, 'a.ts')))).toEqual(ALLOW);
     expect(decide(policy, read(join(link, 'a.ts')))).toEqual(ALLOW);
+  });
+});
+
+describe('a reader’s read boundary (PM-425)', () => {
+  const sibling = join(home, 'Dev', 'other');
+  const transcripts = join(home, '.claude', 'projects');
+  const teammateFolders = join(root, 'sessions');
+  const boundary: SessionReadBoundary = {
+    deniedRoots: [home],
+    allowedPaths: [
+      { path: work, kind: 'directory' },
+      { path: extra, kind: 'directory' },
+      { path: teammateFolders, kind: 'directory' },
+      { path: join(home, '.gitconfig'), kind: 'file' },
+    ],
+  };
+  const bounded = (patch: Partial<SessionPolicy['filesystem']> = {}): SessionPolicy => {
+    const base = reader('default');
+    return {
+      ...base,
+      filesystem: {
+        ...base.filesystem,
+        deniedPaths: [...(base.filesystem.deniedPaths ?? []), transcripts],
+        readBoundary: boundary,
+        ...patch,
+      },
+    };
+  };
+  const verdict = (...paths: string[]) => readBoundaryVerdict(boundary, work, paths, { home });
+
+  it('refuses a sibling project and the rest of the home, even through a relative path', () => {
+    expect(verdict(join(sibling, 'a.ts'))).toBe('refuse');
+    expect(verdict(join(home, 'notes.txt'))).toBe('refuse');
+    expect(verdict(join('..', 'home', 'Dev', 'other', 'a.ts'))).toBe('refuse');
+    expect(verdict(join(work, 'a.ts'), join(sibling, 'a.ts'))).toBe('refuse');
+  });
+
+  it('allows the working directory, an extra directory and a teammate’s session folder', () => {
+    expect(verdict(join(work, 'src', 'a.ts'), join(extra, 'a.ts'))).toBe('inside');
+    expect(verdict(join(teammateFolders, 'ses_other', 'shot.png'))).toBe('inside');
+  });
+
+  it('allows an exact home file, not a file that only starts with its name', () => {
+    expect(verdict(join(home, '.gitconfig'))).toBe('inside');
+    expect(verdict(`${join(home, '.gitconfig')}-evil`)).toBe('refuse');
+    expect(verdict(join(home, '.gitconfig', 'child'))).toBe('refuse');
+  });
+
+  it('leaves what is outside every closed root open, not allowed outright', () => {
+    expect(verdict('/etc/hosts')).toBe('open');
+    expect(verdict(join(outside, 'a.txt'))).toBe('open');
+    expect(verdict()).toBe('open');
+  });
+
+  it('refuses a link inside the working directory that leads into the closed home', () => {
+    expect(verdict(join(work, 'ssh-link', 'id_ed25519'))).toBe('refuse');
+  });
+
+  it('denies the reader’s file-tool read of another project, and allows its own without asking', () => {
+    const policy = bounded();
+    expect(decide(policy, read(join(sibling, 'a.ts')))).toEqual(denied('denied_path'));
+    expect(decide(policy, edit(join(sibling, 'a.ts')))).toEqual(denied('denied_path'));
+    expect(decide(policy, read(join(work, 'src', 'a.ts')))).toEqual(ALLOW);
+  });
+
+  it('denies a command that names a closed place instead of asking, whatever form the path takes', () => {
+    const policy = bounded();
+    for (const line of [
+      `cat ${join(sibling, '.env')}`,
+      'cat ~/Dev/other/.env',
+      'cat $HOME/Dev/other/.env',
+      `cat < ${join(sibling, '.env')}`,
+      `cd ${sibling} && cat .env`,
+      `grep -r key ${home}/*`,
+      'ls ~/Dev/*/.env',
+      'cat ../home/notes.txt',
+    ]) {
+      expect(decide(policy, command(line)), line).toEqual(denied('denied_path'));
+    }
+  });
+
+  it('does not deny a command that stays in its allowed places, or leaves the home alone', () => {
+    const policy = bounded();
+    for (const line of [
+      'cat src/a.ts',
+      `grep -r key ${work}/*`,
+      `cat ${join(extra, 'a.ts')}`,
+      'cat ~/.gitconfig',
+      'cat /etc/hosts',
+    ]) {
+      expect(decide(policy, command(line)).decision, line).not.toBe('deny');
+    }
+    expect(decide(reader('default'), command('cat ~/Dev/other/.env')).decision).toBe('ask');
+  });
+
+  it('keeps the Claude transcripts closed, even below an allowed directory', () => {
+    const policy = bounded({
+      readBoundary: {
+        ...boundary,
+        allowedPaths: [...boundary.allowedPaths, { path: join(home, '.claude'), kind: 'directory' }],
+      },
+    });
+    expect(decide(policy, read(join(transcripts, 'p', 'a.jsonl')))).toEqual(denied('denied_path'));
+  });
+
+  it('allows a path outside the closed roots for a reader with a boundary, and still asks without one', () => {
+    expect(decide(bounded(), read('/etc/hosts'))).toEqual(ALLOW);
+    expect(decide(reader('default'), read('/etc/hosts'))).toEqual(ASK);
+  });
+
+  it('does not apply to a developer placement', () => {
+    const developer = policyFor('default', {
+      filesystem: { ...policyFor('default').filesystem, readBoundary: boundary },
+    });
+    expect(decide(developer, read(join(work, 'a.ts')))).toEqual(ALLOW);
+  });
+
+  it('reads the paths of a Claude file tool call, with a glob pattern’s base', () => {
+    expect(claudeFileToolPaths('Read', { file_path: '/a/b' })).toEqual({ paths: ['/a/b'], reads: true });
+    expect(claudeFileToolPaths('Grep', { pattern: 'x' })).toEqual({ paths: [], reads: true });
+    expect(claudeFileToolPaths('Glob', { pattern: `${sibling}/**/*.ts` })).toEqual({
+      paths: [sibling],
+      reads: true,
+    });
+    expect(claudeFileToolPaths('Glob', { pattern: '**/*.ts' })).toEqual({ paths: [], reads: true });
+    expect(claudeFileToolPaths('Glob', { pattern: '../../Dev/x/**' })).toEqual({
+      paths: ['../../Dev/x'],
+      reads: true,
+    });
+    expect(claudeFileToolPaths('Glob', { pattern: '../x/*.ts', path: '/a' })).toEqual({
+      paths: ['/a', '/x'],
+      reads: true,
+    });
+    expect(claudeFileToolPaths('Write', { file_path: '/a/b' })).toEqual({ paths: ['/a/b'], reads: false });
+    expect(claudeFileToolPaths('Bash', { command: 'ls' })).toBeNull();
   });
 });
 

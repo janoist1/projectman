@@ -1,12 +1,16 @@
 import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { basename, isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import type Database from 'better-sqlite3';
 import { LATEST_SCHEMA_VERSION } from '../../apps/server/src/db';
 import { LIVE_SESSION_STATES } from '../../apps/server/src/runtime/sessions';
 import { databaseFiles, databaseInUse, snapshotDatabase } from './database';
 import { git, isGitRepository, redactRemoteUrl } from './git';
-import { pathGroup } from './paths';
+
+/** Group stored absolute paths for the read-only inventory report. */
+function pathGroup(path: string): string {
+  return `/${posix.normalize(path).split('/').filter(Boolean).slice(0, 3).join('/')}`;
+}
 
 /**
  * The inventory of a home directory and of the work around it (PM-143): everything the move has to
@@ -23,7 +27,7 @@ export interface Finding {
   message: string;
 }
 
-export interface DirtyInfo {
+interface DirtyInfo {
   modified: number;
   deleted: number;
   untracked: number;
@@ -38,7 +42,7 @@ export interface BranchInfo {
   localOnlyCommits: number;
 }
 
-export interface WorktreeInfo {
+interface WorktreeInfo {
   path: string;
   head: string | null;
   branch: string | null;
@@ -52,7 +56,7 @@ export interface WorktreeInfo {
   assignedTo: { member: string; taskKey: string | null } | null;
 }
 
-export interface RepoInventory {
+interface RepoInventory {
   project: string;
   name: string;
   path: string;
@@ -175,7 +179,7 @@ async function dirtyOf(dir: string): Promise<DirtyInfo> {
   return info;
 }
 
-export const isDirty = (dirty: DirtyInfo): boolean => dirty.modified + dirty.deleted + dirty.untracked > 0;
+const isDirty = (dirty: DirtyInfo): boolean => dirty.modified + dirty.deleted + dirty.untracked > 0;
 
 /** Whether any reference (branch, tag, remote-tracking) contains the commit. */
 async function refContains(repo: string, sha: string): Promise<boolean> {
@@ -271,8 +275,6 @@ const COUNTED_TABLES = [
   'attachments',
   'member_workspaces',
   'task_workspace_bindings',
-  'boundary_requests',
-  'boundary_grants',
   'feedback_marks',
 ];
 

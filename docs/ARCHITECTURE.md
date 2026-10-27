@@ -6,7 +6,7 @@ on a human sponsor's subscription. The team works through a configurable pipelin
 (for example development → code review → QA → client test → merge → release). Every step is
 attributed, and everything that waits for a human lands in one inbox ("Rád vár"). It runs on
 the owner's machine, reachable from a phone through Tailscale; [DEPLOY.md](DEPLOY.md) covers
-running it on a server.
+deployment and operation.
 
 Documentation map:
 
@@ -62,7 +62,24 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   on GitHub), a team, a pipeline with labels, and limits. Its configuration is YAML in the
   customization repository; its runtime state is in SQLite.
 - **Member** — human or AI, identified by a unique **handle** (`fe-1`, `qa`, `owner`) and a
-  display name. Humans have an **access level** (`owner`, `admin`, `developer`, `client`,
+  display name. An AI member's state on disk and on its engine (workspace, `.home`, sandbox
+  cache, memory file, snapshot refs) is kept under its **storage handle**
+  (`memberStorageHandle`, PM-1024): the first of its `formerHandles` (earlier handles, oldest
+  first, written by a rename), else the current handle. Renaming a member therefore moves
+  nothing on disk, and the agent's conversations keep their working directory. The task and
+  session comparisons (assignee, `session.member`, bindings) use the current handle.
+  **Renaming an AI member** (PM-1025) is an owner-only operation (REST `POST
+/api/projects/:key/members/:handle/rename`, the Operator's `member_rename` with an approval):
+  `MemberService.rename` holds the member's starts (`StartHolds`, `member_renaming`), refuses with
+  `member_session_live` while a session, a held workspace reservation, a `processing` queue item or
+  a deferred start of the member exists, and commits one configuration change carrying
+  `renames: {from: to}`. In that commit the configuration listeners see the previous configuration
+  with the rename applied (so nothing is retired or hired), the handle columns of the database are
+  rewritten in the same step (`apps/server/src/db/member-handles.ts`, `REWRITTEN_HANDLE_COLUMNS`),
+  and a `member_renamed {from, to, version}` event is appended. The timeline's earlier events keep
+  the old handle; viewers and the agents' text resolve it through `formerHandles` (the **alias**: a
+  message to the old handle reaches the member, the context pack lists "formerly `x`"). The e-mail
+  mailbox follows the new handle (see "E-mail"). Humans have an **access level** (`owner`, `admin`, `developer`, `client`,
   `viewer`) that governs what they may do in the app, and may hold several roles. An AI
   member holds exactly one role and has a provider (`claude` or `codex`), a model and effort,
   an optional **cheap subagent** (PM-179: a Claude Code member's sessions get a `reader-<model>`
@@ -80,13 +97,12 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   receives and its tool policy. A **role** is a named bundle of duties: 21 built-in roles with
   default bundles (`team.roleOverrides` replaces one) and custom roles defined in `team.yaml`.
   Release approval and final decision are human-only.
-- **External operation requests** — a protected adapter supplies exact, credential-free target
-  metadata for an opaque operation id. The server derives owner exceptions and routes other
-  requests to independent holders of `boundary_authorization` (the `lead_developer` bundle),
-  when the owner enables delegation. A persisted lead deadline escalates to owners, never
-  automatically allows; requests/grants and attributed audit survive restart. CLI permission
-  hooks and human gate/release decisions stay separate. See [BOUNDARY.md](BOUNDARY.md) for the
-  contracts, adapter integration and single-operation grant consumption.
+- **Permission request delegation** — when the owner enables `team.boundary`, the server routes
+  a permission request to independent holders of the `boundary_authorization` duty (the
+  `lead_developer` bundle) unless it is an owner exception. A persisted lead deadline escalates
+  to owners, never automatically allows. Human gate/release decisions stay separate. The
+  external operation requests and grants (PM-1035, PM-1019 B1) are removed: no adapter was ever
+  wired in.
 - **Pipeline** — ordered **stages** grouped into **board columns**. A stage has a kind:
   `queue` (waiting to start), `work` (the assignee builds it), `step` (the owners do one thing
   — review, deploy, test, client test, merge — as the stage's duty says, and record the result
@@ -438,6 +454,8 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   **The complexity limit** (PM-1007, replaces the Senior mark of PM-348): the automatic developer
   choice is `chooseDeveloper` in `packages/shared`. A card's points (`Task.complexity`, PM-1006) are
   compared with each developer's `complexityLimit` (a temp worker's is always 5). Among the free
+  developers, optional `specialtyLabels` first restricts automatic assignment to cards carrying at
+  least one matching label; explicit assignees remain unrestricted (PM-1038). Among matching free
   developers whose limit reaches the points the one with the smallest limit wins (then the least
   loaded, then the team order), so a small card does not take the strongest developer; an unscored
   card goes the same way among all free developers. While every developer who reaches the points is
@@ -455,6 +473,17 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   rule (`no_senior` event). The names `senior_*`, `seniors` and `wait_for_senior` are kept because
   stored rows and events carry them. A config migration turns the old `senior` mark into limit 13 and
   a DB migration turns a "senior" recommendation into 8 points. No machine-dependent part is affected.
+  **A paused provider** (PM-1051): a member whose provider is held (`provider_rate_limited` cooldown) or
+  over the plan usage limit (`plan_usage_paused`, `planUsagePause` in `packages/shared`) is not free
+  (`Admission.providerAvailable`), so the automatic choice never picks them and a paused high-limit
+  developer causes no `no_senior`. An assigned card whose assignee is on such a provider and has not begun
+  it (no session, no source trace, no open handoff, no fix-limit hold: `canReplaceUnstartedAssignee`) is
+  planned like an unassigned one by `planStarts` (`reassignableTaskKeys`, always an offer) and started by
+  `start_task` at a fitting free member (points, label and specialty limits still apply); with none free
+  nothing is assigned and no session starts. Work already begun is never moved. A new assignee on a
+  paused provider is refused by `update_task` and the REST PATCH with the known 409 codes, the whole
+  update atomically (`TaskService.registerProviderAssignmentCheck`, `Admission.assertProviderAvailable`).
+  The check reads the last background usage (`PlanUsageCache.peek`); admission itself still refreshes.
 - **Stage hand-over** — when a task enters a later stage owned by AI members, by anyone's
   move, the least loaded free owner (never the task's assignee) gets a session for the task.
   An owner that already has a session for the task gets a notice instead. A card sent back into the
@@ -501,7 +530,9 @@ Enforced on every configuration change, whoever makes it
 (`packages/shared/src/config/invariants.ts`; the changes only an owner may make are in
 `packages/shared/src/config/owner-only.ts`):
 
-- handles are unique; at least one human owner exists; AI sponsors are humans;
+- handles are unique, and a handle once used is never reissued: the `formerHandles` of every AI
+  member and the `from` of every `member_renamed` event stay taken (PM-1025); at least one human
+  owner exists; AI sponsors are humans;
 - repository names, board column ids, stage ids and label ids are unique;
 - stage owners and members named by labels refer to existing members; every role a member
   holds exists and suits the kind of member; custom role ids are unique and never reuse a
@@ -541,9 +572,9 @@ claude | codex ── transcript JSONL ────────────▶ r
 
 - One HTTP port, bound to loopback. `/hooks` and `/mcp` accept only local connections with a
   per-session random token. Everything under `/api` and `/ws` requires a login cookie.
-  Remote access goes through `tailscale serve` ([SECURITY.md](SECURITY.md)); the owner's live
-  instance is also public at chopper.istvan.io through a Cloudflare Tunnel behind Cloudflare
-  Access ([DEPLOY.md](DEPLOY.md), PM-200), which still ends at this one loopback port.
+  Local single-machine remote access can use `tailscale serve` ([SECURITY.md](SECURITY.md)).
+  The cloud hub's public entrance uses a Cloudflare Tunnel and Access
+  ([HYBRID.md](HYBRID.md#the-cloudflare-tunnel-and-access)), ending at the container's loopback port.
 - Session states come from hooks: SessionStart → idle, UserPromptSubmit → working,
   PermissionRequest → waiting_permission (a blocking call answered by the inbox decision,
   with a timeout), Stop → idle, SessionEnd or exit → exited; a lost login → failed.
@@ -690,7 +721,6 @@ construction order; the factories return the existing classes without changing b
 | `services/obligations`                            | Open-step deadlines, one reminder and one integrator todo (PM-806).         |
 | `services/feedback`                               | Feedback marks, screenshots and widget sessions.                            |
 | `services/project-docs`                           | Operator document writes and decision candidates.                           |
-| `services/boundary`                               | External operation authorization and boundary requests.                     |
 | `services/schedules`                              | Scheduled member work.                                                      |
 | `services/operator`                               | Operator actions, signals, requests and project management.                 |
 | `runner`                                          | Provider CLIs, PTYs, permission waits, transcripts, usage probes and trust. |
@@ -728,8 +758,7 @@ Only `assembly` and `entry` remain unsealed in the assembly layer. Other layers 
 import them. The `context` facade exposes `createContextPackBuilder` and
 `createMemberMemoryStore`; prompt and formatting helpers remain internal.
 
-No exception has a `core/*` source. The fifteen original pairs are accounted for in
-[the phase 5 closure inventory](refactor-core-closure.md): PM-612 removed one, and
+No exception has a `core/*` source. Of the fifteen original pairs, PM-612 removed one, and
 PM-632–635 removed fourteen. PM-646 removed the four connector exceptions
 (`api/auth/ws → assembly`, `instance → entry`). PM-648 moved composition to
 `assembly.ts` and removed compatibility exports; callers import the owning module.
@@ -795,12 +824,17 @@ managed in Settings → Integrator. The Operator's own channel route stays until
 
 Personal conversational style (PM-688) lives in `services/operator/preferences.ts`.
 `get_operator_preference` and `set_operator_preference` choose the person from the
-authenticated Operator session and its current human request; they accept no person,
+authenticated Operator session and its current human request, or the selected active PM's
+internal general session and open direct owner message/answer (PM-1021); they accept no person,
 project or path selector. Guests gain only this personal write. REST exposes self reads
 and owner/admin lists through personal logins, with no preference write route.
 The session launcher requests only its current human's five enum fields through a
 server port; signal and question-screening launches receive none. Guest contexts omit
 member memory. Style is rendered as validated JSON data and grants no authority.
+The PM shares the same per-person document and CAS with the Operator, with no owner fallback
+in background rounds. Only direct current-owner message/answer/conversation launches receive
+PM style data. Its overridable template style precedes project role and member instructions;
+explicit style requests or corrections teach preferences, not a single technical question.
 
 Shared approved agreement and principles (PM-689) live in `services/operator/knowledge.ts`.
 Only an Operator owner message/answer can propose them. The inbox's registered
@@ -851,8 +885,8 @@ The programs, their files and facades, the pinned version and the rules are in
   rules; health, machine and outage watchers; provider usage, quota and managed keys.
 - `context/` — context packs, prompts, kick-off briefs and member memory.
 - `services/` — merges, full tests and screenshots, releases, GitHub synchronization and
-  publishing, feedback and widget sessions, project documents, boundary requests, schedules
-  and Operator actions (the nine service modules).
+  publishing, feedback and widget sessions, project documents, schedules
+  and Operator actions (the eight service modules).
 - `runner/` — provider CLIs and PTYs, the input queue, session clocks, permission gate,
   hooks and their forwarder, transcripts, provider usage probes, trust and login checks.
 - `worktree/` — task worktrees and branches, member workspaces and dependency refresh.
@@ -936,6 +970,15 @@ hashes); `member_queue_items` (PM-894, migration 98: one row per item in an AI m
 queue"; not journaled); `sessions.execution_profile` (PM-141) is a column, not a table. Schema changes are numbered migrations in `apps/server/src/db/migrations.ts`;
 the server refuses a database a newer build migrated.
 
+**Handle columns (PM-1025).** Every column that stores a member handle is registered in
+`apps/server/src/db/member-handles.ts`: either rewritten by a rename (`REWRITTEN_HANDLE_COLUMNS`,
+`REWRITTEN_HANDLE_JSON`: tasks, messages, inbox, sessions, `member_state`, `member_queue_items`,
+`task_workspace_bindings`, …) or deliberately not (`UNREWRITTEN_HANDLE_COLUMNS`: the storage keys,
+e.g. `member_workspaces.member`, which hold the storage handle, and the append-only timeline). A
+guard test (`member-handles-columns.test.ts`) fails when a new handle column is in neither list.
+The rewrite is idempotent; at startup `MemberService.recoverRenames` completes a rename whose
+configuration was saved but whose database step did not run.
+
 ## Member queue (PM-894)
 
 Every AI member has one durable queue of what is waiting for them: a message, an Operator todo, a fix limit decision
@@ -947,7 +990,7 @@ Every AI member has one durable queue of what is waiting for them: a message, an
   the member works it in (a card, or `general` = the member's desk with no workspace), `wake`, `state`
   (`queued`, `processing`, `done`, `cancelled`), the close reason, `attempts`, a wait code and the Operator's outcome.
   The contract is `packages/shared/src/domain/member-queue.ts` (`MemberQueueItem`, `MemberQueueView`,
-  `MemberQueuesView`, `nominalMessagePlace`, `memberQueueSourceId`).
+  `nominalMessagePlace`, `memberQueueSourceId`).
 - **Enqueue**: `core/member-queue` (`MemberQueue`). The two source repositories run listeners inside the transaction of
   every write (`messages.onPendingChange`, `inbox.onChange`), so a row commits with its source and no call site has to
   remember it. A message gets an item for each AI recipient it is pending for (a receipt without `deliveredAt`; the
@@ -974,12 +1017,9 @@ Every AI member has one durable queue of what is waiting for them: a message, an
   delivers as before (receipt and item close together). Items a session works (`processing`) return to the queue
   when the session is gone, after `MEMBER_QUEUE_MAX_ATTEMPTS` they are handed off, and after 45 minutes the session is
   stopped. An old `message_wake` deferred-start row is read once (`ensure`) and deleted.
-- **API** (`apps/server/src/api/member-queue.ts`): `GET /api/projects/:key/member-queues` (every AI member in
-  configuration order, zeros included), `GET /api/projects/:key/members/:handle/queue?closedSince=` (open items and the
-  items closed since; default 24 hours; an unknown or non-AI handle is 404 `unknown_member`, a bad date 400
-  `invalid_request`) and `GET /api/projects/:key/operator/queue`. Access: a person's own login (developer or more) or
-  an integrator read or super key; the legacy integrator key is refused (`insufficient_access`, on the Operator route
-  `operator_owner_only`). The Operator channel (`OperatorChannel.queue`) carries the open count and the item in work.
+- **API** (`apps/server/src/api/member-queue.ts`): `GET /api/projects/:key/operator/queue` only (PM-1030 deleted the
+  per-member and all-members routes; nothing called them). Access: a person's own login (developer or more) or
+  an integrator read or super key. Legacy keys fail authentication with 401 (PM-1037). The Operator channel (`OperatorChannel.queue`) carries the open count and the item in work.
 - **WebSocket**: `member_queue_changed {projectKey, member}`, once per member per unit of work. Clients do not see it.
 - **Remote engine**: no machine-dependent part is added. The queue, the driver and the sweep live on the hub with the
   database; only the session start crosses to an engine, as before. A member whose engine is offline waits with
@@ -1002,8 +1042,8 @@ retired by PM-888, whose `execute_operation` runs the command directly, see "In-
 below; the schema and the stored handoffs stay) stores a `SuperHandoff`: one `SuperCommand` of a closed set (`operate`, `member_update`, `invite_create`,
 `merge`, `merge_order`, `administration`), a reason and, optionally, the configuration version it was made
 against. It grants no execution right and no approval. The integrator lists the handoffs (`GET
-…/operator-super/handoffs`) and starts one with `POST …/handoffs/:id/execute {requestId}` (202 `{operation}`),
-authenticated by the owner's super token; one `(project, token, request id)` is one `SuperOperation`, so a retry
+…/operator-super/handoffs`) and starts one with the `execute_super_handoff` MCP tool (there is no REST execute route,
+PM-1030), authenticated by the owner's super token; one `(project, token, request id)` is one `SuperOperation`, so a retry
 returns the same record and a different command under the same id is 409 `super_request_conflict`.
 
 The server classifies the command itself (`superCommandEffects`, a projection onto the closed mutation list of
@@ -1066,10 +1106,10 @@ connection, `ToolContext` with a `sessionId`).
   shared ones with the reason (`EXTERNAL_DENIED`); a test checks that every shared tool is exactly one of the two.
 - **Project switching is stateless.** Every project tool takes a required `project_key`; `list_projects {}` returns the
   projects where the key's holder is an owner at this moment. An unknown project and one the holder does not own are
-  refused alike (`insufficient_access`). `tools/list` is filtered by the key's mode (`super`, `read`, `legacy`); a forbidden
+  refused alike (`insufficient_access`). `tools/list` is filtered by the key's mode (`super`, `read`); a forbidden
   tool called directly is refused by the same table (`integrator_not_allowed`, `integrator_read_only`).
 - **Same right, same audit.** A call runs through `SuperOperator.execute` (`super` and `read` keys: the REST scope; `super`:
-  the audit row `mcp_<tool>`); a `legacy` key keeps the unscoped, unaudited REST behaviour. The super tools
+  the audit row `mcp_<tool>`). Legacy keys fail authentication with 401 (PM-1037). The super tools
   (`list_super_handoffs`, `execute_super_handoff`, `super_operate`, `get_super_operation`, `query_super_diagnostics`,
   `get_administration_status`, `get_administration_logs`, `get_machine_snapshot`, `relay_owner_answer`) are `super` only and answer with structured
   JSON plus the domain `errorCode`.
@@ -1085,10 +1125,10 @@ to an engine.
 ## Super-mode diagnostics, test and build (PM-764, part of the super mode PM-757)
 
 The integrator (a super token, an owner's access) reads and starts what it needs to prepare a release, every call
-bound to the project and to an engine linked to it. `GET …/operator-super/administration/status?target=hub|<engineId>`
-and `…/logs?target=…&limit=50` (at most 200) answer from the supervisor's sanitized view
+bound to the project and to an engine linked to it. The MCP tools `get_administration_status` (`target=hub|<engineId>`)
+and `get_administration_logs` (`limit` at most 200) answer from the supervisor's sanitized view
 (503 `administration_unavailable` where the instance has no adapter, 403 `administration_target_mismatch` for an
-engine that is not linked). `POST …/operator-super/diagnostics/query {query, taskKey?, limit}` reads a closed
+engine that is not linked); the REST routes were deleted in PM-1030, nothing called them. The `query_super_diagnostics` tool reads a closed
 catalogue by name (`tasks`, `sessions`, `merges`, `operations`), each with the fixed columns of
 `SUPER_DIAGNOSTIC_COLUMNS`: there is no SQL, no table or column argument, and no user, key, secret, inbox text or
 personal data in any column. `POST …/operator-super/operations {requestId, taskKey?, command}` starts a
@@ -1141,8 +1181,8 @@ at)`, index `(project_key, seq)` (migration 81). `seq` never goes back, also not
   focus items) name the card key in kind `task` (a link names the card's project through the card, a
   card removed by a cascade is announced by its own row); `timeline_events`, `team_messages`,
   `message_attachments`, the inbox and its question groups, `task_handoffs`, the operator requests and
-  their steps (the step names its request and the request's project), the super-operation audit, boundary
-  requests, merges, merge trains, releases and doc writes have their own kinds; a pause of the whole
+  their steps (the step names its request and the request's project), the super-operation audit,
+  merges, merge trains, releases and doc writes have their own kinds; a pause of the whole
   instance is written for every project. `UNJOURNALED_TABLES` names every other table with the reason
   (credentials, login, usage, machine-local bookkeeping, Operator bookkeeping, the journal itself).
   `test/project-change-journal.test.ts` fails when a table is in neither list, in both, or a name is
@@ -1330,14 +1370,11 @@ server (no role is never read as active), and the server never writes it: only a
 `scripts/migrate/cli.ts instance …`. An older build ignores it, which is why the live Mac checkout has to be
 updated to a build that knows it before the old home is called retired.
 
-The move tool (`scripts/migrate/`) is outside the server and uses it only for the schema version, the marker and
-the configuration loader. It reads a **stopped** source (its database from a scratch copy of the main file and
-its log, never in place), writes a checksummed secret package (the home without worktrees, workspaces and the
-retired publishing data; a git bundle per repository; the dirty files of every checkout; the transcripts the
-database names), and `apply` turns it into a standby home: the database migrated by this build, the stored
-paths translated by explicit mappings, the workspace paths committed in the copy's customization history, the
-repositories rebuilt from their bundles, the old machine's uncommitted work kept as pending items. The procedure,
-the rollback and the evidence are in [MIGRATION.md](MIGRATION.md).
+The hybrid move tool (`scripts/migrate/`) inventories a stopped local source, writes a checksummed
+cloud package and prepares the Mac engine identity. Source repositories, worktrees and CLI
+transcripts stay on the Mac. The return path restores final cloud data before activation;
+[HYBRID.md](HYBRID.md) documents the procedure and rollback. VM packaging, path remapping and
+repository restoration were removed in PM-1033; legacy migrated homes retain their activation checks.
 
 ## Review at a pinned commit (PM-183, part of PM-176 rule 1)
 
@@ -1657,12 +1694,12 @@ and fails is `check_failed`. On a remote engine this holds for an RPC timeout to
 installation stopped, the lock freed), so the checkout is removed after that; an engine that stays
 unreachable is `engine_offline`.
 
-`BranchMerger.readFile` and `BranchMerger.commitFiles` are for the Operator's document writing
-(PM-388, PM-494): the card merge never calls them. `RepoConfig.docs` (`project-docs.ts`) says where
+`BranchMerger.readFile` and `BranchMerger.commitFiles` are for project document writing
+(PM-388, PM-494, PM-1044): the card merge never calls them. `RepoConfig.docs` (`project-docs.ts`) says where
 the decision log, roadmap and lessons are (PM-1004); absent, the feature is off, and `projectDocsOf` takes the first
 repository that has a path. `PATCH /config` sets it with `repoDocs` (`docs: null` clears it).
 
-**The slot is shared with the Operator's document writes (PM-495).** `DocWrites` (`services/project-docs/doc-writes.ts`)
+**The slot is shared with project document writes (PM-495, PM-1044).** `DocWrites` (`services/project-docs/doc-writes.ts`)
 writes a row of `doc_writes` and runs it in the same repository slot as a merge: `Merges.pump` skips a
 repository while `DocWrites.busy` says a write runs there, and a merge fiber's observer calls `docWrites.pump()`
 before its own `pump()`, so a waiting write goes first when the slot frees (`DocWrites.pump` skips a repository
@@ -1677,9 +1714,9 @@ the key's origin (`external_origin`), its commit has the key's trailers, and it 
 (`EXTERNAL_DOC_WRITE_WAIT_MS`) with `published`, `queued` or `running`; `get_project_doc_write` reads it on. A row
 without a request and without an origin never runs (`authorization_revoked`), except one explicitly marked
 `autonomous_lessons` by `requestLessons` (PM-1004). That write has no owner request or step. The hub verifies
-the Operator, repository/default branch and current lessons path at start, recovery and before publication;
+the selected project manager or transitional Operator, repository/default branch and current lessons path at start, recovery and before publication;
 conflicting provenance or revoked configuration ends it as `authorization_revoked`. Its result still reaches
-the Operator through the existing system-message path.
+the author through the existing system-message path.
 
 ## Heavy-run queue (PM-332)
 
@@ -1813,7 +1850,7 @@ workers follow the machine's size.
   run in the same Claude Code sandbox, excluding PTY files, took 306.14 s (collect
   47.00 s, tests 1,145.95 s), with 538 files and 12,427 tests. Four files failed because
   a long temporary path exceeded the macOS Unix-socket limit; all four passed when
-  rerun with a short TMPDIR (75 passed, one skipped). In the replay, cloud-trial-reset-host
+  rerun with a short TMPDIR (75 passed, one skipped). In the replay, one host test
   uses its successful 17.9 s rather than the failed JSON's 1.68 s. This raises the
   estimated complete server wall time to about **310–322 s**, below the 600 s target.
   Registered test counts did not decrease. The corrected wall improvement over the
@@ -2066,10 +2103,16 @@ workers follow the machine's size.
   protections stay in place; a denied operation is reported through the command's exit code and stderr.
 
 - **Durable super-mode handoff and owner-bound operations (PM-762, Super mode 6/10)** —
+  The app principal also belongs to the selected project manager (PM-1041): its server-issued `member`
+  binds the actor to that member's own general session and open owner request. Project commands use
+  the shared operation path under the owner's authority; machine and other unlisted command kinds
+  are refused with `command_not_for_project_manager` and handed off through `open_integrator_todo`.
+  Owner-reserved effects still wait for the owner's own login. App principals stay on the server;
+  this adds no machine dependency or remote-engine boundary.
   `services/super-operator/handoffs.ts` (`SuperHandoffService`), `db/super-handoffs.ts` (migration 83:
   `super_handoffs`, `super_operations`), `packages/shared/src/{api/super-handoff,config/super-command}.ts`,
   `core/inbox/inbox.ts` (the owner's-own-login rule, the relay), the Operator MCP tool `request_super_operation`
-  (retired by PM-888) and the routes `routes.superHandoffs` / `routes.executeSuperHandoff` / `routes.relayOwnerAnswer`. The base
+  (retired by PM-888) and the routes `routes.superHandoffs` / `routes.relayOwnerAnswer` (execution is the MCP tool only, PM-1030). The base
   Operator records a command and a reason; nothing runs until the owner's integrator (a super token) starts it with
   a request id. A command with a deletion, security or cost effect waits for the owner's own login
   to answer a bound question (24 hours; the question names the command hash, the config version and the token). The
@@ -2089,17 +2132,23 @@ workers follow the machine's size.
   `planLabelChange` as `authority`; owner-reserved labels stay refused.
 
 - **Super-mode diagnostics, full test, image build and release preparation (PM-764, Super mode 8/10)** —
-  hub: `services/super-operator/{administration,facade,rights,diagnostics}.ts`, the five routes
-  `routes.superOperations|superOperation|superAdministrationStatus|superAdministrationLogs|superDiagnosticsQuery`
-  (`api/operator.ts`), `packages/shared/src/api/super-operate.ts`. Builder (the machine that tests and builds):
+  hub: `services/super-operator/{administration,facade,rights,diagnostics}.ts`, the two routes
+  `routes.superOperations|superOperation` (`api/operator.ts`; the status, logs and diagnostics reads are MCP tools only), `packages/shared/src/api/super-operate.ts`. Builder (the machine that tests and builds):
   `apps/server/src/administration/executors.ts` (`createBuilderExecutors`, `FULL_TEST_COMMANDS`),
   `scripts/administration/builder.ts` (the real toolbox) and `scripts/administration/supervisor.ts`, which installs
   the executors only where the supervisor configuration names a builder (`SupervisorConfig.builder {repo, root}`,
-  both absolute paths); `scripts/cloud/images.ts` (`buildPinnedImage`). **Machine assumptions:** the builder
-  repository holds the card's commit (`git cat-file`); the full test checks the commit out into a detached
-  worktree below `builder.root` (`createLocalBranchMerger.checkoutForCheck`) and runs `npm run merge-test` (or
+  both absolute paths) and an absolute, NUL-free top-level `appHome` (PM-816); `scripts/cloud/images.ts`
+  (`buildPinnedImage`). The protected config supplies the app home, with no environment or home-directory
+  fallback; a builder configuration missing it refuses to start. `prepare --app-home` writes it on both platforms.
+  **Machine assumptions:** the builder repository holds the card's commit (`git cat-file`); the full test checks
+  the commit out into a detached worktree below `builder.root` (`createLocalBranchMerger.checkoutForCheck`) and
+  runs `npm run merge-test` (or
   `-- --all`) in the full-test sandbox (`sandbox-exec` on macOS) at its turn in the machine's heavy-run queue
-  (`defaultHeavyLockDir`, `requireHeavyLock`); the image build exports the commit with `git archive` (tracked files
+  (`defaultHeavyLockDir`, `requireHeavyLock`). Both the test and its sandboxed `npm ci` deny the configured app
+  home and the shared Claude temporary roots (including `CLAUDE_CODE_TMPDIR`), `defaultSessionTmpRoot()` and
+  canonical `os.tmpdir()/projectman-sessions`; the run's own sandbox, checkout and git metadata stay readable,
+  as in "Server full test before review". The builder resolves these roots on its own machine, never from hub
+  paths or environment (PM-816). The image build exports the commit with `git archive` (tracked files
   only, symbolic links and secret-named paths refused) and runs `docker buildx build --output type=docker,dest=…`
   into `<builder.root>/_image-build`, with no `docker load`, no registry push and no deploy. **Remote engine:**
   yes, and that is the design: the hub never reads a path or runs a test or a build. It sends the strict command
@@ -2134,9 +2183,21 @@ workers follow the machine's size.
   (example, principle and effect), and each member's enumerated conversational preferences in
   `<server home>/operator-data/<projectKey>/knowledge.json` and `preferences/<handle>.json`.
   These records are outside the public repository and the customization git history. PM-688 adds
-  a session-bound personal preference MCP writer and authenticated REST reads. PM-689 adds
+  a session-bound personal preference MCP writer and authenticated REST reads. PM-1021 also
+  allows the selected PM to read/write its current direct owner's five style fields in an
+  internal general conversation, sharing the Operator document and CAS. PM-689 adds
   owner-approved agreement/principle CAS and marker recovery under the server's configuration
-  lock; the store remains private. Missing documents start at revision zero; invalid documents are refused
+  lock; the store remains private. PM-1043 (PM-1023 K4): the selected PM now leads the agreement,
+  the principles and the setup checklist: it reads the project knowledge and proposes changes
+  (`propose_operator_knowledge`, without recommended operations) in its internal general
+  conversation, and the checklist notices go to its queue; the store, its path and the owner's
+  approval are unchanged, and the PM reaches the store only through the server (a remote engine
+  needs nothing new). PM-1046 (PM-1023 K7) adds the global Operator's own instance target,
+  `<server home>/operator-data/_instance/knowledge.json` (`readInstanceKnowledge`,
+  `compareAndSwapInstanceKnowledge`): the same format, revision and error codes, one document for the
+  whole server; `_instance` is no valid project key, so it never collides with a project. It is reached
+  only through the external MCP's super tools (below); the Operator runs on the owner's machine and the
+  document stays in the server's home. Missing documents start at revision zero; invalid documents are refused
   without overwriting. **Machine assumption:** one server process owns a private writable home,
   with POSIX directory/file permissions (0700/0600), no-follow file opens and same-directory atomic
   rename. Target-file CAS writes are serialized within that process, including multiple store
@@ -2145,33 +2206,22 @@ workers follow the machine's size.
   root to member file tools and the existing session-policy/provider consumers; no separate
   provider rule or new permission is added.
   **Remote engine:** storage stays on the server, with no file mount on an engine. Context/MCP
-  services send the current person's five preference enums (PM-688), or the filtered shared
+  services send the current person's five preference enums to authorized Operator/PM contexts
+  and MCP calls (PM-688, PM-1021), or the filtered shared
   revision/agreement/principles to internal Operator/PM contexts and authorized MCP reads
   (PM-689), across the existing boundary. Markers never enter context. No new engine file or
   machine assumption is introduced.
 
 - **Cloud provisioning from the owner's machine (PM-532)** — `scripts/cloud/*` (`npm run cloud`),
   `deploy/aws/`, `docs/AWS.md`, `apps/server/test/cloud-*.test.ts`.
-  PM-674's [owner cutover sheet](CLOUD-CUTOVER.md) coordinates explicit account/cost previews,
-  separate AWS/SES/edge approvals and retention of existing Cloudflare DNS/mail. It adds no
-  CLI/config contract; credentials stay on the administration machine, outside member sessions.
+  PM-674's [rollback sheet](CLOUD-CUTOVER.md) preserves the final stopped-cloud data before
+  Mac single activation. Credentials stay on the administration machine, outside member sessions.
   PM-717 adds a mandatory first-start seed integrity gate in `scripts/cloud/machine.ts`: the
   administration machine hashes the closed package DB before/after upload and compares hash/bytes
   with the stopped host through the existing SSH boundary; no engine RPC or credentials are added.
-  PM-719 adds `trial-reset-plan`/`trial-reset-apply` in `scripts/cloud/trial-reset.ts`: the admin
-  hashes the retained final return copy and exact mode 0600 plan bytes, checks explicit EC2
-  account/profile/region/instance/network and two never-versioned trial buckets, and requires a
-  separately owner-approved plan hash. It creates a durable one-use local result receipt, archives
-  the stopped/disabled host before any deletion, and deletes only enumerated keys with exact ETag
-  conditions and expected owner. AWS CLI model support is required; delete operations set
-  AWS_MAX_ATTEMPTS=1/standard mode. Partial results preserve receipts/copies and require separate
-  recovery approval; no retry, resource teardown, seed or start is implicit. The two round runbook
-  retains the final download and host archive through round two's full backup/isolated restore.
-  **Remote engine:** plans/copies and AWS CLI remain on the administrator, not on an engine;
-  the existing SSH-over-SSM boundary returns only fixed metadata, hashes, counts and bytes.
   A tool the owner runs on their Mac
-  that creates and maintains the cloud board on AWS EC2 or Lightsail: `preflight` and `aws` (PM-534: the machine,
-  the firewall, the two S3 buckets, the two IAM users and their access keys), the machine part
+  that creates and maintains the cloud board on AWS EC2: `preflight` and `aws` (PM-534: the machine,
+  the security group, the two S3 buckets, the two IAM users and their access keys), the machine part
   (PM-535, the next entry), Cloudflare (PM-536, the entry after it) and the DNS move (PM-537,
   `scripts/cloud/dns.ts`: Route 53 read/import, authoritative verification using `CloudDeps.resolve`
   with name-server IPs resolved locally first, public delegation/DS through Cloudflare and Google DoH,
@@ -2210,7 +2260,7 @@ workers follow the machine's size.
   with no automatic destructive repair. `--dry-run` writes nothing. **Remote engine:** provisioning
   remains on the owner's machine for the central server, never on an engine; the Mac engine gets
   no AWS credentials, and no new server/engine RPC or payload crosses the boundary. SSH over SSM
-  host operation is provided by PM-677 (next entry); the Lightsail adapter remains its compatibility path.
+  host operation is provided by PM-677 (next entry); EC2 is the only compute (PM-1036).
   PM-718 adds explicit `aws.ec2.architecture` (`x86_64` by default, or `arm64`): the Canonical
   AMI name/Architecture, type capabilities and existing instance must agree. Native apt/snap
   bootstrap works on both; ARM requires an external image bundle. The approved PM-675 target is
@@ -2259,21 +2309,10 @@ workers follow the machine's size.
 (publickey...)` line (plus `Warning:`/SSM session noise) means `commandStarted: 'no'`; any other output
   that mentions it stays `unknown`, not retryable. Reads keep the loose match. **Remote engine:** unchanged,
   admin machine only. Related task: PM-753.
-  PM-719 adds three fixed-path `host.sh` operations: `trial-reset-inspect`, `trial-reset-archive`
-  and read-only `trial-reset-verify`. The last two accept only UUIDv4 and exact SHA-256/none
-  arguments, with no payload/path override. An embedded existing Python3 standard-library program
-  runs with `-I -S`; Linux/POSIX dir_fd/no-follow descriptors and `/proc/self/mountinfo` are required
-  before writes. Missing interpreter/capabilities refuse without installation or fallback.
-  It reads systemd/Docker and process writers, hashes the full UTF-8 byte-sorted NUL inventory,
-  refuses symlinks/special entries/mounts/detectable changes and takes the existing `.image.lock`
-  without creating or changing it (a previously deployed trial target must have this lock).
-  Archive uses root-only 0700 `/var/lib/projectman/trial-archive/<UUID>` and atomic 0600 reset.json,
-  preserves deploy.json/image.env before same-filesystem data rename, and creates empty 0700
-  uid/gid 10001 active data. cloud.env and other credentials/images stay in place. Incomplete
-  markers block further resets. Final verify rehashes the specified archive after S3 deletion,
-  checks its strict archived receipt, missing active metadata, empty data and stopped state.
-  **Remote engine:** Python and filesystem mutations run only on EC2 through the same SSH/SSM
-  path; Node/AWS CLI stay on the admin machine. No engine RPC, secret or inbound Mac port is added.
+  PM-1029 removes the completed PM-675 trial commands and their embedded host program.
+  Host administration no longer needs Python3 or provides trial archival/deletion operations.
+  **Remote engine:** the remaining host operations still run on EC2 through SSH/SSM from the
+  administration machine; no engine RPC or new machine assumption is added.
   PM-717 carries `seed-digest` over this same SSH/SSM session, with no arguments or stdin payload:
   only the database SHA-256 and byte count return. On Ubuntu 24.04 the host uses coreutils to read
   the fixed `/var/lib/projectman/data/db.sqlite`, refuses live/starting units, non-regular/symlink
@@ -2300,10 +2339,11 @@ workers follow the machine's size.
   **Remote engine:** configuration, apt, restart and store checks run only on the central Ubuntu
   host over the existing SSH/SSM channel. No new payload, credential or engine RPC is introduced.
 
-- **The Lightsail machine and its operation (PM-535, PM-718, PM-725)** — `scripts/cloud/{host,machine,images}.ts`,
+- **The cloud machine and its operation (PM-535, PM-718, PM-725; EC2 is the only compute since PM-1036)** —
+  `scripts/cloud/{host,machine,images}.ts`,
   `deploy/aws/{host.sh,projectman-cloud.service}`, `apps/server/test/{cloud-host,cloud-machine,deploy-aws}.test.ts`,
-  `apps/server/test/helpers/fake-host.ts`. PM-718's optional `deployment.imageBundle` also works on
-  this legacy amd64 transport. Without it, the existing amd64 host build remains; with it, import
+  `apps/server/test/helpers/fake-host.ts`. PM-718's optional `deployment.imageBundle`: without it, the
+  existing amd64 host build remains; with it, import
   precedes env/start without build fallback. History adds optional imageId/platform; status adds
   actual container imageId. Prebuilt start uses an immutable ID; health and rollback check/carry it
   and the source SHA. ARM refuses builds and digestless starts/rollback. Operations stay on the
@@ -2324,16 +2364,13 @@ workers follow the machine's size.
   `/etc/projectman/{cloud.env,image.env}`, `/var/lib/projectman/{data,deploy.json}` (`current`,
   `previous`, `lastStoppedAt`), the checkout `/opt/projectman/src`. **Machine assumptions:** the
   machine is Ubuntu 24.04 with `apt`, `systemd` and Docker from the distribution; the owner's Mac has
-  `ssh` (OpenSSH with certificate support) and reaches the machine on its public IPv4 address; the
-  session opens `22/tcp` for the Mac's own address only for the length of a command and puts the
-  firewall back afterwards (also on a failure or Ctrl-C), with host keys taken from Lightsail
-  (`StrictHostKeyChecking=yes`; `aws.sshIdentityFile` is the fallback for the identity, not for the
-  host keys). The build happens on the 2 GB machine (swap file, 3 GiB free-disk check). The released
+  `ssh` and reaches the machine through SSM with an ephemeral key (the EC2 host channel entry above;
+  no inbound rule, no public-address lookup). The build happens on the 2 GB machine (swap file, 3 GiB free-disk check). The released
   image is tagged with the full commit id, which is also `PROJECTMAN_VERSION`. **Does this work on a
   remote engine?** Nothing in it runs on an engine: it is the owner's own tool for the server side, and
   the engine neither calls nor depends on it. The entries "Cloud provisioning" and "Cloud deployment
   and backup" are the other parts of the same chain.
-  PM-717 applies the same mandatory `seed-digest` gate to this compatibility path: the owner tool
+  PM-717 applies the mandatory `seed-digest` gate here too: the owner tool
   compares source before/after SHA-256 and bytes with the stopped Ubuntu host before any build/start.
   It assumes coreutils `stat`/`sha256sum`, a closed package and a single administrator during cutover;
   no new port, persistent state, engine operation or server/engine payload is introduced.
@@ -2483,7 +2520,13 @@ workers follow the machine's size.
   is the handle or `ai.email.mailbox`, unique server-wide). The mail lands in the member's conversation as a
   reply linked by MIME headers when answering a member's mail (PM-1018), otherwise as a direct
   team message, and its attachments go through the message-attachments storage on the hub, so nothing new
-  crosses to an engine.
+  crosses to an engine. **Rename (PM-1025):** a rename deletes `ai.email.mailbox`, so the address becomes
+  `<new handle>@<reply domain>` (it is refused with `email_mailbox_taken` when that mailbox is another
+  member's). Mail to the old address still arrives: `emailMailboxOwners` also matches the `formerHandles`
+  of an AI member, so the old name resolves to the same member; a live holder of the same name does not
+  win over it but shares it, and the existing shared-name branch parks the mail. The old name stays reserved
+  in every project (`emailMailboxReserved`): no chosen mailbox, e-mail switch-on or rename may take it.
+  No new boundary: it is the same hub-only rule.
 
 - **Feedback widget public entrance and screenshot store (PM-506, PM-508)** —
   `apps/server/src/services/feedback/{service,screenshots,notices,widget}.ts`, `apps/server/src/api/feedback.ts`,
@@ -2589,7 +2632,7 @@ workers follow the machine's size.
   (`cloudflared`) runs on the server's machine and forwards to its loopback port with the original `Host`
   (no `httpHostHeader`), which the guard reads; the Cloudflare account and the DNS record are outside the
   repository. The hybrid cloud image uses a token-managed tunnel, with the variable given by whoever
-  installs it (`docs/HYBRID.md`); on Lightsail `npm run cloud -- edge` sets the tunnel, the ingress and the
+  installs it (`docs/HYBRID.md`); on EC2 `npm run cloud -- edge` sets the tunnel, the ingress and the
   variable through the Cloudflare API (PM-536). **Remote engine:** the entrance belongs to the server
   (in the hybrid mode, the cloud one); an engine receives no such traffic and needs nothing from it.
   Security notes: `docs/SECURITY.md` "The widget's public hostname".
@@ -2751,6 +2794,14 @@ workers follow the machine's size.
     waits for the Operator or super side. The hub alone persists and publishes the handoff;
     no engine operation or credential crosses the boundary. PM-801 puts the integrator's fix-limit
     decisions on the same sweep (`planIntegratorInboxEscalation`): hub-side only.
+    Machine access (decision 66, PM-1073): `AiMemberConfig.machineAccess` (shown as "Külső teendő (MCP)") lets an
+    AI member put machine todos in the owners' integrator queue. The rule is `machineAccessOf` /
+    `machineTodoIssuerAllowed` in `packages/shared/src/config/machine-access.ts`: an absent value follows the
+    role (the selected, non-temp project manager has it, nobody else; no migration), the system and the Operator
+    member issue as before. Only an owner changes it (`ownerOnlyChanges` `machine_access`); a role change pins
+    the effective value. `open_integrator_todo` is listed only to such members (`ToolAudience.capabilities`) and
+    the handler decides (`machine_access_required`); screening refuses the integrator recipient with
+    `no_machine_access`. Hub-side only: no engine operation, credential or process is added.
     PM-712 applies the same server-owned queue and receipt pattern to suspected loops:
     `runtime/watchers/loop-watch.ts` stores generation, assessment and the remaining ten-minute
     online budget in `task_loops.triage_json`; `services/operator/loop-triage.ts` sends a
@@ -2908,17 +2959,9 @@ workers follow the machine's size.
   (a read-only sandbox root; never a working directory).
   **Module:** `engine-link`
 
-- **Cloud deployment and backup** — `deploy/cloud/{Dockerfile,entrypoint.sh,backup.sh,litestream.yml,fly.toml,smoke.sh,memory-probe.mjs,memory-profile.mjs,heap-summary.mjs,history-semantic-profile.mjs,history-semantic-fixture.mjs,history-semantic-image-check.mjs}`,
+- **Cloud deployment and backup** — `deploy/cloud/{Dockerfile,entrypoint.sh,backup.sh,litestream.yml,smoke.sh,memory-probe.mjs,memory-profile.mjs,heap-summary.mjs,history-semantic-profile.mjs,history-semantic-fixture.mjs,history-semantic-image-check.mjs}`,
   `.github/workflows/history-semantic-profile.yml` (the release measurement on a GitHub-hosted `ubuntu-24.04-arm` runner, PM-913),
   `.dockerignore`, `auth/setup-code.ts`, `auth/index.ts` (the first setup), `apps/server/test/deploy-cloud.test.ts` (PM-317).
-  PM-719's trial reset (admin `scripts/cloud/trial-reset.ts`, EC2 `deploy/aws/host.sh`) refuses
-  active unit/container/backup writers, bucket versioning including Suspended, Object Lock,
-  replication and multipart uploads. Automatic Litestream/restic writes can exist even when
-  round one's backup acceptance was omitted, so both full inventories are always read.
-  It preserves the host archive and final Mac download, retains the EC2/buckets/IAM/credentials,
-  and leaves the host disabled with empty active data. Only an exact separately approved reset
-  plan may conditionally delete the trial objects. Round two uses a new stopped-source package;
-  no backup process or seed/start is invoked by reset. This adds no engine-side dependency.
   PM-718 adds `scripts/cloud/images.ts`: an admin builder with existing Docker/Buildx docker-container
   driver and native builders/emulation exports separate single-platform Docker archives (PM-916:
   by default only the target machine's platform, `targetPlatform(config)`; `--all-platforms` both;
@@ -2937,13 +2980,11 @@ workers follow the machine's size.
   `/engine` paths with 404 instead of the web app's index.html (hub HTTP routing only).
   PM-750's entry "Admin release preparation" runs that builder
   from its own clean checkout and smokes each image by its image ID before the receipt exists.
-  PM-674's [cutover runbook](CLOUD-CUTOVER.md) pins the accepted SHA for both cloud and engine,
-  requires a stopped-source seed into empty host/buckets, first successful file backup and
-  isolated recovery checks. Public activation waits for completed auth/edge code and independent
-  security results plus a separate owner decision. Deployment and backup remain on EC2;
+  PM-674's [rollback runbook](CLOUD-CUTOVER.md) closes the public edge and stops the cloud
+  before downloading final data for Mac single activation. Deployment and backup remain on EC2;
   the single-Mac live watcher does not update either the cloud or the separate engine checkout.
-  On AWS Lightsail the same image runs under systemd on one Ubuntu machine, installed and operated by
-  `npm run cloud` (the entry "The Lightsail machine and its operation (PM-535)").
+  On AWS EC2 the same image runs under systemd on one Ubuntu machine, installed and operated by
+  `npm run cloud` (the entry "The cloud machine and its operation (PM-535)").
   PM-775 (part of PM-772) adds to the same entry: `apps/server/src/logging/memory-log.ts`
   (`PROJECTMAN_MEMORY_LOG_SECONDS`, read in `index.ts`: a `memory` log line every 60 to 86400 seconds, off
   at 0), `PROJECTMAN_HEAP_LIMIT_MB` (read only by `entrypoint.sh`, which gives the server node's
@@ -2968,7 +3009,7 @@ workers follow the machine's size.
   from the server log (`auth/setup-code.ts`): `isLocalRequest` is false behind the tunnel, because
   the tunnel must not rewrite the Host header, and the code replaces "localhost" as the proof.
   **Assumptions:** one container and one volume at a time (two would replicate into one replica);
-  the host knows the platform's volume semantics (Fly.io volumes are single-attach); the origin
+  the host knows the platform's volume semantics (a block volume attaches to one machine); the origin
   of the Cloudflare tunnel is `http://127.0.0.1:4700` with no Host override; the client address
   comes from `cf-connecting-ip` (`PROJECTMAN_CLIENT_IP_HEADER`), trusted from the loopback peer
   only; the Litestream replica is the SQLite database itself (not encrypted by Litestream), so the
@@ -3018,7 +3059,10 @@ workers follow the machine's size.
   The host owner's own login manages explicit `super`/`read` keys with 1/7/30/365-day expiry
   or no expiry (`expiresInDays: null`, PM-825; default 7 days). The hub already stores a null
   `expires_at` and authenticates it until revocation; no migration or engine operation is needed.
-  Existing keys and the singular API remain `legacy`. Replacement revokes only
+  Legacy keys are revoked with a lifecycle audit by migration 114 (PM-1037); the singular API is removed.
+  Authentication rejects legacy rows, which remain readable in key lists and audit history. Before release,
+  the owner must replace any active legacy credential on the integrator's machine with a super or read key.
+  Replacement revokes only
   the same mode, with a database uniqueness constraint and transactional lifecycle audit.
   The shared credential resolver returns the stored mode and key id; `assertActive` rechecks
   that row and its owner without updating usage. Authentication records `mcp`, `cli` or `rest`
@@ -3062,6 +3106,14 @@ workers follow the machine's size.
   loopback peer, so the proxy or tunnel must run on the server's machine and keep Host and the protocol header) and a
   tunnel/proxy that refuses `/mcp/` and `/hooks` but passes `/mcp`. Remote engine: not affected; nothing of the endpoint
   runs on or crosses to an engine.
+  **The global Operator on the endpoint (PM-1046, PM-1023 K7):** in the super mode `get_operator_instance_knowledge`
+  and `update_operator_instance_knowledge` (`expected_revision`, `agreement?`, `principles?`) read and write the
+  Operator's own knowledge with no `project_key` (`services/super-operator/instance-knowledge.ts`); the write is
+  direct, with no app approval, and the super audit records it in every project the key's holder owns
+  (`SuperOperator.executeOwned`). `list_integrator_inbox` takes an optional `project_key`: without it the items of every
+  project of the key come in one list, each with its `projectKey`, and the access is checked per project. The
+  server's `instructions` describe the Operator's role (decision 65). Remote engine: not affected; the Operator
+  reaches the hub over HTTPS with the key and the knowledge stays in the hub's home.
   **Operator tools on the endpoint (PM-784):** `read_project_doc`, `write_project_docs`, `get_project_doc_write`,
   `get_role_configuration`, `propose_release`, `request_structural_review`, `ask_human`, `get_super_question`,
   `withdraw_question` and `read_attachment` (`mcp/*/tools.ts` `external` bindings, `mcp/super-operator/handler.ts`,
@@ -3647,7 +3699,9 @@ assumption or remote-engine RPC.
   `packages/shared/src/domain/provider-model.ts` (PM-330); this changes no path or engine assumption.
   Claude conversations live under `~/.claude/projects`; Codex rollouts under
   `CODEX_HOME/sessions`. The server reads and tails hook-reported files, and resume eligibility
-  checks transcript content.
+  checks transcript content. A task session's cwd is the member's workspace, whose path uses the
+  member's storage handle (PM-1024), so a rename of the member leaves the cwd, and with it the
+  conversation's place under `~/.claude/projects`, unchanged.
   PM-342 adds `TranscriptReader.summary` (`runner/transcript/summary.ts`): when a member's new
   conversation replaces one that could not go on (provider changed, lost, moved) or a card is
   handed over without a note, the server reads the old transcript for the CLI's compaction
@@ -3676,6 +3730,19 @@ assumption or remote-engine RPC.
   PM-311). CLI hooks and MCP target the server's loopback URL (`127.0.0.1:4800` for the live
   instance; the port is configurable). The internal guard also checks the peer, Host and
   forwarding/origin headers; merely changing the URL to a public server cannot work.
+  **Codex team server stays optional (PM-1070):** `runner/providers/codex/args.ts` passes
+  `mcp_servers.team` with only its `url` and tool approvals. PM-1055 had set
+  `required = true`, a 20-second startup timeout and `mcp_optional_startup_grace_ms = 0`;
+  from that deploy every Codex session exited at start ("agent CLI exited before it was
+  ready"), so it was reverted. A failing team MCP must cost the tools, not the session.
+  The root cause of the team MCP start failure is investigated separately.
+  **Remote engine:** unchanged; the token-bound loopback relay supplies the catalog.
+  **Team MCP relay log (PM-1072):** the engine logs each `initialize` and `tools/list` relay
+  (method, status, elapsed time) at info, and every refused (non-2xx), failed or badly
+  answered relay at warn; the cloud logs why it refused a relayed token. Neither logs the
+  token or the body. A Codex session without team tools therefore shows in the engine log
+  where its handshake stopped (no call, a slow one, a refusal); the cause of the intermittent
+  missing tools was not yet reproduced with a real Codex run.
   Submission timeouts (PM-442) log retry count, elapsed time, command/idle state and bounded
   CLI diagnostics from `runner/input-queue.ts` and `runner/session.ts`: prompt/resume flags,
   the last hook name/time, blocking-screen detection and at most 500 characters from the last
@@ -3739,7 +3806,11 @@ assumption or remote-engine RPC.
   on the card's engine. Task worktrees default to
   `~/.projectman/worktrees/<project>/<task>-<repo>`; git links them to the main repository's
   common git directory. Canonical paths, branch ownership and cleanup are local filesystem
-  operations. PM-368's `core/messages` and `runtime/delivery/delivery.ts` also use
+  operations. A member's workspace (`<workRoot>/workspaces/<project>/<member>/<repo>/repo`), its
+  `.home`, its sandbox directory (`member-caches/<project>/<member>`) and its `member_workspaces`
+  row use the member's storage handle (PM-1024), so a rename does not move them; the
+  `MemberWorkspaceKey.member` the server sends to the engine is that storage handle, and the engine
+  RPC schema is unchanged. PM-368's `core/messages` and `runtime/delivery/delivery.ts` also use
   `SessionOrchestrator.sourceHead` to snapshot the local branch for sent messages and input batches;
   PM-342's `runtime/admission` (`HandoffService`) uses it for the branch, last commit and uncommitted state of a handoff note or fallback.
   PM-712 uses the existing engine-local `sourceHead` read again before loop triage and human
@@ -3877,7 +3948,7 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   (PM-846: a work root is used by its real path and lies inside the real home, so the `denyRead` of the
   home keeps the other members' worktrees unreadable; the engine limit's session roots name
   `<workRoot>/worktrees` and `<workRoot>/workspaces`)
-  (PM-87, PM-333, PM-355, PM-312; the canonical-path and directory checks of the domain are the
+  (PM-87, PM-333, PM-355, PM-312, PM-425; the canonical-path and directory checks of the domain are the
   engine's `realpath`, `isDirectory`, `isRealDirectory`). `runtime/sessions/permission-broker.ts` (PM-960)
   uses `EngineHost.realpath` to validate the tool's working directory and uses the runtime's
   policy functions directly; path validation still
@@ -3895,7 +3966,38 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   off only the npm registry.
   Codex has its own permission mapping in `runner/providers/codex/args.ts`: local sessions
   receive an inline `projectman` profile extending `:read-only`, with `sensitivePaths` and
-  the adapter's Codex home denied (PM-356). Writing sessions retain workspace protections
+  the adapter's Codex home denied (PM-356).
+  PM-360 adds the shared `SessionReadBoundary` schema and optional
+  `AgentSandbox.portable.readBoundary` to the strict `session.start` contract. Under the owner's
+  2026-10-26 scope decision, developer runtime paths do not automatically populate it:
+  absent means the existing broad non-sensitive home reads and session/tmp behavior.
+  Claude's existing `worktreeSandbox` read/write rules remain unchanged. Explicit boundaries
+  contain reopenable roots and typed file/directory exceptions, separate from unconditional
+  policy/adapter denials. Local adapters resolve lexical/physical paths and reject invalid
+  explicit inputs using the shared `runner/tool-decision.ts` matcher (exported through
+  `runner/index.ts` for the engine): glob component boundaries, case handling and macOS
+  `/System/Volumes/Data` firmlink aliases have one implementation. The engine
+  (`engine-link/engine-limit.ts`) adds its own homes/temp roots and checks
+  exceptions and required private directories only when a boundary is supplied. Existing
+  engine-root, permission-mode, environment and sensitive-path checks always apply.
+  PM-425 populates it for every reading session (`placementReadsOnly`: a `read_only` placement,
+  a review copy without the test permission, a taskless chat, the non-super Operator) and for
+  every provider: `sessionSandbox` (`runtime/sessions/session-policy.ts`, `readerReadBoundary`)
+  builds one list; `launch.ts` copies it into `policy.filesystem.readBoundary` (new optional
+  field, `SessionPolicy.version` stays 1) and `withReaderDenials` adds `~/.claude/projects` to the
+  reader's `deniedPaths`. Rendered from it: Claude's `denyRead`/`allowRead` and file-tool rules
+  (`claudeToolRules` drops the blanket `Read`/`Grep`/`Glob` allow), the PreToolUse refusal and
+  `permissionRequest()` in `runner/session.ts` (`readBoundaryVerdict` in `runner/tool-decision.ts`),
+  Gemini's `decideToolCall` and the Codex/NanoGPT profile. `engine-limit` validates and
+  canonicalises the boundary for all providers and replaces the policy's copy with its own.
+  **Remote engine:** `paths()` supplies the executing engine's roots; only the optional,
+  validated portable contract crosses the boundary, never authentication files. This uses
+  the same policy locally and remotely and introduces no new mode or switch. A cloud hub
+  does not isolate an engine's disk; OS-user/VM/container and tenant isolation are separate
+  requirements. Explicit boundaries need their own OS/provider native probe when enabled
+  (`docs/SANDBOX-PROBE.md`); prior PM-356 evidence does not certify them. Approved host commands
+  and the parent CLI remain outside this boundary. PM-425 owns the reader's policy and rollout.
+  Writing sessions retain workspace protections
   and the roots of `AgentSandbox.portable` (the member's npm cache and development data,
   the queue's parent, the session folder and
   the own tmp, PM-339). With an own tmp, no shared `/tmp` or CLI `$TMPDIR` write is inherited.
@@ -4055,6 +4157,17 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   In GitHub mode (`FullTestSpec.githubActions`, PM-900) the sandbox does not run: the engine's
   `withGithubActions` executor takes the request (see "GitHub Actions merge check").
   **Module:** `services/full-tests`
+- **Merge-test file watchdog (PM-1054)** — `scripts/merge-test/{npm,reporter}.ts`.
+  Every test invocation, including reruns, uses the default and hanging-process reporters plus
+  controller-side start/end events for each file (from collection through teardown). The npm
+  supervisor gives each active file 180 seconds, with 20-second test and hook defaults. On a
+  file deadline it prints all active file names as `FAIL` lines and stops the command through
+  the existing `scripts/lib/child-guard.mjs`; exit 1 and an unhandled-error diagnostic prevent
+  the flaky-file rerun rule from hiding the timeout. **Machine assumption:** POSIX process
+  groups, already required by the child guard, stop even synchronously blocked workers and
+  clean up descendants when the supervisor dies. **Remote engine:** the supervisor and guard
+  run where the tests execute (GitHub Actions or the engine); only existing output and verdict
+  data cross the boundary. No new server/engine contract.
 - **Merge-test step cache (PM-845, PM-841)** — `scripts/merge-test/{steps,run}.ts`,
   `full-test/{index,sandbox,step-cache}.ts`, `app.ts`, `engine-app.ts` and `index.ts`.
   The executor stores passed command keys in the engine-local
@@ -4174,7 +4287,7 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   invokes `listPaths`, `readFile` and `changedPaths`. Git and repository registration stay
   on the selected engine; remote engines return bounded file names and descriptor text.
   Merging a card's approved commit into the repository's default branch and sending it up is git work on
-  the repository and uses this machine's git login (the owner's). It runs as eight calls — `merge.prepare`
+  the repository and uses this machine's git login (the owner's). It runs as nine calls — `merge.prepare`
   (fetch of the upstream and the state of the base), `merge.is_ancestor`, `merge.build` (a merge commit made
   with `merge-tree`/`commit-tree`, the branch not moved), `merge.checkout_conflicts`,
   `merge.checkout_for_check` and `merge.release_check` (a detached check checkout under
@@ -4220,6 +4333,37 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   Conflicting train sources use that same server-side requeue with a one-card limit (PM-778);
   individual attempts read current main and retain the full check and review gates. Git and checks
   still run on the selected engine through the existing RPCs, with no new machine assumption.
+  Generated files (PM-1050): when `reviewTest.regenerate` names path patterns and command, a standalone
+  merge whose conflict is only in files matching them calls `merge.build` again with `regenerate`; the
+  engine answers the conflict with a `provisional` merge commit (parents `onto` and the commit) made
+  without those files, in a temporary index file in the engine's `os.tmpdir()` (the checkout's index is
+  never used). The server runs the configured command in the full test sandbox (`full_test.run`, not
+  recorded as a merge check) on a `_merge/<id>` checkout of it that has an id of its own (not the
+  merge's), so a process the run leaves behind never reaches the merge check's checkout. Only that run
+  may write: its spec carries `regenerate: { ref, mergeId, patterns }` (like `npmCi`), and the engine
+  derives the writable directories itself (`regeneratedWriteDirs`: the literal directories before the
+  last segment of each pattern; real directories of that canonical checkout, never links; the rest of
+  the checkout, its `.git` and `node_modules` stay read-only). A remote engine accepts that spec only
+  with the command of the repo's `regenerateCommand` in its `engine.json` (the owner sets it;
+  `fullTestCommand` may not run with the descriptor) and only for that repo's `_merge` checkout; without
+  `regenerateCommand` the merge falls back to the old `conflict` failure with that detail. A local
+  engine uses the server's `reviewTest.regenerate.command`. Then `merge.commit_regenerated` has the
+  engine commit the written files: it first `rename`s the writable directories below a fresh
+  `.pm-regenerated-*` directory of the checkout (no longer writable there) and reads only from that
+  copy: an `lstat` walk, each file through one `O_NOFOLLOW` descriptor and `fstat` (regular, one link,
+  at most 1 MB), hashed from the bytes read with `hash-object --no-filters`, never `git add`. Only
+  files that are new, changed or deleted against the provisional commit and match the patterns are
+  taken (never a `.git*` name, `.husky` or `node_modules`); a change in the directory outside the
+  patterns, a link, a flood of files (`too_many`) or a missing conflicting file refuses it. Git does
+  not discover the checkout: the worktree git directory is found from the repository and named in
+  `GIT_DIR`, and the indexes are temporary files outside the checkout. The merge check checks that
+  commit as always. Any other conflict, any refusal and any failure keeps the old `conflict` failure;
+  an engine from before the field refuses `regenerate` (`invalid_params`) and the merge fails as
+  before. The call count above is nine with `merge.commit_regenerated`.
+  Machine-dependent parts: the regeneration run and the commit step run on the card's engine in its
+  `_merge` checkouts, with the same sandbox assumptions as the full test (srt/Seatbelt write
+  allow-list, `rename` within the checkout filesystem); a remote engine additionally needs
+  `regenerateCommand` in its `engine.json`.
   Member workspaces (PM-739): a developer's commit lives only in their remote-less clone, so before the
   first `merge.prepare`, `merge.is_ancestor` or `merge.build` of a standalone merge, a train (also its
   recovery and its candidate selection) and the merge gate, the server calls
@@ -4257,19 +4401,20 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   commit or merge id as a commit id. No new machine-dependent part is added (`engine-host/path-reads.ts`).
   **Module:** `services/merges`
 - **Disposable instances and migration tools** — `scripts/lib/{instance,ports,processes}.mjs`,
-  `scripts/migrate/{inventory,paths,database,git,apply,instance,copy}.ts` (PM-270, PM-143, PM-923).
+  `scripts/migrate/{inventory,database,git,instance,copy,package}.ts` (PM-270, PM-318, PM-923, PM-1033).
   Disposable instances reserve loopback ports, spawn local server/web process groups and
   use local temp homes; migration inventories local repositories, paths and database use,
-  packages data and remaps paths. Home copies restore source directory modes after `cpSync`
+  packages only hybrid cloud entries; repositories and their paths stay on the engine host.
+  Home copies restore source directory modes after `cpSync`
   (Node 22 can otherwise widen 0700 to 0755); the permission walk uses `lstat` and never follows
   symlinks. This requires POSIX modes on both source and destination. Cross-machine activation already requires a person's
   confirmation that the source is retired. **Remote engine:** execute local probes and
   process management on the target host, inventory engine state separately, and preserve
   explicit source retirement and rollback checks rather than inferring remote liveness.
   **Hybrid move (PM-318, `scripts/migrate/{hybrid,hybrid-entries}.ts`, [HYBRID.md](HYBRID.md)):**
-  PM-674's [execution and rollback sheet](CLOUD-CUTOVER.md) uses protected package/return
-  directories outside the source and repositories, retires both Mac live agents before packaging,
-  and brings final stopped-cloud data back before activation. Package/home is the seed input;
+  PM-674's [rollback sheet](CLOUD-CUTOVER.md) uses protected package/return
+  directories outside the source and repositories and brings final stopped-cloud data back
+  before activation. Package/home is the seed input;
   seed dry-run checks buckets, while the live host check precedes upload. No second writer or
   automatic clearing of used targets is allowed; data transport is the owner's administration path.
   `hybrid plan|package|back` and `instance engine` move the Mac between the single-machine mode and the
@@ -4299,9 +4444,8 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   **Module:** `scripts`
 
 - **Engine service (launchd)** — `scripts/engine/{service,commands,cli}.ts`,
-  PM-674's [owner runbook](CLOUD-CUTOVER.md) checks the same accepted cloud/engine SHA,
-  installs the protected Access header file, verifies foreground startup before launchd,
-  and uninstalls KeepAlive before hybrid back. Updates are manual owner-approved steps in
+  PM-674's [rollback runbook](CLOUD-CUTOVER.md) uninstalls KeepAlive before hybrid back.
+  Updates are manual owner-approved steps in
   the engine's own checkout; neither credentials nor launchd operations cross engine RPC.
   `deploy/mac/com.projectman.engine.plist` (PM-318). `npm run engine -- service install|uninstall|status`
   renders the plist template with this machine's absolute paths (node, the checkout, the home, the
@@ -4619,9 +4763,8 @@ later parts of PM-427 (the order of deferred starts, the AI members' brief, the 
 - **Who sets it.** A person (`actor.kind === 'human'`, through the integrator too) who owns the project
   (`ownerHandles`) or holds the `prioritization` duty (`dutyMembers`); no approval. An AI member or the system gets
   `focus_humans_only`, any other person `focus_not_allowed`.
-- **API.** `GET /api/projects/:key/focus` (`ProjectFocusView`, with `canEdit`), `POST .../focus/items`,
-  `PATCH` and `DELETE .../focus/items/:taskKey`, and `GET .../focus/changes?limit=` (the project's `focus_changed`
-  events, newest first). Every member reads (`requireAccess`); the writes are refused by the domain to anyone without the prioritization duty.
+- **Access.** There is no REST route for the focus list (PM-1030 deleted them; nothing called them): the MCP tools and
+  `ProjectFocusService` read and write it, and the domain refuses a write to anyone without the prioritization duty.
 - **Timeline.** `focus_changed` (`added`/`removed` on the item's own card or theme, `moved` without a card, so it shows
   only in the project's changes). `task_stage_changed.data.pulled` (`StagePull`: `{ reason: 'urgent' }` or
   `{ reason: 'focus', position, key, title }`) marks a card the system pulled into the work stage (below).
@@ -4861,10 +5004,16 @@ retired, `operator_required` 409; it cannot go on leave), `isOperatorActor` (an 
   `OperatorSignals.active`: delivered, unresolved, pending or open, oldest first, using the public schema.
   The tool uses the common Operator caller guard; guest conversations cannot read this internal report.
   It neither starts work nor contacts an engine.
-- **Operator documents (PM-495, PM-388, PM-1004).** Tools and their handler live in `mcp/project-docs/`. `read_project_doc { doc, from_line?, line_count? }` is a read tool
+- **Project manager documents (PM-495, PM-388, PM-1004, PM-1044).** Tools and their handler live in `mcp/project-docs/`.
+  `read_project_doc`, `write_project_docs`, `list_decision_candidates` and `mark_decision_candidates` belong to the
+  selected available project manager (`coordinationMemberOf`), only in its own internal general conversation.
+  The app Operator retains access until PM-1045 removes it. The PM uses its own `CoordinationRequests`;
+  an Operator request, guest conversation, signal or approval continuation grants no document-writing authority.
+  Document procedures and lessons guidance belong to the PM's prompt and role guide.
+  `read_project_doc { doc, from_line?, line_count? }` is a read tool
   (`OPERATOR_READ_TOOLS`, not a guest tool): decisions, roadmap or lessons at the fresh head of the default branch,
-  read through `BranchMerger.readFile` on the Operator's engine, with the commit it was read at.
-  `write_project_docs { base_commit, message, edits }` writes: the Operator only (`operator_only`), in the owners'
+  read through `BranchMerger.readFile` on the caller's engine, with the commit it was read at.
+  `write_project_docs { base_commit, message, edits }` writes: the selected PM or transitional Operator (`operator_only` otherwise), in the owners'
   own conversation (`{ type: 'general' }` without `with`, from an owner's request; `operator_owner_only`
   otherwise) and with an open request (`operator_no_request`); `OPERATOR_TOOL_ACTIONS` maps it to `docs_write`.
   The edits are checked against the text at `base_commit` first (`applyDocEdits`, `isAppendOnly`, both pure, in
@@ -4873,12 +5022,12 @@ retired, `operator_required` 409; it cannot go on leave), `isOperatorActor` (an 
   409 `docs_write_pending`) with an Operator step in `queued` status, and runs in the repository's merge slot (see
   "Merge"). The call waits up to 60 seconds for a write that starts at once and answers `published`, `queued` or
   `running`; a write that ends without a waiting call updates its step (`done`, `stale` or `refused`, with the
-  refusal: `updateStep(…, refusal)`) and sends the Operator an English `info` system message, read with the owner's
+  refusal: `updateStep(…, refusal)`) and sends the author an English `info` system message, read with the owner's
   next message. A file that changed since `base_commit` is `docs_stale`, never a blind edit. The commit carries the
   trailers `Projectman-Operator`, `Projectman-Request` and `Projectman-Requested-By`. Never forced. The server owns
   the queue, the lock and the step log; the git runs on the engine. No new machine-dependent part.
-  PM-1004 adds the narrow lessons-only exception (`isLessonsOnly` in shared): the Operator reads/writes lessons
-  in its own internal general session without an open owner request, including a queue request whose server-side
+  PM-1004 adds the narrow lessons-only exception (`isLessonsOnly` in shared): the selected PM or transitional Operator reads/writes lessons
+  in its own internal general session without an open owner request, including an Operator queue request whose server-side
   `queueItemId` identifies its own processing item in the same project and session. Guest conversations,
   non-owner message/answer requests and approval continuations remain forbidden. Mixed edits, decisions,
   roadmap and decision offers retain the owner-request rule. Paths are explicit in `RepoDocs.lessons`, with no
@@ -4886,10 +5035,10 @@ retired, `operator_required` 409; it cannot go on leave), `isOperatorActor` (an 
   paths (422 `invalid_request` before queueing). Autonomous rows alone carry `autonomous_lessons = 1`
   (migration 109), with null owner request, owner, step and external origin; the commit trailers are
   `Projectman-Operator` and `Projectman-Operator-Mode: autonomous-lessons`. Reauthorization at start/recovery
-  and before push/advance checks the current Operator, repository/default branch and lessons path; conflicting
+  and before push/advance checks the selected PM or transitional Operator, repository/default branch and lessons path; conflicting
   provenance is refused. Delayed results use the existing system-message path, and stale lessons request a
   reread and retry. Super MCP lessons still use `requestExternal`, key provenance and key/owner/Operator
-  reauthorization; neither read nor legacy keys acquire write permission. See the `merge.read_file` /
+  reauthorization; read keys cannot write and legacy keys fail authentication (PM-1037). See the `merge.read_file` /
   `merge.commit_files` machine inventory above for the unchanged remote-engine boundary.
 - **Searchable document copies (PM-744, PM-788).** `services/history/document-sync.ts` maintains a cloud SQLite
   copy of each configured repository's fixed `docs/DECISIONS.md` and `docs/LESSONS.md` paths. The assembly reader
@@ -5119,8 +5268,8 @@ deploy; decision 32). The runner's part is `SessionRunner.pause` / `forcePause` 
   pause that was open before are cut with one Esc (`forcePause`), so the stop waits for none of them longer.
   After the start `resumeAfterStartup` (in the background, after `restoreDeferred`) ends the `shutdown`
   pauses, so the sessions start again with a nudge that says their process is new; a pause a person made stays.
-  A crash and a second Ctrl-C after 3 s do not pause. Under systemd this needs `KillMode=mixed` and
-  `TimeoutStopSec=90` ([DEPLOY.md](DEPLOY.md)).
+  A crash and a second Ctrl-C after 3 s do not pause. The service manager must allow the shutdown
+  pause to finish before terminating child sessions.
 - **Access.** `GET` of a project's pause: an internal member; changing it: admin or owner. The instance's pause
   may be seen by anyone who is internal in some project, with only the sessions of the viewer's projects, and
   changed by an owner of every project (`canManageInstancePause`).

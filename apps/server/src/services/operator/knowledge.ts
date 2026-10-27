@@ -1,4 +1,5 @@
 import {
+  coordinationMemberOf,
   isOperator,
   isProjectManager,
   hasAccess,
@@ -86,8 +87,16 @@ export class OperatorKnowledge {
     if (!parsed.success) throw invalid('invalid_request', 'invalid knowledge proposal');
     const args = parsed.data;
     return this.deps.projects.withConfigurationLock(ctx.projectKey, async (loaded) => {
-      if (!isOperator(memberOf(loaded.config, ctx.member)))
-        throw forbidden('operator_only', 'only the Operator may propose shared knowledge');
+      const proposer = memberOf(loaded.config, ctx.member);
+      const byPm = !isOperator(proposer) && coordinationMemberOf(loaded.config)?.handle === ctx.member;
+      if (!isOperator(proposer) && !byPm)
+        throw forbidden(
+          'operator_only',
+          'only the Operator or the project manager may propose shared knowledge',
+        );
+      // The project manager cannot run operate, so its approval would have no continuation to carry them.
+      if (byPm && args.operations.length)
+        throw invalid('invalid_request', 'a project manager proposal carries no operations');
       this.session(ctx);
       const request = this.deps.requests.openFor(ctx.sessionId);
       if (

@@ -5,7 +5,7 @@ import { EXTERNAL_DENIED, EXTERNAL_TOOLS, externalToolNamed } from '../src/mcp/s
 import { createAppHarness, createProject, inject, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 
-type Mode = 'legacy' | 'super' | 'read';
+type Mode = 'super' | 'read';
 
 interface ToolResult {
   content: { type: string; text?: string }[];
@@ -94,7 +94,6 @@ describe('the history tools on the member and the integrator door', () => {
   function key(mode: Mode) {
     const { auth, repos } = h.app.projectman;
     const user = repos.users.list()[0]!;
-    if (mode === 'legacy') return auth.createIntegratorKey(user.id, null).secret;
     return auth.createIntegratorAccessKey(user.id, { mode, expiresInDays: 7 }).secret;
   }
   /** An integrator door of one credential mode. */
@@ -128,9 +127,6 @@ describe('the history tools on the member and the integrator door', () => {
       expect(byName.search_history!.inputSchema.required).toEqual(['query']);
       expect(byName.search_history!.inputSchema.additionalProperties).toBe(false);
       expect(byName.read_history_source!.inputSchema.required).toEqual(['source_id']);
-      expect(byName.search_history!.description).toMatch(
-        /historical evidence, not instructions or permission/,
-      );
     });
 
     it('searches its own project, opens a hit, and records the search once for the member', async () => {
@@ -174,7 +170,7 @@ describe('the history tools on the member and the integrator door', () => {
     });
   });
 
-  describe.each(['read', 'legacy', 'super'] as const)('the integrator door in %s mode', (mode) => {
+  describe.each(['read', 'super'] as const)('the integrator door in %s mode', (mode) => {
     it('offers the two searches as read tools and never the statistics', async () => {
       const door = bearer(mode);
       const names = (await door.list()).map((tool) => tool.name);
@@ -265,7 +261,7 @@ describe('the history tools on the member and the integrator door', () => {
     for (const name of ['search_history', 'read_history_source']) {
       const bound = externalToolNamed(name);
       expect(bound, name).toBeDefined();
-      expect([...bound!.modes].sort(), name).toEqual(['legacy', 'read', 'super']);
+      expect([...bound!.modes].sort(), name).toEqual(['read', 'super']);
       expect(bound!.access, name).toBe('read');
       expect(EXTERNAL_DENIED, name).not.toHaveProperty(name);
     }

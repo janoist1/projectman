@@ -38,10 +38,10 @@ outage; buffered exit results are delivered after reconnect. `process_group` mea
 not contained execution (PM-701).
 
 - A Cloudflare account with a zone, and Zero Trust (the free plan is enough): the tunnel, and
-  Access in front of it ([DEPLOY.md](DEPLOY.md), "Public entry through Cloudflare Tunnel and
-  Access", steps 1 to 3, applies as is).
-- A container host with a **persistent volume** and no public port needed. This guide uses Fly.io
-  (`deploy/cloud/fly.toml`); any host that runs a container with one writable volume works.
+  Access in front of it (see [AWS.md, Cloudflare](AWS.md#cloudflare) and
+  [the tunnel and Access setup below](#the-cloudflare-tunnel-and-access)).
+- A container host with a **persistent volume** and no public port needed: the EC2 machine of
+  [docs/AWS.md](AWS.md), or any host that runs a container with one writable volume.
 - Two S3-compatible buckets (or one bucket, two prefixes), for example Cloudflare R2 or Backblaze B2.
   Prefer two buckets with two keys: the key that replicates the database should not be able to
   touch the backup repository, and the other way round.
@@ -51,7 +51,7 @@ not contained execution (PM-701).
   backups). Protect all three with a **passkey or a hardware security key** (not only a password
   and an SMS code), keep the Cloudflare Access session short, and give only the owner access to
   these accounts.
-- **Cost.** On Fly.io about 5 to 10 USD a month: one `shared-cpu-1x` machine with 1 GB of memory, a
+- **Cost.** About 5 to 10 USD a month on a small container host: one machine with 1 GB of memory, a
   1 GB volume, and the outbound traffic of a team-sized installation. The Cloudflare free plan
   (Zero Trust up to 50 users) and a bucket of a few megabytes (R2 has a free tier) add little or
   nothing. Check the providers' current prices; the figures here are an estimate.
@@ -86,7 +86,7 @@ docker build -f deploy/cloud/Dockerfile --build-arg PROJECTMAN_VERSION=$(git rev
 
 ### Settings
 
-Plain settings (in `fly.toml` `[env]`, or the host's environment):
+Plain settings (in the host's environment):
 
 | Variable                                                        | Meaning                                                                                                  |
 | --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
@@ -154,33 +154,20 @@ losing the host needs it.
 - **Versioning.** Do not turn on bucket versioning for the Litestream prefix: Litestream manages
   its own history and versioning only doubles the storage.
 - **Only one writer.** Exactly one container replicates into a replica. A second one (a duplicate
-  machine, a rehearsal started carelessly) writes a diverging history. `fly scale count 1`, and use
+  machine, a rehearsal started carelessly) writes a diverging history. Run exactly one container, and use
   the rehearsal command below, which never replicates.
 
-## Deploy on Fly.io
+## Deploy on another host
 
-```sh
-fly launch --no-deploy --copy-config --config deploy/cloud/fly.toml    # sets the app name
-fly volumes create projectman_data --size 1 --region <region>
-fly secrets set TUNNEL_TOKEN=… LITESTREAM_ACCESS_KEY_ID=… LITESTREAM_SECRET_ACCESS_KEY=… \
-  RESTIC_ACCESS_KEY_ID=… RESTIC_SECRET_ACCESS_KEY=… RESTIC_PASSWORD=…
-fly deploy --config deploy/cloud/fly.toml
-fly scale count 1
-fly logs
-```
-
-Run these from the repository root (the build context is the working directory). Edit `app`,
-`primary_region` and the plain `[env]` values in a copy of `fly.toml` first. `fly.toml` has **no
-`http_service`**: the app has no public address; if you add one by hand, the tunnel and Access are
-bypassed.
-
-Another host: build the image, mount a volume at `/data`, set the same variables, run it as the
-image's default command.
+On EC2, `npm run cloud` does this ([AWS.md](AWS.md)). On another host: build the image, mount a volume
+at `/data`, set the same variables, publish no port (the app has no public address; if you add one by
+hand, the tunnel and Access are bypassed), and run it as the image's default command.
 
 ## The Cloudflare tunnel and Access
 
 The image runs a **token-managed** tunnel (`cloudflared tunnel run` with `TUNNEL_TOKEN`): the
-ingress is set in the Cloudflare dashboard, not in a config file as in the PM-200 guide on the Mac.
+ingress is set in the Cloudflare dashboard or through `npm run cloud -- edge`
+([AWS.md, Cloudflare](AWS.md#cloudflare)).
 
 For SES email login, the owner runs `npm run cloud -- ses plan`, then `ses configure --dry-run`
 and a separately approved `ses configure`; `ses request-production --dry-run` and its approved live request
@@ -191,11 +178,11 @@ sending-only key in `cloud.env`. `up` does not run them. See [AWS.md](AWS.md) fo
 previews, IAM scope and partial-failure recovery. The Mac engine receives no SES/AWS credentials, and no
 engine protocol change is needed. An AI sandbox never reads `~/.aws` or runs live provisioning.
 
-**On EC2 or Lightsail ([docs/AWS.md](AWS.md)) none of the steps below is done by hand:** `npm run cloud -- edge`
+**On EC2 ([docs/AWS.md](AWS.md)) none of the steps below is done by hand:** `npm run cloud -- edge`
 makes the tunnel, its ingress (with the `/hooks` and `/mcp` 404 rules and the audience check), the
 Access applications, policies and service tokens, and writes `TUNNEL_TOKEN` to `cloud.env`;
 `npm run cloud -- publish` makes the DNS record and `check` verifies the result. The list below is
-what those commands do, for another host (Fly.io) and for reading. With `access.boardMode: public`
+what those commands do, for another host and for reading. With `access.boardMode: public`
 (PM-672, [AWS.md](AWS.md) "The public board") the main name has no Access application login and the
 board's own e-mail login is the boundary, while `/engine` keeps its own application. With an integrator
 service token, public mode requires an explicit separate `cloudflare.integratorHostname` (PM-675).
@@ -247,8 +234,10 @@ machine key, and the integrator its bearer key. A service token alone gets nowhe
 ### The marking widget's public hostname (PM-513)
 
 The marking widget on a customer's page cannot pass Access, so it needs a hostname without it
-(the reasoning and the checks: [DEPLOY.md](DEPLOY.md) step 7, [SECURITY.md](SECURITY.md) "The
-widget's public hostname"). On the token-managed tunnel the same thing is done in the dashboard:
+(the security conditions: [SECURITY.md, The widget's public hostname](SECURITY.md#the-widgets-public-hostname-pm-506-pm-513)).
+On AWS, `cloudflare.feedbackHostname`, `publish --feedback` and `check` configure and verify it
+([AWS.md, Making the name public](AWS.md#making-the-name-public-publish),
+[Verification](AWS.md#verification)). For a manually managed token tunnel, use the dashboard:
 
 1. Add a **second public hostname**, for example `jelolo.example.com`, with the path `^/feedback/`
    and the service `http://127.0.0.1:4700`. Again **no HTTP Host header override**: the server's
@@ -259,7 +248,7 @@ widget's public hostname"). On the token-managed tunnel the same thing is done i
    only, and nothing in this hostname's paths gives access to the application.
 3. The server needs `PROJECTMAN_FEEDBACK_PUBLIC_URL=https://jelolo.example.com` (hostname only). The
    image does not set it: whoever installs it gives it as a variable next to the others
-   (`fly secrets`/`[env]` for Fly), and a wrong value stops the server at start. Without it
+   (the host's environment), and a wrong value stops the server at start. Without it
    there is no host guard; do not publish the hostname before the variable is set.
 
 ## First setup, remotely
@@ -267,7 +256,7 @@ widget's public hostname"). On the token-managed tunnel the same thing is done i
 A new installation has no owner. From a browser through the tunnel the server cannot tell you from
 a stranger, so the first setup needs a **one-time setup code**:
 
-1. Start the container and read the log: `fly logs`. It prints, once per start while there is no
+1. Start the container and read the log (`npm run cloud -- logs` on EC2). It prints, once per start while there is no
    owner: `the first setup needs the setup code XXXX-XXXX-XXXX`.
 2. Open `https://projectman.example.com`, pass Access and fill in the setup form: name, email,
    password and the code.
@@ -350,7 +339,8 @@ the host, deploy as above with the same secrets (and the `RESTIC_PASSWORD` from 
 manager), on a new volume. Logins survive (the `secret` is restored).
 
 Never run a restored copy beside the original: one container replicates into one replica
-([DEPLOY.md](DEPLOY.md), the `instance.json` paragraph). Stop the old one first.
+([ARCHITECTURE.md, Instance role and the move](ARCHITECTURE.md#instance-role-and-the-move-pm-143-part-of-pm-135)).
+Stop the old one first.
 
 ### The restore rehearsal
 
@@ -392,7 +382,7 @@ was lost: `UPDATE instance_meta SET value = lower(hex(randomblob(16))) WHERE key
 
 ## Updating
 
-Build the new image and deploy it (`fly deploy`). The platform sends SIGTERM; the entrypoint stops
+Build the new image and deploy it (`npm run cloud -- deploy` on EC2). The platform sends SIGTERM; the entrypoint stops
 the tunnel, the server (its own shutdown pause) and then Litestream, so the last writes are
 shipped, and the new container comes up on the same volume. The engine reconnects by itself.
 A database migration of a newer build is refused by an older one: do not roll back across a
@@ -614,12 +604,12 @@ text, which only a copy of the cloud's history on the owner's machine could be.
   platform (SIGTERM, the server's own shutdown pause). The changeover from the single-machine mode
   to the hybrid and back is the Mac's `npm run migrate -- hybrid …` (PM-318, the second part of
   this page); it makes and reads the data directory outside the container. Do not expect
-  `npm run control` or `npm run migrate` in `fly ssh console`.
+  `npm run control` or `npm run migrate` in a shell on the host.
 - Litestream's replica is not encrypted by Litestream; the bucket's encryption and key scoping are
   your protection.
 - A restic backup every 6 hours can lose up to 6 hours of files (attachments, customization) that
   changed since; the database loses about a second.
-- The image, the Litestream flags, the restic and Fly.io behaviour described here were written from
+- The image, the Litestream flags, and the restic behaviour described here were written from
   their documentation and could not be built or run where this was written (no container daemon).
   The first deployment is therefore also the test: run the build, the smoke test and the restore
   rehearsal, and fix this guide with what you find.
@@ -633,12 +623,11 @@ gets there from the single-machine mode, how it comes back, and what stays where
 **This page is not a permission to move.** The live instance is never stopped, changed or updated by
 anything here until the owner has said so for the concrete move.
 
-The tool is `npm run migrate -- …` ([MIGRATION.md](MIGRATION.md) has the general rules: the source is only
+The tool is `npm run migrate -- …` (the source is only
 read, a package is a secret, only one copy works). The engine's own commands are `npm run engine -- …`.
 
-For the EC2-specific owner execution sheet, exact CLI order, approval boundaries and
-rollback checks, use [CLOUD-CUTOVER.md](CLOUD-CUTOVER.md) (PM-674). Its public stage
-waits for the completed login and public-edge changes; a private publish does not enable them.
+For the data-preserving return from EC2 to Mac single,
+use [CLOUD-CUTOVER.md](CLOUD-CUTOVER.md) (PM-674).
 
 ## What goes where
 
@@ -777,19 +766,12 @@ For when the owner wants the single-machine mode again.
    single-machine mode as before. Activating from the `engine` role needs a database that holds the
    cloud's engine row, so that the old pre-hybrid database does not replace the cloud's later work;
    `--discard-cloud-data` states the opposite on purpose.
-5. **PM-675 trial retention exception (PM-719).** Between the two trial rounds retain the final
-   downloaded copy in a protected mode 0700 location outside the live home and repositories.
-   After verified Mac single/watcher operation, follow [the exact-plan reset procedure](AWS.md#reset-between-the-two-pm-675-trial-rounds-pm-719):
-   same EC2 and buckets, stopped/disabled host, matching full content inventories, separate owner
-   approval of the exact plan SHA-256, host archive before conditional object deletion, no seed/start.
-   Keep both this copy and the root-only host archive at least through round two's full backup and
-   isolated restore acceptance; later removal needs a separate owner decision. The next seed comes
-   from a new package of the Mac's then-current stopped state, with PM-717 integrity and PM-718 image.
-6. **Clean up the secrets outside that retention window.** After `hybrid back`, delete the downloaded copy (`--from`): it holds the
+5. **Clean up the secrets after verifying the rollback.** Once the single-machine mode and watcher
+   have run well, the owner separately decides when to delete or archive the downloaded copy (`--from`): it holds the
    live cookie key, the secrets and the database, in a folder the sessions' sandboxes do not deny.
    `pre-hybrid/` and `.hybrid-back/` inside the home are denied to every session (they hold the old
-   database, the old keys and the former machine key). Once the single-machine mode has run well, delete
-   `pre-hybrid/` too; the former machine key in it is revoked in the database already.
+   database, the old keys and the former machine key). The owner also decides when to delete
+   `pre-hybrid/`; the former machine key in it is revoked in the database already.
 
 Sessions the cloud left open are not closed by the move (the tool reports their number); the first
 start resumes or ends them as after any restart.

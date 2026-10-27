@@ -140,6 +140,192 @@ describe('engine local limit', () => {
   afterEach(() => rmSync(base, { recursive: true, force: true }));
 
   describe('session.start', () => {
+    const worktreeStart = (provider: 'codex' | 'nanogpt' = 'codex') => {
+      const cwd = path.join(worktrees, 'PM', 'own');
+      return start({
+        provider,
+        cwd,
+        policy: {
+          ...policy({
+            placement: { kind: 'task_worktree', path: cwd },
+            filesystem: { readableRoots: [cwd], writableRoots: [] },
+            permissions: { sandbox: 'read-only' },
+          }),
+          access: 'task_worktree',
+        },
+        sandbox: sandbox({
+          allowWrite: [],
+          allowRead: [cwd],
+          portable: {
+            allowWrite: [],
+            env: {},
+            readBoundary: {
+              deniedRoots: [],
+              allowedPaths: [{ path: cwd, kind: 'directory' }],
+            },
+          },
+        }),
+      });
+    };
+
+    it.each(['codex', 'nanogpt'] as const)(
+      'keeps the existing %s worktree start when the optional boundary is absent',
+      async (provider) => {
+        const input = worktreeStart(provider);
+        const checked = await make().check('session.start', { ...input, sandbox: undefined } as never);
+        expect(checked.sandbox?.portable?.readBoundary).toBeUndefined();
+        expect(checked.policy?.filesystem.deniedPaths).toContain(path.join(home, 'secret'));
+      },
+    );
+
+    it('adds its own homes while preserving an own checkout underneath app home', async () => {
+      const input = worktreeStart();
+      const checked = await make().check('session.start', input as never);
+      expect(checked.sandbox?.portable?.readBoundary).toEqual({
+        deniedRoots: [userHome, home],
+        allowedPaths: [{ path: input.cwd, kind: 'directory' }],
+      });
+    });
+
+    it('closes the Claude transcripts for a Claude session with a boundary, and keeps only the engine’s own copy of it (PM-425)', async () => {
+      const input = { ...worktreeStart(), provider: 'claude' as const };
+      const hubCopy = { deniedRoots: [], allowedPaths: [{ path: outside, kind: 'directory' as const }] };
+      const checked = await make().check('session.start', {
+        ...input,
+        policy: {
+          ...input.policy,
+          filesystem: { ...input.policy.filesystem, readBoundary: hubCopy },
+        },
+      } as never);
+      const transcripts = path.join(userHome, '.claude', 'projects');
+      expect(checked.sandbox?.denyRead).toContain(transcripts);
+      expect(checked.policy?.filesystem.deniedPaths).toContain(transcripts);
+      expect(checked.policy?.filesystem.readBoundary).toEqual(checked.sandbox?.portable?.readBoundary);
+      expect(checked.policy?.filesystem.readBoundary?.allowedPaths).not.toContainEqual({
+        path: outside,
+        kind: 'directory',
+      });
+    });
+
+    it('rejects an explicitly malformed boundary for a read-only placement', async () => {
+      await refused(
+        make(),
+        'session.start',
+        start({
+          provider: 'codex',
+          policy: { ...policy(), access: 'read_only' },
+          sandbox: sandbox({ portable: { allowWrite: [], env: {}, readBoundary: null } }),
+        }),
+        'invalid_params',
+      );
+    });
+
+    it.each([false, true])(
+      'checks private writable directories against engine roots (shared=%s)',
+      async (shared) => {
+        const input = worktreeStart();
+        const tmp = shared ? paths().sessionTmpRoot! : path.join(paths().sessionTmpRoot!, 'own');
+        const folder = path.join(paths().sessionFoldersRoot!, 'own');
+        const request = {
+          ...input,
+          policy: {
+            ...policy({
+              placement: { kind: 'task_worktree', path: input.cwd },
+              filesystem: { readableRoots: [input.cwd] },
+            }),
+            access: 'task_worktree',
+          },
+          sandbox: sandbox({
+            allowWrite: [folder],
+            portable: {
+              allowWrite: [folder],
+              env: { PROJECTMAN_SESSION_DIR: folder },
+              tmpDir: tmp,
+              readBoundary: {
+                deniedRoots: [],
+                allowedPaths: [input.cwd, tmp, folder].map((path) => ({ path, kind: 'directory' })),
+              },
+            },
+          }),
+        };
+        if (shared) await refused(make(), 'session.start', request, 'path_outside_roots');
+        else {
+          const checked = await make().check('session.start', request as never);
+          expect(checked.sandbox?.portable?.tmpDir).toBe(tmp);
+          expect(checked.sandbox?.portable?.readBoundary?.deniedRoots).toEqual(
+            expect.arrayContaining([userHome, home]),
+          );
+        }
+      },
+    );
+
+    it.each(['home', 'collector', 'symlink', 'relative'] as const)(
+      'refuses a %s boundary exception',
+      async (variant) => {
+        const input = worktreeStart();
+        const link = path.join(worktrees, 'escape');
+        symlinkSync(outside, link);
+        const target =
+          variant === 'home'
+            ? userHome
+            : variant === 'collector'
+              ? worktrees
+              : variant === 'symlink'
+                ? link
+                : 'relative';
+        const changed = {
+          ...input,
+          sandbox: sandbox({
+            allowWrite: [],
+            portable: {
+              allowWrite: [],
+              env: {},
+              readBoundary: {
+                deniedRoots: [],
+                allowedPaths: [{ path: target, kind: 'directory' }],
+              },
+            },
+          }),
+        };
+        await refused(
+          make(),
+          'session.start',
+          changed,
+          variant === 'relative' ? 'invalid_params' : 'path_outside_roots',
+        );
+      },
+    );
+
+    it('drops optional exceptions that physically point into engine secrets', async () => {
+      const input = worktreeStart();
+      const link = path.join(worktrees, 'key-link');
+      symlinkSync(path.join(home, 'secret'), link);
+      const checked = await make().check('session.start', {
+        ...input,
+        sandbox: sandbox({
+          allowWrite: [link],
+          allowRead: [input.cwd, link],
+          portable: {
+            allowWrite: [link],
+            env: {},
+            readBoundary: {
+              deniedRoots: [],
+              allowedPaths: [
+                { path: input.cwd, kind: 'directory' },
+                { path: link, kind: 'file' },
+              ],
+            },
+          },
+        }),
+      } as never);
+      expect(checked.sandbox?.portable?.readBoundary?.allowedPaths).toEqual([
+        { path: input.cwd, kind: 'directory' },
+      ]);
+      expect(checked.sandbox?.allowRead).toEqual([input.cwd]);
+      expect(checked.sandbox?.allowWrite).toEqual([]);
+      expect(checked.sandbox?.portable?.allowWrite).toEqual([]);
+    });
+
     it('accepts a session inside the registered workspace', async () => {
       const limit = make();
       const result = (await limit.check('session.start', start({ permissionMode: 'auto' }) as never)) as {
@@ -828,6 +1014,51 @@ describe('engine local limit', () => {
       await refused(limit, 'full_test.run', fullTest({ cwd: outside }), 'path_outside_roots');
     });
 
+    it('lets a regeneration write directories only with the configured command in a merge check checkout (PM-1050)', async () => {
+      const ref = { projectKey: 'PM', repo: 'projectman' };
+      const mergeId = newId('merge');
+      const cwd = path.join(worktrees, '_merge', mergeId);
+      mkdirSync(cwd, { recursive: true });
+      const entry = {
+        project: 'PM',
+        repo: 'projectman',
+        path: repo,
+        fullTestCommand: 'npm test',
+        regenerateCommand: 'npm run generate',
+        mergeBranch: 'main',
+        workspaceSetup: null,
+      };
+      const limit = make({ repos: [entry] });
+      const regenerating = (regenerate: Record<string, unknown> = {}, overrides = {}) =>
+        fullTest({
+          command: 'npm run generate',
+          cwd,
+          regenerate: { ref, mergeId, patterns: ['gen/*.txt'], ...regenerate },
+          requireHeavyLock: true,
+          ...overrides,
+        });
+      await expect(limit.check('full_test.run', regenerating() as never)).resolves.toBeDefined();
+      // The test command may not write, and the regeneration command is not a test command.
+      await refused(limit, 'full_test.run', regenerating({}, { command: 'npm test' }), 'command_not_allowed');
+      await refused(
+        make({ repos: [{ ...entry, regenerateCommand: undefined }] }),
+        'full_test.run',
+        regenerating(),
+        'command_not_allowed',
+      );
+      await refused(limit, 'full_test.run', regenerating({ patterns: ['*/x'] }), 'invalid_params');
+      await refused(limit, 'full_test.run', regenerating({ patterns: ['.git/*'] }), 'invalid_params');
+      await refused(limit, 'full_test.run', regenerating({ mergeId: newId('merge') }), 'invalid_params');
+      await refused(limit, 'full_test.run', regenerating({}, { cwd: repo }), 'invalid_params');
+      await refused(
+        limit,
+        'full_test.run',
+        regenerating({}, { cwd: path.join(worktrees, '_merge') }),
+        'invalid_params',
+      );
+      await refused(limit, 'full_test.run', regenerating({}, { requireHeavyLock: false }), 'invalid_params');
+    });
+
     it('passes the dependency preparation request of a registered merge repo on, and refuses others (PM-681)', async () => {
       const ref = { projectKey: 'PM', repo: 'projectman' };
       const npmCi = { ref, mergeId: newId('merge') };
@@ -1266,9 +1497,52 @@ describe('engine local limit', () => {
             message: 'Docs',
           },
         ],
+        ['merge.build', { ref, onto: sha, commit: other, message: 'Merge PM-1', regenerate: ['gen/**'] }],
+        [
+          'merge.commit_regenerated',
+          {
+            ref,
+            mergeId,
+            onto: sha,
+            commit: other,
+            message: 'Merge PM-1',
+            paths: ['gen/a.snap'],
+            patterns: ['gen/**'],
+          },
+        ],
       ];
       for (const [method, params] of calls)
         await expect(limit.check(method, params as never), method).resolves.toBeDefined();
+    });
+
+    it('refuses a regeneration with a bad pattern, a bad path or a bad id', async () => {
+      const limit = merging();
+      const regenerated = {
+        ref,
+        mergeId,
+        onto: sha,
+        commit: other,
+        message: 'Merge PM-1',
+        paths: ['gen/a.snap'],
+        patterns: ['gen/**'],
+      };
+      for (const bad of ['*/x', '/abs', '../x', '.git/**', 'a\\b', ':(top)x'])
+        await refused(
+          limit,
+          'merge.build',
+          { ref, onto: sha, commit: other, message: 'm', regenerate: [bad] },
+          'invalid_params',
+        );
+      await refused(
+        limit,
+        'merge.commit_regenerated',
+        { ...regenerated, patterns: ['*/x'] },
+        'invalid_params',
+      );
+      for (const bad of ['', '/abs', '../x', 'a/../b', 'a\0b'])
+        await refused(limit, 'merge.commit_regenerated', { ...regenerated, paths: [bad] }, 'invalid_params');
+      await refused(limit, 'merge.commit_regenerated', { ...regenerated, onto: 'main' }, 'invalid_params');
+      await refused(limit, 'merge.commit_regenerated', { ...regenerated, message: ' ' }, 'invalid_params');
     });
 
     it('refuses a document read or commit with a bad path, too much text, too many files or a bad id', async () => {

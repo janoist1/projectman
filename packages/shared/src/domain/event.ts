@@ -117,6 +117,7 @@ export const TimelineEventType = z.enum([
   'release_changed',
   'member_hired',
   'member_retired',
+  'member_renamed',
   'config_changed',
   'team_contact_changed',
   'operator_knowledge_changed',
@@ -237,6 +238,8 @@ export interface TimelineEventData {
     previous?: string | null;
     reason?: 'member_removed' | 'handover';
     from?: string;
+    /** Why the project manager reassigned the card (PM-1040); free text, unlike `reason`. */
+    note?: string;
   };
   task_merge_requested: { mergeId: string; merger: string; repo: string; base: string; toStageId: string };
   /** The card went to the front of the repository's merge queue; `before`: the card it went ahead of (null: none waited). */
@@ -646,6 +649,8 @@ export interface TimelineEventData {
   };
   member_hired: { handle: string; role: string; temp: boolean; sponsor: string };
   member_retired: { handle: string; handoverTo: string | null };
+  /** An AI member's handle changed (PM-1025); `version` is the configuration commit. */
+  member_renamed: { from: string; to: string; version: string };
   config_changed: { version: string; message: string };
   /** A member was named a contact of the project (`contact` true) or taken off the list (PM-985); once per member. */
   team_contact_changed: { handle: string; contact: boolean; version: string };

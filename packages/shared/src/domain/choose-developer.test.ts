@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { chooseDeveloper, humanStageOwner, reachingDevelopers } from './choose-developer';
+import {
+  canReplaceUnstartedAssignee,
+  chooseDeveloper,
+  humanStageOwner,
+  reachingDevelopers,
+} from './choose-developer';
 import { ProjectConfig } from '../config/schema';
 import type { FreeDeveloper, StageDeveloper } from './choose-developer';
 import type { ComplexityPoints } from './complexity';
@@ -21,14 +26,38 @@ describe('chooseDeveloper (PM-1007)', () => {
   const pick = (
     points: ComplexityPoints | null,
     pool: FreeDeveloper[],
-    extra: { anyDecided?: boolean; developers?: StageDeveloper[] } = {},
+    extra: { anyDecided?: boolean; developers?: StageDeveloper[]; labels?: string[] } = {},
   ) =>
     chooseDeveloper({
       points,
+      labels: extra.labels ?? [],
       anyDecided: extra.anyDecided ?? false,
-      reaching: reachingDevelopers(extra.developers ?? developers, points),
+      reaching: reachingDevelopers(extra.developers ?? developers, points, extra.labels ?? []),
       free: pool,
     });
+
+  it('skips a specialist for an unlabelled card', () => {
+    expect(pick(null, [{ ...small, specialtyLabels: ['ui'] }, big])).toEqual({
+      kind: 'member',
+      handle: 'big',
+    });
+  });
+
+  it('assigns a matching card to a specialist', () => {
+    expect(pick(3, [{ ...small, specialtyLabels: ['ui'] }, big], { labels: ['ui'] })).toEqual({
+      kind: 'member',
+      handle: 'small',
+    });
+  });
+
+  it('does not wait for or fall back to a nonmatching specialist', () => {
+    const specialist = { ...big, specialtyLabels: ['ui'] };
+    expect(reachingDevelopers([small, specialist], 8, [])).toEqual([]);
+    expect(pick(8, [small, specialist], { developers: [small, specialist] })).toEqual({
+      kind: 'member',
+      handle: 'small',
+    });
+  });
 
   it('gives a card to the free developer with the smallest limit that reaches it', () => {
     expect(pick(8, [small, big])).toEqual({ kind: 'member', handle: 'big' });
@@ -82,10 +111,31 @@ describe('reachingDevelopers', () => {
       { handle: 'small', limit: 5 },
       { handle: 'big', limit: 13 },
     ];
-    expect(reachingDevelopers(team, 5)).toEqual(['small', 'big']);
-    expect(reachingDevelopers(team, 8)).toEqual(['big']);
-    expect(reachingDevelopers(team, null)).toEqual([]);
+    expect(reachingDevelopers(team, 5, [])).toEqual(['small', 'big']);
+    expect(reachingDevelopers(team, 8, [])).toEqual(['big']);
+    expect(reachingDevelopers(team, null, [])).toEqual([]);
   });
+});
+
+describe('canReplaceUnstartedAssignee (PM-1051)', () => {
+  const replaceable = {
+    providerBlocked: true,
+    hasWorkSession: false,
+    handoffOpen: false,
+    fixLimitHeld: false,
+  };
+
+  it('replaces an assignee only when their provider is blocked and they have not begun the card', () => {
+    expect(canReplaceUnstartedAssignee(replaceable)).toBe(true);
+    expect(canReplaceUnstartedAssignee({ ...replaceable, providerBlocked: false })).toBe(false);
+  });
+
+  it.each(['hasWorkSession', 'handoffOpen', 'fixLimitHeld'] as const)(
+    'keeps the assignee when %s',
+    (guard) => {
+      expect(canReplaceUnstartedAssignee({ ...replaceable, [guard]: true })).toBe(false);
+    },
+  );
 });
 
 describe('humanStageOwner', () => {

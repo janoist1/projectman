@@ -37,6 +37,60 @@ const input = {
 };
 
 describe('codexPermissionProfile', () => {
+  it('closes both homes and reopens typed own paths without downgrading writes', () => {
+    expect(
+      codexPermissionProfile({
+        sandbox: 'workspace-write',
+        tmpDir: '/own-tmp',
+        deniedPaths: ['/home/.ssh', '/home/app/db.sqlite*'],
+        writableRoots: ['/home/app/cache/dev', '/home/app/work/dev'],
+        readOnlyPaths: ['/home/app/work/dev/.git', '/home/app/work/dev/.codex', '/home/app/work/dev/.agents'],
+        readBoundary: {
+          deniedRoots: ['/home', '/home/app'],
+          allowedPaths: [
+            { path: '/home/app/work/dev', kind: 'directory' },
+            { path: '/home/app/cache/dev', kind: 'directory' },
+            { path: '/home/.gitconfig', kind: 'file' },
+            { path: '/home/.ssh/key', kind: 'file' },
+            { path: '/home/app/db.sqlite-wal', kind: 'file' },
+          ],
+        },
+      }),
+    ).toEqual({
+      extends: ':read-only',
+      filesystem: {
+        ':root': 'read',
+        '/home': 'deny',
+        '/home/app': 'deny',
+        '/home/app/work/dev': 'write',
+        '/home/app/cache/dev': 'write',
+        '/home/.gitconfig': 'read',
+        ':workspace_roots': { '.': 'write', '.git': 'read', '.codex': 'read', '.agents': 'read' },
+        '/own-tmp': 'write',
+        '/home/app/work/dev/.git': 'read',
+        '/home/app/work/dev/.codex': 'read',
+        '/home/app/work/dev/.agents': 'read',
+        '/home/.ssh': 'deny',
+        '/home/app/db.sqlite*': 'deny',
+      },
+    });
+  });
+
+  it('keeps the standalone exception narrow beneath a soft home denial', () => {
+    const profile = codexPermissionProfile({
+      sandbox: 'read-only',
+      writableRoots: [],
+      deniedPaths: ['/home/.codex'],
+      cliPath: '/home/.codex/packages/standalone/bin/codex',
+      readBoundary: { deniedRoots: ['/home'], allowedPaths: [] },
+    });
+    expect(profile.filesystem).toEqual({
+      ':root': 'read',
+      '/home': 'deny',
+      '/home/.codex': 'deny',
+      '/home/.codex/packages/standalone': 'read',
+    });
+  });
   it('reopens only the standalone CLI installation, after the credential denial', () => {
     expect(
       codexCliReadRoot('/home/.codex/packages/standalone/releases/1/bin/codex', ['/home/.codex']),
@@ -245,6 +299,13 @@ describe('Codex settings from the member', () => {
 });
 
 describe('buildCodexArgs', () => {
+  it.each([false, true])('keeps the team MCP server optional with resume=%s (PM-1070)', (resume) => {
+    for (const provider of [undefined, NANOGPT_CODEX_PROVIDER]) {
+      const c = overrides(buildCodexArgs({ ...input, provider, spec: { ...spec, resume } }).args);
+      expect(c.has('mcp_optional_startup_grace_ms')).toBe(false);
+      expect(c.get('mcp_servers.team')).toBe('{url="http://127.0.0.1:4700/mcp/tok"}');
+    }
+  });
   it.each([false, true])(
     'disables plugins for both providers and ChatGPT services only for NanoGPT with resume=%s',
     (resume) => {

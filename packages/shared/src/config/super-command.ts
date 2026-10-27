@@ -2,6 +2,7 @@ import type { AdministrationCommand } from '../api/administration';
 import type { SuperCommand } from '../api/super-handoff';
 import type { AgentProvider, HumanAccess } from '../domain/member';
 import { operatorOf } from './operator-member';
+import { coordinationMemberOf } from './project-manager';
 import { applyConfigPatch, prepareOperatorConfigPatch } from './edit';
 import type { ProjectConfig } from './schema';
 import { ownerReservedEffect, superConfigMutations } from './super-mutation';
@@ -37,7 +38,7 @@ function runtime(provider: AgentProvider | undefined): SuperMutationCommand {
   return { kind: 'runtime_start', providers: [effective] };
 }
 
-const PERMISSION_KEYS = ['permissionMode', 'approver', 'outboundNetwork'] as const;
+const PERMISSION_KEYS = ['permissionMode', 'approver', 'outboundNetwork', 'machineAccess'] as const;
 
 function memberUpdate(
   context: SuperCommandContext,
@@ -54,10 +55,12 @@ function memberUpdate(
   const changed = next.team.members.find((m) => m.handle === handle)!;
   if (changed.kind === 'human' && Array.isArray(changes.roles)) changed.roles = changes.roles as string[];
   if (changed.kind === 'ai' && typeof changes.role === 'string') changed.role = changes.role;
+  if (changed.kind === 'ai' && typeof changes.onLeave === 'boolean') changed.onLeave = changes.onLeave;
   if (
     PERMISSION_KEYS.some((key) => changes[key] !== undefined) ||
     superConfigMutations(context.config, next).some((mutation) => mutation.kind === 'permission_change') ||
-    (operatorOf(context.config)?.handle === handle &&
+    ((operatorOf(context.config)?.handle === handle ||
+      coordinationMemberOf(context.config)?.handle === handle) &&
       Object.values(changes).some((value) => value !== undefined))
   )
     mutations.push({ kind: 'permission_change', handle });

@@ -28,6 +28,11 @@ describe('the Operator queue', () => {
   beforeEach(async () => {
     h = await createDomainHarness({
       integratorTodoAccess: { available: integratorSideAvailable },
+      // A todo reaches the queue only from a member with machine access (decision 66).
+      adjust: (config) => {
+        const dev = config.team.members.find((m) => m.handle === 'dev-1');
+        if (dev?.kind === 'ai') dev.machineAccess = true;
+      },
     });
     await h.domain.tasks.create('AR', { title: 'Login page' }, OWNER_ACTOR);
   });

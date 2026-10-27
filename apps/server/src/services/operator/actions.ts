@@ -71,6 +71,7 @@ function consequenceOf(operation: OperatorOperation, changes: ConfigChangeRow[])
     [
       'member_hire',
       'member_retire',
+      'member_rename',
       'session_stop',
       'message_send',
       'project_pause',
@@ -524,6 +525,9 @@ export class OperatorActions implements OperatorConfigAuthorization {
       case 'member_retire':
         members.prepareRetire(next, operation.handle);
         break;
+      case 'member_rename':
+        members.prepareRename(projectKey, next, operation.handle, operation.to);
+        break;
       case 'config_revert':
         next = await projects.versionConfig(projectKey, operation.version);
         break;
@@ -536,6 +540,15 @@ export class OperatorActions implements OperatorConfigAuthorization {
     if (operatorWaiverChanged(loaded.config, next))
       throw forbidden('owner_approval_required', 'use the dedicated owner waiver endpoint');
     const verdict = operatorConfigVerdict(loaded.config, next, { operator: source });
+    // A rename is always the owner's click (PM-1025): no waiver, no standing autonomy, whatever the diff says.
+    if (operation.op === 'member_rename')
+      return {
+        level: verdict.level === 'never' ? ('never' as const) : ('approval' as const),
+        changes: verdict.changes,
+        operation,
+        baseVersion: loaded.version,
+        session: null,
+      };
     return {
       ...verdict,
       operation,
@@ -646,6 +659,10 @@ export class OperatorActions implements OperatorConfigAuthorization {
         break;
       case 'member_retire':
         await members.retire(projectKey, operation.handle, {}, by);
+        break;
+      case 'member_rename':
+        if (!approval) throw forbidden('owner_approval_required', 'renaming needs approval');
+        await members.rename(projectKey, operation.handle, operation.to, by);
         break;
       case 'session_stop':
         if (!approval) throw forbidden('owner_approval_required', 'stopping needs approval');

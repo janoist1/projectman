@@ -720,7 +720,36 @@ describe('shared knowledge session boundaries', () => {
     expect(requests.openFor(ctx.sessionId)).toBeNull();
   });
 
-  it('allows internal PM reads, forbids PM writes, and checks actual session and human membership', async () => {
+  it('lets the PM propose in its own conversation with the owner, waits for approval and carries no operations', async () => {
+    await setup();
+    await h.domain.members.update('AR', 'pm', { onLeave: false }, { actor: OWNER_ACTOR, author: OWNER });
+    await h.domain.messaging.sendReporting(
+      'AR',
+      'owner',
+      { to: ['pm'], text: 'Agree how we work' },
+      { awaitWake: true },
+    );
+    await flush();
+    const session = await waitForSession(h.domain, { member: 'pm' });
+    const pm: ToolContext = { projectKey: 'AR', member: 'pm', sessionId: session.id, taskKey: null };
+    const proposeAs = (operations: OperatorOperation[]) =>
+      h.domain.teamTools.proposeOperatorKnowledge(pm, {
+        expected_revision: 0,
+        title: 'PM proposal',
+        change: agreement,
+        operations,
+      });
+    await expect(proposeAs([immediate])).rejects.toThrow('invalid_request');
+    const proposal = await proposeAs([]);
+    expect(proposal.status).toBe('awaiting_approval');
+    expect(h.domain.inbox.get('AR', proposal.inbox_item_id)).toMatchObject({ state: 'open', source: 'pm' });
+    expect(payload(proposal.inbox_item_id).proposedBy).toBe('pm');
+    expect((await document()).revision).toBe(0);
+    await resolve(proposal.inbox_item_id);
+    expect((await document()).revision).toBe(1);
+  });
+
+  it('allows internal PM reads, forbids other members’ writes, and checks actual session and human membership', async () => {
     await setup();
     const requests = new OperatorRequests({ ctx: h.domain.ctx });
     for (const [handle, workItem, projectKey] of [
@@ -747,7 +776,17 @@ describe('shared knowledge session boundaries', () => {
             change: agreement,
             operations: [],
           }),
+        ).rejects.toThrow('project_manager_only');
+      } else if (handle === 'dev-1') {
+        await expect(
+          h.domain.teamTools.proposeOperatorKnowledge(caller, {
+            expected_revision: 0,
+            title: 'Wrong caller',
+            change: agreement,
+            operations: [],
+          }),
         ).rejects.toThrow('operator_only');
+        await expect(h.domain.teamTools.getOperatorKnowledge(caller)).rejects.toThrow();
       } else await expect(h.domain.teamTools.getOperatorKnowledge(caller)).rejects.toThrow();
     }
     requests.closeForSession(ctx.sessionId);

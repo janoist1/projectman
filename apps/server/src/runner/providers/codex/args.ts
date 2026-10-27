@@ -1,5 +1,8 @@
-import { modelForProvider, sessionPermissions } from '@projectman/shared';
+import { modelForProvider, sessionPermissions, SessionReadBoundary } from '@projectman/shared';
+import { homedir } from 'node:os';
+import { statSync } from 'node:fs';
 import path from 'node:path';
+import { toolPathForms, withoutFirmlink, pathPatternMatcher, isReadBoundaryPath } from '../../tool-decision';
 import type { StartSessionSpec } from '../../../contracts';
 import {
   FAST_HOOK_TIMEOUT_S,
@@ -182,7 +185,7 @@ function insidePath(candidate: string, parent: string): boolean {
 /** The official standalone installation is the only read exception beneath denied homes. */
 type CodexCliReadRoot = { kind: 'none' } | { kind: 'root'; path: string } | { kind: 'misplaced' };
 
-export function codexDeniedPaths(input: Pick<CodexArgsInput, 'spec' | 'codexHome'>): string[] {
+function codexDeniedPaths(input: Pick<CodexArgsInput, 'spec' | 'codexHome'>): string[] {
   return [
     ...new Set([
       ...(input.spec.policy?.filesystem.deniedPaths ?? []),
@@ -191,7 +194,108 @@ export function codexDeniedPaths(input: Pick<CodexArgsInput, 'spec' | 'codexHome
   ];
 }
 
+/** CLI placement is checked against both hard denials and reopenable roots. */
+export function codexCliDenials(input: Pick<CodexArgsInput, 'spec' | 'codexHome'>): string[] {
+  return [
+    ...codexDeniedPaths(input),
+    ...(input.spec.sandbox?.portable?.readBoundary?.deniedRoots ?? []),
+  ].flatMap(pathForms);
+}
+
+function pathForms(target: string): string[] {
+  return [
+    ...new Set([path.normalize(target), ...toolPathForms('/', target, homedir())].map(withoutFirmlink)),
+  ];
+}
+
+/** Hard denials cover descendants, including globbed file names and symlink targets. */
+function pathDenials(denied: readonly string[]): (target: string) => boolean {
+  const matches = pathPatternMatcher(denied.flatMap(pathForms), process.platform === 'darwin');
+  return (target) => pathForms(target).some(matches);
+}
+
+export type ReadBoundaryProblem = 'missing' | 'invalid' | 'required_path_denied';
+
+/** Local starts must fail closed too; RPC validation is not a substitute for this check. */
+export function validateCodexReadBoundary(
+  input: Pick<CodexArgsInput, 'spec' | 'codexHome'>,
+): ReadBoundaryProblem | undefined {
+  const { spec } = input;
+  const raw = spec.sandbox?.portable?.readBoundary;
+  if (raw === undefined) return;
+  if (!spec.policy) return 'invalid';
+  const parsed = SessionReadBoundary.safeParse(raw);
+  if (!parsed.success) return 'invalid';
+  const boundary = parsed.data;
+  if (
+    ![...boundary.deniedRoots, ...boundary.allowedPaths.map((entry) => entry.path)].every(isReadBoundaryPath)
+  )
+    return 'invalid';
+  if (!boundary.deniedRoots.some((root) => pathForms(root).includes(pathForms(homedir()).at(-1)!)))
+    return 'invalid';
+  const hard = codexDeniedPaths(input);
+  const hardDenied = pathDenials(hard);
+  const required = [
+    spec.cwd,
+    ...(spec.policy.placement.kind === 'task_worktree' && spec.policy.placement.gitDir
+      ? [spec.policy.placement.gitDir]
+      : []),
+  ];
+  if (spec.policy.permissions.sandbox === 'workspace-write') {
+    const portable = spec.sandbox?.portable;
+    if (!portable?.tmpDir || !portable.env.PROJECTMAN_SESSION_DIR) return 'missing';
+    if (['/tmp', '/private/tmp'].includes(portable.tmpDir)) return 'invalid';
+    required.push(portable.tmpDir, portable.env.PROJECTMAN_SESSION_DIR);
+    required.push(...codexSharedGitAccess(spec.policy, spec.sandbox?.denyWrite).writable);
+  }
+  if (required.some(hardDenied)) return 'required_path_denied';
+  const homes = boundary.deniedRoots;
+  const candidates = [
+    spec.cwd,
+    ...spec.policy.filesystem.readableRoots,
+    ...(spec.policy.filesystem.readOnlyPaths ?? []),
+    ...(spec.sandbox?.allowRead ?? []),
+    ...(spec.sandbox?.portable?.allowWrite ?? []),
+    ...required,
+  ];
+  if (
+    boundary.allowedPaths.some((entry) => {
+      if (hardDenied(entry.path)) return false;
+      try {
+        const stat = statSync(entry.path);
+        if (entry.kind === 'file' ? !stat.isFile() : !stat.isDirectory()) return true;
+      } catch {
+        // Missing technical files and future directories retain their declared kind.
+      }
+      return (
+        homes.some((root) =>
+          pathForms(entry.path).some((candidate) =>
+            pathForms(root).some((home) => insidePath(home, candidate)),
+          ),
+        ) ||
+        /\/member-caches(?:\/[^/]+){0,2}$/.test(entry.path) ||
+        !candidates.some((candidate) =>
+          pathForms(entry.path).every((form) => pathForms(candidate).includes(form)),
+        )
+      );
+    })
+  )
+    return 'invalid';
+  if (
+    required.some(
+      (target) =>
+        !boundary.allowedPaths.some(
+          (entry) =>
+            entry.kind === 'directory' &&
+            pathForms(target).every((form) => pathForms(entry.path).some((root) => insidePath(form, root))),
+        ),
+    )
+  )
+    return 'required_path_denied';
+}
+
 export function codexCliReadRoot(cliPath: string, denied: readonly string[]): CodexCliReadRoot {
+  if (pathDenials(denied.filter((entry) => /[*?\[\]]/.test(entry)))(cliPath)) return { kind: 'misplaced' };
   const paths = denied.filter((entry) => !/[*?\[\]]/.test(entry));
   if (!paths.some((entry) => insidePath(cliPath, entry))) return { kind: 'none' };
   let root = path.dirname(cliPath);
@@ -277,23 +381,36 @@ export function codexPermissionProfile(input: {
   readOnlyPaths?: readonly string[];
   tmpDir?: string;
   cliPath?: string;
+  readBoundary?: SessionReadBoundary;
 }): CodexPermissionProfile {
   const filesystem: CodexPermissionProfile['filesystem'] = { ':root': 'read' };
+  const hardDenied = pathDenials(input.deniedPaths);
+  const grant = (target: string, access: CodexAccess) => {
+    if (!hardDenied(target)) for (const form of pathForms(target)) filesystem[form] = access;
+  };
+  for (const root of input.readBoundary?.deniedRoots ?? [])
+    for (const form of pathForms(root)) filesystem[form] = 'deny';
+  for (const entry of input.readBoundary?.allowedPaths ?? []) grant(entry.path, 'read');
   const writes = input.sandbox === 'workspace-write';
   if (writes)
     filesystem[':workspace_roots'] = { '.': 'write', '.git': 'read', '.codex': 'read', '.agents': 'read' };
   if (writes) {
     for (const root of new Set([...input.writableRoots, ...(input.tmpDir ? [input.tmpDir] : [])]))
-      if (!input.deniedPaths.some((denied) => insidePath(root, denied))) filesystem[root] = 'write';
-    for (const readOnly of new Set(input.readOnlyPaths ?? []))
-      if (!input.deniedPaths.some((denied) => insidePath(readOnly, denied))) filesystem[readOnly] = 'read';
-    if (!input.tmpDir) {
+      grant(root, 'write');
+    for (const readOnly of new Set(input.readOnlyPaths ?? [])) grant(readOnly, 'read');
+    if (!input.tmpDir && !input.readBoundary) {
       filesystem[':tmpdir'] = 'write';
       filesystem[':slash_tmp'] = 'write';
     }
   }
-  for (const denied of new Set(input.deniedPaths)) filesystem[denied] = 'deny';
-  const cliReadRoot = input.cliPath ? codexCliReadRoot(input.cliPath, input.deniedPaths) : null;
+  for (const denied of new Set(input.deniedPaths))
+    for (const form of pathForms(denied)) filesystem[form] = 'deny';
+  const cliReadRoot = input.cliPath
+    ? codexCliReadRoot(
+        input.cliPath,
+        [...input.deniedPaths, ...(input.readBoundary?.deniedRoots ?? [])].flatMap(pathForms),
+      )
+    : null;
   if (cliReadRoot?.kind === 'root') filesystem[cliReadRoot.path] = 'read';
   return { extends: ':read-only', filesystem };
 }
@@ -349,6 +466,9 @@ export function buildCodexArgs(input: CodexArgsInput): CodexCommandLine {
 
   // Never infer a Codex grant from another provider's tool syntax.
   const approvals = spec.policy?.tools.team ?? { all: false, names: [] };
+  // The team server stays optional (PM-1070): `required = true` (PM-1055) made Codex exit at start
+  // ("agent CLI exited before it was ready") for every session, so a failing team MCP must only
+  // cost the tools, not the session.
   const team: Record<string, unknown> = { url: spec.mcpUrl };
   if (approvals.all) team.default_tools_approval_mode = 'approve';
   if (approvals.names.length > 0) {
@@ -382,6 +502,7 @@ export function buildCodexArgs(input: CodexArgsInput): CodexCommandLine {
   // A worktree's shared git directory (PM-399): without it `git add` / `git commit` fail with EPERM.
   const sharedGit = writes ? codexSharedGitAccess(spec.policy, spec.sandbox?.denyWrite) : undefined;
   const writableRoots = [
+    ...(portable?.readBoundary ? [input.realCwd] : []),
     ...(!spec.policy ? (spec.writableRoots ?? []) : []),
     ...(sharedGit?.writable ?? []),
     ...(portable?.allowWrite ?? []),
@@ -394,7 +515,16 @@ export function buildCodexArgs(input: CodexArgsInput): CodexCommandLine {
       sandbox: writes ? 'workspace-write' : 'read-only',
       deniedPaths: codexDeniedPaths(input),
       writableRoots,
-      readOnlyPaths: sharedGit?.readOnly ?? [],
+      readBoundary: portable?.readBoundary,
+      readOnlyPaths: [
+        ...(portable?.readBoundary
+          ? ['.git', '.codex', '.agents']
+              .map((name) => path.join(input.realCwd, name))
+              .filter((entry) => !sharedGit?.writable.includes(entry))
+          : []),
+        ...(sharedGit?.readOnly ?? []),
+        ...(portable?.readBoundary ? (spec.policy?.filesystem.readOnlyPaths ?? []) : []),
+      ],
       tmpDir,
       cliPath: input.cliPath,
     }),

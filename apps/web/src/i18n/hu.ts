@@ -260,7 +260,6 @@ export const hu = {
     truncated: 'A kimenet le van vágva (64 KB).',
   },
   integratorKey: {
-    audit: 'Kulcsok naplója',
     auditActions: { created: 'Létrehozva', revoked: 'Visszavonva' },
     modes: { super: 'Operátor jogosítványával', read: 'Csak olvasás', legacy: 'Régi kulcs' },
     purpose: 'Mire kell?',
@@ -272,11 +271,8 @@ export const hu = {
     noExpiryHint: 'A kiszivárgott kulcs a visszavonásig érvényes. Bármikor visszavonhatod.',
     readSecretTitle: 'Új olvasó kulcs',
     superSecretTitle: 'Új Claude Code-kulcs',
-    details: 'Részletesen',
     emptyHint: 'Kulcs nélkül a Claude Code nem csatlakozhat. Az Operátor nélküle is dolgozik.',
     past: 'Korábbi kulcsok ({n})',
-    legacy: 'Ezzel a kulccsal a műveletek még a te neveden látszanak. Cserélj Claude Code-kulcsra.',
-    upgrade: 'Csere Claude Code-kulcsra',
     ownerOnly: 'A kulcsokat csak a tulajdonos kezelheti, a saját bejelentkezésével.',
     today:
       'A Claude Code-kulcs ma lejár. Adj újat időben, különben a Claude Code hívásai elutasítást kapnak.',
@@ -285,10 +281,8 @@ export const hu = {
     connectionBody:
       'Mentsd a kulcsot a ~/.config/projectman/integrator-key fájlba (mappa: 700, fájl: 600). A projectman parancs ebből a fájlból olvas. Cloudban az Access service token is kell, ugyanebben a mappában. A kulcsot soha ne add meg parancssori argumentumként. Részletek: docs/DEPLOY.md.',
     mcpAddress: 'MCP-cím',
-    view: 'Megnézem',
     revokeReadBody:
       'A scriptek minden hívása azonnal elutasítást kap. Amit eddig tettek, a naplóban megmarad.',
-    secretTitle: 'Új Claude Code-kulcs',
     intro:
       'Ha a Claude Code-dal dolgozol, ezzel a kulccsal ugyanannak az Operátornak a kliense: ugyanazokat a műveleteket éri el, ugyanúgy naplózva. A sor nélküle is halad.',
     none: 'Még nincs kulcs.',
@@ -296,29 +290,22 @@ export const hu = {
     create: 'Kulcs létrehozása',
     submit: 'Létrehozás',
     new: 'Új kulcs',
-    recreate: 'Új kulcs létrehozása',
     revoked: 'A kulcs visszavonva.',
     copyFailed: 'Nem sikerült másolni. Jelöld ki és másold ki a kulcsot.',
     revoke: 'Visszavonás',
     expiry: 'Lejárat',
     days30: '30 nap',
     days90: '90 nap',
-    year: '1 év',
     never: 'Nem jár le',
     once: 'Csak most látod. Mentsd a ~/.config/projectman/integrator-key fájlba. Ne küldd el üzenetben, ne tedd kártyára, és ne add meg parancssori argumentumként.',
     copy: 'Másolás',
     copied: 'Kimásolva',
     done: 'Kész, elmentettem',
-    how: 'Hogyan használja a Claude Code?',
-    instructions:
-      'Mentsd a kulcsot a ~/.config/projectman/integrator-key fájlba (mappa: 700, fájl: 600 jogosultság). A kérések Authorization: Bearer fejlécben küldjék a kulcsot. Részletek: docs/DEPLOY.md.',
-    active: 'A Claude Code a saját kulcsával dolgozik.',
     prefix: 'Kulcs',
     created: 'Létrehozva',
     used: 'Utoljára használva',
     expires: 'Lejár',
     soon: 'A Claude Code-kulcs {n} nap múlva lejár. Adj újat időben, különben a Claude Code hívásai elutasítást kapnak.',
-    replaceTitle: 'Új kulcsot adsz?',
     replaceBody:
       'A mostani Claude Code-kulcs ({prefix}…) azonnal érvényét veszti; a Claude Code az újjal dolgozik tovább.',
     replaceReadBody:
@@ -353,7 +340,6 @@ export const hu = {
     badge: 'super',
     actor: 'Operátor · super',
     avatar: 'Operátor, super jogosítvánnyal',
-    credential: 'Claude Code-ból · kulcs {prefix}…',
     credentialLead: 'Claude Code-ból · kulcs',
     activity: 'Mit tett az Operátor super jogosítvánnyal?',
     handoffsTitle: 'Átadások',
@@ -507,7 +493,6 @@ export const hu = {
     defaultChipCap: 'Alapértelmezett',
     online: 'Csatlakozva',
     offlineSeen: 'Nem elérhető · utoljára {ago}',
-    offlineUnknown: 'Nem elérhető',
     neverSeen: 'Még nem csatlakozott',
     announceOffline: '{name} nem elérhető.',
     announceOnline: '{name} csatlakozott.',
@@ -520,7 +505,6 @@ export const hu = {
     panelPickMember: 'A tulajdonos jelölhet ki egyet.',
     panelWaiting: 'Ami rá vár, magától elindul, amint újra csatlakozik.',
     panelManage: 'Motorok kezelése',
-    panelCountsLoading: 'Betöltés…',
     /** The work on an engine (the owner's counts). */
     noWork: 'Nincs rajta munka',
     running: '{count} munkamenet fut',
@@ -602,18 +586,7 @@ export const hu = {
   },
   boundary: {
     heading: 'Külső művelet engedélyezése',
-    reason: 'A döntés indoka',
-    scope: 'Csak erre az egy műveletre szól.',
-    expiry: 'Érvényes eddig: {time}',
-    deadline: 'Vezetői határidő: {time}',
-    revoke: 'Engedély visszavonása',
-    consumed: 'Az engedélyt már felhasználták',
-    revokeFailed: 'Az engedélyt nem sikerült visszavonni.',
-    environment: 'Célkörnyezet: {environment}',
-    branch: 'Ág: {branch}',
-    environments: { development: 'Fejlesztés', production: 'Éles rendszer' },
     categories: {
-      delegable: 'Vezető által eldönthető',
       cost: 'Költség: tulajdonosi döntés',
       production: 'Éles rendszer vagy publikálás: tulajdonosi döntés',
       credentials: 'Új hozzáférés vagy titok: tulajdonosi döntés',
@@ -637,17 +610,6 @@ export const hu = {
       policy_changed: 'Megváltoztak a szabályok vagy a hozzáférés',
       lead_unavailable: 'A vezető nem döntött időben vagy nem elérhető',
     },
-    operations: {
-      read_external: 'Külső erőforrás olvasása',
-      publish_branch: 'Ág publikálása',
-      publish_main: 'Főág publikálása',
-      spend: 'Költséggel járó művelet',
-      production_change: 'Éles rendszer módosítása',
-      release: 'Kiadás',
-      create_account: 'Új fiók',
-      create_secret: 'Új titok vagy token',
-      expand_host: 'Tartós host-hozzáférés',
-    },
   },
   duties: {
     title: 'Szerepek és feladatkörök',
@@ -657,7 +619,7 @@ export const hu = {
     reset: 'Alapértelmezés visszaállítása',
     missing: 'Nincs felelőse',
     humanOnly: 'Csak ember töltheti be; a szerepet AI is viseli.',
-    ownerOnly: 'A kiadási és külső műveleti jogokat csak tulajdonos módosíthatja.',
+    ownerOnly: 'A kiadási és engedélykérés-döntési jogokat csak tulajdonos módosíthatja.',
     readOnly: 'A módosításhoz adminisztrátori hozzáférés kell.',
     fourEyes: 'A kiadás jóváhagyója legyen más, mint a megvalósító és a PR szerzője',
     extra: 'További felelősségek (csak az utasításban)',
@@ -1220,6 +1182,14 @@ export const hu = {
     invalidResponse: 'A szerver válasza nem a várt formátumú.',
     /** Detail of `handover_uncommitted`: the working directory and how many files are uncommitted. */
     handoverUncommitted: 'A munkafa: {path}; mentetlen fájlok száma: {count}.',
+    /** `member_session_live` with what holds the member named (PM-1026). */
+    memberSessionLive: 'Most nem nevezhető át, mert {reason}. Próbáld újra, ha végzett.',
+    memberSessionLiveReason: {
+      session: 'éppen dolgozik egy munkamenetben',
+      workspace: 'a munkaterülete még foglalt egy kártyához',
+      queue: 'éppen feldolgoz egy neki küldött üzenetet',
+      deferred_start: 'egy munkája indulásra vár',
+    },
     /** `owner_login_required` with its category named (PM-418). */
     ownerLoginRequiredIn: 'Ezt csak a tulajdonos teheti meg, a saját bejelentkezésével: {what}.',
     ownerLoginRequiredCategory: {
@@ -1392,6 +1362,8 @@ export const hu = {
       operator_never:
         'Ezt az eszközt az Operátor nem használhatja: más tagok döntései és az átadások nem az övéi.',
       operator_only: 'Ezt a műveletet csak az Operátor használhatja.',
+      command_not_for_project_manager:
+        'Ezt a műveletet a projektmenedzser nem végezheti el. Gépi hozzáféréssel integrátor-teendőt adhatsz, egyébként kérd a tulajdonos segítségét.',
       project_manager_only:
         'Ezt a műveletet csak az aktuális projektmenedzser használhatja a saját belső beszélgetésében.',
       operator_preference_no_person: 'Nem egyértelmű, kinek a beszélgetési stílusát kell beolvasni.',
@@ -1444,6 +1416,7 @@ export const hu = {
       complexity_forbidden: 'A pontot nem módosíthatod.',
       complexity_points_invalid: 'A pont csak 1, 2, 3, 5, 8 vagy 13 lehet.',
       complexity_limit_not_developer: 'Határ csak fejlesztő tagnak állítható.',
+      specialty_labels_not_developer: 'Szakterületi címke csak állandó AI-fejlesztőnek állítható.',
       board_stale: 'A tábla közben változott, frissítettük. Próbáld újra.',
       board_column_chronological: 'A Kész oszlop időrendben marad, abban nem lehet sorrendet változtatni.',
       unknown_column: 'Ilyen oszlop nincs a táblán.',
@@ -1494,6 +1467,8 @@ export const hu = {
       duplicate_feedback_surface: 'Két felületnek azonos az azonosítója vagy a címe.',
       not_an_outage_alert: 'Ez nem kiesési figyelmeztetés.',
       handle_taken: 'Ez az azonosító már foglalt.',
+      member_session_live: 'Most nem nevezhető át, mert dolgozik.',
+      member_renaming: 'Ennek a tagnak most nevezzük át az azonosítóját. Pár másodperc múlva próbáld újra.',
       member_at_capacity: 'Ennek a tagnak most nincs szabad kapacitása.',
       member_on_leave: 'Ez a tag szabadságon van; amíg vissza nem hívod, nem kap munkát.',
       ai_limit_reached: 'Most dolgozik a megengedett számú AI-tag; az új munka később indul.',
@@ -1622,8 +1597,6 @@ export const hu = {
       hasPassword: 'Van jelszavad?',
       usePassword: 'Belépés jelszóval',
       codeTitle: 'Nézd meg a leveleidet',
-      codeSubtitle:
-        'Ha ehhez a címhez meghívás vagy fiók tartozik, elküldtük rá a {digits} jegyű belépőkódot. {minutes} percig érvényes.',
       address: 'Cím:',
       otherAddress: 'Másik cím',
       codeLabel: 'Belépőkód',
@@ -1710,7 +1683,6 @@ export const hu = {
       starterSuffix: ', egy egyszerű folyamattal. A többit utána az Operátorral alakítjátok ki.',
       reposToggle: 'Repók (nem kötelező)',
       rejected: 'A szerver nem hozta létre a projektet: {reason}',
-      rejectedNoReason: 'A szerver nem hozta létre a projektet.',
       name: 'Név',
       namePlaceholder: 'pl. Acme webshop',
       key: 'Kulcs',
@@ -1719,7 +1691,6 @@ export const hu = {
       workspace: 'Munkaterület útvonala',
       workspaceHint: 'Abszolút útvonal a szerver gépén; innen indulnak az AI-tagok munkamenetei.',
       workspacePlaceholder: '/Users/te/Dev/projekt',
-      repos: 'Repók',
       reposHint: 'A munkaterületen lévő repók. Később a beállításokban is felveheted őket.',
       repoName: 'Név',
       repoPath: 'Útvonal a munkaterületen belül',
@@ -2058,14 +2029,12 @@ export const hu = {
       },
       /** The short row text per reason; {name} etc. are filled by the code. */
       short: {
-        prerequisite: '{keys}',
         startOffer: 'elindítja (Fejlesztésbe mozgatja)',
         inbox: {
           question: 'válaszol egy kérdésre',
           permission: 'engedélyt ad',
           decision: 'dönt',
           approval: 'jóváhagy',
-          boundary: 'külső műveletet enged',
           alert: 'figyelmeztetést néz meg',
           other: 'teendője van',
         },
@@ -2076,7 +2045,6 @@ export const hu = {
           permissionNoName: 'engedélykérés',
           decision: 'döntés',
           approval: 'jóváhagyás',
-          boundary: 'külső művelet',
           alert: 'figyelmeztetés',
           other: 'teendőd van',
         },
@@ -2440,7 +2408,6 @@ export const hu = {
       retry: 'Újrapróbálás',
       retrying: 'Újrapróbálás…',
       sendBack: 'Vissza a fejlesztőnek',
-      openCard: 'Kártya megnyitása',
       details: 'Részletek',
       /** The work the merge is about: the commit when it is known, else "the approved work". */
       what: 'A jóváhagyott munka ({commit})',
@@ -2527,8 +2494,6 @@ export const hu = {
         remoteOther: 'A távoli tárhelyre felkerült, a gépen még nem.',
         stepMerge: 'Összefésülés és ellenőrzés',
         stepPush: 'Felküldés',
-        stepOk: 'sikerült',
-        stepFailed: 'elakadt',
         others: '{merger} próbálja újra; ha nem tudja elhárítani, a tulajdonoshoz fordul.',
         /** Why it stopped: the sentence for each reason; the `Remote` form is for a repo with no GitHub. */
         reasons: {
@@ -3014,7 +2979,6 @@ export const hu = {
       sameParent: 'Már ennek a része.',
     },
     preview: {
-      none: 'Válassz fajtát és kártyát.',
       pickCard: 'Válassz kártyát a listából.',
       pickKind: 'Válassz fajtát.',
       part_of: 'Ez a kártya ennek lesz a része: {key}.',
@@ -3077,10 +3041,8 @@ export const hu = {
       cancel: 'Mégse',
       submit: 'Szünet',
       submitting: 'Szüneteltetés…',
-      error: 'A szünetet most nem sikerült kérni. Próbáld újra.',
     },
     banner: {
-      label: 'Szünet',
       pausing: 'A csapat megáll…',
       paused: 'A csapat szünetel',
       instancePaused: 'Az egész példány szünetel',
@@ -3088,7 +3050,6 @@ export const hu = {
       shutdownMeta: 'a csapat szünetel, indulás után magától folytatja',
       stoppedCount: '{done}/{total} munkamenet állt meg',
       since: '{time} óta',
-      by: '{name}',
       details: 'Részletek',
       detailsOpen: 'Részletek megnyitása',
       close: 'Bezárás',
@@ -3106,7 +3067,6 @@ export const hu = {
       requestedBy: 'Kérte: {name} · {time}',
       empty: 'Egyik AI-tag sem dolgozott, nem kellett várni senkire.',
       stillRunning: '{tool} fut még',
-      stoppedRows: 'Megálltak',
       table: 'Munkamenetek',
       work: {
         general: 'Általános beszélgetés',
@@ -3265,7 +3225,6 @@ export const hu = {
         fix_limit: 'Javítási kör',
         message: 'Üzenet',
         permission: 'Engedélykérés',
-        boundary: 'Határkérés',
         screening: 'Kérdésszűrés',
         signal: 'Jelzés',
         start: 'Indítás',
@@ -3316,7 +3275,6 @@ export const hu = {
       missing: 'Nincs',
     },
     panel: {
-      label: 'Beszélgetés a projektmenedzserrel',
       close: 'Bezárás',
       subline: 'a projektet viszi',
       fullSession: 'Teljes munkamenet',
@@ -3430,6 +3388,7 @@ export const hu = {
         member_change: 'Tag módosítása',
         member_hire: 'Tag felvétele',
         member_retire: 'Tag elbocsátása',
+        member_rename: 'Tag átnevezése',
         config_revert: 'Beállítás visszaállítása',
         session_stop: 'Munkamenet leállítása',
         project_pause: 'A projekt szüneteltetése',
@@ -3538,8 +3497,6 @@ export const hu = {
       },
       approved: 'Jóváhagyva: {title}',
       rejected: 'Elvetve, semmi nem változott.',
-      decidedApproved: 'Jóváhagytad · {time}',
-      decidedRejected: 'Elvetetted · {time}',
       consequences: {
         message_send:
           'Jóváhagyás után az üzenet egyszer megy ki. Ha elveted, nem megy ki semmi, és a címzett nem kap értesítést.',
@@ -3551,6 +3508,8 @@ export const hu = {
         labels: 'A már felkerült címkék nem változnak, a szabály a következő döntéstől érvényes.',
         member_hire: 'Az új tag a mentés után azonnal munkát kaphat.',
         member_retire: 'A tag futó munkamenetei leállnak, a munkáját a csapat veszi át.',
+        member_rename:
+          'A tag azonosítója az új névre vált, a korábbi bejegyzések a régi névvel maradnak; a levelezési címe is az új azonosítót követi.',
         member_other: 'A tag futó munkamenetei nem változnak.',
         locations: 'A futó munkamenetek nem változnak; az új helyet az újonnan indulók használják.',
         review_test:
@@ -3632,8 +3591,6 @@ export const hu = {
   /** What stays of the project manager's header panel (PM-429): the relayed mark and the required chip. */
   pm: {
     relayed: 'a beszélgetéséből',
-    name: 'Projektmenedzser',
-    short: 'PM',
     /** The pm is a member of the Messages page like any other; this is its chip there (PM-447). */
     distributor: 'elosztó',
     distributorTitle: 'Ő osztja el magától a napi munkát.',
@@ -3680,7 +3637,10 @@ export const hu = {
     emailSendWithoutApproval: 'Jóváhagyás nélkül küldhet',
     emailApprovalHint: 'Kikapcsolva minden levele előbb a Rád vár listádba kerül.',
     emailAutoHint: 'A levelei azonnal kimennek. Utólag a Beállítások › E-mail naplójában látod őket.',
-    emailOwnerOnly: 'Ezt csak a tulajdonos állíthatja.',
+    ownerOnly: 'Ezt csak a tulajdonos állíthatja.',
+    machineAccess: 'Külső teendőt adhat (MCP)',
+    machineAccessHint:
+      'Telepítést, beállítást tehet a tulajdonosok sorába. A sort a tulajdonos MCP-n csatlakozott Claude-ja dolgozza fel.',
     save: 'Mentés',
     saved: 'A tag adatai mentve.',
   },
@@ -3949,21 +3909,10 @@ export const hu = {
       },
     },
     approver: 'Ha kérdez, ki dönt',
-    modeHints: {
-      default: 'Minden lépés előtt kérdez.',
-      acceptEdits: 'A szerkesztést magától végzi, a többit megkérdezi.',
-      auto: 'Magától dolgozik, a ritka kérdést a „Ha kérdez” beállítás szerint kezeljük.',
-      plan: 'Csak tervez, nem változtat semmin.',
-    },
     approvers: {
       human: 'Ember',
       ai: 'AI-döntnök',
       none: 'Senki',
-    },
-    approverHints: {
-      human: 'A szponzor dönt, ennek híján a tulajdonos.',
-      ai: 'A külső műveletekről döntő AI-tag dönt.',
-      none: 'A rendszer elutasítja a kérdést.',
     },
     legacy: 'régi beállítás',
     legacyHint: 'Régi „mindent szabad” beállítás. Egy új mód kiválasztása lecseréli.',
@@ -3979,17 +3928,15 @@ export const hu = {
     },
     networkFacts: {
       on: 'Be',
-      off: 'Ki',
     },
     networkState: 'Kimenő hálózat: {value}',
     savedNetwork: '{name} kimenő hálózata: {value}. A következő munkamenettől érvényes.',
     blocked: {
-      delegation_off: 'Nem választható: a külső műveletek delegálása ki van kapcsolva.',
-      no_ai_decider: 'Nem választható: nincs olyan AI-tag, aki a külső műveletekről dönthetne.',
+      delegation_off: 'Nem választható: az engedélykérések delegálása ki van kapcsolva.',
+      no_ai_decider: 'Nem választható: nincs olyan AI-tag, aki az engedélykérésekről dönthetne.',
     },
     lostApprover: 'Nincs AI-döntnök, ezért a kérdések emberhez mennek: {names}.',
     lostApproverLabel: 'Döntnök figyelmeztetés',
-    ownerOnly: 'Ezt csak a tulajdonos állíthatja.',
     savedMode: '{name} módja: {value}.',
     savedApprover: '{name} döntnöke: {value}.',
   },
@@ -4044,7 +3991,6 @@ export const hu = {
       permission: 'Engedély',
       hand_on: 'Vidd tovább',
       merge_request: 'Olvaszd be',
-      boundary: 'Külső művelet',
       decision: 'Döntés',
       question: 'Kérdés',
       approval: 'Jóváhagyás',
@@ -4057,7 +4003,6 @@ export const hu = {
       hand_on: 'továbbvitel',
       merge_request: 'beolvasztás',
       permission: 'engedély',
-      boundary: 'külső művelet',
       decision: 'döntés',
       question: 'kérdés',
       approval: 'jóváhagyás',
@@ -4071,7 +4016,7 @@ export const hu = {
       deny: 'Elutasítom',
       approve: 'Jóváhagyom',
       reject: 'Elutasítom',
-      answer: 'Saját válasz',
+      answer: 'Más válasz',
       seen: 'Láttam',
       stop_work: 'Leállítom a munkát',
       let_run: 'Hadd fusson',
@@ -4594,7 +4539,7 @@ export const hu = {
     answerLabel: 'Válaszod',
     answerPlaceholder: 'Írd ide a válaszod…',
     answerSubmit: 'Válasz küldése',
-    answerOwn: 'Saját válasz',
+    answerOwn: 'Más válasz',
     /** The files a question names (PM-498): tiles that open or download them. */
     attachments: {
       title: 'Csatolmányok a válaszhoz',
@@ -5036,6 +4981,7 @@ export const hu = {
         'A tulajdonos értesítve: az emlékeztető ({name}) után is a kezdő lépésben maradt részek: {parts}.',
       theme_closed: 'Lezárta a témát.',
       assignment_previous: '{assignment} Előző felelős: {previous}.',
+      assignment_note: '{line} Indok: {note}',
       task_created_imported: 'Létrehozva (importálva)',
       task_created: 'Létrehozta a feladatot',
       task_updated: 'Módosította: {fields}',
@@ -5197,6 +5143,7 @@ export const hu = {
       question_answer_delivered: 'Megkapta.',
       member_hired: 'Felvéve: {handle}',
       member_retired: 'Elbocsátva: {handle}',
+      member_renamed: 'Azonosító átnevezve: {from} → {to}',
       member_retired_handover: 'Elbocsátva: {handle}, a munkái átkerültek: {to}',
       config_changed: 'Beállítás módosítva: {message}',
       contactAdded: 'Kapcsolattartó lett: {name}',
@@ -5462,6 +5409,36 @@ export const hu = {
     deleteDescription:
       'A NanoGPT-tagok új munkamenete nem indul, amíg új kulcsot nem adsz meg. A már futók nem állnak le.',
   },
+  /** Renaming an AI member's handle (PM-1026). */
+  memberRename: {
+    menu: 'Azonosító átnevezése',
+    menuFor: '{name} azonosítójának átnevezése',
+    title: '{name} azonosítójának átnevezése',
+    intro:
+      'Ezzel az azonosítóval hivatkoznak rá a csapatban, a kártyákon és az üzenetekben. A neve nem változik.',
+    label: 'Új azonosító',
+    hint: 'Kisbetű, szám és kötőjel, legfeljebb 32 karakter. Most: {handle}',
+    consequencesTitle: 'Mi történik?',
+    carriesOn:
+      'A kártyái, üzenetei és munkái az új azonosítóval mennek tovább; a munkaterülete és a beszélgetései megmaradnak.',
+    oldHandleReserved:
+      'A régi azonosító ({handle}) foglalt marad: más tag nem kaphatja meg, és a régi hivatkozások ide vezetnek.',
+    emailFollows: 'Az e-mail-címe {address} lesz; a régi címére küldött levelek is megérkeznek hozzá.',
+    emailFollowsNoDomain:
+      'Az e-mail-címe az új azonosítót követi; a régi címére küldött levelek is megérkeznek hozzá.',
+    newHandle: 'új azonosító',
+    notWhileWorking: 'Amíg dolgozik, nem nevezhető át.',
+    submit: 'Átnevezés',
+    submitting: 'Átnevezés…',
+    done: 'Átnevezve: {from} → {to}',
+    invalid:
+      'Kisbetűvel vagy számmal kezdődjön, és csak kisbetű, szám és kötőjel lehet benne (legfeljebb 32 karakter).',
+    unchanged: 'Ez a mostani azonosítója. Írj be egy újat.',
+    taken: 'A(z) „{handle}” azonosító foglalt: egy tag most vagy korábban ezt használta. Válassz másikat.',
+    mailboxTaken: 'Ezt az azonosítót e-mail-címként már egy másik tag használja. Válassz másikat.',
+    working: 'Most dolgozik ({work}). Ha végzett, átnevezheted.',
+    former: 'korábban:',
+  },
   retire: {
     title: 'Elbocsátás: {name}',
     body: 'A lépései és a futó feladatai átkerülnek, az előzményei megmaradnak. Kire szálljanak át?',
@@ -5473,7 +5450,7 @@ export const hu = {
   },
 
   dutyNames: {
-    boundary_authorization: 'Külső műveletek engedélyezése',
+    boundary_authorization: 'Engedélykérések eldöntése',
     prioritization: 'Prioritáskezelés',
     requirements_analysis: 'Igényelemzés',
     task_breakdown: 'Feladatbontás',
@@ -5523,6 +5500,7 @@ export const hu = {
     waiting: 'Döntésére vár',
     email: 'E-mail',
     capacity: 'Kapacitás: {used} / {max}',
+    machineAccess: 'Külső teendőt adhat a tulajdonosoknak (MCP).',
     /** A card waits for this member's place (PM-297). */
     full: 'Tele van.',
     fullOf: 'Tele van ({used}/{max}).',
@@ -5851,7 +5829,6 @@ export const hu = {
     backLabel: 'Vissza a Beállításokhoz',
     loadError: 'Nem sikerült betölteni a beállításokat.',
     detail: {
-      gone: 'Ez az elem már nincs meg',
       goneBody: 'Lehet, hogy közben valaki törölte vagy átnevezte.',
     },
     summary: {
@@ -6189,8 +6166,6 @@ export const hu = {
           description:
             'Az elvégzett munkájú kártya a „Rád vár” listára kerül, és onnan viszi tovább. Az AI-tagok nem mozgatnak.',
         },
-        youMove: 'Te viszed tovább.',
-        youMoveLater: 'Ha később meghívsz valakit, a beállításokban rá is bízhatod.',
         who: 'Ki legyen az?',
         cannotMove:
           '{name} nem mozgathat kártyát ebben a projektben. Válassz mást, vagy adj neki jogot a Csapat oldalon.',
@@ -6217,10 +6192,10 @@ export const hu = {
       },
     },
     limits: {
-      boundaryEnabled: 'Külső műveletek delegálása',
+      boundaryEnabled: 'Engedélykérések delegálása',
       boundaryTimeout: 'Vezetői döntés határideje (másodperc)',
       boundaryHelp:
-        'A vezető fejlesztő az egyszeri, delegálható műveletekről dönt. A határidő után a tulajdonos dönt; automatikus engedély nincs. Csak tulajdonos módosíthatja.',
+        'A feladatkör tulajdonosa az egyszeri, delegálható engedélykérésekről dönt. A határidő után a tulajdonos dönt; automatikus engedély nincs. Csak tulajdonos módosíthatja.',
       aiEnabled: 'AI-munka engedélyezve',
       aiWork: 'AI-munka',
       aiEnabledHelp:
@@ -6279,8 +6254,6 @@ export const hu = {
         'A beállítások közben megváltoztak, ezért ez a módosítás nem mentődött. A legfrissebb értékek látszanak; add meg újra.',
     },
     repos: {
-      name: 'Név',
-      path: 'Útvonal',
       github: 'GitHub',
       defaultBranch: 'Alapág',
       none: 'Nincs repó beállítva; a munka a munkaterület gyökerében folyik.',
@@ -6382,7 +6355,7 @@ export const hu = {
       mover_on_leave: 'A kártyákat továbbvivő Projektmenedzser szabadságon van.',
       operator_approver_fixed: 'Az Operátor engedélykérője csak ember lehet.',
       operator_merger_forbidden: 'Az Operátor nem lehet beolvasztó.',
-      operator_boundary_duty_forbidden: 'Az Operátor nem kaphat határkéréseket eldöntő feladatkört.',
+      operator_boundary_duty_forbidden: 'Az Operátor nem kaphat engedélykéréseket eldöntő feladatkört.',
       review_test_runner_github:
         'A GitHub Actions futtatóhoz a repónak meg kell adni a GitHub tulajdonos/név párját.',
     },

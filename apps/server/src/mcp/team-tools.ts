@@ -15,7 +15,6 @@ import type {
   MergeToolsHandler,
   FeedbackToolsHandler,
   GithubToolsHandler,
-  BoundaryToolsHandler,
   ReleaseToolsHandler,
   OperatorToolsHandler,
   ProjectDocToolsHandler,
@@ -57,8 +56,6 @@ import type {
   AddRelationRef,
   ComplexityRequest,
   RelationsChange,
-  SubmitBoundaryRequest,
-  DecideBoundaryRequest,
   OperatorPreferenceData,
   ProposeOperatorKnowledgeRequest,
   ProjectDoc,
@@ -109,7 +106,6 @@ export class TeamToolsService implements TeamToolsHandler {
     feedback: FeedbackToolsHandler;
     github: GithubToolsHandler;
     screenshots: ScreenshotToolsHandler;
-    boundary: BoundaryToolsHandler;
     releases: ReleaseToolsHandler;
     operator: OperatorToolsHandler;
     projectDocs: ProjectDocToolsHandler;
@@ -151,15 +147,6 @@ export class TeamToolsService implements TeamToolsHandler {
   async getProjectState(ctx: ToolContext, args: { taskKey?: string; messageId?: string }) {
     return this.tools.operator.getProjectState(ctx, args);
   }
-  async submitBoundaryRequest(ctx: ToolContext, args: SubmitBoundaryRequest) {
-    return this.tools.boundary.submitBoundaryRequest(ctx, args);
-  }
-  async getBoundaryRequest(ctx: ToolContext, args: { requestId: string }) {
-    return this.tools.boundary.getBoundaryRequest(ctx, args);
-  }
-  async decideBoundaryRequest(ctx: ToolContext, args: DecideBoundaryRequest & { requestId: string }) {
-    return this.tools.boundary.decideBoundaryRequest(ctx, args);
-  }
   async decidePermissionRequest(
     ctx: ToolContext,
     args: { requestId: string; decision: 'allow' | 'deny' | 'escalate'; reason: string },
@@ -192,7 +179,6 @@ export class TeamToolsService implements TeamToolsHandler {
       feedback: FeedbackToolsHandler;
       github: GithubToolsHandler;
       screenshots: ScreenshotToolsHandler;
-      boundary: BoundaryToolsHandler;
       releases: ReleaseToolsHandler;
       operator: OperatorToolsHandler;
       projectDocs: ProjectDocToolsHandler;
@@ -477,6 +463,12 @@ export class TeamToolsService implements TeamToolsHandler {
     args: { signalId: string; note: string },
   ): Promise<{ signalId: string; state: 'dismissed' }> {
     return this.tools.operator.dismissSignal(ctx, args);
+  }
+  async reassignTask(ctx: ToolContext, args: Parameters<OperatorToolsHandler['reassignTask']>[1]) {
+    return this.tools.operator.reassignTask(ctx, args);
+  }
+  async cancelTask(ctx: ToolContext, args: Parameters<OperatorToolsHandler['cancelTask']>[1]) {
+    return this.tools.operator.cancelTask(ctx, args);
   }
   async openIntegratorTodo(
     ctx: ToolContext,

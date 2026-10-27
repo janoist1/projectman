@@ -73,8 +73,9 @@ Planned and mostly designed; the order is decided when the work above is done.
 
 ## Dropped
 
-- **The managed VM** (PM-135 and its parts): decision 36. [VM.md](VM.md),
-  [MIGRATION.md](MIGRATION.md) and [BOUNDARY.md](BOUNDARY.md) are kept for reference.
+- **The managed VM** (PM-135 and its parts): decision 36. `VM.md` and `MIGRATION.md` were
+  removed by PM-1033 and remain in the git history; [BOUNDARY.md](BOUNDARY.md) is kept for
+  reference.
 - **Phase 2 team rituals** (PM-44, PM-52–58): decision 37; [design/phase2.md](design/phase2.md)
   is kept for reference.
 - **A separate always-on server** (PM-45, Hetzner): decision 38.

@@ -127,6 +127,37 @@ describe('task complexity storage and events', () => {
 });
 
 describe('member complexity limit', () => {
+  it('persists normalized specialty labels on the roster', async () => {
+    const member = await h.domain.members.update(
+      'AR',
+      'dev-1',
+      { specialtyLabels: [' ui ', 'ui'] },
+      { actor: OWNER_ACTOR, author: OWNER },
+    );
+    expect(member.specialtyLabels).toEqual(['ui']);
+    expect(
+      (await h.domain.projects.config('AR')).team.members.find((m) => m.handle === 'dev-1'),
+    ).toHaveProperty('specialtyLabels', ['ui']);
+  });
+
+  it.each([null, []])('clears specialty labels with %s', async (specialtyLabels) => {
+    const by = { actor: OWNER_ACTOR, author: OWNER };
+    await h.domain.members.update('AR', 'dev-1', { specialtyLabels: ['ui'] }, by);
+    expect(await h.domain.members.update('AR', 'dev-1', { specialtyLabels }, by)).not.toHaveProperty(
+      'specialtyLabels',
+    );
+    expect(
+      (await h.domain.projects.config('AR')).team.members.find((m) => m.handle === 'dev-1'),
+    ).not.toHaveProperty('specialtyLabels');
+  });
+
+  it.each(['qa', 'tmp'])('refuses specialty labels for %s', async (handle) => {
+    const draft = structuredClone(await h.domain.projects.config('AR'));
+    expect(() => h.domain.members.prepareUpdate(draft, handle, { specialtyLabels: ['ui'] })).toThrowError(
+      expect.objectContaining({ code: 'specialty_labels_not_developer' }),
+    );
+  });
+
   it('persists a developer limit and clears it back to the default on the roster', async () => {
     const by = { actor: OWNER_ACTOR, author: OWNER };
     expect((await h.domain.members.update('AR', 'dev-1', { complexityLimit: 13 }, by)).complexityLimit).toBe(

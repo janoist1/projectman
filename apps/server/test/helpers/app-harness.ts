@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -9,8 +10,9 @@ import type { HumanAccess, ProjectConfig } from '@projectman/shared';
 import { buildApp } from '../../src/app';
 import { withoutOnboarding } from './onboarding';
 import type { AppModules, BuildAppOptions } from '../../src/app';
-import type { BoundaryOperationAdapter } from '../../src/contracts';
 import { createTemplateRegistry } from '../../src/core/base';
+import { bindSuperPrincipal, projectAccessFor } from '../../src/core/members';
+import type { ProjectAccess } from '../../src/core/members';
 import { humanActor } from '../../src/kernel';
 import type { ScheduleTimer } from '../../src/services/schedules';
 import { createRunnerModule } from '../../src/runner';
@@ -38,7 +40,6 @@ export const OWNER_LOGIN = { name: 'Owner', email: 'owner@example.com', password
 
 export interface AppHarnessOptions {
   nanogptKeyCheck?: AppModules['nanogptKeyCheck'];
-  boundaryAdapter?: BoundaryOperationAdapter;
   webDistDir?: string;
   now?: () => Date;
   scheduleTimer?: ScheduleTimer;
@@ -152,7 +153,6 @@ export async function createAppHarness(
   const real = opts.real ?? {};
   const modules: AppModules = {
     nanogptKeyCheck: opts.nanogptKeyCheck,
-    boundaryAdapter: opts.boundaryAdapter,
     createRunnerModule: (o) => runnerModule.create(o),
     createMcpModule: real.mcp ? undefined : (o) => mcp.create(o),
     github,
@@ -301,15 +301,15 @@ export async function setupOwner(app: FastifyInstance): Promise<string> {
 }
 
 /** Creates project AR from the test template (workspace + one repo). */
-export async function createProject(h: HarnessBase, cookie: string): Promise<void> {
+export async function createProject(h: HarnessBase, cookie: string, key = 'AR'): Promise<void> {
   const res = await withoutOnboarding(h.app.projectman.domain, () =>
     h.app.inject({
       method: 'POST',
       url: '/api/projects',
       headers: { cookie },
       payload: {
-        key: 'AR',
-        name: 'acme',
+        key,
+        name: key === 'AR' ? 'acme' : key.toLowerCase(),
         workspacePath: h.workspace,
         templateId: 'test',
         repos: [{ name: 'web', path: '.', github: 'acme/web' }],
@@ -317,6 +317,25 @@ export async function createProject(h: HarnessBase, cookie: string): Promise<voi
     }),
   );
   if (res.statusCode !== 201) throw new Error(`project creation failed: ${res.statusCode} ${res.body}`);
+}
+
+/**
+ * Runs `body` the way the external MCP does for a super key's secret in project AR: the credential is
+ * authenticated, the access bound to the owner's, and the call runs in the super operator's scope.
+ */
+export async function asSuperIntegrator<T>(
+  h: HarnessBase,
+  secret: string,
+  body: (access: ProjectAccess) => Promise<T>,
+): Promise<T> {
+  const { auth, domain } = h.app.projectman;
+  const principal = auth.resolveIntegratorCredential(secret, 'mcp')!;
+  const config = await domain.projects.config('AR');
+  const access = bindSuperPrincipal(config, projectAccessFor(config, OWNER_LOGIN.email)!, principal);
+  return domain.superOperator.run(
+    { principal, email: OWNER_LOGIN.email, requestId: randomUUID(), projectKey: 'AR' },
+    () => body(access),
+  );
 }
 
 export interface HumanLogin {

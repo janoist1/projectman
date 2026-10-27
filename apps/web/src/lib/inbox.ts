@@ -1,7 +1,6 @@
 import {
   alertPayloadOf,
   humanInboxAssignment,
-  BoundaryRequest,
   fixLimitDecisionOf,
   gateRequestOf,
   handOnRequestOf,
@@ -84,7 +83,6 @@ export function optionLabel(option: InboxOption): string {
  * shown in monospace anyway, so the heading names the kind of tool instead.
  */
 export function inboxHeading(item: InboxItem): string {
-  if (item.kind === 'boundary') return t('boundary.heading');
   const merge = mergeRequestOf(item);
   if (merge)
     return t(merge.failure ? 'inbox.mergeRequest.failedTitle' : 'inbox.mergeRequest.title', {
@@ -568,11 +566,6 @@ export function decisionLine(item: InboxItem, members: MemberIndex, myHandle: st
     .join(' · ');
 }
 
-export function boundaryOf(item: InboxItem): BoundaryRequest | null {
-  const parsed = item.kind === 'boundary' ? BoundaryRequest.safeParse(item.payload.boundary) : null;
-  return parsed?.success ? parsed.data : null;
-}
-
 const OWNER_CATEGORIES = ['cost', 'production', 'credentials', 'host_expansion'] as const;
 
 /**
@@ -775,8 +768,6 @@ export function resolutionNote(item: InboxItem): string | null {
   }
   if (item.kind === 'question' && item.resolution?.via && item.resolution.note?.trim())
     return `${t('integratorKey.forwarded')}: ${item.resolution.note.trim()}`;
-  if (item.kind === 'boundary' && item.resolution?.note)
-    return tDynamic(`boundary.reasons.${item.resolution.note}`, item.resolution.note);
   return item.resolution?.note?.trim() || null;
 }
 

@@ -244,3 +244,64 @@ describe('the permission mode and the approver of an AI member (PM-164)', () => 
     });
   });
 });
+
+describe('the machine access of an AI member (decision 66)', () => {
+  let h: DomainHarness;
+  afterEach(() => h?.cleanup());
+
+  const owner = () => ({ actor: OWNER_ACTOR, author: OWNER });
+  const admin = () => ({ actor: ADMIN_ACTOR, author: ADMIN });
+  const view = async (handle: string) =>
+    (await h.domain.members.roster('AR')).find((m) => m.handle === handle)!;
+  const stored = async (handle: string) => aiMember(await h.domain.projects.config('AR'), handle);
+
+  it('is on for the project manager by role and off for everyone else, with nothing written', async () => {
+    h = await createDomainHarness();
+    expect(await view('pm')).toMatchObject({ machineAccess: true });
+    expect(await view('dev-1')).toMatchObject({ machineAccess: false });
+    expect(await stored('pm')).not.toHaveProperty('machineAccess');
+  });
+
+  it('is switched by an owner, shown in the roster and written to the member', async () => {
+    h = await createDomainHarness();
+    const updated = await h.domain.members.update('AR', 'dev-1', { machineAccess: true }, owner());
+    expect(updated).toMatchObject({ machineAccess: true });
+    expect(await stored('dev-1')).toMatchObject({ machineAccess: true });
+    await h.domain.members.update('AR', 'pm', { machineAccess: false }, owner());
+    expect(await view('pm')).toMatchObject({ machineAccess: false });
+  });
+
+  it.each([true, false])('refuses an admin to switch it to %s for a member', async (value) => {
+    h = await createDomainHarness({ adjust: withAdmin });
+    const handle = value ? 'dev-1' : 'pm';
+    await expect(
+      h.domain.members.update('AR', handle, { machineAccess: value }, admin()),
+    ).rejects.toMatchObject({ code: 'owner_only', status: 403 });
+    expect(await view(handle)).toMatchObject({ machineAccess: !value });
+  });
+
+  it('does not follow a role change: an admin cannot grant it through the project manager role', async () => {
+    h = await createDomainHarness({ adjust: withAdmin });
+    await h.domain.members.update('AR', 'dev-1', { role: 'project_manager' }, admin());
+    expect(await view('dev-1')).toMatchObject({ machineAccess: false });
+    await h.domain.members.update('AR', 'pm', { role: 'developer' }, admin());
+    expect(await view('pm')).toMatchObject({ machineAccess: true });
+  });
+
+  it('starts off for a hired member, also when the role is the project manager', async () => {
+    h = await createDomainHarness();
+    const hired = await h.domain.members.hire(
+      'AR',
+      { role: 'project_manager' },
+      { ...owner(), sponsor: 'owner' },
+    );
+    expect(await view(hired.handle)).toMatchObject({ machineAccess: false });
+  });
+
+  it('is refused for a person', async () => {
+    h = await createDomainHarness();
+    await expect(
+      h.domain.members.update('AR', 'owner', { machineAccess: true }, owner()),
+    ).rejects.toMatchObject({ code: 'not_ai_member' });
+  });
+});

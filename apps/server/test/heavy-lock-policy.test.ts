@@ -102,7 +102,7 @@ describe('describeSandbox: the machine queue', () => {
     allowLocalBinding: true,
   };
   const text = (sandbox: AgentSandbox) =>
-    describeSandbox({ sandbox, cwd: '/fictional/work', localOnly: false }).join('\n');
+    describeSandbox({ sandbox, cwd: '/fictional/work', localOnly: false, details: true }).join('\n');
 
   it('tells the member the heavy runs wait their turn, one at a time, and are best started in the background', () => {
     const out = text({

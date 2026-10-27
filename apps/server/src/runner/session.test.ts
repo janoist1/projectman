@@ -20,6 +20,8 @@ import { silentLogger } from './test-helpers';
 import type { ProcessScopeDriver, OpenScope } from './process-scope';
 import type { SessionCleanup } from '../contracts';
 import { ENTER_KEY, PASTE_END, PASTE_START } from './typing';
+import { buildSessionPolicy } from '../../test/helpers/session-policy';
+import { testConfig } from '../../test/helpers/test-template';
 
 /**
  * Fast unit tests of the session with a fake pseudo-terminal and fake timers. The PTY
@@ -483,6 +485,74 @@ async function ready(opts: Parameters<typeof start>[0] = {}) {
 beforeEach(() => {
   vi.useFakeTimers();
 });
+describe('a reader’s read boundary (PM-425)', () => {
+  const readerSpec = (): Partial<StartSessionSpec> => {
+    const policy = buildSessionPolicy({
+      config: testConfig(),
+      role: 'code_review',
+      task: { repo: 'web' },
+      permissionMode: 'acceptEdits',
+      placement: { kind: 'read_only', path: '/work' },
+    });
+    const readBoundary = {
+      deniedRoots: ['/fictional/home'],
+      allowedPaths: [{ path: '/work', kind: 'directory' as const }],
+    };
+    return { policy: { ...policy, filesystem: { ...policy.filesystem, readBoundary } } };
+  };
+  const readOf = (file_path: string) => ({
+    tool_name: 'Read',
+    tool_input: { file_path },
+    tool_use_id: 'toolu_read',
+  });
+  const readerSession = async () => {
+    const decide = vi.fn(async (): Promise<PermissionDecision> => ({ behavior: 'allow' }));
+    return { decide, ...(await ready({ spec: readerSpec(), broker: { decide } })) };
+  };
+
+  it('refuses a file tool call below the closed home before the tool runs, without asking', async () => {
+    const { decide, hook } = await readerSession();
+    await expect(
+      hook({ hook_event_name: 'PreToolUse', ...readOf('/fictional/home/Dev/other/a.ts') }),
+    ).resolves.toEqual({
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        permissionDecision: 'deny',
+        permissionDecisionReason: expect.any(String),
+      },
+    });
+    await expect(
+      hook({ hook_event_name: 'PermissionRequest', ...readOf('/fictional/home/Dev/other/a.ts') }),
+    ).resolves.toEqual({
+      hookSpecificOutput: {
+        hookEventName: 'PermissionRequest',
+        decision: { behavior: 'deny', message: expect.any(String) },
+      },
+    });
+    expect(decide).not.toHaveBeenCalled();
+  });
+
+  it('answers a read in its own project or outside the closed home without asking', async () => {
+    const { decide, hook } = await readerSession();
+    for (const file of ['/work/src/a.ts', '/etc/hosts']) {
+      await expect(hook({ hook_event_name: 'PermissionRequest', ...readOf(file) })).resolves.toEqual({
+        hookSpecificOutput: { hookEventName: 'PermissionRequest', decision: { behavior: 'allow' } },
+      });
+    }
+    expect(decide).not.toHaveBeenCalled();
+  });
+
+  it('leaves a tool call that is not a file tool to the normal permission flow', async () => {
+    const { decide, hook } = await readerSession();
+    await hook({
+      hook_event_name: 'PermissionRequest',
+      tool_name: 'Bash',
+      tool_input: { command: 'ls' },
+    });
+    expect(decide).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('process liveness', () => {
   it('drops pause deadlines and the stop fallback when the process exits', async () => {
     const s = await ready();

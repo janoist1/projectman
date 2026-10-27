@@ -1,4 +1,4 @@
-# The cloud board on AWS EC2 or Lightsail
+# The cloud board on AWS EC2
 
 ## Prebuilt ARM and amd64 images (PM-718)
 
@@ -56,9 +56,8 @@ Real builds of the target platform and disposable runtime smoke (Node/better-sql
 litestream, restic and cloud server), plus 1 GiB RAM and import disk headroom checks, are PM-675
 release artifact evidence. This implementation does not provision resources or authorize cutover.
 
-For the owner-approved Mac single → EC2 cloud + Mac engine execution order, approval
-points, checks and rollback, use [CLOUD-CUTOVER.md](CLOUD-CUTOVER.md) (PM-674).
-It preserves existing Cloudflare DNS/mail and distinguishes the private move from public activation.
+For the data-preserving return from EC2 cloud + Mac engine to Mac single,
+use [CLOUD-CUTOVER.md](CLOUD-CUTOVER.md) (PM-674).
 
 ## EC2 central account and provisioning (PM-676, part of PM-664)
 
@@ -136,8 +135,7 @@ The only UserData is `deploy/aws/ec2-bootstrap.sh`: it installs/enables sshd, EC
 and the SSM agent. Credentials, `cloud.env`, board data and engine keys are absent. Ubuntu's snap
 agent setup follows the [AWS Ubuntu SSM guide](https://docs.aws.amazon.com/systems-manager/latest/userguide/agent-install-ubuntu-64-snap.html);
 image ownership/name checks follow the [Canonical image catalogue](https://ubuntu.com/aws/docs/aws-how-to/instances/find-ubuntu-images/).
-Host operation uses **SSH through SSM (PM-677)** for `compute=ec2`; the same cloud commands
-select the legacy transport only for `compute=lightsail`. The container keeps bridge networking,
+Host operation uses **SSH through SSM (PM-677)**. The container keeps bridge networking,
 with no public port, host network or Docker socket.
 
 The provisioning login needs the EC2 describe operations above and `DescribeInstances`,
@@ -145,7 +143,7 @@ The provisioning login needs the EC2 describe operations above and `DescribeInst
 tag-on-create `CreateTags`, `RunInstances`; IAM `GetRole`, `CreateRole`, `ListRolePolicies`,
 `ListAttachedRolePolicies`, `AttachRolePolicy`, `GetInstanceProfile`, `CreateInstanceProfile`,
 `AddRoleToInstanceProfile`, tag-on-create `TagRole`/`TagInstanceProfile`, and `PassRole` restricted to
-the host role and EC2 service. S3 and backup-user permissions are listed in the legacy/common
+the host role and EC2 service. S3 and backup-user permissions are listed in the common
 resource guide below. The `i` login needs only the registrar/Route 53 rights for the requested
 DNS reads; it receives no EC2, S3 or host IAM call. SES provisioning uses `ses.profile` (PM-729), which
 may be `i`, and only its SES and narrow-user IAM calls.
@@ -154,10 +152,9 @@ may be `i`, and only its SES and narrow-user IAM calls.
 
 All host commands (`deploy`, `rollback`, `status`, `logs`, `stop`, `start`, `rehearse`, `seed`,
 `pull-data`, `ssh`, and the host step of `up`) use the same `deploy/aws/host.sh`, systemd unit,
-JSON responses, full-SHA image tags and data paths as Lightsail. There is **no inbound SSH rule**,
-public-IP connection, long-lived key import or public-SSH fallback. `aws.sshIdentityFile` applies
-only to Lightsail; EC2 always generates an ephemeral key. The address exposed by the adapter is
-the EC2 instance id, never its public IPv4 address.
+JSON responses, full-SHA image tags and data paths. There is **no inbound SSH rule**,
+public-IP connection, long-lived key import or public-SSH fallback; the connection always uses an
+ephemeral key. The address exposed by the adapter is the EC2 instance id, never its public IPv4 address.
 
 On the owner/integrator's POSIX machine, install **AWS CLI v2**, **session-manager-plugin**,
 **OpenSSH** (`ssh` and `ssh-keygen`), git and tar. Log in to the explicit central profile
@@ -282,10 +279,10 @@ outbound connectivity/agent through the approved EC2 recovery procedure instead.
 This is the owner's central-server administration connection, independent of the Mac engine link.
 The engine receives no AWS login, new RPC, host private key or cloud-admin payload.
 
-## Lightsail compatibility and common backup/Cloudflare guide (PM-532)
+## Common backup/Cloudflare guide (PM-532)
 
 This guide sets up the board in the cloud so that it is reachable when your Mac is off: one AWS
-Lightsail machine that runs the container of [HYBRID.md](HYBRID.md) (`deploy/cloud/Dockerfile`), two
+EC2 machine that runs the container of [HYBRID.md](HYBRID.md) (`deploy/cloud/Dockerfile`), two
 S3 buckets for the backups, and Cloudflare (tunnel and Access) in front. You run everything from
 your own Mac with one command, `npm run cloud -- <command>`, with your own logins. No member of the
 team, human or AI, gets an AWS or Cloudflare secret: the commands are yours to run.
@@ -295,21 +292,21 @@ The CLI and this guide cover the four parts of PM-532 (PM-534 to PM-537).
 ## Overview and cost
 
 ```
- browser / engine ──► Cloudflare (Access) ──► tunnel ──► Lightsail machine ─ container ─ server
-                                                         (no open port)       ├ Litestream ─► S3 bucket (database)
-                                                                              └ restic     ─► S3 bucket (the rest)
+ browser / engine ──► Cloudflare (Access) ──► tunnel ──► EC2 machine ─ container ─ server
+                                                         (no open port)    ├ Litestream ─► S3 bucket (database)
+                                                                           └ restic     ─► S3 bucket (the rest)
 ```
 
-| Part                             | Cost (about, per month)                                     |
-| -------------------------------- | ----------------------------------------------------------- |
-| Lightsail machine `small_3_0`    | 12 USD (2 GB memory, 2 vCPU, 60 GB disk, transfer included) |
-| S3 buckets (database, backups)   | a few cents (a small database, deduplicated backups)        |
-| Cloudflare Free (tunnel, Access) | 0 USD (Access is free up to 50 users)                       |
-| Route 53 hosted zone (kept)      | 0.50 USD, only while the zone is kept as a fallback         |
+| Part                             | Cost (about, per month)                                                     |
+| -------------------------------- | --------------------------------------------------------------------------- |
+| EC2 machine                      | instance hours, root volume and public IPv4 (the cost components of step 4) |
+| S3 buckets (database, backups)   | a few cents (a small database, deduplicated backups)                        |
+| Cloudflare Free (tunnel, Access) | 0 USD (Access is free up to 50 users)                                       |
+| Route 53 hosted zone (kept)      | 0.50 USD, only while the zone is kept as a fallback                         |
 
-Nothing listens on a public address: the machine's firewall opens only `22/tcp`, and only for
-Lightsail's own browser client (`lightsail-connect`); the tunnel connects outwards. One machine
-runs one writer to the database, which Litestream needs.
+Nothing listens on a public address: the machine's security group has no inbound rule (SSH goes
+through SSM); the tunnel connects outwards. One machine runs one writer to the database, which
+Litestream needs.
 
 ## The owner's manual steps
 
@@ -319,9 +316,10 @@ Short and in order: account setup, local credentials, and commands that the owne
 2. **Zero Trust:** choose the team name and the Free plan in the dashboard.
 3. **API token:** use the rights in "The Cloudflare token" below, with about 90 days of validity;
    save only the token in `~/.config/projectman/cloud/cloudflare-token`, mode 600.
-4. **AWS login:** install CLI v2 (`brew install awscli`) and sign in as profile `i` with MFA/passkey.
+4. **AWS login:** install CLI v2 (`brew install awscli`) and sign in as the compute profile
+   (`aws.profile`, for example `aroom`) with MFA/passkey.
    Do this only after PM-533 is released: AI sessions must be denied access to `~/.aws`.
-   Check `aws --version` and `aws sts get-caller-identity --profile i`.
+   Check `aws --version` and `aws sts get-caller-identity --profile <aws.profile>`.
 5. **Configuration:** fill `config.json` from `deploy/aws/config.example.json`, including unique bucket names.
 6. **DNS delegation:** run `dns switch` as in "DNS move" below, only after green `dns verify`. The domain is managed
    through **Route 53 Domains**, even though RDAP names Gandi as the underlying registrar.
@@ -334,7 +332,7 @@ Short and in order: account setup, local credentials, and commands that the owne
     as in [HYBRID.md](HYBRID.md).
 11. **Later:** manually delete the old Route 53 hosted zone after keeping the rollback window.
 
-The AWS profile needs `lightsail:*`, the S3 actions `CreateBucket`, `ListBucket`, `GetBucketVersioning`,
+The AWS profile needs the EC2 and IAM rights of "EC2 central account and provisioning" above, the S3 actions `CreateBucket`, `ListBucket`, `GetBucketVersioning`,
 `Get`/`PutBucketPublicAccessBlock`, `Get`/`PutEncryptionConfiguration`, `Get`/`PutLifecycleConfiguration`,
 and IAM `CreateUser`, `TagUser`, `GetUser`, `PutUserPolicy`, `GetUserPolicy`, `ListUserPolicies`,
 `ListAttachedUserPolicies`, `CreateAccessKey`, `ListAccessKeys`, `DeleteAccessKey`.
@@ -372,15 +370,13 @@ and names the field's path. `deploy/aws/config.example.json` has every field you
 
 | Field                                    | Default                                      | Meaning                                                                                                |
 | ---------------------------------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `aws.compute`                            | `lightsail`                                  | `ec2` selects EC2 provisioning and SSH over SSM; existing version-1 files keep Lightsail               |
-| `aws.profile`                            | `i`                                          | the AWS CLI profile                                                                                    |
-| `aws.ec2`                                | none                                         | required for EC2: explicit type, AMI, existing VPC/subnet, integer root volume GiB (20–1024)           |
+| `aws.compute`                            | `ec2`                                        | only `ec2` exists; any other value is refused with a message that names the fix                        |
+| `aws.profile`                            | required                                     | the AWS CLI profile of compute, S3 and IAM; not `i` (the registrar profile)                            |
+| `aws.ec2`                                | required                                     | explicit type, AMI, existing VPC/subnet, integer root volume GiB (20–1024)                             |
 | `aws.region`                             | required                                     | for example `eu-west-1`                                                                                |
-| `aws.availabilityZone`                   | `<region>a`                                  |                                                                                                        |
+| `aws.availabilityZone`                   | none                                         |                                                                                                        |
 | `aws.instanceName`                       | `projectman-cloud`                           | also the prefix of the IAM users                                                                       |
-| `aws.bundleId`, `aws.blueprintId`        | `small_3_0`, `ubuntu_24_04`                  | machine size and image (must be active)                                                                |
 | `aws.databaseBucket`, `aws.backupBucket` | required, different                          | S3 names, lowercase, no dots                                                                           |
-| `aws.sshIdentityFile`                    | none                                         | a private key for ssh instead of Lightsail's temporary one                                             |
 | `repository.url`                         | `https://github.com/janoist1/projectman.git` | what the machine builds                                                                                |
 | `cloudflare.zone`, `.hostname`           | required                                     | the zone (`example.com`) and the board's name in it (`board.example.com`, one label under the zone)    |
 | `cloudflare.feedbackHostname`            | none                                         | the feedback widget's own name (HYBRID.md); one label under the zone, not the board's                  |
@@ -403,26 +399,22 @@ the names it owns and keeps every other line and comment: `aws` writes the S3 na
 ## The AWS resources
 
 `npm run cloud -- preflight` checks, without changing anything: the `aws` CLI is version 2; the
-profile logs in (the account id is printed); the region and the availability zone exist; the bundle
-and the blueprint are active; the modes of the secrets store are right. Then the Cloudflare part (see
-"Cloudflare" below): the token is active, the account is found, Zero Trust is on, and one reading call
-per right the token needs. It changes nothing, in either cloud.
+profile logs in in the region (the account id is printed); the EC2 prerequisites of "EC2 central
+account and provisioning" above hold; the modes of the secrets store are right. Then the Cloudflare
+part (see "Cloudflare" below): the token is active, the account is found, Zero Trust is on, and one
+reading call per right the token needs. It changes nothing, in either cloud.
 
 `npm run cloud -- aws [--dry-run] [--rotate-keys]` creates, in this order, whatever is missing:
 
-1. **The machine** `aws.instanceName`: no key pair of its own, tagged `projectman=cloud`; the command
-   waits for `running`. If the machine exists with another bundle or blueprint, the command exits 2
-   and changes nothing.
-2. **The metadata service**: IMDSv2 only (`--http-tokens required`), hop limit 1.
-3. **The firewall**: replaced as a whole by one entry, `22/tcp` for the alias `lightsail-connect`.
-   No other port stays open, not 80 or 443. (Opening your own IP address for a moment is the job of
-   the machine part, PM-535.)
-4. **The buckets**: created in the region (checked with `--expected-bucket-owner`; a name that is
+1. **The EC2 machine**, its host role and security group (empty inbound, IMDSv2 only), as described
+   in "EC2 central account and provisioning" above, step 5. If the machine exists with another
+   configuration, the command exits 2 and changes nothing.
+2. **The buckets**: created in the region (checked with `--expected-bucket-owner`; a name that is
    someone else's exits 2), all four public-access blocks on, AES256 encryption with a bucket key,
    a rule that aborts unfinished multipart uploads after 7 days (other lifecycle rules are kept).
    Versioning must not be on (Litestream and restic keep their own history): an enabled bucket
    exits 2.
-5. **Two IAM users**, `<instanceName>-litestream` (the database bucket) and `<instanceName>-restic`
+3. **Two IAM users**, `<instanceName>-litestream` (the database bucket) and `<instanceName>-restic`
    (the backup bucket), each with one inline policy `bucket-access`:
 
    ```json
@@ -447,13 +439,13 @@ per right the token needs. It changes nothing, in either cloud.
 
    Nothing else is allowed. A user that has any other inline or attached policy exits 2.
 
-6. **Access keys.** A Lightsail machine has no IAM role, so the two users have static keys. A new
+4. **Access keys.** The machine's role has SSM rights only, so the two users have static keys. A new
    key goes straight into `cloud.env` (the secret never appears on the screen or in an argument).
    If the user has a key that `cloud.env` does not hold as an active key, the command exits 2: AWS
    never shows a secret again. `--rotate-keys` makes a new key, writes it, then deletes the old ones
    (an IAM user holds two at most, so with two old keys one is deleted first); afterwards the machine
    needs a `deploy` to get the new `cloud.env`.
-7. **`cloud.env`** gets `LITESTREAM_BUCKET`, `LITESTREAM_ENDPOINT` (`https://s3.<region>.amazonaws.com`),
+5. **`cloud.env`** gets `LITESTREAM_BUCKET`, `LITESTREAM_ENDPOINT` (`https://s3.<region>.amazonaws.com`),
    `LITESTREAM_REGION`, the key names, `RESTIC_REPOSITORY` (`s3:https://s3.<region>.amazonaws.com/<backupBucket>/projectman`),
    `RESTIC_REGION`, and a `RESTIC_PASSWORD` (32 random bytes, base64url) if there is none yet.
 
@@ -473,7 +465,7 @@ the systemd unit `projectman-cloud.service`.
 | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `deploy [--ref <tag\|sha>] [--dry-run]`   | installs the machine (idempotent), sends `cloud.env`, builds the image of the ref there, starts it, waits up to 180 s for health, goes back to the old image if none |
 | `rollback [--dry-run]`                    | starts the previous image (the one before the current), waits for health                                                                                             |
-| `status`                                  | the state of the EC2 or Lightsail machine, the unit, the container and its health, the deploy history, disk and memory                                               |
+| `status`                                  | the state of the EC2 machine, the unit, the container and its health, the deploy history, disk and memory                                                            |
 | `logs [--lines <n>]`                      | the last `n` lines (default 200, at most 10000) of the unit's log (`journalctl`)                                                                                     |
 | `ssh`                                     | a shell on the machine, with the same safe connection                                                                                                                |
 | `stop [--dry-run]`, `start [--dry-run]`   | stop the board (data stays, the unit is disabled); start the current image again and wait for health                                                                 |
@@ -481,7 +473,7 @@ the systemd unit `projectman-cloud.service`.
 | `seed --from <dir> [--ref …] [--dry-run]` | fills an empty machine with the package of `npm run migrate -- hybrid package`, then deploys                                                                         |
 | `pull-data --to <new dir> [--dry-run]`    | copies the stopped board's data to a new directory on your Mac                                                                                                       |
 
-`--dry-run` reads only and never connects: no firewall change, no SSH.
+`--dry-run` reads only and never connects: no SSH.
 
 ### What `deploy` does
 
@@ -526,7 +518,7 @@ without deleting them. After a permitted stopped-host switch, import the approve
 `receive-image`; the prior import is not available in the classic store. Bootstrap does not migrate or
 prune store data and leaves `/var/lib/projectman/data` intact. Hosts with retained deploy history need
 an explicit recovery plan instead of an automatic switch. Live cutover stays within PM-675's approved
-procedure and PM-719's trial reset; this bootstrap change grants no additional live-operation permission.
+procedure; this bootstrap change grants no additional live-operation permission.
 
 ### The machine's files
 
@@ -540,31 +532,8 @@ procedure and PM-719's trial reset; this bootstrap change grants no additional l
 | `/var/lib/projectman/deploy.json`              | the deploy history and the time the board last stopped                                                        |
 | `/opt/projectman/src`                          | the checkout the image is built from                                                                          |
 
-### How the Lightsail SSH connection is made
-
-Port 22 is open only for Lightsail's browser client (`lightsail-connect`). Every command that needs
-the machine therefore does this, in this order, and always undoes it:
-
-1. looks the machine up (it must exist and run) and finds your public IPv4 address
-   (`https://checkip.amazonaws.com`);
-2. opens `22/tcp` for **your address alone** (`/32`) next to `lightsail-connect`;
-3. asks Lightsail for a temporary key and certificate (`get-instance-access-details`; they live
-   about a minute, so a long command asks again), and writes them to a private temporary directory
-   (mode 700, files 600);
-4. connects with `StrictHostKeyChecking=yes` against the host keys that Lightsail reports for the
-   machine, kept in `~/.config/projectman/cloud/known_hosts` (a connection to a machine that does not
-   match is refused; there is no "accept new key" and no `StrictHostKeyChecking=no`);
-5. after the command, on success, failure and Ctrl-C alike, **deletes the key directory and puts the
-   firewall back** to `22/tcp` for `lightsail-connect` only (three tries).
-
-If the firewall cannot be put back the command prints `FAIL firewall-close: …` with the exact `aws`
-command that does it by hand, and exits 1. Run that command before anything else.
-
-If the temporary-certificate path does not work for you, set `aws.sshIdentityFile` to a private key
-that the machine accepts (a key pair added to the instance, or a key you added to `~ubuntu/.ssh/authorized_keys`
-from Lightsail's browser console). The host keys are still checked, and the firewall is still opened
-only for your address. As a last resort, the Lightsail console's browser SSH reaches the machine
-without any of this (`lightsail-connect` stays open for that).
+The SSH connection is the EC2 one (SSM and EC2 Instance Connect with an ephemeral key, no inbound
+rule); it is described in the EC2 chapter above.
 
 ### `seed` and `pull-data`
 
@@ -602,8 +571,8 @@ refuse.
 ### Release control (PM-749, part of PM-735)
 
 `npm run cloud -- release-control [--config <file>]` is how the release watcher on your Mac reaches the cloud
-board's local control socket (`/data/control.sock` in the container) over the same verified SSH session (Lightsail
-or EC2/SSM) that `deploy` uses. No port is published and no live home is mounted: the machine runs one fixed
+board's local control socket (`/data/control.sock` in the container) over the same verified SSH session (EC2/SSM)
+that `deploy` uses. No port is published and no live home is mounted: the machine runs one fixed
 command, `docker exec -i -u 10001:10001 projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin
 LANG=C.UTF-8 /usr/local/bin/node /app/apps/server/dist/control/cli.js /data/control.sock`, and nothing from the
 request becomes a command, a path, a container or a user. `env -i` runs before Node and clears the environment
@@ -618,7 +587,7 @@ missing the call fails as a transport error. What the channel does and does not 
   malformed operation) is refused locally before any connection, with status 2. There is no approval,
   proposal or rejection operation: those stay with the person in the board.
 - **Output.** The standard output is the one `ControlResponse` line (at most 64 KiB), re-serialised from the
-  parsed value. Diagnostics and the firewall/session report go to the standard error and hold no secret. A
+  parsed value. Diagnostics and the session report go to the standard error and hold no secret. A
   domain refusal such as `{"ok":false,"error":{"code":"release_state_conflict",…}}` is an answer: it is passed
   on unchanged and the exit status is 0.
 - **Exit status.** `0` the machine answered (the answer may say `ok:false`); `1` the transport failed (SSH/SSM,
@@ -661,86 +630,7 @@ The team could not run any of this against a real AWS account. `deploy/aws/host.
 syntax and for what it must never do (no published port, no host network, no privileged container,
 no Docker socket), and the commands against a fake `aws`, `ssh` and machine. The first real run is
 yours: `status` first (it needs only the machine), then `deploy --dry-run`. The least certain part
-is the temporary SSH certificate: if `ssh` refuses it, use `aws.sshIdentityFile`.
-
-### Reset between the two PM-675 trial rounds (PM-719)
-
-The owner chose **the same EC2 instance, emptied**, with both buckets retained. This tool is
-only for the approved trial target. Completing PM-719 does not authorize any live deletion.
-First finish `stop` → final `pull-data` → `hybrid back` → `instance activate` → Mac single/watcher
-checks. Record the successful return and login checks on PM-675; the reset validates the event id
-format and retained bytes, while the owner verifies the event's meaning and acceptance evidence.
-
-Keep the final download in a private mode 0700 directory outside any repository and the live
-Mac home. Keep the plan in a separate existing mode 0700 directory owned by the administrator.
-Do not place it inside the final download. Paths and keys in the plan are private data; attach
-neither the plan nor object listings to the task. Use the explicit central profile (`aroom` for
-PM-675), never the registrar `i`. No profile lookup/fallback takes place.
-
-```sh
-npm run cloud -- trial-reset-plan --from <FINAL_RETURN_DIRECTORY> --rollback-event <EVENT_ID> --out <NEW_PLAN_JSON> --config <PRIVATE_CONFIG>
-```
-
-Planning reads the account, unique managed EC2 target, VPC/subnet/SSM, stopped and disabled host,
-entire data tree, metadata digests and both complete paginated bucket inventories. It requires
-the retained download's canonical content inventory and DB digest to match the host. Symlinks,
-special entries, nested mounts, invalid UTF-8 names and detectable changes are refused. No SQLite
-connection is opened. Versioned **or suspended** buckets, Object Lock, replication and multipart
-uploads are refused; permission/transport failures never mean an absent configuration. An empty
-backup bucket is valid. Planning writes only a new mode 0600 plan and reports its exact file SHA-256.
-
-Host requirements: an already deployed Ubuntu 24.04 target with its existing regular root-owned
-`.image.lock`, existing Python3 and Linux descriptor/no-follow/mountinfo support. The fixed embedded
-standard-library program runs in isolated `python3 -I -S` mode. Missing interpreter/capabilities
-refuse before writes; the reset installs nothing and has no fallback. The dedicated trial host
-must have no running/starting containers or restic/Litestream/backup processes. `trial-reset-inspect`
-returns active-tree hashes; `trial-reset-archive` preserves it; `trial-reset-verify` rehashes that
-specific archive after deletion, checks the archived receipt and confirms empty owned active data.
-The last two host operations take the same UUID/hash/none arguments and no stdin payload.
-Use one administrator throughout this maintenance window; do not deploy/start the host or change
-bucket policies/replication while the reset is in progress. Planning never stops writers itself.
-
-Before execution the owner approves that **specific plan file hash**, account/profile/region,
-instance id/name, the two exact bucket names, rollback event, inventory hashes/counts/bytes and
-fixed archive directory. Any edited/regenerated plan needs a new concrete approval. Confirming
-a hash is integrity binding, not proof of human approval or QA. The AWS administrator needs the
-existing read permissions and S3 conditional-delete permissions; this tool grants no IAM rights.
-
-```sh
-npm run cloud -- trial-reset-apply --plan <PLAN_JSON> --confirm-sha256 <PLAN_FILE_SHA256> --dry-run --config <PRIVATE_CONFIG>
-# Only after the owner's exact execution approval:
-npm run cloud -- trial-reset-apply --plan <PLAN_JSON> --confirm-sha256 <PLAN_FILE_SHA256> --config <PRIVATE_CONFIG>
-```
-
-Dry-run performs all preflight comparisons without an archive, deletion or receipt. Apply first
-creates a mode 0600 `<PLAN_JSON>.result.json`; any existing result prevents reapplication. On the
-host it preserves deploy.json/image.env and renames active data to the root-only mode 0700
-`/var/lib/projectman/trial-archive/<PLAN_UUID>/data`. A mode 0600 reset.json records started/archived;
-the new active data is empty, mode 0700, uid/gid 10001. cloud.env, credentials, Docker images and
-other hosts/resources stay in place. The unit remains inactive and disabled.
-
-Only after archive verification and another exact bucket inventory comparison does deletion
-start. Each planned object uses its exact ETag with `If-Match`, expected bucket owner and explicit
-profile/region. The installed AWS CLI model must support conditional deletion. Each delete uses
-`AWS_MAX_ATTEMPTS=1`/standard retry mode; the first 412, denial, timeout or interruption stops the
-operation. See the [AWS conditional-delete contract](https://docs.aws.amazon.com/AmazonS3/latest/userguide/conditional-deletes.html).
-There is no unconditional fallback, recursive deletion, version deletion, bypass, seed or start.
-
-The local receipt tracks started/host-archived/failed/complete and confirmed delete counts.
-A failed or interrupted operation may already have archived data or deleted objects; an uncertain
-response can mean AWS deleted one more object than the confirmed count. Keep both receipts,
-archive and final download. Stop and obtain a separately reviewed owner recovery plan for the
-remaining state; do not remove markers, replay an old plan, restore automatically or retry deletes.
-Host archival is not an atomic transaction with S3. Success requires fresh empty listings and no
-multipart uploads plus final read-only stopped-host/empty-data/archive integrity verification.
-
-Retain the protected final download and host archive until at least the second round's full
-backup and isolated restore acceptance. Removing either requires a separate decision. Round two
-starts with a **new package from the Mac's then-current stopped state**, verify, seed-integrity
-(PM-717) and the approved prepared ARM image (PM-718). Do not reuse the first round's package.
-Exit codes: 64 bad CLI; 2 unsafe/different precondition (host refusal 3 maps to 2);
-1 API/transport/computation failure; 0 success. Failure output contains operation/fixed codes,
-never raw object keys, ETags, URLs or credentials.
+is the SSH connection through SSM: `status` shows whether it works.
 
 ## Cloudflare
 
@@ -984,7 +874,7 @@ Renewal disabled or expiration within 30 days produces a warning. `dns status` t
 registrar API as a warning and still reports Cloudflare activation.
 
 The update is asynchronous: the command prints its operation ID; poll `dns status` afterwards.
-The registrar API calls use `us-east-1` irrespective of the Lightsail region, as required by the
+The registrar API calls use `us-east-1` irrespective of the machine's region, as required by the
 [AWS CLI reference](https://docs.aws.amazon.com/cli/latest/reference/route53domains/update-domain-nameservers.html).
 
 ### `up`
@@ -998,8 +888,9 @@ steps without writes and skips the live login check.
 
 ## Verification
 
-`npm run cloud -- check --login-json <file>` runs the checks of [DEPLOY.md](DEPLOY.md) and
-[HYBRID.md](HYBRID.md) against `https://<cloudflare.hostname>`. Before the first run sign in to
+`npm run cloud -- check --login-json <file>` verifies the Cloudflare security conditions in
+[SECURITY.md](SECURITY.md#public-entrance-through-cloudflare-pm-200-pm-210) and the deployment in
+[HYBRID.md](HYBRID.md#smoke-test) against `https://<cloudflare.hostname>`. Before the first run sign in to
 Access as yourself: `cloudflared access login https://<hostname>` (an e-mail PIN from the list in
 `access.emails`). `<file>` is a mode-600 JSON file with `{"email": "…", "password": "…"}` of a board
 account; the command reads it only to hand it to `deploy/cloudflare/check.sh`, in the environment
@@ -1038,8 +929,8 @@ repository), not on the machine. If the machine is gone or broken beyond repair:
    that cannot open the old repository), then run `npm run cloud -- aws --rotate-keys`: it makes
    new access keys for the buckets (the secret of an old key is shown only once) and writes the rest
    of the file. The bucket contents stay.
-2. Delete the broken machine in the Lightsail console (or let the new one have another name in
-   `aws.instanceName`). `npm run cloud -- aws` creates a new machine, firewall and keys; the
+2. Terminate the broken machine in the EC2 console (or let the new one have another name in
+   `aws.instanceName`). `npm run cloud -- aws` creates a new machine and keys; the
    buckets already exist and are left alone.
 3. `npm run cloud -- deploy`. The container starts on an empty data directory and **its entrypoint
    restores** the files from restic and the database from the Litestream replica
@@ -1108,8 +999,9 @@ In this order, so nothing is left running or billed:
    `<N>-engine`, their policies and the service tokens `<N>-engine` and `<N>-integrator`; the zone
    too if you do not use it otherwise. Delete the two `*-access-token.json` files and revoke the API
    token. Revoke the machine key in Settings → Engines.
-3. Delete the Lightsail machine (console, or `aws lightsail delete-instance --instance-name
-projectman-cloud --profile i --region <region>`). Its firewall goes with it.
+3. Terminate the EC2 machine (console, or `aws ec2 terminate-instances --instance-ids <id>
+--profile <aws.profile> --region <region>`). Delete the `<instanceName>-cloud` security group
+   afterwards; the auto-assigned public IPv4 goes with the instance.
 4. Delete the two buckets and their contents when you are sure; keep the restic one if you may want
    the data later (the `RESTIC_PASSWORD` is then needed).
 5. Delete the IAM users `<instanceName>-litestream` and `<instanceName>-restic` with their keys, and

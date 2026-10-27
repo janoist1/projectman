@@ -6,8 +6,18 @@ import {
   routes,
   superActorOf,
 } from '@projectman/shared';
-import type { InboxItem } from '@projectman/shared';
-import { createAppHarness, createProject, setupOwner, addHumanAndLogin } from './helpers/app-harness';
+import type { InboxItem, ResolveIntegratorTodoRequest } from '@projectman/shared';
+import { projectAccessFor } from '../src/core/members';
+import type { ProjectAccess } from '../src/core/members';
+import { resolveIntegratorTodo } from '../src/services/super-operator';
+import {
+  createAppHarness,
+  createProject,
+  setupOwner,
+  addHumanAndLogin,
+  asSuperIntegrator,
+  OWNER_LOGIN,
+} from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 import { createDomainHarness, restartDomainHarness } from './helpers/domain-harness';
 
@@ -42,7 +52,8 @@ describe('integrator todo REST and durable lifecycle', () => {
     return h.app.projectman.domain.inbox.create({
       projectKey: 'AR',
       kind,
-      source: 'dev-1',
+      // The project manager has machine access by role (decision 66); a developer does not.
+      source: 'pm',
       assignees: ['owner'],
       title: 'Measure the hub',
       payload: {
@@ -65,18 +76,19 @@ describe('integrator todo REST and durable lifecycle', () => {
       todo: step,
     }))!;
   }
-  const resolve = (
-    id: string,
-    optionId = 'todo_done',
-    note?: string,
-    auth: Record<string, string> = headers(),
-  ) =>
-    h.app.inject({
-      method: 'POST',
-      url: routes.resolveIntegratorTodo('AR', id),
-      headers: auth,
-      payload: { optionId, ...(note !== undefined ? { note } : {}) },
-    });
+  /** The service the MCP tool calls, with the super key's access. */
+  const resolveWith = async (id: string, body: Record<string, unknown>, access?: ProjectAccess) => {
+    const call = (bound: ProjectAccess) =>
+      resolveIntegratorTodo(h.app.projectman.domain, 'AR', id, body as ResolveIntegratorTodoRequest, bound);
+    return access ? call(access) : asSuperIntegrator(h, superKey.secret, call);
+  };
+  const resolve = (id: string, optionId = 'todo_done', note?: string) =>
+    resolveWith(id, { optionId, ...(note !== undefined ? { note } : {}) });
+  const refusal = (promise: Promise<unknown>) =>
+    promise.then(
+      () => null,
+      (error: { code?: string }) => error.code,
+    );
   const events = (type: string) => h.app.projectman.domain.timeline.list('AR').filter((e) => e.type === type);
   const journal = (id: string) =>
     h.app.projectman.repos.db
@@ -155,9 +167,8 @@ describe('integrator todo REST and durable lifecycle', () => {
     async (optionId) => {
       const item = await opened();
       const before = journal(item.id).n;
-      const response = await resolve(item.id, optionId, 'Measured');
-      expect(response.statusCode, response.body).toBe(200);
-      expect(response.json().item.resolution).toMatchObject({
+      const { item: resolved } = await resolve(item.id, optionId, 'Measured');
+      expect(resolved.resolution).toMatchObject({
         integratorTodo: true,
         via: 'integrator',
         by: 'owner',
@@ -165,7 +176,7 @@ describe('integrator todo REST and durable lifecycle', () => {
         optionId,
         note: 'Measured',
       });
-      expect(response.json().item.resolution.ownerAnswerRelayed).toBeUndefined();
+      expect(resolved.resolution?.ownerAnswerRelayed).toBeUndefined();
       expect(events('question_answered')).toHaveLength(1);
       expect(events('question_answered')[0]).toMatchObject({
         actor: { handle: 'operator', operatorMode: 'super' },
@@ -177,28 +188,21 @@ describe('integrator todo REST and durable lifecycle', () => {
       expect(answer).toMatchObject({ origin: { kind: 'answer', integratorTodo: true } });
       expect(answer?.body).toContain('not an owner answer');
       expect(journal(item.id).n).toBeGreaterThan(before);
-      expect((await resolve(item.id)).json().error.code).toBe('inbox_item_closed');
+      expect(await refusal(resolve(item.id))).toBe('inbox_item_closed');
     },
   );
 
   it('requires a cannot reason, validates strict DTOs and permits an empty done result', async () => {
     const item = await opened();
     for (const note of [undefined, '   '])
-      expect((await resolve(item.id, 'todo_cannot', note)).json().error.code).toBe('todo_reason_required');
+      expect(await refusal(resolve(item.id, 'todo_cannot', note))).toBe('todo_reason_required');
     for (const body of [
       { optionId: 'answer' },
       { optionId: 'todo_done', attachmentIds: [] },
       { optionId: 'todo_done', integratorTodo: true },
-    ]) {
-      const response = await h.app.inject({
-        method: 'POST',
-        url: routes.resolveIntegratorTodo('AR', item.id),
-        headers: headers(),
-        payload: body,
-      });
-      expect(response.json().error.code).toBe('invalid_request');
-    }
-    expect((await resolve(item.id, 'todo_done', '  ')).json().item.resolution.note).toBeNull();
+    ])
+      expect(await refusal(resolveWith(item.id, body))).toBe('invalid_request');
+    expect((await resolve(item.id, 'todo_done', '  ')).item.resolution?.note).toBeNull();
   });
 
   it('releases the waiting label only after the last integrator question has an answer', async () => {
@@ -226,31 +230,18 @@ describe('integrator todo REST and durable lifecycle', () => {
         },
       }),
     );
-    expect((await resolve(items[0]!.id)).statusCode).toBe(200);
+    await resolve(items[0]!.id);
     expect(domain.tasks.get('AR', task.key).labels).toContain('waiting-answer');
-    expect((await resolve(items[1]!.id)).statusCode).toBe(200);
+    await resolve(items[1]!.id);
     expect(domain.tasks.get('AR', task.key).labels).not.toContain('waiting-answer');
   });
 
-  it.each(['own', 'read', 'legacy'] as const)('refuses %s credentials on the new endpoint', async (mode) => {
+  it('refuses an access without a super actor', async () => {
     const item = await opened();
-    const { auth, repos } = h.app.projectman;
-    const user = repos.users.list()[0]!;
-    const key =
-      mode === 'read'
-        ? auth.createIntegratorAccessKey(user.id, { mode, expiresInDays: 7 })
-        : mode === 'legacy'
-          ? auth.createIntegratorKey(user.id, null)
-          : null;
-    const response = await resolve(
-      item.id,
-      'todo_done',
-      undefined,
-      key ? { authorization: `Bearer ${key.secret}` } : { cookie },
-    );
-    expect(response.statusCode).toBe(403);
-    expect(response.json().error.code).toBe(
-      mode === 'read' ? 'integrator_read_only' : 'integrator_not_allowed',
+    const config = await h.app.projectman.domain.projects.config('AR');
+    const own = projectAccessFor(config, OWNER_LOGIN.email)!;
+    expect(await refusal(resolveWith(item.id, { optionId: 'todo_done' }, own))).toBe(
+      'integrator_not_allowed',
     );
     expect(current(item.id).state).toBe('open');
   });
@@ -277,18 +268,13 @@ describe('integrator todo REST and durable lifecycle', () => {
         screening: { until: START, outcome: 'todo', todo: step },
       },
     });
-    expect((await resolve(item.id)).statusCode).toBe(200);
+    await resolve(item.id);
     expect(domain.tasks.get('AR', task.key).labels).toContain('waiting-answer');
   });
 
   it('keeps normal resolve and relay closed to integrator todos, and permits the owner login', async () => {
     const item = await opened();
-    for (const auth of [
-      headers(),
-      {
-        authorization: `Bearer ${h.app.projectman.auth.createIntegratorKey(h.app.projectman.repos.users.list()[0]!.id, null).secret}`,
-      },
-    ]) {
+    for (const auth of [headers()]) {
       const response = await h.app.inject({
         method: 'POST',
         url: routes.resolveInbox('AR', item.id),
@@ -321,7 +307,6 @@ describe('integrator todo REST and durable lifecycle', () => {
     'gate',
     'release',
     'permission',
-    'boundary',
     'approval',
     'operatorApproval',
     'operatorKnowledge',
@@ -332,7 +317,7 @@ describe('integrator todo REST and durable lifecycle', () => {
     expect((item.payload.screening as { recipientRefusal: string }).recipientRefusal).toBe(
       'protected_question',
     );
-    expect((await resolve(item.id)).json().error.code).toBe(
+    expect(await refusal(resolve(item.id))).toBe(
       key === 'operatorKnowledge' ? 'not_found' : 'owner_approval_required',
     );
   });
@@ -349,7 +334,7 @@ describe('integrator todo REST and durable lifecycle', () => {
       recipient: 'owner',
       screening: { recipientRefusal: 'integrator_unavailable' },
     });
-    expect((await resolve(item.id)).json().error.code).toBe('integrator_not_allowed');
+    expect(await refusal(resolve(item.id))).toBe('insufficient_access');
   });
 
   it('keeps a todo for the Operator without any super access key', async () => {
@@ -386,7 +371,7 @@ describe('integrator todo REST and durable lifecycle', () => {
       if (input.type === 'question_answered') throw new Error('injected timeline failure');
       return append(input);
     });
-    expect((await resolve(item.id)).statusCode).toBe(500);
+    await expect(resolve(item.id)).rejects.toThrow('injected timeline failure');
     expect(current(item.id).state).toBe('open');
     expect(journal(item.id).n).toBe(before.journal);
     expect(repos.messages.list('AR')).toHaveLength(before.messages);
@@ -397,7 +382,7 @@ describe('integrator todo REST and durable lifecycle', () => {
     for (const payload of [{}, { responsePurpose: 'information' }]) {
       const item = asked(payload);
       await h.app.projectman.domain.inbox.releaseScreened(item.id, { outcome: 'decision', by: 'pm' });
-      expect((await resolve(item.id)).json().error.code).toBe('super_relay_refused');
+      expect(await refusal(resolve(item.id))).toBe('super_relay_refused');
     }
     const item = h.app.projectman.domain.inbox.create({
       projectKey: 'AR',
@@ -408,13 +393,13 @@ describe('integrator todo REST and durable lifecycle', () => {
       payload: {},
       options: [TODO_DONE_OPTION],
     });
-    expect((await resolve(item.id)).json().error.code).toBe('owner_approval_required');
+    expect(await refusal(resolve(item.id))).toBe('owner_approval_required');
   });
 
   it('does not escalate a todo to the owners after a day: the Operator’s queue has no timeout', async () => {
     const item = await opened();
     now = new Date(now.getTime() + 86_400_000);
-    expect((await resolve(item.id)).statusCode).toBe(200);
+    await resolve(item.id);
     expect(events('question_recipient_escalated')).toHaveLength(0);
   });
 
@@ -425,7 +410,7 @@ describe('integrator todo REST and durable lifecycle', () => {
       auth.revokeIntegratorAccessKey(repos.users.list()[0]!.id, superKey.key.id);
       return close();
     });
-    expect((await resolve(item.id)).json().error.code).toBe('integrator_key_invalid');
+    expect(await refusal(resolve(item.id))).toBe('integrator_key_invalid');
     expect(current(item.id).state).toBe('open');
     expect(events('question_answered')).toHaveLength(0);
     await expect(
@@ -453,7 +438,7 @@ it('defaults to unavailable when no integrator access adapter was provided', asy
     const item = h.domain.inbox.create({
       projectKey: 'AR',
       kind: 'question',
-      source: 'dev-1',
+      source: 'pm',
       assignees: ['owner'],
       title: 'Measure',
       state: 'screening',
@@ -464,6 +449,29 @@ it('defaults to unavailable when no integrator access adapter was provided', asy
     expect(result!.payload).toMatchObject({
       recipient: 'owner',
       screening: { recipientRefusal: 'integrator_unavailable' },
+    });
+  } finally {
+    await h.cleanup();
+  }
+});
+
+it('keeps the todo of an asker without machine access with the owners', async () => {
+  const h = await createDomainHarness({ integratorTodoAccess: { available: () => true } });
+  try {
+    const item = h.domain.inbox.create({
+      projectKey: 'AR',
+      kind: 'question',
+      source: 'dev-1',
+      assignees: ['owner'],
+      title: 'Measure',
+      state: 'screening',
+      payload: { question: 'Measure', requestedRecipient: 'integrator', screening: { until: START } },
+      options: [],
+    });
+    const result = await h.domain.inbox.releaseScreened(item.id, { outcome: 'todo', todo: step, by: 'pm' });
+    expect(result!.payload).toMatchObject({
+      recipient: 'owner',
+      screening: { recipientRefusal: 'no_machine_access' },
     });
   } finally {
     await h.cleanup();

@@ -12,10 +12,8 @@ import { registerInboxRoutes } from './inbox';
 import { registerInvolvementRoutes } from './involvements';
 import { registerFeedbackRoutes } from './feedback';
 import { registerFeedbackWidgetRoutes } from './feedback-widget';
-import { registerProjectFocusRoutes } from './project-focus';
 import { registerProjectEventRoutes } from './project-events';
 import { registerStructureRoutes } from './structure';
-import { registerBoundaryRoutes } from './boundary';
 import { registerInvitationRoutes } from './invitations';
 import { registerMemberRoutes } from './members';
 import { registerEmailChannelRoutes } from './email-channel';
@@ -25,7 +23,6 @@ import { registerProjectRoutes } from './projects';
 import { registerRoleRoutes } from './roles';
 import { registerPauseRoutes } from './pause';
 import { registerMachineRoutes } from './machine';
-import { registerSystemFeedbackRoutes } from './system-feedback';
 import { registerScheduleRoutes } from './schedules';
 import { registerSessionRoutes } from './sessions';
 import { registerTaskRoutes } from './tasks';
@@ -60,8 +57,7 @@ export function registerApiRoutes(app: FastifyInstance, services: ApiServices): 
     route.handler = function (request, reply) {
       if (route.url.startsWith('/api/me/push') && (request.via === 'integrator' || request.principal))
         throw forbidden('web_push_integrator_refused', 'Web push requires a personal login');
-      if (!request.principal || request.principal.mode === 'legacy')
-        return handler.call(this, request, reply);
+      if (!request.principal) return handler.call(this, request, reply);
       services.auth.assertActive(request.principal);
       if (request.principal.mode === 'read' && request.method !== 'GET' && request.method !== 'HEAD')
         throw forbidden('integrator_read_only', 'a read-only credential cannot change anything');
@@ -105,17 +101,14 @@ export function registerApiRoutes(app: FastifyInstance, services: ApiServices): 
   registerMachineRoutes(app, domain);
   registerInboxRoutes(app, domain);
   registerInvolvementRoutes(app, domain);
-  registerProjectFocusRoutes(app, domain);
   registerProjectEventRoutes(app, services);
   registerStructureRoutes(app, domain);
   registerFeedbackRoutes(app, domain);
-  registerSystemFeedbackRoutes(app, domain);
   registerFeedbackWidgetRoutes(app, {
     domain,
     clientIpHeader: services.clientIpHeader,
     widgetFile: services.feedbackWidgetFile ?? null,
   });
-  registerBoundaryRoutes(app, domain);
   registerConfigRoutes(app, domain);
   registerInvitationRoutes(app, services);
 }

@@ -7,10 +7,10 @@ import type { CloudConfig } from '../../../scripts/cloud/config';
 import { DomainError, humanActor } from '../src/kernel';
 import { EXTERNAL_DENIED, EXTERNAL_TOOLS } from '../src/mcp/super-operator/registry';
 import { TEAM_TOOL_NAMES } from '../src/mcp';
-import { createAppHarness, createProject, setupOwner } from './helpers/app-harness';
+import { addHumanAndLogin, createAppHarness, createProject, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 
-type Mode = 'legacy' | 'super' | 'read';
+type Mode = 'super' | 'read';
 
 interface ToolResult {
   content: { type: string; text?: string }[];
@@ -19,6 +19,13 @@ interface ToolResult {
 }
 
 const ACCEPT = 'application/json, text/event-stream';
+/** The tools that take no (or an optional) `project_key`. */
+const PROJECTLESS_TOOLS = [
+  'list_projects',
+  'list_integrator_inbox',
+  'get_operator_instance_knowledge',
+  'update_operator_instance_knowledge',
+];
 
 describe('the bearer MCP endpoint (PM-760)', () => {
   let h: AppHarness;
@@ -39,15 +46,6 @@ describe('the bearer MCP endpoint (PM-760)', () => {
   function key(mode: Mode, expiresInDays: 1 | 7 | 30 = 7) {
     const { auth, repos } = h.app.projectman;
     const user = repos.users.list()[0]!;
-    if (mode === 'legacy') {
-      const created = auth.createIntegratorKey(user.id, null);
-      return {
-        secret: created.secret,
-        userId: user.id,
-        keyId: auth.resolveIntegratorCredential(created.secret, 'mcp')!.keyId,
-        prefix: null as string | null,
-      };
-    }
     const created = auth.createIntegratorAccessKey(user.id, { mode, expiresInDays });
     return { secret: created.secret, userId: user.id, keyId: created.key.id, prefix: created.key.prefix };
   }
@@ -88,7 +86,7 @@ describe('the bearer MCP endpoint (PM-760)', () => {
   it('offers own-todo resolution only to super credentials and resolves it without a relay', async () => {
     const { secret } = key('super');
     expect((await listTools(secret)).map((tool) => tool.name)).toContain('resolve_integrator_todo');
-    for (const mode of ['read', 'legacy'] as const)
+    for (const mode of ['read'] as const)
       expect((await listTools(key(mode).secret)).map((tool) => tool.name)).not.toContain(
         'resolve_integrator_todo',
       );
@@ -198,7 +196,7 @@ describe('the bearer MCP endpoint (PM-760)', () => {
         (await listTools(secret)).map((tool) => tool.name),
         name,
       ).toContain(name);
-      for (const mode of ['read', 'legacy'] as const) {
+      for (const mode of ['read'] as const) {
         expect(
           (await listTools(key(mode).secret)).map((tool) => tool.name),
           name,
@@ -269,6 +267,108 @@ describe('the bearer MCP endpoint (PM-760)', () => {
     expect(member.structuredContent?.errorCode).toBe('integrator_not_allowed');
   });
 
+  it('reads and writes the Operator’s instance knowledge with a super key only, and audits the write', async () => {
+    const { secret } = key('super');
+    const agreement = { summary: 'Ask before risky steps', involvement: 'important', extraCritical: [] };
+    const principle = {
+      example: 'A failed deploy',
+      principle: 'Check the logs first',
+      effect: 'Less guessing',
+    };
+    expect((await call(secret, 'get_operator_instance_knowledge')).structuredContent).toMatchObject({
+      revision: 0,
+      agreement: null,
+      principles: [],
+    });
+
+    const written = await call(secret, 'update_operator_instance_knowledge', {
+      expected_revision: 0,
+      agreement,
+      principles: [principle],
+    });
+    expect(written.isError, written.content[0]!.text).toBeUndefined();
+    expect(written.structuredContent).toMatchObject({
+      revision: 1,
+      agreement: { version: 1, data: agreement },
+    });
+    const stored = (await call(secret, 'get_operator_instance_knowledge')).structuredContent!;
+    expect(stored.principles).toHaveLength(1);
+    expect(stored.principles[0]).toMatchObject(principle);
+    expect(stored.principles[0].id).toBeTruthy();
+    expect(audit().some((entry) => entry.operation === 'mcp_update_operator_instance_knowledge')).toBe(true);
+
+    const stale = await call(secret, 'update_operator_instance_knowledge', {
+      expected_revision: 0,
+      agreement,
+    });
+    expect(stale.structuredContent?.errorCode).toBe('operator_knowledge_stale');
+
+    const { secret: other } = key('read');
+    const denied = await call(other, 'update_operator_instance_knowledge', {
+      expected_revision: 1,
+      agreement,
+    });
+    expect(denied.structuredContent?.errorCode).toBe('integrator_read_only');
+    expect((await call(other, 'get_operator_instance_knowledge')).isError).toBe(true);
+  });
+
+  it('lists the integrator inbox of every owned project without project_key and leaves out one it does not own', async () => {
+    const { secret } = key('super');
+    await createProject(h, cookie, 'BR');
+    await createProject(h, cookie, 'CR');
+    // The key's holder stops being an owner of CR: another owner takes over in the same commit.
+    await addHumanAndLogin(h.app, {
+      handle: 'boss',
+      access: 'owner',
+      projectKey: 'CR',
+      adjust: (draft) => {
+        for (const member of draft.team.members)
+          if (member.kind === 'human' && member.handle === 'owner') member.access = 'developer';
+      },
+    });
+    const { domain } = h.app.projectman;
+    const todo = (projectKey: string, title: string) =>
+      domain.inbox.create({
+        projectKey,
+        kind: 'question',
+        source: 'dev-1',
+        assignees: ['owner'],
+        title,
+        payload: {
+          question: title,
+          recipient: 'integrator',
+          integratorOpenedAt: now.toISOString(),
+          screening: {
+            until: now.toISOString(),
+            outcome: 'todo',
+            todo: { what: title, where: 'Hub', expected: 'Result', recipient: 'integrator' },
+          },
+        },
+        options: [
+          { id: 'todo_done', label: 'Done', style: 'primary' },
+          { id: 'todo_cannot', label: 'Cannot', style: 'secondary' },
+        ],
+      });
+    const inAr = todo('AR', 'First todo');
+    now = new Date(now.getTime() + 1000);
+    const inBr = todo('BR', 'Second todo');
+    todo('CR', 'Foreign todo');
+
+    const all = await call(secret, 'list_integrator_inbox');
+    expect(all.isError, all.content[0]!.text).toBeUndefined();
+    expect(
+      all.structuredContent?.items.map((entry: { id: string; projectKey: string }) => [
+        entry.projectKey,
+        entry.id,
+      ]),
+    ).toEqual([
+      ['BR', inBr.id],
+      ['AR', inAr.id],
+    ]);
+    const only = await call(secret, 'list_integrator_inbox', { project_key: 'AR' });
+    expect(only.structuredContent?.items.map((entry: { id: string }) => entry.id)).toEqual([inAr.id]);
+  });
+
   it('initializes, lists, reads and writes with no session and no engine', async () => {
     const { secret } = key('super');
     const initialized = await post(
@@ -304,40 +404,6 @@ describe('the bearer MCP endpoint (PM-760)', () => {
     expect(listed.content[0]!.text).toContain('Over MCP');
     const detail = await call(secret, 'get_task', { project_key: 'AR', task_key: task!.key });
     expect(detail.content[0]!.text).toContain('Over MCP');
-  });
-
-  it('lets the owner score cards through the bearer handler while keeping the Operator planning restriction', async () => {
-    const { secret } = key('legacy');
-    const created = await call(secret, 'create_task', { project_key: 'AR', title: 'Scored', complexity: 5 });
-    expect(created.isError, created.content[0]!.text).toBeUndefined();
-    const task = h.app.projectman.domain.tasks.list('AR')[0]!;
-    expect(task.complexity?.points).toBe(5);
-    expect(created.content[0]!.text).toContain('complexity set');
-    const listed = await call(secret, 'list_tasks', { project_key: 'AR' });
-    expect(JSON.parse(listed.content[0]!.text!)[0]).toHaveProperty('complexity', 5);
-    const detail = await call(secret, 'get_task', { project_key: 'AR', task_key: task.key });
-    expect(detail.content[0]!.text).toContain('Complexity: 5 points');
-    const forbidden = await call(key('super').secret, 'update_task', {
-      project_key: 'AR',
-      task_key: task.key,
-      complexity: 8,
-    });
-    expect(forbidden.structuredContent?.errorCode).toBe('complexity_forbidden');
-    const invalid = await call(secret, 'update_task', {
-      project_key: 'AR',
-      task_key: task!.key,
-      complexity_reason: 'reason',
-    });
-    expect(invalid.isError).toBe(true);
-    expect(invalid.content[0]!.text).toContain('invalid_request');
-    const removed = await call(secret, 'update_task', {
-      project_key: 'AR',
-      task_key: task!.key,
-      complexity: null,
-    });
-    expect(removed.isError).toBeUndefined();
-    expect(removed.content[0]!.text).toContain('complexity removed');
-    expect(h.app.projectman.domain.tasks.get('AR', task!.key)).not.toHaveProperty('complexity');
   });
 
   it('refuses GET and DELETE with 405 and Allow: POST, and a missing or wrong credential with 401', async () => {
@@ -438,7 +504,6 @@ describe('the bearer MCP endpoint (PM-760)', () => {
   it('lists only the tools of the credential mode, and refuses a forbidden one called directly', async () => {
     const superTools = (await listTools(key('super').secret)).map((tool) => tool.name);
     const readTools = (await listTools(key('read').secret)).map((tool) => tool.name);
-    const legacyTools = (await listTools(key('legacy').secret)).map((tool) => tool.name);
     const superOnly = [
       'list_super_handoffs',
       'execute_super_handoff',
@@ -452,22 +517,21 @@ describe('the bearer MCP endpoint (PM-760)', () => {
       'resolve_integrator_todo',
       'resolve_integrator_fix_limit',
       'list_integrator_inbox',
+      'get_operator_instance_knowledge',
+      'update_operator_instance_knowledge',
     ];
     for (const name of superOnly) {
       expect(superTools, name).toContain(name);
       expect(readTools, name).not.toContain(name);
-      expect(legacyTools, name).not.toContain(name);
     }
-    for (const mode of [readTools, legacyTools]) expect(mode).toContain('list_projects');
+    for (const mode of [readTools]) expect(mode).toContain('list_projects');
     expect(readTools).toContain('list_tasks');
     expect(readTools).not.toContain('create_task');
     expect(readTools).not.toContain('send_message');
-    expect(legacyTools).toContain('create_task');
     // Nothing of the member's session, decision or file tools is offered to anybody.
     for (const name of ['attach_file', 'merge_task', 'hand_off', 'operate', 'save_memory'])
-      for (const tools of [superTools, readTools, legacyTools]) expect(tools, name).not.toContain(name);
+      for (const tools of [superTools, readTools]) expect(tools, name).not.toContain(name);
     // The Operator's tools the super mode got (PM-784): readers also in the read mode, writers super only,
-    // and the legacy mode none of them.
     const superWriters = [
       'write_project_docs',
       'propose_release',
@@ -485,16 +549,13 @@ describe('the bearer MCP endpoint (PM-760)', () => {
     for (const name of superWriters) {
       expect(superTools, name).toContain(name);
       expect(readTools, name).not.toContain(name);
-      expect(legacyTools, name).not.toContain(name);
     }
     for (const name of superReaders) {
       expect(superTools, name).toContain(name);
       expect(readTools, name).toContain(name);
-      expect(legacyTools, name).not.toContain(name);
     }
 
     const read = key('read').secret;
-    const legacy = key('legacy').secret;
     const superKey = key('super').secret;
     const readWrite = await call(read, 'create_task', { project_key: 'AR', title: 'No' });
     expect(readWrite).toMatchObject({
@@ -504,16 +565,9 @@ describe('the bearer MCP endpoint (PM-760)', () => {
     expect(
       (await call(read, 'list_super_handoffs', { project_key: 'AR' })).structuredContent?.errorCode,
     ).toBe('integrator_not_allowed');
-    expect(
-      (await call(legacy, 'list_super_handoffs', { project_key: 'AR' })).structuredContent?.errorCode,
-    ).toBe('integrator_not_allowed');
     for (const name of ['attach_file', 'merge_task', 'operate']) {
       const denied = await call(superKey, name, { project_key: 'AR' });
       expect(denied.isError, name).toBe(true);
-      expect(denied.structuredContent?.errorCode, name).toBe('integrator_not_allowed');
-    }
-    for (const name of [...superWriters, 'read_project_doc', 'get_super_question']) {
-      const denied = await call(legacy, name, { project_key: 'AR' });
       expect(denied.structuredContent?.errorCode, name).toBe('integrator_not_allowed');
     }
     for (const name of superWriters) {
@@ -531,8 +585,8 @@ describe('the bearer MCP endpoint (PM-760)', () => {
     const { secret } = key('super');
     const tools = await listTools(secret);
     for (const tool of tools) {
-      if (tool.name === 'list_projects') {
-        expect(tool.inputSchema.required ?? []).toEqual([]);
+      if (PROJECTLESS_TOOLS.includes(tool.name)) {
+        expect(tool.inputSchema.required ?? [], tool.name).not.toContain('project_key');
         continue;
       }
       expect(tool.inputSchema.required, tool.name).toContain('project_key');
@@ -611,9 +665,7 @@ describe('the bearer MCP endpoint (PM-760)', () => {
     expect(operations.filter((operation) => operation === 'mcp_create_task')).toEqual(creates);
   });
 
-  it('audits a super key and a read key by their prefix and gives a legacy key no audit', async () => {
-    const legacy = key('legacy');
-    await call(legacy.secret, 'list_tasks', { project_key: 'AR' });
+  it('audits a super key and a read key by their prefix', async () => {
     expect(audit().filter((e) => e.operation.startsWith('mcp_'))).toEqual([]);
     const readKey = key('read');
     await call(readKey.secret, 'list_tasks', { project_key: 'AR' });

@@ -142,7 +142,8 @@ tenants into separate OS accounts or machines.
   store and the `providers` directory, using a restricted-read permission profile.
   The native Codex 0.159.1 probe on macOS 14.6 arm64 (2026-10-06) denied credentials,
   secrets, database glob matches and symlink traversal; `view_image` also respected the denial.
-  The profile is a deny list: other members' worktrees remain readable (PM-360).
+  The developer profile is a deny list: other members' worktrees remain readable to a developer
+  (PM-360). A reading session (reviewer, QA, analyst…) is closed to them since PM-425.
   Commands approved by a human or an AI approver outside the sandbox still execute as
   the host user; NanoGPT has no automatic command approval. The NanoGPT CLI process retains
   the key in its environment: commands approved by a human or an AI approver outside the sandbox may inspect it,
@@ -314,8 +315,9 @@ relative file/key names to the server.
 
 ## Shared Operator knowledge approval (PM-689)
 
-`propose_operator_knowledge` requires an internal Operator general session with an open owner
-message or answer request. Signal, watch, web and approval-continuation requests cannot propose
+`propose_operator_knowledge` requires an internal general session of the Operator or the selected
+project manager (PM-1043; a project manager proposal carries no recommended operations) with an
+open owner message or answer request. Signal, watch, web and approval-continuation requests cannot propose
 knowledge. A proposal writes an approval inbox item and a step, without changing the private
 knowledge or configuration. Only an owner using their own login may approve, reject or dismiss
 through the registered `operator_knowledge` decider; AI members, admins and integrators cannot
@@ -366,8 +368,8 @@ and merge target, stage order, workspace/repository/test/integrator/remote acces
 and the Operator's own settings/watch/waiver remain approval-bound. `githubLogin`, member
 `instructions`, `temp`, `complexityLimit` and unknown fields are outside the waiver whitelist. Template
 permission, `none` approver, default network, empty instructions and `temp: false` on a new
-implementer grant no extra authority. Approval and permission/boundary decision tools remain
-forbidden to the Operator; this classification opens no boundary-request exception.
+implementer grant no extra authority. Approval and permission decision tools remain
+forbidden to the Operator; this classification opens no exception.
 
 ### PM coordination (PM-707)
 
@@ -439,7 +441,7 @@ PM, who may have no role on the card. The recipient may be the Operator; its exi
 owner-request guards still apply, so forwarding grants no Operator authority. `decision` and
 `todo` hand the question to people. Resolution rechecks project, question kind and state under
 the lock. A PM answer is attributed to the PM and never sets an approval label or decides a
-permission, boundary, release or Operator approval item. These items keep their human routes.
+permission, release or Operator approval item. These items keep their human routes.
 Counterweights remain the asker's one-time `reask_of` after `answered`, `forwarded` or `moot`
 in the same project, the timeline of every outcome, and the owner/admin-only screened-question
 endpoint. If the PM cannot be woken or does not settle in time, the question opens for people
@@ -768,9 +770,68 @@ are neither written nor read.
 
 **Residual risk (owner's decision, decision 24 and PM-156).** Sandboxed commands may listen on
 local ports, so they also reach the live instance's port 4800, readers included; the owner decided
-that port stays reachable (PM-156). A reader's sandbox reaches the npm registry. A
-Codex member uses its own permission profile: it denies `sensitivePaths`
-and its Codex home, but reads other paths broadly (PM-356; the wider boundary is PM-360).
+that port stays reachable (PM-156). A reader's sandbox reaches the npm registry.
+
+**Probe of closing port 4800 (PM-811, 2026-10-26): it cannot be closed from the sandbox rules.**
+Done from a developer session's own sandbox (Claude Code, outbound network on: `allowedDomains`
+`['*']`, `deniedDomains` `localhost` and `127.0.0.1`, `allowLocalBinding: true`), against throwaway
+listeners on high local ports, not against 4800 itself (the live instance is not touched by
+members; the rule is the same for every port):
+
+| Address     | Through the sandbox proxy (`-x $HTTP_PROXY`) | Direct (no proxy) |
+| ----------- | -------------------------------------------- | ----------------- |
+| `127.0.0.1` | refused, 403 (host on the deny list)         | connects          |
+| `localhost` | refused, 403 (host on the deny list)         | connects          |
+| `[::1]`     | not refused (502 from the upstream)          | connects          |
+
+A listener's own port works for bind and connect on `127.0.0.1`, `localhost` and `[::1]`, so the
+tests are not affected by `deniedDomains`. The deny list only acts on traffic that goes through
+the proxy, and the sandbox's own `NO_PROXY` names the loopback addresses (`localhost`, `127.0.0.1`,
+`::1`), so ordinary tools (`curl`, `fetch` in Node) go direct and are not filtered at all.
+`allowLocalBinding: true` (decision 24) lets the sandbox connect to loopback ports directly, and
+`deniedDomains` has no per-port form, so a port 4800 entry is not possible either. `[::1]` is not
+in `HARD_DENIED_HOSTS`: it would close only the proxied path (a `WebFetch` and a tool that ignores
+`NO_PROXY`), not the direct one, and whether the deny list takes an IPv6 literal is not verified.
+The allowlist mode (outbound network off) was not probed: it has no deny list, and its direct
+loopback path is the same `allowLocalBinding` one, so it is read as open as well.
+What stays: the live instance's port 4800 is reachable from every Claude Code member's sandboxed
+commands, and only the instance's own login protects it. Closing it needs a change outside the
+sandbox rules: `allowLocalBinding: false` (breaks the tests' local ports, against decision 24), or
+the instance not listening on a port the sandbox can reach (a Unix socket, or a separate user).
+Not decided here.
+
+A Codex member uses its own permission profile: it denies `sensitivePaths`
+and its Codex home (PM-356). Under the owner's PM-360 scope decision (2026-10-26), the
+developer's ordinary profile keeps broad reads of non-denied home files, other projects and
+other members' checkouts. No new home/session/tmp prerequisite is imposed on these starts.
+PM-360 provides an optional typed `portable.readBoundary` for explicit policy inputs:
+reopenable roots and exact file/directory read exceptions are separate from unconditional
+secret denials. The adapters and engine reject an explicitly invalid boundary; an absent
+field keeps the existing profile and temp behavior. PM-425 enables the boundary for every
+reading session (`placementReadsOnly`: a `read_only` placement, a review copy without the test
+permission, a taskless chat, the non-super Operator), and only for those; the developer's and the
+super Operator's sandboxes are unchanged. The owner's decision (2026-10-26): a reader reads nothing
+on the machine outside its own project and card, even with approval; the rest is the (super)
+Operator's job. The aim is targeted protection against accidental cross-reading, not isolation from
+a hostile member. One list, built in `sessionSandbox` (`readerReadBoundary`), renders everything:
+the user's home and the app home are closed (`denyRead`), and only these are reopened (`allowRead`,
+`portable.readBoundary.allowedPaths`): the working directory, the extra directories (the card's
+worktree), the card's attachments, the shared git directory the checkout points to, the instance's
+session folders root, the Playwright browsers, the member's own npm cache (read only), the technical
+home files git needs (`SANDBOX_HOME_READS`, the global excludes file) and the shared temp roots'
+allowed parts. Always closed, whatever is reopened: `sensitivePaths`, every Claude transcript
+(`~/.claude/projects`, the reader's own too), Claude Code's temp folders and other cards' worktrees.
+The file tools follow the same list: Claude's PreToolUse hook and `permissionRequest()` refuse a
+`Read`/`Grep`/`Glob`/edit call into the closed part (a denial, never an approval prompt), the
+blanket `Read`/`Grep`/`Glob` allow rules are gone, and a read outside the home (the system, the
+installed tools) is answered by the hook without asking; Gemini's hook applies the same list in
+`decideToolCall`, to its file tools and also to a command (the path words, redirections, `cd`
+targets and patterns of the line: a closed place is a denial there, never a permission request;
+what a quoted script or a variable hides is the unsandboxed-command gap below); Codex/NanoGPT get it as the permission profile (`validateCodexReadBoundary`).
+`git show <branch>:<file>` and `gh` queries (outside the sandbox) keep working. The engine validates
+and canonicalises the list from its own home and app home (`engine-limit`); there is no new RPC.
+Native enforcement of an explicit boundary must be verified on each OS/provider when that boundary
+is enabled (docs/SANDBOX-PROBE.md); it has not been certified here.
 A developer's file tools have no such `Edit` deny rules outside its
 worktree (its own worktree is inside the app home, and a deny rule wins over an allow rule): there
 the CLI's own questions and Auto's classifier hold. The sandbox's denials were checked on the
@@ -877,10 +938,18 @@ process ends, so a background command's output does not survive a restart.
 
 Remaining risks: a Claude session without a safe tmp root (folders or tmp off, an unusable root) keeps
 the shared root and does not get it denied (fail-open: the CLI would otherwise fall back to a
-path it cannot use); a session that is already running gets the rule at its next start; a
-reader's file tools still read the user's home and the other PM-339 folders (PM-425); Codex on the
-PM-339 base still reads what its profile opens (PM-360); NanoGPT members (PM-365) and Gemini (no OS
-sandbox) are not covered by the sandbox rules.
+path it cannot use); a session that is already running gets the rule at its next start. A
+reader's reads are closed to the rest of the home and the app home (PM-425, above), but the reader
+keeps the temp folder of its own sandbox and the session folders root (a teammate's screenshot).
+Because the reader's `claudeTmpRoots` denial stays conditional (see above), a reader without a
+safe tmp root can still reach the shared Claude temp root. A Claude Code release that fails its
+hooks open, or an older one, is not fully fail-closed for the file tools (the sandbox's `denyRead`
+still holds for commands). Codex/NanoGPT developer profiles retain broad non-sensitive home reads.
+Gemini has no OS sandbox, and its commands run unsandboxed: a script or interpreter can read
+indirectly what its file tools cannot (PM-361). Approved host commands
+and the parent CLI remain outside the native command sandbox. Shared git history and
+installation session outputs remain readable. A cloud hub does not isolate an engine's
+local files; a shared or multi-tenant engine needs separately specified OS/VM/container isolation.
 
 ## The feedback tool's public API (PM-506, PM-509)
 
@@ -1038,7 +1107,7 @@ the account boundary.
   an address, a code, an IP or a provider error text.
 - **Passwordless accounts.** A first redemption creates an account with no password. It cannot use
   `/api/auth/login` (the dummy hash runs, the answer is `invalid_credentials`), holds no integrator key
-  (`resolveIntegratorKey` and the key routes refuse it) and cannot accept a non-client invitation link
+  (`resolveIntegratorCredential` and the key routes refuse it) and cannot accept a non-client invitation link
   (`invite_password_account_required`). A client with a password keeps it and may use either way.
 - **Sessions.** A successful redemption revokes the presented session and starts a new one, like the
   password login. The routes are public and same-origin only.
@@ -1211,6 +1280,15 @@ network, SSM or shell, only one Unix socket.
   OS user as the supervisor, so the sandbox is what keeps them from the 0600 socket: the state and the socket
   directory must therefore lie below `<app home>/administration`. `npm run administration -- prepare` takes
   `--app-home` and refuses any other place, on the hub host and on an engine machine alike.
+- **Builder full-test sandbox (PM-816).** The administration builder's `full_test` and its `npm ci` both use
+  the full-test sandbox: the user's home, the protected configuration's `appHome` and the shared temporary
+  roots are denied for reading. These include the default, configured (`CLAUDE_CODE_TMPDIR`) and canonical
+  Claude roots, `defaultSessionTmpRoot()` and canonical `os.tmpdir()/projectman-sessions`. The checkout, its git
+  directory and the run's own `pmft-*/sandbox` stay readable; no shared root is reopened. Only the installer
+  may reach `registry.npmjs.org` and `nodejs.org`; the test has no outward network access. A builder without a
+  valid absolute app home in `supervisor.json` refuses to start, and failure to resolve temporary roots never
+  falls back to an unrestricted run. The paths and environment are resolved on the builder machine, including
+  for a remote engine.
 - **Owner-approved shell (PM-887).** The protected config must explicitly set `ownerCommand.shell` to an
   absolute shell path (`prepare --owner-command-shell <path>`); otherwise the capability is absent and the
   command is unavailable. Every command is a `security` effect in a fresh `waiting_owner` operation and needs
@@ -1241,6 +1319,37 @@ network, SSM or shell, only one Unix socket.
 - **Nothing is installed by the code.** `npm run administration -- prepare` only writes the configuration and
   the service file into a private folder; it calls no `launchctl` or `systemctl`. Installing the files, creating
   the directories and starting the supervisors is a separate rollout that the owner approves.
+
+## Regenerated files of a conflicting merge (PM-1050)
+
+A merge that conflicts only in generated files runs the repo's `reviewTest.regenerate.command` (owner-only
+configuration) in the full test sandbox, and the engine commits what it wrote: sandbox output reaches a
+commit that is pushed to a public `main`. The channel is narrow:
+
+- **Where the command may write.** Only the regenerating run gets write access: its spec carries a
+  `regenerate` descriptor (repo, merge id, patterns) and the engine derives the writable directories from
+  the patterns (`regeneratedWriteDirs`), never from a free list in the request. They are real directories
+  (no link component) of the canonical `_merge/<id>` checkout, which belongs to this run alone; a pattern
+  needs a literal directory before its last segment, the first segment may not start with `.`, and no
+  segment may be `.git*`, `.husky` or `node_modules`. The rest of the checkout, its `.git` file and
+  `node_modules` stay read-only, and the merge check runs in another checkout with no descriptor. A remote
+  engine accepts such a run only with the command in its `regenerateCommand` for that repo (the test
+  command may not run with the descriptor).
+- **What is taken.** After the run the engine moves the writable directories (`rename`) below a fresh
+  directory of the checkout, where the sandbox may no longer write, and reads only from there: an `lstat`
+  walk, then each file through one `O_NOFOLLOW` descriptor with `fstat` (regular file, one link, at most
+  1 MB), hashed from the bytes read (`hash-object --no-filters`). A dev/inode recheck is not used: the
+  sandbox could replace the writable directory itself, and `O_NOFOLLOW` covers only the last component.
+  New, changed or deleted files that match the patterns are taken; a changed or new file outside the
+  patterns, a `.git*`/`.husky`/`node_modules` name, a link, a hard link, a non-regular file, a file over
+  1 MB or more than 200 changed files (`too_many`) refuses the regeneration and the merge fails as a
+  conflict. Git never discovers the checkout: every call names `GIT_DIR` of the worktree, found from the
+  repository, runs with `core.fsmonitor=false` and a temporary index outside the checkout; there is no
+  `git status` or `git add` on its work tree.
+- **Limits that remain.** The sandbox can read what the full test sandbox reads, including the shared git
+  directory's `config`; a generator that copies a secret it can read into a file under the patterns would put
+  it into the commit. The patterns and the command are the owner's to choose; the merge check, code review
+  and the diff of the merge commit are the safeguards after that. Keep tokens out of remote URLs.
 
 ## Findings
 
@@ -1330,11 +1439,11 @@ macOS probe.
 
 ### Public entrance through Cloudflare (PM-200, PM-210)
 
-The Cloudflare variant of points 2 and 3, for the live instance on the owner's Mac (set-up and
-verification: [DEPLOY.md](DEPLOY.md), [deploy/cloudflare](../deploy/cloudflare)) and for the cloud
-board (PM-532, PM-536: `npm run cloud -- edge`, `publish` and `check` create and verify the same
-settings through the Cloudflare API; see "Cloudflare" and "Verification" in [AWS.md](AWS.md)). On the
-cloud board the one service is `127.0.0.1:4700`, not `4800`; the rest below holds for both:
+The Cloudflare variant of points 2 and 3 for the cloud board (PM-532, PM-536):
+`npm run cloud -- edge`, `publish` and `check` create and verify the settings through the
+Cloudflare API; see [AWS.md, Cloudflare](AWS.md#cloudflare) and
+[Verification](AWS.md#verification). Manual token-tunnel setup is in
+[HYBRID.md](HYBRID.md#the-cloudflare-tunnel-and-access). The one service is `127.0.0.1:4700`:
 
 1. HTTPS ends at Cloudflare; `cloudflared` reaches the app over loopback and the edge sends
    `X-Forwarded-Proto: https`, so cookies are Secure. The Host is preserved (no `httpHostHeader`
@@ -1354,7 +1463,7 @@ cloud board the one service is `127.0.0.1:4700`, not `4800`; the rest below hold
    never there. The tunnel's `originRequest.access` makes `cloudflared` check the Access token (team
    name and AUD tag) too. Login is by Google or a one-time code, with a stated session length.
 3. The tunnel answers 404 for `/hooks` and `/mcp/` and for everything but the one hostname. The
-   only service is `127.0.0.1:4800`; the development ports are not served.
+   only service is the cloud container's `127.0.0.1:4700`; the Mac's development ports are not served.
 4. Edge: Always Use HTTPS and HSTS on; nothing cached; Rocket Loader, Email Obfuscation, the
    automatic Web Analytics beacon and every other script injection off; a response-header rule
    sets `X-Frame-Options: DENY` (Set) and **adds** `Content-Security-Policy: frame-ancestors
@@ -1430,7 +1539,8 @@ frame-ancestors 'none'`) for uploads shown inline: a Set rule would replace it a
 ### The widget's public hostname (PM-506, PM-513)
 
 The marking widget runs on a customer's page, so it cannot pass Access. It gets **a hostname of
-its own on the same tunnel with no Access application** (setup: [DEPLOY.md](DEPLOY.md) step 7).
+its own on the same tunnel with no Access application**
+(setup: [HYBRID.md, The marking widget's public hostname](HYBRID.md#the-marking-widgets-public-hostname-pm-513)).
 The Access application of the application's hostname is not weakened and no Bypass policy is
 added (the public board's one Bypass policy belongs to the board's own page, not to this feature). What is reachable without Access is exactly `/feedback/widget.js` and `/feedback/api/v1/*`;
 their session, origin and limit rules are in "The feedback tool's public API".

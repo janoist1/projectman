@@ -4,6 +4,7 @@ export function createTaskService(deps: ConstructorParameters<typeof TaskService
 
 import type {
   Actor,
+  AgentProvider,
   BoardMoveRequest,
   BoardMoveResult,
   Stage,
@@ -30,8 +31,10 @@ import type {
 import {
   actorMoveRefusal,
   boardColumnOf,
+  DEFAULT_AGENT_PROVIDER,
   dropStageOfColumn,
   evaluateMove,
+  isCoordinationActor,
   isHandleOnLeave,
   isOpenTask,
   isTheme,
@@ -89,6 +92,15 @@ import type { Effect, StartWaitingReader } from './store';
 import { TaskThemes } from './themes';
 import type { ThemeView } from './themes';
 
+/**
+ * Refuses a new assignee whose provider is on hold (PM-1051): the card would wait for a member that
+ * cannot start it. Admission serves it (`Admission.assertProviderAvailable`); it throws the usual
+ * `provider_rate_limited` or `plan_usage_paused` refusal.
+ */
+export interface ProviderAssignmentCheck {
+  assertProviderAvailable(config: ProjectConfig, provider: AgentProvider): void;
+}
+
 /** A card changed its assignee (PM-342): `task` is as written, `previous` the old assignee. */
 export interface HandoffTrigger {
   task: Task;
@@ -120,8 +132,10 @@ interface TaskUpdate {
    * Refused while a session of the task is running: its worktree is in the old repository.
    */
   repo?: string | null;
-  /** Owner/admin only; null clears the assignee. Starting work is a separate call. */
+  /** Owner/admin or the selected PM; null clears the assignee. Starting work is a separate call. */
   assignee?: string | null;
+  /** Why the assignee changes, as the PM gives it (PM-1040): on the `task_assigned` event as `note`. */
+  assigneeReason?: string;
   /** The whole label set: turned into additions and removals. */
   labels?: string[];
   addLabels?: string[];
@@ -150,6 +164,11 @@ export class TaskService implements TaskSchedulingReader {
   registerWorkEntryCheck(check: WorkEntryCheck): void {
     this.moves.registerWorkEntryCheck(check);
   }
+  /** Binds the provider guard of new assignees (built after the task service, with admission). */
+  registerProviderAssignmentCheck(check: ProviderAssignmentCheck): void {
+    this.providerCheck = check;
+  }
+  private providerCheck: ProviderAssignmentCheck | undefined;
   private readonly ctx: DomainContext;
   private readonly timeline: TimelineService;
   private readonly projects: ProjectService;
@@ -434,7 +453,7 @@ export class TaskService implements TaskSchedulingReader {
   ): Promise<Task & { handoffStart?: HandoffStart }> {
     const config =
       change.assignee !== undefined
-        ? await this.requireLifecycleAccess(projectKey, actor)
+        ? await this.requireLifecycleAccess(projectKey, actor, { coordinator: true })
         : await this.projects.config(projectKey);
     assertIntegratorAccess(config, 'write', actor);
     const effects: Effect[] = [];
@@ -687,6 +706,10 @@ export class TaskService implements TaskSchedulingReader {
         // A member on leave cannot take over work (decision 23); keeping it as it is stays allowed.
         if (isHandleOnLeave(config, change.assignee))
           throw conflict('member_on_leave', `${change.assignee} is on leave`, { member: change.assignee });
+        // Nor one whose provider is on hold (PM-1051): the card could not start there. Before any write.
+        const target = change.assignee === null ? undefined : memberOf(config, change.assignee);
+        if (target?.kind === 'ai')
+          this.providerCheck?.assertProviderAvailable(config, target.provider ?? DEFAULT_AGENT_PROVIDER);
         patch.assignee = change.assignee;
       }
     }
@@ -776,7 +799,11 @@ export class TaskService implements TaskSchedulingReader {
           taskKey: task.key,
           actor,
           type: 'task_assigned',
-          data: { assignee: next.assignee, previous: task.assignee },
+          data: {
+            assignee: next.assignee,
+            previous: task.assignee,
+            ...(change.assigneeReason !== undefined ? { note: change.assigneeReason } : {}),
+          },
         });
         handoffStart =
           this.handoff?.({ task: next, previous: task.assignee, actor, reason: 'manual' }) ?? undefined;
@@ -899,7 +926,7 @@ export class TaskService implements TaskSchedulingReader {
 
   /** Closes the task and stops its sessions while preserving assignment, stage and files. */
   async cancel(projectKey: string, taskKey: string, req: CancelTaskRequest, actor: Actor): Promise<Task> {
-    await this.requireLifecycleAccess(projectKey, actor);
+    await this.requireLifecycleAccess(projectKey, actor, { coordinator: true });
     const effects: Effect[] = [];
     const next = this.ctx.unitOfWork(() => {
       const task = this.get(projectKey, taskKey);
@@ -1023,8 +1050,14 @@ export class TaskService implements TaskSchedulingReader {
     });
   }
 
-  private async requireLifecycleAccess(projectKey: string, actor: Actor): Promise<ProjectConfig> {
+  /** An admin; with `coordinator` also the selected PM acting directly (PM-1040: reassign and cancel). */
+  private async requireLifecycleAccess(
+    projectKey: string,
+    actor: Actor,
+    opts: { coordinator?: boolean } = {},
+  ): Promise<ProjectConfig> {
     const config = await this.projects.config(projectKey);
+    if (opts.coordinator && isCoordinationActor(config, actor)) return config;
     requireHuman(config, actor, 'admin');
     return config;
   }

@@ -25,6 +25,18 @@ it('renders a PM loop assessment without exposing its private note', () => {
   expect(describeEvent(event, context).text).toBe(t('timeline.events.loop_triaged'));
 });
 
+it('renders a member rename with both handles as they were recorded (PM-1026)', () => {
+  const event: TimelineEvent = {
+    ...creation,
+    taskKey: null,
+    type: 'member_renamed',
+    data: { from: 'dev', to: 'haini', version: 'v1' },
+  };
+  expect(describeEvent(event, context).text).toBe(
+    t('timeline.events.member_renamed', { from: 'dev', to: 'haini' }),
+  );
+});
+
 describe('merge queue timeline text (PM-576)', () => {
   it('names the cards a merge was put ahead of and the reason', () => {
     const event: TimelineEvent = {
@@ -262,6 +274,16 @@ describe('parts left after a breakdown on the timeline (PM-480)', () => {
     expect(left('alerted')).toBe(
       t('timeline.events.parts_left_alerted', { name: 'dev-1', parts: 'AC-2, AC-3' }),
     );
+  });
+});
+
+describe('the reason of a reassignment on the timeline (PM-1040)', () => {
+  it('adds the note to the assignment line', () => {
+    const line = describeEvent(
+      { ...creation, type: 'task_assigned', data: { assignee: 'dev-1', note: 'dev-2 is busy' } },
+      context,
+    ).text;
+    expect(line).toContain('dev-2 is busy');
   });
 });
 

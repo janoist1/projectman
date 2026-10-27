@@ -13,9 +13,13 @@ import {
 } from '../../apps/server/src/engine-link/engine-config';
 import { readEngineStatus } from '../../apps/server/src/engine-link/engine-status';
 import { installedServiceFor } from '../engine/service';
-import { ACTIVATED_FILE, APPLY_REPORT_FILE, MIGRATED_DIR } from './apply';
 import { databaseInUse, snapshotDatabase } from './database';
 import { MigrationRefused } from './package';
+
+// Legacy migrated homes retain their activation safety checks (PM-143).
+export const MIGRATED_DIR = 'migrated';
+export const APPLY_REPORT_FILE = 'report.json';
+export const ACTIVATED_FILE = 'activated.json';
 
 /**
  * Who may work (PM-143): the person's commands that change the role marker of a home. Only one copy
@@ -147,7 +151,7 @@ export function activateHome(options: ActivateOptions): void {
     // A copy whose apply did not finish is incomplete data: it is never released.
     if (!existsSync(join(migrated, APPLY_REPORT_FILE)))
       throw new MigrationRefused(
-        `${home} is a migrated copy whose apply did not finish (no ${join(MIGRATED_DIR, APPLY_REPORT_FILE)}): apply the package again into a new home`,
+        `${home} is a migrated copy whose apply did not finish (no ${join(MIGRATED_DIR, APPLY_REPORT_FILE)}): the copy is incomplete; start from the source again`,
       );
     writeFileSync(
       join(migrated, ACTIVATED_FILE),

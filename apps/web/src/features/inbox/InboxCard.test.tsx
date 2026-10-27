@@ -1,13 +1,11 @@
 import { fireEvent, screen, within } from '@testing-library/react';
 import type { InboxItem } from '@projectman/shared';
-import { BoundaryRequest } from '@projectman/shared';
 import { describe, expect, it, vi } from 'vitest';
 import { t } from '../../i18n/t';
 import type { ApprovalHint } from '../../lib/inbox';
 import { inbox, plainLanguageQuestion } from '../../mocks/fixtures';
 import { mockIndexes, renderUi } from '../../test/render';
 import { InboxCard } from './InboxCard';
-import { boundaryInboxFixture } from '../../mocks/boundary-fixture';
 
 const { members, pipeline } = mockIndexes();
 
@@ -38,27 +36,6 @@ function renderCard(
 }
 
 describe('InboxCard', () => {
-  it('shows the exact boundary target, scope, category, deadline and structured decision reason', () => {
-    const entry = boundaryInboxFixture();
-    const request = BoundaryRequest.parse(entry.payload.boundary);
-    request.target.branch = 'task-21';
-    entry.payload.boundary = request;
-    const { card, onResolve } = renderCard(entry);
-    expect(within(card).getByText('https://example.test/docs')).toBeTruthy();
-    expect(within(card).getByText(t('boundary.scope'))).toBeTruthy();
-    expect(within(card).getByText(t('boundary.branch', { branch: 'task-21' }))).toBeTruthy();
-    expect(
-      within(card).getByText(
-        t('boundary.environment', { environment: t('boundary.environments.development') }),
-      ),
-    ).toBeTruthy();
-    expect(within(card).getByText(new RegExp(t('boundary.categories.delegable')))).toBeTruthy();
-    fireEvent.change(within(card).getByLabelText(t('boundary.reason')), {
-      target: { value: 'insufficient_context' },
-    });
-    fireEvent.click(within(card).getByRole('button', { name: t('inbox.options.deny') }));
-    expect(onResolve).toHaveBeenCalledWith(entry, { optionId: 'deny', note: 'insufficient_context' });
-  });
   it('shows a permission request with the command and resolves it with the built-in options', () => {
     const entry = item('inb_perm_push');
     const { onResolve, card } = renderCard(entry);
@@ -146,6 +123,13 @@ describe('InboxCard', () => {
       optionId: 'answer',
       note: 'Elég a süti nélküli, GA4 most nem kell.',
     });
+  });
+
+  it('moves the focus into the field when the own answer button opens it', () => {
+    const { card } = renderCard(item('inb_q_ga4'));
+    expect(within(card).queryByLabelText(t('inbox.answerLabel'))).toBeNull();
+    fireEvent.click(within(card).getByRole('button', { name: t('inbox.options.answer') }));
+    expect(document.activeElement).toBe(within(card).getByLabelText(t('inbox.answerLabel')));
   });
 
   it('names the stage move of a gate decision and approves or rejects it', () => {

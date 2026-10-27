@@ -8,7 +8,7 @@ import type { MemberQueueDriver } from './lane';
 export function wireMemberQueue(deps: {
   ctx: DomainContext;
   background: BackgroundTasks;
-  memberQueueDriver: Pick<MemberQueueDriver, 'ensure'>;
+  memberQueueDriver: Pick<MemberQueueDriver, 'ensure' | 'memberRenamed'>;
   memberQueue: Pick<MemberQueue, 'onChange'>;
   engines: Pick<EngineDirectory, 'onChange'>;
   providerKeys?: { onChange(listener: () => void): unknown } | null;
@@ -50,7 +50,11 @@ export function wireMemberQueue(deps: {
   // A pause ended, an outage ended or the configuration changed (leave, limits, the provider): holds may have lifted.
   events.on('pause_changed', ({ projectKey }) => ensureMembers(projectKey));
   events.on('work_outage_ended', ({ projectKey }) => ensureMembers(projectKey));
-  events.on('config_changed', ({ projectKey }) => ensureMembers(projectKey));
+  // A renamed member's items carry the new handle already (PM-1025): the old lane is forgotten, the new one is worked.
+  events.on('config_changed', ({ projectKey, renames }) => {
+    for (const from of Object.keys(renames ?? {})) memberQueueDriver.memberRenamed(projectKey, from);
+    ensureMembers(projectKey);
+  });
   engines.onChange((_id, online) => {
     if (online) ensureMembers();
   });

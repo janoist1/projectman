@@ -207,6 +207,7 @@ export const SupervisorConfig = z.strictObject({
   target: AdministrationTargetSchema,
   stateDir: z.string().min(1).max(1024),
   socketPath: z.string().min(1).max(SOCKET_PATH_MAX),
+  appHome: z.string().min(1).max(1024).optional(),
   service: z.discriminatedUnion('kind', [
     z.strictObject({
       kind: z.literal('launchd'),

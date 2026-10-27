@@ -2,10 +2,10 @@
 
 Read `docs/ARCHITECTURE.md` first. Decisions and their reasons: `docs/DECISIONS.md`. What
 comes next and the owner's open questions: `docs/ROADMAP.md`. The lessons learned while
-building projectman are in `docs/LESSONS.md`.
+building projectman are in `docs/LESSONS.md`, maintained by the project manager.
 `docs/DECISIONS.md` records the owner's decisions and `docs/ROADMAP.md` the plan. Only the
-Operator writes them, at the owner's request or after the owner's yes (decision 50); nobody
-changes them on a card branch. An owner decision made on a card is offered by the Operator
+project manager writes them, at the owner's request or after the owner's yes (decision 50, PM-1023); nobody
+changes them on a card branch. An owner decision made on a card is offered by the project manager
 (`list_decision_candidates`, `mark_decision_candidates`). A choice of your own that the owner
 should confirm still goes to them as a question.
 
@@ -139,7 +139,9 @@ npm run merge-test          # merge checks selected from HEAD's first-parent dif
 npm run dead-code           # before hand-over and in fix rounds: unused files/exports (fast, no queue)
 npm run full-test -- --workers 4 --timeout 60 -- npm run merge-test -- --all  # macOS, outside member sandboxes
 npx vitest related <files> --run   # while working: the tests of what you changed, in the workspace (no queue)
+npx vitest run src/i18n/i18n.test.ts --configLoader runner  # in apps/web: after changing locale keys or their usage
 npx vitest run test/architecture  # in apps/server after adding, moving or renaming files; before hand-over too (no queue)
+npx vitest run test/merge-test-watchdog.test.ts --configLoader runner  # in apps/server after changing merge-test execution or reporting
 npm run typecheck -w <workspace>  # type check only the workspaces you touched (no queue)
 ```
 
@@ -153,7 +155,9 @@ in the context pack. Gemini's native `command_status` follows a running command;
 `schedule` wakeups are an optional path described there. Do not finish the turn while the
 command is still running. Developers run only related tests (`npx vitest related <files> --run`
 inside the affected workspace) and the type check of the workspaces they touched, including
-before hand-over and in fix rounds. Also run `npm run dead-code` from the repository root
+before hand-over and in fix rounds. When changing the shared `ErrorCode` union, update
+`errors.codes` in `apps/web/src/i18n/hu.ts`, run `npm run typecheck -w @projectman/web`, and
+run the web i18n test listed above. Also run `npm run dead-code` from the repository root
 before hand-over and in fix rounds; it is fast and does not queue. Fix new findings rather
 than extending the baseline. After adding, moving or renaming files, also run
 `npx vitest run test/architecture` in `apps/server`, including before hand-over; it is fast
@@ -164,7 +168,7 @@ Any card adding a merge check that can run quickly in the developer's worktree m
 the developer hand-over checklist in the same change.
 When a merge fails a check the developer could have run locally, the merger names that
 command in the send-back note; if it was missing from the checklist, propose adding it
-and send the lesson to the Operator for `docs/LESSONS.md`.
+and send the lesson to the project manager for `docs/LESSONS.md`.
 Shared code or configuration changes require the whole suite; workspace checks do not queue
 (decision 40, PM-380, PM-386). If a heavy command says its queue cannot be used
 (exit status 78), or the sandbox refuses a test (a local port, a pseudo-terminal), it did not

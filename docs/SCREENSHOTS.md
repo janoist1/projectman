@@ -103,6 +103,11 @@ The output has one line per image, `shot <path> <width>x<height>` (the size of t
 
 ## The scenario
 
+`scripts/scenarios/` keeps the documented examples and test fixtures: `probe`, `why-waiting`,
+`complexity-points`, `priority`, `operator`, `work-outage`, `card-with-question` and
+`provider-not-logged-in`. It also retains `involvements` and `handoff` for the open PM-503
+follow-up. PM-1029 removed the unreferenced scenarios of completed cards; git preserves them.
+
 A scenario is an ES module whose default export is an async function:
 
 ```js
@@ -159,7 +164,9 @@ export default async ({ instance, open, shoot, snapshot, step, log }) => {
   );
   const sessionId = await instance.startSession('AC', 'AC-1', developer.handle);
   await instance.waitIdle('AC', sessionId);
-  await instance.setFakeCalls([{ tool: 'ask_human', arguments: { question: QUESTION } }]);
+  await instance.setFakeCalls([
+    { tool: 'ask_human', arguments: { question: QUESTION, options: ['Green', 'Blue'] } },
+  ]);
   await instance.say('AC', sessionId, 'CALLS please');
   await instance.waitIdle('AC', sessionId);
 
@@ -211,6 +218,15 @@ with "Mi változik", the four signal kinds with the count on the button and the 
 proposal, a stale one, the 409 after approving), Beállítások › Előzmények, the Team page (the built-in
 card, its menu and editor), Üzenetek (the pm as "elosztó"), the paused team, a failed send, and a
 non-owner (invited developer) in the corner.
+
+### PM-1026: renaming a member's handle
+
+`npm run shots -- scripts/scenarios/member-rename.mjs --widths 1512,390`. The rename itself is real
+(PM-1025); the browser's answers are varied for what the demo instance cannot show (the member's e-mail
+address, the `member_session_live` refusal, the task timeline rows of a renamed member). It shoots the
+⋯ menu, the dialog (with the e-mail line, a malformed handle, a taken handle, the refusal and a member
+that works), the profile after the rename (the "korábban:" line and the toast), the task timeline and
+the menu of an admin, who is not offered the rename.
 
 ### PM-287: card priority
 

@@ -29,7 +29,7 @@ function noneReach(config: ProjectConfig, task: Task, points: number | null) {
   return (
     isComplexityPoints(points) &&
     !!stage &&
-    reachingDevelopers(stageDevelopers(config, stage), points).length === 0
+    reachingDevelopers(stageDevelopers(config, stage), points, task.labels).length === 0
   );
 }
 

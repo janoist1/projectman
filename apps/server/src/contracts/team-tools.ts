@@ -47,14 +47,12 @@ import type {
   WakeBlock,
   WorkDoing,
   WorkItemRef,
-  BoundaryRequest,
-  BoundaryGrant,
   StaleReason,
   TaskStartWaiting,
-  SubmitBoundaryRequest,
-  DecideBoundaryRequest,
   OperatorOperation,
+  OperatorAgreementData,
   OperatorKnowledgeDocument,
+  OperatorPrincipleData,
   ProposeOperatorKnowledgeRequest,
   OperatorPlan,
   OperatorPreferenceData,
@@ -199,6 +197,10 @@ export interface MemberAudience {
   operator: boolean;
   projectManager: boolean;
   merger: boolean;
+  /** The project's e-mail channel is on and this member may send e-mail (the e-mail tools' handler check). */
+  email: boolean;
+  /** The member may put machine work in the owners' queue (`hasMachineAccess`, decision 66). */
+  machineAccess: boolean;
   duties: ReadonlySet<DutyId>;
 }
 
@@ -537,22 +539,6 @@ export interface AttachmentToolsHandler {
   ): Promise<{ attachmentId: string; fileName: string | null }>;
 }
 
-/** The tools of services/boundary (PM-607). */
-export interface BoundaryToolsHandler {
-  /** submit_boundary_request: one registered external operation; the requester is the calling session. */
-  submitBoundaryRequest(ctx: ToolContext, args: SubmitBoundaryRequest): Promise<BoundaryRequest>;
-  /** get_boundary_request: a request the caller raised or may decide, with its grant. */
-  getBoundaryRequest(
-    ctx: ToolContext,
-    args: { requestId: string },
-  ): Promise<{ request: BoundaryRequest; grant: BoundaryGrant | null }>;
-  /** decide_boundary_request: delegated requests only; owner exceptions stay with the owner. */
-  decideBoundaryRequest(
-    ctx: ToolContext,
-    args: DecideBoundaryRequest & { requestId: string },
-  ): Promise<BoundaryRequest>;
-}
-
 /** The tools of services/merges. */
 export interface MergeToolsHandler {
   /** merge_task: the card's merger starts (or retries, or continues after a fix) the merge of the approved commit. */
@@ -703,7 +689,6 @@ export interface TeamToolsHandler
     FeedbackToolsHandler,
     GithubToolsHandler,
     ScreenshotToolsHandler,
-    BoundaryToolsHandler,
     ReleaseToolsHandler,
     EmailToolsHandler,
     OperatorToolsHandler,
@@ -1090,6 +1075,19 @@ export interface OperatorToolsHandler {
     args: { member: string; text: string; taskKey?: string; signalId?: string; despiteWorkers?: boolean },
   ): Promise<MemberStartResult>;
   /**
+   * reassign_task (PM-1040): the selected PM changes a card's assignee (null clears it) and says why; the reason
+   * is on the card's timeline. A started card hands its work over (PM-342). Needs no open owner request.
+   */
+  reassignTask(
+    ctx: ToolContext,
+    args: { taskKey: string; assignee: string | null; reason: string },
+  ): Promise<{ task_key: string; assignee: string | null; previous: string | null }>;
+  /** cancel_task (PM-1040): the selected PM closes a card as cancelled, with the reason on its timeline. */
+  cancelTask(
+    ctx: ToolContext,
+    args: { taskKey: string; reason: string },
+  ): Promise<{ task_key: string; status: string }>;
+  /**
    * screen_question (PM-558): the Operator settles a question of an AI member that waits for its screening:
    * `answered` (with `answer`), `forwarded` (to a member, `forwardTo`), `moot`, or sent on to the people as a
    * `decision` or a `todo` (with the todo's fields). `note` is always the reason. Only the Operator, not in a
@@ -1253,9 +1251,21 @@ export interface ExternalToolsHandler {
   ): Promise<{ item: InboxItem }>;
   /** list_integrator_inbox (PM-714): what the integrator is the recipient of, each with its full text. */
   listIntegratorInbox(
-    ctx: ExternalToolContext,
-    args: { state: 'open' | 'all' },
+    principal: IntegratorPrincipal,
+    requestId: string,
+    args: { projectKey?: string; state: 'open' | 'all' },
   ): Promise<{ items: InboxItem[] }>;
+  /** The global Operator's own knowledge (PM-1046): one document for the whole instance, no project. */
+  getInstanceKnowledge(principal: IntegratorPrincipal, requestId: string): Promise<OperatorKnowledgeDocument>;
+  updateInstanceKnowledge(
+    principal: IntegratorPrincipal,
+    requestId: string,
+    args: {
+      expectedRevision: number;
+      agreement?: OperatorAgreementData;
+      principles?: (Omit<OperatorPrincipleData, 'id'> & { id?: string })[];
+    },
+  ): Promise<OperatorKnowledgeDocument>;
   relayOwnerAnswer(
     ctx: ExternalToolContext,
     args: { itemId: string; answer: string },

@@ -14,7 +14,7 @@ import type { IntegratorExecutionContext } from '../src/contracts';
 import { createAppHarness, createProject, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 
-type Mode = 'own' | 'legacy' | 'super' | 'read';
+type Mode = 'own' | 'super' | 'read';
 describe('credential REST and domain access (PM-759)', () => {
   let h: AppHarness;
   let cookie: string;
@@ -29,10 +29,7 @@ describe('credential REST and domain access (PM-759)', () => {
     const { auth, repos } = h.app.projectman;
     const user = repos.users.list()[0]!;
     if (mode === 'own') return { headers: { cookie }, context: null };
-    const created =
-      mode === 'legacy'
-        ? auth.createIntegratorKey(user.id, null)
-        : auth.createIntegratorAccessKey(user.id, { mode, expiresInDays: 7 });
+    const created = auth.createIntegratorAccessKey(user.id, { mode, expiresInDays: 7 });
     const principal = auth.resolveIntegratorCredential(created.secret, 'rest')!;
     return {
       headers: { authorization: `Bearer ${created.secret}` },
@@ -72,7 +69,7 @@ describe('credential REST and domain access (PM-759)', () => {
     return tasks;
   }
 
-  it.each(['own', 'legacy', 'super', 'read'] as const)('%s reads every administrative area', async (mode) => {
+  it.each(['own', 'super', 'read'] as const)('%s reads every administrative area', async (mode) => {
     const { headers } = await credential(mode);
     for (const url of [
       routes.config('AR'),
@@ -87,9 +84,7 @@ describe('credential REST and domain access (PM-759)', () => {
       routes.operatorPreferences('AR'),
     ]) {
       const response = await h.app.inject({ url, headers });
-      expect(response.statusCode, `${mode} ${url}: ${response.body}`).toBe(
-        mode === 'legacy' && url === routes.operatorPreferences('AR') ? 403 : 200,
-      );
+      expect(response.statusCode, `${mode} ${url}: ${response.body}`).toBe(200);
     }
   });
 
@@ -417,35 +412,32 @@ describe('credential REST and domain access (PM-759)', () => {
     expect(domain.inbox.get('AR', item.id).state).toBe('open');
   });
 
-  it.each(['own', 'legacy', 'super', 'read'] as const)(
-    '%s retains its inbox approval policy',
-    async (mode) => {
-      const { headers } = await credential(mode);
-      const item = h.app.projectman.domain.inbox.create({
-        projectKey: 'AR',
-        kind: 'decision',
-        source: 'dev-1',
-        assignees: ['owner'],
-        title: 'A decision',
-        payload: {},
-        options: [{ id: 'approve', label: 'approve', style: 'primary' }],
-      });
-      const response = await h.app.inject({
-        method: 'POST',
-        url: routes.resolveInbox('AR', item.id),
-        headers,
-        payload: { optionId: 'approve' },
-      });
-      expect(response.statusCode, response.body).toBe(mode === 'own' || mode === 'super' ? 200 : 403);
-      if (mode === 'super') expect(response.json().resolution).toMatchObject({ superDecision: true });
-      if (mode === 'legacy' || mode === 'read')
-        expect(response.json().error.code).toBe(
-          mode === 'read' ? 'integrator_read_only' : 'owner_approval_required',
-        );
-    },
-  );
+  it.each(['own', 'super', 'read'] as const)('%s retains its inbox approval policy', async (mode) => {
+    const { headers } = await credential(mode);
+    const item = h.app.projectman.domain.inbox.create({
+      projectKey: 'AR',
+      kind: 'decision',
+      source: 'dev-1',
+      assignees: ['owner'],
+      title: 'A decision',
+      payload: {},
+      options: [{ id: 'approve', label: 'approve', style: 'primary' }],
+    });
+    const response = await h.app.inject({
+      method: 'POST',
+      url: routes.resolveInbox('AR', item.id),
+      headers,
+      payload: { optionId: 'approve' },
+    });
+    expect(response.statusCode, response.body).toBe(mode === 'own' || mode === 'super' ? 200 : 403);
+    if (mode === 'super') expect(response.json().resolution).toMatchObject({ superDecision: true });
+    if (mode === 'read')
+      expect(response.json().error.code).toBe(
+        mode === 'read' ? 'integrator_read_only' : 'owner_approval_required',
+      );
+  });
 
-  it.each(['own', 'legacy', 'super', 'read'] as const)(
+  it.each(['own', 'super', 'read'] as const)(
     '%s writes through existing services with its own provenance',
     async (mode) => {
       const { headers } = await credential(mode);
@@ -458,49 +450,42 @@ describe('credential REST and domain access (PM-759)', () => {
             baseVersion: (await domain.projects.load('AR')).version,
             project: { name: 'Updated project' },
           },
-          legacy: true,
           status: 200,
         },
         {
           method: 'PATCH' as const,
           url: routes.member('AR', 'dev-1'),
           payload: { displayName: 'Updated developer' },
-          legacy: false,
           status: 200,
         },
         {
           method: 'POST' as const,
           url: routes.addHumanMember('AR'),
           payload: { displayName: 'Guest seat', roles: [], access: 'viewer', handle: 'guest' },
-          legacy: false,
           status: 201,
         },
         {
           method: 'POST' as const,
           url: routes.invitations('AR'),
           payload: { email: 'invited@example.invalid', roles: [], access: 'viewer' },
-          legacy: false,
           status: 201,
         },
         {
           method: 'POST' as const,
           url: routes.tasks('AR'),
           payload: { title: 'Credential task', actor: { kind: 'human', handle: 'owner' } },
-          legacy: true,
           status: 201,
         },
         {
           method: 'POST' as const,
           url: routes.projectPause('AR'),
           payload: { reason: 'Administrative pause' },
-          legacy: true,
           status: 200,
         },
         {
           method: 'POST' as const,
           url: routes.projectPauseResume('AR'),
           payload: {},
-          legacy: true,
           status: 200,
         },
         {
@@ -512,13 +497,12 @@ describe('credential REST and domain access (PM-759)', () => {
             kind: 'info',
             actor: { kind: 'human', handle: 'owner' },
           },
-          legacy: true,
           status: 202,
         },
       ];
-      for (const { legacy, status, ...endpoint } of cases) {
+      for (const { status, ...endpoint } of cases) {
         const response = await h.app.inject({ ...endpoint, headers });
-        const expected = mode === 'read' || (mode === 'legacy' && !legacy) ? 403 : status;
+        const expected = mode === 'read' ? 403 : status;
         expect(response.statusCode, `${mode} ${endpoint.url}: ${response.body}`).toBe(expected);
         if (mode === 'read') expect(response.json().error.code).toBe('integrator_read_only');
       }
@@ -542,7 +526,7 @@ describe('credential REST and domain access (PM-759)', () => {
     },
   );
 
-  it.each(['own', 'legacy', 'super', 'read'] as const)(
+  it.each(['own', 'super', 'read'] as const)(
     '%s applies targeted Operator role and watch configuration through the existing PATCH',
     async (mode) => {
       const { domain } = h.app.projectman;
@@ -581,7 +565,7 @@ describe('credential REST and domain access (PM-759)', () => {
     },
   );
 
-  it.each(['own', 'legacy', 'super', 'read', 'super-command'] as const)(
+  it.each(['own', 'super', 'read', 'super-command'] as const)(
     '%s orders the repository merge queue',
     async (mode) => {
       const { repos } = h.app.projectman;
@@ -693,10 +677,10 @@ describe('credential REST and domain access (PM-759)', () => {
     expect(waiver.json().error.code).toBe('owner_approval_required');
   });
 
-  it('keeps permission and boundary decisions exclusive to a person at REST and domain entry', async () => {
+  it('keeps permission decisions exclusive to a person at REST and domain entry', async () => {
     const { context, headers } = await credential('super');
     const { domain } = h.app.projectman;
-    for (const kind of ['permission', 'boundary'] as const) {
+    for (const kind of ['permission'] as const) {
       const item = domain.inbox.create({
         projectKey: 'AR',
         kind,
@@ -724,38 +708,30 @@ describe('credential REST and domain access (PM-759)', () => {
     }
     await expect(
       domain.superOperator.run(context!, () =>
-        domain.boundary.decide('AR', 'bnd_unknown', 'owner', { decision: 'allow', reason: 'scope_verified' }),
-      ),
-    ).rejects.toMatchObject({ code: 'owner_approval_required' });
-    await expect(
-      domain.superOperator.run(context!, () =>
         domain.inbox.resolveDelegated('AR', 'missing', 'operator', { decision: 'allow', reason: 'Checked' }),
       ),
     ).rejects.toMatchObject({ code: 'owner_approval_required' });
   });
 
-  it.each(['own', 'legacy', 'super', 'read'] as const)(
-    '%s uses the engine administration policy',
-    async (mode) => {
-      const { headers } = await credential(mode);
-      const app = await h.relaunch({ engineMode: 'cloud' });
-      const response = await app.inject({
-        method: 'POST',
-        url: routes.engines(),
-        headers,
-        payload: { name: 'Test engine' },
-      });
-      expect(response.statusCode, response.body).toBe(mode === 'own' || mode === 'super' ? 201 : 403);
-      if (mode === 'read') expect(response.json().error.code).toBe('integrator_read_only');
-      if (response.statusCode === 201) {
-        const id = response.json().engine.id as string;
-        const defaulted = await app.inject({ method: 'POST', url: routes.defaultEngine(id), headers });
-        expect(defaulted.statusCode, defaulted.body).toBe(200);
-        const revoked = await app.inject({ method: 'POST', url: routes.revokeEngine(id), headers });
-        expect(revoked.statusCode, revoked.body).toBe(200);
-      }
-    },
-  );
+  it.each(['own', 'super', 'read'] as const)('%s uses the engine administration policy', async (mode) => {
+    const { headers } = await credential(mode);
+    const app = await h.relaunch({ engineMode: 'cloud' });
+    const response = await app.inject({
+      method: 'POST',
+      url: routes.engines(),
+      headers,
+      payload: { name: 'Test engine' },
+    });
+    expect(response.statusCode, response.body).toBe(mode === 'own' || mode === 'super' ? 201 : 403);
+    if (mode === 'read') expect(response.json().error.code).toBe('integrator_read_only');
+    if (response.statusCode === 201) {
+      const id = response.json().engine.id as string;
+      const defaulted = await app.inject({ method: 'POST', url: routes.defaultEngine(id), headers });
+      expect(defaulted.statusCode, defaulted.body).toBe(200);
+      const revoked = await app.inject({ method: 'POST', url: routes.revokeEngine(id), headers });
+      expect(revoked.statusCode, revoked.body).toBe(200);
+    }
+  });
 
   it('refuses read writes and decisions even when directly called with a human identity', async () => {
     const { context } = await credential('read');

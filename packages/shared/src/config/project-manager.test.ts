@@ -4,6 +4,7 @@ import {
   actorMoveRefusal,
   coordinationActorRefusal,
   coordinationMemberOf,
+  isCoordinationActor,
   isProjectManager,
   isRequiredProjectManager,
   managerConversationOf,
@@ -37,6 +38,8 @@ describe('coordination actors', () => {
       { kind: 'ai', handle: 'pm', via: 'integrator' },
     ] as const)
       expect(coordinationActorRefusal(config, actor)).toBe('project_manager_only');
+    expect(isCoordinationActor(config, { kind: 'ai', handle: 'pm' })).toBe(true);
+    expect(isCoordinationActor(config, { kind: 'ai', handle: 'pm', via: 'integrator' })).toBe(false);
   });
 });
 

@@ -53,6 +53,8 @@ describe('tool audience', () => {
     },
     { audience: { roles: ['merger'] }, member: { ...developerAudience, merger: true }, visible: true },
     { audience: { duties: ['deployment'] }, member: developerAudience, visible: false },
+    { audience: { channels: ['email'] }, member: developerAudience, visible: false },
+    { audience: { channels: ['email'] }, member: { ...developerAudience, email: true }, visible: true },
     {
       audience: { duties: ['deployment', 'code_review'] },
       member: { ...developerAudience, duties: new Set(['code_review']) },
@@ -83,8 +85,17 @@ describe('tool audience', () => {
       after: Buffer.byteLength(JSON.stringify(after)),
       beforeCount: before.tools.length,
       afterCount: after.tools.length,
+      afterDescriptionChars: after.tools.reduce((sum, tool) => sum + (tool.description?.length ?? 0), 0),
     });
   });
+
+  it.each([false, true])(
+    'lists the machine todo tool only with machine access (%s)',
+    async (machineAccess) => {
+      const result = await listToolsFor({ ...developerAudience, machineAccess });
+      expect(result.tools.some((tool) => tool.name === 'open_integrator_todo')).toBe(machineAccess);
+    },
+  );
 
   it.each([false, true])('lists deployment tools only for their duty holder (%s)', async (holdsDuty) => {
     const result = await listToolsFor({
@@ -96,8 +107,59 @@ describe('tool audience', () => {
     }
   });
 
+  it.each([true, false])(
+    'lists document tools only for project managers and the Operator (%s)',
+    async (pm) => {
+      const names = visibleTeamTools({ ...developerAudience, projectManager: pm }).map((tool) => tool.name);
+      for (const name of [
+        'read_project_doc',
+        'write_project_docs',
+        'list_decision_candidates',
+        'mark_decision_candidates',
+      ])
+        expect(names.includes(name)).toBe(pm);
+    },
+  );
+
   it.each([
-    { audience: { ...developerAudience, projectManager: true }, present: 'start_task', absent: 'operate' },
+    { tools: ['merge_task', 'prioritize_merge'], grant: { merger: true } },
+    { tools: ['send_email', 'set_email_contact', 'list_email_contacts'], grant: { email: true } },
+    { tools: ['decide_permission_request'], grant: { duties: new Set(['boundary_authorization'] as const) } },
+  ])('lists $tools only for who the handler allows', async ({ tools, grant }) => {
+    const without = (await listToolsFor(developerAudience)).tools.map((tool) => tool.name);
+    const withGrant = (await listToolsFor({ ...developerAudience, ...grant })).tools.map((tool) => tool.name);
+    for (const name of tools) {
+      expect(without).not.toContain(name);
+      expect(withGrant).toContain(name);
+    }
+  });
+
+  it('keeps the read-only merge check list for every member', async () => {
+    const names = (await listToolsFor(developerAudience)).tools.map((tool) => tool.name);
+    expect(names).toContain('list_merge_checks');
+  });
+
+  it.each([
+    {
+      audience: { ...developerAudience, projectManager: true },
+      present: 'operate',
+      absent: 'get_machine_logs',
+    },
+    {
+      audience: { ...developerAudience, projectManager: true },
+      present: 'execute_operation',
+      absent: 'check_release',
+    },
+    {
+      audience: { ...developerAudience, projectManager: true },
+      present: 'update_checklist',
+      absent: 'get_machine_status',
+    },
+    {
+      audience: { ...developerAudience, projectManager: true },
+      present: 'get_role_configuration',
+      absent: 'get_history_search_stats',
+    },
     {
       audience: { ...developerAudience, duties: new Set(['feedback_processing'] as const) },
       present: 'get_feedback',
@@ -173,9 +235,10 @@ describe('team tool registration', () => {
         'dismiss_signal',
         'open_integrator_todo',
         'start_task',
+        'reassign_task',
+        'cancel_task',
         'start_member',
       ],
-      'services/boundary': ['submit_boundary_request', 'get_boundary_request', 'decide_boundary_request'],
       'services/feedback': [
         'get_feedback',
         'reply_feedback',

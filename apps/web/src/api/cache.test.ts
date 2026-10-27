@@ -61,6 +61,7 @@ it('refreshes super DTOs when their timeline changes without executing an operat
 function seed(): QueryClient {
   const client = new QueryClient();
   const board: BoardView = {
+    aiEnabled: true,
     project: projectSummary,
     columns: [],
     stages: [],
@@ -142,7 +143,12 @@ describe('applyServerEvent', () => {
 
   it("keeps the inbox and the board's count of the viewer's open items in sync", () => {
     const client = seed();
-    client.setQueryData<Me>(queryKeys.me, { ...mockUser, handles: { [KEY]: 'owner' }, projects: [] });
+    client.setQueryData<Me>(queryKeys.me, {
+      ...mockUser,
+      instanceOwner: true,
+      handles: { [KEY]: 'owner' },
+      projects: [],
+    });
     const item = { ...inbox.find((entry) => entry.id === 'inb_perm_push')!, state: 'resolved' as const };
     applyServerEvent(client, { type: 'inbox_upserted', projectKey: KEY, item });
     const items = client.getQueryData<InboxView>(queryKeys.inbox(KEY))!.items;

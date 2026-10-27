@@ -50,9 +50,8 @@ export const TEAM_TOOL_NAMES = [
   'triage_loop',
   'start_task',
   'start_member',
-  'submit_boundary_request',
-  'get_boundary_request',
-  'decide_boundary_request',
+  'reassign_task',
+  'cancel_task',
   'decide_permission_request',
   'decide_fix_limit',
   'finish_queue_item',
@@ -123,6 +122,10 @@ export function toolOutputText(output: string | ToolOutput): string {
 export interface ToolAudience {
   roles?: readonly ('operator' | 'project_manager' | 'merger')[];
   duties?: readonly DutyId[];
+  /** Visible to a member who may use the channel (e-mail: the channel is on and the member may send). */
+  channels?: readonly 'email'[];
+  /** Visible to a member with this capability (machine access: the owners' machine queue, decision 66). */
+  capabilities?: readonly 'machine_access'[];
 }
 
 export function toolVisible(audience: ToolAudience | undefined, member: MemberAudience): boolean {
@@ -136,7 +139,10 @@ export function toolVisible(audience: ToolAudience | undefined, member: MemberAu
           : member.merger,
     ) ??
       false) ||
-    (audience.duties?.some((duty) => member.duties.has(duty)) ?? false)
+    (audience.duties?.some((duty) => member.duties.has(duty)) ?? false) ||
+    (audience.channels?.some((channel) => channel === 'email' && member.email) ?? false) ||
+    (audience.capabilities?.some((capability) => capability === 'machine_access' && member.machineAccess) ??
+      false)
   );
 }
 
@@ -177,13 +183,13 @@ export interface ExternalStructured {
   text?: string;
 }
 
-/** read: a read-only key may call it too; write: only the super and legacy keys. */
+/** read: a read-only key may call it too; write: only the super key. */
 type ExternalAccess = 'read' | 'write';
 
 /** The credential modes that are offered, and may call, a tool of each access class. */
 const EXTERNAL_MODES: Record<ExternalAccess, readonly ExternalCredentialMode[]> = {
-  read: ['super', 'read', 'legacy'],
-  write: ['super', 'legacy'],
+  read: ['super', 'read'],
+  write: ['super'],
 };
 
 /** The call of a tool that belongs to no project (`list_projects`): the key, not a project context. */
@@ -412,4 +418,4 @@ export const DEVELOPER_LEVEL_REFUSED: Record<string, string> = Object.fromEntrie
   ]),
 );
 
-export const taskKeyInput = TaskKey.describe('Task key, e.g. "AR-21".');
+export const taskKeyInput = TaskKey.describe('Task key.');

@@ -142,9 +142,6 @@ export function IntegratorSection() {
             {t(remaining < 86_400_000 ? 'integratorKey.today' : 'integratorKey.soon', { n: 1 })}
           </p>
         ) : null}
-        {info.state === 'active' && info.mode === 'legacy' ? (
-          <p className={styles.muted}>{t('integratorKey.legacy')}</p>
-        ) : null}
         <div className={styles.actions}>
           {ownLogin && info.state === 'active' ? (
             <>
@@ -160,17 +157,6 @@ export function IntegratorSection() {
               >
                 {t('integratorKey.revoke')}
               </Button>
-              {info.mode === 'legacy' ? (
-                <Button
-                  variant="secondary"
-                  onClick={() => {
-                    rememberTrigger();
-                    openCreate();
-                  }}
-                >
-                  {t('integratorKey.upgrade')}
-                </Button>
-              ) : null}
             </>
           ) : null}
           <Link to={activity(info.prefix)}>{t('integratorKey.activity')}</Link>

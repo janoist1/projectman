@@ -34,7 +34,7 @@ interface Started {
 }
 
 it(
-  'hands the reader and the developer sandbox to Claude Code, and leaves Codex as it was',
+  'hands native reader and developer profiles to the CLIs without an automatic Codex home boundary',
   { timeout: 90_000 },
   async () => {
     h = await createAppHarness({ runner: 'fake-cli' });
@@ -157,7 +157,19 @@ it(
       allowUnsandboxedCommands: false,
       failIfUnavailable: true,
       // The app home holds every member's worktree and workspace: read-only as a whole (PM-188).
-      filesystem: { allowWrite: [], denyWrite: [workspace, worktree, home, sessionConfigRoot], denyRead },
+      filesystem: {
+        allowWrite: [],
+        denyWrite: [workspace, worktree, home, sessionConfigRoot],
+        // PM-425: the home and the app home are closed to reading, with every Claude transcript; only its
+        // own project and card (the worktree, the git settings) are opened again.
+        denyRead: expect.arrayContaining([
+          userHome,
+          home,
+          ...denyRead,
+          join(userHome, '.claude', 'projects'),
+        ]),
+        allowRead: expect.arrayContaining([worktree, join(userHome, '.gitconfig')]),
+      },
       network: { allowedDomains: ['registry.npmjs.org'], strictAllowlist: true, allowLocalBinding: true },
       // The repository is on GitHub: `gh` with any arguments, as a command of its own (PM-188).
       excludedCommands: ['gh pr view:*', 'gh pr diff:*'],
@@ -172,9 +184,15 @@ it(
         `Edit(/${home}/**)`,
         `Read(/${join(userHome, '.ssh')})`,
         `Read(/${join(userHome, '.ssh')}/**)`,
+        `Read(/${join(userHome, '.claude', 'projects')}/**)`,
       ]),
     );
     expect(reader.permissions.allow).toContain('Bash(gh pr view:*)');
+    // PM-425: no file tool is allowed on every path; the card's worktree is allowed by name.
+    expect(reader.permissions.allow).not.toEqual(expect.arrayContaining(['Read']));
+    expect(reader.permissions.allow).not.toEqual(expect.arrayContaining(['Grep']));
+    expect(reader.permissions.allow).not.toEqual(expect.arrayContaining(['Glob']));
+    expect(reader.permissions.allow).toContain(`Read(/${worktree}/**)`);
 
     // A Codex reviewer: its read-only sandbox and its questions, as before.
     const review = await waitForSession(domain, { member: 'cr' });
@@ -195,8 +213,35 @@ it(
         (arg) => arg.startsWith('permissions.projectman=') && arg.includes('extends=":read-only"'),
       ),
     ).toBe(true);
+    // PM-425: the reviewer's profile closes the home and the app home, and opens its own worktree again.
+    const reviewerProfile = codexArgs.find((arg) => arg.startsWith('permissions.projectman='))!;
+    expect(reviewerProfile).toContain(`"${userHome}"="deny"`);
+    expect(reviewerProfile).toContain(`"${home}"="deny"`);
+    expect(reviewerProfile).toContain(`"${worktree}"="read"`);
     expect(option(codexArgs, '--ask-for-approval')).toBe('on-request');
     expect(JSON.stringify(codexArgs)).not.toContain('sandbox_workspace_write');
     expect(JSON.stringify(codexArgs)).not.toContain('denyWrite');
+
+    await domain.projects.update('AR', author, (config) => {
+      const dev = config.team.members.find((m) => m.handle === 'dev-2');
+      if (dev?.kind === 'ai') dev.provider = 'codex';
+      return 'Run a developer on Codex';
+    });
+    for (const resume of [false, true]) {
+      const argv = await start('dev-2', 'codex');
+      const running = await waitForSession(domain, { member: 'dev-2' });
+      const profile = argv.find((arg) => arg.startsWith('permissions.projectman='))!;
+      expect(profile).not.toContain(`"${userHome}"="deny"`);
+      expect(profile).not.toContain(`"${home}"="deny"`);
+      expect(profile).toContain(':workspace_roots');
+      expect(profile).toContain(`"${join(userHome, '.ssh')}"="deny"`);
+      expect(profile).toContain('":tmpdir"="write"');
+      expect(profile).toContain('":slash_tmp"="write"');
+      expect(argv.includes('resume')).toBe(resume);
+      await domain.sessions.stop('AR', running.id);
+      await waitFor(() => !app.projectman.runnerModule.runner.isRunning(running.id), {
+        what: 'the Codex developer to stop',
+      });
+    }
   },
 );

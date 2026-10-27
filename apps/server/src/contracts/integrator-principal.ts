@@ -10,23 +10,24 @@ import type {
 /**
  * The authenticated integrator key behind a request (PM-757). It is made only by the key check of the
  * server (`auth`), from a stored key: no request body, header or JSON can be parsed into one, so an `Actor`
- * that merely says "super" is never authority. `mode` is what the stored key was issued for: old keys remain
- * `legacy` (the owner's actor through the integrator key, `via` alone); explicit `super` and `read` keys
- * have their own execution policy (PM-758). `userId` is the token owner, whose current project membership is the
- * access basis; it is checked again when the principal is bound to a project.
+ * that merely says "super" is never authority. Only `super` and `read` keys authenticate (PM-1037);
+ * legacy rows remain readable in storage but never become principals. `userId` is the token owner,
+ * whose current project membership is the access basis; it is checked again when the principal is bound to a project.
  */
 export interface IntegratorPrincipal {
   readonly kind: 'integrator';
   readonly userId: string;
   readonly keyId: string;
   readonly prefix: string;
-  readonly mode: 'legacy' | 'super' | 'read';
+  readonly mode: 'super' | 'read';
   /**
    * Where the credential comes from (PM-888): a stored `key` (the default) or the in-app Operator `app`, whose
    * `keyId` is its session's id. An `app` principal is made only by the server's own issuer and is valid only
    * while `OperatorAppSessions.active` says so; no stored key stands behind it.
    */
   readonly source?: 'key' | 'app';
+  /** Server-issued session member; present only for app principals (PM-1041). */
+  readonly member?: string;
 }
 
 /**

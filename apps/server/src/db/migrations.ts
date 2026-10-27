@@ -2310,4 +2310,63 @@ migrations.push({
   sql: `ALTER TABLE email_messages ADD COLUMN mime_message_id TEXT;
   ALTER TABLE email_messages ADD COLUMN mime_references TEXT;`,
 });
+migrations.push({
+  version: 113,
+  name: 'drop external operation requests',
+  // PM-1035: the boundary requests and grants are gone (no adapter was ever wired in, so every request was
+  // refused), and so are the inbox items and member queue rows made for them. The two egress tables of the
+  // removed VM network boundary (PM-140) go with them: `egress_allowances.request_id` references
+  // `boundary_requests`, and nothing reads either table. `team.boundary` stays in the configuration: the
+  // delegation of permission requests uses it.
+  sql: `DROP TABLE IF EXISTS egress_allowances;
+  DROP TABLE IF EXISTS egress_operations;
+  DROP TABLE IF EXISTS boundary_grants;
+  DROP TABLE IF EXISTS boundary_requests;
+  DELETE FROM inbox_items WHERE kind = 'boundary';
+  DELETE FROM member_queue_items WHERE kind = 'boundary' OR source_type = 'boundary';`,
+});
+migrations.push({
+  version: 114,
+  name: 'revoke legacy integrator keys',
+  sql: `INSERT INTO integrator_key_audit (key_id, owner_user_id, action, prefix, mode, at)
+    SELECT id, user_id, 'revoked', prefix, mode, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+    FROM integrator_keys WHERE mode = 'legacy' AND revoked_at IS NULL;
+  UPDATE integrator_keys SET revoked_at = (
+    SELECT at FROM integrator_key_audit WHERE key_id = integrator_keys.id AND action = 'revoked'
+    ORDER BY seq DESC LIMIT 1
+  ) WHERE mode = 'legacy' AND revoked_at IS NULL;`,
+});
+migrations.push({
+  version: 115,
+  name: 'fold legacy task checks into labels',
+  // PM-1031: recorded checks become stored labels once instead of being merged on every read.
+  sql: `WITH legacy_check_labels(check_name, state, label) AS (VALUES
+    ('code_review', 'passed', 'code-review-ok'),
+    ('code_review', 'failed', 'code-review-changes'),
+    ('code_review', 'retest_needed', 'code-review-changes'),
+    ('code_review', 'blocked', 'code-review-blocked'),
+    ('security_review', 'passed', 'security-ok'),
+    ('security_review', 'failed', 'security-changes'),
+    ('security_review', 'retest_needed', 'security-changes'),
+    ('security_review', 'blocked', 'security-changes'),
+    ('qa', 'passed', 'qa-ok'),
+    ('qa', 'failed', 'qa-failed'),
+    ('qa', 'blocked', 'qa-failed'),
+    ('qa', 'retest_needed', 'qa-retest'),
+    ('client_test', 'passed', 'client-accepted'),
+    ('client_test', 'failed', 'client-changes'),
+    ('client_test', 'blocked', 'client-changes'),
+    ('client_test', 'retest_needed', 'client-changes')
+  )
+  UPDATE tasks SET labels = (
+    SELECT json_group_array(value) FROM (
+      SELECT DISTINCT value FROM (
+        SELECT value FROM json_each(CASE WHEN json_valid(tasks.labels) THEN tasks.labels ELSE '[]' END)
+        UNION ALL
+        SELECT mapping.label FROM json_each(CASE WHEN json_valid(tasks.checks) THEN tasks.checks ELSE '{}' END) AS recorded
+          JOIN legacy_check_labels AS mapping ON mapping.check_name = recorded.key AND mapping.state = recorded.value
+      )
+    )
+  ), checks = '{}' WHERE checks <> '{}';`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

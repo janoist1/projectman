@@ -1,3 +1,4 @@
+import { memberOf, memberStorageHandle } from '@projectman/shared';
 import type { MemberView } from '@projectman/shared';
 import { TeamToolError } from '../../contracts';
 import type { MemberMemoryStore, ToolContext } from '../../contracts';
@@ -27,10 +28,13 @@ export class MemberTools implements MemberToolsHandler {
   }
   async saveMemory(ctx: ToolContext, args: { note: string }): Promise<{ ok: true }> {
     return this.calls.guard(async () => {
-      await this.calls.caller(ctx, 'save_memory');
+      const config = await this.calls.caller(ctx, 'save_memory');
       const note = args.note.trim();
       if (!note) throw new TeamToolError('invalid', 'The memory note is empty.');
-      await this.memory.append(ctx.projectKey, ctx.member, note);
+      // The memory file is kept under the storage handle, so a renamed member keeps its notes.
+      const member = memberOf(config, ctx.member);
+      const handle = member?.kind === 'ai' ? memberStorageHandle(member) : ctx.member;
+      await this.memory.append(ctx.projectKey, handle, note);
       return { ok: true as const };
     });
   }

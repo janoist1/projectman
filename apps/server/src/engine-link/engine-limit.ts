@@ -1,7 +1,13 @@
-import { realpathSync } from 'node:fs';
+import { readlinkSync, realpathSync, statSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { isReleaseTagName, type ProjectConfig } from '@projectman/shared';
+import {
+  isRegeneratedPath,
+  isRegeneratedPathPattern,
+  isReleaseTagName,
+  SessionReadBoundary,
+  type ProjectConfig,
+} from '@projectman/shared';
 import type { AgentSandbox, EnginePaths, MachineProbe, ProcessRecord } from '../contracts';
 import {
   OPEN_OUTBOUND_DOMAINS,
@@ -20,8 +26,8 @@ import {
 } from '../engine-host';
 import { userExcludesFile } from '../engine-host';
 import { isWithin } from '../kernel';
-import { BILLING_ENV_VARS } from '../runner';
-import { assertNpmCiCheckout } from '../full-test';
+import { BILLING_ENV_VARS, pathPatternMatcher, isReadBoundaryPath } from '../runner';
+import { assertNpmCiCheckout, assertRegenerateCheckout } from '../full-test';
 import { engineFiles } from './engine-config';
 import type { ResolvedEngineConfig } from './engine-config';
 import type { EngineMethod, MethodParams } from './methods';
@@ -88,6 +94,10 @@ function refuse(code: EngineErrorCode, message: string): never {
 
 /** The real path of the nearest existing ancestor, plus the not yet existing rest (a path to be made). */
 function resolveReal(target: string): string {
+  return resolveRealPath(target, 0);
+}
+
+function resolveRealPath(target: string, depth: number): string {
   const absolute = path.resolve(target);
   let head = absolute;
   const rest: string[] = [];
@@ -95,6 +105,19 @@ function resolveReal(target: string): string {
     try {
       return path.join(realpathSync(head), ...rest.reverse());
     } catch {
+      // realpath cannot resolve a dangling link. Follow its target before appending the
+      // missing tail, rather than treating a link into a denied root as a new safe path.
+      if (depth < 40) {
+        try {
+          const link = readlinkSync(head);
+          return path.join(
+            resolveRealPath(path.resolve(path.dirname(head), link), depth + 1),
+            ...rest.reverse(),
+          );
+        } catch {
+          // Not a symbolic link; continue with the nearest existing ancestor.
+        }
+      }
       const parent = path.dirname(head);
       if (parent === head) return absolute;
       rest.push(path.basename(head));
@@ -261,6 +284,10 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
   const mergeIdOf = (id: string) => {
     if (!isMergeId(id)) refuse('invalid_params', 'Not a merge id');
   };
+  const regeneratePatterns = (patterns: readonly string[]) => {
+    if (!patterns.every(isRegeneratedPathPattern))
+      refuse('invalid_params', 'Not a pattern of generated files');
+  };
 
   const withDenials = <T extends { denyRead?: string[]; denyWrite?: string[]; deniedEnvVars?: string[] }>(
     sandbox: T,
@@ -322,6 +349,131 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
         }
       }
       let sandbox = spec.sandbox;
+      // A reading session's boundary (PM-425) is checked for every provider: the sandbox's list is the
+      // one the policy's copy is replaced with, and no transcript of any session is ever readable.
+      let readerDenied: string[] = [];
+      if (sandbox?.portable?.readBoundary !== undefined) {
+        const boundary = SessionReadBoundary.safeParse(sandbox?.portable?.readBoundary);
+        if (!boundary.success) refuse('invalid_params', 'The explicit read boundary is invalid');
+        readerDenied = [path.join(userHome, '.claude', 'projects')];
+        const portable = sandbox!.portable!;
+        if (
+          ![...boundary.data.deniedRoots, ...boundary.data.allowedPaths.map((entry) => entry.path)].every(
+            isReadBoundaryPath,
+          )
+        )
+          refuse('invalid_params', 'The read boundary needs absolute normalized paths');
+        const blocked = [...sensitive, ...readerDenied, ...(filesystem.deniedPaths ?? [])].map(resolveReal);
+        const matchesDenied = pathPatternMatcher(blocked, process.platform === 'darwin');
+        const hardDenied = (target: string) => matchesDenied(resolveReal(target));
+        const required = [
+          spec.cwd,
+          ...(placement.kind === 'task_worktree' && placement.gitDir ? [placement.gitDir] : []),
+        ];
+        if (policy.permissions.sandbox === 'workspace-write') {
+          if (!portable.tmpDir || !portable.env.PROJECTMAN_SESSION_DIR)
+            refuse('invalid_params', 'A writing worktree session needs private directories');
+          for (const [target, root] of [
+            [portable.tmpDir, paths.sessionTmpRoot],
+            [portable.env.PROJECTMAN_SESSION_DIR, paths.sessionFoldersRoot],
+          ]) {
+            if (
+              !root ||
+              !target ||
+              resolveReal(target) === resolveReal(root) ||
+              !isWithin(resolveReal(root), resolveReal(target))
+            )
+              refuse('path_outside_roots', 'A private directory must be below its engine-owned root');
+          }
+          required.push(portable.tmpDir, portable.env.PROJECTMAN_SESSION_DIR);
+        }
+        if (required.some(hardDenied)) refuse('path_outside_roots', 'A required path is denied');
+        const ownCandidates = [
+          spec.cwd,
+          ...filesystem.readableRoots,
+          ...(filesystem.readOnlyPaths ?? []),
+          ...(placement.kind === 'task_worktree' && placement.gitDir ? [placement.gitDir] : []),
+          ...(sandbox?.allowRead ?? []),
+          ...portable.allowWrite,
+          ...(portable.tmpDir ? [portable.tmpDir] : []),
+          ...homeReads(),
+          ...present([paths.sessionFoldersRoot, paths.browsersDir]),
+        ];
+        // Never reopen homes or collectors of other members' checkouts/caches. A permitted
+        // root is still checked against the engine's read roots after resolving symlinks.
+        const collectors = present([
+          home,
+          userHome,
+          paths.worktreesRoot,
+          paths.workspacesRoot,
+          memberCaches,
+          attachmentsCache,
+        ]);
+        const allowedPaths = boundary.data.allowedPaths.filter((entry) => {
+          const real = resolveReal(entry.path);
+          if (hardDenied(entry.path)) return false;
+          let kindMatches = true;
+          try {
+            const stat = statSync(entry.path);
+            kindMatches = entry.kind === 'file' ? stat.isFile() : stat.isDirectory();
+          } catch {
+            // Optional technical files and newly allocated directories may not exist yet.
+          }
+          if (!kindMatches) refuse('path_outside_roots', 'A read exception has the wrong path kind');
+          if (collectors.some((root) => isWithin(real, resolveReal(root))))
+            refuse('path_outside_roots', 'A read exception would reopen a shared parent');
+          if (isWithin(resolveReal(memberCaches), real)) {
+            const parts = path.relative(resolveReal(memberCaches), real).split(path.sep);
+            if (parts.length < 3 || (spec.member && parts[1] !== spec.member))
+              refuse('path_outside_roots', 'A cache exception must name the member’s own directory or file');
+          }
+          inside(entry.path, 'A read boundary exception', readable);
+          if (!ownCandidates.some((candidate) => resolveReal(candidate) === real))
+            refuse('path_outside_roots', 'A read exception is not a session path');
+          // Technical files stay exact-file grants, even if the hub sends a directory kind.
+          if (
+            entry.kind === 'directory' &&
+            [path.join(userHome, '.gitconfig'), userExcludesFile(userHome)].some(
+              (file) => file && resolveReal(file) === real,
+            )
+          )
+            refuse('path_outside_roots', 'A technical file cannot grant directory access');
+          return true;
+        });
+        if (
+          required.some(
+            (target) =>
+              !allowedPaths.some(
+                (entry) =>
+                  entry.kind === 'directory' && isWithin(resolveReal(entry.path), resolveReal(target)),
+              ),
+          )
+        )
+          refuse('path_outside_roots', 'A required path is outside the read boundary');
+        const shared = portable.tmpDir
+          ? [...paths.claudeTmpRoots, ...(paths.sessionTmpRoot ? [path.dirname(paths.sessionTmpRoot)] : [])]
+          : [];
+        sandbox = {
+          ...sandbox!,
+          allowRead: sandbox!.allowRead?.filter((target) => !hardDenied(target)),
+          allowWrite: sandbox!.allowWrite.filter((target) => !hardDenied(target)),
+          portable: {
+            ...portable,
+            allowWrite: portable.allowWrite.filter((target) => !hardDenied(target)),
+            readBoundary: {
+              deniedRoots: [
+                ...new Set(
+                  [...boundary.data.deniedRoots, userHome, home, ...shared].flatMap((root) => [
+                    root,
+                    resolveReal(root),
+                  ]),
+                ),
+              ],
+              allowedPaths,
+            },
+          },
+        };
+      }
       if (sandbox) {
         insideAll(sandbox.allowWrite, 'A writable sandbox path', extra);
         insideAll(sandbox.allowRead, 'A readable sandbox path', readable);
@@ -338,6 +490,8 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
           )
             refuse('invalid_params', `The environment variable ${name} is not allowed`);
         sandbox = withDenials(sandbox);
+        if (readerDenied.length > 0)
+          sandbox = { ...sandbox, denyRead: [...new Set([...(sandbox.denyRead ?? []), ...readerDenied])] };
       } else if (!spec.provider || spec.provider === 'claude') {
         // Never a session without a sandbox because the cloud left it out.
         const baseline: AgentSandbox = {
@@ -347,12 +501,17 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
         };
         sandbox = withDenials(baseline);
       }
+      const { readBoundary: _hubBoundary, ...engineFilesystem } = filesystem;
       const protectedPolicy = policy
         ? {
             ...policy,
             filesystem: {
-              ...policy.filesystem,
-              deniedPaths: [...new Set([...(policy.filesystem.deniedPaths ?? []), ...sensitive])],
+              ...engineFilesystem,
+              deniedPaths: [
+                ...new Set([...(policy.filesystem.deniedPaths ?? []), ...sensitive, ...readerDenied]),
+              ],
+              // The policy's copy of the boundary is the engine's own canonical one, never the hub's.
+              ...(sandbox?.portable?.readBoundary ? { readBoundary: sandbox.portable.readBoundary } : {}),
             },
           }
         : undefined;
@@ -454,7 +613,23 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
     },
     'full_test.run': async (params) => {
       const { spec } = params;
-      if (
+      // The run that makes generated files again (PM-1050) is the only one with writable directories (the
+      // engine derives them from the patterns), and it runs the registered repo's own `regenerateCommand`,
+      // never its `fullTestCommand`; every other run runs the `fullTestCommand` and writes nothing.
+      if (spec.regenerate) {
+        const entry = mergeRepo(spec.regenerate.ref);
+        mergeIdOf(spec.regenerate.mergeId);
+        regeneratePatterns(spec.regenerate.patterns);
+        if (entry.regenerateCommand === undefined || entry.regenerateCommand !== spec.command)
+          refuse('command_not_allowed', 'The regeneration command is not configured for this repository');
+        if (spec.githubActions || (spec.npmCi && spec.npmCi.mergeId !== spec.regenerate.mergeId))
+          refuse('invalid_params', 'The regeneration runs in its own checkout, on this engine');
+        try {
+          await assertRegenerateCheckout(paths.worktreesRoot, spec);
+        } catch {
+          refuse('invalid_params', 'The regeneration needs the canonical merge checkout of its merge id');
+        }
+      } else if (
         !config.repos.some(
           (repo) => repo.fullTestCommand !== undefined && repo.fullTestCommand === spec.command,
         )
@@ -477,7 +652,7 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
       if (spec.npmCi) {
         const entry = mergeRepo(spec.npmCi.ref);
         mergeIdOf(spec.npmCi.mergeId);
-        if (entry.fullTestCommand !== spec.command)
+        if (!spec.regenerate && entry.fullTestCommand !== spec.command)
           refuse('command_not_allowed', 'The test command is not configured for this repository');
         try {
           await assertNpmCiCheckout(paths.worktreesRoot, spec);
@@ -600,6 +775,18 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
       commitIds(params.onto, params.commit);
       if (!isMergeMessage(params.message) || params.message.trim().length === 0)
         refuse('invalid_params', 'Not a commit message');
+      regeneratePatterns(params.regenerate ?? []);
+      return params;
+    },
+    'merge.commit_regenerated': (params) => {
+      mergeRepo(params.ref);
+      mergeIdOf(params.mergeId);
+      commitIds(params.onto, params.commit);
+      if (!isMergeMessage(params.message) || params.message.trim().length === 0)
+        refuse('invalid_params', 'Not a commit message');
+      regeneratePatterns(params.patterns);
+      if (params.paths.length > 50 || !params.paths.every(isRegeneratedPath))
+        refuse('invalid_params', 'Not a set of paths');
       return params;
     },
     'merge.checkout_conflicts': async (params) => {

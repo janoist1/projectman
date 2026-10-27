@@ -79,9 +79,9 @@ export const hu: TemplateLocale = {
   },
   duties: {
     boundary_authorization: {
-      name: 'Külső műveletek engedélyezése',
+      name: 'Engedélykérések eldöntése',
       description:
-        'A delegálható külső műveletekről dönt. Költség, éles rendszer, új hozzáférés és tartós határtágítás esetén a tulajdonos dönt.',
+        'A delegálható engedélykérésekről dönt. Költség, éles rendszer, új hozzáférés és tartós határtágítás esetén a tulajdonos dönt.',
     },
     prioritization: {
       name: 'Prioritáskezelés',
@@ -225,7 +225,8 @@ export const hu: TemplateLocale = {
     },
     project_manager: {
       name: 'Projektmenedzser',
-      summary: 'Az ütemezést viszi: standup, tervezés, határidők, emlékeztetők, heti jelentés.',
+      summary:
+        'Az ütemezést viszi: standup, tervezés, határidők, emlékeztetők, heti jelentés. A tulajdonos kérésére vagy igenje után vezeti a döntésnaplót és a roadmapot, felajánlja a döntésjelölteket, és felveszi a leckéket.',
       notTheirJob: 'Nem rangsorol, és nem vezeti a retrót.',
       whenToAsk:
         'Ha tudni szeretnéd, hol tart a munka és mi mikorra készül, vagy emlékeztető, jelentés kell.',

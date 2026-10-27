@@ -209,8 +209,10 @@ export const OPERATOR_IDLE_MINUTES = 30;
 export const OPERATOR_MERGE_WAIT_MINUTES = 30;
 /** Work merged and not released for this long is waiting for a release. */
 export const OPERATOR_UNRELEASED_HOURS = 24;
-/** Startable cards and free capacity together for this long wake the Operator. */
-export const OPERATOR_READY_WAITING_MINUTES = 30;
+/** Startable cards and a free developer, with no developer starting, for this long without a break wake the Operator (PM-1082). */
+export const OPERATOR_READY_WAITING_MINUTES = 10;
+/** The Operator got no result for this much longer after waking: the owners get one `work_stalled` alert (PM-1082). */
+export const OPERATOR_READY_STALL_OWNER_MINUTES = 20;
 export const OperatorSignalKind = z.enum([
   'loop_suspected',
   'process_cleanup_failed',

@@ -1,7 +1,11 @@
 import type { OperatorSessions, OperatorAdmission, OperatorReleases } from './ports';
 import {
+  ALERT_SEEN_OPTION,
+  DEFAULT_AGENT_PROVIDER,
+  alertPayloadOf,
   answerStallEvidence,
   conditionHolds,
+  ownerHandles,
   dutyMembers,
   isOpenTask,
   isTheme,
@@ -37,6 +41,7 @@ import {
   stageOwners,
   OPERATOR_IDLE_MINUTES,
   OPERATOR_MERGE_WAIT_MINUTES,
+  OPERATOR_READY_STALL_OWNER_MINUTES,
   OPERATOR_READY_WAITING_MINUTES,
   OPERATOR_SILENT_WORK_MINUTES,
   OPERATOR_UNRELEASED_HOURS,
@@ -53,6 +58,7 @@ import type {
   Task,
   TaskWait,
   TimelineEvent,
+  WorkStalledAlert,
 } from '@projectman/shared';
 import type { OperatorSignalRecord } from '../../db';
 import {
@@ -66,6 +72,7 @@ import type { StructuralEvaluation, StructuralFacts } from './structural-pattern
 import type { DomainContext } from '../../core/base';
 import { isoNow } from '../../core/base';
 import { answerEvidenceOf } from '../../core/messages';
+import type { InboxService } from '../../core/inbox';
 import type { MemberQueue } from '../../core/member-queue';
 import type { ProjectService } from '../../core/projects';
 import { prerequisiteCards } from '../../core/tasks';
@@ -89,6 +96,15 @@ type SignalInput = {
   taskKey?: string | null;
   subject?: string | null;
   inboxItemId?: string | null;
+};
+
+/** Startable cards with a free developer (PM-1082): who is free and, among the same stages' AI owners, who is not and why. */
+type ReadyStall = {
+  cards: string[];
+  free: string[];
+  unavailable: WorkStalledAlert['unavailable'];
+  /** The AI owners of those stages: a start of any of their sessions on a card ends the stall's run. */
+  developers: string[];
 };
 
 /** The kinds raised and closed from the board's facts (PM-547), not from an event. */
@@ -181,10 +197,18 @@ export class OperatorSignals {
     taskWaits: TaskWaits;
     activeOutageIds: (projectKey: string) => ReadonlySet<string> | null;
     releases: Pick<OperatorReleases, 'unreleased'>;
+    inbox: Pick<InboxService, 'create' | 'cancel' | 'list'>;
     startHandled?: (task: Task) => boolean;
   }) {
     this.deps = privateDeps;
   }
+  /**
+   * The stall of each project that lasts now (PM-1082): its first sweep, and the developers whose start ends
+   * it. Memory only: a restart starts the clock over, at most one delay.
+   */
+  private readonly stalls = new Map<string, { since: number; developers: readonly string[] }>();
+  /** Projects whose owners got the `work_stalled` alert in the stall that lasts. */
+  private readonly told = new Set<string>();
   private readonly deps: {
     ctx: DomainContext;
     projects: ProjectService;
@@ -197,6 +221,8 @@ export class OperatorSignals {
     taskWaits: TaskWaits;
     activeOutageIds: (projectKey: string) => ReadonlySet<string> | null;
     releases: Pick<OperatorReleases, 'unreleased'>;
+    /** The owners' `work_stalled` alert (PM-1082). */
+    inbox: Pick<InboxService, 'create' | 'cancel' | 'list'>;
     /** The start round already acts on the ready card: it holds it on purpose or asked a member to start it (PM-804). */
     startHandled?: (task: Task) => boolean;
   };
@@ -620,6 +646,12 @@ export class OperatorSignals {
           this.resolve(key, input.caseKey);
         this.raise(input);
       }
+      this.trackStall(
+        config,
+        [...board.values()].some((input) => input.kind === 'ready_waiting')
+          ? this.readyStall(config, cards, this.deps.taskWaits.of(config, cards))
+          : null,
+      );
       const outages = this.deps.activeOutageIds(key);
       for (const signal of this.deps.ctx.repos.operatorSignals.listOpen(key)) {
         if (
@@ -854,12 +886,10 @@ export class OperatorSignals {
         this.resolve(projectKey, s.caseKey);
         return false;
       }
-      // Free capacity is raised at once but wakes the coordinator only if it lasts (PM-547).
-      return !(
-        s.kind === 'ready_waiting' &&
-        !again &&
-        now - Date.parse(s.raisedAt) < OPERATOR_READY_WAITING_MINUTES * 60_000
-      );
+      // Free capacity is raised at once but wakes the coordinator only if the stall lasts without a break (PM-547, PM-1082).
+      if (s.kind !== 'ready_waiting' || again) return true;
+      const stalledSince = this.stallStart(projectKey);
+      return stalledSince !== null && now - stalledSince >= OPERATOR_READY_WAITING_MINUTES * 60_000;
     });
   }
 
@@ -915,7 +945,7 @@ export class OperatorSignals {
    * only; the sweep raises and closes by it and `pending` checks a signal against it before waking anyone.
    */
   private boardCases(config: ProjectConfig, cards: readonly Task[]): Map<string, SignalInput> {
-    const { ctx, taskWaits, admission, sessions, releases } = this.deps;
+    const { ctx, taskWaits, sessions, releases } = this.deps;
     const projectKey = config.project.key;
     const now = ctx.now().getTime();
     const found = new Map<string, SignalInput>();
@@ -1010,42 +1040,144 @@ export class OperatorSignals {
       });
 
     if (works && !aiLimitReached(config, sessions.busyCount())) {
-      const ready: Task[] = [];
-      for (const [index, stage] of config.pipeline.stages.entries()) {
-        const next = config.pipeline.stages[index + 1];
-        if (index <= 0 || next?.kind !== 'work' || stage.kind !== 'queue') continue;
-        const free = stageOwners(config, next).some((handle) => {
-          const member = aiMember(handle);
-          if (
-            member &&
-            !isOnLeave(member) &&
-            !member.temp &&
-            admission.memberLoad(config, handle) < member.capacity
-          )
-            return true;
-          return false;
-        });
-        if (free)
-          ready.push(
-            ...startableCards({ config, tasks: cards, fromStageId: stage.id, toStageId: next.id }).filter(
-              (task) => waits.get(task.key)?.reason === 'ready' && !this.deps.startHandled?.(task),
-            ),
-          );
-      }
-      const ack = ctx.repos.operatorSignals.latestDismissed(projectKey, 'ready_waiting');
-      if (ready.some((task) => !this.acknowledged(task, ack))) {
-        const keys = ready
-          .map((task) => task.key)
-          .sort((a, b) => Number(a.split('-').at(-1)) - Number(b.split('-').at(-1)));
+      const stall = this.readyStall(config, cards, waits);
+      if (stall)
         add({
           kind: 'ready_waiting',
-          caseKey: 'ready_waiting:' + keys.join(','),
+          caseKey: 'ready_waiting:' + stall.cards.join(','),
           taskKey: null,
-          subject: keys.join(','),
+          subject: stall.cards.join(','),
         });
-      }
     }
     return found;
+  }
+
+  /**
+   * The startable cards of the queue stages before a work stage that has a free developer (PM-1082), with the
+   * free developers and why the other AI owners of those stages are not free. The one meaning of "free" is
+   * admission's (`freeDevelopers`) and a connected engine; null when no unacknowledged card waits for one.
+   */
+  private readyStall(
+    config: ProjectConfig,
+    cards: readonly Task[],
+    waits: ReturnType<TaskWaits['of']>,
+  ): ReadyStall | null {
+    const { ctx, admission } = this.deps;
+    const projectKey = config.project.key;
+    const ready: Task[] = [];
+    const free = new Set<string>();
+    const developers = new Set<string>();
+    const unavailable = new Map<string, WorkStalledAlert['unavailable'][number]['reason']>();
+    for (const [index, stage] of config.pipeline.stages.entries()) {
+      const next = config.pipeline.stages[index + 1];
+      if (index <= 0 || next?.kind !== 'work' || stage.kind !== 'queue') continue;
+      const startable = startableCards({
+        config,
+        tasks: cards,
+        fromStageId: stage.id,
+        toStageId: next.id,
+      }).filter((task) => waits.get(task.key)?.reason === 'ready' && !this.deps.startHandled?.(task));
+      const available = admission
+        .freeDevelopers(config, next.id)
+        .map((developer) => developer.handle)
+        .filter((handle) => admission.engineOffline(projectKey, handle) === null);
+      if (startable.length === 0 || available.length === 0) continue;
+      ready.push(...startable);
+      for (const handle of available) {
+        free.add(handle);
+        developers.add(handle);
+      }
+      for (const handle of stageOwners(config, next)) {
+        const member = memberOf(config, handle);
+        if (member?.kind !== 'ai' || member.temp || available.includes(handle)) continue;
+        developers.add(handle);
+        unavailable.set(
+          handle,
+          isOnLeave(member)
+            ? 'leave'
+            : !admission.providerAvailable(config, member.provider ?? DEFAULT_AGENT_PROVIDER, handle)
+              ? 'provider_hold'
+              : admission.engineOffline(projectKey, handle) !== null
+                ? 'engine_offline'
+                : 'busy',
+        );
+      }
+    }
+    const ack = ctx.repos.operatorSignals.latestDismissed(projectKey, 'ready_waiting');
+    if (!ready.some((task) => !this.acknowledged(task, ack))) return null;
+    return {
+      cards: ready
+        .map((task) => task.key)
+        .sort((a, b) => Number(a.split('-').at(-1)) - Number(b.split('-').at(-1))),
+      free: [...free],
+      unavailable: [...unavailable]
+        .filter(([handle]) => !free.has(handle))
+        .map(([handle, reason]) => ({ handle, reason })),
+      developers: [...developers],
+    };
+  }
+
+  /**
+   * When the stall of the project last began without a break (PM-1082): the first sweep that found it, or the
+   * latest start of a developer's session on a card since, whichever is later; null when none lasts.
+   */
+  private stallStart(projectKey: string): number | null {
+    const stall = this.stalls.get(projectKey);
+    if (!stall) return null;
+    let from = stall.since;
+    for (const session of this.deps.ctx.repos.sessions.list(projectKey))
+      if (session.workItem.type === 'task' && stall.developers.includes(session.member))
+        from = Math.max(from, Date.parse(session.startedAt));
+    return from;
+  }
+
+  /**
+   * Keeps the clock of the stall and tells the owners once, `OPERATOR_READY_STALL_OWNER_MINUTES` after the
+   * coordinator was due to wake (PM-1082). The alert closes when the stall ends; a new stall may tell again.
+   */
+  private trackStall(config: ProjectConfig, ready: ReadyStall | null): void {
+    const { ctx, inbox } = this.deps;
+    const projectKey = config.project.key;
+    const open = inbox
+      .list(projectKey, { state: 'open', kind: 'alert' })
+      .filter((item) => alertPayloadOf(item)?.alert === 'work_stalled');
+    if (!ready) {
+      this.stalls.delete(projectKey);
+      this.told.delete(projectKey);
+      for (const item of open) inbox.cancel(item.id);
+      return;
+    }
+    const now = ctx.now().getTime();
+    this.stalls.set(projectKey, {
+      since: this.stalls.get(projectKey)?.since ?? now,
+      developers: ready.developers,
+    });
+    const from = this.stallStart(projectKey)!;
+    const owners = ownerHandles(config);
+    if (
+      now - from < (OPERATOR_READY_WAITING_MINUTES + OPERATOR_READY_STALL_OWNER_MINUTES) * 60_000 ||
+      this.told.has(projectKey) ||
+      open.length > 0 ||
+      owners.length === 0
+    )
+      return;
+    this.told.add(projectKey);
+    const payload: WorkStalledAlert = {
+      alert: 'work_stalled',
+      since: new Date(from).toISOString(),
+      cards: ready.cards,
+      free: ready.free,
+      unavailable: ready.unavailable,
+    };
+    inbox.create({
+      projectKey,
+      kind: 'alert',
+      assignees: owners,
+      source: 'system',
+      title: `Startable cards wait and no developer started for ${Math.floor((now - from) / 60_000)} minutes`,
+      payload,
+      options: [ALERT_SEEN_OPTION],
+    });
   }
 
   /**

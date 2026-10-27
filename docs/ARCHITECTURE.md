@@ -5270,9 +5270,14 @@ listAnsweredQuestions`). `list_decision_candidates { limit? }` (1..50, default 2
   (`unreleased:<base>`; `ReleaseService.unreleased`, from the stored merges and the latest live release or
   the running commit, without git or an engine; work merged for `OPERATOR_UNRELEASED_HOURS` = 24 and no
   open release) and `ready_waiting` (`ready_waiting:<card keys>`; startable cards in later queue stages ready for a work stage
-  whose AI owner is free, not on leave, not temporary, under its capacity, with the parallel AI limit not
-  reached; raised at once, delivered only after `OPERATOR_READY_WAITING_MINUTES` = 30, silently closed
-  if it ends before). `idle`, `merge_waiting` and `ready_waiting` do not exist while AI is off or the
+  whose AI owner is free, with the parallel AI limit not reached; "free" is admission's `freeDevelopers`
+  (not on leave, not temporary, under its capacity, provider not on hold, no start waiting for them) and a
+  connected engine; raised at once, delivered only after the stall (the first sweep that found a case, or the
+  latest session start of those stages' AI owners on a card, whichever is later; memory only, so a restart
+  starts it over) lasted `OPERATOR_READY_WAITING_MINUTES` = 10 without a break, so a further card that
+  becomes startable does not restart it; silently closed if it ends before). After `OPERATOR_READY_STALL_OWNER_MINUTES` = 20
+  more, the owners get one `work_stalled` inbox alert per stall (cards, free members, and the not-free AI
+  owners with `leave`, `provider_hold`, `engine_offline` or `busy`), withdrawn when the stall ends. `idle`, `merge_waiting` and `ready_waiting` do not exist while AI is off or the
   team is paused. All data comes from the server's database and configuration: no machine-dependent part.
   `startableCards` shares the pull rules without the urgent or focus filter: no assignee, open prerequisite,
   holding label, refinement, open subtask or unmet gate. The subject lists all startable card keys in numeric

@@ -328,6 +328,22 @@ export function alertText(
       member: nameOf(alert.member, members, myHandle),
       parts: alert.parts.join(', '),
     });
+  if (alert.alert === 'work_stalled')
+    return t('inbox.alerts.work_stalled.body', {
+      since: formatStamp(alert.since),
+      cards: alert.cards.join(', '),
+      free: joinNames(namesOf(alert.free, members, myHandle)),
+      unavailable: alert.unavailable.length
+        ? t('inbox.alerts.work_stalled.unavailable', {
+            members: joinNames(
+              alert.unavailable.map(
+                (entry) =>
+                  `${nameOf(entry.handle, members, myHandle)} (${t(`inbox.alerts.work_stalled.reasons.${entry.reason}`)})`,
+              ),
+            ),
+          })
+        : '',
+    });
   if (alert.alert === 'feedback_forwarded')
     return t('inbox.alerts.feedback_forwarded.body', {
       author: nameOf(alert.author, members, myHandle),

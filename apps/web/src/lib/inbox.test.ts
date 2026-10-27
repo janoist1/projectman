@@ -390,6 +390,26 @@ describe('splitQuestion', () => {
     expect(text).toContain('dev-1');
     expect(text).not.toContain('{');
   });
+  it('renders the alert that startable cards wait with no developer started (PM-1082)', () => {
+    const alert: InboxItem = {
+      ...item,
+      kind: 'alert',
+      source: 'system',
+      payload: {
+        alert: 'work_stalled',
+        since: '2026-10-27T10:00:00.000Z',
+        cards: ['AR-4', 'AR-5'],
+        free: ['dev-1'],
+        unavailable: [{ handle: 'dev-2', reason: 'provider_hold' }],
+      },
+    };
+    expect(inboxHeading(alert)).toBe(t('inbox.alerts.work_stalled.heading'));
+    const text = alertText(alert, new Map(), null);
+    expect(text).toContain('AR-4, AR-5');
+    expect(text).toContain('dev-1');
+    expect(text).toContain(`dev-2 (${t('inbox.alerts.work_stalled.reasons.provider_hold')})`);
+    expect(text).not.toContain('{');
+  });
   it('keeps a short one-line question whole, without marks', () => {
     expect(splitQuestion('Mehet ma este a kiadás az élesbe?')).toEqual({
       title: 'Mehet ma este a kiadás az élesbe?',

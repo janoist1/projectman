@@ -4,6 +4,7 @@ import {
   OPERATOR_MERGE_WAIT_MINUTES,
   OPERATOR_READY_WAITING_MINUTES,
   OPERATOR_SIGNAL_STEP_GAP_MINUTES,
+  OPERATOR_SIGNAL_WAKE_INTERVAL_MS,
 } from '@projectman/shared';
 import type { OperatorSignalKind, OperatorWatch, ProjectConfig, Task } from '@projectman/shared';
 import type { ToolContext } from '../src/contracts';
@@ -228,7 +229,8 @@ describe('level drive', () => {
     later(1);
     const second = await place({ stageId: 'ready', status: 'active' });
     await h.domain.operatorSignals.sweep('AR');
-    later(OPERATOR_READY_WAITING_MINUTES);
+    // The stall's ten minutes are over, and so is the wake interval since the first wake-up.
+    later(OPERATOR_SIGNAL_WAKE_INTERVAL_MS / 60_000);
     await h.domain.operatorSignals.sweep('AR');
     await flush();
     expect(wakeRows()[0]!.facts).toEqual({

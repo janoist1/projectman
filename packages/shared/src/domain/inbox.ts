@@ -577,6 +577,22 @@ export const ReleaseFailedAlert = z.object({
 });
 export type ReleaseFailedAlert = z.infer<typeof ReleaseFailedAlert>;
 
+/** `work_stalled` (PM-1082): startable cards and free developers, and no developer started since `since`. One open alert per project. */
+export const WorkStalledAlert = z.object({
+  alert: z.literal('work_stalled'),
+  since: z.string().datetime(),
+  cards: z.array(TaskKey).min(1),
+  free: z.array(MemberHandle).min(1),
+  /** The AI owners of the same work stages who are not free now, and why. */
+  unavailable: z.array(
+    z.object({
+      handle: MemberHandle,
+      reason: z.enum(['leave', 'provider_hold', 'engine_offline', 'busy']),
+    }),
+  ),
+});
+export type WorkStalledAlert = z.infer<typeof WorkStalledAlert>;
+
 export const AlertPayload = z.discriminatedUnion('alert', [
   EmailParkedAlert,
   ReleaseFailedAlert,
@@ -592,6 +608,7 @@ export const AlertPayload = z.discriminatedUnion('alert', [
   RelationCheckAlert,
   PartsLeftAlert,
   FeedbackForwardedAlert,
+  WorkStalledAlert,
 ]);
 export type AlertPayload = z.infer<typeof AlertPayload>;
 

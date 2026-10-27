@@ -52,7 +52,9 @@ export type { TaskPhase };
 export interface PrerequisiteWait {
   key: string | null;
   more: number;
-  cards: { key: string; title: string }[];
+  cards: { key: string; title: string; stage: string | null }[];
+  /** The stage of the first prerequisite, as the viewer sees the card; null where it is not known. */
+  stage: string | null;
   /** The state's label already says it (the card stands on it): no second mention on the card. */
   inLabel: boolean;
 }
@@ -72,6 +74,8 @@ export interface TaskState {
   prerequisite?: PrerequisiteWait;
   /** The blocking labels the state's label names: the card shows them once, not again as chips. */
   holdingLabels?: string[];
+  /** The shared wait says "ready" and the card's next stage is work: a person can start it (PM-1079). */
+  startable?: boolean;
   /**
    * Why a person's Start of the card is refused now (PM-291), from the shared rule; absent when the card
    * can be started, and when the context has no configuration (a client, or the configuration still loads).
@@ -250,7 +254,11 @@ export function cardWorkerRows(
  * or withdrawn one no longer holds the card). A start that waits for prerequisites (PM-204) names
  * them too; those the viewer cannot see are left out.
  */
-function prerequisiteWait(task: Task, tasksByKey: ReadonlyMap<string, Task>): PrerequisiteWait | null {
+function prerequisiteWait(
+  task: Task,
+  tasksByKey: ReadonlyMap<string, Task>,
+  pipeline: PipelineIndex,
+): PrerequisiteWait | null {
   if (isTaskClosed(task)) return null;
   const linked = task.links.flatMap((link) => {
     const other = link.kind === 'prerequisite' ? tasksByKey.get(link.ref) : undefined;
@@ -264,20 +272,45 @@ function prerequisiteWait(task: Task, tasksByKey: ReadonlyMap<string, Task>): Pr
         ? (task.startWaiting.prerequisites ?? []).filter((key) => tasksByKey.has(key))
         : [];
   if (keys.length === 0) return null;
-  return {
-    key: keys[0]!,
-    more: keys.length - 1,
-    cards: keys.map((key) => ({ key, title: tasksByKey.get(key)?.title ?? '' })),
-    inLabel: false,
-  };
+  const cards = keys.map((key) => {
+    const other = tasksByKey.get(key);
+    return {
+      key,
+      title: other?.title ?? '',
+      stage: pipeline.stageById.get(other?.stageId ?? '')?.name ?? null,
+    };
+  });
+  return { key: keys[0]!, more: keys.length - 1, cards, stage: cards[0]!.stage, inLabel: false };
 }
 
-/** "Előfeltételre vár: PM-202 +1": the label of a card that stands on its prerequisites. */
-export function prerequisiteLabel(wait: Pick<PrerequisiteWait, 'key' | 'more'> | null): string {
+/** "Vár: PM-202 (Átnézés) +1": the label of a card that stands on its prerequisites. */
+export function prerequisiteLabel(wait: Pick<PrerequisiteWait, 'key' | 'more' | 'stage'> | null): string {
   if (!wait?.key) return t('taskStatus.prerequisite');
-  return wait.more > 0
-    ? t('taskStatus.prerequisiteOnMore', { key: wait.key, more: wait.more })
-    : t('taskStatus.prerequisiteOn', { key: wait.key });
+  return t('taskStatus.prerequisiteOn', { ref: prerequisiteRef({ ...wait, key: wait.key }) });
+}
+
+/** "PM-202 (Átnézés) +1": the first prerequisite, where it stands (when known) and how many more. */
+export function prerequisiteRef(wait: { key: string; more: number; stage: string | null }): string {
+  const ref = wait.stage ? t('taskStatus.prerequisiteRef', { key: wait.key, stage: wait.stage }) : wait.key;
+  return wait.more > 0 ? t('taskStatus.prerequisiteMore', { ref, more: wait.more }) : ref;
+}
+
+/** The screen-reader sentence of a prerequisite wait: the card, where it stands, and how many more. */
+export function prerequisiteAriaLabel(wait: Pick<PrerequisiteWait, 'key' | 'more' | 'stage'>): string {
+  const params = { key: wait.key ?? '', stage: wait.stage ?? '', more: wait.more };
+  const base = t(wait.stage ? 'taskStatus.prerequisiteLabelStage' : 'taskStatus.prerequisiteLabel', params);
+  return wait.more > 0 ? t('taskStatus.prerequisiteLabelMore', { base, more: wait.more }) : base;
+}
+
+/** The tooltip of a prerequisite wait, one line per card: "PM-202 – Title · Átnézés". */
+export function prerequisiteTitle(wait: Pick<PrerequisiteWait, 'cards'>): string {
+  return wait.cards
+    .map((card) =>
+      card.stage
+        ? t('taskStatus.prerequisiteLine', { key: card.key, title: card.title, stage: card.stage })
+        : `${card.key} – ${card.title}`,
+    )
+    .join('\n');
 }
 
 /** The state of a card that stands on its prerequisites: waiting, under the label that names them. */
@@ -351,7 +384,7 @@ export function startWaitingText(
  * happening to the card, so the card and the drawer never say it twice.
  */
 export function deriveTaskState(task: Task, ctx: TaskStateContext): TaskState {
-  const wait = prerequisiteWait(task, ctx.tasksByKey);
+  const wait = prerequisiteWait(task, ctx.tasksByKey, ctx.pipeline);
   const block = ctx.config ? startBlock(task, ctx.config) : null;
   const { workers = [], ...state } = deriveOpenState(task, ctx, wait, block);
   return {
@@ -503,6 +536,7 @@ function deriveOpenState(
     item: open.find((entry) => entry.id === wait.inboxItemId) ?? null,
     startText: task.startWaiting ? startWaitingText(task.startWaiting, ctx) : null,
     startHint: startWaitingHint(task, members, myHandle),
+    prerequisite: prerequisites?.key ? prerequisiteRef({ ...prerequisites, key: prerequisites.key }) : null,
   });
   return { ...state, wait, ...(next ? { next } : {}) };
 }
@@ -681,9 +715,11 @@ function stateOfWait(
       return (block && startBlockState(task, block, ctx)) || queuedFor(task, ctx);
     case 'ready': {
       // An earlier queue (e.g. incoming requests before "ready") is not ready to start yet.
-      const label =
-        stage && nextStage(ctx.pipeline, stage.id)?.kind === 'queue' ? stage.name : t('taskStatus.ready');
-      return { phase: 'ready', label, since: wait.since, worker: null };
+      const waitsInQueue = !!stage && nextStage(ctx.pipeline, stage.id)?.kind === 'queue';
+      const label = waitsInQueue ? stage.name : t('taskStatus.ready');
+      // Highlighted only where the start rule is known (not for a client, nor while the configuration loads).
+      const startable = !waitsInQueue && !!ctx.config;
+      return { phase: 'ready', label, since: wait.since, worker: null, ...(startable ? { startable } : {}) };
     }
     case 'queued': {
       const [first] = wait.next;

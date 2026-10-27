@@ -61,6 +61,8 @@ export interface TaskNextContext {
   /** The start wait as a sentence and what it needs (`startWaitingText` / `startWaitingHint`). */
   startText: string | null;
   startHint: string | null;
+  /** The first open prerequisite with its stage and the rest ("PM-1041 (Átnézés) +2"), where the card knows it. */
+  prerequisite?: string | null;
 }
 
 /** The names of the people next: the first two, then how many more ("Te" for the viewer). */
@@ -223,7 +225,10 @@ export function deriveNext(task: Task, wait: TaskWait, ctx: TaskNextContext): Ta
 
     case 'prerequisite': {
       const keys = wait.prerequisites;
-      const list = keys.length > 2 ? `${keys.slice(0, 2).join(', ')} +${keys.length - 2}` : keys.join(', ');
+      // The card's own reading ("PM-1041 (Átnézés) +2") when it is known; else the keys alone.
+      const list =
+        ctx.prerequisite ??
+        (keys.length > 2 ? `${keys.slice(0, 2).join(', ')} +${keys.length - 2}` : keys.join(', '));
       return build({
         head: t('taskStatus.next.heads.prerequisite'),
         waiting: list || t('taskStatus.next.heads.prerequisite'),

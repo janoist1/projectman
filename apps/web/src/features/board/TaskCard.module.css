@@ -38,6 +38,21 @@
     inset 3px 0 0 var(--c-blocked);
 }
 
+/* A card a person can start now (PM-1079): the green stripe and the ▶ mark tell it from the waiting ones. */
+.card[data-startable]:not(.selected, .compact, .fileTarget) {
+  box-shadow:
+    var(--shadow-xs),
+    inset 3px 0 0 var(--c-ok);
+}
+.card[data-startable] .statusText,
+.startMark {
+  color: var(--c-ok-text);
+}
+.startMark {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
 .selected,
 .selected:hover {
   border-color: var(--c-accent);

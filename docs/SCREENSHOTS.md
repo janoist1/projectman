@@ -228,6 +228,14 @@ address, the `member_session_live` refusal, the task timeline rows of a renamed 
 that works), the profile after the rename (the "korábban:" line and the toast), the task timeline and
 the menu of an admin, who is not offered the rename.
 
+### PM-1079: the ready queue, startable and waiting cards
+
+`npm run shots -- scripts/scenarios/ready-startable.mjs --widths 1512,390`. The scenario makes real cards
+(prerequisite relations through the API): `a-ready-mixed` (startable cards beside waiting ones, the
+column head's "N indítható"), `b-drawer-several` (a card with three prerequisites), `d-working-chip` (a
+worked-on card with a prerequisite chip), `e-ready-dark` (a. in the dark theme) and `c-none-startable`
+(the grey "nincs indítható" head).
+
 ### PM-287: card priority
 
 Run `npm run shots -- scripts/scenarios/priority.mjs --timeout 300` on the final PM-287 branch.

@@ -235,5 +235,23 @@ describe('who sees the PM’s conversation with a person', () => {
       expect(canSeeProjectEvent(viewer, chat, isRestrictedSession)).toBe(false);
     }
     expect(canSeeProjectEvent({ access: 'owner', handle: 'owner' }, chat, isRestrictedSession)).toBe(true);
+
+    // The PM’s member profile lists the sessions the viewer may see: the card session of the PM stays, the guest's does not.
+    const card = {
+      ...session,
+      id: 'ses_pm_card',
+      claudeSessionId: 'claude-ses_pm_card',
+      workItem: { type: 'task', taskKey: 'AR-1' },
+    } as typeof session;
+    app.app.projectman.repos.sessions.insert(card);
+    const listed = async (cookie: string) =>
+      (
+        (await inject(app!.app, 'GET', routes.memberProfile('AR', 'pm'), cookie, undefined)).json() as {
+          sessions: { id: string }[];
+        }
+      ).sessions.map((s) => s.id);
+    expect(await listed(owner)).toEqual(expect.arrayContaining([session.id, card.id]));
+    for (const handle of ['dana', 'vera', 'cleo'])
+      expect(await listed(cookies.get(handle)!), handle).toEqual([card.id]);
   });
 });

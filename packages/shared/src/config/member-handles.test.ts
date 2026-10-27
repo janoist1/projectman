@@ -23,10 +23,14 @@ function configWith(members: unknown[]): ProjectConfig {
       feedback: { blockedMarkers: ['dev', 'other'] },
     },
     team: {
-      members: [{ kind: 'human', handle: 'owner', displayName: 'Owner', access: 'owner', roles: [] }, ...members],
+      members: [
+        { kind: 'human', handle: 'owner', displayName: 'Owner', access: 'owner', roles: [] },
+        ...members,
+      ],
       cardMover: { kind: 'human', handle: 'dev' },
       merger: { kind: 'member', handle: 'dev' },
       contacts: ['dev', 'owner'],
+      limits: {},
     },
     pipeline: {
       columns: [{ id: 'c', name: 'C' }],
@@ -91,7 +95,13 @@ describe('currentHandleOf', () => {
   });
 
   it('prefers a live handle over a former one', () => {
-    const reused = { ...config, team: { ...config.team, members: [...config.team.members, ...configWith([ai('dev')]).team.members.slice(1)] } };
+    const reused = {
+      ...config,
+      team: {
+        ...config.team,
+        members: [...config.team.members, ...configWith([ai('dev')]).team.members.slice(1)],
+      },
+    };
     expect(currentHandleOf(reused, 'dev')).toBe('dev');
   });
 });

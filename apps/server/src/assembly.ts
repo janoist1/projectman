@@ -541,7 +541,7 @@ export function createDomain(opts: DomainOptions) {
   // event that goes out after a commit only wakes the readers waiting on the project, which read the database.
   const unsubscribeJournalWake = bus.subscribe((event) => {
     // `system_feedback_changed` has a null project when the forwarding setting changed: no project to wake.
-    if ('projectKey' in event && event.projectKey !== null && !QUIET_EVENTS.has(event.type))
+    if ('projectKey' in event && typeof event.projectKey === 'string' && !QUIET_EVENTS.has(event.type))
       ctx.journal.notify(event.projectKey);
   });
   const templates = opts.templates ?? defaultTemplateRegistry;

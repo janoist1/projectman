@@ -2698,7 +2698,8 @@ workers follow the machine's size.
   validated in both directions and tied to the engine contracts, including the PM-312 disk operations.
   PM-1059 adds no method, parameter or event and keeps protocol version 1: which engine a call goes to is
   decided by the cloud before the call (`EngineDirectory.projectEngine`, `hostEngine`, a session's recorded
-  engine), see "Cloud composition".
+  engine), see "Cloud composition". PM-1060 keeps that: the project's engine comes from the cloud's
+  `project_engines` binding; nothing changes on the engine.
   File export forwards `exactRoot` when the caller requires a root without symbolic links.
   PM-739 adds `workspace.publishTaskBranch` (`[key, taskKey, branch, commit]` → strict `{path, ref}`):
   the engine hands a developer's task commit over to its own repository; the cloud never names a path
@@ -2942,8 +2943,8 @@ workers follow the machine's size.
   it asks `EngineDirectory.projectEngine(projectKey)` (the project's base engine) or `hostEngine()` (the
   machine that is not about one project: project-creation folder check, machine view and orphan
   signal, host build, NanoGPT recovery, provider status without a project). `engineFor(projectKey, handle)`
-  names a member's engine. Today every selector answers the hub's default engine, so one engine
-  behaves as before; the point of choosing is the call site. The remote runner starts a session on the
+  names a member's engine. `projectEngine` is the project's binding since PM-1060 (see below);
+  `hostEngine` stays the hub's default engine. The remote runner starts a session on the
   spec's `engineId`, else the project's engine, and refuses (`engine_offline`) rather than falling back to
   another engine; attachments and materialized files go to the session's or the project's engine. Plan
   usage is measured and cached per `(engine, provider)`, shown on a board from the engine of the
@@ -2953,8 +2954,22 @@ workers follow the machine's size.
   (`MachineGithubService` is the engine-side, project-less contract); the cloud keeps a watch per
   `(project, repo, PR)` on the engine it subscribed on, resends only that engine's watches on
   reconnect and drops a `github_changed` event from any other engine. Pull request snapshots, links,
-  heads and authors are keyed by project too. No new machine operation or RPC exists; moving a
-  watch to another engine when a project's engine changes is PM-1060 (`onProjectEngineChange`).
+  heads and authors are keyed by project too. No new machine operation or RPC exists.
+  **The project's engine is a binding (PM-1060).** The `project_engines` table (migration 117:
+  `project_key`, `engine_id`, `is_default`, `added_by`, `added_at`; one default per project by a partial
+  unique index) says which engines run a project; the engine's owner (`engines.created_by`) and the
+  project's owner bind (`PUT /api/projects/:key/engines/:engine`, `DELETE`, `GET`; own login only, no
+  super command). `EngineRegistry.projectEngine` applies the pure rule `projectEngineOf` of
+  `packages/shared`: the live default binding; none (`engine_offline`) when it is revoked, never a silent
+  move to another machine; with no binding the global default engine, but only while its owner is among
+  the project's owners. So a single-machine or `local` installation and a project nobody bound run as
+  before. Each write is one transaction with an `engine` row of the project's change journal, then the
+  wake, an `engine_changed` event with the `projectKey`, and `onProjectEngineChange`: the GitHub watches
+  of that project move to the new base engine (`github.unwatch` on the old, `github.watch` on the new;
+  an event from the old one is no longer heard). A binding cannot be removed while the project has an
+  open session on the engine (`engine_in_use`) or, for the default, while another binding stays
+  (`engine_is_default`). The engine-side `hello.projects[]` is only the local contribution (it fills
+  `holdsProject` of the list); it never decides the binding.
   **Does this work on a remote engine?** This entry is the cloud's side of the remote engine: nothing
   here starts a process on the cloud's host. Without a connected engine a project cannot be created
   (`isDirectory` answers `engine_offline`, HTTP 409), a full test is refused with `engine_offline`, and

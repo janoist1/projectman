@@ -27,7 +27,11 @@ import {
   OperatorPreferenceDocument,
   operatorKnowledgeApprovalOf,
   maskEmail,
+  BindProjectEngineRequest,
+  canBindEngine,
+  canUnbindEngine,
   CreateEngineRequest,
+  projectEngineOf,
   StopOrphansRequest,
   StopSessionRequest,
   CreateIntegratorAccessKeyRequest,
@@ -250,6 +254,7 @@ import type {
   CapacityHolder,
   EngineStatusView,
   EngineView,
+  ProjectEngineView,
   HandoffFallbackReason,
   HandoffStep,
   TaskHandoff,
@@ -622,6 +627,10 @@ export class MockBackend {
   /** Hybrid mode (PM-316): `single` has no engine routes at all; a test switches to `cloud` and adds engines. */
   engineMode: 'single' | 'cloud' = 'single';
   engines: EngineView[] = [];
+  /** The project–engine bindings (PM-1060) by project key; the engine's owner is `EngineView.createdBy` (a user id here). */
+  projectEngineBindings = new Map<string, Array<{ engineId: string; isDefault: boolean }>>();
+  /** The engines whose hello lists the project (`holdsProject`), as `<projectKey>/<engineId>`. */
+  engineHolds = new Set<string>();
   /** Codes the machine display and the session detail answer with (`engine_offline`), by session id. */
   machineError: ErrorCode | null = null;
   sessionErrors = new Map<string, ErrorCode>();
@@ -711,7 +720,7 @@ export class MockBackend {
       !canSeeTeamMessage(this.taskViewer(), event.message)
     )
       return;
-    const projectKey = 'projectKey' in event ? event.projectKey : null;
+    const projectKey = 'projectKey' in event ? (event.projectKey ?? null) : null;
     for (const [connection, projects] of this.connections) {
       if (projectKey === null || projects.has(projectKey)) connection.deliver(event);
     }
@@ -2148,6 +2157,8 @@ export class MockBackend {
     }
     if (path === '/api/engines' || path.startsWith('/api/engines/'))
       return this.engineRoutes(method, path, body);
+    const projectEngines = /^\/api\/projects\/([^/]+)\/engines(?:\/([^/]+))?$/.exec(path);
+    if (projectEngines) return this.projectEngineRoutes(method, projectEngines[1]!, projectEngines[2], body);
     if (path === '/api/machine' || path === '/api/machine/orphans/stop') {
       if (!this.me().instanceOwner) return error(403, 'insufficient_access', 'Instance owner required');
       if (path === '/api/machine' && this.machineError)
@@ -2382,6 +2393,111 @@ export class MockBackend {
       return ok(clone(this.engines));
     }
     return error(404, 'not_found', `No route for ${method} ${path}`);
+  }
+
+  /** The server's project engine endpoints (PM-1060), with the shared rules; the fake has one viewer. */
+  private projectEngineRoutes(
+    method: string,
+    projectKey: string,
+    engineId: string | undefined,
+    body: unknown,
+  ): MockResponse {
+    if (projectKey !== fixtures.PROJECT_KEY) return error(404, 'not_found', 'Unknown project');
+    const userId = this.user.userId;
+    const access = this.viewerAccess();
+    const bindings = this.projectEngineBindings.get(projectKey) ?? [];
+    const engineOf = (id: string) => this.engines.find((entry) => entry.id === id);
+    const viewOf = (engine: EngineView, isDefault: boolean): ProjectEngineView => ({
+      id: engine.id,
+      name: engine.name,
+      online: !engine.revokedAt && engine.online,
+      isDefault,
+      holdsProject: this.engineHolds.has(`${projectKey}/${engine.id}`),
+      ownedByMe: engine.createdBy === userId,
+    });
+    if (engineId === undefined) {
+      if (method !== 'GET') return error(404, 'not_found', `No route for ${method} ${projectKey}`);
+      if (this.engineMode === 'single')
+        return ok({
+          engines: [
+            {
+              id: 'local',
+              name: 'local',
+              online: true,
+              isDefault: true,
+              holdsProject: true,
+              ownedByMe: true,
+            },
+          ],
+        });
+      if (bindings.length > 0)
+        return ok({
+          engines: bindings.flatMap((b) =>
+            engineOf(b.engineId) ? [viewOf(engineOf(b.engineId)!, b.isDefault)] : [],
+          ),
+        });
+      const fallback = this.engines.find((entry) => entry.isDefault && !entry.revokedAt);
+      const chosen = projectEngineOf({
+        bindings: [],
+        globalDefault: fallback ? { id: fallback.id, ownerUserId: fallback.createdBy } : null,
+        projectOwnerUserIds: access === 'owner' ? [userId] : [],
+      });
+      const engine = chosen ? engineOf(chosen) : undefined;
+      return ok({ engines: engine ? [viewOf(engine, true)] : [] });
+    }
+    const engine = this.engineMode === 'cloud' ? engineOf(engineId) : undefined;
+    if (method === 'PUT') {
+      if (access !== 'owner') return error(403, 'insufficient_access', 'requires owner access');
+      const input = parseBody(BindProjectEngineRequest, body);
+      if (!input) return error(400, 'invalid_request', 'Invalid request');
+      if (!engine) return error(404, 'engine_not_found', 'Unknown engine');
+      const bound = bindings.find((b) => b.engineId === engineId);
+      if (
+        !bound &&
+        !canBindEngine({
+          actorUserId: userId,
+          engineOwnerUserId: engine.createdBy,
+          actorIsProjectOwner: true,
+        })
+      )
+        return error(403, 'engine_not_owned', 'Only the engine owner may bind it to a project');
+      if (engine.revokedAt) return error(409, 'engine_revoked', 'The engine is revoked');
+      const makeDefault = input.default === true || bindings.length === 0;
+      const next = bound ?? { engineId, isDefault: false };
+      if (!bound) this.projectEngineBindings.set(projectKey, [...bindings, next]);
+      if (makeDefault) for (const b of this.projectEngineBindings.get(projectKey)!) b.isDefault = b === next;
+      this.emit({ type: 'engine_changed', engine: this.engineStatus(engine), projectKey });
+      return ok(viewOf(engine, next.isDefault));
+    }
+    if (method === 'DELETE') {
+      if (!engine) return error(404, 'engine_not_found', 'Unknown engine');
+      if (
+        !canUnbindEngine({
+          actorUserId: userId,
+          engineOwnerUserId: engine.createdBy,
+          actorIsProjectOwner: access === 'owner',
+        })
+      )
+        return error(403, 'insufficient_access', 'Only the engine owner or the project owner may unbind it');
+      const bound = bindings.find((b) => b.engineId === engineId);
+      if (!bound) return error(404, 'engine_not_found', 'The engine is not bound');
+      if (
+        this.sessions.some(
+          (session) =>
+            session.engineId === engineId && session.state !== 'exited' && session.state !== 'failed',
+        )
+      )
+        return error(409, 'engine_in_use', 'The project has a session on this engine');
+      if (bound.isDefault && bindings.length > 1)
+        return error(409, 'engine_is_default', 'Make another engine the default first');
+      this.projectEngineBindings.set(
+        projectKey,
+        bindings.filter((b) => b !== bound),
+      );
+      this.emit({ type: 'engine_changed', engine: this.engineStatus(engine), projectKey });
+      return ok();
+    }
+    return error(404, 'not_found', `No route for ${method} ${projectKey}`);
   }
 
   private machineView(): MachineView {

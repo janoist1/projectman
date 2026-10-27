@@ -54,6 +54,8 @@ interface CloudRemoteOptions {
   registry: {
     isOnline(id: EngineId): boolean;
     defaultId(): EngineId | null;
+    projectEngine(projectKey: string): EngineId | null;
+    onProjectEngineChange(listener: (projectKey: string) => void): () => void;
     ids(): EngineId[];
     onOnlineChange(listener: (id: EngineId, online: boolean) => void): () => void;
   };

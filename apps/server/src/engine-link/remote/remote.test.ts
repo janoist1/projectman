@@ -973,6 +973,24 @@ describe('cloud mode remote parts', () => {
         await b.emit({ kind: 'github_changed', watchId: watchIdOf(b), change: changed(7) });
         expect(heard).not.toHaveBeenCalled();
       });
+
+      it('moves a watch to the new base engine of its project, and no longer hears the old one (PM-1060)', async () => {
+        const { a, b } = await bothOnline(acceptWatches);
+        const github = githubOver();
+        const heard = vi.fn();
+        github.watch('PB', [{ repo: 'acme/web', number: 7 }], heard);
+        await vi.waitFor(() => expect(asked(b, 'github.watch')).toHaveLength(1));
+        const watchId = watchIdOf(b);
+        projectEngines.PB = A;
+        cloud.registry.bindProject('PB', A as never);
+        await vi.waitFor(() => expect(asked(a, 'github.watch')).toHaveLength(1));
+        await vi.waitFor(() => expect(asked(b, 'github.unwatch')).toHaveLength(1));
+        expect(asked(b, 'github.unwatch')[0]!.params).toEqual({ watchId });
+        await b.emit({ kind: 'github_changed', watchId, change: changed(7) });
+        expect(heard).not.toHaveBeenCalled();
+        await a.emit({ kind: 'github_changed', watchId, change: changed(7) });
+        expect(heard).toHaveBeenCalledTimes(1);
+      });
     });
 
     describe('files', () => {

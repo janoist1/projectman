@@ -48,3 +48,66 @@ export type EngineStatusResponse = z.infer<typeof EngineStatusResponse>;
 export const CreateEngineRequest = z.strictObject({ name: z.string().trim().min(1).max(64) });
 export const CreateEngineResponse = z.object({ engine: EngineView, key: z.string() });
 export type CreateEngineResponse = z.infer<typeof CreateEngineResponse>;
+
+/** One engine of a project as a member sees it (PM-1060): no hostname, no address. */
+export const ProjectEngineView = z.object({
+  id: EngineId,
+  name: z.string(),
+  online: z.boolean(),
+  isDefault: z.boolean(),
+  /** The engine's hello lists the project: the machine has a folder for it (its own consent stays the second line). */
+  holdsProject: z.boolean(),
+  ownedByMe: z.boolean(),
+});
+export type ProjectEngineView = z.infer<typeof ProjectEngineView>;
+export const ProjectEnginesResponse = z.object({ engines: z.array(ProjectEngineView) });
+export type ProjectEnginesResponse = z.infer<typeof ProjectEnginesResponse>;
+/** `default: true` makes the engine the project's base engine; absent or `false` changes nothing about it. */
+export const BindProjectEngineRequest = z.object({ default: z.boolean().optional() }).strict();
+export type BindProjectEngineRequest = z.infer<typeof BindProjectEngineRequest>;
+
+/** A project's binding to an engine (PM-1060); `revoked` is `engines.revoked_at != null`. */
+export const ProjectEngineBinding = z.object({
+  engineId: EngineId,
+  isDefault: z.boolean(),
+  revoked: z.boolean(),
+});
+export type ProjectEngineBinding = z.infer<typeof ProjectEngineBinding>;
+
+/**
+ * Where the project's new session goes; null: nothing to choose (the start waits with `engine_offline`).
+ * 1. A default binding whose engine is not revoked: that engine.
+ * 2. A default binding whose engine is revoked: null. It does not move to another machine silently; the
+ *    project owner picks a new default.
+ * 3. No binding: the global default, while its owner is one of the project's owners; otherwise null.
+ */
+export function projectEngineOf(input: {
+  bindings: readonly ProjectEngineBinding[];
+  /** The global default engine that is not revoked; in the local mode `local`, owned by the host owner. */
+  globalDefault: { id: EngineId; ownerUserId: string } | null;
+  /** The user ids of the members with `owner` access to the project. */
+  projectOwnerUserIds: readonly string[];
+}): EngineId | null {
+  const base = input.bindings.find((binding) => binding.isDefault);
+  if (base) return base.revoked ? null : base.engineId;
+  if (input.bindings.length > 0) return null;
+  const fallback = input.globalDefault;
+  return fallback && input.projectOwnerUserIds.includes(fallback.ownerUserId) ? fallback.id : null;
+}
+
+interface EngineBindingActor {
+  actorUserId: string;
+  /** The engine record's `created_by` (a user id, not the display name of `EngineView.createdBy`). */
+  engineOwnerUserId: string;
+  actorIsProjectOwner: boolean;
+}
+
+/** Binding an engine to a project takes both: the machine's owner lets it, the project's owner wants it. */
+export function canBindEngine(a: EngineBindingActor): boolean {
+  return a.actorUserId === a.engineOwnerUserId && a.actorIsProjectOwner;
+}
+
+/** Either side may end it: the machine's owner takes it back, the project's owner lets it go. */
+export function canUnbindEngine(a: EngineBindingActor): boolean {
+  return a.actorUserId === a.engineOwnerUserId || a.actorIsProjectOwner;
+}

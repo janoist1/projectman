@@ -104,6 +104,7 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
   if (event.type === 'system_feedback_changed') return;
   if (
     'projectKey' in event &&
+    event.projectKey !== undefined &&
     [
       'task_upserted',
       'timeline_appended',
@@ -119,6 +120,7 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
   // channel adds the Operator's steps, which an approval in the inbox settles (`inbox_upserted`).
   if (
     'projectKey' in event &&
+    event.projectKey !== undefined &&
     [
       'member_changed',
       'member_state',

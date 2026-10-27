@@ -70,19 +70,23 @@ export const REWRITTEN_HANDLE_COLUMNS: readonly HandleTable[] = [
 ];
 
 /** Handle lists kept as a JSON array of strings, or (`receipts`) of receipts naming a handle and where it was handed on. */
-export const REWRITTEN_HANDLE_JSON: readonly { table: string; column: string; kind: 'handles' | 'receipts' }[] =
-  [
-    { table: 'team_messages', column: 'to_handles', kind: 'handles' },
-    { table: 'team_messages', column: 'receipts', kind: 'receipts' },
-    { table: 'inbox_items', column: 'assignees', kind: 'handles' },
-    { table: 'task_loops', column: 'members', kind: 'handles' },
-    { table: 'task_loops', column: 'deciders', kind: 'handles' },
-    { table: 'task_fix_limits', column: 'deciders', kind: 'handles' },
-  ];
+export const REWRITTEN_HANDLE_JSON: readonly {
+  table: string;
+  column: string;
+  kind: 'handles' | 'receipts';
+}[] = [
+  { table: 'team_messages', column: 'to_handles', kind: 'handles' },
+  { table: 'team_messages', column: 'receipts', kind: 'receipts' },
+  { table: 'inbox_items', column: 'assignees', kind: 'handles' },
+  { table: 'task_loops', column: 'members', kind: 'handles' },
+  { table: 'task_loops', column: 'deciders', kind: 'handles' },
+  { table: 'task_fix_limits', column: 'deciders', kind: 'handles' },
+];
 
 /** Handle-like columns a rename leaves alone, with the reason: history, storage keys, or no handle at all. */
 export const UNREWRITTEN_HANDLE_COLUMNS: Readonly<Record<string, string>> = {
-  'timeline_events.actor_handle': 'the timeline is append-only; the old handle resolves through formerHandles',
+  'timeline_events.actor_handle':
+    'the timeline is append-only; the old handle resolves through formerHandles',
   'member_workspaces.member': 'a storage key: the workspace stays under the member storage handle',
   'sessions.cwd': 'a storage path under the member storage handle',
   'sessions.transcript_path': 'a storage path under the member storage handle',
@@ -94,6 +98,7 @@ export const UNREWRITTEN_HANDLE_COLUMNS: Readonly<Record<string, string>> = {
   'system_feedback_forwarding.changed_by': 'an owner decides; an AI member does not',
   'engines.created_by': 'a user id, not a handle',
   'engines.revoked_by': 'a user id, not a handle',
+  'project_engines.added_by': 'a user id, not a handle',
   'integrator_keys.user_id': 'a user id, not a handle',
   'deferred_starts.spec': 'a start naming the member makes the rename refuse (member_session_live)',
 };

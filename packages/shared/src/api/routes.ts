@@ -55,6 +55,9 @@ export const routes = {
   engineStatus: () => '/api/engines/status',
   revokeEngine: (id: string) => `/api/engines/${id}/revoke`,
   defaultEngine: (id: string) => `/api/engines/${id}/default`,
+  /** The project's engines (PM-1060): `GET` the list, `PUT` / `DELETE` one binding. */
+  projectEngines: (key: string) => `/api/projects/${key}/engines`,
+  projectEngine: (key: string, engineId: string) => `/api/projects/${key}/engines/${engineId}`,
   engineLink: () => '/engine/link',
   /** The engine sends a large result here (PM-314): `POST` the bytes; the token comes with the request. */
   engineUpload: (token: string) => `/engine/files/uploads/${token}`,

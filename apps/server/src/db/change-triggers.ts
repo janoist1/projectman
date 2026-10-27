@@ -164,6 +164,8 @@ export const UNJOURNALED_TABLES: Readonly<Record<string, string>> = {
   email_contact_events: 'owner/admin email audit with its own email_changed event (PM-940)',
   email_messages: 'owner/admin email log with its own email_changed event (PM-940)',
   engines: 'written with the project fan-out by the engine registry, in its own transaction',
+  project_engines:
+    'written by the engine registry in one transaction with the project’s own engine journal row (PM-1060)',
   feedback_events: 'the feedback tool has its own read model',
   feedback_launch_codes: 'the feedback tool has its own read model',
   feedback_marker_colors: 'the feedback tool has its own read model',

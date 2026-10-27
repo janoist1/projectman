@@ -704,6 +704,20 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     engineRegistry?.useCounters((id) => domain.engineCounters(id));
     // The registry writes its own journal entries in its transactions; the long polls wait on this wake.
     engineRegistry?.useJournalWake((projectKey) => domain.changes.notify(projectKey));
+    // The project's engine comes from its binding (PM-1060): its owners decide the fallback, the hello says what a machine holds.
+    engineRegistry?.useProjectOwners((projectKey) =>
+      (domain.projects.cachedConfig(projectKey)?.team.members ?? []).flatMap((member) => {
+        const user =
+          member.kind === 'human' && member.access === 'owner' && member.email
+            ? repos!.users.findByEmail(member.email)
+            : null;
+        return user ? [user.id] : [];
+      }),
+    );
+    engineRegistry?.useProjectHolds(
+      (id, projectKey) =>
+        remote?.hub.mirror(id).hello?.projects.some((held) => held.project === projectKey) ?? false,
+    );
     engineLinks?.register(app);
     remote?.transfers.register(app);
     registerApiRoutes(app, {

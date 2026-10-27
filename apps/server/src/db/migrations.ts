@@ -2369,4 +2369,20 @@ migrations.push({
     )
   ), checks = '{}' WHERE checks <> '{}';`,
 });
+migrations.push({
+  version: 116,
+  name: 'project engine bindings',
+  // PM-1060: which engines (machines) run a project. No rows to carry over: a project without a binding
+  // keeps using the global default engine while its owner is the engine's owner.
+  sql: `CREATE TABLE project_engines (
+    project_key TEXT NOT NULL,
+    engine_id   TEXT NOT NULL REFERENCES engines(id),
+    is_default  INTEGER NOT NULL DEFAULT 0 CHECK (is_default IN (0, 1)),
+    added_by    TEXT NOT NULL REFERENCES users(id),
+    added_at    TEXT NOT NULL,
+    PRIMARY KEY (project_key, engine_id)
+  );
+  CREATE UNIQUE INDEX project_engines_one_default ON project_engines(project_key) WHERE is_default = 1;
+  CREATE INDEX project_engines_engine ON project_engines(engine_id);`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

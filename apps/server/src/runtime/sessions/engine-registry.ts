@@ -1,11 +1,18 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { assertSuperMutation } from '../../kernel';
-import { EngineProvider } from '@projectman/shared';
-import type { CreateEngineResponse, EngineId, EngineStatusView, EngineView } from '@projectman/shared';
+import { EngineProvider, projectEngineOf } from '@projectman/shared';
+import type {
+  CreateEngineResponse,
+  EngineId,
+  EngineStatusView,
+  EngineView,
+  ProjectEngineBinding,
+  ProjectEngineView,
+} from '@projectman/shared';
 import { z } from 'zod';
 import type { EventBus } from '../../contracts';
 import type { EngineRecord, Repositories } from '../../db';
-import { DomainError } from '../../kernel';
+import { conflict, DomainError } from '../../kernel';
 
 const StoredHello = z.object({
   hostname: z.string(),
@@ -49,6 +56,9 @@ export class EngineRegistry {
     waitingMessages: 0,
   });
   private wake: (projectKey: string) => void = () => {};
+  private projectOwners: (projectKey: string) => string[] = () => [];
+  private projectHolds: (id: EngineId, projectKey: string) => boolean = () => false;
+  private readonly projectEngineListeners = new Set<(projectKey: string) => void>();
   private readonly repos: Repositories;
   private readonly bus: EventBus;
   private readonly version: string;
@@ -88,9 +98,129 @@ export class EngineRegistry {
     this.counters = counters;
   }
 
-  /** The engine a new session goes to: the default one that is not revoked; null when there is none. */
+  /** The user ids of the project's `owner` members; the domain provides them (the project configuration is its). */
+  useProjectOwners(owners: (projectKey: string) => string[]): void {
+    this.projectOwners = owners;
+  }
+
+  /** Whether the engine's `hello` lists the project (a folder of it on the machine); the link layer provides it. */
+  useProjectHolds(holds: (id: EngineId, projectKey: string) => boolean): void {
+    this.projectHolds = holds;
+  }
+
+  /** The machine-wide default engine: the one that is not revoked and is marked default; null when there is none. */
   defaultId(): EngineId | null {
-    return this.repos.engines.list().find((row) => row.is_default && !row.revoked_at)?.id ?? null;
+    return this.defaultRecord()?.id ?? null;
+  }
+
+  private defaultRecord(): EngineRecord | null {
+    return this.repos.engines.list().find((row) => row.is_default && !row.revoked_at) ?? null;
+  }
+
+  /** The user id of the engine's owner (`engines.created_by`); null when there is no such engine. */
+  ownerOf(id: EngineId): string | null {
+    return this.repos.engines.get(id)?.created_by ?? null;
+  }
+
+  projectBindings(projectKey: string): ProjectEngineBinding[] {
+    return this.repos.projectEngines.list(projectKey).map((row) => ({
+      engineId: row.engine_id,
+      isDefault: !!row.is_default,
+      revoked: row.revoked_at !== null,
+    }));
+  }
+
+  /** The engine the project's new session goes to (`projectEngineOf`): the binding, else the global default of its owners. */
+  projectEngine(projectKey: string): EngineId | null {
+    const fallback = this.defaultRecord();
+    return projectEngineOf({
+      bindings: this.projectBindings(projectKey),
+      globalDefault: fallback ? { id: fallback.id, ownerUserId: fallback.created_by } : null,
+      projectOwnerUserIds: this.projectOwners(projectKey),
+    });
+  }
+
+  /** Called after the project's engine choice may have changed (a write of its bindings, a revocation, a new global default). */
+  onProjectEngineChange(listener: (projectKey: string) => void): () => void {
+    this.projectEngineListeners.add(listener);
+    return () => {
+      this.projectEngineListeners.delete(listener);
+    };
+  }
+
+  private projectEngineChanged(keys: Iterable<string>): void {
+    for (const key of new Set(keys)) for (const listener of this.projectEngineListeners) listener(key);
+  }
+
+  /** The project's engines for a member: its bindings, or the fallback engine as the only, default one. */
+  projectEngineViews(projectKey: string, viewerUserId: string): ProjectEngineView[] {
+    const rows = this.repos.projectEngines.list(projectKey);
+    const view = (engine: EngineRecord, isDefault: boolean): ProjectEngineView => ({
+      id: engine.id,
+      name: engine.name,
+      online: !engine.revoked_at && this.online.has(engine.id),
+      isDefault,
+      holdsProject: this.projectHolds(engine.id, projectKey),
+      ownedByMe: engine.created_by === viewerUserId,
+    });
+    if (rows.length === 0) {
+      const fallback = this.projectEngine(projectKey);
+      const engine = fallback ? this.repos.engines.get(fallback) : null;
+      return engine ? [view(engine, true)] : [];
+    }
+    return rows.flatMap((row) => {
+      const engine = this.repos.engines.get(row.engine_id);
+      return engine ? [view(engine, !!row.is_default)] : [];
+    });
+  }
+
+  /**
+   * Binds the engine to the project (PM-1060); who may is the caller's to decide (`canBindEngine`). The
+   * project's first binding is its default; later ones become default only when asked, and the old default
+   * is taken off in the same transaction. Binding again changes nothing unless it makes the engine default.
+   */
+  bind(projectKey: string, engineId: EngineId, userId: string, options: { default?: boolean }): void {
+    this.active(engineId);
+    this.projectWrite(projectKey, engineId, () => {
+      const existing = this.repos.projectEngines.list(projectKey);
+      const bound = existing.find((row) => row.engine_id === engineId);
+      const makeDefault = options.default === true || existing.length === 0;
+      if (bound && (!makeDefault || bound.is_default)) return false;
+      if (!bound) this.repos.projectEngines.insert({ projectKey, engineId, addedBy: userId, at: this.at() });
+      if (makeDefault) this.repos.projectEngines.setDefault(projectKey, engineId);
+      return true;
+    });
+  }
+
+  /** Ends the binding. Refused while the project has a session on the engine, and for the default while another binding stays. */
+  unbind(projectKey: string, engineId: EngineId): void {
+    this.projectWrite(projectKey, engineId, () => {
+      const bound = this.repos.projectEngines.get(projectKey, engineId);
+      if (!bound) throw new DomainError('engine_not_found', 'The engine is not bound', { status: 404 });
+      if (this.repos.projectEngines.hasOpenSession(projectKey, engineId))
+        throw conflict('engine_in_use', 'The project has a session on this engine');
+      if (bound.is_default && this.repos.projectEngines.list(projectKey).length > 1)
+        throw conflict('engine_is_default', 'Make another engine the default first');
+      this.repos.projectEngines.remove(projectKey, engineId);
+      return true;
+    });
+  }
+
+  /** One write of a project's bindings in one transaction with the project's journal entry, then the wake and the events. */
+  private projectWrite(projectKey: string, engineId: EngineId, write: () => boolean): void {
+    const changed = this.repos.transaction(() => {
+      if (!write()) return false;
+      this.repos.projectChanges.append(projectKey, 'engine', engineId, this.at());
+      return true;
+    });
+    if (!changed) return;
+    this.wake(projectKey);
+    this.changed(engineId, projectKey);
+    this.projectEngineChanged([projectKey]);
+  }
+
+  private at(): string {
+    return this.now().toISOString();
   }
 
   /** Every engine that is not revoked. */
@@ -149,7 +279,10 @@ export class EngineRegistry {
       const defaults = [before, this.defaultId()];
       const at = this.now().toISOString();
       for (const id of ids) {
-        const keys = new Set(this.repos.projectChanges.projectKeysOnEngine(id));
+        const keys = new Set([
+          ...this.repos.projectChanges.projectKeysOnEngine(id),
+          ...this.repos.projectEngines.projectKeysOf(id),
+        ]);
         if (defaults.includes(id)) for (const key of this.repos.projectChanges.projectKeys()) keys.add(key);
         for (const key of keys) {
           this.repos.projectChanges.append(key, 'engine', id, at);
@@ -178,11 +311,16 @@ export class EngineRegistry {
   revoke(id: string, userId: string): EngineView {
     assertSuperMutation(null, { kind: 'remove', resource: 'engine', id });
     this.active(id);
+    const wasDefault = this.defaultId() === id;
     this.journaled([id], () => this.repos.engines.revoke(id, userId, this.now().toISOString()));
     // A revoked engine stops counting as available now, and what waits for it is told.
     this.setOnline(id, false);
     for (const listener of this.revokeListeners) listener(id);
     this.changed(id);
+    // The projects bound to it, and every project that fell back on it, now choose another engine (or none).
+    this.projectEngineChanged(
+      wasDefault ? this.repos.projectChanges.projectKeys() : this.repos.projectEngines.projectKeysOf(id),
+    );
     return this.view(this.repos.engines.get(id)!);
   }
   setDefault(id: string): EngineView[] {
@@ -194,6 +332,8 @@ export class EngineRegistry {
     );
     if (previous && previous !== id) this.changed(previous);
     this.changed(id);
+    // A project without a binding falls back on the global default.
+    if (previous !== id) this.projectEngineChanged(this.repos.projectChanges.projectKeys());
     return this.list();
   }
   seen(id: EngineId, ip: string, hello?: EngineHelloMetadata): void {
@@ -227,10 +367,14 @@ export class EngineRegistry {
       this.revokeListeners.delete(listener);
     };
   }
-  private changed(id: EngineId): void {
+  private changed(id: EngineId, projectKey?: string): void {
     const row = this.repos.engines.get(id);
     if (!row) return;
     const { name, isDefault, online, lastSeenAt } = this.view(row);
-    this.bus.publish({ type: 'engine_changed', engine: { id, name, isDefault, online, lastSeenAt } });
+    this.bus.publish({
+      type: 'engine_changed',
+      engine: { id, name, isDefault, online, lastSeenAt },
+      ...(projectKey !== undefined ? { projectKey } : {}),
+    });
   }
 }

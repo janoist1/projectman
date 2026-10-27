@@ -88,6 +88,10 @@ export interface FakeCloud {
     setOnline(id: EngineId, online: boolean): void;
     setDefault(id: EngineId | null): void;
     add(id: EngineId): void;
+    projectEngine(projectKey: string): EngineId | null;
+    onProjectEngineChange(listener: (projectKey: string) => void): () => void;
+    /** Sets the project's engine (null: none) and tells the listeners; without it a project uses the default. */
+    bindProject(projectKey: string, id: EngineId | null): void;
   };
   /** Connects an engine; its `hello` is what the cloud mirrors. */
   connect(
@@ -104,10 +108,22 @@ export function createFakeCloud(): FakeCloud {
   const online = new Set<EngineId>();
   const known: EngineId[] = [];
   let defaultId: EngineId | null = null;
+  const projectEngines = new Map<string, EngineId | null>();
+  const projectListeners = new Set<(projectKey: string) => void>();
 
   const registry: FakeCloud['registry'] = {
     isOnline: (id) => online.has(id),
     defaultId: () => defaultId,
+    projectEngine: (projectKey) =>
+      projectEngines.has(projectKey) ? projectEngines.get(projectKey)! : defaultId,
+    onProjectEngineChange(listener) {
+      projectListeners.add(listener);
+      return () => projectListeners.delete(listener);
+    },
+    bindProject(projectKey, id) {
+      projectEngines.set(projectKey, id);
+      for (const listener of [...projectListeners]) listener(projectKey);
+    },
     ids: () => [...known],
     onOnlineChange(listener) {
       onlineListeners.add(listener);

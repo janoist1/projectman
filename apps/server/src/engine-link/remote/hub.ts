@@ -43,6 +43,10 @@ export interface RemoteHub {
   /** Connected, or gone for less than `ENGINE_OFFLINE_AFTER_MS`. */
   available(id: EngineId): boolean;
   defaultId(): EngineId | null;
+  /** The engine the project's new session goes to (its binding, else the global default of its owners). */
+  projectEngine(projectKey: string): EngineId | null;
+  /** Called after the project's engine choice may have changed. */
+  onProjectEngineChange(listener: (projectKey: string) => void): () => void;
   ids(): EngineId[];
   /**
    * Calls the engine. A link that is down is waited for up to `ENGINE_RELAY_WAIT_MS` while the engine
@@ -88,6 +92,8 @@ interface RemoteHubOptions {
   registry: {
     isOnline(id: EngineId): boolean;
     defaultId(): EngineId | null;
+    projectEngine(projectKey: string): EngineId | null;
+    onProjectEngineChange(listener: (projectKey: string) => void): () => void;
     ids(): EngineId[];
     onOnlineChange(listener: (id: EngineId, online: boolean) => void): () => void;
   };
@@ -269,6 +275,8 @@ export function createRemoteHub(options: RemoteHubOptions): RemoteHub {
     link: (id) => links.get(id),
     available: (id) => registry.isOnline(id),
     defaultId: () => registry.defaultId(),
+    projectEngine: (projectKey) => registry.projectEngine(projectKey),
+    onProjectEngineChange: (listener) => registry.onProjectEngineChange(listener),
     ids: () => registry.ids(),
     async call(id, method, params, callOptions) {
       const link = await waitLink(id, callOptions?.signal);

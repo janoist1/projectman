@@ -68,9 +68,28 @@ export function createRemoteGithub(options: {
     });
   };
 
+  const dropWatch = (watchId: string, watch: Watch) => {
+    const id = watch.subscribedEngineId;
+    watch.subscribedEngineId = null;
+    if (id === null || !hub.link(id)) return;
+    hub.call(id, 'github.unwatch', { watchId }).catch((err: unknown) => {
+      logger.warn({ err, engineId: id, watchId }, 'the engine did not drop a pull request watch');
+    });
+  };
+
   hub.onConnect(({ id }) => {
     for (const [watchId, watch] of watches) {
       if (directory.projectEngine(watch.projectKey) === id) sendWatch(watchId, watch);
+    }
+  });
+  // A new choice of the project's engine (PM-1060) moves its watches: off the old engine, onto the new one.
+  // Without an online new engine the watch stays here and is sent when one connects.
+  hub.onProjectEngineChange((projectKey) => {
+    for (const [watchId, watch] of watches) {
+      if (watch.projectKey !== projectKey || watch.subscribedEngineId === directory.projectEngine(projectKey))
+        continue;
+      dropWatch(watchId, watch);
+      sendWatch(watchId, watch);
     }
   });
   hub.onEvent((id, event) => {
@@ -134,12 +153,7 @@ export function createRemoteGithub(options: {
       watches.set(watchId, watch);
       sendWatch(watchId, watch);
       return () => {
-        if (!watches.delete(watchId)) return;
-        const id = watch.subscribedEngineId;
-        if (id === null || !hub.link(id)) return;
-        hub.call(id, 'github.unwatch', { watchId }).catch((err: unknown) => {
-          logger.warn({ err, engineId: id, watchId }, 'the engine did not drop a pull request watch');
-        });
+        if (watches.delete(watchId)) dropWatch(watchId, watch);
       };
     },
   };

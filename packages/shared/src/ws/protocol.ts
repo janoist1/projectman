@@ -15,7 +15,12 @@ import { Task, TaskKey } from '../domain/task';
 export const ServerEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('project_checklist_changed'), projectKey: z.string() }),
   z.object({ type: z.literal('operator_signal'), projectKey: z.string(), signal: OperatorSignal }),
-  z.object({ type: z.literal('engine_changed'), engine: EngineStatusView }),
+  /** `projectKey`: the change is a project–engine binding of that project (PM-1060); absent: the engine itself changed. */
+  z.object({
+    type: z.literal('engine_changed'),
+    engine: EngineStatusView,
+    projectKey: z.string().optional(),
+  }),
   /** The Operator's grant for machine operations was given, replaced or revoked (PM-881); not project-bound. */
   z.object({ type: z.literal('operator_grant_changed') }),
   /** A member's queue changed (PM-894): an item came, was taken or was closed; refetch the queue. */

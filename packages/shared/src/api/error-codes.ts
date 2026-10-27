@@ -209,6 +209,10 @@ export const ERROR_CODES = [
   // AI work: admission, task starts, schedules and sessions
   'engine_not_found',
   'engine_revoked',
+  // Project–engine binding (PM-1060): not the engine's owner, a session still on it, the project's base engine.
+  'engine_not_owned',
+  'engine_in_use',
+  'engine_is_default',
   'ai_disabled',
   'ai_limit_reached',
   'plan_usage_paused',

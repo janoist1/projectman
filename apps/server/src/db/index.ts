@@ -9,6 +9,7 @@ import { createMessageAttachmentRepository } from './message-attachments';
 export type { MessageAttachmentRecord, MessageAttachmentState } from './message-attachments';
 import { createEngineRepository } from './engines';
 export type { EngineRecord } from './engines';
+import { createProjectEngineRepository } from './project-engines';
 import { createIntegratorKeyRepository } from './integrator-keys';
 import { createIntegratorKeyAuditRepository } from './integrator-key-audit';
 import { createOperatorGrantRepository } from './operator-grants';
@@ -112,6 +113,7 @@ export function createRepositories(db: Db) {
     db,
     webPush: createWebPushRepository(db),
     engines: createEngineRepository(db),
+    projectEngines: createProjectEngineRepository(db),
     users: createUserRepository(db),
     integratorKeys: createIntegratorKeyRepository(db),
     integratorKeyAudit: createIntegratorKeyAuditRepository(db),

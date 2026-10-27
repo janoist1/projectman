@@ -483,6 +483,7 @@ export const hu = {
       manage: 'Kezelés',
       give: 'Megadás…',
       unknown: 'A jogosítvány állapota most nem látszik.',
+      chip: 'super',
       dot: 'Operátor super jogosítvánnyal',
       untilRevoked: 'visszavonásig',
       untilToday: 'ma {time}-ig',

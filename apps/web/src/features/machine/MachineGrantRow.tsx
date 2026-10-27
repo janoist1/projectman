@@ -33,7 +33,7 @@ export function MachineGrantRow() {
   return (
     <footer className={styles.grantRow}>
       {grant.active ? (
-        <span className={styles.grantChip}>super</span>
+        <span className={styles.grantChip}>{t('machine.grant.chip')}</span>
       ) : (
         <span className={styles.grantOff} aria-hidden="true" />
       )}

@@ -1362,6 +1362,7 @@ export function createDomain(opts: DomainOptions) {
   events.on('session_ended', (session) => feedbackNotices.settle(session));
   tasks.registerMergeGate(merges);
   tasks.registerWorkEntryCheck(taskStarts);
+  tasks.registerProviderAssignmentCheck(admission);
   events.on('task_cancelled', (task) => {
     merges.cancel(task.projectKey, task.key);
   });
@@ -2792,6 +2793,7 @@ export function createDomain(opts: DomainOptions) {
         superAdministration,
         inbox,
         history,
+        operatorKnowledge: opts.operatorKnowledge,
       }).backend();
     },
 

@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'nod
 import os from 'node:os';
 import path from 'node:path';
 import type { CloudDeps, RunResult } from '../../../../scripts/cloud/deps';
-import { FakeEc2 } from './fake-ec2';
+import { EC2_CONFIG, FakeEc2 } from './fake-ec2';
 
 /**
  * A fake of the `aws` CLI v2 that keeps state (PM-534): it answers by service, operation and argv, like the
@@ -36,25 +36,6 @@ interface BucketState {
   objects: number;
 }
 
-interface PortState {
-  fromPort: number;
-  toPort: number;
-  protocol: string;
-  cidrs: string[];
-  ipv6Cidrs: string[];
-  cidrListAliases: string[];
-}
-
-interface InstanceState {
-  name: string;
-  bundleId: string;
-  blueprintId: string;
-  state: string;
-  pendingPolls: number;
-  metadata: { httpTokens: string; httpPutResponseHopLimit: number };
-  ports: PortState[];
-}
-
 interface AwsCall {
   /** The argv after `--profile … --region … --output json`. */
   args: string[];
@@ -83,30 +64,18 @@ function ok(value: unknown = {}): RunResult {
 
 class FakeAws {
   readonly ec2 = new FakeEc2();
-  readonly accounts = new Map([['i', ACCOUNT]]);
+  readonly accounts = new Map([
+    ['aroom', ACCOUNT],
+    ['i', ACCOUNT],
+  ]);
   version = 'aws-cli/2.17.1 Python/3.11.9 Darwin/23.6.0 exe/arm64';
-  regions = [{ name: 'eu-west-1', zones: ['eu-west-1a', 'eu-west-1b'] }];
-  bundles = [
-    { bundleId: 'small_3_0', isActive: true },
-    { bundleId: 'old_1_0', isActive: false },
-  ];
-  blueprints = [{ blueprintId: 'ubuntu_24_04', isActive: true }];
   /** When set, `sts get-caller-identity` fails with this message. */
   loginError: string | null = null;
-  instance: InstanceState | null = null;
   readonly buckets = new Map<string, BucketState>();
   readonly users = new Map<string, UserState>();
   readonly calls: AwsCall[] = [];
   /** Every secret access key this fake handed out. */
   readonly issuedSecrets: string[] = [];
-  /** The public address `get-instance` reports. */
-  publicIpAddress = '203.0.113.7';
-  /** What `get-instance-access-details` returns apart from the key and certificate it makes up. */
-  accessHostKeys: { algorithm: string; publicKey: string }[] = [
-    { algorithm: 'ssh-ed25519', publicKey: 'AAAAC3NzaC1lZDI1NTE5AAAAIFakeHostKeyForTests0123456789abcdef' },
-  ];
-  /** How many temporary key pairs were handed out. */
-  accessDetailsIssued = 0;
   private keyCounter = 0;
 
   /** The calls that change something, as `service operation`. */
@@ -123,37 +92,6 @@ class FakeAws {
 
   clearCalls(): void {
     this.calls.length = 0;
-  }
-
-  addInstance(overrides: Partial<InstanceState> = {}): InstanceState {
-    this.instance = {
-      name: 'projectman-cloud',
-      bundleId: 'small_3_0',
-      blueprintId: 'ubuntu_24_04',
-      state: 'running',
-      pendingPolls: 0,
-      metadata: { httpTokens: 'optional', httpPutResponseHopLimit: 2 },
-      ports: [
-        {
-          fromPort: 22,
-          toPort: 22,
-          protocol: 'tcp',
-          cidrs: ['0.0.0.0/0'],
-          ipv6Cidrs: [],
-          cidrListAliases: [],
-        },
-        {
-          fromPort: 80,
-          toPort: 80,
-          protocol: 'tcp',
-          cidrs: ['0.0.0.0/0'],
-          ipv6Cidrs: [],
-          cidrListAliases: [],
-        },
-      ],
-      ...overrides,
-    };
-    return this.instance;
   }
 
   addBucket(name: string, overrides: Partial<BucketState> = {}): BucketState {
@@ -222,117 +160,12 @@ class FakeAws {
         return this.loginError
           ? { code: 255, stdout: '', stderr: `${this.loginError}\n` }
           : ok({ UserId: 'AIDAFAKE', Account: ACCOUNT, Arn: `arn:aws:iam::${ACCOUNT}:user/i` });
-      case 'lightsail get-regions':
-        return ok({
-          regions: this.regions.map((region) => ({
-            name: region.name,
-            availabilityZones: region.zones.map((zoneName) => ({ zoneName, state: 'available' })),
-          })),
-        });
-      case 'lightsail get-bundles':
-        return ok({ bundles: this.bundles });
-      case 'lightsail get-blueprints':
-        return ok({ blueprints: this.blueprints });
-      case 'lightsail get-instance':
-        return this.getInstance(args);
-      case 'lightsail get-instance-state': {
-        const name = flagValue(args, '--instance-name');
-        return this.instance && this.instance.name === name
-          ? ok({ state: { name: this.instance.state, code: 16 } })
-          : failure('NotFoundException', 'GetInstanceState', `Instance ${name} not found`);
-      }
-      case 'lightsail get-instance-access-details': {
-        if (!this.instance) return failure('NotFoundException', 'GetInstanceAccessDetails', 'not found');
-        this.accessDetailsIssued += 1;
-        return ok({
-          accessDetails: {
-            instanceName: this.instance.name,
-            username: 'ubuntu',
-            ipAddress: this.publicIpAddress,
-            protocol: 'ssh',
-            privateKey: `-----BEGIN OPENSSH PRIVATE KEY-----\nFAKEPRIVATEKEYBODY${this.accessDetailsIssued}\n-----END OPENSSH PRIVATE KEY-----\n`,
-            certKey: `ssh-ed25519-cert-v01@openssh.com AAAAFAKECERTIFICATE${this.accessDetailsIssued} temporary`,
-            hostKeys: this.accessHostKeys,
-          },
-        });
-      }
-      case 'lightsail create-instances':
-        return this.createInstance(args);
-      case 'lightsail update-instance-metadata-options':
-        return this.updateMetadata(args);
-      case 'lightsail get-instance-port-states':
-        return this.instance
-          ? ok({ portStates: this.instance.ports.map((port) => ({ ...port, state: 'open' })) })
-          : failure('NotFoundException', 'GetInstancePortStates', 'not found');
-      case 'lightsail put-instance-public-ports':
-        return this.putPorts(args);
       default:
         break;
     }
     if (args[0] === 's3api') return this.s3(args);
     if (args[0] === 'iam') return this.iam(args);
     return { code: 252, stdout: '', stderr: `fake aws: unknown command ${key}\n` };
-  }
-
-  private getInstance(args: string[]): RunResult {
-    const name = flagValue(args, '--instance-name');
-    if (!this.instance || this.instance.name !== name)
-      return failure('NotFoundException', 'GetInstance', `Instance ${name} not found`);
-    if (this.instance.state === 'pending') {
-      if (this.instance.pendingPolls <= 0) this.instance.state = 'running';
-      else this.instance.pendingPolls -= 1;
-    }
-    const { state, metadata, name: instanceName, bundleId, blueprintId } = this.instance;
-    return ok({
-      instance: {
-        name: instanceName,
-        bundleId,
-        blueprintId,
-        state: { name: state, code: 16 },
-        publicIpAddress: this.publicIpAddress,
-        metadataOptions: {
-          state: 'applied',
-          httpTokens: metadata.httpTokens,
-          httpPutResponseHopLimit: metadata.httpPutResponseHopLimit,
-        },
-      },
-    });
-  }
-
-  private createInstance(args: string[]): RunResult {
-    const name = flagValue(args, '--instance-names')!;
-    if (this.instance) return failure('InvalidInputException', 'CreateInstances', 'already exists');
-    this.addInstance({
-      name,
-      bundleId: flagValue(args, '--bundle-id')!,
-      blueprintId: flagValue(args, '--blueprint-id')!,
-      state: 'pending',
-      pendingPolls: 2,
-    });
-    return ok({ operations: [{ id: 'op-1', status: 'Started' }] });
-  }
-
-  private updateMetadata(args: string[]): RunResult {
-    if (!this.instance) return failure('NotFoundException', 'UpdateInstanceMetadataOptions', 'not found');
-    this.instance.metadata = {
-      httpTokens: flagValue(args, '--http-tokens')!,
-      httpPutResponseHopLimit: Number(flagValue(args, '--http-put-response-hop-limit')),
-    };
-    return ok({ operations: [] });
-  }
-
-  private putPorts(args: string[]): RunResult {
-    if (!this.instance) return failure('NotFoundException', 'PutInstancePublicPorts', 'not found');
-    const infos = JSON.parse(flagValue(args, '--port-infos')!) as Partial<PortState>[];
-    this.instance.ports = infos.map((info) => ({
-      fromPort: info.fromPort!,
-      toPort: info.toPort!,
-      protocol: info.protocol!,
-      cidrs: info.cidrs ?? [],
-      ipv6Cidrs: info.ipv6Cidrs ?? [],
-      cidrListAliases: info.cidrListAliases ?? [],
-    }));
-    return ok({ operation: { id: 'op-2' } });
   }
 
   private s3(args: string[]): RunResult {
@@ -510,7 +343,10 @@ export function baseConfig(): Record<string, unknown> {
   return {
     version: 1,
     aws: {
+      compute: 'ec2',
+      profile: 'aroom',
       region: 'eu-west-1',
+      ec2: { ...EC2_CONFIG },
       databaseBucket: 'acme-projectman-db',
       backupBucket: 'acme-projectman-backup',
     },

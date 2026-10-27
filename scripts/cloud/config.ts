@@ -15,14 +15,13 @@ const REGION = /^[a-z]{2}(?:-[a-z]+)+-\d{1,2}$/;
 /** S3 rules for a bucket that is used with path-style and virtual-host-style access: no dots. */
 const BUCKET = /^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/;
 const RESERVED_BUCKET_PARTS = [/^xn--/, /^sthree-/, /-s3alias$/, /--ol-s3$/, /--x-s3$/];
-/** Lightsail and IAM names: the IAM user is `<name>-litestream`, at most 64 characters. */
+/** Instance and IAM names: the IAM user is `<name>-litestream`, at most 64 characters. */
 const INSTANCE_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]{0,49}$/;
-const IDENTIFIER = /^[a-z0-9][a-z0-9_]*$/;
 const DNS_LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const ZONE = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
 const EMAIL = /^[a-z0-9._%+-]+@[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?\.[a-z]{2,63}$/;
 
-export const bucketName = z
+const bucketName = z
   .string()
   .regex(BUCKET, 'an S3 bucket name: 3-63 lowercase letters, digits and hyphens, no dots')
   .refine((name) => !RESERVED_BUCKET_PARTS.some((part) => part.test(name)), 'a reserved S3 bucket name part')
@@ -30,7 +29,14 @@ export const bucketName = z
 
 const awsSchema = z
   .strictObject({
-    compute: z.enum(['lightsail', 'ec2']).default('lightsail'),
+    compute: z
+      .literal('ec2', {
+        error: (issue) =>
+          issue.input === 'lightsail'
+            ? 'Lightsail is no longer supported; set aws.compute to "ec2" (docs/AWS.md)'
+            : 'must be "ec2"',
+      })
+      .default('ec2'),
     profile: z
       .string()
       .min(1)
@@ -45,15 +51,8 @@ const awsSchema = z
       .string()
       .regex(INSTANCE_NAME, 'letters, digits, hyphens and underscores, at most 50 characters')
       .default('projectman-cloud'),
-    bundleId: z.string().regex(IDENTIFIER, 'a Lightsail bundle id such as small_3_0').default('small_3_0'),
-    blueprintId: z
-      .string()
-      .regex(IDENTIFIER, 'a Lightsail blueprint id such as ubuntu_24_04')
-      .default('ubuntu_24_04'),
     databaseBucket: bucketName,
     backupBucket: bucketName,
-    /** Only a fallback for the machine part (PM-535). */
-    sshIdentityFile: z.string().min(1).optional(),
     ec2: z
       .strictObject({
         architecture: z.enum(['x86_64', 'arm64']).default('x86_64'),
@@ -69,7 +68,7 @@ const awsSchema = z
       .optional(),
   })
   .superRefine((aws, context) => {
-    if (aws.compute === 'ec2' && (aws.profile === undefined || aws.profile === 'i'))
+    if (aws.profile === undefined || aws.profile === 'i')
       context.addIssue({
         code: 'custom',
         path: ['profile'],
@@ -178,7 +177,7 @@ const configSchema = z
       context.addIssue({ code: 'custom', path: pathParts, message });
     const { aws, cloudflare, access } = config;
     if (config.hybrid && !config.releaseTarget) issue(['hybrid'], 'needs releaseTarget');
-    if (aws.compute === 'ec2' && aws.ec2?.architecture === 'arm64' && !config.deployment)
+    if (aws.ec2?.architecture === 'arm64' && !config.deployment)
       issue(['deployment', 'imageBundle'], 'required for arm64');
     if (config.ses) {
       if (config.ses.from.split('@')[1] !== config.ses.domain)
@@ -193,7 +192,7 @@ const configSchema = z
         else if (replyDomain === config.ses.domain) issue(path, 'must differ from ses.domain');
       }
     }
-    if (aws.compute === 'ec2' && !aws.ec2)
+    if (!aws.ec2)
       issue(['aws', 'ec2'], 'required for EC2; explicitly choose the type, AMI, VPC, subnet and disk size');
     if (aws.databaseBucket === aws.backupBucket)
       issue(['aws', 'backupBucket'], 'must differ from databaseBucket');
@@ -238,16 +237,13 @@ export interface CloudConfig {
   hybrid?: { engineId: string; targetHash: string };
   version: 1;
   aws: {
-    compute: 'lightsail' | 'ec2';
+    compute: 'ec2';
     profile: string;
     region: string;
     availabilityZone: string;
     instanceName: string;
-    bundleId: string;
-    blueprintId: string;
     databaseBucket: string;
     backupBucket: string;
-    sshIdentityFile?: string;
     ec2?: NonNullable<ParsedCloudConfig['aws']['ec2']>;
   };
   repository: { url: string };

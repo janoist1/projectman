@@ -120,6 +120,16 @@ export function validateProjectConfig(config: ProjectConfig): ConfigIssue[] {
       issues.push({ code: 'duplicate_handle', path: `team.members[${i}]`, detail: m.handle });
     seen.add(m.handle);
     if (m.kind === 'ai') {
+      // A former handle names the member's storage paths, so it may not collide with any handle.
+      m.formerHandles?.forEach((former, j) => {
+        if (seen.has(former))
+          issues.push({
+            code: 'duplicate_handle',
+            path: `team.members[${i}].formerHandles[${j}]`,
+            detail: former,
+          });
+        seen.add(former);
+      });
       const sponsor = members.get(m.sponsor);
       if (!sponsor || sponsor.kind !== 'human') {
         issues.push({ code: 'sponsor_not_human', path: `team.members[${i}].sponsor`, detail: m.sponsor });

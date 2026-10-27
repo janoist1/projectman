@@ -12,7 +12,7 @@ import type { TaskService } from '../../core/tasks';
 import { forbidden, invalid, notFound } from '../../kernel';
 
 /** The most items one list of the integrator's inbox returns. */
-const INTEGRATOR_INBOX_LIMIT = 500;
+export const INTEGRATOR_INBOX_LIMIT = 500;
 
 interface Deps {
   inbox: Pick<InboxService, 'get'>;

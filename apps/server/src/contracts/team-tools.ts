@@ -50,7 +50,9 @@ import type {
   StaleReason,
   TaskStartWaiting,
   OperatorOperation,
+  OperatorAgreementData,
   OperatorKnowledgeDocument,
+  OperatorPrincipleData,
   ProposeOperatorKnowledgeRequest,
   OperatorPlan,
   OperatorPreferenceData,
@@ -1247,9 +1249,21 @@ export interface ExternalToolsHandler {
   ): Promise<{ item: InboxItem }>;
   /** list_integrator_inbox (PM-714): what the integrator is the recipient of, each with its full text. */
   listIntegratorInbox(
-    ctx: ExternalToolContext,
-    args: { state: 'open' | 'all' },
+    principal: IntegratorPrincipal,
+    requestId: string,
+    args: { projectKey?: string; state: 'open' | 'all' },
   ): Promise<{ items: InboxItem[] }>;
+  /** The global Operator's own knowledge (PM-1046): one document for the whole instance, no project. */
+  getInstanceKnowledge(principal: IntegratorPrincipal, requestId: string): Promise<OperatorKnowledgeDocument>;
+  updateInstanceKnowledge(
+    principal: IntegratorPrincipal,
+    requestId: string,
+    args: {
+      expectedRevision: number;
+      agreement?: OperatorAgreementData;
+      principles?: (Omit<OperatorPrincipleData, 'id'> & { id?: string })[];
+    },
+  ): Promise<OperatorKnowledgeDocument>;
   relayOwnerAnswer(
     ctx: ExternalToolContext,
     args: { itemId: string; answer: string },

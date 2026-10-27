@@ -12,16 +12,16 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { runCloud } from '../../../scripts/cloud/commands';
 import { parseTags } from '../../../scripts/cloud/machine';
-import { HostWorld, SHA_NEW, SHA_NEWEST, SHA_OLD } from './helpers/fake-host';
-import { Ec2HostWorld } from './helpers/fake-ec2-host';
+import { SHA_NEW, SHA_NEWEST, SHA_OLD } from './helpers/fake-host';
+import { EC2_HOST_ID, Ec2HostWorld } from './helpers/fake-ec2-host';
 
 /** `npm run cloud -- deploy | rollback | status | logs | ssh | stop | start | rehearse | seed | pull-data` (PM-535). */
 
 const REPO_URL = 'https://github.com/janoist1/projectman.git';
 
-let world: HostWorld;
+let world: Ec2HostWorld;
 beforeEach(() => {
-  world = HostWorld.ready();
+  world = Ec2HostWorld.configured();
 });
 afterEach(() => world.cleanup());
 
@@ -40,7 +40,6 @@ describe('deploy', () => {
     expect(world.output).toContain(`ok ref: v2026.10.12 (${SHA_NEWEST})`);
     expect(world.output).toContain('ok health: v2026.10.12 is healthy');
     expect(world.machine.current()?.sha).toBe(SHA_NEWEST);
-    expect(world.firewallIsClosed()).toBe(true);
   });
 
   it('orders release tags by number, not by text: v2026.10.11.4 is later than v2026.10.9 and v2026.9.30', async () => {
@@ -230,11 +229,11 @@ describe('deploy', () => {
     expect(world.output).toContain('cloud.env has no TUNNEL_TOKEN yet');
   });
 
-  it('--dry-run reads only: no ssh, no firewall change', async () => {
+  it('--dry-run reads only: no ssh, no change in AWS', async () => {
     expect(await run('deploy', '--dry-run')).toBe(0);
     expect(world.hostCalls).toHaveLength(0);
     expect(world.aws.mutations()).toEqual([]);
-    expect(world.output).toContain('skipped deploy: dry-run: would open the SSH port');
+    expect(world.output).toContain('skipped deploy: dry-run: would connect by SSH through SSM');
   });
 
   it('goes back to the previous image when the new one never becomes healthy, and warns about the migration', async () => {
@@ -254,7 +253,6 @@ describe('deploy', () => {
     expect(world.output).toContain('restore the database to 2026-10-12T12:');
     expect(world.output).toContain('Litestream replica');
     expect(world.output).toContain('docs/AWS.md');
-    expect(world.firewallIsClosed()).toBe(true);
   });
 
   it('fails without a rollback when there is no earlier image', async () => {
@@ -262,7 +260,6 @@ describe('deploy', () => {
     expect(await run('deploy')).toBe(1);
     expect(starts()).toEqual([[SHA_NEWEST, 'v2026.10.12']]);
     expect(world.output).toContain('there is no earlier image to go back to');
-    expect(world.firewallIsClosed()).toBe(true);
   });
 
   it('does not go back to the same image', async () => {
@@ -276,7 +273,6 @@ describe('deploy', () => {
     world.machine.failures.set('build', { code: 1, stdout: '', stderr: 'docker build failed\n' });
     expect(await run('deploy')).toBe(1);
     expect(starts()).toHaveLength(0);
-    expect(world.firewallIsClosed()).toBe(true);
   });
 
   it('the build output goes to the terminal (inherit), the long timeouts are set', async () => {
@@ -308,7 +304,6 @@ describe('rollback', () => {
     expect(await run('rollback')).toBe(2);
     expect(everything()).toContain('no previous image');
     expect(starts()).toHaveLength(0);
-    expect(world.firewallIsClosed()).toBe(true);
   });
 
   it('exits 1 when the previous image is unhealthy as well', async () => {
@@ -329,7 +324,7 @@ describe('status, logs, ssh', () => {
   it('prints the machine, the unit, the container, the history, the disk and the memory', async () => {
     world.machine.preload(SHA_NEW, 'v2026.10.12', { sha: SHA_OLD, ref: 'v2026.10.11.4' });
     expect(await run('status')).toBe(0);
-    expect(world.output).toContain('ok machine: projectman-cloud: running');
+    expect(world.output).toContain(`ok machine: projectman-cloud (${EC2_HOST_ID}): running`);
     expect(world.output).toContain('unit: active');
     expect(world.output).toContain(`container: running, healthy, projectman-cloud:${SHA_NEW}`);
     expect(world.output).toContain('current: v2026.10.12 (bbbbbbbbbbbb)');
@@ -340,18 +335,18 @@ describe('status, logs, ssh', () => {
   });
 
   it('says so when the machine is not running, without connecting', async () => {
-    world.aws.instance!.state = 'stopped';
+    world.instances[0]!.State.Name = 'stopped';
     expect(await run('status')).toBe(0);
-    expect(world.output).toContain('ok machine: projectman-cloud: stopped');
+    expect(world.output).toContain(`ok machine: projectman-cloud (${EC2_HOST_ID}): stopped`);
     expect(world.output).toContain('skipped host: the machine is stopped');
     expect(world.hostCalls).toHaveLength(0);
     expect(world.aws.mutations()).toEqual([]);
   });
 
   it('refuses when the machine does not exist', async () => {
-    world.aws.instance = null;
+    world.instances = [];
     expect(await run('status')).toBe(2);
-    expect(everything()).toContain('there is no machine projectman-cloud');
+    expect(everything()).toContain('exactly one managed instance');
   });
 
   it('logs prints the lines, 200 by default and --lines otherwise', async () => {
@@ -374,14 +369,13 @@ describe('status, logs, ssh', () => {
     expect(await run('ssh')).toBe(0);
     expect(world.shells).toHaveLength(1);
     expect(world.shells[0]).toContain('StrictHostKeyChecking=yes');
-    expect(world.shells[0]![world.shells[0]!.length - 1]).toBe('ubuntu@203.0.113.7');
-    expect(world.firewallIsClosed()).toBe(true);
+    expect(world.shells[0]![world.shells[0]!.length - 1]).toBe(`ubuntu@${EC2_HOST_ID}`);
   });
 
   it('ssh ignores the exit status of the last command typed in the shell', async () => {
     const deps = world.deps({
       run: async (command, args, options) => {
-        if (command === 'ssh') return { code: 1, stdout: '', stderr: '' };
+        if (command === 'ssh' && args[0] !== '-V') return { code: 1, stdout: '', stderr: '' };
         return world.deps().run(command, args, options);
       },
     });
@@ -391,12 +385,11 @@ describe('status, logs, ssh', () => {
   it('ssh fails when ssh itself cannot connect (status 255)', async () => {
     const deps = world.deps({
       run: async (command, args, options) => {
-        if (command === 'ssh') return { code: 255, stdout: '', stderr: 'no route' };
+        if (command === 'ssh' && args[0] !== '-V') return { code: 255, stdout: '', stderr: 'no route' };
         return world.deps().run(command, args, options);
       },
     });
     expect(await runCloud(['ssh'], deps)).toBe(1);
-    expect(world.firewallIsClosed()).toBe(true);
   });
 });
 
@@ -439,7 +432,6 @@ describe('stop, start, rehearse', () => {
     world.machine.rehearsalOutput = 'REHEARSAL FAILED: restore\n';
     world.machine.rehearsalCode = 1;
     expect(await run('rehearse')).toBe(1);
-    expect(world.firewallIsClosed()).toBe(true);
   });
 });
 
@@ -476,7 +468,6 @@ describe('seed', () => {
     expect(world.machine.receivedData).toContain('tar -C');
     expect(starts()).toEqual([[SHA_NEWEST, 'v2026.10.12']]);
     expect(world.output).toContain('the instance on the Mac must be stopped');
-    expect(world.firewallIsClosed()).toBe(true);
   });
 
   it('accepts the message attachments of a hybrid package and uploads them with it', async () => {
@@ -526,7 +517,6 @@ describe('seed', () => {
     expect(await run('seed', '--from', source)).toBe(2);
     expect(everything()).toContain('the board is running');
     expect(world.pipes).toHaveLength(0);
-    expect(world.firewallIsClosed()).toBe(true);
   });
 
   it('refuses when the data directory on the machine is not empty', async () => {
@@ -541,7 +531,6 @@ describe('seed', () => {
     expect(await run('seed', '--from', source)).toBe(1);
     expect(everything()).toContain('the upload failed');
     expect(world.machine.built).toHaveLength(0);
-    expect(world.firewallIsClosed()).toBe(true);
   });
 
   it('--dry-run checks the files and the buckets and then stops before connecting', async () => {
@@ -553,7 +542,7 @@ describe('seed', () => {
   });
 });
 
-describe.each(['lightsail', 'ec2'])('seed integrity through %s', (compute) => {
+describe('seed integrity', () => {
   let source: string;
   const database = () => path.join(source, 'db.sqlite');
   const digest = () => ({
@@ -561,10 +550,6 @@ describe.each(['lightsail', 'ec2'])('seed integrity through %s', (compute) => {
     databaseBytes: Buffer.byteLength('closed database'),
   });
   beforeEach(() => {
-    if (compute === 'ec2') {
-      world.cleanup();
-      world = Ec2HostWorld.configured();
-    }
     source = mkdtempSync(path.join(world.home, 'package-'));
     writeFileSync(database(), 'closed database');
     world.aws.addBucket('acme-projectman-db');
@@ -731,7 +716,6 @@ describe('pull-data', () => {
     expect(world.pipes[0]!.from.command).toBe('ssh');
     expect(world.pipes[0]!.to).toMatchObject({ command: 'tar', args: ['-x', '-p', '-f', '-', '-C', target] });
     expect(world.output).toContain('ok check-entries');
-    expect(world.firewallIsClosed()).toBe(true);
   });
 
   it('needs --to', async () => {
@@ -756,7 +740,6 @@ describe('pull-data', () => {
     expect(everything()).toContain('stop it first');
     expect(existsSync(target)).toBe(false);
     expect(world.pipes).toHaveLength(0);
-    expect(world.firewallIsClosed()).toBe(true);
   });
 
   it('removes the partial copy when the download fails', async () => {
@@ -764,7 +747,6 @@ describe('pull-data', () => {
     expect(await run('pull-data', '--to', target)).toBe(1);
     expect(everything()).toContain('the download failed');
     expect(existsSync(target)).toBe(false);
-    expect(world.firewallIsClosed()).toBe(true);
   });
 
   it('names what the way back would refuse in the copy', async () => {

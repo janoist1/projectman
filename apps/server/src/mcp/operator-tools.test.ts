@@ -242,6 +242,27 @@ describe('Operator MCP tools', () => {
     expect(tool.inputSchema.safeParse({ title: 'Change', operation: { op: 'unknown' } }).success).toBe(false);
   });
 
+  it.each([
+    [
+      'operate',
+      { title: 'Retire', operation: { op: 'member_retire', handle: 'dev-1', extra: true } },
+      'operation',
+    ],
+    [
+      'execute_operation',
+      { request_key: 'k1', command: { kind: 'credential_revoke', keyId: 5 } },
+      'command.keyId',
+    ],
+  ])('refuses an invalid %s call with the faulty field and the guide topic', async (name, input, path) => {
+    const tool = TEAM_TOOLS.find((t) => t.name === name)!;
+    const handler = createFakeTeamToolsHandler();
+    const args = tool.inputSchema.parse(input);
+    await expect(tool.run({ ctx: devContext, args, handler })).rejects.toThrow(
+      new RegExp(`${path}.*topic "operations"`),
+    );
+    expect(handler.calls).toEqual([]);
+  });
+
   it('read_project_doc forwards the part asked for, and is a read tool', async () => {
     const tool = TEAM_TOOLS.find((t) => t.name === 'read_project_doc')!;
     expect(tool.annotations.readOnlyHint).toBe(true);

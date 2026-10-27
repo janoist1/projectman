@@ -45,6 +45,8 @@ export const EngineConfig = z.strictObject({
       repo: RepoName,
       path: z.string().min(1),
       fullTestCommand: z.string().min(1).max(500).optional(),
+      /** PM-1050: the one command that may make generated files again in a merge check checkout, with write access to the directories of its patterns. */
+      regenerateCommand: z.string().min(1).max(500).optional(),
       workspaceSetup: z
         .discriminatedUnion('kind', [
           z.strictObject({
@@ -235,6 +237,7 @@ export interface ResolvedEngineConfig extends Omit<EngineConfig, 'repos'> {
     repo: string;
     path: string;
     fullTestCommand?: string;
+    regenerateCommand?: string;
     workspaceSetup: { kind: 'npm_ci'; timeoutMs: number } | null;
     mergeBranch?: string;
   }>;

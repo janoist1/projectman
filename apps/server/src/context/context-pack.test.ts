@@ -244,6 +244,17 @@ describe('operating agreement and conversation guidance (PM-690)', () => {
     expect(operator.guide.role).toContain('server-delivered continuation');
   });
 
+  it('gives the Operator an operations guide generated from the schemas, and nobody else', () => {
+    const pack = (handle: string) =>
+      builder.build(input({ handle, task: null, workItem: { type: 'general' } }));
+    const operator = pack('operator');
+    expect(operator.appendSystemPrompt).toContain('get_guide with topic `operations`');
+    for (const tag of ['op=message_send', 'op=config_patch', 'kind=task_create', 'kind=workspace_release'])
+      expect(operator.guide.operations).toContain(tag);
+    expect(operator.guide.operations).toContain('"keyId"');
+    expect(pack('pm').guide.operations).toBeUndefined();
+  });
+
   it.each(['every_step', 'minimal'] as const)(
     'keeps %s involvement as approved data within effective settings',
     (involvement) => {
@@ -3564,7 +3575,8 @@ describe("the CLI's own sandbox (PM-167)", () => {
     expect(text).toContain('get_guide with topic `sandbox`');
     expect(text).not.toContain('/work/acme');
     expect(pack.guide.sandbox).toContain('/work/acme');
-    expect(pack.guide.sandbox).toContain('/home/anna/.ssh');
+    // The reader reads only its own places below the home (PM-425), and the guide names them.
+    expect(pack.guide.sandbox).toContain('/home/anna/.gitconfig');
     expect(pack.guide.sandbox).not.toContain('`gh pr view`');
     expect(pack.guide.sandbox).toContain('`git push`');
   });

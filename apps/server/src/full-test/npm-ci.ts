@@ -67,14 +67,36 @@ export async function assertNpmCiCheckout(
     throw new DependencyPreparationError(
       'dependency preparation needs a worktrees root, merge id and required heavy lock',
     );
+  return canonicalMergeCheckout(worktreesRoot, spec.npmCi.mergeId, spec.cwd);
+}
+
+/**
+ * Used by the engine limit and the local executor before the regenerating run (PM-1050) gets its
+ * writable directories: `cwd` is the canonical merge checkout of the run's own merge id.
+ */
+export async function assertRegenerateCheckout(
+  worktreesRoot: string | null | undefined,
+  spec: FullTestSpec,
+): Promise<string> {
+  if (
+    !worktreesRoot ||
+    !spec.regenerate ||
+    spec.requireHeavyLock !== true ||
+    !isMergeId(spec.regenerate.mergeId)
+  )
+    throw new DependencyPreparationError(
+      'the regeneration needs a worktrees root, a merge id and the heavy lock',
+    );
+  return canonicalMergeCheckout(worktreesRoot, spec.regenerate.mergeId, spec.cwd);
+}
+
+async function canonicalMergeCheckout(worktreesRoot: string, mergeId: string, cwd: string): Promise<string> {
   await directories(path.resolve(worktreesRoot));
   const root = await realpath(worktreesRoot);
-  const target = await directories(root, `_merge/${spec.npmCi.mergeId}`);
+  const target = await directories(root, `_merge/${mergeId}`);
   // Do not accept an alias, even when it currently resolves back into the allowed tree.
-  if (spec.cwd !== target || (await realpath(spec.cwd)) !== target)
-    throw new DependencyPreparationError(
-      'dependency preparation is restricted to the canonical merge checkout',
-    );
+  if (cwd !== target || (await realpath(cwd)) !== target)
+    throw new DependencyPreparationError('the run is restricted to the canonical merge checkout');
   return root;
 }
 

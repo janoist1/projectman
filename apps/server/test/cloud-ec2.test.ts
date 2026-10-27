@@ -60,7 +60,6 @@ describe('EC2 provisioning and the account boundary', () => {
         (call) => call.argv.slice(0, 6).join(' ') === '--profile aroom --region eu-west-1 --output json',
       ),
     ).toBe(true);
-    expect(world.aws.calls.some((call) => call.args[0] === 'lightsail')).toBe(false);
     const request = world.aws.ec2.request!;
     expect(request).toMatchObject({
       MinCount: 1,

@@ -1047,6 +1047,8 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
             })
           : t('timeline.events.member_retired', { handle: str(d.handle) }),
       );
+    case 'member_renamed':
+      return normal(t('timeline.events.member_renamed', { from: str(d.from), to: str(d.to) }));
     case 'config_changed':
       return normal(t('timeline.events.config_changed', { message: str(d.message) }));
     case 'team_contact_changed':

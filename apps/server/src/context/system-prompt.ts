@@ -180,6 +180,8 @@ interface RosterEntry {
   roles: string[];
   specialty: string | null;
   temp: boolean;
+  /** The handles an AI member had before it was renamed (PM-1025). */
+  formerHandles?: string[];
 }
 
 function roster(input: ContextPackInput): RosterEntry[] {
@@ -194,6 +196,7 @@ function roster(input: ContextPackInput): RosterEntry[] {
         roles: m.kind === 'human' ? m.roles : [],
         specialty: m.specialty,
         temp: m.temp,
+        formerHandles: m.formerHandles,
       }));
   }
   return input.project.team.members.map((m) =>
@@ -215,6 +218,7 @@ function roster(input: ContextPackInput): RosterEntry[] {
           roles: [],
           specialty: m.specialty ?? null,
           temp: m.temp,
+          formerHandles: m.formerHandles,
         },
   );
 }
@@ -231,6 +235,7 @@ function teamSection(input: ContextPackInput): string {
             roleLabel(m.role, customRoles),
             ...(m.specialty ? [m.specialty] : []),
             ...(m.temp ? ['temporary'] : []),
+            ...(m.formerHandles?.length ? [`formerly ${m.formerHandles.map(code).join(', ')}`] : []),
           ];
     const self = m.handle === input.member.handle ? ' ← you' : '';
     return `- ${code(m.handle)}: ${m.displayName} (${details.join(', ')})${self}`;

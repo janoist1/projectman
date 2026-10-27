@@ -1466,6 +1466,9 @@ export const hu = {
       duplicate_feedback_surface: 'Két felületnek azonos az azonosítója vagy a címe.',
       not_an_outage_alert: 'Ez nem kiesési figyelmeztetés.',
       handle_taken: 'Ez az azonosító már foglalt.',
+      member_session_live:
+        'A tag éppen dolgozik (futó munkamenet, foglalt munkaterület, feldolgozás alatt álló sorelem vagy halasztott indítás); az átnevezéshez várd meg, amíg befejezi.',
+      member_renaming: 'A tag átnevezése folyamatban van, próbáld újra egy pillanat múlva.',
       member_at_capacity: 'Ennek a tagnak most nincs szabad kapacitása.',
       member_on_leave: 'Ez a tag szabadságon van; amíg vissza nem hívod, nem kap munkát.',
       ai_limit_reached: 'Most dolgozik a megengedett számú AI-tag; az új munka később indul.',
@@ -3399,6 +3402,7 @@ export const hu = {
         member_change: 'Tag módosítása',
         member_hire: 'Tag felvétele',
         member_retire: 'Tag elbocsátása',
+        member_rename: 'Tag átnevezése',
         config_revert: 'Beállítás visszaállítása',
         session_stop: 'Munkamenet leállítása',
         project_pause: 'A projekt szüneteltetése',
@@ -3518,6 +3522,8 @@ export const hu = {
         labels: 'A már felkerült címkék nem változnak, a szabály a következő döntéstől érvényes.',
         member_hire: 'Az új tag a mentés után azonnal munkát kaphat.',
         member_retire: 'A tag futó munkamenetei leállnak, a munkáját a csapat veszi át.',
+        member_rename:
+          'A tag azonosítója az új névre vált, a korábbi bejegyzések a régi névvel maradnak; a levelezési címe is az új azonosítót követi.',
         member_other: 'A tag futó munkamenetei nem változnak.',
         locations: 'A futó munkamenetek nem változnak; az új helyet az újonnan indulók használják.',
         review_test:
@@ -5150,6 +5156,7 @@ export const hu = {
       question_answer_delivered: 'Megkapta.',
       member_hired: 'Felvéve: {handle}',
       member_retired: 'Elbocsátva: {handle}',
+      member_renamed: 'Átnevezve: {from} → {to}',
       member_retired_handover: 'Elbocsátva: {handle}, a munkái átkerültek: {to}',
       config_changed: 'Beállítás módosítva: {message}',
       contactAdded: 'Kapcsolattartó lett: {name}',

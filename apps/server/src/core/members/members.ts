@@ -192,6 +192,7 @@ export class MemberService {
         displayName: m.displayName,
         githubLogin: m.githubLogin,
         kind: 'ai',
+        ...(m.formerHandles?.length ? { formerHandles: m.formerHandles } : {}),
         email: {
           enabled: m.email?.enabled ?? false,
           sendWithoutApproval: m.email?.sendWithoutApproval ?? false,

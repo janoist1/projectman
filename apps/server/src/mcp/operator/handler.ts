@@ -1,6 +1,7 @@
 import {
   isOperator,
   isProjectManager,
+  machineTodoIssuerAllowed,
   memberOf,
   roleBundle,
   ScreeningTodo as ScreeningTodoSchema,
@@ -408,10 +409,26 @@ export class OperatorTools implements OperatorToolsHandler {
     recipientRefusal: QuestionRecipientRefusal | null;
   }> {
     return this.calls.guard(async () => {
-      await this.calls.callerWithRequest(ctx, 'open_integrator_todo');
-      const taskKey = args.taskKey ? this.calls.validTaskKey(ctx, args.taskKey) : null;
+      const { config } = await this.calls.callerWithRequest(ctx, 'open_integrator_todo');
+      // A guest cannot start an installation on the owner's machine.
+      const workItem = this.ctx.repos.sessions.get(ctx.sessionId)?.workItem;
+      if (workItem?.type === 'general' && workItem.with !== undefined)
+        throw new TeamToolError(
+          'forbidden',
+          'operator_owner_only: open_integrator_todo is not for a conversation with a guest.',
+        );
+      if (!machineTodoIssuerAllowed(config, ctx.member))
+        throw new TeamToolError(
+          'forbidden',
+          'machine_access_required: this member may not put machine work in the owners queue; an owner can switch it on in the member settings.',
+        );
+      const taskKey = this.calls.taskKeyFor(ctx, args.taskKey);
       // A followed step has its own wake-up and its own todo: the PM does not open a second one (PM-796 R2.7).
-      const tracked = taskKey ? this.obligations.listOpen(ctx.projectKey, taskKey)[0] : undefined;
+      // A developer on the card always has an open work obligation, which must not keep an installation out.
+      const tracked =
+        taskKey && isProjectManager(memberOf(config, ctx.member))
+          ? this.obligations.listOpen(ctx.projectKey, taskKey)[0]
+          : undefined;
       if (tracked)
         throw new TeamToolError(
           'invalid',

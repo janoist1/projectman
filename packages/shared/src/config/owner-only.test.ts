@@ -275,6 +275,33 @@ describe('ownerOnlyChanges', () => {
     expect(changed(edit)).toContain('approval_policy');
   });
 
+  it.each([
+    ['switching it on', (c: ProjectConfig) => void (ai(c, 'dev-1').machineAccess = true)],
+    [
+      'making the member a project manager',
+      (c: ProjectConfig) => void (ai(c, 'dev-1').role = 'project_manager'),
+    ],
+    [
+      'adding a member who has it',
+      (c: ProjectConfig) =>
+        void c.team.members.push({ ...ai(c, 'dev-1'), handle: 'dev-2', machineAccess: true }),
+    ],
+  ])('requires an owner for machine access by %s', (_name, edit) => {
+    expect(changed(edit)).toContain('machine_access');
+  });
+  it('leaves machine access to an admin when the effective value stays', () => {
+    const previous = config();
+    ai(previous, 'dev-1').role = 'project_manager';
+    const next = structuredClone(previous);
+    ai(next, 'dev-1').machineAccess = true;
+    expect(ownerOnlyChanges(previous, next)).toEqual([]);
+  });
+  it('leaves a new member without machine access to an admin', () => {
+    expect(changed((c) => void c.team.members.push({ ...ai(c, 'dev-1'), handle: 'dev-2' }))).not.toContain(
+      'machine_access',
+    );
+  });
+
   it('keeps the old name of the approval policy check', () => {
     expect(humanApprovalChanged).toBe(approvalPolicyChanged);
   });

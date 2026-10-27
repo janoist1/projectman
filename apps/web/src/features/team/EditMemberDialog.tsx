@@ -89,6 +89,8 @@ function EditMemberForm({
       : {}),
   };
   const channelOff = config !== undefined && !emailChannelOn(config);
+  // The machine queue (decision 66): the effective value from the roster; only an owner changes it.
+  const [machineAccess, setMachineAccess] = useState(member.machineAccess === true);
   const [model, setModel] = useState(ai?.model ?? member.model ?? DEFAULT_PROVIDER_MODELS[provider]);
   const [instructions, setInstructions] = useState(ai?.instructions ?? '');
   const [schedule, setSchedule] = useState<ScheduleDraft>({
@@ -134,6 +136,7 @@ function EditMemberForm({
                   ? { complexityLimit: limit === '5' ? null : ComplexityPoints.parse(Number(limit)) }
                   : {}),
                 ...(Object.keys(emailChange).length > 0 ? { email: emailChange } : {}),
+                ...(isOwner && machineAccess !== (member.machineAccess === true) ? { machineAccess } : {}),
                 provider,
                 effort: effort ?? null,
                 autoCompactWindowTokens: compactWindow.trim() ? Number(compactWindow) : null,
@@ -276,10 +279,25 @@ function EditMemberForm({
               </label>
               <p id={`${formId}-email-auto`} className={clsx(styles.toggleHint, styles.nestedHint)}>
                 {!isOwner
-                  ? t('memberEdit.emailOwnerOnly')
+                  ? t('memberEdit.ownerOnly')
                   : emailEnabled && emailAuto
                     ? t('memberEdit.emailAutoHint')
                     : t('memberEdit.emailApprovalHint')}
+              </p>
+            </div>
+            <div>
+              <label className={styles.toggle}>
+                <input
+                  type="checkbox"
+                  checked={machineAccess}
+                  disabled={!isOwner}
+                  aria-describedby={`${formId}-machine-access`}
+                  onChange={(event) => setMachineAccess(event.target.checked)}
+                />
+                {t('memberEdit.machineAccess')}
+              </label>
+              <p id={`${formId}-machine-access`} className={styles.toggleHint}>
+                {isOwner ? t('memberEdit.machineAccessHint') : t('memberEdit.ownerOnly')}
               </p>
             </div>
             <ProviderFields

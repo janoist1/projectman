@@ -195,7 +195,8 @@ describe('member queue', () => {
     const item = domain().inbox.create({
       projectKey: 'AR',
       kind: 'question',
-      source: 'dev-1',
+      // The project manager has machine access by role (decision 66); a developer does not.
+      source: 'pm',
       assignees: ['owner'],
       title: 'Measure the hub',
       payload: {

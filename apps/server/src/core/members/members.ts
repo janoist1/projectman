@@ -50,7 +50,7 @@ import type {
 import { aiMemberDefaults } from '@projectman/templates';
 import type { MemberCapacity, MemberProfileSessions } from './ports';
 import { findHumanByEmail, requireAiMember, requireHuman } from './access';
-import { applyMemberEmailChange, emailMailboxTaken, ownerHandles } from '@projectman/shared';
+import { applyMemberEmailChange, emailMailboxTaken, machineAccessOf, ownerHandles } from '@projectman/shared';
 import type { ProjectAccess } from './access';
 import { isoNow } from '../base';
 import type { DomainContext } from '../base';
@@ -211,6 +211,7 @@ export class MemberService {
         ...(m.autoCompactWindowTokens ? { autoCompactWindowTokens: m.autoCompactWindowTokens } : {}),
         ...(m.cheapSubagent ? { cheapSubagent: m.cheapSubagent } : {}),
         ...permissionView(config, m),
+        machineAccess: machineAccessOf(m),
         ...(m.onLeave ? { onLeave: true } : {}),
         ...(isDeveloper(config, m) ? { complexityLimit: complexityLimitOf(m) } : {}),
         ...(isDeveloper(config, m) && m.specialtyLabels ? { specialtyLabels: m.specialtyLabels } : {}),
@@ -349,6 +350,8 @@ export class MemberService {
       temp: opts.temp ?? false,
       ...(req.schedule ? { schedule: req.schedule } : {}),
       outboundNetwork: req.outboundNetwork ?? DEFAULT_OUTBOUND_NETWORK,
+      // Explicit, so a new member never takes the role's default: the owner switches it on (decision 66).
+      machineAccess: false,
     });
     draft.team.members.push(member);
     if (opts.temp && opts.stageId) {
@@ -419,11 +422,12 @@ export class MemberService {
         req.role !== undefined ||
         req.approver !== undefined ||
         req.outboundNetwork !== undefined ||
+        req.machineAccess !== undefined ||
         req.email !== undefined
       ) {
         throw invalid(
           'not_ai_member',
-          'specialty, specialty labels, provider, model, effort, compaction window, cheap subagent, schedule, leave, instructions, permission mode, approver, outbound network and email settings apply to AI members only',
+          'specialty, specialty labels, provider, model, effort, compaction window, cheap subagent, schedule, leave, instructions, permission mode, approver, outbound network, machine access and email settings apply to AI members only',
         );
       }
       if (req.roles !== undefined) {
@@ -486,8 +490,14 @@ export class MemberService {
       }
       if (req.role !== undefined) {
         assertRoleFor(draft, req.role, 'ai');
+        // The role sets the machine access default: pin the effective value so a role change keeps it.
+        member.machineAccess ??= machineAccessOf(member);
         member.role = req.role;
         fields.push('role');
+      }
+      if (req.machineAccess !== undefined) {
+        member.machineAccess = req.machineAccess;
+        fields.push('machine access');
       }
       if (req.permissionMode !== undefined) {
         member.permissionMode = req.permissionMode;

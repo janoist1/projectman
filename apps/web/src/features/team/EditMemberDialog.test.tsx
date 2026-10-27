@@ -340,6 +340,54 @@ describe('EditMemberDialog', () => {
     );
   });
 
+  describe('machine access (decision 66)', () => {
+    const renderAccess = (handle: string, isOwner = true) => {
+      const project = mockProject();
+      project.render(
+        <EditMemberDialog
+          member={project.backend.findMember(handle)!}
+          config={project.backend.config}
+          roles={builtInRoles}
+          onClose={() => {}}
+        />,
+        '/',
+        { isOwner },
+      );
+      const toggle = () =>
+        screen.queryByRole('checkbox', { name: t('memberEdit.machineAccess') }) as HTMLInputElement | null;
+      return { project, toggle };
+    };
+
+    const patches = (project: ReturnType<typeof mockProject>, handle: string) =>
+      project.requests.filter(
+        (request) => request.method === 'PATCH' && request.path.endsWith(`/members/${handle}`),
+      );
+
+    it('lets an owner switch it on and sends the change only then', async () => {
+      const { project, toggle } = renderAccess('qa');
+      expect(toggle()!.checked).toBe(false);
+      fireEvent.click(screen.getByRole('button', { name: t('memberEdit.save') }));
+      await waitFor(() => expect(patches(project, 'qa')).toHaveLength(1));
+      expect(patches(project, 'qa')[0]!.body).not.toHaveProperty('machineAccess');
+      fireEvent.click(toggle()!);
+      fireEvent.click(screen.getByRole('button', { name: t('memberEdit.save') }));
+      await waitFor(() => expect(patches(project, 'qa')).toHaveLength(2));
+      expect(patches(project, 'qa')[1]!.body).toMatchObject({ machineAccess: true });
+      expect(project.backend.findMember('qa')?.machineAccess).toBe(true);
+    });
+
+    it('shows the project manager as switched on, read-only for an admin', () => {
+      const { toggle } = renderAccess('pm', false);
+      expect(toggle()!.checked).toBe(true);
+      expect(toggle()!.disabled).toBe(true);
+    });
+
+    it('offers no switch for a person', () => {
+      const { toggle } = renderAccess('owner');
+      expect(toggle()).toBeNull();
+    });
+  });
+
   describe('e-mail correspondence (PM-942)', () => {
     const renderEmail = (channelOn: boolean, isOwner = true) => {
       const project = mockProject();
@@ -390,7 +438,7 @@ describe('EditMemberDialog', () => {
       const { enabled, auto } = renderEmail(true, false);
       fireEvent.click(enabled());
       expect(auto().disabled).toBe(true);
-      expect(screen.getByText(t('memberEdit.emailOwnerOnly'))).toBeTruthy();
+      expect(screen.getAllByText(t('memberEdit.ownerOnly')).length).toBeGreaterThan(0);
     });
 
     it('warns that nothing goes out while the channel is off, with a way to switch it on', () => {

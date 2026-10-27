@@ -151,6 +151,7 @@ import {
   approverBlocker,
   ownerOnlyChanges,
   permissionView,
+  machineAccessOf,
   effectiveSessionPermissions,
   sessionApproverChangeRefusal,
   duplicateMarkRefusal,
@@ -1837,6 +1838,7 @@ export class MockBackend {
       delete member.permissionLegacy;
       delete member.aiApproverBlocker;
       Object.assign(member, permissionView(this.config, config));
+      member.machineAccess = machineAccessOf(config);
     }
   }
 
@@ -3492,6 +3494,7 @@ export class MockBackend {
         input.instructions !== undefined ||
         input.permissionMode !== undefined ||
         input.outboundNetwork !== undefined ||
+        input.machineAccess !== undefined ||
         input.email !== undefined ||
         input.approver !== undefined)
     )
@@ -3514,6 +3517,7 @@ export class MockBackend {
       if (input.permissionMode !== undefined) nextMember.permissionMode = input.permissionMode;
       if (input.approver !== undefined) nextMember.approver = input.approver;
       if (input.outboundNetwork !== undefined) nextMember.outboundNetwork = input.outboundNetwork;
+      if (input.machineAccess !== undefined) nextMember.machineAccess = input.machineAccess;
       if (input.email !== undefined)
         nextMember.email = applyMemberEmailChange(nextMember.email, input.email, handle);
     }
@@ -3567,6 +3571,7 @@ export class MockBackend {
       if (input.permissionMode !== undefined) config.permissionMode = input.permissionMode;
       if (input.approver !== undefined) config.approver = input.approver;
       if (input.outboundNetwork !== undefined) config.outboundNetwork = input.outboundNetwork;
+      if (input.machineAccess !== undefined) config.machineAccess = input.machineAccess;
       if (input.email !== undefined) {
         config.email = applyMemberEmailChange(config.email, input.email, handle);
         member.email = {
@@ -5540,6 +5545,7 @@ export class MockBackend {
       permissionMode: defaults.permissionMode,
       approver: defaults.approver,
       outboundNetwork: input.outboundNetwork ?? defaults.outboundNetwork,
+      machineAccess: false,
       capacity: defaults.capacity,
       instructions: defaults.instructions,
       sponsor: this.sponsor(),

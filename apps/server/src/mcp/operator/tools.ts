@@ -542,11 +542,11 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
 
     defineTool({
       name: 'open_integrator_todo',
-      audience: { roles: ['project_manager'] },
+      audience: { capabilities: ['machine_access'] },
       title: 'Open a todo for the integrator',
       readOnly: false,
       description:
-        "Only the selected PM in its internal general conversation; needs no owner request. When a stalled, silent, outage or nobody signal needs someone to act, open a todo in the integrator's queue instead of asking the owners: what to do, where, and what is expected. The Operator takes the todos from its queue one at a time and wakes for each; use this tool, not a message to the Operator, for a step that needs its hands. Its answer (done, or handed to the owners with the reason) comes back to you as the asker. When the integrator is not available the owners get it and the result says so. A card projectman already follows (an open or handed-over obligation) is refused with obligation_tracked: projectman wakes the responsible and hands the step over itself. A decision only the owners make (cost, deletion, publishing, direction, approval) is not a todo: use ask_human.",
+        "Only for a member with machine access (an owner switches it on); needs no owner request. Put machine work (an installation, a setting) in the owners' queue: what to do, where, and what is expected. The owner's connected Claude takes the todos from the queue one at a time; use this tool, not a message, for a step that needs its hands. Its answer (done, or handed to the owners with the reason) comes back to you as the asker. When the integrator is not available the owners get it and the result says so. For the project manager: when a stalled, silent, outage or nobody signal needs someone to act, open a todo instead of asking the owners; a card projectman already follows (an open or handed-over obligation) is refused with obligation_tracked, because projectman wakes the responsible and hands the step over itself. A decision only the owners make (cost, deletion, publishing, direction, approval) is not a todo: use ask_human.",
       input: {
         task_key: TaskKey.optional(),
         question: z.string().trim().min(1).max(2000),

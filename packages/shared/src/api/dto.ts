@@ -631,6 +631,8 @@ export const MemberView = z.object({
    * a test fake) is read as on.
    */
   outboundNetwork: z.boolean().optional(),
+  /** AI members only: the effective machine access (`machineAccessOf`, decision 66); missing (an older server): off. */
+  machineAccess: z.boolean().optional(),
 });
 export type MemberView = z.infer<typeof MemberView>;
 
@@ -682,6 +684,8 @@ export const UpdateMemberRequest = z.object({
   autoCompactWindowTokens: AutoCompactWindowTokens.nullable().optional(),
   /** AI only, owner only (PM-355): whether the member's commands can reach the network. */
   outboundNetwork: z.boolean().optional(),
+  /** AI only, owner only (decision 66): whether the member may put machine work in the owners' queue. */
+  machineAccess: z.boolean().optional(),
   /** AI only; the cheap subagent's model (PM-179), null switches it off. */
   cheapSubagent: CheapSubagentModel.nullable().optional(),
   displayName: z.string().trim().min(1).optional(),

@@ -20,8 +20,11 @@ export function MemberMenu({
   onInvite,
   onRetire,
   onRemove,
+  align,
 }: {
   member: MemberView;
+  /** `row`: the panel lines up with the positioned row the button is in (a button that wraps on a phone). */
+  align?: 'left' | 'right' | 'row';
   onEdit: () => void;
   editDisabled?: boolean;
   /** The owner's rename of an AI member's handle (PM-1026); the caller offers it only when allowed. */
@@ -35,7 +38,7 @@ export function MemberMenu({
   // The Operator is built in (PM-447): it can only be given another model and effort, never leave or be retired.
   if (isOperator(member)) {
     return (
-      <MoreMenu label={t('team.moreFor', { name: member.displayName })}>
+      <MoreMenu label={t('team.moreFor', { name: member.displayName })} align={align}>
         {(close) => (
           <Button
             variant="ghost"
@@ -53,7 +56,7 @@ export function MemberMenu({
     );
   }
   return (
-    <MoreMenu label={t('team.moreFor', { name: member.displayName })}>
+    <MoreMenu label={t('team.moreFor', { name: member.displayName })} align={align}>
       {(close) => (
         <>
           <Button

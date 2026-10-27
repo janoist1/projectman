@@ -302,6 +302,7 @@ export function MemberProfilePage() {
           {can.manageTeam ? (
             <MemberMenu
               member={member}
+              align="row"
               editDisabled={!roles.data || (ai && !config.data)}
               onEdit={() => setEditing(true)}
               onRename={canRenameMember(member, isOwner) ? () => setRenaming(true) : undefined}

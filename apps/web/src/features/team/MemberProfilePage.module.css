@@ -30,6 +30,8 @@
   overflow-wrap: anywhere;
 }
 .actions {
+  /* The member menu's panel lines up with this row, so it stays inside the page on a phone. */
+  position: relative;
   display: flex;
   align-items: center;
   flex-wrap: wrap;

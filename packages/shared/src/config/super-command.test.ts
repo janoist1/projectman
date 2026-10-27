@@ -4,6 +4,8 @@ import { SuperCommand as SuperCommandSchema } from '../api/super-handoff';
 import { AiMemberConfig, ProjectConfig } from './schema';
 import { SuperCommandUnclassifiable, superCommandEffects, superCommandMutations } from './super-command';
 import type { SuperCommandContext } from './super-command';
+import { coordinationMemberOf } from './project-manager';
+import { operatorOf } from './operator-member';
 import {
   ownerReservedEffect,
   SUPER_ADMINISTRATION_COMMANDS,
@@ -290,6 +292,53 @@ describe('super command classification (PM-762)', () => {
     expect(superCommandMutations(command, ctx)).toContainEqual({
       kind: 'permission_change',
       handle,
+    });
+    expect(superCommandEffects(command, ctx)).toEqual(['security']);
+  });
+
+  it.each([
+    ['project_manager', 'role'],
+    ['project_manager', 'onLeave'],
+    ['ai_operator', 'role'],
+    ['ai_operator', 'onLeave'],
+  ] as const)('reserves %s selection changes through %s', (role, field) => {
+    const ctx = context();
+    ctx.config.team.members.push(
+      AiMemberConfig.parse({
+        kind: 'ai',
+        handle: 'current',
+        displayName: 'Current delegate',
+        role,
+        sponsor: 'owner',
+      }),
+    );
+    const candidate = ctx.config.team.members.find((member) => member.handle === 'dev-1')!;
+    if (candidate.kind !== 'ai') throw new Error('expected AI fixture');
+    if (field === 'onLeave') {
+      candidate.role = role;
+      candidate.onLeave = true;
+    }
+    const next = structuredClone(ctx.config);
+    const replacement = next.team.members.find((member) => member.handle === candidate.handle)!;
+    if (replacement.kind !== 'ai') throw new Error('expected AI fixture');
+    if (field === 'role') replacement.role = role;
+    else replacement.onLeave = false;
+    const select = role === 'project_manager' ? coordinationMemberOf : operatorOf;
+    expect(select(ctx.config)?.handle).toBe('current');
+    expect(select(next)?.handle).toBe(candidate.handle);
+    expect(superConfigMutations(ctx.config, next)).toContainEqual({
+      kind: 'permission_change',
+      handle: candidate.handle,
+    });
+    expect(ownerReservedEffect(ctx.config, { kind: 'config_change', next })).toBe('security');
+    const command = operate({
+      op: 'member_update',
+      handle: candidate.handle,
+      changes: field === 'role' ? { role } : { onLeave: false },
+    });
+    expect(superCommandMutations(command, ctx)).toContainEqual({
+      kind: 'permission_change',
+      handle: candidate.handle,
     });
     expect(superCommandEffects(command, ctx)).toEqual(['security']);
   });

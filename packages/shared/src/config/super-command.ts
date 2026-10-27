@@ -55,6 +55,7 @@ function memberUpdate(
   const changed = next.team.members.find((m) => m.handle === handle)!;
   if (changed.kind === 'human' && Array.isArray(changes.roles)) changed.roles = changes.roles as string[];
   if (changed.kind === 'ai' && typeof changes.role === 'string') changed.role = changes.role;
+  if (changed.kind === 'ai' && typeof changes.onLeave === 'boolean') changed.onLeave = changes.onLeave;
   if (
     PERMISSION_KEYS.some((key) => changes[key] !== undefined) ||
     superConfigMutations(context.config, next).some((mutation) => mutation.kind === 'permission_change') ||

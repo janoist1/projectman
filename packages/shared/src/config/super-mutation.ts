@@ -168,6 +168,14 @@ function securityChanged(previous: ProjectConfig, next: ProjectConfig): boolean 
 /** Neither delegated super member may rewrite its own member or role without the owner's yes. */
 function superMemberChanges(previous: ProjectConfig, next: ProjectConfig): string[] {
   const changed = new Set<string>();
+  for (const select of [operatorOf, coordinationMemberOf]) {
+    const before = select(previous);
+    const after = select(next);
+    if (before?.handle !== after?.handle) {
+      if (before) changed.add(before.handle);
+      if (after) changed.add(after.handle);
+    }
+  }
   if (operatorFixedChange(previous, next)) {
     const operator = operatorOf(previous) ?? operatorOf(next);
     if (operator) changed.add(operator.handle);

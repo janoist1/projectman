@@ -13,6 +13,7 @@ export const operatorAudience: MemberAudience = {
   operator: true,
   projectManager: false,
   merger: false,
+  email: false,
   duties: new Set(),
 };
 

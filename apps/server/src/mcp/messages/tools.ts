@@ -13,12 +13,13 @@ export const MESSAGE_TOOL_GROUP: TeamToolGroup = {
       title: 'Send a team message',
       readOnly: false,
       description:
-        'Send a message to teammates (humans or AI members). AI members receive it in their session for ' +
-        'the task: an idle session at once, one in the middle of a turn when that turn ends; the result says, ' +
-        'per recipient, what happens to it. Humans see it in the app. Use it to hand over work, report findings or reply to a team ' +
-        'message. The PM starts work with start_task or start_member and uses this for information and replies. ' +
-        'If the message would put a member to work on a card where a member of the same role already works, nothing is sent and the result names them; send again with despite_workers: true only if the parallel work is intended. ' +
-        "Specify action for a request, review or retest request, or question to an AI member; info for status, acknowledgement or a result (review and QA results live in labels). A plain acknowledgement needs no message; an out-of-date or fulfilled request needs no reply. Before acting, compare the message time and version with the current card; do not carry out a request its sender has superseded or closed with a result label. Never reset or force-rewrite an approved branch without asking its approving reviewer first. A human's decision or action is asked with ask_human, never with send_message: a message to a human carries information only (kind info), and an action message that has a human among its recipients is refused as a whole.",
+        'Send a message to teammates (humans or AI members): to hand over work, report findings or reply to a ' +
+        'team message. AI members receive it in their session for the task: an idle session at once, one in ' +
+        'the middle of a turn when that turn ends; the result says, per recipient, what happens to it. ' +
+        'Humans see it in the app. The PM starts work with start_task or start_member and uses this for ' +
+        'information and replies. If the message would put a member to work on a card where a member of ' +
+        'the same role already works, nothing is sent and the result names them; send again with ' +
+        'despite_workers: true only if the parallel work is intended.',
       input: {
         despite_workers: z.boolean().optional(),
         to: z
@@ -29,7 +30,7 @@ export const MESSAGE_TOOL_GROUP: TeamToolGroup = {
         kind: z
           .enum(['action', 'info'])
           .describe(
-            'action: an AI member has something to do (refused when a human is a recipient: use ask_human); info: status, acknowledgement or result; starts nothing.',
+            'action: an AI member has something to do (refused when a human is a recipient: use ask_human); info: status or result; starts nothing.',
           ),
         text: z
           .string()
@@ -37,43 +38,38 @@ export const MESSAGE_TOOL_GROUP: TeamToolGroup = {
           .min(1)
           .max(MAX_MESSAGE_CHARS)
           .describe(
-            'The message. Give the recipient what they need to act on it: the facts (task, links, what ' +
-              'changed, findings) and what you expect next and from whom.',
+            'The message: the facts the recipient needs to act on it (task, links, findings) and what you ' +
+              'expect next and from whom.',
           ),
         task_key: TaskKey.optional().describe(
-          'Task the message is about, e.g. "AR-21". Defaults to the task of your current session. In a general ' +
-            '(no card) session it defaults to the card of the latest card message delivered to you there ' +
-            '(within 2 hours), so a reply stays on that card; give task_key for any other card.',
+          'Task the message is about. Defaults to the task of your current session; in a general (no card) ' +
+            'session, to the card of the latest card message delivered to you there (within 2 hours).',
         ),
-        signal_id: z
-          .string()
-          .optional()
-          .describe('PM only: the delivered system signal to present to owners.'),
+        signal_id: z.string().optional().describe('PM only: the system signal to present to owners.'),
         signal_actionable: z
           .boolean()
           .optional()
-          .describe('PM only: whether accepting this signal authorizes a proposed action.'),
+          .describe('PM only: whether accepting the signal authorizes an action.'),
         signal_ids: z
           .array(z.string().min(1))
           .min(1)
           .max(20)
           .optional()
-          .describe('PM only: delivered signals awaiting owner decisions, presented in one message.'),
+          .describe('PM only: signals awaiting owner decisions, presented in one message.'),
         actionable_signal_ids: z
           .array(z.string().min(1))
           .max(20)
           .optional()
-          .describe('PM only: the subset of signal_ids whose acceptance authorizes an action.'),
+          .describe('PM only: the signal_ids whose acceptance authorizes an action.'),
         attachments: z
           .array(z.string().trim().min(1).max(MAX_PATH_CHARS))
           .min(1)
           .max(MAX_MESSAGE_ATTACHMENTS)
           .optional()
           .describe(
-            'Files to attach: paths relative to your working directory or inside your session folder, as for ' +
-              'attach_file. The recipients see them with the message (a human sees an image in the conversation); ' +
-              'this is how to show a screenshot to a person. Say in text what the file is. If any file cannot be ' +
-              'read, nothing is sent.',
+            'Files to attach, as for attach_file (paths relative to your working directory or inside your ' +
+              'session folder). A human sees an image in the conversation. Say in text what the file is. If ' +
+              'any file cannot be read, nothing is sent.',
           ),
       },
       external: {

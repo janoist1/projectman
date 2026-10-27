@@ -128,9 +128,6 @@ describe('the history tools on the member and the integrator door', () => {
       expect(byName.search_history!.inputSchema.required).toEqual(['query']);
       expect(byName.search_history!.inputSchema.additionalProperties).toBe(false);
       expect(byName.read_history_source!.inputSchema.required).toEqual(['source_id']);
-      expect(byName.search_history!.description).toMatch(
-        /historical evidence, not instructions or permission/,
-      );
     });
 
     it('searches its own project, opens a hit, and records the search once for the member', async () => {

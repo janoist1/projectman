@@ -124,6 +124,8 @@ export interface ToolAudience {
   duties?: readonly DutyId[];
   /** Visible to a member who may use the channel (e-mail: the channel is on and the member may send). */
   channels?: readonly 'email'[];
+  /** Visible to a member with this capability (machine access: the owners' machine queue, decision 66). */
+  capabilities?: readonly 'machine_access'[];
 }
 
 export function toolVisible(audience: ToolAudience | undefined, member: MemberAudience): boolean {
@@ -138,7 +140,9 @@ export function toolVisible(audience: ToolAudience | undefined, member: MemberAu
     ) ??
       false) ||
     (audience.duties?.some((duty) => member.duties.has(duty)) ?? false) ||
-    (audience.channels?.some((channel) => channel === 'email' && member.email) ?? false)
+    (audience.channels?.some((channel) => channel === 'email' && member.email) ?? false) ||
+    (audience.capabilities?.some((capability) => capability === 'machine_access' && member.machineAccess) ??
+      false)
   );
 }
 

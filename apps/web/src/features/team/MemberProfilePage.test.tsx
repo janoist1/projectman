@@ -39,6 +39,11 @@ describe('member profiles', () => {
     p.render(page(), '/team/fe-1');
     expect(await screen.findByText(t('providerSettings.geminiProEffortHint'))).toBeTruthy();
   });
+  it('shows the machine access line for the project manager, who has it by role', async () => {
+    const p = mockProject();
+    p.render(page(), '/team/pm');
+    expect(await screen.findByText(t('profile.machineAccess'))).toBeTruthy();
+  });
   it('shows Gemini login steps and medium effort without a plan meter', async () => {
     const p = mockProject();
     const member = p.backend.findMember('fe-1')!;

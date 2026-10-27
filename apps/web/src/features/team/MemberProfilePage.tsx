@@ -448,6 +448,7 @@ export function MemberProfilePage() {
               </p>
             ) : null}
             <p>{t('profile.capacity', { used: data.capacityUsed, max: data.capacity ?? 0 })}</p>
+            {member.machineAccess ? <p>{t('profile.machineAccess')}</p> : null}
             {builtInOperator ? null : <PermissionLevelControl member={member} />}
             {hasPlanUsage(member.provider ?? DEFAULT_AGENT_PROVIDER) ? (
               <PlanUsageMeter

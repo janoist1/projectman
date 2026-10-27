@@ -3626,7 +3626,10 @@ export const hu = {
     emailSendWithoutApproval: 'Jóváhagyás nélkül küldhet',
     emailApprovalHint: 'Kikapcsolva minden levele előbb a Rád vár listádba kerül.',
     emailAutoHint: 'A levelei azonnal kimennek. Utólag a Beállítások › E-mail naplójában látod őket.',
-    emailOwnerOnly: 'Ezt csak a tulajdonos állíthatja.',
+    ownerOnly: 'Ezt csak a tulajdonos állíthatja.',
+    machineAccess: 'Külső teendőt adhat (MCP)',
+    machineAccessHint:
+      'Telepítést, beállítást tehet a tulajdonosok sorába. A sort a tulajdonos MCP-n csatlakozott Claude-ja dolgozza fel.',
     save: 'Mentés',
     saved: 'A tag adatai mentve.',
   },
@@ -5456,6 +5459,7 @@ export const hu = {
     waiting: 'Döntésére vár',
     email: 'E-mail',
     capacity: 'Kapacitás: {used} / {max}',
+    machineAccess: 'Külső teendőt adhat a tulajdonosoknak (MCP).',
     /** A card waits for this member's place (PM-297). */
     full: 'Tele van.',
     fullOf: 'Tele van ({used}/{max}).',

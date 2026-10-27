@@ -2782,6 +2782,14 @@ workers follow the machine's size.
     waits for the Operator or super side. The hub alone persists and publishes the handoff;
     no engine operation or credential crosses the boundary. PM-801 puts the integrator's fix-limit
     decisions on the same sweep (`planIntegratorInboxEscalation`): hub-side only.
+    Machine access (decision 66, PM-1073): `AiMemberConfig.machineAccess` (shown as "Külső teendő (MCP)") lets an
+    AI member put machine todos in the owners' integrator queue. The rule is `machineAccessOf` /
+    `machineTodoIssuerAllowed` in `packages/shared/src/config/machine-access.ts`: an absent value follows the
+    role (the selected, non-temp project manager has it, nobody else; no migration), the system and the Operator
+    member issue as before. Only an owner changes it (`ownerOnlyChanges` `machine_access`); a role change pins
+    the effective value. `open_integrator_todo` is listed only to such members (`ToolAudience.capabilities`) and
+    the handler decides (`machine_access_required`); screening refuses the integrator recipient with
+    `no_machine_access`. Hub-side only: no engine operation, credential or process is added.
     PM-712 applies the same server-owned queue and receipt pattern to suspected loops:
     `runtime/watchers/loop-watch.ts` stores generation, assessment and the remaining ten-minute
     online budget in `task_loops.triage_json`; `services/operator/loop-triage.ts` sends a

@@ -70,6 +70,8 @@ export interface AuthenticatedIntegratorExecutionContext {
 export interface IntegratorCredentialAuthority {
   assertActive(principal: IntegratorPrincipal): void;
   user(id: string): { email: string } | null;
+  /** Whether the user is the host owner (PM-1061); absent: nobody is, so the host's operations are refused. */
+  isHostOwner?(userId: string): boolean;
   /**
    * The live principal of a stored key (PM-784), for work that outlives the call that started it: a queued
    * document write. Null when the key is revoked, expired or no longer the one stored (id, owner, prefix);

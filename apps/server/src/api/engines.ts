@@ -23,7 +23,10 @@ export function registerEngineRoutes(app: FastifyInstance, services: ApiServices
     const memberships = await domain.projectsFor(user.email);
     if (!auth.isHostOwner(user.id) && memberships.length === 0)
       throw forbidden('insufficient_access', 'Engine status requires project membership');
-    return { mode: engineRegistry ? 'cloud' : 'single', engines: engineRegistry?.status() ?? [] };
+    // Only the engines of the viewer's own projects (and their own); the host owner sees every one (PM-1061).
+    const engines =
+      engineRegistry?.statusFor({ userId: user.id, projectKeys: memberships.map((item) => item.key) }) ?? [];
+    return { mode: engineRegistry ? 'cloud' : 'single', engines };
   });
   if (!engineRegistry) return;
   const owner = async (request: Parameters<typeof currentUser>[0], ownLogin: boolean) => {
@@ -32,9 +35,15 @@ export function registerEngineRoutes(app: FastifyInstance, services: ApiServices
     if (ownLogin && request.principal?.mode !== 'super') requireOwnLogin(request, 'engines');
     return user.id;
   };
+  // The management list: the host owner's is every engine, any other owner's their own (PM-1061).
   app.get(routes.engines(), async (request) => {
-    await owner(request, false);
-    return engineRegistry.list();
+    const user = await instanceUser(domain, request, 'read');
+    if (
+      !auth.isHostOwner(user.id) &&
+      !(await domain.projectsFor(user.email)).some((p) => p.access === 'owner')
+    )
+      throw forbidden('owner_only', 'Only a project owner may manage engines');
+    return engineRegistry.listFor({ userId: user.id });
   });
   app.post(routes.engines(), async (request, reply) => {
     const userId = await owner(request, true);

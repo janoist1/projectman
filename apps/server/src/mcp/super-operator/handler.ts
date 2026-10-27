@@ -547,8 +547,12 @@ export class ExternalTools implements ExternalToolsHandler {
     operation: string,
     run: () => Promise<T>,
   ): Promise<T> {
+    const email = this.holder(principal);
+    // The instance knowledge describes the host's machine: only the host owner's key reads or changes it (PM-1061).
+    if (!this.deps.credentials.isHostOwner?.(principal.userId))
+      throw forbidden('host_only', 'only the host owner’s key may use the instance knowledge');
     return this.deps.superOperator.executeOwned(
-      { principal, email: this.holder(principal), requestId },
+      { principal, email, requestId },
       operation,
       async (projects) => {
         if (projects.length === 0)

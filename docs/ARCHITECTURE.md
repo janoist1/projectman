@@ -2033,7 +2033,8 @@ workers follow the machine's size.
   right; `/bin/ps` for the launchd process start time. Node cannot read Unix-socket peer credentials, so access
   rests on the file-system rights, which are checked (owner, mode, no symbolic link) before every connection.
   **Remote engine:** yes. Each engine machine runs its own supervisor; the cloud hub reaches it through the
-  engine link with the new server-to-engine RPCs `admin.status|logs|submit|inspect`, which an engine answers for its
+  engine link with the new server-to-engine RPCs `admin.status|logs|submit|inspect` (PM-1061: only to the host
+  owner's engine, `hostEngine()`; any other engine gets `engine_not_host`), which an engine answers for its
   own target only (the `Hello.administration` capability is negotiated; an older engine gives 503
   `administration_unavailable`). The socket never leaves the machine, nothing crosses the boundary but the strict
   zod-checked commands and the bounded diagnostics (at most 200 lines of 1000 characters, no transcript,
@@ -2678,6 +2679,9 @@ workers follow the machine's size.
   confirmed recovery resolves it with `outage_ended` and retries deferred work. Unknown
   checks preserve the last confirmed outage. Acknowledgement suppresses repeats for the
   episode; open alerts and their original start times are adopted after restart.
+  PM-1061: an engine of another owner (see "Engine link and machine keys") affects only the projects bound to it;
+  the alert, its inbox items and its targets are built per project, so only that project's members hear of an
+  outage of that engine, and the engine's own owner sees its status in the engine list. Nothing changes on the engine.
   **Module:** `runtime/watchers`
 
 - **Engine link and machine keys** — `engine-link/{protocol,methods,rpc,event-buffer,index,version}.ts`,
@@ -2700,6 +2704,18 @@ workers follow the machine's size.
   decided by the cloud before the call (`EngineDirectory.projectEngine`, `hostEngine`, a session's recorded
   engine), see "Cloud composition". PM-1060 keeps that: the project's engine comes from the cloud's
   `project_engines` binding; nothing changes on the engine.
+  PM-1061 isolates the owners' engines on the hub (protocol unchanged, no new wire code): `engine-link/remote/guard.ts`
+  classifies every method as open, project-bound or host-only, exhaustively at compile time, and `RemoteHub.call`
+  refuses a project-bound call to an engine the project is not bound to (`engine_not_bound`) and a machine or
+  administration call to any engine but `EngineRegistry.hostEngine()` (`engine_not_host`, the default engine only
+  when the host owner owns it). The other way round, the engine handlers answer a session request only when the
+  session is recorded on that engine and its project is bound to it, and `mcp.relay` refuses a token of a project
+  the engine is not bound to. `GET /api/engines/status` lists the engines of the viewer's own projects and their own;
+  `GET /api/engines` lists every engine to the host owner and the owned ones to another owner, hiding the hostname
+  and last address from everyone but the engine's owner and the host owner; `engine_changed` reaches the host owner,
+  the engine's owner and the members of the projects that use it (the rules are `canSeeEngine` and
+  `canSeeEngineMachine` in `packages/shared`). A remote engine of another owner therefore needs nothing more than
+  its link; what it may be sent is decided on the hub.
   File export forwards `exactRoot` when the caller requires a root without symbolic links.
   PM-739 adds `workspace.publishTaskBranch` (`[key, taskKey, branch, commit]` → strict `{path, ref}`):
   the engine hands a developer's task commit over to its own repository; the cloud never names a path
@@ -2922,6 +2938,13 @@ workers follow the machine's size.
   reused or another engine's token); the files an engine uploads wait in a spool folder that is emptied at
   start. The NanoGPT key is released to a starting NanoGPT session of the asking engine only (the PM-313
   condition, now answered by `handlers.ts`) and is never logged.
+  PM-1061: every outbound call passes `engine-link/remote/guard.ts` (a project's call goes only to an engine bound
+  to it, the machine and administration calls only to `hostEngine()`), and `handlers.ts` answers a request about a
+  session only when the session is recorded on the asking engine and its project is bound to it. The NanoGPT key
+  goes only to an engine whose owner is the host owner; a NanoGPT start on another owner's engine is refused with
+  `nanogpt_key_not_for_engine` (a member's start then waits with that reason), and the provider status of such an
+  engine reads as a missing key. The host machine view (`machine.ts`, `host.ts`) and the diagnostics, test, build
+  and release preparation of the Operator use `hostEngine()` and nothing else.
   **Assumptions:** the cloud has no CLI, git checkout, browser or session folder of its own; the one
   engine of a project (the default engine) is the machine the owner sees. `PROJECTMAN_MACHINE_FIXTURE`
   is ignored and no full-test or screenshot executor is built locally. The
@@ -3216,7 +3239,8 @@ workers follow the machine's size.
   adapter supplies the secret as trusted child environment and excludes it from CLI shell
   commands. Transcripts remain in that home; ChatGPT plan usage reads only the ordinary
   Codex home. **Remote engine (engine mode, PM-314: runs in the engine process):** use `session.start`,
-  `provider.status` and `secret.nanogpt_key` (PM-313); the CLI,
+  `provider.status` and `secret.nanogpt_key` (PM-313); PM-1061: only an engine the host owner owns gets the key
+  (`nanogpt_key_not_for_engine` for the others); the CLI,
   home and transcripts belong on the engine; secret delivery requires an authenticated
   launch/resume boundary, never configuration, public status or logs. The current server and
   CLI share a machine and filesystem. A remote engine performs local version and auth-file
@@ -3317,6 +3341,8 @@ workers follow the machine's size.
 
 - **NanoGPT secret store** — `runtime/usage` (`ProviderKeys`, `createNanogptKeyCheck`) (PM-328).
   See **NanoGPT Codex home and key delivery** (PM-329) for session-only secret delivery.
+  PM-1061: the installation key is the host owner's; the hub delivers it only to an engine the host owner owns
+  (`EngineRegistry.ownedByHost`), never to another owner's engine, and says so with `nanogpt_key_not_for_engine`.
   The server stores the installation key under `PROJECTMAN_HOME/secrets/nanogpt.json`,
   with POSIX directory/file modes 0700/0600 and an atomic same-directory rename. Only an
   owner of every project may change it. Save-time checking needs outbound HTTPS to NanoGPT.
@@ -3602,7 +3628,9 @@ assumption or remote-engine RPC.
   `<session folder>/<id>-<name>` (0600, straight in the folder with no subdirectory since PM-523, see
   SECURITY.md; the same path for the same bytes) and the tool answers with that path. The caller is the session the MCP token names; the
   target is its own folder only, and a guest conversation of the Operator (no folder, `teamToolsOnly`)
-  gets none. A failure (engine offline or older, no folder, a disk error) is logged and the tool
+  gets none. PM-1061: the copy goes only to the engine the session runs on, and the engine must be bound to the
+  session's project (`files.materialize_into_session` is session-scoped, a project call is checked by the hub guard).
+  A failure (engine offline or older, no folder, a disk error) is logged and the tool
   answers as before, without a path. `mcpImageResults` per provider: claude and codex true (Claude Code
   and Codex render an MCP `image` result), gemini and nanogpt false (the Gemini CLI has no place for
   one yet; NanoGPT is Codex over a custom provider, so it depends on the model): the first reading of
@@ -3783,7 +3811,9 @@ assumption or remote-engine RPC.
   from that deploy every Codex session exited at start ("agent CLI exited before it was
   ready"), so it was reverted. A failing team MCP must cost the tools, not the session.
   The root cause of the team MCP start failure is investigated separately.
-  **Remote engine:** unchanged; the token-bound loopback relay supplies the catalog.
+  **Remote engine:** unchanged; the token-bound loopback relay supplies the catalog. PM-1061: the relay (`mcp.relay`)
+  serves a token only when its session runs on the requesting engine and the session's project is bound to that
+  engine; another owner's engine cannot reach a project it is not bound to through a stolen or guessed token.
   **Team MCP relay log (PM-1072):** the engine logs each `initialize` and `tools/list` relay
   (method, status, elapsed time) at info, and every refused (non-2xx), failed or badly
   answered relay at warn; the cloud logs why it refused a relayed token. Neither logs the

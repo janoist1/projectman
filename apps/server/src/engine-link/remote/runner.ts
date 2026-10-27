@@ -208,6 +208,10 @@ export function createRemoteRunner(options: RemoteRunnerOptions): RemoteRunner {
     },
     async start(spec) {
       const engineId = startEngine(spec);
+      // A session of a project goes only to an engine bound to it, whoever named the engine (PM-1061).
+      if (spec.projectKey) hub.assertBound(engineId, spec.projectKey);
+      if (spec.provider === 'nanogpt' && !hub.ownedByHost(engineId))
+        throw conflict('nanogpt_key_not_for_engine', `the NanoGPT key is not for engine ${engineId}`);
       if (!hub.available(engineId))
         throw conflict('engine_offline', `engine ${engineId} is not connected`, { engine: engineId });
       owners.set(spec.sessionId, engineId);
@@ -383,8 +387,11 @@ export function createRemoteRunner(options: RemoteRunnerOptions): RemoteRunner {
       const cached = statuses.get(key);
       // The cache keeps the engine's own answer: the key fact is added on every read, so saving or
       // deleting the key shows at the next read.
+      // The key is the host's: an engine of another owner has none, so a NanoGPT start there waits (PM-1061).
       const answer = async (status: ProviderStatus) =>
-        provider === 'nanogpt' ? withNanogptKeyFact(status, await keySet()) : status;
+        provider === 'nanogpt'
+          ? withNanogptKeyFact(status, hub.ownedByHost(engineId) && (await keySet()))
+          : status;
       if (cached && !opts?.refresh && now() - cached.at < PROVIDER_STATUS_TTL_MS)
         return answer(cached.status);
       const status = await hub.call(engineId, 'provider.status', {

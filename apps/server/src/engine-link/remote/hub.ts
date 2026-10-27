@@ -7,6 +7,8 @@ import type { EngineEvent, Hello } from '../protocol';
 import { EngineRpcError } from '../rpc';
 import type { CallOptions, HandlerContext } from '../rpc';
 import type { EngineMethod, MethodParams, MethodResult } from '../methods';
+import { createEngineGuard } from './guard';
+import type { GuardRegistry } from './guard';
 
 /**
  * What the cloud knows about one engine's sessions and folders without asking (PM-315). The sync
@@ -43,6 +45,14 @@ export interface RemoteHub {
   /** Connected, or gone for less than `ENGINE_OFFLINE_AFTER_MS`. */
   available(id: EngineId): boolean;
   defaultId(): EngineId | null;
+  /** The engine of the host machine: the default one, while its owner is the host owner (PM-1061). */
+  hostEngine(): EngineId | null;
+  /** The engine's owner is the host owner, so the host's secrets may go to it (PM-1061). */
+  ownedByHost(id: EngineId): boolean;
+  /** The engine is the project's: its fallback engine, or a binding that is not revoked (PM-1061). */
+  isBound(id: EngineId, projectKey: string): boolean;
+  /** Throws `engine_not_bound` unless the engine is the project's (PM-1061); `call` does this for project methods. */
+  assertBound(id: EngineId, projectKey: string): void;
   /** The engine the project's new session goes to (its binding, else the global default of its owners). */
   projectEngine(projectKey: string): EngineId | null;
   /** Called after the project's engine choice may have changed. */
@@ -87,21 +97,27 @@ export interface RemoteHub {
   close(): void;
 }
 
+/** What the hub and its guard read from the engine registry. */
+export interface HubRegistry extends GuardRegistry {
+  isOnline(id: EngineId): boolean;
+  defaultId(): EngineId | null;
+  projectEngine(projectKey: string): EngineId | null;
+  onProjectEngineChange(listener: (projectKey: string) => void): () => void;
+  ids(): EngineId[];
+  onOnlineChange(listener: (id: EngineId, online: boolean) => void): () => void;
+  /** The engine's owner is the host owner (the host's secrets may go to it). */
+  ownedByHost(id: EngineId): boolean;
+}
+
 interface RemoteHubOptions {
   links: EngineLinks;
-  registry: {
-    isOnline(id: EngineId): boolean;
-    defaultId(): EngineId | null;
-    projectEngine(projectKey: string): EngineId | null;
-    onProjectEngineChange(listener: (projectKey: string) => void): () => void;
-    ids(): EngineId[];
-    onOnlineChange(listener: (id: EngineId, online: boolean) => void): () => void;
-  };
+  registry: HubRegistry;
   logger: FastifyBaseLogger;
 }
 
 export function createRemoteHub(options: RemoteHubOptions): RemoteHub {
   const { links, registry, logger } = options;
+  const guard = createEngineGuard(registry, logger);
   const mirrors = new Map<EngineId, EngineMirror>();
   const handlers = new Map<string, CloudHandler>();
   const connectHooks: Array<(context: ConnectContext) => void | Promise<void>> = [];
@@ -275,10 +291,16 @@ export function createRemoteHub(options: RemoteHubOptions): RemoteHub {
     link: (id) => links.get(id),
     available: (id) => registry.isOnline(id),
     defaultId: () => registry.defaultId(),
+    hostEngine: () => registry.hostEngine(),
+    ownedByHost: (id) => registry.ownedByHost(id),
+    isBound: (id, projectKey) => registry.isBound(id, projectKey),
+    assertBound: (id, projectKey) => guard.assertBound(id, projectKey),
     projectEngine: (projectKey) => registry.projectEngine(projectKey),
     onProjectEngineChange: (listener) => registry.onProjectEngineChange(listener),
     ids: () => registry.ids(),
     async call(id, method, params, callOptions) {
+      // A call for a project goes only to an engine bound to it, a machine call only to the host's (PM-1061).
+      guard.check(id, method, params);
       const link = await waitLink(id, callOptions?.signal);
       return link.call(method, params, callOptions);
     },

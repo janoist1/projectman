@@ -141,6 +141,7 @@ export function createOperatorAppCredentials(deps: {
         deps.base.assertActive(principal);
       },
       user: (id) => deps.base?.user(id) ?? deps.user(id),
+      isHostOwner: (userId) => deps.base?.isHostOwner?.(userId) ?? false,
       ...(deps.base?.reactivate ? { reactivate: (stored) => deps.base!.reactivate!(stored) } : {}),
     },
     issue(config, sessionId, member) {

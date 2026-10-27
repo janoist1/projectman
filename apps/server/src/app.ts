@@ -460,6 +460,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
             links: engineLinks,
             registry: engineRegistry,
             recordedEngine: (sessionId) => repos!.sessions.get(sessionId)?.engineId ?? null,
+            recordedProject: (sessionId) => repos!.sessions.get(sessionId)?.projectKey ?? null,
             spoolDir: join(home, 'engine-spool'),
             logger: log.child({ module: 'engine-remote' }),
             now: options.now ? () => options.now!().getTime() : undefined,
@@ -496,6 +497,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     const makeRunner = modules.createRunnerModule ?? createRunnerModule;
     let scopeProbe: MachineProbe | undefined;
     const auth = new AuthService({ repos, now: options.now });
+    // The host machine is the one the host owner's engine runs on (PM-1061).
+    engineRegistry?.useHostOwner((userId) => auth.isHostOwner(userId));
     if (options.publicBoard)
       assertPublicBoardReady({
         cloud: options.engineMode === 'cloud',
@@ -727,7 +730,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       engineRegistry,
       feedbackWidgetFile: options.feedbackWidgetFile,
     });
-    registerWebsocket(app, { domain, auth, heartbeatMs: options.wsHeartbeatMs });
+    registerWebsocket(app, { domain, auth, engineRegistry, heartbeatMs: options.wsHeartbeatMs });
     domain.runnerModule.registerHookRoutes(app);
     mcpModule.registerRoutes(app);
     if (webDistDir)

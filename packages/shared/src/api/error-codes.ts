@@ -213,6 +213,13 @@ export const ERROR_CODES = [
   'engine_not_owned',
   'engine_in_use',
   'engine_is_default',
+  // Isolation on the hub (PM-1061): a call for a project the engine is not bound to (409), a machine or
+  // administration call for an engine that is not the host's (409), the host's NanoGPT key asked for or
+  // started on an engine of another owner (409), an operation of the host owner's key only (403).
+  'engine_not_bound',
+  'engine_not_host',
+  'nanogpt_key_not_for_engine',
+  'host_only',
   'ai_disabled',
   'ai_limit_reached',
   'plan_usage_paused',

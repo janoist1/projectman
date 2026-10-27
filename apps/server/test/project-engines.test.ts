@@ -144,6 +144,47 @@ describe('the engines of a project', () => {
     expect((await del('AR', engB)).json().error.code).toBe('engine_in_use');
   });
 
+  describe('who sees an engine (PM-1061)', () => {
+    let patEngine: EngineId;
+    const machine = { hostname: 'pats-mac', platform: 'darwin' as const, version: 'test', providers: [] };
+    const engines = async (who: string) =>
+      (await inject(h.app, 'GET', routes.engines(), who)).json() as Array<{
+        id: string;
+        hostname: string | null;
+      }>;
+    const status = async (who: string) =>
+      (
+        (await inject(h.app, 'GET', routes.engineStatus(), who)).json() as { engines: Array<{ id: string }> }
+      ).engines.map((engine) => engine.id);
+    beforeEach(() => {
+      patEngine = registry.create('Pat Mac', 'usr_pat').engine.id;
+      registry.seen(patEngine, '203.0.113.7', machine);
+    });
+
+    it('lists every engine to the host owner and only their own to another owner, who alone sees its machine', async () => {
+      expect((await engines(cookie)).map((engine) => engine.id).sort()).toEqual(
+        [engA, engB, patEngine].sort(),
+      );
+      expect(await engines(patCookie)).toEqual([
+        expect.objectContaining({ id: patEngine, hostname: 'pats-mac' }),
+      ]);
+      expect((await inject(h.app, 'GET', routes.engines(), devCookie)).statusCode).toBe(403);
+      expect((await engines(cookie)).find((engine) => engine.id === patEngine)).toMatchObject({
+        hostname: 'pats-mac',
+      });
+    });
+
+    it('shows the status of an engine only to whom a project or ownership ties to it', async () => {
+      // The developer's project falls back to the host's default engine: Pat's machine is not theirs to see.
+      expect(await status(devCookie)).toEqual([engA]);
+      expect(await status(patCookie)).toContain(patEngine);
+      expect(await status(patCookie)).toContain(engA);
+      await put('AR', patEngine, patCookie);
+      expect(await status(devCookie)).toContain(patEngine);
+      expect(await status(cookie)).toEqual(expect.arrayContaining([engA, engB, patEngine]));
+    });
+  });
+
   it('lets the only binding go, and the project falls back to the global default', async () => {
     await put('AR', engB);
     expect((await del('AR', engB)).statusCode).toBe(204);

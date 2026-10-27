@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { assertSuperMutation } from '../../kernel';
-import { EngineProvider, projectEngineOf } from '@projectman/shared';
+import { EngineProvider, canSeeEngine, canSeeEngineMachine, projectEngineOf } from '@projectman/shared';
 import type {
   CreateEngineResponse,
   EngineId,
@@ -45,6 +45,12 @@ export interface EngineCounters {
   waitingMessages: number;
 }
 
+/** Who asks for engines: the user and the keys of the projects they are a member of. */
+export interface EngineViewer {
+  userId: string;
+  projectKeys: readonly string[];
+}
+
 /** Cloud registry. Secrets are returned once; only their hashes and display prefixes persist. */
 export class EngineRegistry {
   private readonly online = new Set<EngineId>();
@@ -58,6 +64,7 @@ export class EngineRegistry {
   private wake: (projectKey: string) => void = () => {};
   private projectOwners: (projectKey: string) => string[] = () => [];
   private projectHolds: (id: EngineId, projectKey: string) => boolean = () => false;
+  private isHostOwner: (userId: string) => boolean = () => false;
   private readonly projectEngineListeners = new Set<(projectKey: string) => void>();
   private readonly repos: Repositories;
   private readonly bus: EventBus;
@@ -108,9 +115,35 @@ export class EngineRegistry {
     this.projectHolds = holds;
   }
 
+  /** Whether the user is the chopper's host owner; the auth module provides it (PM-1061). Until then nobody is. */
+  useHostOwner(isHostOwner: (userId: string) => boolean): void {
+    this.isHostOwner = isHostOwner;
+  }
+
   /** The machine-wide default engine: the one that is not revoked and is marked default; null when there is none. */
   defaultId(): EngineId | null {
     return this.defaultRecord()?.id ?? null;
+  }
+
+  /**
+   * The host's machine: the default engine while the host owner owns it (PM-1061). The machine display, the
+   * administration and the builds go only here; a default engine of another owner is nobody's host machine.
+   */
+  hostEngine(): EngineId | null {
+    const row = this.defaultRecord();
+    return row && this.isHostOwner(row.created_by) ? row.id : null;
+  }
+
+  /** The engine belongs to the host owner: the only kind that may be given the host's secrets. */
+  ownedByHost(id: EngineId): boolean {
+    const owner = this.ownerOf(id);
+    return owner !== null && this.isHostOwner(owner);
+  }
+
+  /** The project's work may go to this engine: it is bound to the project, or it is the project's fallback engine. */
+  isBound(id: EngineId, projectKey: string): boolean {
+    if (this.projectEngine(projectKey) === id) return true;
+    return this.projectBindings(projectKey).some((binding) => binding.engineId === id && !binding.revoked);
   }
 
   private defaultRecord(): EngineRecord | null {
@@ -252,6 +285,67 @@ export class EngineRegistry {
       .filter((row) => !row.revokedAt)
       .map(({ id, name, isDefault, online, lastSeenAt }) => ({ id, name, isDefault, online, lastSeenAt }));
   }
+  /**
+   * The engines the projects have to do with (PM-1061): the fallback engine and every binding, a revoked one
+   * too, so that the members still hear of its revocation (the status list leaves a revoked engine out).
+   */
+  private engineIdsOfProjects(projectKeys: readonly string[]): Set<EngineId> {
+    const ids = new Set<EngineId>();
+    for (const projectKey of projectKeys) {
+      const fallback = this.projectEngine(projectKey);
+      if (fallback) ids.add(fallback);
+      for (const binding of this.projectBindings(projectKey)) ids.add(binding.engineId);
+    }
+    return ids;
+  }
+
+  /** The engines this viewer may see in the status list, as `EngineViewer` says; `projectKeys` are the viewer's projects. */
+  private visibleRows(viewer: EngineViewer): EngineRecord[] {
+    const viewerIsHostOwner = this.isHostOwner(viewer.userId);
+    const ofProjects = this.engineIdsOfProjects(viewer.projectKeys);
+    return this.repos.engines.list().filter((row) =>
+      canSeeEngine({
+        viewerUserId: viewer.userId,
+        viewerIsHostOwner,
+        engineOwnerUserId: row.created_by,
+        usedByViewerProject: ofProjects.has(row.id),
+      }),
+    );
+  }
+
+  /** Whether the viewer may hear of / see this engine; the websocket asks per event. */
+  canSee(id: EngineId, viewer: EngineViewer): boolean {
+    return this.visibleRows(viewer).some((row) => row.id === id);
+  }
+
+  /** The status list for one viewer (PM-1061): the engines they may see, none revoked. */
+  statusFor(viewer: EngineViewer): EngineStatusView[] {
+    return this.visibleRows(viewer)
+      .filter((row) => !row.revoked_at)
+      .map((row) => this.view(row))
+      .map(({ id, name, isDefault, online, lastSeenAt }) => ({ id, name, isDefault, online, lastSeenAt }));
+  }
+
+  /**
+   * The management list for one viewer (PM-1061): the host owner sees every engine, anyone else their own.
+   * The machine's name and address go only to the engine's owner and the host owner.
+   */
+  listFor(viewer: { userId: string }): EngineView[] {
+    const viewerIsHostOwner = this.isHostOwner(viewer.userId);
+    return this.repos.engines
+      .list()
+      .filter((row) => viewerIsHostOwner || row.created_by === viewer.userId)
+      .map((row) => {
+        const view = this.view(row);
+        const machine = canSeeEngineMachine({
+          viewerUserId: viewer.userId,
+          viewerIsHostOwner,
+          engineOwnerUserId: row.created_by,
+        });
+        return machine ? view : { ...view, hostname: null, lastSeenIp: null };
+      });
+  }
+
   private active(id: string): EngineRecord {
     const row = this.repos.engines.get(id);
     if (!row) throw new DomainError('engine_not_found', 'Engine not found', { status: 404 });

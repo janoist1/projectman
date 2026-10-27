@@ -6,6 +6,7 @@ import {
   roleSessionAccess,
   memberDuties,
   memberOf,
+  memberStorageHandle,
   stageOf,
   stageOwners,
 } from '@projectman/shared';
@@ -130,7 +131,11 @@ export class MemberWorkspaces {
     if (isMergeFixer(task.merge, member.handle)) return;
     if (!this.kindFor(config, member, task)) return;
     const repo = effectiveRepo(config, task)!;
-    const record = this.ctx.repos.memberWorkspaces.find(config.project.key, member.handle, repo);
+    const record = this.ctx.repos.memberWorkspaces.find(
+      config.project.key,
+      memberStorageHandle(member),
+      repo,
+    );
     const holder = record?.holder;
     if (holder?.cleanupFailed) throw this.busy(member.handle, repo, holder);
     if (!holder || holder.taskKey === task.key || !this.holds(holder)) return;
@@ -153,10 +158,12 @@ export class MemberWorkspaces {
     const repo = effectiveRepo(config, task);
     if (!kind || !repo) throw new Error('the member has no workspace for this task');
     const projectKey = config.project.key;
-    const key: MemberWorkspaceKey = { project: config, repoName: repo, member: member.handle };
+    // The workspace is kept under the storage handle, which a rename of the member does not change.
+    const storage = memberStorageHandle(member);
+    const key: MemberWorkspaceKey = { project: config, repoName: repo, member: storage };
     return this.locks.run(`${projectKey}:${member.handle}:${repo}`, async () => {
       const store = this.ctx.repos.memberWorkspaces;
-      let record = store.find(projectKey, member.handle, repo);
+      let record = store.find(projectKey, storage, repo);
       // The reservation comes first: nothing touches a workspace another task's process uses.
       if (record) await this.acquire(config, record, sessionId, task.key);
       this.starting.add(sessionId);
@@ -168,19 +175,19 @@ export class MemberWorkspaces {
           store.insert({
             id: newId('wsp'),
             projectKey,
-            member: member.handle,
+            member: storage,
             repo,
             path: info.path,
             generation: 1,
             createdAt: isoNow(this.ctx),
           });
-          record = store.find(projectKey, member.handle, repo)!;
+          record = store.find(projectKey, storage, repo)!;
           this.hold(record, sessionId, task.key);
         } else if (info.created || record.path !== info.path) {
           // Made again (it was gone) or moved: older conversations do not belong to it.
           store.relocate(record.id, info.path, record.generation + 1);
           this.ctx.logger.warn(
-            { member: member.handle, repo, path: info.path, generation: record.generation + 1 },
+            { member: storage, repo, path: info.path, generation: record.generation + 1 },
             'member workspace made again; earlier conversations start anew',
           );
         }
@@ -191,8 +198,8 @@ export class MemberWorkspaces {
         const base = await this.manager.fetchBase(key);
         const prepared =
           kind === 'work'
-            ? await this.prepareWork(config, key, task, record, previous, base)
-            : await this.prepareReview(config, key, task, record, previous, base);
+            ? await this.prepareWork(config, member, key, task, record, previous, base)
+            : await this.prepareReview(config, member, key, task, record, previous, base);
         await this.manager.prepareDependencies(key);
         const now = isoNow(this.ctx);
         const binding: TaskWorkspaceBinding = {
@@ -306,7 +313,7 @@ export class MemberWorkspaces {
       .find((b) => b.member === member && b.kind === 'work');
     const record = binding ? this.ctx.repos.memberWorkspaces.get(binding.workspaceId) : null;
     if (!record) return;
-    const key: MemberWorkspaceKey = { project: config, repoName: record.repo, member };
+    const key: MemberWorkspaceKey = { project: config, repoName: record.repo, member: record.member };
     await this.manager.fetchBase(key).catch((err: unknown) => {
       throw toDomainError(err, member);
     });
@@ -369,6 +376,7 @@ export class MemberWorkspaces {
 
   private async prepareWork(
     config: ProjectConfig,
+    member: AiMemberConfig,
     key: MemberWorkspaceKey,
     task: Task,
     record: MemberWorkspaceRecord,
@@ -401,7 +409,7 @@ export class MemberWorkspaces {
     }
     if (!checkout) {
       // Taken over from a teammate: their committed branch (the assignee's first).
-      const teammate = this.workSource(config.project.key, task.key, key.member);
+      const teammate = this.workSource(config.project.key, task.key, member.handle);
       const commit = teammate ? await this.manager.resolveSource(teammate) : null;
       if (teammate && commit) {
         const branch = teammate.ref.slice('refs/heads/'.length);
@@ -468,19 +476,18 @@ export class MemberWorkspaces {
 
   private async prepareReview(
     config: ProjectConfig,
+    member: AiMemberConfig,
     key: MemberWorkspaceKey,
     task: Task,
     record: MemberWorkspaceRecord,
     previous: TaskWorkspaceBinding | null,
     base: FetchedBase,
   ) {
-    const member = memberOf(config, key.member);
     // Design review can start in the work stage, before any stage hand-over pin exists.
     // Every actual start inspects the current developer tip, including a manual resume.
-    const designSource =
-      member?.kind === 'ai' && this.isDesignReview(config, member, task)
-        ? await this.reviewSource(config, key, task)
-        : null;
+    const designSource = this.isDesignReview(config, member, task)
+      ? await this.reviewSource(config, member, key, task)
+      : null;
     const sameRound =
       previous?.kind === 'review' &&
       !previous.refresh &&
@@ -505,7 +512,7 @@ export class MemberWorkspaces {
       // A new round: the handed-over branch's commit now, and the default branch fetched for this start.
       // A card with no branch yet (one being worked out) is read on the fetched default branch.
       const selected = designSource ??
-        (await this.reviewSource(config, key, task)) ?? {
+        (await this.reviewSource(config, member, key, task)) ?? {
           source: { path: record.path, ref: `${BASE_TRACKING_REF_PREFIX}${base.branch}` },
           commit: base.commit,
         };
@@ -556,10 +563,11 @@ export class MemberWorkspaces {
    */
   private async reviewSource(
     config: ProjectConfig,
+    member: AiMemberConfig,
     key: MemberWorkspaceKey,
     task: Task,
   ): Promise<{ source: WorkspaceSource; commit: string } | null> {
-    const work = this.workOf(key.project.project.key, task.key, key.member);
+    const work = this.workOf(key.project.project.key, task.key, member.handle);
     if (work) {
       const commit = await this.manager.resolveSource({
         path: work.record.path,

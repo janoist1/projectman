@@ -2159,7 +2159,12 @@ workers follow the machine's size.
   (`propose_operator_knowledge`, without recommended operations) in its internal general
   conversation, and the checklist notices go to its queue; the store, its path and the owner's
   approval are unchanged, and the PM reaches the store only through the server (a remote engine
-  needs nothing new). Missing documents start at revision zero; invalid documents are refused
+  needs nothing new). PM-1046 (PM-1023 K7) adds the global Operator's own instance target,
+  `<server home>/operator-data/_instance/knowledge.json` (`readInstanceKnowledge`,
+  `compareAndSwapInstanceKnowledge`): the same format, revision and error codes, one document for the
+  whole server; `_instance` is no valid project key, so it never collides with a project. It is reached
+  only through the external MCP's super tools (below); the Operator runs on the owner's machine and the
+  document stays in the server's home. Missing documents start at revision zero; invalid documents are refused
   without overwriting. **Machine assumption:** one server process owns a private writable home,
   with POSIX directory/file permissions (0700/0600), no-follow file opens and same-directory atomic
   rename. Target-file CAS writes are serialized within that process, including multiple store
@@ -3051,6 +3056,14 @@ workers follow the machine's size.
   loopback peer, so the proxy or tunnel must run on the server's machine and keep Host and the protocol header) and a
   tunnel/proxy that refuses `/mcp/` and `/hooks` but passes `/mcp`. Remote engine: not affected; nothing of the endpoint
   runs on or crosses to an engine.
+  **The global Operator on the endpoint (PM-1046, PM-1023 K7):** in the super mode `get_operator_instance_knowledge`
+  and `update_operator_instance_knowledge` (`expected_revision`, `agreement?`, `principles?`) read and write the
+  Operator's own knowledge with no `project_key` (`services/super-operator/instance-knowledge.ts`); the write is
+  direct, with no app approval, and the super audit records it in every project the key's holder owns
+  (`SuperOperator.executeOwned`). `list_integrator_inbox` takes an optional `project_key`: without it the items of every
+  project of the key come in one list, each with its `projectKey`, and the access is checked per project. The
+  server's `instructions` describe the Operator's role (decision 65). Remote engine: not affected; the Operator
+  reaches the hub over HTTPS with the key and the knowledge stays in the hub's home.
   **Operator tools on the endpoint (PM-784):** `read_project_doc`, `write_project_docs`, `get_project_doc_write`,
   `get_role_configuration`, `propose_release`, `request_structural_review`, `ask_human`, `get_super_question`,
   `withdraw_question` and `read_attachment` (`mcp/*/tools.ts` `external` bindings, `mcp/super-operator/handler.ts`,

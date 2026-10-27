@@ -292,6 +292,17 @@ describe('private operator storage', () => {
     ).rejects.toMatchObject({ code: 'operator_knowledge_limit', status: 409 });
     expect(await store.readKnowledge('PM')).toEqual(next);
   });
+  it('keeps the instance knowledge apart from the projects and refuses a stale write', async () => {
+    expect((await store.readInstanceKnowledge()).revision).toBe(0);
+    await store.compareAndSwapInstanceKnowledge(0, nextKnowledge());
+    expect(await store.readInstanceKnowledge()).toEqual(nextKnowledge());
+    expect((await store.readKnowledge('PM')).revision).toBe(0);
+    expect(await fs.readdir(join(rootDir, '_instance'))).toEqual(['knowledge.json']);
+    await expect(store.compareAndSwapInstanceKnowledge(0, nextKnowledge())).rejects.toMatchObject({
+      code: 'operator_knowledge_stale',
+      status: 409,
+    });
+  });
   it('preserves complete JSON and cleans the temporary file after a failed atomic rename', async () => {
     await store.compareAndSwapKnowledge('PM', 0, nextKnowledge());
     vi.mocked(fs.rename).mockRejectedValueOnce(Object.assign(new Error('I/O failure'), { code: 'EIO' }));

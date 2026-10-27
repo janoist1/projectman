@@ -169,8 +169,9 @@ export function emailMailboxOf(member: AiMemberConfig): string {
 
 /**
  * The AI members whose own address is live (channel on, member allowed to send) under this mailbox name.
- * When no live address bears the name, the members that were once renamed from it answer for it
- * (PM-1025), so a reply to a letter sent from the old address still arrives; a live name wins.
+ * The members that were once renamed from the name answer for it too (PM-1025), so a reply to a letter
+ * sent from the old address still arrives; with more than one owner the name is shared and its mail parks,
+ * as it would had nobody been renamed.
  */
 export function emailMailboxOwners(
   configs: readonly ProjectConfig[],
@@ -188,7 +189,10 @@ export function emailMailboxOwners(
         : [],
     );
   const live = owners((member) => emailMailboxOf(member) === mailbox);
-  return live.length > 0 ? live : owners((member) => member.formerHandles?.includes(mailbox) === true);
+  const former = owners((member) => member.formerHandles?.includes(mailbox) === true).filter(
+    (owner) => !live.some((o) => o.projectKey === owner.projectKey && o.handle === owner.handle),
+  );
+  return [...live, ...former];
 }
 
 /**

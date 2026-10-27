@@ -2508,7 +2508,10 @@ workers follow the machine's size.
   crosses to an engine. **Rename (PM-1025):** a rename deletes `ai.email.mailbox`, so the address becomes
   `<new handle>@<reply domain>` (it is refused with `email_mailbox_taken` when that mailbox is another
   member's). Mail to the old address still arrives: `emailMailboxOwners` also matches the `formerHandles`
-  of an AI member, so the old name resolves to the same member. No new boundary: it is the same hub-only rule.
+  of an AI member, so the old name resolves to the same member; a live holder of the same name does not
+  win over it but shares it, and the existing shared-name branch parks the mail. The old name stays reserved
+  in every project (`emailMailboxReserved`): no chosen mailbox, e-mail switch-on or rename may take it.
+  No new boundary: it is the same hub-only rule.
 
 - **Feedback widget public entrance and screenshot store (PM-506, PM-508)** —
   `apps/server/src/services/feedback/{service,screenshots,notices,widget}.ts`, `apps/server/src/api/feedback.ts`,

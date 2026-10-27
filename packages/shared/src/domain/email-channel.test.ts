@@ -294,7 +294,7 @@ describe('email member address', () => {
     expect(emailMailboxOwners(configs, 'pm')).toEqual([{ projectKey: 'BR', handle: 'pm' }]);
     expect(emailMailboxOwners(configs, 'nobody')).toEqual([]);
   });
-  it('leads a former handle to the renamed member, unless a live name bears it', () => {
+  it('leads a former handle to the renamed member, and shares it with a live name', () => {
     const renamed = AiMemberConfig.parse({
       ...ai,
       handle: 'haini',
@@ -304,8 +304,20 @@ describe('email member address', () => {
     expect(emailMailboxOwners([configOf('AR', [renamed])], 'dev')).toEqual([
       { projectKey: 'AR', handle: 'haini' },
     ]);
-    expect(emailMailboxOwners([configOf('AR', [renamed, on('dev')])], 'dev')).toEqual([
-      { projectKey: 'AR', handle: 'dev' },
+    expect(emailMailboxOwners([configOf('AR', [renamed]), configOf('BR', [on('dev')])], 'dev')).toEqual([
+      { projectKey: 'BR', handle: 'dev' },
+      { projectKey: 'AR', handle: 'haini' },
+    ]);
+  });
+  it('counts a member once when its mailbox is also its former handle', () => {
+    const renamed = AiMemberConfig.parse({
+      ...ai,
+      handle: 'haini',
+      formerHandles: ['dev'],
+      email: { enabled: true, mailbox: 'dev' },
+    });
+    expect(emailMailboxOwners([configOf('AR', [renamed])], 'dev')).toEqual([
+      { projectKey: 'AR', handle: 'haini' },
     ]);
   });
   it('reports every owner when two members share a mailbox', () => {

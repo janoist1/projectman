@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
+import { waitFor } from './helpers/wait';
 
 describe('human messages wake idle AI members', () => {
   let h: DomainHarness;
@@ -21,11 +22,15 @@ describe('human messages wake idle AI members', () => {
       ...(taskKey ? { taskKey } : {}),
     });
 
+  /** The start is asynchronous: the message counts as delivered once the new session took it. */
+  const delivered = (id: string) =>
+    waitFor(() => h.repos.messages.get(id)?.deliveredAt, { what: 'the message to be delivered' });
+
   it.each([undefined, 'AR-1'])(
     'starts the correct work item for task %s and delivers once',
     async (taskKey) => {
       const message = await send(taskKey);
-      await flush();
+      await delivered(message.id);
       const sessions = h.domain.sessions.list('AR', { member: 'cr' });
       expect(sessions).toHaveLength(1);
       expect(sessions[0]!.workItem).toEqual(taskKey ? { type: 'task', taskKey } : { type: 'general' });
@@ -38,9 +43,10 @@ describe('human messages wake idle AI members', () => {
       expect(initialMessage).toContain(taskKey ? '[team messages about AR-1]' : '[team messages]');
       expect(initialMessage).toContain('Please check Acme.');
       expect(h.runner.messages).toEqual([]);
-      expect(h.repos.messages.get(message.id)?.deliveredAt).toBeTruthy();
       await send(taskKey);
-      await flush();
+      await waitFor(() => h.runner.messages.length > 0, {
+        what: 'the second message typed into the session',
+      });
       expect(h.runner.started).toHaveLength(1);
       expect(h.runner.messages).toEqual([{ sessionId: sessions[0]!.id, text }]);
     },
@@ -51,7 +57,7 @@ describe('human messages wake idle AI members', () => {
     h.runner.emit({ type: 'transcript_path', sessionId: session.id, path: '/tmp/acme-transcript.jsonl' });
     await h.domain.sessions.stop('AR', session.id);
     const message = await send('AR-1');
-    await flush();
+    await delivered(message.id);
     // The resumed session takes the message as its first input: nothing is typed after it.
     expect(h.runner.lastStarted()).toMatchObject({
       sessionId: session.id,
@@ -94,16 +100,18 @@ describe('human messages wake idle AI members', () => {
       await flush();
       expect(h.runner.started).toHaveLength(before);
       expect(h.repos.messages.pending('AR', 'cr').map((entry) => entry.id)).toContain(message.id);
-      expect(info).toHaveBeenCalledWith(
-        expect.objectContaining({
-          member: 'cr',
-          reason: {
-            capacity: 'member_at_capacity',
-            concurrency: 'ai_limit_reached',
-            usage: 'plan_usage_paused',
-          }[reason],
-        }),
-        'a queued start is deferred',
+      await vi.waitFor(() =>
+        expect(info).toHaveBeenCalledWith(
+          expect.objectContaining({
+            member: 'cr',
+            reason: {
+              capacity: 'member_at_capacity',
+              concurrency: 'ai_limit_reached',
+              usage: 'plan_usage_paused',
+            }[reason],
+          }),
+          'a queued start is deferred',
+        ),
       );
       await flush();
       expect(h.runner.started).toHaveLength(before);

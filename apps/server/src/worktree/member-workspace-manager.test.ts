@@ -102,7 +102,8 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await rm(base, { recursive: true, force: true });
+  // A git process of the test may still write into the tree: ENOTEMPTY then goes away on a retry.
+  await rm(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 });
 
 const key = (member: string): MemberWorkspaceKey => ({ project, repoName: 'app', member });

@@ -8,7 +8,8 @@ import { FAKE_CLAUDE, FAKE_CODEX, freePort, tempDirs, waitFor } from '../src/run
 const dirs = tempDirs();
 afterEach(() => dirs.cleanup());
 
-describe('removed VM installation settings', () => {
+// A real server process: its startup can take longer than the default wait when the machine is loaded.
+describe('removed VM installation settings', { timeout: 60_000 }, () => {
   it.each([false, true])('starts the server with obsolete settings present=%s', async (obsolete) => {
     const home = await dirs.make();
     const removed = {
@@ -51,7 +52,7 @@ describe('removed VM installation settings', () => {
           if (child.exitCode !== null) throw new Error(output);
           return output.includes('projectman server ready');
         },
-        { what: 'server startup' },
+        { what: 'server startup', timeoutMs: 45_000 },
       );
       const warnings = output
         .split('\n')

@@ -2,6 +2,7 @@ import type { OperatorPauses } from './ports';
 import {
   isOnLeave,
   managerConversationOf,
+  nominalMessagePlace,
   OPERATOR_SIGNAL_ROUND_FROM,
   operatorConversationOf,
   operatorOf,
@@ -45,11 +46,17 @@ export class ProjectManagerChannels {
    */
   async view(projectKey: string, viewer: string): Promise<ProjectManagerCorner> {
     const config = await this.deps.projects.config(projectKey);
+    const manager = projectManagerOf(config);
     return this.cornerOf(
       projectKey,
       viewer,
-      projectManagerOf(config),
+      manager,
       managerConversationOf(config, viewer),
+      // The session and its state are where a message to the manager really goes, so they follow the route when
+      // a person who is not an owner gets a conversation of their own (PM-1080).
+      manager
+        ? nominalMessagePlace(config, manager.handle, { type: 'general' }, viewer)
+        : { type: 'general' },
       ownerHandles(config),
     );
   }
@@ -60,11 +67,13 @@ export class ProjectManagerChannels {
    */
   async operatorView(projectKey: string, viewer: string): Promise<OperatorChannel> {
     const config = await this.deps.projects.config(projectKey);
+    const conversation = operatorConversationOf(config, viewer);
     return this.cornerOf(
       projectKey,
       viewer,
       operatorOf(config),
-      operatorConversationOf(config, viewer),
+      conversation,
+      conversation,
       // The owners' channel also lists the rounds of the Operator's own steps on signals (PM-545).
       [...ownerHandles(config), OPERATOR_SIGNAL_ROUND_FROM],
     );
@@ -75,9 +84,10 @@ export class ProjectManagerChannels {
     viewer: string,
     member: AiMemberConfig | null,
     conversation: WorkItemRef,
+    place: WorkItemRef,
     ownerRequestSenders: string[],
   ): Promise<ProjectManagerCorner> {
-    const channel = await this.channelOf(projectKey, member, conversation);
+    const channel = await this.channelOf(projectKey, member, place);
     const readOnly = conversation.type === 'general' && conversation.with !== undefined;
     // Like the signals, the queue is the owners' business: a person reading along sees it empty.
     const queued =

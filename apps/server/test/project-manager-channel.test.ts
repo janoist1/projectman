@@ -28,6 +28,13 @@ async function harness(onLeave = false) {
         pm.onLeave = onLeave;
         pm.capacity = 1;
       }
+      config.team.members.push({
+        kind: 'human',
+        handle: 'kata',
+        displayName: 'Kata',
+        access: 'client',
+        roles: [],
+      });
     },
   });
   return h;
@@ -262,6 +269,17 @@ describe('the permanent project manager channel', () => {
     expect(await view()).toMatchObject({
       state: 'waiting',
       waiting: { reason: 'team_paused', since: expect.any(String) },
+    });
+  });
+
+  it('shows a person who is not an owner the session their message really goes to', async () => {
+    await harness();
+    const { session } = await h.domain.sessions.ensureSession('AR', 'pm', { type: 'general' });
+    h.repos.sessions.update(session.id, { state: 'working' });
+    expect(await h.domain.projectManagerChannels.view('AR', 'kata')).toMatchObject({
+      readOnly: true,
+      state: 'working',
+      sessionId: session.id,
     });
   });
 

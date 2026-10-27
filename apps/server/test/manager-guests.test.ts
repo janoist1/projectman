@@ -173,6 +173,7 @@ describe('a person writes into the PM’s session chat', () => {
     });
     const write = (id: string, from: string) => h.domain.sessionMessages.sendToSession('AR', id, 'Hi', from);
     expect(await rejection(write(cleo.id, 'owner'))).toMatchObject({ code: 'operator_owner_only' });
+    expect(await rejection(write(cleo.id, 'dana'))).toMatchObject({ code: 'operator_owner_only' });
     await write(card.id, 'owner');
     await write(cleo.id, 'cleo');
   });

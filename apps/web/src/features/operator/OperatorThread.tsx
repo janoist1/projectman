@@ -8,6 +8,7 @@ import type {
   OperatorSignal,
   TeamMessage,
   MessageAttachmentRef,
+  UiLocation,
 } from '@projectman/shared';
 import { MessageAttachments } from '../messages/MessageAttachments';
 import { Icon } from '../../components/Icon';
@@ -26,6 +27,7 @@ import { READ_AFTER_MS, STICK_PX, useDocumentVisible } from '../messages/Convers
 import { receiptsOf } from '../messages/receipts';
 import { TaskChip } from '../messages/TaskChip';
 import { operatorSentText, operatorWaitOf } from './operatorChannel';
+import { OperatorPlaces } from './OperatorPlaces';
 import { OperatorSignalCard } from './OperatorSignalCard';
 import { OperatorSignalList } from './OperatorSignalList';
 import { OperatorSignalGroup } from './OperatorSignalGroup';
@@ -37,6 +39,8 @@ export interface FailedOperatorMessage {
   text: string;
   taskKey: string | null;
   attachments?: MessageAttachmentRef[];
+  /** Where the writer was when they sent it: a retry says the same, not where they are now. */
+  location?: UiLocation;
 }
 
 type OperatorEntry =
@@ -258,6 +262,7 @@ export function OperatorThread({
                 ) : null}
                 <MessageAttachments files={message.attachments ?? []} from={message.from} />
               </div>
+              {!mine && message.places?.length ? <OperatorPlaces places={message.places} /> : null}
               <div className={styles.meta}>
                 {message.relayed ? <span>{t('pm.relayed')}</span> : null}
                 <time dateTime={message.createdAt}>{formatTime(message.createdAt)}</time>

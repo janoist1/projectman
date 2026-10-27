@@ -8,6 +8,7 @@ import type {
   OperatorRequestView,
   OperatorSignal,
   OperatorStep,
+  UiPlace,
 } from '@projectman/shared';
 import { setFetchImplementation } from '../../api/client';
 import { MeContext } from '../../app/contexts';
@@ -65,6 +66,7 @@ function renderLayout(
           <Route path="/p/:projectKey" element={<ProjectLayout />}>
             <Route index element={<p>board</p>} />
             <Route path="tasks/:taskKey" element={<p>card</p>} />
+            <Route path="inbox" element={<p>inbox</p>} />
           </Route>
         </Routes>
       </MeContext.Provider>
@@ -291,6 +293,7 @@ describe('the Operator panel', () => {
       expect(posted(project, '/messages')[0]?.body).toEqual({
         to: ['pm'],
         text: 'Mi az állás?',
+        location: { page: 'board' },
       }),
     );
     const log = await screen.findByRole('log', { name: t('operator.thread.label') });
@@ -313,8 +316,98 @@ describe('the Operator panel', () => {
         to: ['pm'],
         text: 'Nézd meg ezt',
         taskKey: 'AC-20',
+        location: { page: 'board', taskKey: 'AC-20', view: 'card' },
       }),
     );
+  });
+
+  it('sends only the page once the card is taken off the message', async () => {
+    const project = mockProject();
+    renderLayout(project, '/p/AC/tasks/AC-20');
+    fireEvent.click(await button());
+    const panel = await screen.findByRole('dialog');
+    fireEvent.click(await within(panel).findByRole('button', { name: t('operator.context.remove') }));
+
+    const composer = within(panel).getByRole('textbox', { name: t('operator.composer.label') });
+    fireEvent.change(composer, { target: { value: 'Általában kérdezek' } });
+    fireEvent.keyDown(composer, { key: 'Enter' });
+    await waitFor(() =>
+      expect(posted(project, '/messages')[0]?.body).toEqual({
+        to: ['pm'],
+        text: 'Általában kérdezek',
+        location: { page: 'board' },
+      }),
+    );
+  });
+
+  describe('the places the Operator offers (PM-1071)', () => {
+    const offer = (project: Project, places: UiPlace[]) =>
+      project.backend.sendTeamMessage(
+        'pm',
+        ['owner'],
+        null,
+        'Itt találod.',
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        {
+          places,
+        },
+      );
+    const openPanel = async () => {
+      fireEvent.click(await button());
+      return screen.findByRole('dialog');
+    };
+    const titleOf = (project: Project, key: string) =>
+      project.backend.tasks.find((task) => task.key === key)!.title;
+
+    it('offers a button that goes there on click, and nowhere before', async () => {
+      const project = mockProject();
+      offer(project, [{ page: 'card', taskKey: 'AC-20' }]);
+      renderLayout(project);
+      const panel = await openPanel();
+      expect(screen.getByText('board')).toBeTruthy();
+
+      const name = t('operator.place.go', { place: `AC-20 · ${titleOf(project, 'AC-20')}` });
+      const link = await within(panel).findByRole('link', { name });
+      expect(link.getAttribute('href')).toBe('/p/AC/tasks/AC-20');
+      fireEvent.click(link);
+      expect(await screen.findByText('card')).toBeTruthy();
+    });
+
+    it('marks the place the reader is at instead of offering it', async () => {
+      const project = mockProject();
+      offer(project, [{ page: 'card', taskKey: 'AC-20' }]);
+      renderLayout(project, '/p/AC/tasks/AC-20');
+      const panel = await openPanel();
+      const here = await within(panel).findByText(
+        t('operator.place.here', { place: `AC-20 · ${titleOf(project, 'AC-20')}` }),
+      );
+      expect(here.closest('[aria-current="page"]')).toBeTruthy();
+      expect(within(panel).queryByRole('link', { name: /AC-20 ·/ })).toBeNull();
+    });
+
+    it('opens a card over the page the reader is on', async () => {
+      const project = mockProject();
+      offer(project, [{ page: 'card', taskKey: 'AC-20' }]);
+      renderLayout(project, '/p/AC/inbox');
+      const panel = await openPanel();
+      const link = await within(panel).findByRole('link', { name: /AC-20 ·/ });
+      expect(link.getAttribute('href')).toBe('/p/AC/inbox/tasks/AC-20');
+    });
+
+    it.each([
+      ['a settings part the reader does not see', { page: 'settings', section: 'email' } as UiPlace],
+      ['a card that is gone', { page: 'card', taskKey: 'AC-9999' } as UiPlace],
+    ])('says %s is not available, with no button', async (_name, place) => {
+      const project = mockProject();
+      offer(project, [place]);
+      renderLayout(project, '/p/AC', { access: 'developer' });
+      const panel = await openPanel();
+      expect(await within(panel).findByText(t('operator.place.unavailable'))).toBeTruthy();
+      expect(within(panel).queryByRole('link', { name: /^Ugrás ide/ })).toBeNull();
+    });
   });
 
   it('introduces itself on first use and puts a picked example into the box', async () => {

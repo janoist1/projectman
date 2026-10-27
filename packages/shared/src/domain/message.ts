@@ -7,6 +7,7 @@ import { StageId } from './pipeline';
 import { WorkItemRef } from './session';
 import { TaskKey } from './task';
 import type { TaskViewer } from './task';
+import { MAX_MESSAGE_PLACES, UiLocation, UiPlace } from './ui-place';
 
 /** The sender of the messages projectman writes itself (a send-back, a relation notice). It is no member. */
 export const SYSTEM_SENDER = 'system';
@@ -106,6 +107,10 @@ export const TeamMessage = z.object({
   /** Set on a message the Operator sent during an owner's request (PM-463): the request's id. */
   operatorRequest: z.string().optional(),
   operatorSignal: z.string().optional(),
+  /** Where the sender was in the app when they wrote it (PM-1071); the project manager gets it as background. */
+  location: UiLocation.optional(),
+  /** The places the project manager offers under the message as "go there" buttons (PM-1071). */
+  places: z.array(UiPlace).max(MAX_MESSAGE_PLACES).optional(),
 });
 export type TeamMessage = z.infer<typeof TeamMessage>;
 

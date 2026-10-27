@@ -2371,6 +2371,14 @@ migrations.push({
 });
 migrations.push({
   version: 116,
+  name: 'message location and places',
+  // PM-1071: where the sender was in the app (JSON, NULL: unknown), and the places the project manager
+  // offers under the message as buttons (JSON list, NULL: none).
+  sql: `ALTER TABLE team_messages ADD COLUMN location TEXT;
+  ALTER TABLE team_messages ADD COLUMN places TEXT;`,
+});
+migrations.push({
+  version: 117,
   name: 'project engine bindings',
   // PM-1060: which engines (machines) run a project. No rows to carry over: a project without a binding
   // keeps using the global default engine while its owner is the engine's owner.

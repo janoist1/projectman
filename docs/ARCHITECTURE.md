@@ -2955,7 +2955,7 @@ workers follow the machine's size.
   `(project, repo, PR)` on the engine it subscribed on, resends only that engine's watches on
   reconnect and drops a `github_changed` event from any other engine. Pull request snapshots, links,
   heads and authors are keyed by project too. No new machine operation or RPC exists.
-  **The project's engine is a binding (PM-1060).** The `project_engines` table (migration 116:
+  **The project's engine is a binding (PM-1060).** The `project_engines` table (migration 117:
   `project_key`, `engine_id`, `is_default`, `added_by`, `added_at`; one default per project by a partial
   unique index) says which engines run a project; the engine's owner (`engines.created_by`) and the
   project's owner bind (`PUT /api/projects/:key/engines/:engine`, `DELETE`, `GET`; own login only, no

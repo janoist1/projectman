@@ -272,6 +272,7 @@ export const makeMessageDelivery = (deps: DeliveryDeps): Effect.Effect<DeliveryE
                     message.taskKey,
                     message.via,
                     message.actor,
+                    message.location,
                   )),
           );
           yield* typeInto(session, typed).pipe(
@@ -375,6 +376,7 @@ export const makeMessageDelivery = (deps: DeliveryDeps): Effect.Effect<DeliveryE
               body: m.body,
               attachments: m.attachments,
               email: m.email,
+              location: m.location,
               kind: m.kind ?? 'action',
               sentAt: m.createdAt,
               version: m.version,
@@ -585,6 +587,9 @@ export const makeMessageDelivery = (deps: DeliveryDeps): Effect.Effect<DeliveryE
               message.from,
               messageTextWithAttachments(message),
               message.taskKey,
+              undefined,
+              undefined,
+              message.location,
             ),
             messageId: message.id,
           }),

@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { Link, Navigate, NavLink, useLocation, useParams } from 'react-router';
-import { emailChannelOn, validateProjectConfig } from '@projectman/shared';
+import { emailChannelOn, settingsSectionVisible, validateProjectConfig } from '@projectman/shared';
 import type { ConfigView, EngineStatusView } from '@projectman/shared';
 import { useConfig, useEmailChannel, useEngineStatus } from '../../api/queries';
 import { useProject } from '../../app/contexts';
@@ -119,6 +119,10 @@ export function SettingsPage() {
   );
   const emailHumans = emailChannel.data?.contacts.filter((contact) => contact.wants).length ?? 0;
   const enginesShown = me.hostOwner && engineStatus.data?.mode === 'cloud';
+  // The feedback tool's and the e-mail channel's settings are for owners and admins: the rule the project manager's places follow.
+  const access = me.projects.find((project) => project.key === key)?.access;
+  const sectionVisible = (id: SettingsSectionId) =>
+    access !== undefined && settingsSectionVisible(id, access);
   const wide = useMediaQuery(SETTINGS_WIDE_QUERY);
   const { section: routeSection } = useParams();
   const section = isSettingsSection(routeSection) ? routeSection : undefined;
@@ -165,8 +169,7 @@ export function SettingsPage() {
   if (section === 'engines' && !enginesShown && !(me.hostOwner && engineStatus.isPending))
     return <Navigate replace to={base} />;
   // The feedback tool's settings are for owners and admins.
-  if ((section === 'feedback' || section === 'email') && !can.manageTeam)
-    return <Navigate replace to={base} />;
+  if (section && !sectionVisible(section)) return <Navigate replace to={base} />;
   if (!section && wide)
     return <Navigate replace to={{ pathname: `${base}/pipeline`, search: location.search }} />;
 
@@ -178,10 +181,7 @@ export function SettingsPage() {
       if (target) counts[target.section] = (counts[target.section] ?? 0) + 1;
     }
   const shownSections = SETTINGS_SECTIONS.filter(
-    (id) =>
-      (id !== 'integrator' || me.hostOwner) &&
-      (id !== 'engines' || enginesShown) &&
-      ((id !== 'feedback' && id !== 'email') || can.manageTeam),
+    (id) => (id !== 'integrator' || me.hostOwner) && (id !== 'engines' || enginesShown) && sectionVisible(id),
   );
   // The divider before the sections that are not the project's: the first of engines and providers.
   const accountStart = shownSections.find((id) => id === 'engines' || id === 'providers');

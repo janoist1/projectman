@@ -206,7 +206,6 @@ const PROMPT_SECTION_IDS = [
   'heavy_commands',
   'untested_checks',
   'session_folder',
-  'boundary',
   'cheap_subagent',
   'guardrails',
   'role',

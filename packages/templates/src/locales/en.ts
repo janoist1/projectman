@@ -70,9 +70,9 @@ export const en: TemplateLocale = {
   },
   duties: {
     boundary_authorization: {
-      name: 'External operation authorization',
+      name: 'Permission request decisions',
       description:
-        'Decide delegated external operations. Cost, production, new credentials and permanent host expansion require an owner.',
+        'Decide delegated permission requests. Cost, production, new credentials and permanent host expansion require an owner.',
     },
     prioritization: {
       name: 'Prioritization',
@@ -248,9 +248,9 @@ export const en: TemplateLocale = {
     },
     lead_developer: {
       name: 'Lead developer',
-      summary: 'Set technical direction, review completed work and decide delegated external operations.',
+      summary: 'Set technical direction, review completed work and decide delegated permission requests.',
       notTheirJob: 'Never decide your own requests or owner exceptions.',
-      whenToAsk: 'Technical direction, review or delegated external operation authorization.',
+      whenToAsk: 'Technical direction, review or delegated permission request decisions.',
     },
     code_review: {
       name: 'Code reviewer',

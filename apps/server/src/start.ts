@@ -115,7 +115,6 @@ function warnRemovedManagedVmSettings(
   log: { warn: (object: { variables: string[] }, message: string) => void },
 ): void {
   const variables = [
-    'PROJECTMAN_BOUNDARY_CONFIG',
     'PROJECTMAN_EXECUTION_PROFILE',
     'PROJECTMAN_VM_READINESS_REPORT',
     'PROJECTMAN_VM_REPORT_MAX_AGE_MINUTES',

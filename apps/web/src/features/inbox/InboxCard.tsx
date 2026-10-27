@@ -7,7 +7,6 @@ import { Fragment, useContext, useEffect, useId, useRef, useState } from 'react'
 import { Link } from 'react-router';
 import type { InboxItem, InboxOption, LabelView, ResolveInboxRequest } from '@projectman/shared';
 import {
-  BoundaryReason,
   fixLimitDecisionOf,
   isIntegratorInboxItem,
   alertPayloadOf,
@@ -30,7 +29,6 @@ import {
   FREE_ANSWER_OPTION_ID,
   alertText,
   askerStartNote,
-  boundaryOf,
   closedReasonOf,
   delegationNote,
   displayKindOf,
@@ -189,7 +187,7 @@ function HandOnText({
   );
 }
 
-/** One inbox request, including delegated boundary decisions. */
+/** One inbox request, including delegated permission decisions. */
 export function InboxCard({
   item,
   members,
@@ -371,7 +369,6 @@ export function InboxCard({
   const fallback = open ? operatorFallbackOf(item) : null;
   const rerouted = open ? rerouteReasonOf(item) : null;
   const startNote = open && !assignedToOthers && !grouped ? askerStartNote(item, members, myHandle) : null;
-  const boundary = boundaryOf(item);
   const delegation = delegationNote(item, members, myHandle);
   // The system is no member (disk space, loops): it shows as the timeline shows it.
   const fromSystem = item.source === 'system';
@@ -390,7 +387,6 @@ export function InboxCard({
   // An AI member's e-mail waiting for approval and a mail the channel set aside (PM-942).
   const emailItem = emailApprovalOf(item) !== null;
   const emailParked = alertPayload?.alert === 'email_parked' ? alertPayload : null;
-  const [boundaryReason, setBoundaryReason] = useState<BoundaryReason>('scope_verified');
   // A question that recommends an option or describes what each one does lists its options with
   // that text, and so do a loop, a fix round limit and a Senior wait decision; every other item keeps
   // its row of buttons.
@@ -684,40 +680,6 @@ export function InboxCard({
           cardHref={cardHref ?? null}
           mobile={mobile}
         />
-      ) : null}
-      {boundary ? (
-        <div>
-          <p>
-            {t(`boundary.operations.${boundary.target.operation}`)} · <code>{boundary.target.resource}</code>
-          </p>
-          <p>
-            {t(`boundary.categories.${boundary.category}`)} · {t(`boundary.states.${boundary.state}`)}
-          </p>
-          <p>
-            {t('boundary.environment', {
-              environment: t(`boundary.environments.${boundary.target.environment}`),
-            })}
-          </p>
-          {boundary.target.branch ? <p>{t('boundary.branch', { branch: boundary.target.branch })}</p> : null}
-          <p>{t('boundary.scope')}</p>
-          <p>{t('boundary.expiry', { time: new Date(boundary.expiresAt).toLocaleString('hu-HU') })}</p>
-          {boundary.state === 'pending_lead' ? (
-            <p>{t('boundary.deadline', { time: new Date(boundary.leadDeadline).toLocaleString('hu-HU') })}</p>
-          ) : null}
-          <label>
-            {t('boundary.reason')}{' '}
-            <select
-              value={boundaryReason}
-              onChange={(event) => setBoundaryReason(BoundaryReason.parse(event.target.value))}
-            >
-              {BoundaryReason.options.map((reason) => (
-                <option key={reason} value={reason}>
-                  {t(`boundary.reasons.${reason}`)}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
       ) : null}
       {handOn ? <HandOnText item={item} members={members} myHandle={myHandle} pipeline={pipeline} /> : null}
       {mergeItem ? <MergeInboxBody item={item} /> : null}
@@ -1017,11 +979,7 @@ export function InboxCard({
                   disabled={
                     answerBlocked || (!!operationPayload && option.id === 'yes' && !operation.isSuccess)
                   }
-                  onClick={() =>
-                    todo
-                      ? pickTodo(option)
-                      : resolveAnswer({ optionId: option.id, ...(boundary ? { note: boundaryReason } : {}) })
-                  }
+                  onClick={() => (todo ? pickTodo(option) : resolveAnswer({ optionId: option.id }))}
                 >
                   {handoff && option.id === 'todo_cannot'
                     ? t('inbox.handedOff.cannot')

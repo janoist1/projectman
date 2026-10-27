@@ -15,7 +15,6 @@ const KIND_ICONS: Record<MemberQueueItemKind, IconName> = {
   message: 'mail',
   fix_limit: 'loop',
   permission: 'lock',
-  boundary: 'shield',
   screening: 'filter',
   signal: 'bell',
   start: 'play',

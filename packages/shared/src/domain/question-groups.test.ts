@@ -64,7 +64,6 @@ describe('question grouping rules', () => {
       { ...plain, payload: { ...plain.payload, responsePurpose: 'owner_decision' } },
       { ...plain, payload: { ...plain.payload, approvalLabel: 'qa-ok' } },
       { ...plain, payload: { ...plain.payload, gate: {} } },
-      { ...plain, payload: { ...plain.payload, boundary: {} } },
       { ...plain, payload: { ...plain.payload, screening: { until: item.createdAt, outcome: 'todo' } } },
       { ...plain, options: [TODO_DONE_OPTION, TODO_CANNOT_OPTION] },
       { ...plain, kind: 'decision' as const },

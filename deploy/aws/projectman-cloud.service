@@ -1,4 +1,4 @@
-# The cloud board on the Lightsail machine (PM-532, PM-535, docs/AWS.md): Docker runs the image that
+# The cloud board on the EC2 machine (PM-532, PM-535, docs/AWS.md): Docker runs the image that
 # deploy/aws/host.sh built, systemd supervises it. The container publishes no port (the Cloudflare tunnel
 # inside it connects outwards) and mounts only its data directory.
 [Unit]

@@ -20,27 +20,21 @@ const preflight = () => runCloud(['preflight'], world.deps());
 
 const AWS_LINES = (secretsDir: string) => [
   'ok aws-cli: aws-cli/2.17.1',
-  `ok aws-login: profile i, account ${ACCOUNT} (arn:aws:iam::${ACCOUNT}:user/i)`,
-  'ok aws-region: eu-west-1, eu-west-1a',
-  'ok aws-bundle: small_3_0',
-  'ok aws-blueprint: ubuntu_24_04',
+  `ok aws-login: profile aroom, account ${ACCOUNT} (arn:aws:iam::${ACCOUNT}:user/aroom), region eu-west-1`,
+  `available Ubuntu 24.04 amd64: ${EC2_CONFIG.amiId} ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-20261001`,
+  `available subnet: ${EC2_CONFIG.subnetId} eu-west-1b, VPC ${EC2_CONFIG.vpcId}, state available`,
+  `ok ec2-environment: ${EC2_CONFIG.amiId}, ${EC2_CONFIG.vpcId}/${EC2_CONFIG.subnetId}, eu-west-1b, direct public IPv4 egress`,
+  'cost instance: t3.small, Linux On-Demand in eu-west-1; running hours (730 hours/month if always on)',
+  'cost EBS: encrypted gp3 40 GiB, baseline 3000 IOPS/125 MiB/s; charged while stopped too',
+  'cost IPv4: one auto-assigned public IPv4, billed while allocated; no Elastic IP, NAT, load balancer or second machine',
+  'cost other: internet data transfer, S3 storage/requests; burstable CPU credits are standard, with no unlimited-credit surcharge',
+  'Review current regional rates before approval: https://aws.amazon.com/ec2/pricing/on-demand/ https://aws.amazon.com/ebs/pricing/ https://aws.amazon.com/vpc/pricing/',
+  'ok aws-ec2: Ubuntu 24.04 amd64, public subnet, outbound only',
   `ok secrets-store: ${secretsDir} (directory 700, files 600)`,
 ];
 
 describe('preflight', () => {
   it('lists Ubuntu 24.04 images, subnet choices and costs with no EC2 or DNS writes', async () => {
-    world.aws.accounts.set('aroom', ACCOUNT);
-    world.writeConfig({
-      aws: {
-        compute: 'ec2',
-        profile: 'aroom',
-        region: 'eu-west-1',
-        ec2: EC2_CONFIG,
-        databaseBucket: 'acme-projectman-db',
-        backupBucket: 'acme-projectman-backup',
-      },
-      route53: { profile: 'i' },
-    });
     expect(await preflight()).toBe(0);
     expect(world.output).toContain(`available Ubuntu 24.04 amd64: ${EC2_CONFIG.amiId}`);
     expect(world.output).toContain(`available subnet: ${EC2_CONFIG.subnetId} eu-west-1b`);
@@ -49,9 +43,7 @@ describe('preflight', () => {
     expect(world.output).toContain('cost IPv4: one');
     expect(world.aws.mutations()).toEqual([]);
     expect(world.cf.mutations()).toEqual([]);
-    expect(
-      world.aws.calls.some((call) => call.args[0] === 'lightsail' || call.args[0] === 'route53domains'),
-    ).toBe(false);
+    expect(world.aws.calls.some((call) => call.args[0] === 'route53domains')).toBe(false);
   });
 
   it('passes, prints the account and changes nothing', async () => {
@@ -93,35 +85,12 @@ describe('preflight', () => {
     expect(world.output).toContain('ok secrets-store');
   });
 
-  it('exits 2 for a region, a zone, a bundle or an image that does not exist or is not active', async () => {
-    world.aws.regions = [{ name: 'eu-central-1', zones: ['eu-central-1a'] }];
-    world.aws.bundles = [{ bundleId: 'small_3_0', isActive: false }];
-    world.aws.blueprints = [];
-    expect(await preflight()).toBe(2);
-    expect(world.output).toContain('FAIL aws-region: Lightsail has no region eu-west-1');
-    expect(world.output).toContain('FAIL aws-bundle');
-    expect(world.output).toContain('FAIL aws-blueprint');
-  });
-
-  it('exits 2 for an availability zone the region does not have', async () => {
-    world.writeConfig({
-      aws: {
-        region: 'eu-west-1',
-        availabilityZone: 'eu-west-1c',
-        databaseBucket: 'aa-bb-cc',
-        backupBucket: 'dd-ee-ff',
-      },
-    });
-    expect(await preflight()).toBe(2);
-    expect(world.output).toContain('FAIL aws-region: eu-west-1c is not an availability zone');
-  });
-
   it('exits 2 when the secrets store has the wrong modes', async () => {
     chmodSync(world.secretsDir, 0o755);
     expect(await preflight()).toBe(2);
     expect(world.output).toContain('FAIL secrets-store');
     expect(world.output).toContain('must be 700');
-    expect(world.lines.filter((line) => line.startsWith('ok aws-'))).toHaveLength(5);
+    expect(world.lines.filter((line) => line.startsWith('ok aws-'))).toHaveLength(3);
   });
 
   it('checks the Cloudflare token file too', async () => {

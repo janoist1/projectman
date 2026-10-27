@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The Lightsail machine's side of `npm run cloud` (PM-532, PM-535, docs/AWS.md).
+# The EC2 machine's side of `npm run cloud` (PM-532, PM-535, docs/AWS.md).
 #
 # Nothing is installed on the machine beforehand: the Mac sends this script through ssh (`sudo bash -c
 # '<this file>' host.sh <subcommand> <argument…>`), as root, and sends the data a subcommand needs on the

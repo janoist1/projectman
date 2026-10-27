@@ -77,7 +77,6 @@ function checkTarget(context: CloudContext): void {
   const { aws } = context.config;
   // ProxyCommand is interpreted by a shell and by OpenSSH's percent expansion. Refuse either syntax.
   if (
-    aws.compute !== 'ec2' ||
     aws.profile === 'i' ||
     !/^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$/.test(aws.profile) ||
     !/^[a-z]{2}(?:-[a-z]+)+-\d{1,2}$/.test(aws.region) ||

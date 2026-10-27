@@ -2166,8 +2166,8 @@ workers follow the machine's size.
   administration machine hashes the closed package DB before/after upload and compares hash/bytes
   with the stopped host through the existing SSH boundary; no engine RPC or credentials are added.
   A tool the owner runs on their Mac
-  that creates and maintains the cloud board on AWS EC2 or Lightsail: `preflight` and `aws` (PM-534: the machine,
-  the firewall, the two S3 buckets, the two IAM users and their access keys), the machine part
+  that creates and maintains the cloud board on AWS EC2: `preflight` and `aws` (PM-534: the machine,
+  the security group, the two S3 buckets, the two IAM users and their access keys), the machine part
   (PM-535, the next entry), Cloudflare (PM-536, the entry after it) and the DNS move (PM-537,
   `scripts/cloud/dns.ts`: Route 53 read/import, authoritative verification using `CloudDeps.resolve`
   with name-server IPs resolved locally first, public delegation/DS through Cloudflare and Google DoH,
@@ -2206,7 +2206,7 @@ workers follow the machine's size.
   with no automatic destructive repair. `--dry-run` writes nothing. **Remote engine:** provisioning
   remains on the owner's machine for the central server, never on an engine; the Mac engine gets
   no AWS credentials, and no new server/engine RPC or payload crosses the boundary. SSH over SSM
-  host operation is provided by PM-677 (next entry); the Lightsail adapter remains its compatibility path.
+  host operation is provided by PM-677 (next entry); EC2 is the only compute (PM-1036).
   PM-718 adds explicit `aws.ec2.architecture` (`x86_64` by default, or `arm64`): the Canonical
   AMI name/Architecture, type capabilities and existing instance must agree. Native apt/snap
   bootstrap works on both; ARM requires an external image bundle. The approved PM-675 target is
@@ -2285,10 +2285,11 @@ workers follow the machine's size.
   **Remote engine:** configuration, apt, restart and store checks run only on the central Ubuntu
   host over the existing SSH/SSM channel. No new payload, credential or engine RPC is introduced.
 
-- **The Lightsail machine and its operation (PM-535, PM-718, PM-725)** — `scripts/cloud/{host,machine,images}.ts`,
+- **The cloud machine and its operation (PM-535, PM-718, PM-725; EC2 is the only compute since PM-1036)** —
+  `scripts/cloud/{host,machine,images}.ts`,
   `deploy/aws/{host.sh,projectman-cloud.service}`, `apps/server/test/{cloud-host,cloud-machine,deploy-aws}.test.ts`,
-  `apps/server/test/helpers/fake-host.ts`. PM-718's optional `deployment.imageBundle` also works on
-  this legacy amd64 transport. Without it, the existing amd64 host build remains; with it, import
+  `apps/server/test/helpers/fake-host.ts`. PM-718's optional `deployment.imageBundle`: without it, the
+  existing amd64 host build remains; with it, import
   precedes env/start without build fallback. History adds optional imageId/platform; status adds
   actual container imageId. Prebuilt start uses an immutable ID; health and rollback check/carry it
   and the source SHA. ARM refuses builds and digestless starts/rollback. Operations stay on the
@@ -2309,16 +2310,13 @@ workers follow the machine's size.
   `/etc/projectman/{cloud.env,image.env}`, `/var/lib/projectman/{data,deploy.json}` (`current`,
   `previous`, `lastStoppedAt`), the checkout `/opt/projectman/src`. **Machine assumptions:** the
   machine is Ubuntu 24.04 with `apt`, `systemd` and Docker from the distribution; the owner's Mac has
-  `ssh` (OpenSSH with certificate support) and reaches the machine on its public IPv4 address; the
-  session opens `22/tcp` for the Mac's own address only for the length of a command and puts the
-  firewall back afterwards (also on a failure or Ctrl-C), with host keys taken from Lightsail
-  (`StrictHostKeyChecking=yes`; `aws.sshIdentityFile` is the fallback for the identity, not for the
-  host keys). The build happens on the 2 GB machine (swap file, 3 GiB free-disk check). The released
+  `ssh` and reaches the machine through SSM with an ephemeral key (the EC2 host channel entry above;
+  no inbound rule, no public-address lookup). The build happens on the 2 GB machine (swap file, 3 GiB free-disk check). The released
   image is tagged with the full commit id, which is also `PROJECTMAN_VERSION`. **Does this work on a
   remote engine?** Nothing in it runs on an engine: it is the owner's own tool for the server side, and
   the engine neither calls nor depends on it. The entries "Cloud provisioning" and "Cloud deployment
   and backup" are the other parts of the same chain.
-  PM-717 applies the same mandatory `seed-digest` gate to this compatibility path: the owner tool
+  PM-717 applies the mandatory `seed-digest` gate here too: the owner tool
   compares source before/after SHA-256 and bytes with the stopped Ubuntu host before any build/start.
   It assumes coreutils `stat`/`sha256sum`, a closed package and a single administrator during cutover;
   no new port, persistent state, engine operation or server/engine payload is introduced.
@@ -2574,7 +2572,7 @@ workers follow the machine's size.
   (`cloudflared`) runs on the server's machine and forwards to its loopback port with the original `Host`
   (no `httpHostHeader`), which the guard reads; the Cloudflare account and the DNS record are outside the
   repository. The hybrid cloud image uses a token-managed tunnel, with the variable given by whoever
-  installs it (`docs/HYBRID.md`); on Lightsail `npm run cloud -- edge` sets the tunnel, the ingress and the
+  installs it (`docs/HYBRID.md`); on EC2 `npm run cloud -- edge` sets the tunnel, the ingress and the
   variable through the Cloudflare API (PM-536). **Remote engine:** the entrance belongs to the server
   (in the hybrid mode, the cloud one); an engine receives no such traffic and needs nothing from it.
   Security notes: `docs/SECURITY.md` "The widget's public hostname".
@@ -2893,7 +2891,7 @@ workers follow the machine's size.
   (a read-only sandbox root; never a working directory).
   **Module:** `engine-link`
 
-- **Cloud deployment and backup** — `deploy/cloud/{Dockerfile,entrypoint.sh,backup.sh,litestream.yml,fly.toml,smoke.sh,memory-probe.mjs,memory-profile.mjs,heap-summary.mjs,history-semantic-profile.mjs,history-semantic-fixture.mjs,history-semantic-image-check.mjs}`,
+- **Cloud deployment and backup** — `deploy/cloud/{Dockerfile,entrypoint.sh,backup.sh,litestream.yml,smoke.sh,memory-probe.mjs,memory-profile.mjs,heap-summary.mjs,history-semantic-profile.mjs,history-semantic-fixture.mjs,history-semantic-image-check.mjs}`,
   `.github/workflows/history-semantic-profile.yml` (the release measurement on a GitHub-hosted `ubuntu-24.04-arm` runner, PM-913),
   `.dockerignore`, `auth/setup-code.ts`, `auth/index.ts` (the first setup), `apps/server/test/deploy-cloud.test.ts` (PM-317).
   PM-718 adds `scripts/cloud/images.ts`: an admin builder with existing Docker/Buildx docker-container
@@ -2917,8 +2915,8 @@ workers follow the machine's size.
   PM-674's [rollback runbook](CLOUD-CUTOVER.md) closes the public edge and stops the cloud
   before downloading final data for Mac single activation. Deployment and backup remain on EC2;
   the single-Mac live watcher does not update either the cloud or the separate engine checkout.
-  On AWS Lightsail the same image runs under systemd on one Ubuntu machine, installed and operated by
-  `npm run cloud` (the entry "The Lightsail machine and its operation (PM-535)").
+  On AWS EC2 the same image runs under systemd on one Ubuntu machine, installed and operated by
+  `npm run cloud` (the entry "The cloud machine and its operation (PM-535)").
   PM-775 (part of PM-772) adds to the same entry: `apps/server/src/logging/memory-log.ts`
   (`PROJECTMAN_MEMORY_LOG_SECONDS`, read in `index.ts`: a `memory` log line every 60 to 86400 seconds, off
   at 0), `PROJECTMAN_HEAP_LIMIT_MB` (read only by `entrypoint.sh`, which gives the server node's
@@ -2943,7 +2941,7 @@ workers follow the machine's size.
   from the server log (`auth/setup-code.ts`): `isLocalRequest` is false behind the tunnel, because
   the tunnel must not rewrite the Host header, and the code replaces "localhost" as the proof.
   **Assumptions:** one container and one volume at a time (two would replicate into one replica);
-  the host knows the platform's volume semantics (Fly.io volumes are single-attach); the origin
+  the host knows the platform's volume semantics (a block volume attaches to one machine); the origin
   of the Cloudflare tunnel is `http://127.0.0.1:4700` with no Host override; the client address
   comes from `cf-connecting-ip` (`PROJECTMAN_CLIENT_IP_HEADER`), trusted from the loopback peer
   only; the Litestream replica is the SQLite database itself (not encrypted by Litestream), so the

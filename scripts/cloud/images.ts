@@ -41,9 +41,7 @@ export type Platform = z.output<typeof platformSchema>;
 
 /** The platform of the target machine, by the same rule the deploy uses to pick its image (PM-916). */
 export function targetPlatform(config: CloudConfig): Platform {
-  return config.aws.compute === 'ec2' && config.aws.ec2?.architecture === 'arm64'
-    ? 'linux/arm64'
-    : 'linux/amd64';
+  return config.aws.ec2?.architecture === 'arm64' ? 'linux/arm64' : 'linux/amd64';
 }
 export interface SelectedImage extends BundleImage {
   file: string;

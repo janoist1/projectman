@@ -82,15 +82,6 @@ export class PlanUsageCache {
   }
 }
 
-/** Highest known usage percentage (five-hour or weekly window), or null when unknown. */
-export function highestUsagePercent(usage: PlanUsage | null): number | null {
-  if (!usage) return null;
-  const known = [usage.fiveHourPercent, usage.weeklyPercent].filter(
-    (v): v is number => typeof v === 'number',
-  );
-  return known.length > 0 ? Math.max(...known) : null;
-}
-
 /**
  * Keeps the plan usage of the providers the projects' AI members run on fresh: probes them in
  * the background periodically and after configuration changes, and publishes every result to

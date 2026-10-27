@@ -457,6 +457,17 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   rule (`no_senior` event). The names `senior_*`, `seniors` and `wait_for_senior` are kept because
   stored rows and events carry them. A config migration turns the old `senior` mark into limit 13 and
   a DB migration turns a "senior" recommendation into 8 points. No machine-dependent part is affected.
+  **A paused provider** (PM-1051): a member whose provider is held (`provider_rate_limited` cooldown) or
+  over the plan usage limit (`plan_usage_paused`, `planUsagePause` in `packages/shared`) is not free
+  (`Admission.providerAvailable`), so the automatic choice never picks them and a paused high-limit
+  developer causes no `no_senior`. An assigned card whose assignee is on such a provider and has not begun
+  it (no session, no source trace, no open handoff, no fix-limit hold: `canReplaceUnstartedAssignee`) is
+  planned like an unassigned one by `planStarts` (`reassignableTaskKeys`, always an offer) and started by
+  `start_task` at a fitting free member (points, label and specialty limits still apply); with none free
+  nothing is assigned and no session starts. Work already begun is never moved. A new assignee on a
+  paused provider is refused by `update_task` and the REST PATCH with the known 409 codes, the whole
+  update atomically (`TaskService.registerProviderAssignmentCheck`, `Admission.assertProviderAvailable`).
+  The check reads the last background usage (`PlanUsageCache.peek`); admission itself still refreshes.
 - **Stage hand-over** — when a task enters a later stage owned by AI members, by anyone's
   move, the least loaded free owner (never the task's assignee) gets a session for the task.
   An owner that already has a session for the task gets a notice instead. A card sent back into the

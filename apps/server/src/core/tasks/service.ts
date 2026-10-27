@@ -4,6 +4,7 @@ export function createTaskService(deps: ConstructorParameters<typeof TaskService
 
 import type {
   Actor,
+  AgentProvider,
   BoardMoveRequest,
   BoardMoveResult,
   Stage,
@@ -30,6 +31,7 @@ import type {
 import {
   actorMoveRefusal,
   boardColumnOf,
+  DEFAULT_AGENT_PROVIDER,
   dropStageOfColumn,
   evaluateMove,
   isCoordinationActor,
@@ -89,6 +91,15 @@ import { requireStage, runEffects, TaskStore } from './store';
 import type { Effect, StartWaitingReader } from './store';
 import { TaskThemes } from './themes';
 import type { ThemeView } from './themes';
+
+/**
+ * Refuses a new assignee whose provider is on hold (PM-1051): the card would wait for a member that
+ * cannot start it. Admission serves it (`Admission.assertProviderAvailable`); it throws the usual
+ * `provider_rate_limited` or `plan_usage_paused` refusal.
+ */
+export interface ProviderAssignmentCheck {
+  assertProviderAvailable(config: ProjectConfig, provider: AgentProvider): void;
+}
 
 /** A card changed its assignee (PM-342): `task` is as written, `previous` the old assignee. */
 export interface HandoffTrigger {
@@ -153,6 +164,11 @@ export class TaskService implements TaskSchedulingReader {
   registerWorkEntryCheck(check: WorkEntryCheck): void {
     this.moves.registerWorkEntryCheck(check);
   }
+  /** Binds the provider guard of new assignees (built after the task service, with admission). */
+  registerProviderAssignmentCheck(check: ProviderAssignmentCheck): void {
+    this.providerCheck = check;
+  }
+  private providerCheck: ProviderAssignmentCheck | undefined;
   private readonly ctx: DomainContext;
   private readonly timeline: TimelineService;
   private readonly projects: ProjectService;
@@ -690,6 +706,10 @@ export class TaskService implements TaskSchedulingReader {
         // A member on leave cannot take over work (decision 23); keeping it as it is stays allowed.
         if (isHandleOnLeave(config, change.assignee))
           throw conflict('member_on_leave', `${change.assignee} is on leave`, { member: change.assignee });
+        // Nor one whose provider is on hold (PM-1051): the card could not start there. Before any write.
+        const target = change.assignee === null ? undefined : memberOf(config, change.assignee);
+        if (target?.kind === 'ai')
+          this.providerCheck?.assertProviderAvailable(config, target.provider ?? DEFAULT_AGENT_PROVIDER);
         patch.assignee = change.assignee;
       }
     }

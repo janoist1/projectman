@@ -974,6 +974,122 @@ describe('cloud mode remote parts', () => {
         expect(heard).not.toHaveBeenCalled();
       });
     });
+
+    describe('files', () => {
+      const homeOf = (name: string) => ({ paths: { ...helloOf().paths, home: `/fictional/${name}` } });
+      const onBoth = async () => {
+        const prepare = (engine: FakeEngine) =>
+          engine.answer('files.materialize', (params) => ({
+            path: `/fictional/${engine.id}/${params.name}`,
+          }));
+        const a = await online(A, homeOf('a'), prepare);
+        const b = await online(B, homeOf('b'), prepare);
+        vi.spyOn(remote.directory, 'projectEngine').mockImplementation(
+          (projectKey) => (projectEngines[projectKey] ?? null) as never,
+        );
+        return { a, b };
+      };
+      const input = (sessionId: string, projectKey: string, storedPath: string) =>
+        ({
+          sessionId,
+          projectKey,
+          taskKey: `${projectKey}-1`,
+          attachment: { id: 'att1', fileName: 'x.pdf' },
+          storedPath,
+        }) as never;
+
+      it('keeps a card’s files on the project engine and none on a project without one', async () => {
+        await onBoth();
+        await expect(remote.attachments.directory('PA', 'PA-1')).resolves.toBe(
+          '/fictional/a/attachments-cache/PA/PA-1',
+        );
+        await expect(remote.attachments.directory('PB', 'PB-1')).resolves.toBe(
+          '/fictional/b/attachments-cache/PB/PB-1',
+        );
+        await expect(remote.attachments.directory('PZ', 'PZ-1')).rejects.toMatchObject({
+          code: 'engine_offline',
+        });
+      });
+
+      it('gives a file to the session’s engine first, the project’s otherwise, and never to another one', async () => {
+        const { a, b } = await onBoth();
+        const file = path.join(spool, 'x.pdf');
+        writeFileSync(file, 'abc');
+        sessionEngines.set('s1', B);
+        // The session ran on B although its project is on A.
+        await expect(remote.attachments.materialize(input('s1', 'PA', file))).resolves.toBe(
+          `/fictional/${B}/att1-x.pdf`,
+        );
+        await expect(remote.attachments.materialize(input('s2', 'PA', file))).resolves.toBe(
+          `/fictional/${A}/att1-x.pdf`,
+        );
+        expect(asked(b, 'files.materialize')).toHaveLength(1);
+        expect(asked(a, 'files.materialize')).toHaveLength(1);
+        b.disconnect();
+        cloud.registry.setOnline(B as never, false);
+        await expect(remote.attachments.materialize(input('s1', 'PA', file))).rejects.toMatchObject({
+          code: 'engine_offline',
+        });
+        expect(asked(a, 'files.materialize')).toHaveLength(1);
+      });
+
+      it('copies a message file into the folder of the engine the session folder is on', async () => {
+        const { a, b } = await onBoth();
+        for (const engine of [a, b])
+          engine.answer('files.materialize_into_session', () => ({ path: `/fictional/${engine.id}/f` }));
+        const file = path.join(spool, 'x.pdf');
+        writeFileSync(file, 'abc');
+        const sha = createHash('sha256').update('abc').digest('hex');
+        const folders = remote.directory.get(B as never)!.sessionFolders!;
+        await folders.materializeFile('s1', {
+          name: 'msa_1-x.pdf',
+          source: { path: file, size: 3, sha256: sha },
+        });
+        expect(asked(b, 'files.materialize_into_session')).toHaveLength(1);
+        expect(asked(a, 'files.materialize_into_session')).toHaveLength(0);
+      });
+    });
+
+    describe('transcripts', () => {
+      it('asks only the engine the session ran on and never another one when none is named', async () => {
+        const { a, b } = await bothOnline((engine) => {
+          engine.answer('transcript.has_content', () => true);
+          engine.answer('transcript.summary', () => null);
+        });
+        const reader = remote.createRunnerModule(broker, undefined).transcripts;
+        await expect(reader.hasContent('/x.jsonl', { engineId: B as never })).resolves.toBe(true);
+        await expect(reader.hasContent('/x.jsonl', {})).resolves.toBe(false);
+        await expect(reader.summary('/x.jsonl', { provider: 'claude' } as never)).resolves.toBeNull();
+        await expect(reader.read('/x.jsonl', {})).rejects.toMatchObject({ code: 'engine_offline' });
+        expect(asked(b, 'transcript.has_content')).toHaveLength(1);
+        expect(a.requests.filter((item) => item.method.startsWith('transcript.'))).toEqual([]);
+        expect(b.requests.filter((item) => item.method !== 'transcript.has_content')).toEqual([]);
+      });
+    });
+
+    describe('machine', () => {
+      it('shows, signals and identifies the host’s machine and no other project’s engine', async () => {
+        const prepare = (engine: FakeEngine) => engine.answer('machine.signal', () => 'sent');
+        const a = await online(A, { pid: 111, uid: 1 }, prepare);
+        const b = await online(B, { pid: 222, uid: 2 }, prepare);
+        vi.spyOn(remote.directory, 'hostEngine').mockReturnValue(A as never);
+        vi.spyOn(remote.directory, 'projectEngine').mockImplementation(
+          (projectKey) => (projectEngines[projectKey] ?? null) as never,
+        );
+        expect(remote.machineProbe.identity()).toMatchObject({ pid: 111, uid: 1 });
+        await remote.machineProbe.signal(5, 'SIGTERM');
+        expect(asked(a, 'machine.signal')).toHaveLength(1);
+        expect(asked(b, 'machine.signal')).toHaveLength(0);
+        // The host's engine is away: the view is unavailable, not served from the project's engine.
+        a.disconnect();
+        cloud.registry.setOnline(A as never, false);
+        expect(remote.machineProbe.available()).toBe(false);
+        await expect(remote.machineProbe.signal(5, 'SIGTERM')).rejects.toMatchObject({
+          code: 'engine_offline',
+        });
+        expect(asked(b, 'machine.signal')).toHaveLength(0);
+      });
+    });
   });
 
   describe('team tools relay', () => {

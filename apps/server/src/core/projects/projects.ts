@@ -137,7 +137,7 @@ export interface ConfigChange {
 }
 
 /** Handle of the human who creates a project from a template. */
-export const OWNER_HANDLE = 'owner';
+const OWNER_HANDLE = 'owner';
 
 const OWNER_ONLY_MESSAGES: Record<OwnerOnlyChange, string> = {
   email_send_policy: 'only an owner may change email approval policy',

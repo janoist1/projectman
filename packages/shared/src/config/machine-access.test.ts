@@ -72,4 +72,8 @@ describe('machineTodoIssuerAllowed', () => {
   ])('judges the issuer %s as %s', (issuer, expected) => {
     expect(machineTodoIssuerAllowed(config, issuer)).toBe(expected);
   });
+  it('does not lend the system standing to a member named system', () => {
+    const named = configWith([ai('system')]);
+    expect(machineTodoIssuerAllowed(named, 'system')).toBe(false);
+  });
 });

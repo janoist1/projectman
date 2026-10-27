@@ -379,6 +379,8 @@ describe('the e-mail settings section', () => {
         }) as HTMLInputElement
       ).disabled,
     ).toBe(true);
+    // A real click focuses the button, and the dialog hands the focus back to where it was.
+    button.focus();
     fireEvent.click(button);
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByText(t('settings.email.contacts.inviteIntro', { name: 'Kata' }))).toBeTruthy();

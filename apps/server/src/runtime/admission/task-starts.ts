@@ -669,7 +669,7 @@ export class TaskStarts implements WorkEntryCheck {
           c.m.kind === 'ai' &&
           eligible.includes(c.m.handle) &&
           !isOnLeave(c.m) &&
-          this.admission.providerAvailable(config, c.m.provider ?? DEFAULT_AGENT_PROVIDER) &&
+          this.admission.providerAvailable(config, c.m.provider ?? DEFAULT_AGENT_PROVIDER, c.m.handle) &&
           !heldProviders.has(c.m.provider ?? DEFAULT_AGENT_PROVIDER),
       )
       .map((c) => ({ ...c, load: this.admission.memberLoad(config, c.m.handle) }))

@@ -102,6 +102,7 @@ export function createCloudRemote(options: CloudRemoteOptions): CloudRemote {
   let nanogptKey: () => Promise<string | null> = async () => null;
   const runner = createRemoteRunner({
     hub,
+    directory,
     recordedEngine: options.recordedEngine,
     logger,
     nanogptKeySet: async () => (await nanogptKey()) !== null,
@@ -109,18 +110,19 @@ export function createCloudRemote(options: CloudRemoteOptions): CloudRemote {
   });
   const transcripts = createRemoteTranscripts({ hub, transfers, now: options.now });
   const { planUsage, planUsageFor } = createRemotePlanUsage({ hub, now: options.now });
-  const machineProbe = createRemoteMachineProbe({ hub });
-  const github = createRemoteGithub({ hub, logger });
+  const machineProbe = createRemoteMachineProbe({ hub, directory });
+  const github = createRemoteGithub({ hub, directory, logger });
   const materializer = createAttachmentMaterializer({ hub, transfers });
   const attachments: EngineAttachments = {
     async directory(projectKey, taskKey) {
-      const engineId = hub.defaultId();
+      const engineId = directory.projectEngine(projectKey);
       const dir = engineId ? materializer.directory(engineId, projectKey, taskKey) : null;
       if (!dir) throw conflict('engine_offline', 'There is no connected engine to keep the attachments on');
       return dir;
     },
     async materialize(input) {
-      const engineId = runner.engineOf(input.sessionId) ?? hub.defaultId();
+      // The session's own engine, even when it is offline: no other machine takes its attachments.
+      const engineId = runner.engineOf(input.sessionId) ?? directory.projectEngine(input.projectKey);
       if (!engineId) throw conflict('engine_offline', 'There is no engine the session runs on');
       return materializer.materialize(engineId, {
         projectKey: input.projectKey,

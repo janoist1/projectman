@@ -248,13 +248,13 @@ export function createTaskRepository(db: Db) {
     ),
     pullRequestLinks: db.prepare(
       `SELECT l.*, t.key AS task_key FROM task_links l JOIN tasks t ON t.id = l.task_id
-       WHERE l.kind = 'pull_request' AND l.repo = ? AND l.ref = ?`,
+       WHERE t.project_key = ? AND l.kind = 'pull_request' AND l.repo = ? AND l.ref = ?`,
     ),
     updateLinkState: db.prepare('UPDATE task_links SET state = ?, title = ?, updated_at = ? WHERE id = ?'),
     pullRequestHeads: db.prepare(
       `SELECT l.id, l.head_sha, t.project_key AS projectKey, t.key AS taskKey FROM task_links l
        JOIN tasks t ON t.id = l.task_id
-       WHERE l.kind = 'pull_request' AND l.repo = ? AND l.ref = ? ORDER BY t.seq`,
+       WHERE t.project_key = ? AND l.kind = 'pull_request' AND l.repo = ? AND l.ref = ? ORDER BY t.seq`,
     ),
     updateLinkHead: db.prepare('UPDATE task_links SET head_sha = ?, updated_at = ? WHERE id = ?'),
     attributeAuthor: db.prepare(
@@ -267,7 +267,7 @@ export function createTaskRepository(db: Db) {
     findByPullRequest: db.prepare(
       `SELECT DISTINCT t.project_key AS projectKey, t.key AS taskKey FROM task_links l
        JOIN tasks t ON t.id = l.task_id
-       WHERE l.kind = 'pull_request' AND l.repo = ? AND l.ref = ? ORDER BY t.seq`,
+       WHERE t.project_key = ? AND l.kind = 'pull_request' AND l.repo = ? AND l.ref = ? ORDER BY t.seq`,
     ),
     watchablePullRequests: db.prepare(
       `SELECT l.repo, l.ref, l.state, t.key AS task_key, t.project_key FROM task_links l
@@ -590,14 +590,15 @@ export function createTaskRepository(db: Db) {
       statement.run(values);
     },
 
-    /** Updates every link to the same pull request; returns the keys of the tasks that changed. */
+    /** Updates the project's links to the same pull request; returns the keys of the tasks that changed. */
     updatePullRequestLinks(
+      projectKey: string,
       repo: string,
       number: number,
       patch: { state: string; title?: string },
       at: string,
     ): string[] {
-      const rows = statements.pullRequestLinks.all(repo, String(number)) as Array<
+      const rows = statements.pullRequestLinks.all(projectKey, repo, String(number)) as Array<
         LinkRow & { task_key: string }
       >;
       const changed: string[] = [];
@@ -611,16 +612,17 @@ export function createTaskRepository(db: Db) {
     },
 
     /**
-     * Remembers the head commit of a pull request on every link to it. Returns the tasks whose
+     * Remembers the head commit of a pull request on the project's links to it. Returns the tasks whose
      * link had seen another head before: new commits landed there. A first sighting is not a change.
      */
     recordPullRequestHead(
+      projectKey: string,
       repo: string,
       number: number,
       headSha: string,
       at: string,
     ): Array<{ projectKey: string; taskKey: string }> {
-      const rows = statements.pullRequestHeads.all(repo, String(number)) as Array<{
+      const rows = statements.pullRequestHeads.all(projectKey, repo, String(number)) as Array<{
         id: number;
         head_sha: string | null;
         projectKey: string;
@@ -647,9 +649,13 @@ export function createTaskRepository(db: Db) {
       return statements.attributeAuthor.run(author, at, repo, String(number), author, projectKey).changes > 0;
     },
 
-    /** Tasks (project key + task key) linking a pull request. */
-    findByPullRequest(repo: string, number: number): Array<{ projectKey: string; taskKey: string }> {
-      return statements.findByPullRequest.all(repo, String(number)) as Array<{
+    /** The project's tasks (project key + task key) linking a pull request. */
+    findByPullRequest(
+      projectKey: string,
+      repo: string,
+      number: number,
+    ): Array<{ projectKey: string; taskKey: string }> {
+      return statements.findByPullRequest.all(projectKey, repo, String(number)) as Array<{
         projectKey: string;
         taskKey: string;
       }>;

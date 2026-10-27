@@ -222,11 +222,11 @@ describe('review at a pinned commit, in member workspaces', { timeout: 60_000 },
     await commitFile(dev1, 'login.txt', 'v1\n');
     await toReview();
     await flush();
-    await h.domain.githubSync.handleChange(pullRequest({ headSha: 'a'.repeat(40) }));
+    await h.domain.githubSync.handleChange('AR', pullRequest({ headSha: 'a'.repeat(40) }));
     expect(h.domain.tasks.get('AR', 'AR-1').stageId).toBe('code_review');
 
     await commitFile(dev1, 'login.txt', 'v2\n');
-    await h.domain.githubSync.handleChange(pullRequest({ headSha: 'b'.repeat(40) }));
+    await h.domain.githubSync.handleChange('AR', pullRequest({ headSha: 'b'.repeat(40) }));
     expect(h.domain.tasks.get('AR', 'AR-1').stageId).toBe('development');
   });
 

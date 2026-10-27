@@ -21,11 +21,9 @@ export function createRemoteTranscripts(options: {
   now?: () => number;
 }): TranscriptReader {
   const { hub, transfers } = options;
-  const engineFor = (engineId?: EngineId): EngineId | null => engineId ?? hub.defaultId();
-  const usable = (engineId?: EngineId): EngineId | null => {
-    const id = engineFor(engineId);
-    return id && hub.available(id) ? id : null;
-  };
+  // A transcript belongs to the engine its session ran on: no engine named, no global fallback.
+  const usable = (engineId?: EngineId): EngineId | null =>
+    engineId && hub.available(engineId) ? engineId : null;
   return {
     async hasContent(path, opts) {
       const id = usable(opts?.engineId);
@@ -79,7 +77,10 @@ export function createRemoteTranscripts(options: {
   };
 }
 
-/** Plan usage of the default engine's accounts, asked at most once a minute per provider. */
+/**
+ * Plan usage of the named engine's accounts, asked at most once a minute per engine and provider. No
+ * engine named: nothing is asked and the answer is null, there is no global fallback.
+ */
 export function createRemotePlanUsage(options: { hub: RemoteHub; now?: () => number }): {
   planUsage: PlanUsageProvider;
   planUsageFor: (provider: AgentProvider) => PlanUsageProvider;
@@ -88,8 +89,7 @@ export function createRemotePlanUsage(options: { hub: RemoteHub; now?: () => num
   const now = options.now ?? Date.now;
   const cache = new Map<string, { at: number; usage: PlanUsage | null }>();
   const providerFor = (provider: AgentProvider): PlanUsageProvider => ({
-    async get() {
-      const id = hub.defaultId();
+    async get(id) {
       if (!id || !hub.available(id)) return null;
       const key = `${id}\0${provider}`;
       const cached = cache.get(key);

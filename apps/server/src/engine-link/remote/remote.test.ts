@@ -23,6 +23,7 @@ import { testConfig } from '../../../test/helpers/test-template';
 import type { EngineEvent } from '../protocol';
 import { EngineCallError } from '../rpc';
 import { createCloudRemote } from './index';
+import { createRemoteGithub } from './github';
 import { createRemoteRunner } from './runner';
 import type { CloudDomain, CloudRemote } from './index';
 import { createFakeCloud, helloOf, silentLogger } from './test-support';
@@ -30,6 +31,7 @@ import type { FakeCloud, FakeEngine } from './test-support';
 
 const spec = (over: Partial<StartSessionSpec> = {}): StartSessionSpec => ({
   sessionId: 's1',
+  projectKey: 'AR',
   claudeSessionId: 'c1',
   resume: false,
   cwd: '/fictional/work',
@@ -753,6 +755,7 @@ describe('cloud mode remote parts', () => {
         engine.answer('provider.status', async () => reported());
         const failing = createRemoteRunner({
           hub: remote.hub,
+          directory: remote.directory,
           recordedEngine: () => null,
           logger: silentLogger(),
           nanogptKeySet: async () => {
@@ -778,6 +781,313 @@ describe('cloud mode remote parts', () => {
         await expect(
           remote.runner.providerStatus!('nanogpt', { engineId: 'eng_gone' as never }),
         ).resolves.toMatchObject({ loggedIn: null, detail: 'The engine is not connected' });
+      });
+    });
+  });
+
+  describe('an engine per project (PM-1059)', () => {
+    // PA is on engine A, PB on engine B; the host (provider status, machine view) is A.
+    const A = 'eng_aaaaaaaaaaaa';
+    const B = 'eng_bbbbbbbbbbbb';
+    let projectEngines: Record<string, string>;
+    beforeEach(() => {
+      projectEngines = { PA: A, PB: B };
+    });
+    const directory = {
+      projectEngine: (projectKey: string) => (projectEngines[projectKey] ?? null) as never,
+      hostEngine: () => A as never,
+    };
+    const asked = (engine: FakeEngine, method: string) =>
+      engine.requests.filter((item) => item.method === method);
+    const bothOnline = async (prepare: (engine: FakeEngine) => void) => ({
+      a: await online(A, {}, prepare),
+      b: await online(B, {}, prepare),
+    });
+    const changed = (number: number) =>
+      ({
+        repo: 'acme/web',
+        number,
+        title: 'Add login page',
+        url: `https://github.com/acme/web/pull/${number}`,
+        state: 'open',
+        draft: false,
+        headRef: 'task/AR-1',
+        baseRef: 'main',
+        checks: 'none',
+        reviewDecision: null,
+        additions: 1,
+        deletions: 0,
+        changedFiles: 1,
+        updatedAt: '2026-10-27T10:00:00.000Z',
+      }) as const;
+
+    describe('runner', () => {
+      const runnerOver = () =>
+        createRemoteRunner({
+          hub: remote.hub,
+          directory,
+          recordedEngine: () => null,
+          logger: silentLogger(),
+        });
+
+      it('starts a session on its project engine, lets a chosen engine win and never falls back', async () => {
+        const { a, b } = await bothOnline((engine) =>
+          engine.answer('session.start', (params) => running(params.sessionId)),
+        );
+        const runner = runnerOver();
+        await runner.start(spec({ sessionId: 'sa', projectKey: 'PA' }));
+        await runner.start(spec({ sessionId: 'sb', projectKey: 'PB' }));
+        await runner.start(spec({ sessionId: 'sc', projectKey: 'PB', engineId: A as never }));
+        expect(['sa', 'sb', 'sc'].map((id) => runner.engineOf(id))).toEqual([A, B, A]);
+        expect(asked(a, 'session.start')).toHaveLength(2);
+        expect(asked(b, 'session.start')).toHaveLength(1);
+        // The project is not part of what the engine is sent.
+        expect(asked(b, 'session.start')[0]!.params).not.toHaveProperty('projectKey');
+        b.disconnect();
+        cloud.registry.setOnline(B as never, false);
+        await expect(runner.start(spec({ sessionId: 'sd', projectKey: 'PB' }))).rejects.toMatchObject({
+          code: 'engine_offline',
+        });
+        expect(asked(a, 'session.start')).toHaveLength(2);
+      });
+
+      it('refuses a start that names neither an engine nor a project', async () => {
+        await bothOnline((engine) => engine.answer('session.start', (params) => running(params.sessionId)));
+        await expect(runnerOver().start(spec({ projectKey: undefined }))).rejects.toMatchObject({
+          code: 'engine_offline',
+        });
+      });
+
+      it('checks the workspace on the engine it is given, and provider status on the host', async () => {
+        const { a, b } = await bothOnline((engine) => {
+          engine.answer('session.assert_workspace_config', () => null);
+          engine.answer('provider.status', async (params) => ({
+            provider: params.provider,
+            loggedIn: true,
+            method: 'subscription' as const,
+            checkedAt: '2026-10-27T10:00:00.000Z',
+          }));
+        });
+        const runner = runnerOver();
+        await runner.assertWorkspaceConfig!({ provider: 'claude', cwd: '/w', engineId: B as never });
+        await expect(runner.assertWorkspaceConfig!({ provider: 'claude', cwd: '/w' })).rejects.toMatchObject({
+          code: 'engine_offline',
+        });
+        await runner.providerStatus!('claude', { refresh: true });
+        expect(asked(b, 'session.assert_workspace_config')).toHaveLength(1);
+        expect(asked(a, 'session.assert_workspace_config')).toHaveLength(0);
+        expect(asked(a, 'provider.status')).toHaveLength(1);
+        expect(asked(b, 'provider.status')).toHaveLength(0);
+      });
+    });
+
+    describe('GitHub', () => {
+      const githubOver = () => createRemoteGithub({ hub: remote.hub, directory, logger: silentLogger() });
+      const watchIdOf = (engine: FakeEngine) =>
+        (asked(engine, 'github.watch')[0]!.params as { watchId: string }).watchId;
+      const acceptWatches = (engine: FakeEngine) => {
+        engine.answer('github.watch', () => null);
+        engine.answer('github.unwatch', () => null);
+      };
+
+      it('reads and publishes through the project engine, and reports no gh while that engine is away', async () => {
+        const { a, b } = await bothOnline((engine) => {
+          engine.answer('github.get_pull_request', (params) => changed(params.number));
+          engine.answer('github.publish_release', () => ({
+            url: 'https://github.com/acme/web/releases/tag/v1',
+          }));
+          engine.answer('github.is_available', () => true);
+        });
+        const github = githubOver();
+        await github.getPullRequest('PB', 'acme/web', 7);
+        await github.publishRelease('PB', 'acme/web', { tag: 'v1', title: 'v1', notes: 'n' });
+        expect(asked(b, 'github.get_pull_request')).toHaveLength(1);
+        expect(asked(b, 'github.publish_release')).toHaveLength(1);
+        expect(a.requests).toEqual([]);
+        await github.getPullRequest('PA', 'acme/web', 8);
+        expect(asked(a, 'github.get_pull_request')).toHaveLength(1);
+        b.disconnect();
+        cloud.registry.setOnline(B as never, false);
+        expect(await github.isAvailable('PB')).toBe(false);
+        expect(await github.isAvailable('PA')).toBe(true);
+        await expect(github.getPullRequest('PB', 'acme/web', 7)).rejects.toMatchObject({
+          code: 'unreachable',
+        });
+        expect(asked(a, 'github.get_pull_request')).toHaveLength(1);
+      });
+
+      it('keeps the same pull request of two projects as two watches, each on its own engine', async () => {
+        const { a, b } = await bothOnline(acceptWatches);
+        const github = githubOver();
+        const heardA = vi.fn();
+        const heardB = vi.fn();
+        const stopA = github.watch('PA', [{ repo: 'acme/web', number: 7 }], heardA);
+        const stopB = github.watch('PB', [{ repo: 'acme/web', number: 7 }], heardB);
+        await vi.waitFor(() => expect(asked(a, 'github.watch')).toHaveLength(1));
+        await vi.waitFor(() => expect(asked(b, 'github.watch')).toHaveLength(1));
+        expect(watchIdOf(a)).not.toBe(watchIdOf(b));
+        // An engine that reports a watch it does not hold is not heard.
+        await b.emit({ kind: 'github_changed', watchId: watchIdOf(a), change: changed(7) });
+        expect(heardA).not.toHaveBeenCalled();
+        await a.emit({ kind: 'github_changed', watchId: watchIdOf(a), change: changed(7) });
+        await b.emit({ kind: 'github_changed', watchId: watchIdOf(b), change: changed(7) });
+        expect(heardA).toHaveBeenCalledTimes(1);
+        expect(heardB).toHaveBeenCalledTimes(1);
+        stopB();
+        await vi.waitFor(() => expect(asked(b, 'github.unwatch')).toHaveLength(1));
+        expect(asked(b, 'github.unwatch')[0]!.params).toEqual({ watchId: watchIdOf(b) });
+        expect(asked(a, 'github.unwatch')).toHaveLength(0);
+        stopA();
+      });
+
+      it('sends the watches of the engine that connects, and does not move a watch to another engine', async () => {
+        const a = await online(A, {}, acceptWatches);
+        const github = githubOver();
+        github.watch('PA', [{ repo: 'acme/web', number: 7 }], vi.fn());
+        github.watch('PB', [{ repo: 'acme/web', number: 8 }], vi.fn());
+        await vi.waitFor(() => expect(asked(a, 'github.watch')).toHaveLength(1));
+        // PB's engine is away: its watch waits, and is not given to the engine that is there.
+        expect(a.requests.filter((item) => item.method === 'github.watch')).toHaveLength(1);
+        const b = await online(B, {}, acceptWatches);
+        await vi.waitFor(() => expect(asked(b, 'github.watch')).toHaveLength(1));
+        expect(asked(b, 'github.watch')[0]!.params).toMatchObject({
+          targets: [{ repo: 'acme/web', number: 8 }],
+        });
+        // A reconnect of one engine sends that engine's watches again, not the other's.
+        a.disconnect();
+        const a2 = await online(A, {}, acceptWatches);
+        await vi.waitFor(() => expect(asked(a2, 'github.watch')).toHaveLength(1));
+        expect(asked(a2, 'github.watch')[0]!.params).toMatchObject({
+          targets: [{ repo: 'acme/web', number: 7 }],
+        });
+        expect(asked(b, 'github.watch')).toHaveLength(1);
+      });
+
+      it('ignores an event of the engine that held a watch once the project has another engine', async () => {
+        const { b } = await bothOnline(acceptWatches);
+        const github = githubOver();
+        const heard = vi.fn();
+        github.watch('PB', [{ repo: 'acme/web', number: 7 }], heard);
+        await vi.waitFor(() => expect(asked(b, 'github.watch')).toHaveLength(1));
+        projectEngines.PB = A;
+        await b.emit({ kind: 'github_changed', watchId: watchIdOf(b), change: changed(7) });
+        expect(heard).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('files', () => {
+      const homeOf = (name: string) => ({ paths: { ...helloOf().paths, home: `/fictional/${name}` } });
+      const onBoth = async () => {
+        const prepare = (engine: FakeEngine) =>
+          engine.answer('files.materialize', (params) => ({
+            path: `/fictional/${engine.id}/${params.name}`,
+          }));
+        const a = await online(A, homeOf('a'), prepare);
+        const b = await online(B, homeOf('b'), prepare);
+        vi.spyOn(remote.directory, 'projectEngine').mockImplementation(
+          (projectKey) => (projectEngines[projectKey] ?? null) as never,
+        );
+        return { a, b };
+      };
+      const input = (sessionId: string, projectKey: string, storedPath: string) =>
+        ({
+          sessionId,
+          projectKey,
+          taskKey: `${projectKey}-1`,
+          attachment: { id: 'att1', fileName: 'x.pdf' },
+          storedPath,
+        }) as never;
+
+      it('keeps a card’s files on the project engine and none on a project without one', async () => {
+        await onBoth();
+        await expect(remote.attachments.directory('PA', 'PA-1')).resolves.toBe(
+          '/fictional/a/attachments-cache/PA/PA-1',
+        );
+        await expect(remote.attachments.directory('PB', 'PB-1')).resolves.toBe(
+          '/fictional/b/attachments-cache/PB/PB-1',
+        );
+        await expect(remote.attachments.directory('PZ', 'PZ-1')).rejects.toMatchObject({
+          code: 'engine_offline',
+        });
+      });
+
+      it('gives a file to the session’s engine first, the project’s otherwise, and never to another one', async () => {
+        const { a, b } = await onBoth();
+        const file = path.join(spool, 'x.pdf');
+        writeFileSync(file, 'abc');
+        sessionEngines.set('s1', B);
+        // The session ran on B although its project is on A.
+        await expect(remote.attachments.materialize(input('s1', 'PA', file))).resolves.toBe(
+          `/fictional/${B}/att1-x.pdf`,
+        );
+        await expect(remote.attachments.materialize(input('s2', 'PA', file))).resolves.toBe(
+          `/fictional/${A}/att1-x.pdf`,
+        );
+        expect(asked(b, 'files.materialize')).toHaveLength(1);
+        expect(asked(a, 'files.materialize')).toHaveLength(1);
+        b.disconnect();
+        cloud.registry.setOnline(B as never, false);
+        await expect(remote.attachments.materialize(input('s1', 'PA', file))).rejects.toMatchObject({
+          code: 'engine_offline',
+        });
+        expect(asked(a, 'files.materialize')).toHaveLength(1);
+      });
+
+      it('copies a message file into the folder of the engine the session folder is on', async () => {
+        const { a, b } = await onBoth();
+        for (const engine of [a, b])
+          engine.answer('files.materialize_into_session', () => ({ path: `/fictional/${engine.id}/f` }));
+        const file = path.join(spool, 'x.pdf');
+        writeFileSync(file, 'abc');
+        const sha = createHash('sha256').update('abc').digest('hex');
+        const folders = remote.directory.get(B as never)!.sessionFolders!;
+        await folders.materializeFile('s1', {
+          name: 'msa_1-x.pdf',
+          source: { path: file, size: 3, sha256: sha },
+        });
+        expect(asked(b, 'files.materialize_into_session')).toHaveLength(1);
+        expect(asked(a, 'files.materialize_into_session')).toHaveLength(0);
+      });
+    });
+
+    describe('transcripts', () => {
+      it('asks only the engine the session ran on and never another one when none is named', async () => {
+        const { a, b } = await bothOnline((engine) => {
+          engine.answer('transcript.has_content', () => true);
+          engine.answer('transcript.summary', () => null);
+        });
+        const reader = remote.createRunnerModule(broker, undefined).transcripts;
+        await expect(reader.hasContent('/x.jsonl', { engineId: B as never })).resolves.toBe(true);
+        await expect(reader.hasContent('/x.jsonl', {})).resolves.toBe(false);
+        await expect(reader.summary('/x.jsonl', { provider: 'claude' } as never)).resolves.toBeNull();
+        await expect(reader.read('/x.jsonl', {})).rejects.toMatchObject({ code: 'engine_offline' });
+        expect(asked(b, 'transcript.has_content')).toHaveLength(1);
+        expect(a.requests.filter((item) => item.method.startsWith('transcript.'))).toEqual([]);
+        expect(b.requests.filter((item) => item.method !== 'transcript.has_content')).toEqual([]);
+      });
+    });
+
+    describe('machine', () => {
+      it('shows, signals and identifies the host’s machine and no other project’s engine', async () => {
+        const prepare = (engine: FakeEngine) => engine.answer('machine.signal', () => 'sent');
+        const a = await online(A, { pid: 111, uid: 1 }, prepare);
+        const b = await online(B, { pid: 222, uid: 2 }, prepare);
+        vi.spyOn(remote.directory, 'hostEngine').mockReturnValue(A as never);
+        vi.spyOn(remote.directory, 'projectEngine').mockImplementation(
+          (projectKey) => (projectEngines[projectKey] ?? null) as never,
+        );
+        expect(remote.machineProbe.identity()).toMatchObject({ pid: 111, uid: 1 });
+        await remote.machineProbe.signal(5, 'SIGTERM');
+        expect(asked(a, 'machine.signal')).toHaveLength(1);
+        expect(asked(b, 'machine.signal')).toHaveLength(0);
+        // The host's engine is away: the view is unavailable, not served from the project's engine.
+        a.disconnect();
+        cloud.registry.setOnline(A as never, false);
+        expect(remote.machineProbe.available()).toBe(false);
+        await expect(remote.machineProbe.signal(5, 'SIGTERM')).rejects.toMatchObject({
+          code: 'engine_offline',
+        });
+        expect(asked(b, 'machine.signal')).toHaveLength(0);
       });
     });
   });
@@ -1433,7 +1743,9 @@ describe('cloud mode remote parts', () => {
         code: 'git_failed',
         message: expect.stringContaining('update the engine'),
       });
-      await expect(remote.github.publishRelease(input.repo, input)).rejects.toMatchObject({ code: 'failed' });
+      await expect(remote.github.publishRelease('AR', input.repo, input)).rejects.toMatchObject({
+        code: 'failed',
+      });
 
       engine.answer('merge.remote_tags', () => [{ name: 'v0', commit: sha }]);
       engine.answer('merge.push_tag', () => ({ ok: true }));
@@ -1444,7 +1756,7 @@ describe('cloud mode remote parts', () => {
         method: 'merge.push_tag',
         params: { ref, base: 'main', tag: 'v1', commit: sha },
       });
-      expect(await remote.github.publishRelease(input.repo, input)).toEqual({
+      expect(await remote.github.publishRelease('AR', input.repo, input)).toEqual({
         url: 'https://github.com/acme/ar/releases/tag/v1',
       });
       expect(engine.requests.at(-1)).toEqual({
@@ -1532,8 +1844,8 @@ describe('cloud mode remote parts', () => {
       const engine = await online();
       engine.answer('usage.plan', () => null);
       const { planUsage } = remote.createRunnerModule(broker, undefined);
-      await planUsage.get();
-      await planUsage.get();
+      await planUsage.get('eng_a' as never);
+      await planUsage.get('eng_a' as never);
       expect(engine.requests.filter((item) => item.method === 'usage.plan')).toHaveLength(1);
     });
   });

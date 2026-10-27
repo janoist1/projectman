@@ -684,7 +684,7 @@ export class MergeTrains {
       const prs: NonNullable<MergeRecord['pullRequests']> = [];
       const task = this.deps.tasks.get(row.projectKey, row.taskKey);
       for (const link of task.links.filter((l) => l.kind === 'pull_request' && l.repo === repo.github)) {
-        const pr = await this.deps.github.getPullRequest(repo.github!, Number(link.ref));
+        const pr = await this.deps.github.getPullRequest(row.projectKey, repo.github!, Number(link.ref));
         if (pr.state !== 'open') continue;
         if (
           pr.baseRef !== train.base ||

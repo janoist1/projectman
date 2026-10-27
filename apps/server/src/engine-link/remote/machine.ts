@@ -1,4 +1,4 @@
-import type { MachineProbe, MachineSnapshot } from '../../contracts';
+import type { EngineDirectory, MachineProbe, MachineSnapshot } from '../../contracts';
 import { conflict } from '../../kernel';
 import { EngineCallError } from '../rpc';
 import type { RemoteHub } from './hub';
@@ -30,10 +30,14 @@ export interface RemoteMachineProbe extends MachineProbe {
   identity(): { pid: number; uid: number | null; instanceTag?: string } | null;
 }
 
-export function createRemoteMachineProbe(options: { hub: RemoteHub }): RemoteMachineProbe {
+export function createRemoteMachineProbe(options: {
+  hub: RemoteHub;
+  directory: Pick<EngineDirectory, 'hostEngine'>;
+}): RemoteMachineProbe {
   const { hub } = options;
+  // The machine view, the identity and the signals all target the host's machine, asked at every call.
   const engine = () => {
-    const id = hub.defaultId();
+    const id = options.directory.hostEngine();
     return id !== null && hub.available(id) ? id : null;
   };
   /** A reading, or `fallback` when the engine cannot answer. */
@@ -50,7 +54,7 @@ export function createRemoteMachineProbe(options: { hub: RemoteHub }): RemoteMac
   return {
     available: () => engine() !== null,
     identity() {
-      const id = hub.defaultId();
+      const id = options.directory.hostEngine();
       const hello = id === null ? null : hub.mirror(id).hello;
       if (!hello) return null;
       return { pid: hello.pid, uid: hello.uid, instanceTag: hello.instanceTag ?? undefined };

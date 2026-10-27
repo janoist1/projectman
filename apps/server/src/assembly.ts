@@ -185,7 +185,7 @@ import {
 } from './runtime/member-queue';
 import { PlanUsageMonitor } from './runtime/usage';
 import { PresenceService } from './core/members';
-import { OWNER_HANDLE, ProjectService } from './core/projects';
+import { ProjectService } from './core/projects';
 import { ReviewWatch } from './runtime/watchers';
 import { RoleService } from './core/projects';
 import { ScheduleService } from './services/schedules';
@@ -564,10 +564,10 @@ export function createDomain(opts: DomainOptions) {
     templates,
     timeline,
     superAudit,
-    // The new project's work runs on the engine its owner's sessions get (`engines` is built below,
-    // from this service's cached configurations, so it is looked up when asked).
-    isDirectory: async (projectKey, path) => {
-      const engineId = engines.engineFor(projectKey, OWNER_HANDLE);
+    // The new project has no engine binding yet, so the folder is checked on the host's engine
+    // (`engines` is built below, so it is looked up when asked).
+    isDirectory: async (_projectKey, path) => {
+      const engineId = engines.hostEngine();
       const engine = engineId ? engines.get(engineId) : null;
       // The folder can only be checked where it is: no engine to ask is a refusal, not "not a folder" (PM-315).
       if (!engine) throw conflict('engine_offline', 'The engine the project would run on is not connected');
@@ -832,12 +832,13 @@ export function createDomain(opts: DomainOptions) {
     provider: runnerModule.planUsage,
     providerFor: (provider) => runnerModule.planUsageFor?.(provider),
     projects,
+    engines,
     bus: ctx.bus,
     logger: opts.logger,
     now,
     background,
     ttlMs: opts.planUsageTtlMs,
-    onFetched: (provider, value) => sessions.observeProviderUsage(provider, value),
+    onFetched: (provider, engineId, value) => sessions.observeProviderUsage(provider, engineId, value),
   });
   const planUsage = usage.cache;
   const disk = new DiskGuard({ ctx, projects, inbox, engines });
@@ -1779,7 +1780,7 @@ export function createDomain(opts: DomainOptions) {
     askHuman: (toolContext, args) => teamTools.askHuman(toolContext, args),
   });
   // Read models and flows over the services above.
-  const board = new BoardService({ projects, tasks, members, inbox, planUsage, pauses });
+  const board = new BoardService({ projects, tasks, members, inbox, planUsage: usage, pauses });
   const profiles = new MemberProfiles({ ctx, projects, members, tasks, inbox, sessions, admission });
   const invitations = new InvitationService({ ctx, projects, members, accounts: opts.accounts });
   const emailLogin =

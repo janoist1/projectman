@@ -1,4 +1,4 @@
-export { ProjectService, createProjectService, OWNER_HANDLE, configInvalid } from './projects';
+export { ProjectService, createProjectService, configInvalid } from './projects';
 export { ChecklistService } from './checklist';
 export type { Author, ConfigChange } from './projects';
 export { RoleService, roleViews } from './roles';

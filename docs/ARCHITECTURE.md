@@ -2696,6 +2696,9 @@ workers follow the machine's size.
   Human cookies and integrator keys do not authenticate this
   socket; machine keys grant no human API access. The method table is the sole RPC gateway,
   validated in both directions and tied to the engine contracts, including the PM-312 disk operations.
+  PM-1059 adds no method, parameter or event and keeps protocol version 1: which engine a call goes to is
+  decided by the cloud before the call (`EngineDirectory.projectEngine`, `hostEngine`, a session's recorded
+  engine), see "Cloud composition".
   File export forwards `exactRoot` when the caller requires a root without symbolic links.
   PM-739 adds `workspace.publishTaskBranch` (`[key, taskKey, branch, commit]` → strict `{path, ref}`):
   the engine hands a developer's task commit over to its own repository; the cloud never names a path
@@ -2935,6 +2938,23 @@ workers follow the machine's size.
   the existing RPC boundary and host requirements do not change.
   The idempotency store of a link keeps 10,000 results; the `usage` events replayed after a cloud restart
   can be counted twice, because the cloud's memory of handled events does not survive its restart.
+  **Engine per project (PM-1059).** The business code no longer asks the hub for "the" default engine;
+  it asks `EngineDirectory.projectEngine(projectKey)` (the project's base engine) or `hostEngine()` (the
+  machine that is not about one project: project-creation folder check, machine view and orphan
+  signal, host build, NanoGPT recovery, provider status without a project). `engineFor(projectKey, handle)`
+  names a member's engine. Today every selector answers the hub's default engine, so one engine
+  behaves as before; the point of choosing is the call site. The remote runner starts a session on the
+  spec's `engineId`, else the project's engine, and refuses (`engine_offline`) rather than falling back to
+  another engine; attachments and materialized files go to the session's or the project's engine. Plan
+  usage is measured and cached per `(engine, provider)`, shown on a board from the engine of the
+  project's first AI member of that provider, and published (`plan_usage`) only to the projects that run
+  on the measured engine; admission checks the starting member's engine. GitHub reads, release
+  publishing and PR watches go through `GithubService` (project-aware) to the project's engine
+  (`MachineGithubService` is the engine-side, project-less contract); the cloud keeps a watch per
+  `(project, repo, PR)` on the engine it subscribed on, resends only that engine's watches on
+  reconnect and drops a `github_changed` event from any other engine. Pull request snapshots, links,
+  heads and authors are keyed by project too. No new machine operation or RPC exists; moving a
+  watch to another engine when a project's engine changes is PM-1060 (`onProjectEngineChange`).
   **Does this work on a remote engine?** This entry is the cloud's side of the remote engine: nothing
   here starts a process on the cloud's host. Without a connected engine a project cannot be created
   (`isDirectory` answers `engine_offline`, HTTP 409), a full test is refused with `engine_offline`, and
@@ -3530,6 +3550,9 @@ assumption or remote-engine RPC.
   **Remote engine:** keep storage and image processing beside the server. Engine callers use
   the existing authenticated attachment/transfer boundary; their local paths are not server
   storage paths. No new RPC or payload is introduced by moving these files.
+  PM-1059: the engine's cache folder of a card is on `projectEngine(projectKey)` and a file is given to
+  the engine of the session that reads it (`runner.engineOf`, else the project's), never to another
+  engine when that one is away; the stored files stay beside the server.
   **Module:** `core/attachments`
 - **Message attachments (PM-516, PM-644)** — `core/attachments/message-attachments/` (through `core/attachments/index.ts`), `api/message-attachments.ts`, `mcp/attachments/tools.ts`
   (`read_message_attachment`), `mcp/server.ts` (`runTool`). The files of team messages live under
@@ -3543,6 +3566,8 @@ assumption or remote-engine RPC.
   copies in its session folder remain readable. Remote engines use the same policy for their
   local app home and receive authorized files through the existing transfer boundary below.
   The unsent uploads older than 24 hours are removed by an hourly sweep and at startup.
+  PM-1059 changes nothing here: the files stay on the server and the copy into a session folder goes
+  to the session's own engine ("Message file in the session folder").
   **Remote engine:** the server (cloud) keeps the files and the database. The tool call reaches the
   server as `mcp.relay`, and an image travels back in the MCP result
   as base64 inside that frame. A frame is at most `ENGINE_MAX_FRAME_BYTES` (4 MiB), hence the
@@ -3571,6 +3596,8 @@ assumption or remote-engine RPC.
   writing sandbox or a read-only one), so a Gemini or NanoGPT session gets the path too. **Open:** that
   Gemini's `view_file` shows a PDF or an image to the model, and that a NanoGPT model uses
   `view_image`, are unproven; the path is returned either way.
+  PM-1059: with several engines the copy goes to the engine whose folder the session has
+  (`sessionFolders` of that engine), tested with two engines; no new RPC.
   **Remote engine:** the local engine copies from the server's disk (`O_NOFOLLOW`, a regular file,
   size and SHA-256 checked, staged in the folders root and linked into place). A remote engine gets
   the file with a single-use download token (`transfers.issueDownload`, the same way as
@@ -3618,7 +3645,9 @@ assumption or remote-engine RPC.
   checks and owner access (the host owner's, not every project's owner, PM-1058). A remote PID must never be signalled on the server.
   **Cloud mode (PM-315):** `RemoteMachineProbe` (`engine-link/remote/machine.ts`) asks the default engine
   (`machine.snapshot/processes/env_values/signal`; `MachineProbe.signal` is asynchronous for it); with no
-  engine the machine view answers `engine_offline` (409).
+  engine the machine view answers `engine_offline` (409). Since PM-1059 "the default engine" is
+  `EngineDirectory.hostEngine()`, asked at every call: the view, the identity and the signals of the
+  orphan round always target the same host machine and never a project's engine.
   **Filtered diagnostics (PM-697):** `services/operator/project-state.ts` projects only
   CPU percentage, memory, sample time and free disk space through the assembly adapter.
   The latest card session selects the stored engine id; no session, offline or a different
@@ -3895,6 +3924,8 @@ assumption or remote-engine RPC.
   Since PM-311 `DiskGuard` asks the target engine's `EngineHost.freeDiskBytes` (`contracts/engine.ts`);
   since PM-312 the `statfs` itself is `freeBytesOf` in `engine-host/disk.ts`, not in `domain/`.
   **Cloud mode (PM-315):** the engine directory answers with `host.free_disk` of the target engine.
+  PM-1059 keeps the target: the member's (or the session's) engine that admission already resolved, with
+  no host fallback; no new machine operation.
   **Module:** `runtime/watchers`
 - **Control socket, pause and deployment** — `control/socket.ts`, `runtime/sessions` (`PauseService`),
   `scripts/control/{client,cli}.ts`, `scripts/migrate/instance.ts` (PM-219, PM-143).
@@ -3915,6 +3946,8 @@ assumption or remote-engine RPC.
   repository for it, like the other `github.*` calls). Only the commit, the tag name, the notes and the URL cross the
   boundary; an engine from before PM-968 answers `unknown_method`, which the publication reports as
   `release_publish_failed`. The engine of the call is `engines.engineFor(projectKey, member)`, local when there is none.
+  PM-1059: the GitHub release goes through the project-aware `GithubService.publishRelease(projectKey, ...)`,
+  which the cloud sends to `projectEngine(projectKey)`; the `github.*` RPC and its parameters are unchanged.
   **Hybrid deployment (PM-752):** with `PROJECTMAN_RELEASE_ENGINE_ID` and `PROJECTMAN_RELEASE_TARGET_HASH` the
   cloud server keeps the durable deployment attempt (`release_deployments`, `services/releases/deployments.ts`)
   and the maintenance fence (`ReleaseWorkGate`), and the `release_deploy_*` ops read and change them over this
@@ -4070,6 +4103,8 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   timestamped measurements; leave credentials there and retain subscription-only execution.
   **Cloud mode (PM-315):** `createRemotePlanUsage` (`engine-link/remote/transcripts.ts`) asks the engine
   (`usage.plan`, `provider.status`); the cloud keeps only the measurements, with the engine that sent them.
+  PM-1059: `usage.plan` is asked of one named engine; the monitor and the cache key a value by
+  `(engine, provider)` and a board reads the project's representative engine (see "Cloud composition").
   **Module:** `runtime/usage`
 - **Claude workspace trust** — `runner/providers/claude/trust.ts` (PM-341).
   The runner updates workspace trust in `~/.claude.json` (or the configured Claude config directory).
@@ -4214,6 +4249,8 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   explicitly to handle its `cpSync` regression (nodejs/node#65488, PM-923). **Remote engine:**
   the same on the engine's machine with its own `gh` login and remote; the server sends only the existing
   `full_test.run` request and receives the result (the run page in `externalUrl`); nothing else crosses.
+  PM-1059 does not touch this check: it keeps running on the engine the card's merge already uses, and the
+  engine-side `gh` client keeps its project-less `MachineGithubService` contract.
   PM-909: the review test before review uses the same path (`all: true`, `engine-link/methods.ts` accepts the
   optional field; an engine older than PM-909 refuses it with `invalid_params`, shown as `github_unavailable`).
   The server side (`FullTestRuns`) needs only an engine with a full test executor, not a sandbox.
@@ -4281,6 +4318,8 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   without a work binding or a source session when the hub has no registered LOCAL engine; it then needs no source RPC.
   Recorded handovers and review pins retain precedence, and a previous developer workspace is read
   on its member's engine, with offline reads still refused.
+  PM-1059: the merge queue's pull-request reads (`services/merges/{steps,train}.ts`) name the card's project
+  and go to that project's engine; git and the checks stay on the engine the merge already used, no new RPC.
   PM-791 adds `services/merges/engine-wait.ts` and reconnect loops in `steps.ts` and `train.ts`:
   the cloud holds the repository slot for up to 15 minutes per lost link and resumes through
   prepare/publication recovery. Persistent or repeated loss becomes `engine_offline`. Remote

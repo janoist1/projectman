@@ -4,6 +4,7 @@ import type {
   AgentProvider,
   AiMemberConfig,
   CapacityHolder,
+  EngineId,
   PlanUsage,
   ProjectConfig,
   Session,
@@ -81,7 +82,12 @@ interface World {
   configFails?: boolean;
   /** The providers whose CLI is not logged in. */
   loggedOut?: AgentProvider[];
+  /** Members on different engines: each engine has its own plan usage (the rest are on `ENGINE_A`). */
+  engines?: { of: Record<string, EngineId>; usage: Record<string, PlanUsage | null> };
 }
+
+const ENGINE_A = 'eng_aaaaaaaaaaaa' as EngineId;
+const ENGINE_B = 'eng_bbbbbbbbbbbb' as EngineId;
 
 /** Admission over an in-memory world: tasks, sessions, running processes and plan usage. */
 function admissionFor(world: World = {}) {
@@ -140,12 +146,24 @@ function admissionFor(world: World = {}) {
     ctx,
     sessions: sessionFake as unknown as SessionOrchestrator,
     planUsage: {
-      get: async (provider: AgentProvider = 'claude') => {
+      get: async (provider: AgentProvider = 'claude', engineId: EngineId | null = null) => {
         usageRequests.push(provider);
-        return world.usage?.[provider] ?? null;
+        return world.engines
+          ? (world.engines.usage[engineId ?? ''] ?? null)
+          : (world.usage?.[provider] ?? null);
       },
-      peek: (provider: AgentProvider = 'claude') => world.usage?.[provider] ?? null,
+      peek: (provider: AgentProvider = 'claude', engineId: EngineId | null = null) =>
+        world.engines ? (world.engines.usage[engineId ?? ''] ?? null) : (world.usage?.[provider] ?? null),
     },
+    ...(world.engines
+      ? {
+          engines: {
+            engineFor: (_projectKey: string, handle: string) => world.engines!.of[handle] ?? ENGINE_A,
+            projectEngine: () => ENGINE_A,
+            get: () => ({}) as never,
+          },
+        }
+      : {}),
     tasks: { publish: (t: Task) => published.push(t.key) } as unknown as TaskService,
     projects: {
       config: async () => {
@@ -526,6 +544,26 @@ describe('admission checks', () => {
       }),
     );
     expect(code).toBe(expected);
+  });
+
+  it('measures a member on its own engine only: a full engine pauses its members, not the others', async () => {
+    const world: World = {
+      engines: {
+        of: { 'dev-1': ENGINE_A, 'dev-2': ENGINE_B },
+        usage: { [ENGINE_A]: planUsage(99), [ENGINE_B]: planUsage(10) },
+      },
+    };
+    const { admission, config, member } = admissionFor(world);
+    expect(await refusal(admission.check({ config, member: member('dev-1'), workItem: general }))).toBe(
+      'plan_usage_paused',
+    );
+    expect(await refusal(admission.check({ config, member: member('dev-2'), workItem: general }))).toBeNull();
+    // The assignment guard reads the same last known value of the member's engine.
+    expect(() => admission.assertProviderAvailable(config, 'claude', 'dev-1')).toThrow(
+      expect.objectContaining({ code: 'plan_usage_paused' }),
+    );
+    expect(() => admission.assertProviderAvailable(config, 'claude', 'dev-2')).not.toThrow();
+    expect(admission.providerAvailable(config, 'claude', 'dev-2')).toBe(true);
   });
 
   it('asks for no plan usage when an earlier check refuses', async () => {

@@ -185,7 +185,7 @@ export class ReleasePublishService {
     }
     let url: string;
     try {
-      ({ url } = await this.deps.github.publishRelease(input.github, {
+      ({ url } = await this.deps.github.publishRelease(projectKey, input.github, {
         tag,
         title: tag,
         notes: releaseNotes(summary, tasks, commit),

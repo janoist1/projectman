@@ -44,8 +44,8 @@ export class GithubTools implements GithubToolsHandler {
         let title: string | undefined;
         let state: string | undefined;
         try {
-          const pr = await this.github.getPullRequest(args.repo, args.number);
-          this.tasks.recordPullRequest(pr);
+          const pr = await this.github.getPullRequest(ctx.projectKey, args.repo, args.number);
+          this.tasks.recordPullRequest(ctx.projectKey, pr);
           title = pr.title;
           state = pr.state;
         } catch (err) {
@@ -61,7 +61,7 @@ export class GithubTools implements GithubToolsHandler {
           aiActor(ctx.member),
           ctx.sessionId,
         );
-        if (state !== 'merged' && state !== 'closed') this.sync.watch(args.repo, args.number);
+        if (state !== 'merged' && state !== 'closed') this.sync.watch(ctx.projectKey, args.repo, args.number);
         return { task };
       });
     });

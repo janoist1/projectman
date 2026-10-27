@@ -14,7 +14,7 @@ import type {
   AdministrationTarget,
   FullTestExecutor,
   GithubActionsClient,
-  GithubService,
+  MachineGithubService,
   MachineProbe,
   PermissionBroker,
   RunnerModule,
@@ -83,7 +83,7 @@ const LOOPBACK = '127.0.0.1';
 
 export interface EngineAppModules {
   createRunnerModule?: (opts: RunnerModuleOptions) => RunnerModule;
-  github?: GithubService;
+  github?: MachineGithubService;
   /** Overrides the GitHub Actions client of the merge check (PM-900); tests pass a fake. */
   githubActions?: GithubActionsClient;
   createFullTestExecutor?: (deps: {

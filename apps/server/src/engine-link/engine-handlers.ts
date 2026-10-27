@@ -11,7 +11,7 @@ import type {
   EngineHost,
   FullTestExecutor,
   FullTestResult,
-  GithubService,
+  MachineGithubService,
   MachineProbe,
   PlanUsageProvider,
   ScreenshotExecutor,
@@ -76,7 +76,7 @@ interface EngineHandlerDeps {
   transcripts: TranscriptReader;
   planUsageFor: (provider: AgentProvider) => PlanUsageProvider;
   engine: EngineHost;
-  github: GithubService;
+  github: MachineGithubService;
   probe: MachineProbe;
   transfers: EngineTransfers;
   fullTest?: FullTestExecutor;

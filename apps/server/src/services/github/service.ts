@@ -1,4 +1,9 @@
-import type { GithubModuleOptions, GithubService, PullRequestInfo } from '../../contracts';
+import type {
+  GithubModuleOptions,
+  GithubService,
+  MachineGithubService,
+  PullRequestInfo,
+} from '../../contracts';
 import { GithubError, toGithubError } from './errors';
 import { createGhRunner } from './gh';
 import { createPullRequestPoller } from './poller';
@@ -28,7 +33,7 @@ const BRANCH_PULL_REQUEST_LIMIT = 30;
  * GitHub access through the gh CLI and the owner's existing `gh auth login`. It reads; the only thing it
  * writes is a release (`publishRelease`, PM-968). Errors are GithubError instances with a `code`.
  */
-export function createGithubService(opts: GithubServiceOptions): GithubService {
+export function createGithubService(opts: GithubServiceOptions): MachineGithubService {
   if (!(opts.pollIntervalMs > 0) || !Number.isFinite(opts.pollIntervalMs)) {
     throw new RangeError(`pollIntervalMs must be a positive number, got ${opts.pollIntervalMs}`);
   }
@@ -103,5 +108,20 @@ export function createGithubService(opts: GithubServiceOptions): GithubService {
     parsePullRequestUrl,
     publishRelease: createReleasePublisher(run),
     watch: (targets, onChange) => poller.watch(targets, onChange),
+  };
+}
+
+/**
+ * The domain's GitHub service over one machine's `gh` (single mode): every project uses that machine, so
+ * the project key is dropped (PM-1059). A cloud composition has its own, which picks the project's engine.
+ */
+export function createProjectGithubService(client: MachineGithubService): GithubService {
+  return {
+    isAvailable: () => client.isAvailable(),
+    getPullRequest: (_projectKey, repo, number) => client.getPullRequest(repo, number),
+    findPullRequestsForBranch: (_projectKey, repo, branch) => client.findPullRequestsForBranch(repo, branch),
+    parsePullRequestUrl: (url) => client.parsePullRequestUrl(url),
+    publishRelease: (_projectKey, repo, input) => client.publishRelease(repo, input),
+    watch: (_projectKey, targets, onChange) => client.watch(targets, onChange),
   };
 }

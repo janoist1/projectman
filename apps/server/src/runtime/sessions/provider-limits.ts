@@ -1,6 +1,6 @@
 import { ALERT_SEEN_OPTION } from '@projectman/shared';
-import type { AgentProvider, PlanUsage, Session } from '@projectman/shared';
-import type { RunnerEvent, SessionRunner } from '../../contracts';
+import type { AgentProvider, EngineId, PlanUsage, Session } from '@projectman/shared';
+import type { EngineDirectory, RunnerEvent, SessionRunner } from '../../contracts';
 import { ownerHandles } from '@projectman/shared';
 import { conflict } from '../../kernel';
 import type { DomainContext } from '../../core/base';
@@ -13,6 +13,8 @@ import type { SessionOrchestratorDeps } from './sessions';
 
 interface ProviderLimitsDeps {
   ctx: DomainContext;
+  /** The host's engine, where the shared NanoGPT key is measured. */
+  engines: Pick<EngineDirectory, 'hostEngine'>;
   projects: Pick<ProjectService, 'cachedConfig'>;
   runner: Pick<SessionRunner, 'providerStatus'>;
   /** The warning limit of a session's tokens (PM-187), checked whenever its usage grows. */
@@ -59,21 +61,30 @@ export class ProviderLimits {
     this.quotaReassign = reassign;
   }
 
-  observeProviderUsage(provider: AgentProvider, usage: PlanUsage | null): void {
-    if (provider === 'nanogpt' && !this.quotaProbe)
+  /**
+   * The hold on NanoGPT is global (one shared key, PM-377): only a measurement on the host's engine
+   * lifts or moves it. Splitting the hold per owner's key is PM-1068's open part.
+   */
+  observeProviderUsage(provider: AgentProvider, engineId: EngineId, usage: PlanUsage | null): void {
+    if (provider === 'nanogpt' && !this.quotaProbe && engineId === this.deps.engines.hostEngine())
       this.providerHolds.observed(provider, usage, this.deps.ctx.now());
   }
 
   /** Persisted quota deferrals must check usage again before any restart-time inference. */
   restoreProviderQuota(): void {
-    if (this.providerHolds.start('nanogpt', this.deps.ctx.now())) this.quotaUsage?.invalidate();
+    if (this.providerHolds.start('nanogpt', this.deps.ctx.now())) this.invalidateQuotaUsage();
+  }
+
+  private invalidateQuotaUsage(): void {
+    const host = this.deps.engines.hostEngine();
+    if (host) this.quotaUsage?.invalidate(host);
   }
 
   /** Unknown quota holds retry only the read-only usage probe, never inference. */
   async refreshProviderQuota(): Promise<void> {
     if (this.providerHolds.check('nanogpt', this.deps.ctx.now())?.kind !== 'unknown' || this.quotaProbe)
       return;
-    const usage = (await this.quotaUsage?.get('nanogpt')) ?? null;
+    const usage = (await this.quotaUsage?.get('nanogpt', this.deps.engines.hostEngine())) ?? null;
     this.providerHolds.observed('nanogpt', usage, this.deps.ctx.now());
   }
 
@@ -160,9 +171,9 @@ export class ProviderLimits {
     if (event.provider !== 'nanogpt') return;
     const started = this.providerHolds.start(event.provider, ctx.now());
     if (started) {
-      this.quotaUsage?.invalidate();
+      this.invalidateQuotaUsage();
       this.quotaProbe = Promise.resolve()
-        .then(() => this.quotaUsage?.get('nanogpt') ?? null)
+        .then(() => this.quotaUsage?.get('nanogpt', this.deps.engines.hostEngine()) ?? null)
         .catch(() => null);
     }
     const stageId =

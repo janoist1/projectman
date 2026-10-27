@@ -30,7 +30,7 @@ import { InstanceMarkerError, writeInstanceMarker } from '../src/instance';
 import { createFakeRunnerModule } from './helpers/fakes';
 import { waitFor } from './helpers/wait';
 import type { FakeRunnerModule } from './helpers/fakes';
-import { FakeGithub } from './helpers/fakes';
+import { FakeMachineGithub } from './helpers/fakes';
 import { startFakeCloud } from './helpers/fake-cloud';
 import type { FakeCloud } from './helpers/fake-cloud';
 
@@ -121,7 +121,7 @@ describe('engine process', () => {
 
   const modulesOf = (): NonNullable<EngineAppOptions['modules']> => ({
     createRunnerModule: (opts) => fake.create(opts),
-    github: new FakeGithub(),
+    github: new FakeMachineGithub(),
     createFullTestExecutor: () => ({ available: async () => ({ ok: true }), run: async () => ({}) }) as never,
     createScreenshotExecutor: () => ({ run: async () => ({}) }) as never,
     createMachineProbe: () =>

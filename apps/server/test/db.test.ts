@@ -471,7 +471,7 @@ describe('database', () => {
       { projectKey: 'AR', taskKey: 'AR-1', repo: 'acme/web', number: 12, state: 'open' },
     ]);
     expect(
-      repos.tasks.updatePullRequestLinks('acme/web', 12, { state: 'merged', title: 'Login' }, now),
+      repos.tasks.updatePullRequestLinks('AR', 'acme/web', 12, { state: 'merged', title: 'Login' }, now),
     ).toEqual(['AR-1']);
     expect(repos.tasks.get('AR-1')!.links[1]).toEqual({
       kind: 'pull_request',
@@ -488,6 +488,38 @@ describe('database', () => {
 
     repos.tasks.update(task.id, { stageId: 'development', assignee: 'dev-1', updatedAt: now });
     expect(repos.tasks.listByAssignee('AR', 'dev-1').map((t) => t.key)).toEqual(['AR-1']);
+  });
+
+  it('keeps a pull request linked from two projects apart: a change in one never touches the other', () => {
+    const repos = createRepositories(openDatabase(':memory:'));
+    const link = { kind: 'pull_request' as const, ref: '12', repo: 'acme/web', state: 'open' as const };
+    for (const key of ['AR', 'XY'])
+      repos.projects.insert({
+        key,
+        name: key,
+        templateId: null,
+        configVersion: 'v1',
+        createdAt: now,
+        updatedAt: now,
+      });
+    repos.tasks.insert(sampleTask({ links: [] }));
+    repos.tasks.insert(sampleTask({ id: 'tsk_b', projectKey: 'XY', key: 'XY-1', links: [] }));
+    repos.tasks.upsertLink('tsk_1', link, now);
+    repos.tasks.upsertLink('tsk_b', link, now);
+    repos.tasks.recordPullRequestHead('AR', 'acme/web', 12, 'sha1', now);
+    repos.tasks.recordPullRequestHead('XY', 'acme/web', 12, 'sha1', now);
+
+    expect(repos.tasks.findByPullRequest('XY', 'acme/web', 12)).toEqual([
+      { projectKey: 'XY', taskKey: 'XY-1' },
+    ]);
+    expect(repos.tasks.updatePullRequestLinks('XY', 'acme/web', 12, { state: 'merged' }, now)).toEqual([
+      'XY-1',
+    ]);
+    expect(repos.tasks.recordPullRequestHead('XY', 'acme/web', 12, 'sha2', now)).toEqual([
+      { projectKey: 'XY', taskKey: 'XY-1' },
+    ]);
+    expect(repos.tasks.get('AR-1')!.links[0]).toMatchObject({ state: 'open' });
+    expect(repos.tasks.recordPullRequestHead('AR', 'acme/web', 12, 'sha1', now)).toEqual([]);
   });
 
   it('writes only the task fields a change names, and reads subtasks and assignments with their links', () => {

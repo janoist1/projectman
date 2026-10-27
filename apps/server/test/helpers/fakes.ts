@@ -7,6 +7,7 @@ import type {
   ContextPackBuilder,
   ContextPackInput,
   GithubService,
+  MachineGithubService,
   McpModule,
   McpModuleOptions,
   MemberMemoryStore,
@@ -440,14 +441,18 @@ export function pullRequest(overrides: Partial<PullRequestInfo> = {}): PullReque
 export class FakeGithub implements GithubService {
   readonly prs = new Map<string, PullRequestInfo>();
   readonly watchers: Array<{
+    projectKey: string;
     targets: Array<{ repo: string; number: number }>;
     onChange: (pr: PullRequestInfo) => void;
     active: boolean;
   }> = [];
+  /** The projects whose pull request reads went through, in order. */
+  readonly readBy: string[] = [];
   async isAvailable(): Promise<boolean> {
     return true;
   }
-  async getPullRequest(repo: string, number: number): Promise<PullRequestInfo> {
+  async getPullRequest(projectKey: string, repo: string, number: number): Promise<PullRequestInfo> {
+    this.readBy.push(projectKey);
     const pr = this.prs.get(`${repo}#${number}`);
     if (!pr) throw new Error(`no such pull request ${repo}#${number}`);
     return pr;
@@ -459,15 +464,85 @@ export class FakeGithub implements GithubService {
     return null;
   }
   /** The calls of `publishRelease` that went through. */
-  readonly published: Array<{ repo: string; tag: string; title: string; notes: string }> = [];
+  readonly published: Array<{
+    projectKey: string;
+    repo: string;
+    tag: string;
+    title: string;
+    notes: string;
+  }> = [];
   /** Set: `publishRelease` fails with it. */
   releaseFailure: Error | null = null;
   async publishRelease(
+    projectKey: string,
     repo: string,
     input: { tag: string; title: string; notes: string },
   ): Promise<{ url: string }> {
     if (this.releaseFailure) throw this.releaseFailure;
-    this.published.push({ repo, ...input });
+    this.published.push({ projectKey, repo, ...input });
+    return { url: `https://github.com/${repo}/releases/tag/${input.tag}` };
+  }
+  watch(
+    projectKey: string,
+    targets: Array<{ repo: string; number: number }>,
+    onChange: (pr: PullRequestInfo) => void,
+  ): () => void {
+    const watcher = { projectKey, targets, onChange, active: true };
+    this.watchers.push(watcher);
+    return () => {
+      watcher.active = false;
+    };
+  }
+  /** `projectKey` omitted: watched by any project. */
+  isWatched(repo: string, number: number, projectKey?: string): boolean {
+    return this.watchers.some(
+      (w) =>
+        w.active &&
+        (projectKey === undefined || w.projectKey === projectKey) &&
+        w.targets.some((t) => t.repo === repo && t.number === number),
+    );
+  }
+  /** Simulates a poll that noticed a change; `projectKey` omitted: every project watching it hears. */
+  emit(pr: PullRequestInfo, projectKey?: string): void {
+    this.prs.set(`${pr.repo}#${pr.number}`, pr);
+    for (const w of [...this.watchers]) {
+      if (
+        w.active &&
+        (projectKey === undefined || w.projectKey === projectKey) &&
+        w.targets.some((t) => t.repo === pr.repo && t.number === pr.number)
+      )
+        w.onChange(pr);
+    }
+  }
+}
+
+/** One machine's `gh`: what an engine runs. Records what it was asked, so tests see which machine took a call. */
+export class FakeMachineGithub implements MachineGithubService {
+  readonly prs = new Map<string, PullRequestInfo>();
+  readonly reads: string[] = [];
+  readonly published: Array<{ repo: string; tag: string }> = [];
+  readonly watchers: Array<{
+    targets: Array<{ repo: string; number: number }>;
+    onChange: (pr: PullRequestInfo) => void;
+    active: boolean;
+  }> = [];
+  async isAvailable(): Promise<boolean> {
+    return true;
+  }
+  async getPullRequest(repo: string, number: number): Promise<PullRequestInfo> {
+    this.reads.push(`${repo}#${number}`);
+    const pr = this.prs.get(`${repo}#${number}`);
+    if (!pr) throw new Error(`no such pull request ${repo}#${number}`);
+    return pr;
+  }
+  async findPullRequestsForBranch(): Promise<PullRequestInfo[]> {
+    return [];
+  }
+  parsePullRequestUrl(): { repo: string; number: number } | null {
+    return null;
+  }
+  async publishRelease(repo: string, input: { tag: string }): Promise<{ url: string }> {
+    this.published.push({ repo, tag: input.tag });
     return { url: `https://github.com/${repo}/releases/tag/${input.tag}` };
   }
   watch(
@@ -479,18 +554,6 @@ export class FakeGithub implements GithubService {
     return () => {
       watcher.active = false;
     };
-  }
-  isWatched(repo: string, number: number): boolean {
-    return this.watchers.some(
-      (w) => w.active && w.targets.some((t) => t.repo === repo && t.number === number),
-    );
-  }
-  /** Simulates a poll that noticed a change. */
-  emit(pr: PullRequestInfo): void {
-    this.prs.set(`${pr.repo}#${pr.number}`, pr);
-    for (const w of [...this.watchers]) {
-      if (w.active && w.targets.some((t) => t.repo === pr.repo && t.number === pr.number)) w.onChange(pr);
-    }
   }
 }
 

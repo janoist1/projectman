@@ -35,6 +35,14 @@ export class LocalEngineDirectory implements EngineDirectory {
     return this.engine.id;
   }
 
+  projectEngine(_projectKey: string): EngineId | null {
+    return this.engine.id;
+  }
+
+  hostEngine(): EngineId | null {
+    return this.engine.id;
+  }
+
   /** The one engine never connects or disconnects, so a listener is never called. */
   onChange(_listener: (id: EngineId, online: boolean) => void): () => void {
     return () => {};

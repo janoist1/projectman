@@ -28,7 +28,11 @@ export interface PullRequestInfo {
   headSha?: string;
 }
 
-export interface GithubService {
+/**
+ * GitHub through one machine's `gh` login: what the engine runs and what the engine RPC carries. It does not
+ * know projects; the domain's `GithubService` adds the project, which chooses the machine (PM-1059).
+ */
+export interface MachineGithubService {
   /** gh is installed and authenticated. */
   isAvailable(): Promise<boolean>;
   getPullRequest(repo: string, number: number): Promise<PullRequestInfo>;
@@ -44,6 +48,29 @@ export interface GithubService {
   ): Promise<{ url: string }>;
   /** Polls the given PRs and reports every change; returns an unsubscribe function. */
   watch(
+    targets: Array<{ repo: string; number: number }>,
+    onChange: (pr: PullRequestInfo) => void,
+  ): () => void;
+}
+
+/**
+ * GitHub as the domain uses it: every call names the project, whose engine runs `gh` (PM-1059). With one
+ * machine the project makes no difference (`createProjectGithubService` ignores it).
+ */
+export interface GithubService {
+  /** gh is installed and authenticated on the project's machine. */
+  isAvailable(projectKey: string): Promise<boolean>;
+  getPullRequest(projectKey: string, repo: string, number: number): Promise<PullRequestInfo>;
+  findPullRequestsForBranch(projectKey: string, repo: string, branch: string): Promise<PullRequestInfo[]>;
+  parsePullRequestUrl(url: string): { repo: string; number: number } | null;
+  publishRelease(
+    projectKey: string,
+    repo: string,
+    input: { tag: string; title: string; notes: string },
+  ): Promise<{ url: string }>;
+  /** Polls the given PRs and reports every change; returns an unsubscribe function. */
+  watch(
+    projectKey: string,
     targets: Array<{ repo: string; number: number }>,
     onChange: (pr: PullRequestInfo) => void,
   ): () => void;

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { questionPayloadOf } from '@projectman/shared';
+import { LOCAL_ENGINE_ID, questionPayloadOf } from '@projectman/shared';
 import type { ProjectConfig } from '@projectman/shared';
 import { aiActor, SYSTEM_AUTHOR } from '../src/kernel';
 import { createDomainHarness, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
@@ -345,7 +345,7 @@ describe('the start offer to the project manager', () => {
 
     h.runnerModule.planUsage.value = planUsage(0);
     // The background usage refresh (not running in this harness) is what lets the round see the drop.
-    await h.domain.planUsage.get();
+    await h.domain.planUsage.get('claude', LOCAL_ENGINE_ID);
     minutes(1);
     await settle();
     expect(notices()).toMatchObject([{ kind: 'info' }, { kind: 'action' }]);

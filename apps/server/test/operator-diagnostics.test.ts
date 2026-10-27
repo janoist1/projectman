@@ -103,6 +103,8 @@ describe('filtered Operator diagnostics', () => {
       ids: () => [remoteId],
       get: (id) => (online && id === remoteId ? host : null),
       engineFor: () => remoteId,
+      projectEngine: () => remoteId,
+      hostEngine: () => remoteId,
       onChange: () => () => {},
     };
     await setup({

@@ -52,6 +52,8 @@ describe('work outage watch', () => {
       get: () => (online ? engine : null),
       ids: () => (engineId ? [engineId] : []),
       engineFor: () => engineId,
+      projectEngine: () => engineId,
+      hostEngine: () => engineId,
       onChange: (listener) => {
         engineListeners.push(listener);
         return () => {

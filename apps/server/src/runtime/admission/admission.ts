@@ -13,6 +13,7 @@ import {
   isTheme,
   isWorkingOnTask,
   isWorkPaused,
+  LOCAL_ENGINE_ID,
   complexityLimitOf,
   complexityOf,
   reachingDevelopers,
@@ -31,6 +32,7 @@ import type {
   EngineId,
   FocusPlace,
   FreeDeveloper,
+  MemberHandle,
   PlanUsage,
   ProjectConfig,
   Task,
@@ -113,7 +115,7 @@ export class Admission {
   private readonly projects: Pick<ProjectService, 'config'>;
   private readonly deferred: DeferredStarts;
   private readonly disk?: Pick<DiskGuard, 'assertRoom'>;
-  private readonly engines?: Pick<EngineDirectory, 'engineFor' | 'get'>;
+  private readonly engines?: Pick<EngineDirectory, 'engineFor' | 'projectEngine' | 'get'>;
   private readonly locks = new KeyedMutex();
   private pull: FocusPulling | undefined;
   private round: StartRounding | undefined;
@@ -142,7 +144,7 @@ export class Admission {
     ) => void;
     disk?: Pick<DiskGuard, 'assertRoom'>;
     /** The engines (PM-311): a member whose engine is not connected waits (`engine_offline`). */
-    engines?: Pick<EngineDirectory, 'engineFor' | 'get'>;
+    engines?: Pick<EngineDirectory, 'engineFor' | 'projectEngine' | 'get'>;
   }) {
     this.disk = deps.disk;
     this.engines = deps.engines;
@@ -269,11 +271,23 @@ export class Admission {
     // A provider that is not logged in cannot run the session (PM-324): the start waits for the login.
     if (member) await this.sessions.assertProviderReady(provider, member.handle, engineId);
     if (pausesOnPlanUsage(provider)) {
-      const usage = await this.planUsage.get(provider);
+      const usage = await this.planUsage.get(
+        provider,
+        engineId ?? this.usageEngine(projectKey, member?.handle),
+      );
       this.assertUsageBelowPause(config, provider, usage);
     }
     // Last, because it measures the disk (PM-243).
     await this.disk?.assertRoom(config, engineId);
+  }
+
+  /**
+   * The engine whose account the provider is measured on: the member's own, else (no member yet, a temp
+   * worker to be hired) the project's. Without a directory there is the one local engine.
+   */
+  private usageEngine(projectKey: string, member?: MemberHandle): EngineId | null {
+    if (!this.engines) return LOCAL_ENGINE_ID;
+    return member ? this.engines.engineFor(projectKey, member) : this.engines.projectEngine(projectKey);
   }
 
   /** The id of the member's engine; throws `engine_offline` when there is none or it is not connected. */
@@ -311,7 +325,7 @@ export class Admission {
     config.team.members.forEach((member, index) => {
       if (member.kind !== 'ai' || member.temp || !owners.has(member.handle)) return;
       if (isHandleOnLeave(config, member.handle) || waitedFor.has(member.handle)) return;
-      if (!this.providerAvailable(config, member.provider ?? DEFAULT_AGENT_PROVIDER)) return;
+      if (!this.providerAvailable(config, member.provider ?? DEFAULT_AGENT_PROVIDER, member.handle)) return;
       const load = this.memberLoad(config, member.handle);
       if (load >= member.capacity) return;
       free.push({
@@ -330,9 +344,9 @@ export class Admission {
    * Automatic choices skip providers on hold (a quota cooldown or a plan usage pause, PM-1051); explicit
    * choices still receive the refusal. It reads the last known usage and starts nothing.
    */
-  providerAvailable(config: ProjectConfig, provider: AgentProvider): boolean {
+  providerAvailable(config: ProjectConfig, provider: AgentProvider, member: MemberHandle): boolean {
     try {
-      this.assertProviderAvailable(config, provider);
+      this.assertProviderAvailable(config, provider, member);
       return true;
     } catch (err) {
       if (
@@ -359,7 +373,7 @@ export class Admission {
     if (assignee?.kind !== 'ai') return false;
     const providerBlocked =
       held.providerHeld === true ||
-      !this.providerAvailable(config, assignee.provider ?? DEFAULT_AGENT_PROVIDER);
+      !this.providerAvailable(config, assignee.provider ?? DEFAULT_AGENT_PROVIDER, assignee.handle);
     // The hold of the fix round limit is read last, and only for a card that could be replaced: reading it may open one.
     if (!providerBlocked) return false;
     const { sessions, taskHandoffs } = this.ctx.repos;
@@ -377,11 +391,15 @@ export class Admission {
   /**
    * The assignment guard of the task service (`ProviderAssignmentCheck`, PM-1051): a card is not given to
    * a member whose provider is on hold now, because that member could not start it. Synchronous, from the
-   * quota hold and the last known usage.
+   * quota hold and the last known usage of the account on the member's engine.
    */
-  assertProviderAvailable(config: ProjectConfig, provider: AgentProvider): void {
+  assertProviderAvailable(config: ProjectConfig, provider: AgentProvider, member: MemberHandle): void {
     this.sessions.assertProviderCooldown(provider);
-    this.assertUsageBelowPause(config, provider, this.planUsage.peek(provider));
+    this.assertUsageBelowPause(
+      config,
+      provider,
+      this.planUsage.peek(provider, this.usageEngine(config.project.key, member)),
+    );
   }
 
   private assertUsageBelowPause(

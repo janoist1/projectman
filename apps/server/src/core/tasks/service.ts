@@ -16,6 +16,7 @@ import type {
   HandoffReason,
   HandoffStart,
   InboxItem,
+  MemberHandle,
   ProjectConfig,
   Session,
   Task,
@@ -98,7 +99,7 @@ import type { ThemeView } from './themes';
  * `provider_rate_limited` or `plan_usage_paused` refusal.
  */
 export interface ProviderAssignmentCheck {
-  assertProviderAvailable(config: ProjectConfig, provider: AgentProvider): void;
+  assertProviderAvailable(config: ProjectConfig, provider: AgentProvider, member: MemberHandle): void;
 }
 
 /** A card changed its assignee (PM-342): `task` is as written, `previous` the old assignee. */
@@ -709,7 +710,11 @@ export class TaskService implements TaskSchedulingReader {
         // Nor one whose provider is on hold (PM-1051): the card could not start there. Before any write.
         const target = change.assignee === null ? undefined : memberOf(config, change.assignee);
         if (target?.kind === 'ai')
-          this.providerCheck?.assertProviderAvailable(config, target.provider ?? DEFAULT_AGENT_PROVIDER);
+          this.providerCheck?.assertProviderAvailable(
+            config,
+            target.provider ?? DEFAULT_AGENT_PROVIDER,
+            target.handle,
+          );
         patch.assignee = change.assignee;
       }
     }
@@ -1192,14 +1197,19 @@ export class TaskService implements TaskSchedulingReader {
     });
   }
 
-  /** Keeps the full snapshot already fetched by GitHub; unknown links remain nullable. */
-  recordPullRequest(pr: PullRequestInfo): void {
-    this.pullRequests.record(pr);
+  /** Keeps the full snapshot of the project's pull request already fetched by GitHub; unknown links remain nullable. */
+  recordPullRequest(projectKey: string, pr: PullRequestInfo): void {
+    this.pullRequests.record(projectKey, pr);
   }
 
-  /** A watched pull request changed: refresh every task link to it. Returns the tasks linking it. */
-  applyPullRequestUpdate(repo: string, number: number, patch: { state: string; title?: string }): Task[] {
-    return this.pullRequests.applyUpdate(repo, number, patch);
+  /** A watched pull request changed: refresh the project's task links to it. Returns the tasks linking it. */
+  applyPullRequestUpdate(
+    projectKey: string,
+    repo: string,
+    number: number,
+    patch: { state: string; title?: string },
+  ): Task[] {
+    return this.pullRequests.applyUpdate(projectKey, repo, number, patch);
   }
 
   /**

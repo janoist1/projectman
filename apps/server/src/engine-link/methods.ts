@@ -31,7 +31,7 @@ import type {
   SessionRunner,
   TranscriptReader,
   PlanUsageProvider,
-  GithubService,
+  MachineGithubService,
   MachineProbe,
   ProcessRecord,
   EngineHost,
@@ -249,10 +249,10 @@ type ContractResults = {
   'transcript.summary': TranscriptReader['summary'];
   'usage.plan': PlanUsageProvider['get'];
   'provider.status': NonNullable<SessionRunner['providerStatus']>;
-  'github.is_available': GithubService['isAvailable'];
-  'github.get_pull_request': GithubService['getPullRequest'];
-  'github.find_pull_requests_for_branch': GithubService['findPullRequestsForBranch'];
-  'github.publish_release': GithubService['publishRelease'];
+  'github.is_available': MachineGithubService['isAvailable'];
+  'github.get_pull_request': MachineGithubService['getPullRequest'];
+  'github.find_pull_requests_for_branch': MachineGithubService['findPullRequestsForBranch'];
+  'github.publish_release': MachineGithubService['publishRelease'];
   'machine.snapshot': MachineProbe['machine'];
   'machine.processes': MachineProbe['processes'];
   'machine.signal': MachineProbe['signal'];

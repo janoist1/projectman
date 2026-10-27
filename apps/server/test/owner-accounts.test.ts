@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { routes } from '@projectman/shared';
+import { SESSION_COOKIE } from '../src/auth';
 import type {
   CreateEngineResponse,
   CreatedOwnerInvitation,
@@ -156,6 +157,20 @@ describe('owner accounts', () => {
       expect(accepted.json<Me>()).toMatchObject({ userId: 'usr_dev1', ownerAccount: true });
     });
 
+    it('refuses an existing account that has no password', async () => {
+      const { repos, auth } = h.app.projectman;
+      repos.users.insert({
+        id: 'usr_nopw',
+        name: 'No Password',
+        email: 'nopw@example.test',
+        passwordHash: null,
+        createdAt: now.toISOString(),
+      });
+      const cookie = `${SESSION_COOKIE}=${encodeURIComponent(h.app.signCookie(auth.createSession('usr_nopw')))}`;
+      const res = await accept(await invite('nopw@example.test'), cookie, {});
+      expect([res.statusCode, errorCode(res)]).toEqual([403, 'invite_password_account_required']);
+    });
+
     it('needs a name and a password for a new address', async () => {
       const created = await invite();
       const res = await accept(created, null, {});
@@ -295,10 +310,12 @@ describe('owner accounts', () => {
       ]);
     });
 
-    it('can be repeated without harm, and refuses another owner and an unknown account', async () => {
+    it('can be repeated without harm, and refuses a non-host caller and an unknown account', async () => {
       await revoke();
       const again = await revoke();
       expect(again.statusCode).toBe(200);
+      const byGuest = await revoke(guestCookie);
+      expect([byGuest.statusCode, errorCode(byGuest)]).toEqual([403, 'owner_only']);
       const unknown = await inject(h.app, 'POST', routes.revokeOwnerAccount('usr_nobody'), host);
       expect(unknown.statusCode).toBe(404);
     });

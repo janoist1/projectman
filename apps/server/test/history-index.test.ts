@@ -368,6 +368,9 @@ describe('history index', () => {
         'project_checklists',
         // Migration 117 (PM-1060) created it.
         'project_engines',
+        // Migration 118 (PM-1062) created them.
+        'owner_accounts',
+        'owner_invitations',
       ])
         old.exec(`DROP TABLE ${table}`);
       // Migration 99 (PM-925) dropped the pending recipients table, which version 83 still has and 84 to 98 read.
@@ -409,6 +412,8 @@ describe('history index', () => {
       // Migration 116 (PM-1071) added two columns; migrating adds them again.
       old.exec('ALTER TABLE team_messages DROP COLUMN location');
       old.exec('ALTER TABLE team_messages DROP COLUMN places');
+      // Migration 119 (PM-1062) added a column; migrating adds it again.
+      old.exec('ALTER TABLE projects DROP COLUMN created_by');
       old.pragma('user_version = 83');
       expect(old.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE name LIKE 'history%'").get()).toEqual(
         { n: 0 },

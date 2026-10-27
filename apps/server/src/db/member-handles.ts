@@ -100,6 +100,10 @@ export const UNREWRITTEN_HANDLE_COLUMNS: Readonly<Record<string, string>> = {
   'engines.revoked_by': 'a user id, not a handle',
   'project_engines.added_by': 'a user id, not a handle',
   'integrator_keys.user_id': 'a user id, not a handle',
+  'projects.created_by': 'a user id, not a handle',
+  'owner_accounts.granted_by': 'a user id, not a handle',
+  'owner_accounts.revoked_by': 'a user id, not a handle',
+  'owner_invitations.created_by': 'a user id, not a handle',
   'deferred_starts.spec': 'a start naming the member makes the rename refuse (member_session_live)',
 };
 

@@ -25,7 +25,9 @@ describe('the history embedding port with a real worker thread', () => {
     directory = mkdtempSync(join(tmpdir(), 'pm-history-semantic-'));
     databasePath = join(directory, 'db.sqlite');
     db = openDatabase(databasePath);
-    db.exec(`INSERT INTO projects VALUES ('AR', 'Example', NULL, 'v1', '2026-01-01', '2026-01-01')`);
+    db.exec(
+      `INSERT INTO projects (key, name, template_id, config_version, created_at, updated_at) VALUES ('AR', 'Example', NULL, 'v1', '2026-01-01', '2026-01-01')`,
+    );
   });
   afterEach(async () => {
     await port?.stop();

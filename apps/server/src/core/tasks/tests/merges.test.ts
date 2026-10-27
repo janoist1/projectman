@@ -53,6 +53,11 @@ function fakeMerger(remote = true) {
       mergeCommit: `merged-${input.commit}`,
       changed: ['a.ts'],
     })),
+    commitRegenerated: vi.fn<BranchMerger['commitRegenerated']>(async () => ({
+      ok: true,
+      mergeCommit: 'regenerated',
+      changed: ['a.ts'],
+    })),
     checkoutConflicts: vi.fn<BranchMerger['checkoutConflicts']>(async () => []),
     checkoutForCheck: vi.fn<BranchMerger['checkoutForCheck']>(async () => ({
       path: '/fake/check',
@@ -1443,6 +1448,93 @@ describe('member initiated merge', () => {
       });
       finish.resolve(passed);
       await merged();
+    });
+  });
+
+  describe('conflicts in generated files (PM-1050)', () => {
+    const regenerate = { paths: ['gen/**'], command: 'npm run generate' };
+    const withRegenerate = {
+      adjust: (c: ProjectConfig) => {
+        c.project.repos[0]!.reviewTest = { ...reviewTest, regenerate };
+      },
+    };
+
+    it('regenerates the files on the merge result, checks the regenerated commit and notes it', async () => {
+      const executor = fakeExecutor();
+      await setup({ executor, ...withRegenerate });
+      merger.build
+        .mockResolvedValueOnce({ ok: false, conflict: ['gen/a.snap'] })
+        .mockResolvedValueOnce({ ok: false, conflict: ['gen/a.snap'], provisional: 'provisional' });
+      await start();
+      await merged();
+      expect(merger.build).toHaveBeenCalledTimes(2);
+      expect(merger.build.mock.calls[1]![1]).toMatchObject({ regenerate: regenerate.paths });
+      expect(vi.mocked(executor.run).mock.calls.map(([spec]) => spec.command)).toEqual([
+        regenerate.command,
+        reviewTest.command,
+      ]);
+      // Only the regeneration may write, in a checkout of its own; the merge check stays read-only.
+      const specs = vi.mocked(executor.run).mock.calls.map(([spec]) => spec);
+      const regenId = specs[0]!.regenerate!.mergeId;
+      expect(specs[0]!.regenerate).toEqual({
+        ref: expect.anything(),
+        mergeId: regenId,
+        patterns: regenerate.paths,
+      });
+      expect(specs[1]!.regenerate).toBeUndefined();
+      const checkoutIds = merger.checkoutForCheck.mock.calls.map(([, input]) => input.mergeId);
+      expect(checkoutIds[0]).toBe(regenId);
+      expect(checkoutIds[1]).not.toBe(regenId);
+      expect(merger.commitRegenerated).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ mergeId: regenId, paths: ['gen/a.snap'], patterns: regenerate.paths }),
+      );
+      expect(merger.releaseCheck.mock.calls.map(([, input]) => input.mergeId)).toContain(regenId);
+      expect(merger.checkoutForCheck.mock.calls.map(([, input]) => input.mergeCommit)).toEqual([
+        'provisional',
+        'regenerated',
+      ]);
+      expect(
+        events('task_note').some((event) => JSON.stringify(event.data).includes('generated files')),
+      ).toBe(true);
+    });
+
+    it('fails as a conflict with the reason when the command fails', async () => {
+      const executor = fakeExecutor({
+        ...passed,
+        outcome: 'failed',
+        exitCode: 1,
+        outputTail: 'generator broke',
+      });
+      await setup({ executor, ...withRegenerate });
+      merger.build
+        .mockResolvedValueOnce({ ok: false, conflict: ['gen/a.snap'] })
+        .mockResolvedValueOnce({ ok: false, conflict: ['gen/a.snap'], provisional: 'provisional' });
+      await start();
+      await vi.waitFor(() => expect(row()?.failure?.reason).toBe('conflict'));
+      expect(row()?.failure).toMatchObject({
+        files: ['gen/a.snap'],
+        outputTail: expect.stringContaining('generator broke'),
+      });
+      expect(merger.commitRegenerated).not.toHaveBeenCalled();
+    });
+
+    it('keeps the conflict when the merge result has no provisional commit', async () => {
+      const executor = fakeExecutor();
+      await setup({ executor, ...withRegenerate });
+      merger.build.mockResolvedValue({ ok: false, conflict: ['gen/a.snap', 'src/a.ts'] });
+      await start();
+      await vi.waitFor(() => expect(row()?.failure?.reason).toBe('conflict'));
+      expect(row()?.failure).toMatchObject({ files: ['gen/a.snap', 'src/a.ts'] });
+      expect(executor.run).not.toHaveBeenCalled();
+    });
+
+    it('keeps the old conflict path when the repository configures no regeneration', async () => {
+      await setup({ adjust: (c) => void (c.project.repos[0]!.reviewTest = reviewTest) });
+      merger.build.mockResolvedValueOnce({ ok: false, conflict: ['gen/a.snap'] });
+      await start();
+      await vi.waitFor(() => expect(row()?.failure?.reason).toBe('conflict'));
+      expect(merger.build).toHaveBeenCalledTimes(1);
     });
   });
 

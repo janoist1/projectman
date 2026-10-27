@@ -16,6 +16,7 @@ import { Pipeline } from '../domain/pipeline';
 import { DEFAULT_PROVIDER_MODELS } from '../domain/provider-model';
 import { CustomRoleDefinition, RoleId, RoleOverrides } from '../domain/role';
 import { RepoDocs } from './project-docs';
+import { isRegeneratedPathPattern } from './regenerated-paths';
 import { OperatorWatch } from './operator-watch';
 
 /**
@@ -304,6 +305,22 @@ export const ReviewTestConfig = z.object({
    * pin, also with `fullTestAtMerge`. Independent of `runner`, which picks the merge check's runner.
    */
   beforeReview: z.enum(['off', 'engine', 'github_actions']).optional(),
+  /**
+   * Generated files a conflicting merge makes again instead of failing (PM-1050): when a merge conflicts
+   * only on files matching `paths`, the engine runs `command` on the merge result and commits the files it
+   * wrote there. Absent: every conflict fails as before.
+   */
+  regenerate: z
+    .object({
+      /** Repository-relative glob patterns (git `:(glob)` pathspec syntax), e.g. "apps/server/src/context/__snapshots__/**". */
+      paths: z
+        .array(z.string().min(1).max(200).refine(isRegeneratedPathPattern, 'Not a path pattern'))
+        .min(1)
+        .max(10),
+      /** Shell command run at the root of the merge result's check checkout, in the full test sandbox; it writes the generated files. */
+      command: z.string().trim().min(1).max(500),
+    })
+    .optional(),
 });
 export type ReviewTestConfig = z.infer<typeof ReviewTestConfig>;
 

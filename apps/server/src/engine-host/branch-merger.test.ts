@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import {
   existsSync,
+  linkSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
@@ -1123,5 +1124,199 @@ describe('commitFiles', () => {
     const withDir = commit(repo, 'dir');
     await refused({ onto: withDir, files: [{ path: 'dir', text: 'file' }], message: 'm' });
     await refused({ onto: withDir, files: [{ path: 'a.txt/inner', text: 'x' }], message: 'm' }); // a.txt is a file
+  });
+});
+
+describe('regenerated conflicts (PM-1050)', () => {
+  const PATTERNS = ['gen/*.txt'];
+
+  /** `main` and a side branch both change `gen/snap.txt` (and `extra`, when given): a conflict. */
+  function conflicting(extra?: string) {
+    const { repo, merger, worktreesRoot } = fixture({ withRemote: false });
+    write(repo, 'gen/snap.txt', 'base\n');
+    write(repo, 'gen/keep.txt', 'keep\n');
+    if (extra) write(repo, extra, 'base\n');
+    commit(repo, 'base');
+    git(repo, 'checkout', '-q', '-b', 'feature');
+    write(repo, 'gen/snap.txt', 'feature\n');
+    if (extra) write(repo, extra, 'feature\n');
+    write(repo, 'f.txt', 'f\n');
+    const commitId = commit(repo, 'feature change');
+    git(repo, 'checkout', '-q', 'main');
+    write(repo, 'gen/snap.txt', 'main\n');
+    if (extra) write(repo, extra, 'main\n');
+    const onto = commit(repo, 'main change');
+    return { repo, merger, worktreesRoot, onto, commitId };
+  }
+
+  async function provisional(mergeId: string, extra?: string) {
+    const made = conflicting(extra);
+    const result = await made.merger.build(REF, {
+      onto: made.onto,
+      commit: made.commitId,
+      message: 'Merge PM-1: feature',
+      regenerate: PATTERNS,
+    });
+    return { ...made, mergeId, result };
+  }
+
+  it('makes a merge commit without the conflicting generated files, parents onto and the commit', async () => {
+    const { repo, onto, commitId, result } = await provisional('mrg_regen001');
+    if (result.ok || !result.provisional) throw new Error('expected a provisional merge');
+    expect(result.conflict).toEqual(['gen/snap.txt']);
+    expect(git(repo, 'rev-list', '--parents', '-n1', result.provisional)).toBe(
+      `${result.provisional} ${onto} ${commitId}`,
+    );
+    expect(git(repo, 'ls-tree', '-r', '--name-only', result.provisional)).not.toContain('gen/snap.txt');
+    expect(git(repo, 'show', `${result.provisional}:f.txt`)).toBe('f');
+    expect(git(repo, 'status', '--porcelain')).toBe('');
+  });
+
+  it('makes no provisional merge when a conflict is outside the patterns or no patterns are given', async () => {
+    const mixed = await provisional('mrg_regen002', 'other.txt');
+    if (mixed.result.ok) throw new Error('expected a conflict');
+    expect(mixed.result.conflict).toEqual(['gen/snap.txt', 'other.txt']);
+    expect(mixed.result.provisional).toBeUndefined();
+    const plain = conflicting();
+    const result = await plain.merger.build(REF, {
+      onto: plain.onto,
+      commit: plain.commitId,
+      message: 'Merge',
+    });
+    expect(result).toEqual({ ok: false, conflict: ['gen/snap.txt'] });
+  });
+
+  it('refuses a bad pattern', async () => {
+    const made = conflicting();
+    await expect(
+      made.merger.build(REF, {
+        onto: made.onto,
+        commit: made.commitId,
+        message: 'Merge',
+        regenerate: ['*/x'],
+      }),
+    ).rejects.toMatchObject({ code: 'invalid_input' });
+  });
+
+  describe('commitRegenerated', () => {
+    async function checkout(mergeId: string) {
+      const made = await provisional(mergeId);
+      if (made.result.ok || !made.result.provisional) throw new Error('expected a provisional merge');
+      const check = await made.merger.checkoutForCheck(REF, {
+        mergeId,
+        mergeCommit: made.result.provisional,
+        depsFrom: null,
+      });
+      return { ...made, provisional: made.result.provisional, dir: check.path };
+    }
+    const input = (made: { onto: string; commitId: string }, paths = ['gen/snap.txt']) => ({
+      onto: made.onto,
+      commit: made.commitId,
+      message: 'Merge PM-1: feature\n\nregenerated',
+      paths,
+      patterns: PATTERNS,
+    });
+
+    it('commits the written files on top of the provisional merge, parents onto and the commit', async () => {
+      const made = await checkout('mrg_regen010');
+      write(made.dir, 'gen/snap.txt', 'regenerated\n');
+      const result = await made.merger.commitRegenerated(REF, { mergeId: made.mergeId, ...input(made) });
+      if (!result.ok) throw new Error(`refused: ${result.reason}`);
+      expect(result.changed).toContain('gen/snap.txt');
+      expect(git(made.repo, 'show', `${result.mergeCommit}:gen/snap.txt`)).toBe('regenerated');
+      expect(git(made.repo, 'show', `${result.mergeCommit}:f.txt`)).toBe('f');
+      expect(git(made.repo, 'rev-list', '--parents', '-n1', result.mergeCommit)).toBe(
+        `${result.mergeCommit} ${made.onto} ${made.commitId}`,
+      );
+      await made.merger.releaseCheck(REF, { mergeId: made.mergeId });
+    });
+
+    it('takes a file the command removed and leaves what it did not touch', async () => {
+      const made = await checkout('mrg_regen017');
+      write(made.dir, 'gen/snap.txt', 'regenerated\n');
+      rmSync(path.join(made.dir, 'gen/keep.txt'));
+      write(made.dir, 'src/untouched.ts', 'outside the writable directory\n');
+      const result = await made.merger.commitRegenerated(REF, { mergeId: made.mergeId, ...input(made) });
+      if (!result.ok) throw new Error(`refused: ${result.reason}`);
+      expect(git(made.repo, 'ls-tree', '-r', '--name-only', result.mergeCommit)).not.toContain(
+        'gen/keep.txt',
+      );
+      expect(git(made.repo, 'ls-tree', '-r', '--name-only', result.mergeCommit)).not.toContain(
+        'src/untouched.ts',
+      );
+      await made.merger.releaseCheck(REF, { mergeId: made.mergeId });
+    });
+
+    it('refuses a new or changed file in the writable directory that matches no pattern', async () => {
+      const made = await checkout('mrg_regen011');
+      write(made.dir, 'gen/snap.txt', 'regenerated\n');
+      write(made.dir, 'gen/evil.js', 'x\n');
+      expect(await made.merger.commitRegenerated(REF, { mergeId: made.mergeId, ...input(made) })).toEqual({
+        ok: false,
+        reason: 'outside',
+        paths: ['gen/evil.js'],
+      });
+      await made.merger.releaseCheck(REF, { mergeId: made.mergeId });
+    });
+
+    it('refuses a flood of files', async () => {
+      const made = await checkout('mrg_regen018');
+      write(made.dir, 'gen/snap.txt', 'regenerated\n');
+      for (let i = 0; i < 201; i += 1) write(made.dir, `gen/many-${i}.txt`, `${i}\n`);
+      expect(await made.merger.commitRegenerated(REF, { mergeId: made.mergeId, ...input(made) })).toEqual({
+        ok: false,
+        reason: 'too_many',
+        paths: [],
+      });
+      await made.merger.releaseCheck(REF, { mergeId: made.mergeId });
+    });
+
+    it('refuses a conflicting file the command did not write', async () => {
+      const made = await checkout('mrg_regen012');
+      expect(await made.merger.commitRegenerated(REF, { mergeId: made.mergeId, ...input(made) })).toEqual({
+        ok: false,
+        reason: 'missing',
+        paths: ['gen/snap.txt'],
+      });
+      await made.merger.releaseCheck(REF, { mergeId: made.mergeId });
+    });
+
+    it.each(['symlink', 'hard link'] as const)('refuses a %s in place of a regular file', async (kind) => {
+      const made = await checkout(`mrg_regen01${kind === 'symlink' ? '3' : '4'}`);
+      const target = path.join(made.dir, 'gen/snap.txt');
+      mkdirSync(path.dirname(target), { recursive: true });
+      if (kind === 'symlink') symlinkSync(path.join(made.dir, 'f.txt'), target);
+      else linkSync(path.join(made.dir, 'f.txt'), target);
+      expect(
+        await made.merger.commitRegenerated(REF, { mergeId: made.mergeId, ...input(made) }),
+      ).toMatchObject({
+        ok: false,
+        reason: 'not_regular',
+      });
+      await made.merger.releaseCheck(REF, { mergeId: made.mergeId });
+    });
+
+    it('refuses files below a directory that is a link', async () => {
+      const made = await checkout('mrg_regen015');
+      write(made.dir, 'elsewhere/snap.txt', 'regenerated\n');
+      rmSync(path.join(made.dir, 'gen'), { recursive: true });
+      symlinkSync(path.join(made.dir, 'elsewhere'), path.join(made.dir, 'gen'));
+      expect(
+        await made.merger.commitRegenerated(REF, { mergeId: made.mergeId, ...input(made) }),
+      ).toMatchObject({ ok: false });
+      await made.merger.releaseCheck(REF, { mergeId: made.mergeId });
+    });
+
+    it('refuses a git name below a pattern, whatever the pattern says', async () => {
+      const made = await checkout('mrg_regen016');
+      write(made.dir, 'gen/snap.txt', 'regenerated\n');
+      write(made.dir, 'gen/.gitattributes', '* filter=x\n');
+      expect(await made.merger.commitRegenerated(REF, { mergeId: made.mergeId, ...input(made) })).toEqual({
+        ok: false,
+        reason: 'outside',
+        paths: ['gen/.gitattributes'],
+      });
+      await made.merger.releaseCheck(REF, { mergeId: made.mergeId });
+    });
   });
 });

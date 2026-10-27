@@ -1494,6 +1494,7 @@ export function createDomain(opts: DomainOptions) {
     taskWaits,
     activeOutageIds: (projectKey) => outages.activeIds(projectKey),
     releases,
+    inbox,
     startHandled: (task) => !!startRound.holdOf(task) || !!startRound.startOfferOf(task),
   });
   messaging.registerSignals(operatorSignals);

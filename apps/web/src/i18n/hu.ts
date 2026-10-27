@@ -4196,6 +4196,17 @@ export const hu = {
         heading: 'Bontás után ottfelejtett részek',
         body: '{member} lebontotta a(z) {key} kártyát, de a részei ({parts}) a kezdő lépésben maradtak, ezért senki nem indítja őket. {member} egy emlékeztetőt már kapott, a köre után is itt vannak. Érdemes ránézni: vagy továbbviszi őket, vagy te. A felület semmit nem mozgatott.',
       },
+      work_stalled: {
+        heading: 'Áll a munka, pedig van indítható kártya',
+        body: '{since} óta nem indult el egyetlen fejlesztő sem, pedig indítható kártya vár: {cards}. Szabad fejlesztő: {free}.{unavailable} A koordinátor jelzést kapott. Amint elindul a munka, vagy nincs több indítható kártya, a figyelmeztetés magától megszűnik.',
+        unavailable: ' Nem szabad: {members}.',
+        reasons: {
+          leave: 'szabadságon van',
+          provider_hold: 'a szolgáltatója tartáson áll',
+          engine_offline: 'a motorja nem csatlakozik',
+          busy: 'foglalt',
+        },
+      },
       feedback_forwarded: {
         heading: 'Jelölés, ami a döntésedre vár',
         body: '{author} jelölését a feldolgozó továbbította neked: „{excerpt}” Indok: {reason}',

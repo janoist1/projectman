@@ -1,8 +1,10 @@
 import Database from 'better-sqlite3';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  alertPayloadOf,
   OPERATOR_IDLE_MINUTES,
   OPERATOR_MERGE_WAIT_MINUTES,
+  OPERATOR_READY_STALL_OWNER_MINUTES,
   OPERATOR_READY_WAITING_MINUTES,
   OPERATOR_UNRELEASED_HOURS,
 } from '@projectman/shared';
@@ -679,6 +681,96 @@ describe('ready_waiting signal', () => {
     }
     await sweep();
     expect(open('ready_waiting')).toEqual([]);
+  });
+
+  it('keeps one clock when another card becomes ready: the wake-up is ten minutes after the stall began (PM-1082)', async () => {
+    await setup({ adjust: withReadyQueue });
+    await place({ stageId: 'ready', status: 'active' });
+    await sweep();
+    later(OPERATOR_READY_WAITING_MINUTES / 2);
+    await place({ stageId: 'ready', status: 'active' });
+    await sweep();
+    later(OPERATOR_READY_WAITING_MINUTES / 2 - 1);
+    await sweep();
+    expect(open('ready_waiting')[0]!.deliveredAt).toBeNull();
+    later(1);
+    await sweep();
+    expect(open('ready_waiting')[0]!.deliveredAt).not.toBeNull();
+  });
+
+  it('starts the clock over when a developer starts a session (PM-1082)', async () => {
+    await setup({ adjust: withReadyQueue });
+    await place({ stageId: 'ready', status: 'active' });
+    await sweep();
+    later(OPERATOR_READY_WAITING_MINUTES - 1);
+    const busy = await place({ stageId: 'development', status: 'active', assignee: 'dev-1' });
+    await h.domain.sessions.ensureSession('AR', 'dev-1', { type: 'task', taskKey: busy.key });
+    later(1);
+    await sweep();
+    expect(open('ready_waiting')[0]!.deliveredAt).toBeNull();
+    later(OPERATOR_READY_WAITING_MINUTES - 1);
+    await sweep();
+    expect(open('ready_waiting')[0]!.deliveredAt).not.toBeNull();
+  });
+
+  it.each(['providerAvailable', 'engineOffline'] as const)(
+    'does not signal when the developers are not free: admission says %s (PM-1082)',
+    async (rule) => {
+      await setup({ adjust: withReadyQueue });
+      await place({ stageId: 'ready', status: 'active' });
+      vi.spyOn(h.domain.admission, rule).mockReturnValue(rule === 'providerAvailable' ? false : {});
+      await sweep();
+      expect(open('ready_waiting')).toEqual([]);
+    },
+  );
+
+  describe('the owners’ alert (PM-1082)', () => {
+    const stalled = () =>
+      h.domain.inbox
+        .list('AR', { kind: 'alert' })
+        .filter((item) => alertPayloadOf(item)?.alert === 'work_stalled');
+    const stallFor = async (minutes: number) => {
+      await sweep();
+      later(minutes);
+      await sweep();
+    };
+    const ownerWait = OPERATOR_READY_WAITING_MINUTES + OPERATOR_READY_STALL_OWNER_MINUTES;
+
+    it('tells the owners once, with the cards, the free developers and who is not free', async () => {
+      await setup({ adjust: withReadyQueue });
+      const card = await place({ stageId: 'ready', status: 'active' });
+      onLeave('dev-2');
+      await stallFor(ownerWait - 1);
+      expect(stalled()).toEqual([]);
+      later(1);
+      await sweep();
+      later(1);
+      await sweep();
+      expect(stalled()).toHaveLength(1);
+      expect(stalled()[0]).toMatchObject({ state: 'open', source: 'system' });
+      expect(stalled()[0]!.assignees).toContain('owner');
+      expect(alertPayloadOf(stalled()[0]!)).toMatchObject({
+        alert: 'work_stalled',
+        cards: [card.key],
+        free: ['dev-1'],
+        unavailable: [{ handle: 'dev-2', reason: 'leave' }],
+      });
+    });
+
+    it('closes when the stall ends and tells again in a new one', async () => {
+      await setup({ adjust: withReadyQueue });
+      const card = await place({ stageId: 'ready', status: 'active' });
+      await stallFor(ownerWait);
+      expect(stalled().filter((item) => item.state === 'open')).toHaveLength(1);
+      h.repos.tasks.update(card.id, { stageId: 'backlog' });
+      await sweep();
+      expect(stalled().filter((item) => item.state === 'open')).toEqual([]);
+      later(1);
+      h.repos.tasks.update(card.id, { stageId: 'ready', stageEnteredAt: now.toISOString() });
+      await stallFor(ownerWait);
+      expect(stalled().filter((item) => item.state === 'open')).toHaveLength(1);
+      expect(stalled()).toHaveLength(2);
+    });
   });
 });
 

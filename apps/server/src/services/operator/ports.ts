@@ -1,4 +1,5 @@
 import type {
+  AgentProvider,
   MemberHandle,
   TaskKey,
   AiMemberConfig,
@@ -53,6 +54,10 @@ export interface OperatorSessions {
 /** Admission (runtime/admission). */
 export interface OperatorAdmission {
   memberLoad(config: ProjectConfig, handle: string): number;
+  /** The AI owners of the work stage with capacity, not on leave, not on hold and with no start waiting for them. */
+  freeDevelopers(config: ProjectConfig, stageId: string): readonly { handle: MemberHandle }[];
+  engineOffline(projectKey: string, handle: string): object | null;
+  providerAvailable(config: ProjectConfig, provider: AgentProvider, member: MemberHandle): boolean;
 }
 /** The refused starts that wait for admission (DeferredStarts). */
 export interface WaitingStarts {

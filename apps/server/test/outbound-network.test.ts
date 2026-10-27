@@ -98,6 +98,7 @@ describe.each(kinds)('the sandbox of a %s', (kind) => {
         sandbox: sessionSandbox(policy(kind, network), paths)!,
         cwd: source,
         localOnly: false,
+        details: true,
       }).join('\n');
     expect(text(true)).toContain(
       `- Network: any outbound host except ${HARD_DENIED_HOSTS.map((host) => `\`${host}\``).join(', ')}; tests may listen on local ports.`,

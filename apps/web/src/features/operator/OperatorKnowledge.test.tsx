@@ -293,7 +293,9 @@ describe('Operator knowledge approvals', () => {
     const composer = await screen.findByRole('textbox', { name: t('operator.composer.label') });
     await waitFor(() => expect((composer as HTMLTextAreaElement).value).toBe(prefill));
     fireEvent.click(screen.getByRole('button', { name: t('operator.panel.close') }));
-    fireEvent.click(screen.getByRole('button', { name: new RegExp(`^${t('operator.panel.label')}`) }));
+    fireEvent.click(
+      screen.getByRole('button', { name: new RegExp(`^${t('operator.button.aria', { status: '' })}`) }),
+    );
     const reopened = await screen.findByRole('textbox', { name: t('operator.composer.label') });
     expect((reopened as HTMLTextAreaElement).value).toBe('');
     fireEvent.click(screen.getByRole('button', { name: t('knowledge.title') }));

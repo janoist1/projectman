@@ -562,6 +562,7 @@ export class SessionOrchestrator {
           operator: false,
           projectManager: false,
           merger: false,
+          email: false,
           duties: new Set(),
         };
   }

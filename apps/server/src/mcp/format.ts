@@ -277,9 +277,12 @@ export function formatMembers(members: MemberView[], self: string): string {
     // Humans: access level, then the roles they hold; AI members: their one role.
     const held = m.kind === 'human' && m.roles.length > 0 ? `; roles: ${m.roles.join(', ')}` : '';
     const role = `${kind} ${m.role}${m.specialty ? ` (${m.specialty})` : ''}${m.temp ? ', temporary' : ''}${m.onLeave ? ', on leave (gets no work; messages wait)' : ''}${held}`;
+    const specialty = m.specialtyLabels?.length
+      ? `; automatic assignment requires a label: ${m.specialtyLabels.join(', ')}`
+      : '';
     const status = m.activity ? `${m.status}: ${oneLine(m.activity, 80)}` : m.status;
     const tasks = m.currentTaskKeys.length > 0 ? ` · tasks: ${m.currentTaskKeys.join(', ')}` : '';
-    return `- ${who} — ${m.displayName} · ${role} · ${status}${tasks}`;
+    return `- ${who} — ${m.displayName} · ${role}${specialty} · ${status}${tasks}`;
   });
   return [`Team (${members.length} members, address them by handle):`, ...lines].join('\n');
 }

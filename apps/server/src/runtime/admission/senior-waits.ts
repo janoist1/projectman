@@ -279,7 +279,8 @@ function endReasonOf(task: Task, config: ProjectConfig): SeniorWaitEndReason | n
     return reaches ? 'senior' : 'assigned';
   }
   if (points === null) return 'level_changed';
-  if (reachingDevelopers(stageDevelopers(config, stage), points).length === 0) return 'no_senior';
+  if (reachingDevelopers(stageDevelopers(config, stage), points, task.labels).length === 0)
+    return 'no_senior';
   return null;
 }
 
@@ -288,7 +289,7 @@ function developersSignature(config: ProjectConfig): string {
   return config.pipeline.stages
     .filter((stage) => stage.kind === 'work')
     .flatMap((stage) => stageDevelopers(config, stage))
-    .map((developer) => `${developer.handle}:${developer.limit}`)
+    .map((developer) => JSON.stringify([developer.handle, developer.limit, developer.specialtyLabels]))
     .sort()
     .join(',');
 }

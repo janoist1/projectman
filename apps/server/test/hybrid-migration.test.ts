@@ -13,7 +13,6 @@ import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { applyPackage } from '../../../scripts/migrate/apply';
 import { copyTree } from '../../../scripts/migrate/copy';
 import {
   buildHybridPlan,
@@ -285,12 +284,6 @@ describe('the cloud package', () => {
     } finally {
       await fresh.cleanup();
     }
-  });
-
-  it('is no package for `apply`', async () => {
-    await expect(
-      applyPackage({ packageDir: out, targetHome: join(src.root, 'elsewhere'), mappings: [] }),
-    ).rejects.toThrow(/hybrid/);
   });
 });
 

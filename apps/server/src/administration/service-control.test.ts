@@ -147,9 +147,27 @@ describe('supervisor config file', () => {
     return null;
   };
 
-  it('loads a protected, strict configuration', async () => {
+  it('loads a protected legacy configuration without a builder or app home', async () => {
     const config = await loadSupervisorConfig(await write(valid()));
     expect(config.service).toEqual({ kind: 'systemd', unit: 'projectman.service' });
+    expect(config.appHome).toBeUndefined();
+  });
+
+  it('refuses a builder without an app home', async () => {
+    const file = await write({ ...valid(), builder: { repo: '/srv/repo', root: '/srv/checkouts' } });
+    await expect(loadSupervisorConfig(file)).rejects.toMatchObject({ reason: 'unsupported' });
+  });
+
+  it.each(['relative/app-home', '/srv/app\0home'])('refuses an invalid app home: %j', async (appHome) => {
+    const file = await write({ ...valid(), appHome });
+    await expect(loadSupervisorConfig(file)).rejects.toMatchObject({ reason: 'unsupported' });
+  });
+
+  it('loads a builder with an absolute app home', async () => {
+    const builder = { repo: '/srv/repo', root: '/srv/checkouts' };
+    const appHome = '/srv/projectman';
+    const config = await loadSupervisorConfig(await write({ ...valid(), builder, appHome }));
+    expect(config).toMatchObject({ builder, appHome });
   });
 
   it('refuses a file open to others, a missing file, bad JSON and a relative path', async () => {

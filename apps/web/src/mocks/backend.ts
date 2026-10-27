@@ -68,7 +68,7 @@ import {
   CustomRoleRequest,
   DEFAULT_AGENT_PROVIDER,
   hasPlanUsage,
-  pausesOnPlanUsage,
+  planUsagePause,
   HireMemberRequest,
   INLINE_MEDIA_TYPES,
   InvitationView,
@@ -2254,14 +2254,6 @@ export class MockBackend {
         })),
       });
     }
-    if (path === '/api/templates') return ok(clone(fixtures.templates));
-    if (path === '/api/projects/preview' && method === 'POST') {
-      const input = parseBody(CreateProjectRequest, body);
-      if (!input) return error(400, 'invalid_request', 'Invalid project');
-      const draft = this.projectDraft(input);
-      if ('status' in draft) return draft;
-      return ok({ config: draft, issues: validateProjectConfig(draft) });
-    }
     if (path === '/api/projects') {
       if (method === 'POST') {
         const input = parseBody(CreateProjectRequest, body);
@@ -2557,12 +2549,6 @@ export class MockBackend {
         this.feedback.handle(method, rest.slice('/feedback'.length), body, query) ??
         error(404, 'not_found', 'Unknown route')
       );
-    if (rest === '' && method === 'GET')
-      return ok({
-        ...fixtures.projectSummary,
-        name: this.config.project.name,
-        configVersion: this.configVersion,
-      });
     if (rest === '/schedules' && method === 'GET') return ok(this.schedulesView());
     const scheduleMatch = /^\/members\/([\w-]+)\/schedule\/run$/.exec(rest);
     if (scheduleMatch && method === 'POST') return this.runSchedule(scheduleMatch[1]!);
@@ -2602,11 +2588,8 @@ export class MockBackend {
       return ok({ checklist: clone(this.checklist), canEdit: access === 'owner' });
     }
     if (rest === '/operator' && method === 'GET') return this.operatorChannel();
-    if (rest === '/member-queues' && method === 'GET') return this.memberQueue(null, query);
     if (rest === '/operator/queue' && method === 'GET')
       return this.memberQueue(operatorOf(this.config)?.handle ?? 'operator', query);
-    const queueMatch = /^\/members\/([\w-]+)\/queue$/.exec(rest);
-    if (queueMatch && method === 'GET') return this.memberQueue(queueMatch[1]!, query);
     if (rest === '/operator/preferences/me' && method === 'GET')
       return ok(
         clone(
@@ -5268,7 +5251,8 @@ export class MockBackend {
       if (pick.kind === 'none') assignee = humanStageOwner(this.config, eligible)?.handle ?? null;
       if (
         task.complexity &&
-        reachingDevelopers(stageDevelopers(this.config, workStage), complexityOf(task)).length === 0
+        reachingDevelopers(stageDevelopers(this.config, workStage), complexityOf(task), task.labels)
+          .length === 0
       )
         this.addTimeline(task.key, null, 'task_senior_wait', {
           phase: 'no_senior',
@@ -5316,11 +5300,15 @@ export class MockBackend {
   private pickAutomatic(task: Task, workStage: Stage, developers: readonly MemberView[]) {
     const eligible = new Set(developers.map((member) => member.handle));
     const free = this.config.team.members.flatMap((member, index) =>
-      member.kind === 'ai' && eligible.has(member.handle) && this.memberLoad(member.handle) < member.capacity
+      member.kind === 'ai' &&
+      eligible.has(member.handle) &&
+      this.memberLoad(member.handle) < member.capacity &&
+      !this.providerPaused(member)
         ? [
             {
               handle: member.handle,
               limit: complexityLimitOf(member),
+              specialtyLabels: member.specialtyLabels,
               temp: !!member.temp,
               load: this.memberLoad(member.handle),
               index,
@@ -5330,8 +5318,9 @@ export class MockBackend {
     );
     return chooseDeveloper({
       points: complexityOf(task),
+      labels: task.labels,
       anyDecided: this.seniorWaits.get(task.key)?.decision?.decision === 'any',
-      reaching: reachingDevelopers(stageDevelopers(this.config, workStage), complexityOf(task)),
+      reaching: reachingDevelopers(stageDevelopers(this.config, workStage), complexityOf(task), task.labels),
       free,
     });
   }
@@ -5441,7 +5430,9 @@ export class MockBackend {
             ? 'senior'
             : 'ended';
       } else if (!task.complexity) ended = 'ended';
-      else if (reachingDevelopers(stageDevelopers(this.config, stage), complexityOf(task)).length === 0)
+      else if (
+        reachingDevelopers(stageDevelopers(this.config, stage), complexityOf(task), task.labels).length === 0
+      )
         ended = 'ended';
       if (ended) {
         const wasWaiting = task?.startWaiting?.reason === 'senior_busy';
@@ -5855,12 +5846,18 @@ export class MockBackend {
       if (!this.nanogptKeyStatus.set) return 'nanogpt_key_missing';
     }
     if (!this.providerLoggedIn[provider]) return 'provider_not_logged_in';
-    if (
-      pausesOnPlanUsage(provider) &&
-      Math.max(plan?.fiveHourPercent ?? 0, plan?.weeklyPercent ?? 0) > limits.pauseAbovePlanUsagePercent
-    )
-      return 'plan_usage_paused';
+    if (planUsagePause(provider, plan, limits.pauseAbovePlanUsagePercent)) return 'plan_usage_paused';
     return null;
+  }
+
+  /** Whether the member's provider is over the plan usage limit: the automatic choice leaves them out (PM-1051). */
+  private providerPaused(member: AiMemberConfig): boolean {
+    const provider = member.provider ?? DEFAULT_AGENT_PROVIDER;
+    return !!planUsagePause(
+      provider,
+      this.planUsageFor(provider),
+      this.config.team.limits.pauseAbovePlanUsagePercent,
+    );
   }
 
   /**
@@ -6068,28 +6065,15 @@ export class MockBackend {
   }
 
   /**
-   * The member queues (PM-894), computed from `queueItems` (`handle` null: the summaries of all AI members).
-   * The closed items are those closed since `closedSince` (default 24 hours), the newest first, at most the
-   * limit. Access and the unknown-member answer follow the server.
+   * The Operator's queue (PM-894), computed from `queueItems`. The closed items are those closed since
+   * `closedSince` (default 24 hours), the newest first, at most the limit. Access and the unknown-member
+   * answer follow the server.
    */
-  private memberQueue(handle: string | null, query = new URLSearchParams()): MockResponse {
+  private memberQueue(handle: string, query = new URLSearchParams()): MockResponse {
     const viewer = memberOf(this.config, this.viewerHandle);
     if (viewer?.kind === 'human' && !hasAccess(viewer.access, 'developer'))
       return error(403, 'insufficient_access', 'Requires developer access');
     const ai = this.config.team.members.filter((m) => m.kind === 'ai');
-    if (handle === null)
-      return ok({
-        members: ai.map((m) => {
-          const open = this.openQueueItems(m.handle);
-          return {
-            member: m.handle,
-            queued: open.filter((item) => item.state === 'queued').length,
-            processing: open.filter((item) => item.state === 'processing').length,
-            waking: 0,
-            oldestQueuedAt: open[0]?.queuedAt ?? null,
-          };
-        }),
-      });
     if (!ai.some((m) => m.handle === handle)) return error(404, 'unknown_member', 'Unknown AI member');
     const since = new Date(query.get('closedSince') ?? Date.now() - 24 * 60 * 60_000).getTime();
     const own = this.queueItems.filter((item) => item.member === handle);

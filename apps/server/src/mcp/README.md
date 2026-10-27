@@ -215,6 +215,12 @@ A second, separate door for the integrator's MCP client: a bearer `pmi_` key, no
   integrator's answer (`todo_done`, `todo_cannot`) comes back to it. The owners get it when the integrator
   is not available (the result says so). A card with an open or handed-over obligation is refused with
   `obligation_tracked`. Returns text. Handler: `openIntegratorTodo`.
+- `reassign_task { task_key, assignee | null, reason }` and `cancel_task { task_key, reason }` (PM-1040) let only
+  the selected PM's internal general session change a card's assignee or close it, with no owner request and
+  a reason of 1–500 characters. `TaskService.update` / `cancel` accept the selected PM acting directly
+  (`isCoordinationActor`); anyone else stays human-admin only. The reason is the `note` of the `task_assigned`
+  event and the `reason` of the cancel event, both under the PM's name. Deleting stays with the owners.
+  Handlers: `reassignTask`, `cancelTask`.
 - `combine_questions { item_ids, question, note }` (PM-695) lets only the selected PM's internal
   general session group 2–10 semantically equivalent screened owner decisions without an owner request.
   Owners, choices, recommendation and attachment sets must match. The oldest item represents the group;

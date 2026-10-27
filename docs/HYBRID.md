@@ -38,8 +38,8 @@ outage; buffered exit results are delivered after reconnect. `process_group` mea
 not contained execution (PM-701).
 
 - A Cloudflare account with a zone, and Zero Trust (the free plan is enough): the tunnel, and
-  Access in front of it ([DEPLOY.md](DEPLOY.md), "Public entry through Cloudflare Tunnel and
-  Access", steps 1 to 3, applies as is).
+  Access in front of it (see [AWS.md, Cloudflare](AWS.md#cloudflare) and
+  [the tunnel and Access setup below](#the-cloudflare-tunnel-and-access)).
 - A container host with a **persistent volume** and no public port needed. This guide uses Fly.io
   (`deploy/cloud/fly.toml`); any host that runs a container with one writable volume works.
 - Two S3-compatible buckets (or one bucket, two prefixes), for example Cloudflare R2 or Backblaze B2.
@@ -180,7 +180,8 @@ image's default command.
 ## The Cloudflare tunnel and Access
 
 The image runs a **token-managed** tunnel (`cloudflared tunnel run` with `TUNNEL_TOKEN`): the
-ingress is set in the Cloudflare dashboard, not in a config file as in the PM-200 guide on the Mac.
+ingress is set in the Cloudflare dashboard or through `npm run cloud -- edge`
+([AWS.md, Cloudflare](AWS.md#cloudflare)).
 
 For SES email login, the owner runs `npm run cloud -- ses plan`, then `ses configure --dry-run`
 and a separately approved `ses configure`; `ses request-production --dry-run` and its approved live request
@@ -247,8 +248,10 @@ machine key, and the integrator its bearer key. A service token alone gets nowhe
 ### The marking widget's public hostname (PM-513)
 
 The marking widget on a customer's page cannot pass Access, so it needs a hostname without it
-(the reasoning and the checks: [DEPLOY.md](DEPLOY.md) step 7, [SECURITY.md](SECURITY.md) "The
-widget's public hostname"). On the token-managed tunnel the same thing is done in the dashboard:
+(the security conditions: [SECURITY.md, The widget's public hostname](SECURITY.md#the-widgets-public-hostname-pm-506-pm-513)).
+On AWS, `cloudflare.feedbackHostname`, `publish --feedback` and `check` configure and verify it
+([AWS.md, Making the name public](AWS.md#making-the-name-public-publish),
+[Verification](AWS.md#verification)). For a manually managed token tunnel, use the dashboard:
 
 1. Add a **second public hostname**, for example `jelolo.example.com`, with the path `^/feedback/`
    and the service `http://127.0.0.1:4700`. Again **no HTTP Host header override**: the server's
@@ -350,7 +353,8 @@ the host, deploy as above with the same secrets (and the `RESTIC_PASSWORD` from 
 manager), on a new volume. Logins survive (the `secret` is restored).
 
 Never run a restored copy beside the original: one container replicates into one replica
-([DEPLOY.md](DEPLOY.md), the `instance.json` paragraph). Stop the old one first.
+([ARCHITECTURE.md, Instance role and the move](ARCHITECTURE.md#instance-role-and-the-move-pm-143-part-of-pm-135)).
+Stop the old one first.
 
 ### The restore rehearsal
 
@@ -633,12 +637,11 @@ gets there from the single-machine mode, how it comes back, and what stays where
 **This page is not a permission to move.** The live instance is never stopped, changed or updated by
 anything here until the owner has said so for the concrete move.
 
-The tool is `npm run migrate -- …` ([MIGRATION.md](MIGRATION.md) has the general rules: the source is only
+The tool is `npm run migrate -- …` (the source is only
 read, a package is a secret, only one copy works). The engine's own commands are `npm run engine -- …`.
 
-For the EC2-specific owner execution sheet, exact CLI order, approval boundaries and
-rollback checks, use [CLOUD-CUTOVER.md](CLOUD-CUTOVER.md) (PM-674). Its public stage
-waits for the completed login and public-edge changes; a private publish does not enable them.
+For the data-preserving return from EC2 to Mac single,
+use [CLOUD-CUTOVER.md](CLOUD-CUTOVER.md) (PM-674).
 
 ## What goes where
 
@@ -777,19 +780,12 @@ For when the owner wants the single-machine mode again.
    single-machine mode as before. Activating from the `engine` role needs a database that holds the
    cloud's engine row, so that the old pre-hybrid database does not replace the cloud's later work;
    `--discard-cloud-data` states the opposite on purpose.
-5. **PM-675 trial retention exception (PM-719).** Between the two trial rounds retain the final
-   downloaded copy in a protected mode 0700 location outside the live home and repositories.
-   After verified Mac single/watcher operation, follow [the exact-plan reset procedure](AWS.md#reset-between-the-two-pm-675-trial-rounds-pm-719):
-   same EC2 and buckets, stopped/disabled host, matching full content inventories, separate owner
-   approval of the exact plan SHA-256, host archive before conditional object deletion, no seed/start.
-   Keep both this copy and the root-only host archive at least through round two's full backup and
-   isolated restore acceptance; later removal needs a separate owner decision. The next seed comes
-   from a new package of the Mac's then-current stopped state, with PM-717 integrity and PM-718 image.
-6. **Clean up the secrets outside that retention window.** After `hybrid back`, delete the downloaded copy (`--from`): it holds the
+5. **Clean up the secrets after verifying the rollback.** Once the single-machine mode and watcher
+   have run well, the owner separately decides when to delete or archive the downloaded copy (`--from`): it holds the
    live cookie key, the secrets and the database, in a folder the sessions' sandboxes do not deny.
    `pre-hybrid/` and `.hybrid-back/` inside the home are denied to every session (they hold the old
-   database, the old keys and the former machine key). Once the single-machine mode has run well, delete
-   `pre-hybrid/` too; the former machine key in it is revoked in the database already.
+   database, the old keys and the former machine key). The owner also decides when to delete
+   `pre-hybrid/`; the former machine key in it is revoked in the database already.
 
 Sessions the cloud left open are not closed by the move (the tool reports their number); the first
 start resumes or ends them as after any restart.

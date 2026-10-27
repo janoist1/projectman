@@ -510,7 +510,7 @@ describe('attachments service', () => {
       await h.domain.stop();
       h.repos.db.close();
 
-      // The backup: everything under the home, as DEPLOY.md says; restored to another place.
+      // The backup: the complete home is restored to another place.
       const restoredDir = mkdtempSync(join(tmpdir(), 'pm-restore-'));
       copyTree(h.dir, restoredDir);
       const restored = await createDomainHarness({ directory: restoredDir });
@@ -520,7 +520,7 @@ describe('attachments service', () => {
         const { stream } = await restored.domain.attachments.open('AR', 'AR-1', kept.id, OWNER_ACTOR);
         expect(Buffer.concat(await stream.toArray()).equals(bytes)).toBe(true);
         expect(existsSync(join(restored.attachmentsDir, 'AR', 'AR-1', deleted.id))).toBe(false);
-        // Private as before (DEPLOY.md: restore the modes too).
+        // Restoring the directory modes keeps the files private.
         expect(statSync(join(restored.attachmentsDir, 'AR', 'AR-1', kept.id)).mode & 0o777).toBe(0o600);
         expect(statSync(join(restored.attachmentsDir, 'AR', 'AR-1')).mode & 0o777).toBe(0o700);
         expect(statSync(restored.attachmentsDir).mode & 0o777).toBe(0o700);

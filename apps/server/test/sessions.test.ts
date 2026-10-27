@@ -55,18 +55,18 @@ describe('session orchestrator', () => {
     expect(h.domain.sessions.audienceOf(ctx)).toMatchObject({
       operator: false,
       projectManager: false,
-      merger: false,
+      merger: true,
     });
     expect(h.domain.sessions.audienceOf(ctx).duties.has('deployment')).toBe(false);
     await h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (config) => {
-      config.team.merger = { kind: 'member', handle: 'dev-1' };
+      config.team.merger = { kind: 'member', handle: 'cr' };
       config.team.roleOverrides = {
         ...config.team.roleOverrides,
         developer: { duties: ['implementation', 'deployment'], instructions: '' },
       };
       return 'Change tool audience for the active member';
     });
-    expect(h.domain.sessions.audienceOf(ctx).merger).toBe(true);
+    expect(h.domain.sessions.audienceOf(ctx).merger).toBe(false);
     expect(h.domain.sessions.audienceOf(ctx).duties.has('deployment')).toBe(true);
     expect(h.domain.sessions.audienceOf({ ...ctx, member: 'pm' }).projectManager).toBe(true);
     expect(h.domain.sessions.audienceOf({ ...ctx, member: 'operator' }).operator).toBe(true);
@@ -74,9 +74,18 @@ describe('session orchestrator', () => {
   });
 
   it('serves the current session guide, rejects missing topics and rebuilds it on resume', async () => {
+    const build = h.contextBuilder.build.bind(h.contextBuilder);
+    vi.spyOn(h.contextBuilder, 'build').mockImplementation((input) => {
+      const pack = build(input);
+      pack.guide.sandbox = '# Sandbox guide';
+      return pack;
+    });
     const { session } = await h.domain.sessions.ensureSession('AR', 'cr', task);
     const ctx = { sessionId: session.id, projectKey: 'AR', member: 'cr', taskKey: 'AR-1' };
     await expect(h.domain.teamTools.getGuide(ctx, { topic: 'rules' })).resolves.toContain('# Team rules');
+    await expect(h.domain.teamTools.getGuide(ctx, { topic: 'sandbox' })).resolves.toContain(
+      '# Sandbox guide',
+    );
     await expect(h.domain.teamTools.getGuide(ctx, { topic: 'commands' })).rejects.toMatchObject({
       code: 'not_found',
     });

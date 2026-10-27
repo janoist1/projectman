@@ -27,8 +27,9 @@ export function startOfferText(input: StartOfferText): string {
     lines.push(`The other parts wait: ${waiting.map((part) => `${part.key} (${part.why})`).join(', ')}.`);
   if (input.assigned) {
     // Moving an assigned card starts nobody (PM-119): start_task keeps the assignee, moves the card and starts the session.
+    // An assignee whose provider is on hold (PM-1051) and who has not begun the card is replaced by a fitting free member.
     lines.push(
-      `Each has an assignee who has not started it: start it with start_task, which keeps the assignee and moves the card to ${toStageId} if it is not there yet. ` +
+      `Each has an assignee who has not started it: start it with start_task, which keeps the assignee (unless their provider is paused and they have not begun the card: then it picks a fitting free member instead) and moves the card to ${toStageId} if it is not there yet. ` +
         `Do not move it with update_task: that starts nobody. ` +
         `If the owner's comment holds a card, do not start it: open an integrator todo to move it back to ${backStageId}.`,
     );

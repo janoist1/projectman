@@ -202,3 +202,14 @@ export const testTemplate: ProjectTemplate = {
   checklist: [],
   build: (input) => ProjectConfig.parse(testConfigInput(input)),
 };
+
+/** The test template with its project manager on duty from creation (the checklist notice goes to it). */
+export const testTemplateWithActivePm: ProjectTemplate = {
+  ...testTemplate,
+  build: (input) => {
+    const config = ProjectConfig.parse(testConfigInput(input));
+    for (const member of config.team.members)
+      if (member.handle === 'pm' && member.kind === 'ai') member.onLeave = false;
+    return config;
+  },
+};

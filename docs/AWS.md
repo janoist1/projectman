@@ -56,9 +56,8 @@ Real builds of the target platform and disposable runtime smoke (Node/better-sql
 litestream, restic and cloud server), plus 1 GiB RAM and import disk headroom checks, are PM-675
 release artifact evidence. This implementation does not provision resources or authorize cutover.
 
-For the owner-approved Mac single → EC2 cloud + Mac engine execution order, approval
-points, checks and rollback, use [CLOUD-CUTOVER.md](CLOUD-CUTOVER.md) (PM-674).
-It preserves existing Cloudflare DNS/mail and distinguishes the private move from public activation.
+For the data-preserving return from EC2 cloud + Mac engine to Mac single,
+use [CLOUD-CUTOVER.md](CLOUD-CUTOVER.md) (PM-674).
 
 ## EC2 central account and provisioning (PM-676, part of PM-664)
 
@@ -526,7 +525,7 @@ without deleting them. After a permitted stopped-host switch, import the approve
 `receive-image`; the prior import is not available in the classic store. Bootstrap does not migrate or
 prune store data and leaves `/var/lib/projectman/data` intact. Hosts with retained deploy history need
 an explicit recovery plan instead of an automatic switch. Live cutover stays within PM-675's approved
-procedure and PM-719's trial reset; this bootstrap change grants no additional live-operation permission.
+procedure; this bootstrap change grants no additional live-operation permission.
 
 ### The machine's files
 
@@ -662,85 +661,6 @@ syntax and for what it must never do (no published port, no host network, no pri
 no Docker socket), and the commands against a fake `aws`, `ssh` and machine. The first real run is
 yours: `status` first (it needs only the machine), then `deploy --dry-run`. The least certain part
 is the temporary SSH certificate: if `ssh` refuses it, use `aws.sshIdentityFile`.
-
-### Reset between the two PM-675 trial rounds (PM-719)
-
-The owner chose **the same EC2 instance, emptied**, with both buckets retained. This tool is
-only for the approved trial target. Completing PM-719 does not authorize any live deletion.
-First finish `stop` → final `pull-data` → `hybrid back` → `instance activate` → Mac single/watcher
-checks. Record the successful return and login checks on PM-675; the reset validates the event id
-format and retained bytes, while the owner verifies the event's meaning and acceptance evidence.
-
-Keep the final download in a private mode 0700 directory outside any repository and the live
-Mac home. Keep the plan in a separate existing mode 0700 directory owned by the administrator.
-Do not place it inside the final download. Paths and keys in the plan are private data; attach
-neither the plan nor object listings to the task. Use the explicit central profile (`aroom` for
-PM-675), never the registrar `i`. No profile lookup/fallback takes place.
-
-```sh
-npm run cloud -- trial-reset-plan --from <FINAL_RETURN_DIRECTORY> --rollback-event <EVENT_ID> --out <NEW_PLAN_JSON> --config <PRIVATE_CONFIG>
-```
-
-Planning reads the account, unique managed EC2 target, VPC/subnet/SSM, stopped and disabled host,
-entire data tree, metadata digests and both complete paginated bucket inventories. It requires
-the retained download's canonical content inventory and DB digest to match the host. Symlinks,
-special entries, nested mounts, invalid UTF-8 names and detectable changes are refused. No SQLite
-connection is opened. Versioned **or suspended** buckets, Object Lock, replication and multipart
-uploads are refused; permission/transport failures never mean an absent configuration. An empty
-backup bucket is valid. Planning writes only a new mode 0600 plan and reports its exact file SHA-256.
-
-Host requirements: an already deployed Ubuntu 24.04 target with its existing regular root-owned
-`.image.lock`, existing Python3 and Linux descriptor/no-follow/mountinfo support. The fixed embedded
-standard-library program runs in isolated `python3 -I -S` mode. Missing interpreter/capabilities
-refuse before writes; the reset installs nothing and has no fallback. The dedicated trial host
-must have no running/starting containers or restic/Litestream/backup processes. `trial-reset-inspect`
-returns active-tree hashes; `trial-reset-archive` preserves it; `trial-reset-verify` rehashes that
-specific archive after deletion, checks the archived receipt and confirms empty owned active data.
-The last two host operations take the same UUID/hash/none arguments and no stdin payload.
-Use one administrator throughout this maintenance window; do not deploy/start the host or change
-bucket policies/replication while the reset is in progress. Planning never stops writers itself.
-
-Before execution the owner approves that **specific plan file hash**, account/profile/region,
-instance id/name, the two exact bucket names, rollback event, inventory hashes/counts/bytes and
-fixed archive directory. Any edited/regenerated plan needs a new concrete approval. Confirming
-a hash is integrity binding, not proof of human approval or QA. The AWS administrator needs the
-existing read permissions and S3 conditional-delete permissions; this tool grants no IAM rights.
-
-```sh
-npm run cloud -- trial-reset-apply --plan <PLAN_JSON> --confirm-sha256 <PLAN_FILE_SHA256> --dry-run --config <PRIVATE_CONFIG>
-# Only after the owner's exact execution approval:
-npm run cloud -- trial-reset-apply --plan <PLAN_JSON> --confirm-sha256 <PLAN_FILE_SHA256> --config <PRIVATE_CONFIG>
-```
-
-Dry-run performs all preflight comparisons without an archive, deletion or receipt. Apply first
-creates a mode 0600 `<PLAN_JSON>.result.json`; any existing result prevents reapplication. On the
-host it preserves deploy.json/image.env and renames active data to the root-only mode 0700
-`/var/lib/projectman/trial-archive/<PLAN_UUID>/data`. A mode 0600 reset.json records started/archived;
-the new active data is empty, mode 0700, uid/gid 10001. cloud.env, credentials, Docker images and
-other hosts/resources stay in place. The unit remains inactive and disabled.
-
-Only after archive verification and another exact bucket inventory comparison does deletion
-start. Each planned object uses its exact ETag with `If-Match`, expected bucket owner and explicit
-profile/region. The installed AWS CLI model must support conditional deletion. Each delete uses
-`AWS_MAX_ATTEMPTS=1`/standard retry mode; the first 412, denial, timeout or interruption stops the
-operation. See the [AWS conditional-delete contract](https://docs.aws.amazon.com/AmazonS3/latest/userguide/conditional-deletes.html).
-There is no unconditional fallback, recursive deletion, version deletion, bypass, seed or start.
-
-The local receipt tracks started/host-archived/failed/complete and confirmed delete counts.
-A failed or interrupted operation may already have archived data or deleted objects; an uncertain
-response can mean AWS deleted one more object than the confirmed count. Keep both receipts,
-archive and final download. Stop and obtain a separately reviewed owner recovery plan for the
-remaining state; do not remove markers, replay an old plan, restore automatically or retry deletes.
-Host archival is not an atomic transaction with S3. Success requires fresh empty listings and no
-multipart uploads plus final read-only stopped-host/empty-data/archive integrity verification.
-
-Retain the protected final download and host archive until at least the second round's full
-backup and isolated restore acceptance. Removing either requires a separate decision. Round two
-starts with a **new package from the Mac's then-current stopped state**, verify, seed-integrity
-(PM-717) and the approved prepared ARM image (PM-718). Do not reuse the first round's package.
-Exit codes: 64 bad CLI; 2 unsafe/different precondition (host refusal 3 maps to 2);
-1 API/transport/computation failure; 0 success. Failure output contains operation/fixed codes,
-never raw object keys, ETags, URLs or credentials.
 
 ## Cloudflare
 
@@ -998,8 +918,9 @@ steps without writes and skips the live login check.
 
 ## Verification
 
-`npm run cloud -- check --login-json <file>` runs the checks of [DEPLOY.md](DEPLOY.md) and
-[HYBRID.md](HYBRID.md) against `https://<cloudflare.hostname>`. Before the first run sign in to
+`npm run cloud -- check --login-json <file>` verifies the Cloudflare security conditions in
+[SECURITY.md](SECURITY.md#public-entrance-through-cloudflare-pm-200-pm-210) and the deployment in
+[HYBRID.md](HYBRID.md#smoke-test) against `https://<cloudflare.hostname>`. Before the first run sign in to
 Access as yourself: `cloudflared access login https://<hostname>` (an e-mail PIN from the list in
 `access.emails`). `<file>` is a mode-600 JSON file with `{"email": "…", "password": "…"}` of a board
 account; the command reads it only to hand it to `deploy/cloudflare/check.sh`, in the environment

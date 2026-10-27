@@ -82,7 +82,7 @@ Assignees remain real human handles.
 `IntegratorTodoAccess` is a boolean port, defaulting to unavailable. `app.ts` supplies the shared
 `integratorSideAvailable` rule: an Operator exists, including on leave or with AI off (PM-1003);
 assembly passes it to inbox. Super credentials are checked when a client resolves the item.
-`resolveIntegratorTodo` is reached through the super-only REST/MCP adapter in
+`resolveIntegratorTodo` is reached through the super-only external MCP adapter (there is no REST route, PM-1030) in
 `services/super-operator/todo.ts`. It uses the same question lock and transactional answer delivery
 as owner resolution, rechecking authenticated execution before persistence. The result carries
 `resolution.integratorTodo` and the full super actor, never `ownerAnswerRelayed` or a decision candidate.

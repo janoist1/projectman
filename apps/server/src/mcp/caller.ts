@@ -2,9 +2,11 @@ import path from 'node:path';
 import {
   CardBusyDetails,
   coordinationActorRefusal,
+  coordinationMemberOf,
   ERROR_CODES,
   ownerHandles,
   isOperator,
+  isProjectManager,
   isLessonsOnly,
   MAX_ATTACHMENT_BYTES,
   memberOf,
@@ -35,6 +37,7 @@ import {
   OPERATOR_READ_TOOLS,
   OPERATOR_SCREENING_TOOLS,
   OPERATOR_TOOL_ACTIONS,
+  PM_CARD_TOOLS,
 } from '../services/operator';
 import type { CoordinationRequests, OperatorRequests, OperatorSteps } from '../services/operator';
 import type { Viewer } from '../core/projects';
@@ -201,7 +204,7 @@ export class ToolCaller {
   }
   /** Signals with an own step of the Operator running now (PM-545); one at a time, whatever the budget left. */
   private readonly signalStepsRunning = new Set<string>();
-  /** Lessons alone may be maintained in the Operator's own internal conversation and verified queue. */
+  /** Lessons alone may be maintained internally by the selected PM, or by the transitional Operator. */
   async projectDocCaller(
     ctx: ToolContext,
     edits: readonly { doc: ProjectDoc }[],
@@ -209,8 +212,7 @@ export class ToolCaller {
   ): Promise<CallerWithRequest> {
     if (!isLessonsOnly(edits)) return this.callerWithRequest(ctx, tool);
     const config = await this.projects.config(ctx.projectKey);
-    if (!isOperator(memberOf(config, ctx.member)))
-      throw new TeamToolError('forbidden', 'operator_only: only the Operator may maintain lessons.');
+    if (!isOperator(memberOf(config, ctx.member))) this.assertCoordinationSession(ctx, config);
     const session = this.ctx.repos.sessions.get(ctx.sessionId);
     const request = this.operatorRequests.openFor(ctx.sessionId);
     if (
@@ -258,6 +260,29 @@ export class ToolCaller {
   ): Promise<CallerWithRequest> {
     const config = await this.projects.config(ctx.projectKey);
     if (
+      [
+        'read_project_doc',
+        'write_project_docs',
+        'list_decision_candidates',
+        'mark_decision_candidates',
+      ].includes(tool) &&
+      !isOperator(memberOf(config, ctx.member))
+    ) {
+      this.assertCoordinationSession(ctx, config);
+      const request = this.coordinationRequests.openFor(ctx.sessionId);
+      if (request && !isOwner(config, request.fromHandle))
+        throw new TeamToolError('forbidden', `${OWNER_ONLY}: project documents require an owner request.`);
+      if (
+        !OPERATOR_READ_TOOLS.has(tool) &&
+        (!request || (request.source !== 'message' && request.source !== 'answer'))
+      )
+        throw new TeamToolError(
+          'forbidden',
+          'operator_no_request: project document writes require your own open owner message or answer.',
+        );
+      return { config, request, guest: null };
+    }
+    if (
       (tool === 'list_system_feedback' || tool === 'record_system_feedback') &&
       !isOperator(memberOf(config, ctx.member))
     ) {
@@ -279,6 +304,7 @@ export class ToolCaller {
         'start_task',
         'start_member',
         'request_structural_review',
+        ...PM_CARD_TOOLS,
       ].includes(tool)
     ) {
       this.assertCoordinationSession(ctx, config);
@@ -289,7 +315,8 @@ export class ToolCaller {
           'forbidden',
           'operator_no_request: structural approval permits only its review start.',
         );
-      if (OPERATOR_SCREENING_TOOLS.has(tool)) return { config, request: null, guest: null };
+      if (OPERATOR_SCREENING_TOOLS.has(tool) || PM_CARD_TOOLS.includes(tool))
+        return { config, request: null, guest: null };
       // A signal always keeps its exact binding and budget, even when an owner request is open.
       if (signalStep) return this.signalStepCaller(ctx, config, signalStep);
       if (!request)
@@ -323,6 +350,26 @@ export class ToolCaller {
         `${ctx.member} is not an active AI member of this team, so the team tools are not available.`,
       );
     const operator = isOperator(member);
+    if (!operator && (tool === 'get_operator_preference' || tool === 'set_operator_preference')) {
+      if (!isProjectManager(member))
+        throw new TeamToolError('forbidden', 'operator_only: preferences require the Operator or PM.');
+      if (coordinationMemberOf(config)?.handle !== ctx.member)
+        throw new TeamToolError('forbidden', 'project_manager_only: preferences require the selected PM.');
+      const session = this.ctx.repos.sessions.get(ctx.sessionId);
+      if (
+        !session ||
+        session.projectKey !== ctx.projectKey ||
+        session.member !== ctx.member ||
+        session.workItem.type !== 'general' ||
+        session.workItem.with !== undefined
+      )
+        throw new TeamToolError(
+          'forbidden',
+          'operator_owner_only: preferences require your internal conversation.',
+        );
+      // This grants only entry to OperatorPreferences, which rechecks the current person and request.
+      return { config, request: null, guest: null };
+    }
     if (operator && (tool === 'get_operator_preference' || tool === 'set_operator_preference')) {
       const session = this.ctx.repos.sessions.get(ctx.sessionId);
       if (

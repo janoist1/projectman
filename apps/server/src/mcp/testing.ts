@@ -13,6 +13,7 @@ export const operatorAudience: MemberAudience = {
   operator: true,
   projectManager: false,
   merger: false,
+  email: false,
   duties: new Set(),
 };
 
@@ -477,6 +478,14 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
     async dismissSignal(ctx, args) {
       await enter('dismissSignal', ctx, args);
       return { signalId: args.signalId, state: 'dismissed' };
+    },
+    async reassignTask(ctx, args) {
+      await enter('reassignTask', ctx, args);
+      return { task_key: args.taskKey, assignee: args.assignee, previous: null };
+    },
+    async cancelTask(ctx, args) {
+      await enter('cancelTask', ctx, args);
+      return { task_key: args.taskKey, status: 'cancelled' };
     },
     async openIntegratorTodo(ctx, args) {
       await enter('openIntegratorTodo', ctx, args);

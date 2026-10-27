@@ -18,7 +18,6 @@ import type {
   Task,
   TaskDetail,
   TeamMessagesView,
-  TemplateSummary,
 } from '@projectman/shared';
 import { hu } from '@projectman/templates';
 import {
@@ -259,18 +258,7 @@ describe('REST API', () => {
       await createProject(h, cookie);
     });
 
-    it('lists templates and projects, and maps the user to a handle', async () => {
-      const templates = await call<TemplateSummary[]>('GET', '/api/templates', cookie);
-      expect(templates.body).toEqual([
-        {
-          id: 'test',
-          nameKey: 'templates.test.name',
-          descriptionKey: 'templates.test.description',
-          memberCount: { human: 1, ai: 5 },
-          stageCount: 6,
-          checklist: [],
-        },
-      ]);
+    it('lists projects, and maps the user to a handle', async () => {
       const projects = await call<ProjectSummary[]>('GET', '/api/projects', cookie);
       expect(projects.body).toEqual([
         {
@@ -281,8 +269,10 @@ describe('REST API', () => {
         },
       ]);
       expect((await call<Me>('GET', '/api/me', cookie)).body.handles).toEqual({ AR: 'owner' });
-      expect((await call<ProjectSummary>('GET', '/api/projects/AR', cookie)).body.key).toBe('AR');
-      expect((await call<ApiError>('GET', '/api/projects/ZZ', cookie)).status).toBe(404);
+      // The unused lookup routes are gone (PM-1030).
+      for (const url of ['/api/templates', '/api/projects/AR']) {
+        expect((await call<ApiError>('GET', url, cookie)).status).toBe(404);
+      }
 
       const duplicate = await call<ApiError>('POST', '/api/projects', cookie, {
         key: 'AR',

@@ -446,7 +446,8 @@ macOS Seatbelt as it is (2.1.284 lists it under "Denied" in `/sandbox`); its Lin
 (bubblewrap) leaves out the glob patterns it does not support and lists them in `/sandbox`
 (unverified for this one), and then the database files stay readable from the shell on Linux
 until they are named one by one. The `Read` deny rules of the file tools take the glob on both. Residual risk: port 4800 stays reachable from the shell
-(decision 24).
+(decision 24); the PM-811 probe found `deniedDomains` cannot close it (it acts only on proxied
+traffic, direct loopback connects pass), see `SECURITY.md`.
 Codex ignores the deny rules (its sandbox is its own, PM-166). See `SECURITY.md`.
 
 ### Questions at the terminal (PM-199)

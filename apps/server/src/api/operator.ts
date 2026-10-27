@@ -5,19 +5,13 @@ import {
   OperatorApprovalWaiverRequest,
   canReadOperatorKnowledge,
   SuperAuditQuery,
-  ExecuteSuperHandoffRequest,
   ListSuperHandoffsQuery,
-  AdministrationLogsQuery,
-  AdministrationStatusQuery,
-  SuperDiagnosticsRequest,
   SuperOperateRequest,
 } from '@projectman/shared';
 import type {
-  ExecuteSuperHandoffResponse,
   ListSuperHandoffsResponse,
   SuperHandoffDetail,
   SuperAuditPage,
-  SuperDiagnosticsResponse,
   SuperOperateResponse,
   SuperOperationDetail,
 } from '@projectman/shared';
@@ -69,18 +63,6 @@ export function registerOperatorRoutes(app: FastifyInstance, deps: { domain: Api
     },
   );
 
-  /** The integrator starts (or, after the owner's yes, resumes) the operation of a handoff. */
-  app.post<{ Params: { key: string; handoffId: string } }>(
-    routes.executeSuperHandoff(':key', ':handoffId'),
-    async (request, reply): Promise<ExecuteSuperHandoffResponse> => {
-      const { key, handoffId } = request.params;
-      const access = await requireAccess(domain, request, key, { minimum: 'owner' });
-      const body = parseBody(ExecuteSuperHandoffRequest, request.body);
-      const operation = await domain.superHandoffs.execute(key, handoffId, body.requestId, access);
-      reply.code(202);
-      return { operation };
-    },
-  );
   /** The super mode's administration (PM-764): every call is bound to the project and to an engine linked to it. */
   app.post<ProjectParams>(
     routes.superOperations(':key'),
@@ -102,27 +84,6 @@ export function registerOperatorRoutes(app: FastifyInstance, deps: { domain: Api
       const { key, operationId } = request.params;
       await requireAccess(domain, request, key, { minimum: 'owner' });
       return domain.superAdministration.operation(key, operationId);
-    },
-  );
-  app.get<ProjectParams>(routes.superAdministrationStatus(':key'), async (request) => {
-    const key = request.params.key;
-    await requireAccess(domain, request, key, { minimum: 'owner' });
-    const query = parseBody(AdministrationStatusQuery, request.query);
-    return { status: await domain.superAdministration.status(key, query.target) };
-  });
-  app.get<ProjectParams>(routes.superAdministrationLogs(':key'), async (request) => {
-    const key = request.params.key;
-    await requireAccess(domain, request, key, { minimum: 'owner' });
-    const query = parseBody(AdministrationLogsQuery, request.query);
-    const { target, ...options } = query;
-    return domain.superAdministration.logs(key, target, options);
-  });
-  app.post<ProjectParams>(
-    routes.superDiagnosticsQuery(':key'),
-    async (request): Promise<SuperDiagnosticsResponse> => {
-      const key = request.params.key;
-      await requireAccess(domain, request, key, { minimum: 'owner' });
-      return domain.superAdministration.query(key, parseBody(SuperDiagnosticsRequest, request.body));
     },
   );
   app.get<ProjectParams>(routes.operatorKnowledge(':key'), async (request) => {

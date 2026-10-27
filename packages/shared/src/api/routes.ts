@@ -24,10 +24,6 @@ export const routes = {
   operator: (key: string) => `/api/projects/${key}/operator`,
   /** GET the Operator's member queue (`MemberQueueView`, PM-894); `?closedSince=<iso>`. */
   operatorQueue: (key: string) => `/api/projects/${key}/operator/queue`,
-  /** GET the open and closed counts of every AI member's queue (`MemberQueuesView`, PM-894). */
-  memberQueues: (key: string) => `/api/projects/${key}/member-queues`,
-  /** GET one AI member's queue (`MemberQueueView`, PM-894); `?closedSince=<iso>`. */
-  memberQueue: (key: string, handle: string) => `/api/projects/${key}/members/${handle}/queue`,
   operatorPreferences: (key: string) => `/api/projects/${key}/operator/preferences`,
   operatorKnowledge: (key: string) => `/api/projects/${key}/operator/knowledge`,
   projectChecklist: (key: string) => `/api/projects/${key}/checklist`,
@@ -40,24 +36,13 @@ export const routes = {
   superHandoffs: (key: string) => `/api/projects/${key}/operator-super/handoffs`,
   superHandoff: (key: string, handoffId: string) =>
     `/api/projects/${key}/operator-super/handoffs/${handoffId}`,
-  /** POST `ExecuteSuperHandoffRequest`: starts (or resumes) the handoff's operation; 202 `{operation}`. */
-  executeSuperHandoff: (key: string, handoffId: string) =>
-    `/api/projects/${key}/operator-super/handoffs/${handoffId}/execute`,
   /** POST `SuperOperateRequest`: starts a command without a handoff; 202 `{operation}` (PM-764). */
   superOperations: (key: string) => `/api/projects/${key}/operator-super/operations`,
   /** GET `{operation, result}`: the operation and the administration result recorded for it, if any. */
   superOperation: (key: string, operationId: string) =>
     `/api/projects/${key}/operator-super/operations/${operationId}`,
-  /** GET `?target=hub|<engineId>`: `{status}` of the hub's or an engine's supervisor. */
-  superAdministrationStatus: (key: string) => `/api/projects/${key}/operator-super/administration/status`,
-  /** GET `?target=…&limit=50`: `{entries}`, the supervisor's diagnostics (a known code and scalars only). */
-  superAdministrationLogs: (key: string) => `/api/projects/${key}/operator-super/administration/logs`,
-  /** POST `SuperDiagnosticsRequest`: `{columns, rows, truncated}` from a closed catalogue of the project's records. */
-  superDiagnosticsQuery: (key: string) => `/api/projects/${key}/operator-super/diagnostics/query`,
   /** POST `RelayOwnerAnswerRequest`: the integrator relays the owner's answer to a simple information question. */
   relayOwnerAnswer: (key: string, itemId: string) => `/api/projects/${key}/inbox/${itemId}/relay-answer`,
-  resolveIntegratorTodo: (key: string, itemId: string) =>
-    `/api/projects/${key}/inbox/${itemId}/resolve-integrator-todo`,
   /** POST `ResolveIntegratorFixLimitRequest`: the integrator decides a fix round limit item addressed to it (PM-714). */
   resolveIntegratorFixLimit: (key: string, itemId: string) =>
     `/api/projects/${key}/inbox/${itemId}/resolve-integrator-fix-limit`,
@@ -81,15 +66,7 @@ export const routes = {
   operatorGrant: () => '/api/auth/operator-grant',
   operatorGrantAudit: () => '/api/auth/operator-grant/audit',
   involvements: (key: string) => `/api/projects/${key}/involvements`,
-  /** GET the project's focus (`ProjectFocusView`, PM-427); internal members only. */
-  projectFocus: (key: string) => `/api/projects/${key}/focus`,
   projectStructure: (key: string) => `/api/projects/${key}/structure`,
-  /** POST (`ProjectFocusAddRequest`): puts a theme or card into the focus. */
-  projectFocusItems: (key: string) => `/api/projects/${key}/focus/items`,
-  /** PATCH (`ProjectFocusMoveRequest`) moves an item; DELETE takes it out. */
-  projectFocusItem: (key: string, taskKey: string) => `/api/projects/${key}/focus/items/${taskKey}`,
-  /** GET (`?limit=`, 1 to 200, default 50): the project's `focus_changed` events (`ProjectFocusChanges`). */
-  projectFocusChanges: (key: string) => `/api/projects/${key}/focus/changes`,
   /**
    * GET (`ProjectChangeEventsQuery`: `after` cursor, `limit` 1..500, `waitMs` 0..25000): the project's durable
    * change journal (`ProjectChangeEventsResponse`, PM-761), waiting up to `waitMs` for a new entry. Internal members only.
@@ -113,10 +90,7 @@ export const routes = {
   logout: () => '/api/auth/logout',
   me: () => '/api/me',
 
-  templates: () => '/api/templates',
   projects: () => '/api/projects',
-  projectPreview: () => '/api/projects/preview',
-  project: (key: string) => `/api/projects/${key}`,
   board: (key: string) => `/api/projects/${key}/board`,
 
   tasks: (key: string) => `/api/projects/${key}/tasks`,
@@ -263,25 +237,6 @@ export const routes = {
   feedbackWidgetApi: (rest = '') => `/feedback/api/v1${rest}`,
   /** GET: the widget script the customer's page embeds. */
   feedbackWidgetScript: () => '/feedback/widget.js',
-
-  /** GET (`?project=KEY`; `SystemFeedbackList`) the installation's system feedback (PM-472). */
-  systemFeedback: () => '/api/system-feedback',
-  /** GET `SystemFeedbackSummary`. */
-  systemFeedbackSummary: () => '/api/system-feedback/summary',
-  /** PUT (`SetSystemFeedbackForwardingRequest` -> `SystemFeedbackForwardingView`, the instance owner). */
-  systemFeedbackForwarding: () => '/api/system-feedback/forwarding',
-  /** GET `SystemFeedbackPreview`: the filtered text of an item. */
-  systemFeedbackPreview: (id: string) => `/api/system-feedback/${id}/preview`,
-  /** POST (`PrepareSystemFeedbackRequest` -> `SystemFeedbackPrepared`). */
-  systemFeedbackPrepare: (id: string) => `/api/system-feedback/${id}/prepare`,
-  /** POST (`MarkSystemFeedbackForwardedRequest` -> `SystemFeedbackItem`). */
-  systemFeedbackForwarded: (id: string) => `/api/system-feedback/${id}/forwarded`,
-  /** POST (`DismissSystemFeedbackRequest` -> `SystemFeedbackItem`). */
-  systemFeedbackDismiss: (id: string) => `/api/system-feedback/${id}/dismiss`,
-  /** POST (-> `SystemFeedbackItem`): a dismissed item is new again. */
-  systemFeedbackRestore: (id: string) => `/api/system-feedback/${id}/restore`,
-  /** POST (-> `SystemFeedbackItem`): the item is sent as a card. */
-  systemFeedbackCard: (id: string) => `/api/system-feedback/${id}/card`,
 
   websocket: () => '/ws',
   mcp: (token: string) => `/mcp/${token}`,

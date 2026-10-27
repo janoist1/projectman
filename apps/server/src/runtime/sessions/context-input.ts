@@ -1,4 +1,5 @@
 import {
+  coordinationMemberOf,
   DEFAULT_AGENT_PROVIDER,
   effectiveSessionPermissions,
   isOpenTask,
@@ -155,7 +156,11 @@ export class SessionContextInput {
         this.ctx.logger.warn({ err, member: member.handle }, 'could not read operator preference');
         return undefined;
       });
-    const checklist = isOperator(member) ? this.ctx.repos.checklists.get(projectKey) : null;
+    // The selected project manager leads the setup checklist (PM-1043).
+    const checklist =
+      coordinationMemberOf(config)?.handle === member.handle
+        ? this.ctx.repos.checklists.get(projectKey)
+        : null;
     return {
       ...(task && this.host.fullTests()?.runsFor(task, config) ? { serverFullTest: true } : {}),
       project: config,

@@ -9,9 +9,10 @@ export const MERGE_TOOL_GROUP: TeamToolGroup = {
     defineTool({
       name: 'merge_task',
       title: 'Merge a task',
+      audience: { roles: ['merger'] },
       readOnly: false,
       description:
-        "Start merging the card's approved commit into its repository's default branch. Only the card's merger may call this. The result arrives as a team message. Call again to retry a failed or blocked merge.",
+        "Start merging the card's approved commit into its repository's default branch. The result arrives as a team message. Call again to retry a failed or blocked merge.",
       input: {
         task_key: TaskKey,
         fix_conflict: z
@@ -47,9 +48,10 @@ export const MERGE_TOOL_GROUP: TeamToolGroup = {
     defineTool({
       name: 'prioritize_merge',
       title: 'Move a merge to the front of the queue',
+      audience: { roles: ['merger'] },
       readOnly: false,
       description:
-        "Only the card's merger, or the Operator during an open owner request. One merge runs at a time per repository, in the order the cards were requested; use this to decide that this card's queued merge goes next, e.g. a fix that the queued cards' tests depend on. Only a merge that waits in the queue can move (not one that is not started yet or already runs). The merge that runs now is not interrupted. The reason goes on the card's timeline: say who or what it unblocks. A merge already at the front is left as it is (moved: false).",
+        "One merge runs at a time per repository, in the order the cards were requested; use this to make this card's queued merge go next, e.g. a fix that the queued cards' tests depend on. Only a merge that waits in the queue can move; the merge that runs now is not interrupted. The reason goes on the card's timeline: say who or what it unblocks. A merge already at the front is left as it is (moved: false).",
       input: {
         task_key: TaskKey,
         reason: z
@@ -75,10 +77,9 @@ export const MERGE_TOOL_GROUP: TeamToolGroup = {
       readOnly: true,
       description:
         "Read the project's recorded merge checks (the full check of a merge or of a merge train), newest first: " +
-        'the run time of the check, the workers it ran with, its scope and each step with its time and result ' +
-        '(a step taken from the cache is marked, not timed). The time is the check itself; the queue wait is ' +
-        'shown apart. A check recorded without a step report (an older engine) shows its steps as unknown. ' +
-        'Filter by card, outcome, kind or period; get_task shows the latest checks of one card.',
+        'the run time, the workers, the scope and each step with its time and result (a cached step is ' +
+        'marked, not timed). The queue wait is shown apart. Filter by card, outcome, kind or period; ' +
+        'get_task shows the latest checks of one card.',
       input: {
         task_key: TaskKey.optional().describe('Only the checks that included this card.'),
         outcome: z
@@ -89,19 +90,19 @@ export const MERGE_TOOL_GROUP: TeamToolGroup = {
           .enum(['checks', 'merge', 'train', 'diagnose', 'any'])
           .default('checks')
           .describe(
-            'checks (default): the check of a single merge and of a train. diagnose is the per-card diagnosis ' +
-              'of a failed train, which runs only the failed files.',
+            'checks (default): the check of a single merge and of a train. diagnose: the per-card diagnosis ' +
+              'of a failed train.',
           ),
         since: z
           .string()
           .datetime({ offset: true })
           .optional()
-          .describe('Only checks requested at or after this time (ISO 8601 with a time zone).'),
+          .describe('Only checks requested at or after this time.'),
         until: z
           .string()
           .datetime({ offset: true })
           .optional()
-          .describe('Only checks requested before this time (ISO 8601 with a time zone).'),
+          .describe('Only checks requested before this time.'),
         limit: z.number().int().min(1).max(100).default(30),
       },
       async run({ ctx, args, handler }) {

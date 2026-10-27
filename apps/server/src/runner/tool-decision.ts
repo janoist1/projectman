@@ -151,17 +151,41 @@ function globPattern(pattern: string, caseInsensitive: boolean): RegExp {
 }
 
 /** macOS shows the same file under `/System/Volumes/Data/Users/…` and `/Users/…`. */
-function withoutFirmlink(path: string): string {
+export function withoutFirmlink(path: string): string {
   return path.replace(/^\/System\/Volumes\/Data(?=\/|$)/, '') || '/';
 }
 
+/** Matches literal or globbed roots and their descendants, including macOS firmlink aliases. */
+export function pathPatternMatcher(
+  patterns: readonly string[],
+  caseInsensitive = false,
+): (target: string) => boolean {
+  const matchers = patterns.map((pattern) => {
+    const root = withoutFirmlink(pattern);
+    if (hasGlob(root)) {
+      const regex = globPattern(root, caseInsensitive);
+      return (target: string) => regex.test(target);
+    }
+    const base = root.length > 1 ? root.replace(/\/+$/, '') : root;
+    const right = caseInsensitive ? base.toLowerCase() : base;
+    return (target: string) => {
+      const left = caseInsensitive ? target.toLowerCase() : target;
+      return left === right || left.startsWith(right === '/' ? '/' : `${right}/`);
+    };
+  });
+  return (target) => {
+    const path = withoutFirmlink(target);
+    return matchers.some((matches) => matches(path));
+  };
+}
+
+/** Read-boundary entries are normalized absolute paths, never glob patterns or NUL-containing strings. */
+export function isReadBoundaryPath(value: string): boolean {
+  return isAbsolute(value) && !/[\0*?\[\]]/.test(value) && normalize(value) === value;
+}
+
 function isUnder(rawPath: string, rawRoot: string, caseInsensitive = false): boolean {
-  const path = withoutFirmlink(rawPath);
-  const root = withoutFirmlink(rawRoot);
-  if (hasGlob(root)) return globPattern(root, caseInsensitive).test(path);
-  const base = root.length > 1 ? root.replace(/\/+$/, '') : root;
-  const [left, right] = caseInsensitive ? [path.toLowerCase(), base.toLowerCase()] : [path, base];
-  return left === right || left.startsWith(right === '/' ? '/' : `${right}/`);
+  return pathPatternMatcher([rawRoot], caseInsensitive)(rawPath);
 }
 
 /** A root as the policy names it and as the filesystem resolves it (a symlinked root). */

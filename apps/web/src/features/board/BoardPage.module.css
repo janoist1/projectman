@@ -48,8 +48,9 @@
 
 .columnTitle {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 2px 8px;
 }
 
 .columnDot {
@@ -76,6 +77,7 @@
   display: inline-flex;
   align-items: center;
   gap: 3px;
+  white-space: nowrap;
   padding: 1px 7px;
   border-radius: 999px;
   font-size: var(--text-xs);

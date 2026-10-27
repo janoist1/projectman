@@ -354,7 +354,7 @@ describe('deriveNext: the card row of "Miért áll?" (PM-461)', () => {
       'prerequisite',
       { prerequisites: ['AC-17', 'AC-19', 'AC-20'] },
       {},
-      { head: 'Előfeltételre vár', waiting: 'AC-17, AC-19 +1' },
+      { head: 'Vár', waiting: 'AC-17, AC-19 +1' },
     ],
     [
       'inbox',

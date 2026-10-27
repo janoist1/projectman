@@ -2008,7 +2008,8 @@ export const hu = {
         start: 'Indulásra vár',
         freeMember: 'Szabad fejlesztőre vár',
         fullTest: 'Teljes teszt',
-        prerequisite: 'Előfeltételre vár',
+        /** Short, so the card's one line keeps the card it waits for (PM-1079). */
+        prerequisite: 'Vár',
         done: 'Kész a munka',
         blocked: 'Elakadt',
         held: 'Áll',
@@ -2191,11 +2192,10 @@ export const hu = {
     ready: 'Indítható',
     prerequisite: 'Előfeltételre vár',
     /** No article or suffix after the key: its letters and number differ by project. */
-    prerequisiteOn: 'Vár: {key}',
-    prerequisiteOnMore: 'Vár: {key} +{more}',
+    prerequisiteOn: 'Vár: {ref}',
     /** The stage is where the prerequisite stands now (PM-1079); left out where the viewer does not see it. */
-    prerequisiteOnStage: 'Vár: {key} ({stage})',
-    prerequisiteOnStageMore: 'Vár: {key} ({stage}) +{more}',
+    prerequisiteRef: '{key} ({stage})',
+    prerequisiteMore: '{ref} +{more}',
     /** Spoken and tooltip forms of the same wait. */
     prerequisiteLabel: 'Előfeltételre vár: {key}',
     prerequisiteLabelStage: 'Előfeltételre vár: {key}, ez most itt tart: {stage}',

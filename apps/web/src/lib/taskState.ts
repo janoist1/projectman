@@ -286,11 +286,13 @@ function prerequisiteWait(
 /** "Vár: PM-202 (Átnézés) +1": the label of a card that stands on its prerequisites. */
 export function prerequisiteLabel(wait: Pick<PrerequisiteWait, 'key' | 'more' | 'stage'> | null): string {
   if (!wait?.key) return t('taskStatus.prerequisite');
-  const params = { key: wait.key, stage: wait.stage ?? '', more: wait.more };
-  if (wait.more > 0) {
-    return t(wait.stage ? 'taskStatus.prerequisiteOnStageMore' : 'taskStatus.prerequisiteOnMore', params);
-  }
-  return t(wait.stage ? 'taskStatus.prerequisiteOnStage' : 'taskStatus.prerequisiteOn', params);
+  return t('taskStatus.prerequisiteOn', { ref: prerequisiteRef({ ...wait, key: wait.key }) });
+}
+
+/** "PM-202 (Átnézés) +1": the first prerequisite, where it stands (when known) and how many more. */
+export function prerequisiteRef(wait: { key: string; more: number; stage: string | null }): string {
+  const ref = wait.stage ? t('taskStatus.prerequisiteRef', { key: wait.key, stage: wait.stage }) : wait.key;
+  return wait.more > 0 ? t('taskStatus.prerequisiteMore', { ref, more: wait.more }) : ref;
 }
 
 /** The screen-reader sentence of a prerequisite wait: the card, where it stands, and how many more. */
@@ -534,6 +536,7 @@ function deriveOpenState(
     item: open.find((entry) => entry.id === wait.inboxItemId) ?? null,
     startText: task.startWaiting ? startWaitingText(task.startWaiting, ctx) : null,
     startHint: startWaitingHint(task, members, myHandle),
+    prerequisite: prerequisites?.key ? prerequisiteRef({ ...prerequisites, key: prerequisites.key }) : null,
   });
   return { ...state, wait, ...(next ? { next } : {}) };
 }

@@ -271,7 +271,10 @@ export class Admission {
     // A provider that is not logged in cannot run the session (PM-324): the start waits for the login.
     if (member) await this.sessions.assertProviderReady(provider, member.handle, engineId);
     if (pausesOnPlanUsage(provider)) {
-      const usage = await this.planUsage.get(provider, this.usageEngine(projectKey, member?.handle));
+      const usage = await this.planUsage.get(
+        provider,
+        engineId ?? this.usageEngine(projectKey, member?.handle),
+      );
       this.assertUsageBelowPause(config, provider, usage);
     }
     // Last, because it measures the disk (PM-243).

@@ -189,7 +189,7 @@ export class PlanUsageMonitor {
         try {
           const pairs = new Map<string, { provider: AgentProvider; engineId: EngineId }>();
           for (const { pairs: projectPairs } of (await this.accountsByProject()).values())
-            for (const pair of projectPairs) pairs.set(`${pair.engineId}\0${pair.provider}`, pair);
+            for (const pair of projectPairs) pairs.set(entryKey(pair.engineId, pair.provider), pair);
           await Promise.all([...pairs.values()].map((pair) => this.cache.get(pair.provider, pair.engineId)));
         } finally {
           this.refreshing = false;
@@ -219,7 +219,7 @@ export class PlanUsageMonitor {
       const provider = member.provider ?? DEFAULT_AGENT_PROVIDER;
       const engineId = this.engines.engineFor(config.project.key, member.handle);
       if (!engineId) continue;
-      pairs.set(`${engineId}\0${provider}`, { provider, engineId });
+      pairs.set(entryKey(engineId, provider), { provider, engineId });
       if (!representative.has(provider)) representative.set(provider, engineId);
     }
     return { pairs: [...pairs.values()], representative };

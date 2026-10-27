@@ -285,21 +285,23 @@ function EditMemberForm({
                     : t('memberEdit.emailApprovalHint')}
               </p>
             </div>
-            <div>
-              <label className={styles.toggle}>
-                <input
-                  type="checkbox"
-                  checked={machineAccess}
-                  disabled={!isOwner}
-                  aria-describedby={`${formId}-machine-access`}
-                  onChange={(event) => setMachineAccess(event.target.checked)}
-                />
-                {t('memberEdit.machineAccess')}
-              </label>
-              <p id={`${formId}-machine-access`} className={styles.toggleHint}>
-                {isOwner ? t('memberEdit.machineAccessHint') : t('memberEdit.ownerOnly')}
-              </p>
-            </div>
+            {member.temp ? null : (
+              <div>
+                <label className={styles.toggle}>
+                  <input
+                    type="checkbox"
+                    checked={machineAccess}
+                    disabled={!isOwner}
+                    aria-describedby={`${formId}-machine-access`}
+                    onChange={(event) => setMachineAccess(event.target.checked)}
+                  />
+                  {t('memberEdit.machineAccess')}
+                </label>
+                <p id={`${formId}-machine-access`} className={styles.toggleHint}>
+                  {isOwner ? t('memberEdit.machineAccessHint') : t('memberEdit.ownerOnly')}
+                </p>
+              </div>
+            )}
             <ProviderFields
               provider={provider}
               model={model}

@@ -386,6 +386,22 @@ describe('EditMemberDialog', () => {
       const { toggle } = renderAccess('owner');
       expect(toggle()).toBeNull();
     });
+
+    it('offers no switch for a temp worker', () => {
+      const project = mockProject();
+      project.backend.findMember('qa')!.temp = true;
+      project.render(
+        <EditMemberDialog
+          member={project.backend.findMember('qa')!}
+          config={project.backend.config}
+          roles={builtInRoles}
+          onClose={() => {}}
+        />,
+        '/',
+        { isOwner: true },
+      );
+      expect(screen.queryByRole('checkbox', { name: t('memberEdit.machineAccess') })).toBeNull();
+    });
   });
 
   describe('e-mail correspondence (PM-942)', () => {

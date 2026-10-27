@@ -18,7 +18,7 @@ export type LocalEngineDisk = Pick<
   | 'freeDiskBytes'
   | 'prepareMemberSandboxDir'
   | 'preparePortablePaths'
-  | 'isDirectory'
+  | 'workspaceState'
   | 'resolveGitDir'
   | 'realpath'
   | 'isRealDirectory'
@@ -109,7 +109,7 @@ export function createLocalEngineHost(
     freeDiskBytes: opts.freeDiskBytes ?? (async () => null),
     prepareMemberSandboxDir,
     preparePortablePaths: (paths) => preparePortablePaths(paths, logger),
-    isDirectory,
+    workspaceState: async (target) => ((await isDirectory(target)) ? 'directory' : 'missing'),
     resolveGitDir,
     realpath: realpathOf,
     isRealDirectory,

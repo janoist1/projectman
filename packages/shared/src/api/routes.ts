@@ -53,6 +53,10 @@ export const routes = {
     `/api/projects/${key}/operator/signals/${signalId}/dismiss`,
   engines: () => '/api/engines',
   engineStatus: () => '/api/engines/status',
+  /** One engine (PM-1077): `PATCH` renames it. */
+  engine: (id: string) => `/api/engines/${id}`,
+  /** The provider logins on one engine's machine (PM-1077): `GET`, `?refresh=1` asks the machine again. */
+  engineProviders: (id: string) => `/api/engines/${id}/providers`,
   revokeEngine: (id: string) => `/api/engines/${id}/revoke`,
   defaultEngine: (id: string) => `/api/engines/${id}/default`,
   /** The project's engines (PM-1060): `GET` the list, `PUT` / `DELETE` one binding. */

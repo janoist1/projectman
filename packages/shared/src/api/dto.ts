@@ -526,6 +526,9 @@ export const ProviderKeyValue = z
   .min(1)
   .max(1000)
   .regex(/^[\x21-\x7E]+$/);
+/** The provider logins on one engine's machine (PM-1077); `nanogpt` is listed for the host owner only. */
+export const EngineProvidersView = z.object({ providers: z.array(ProviderLoginStatus) });
+export type EngineProvidersView = z.infer<typeof EngineProvidersView>;
 export const SetProviderKeyRequest = z.strictObject({ key: ProviderKeyValue });
 export type ProvidersView = z.infer<typeof ProvidersView>;
 

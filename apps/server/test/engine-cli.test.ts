@@ -93,6 +93,23 @@ describe('engine commands', () => {
       expect(loadEngineConfig(home).projects).toEqual([{ project: 'PM', workspacePath: workspace }]);
     });
 
+    it('writes the link headers file resolved against the working directory, and keeps it without the switch (PM-1077)', async () => {
+      writeFileSync(path.join(base, 'access.json'), '{}', { mode: 0o600 });
+      expect(await init('--link-headers-file', 'access.json')).toBe(0);
+      expect(loadEngineConfig(home).linkHeadersFile).toBe(path.join(base, 'access.json'));
+      expect(await init('--force')).toBe(0);
+      expect(loadEngineConfig(home).linkHeadersFile).toBe(path.join(base, 'access.json'));
+    });
+
+    it('refuses a link headers file that is missing or not a regular file, and writes nothing', async () => {
+      expect(await init('--link-headers-file', 'nope.json')).toBe(1);
+      expect(err.join('\n')).toContain('path_missing');
+      expect(await init('--link-headers-file', workspace)).toBe(1);
+      expect(err.join('\n')).toContain('path_not_file');
+      expect(existsSync(path.join(home, 'engine.json'))).toBe(false);
+      expect(existsSync(path.join(home, 'engine.key'))).toBe(false);
+    });
+
     it('needs the key on standard input, and refuses something that is not a key', async () => {
       stdin = null;
       expect(await init()).toBe(2);

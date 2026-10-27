@@ -1940,6 +1940,20 @@ workers follow the machine's size.
 
 ## Machine-dependent parts (PM-341)
 
+- **Link-headers file and the working-folder check (PM-1077)** — `scripts/engine/commands.ts` (`init
+--link-headers-file <path>`), `EngineHost.workspaceState(path)` (`contracts/engine.ts`; local:
+  `engine-host/local-host.ts`, remote: `engine-link/remote/host.ts`), `NewProjectEngines.workspaceState`
+  (`runtime/sessions/new-project-engines.ts`) and `ProjectService.create` (`core/projects/projects.ts`).
+  **Machine assumptions:** `init --link-headers-file` runs on the engine's own machine, resolves the path
+  against the working directory, requires an existing regular file and writes its real path into that
+  machine's `engine.json` (`linkHeadersFile`; the file itself, mode 0600, is checked at engine start and never
+  read by `init`). The folder check asks the engine's `host.is_directory`, which the engine answers only within
+  its own roots (`path_outside_roots` in `engine-limit.ts`). **Remote engine:** both run on the engine; the
+  `not_held` state is made on the hub from that existing refusal (a path the engine does not hold yet, e.g. an
+  owner's folder before `project set`), so the hub never looks at the owner's disk and the wire method and the
+  engine limit are unchanged, which keeps an older engine working. A project created that way waits with
+  `engine_offline` until the engine reports it, after `project set` and a restart (`service install`).
+
 - **Member queue driver (PM-925)** — `apps/server/src/runtime/member-queue/` (driver, message lane), the sweep in
   the kernel's sweep list (`DomainOptions.memberQueueSweepMs`), `member_queue_items` with the wait columns
   (migration 99). It wakes members from their queue through `admission.start`. **Machine assumptions:** none of its
@@ -2723,9 +2737,10 @@ workers follow the machine's size.
   the machine default stays the host owner's. The host owner revokes the account
   (`POST /api/owner-accounts/:userId/revoke`, own login only): the account is marked, its projects the host has
   no seat in are paused, its engines and integrator keys are revoked; the login and the data stay. The folder
-  check of a new project runs on the engine the creator chose (`NewProjectEngines.isDirectory(engineId, path)`),
-  which then becomes the project's default binding. It needs nothing new on a remote engine: `host.is_directory`
-  already exists.
+  check of a new project runs on the engine the creator chose (`NewProjectEngines.workspaceState(engineId, path)`,
+  PM-1077: `directory`, `missing` or `not_held`), which then becomes the project's default binding. It needs
+  nothing new on a remote engine: `host.is_directory` already exists, and a folder outside the engine's roots
+  (`path_outside_roots`) is `not_held`, which does not refuse the project.
   File export forwards `exactRoot` when the caller requires a root without symbolic links.
   PM-739 adds `workspace.publishTaskBranch` (`[key, taskKey, branch, commit]` → strict `{path, ref}`):
   the engine hands a developer's task commit over to its own repository; the cloud never names a path

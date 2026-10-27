@@ -37,13 +37,13 @@ export function createNewProjectEngines(deps: {
         throw conflict('engine_offline', 'The engine the project would run on is not connected');
       return engineId;
     },
-    isDirectory: async (engineId, path) => {
+    workspaceState: async (engineId, path) => {
       const directory = deps.engines();
       const id = engineId ?? directory.hostEngine();
       const engine = id ? directory.get(id) : null;
       // The folder can only be checked where it is: no engine to ask is a refusal, not "not a folder" (PM-315).
       if (!engine) throw conflict('engine_offline', 'The engine the project would run on is not connected');
-      return engine.isDirectory(path);
+      return engine.workspaceState(path);
     },
     bind: (projectKey, engineId, userId) => {
       registry?.bind(projectKey, engineId, userId, { default: true });

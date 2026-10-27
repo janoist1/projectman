@@ -15,6 +15,7 @@ describe('engine registry in the project change journal (PM-761)', () => {
   let registry: EngineRegistry;
   let woken: string[];
   let now: Date;
+  let bus: ReturnType<typeof createEventBus>;
 
   const addProject = (key: string) =>
     db
@@ -42,9 +43,10 @@ describe('engine registry in the project change journal (PM-761)', () => {
     migrate(db);
     repos = createRepositories(db);
     now = new Date(AT);
+    bus = createEventBus(capturingLogger().logger);
     registry = new EngineRegistry({
       repos,
-      bus: createEventBus(capturingLogger().logger),
+      bus,
       version: 'test',
       now: () => now,
     });
@@ -117,6 +119,23 @@ describe('engine registry in the project change journal (PM-761)', () => {
     // A hello that says something new is a change.
     registry.seen(engine.id, '10.0.0.1', { ...hello, version: 'newer' });
     expect(engineEntries('AR')).toHaveLength(count + 1);
+  });
+
+  it('journals a rename and announces it, and refuses a revoked engine (PM-1077)', () => {
+    const { engine } = registry.create('Mac', 'usr_t');
+    const announced: string[] = [];
+    bus.subscribe((event) => {
+      if (event.type === 'engine_changed') announced.push(event.engine.name);
+    });
+    const count = engineEntries('AR').length;
+    const renamed = registry.rename(engine.id, 'Studio', 'usr_t');
+    expect(renamed).toMatchObject({ name: 'Studio', ownedByMe: true });
+    expect(engineEntries('AR')).toHaveLength(count + 1);
+    expect(announced).toEqual(['Studio']);
+    registry.revoke(engine.id, 'usr_t');
+    expect(() => registry.rename(engine.id, 'Late', 'usr_t')).toThrow(
+      expect.objectContaining({ code: 'engine_revoked' }),
+    );
   });
 
   it('leaves neither the engine nor the entries behind when the write fails', () => {

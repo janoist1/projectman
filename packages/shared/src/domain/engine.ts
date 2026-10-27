@@ -38,6 +38,8 @@ export const EngineView = EngineStatusView.extend({
   runningSessions: z.number().int(),
   waitingStarts: z.number().int(),
   waitingMessages: z.number().int(),
+  /** Whether the engine's owner is the caller (PM-1077); `createdBy` is only a display name. Absent where no caller is known. */
+  ownedByMe: z.boolean().optional(),
 });
 export type EngineView = z.infer<typeof EngineView>;
 export const EngineStatusResponse = z.object({
@@ -46,6 +48,8 @@ export const EngineStatusResponse = z.object({
 });
 export type EngineStatusResponse = z.infer<typeof EngineStatusResponse>;
 export const CreateEngineRequest = z.strictObject({ name: z.string().trim().min(1).max(64) });
+export const RenameEngineRequest = z.strictObject({ name: z.string().trim().min(1).max(64) });
+export type RenameEngineRequest = z.infer<typeof RenameEngineRequest>;
 export const CreateEngineResponse = z.object({ engine: EngineView, key: z.string() });
 export type CreateEngineResponse = z.infer<typeof CreateEngineResponse>;
 

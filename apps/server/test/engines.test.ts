@@ -840,10 +840,10 @@ describe("the disk work of the session's engine (PM-312)", () => {
     // The harness makes its own project through the real check first; the engine's answer follows.
     await open({}, (host) => ({
       ...host,
-      isDirectory: async (path) => {
-        if (!watching) return host.isDirectory(path);
+      workspaceState: async (path) => {
+        if (!watching) return host.workspaceState(path);
         asked.push(path);
-        return there.has(path);
+        return there.has(path) ? 'directory' : 'missing';
       },
     }));
     watching = true;
@@ -860,6 +860,24 @@ describe("the disk work of the session's engine (PM-312)", () => {
     // A relative path is refused without asking the engine.
     await expect(create('BZ', 'relative/dir')).rejects.toMatchObject({ code: 'workspace_not_found' });
     expect(asked).toHaveLength(2);
+  });
+
+  it('creates a project whose working directory the engine does not hold yet (PM-1077)', async () => {
+    const notHeld = new Set<string>(['/owner/machine/not-yet']);
+    let watching = false;
+    await open({}, (host) => ({
+      ...host,
+      workspaceState: async (path) => {
+        if (!watching) return host.workspaceState(path);
+        return notHeld.has(path) ? 'not_held' : 'missing';
+      },
+    }));
+    watching = true;
+    const create = (key: string, workspacePath: string) =>
+      h.domain.projects.create({ key, name: key, workspacePath, templateId: 'test' }, OWNER);
+
+    await expect(create('BN', '/owner/machine/not-yet')).resolves.toBeDefined();
+    await expect(create('BM', '/owner/machine/typo')).rejects.toMatchObject({ code: 'workspace_not_found' });
   });
 
   it.each([

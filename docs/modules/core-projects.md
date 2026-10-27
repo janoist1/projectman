@@ -13,7 +13,7 @@ Implementations live beside the facade; public names, signatures and behavior ar
 
 ## Ports
 
-`ProjectService` receives the domain context, `ConfigStore`, `TemplateRegistry`, timeline service and an `isDirectory(projectKey, path)` callback. The callback validates a directory on the project's engine; it must not become a local server filesystem assumption.
+`ProjectService` receives the domain context, `ConfigStore`, `TemplateRegistry`, timeline service and a `workspaceState(engineId, path)` callback (PM-1077). The callback reports `directory`, `missing` or `not_held` for the path on the project's engine; `missing` refuses the project, `not_held` (a remote engine does not hold the folder yet) does not. It must not become a local server filesystem assumption.
 
 `core/projects/ports.ts` defines the consumer-owned `StageReviewerSessions` interface (`list`, `isRunning`, `stop`) used by `stopStageReviewers`. Assembly passes the existing session orchestrator. Live session states come directly from shared contracts; this module has no runtime imports (PM-632).
 

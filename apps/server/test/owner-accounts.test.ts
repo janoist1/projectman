@@ -4,6 +4,7 @@ import { SESSION_COOKIE } from '../src/auth';
 import type {
   CreateEngineResponse,
   CreatedOwnerInvitation,
+  EngineProvidersView,
   EngineView,
   Me,
   OwnerAccountView,
@@ -21,7 +22,7 @@ import {
   setupOwner,
 } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
-import { connectRawEngine, rawHello } from './helpers/cloud-engine';
+import { connectRawEngine, rawHello, RawEngineRefusal } from './helpers/cloud-engine';
 import { withoutOnboarding } from './helpers/onboarding';
 
 /** Owner accounts (PM-1062) over the whole cloud-mode app: the invitation, the account's own engine and project, the revocation. */
@@ -221,6 +222,115 @@ describe('owner accounts', () => {
       const res = await createGuestProject(guestCookie, { engineId: guestEngine.engine.id });
       expect([res.statusCode, errorCode(res)]).toEqual([400, 'workspace_not_found']);
       expect(h.app.projectman.domain.projects.has('GU')).toBe(false);
+    });
+
+    it('creates a project whose folder the engine does not hold yet (PM-1077)', async () => {
+      links.push(
+        await connectRawEngine(
+          h.app,
+          guestEngine.key,
+          rawHello(),
+          () => new RawEngineRefusal('path_outside_roots'),
+        ),
+      );
+      const res = await createGuestProject(guestCookie, { engineId: guestEngine.engine.id });
+      expect(res.statusCode, res.body).toBe(201);
+    });
+
+    describe('its engine management (PM-1077)', () => {
+      const connectProviders = async (asked: unknown[] = []) =>
+        links.push(
+          await connectRawEngine(h.app, guestEngine.key, rawHello(), (method, params) => {
+            if (method !== 'provider.status') return null;
+            asked.push(params);
+            const { provider } = params as { provider: string };
+            return { provider, loggedIn: true, method: 'subscription', checkedAt: now.toISOString() };
+          }),
+        );
+      const providersOf = async (who: string, id: string, query = '') => {
+        const res = await inject(h.app, 'GET', `${routes.engineProviders(id)}${query}`, who);
+        return {
+          res,
+          names:
+            res.statusCode === 200
+              ? (res.json() as EngineProvidersView).providers.map((p) => p.provider)
+              : [],
+        };
+      };
+
+      it('reads the provider logins from the engine, asking again on refresh', async () => {
+        const asked: { refresh?: boolean }[] = [];
+        await connectProviders(asked);
+        const { res, names } = await providersOf(guestCookie, guestEngine.engine.id);
+        expect(res.statusCode, res.body).toBe(200);
+        expect(names).toEqual(['claude', 'codex', 'gemini']);
+        expect((res.json() as EngineProvidersView).providers.every((p) => p.loggedIn === true)).toBe(true);
+        expect(asked).toHaveLength(3);
+        await providersOf(guestCookie, guestEngine.engine.id, '?refresh=1');
+        expect(asked.filter((params) => params.refresh === true)).toHaveLength(3);
+      });
+
+      it('answers `loggedIn: null` for an engine that is not connected', async () => {
+        const { res } = await providersOf(guestCookie, guestEngine.engine.id);
+        expect((res.json() as EngineProvidersView).providers.map((p) => p.loggedIn)).toEqual([
+          null,
+          null,
+          null,
+        ]);
+      });
+
+      it('lists the NanoGPT login to the host owner only', async () => {
+        await connectProviders();
+        expect((await providersOf(host, guestEngine.engine.id)).names).toContain('nanogpt');
+        expect((await providersOf(guestCookie, guestEngine.engine.id)).names).not.toContain('nanogpt');
+      });
+
+      it('does not show another owner’s engine, and refuses a revoked one', async () => {
+        const hostEngine = registry.create('Host Mac', hostId).engine;
+        const foreign = await providersOf(guestCookie, hostEngine.id);
+        expect([foreign.res.statusCode, errorCode(foreign.res)]).toEqual([404, 'engine_not_found']);
+        const rename = await inject(h.app, 'PATCH', routes.engine(hostEngine.id), guestCookie, {
+          name: 'Mine',
+        });
+        expect([rename.statusCode, errorCode(rename)]).toEqual([404, 'engine_not_found']);
+        registry.revoke(guestEngine.engine.id, hostId);
+        const revoked = await providersOf(guestCookie, guestEngine.engine.id);
+        expect([revoked.res.statusCode, errorCode(revoked.res)]).toEqual([409, 'engine_revoked']);
+        const late = await inject(h.app, 'PATCH', routes.engine(guestEngine.engine.id), guestCookie, {
+          name: 'Late',
+        });
+        expect([late.statusCode, errorCode(late)]).toEqual([409, 'engine_revoked']);
+      });
+
+      it('renames the engine, for its owner and for the host owner', async () => {
+        const own = await inject(h.app, 'PATCH', routes.engine(guestEngine.engine.id), guestCookie, {
+          name: '  Studio Mac ',
+        });
+        expect(own.json()).toMatchObject({ id: guestEngine.engine.id, name: 'Studio Mac', ownedByMe: true });
+        const byHost = await inject(h.app, 'PATCH', routes.engine(guestEngine.engine.id), host, {
+          name: 'Renamed',
+        });
+        expect(byHost.json()).toMatchObject({ name: 'Renamed', ownedByMe: false });
+        const empty = await inject(h.app, 'PATCH', routes.engine(guestEngine.engine.id), guestCookie, {
+          name: ' ',
+        });
+        expect(empty.statusCode).toBe(400);
+      });
+
+      it('tells each caller which engine is theirs', async () => {
+        const hostEngine = registry.create('Host Mac', hostId).engine;
+        const listed = async (who: string) =>
+          ((await inject(h.app, 'GET', routes.engines(), who)).json() as EngineView[]).map((engine) => [
+            engine.id,
+            engine.ownedByMe,
+          ]);
+        expect(await listed(guestCookie)).toEqual([[guestEngine.engine.id, true]]);
+        expect(await listed(host)).toEqual([
+          [guestEngine.engine.id, false],
+          [hostEngine.id, true],
+        ]);
+        expect(guestEngine.engine.ownedByMe).toBe(true);
+      });
     });
 
     it.each([

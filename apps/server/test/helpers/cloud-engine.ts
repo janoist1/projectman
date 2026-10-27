@@ -5,7 +5,7 @@ import type { FastifyInstance } from 'fastify';
 import { expect, vi } from 'vitest';
 import { routes } from '@projectman/shared';
 import { decodeFrame, encodeFrame, ENGINE_PROTOCOL_VERSION } from '../../src/engine-link';
-import type { EngineFrame, Hello } from '../../src/engine-link';
+import type { EngineErrorCode, EngineFrame, Hello } from '../../src/engine-link';
 import { createHybridPackage } from '../../../../scripts/migrate/hybrid';
 import { copyTree } from '../../../../scripts/migrate/copy';
 import type { HybridPackageResult } from '../../../../scripts/migrate/hybrid';
@@ -284,6 +284,15 @@ interface RawEngine {
   close(): void;
 }
 
+/** What a `connectRawEngine` answer returns to refuse a request with the link's own error code (e.g. `path_outside_roots`). */
+export class RawEngineRefusal {
+  readonly code: EngineErrorCode;
+  readonly message = 'refused';
+  constructor(code: EngineErrorCode) {
+    this.code = code;
+  }
+}
+
 /**
  * A second engine as a bare socket on the cloud's real link route: it says hello with the key of another
  * engine record and can call the cloud, which is how a session token of one engine is tried from another.
@@ -309,10 +318,22 @@ export async function connectRawEngine(
         socket.on('message', (data) => {
           const frame = decodeFrame(data);
           frames.push(frame);
-          if (answer && frame.t === 'req')
+          if (answer && frame.t === 'req') {
+            // An answer that returns `RawEngineRefusal` replies with a wire error instead of a result.
+            const result = answer(frame.method, frame.params);
             socket.send(
-              encodeFrame({ t: 'res', id: frame.id, ok: true, result: answer(frame.method, frame.params) }),
+              encodeFrame(
+                result instanceof RawEngineRefusal
+                  ? {
+                      t: 'res',
+                      id: frame.id,
+                      ok: false,
+                      error: { code: result.code, message: result.message },
+                    }
+                  : { t: 'res', id: frame.id, ok: true, result },
+              ),
             );
+          }
         });
         socket.on('close', (code) => {
           closed = code;

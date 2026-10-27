@@ -368,6 +368,9 @@ export interface BranchMerger {
   ): Promise<ChangedPathsResult[]>;
 }
 
+/** What a project's working directory is on an engine (PM-1077). */
+export type WorkspaceState = 'directory' | 'missing' | 'not_held';
+
 export interface EngineHost {
   readonly id: EngineId;
   /** The engine's operating system when it is not this process's (a remote engine, PM-315); absent: this machine's. */
@@ -395,8 +398,12 @@ export interface EngineHost {
   prepareMemberSandboxDir(dir: string): Promise<void>;
   /** `mkdir -p` 0700 for each path; a failure is logged and never thrown. */
   preparePortablePaths(paths: readonly string[]): Promise<void>;
-  /** Whether `path` is a directory (a link to one counts; false when it is not there). */
-  isDirectory(path: string): Promise<boolean>;
+  /**
+   * What `path` is on this machine (PM-1077): `directory` (a link to one counts), `missing`, or `not_held` when
+   * the engine does not answer for the path (a remote engine answers only within its own roots, and the hub does
+   * not look at the owner's disk).
+   */
+  workspaceState(path: string): Promise<WorkspaceState>;
   /** The `.git` directory of the repository at `repoPath`, real; null when it has none. */
   resolveGitDir(repoPath: string): Promise<string | null>;
   /** The real path of `path`; null when it does not exist. */

@@ -258,7 +258,7 @@ type ContractResults = {
   'machine.signal': MachineProbe['signal'];
   'host.free_disk': EngineHost['freeDiskBytes'];
   'host.heavy_run_sessions': EngineHost['heavyRunSessions'];
-  'host.is_directory': EngineHost['isDirectory'];
+  'host.is_directory': (path: string) => Promise<boolean>;
   'host.resolve_git_dir': EngineHost['resolveGitDir'];
   'host.realpath': EngineHost['realpath'];
   'host.is_real_directory': EngineHost['isRealDirectory'];
@@ -290,7 +290,7 @@ type ContractResults = {
 type ContractParams = {
   'host.free_disk': Record<string, never>;
   'host.heavy_run_sessions': Record<string, never>;
-  'host.is_directory': { path: Parameters<EngineHost['isDirectory']>[0] };
+  'host.is_directory': { path: string };
   'host.resolve_git_dir': { repoPath: Parameters<EngineHost['resolveGitDir']>[0] };
   'host.realpath': { path: Parameters<EngineHost['realpath']>[0] };
   'host.is_real_directory': { dir: Parameters<EngineHost['isRealDirectory']>[0] };

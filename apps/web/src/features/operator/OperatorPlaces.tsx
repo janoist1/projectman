@@ -30,7 +30,7 @@ export function OperatorPlaces({ places }: { places: readonly UiPlace[] }) {
   if (!board.data) return null;
 
   return (
-    <div className={styles.places}>
+    <div className={styles.places} data-places>
       {places.map((place) => {
         const state = placeState(place, from, access, known);
         const label = placeLabel(place, known);

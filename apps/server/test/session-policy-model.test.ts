@@ -222,6 +222,103 @@ describe('provider-neutral session policy', () => {
     expect(sessionSandbox(p, { userHome: '/fictional/user', memberDir })!.portable).toBeUndefined();
   });
 
+  describe('a reader reads nothing below the home but its own project and card (PM-425)', () => {
+    const userHome = '/fictional/user';
+    const appHome = '/fictional/app';
+    const memberDir = `${appHome}/member-caches/PM/qa`;
+    const sessionDir = `${appHome}/sessions/ses_own`;
+    const reader = () => {
+      const p = policy('code_review', { kind: 'read_only', path: `${userHome}/Dev/web` });
+      p.filesystem.deniedPaths = [`${userHome}/.ssh`, `${userHome}/.claude/projects`];
+      return p;
+    };
+    const sandboxOf = (p: SessionPolicy) =>
+      sessionSandbox(p, {
+        userHome,
+        appHome,
+        memberDir,
+        sessionDir,
+        browsersDir: `${userHome}/.cache/ms-playwright`,
+        excludesFile: `${userHome}/.gitignore_global`,
+      })!;
+
+    it('closes the home and the app home and reopens only the reader’s own places', () => {
+      const sandbox = sandboxOf(reader());
+      expect(sandbox.denyRead).toEqual(expect.arrayContaining([userHome, appHome, `${userHome}/.ssh`]));
+      expect(sandbox.denyRead).toContain(`${userHome}/.claude/projects`);
+      expect(sandbox.allowRead).toEqual(
+        expect.arrayContaining([
+          `${userHome}/Dev/web`,
+          `${appHome}/sessions`,
+          `${memberDir}/npm-cache`,
+          `${userHome}/.gitconfig`,
+          `${userHome}/.gitignore_global`,
+        ]),
+      );
+      // No sibling project, no blanket home entry.
+      expect(sandbox.allowRead).not.toContain(userHome);
+      expect(
+        sandbox.allowRead?.some(
+          (entry) => entry.startsWith(`${userHome}/Dev/`) && entry !== `${userHome}/Dev/web`,
+        ),
+      ).toBe(false);
+      expect(sandbox.portable?.readBoundary).toEqual({
+        deniedRoots: expect.arrayContaining([userHome, appHome]),
+        allowedPaths: expect.arrayContaining([
+          { path: `${userHome}/Dev/web`, kind: 'directory' },
+          { path: `${userHome}/.gitconfig`, kind: 'file' },
+        ]),
+      });
+    });
+
+    it('keeps the older, wider read rules for a caller without the user’s home', () => {
+      const sandbox = sessionSandbox(reader(), { appHome })!;
+      expect(sandbox.portable?.readBoundary).toBeUndefined();
+      expect(sandbox.denyRead).not.toContain(appHome);
+    });
+
+    it('renders no blanket file-tool read allow, only the reader’s own places', () => {
+      const p = reader();
+      const sandbox = sandboxOf(p);
+      const started = {
+        ...p,
+        tools: { ...p.tools, files: ['read', 'grep', 'glob'] as ('read' | 'grep' | 'glob')[] },
+        filesystem: { ...p.filesystem, readBoundary: sandbox.portable!.readBoundary },
+      };
+      const settings = buildSettings({
+        hookUrl: 'http://fake/hooks',
+        hookConfigPath: HOOK_CONFIG,
+        permissionTimeoutMs: 1000,
+        allowedTools: [],
+        policy: started,
+        sandbox,
+      });
+      expect(settings.permissions.allow).not.toContain('Read');
+      expect(settings.permissions.allow).not.toContain('Grep');
+      expect(settings.permissions.allow).not.toContain('Glob');
+      expect(settings.permissions.allow).toContain(`Read(/${userHome}/Dev/web/**)`);
+      expect(settings.permissions.allow).toContain(`Read(/${userHome}/.gitconfig)`);
+    });
+
+    it('lets the Codex profile carry the same boundary', () => {
+      const p = reader();
+      const sandbox = sandboxOf(p);
+      const s = { ...spec(p, false), sandbox };
+      const profile = codexOverrides(
+        buildCodexArgs({ spec: s, realCwd: s.cwd, hookConfigPath: HOOK_CONFIG, permissionTimeoutMs: 1000 })
+          .args,
+      ).get('permissions.projectman');
+      expect(profile).toContain(`"${userHome}"="deny"`);
+      expect(profile).toContain(`"${userHome}/.gitconfig"="read"`);
+      expect(profile).not.toContain('"write"');
+    });
+
+    it('leaves the developer’s sandbox without a read boundary', () => {
+      const sandbox = sessionSandbox(development(), { userHome, appHome })!;
+      expect(sandbox.portable?.readBoundary).toBeUndefined();
+    });
+  });
+
   it('refuses unsupported strict enforcement instead of rendering a weaker profile', () => {
     const p: SessionPolicy = { ...development(), enforcement: 'strict', outsideSandbox: 'deny' };
     expect(() =>

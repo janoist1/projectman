@@ -187,6 +187,26 @@ describe('engine local limit', () => {
       });
     });
 
+    it('closes the Claude transcripts for a Claude session with a boundary, and keeps only the engine’s own copy of it (PM-425)', async () => {
+      const input = { ...worktreeStart(), provider: 'claude' as const };
+      const hubCopy = { deniedRoots: [], allowedPaths: [{ path: outside, kind: 'directory' as const }] };
+      const checked = await make().check('session.start', {
+        ...input,
+        policy: {
+          ...input.policy,
+          filesystem: { ...input.policy.filesystem, readBoundary: hubCopy },
+        },
+      } as never);
+      const transcripts = path.join(userHome, '.claude', 'projects');
+      expect(checked.sandbox?.denyRead).toContain(transcripts);
+      expect(checked.policy?.filesystem.deniedPaths).toContain(transcripts);
+      expect(checked.policy?.filesystem.readBoundary).toEqual(checked.sandbox?.portable?.readBoundary);
+      expect(checked.policy?.filesystem.readBoundary?.allowedPaths).not.toContainEqual({
+        path: outside,
+        kind: 'directory',
+      });
+    });
+
     it('rejects an explicitly malformed boundary for a read-only placement', async () => {
       await refused(
         make(),

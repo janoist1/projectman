@@ -49,7 +49,7 @@ export function claudeToolRules(
   policy: Pick<SessionPolicy, 'tools' | 'deniedOperations' | 'teamToolsOnly'> & {
     filesystem?: Pick<
       SessionPolicy['filesystem'],
-      'readOnlyPaths' | 'deniedPaths' | 'sessionFolder' | 'sessionFoldersRoot'
+      'readOnlyPaths' | 'deniedPaths' | 'sessionFolder' | 'sessionFoldersRoot' | 'readBoundary'
     >;
     network?: Pick<SessionPolicy['network'], 'deniedHosts'>;
   },
@@ -75,12 +75,26 @@ export function claudeToolRules(
   const folder = policy.filesystem?.sessionFolder;
   const rootPaths = (folderRoot && directoryRulePaths(folderRoot)) || [];
   const folderPaths = (folder && directoryRulePaths(folder)) || [];
+  // A reader with a read boundary (PM-425) is granted the file tools on its allowed places only, never on
+  // every path: `Read(...)` rules cover Grep and Glob too. The rest of the home is refused by the runner's
+  // hook, the places outside the home are allowed there (a deny rule would also shut what is allowed).
+  const boundary = policy.filesystem?.readBoundary;
+  const boundaryAllows = (boundary?.allowedPaths ?? []).flatMap((entry) =>
+    entry.kind === 'directory'
+      ? (directoryRulePaths(entry.path) ?? [])
+      : PLAIN_RULE_PATH.test(entry.path)
+        ? [entry.path]
+        : [],
+  );
   return {
     allow: [
       ...new Set([
         ...(policy.tools.team.all ? ['mcp__team__*'] : []),
         ...policy.tools.team.names.map((name) => `mcp__team__${name}`),
-        ...policy.tools.files.map((name) => files[name]),
+        ...(boundary ? [] : policy.tools.files.map((name) => files[name])),
+        ...(boundary && policy.tools.files.length > 0
+          ? boundaryAllows.map((p) => `Read(${p.startsWith('//') ? p : `/${p}`})`)
+          : []),
         ...policy.tools.shell.map(claudeShellRule),
         // Read without asking, never edit: not an extra working directory, whose files
         // acceptEdits would let it change.

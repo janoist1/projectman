@@ -3863,7 +3863,7 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   (PM-846: a work root is used by its real path and lies inside the real home, so the `denyRead` of the
   home keeps the other members' worktrees unreadable; the engine limit's session roots name
   `<workRoot>/worktrees` and `<workRoot>/workspaces`)
-  (PM-87, PM-333, PM-355, PM-312; the canonical-path and directory checks of the domain are the
+  (PM-87, PM-333, PM-355, PM-312, PM-425; the canonical-path and directory checks of the domain are the
   engine's `realpath`, `isDirectory`, `isRealDirectory`). `runtime/sessions/permission-broker.ts` (PM-960)
   uses `EngineHost.realpath` to validate the tool's working directory and uses the runtime's
   policy functions directly; path validation still
@@ -3895,6 +3895,16 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   (`engine-link/engine-limit.ts`) adds its own homes/temp roots and checks
   exceptions and required private directories only when a boundary is supplied. Existing
   engine-root, permission-mode, environment and sensitive-path checks always apply.
+  PM-425 populates it for every reading session (`placementReadsOnly`: a `read_only` placement,
+  a review copy without the test permission, a taskless chat, the non-super Operator) and for
+  every provider: `sessionSandbox` (`runtime/sessions/session-policy.ts`, `readerReadBoundary`)
+  builds one list; `launch.ts` copies it into `policy.filesystem.readBoundary` (new optional
+  field, `SessionPolicy.version` stays 1) and `withReaderDenials` adds `~/.claude/projects` to the
+  reader's `deniedPaths`. Rendered from it: Claude's `denyRead`/`allowRead` and file-tool rules
+  (`claudeToolRules` drops the blanket `Read`/`Grep`/`Glob` allow), the PreToolUse refusal and
+  `permissionRequest()` in `runner/session.ts` (`readBoundaryVerdict` in `runner/tool-decision.ts`),
+  Gemini's `decideToolCall` and the Codex/NanoGPT profile. `engine-limit` validates and
+  canonicalises the boundary for all providers and replaces the policy's copy with its own.
   **Remote engine:** `paths()` supplies the executing engine's roots; only the optional,
   validated portable contract crosses the boundary, never authentication files. This uses
   the same policy locally and remotely and introduces no new mode or switch. A cloud hub

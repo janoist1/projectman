@@ -5,7 +5,6 @@ import {
   isRegeneratedPath,
   isRegeneratedPathPattern,
   isReleaseTagName,
-  usesCodexCli,
   SessionReadBoundary,
   type ProjectConfig,
 } from '@projectman/shared';
@@ -350,9 +349,13 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
         }
       }
       let sandbox = spec.sandbox;
-      if (usesCodexCli(spec.provider ?? 'claude') && sandbox?.portable?.readBoundary !== undefined) {
+      // A reading session's boundary (PM-425) is checked for every provider: the sandbox's list is the
+      // one the policy's copy is replaced with, and no transcript of any session is ever readable.
+      let readerDenied: string[] = [];
+      if (sandbox?.portable?.readBoundary !== undefined) {
         const boundary = SessionReadBoundary.safeParse(sandbox?.portable?.readBoundary);
         if (!boundary.success) refuse('invalid_params', 'The explicit read boundary is invalid');
+        readerDenied = [path.join(userHome, '.claude', 'projects')];
         const portable = sandbox!.portable!;
         if (
           ![...boundary.data.deniedRoots, ...boundary.data.allowedPaths.map((entry) => entry.path)].every(
@@ -360,7 +363,7 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
           )
         )
           refuse('invalid_params', 'The read boundary needs absolute normalized paths');
-        const blocked = [...sensitive, ...(filesystem.deniedPaths ?? [])].map(resolveReal);
+        const blocked = [...sensitive, ...readerDenied, ...(filesystem.deniedPaths ?? [])].map(resolveReal);
         const matchesDenied = pathPatternMatcher(blocked, process.platform === 'darwin');
         const hardDenied = (target: string) => matchesDenied(resolveReal(target));
         const required = [
@@ -487,6 +490,8 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
           )
             refuse('invalid_params', `The environment variable ${name} is not allowed`);
         sandbox = withDenials(sandbox);
+        if (readerDenied.length > 0)
+          sandbox = { ...sandbox, denyRead: [...new Set([...(sandbox.denyRead ?? []), ...readerDenied])] };
       } else if (!spec.provider || spec.provider === 'claude') {
         // Never a session without a sandbox because the cloud left it out.
         const baseline: AgentSandbox = {
@@ -496,12 +501,17 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
         };
         sandbox = withDenials(baseline);
       }
+      const { readBoundary: _hubBoundary, ...engineFilesystem } = filesystem;
       const protectedPolicy = policy
         ? {
             ...policy,
             filesystem: {
-              ...policy.filesystem,
-              deniedPaths: [...new Set([...(policy.filesystem.deniedPaths ?? []), ...sensitive])],
+              ...engineFilesystem,
+              deniedPaths: [
+                ...new Set([...(policy.filesystem.deniedPaths ?? []), ...sensitive, ...readerDenied]),
+              ],
+              // The policy's copy of the boundary is the engine's own canonical one, never the hub's.
+              ...(sandbox?.portable?.readBoundary ? { readBoundary: sandbox.portable.readBoundary } : {}),
             },
           }
         : undefined;

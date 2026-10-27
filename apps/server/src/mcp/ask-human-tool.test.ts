@@ -48,17 +48,27 @@ describe('ask_human attachments', () => {
   it('sends no attachmentIds without attachments', async () => {
     const handler = createFakeTeamToolsHandler();
     const ask = vi.spyOn(handler, 'askHuman').mockResolvedValue({ inboxItemId: 'inbox_1' });
-    const args = tool.inputSchema.parse({ question: 'Which?' });
+    const args = tool.inputSchema.parse({ question: 'Which?', options: ['A', 'B'] });
     await tool.run({ ctx: devContext, handler, args });
     expect(ask.mock.calls[0]![1]).not.toHaveProperty('attachmentIds');
   });
 
   it('accepts up to 6 ids and refuses more, none, and anything that is not an id', () => {
     const six = Array.from({ length: 6 }, (_, i) => `att_abcdefghij${i}`);
-    expect(tool.inputSchema.safeParse({ question: 'Which?', attachments: six }).success).toBe(true);
+    const base = { question: 'Which?', options: ['A', 'B'] };
+    expect(tool.inputSchema.safeParse({ ...base, attachments: six }).success).toBe(true);
     for (const attachments of [[...six, 'att_abcdefghij7'], [], ['shot.png']]) {
-      expect(tool.inputSchema.safeParse({ question: 'Which?', attachments }).success).toBe(false);
+      expect(tool.inputSchema.safeParse({ ...base, attachments }).success).toBe(false);
     }
+  });
+
+  it('requires options for a decision and lets an information question go without', () => {
+    const decision = tool.inputSchema.safeParse({ question: 'Turn it on?' });
+    expect(decision.success).toBe(false);
+    expect(decision.error?.issues[0]?.path).toEqual(['options']);
+    expect(
+      tool.inputSchema.safeParse({ question: 'Which port?', response_purpose: 'information' }).success,
+    ).toBe(true);
   });
 });
 

@@ -31,7 +31,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
           "type": "string",
         },
         "options": {
-          "description": "Suggested answers shown as buttons: a short label and its consequence (a plain label string is accepted too). Offer them whenever the decision has alternatives; omit for a free-text answer.",
+          "description": "Suggested answers shown as buttons: a short label and its consequence (a plain label string is accepted too). Required for a decision, a yes/no question too; omit only with response_purpose information. The answerer can always write another answer.",
           "items": {
             "anyOf": [
               {
@@ -105,7 +105,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
           "type": "string",
         },
         "response_purpose": {
-          "description": "information: a plain factual question, no decision; the integrator may relay the answer. owner_decision (default): a choice or anything with cost, deletion or security; only the owner answers.",
+          "description": "information: a plain factual question, no decision; the integrator may relay the answer; needs no options. owner_decision (default): a choice or anything with cost, deletion or security; only the owner answers.",
           "enum": [
             "information",
             "owner_decision",

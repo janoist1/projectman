@@ -97,7 +97,7 @@ export function visibleProjectEvent(
 export function canSeeProjectEvent(
   viewer: Viewer,
   event: ProjectEvent,
-  isOperatorSession?: (sessionId: string) => boolean,
+  isRestrictedSession?: (sessionId: string) => boolean,
 ): boolean {
   // A team message reaches only those it concerns (and an owner and an admin), whatever their access.
   if (event.type === 'project_checklist_changed')
@@ -107,10 +107,11 @@ export function canSeeProjectEvent(
   if (event.type === 'inbox_upserted') return canSeeInboxItem(viewer, event.item);
   if (event.type === 'team_message' || event.type === 'team_message_updated')
     return canSeeTeamMessage(viewer, event.message);
-  // The Operator's sessions are the owner's and the admin's to see (PM-475).
-  if (!canSeeOperatorSessions(viewer) && isOperatorSession) {
-    if (event.type === 'session_upserted' && isOperatorSession(event.session.id)) return false;
-    if (event.type === 'chat_appended' && isOperatorSession(event.sessionId)) return false;
+  // The Operator's sessions and the PM's conversations with others are the owner's and the admin's to see
+  // (PM-475, PM-1080).
+  if (!canSeeOperatorSessions(viewer) && isRestrictedSession) {
+    if (event.type === 'session_upserted' && isRestrictedSession(event.session.id)) return false;
+    if (event.type === 'chat_appended' && isRestrictedSession(event.sessionId)) return false;
   }
   return true;
 }

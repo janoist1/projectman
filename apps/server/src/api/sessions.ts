@@ -30,9 +30,12 @@ const MessagesQuery = z.object({
   limit: z.coerce.number().int().min(1).max(500).optional(),
 });
 
-/** The Operator's sessions are for the owner and the admin only (PM-475): to anyone else they do not exist. */
+/**
+ * The Operator's sessions and the PM's conversations with others are for the owner and the admin only
+ * (PM-475, PM-1080): to anyone else they do not exist.
+ */
 function assertMaySeeSession(domain: ApiDomain, viewer: Viewer, sessionId: string): void {
-  if (!canSeeOperatorSessions(viewer) && domain.sessions.isOperatorSession(sessionId))
+  if (!canSeeOperatorSessions(viewer) && domain.sessions.isRestrictedSession(sessionId))
     throw notFound('session', sessionId);
 }
 

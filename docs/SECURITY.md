@@ -549,8 +549,10 @@ answers and can change that person's own conversational style (PM-688):
   pins it. The refusal of a message through an integrator (`assertMayWriteToOperator`) still concerns the
   Operator only.
 - **Who sees the sessions.** The Operator's sessions (REST, the websocket, the terminal, the member
-  profile) are visible to owners and admins only (`canSeeOperatorSessions`). Raw terminal input into
-  the Operator's session is the owner's alone: an admin may watch, not type.
+  profile) are visible to owners and admins only (`canSeeOperatorSessions`). So is the project manager's
+  conversation with a person who is not an owner (PM-1080): `Sessions.isRestrictedSession` covers both, and
+  the REST detail (404), the websocket `session_upserted` and `chat_appended` events and the terminal ask it.
+  Raw terminal input into such a session is the owner's alone: an admin may watch, not type.
 - One guest conversation runs at a time and closes after five idle minutes; the owners' one is
   outside that capacity.
 

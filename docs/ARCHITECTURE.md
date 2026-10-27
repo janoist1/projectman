@@ -5244,6 +5244,8 @@ listAnsweredQuestions`). `list_decision_candidates { limit? }` (1..50, default 2
   `operator-guests`), and closes after the same idle time. The `with` conversation counts toward the PM's one shared
   general conversation capacity; the owners' conversation and the PM's operations are unchanged (a PM request opens only
   from the owner's own-login message). The Operator's capacity rule (`memberQueueStartLimits`) is unchanged.
+  Such a conversation is seen by owners and admins only, like the Operator's sessions (`Sessions.isRestrictedSession`:
+  REST detail, websocket events, terminal); the person's own view is the corner (`ProjectManagerCorner`, read only).
 - **Owner requests** (migration 47, `OperatorRequests` in `services/operator/requests.ts`). A request opens when an
   owner's message, or the owner's answer to the Operator's question, is delivered into its session
   (`MessageService.markRecipientDelivered`); `quote` is the first 280 characters, line breaks as spaces. It closes on

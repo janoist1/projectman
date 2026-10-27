@@ -598,17 +598,17 @@ describe('who sees the Operator’s sessions (PM-475)', () => {
       ).toBe(200);
 
     // Live events: the developer and the client get neither the session nor its chat.
-    const isOperatorSession = (id: string) => domain.sessions.isOperatorSession(id);
+    const isRestrictedSession = (id: string) => domain.sessions.isRestrictedSession(id);
     const developer = { access: 'developer', handle: 'dana' } as const;
     const client = { access: 'client', handle: 'cleo' } as const;
     const upsert = { type: 'session_upserted', projectKey: 'AR', session } as const;
     const chat = { type: 'chat_appended', projectKey: 'AR', sessionId: session.id } as never;
     for (const viewer of [developer, client]) {
-      expect(canSeeProjectEvent(viewer, upsert, isOperatorSession)).toBe(false);
-      expect(canSeeProjectEvent(viewer, chat, isOperatorSession)).toBe(false);
+      expect(canSeeProjectEvent(viewer, upsert, isRestrictedSession)).toBe(false);
+      expect(canSeeProjectEvent(viewer, chat, isRestrictedSession)).toBe(false);
     }
-    expect(canSeeProjectEvent({ access: 'owner', handle: 'owner' }, upsert, isOperatorSession)).toBe(true);
-    expect(canSeeProjectEvent({ access: 'admin', handle: 'ada' }, chat, isOperatorSession)).toBe(true);
+    expect(canSeeProjectEvent({ access: 'owner', handle: 'owner' }, upsert, isRestrictedSession)).toBe(true);
+    expect(canSeeProjectEvent({ access: 'admin', handle: 'ada' }, chat, isRestrictedSession)).toBe(true);
 
     // A person’s channel shows their own conversation and nobody else’s.
     const mine = await inject(app.app, 'GET', routes.operator('AR'), cookies.get('cleo')!, undefined);

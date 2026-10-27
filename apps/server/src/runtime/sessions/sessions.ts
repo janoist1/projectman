@@ -14,6 +14,7 @@ import {
   sessionApproverChangeRefusal,
   isOnLeave,
   isOperator,
+  guestOfConversation,
   isTheme,
   roleBundle,
   isWorkPaused,
@@ -649,11 +650,16 @@ export class SessionOrchestrator {
     return this.ctx.repos.sessions.list(projectKey, filter);
   }
 
-  /** Whether the session is the Operator's: only the owner and the admin see those (PM-475). */
-  isOperatorSession(sessionId: string): boolean {
+  /**
+   * Whether only the owner and the admin see the session: the Operator's (PM-475) and a project manager's
+   * conversation with someone who is not an owner (PM-1080), which holds that person's messages.
+   */
+  isRestrictedSession(sessionId: string): boolean {
     const session = this.find(sessionId);
     const config = session ? this.deps.projects.cachedConfig(session.projectKey) : null;
-    return !!session && !!config && isOperator(memberOf(config, session.member));
+    if (!session || !config) return false;
+    const member = memberOf(config, session.member);
+    return isOperator(member) || guestOfConversation(config, member, session.workItem) !== undefined;
   }
 
   isRunning(sessionId: string): boolean {

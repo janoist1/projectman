@@ -196,14 +196,22 @@ describe('machine display', () => {
     expect(show).toHaveBeenCalledWith('1 folyamat leállt, 2 nem.', 'error');
   });
 
-  it('does not request or render machine data for a non-owner', async () => {
+  it('does not request or render machine data for an account that is not the host owner', async () => {
     const project = setup();
-    project.backend.viewerHandle = 'be-1';
+    // The project role stays owner: only the host owner flag decides.
+    project.backend.user = { ...project.backend.user, userId: 'usr_stranger' };
     project.render(<MachineIndicator />);
     await waitFor(() => expect(project.requests.some((row) => row.path === '/api/me')).toBe(true));
     expect(screen.queryByRole('button', { name: /Gép:/ })).toBeNull();
     expect(project.requests.some((row) => row.path.startsWith('/api/machine'))).toBe(false);
     expect(project.backend.handle('GET', '/api/machine', undefined).status).toBe(403);
+  });
+
+  it('shows the machine to the host owner whatever their role in the project', async () => {
+    const project = setup();
+    project.backend.viewerHandle = 'be-1';
+    project.render(<MachineIndicator />);
+    expect(await screen.findByRole('button', { name: /Gép: processzor/ })).toBeTruthy();
   });
 
   it.each([

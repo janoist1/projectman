@@ -237,6 +237,7 @@ export async function createDomainHarness(
   const runningVersion = { value: opts.appVersion ?? 'dev' };
   const auth = new AuthService({ repos, now: opts.now });
   const domain: Domain = createDomain({
+    instanceOwner: (email) => auth.instanceOwner(email),
     ...(opts.historySemantic ? { historySemantic: opts.historySemantic } : {}),
     ...(opts.emailChannel
       ? {

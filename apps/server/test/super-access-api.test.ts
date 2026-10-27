@@ -11,7 +11,8 @@ import {
 } from '@projectman/shared';
 import type { Actor } from '@projectman/shared';
 import type { IntegratorExecutionContext } from '../src/contracts';
-import { createAppHarness, createProject, setupOwner } from './helpers/app-harness';
+import { integratorExecution } from '../src/kernel';
+import { createAppHarness, createForeignProject, createProject, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 
 type Mode = 'own' | 'super' | 'read';
@@ -1063,6 +1064,46 @@ describe('credential REST and domain access (PM-759)', () => {
     expect(refused.statusCode, refused.body).toBe(401);
     expect(refused.json().error.code).toBe('integrator_key_invalid');
     expect((await domain.projects.load('AR')).version).toBe(loaded.version);
+  });
+
+  it('runs an instance operation once for the host owner key, audited and acted only in the own project (PM-1058)', async () => {
+    await createForeignProject(h, cookie, 'AA');
+    const { context } = await credential('super');
+    const { domain, repos } = h.app.projectman;
+    const actors: unknown[] = [];
+    const result = await domain.superOperator.executeInstance(context!, 'instance_probe', async () => {
+      actors.push(integratorExecution()?.actor);
+      return 'done';
+    });
+    expect(result).toBe('done');
+    expect(actors).toEqual([expect.objectContaining({ handle: 'operator', operatorMode: 'super' })]);
+    expect(repos.superAudit.ofRequest('AR', context!.requestId)).not.toEqual([]);
+    expect(repos.superAudit.ofRequest('AA', context!.requestId)).toEqual([]);
+  });
+
+  it('lets a super key pause the instance although another owner’s project sorts first, and refuses a read key', async () => {
+    await createForeignProject(h, cookie, 'AA');
+    const { domain } = h.app.projectman;
+    const read = await credential('read');
+    const refused = await h.app.inject({
+      method: 'POST',
+      url: routes.instancePause(),
+      headers: read.headers,
+    });
+    expect(refused.statusCode, refused.body).toBe(403);
+    expect(refused.json().error.code).toBe('integrator_read_only');
+    const { headers } = await credential('super');
+    const paused = await h.app.inject({ method: 'POST', url: routes.instancePause(), headers });
+    expect(paused.statusCode, paused.body).toBe(200);
+    expect(domain.pauses.isPaused('AA')).toBe(true);
+  });
+
+  it('refuses a revoked key on an instance request', async () => {
+    const { auth } = h.app.projectman;
+    const { headers, context } = await credential('super');
+    auth.revokeIntegratorAccessKey(context!.principal.userId, context!.principal.keyId);
+    const revoked = await h.app.inject({ url: routes.instancePause(), headers });
+    expect(revoked.statusCode, revoked.body).toBe(401);
   });
 
   it('keeps simultaneous projects separate and requires current ownership in the target project', async () => {

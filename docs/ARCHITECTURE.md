@@ -3064,6 +3064,9 @@ workers follow the machine's size.
   the owner must replace any active legacy credential on the integrator's machine with a super or read key.
   Replacement revokes only
   the same mode, with a database uniqueness constraint and transactional lifecycle audit.
+  An instance-level call (`executeInstance`, `instanceUser`) is the host owner's through the key: it runs once, the
+  key's policy and the super audit bind only the projects its holder owns, and the instance Operator actor comes
+  from the first such project, never from another owner's project (PM-1058). The hub decides; nothing crosses to an engine.
   The shared credential resolver returns the stored mode and key id; `assertActive` rechecks
   that row and its owner without updating usage. Authentication records `mcp`, `cli` or `rest`
   alongside the last-use timestamp on first use, channel change or after five minutes.
@@ -3612,7 +3615,7 @@ assumption or remote-engine RPC.
   ownership checks and signals use its UID and PID namespace, with process start times
   checked against PID reuse. **Remote engine (engine mode, PM-314: runs in the engine process):** use `machine.snapshot/processes/env_values/signal` (PM-313), measure and stop on the owning engine,
   identify the engine with every process identity, and preserve fresh ownership/orphan
-  checks and owner access. A remote PID must never be signalled on the server.
+  checks and owner access (the host owner's, not every project's owner, PM-1058). A remote PID must never be signalled on the server.
   **Cloud mode (PM-315):** `RemoteMachineProbe` (`engine-link/remote/machine.ts`) asks the default engine
   (`machine.snapshot/processes/env_values/signal`; `MachineProbe.signal` is asynchronous for it); with no
   engine the machine view answers `engine_offline` (409).
@@ -3898,7 +3901,8 @@ assumption or remote-engine RPC.
   `PROJECTMAN_HOME/control.sock` is a local Unix socket (0600), authorised by filesystem
   access. Pause and shutdown act through the local runner; activation checks local instance
   markers and database use. Deployment scripts using the control client need access to that
-  host's socket (see [DEPLOY.md](DEPLOY.md)); the client is not a remote engine API.
+  host's socket (see [DEPLOY.md](DEPLOY.md)); the client is not a remote engine API. The socket's system-wide
+  pause right is unchanged; the app's instance pause (`POST /api/pause`) is the host owner's (PM-1058).
   Release flow (PM-491, `services/releases/releases.ts`, `PROJECTMAN_RELEASE_TARGET`): the release watcher reads, claims and
   reports on this same local socket, so it must run on the server's host; the instance's repository is on
   the engine of the target project, and only `BranchMerger.isAncestor/prepare` cross the engine link
@@ -5235,7 +5239,8 @@ deploy; decision 32). The runner's part is `SessionRunner.pause` / `forcePause` 
   it stops (point, tool, what it still waits for, `needs_restart`), so it survives a restart. `Session.pause`
   carries that row, `BoardView.pause` the open pauses of the project (`ProjectPauseView`; a client reads them like any member),
   `pause_changed` and `session_upserted` keep the app current. The rules are pure and in
-  `packages/shared/src/domain/pause.ts` (`isWorkPaused`, `canManageInstancePause`, `pauseStateOf`).
+  `packages/shared/src/domain/pause.ts` (`isWorkPaused`, `pauseStateOf`; `canManageInstancePause` remains only
+  behind `canManageProviderKeys`, PM-1068).
 - **Pausing.** Under the admission lock only the rows and the timeline event (`team_paused`; project-level,
   internal) are written; then every running session gets `runner.pause(id, { forceAfterMs })`. The pause is
   `pausing` until every session has a point, then `paused`. `force` writes the deadline as now and cuts the
@@ -5271,8 +5276,10 @@ deploy; decision 32). The runner's part is `SessionRunner.pause` / `forcePause` 
   A crash and a second Ctrl-C after 3 s do not pause. The service manager must allow the shutdown
   pause to finish before terminating child sessions.
 - **Access.** `GET` of a project's pause: an internal member; changing it: admin or owner. The instance's pause
-  may be seen by anyone who is internal in some project, with only the sessions of the viewer's projects, and
-  changed by an owner of every project (`canManageInstancePause`).
+  may be seen by anyone who is internal in some project (and by the host owner with no project of their own),
+  with only the sessions of the viewer's projects, and changed by the host owner alone (`domain.instanceOwner`,
+  PM-1058). The pause itself acts on the whole instance, projects of other owners included; an integrator key of
+  the host owner is bound only in the projects its holder owns (`assertCredential`).
 - **Control socket.** `PROJECTMAN_HOME/control.sock` (mode 0600; `apps/server/src/control`, not opened for a standby
   copy) takes one JSON line per request (`ControlRequest`: `pause`, `resume`, `force`, `status`) and answers one
   (`ControlResponse`); the requests are the instance's, source `control`, with no person behind them, and there is
@@ -5411,8 +5418,9 @@ pid=,ppid=,pgid=,uid=,rss=,%cpu=,time=,lstart=,args=` line per process), `envVal
   SIGKILL goes to what lives, and 1 s later the root decides `stopped` or `failed`. A process that stopped
   leaves the last sample at once. The log line has the user, pid, short name, session and outcome, never the
   command line.
-- **Access.** `GET /api/machine[?panel=1]` and `POST /api/machine/orphans/stop` are for an owner of every
-  project (`domain.instanceOwner`, the rule of the instance's pause); `Me.instanceOwner` tells the web.
+- **Access.** `GET /api/machine[?panel=1]` and `POST /api/machine/orphans/stop` are for the host owner
+  alone (`domain.instanceOwner` = `AuthService.instanceOwner`: the first account, whatever its project
+  memberships; the same person as `Me.hostOwner`, PM-1058); `Me.instanceOwner` tells the web.
   The command lines of the orphans (`OrphanProcessRow.command`, 160 characters at most) leave the server only
   here; a session's top processes carry the short name only.
 - **Screenshots.** `PROJECTMAN_MACHINE_FIXTURE=<json>` (`npm run shots -- … --machine <file>`,

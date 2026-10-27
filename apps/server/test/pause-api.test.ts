@@ -1,7 +1,13 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { InstancePauseView, ProjectPauseView, routes } from '@projectman/shared';
 import type { HumanAccess } from '@projectman/shared';
-import { createAppHarness, createProject, setupOwner } from './helpers/app-harness';
+import {
+  addHumanAndLogin,
+  createAppHarness,
+  createForeignProject,
+  createProject,
+  setupOwner,
+} from './helpers/app-harness';
 import type { AppHarness, AppHarnessOptions } from './helpers/app-harness';
 
 describe('pause routes', () => {
@@ -114,7 +120,7 @@ describe('pause routes', () => {
     expect((await call('GET', routes.instancePause())).statusCode).toBe(200);
   });
 
-  it('lets an owner of every project pause the instance, and shows both pauses in the board', async () => {
+  it('lets the host owner pause the instance, and shows both pauses in the board', async () => {
     await setup();
     const paused = await call('POST', routes.instancePause(), { reason: 'Fictional maintenance' });
     expect(paused.statusCode).toBe(200);
@@ -144,20 +150,63 @@ describe('pause routes', () => {
     expect(h.app.projectman.domain.pauses.isPaused('AR')).toBe(false);
   });
 
-  it('shows the instance pause to an admin who may not change it', async () => {
+  const instanceUrls = [routes.instancePause(), routes.instancePauseResume(), routes.instancePauseForce()];
+
+  /** A second account (not an e-mail swap: the first account stays the host owner) with this access in AR. */
+  const secondAccount = (access: HumanAccess) =>
+    addHumanAndLogin(h.app, { handle: `fictional-${access}`, access });
+  const callAs = (as: string, method: 'GET' | 'POST', url: string) =>
+    h.app.inject({ method, url, headers: { cookie: as } });
+
+  it.each(['admin', 'owner'] as const)(
+    'shows the instance pause to a %s who is not the host owner and may not change it',
+    async (access) => {
+      await setup();
+      await call('POST', routes.instancePause());
+      const other = await secondAccount(access);
+      const view = await callAs(other, 'GET', routes.instancePause());
+      expect(InstancePauseView.parse(view.json())).toMatchObject({
+        canManage: false,
+        pause: { scope: 'instance' },
+      });
+      for (const url of instanceUrls) {
+        const refused = await callAs(other, 'POST', url);
+        expect(refused.statusCode).toBe(403);
+        expect(refused.json()).toMatchObject({ error: { code: 'insufficient_access' } });
+      }
+      expect(h.app.projectman.domain.pauses.isPaused('AR')).toBe(true);
+    },
+  );
+
+  it('lets the host owner pause the instance, reaching the project of another owner too', async () => {
     await setup();
-    await call('POST', routes.instancePause());
-    await actAs('admin');
-    const view = await call('GET', routes.instancePause());
-    expect(InstancePauseView.parse(view.json())).toMatchObject({
-      canManage: false,
-      pause: { scope: 'instance' },
-    });
-    for (const url of [routes.instancePause(), routes.instancePauseResume(), routes.instancePauseForce()]) {
-      const refused = await call('POST', url);
-      expect(refused.statusCode).toBe(403);
-      expect(refused.json()).toMatchObject({ error: { code: 'insufficient_access' } });
-    }
-    expect(h.app.projectman.domain.pauses.isPaused('AR')).toBe(true);
+    await createForeignProject(h, cookie, 'AA');
+    expect(h.app.projectman.domain.pauses.isPaused('AA')).toBe(false);
+    const paused = await call('POST', routes.instancePause());
+    expect(paused.statusCode).toBe(200);
+    expect(InstancePauseView.parse(paused.json()).canManage).toBe(true);
+    expect(h.app.projectman.domain.pauses.isPaused('AA')).toBe(true);
+    expect((await call('POST', routes.instancePauseResume())).statusCode).toBe(200);
+    expect((await call('POST', routes.instancePauseForce())).statusCode).toBe(200);
+  });
+
+  it('keeps the instance with the host owner who has no project, and refuses a stranger without one', async () => {
+    await setup();
+    await h.app.projectman.domain.projects.update(
+      'AR',
+      { actor: { kind: 'human', handle: 'owner' }, author: { name: 'Owner', email: 'owner@example.com' } },
+      (config) => {
+        for (const member of config.team.members)
+          if (member.kind === 'human' && member.email === 'owner@example.com')
+            member.email = 'stranger@example.test';
+        return 'Hand the project to another owner';
+      },
+    );
+    expect(InstancePauseView.parse((await call('GET', routes.instancePause())).json()).canManage).toBe(true);
+    expect((await call('POST', routes.instancePause())).statusCode).toBe(200);
+    const outsider = await addHumanAndLogin(h.app, { handle: 'fictional-outsider', projectKey: null });
+    const refused = await callAs(outsider, 'GET', routes.instancePause());
+    expect(refused.statusCode).toBe(403);
+    expect(refused.json()).toMatchObject({ error: { code: 'insufficient_access' } });
   });
 });

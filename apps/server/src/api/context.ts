@@ -80,8 +80,8 @@ export function requireOwnLogin(
 }
 
 /**
- * The user who manages the instance as a whole (the owner of every project, as for the instance's
- * pause): the machine display and its command lines are for them alone.
+ * The user who manages the instance as a whole: the chopper's host owner, whatever their project
+ * memberships. The machine display and its command lines are for them alone.
  */
 export async function requireInstanceOwner(domain: ApiDomain, request: FastifyRequest): Promise<AuthUser> {
   const user = await instanceUser(
@@ -90,11 +90,14 @@ export async function requireInstanceOwner(domain: ApiDomain, request: FastifyRe
     request.method === 'GET' || request.method === 'HEAD' ? 'read' : 'write',
   );
   if (!(await domain.instanceOwner(user.email)))
-    throw forbidden('insufficient_access', 'only an owner of every project may see the machine');
+    throw forbidden('insufficient_access', 'only the host owner may see the machine');
   return user;
 }
 
-/** Instance operations bind the integrator credential in every project. */
+/**
+ * The user of an instance operation. A personal login is the current user; an integrator key must belong to
+ * the host owner (a read key never writes). The key's validity is checked by the execution scope of the route.
+ */
 export async function instanceUser(
   domain: ApiDomain,
   request: FastifyRequest,
@@ -104,15 +107,8 @@ export async function instanceUser(
   const user = authenticatedUser(request);
   if (request.principal.mode === 'read' && operation === 'write')
     throw forbidden('integrator_read_only', 'a read-only credential cannot change anything');
-  for (const project of domain.projects.summaries()) {
-    const access = await domain.accessFor(project.key, user.email);
-    if (!access) throw forbidden('insufficient_access', 'the credential owner must own every project');
-    await domain.superOperator.access(
-      { principal: request.principal, email: user.email, requestId: request.id },
-      access,
-      operation,
-    );
-  }
+  if (!(await domain.instanceOwner(user.email)))
+    throw forbidden('insufficient_access', 'the credential owner must be the host owner');
   return user;
 }
 

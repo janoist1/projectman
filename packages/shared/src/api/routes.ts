@@ -137,7 +137,7 @@ export const routes = {
   projectPause: (key: string) => `/api/projects/${key}/pause`,
   projectPauseResume: (key: string) => `/api/projects/${key}/pause/resume`,
   projectPauseForce: (key: string) => `/api/projects/${key}/pause/force`,
-  /** The instance's pause (PM-219): GET `InstancePauseView`; the POSTs need `canManageInstancePause`. */
+  /** The instance's pause (PM-219): GET `InstancePauseView`; the POSTs are the host owner's. */
   instancePause: () => '/api/pause',
   instancePauseResume: () => '/api/pause/resume',
   instancePauseForce: () => '/api/pause/force',

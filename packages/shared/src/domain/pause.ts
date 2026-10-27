@@ -81,7 +81,7 @@ export type ProjectPauseView = z.infer<typeof ProjectPauseView>;
 
 export const InstancePauseView = z.object({
   pause: PauseStatus.nullable(),
-  /** The viewer may pause, resume and force the instance (`canManageInstancePause`). */
+  /** The viewer is the host owner and may pause, resume and force the instance. */
   canManage: z.boolean(),
 });
 export type InstancePauseView = z.infer<typeof InstancePauseView>;
@@ -208,8 +208,9 @@ export function isWorkPaused(pauses: readonly OpenPause[], projectKey: string): 
 }
 
 /**
- * Who may pause the whole instance: a person with access to at least one project, and 'owner' in
- * every project of the instance. `null`: no access to that project.
+ * Whether a person is 'owner' in every project they are looked up in (at least one). `null`: no access to that
+ * project. It no longer decides who pauses the instance (the host owner does, PM-1058); its remaining use is
+ * `canManageProviderKeys`, which another slice moves (PM-1068).
  */
 export function canManageInstancePause(accesses: readonly (HumanAccess | null)[]): boolean {
   return accesses.length > 0 && accesses.every((a) => a === 'owner');

@@ -1,9 +1,4 @@
-import {
-  DEFAULT_PAUSE_FORCE_AFTER_MS,
-  canManageInstancePause,
-  isWorkPaused,
-  pauseStateOf,
-} from '@projectman/shared';
+import { DEFAULT_PAUSE_FORCE_AFTER_MS, isWorkPaused, pauseStateOf } from '@projectman/shared';
 import type {
   InstancePauseView,
   PausePoint,
@@ -27,6 +22,8 @@ export interface PauseHost {
   tasks(): Task[];
   /** The viewer's display name, handle and role in the project (the fake has one project). */
   viewer(): { name: string; handle: string; role: string };
+  /** The viewer is the chopper's host owner, whatever their role in the project. */
+  isHostOwner(): boolean;
   isLive(session: Session): boolean;
   isAiMember(handle: string): boolean;
   emit(event: ServerEvent): void;
@@ -103,8 +100,7 @@ export class MockPauses {
     const instance = this.find('instance');
     return {
       pause: instance ? this.statusOf(instance) : null,
-      // The fake has one project: its owner is an owner in every project.
-      canManage: canManageInstancePause([this.host.viewer().role === 'owner' ? 'owner' : null]),
+      canManage: this.host.isHostOwner(),
     };
   }
 

@@ -465,8 +465,8 @@ export const Me = z.object({
     .array(z.object({ key: z.string(), name: z.string(), access: HumanAccess, roles: z.array(RoleId) }))
     .default([]),
   /**
-   * The user may manage the instance as a whole (`canManageInstancePause` on every project):
-   * they see the machine display.
+   * The user is the chopper's host owner (the same person as `hostOwner`), who manages the instance as a
+   * whole whatever their project memberships: they see the machine display and may pause the instance.
    */
   instanceOwner: z.boolean(),
 });

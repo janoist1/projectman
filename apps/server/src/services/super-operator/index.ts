@@ -48,6 +48,16 @@ const principalActor = (config: ProjectConfig, principal: IntegratorPrincipal) =
     principal.source === 'app' ? principal.member : undefined,
   );
 
+/** Whether the person with this e-mail is an owner member of the project, as of its current configuration. */
+const holdsOwnership = (config: ProjectConfig, email: string | undefined): boolean =>
+  email !== undefined &&
+  config.team.members.some(
+    (member) =>
+      member.kind === 'human' &&
+      member.access === 'owner' &&
+      member.email?.trim().toLowerCase() === email.trim().toLowerCase(),
+  );
+
 /** Authenticated execution shared by REST and bearer MCP. The composition supplies domain ports. */
 export function createSuperOperator(deps: {
   projects: Pick<ProjectService, 'config' | 'cachedConfig' | 'summaries'>;
@@ -75,7 +85,24 @@ export function createSuperOperator(deps: {
     const user = credentials.user(input.principal.userId);
     if (!user) throw forbidden('insufficient_access', 'the credential owner does not exist');
     const projectKey = input.projectKey ?? null;
-    const initial = deps.projects.cachedConfig(projectKey ?? deps.projects.summaries()[0]?.key ?? '');
+    // An instance-wide scope takes its actor from the first project the key's holder owns and the mode may use,
+    // never from a project that merely comes first in the list; without one, an actor-bound mutation stays closed.
+    const initial =
+      projectKey !== null
+        ? deps.projects.cachedConfig(projectKey)
+        : deps.projects
+            .summaries()
+            .map((project) => deps.projects.cachedConfig(project.key))
+            .find(
+              (config) =>
+                config &&
+                holdsOwnership(config, user.email) &&
+                superAccessVerdict(config, {
+                  mode: input.principal.mode,
+                  operation: 'read',
+                  ownerMembership: true,
+                }).allowed,
+            );
     const actor =
       initial && input.principal.mode === 'super' ? principalActor(initial, input.principal) : null;
     const authorized = new Set<string>();
@@ -204,8 +231,13 @@ export function createSuperOperator(deps: {
       operation: string,
       run: () => Promise<T>,
     ): Promise<T> {
-      const projects = await Promise.all(deps.projects.summaries().map((p) => deps.projects.config(p.key)));
+      const configs = await Promise.all(deps.projects.summaries().map((p) => deps.projects.config(p.key)));
       return runIntegratorExecution(scopeFor({ ...context, projectKey: null }), async () => {
+        // The operation is one instance action, run exactly once; the access check and the audit belong to the
+        // projects the key's holder owns. A project of another owner is left out, and a policy that forbids the
+        // key in an own project still refuses the call.
+        const email = deps.credentials?.user(context.principal.userId)?.email;
+        const projects = configs.filter((config) => holdsOwnership(config, email));
         let work = run;
         for (const config of projects) {
           assertIntegratorAccess(config, 'read');
@@ -239,16 +271,10 @@ export function createSuperOperator(deps: {
     ): Promise<T> {
       const configs = await Promise.all(deps.projects.summaries().map((p) => deps.projects.config(p.key)));
       return runIntegratorExecution(scopeFor({ ...context, projectKey: null }), async () => {
-        const email = deps.credentials?.user(context.principal.userId)?.email.trim().toLowerCase();
+        const email = deps.credentials?.user(context.principal.userId)?.email;
         const owned = configs.filter(
           (config) =>
-            email !== undefined &&
-            config.team.members.some(
-              (member) =>
-                member.kind === 'human' &&
-                member.access === 'owner' &&
-                member.email?.trim().toLowerCase() === email,
-            ) &&
+            holdsOwnership(config, email) &&
             superAccessVerdict(config, {
               mode: context.principal.mode,
               operation: 'read',

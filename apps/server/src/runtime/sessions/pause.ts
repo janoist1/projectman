@@ -790,7 +790,15 @@ export class PauseService {
       throw forbidden('insufficient_access', 'a credential needs authenticated execution');
     const keys =
       target.scope === 'project' ? [target.projectKey] : this.projects.summaries().map((p) => p.key);
-    for (const key of keys) assertIntegratorAccess(await this.projects.config(key), 'write');
+    const email = by.userId ? this.ctx.repos.users.get(by.userId)?.email : undefined;
+    for (const key of keys) {
+      const config = await this.projects.config(key);
+      // The instance pause reaches the projects of other owners too; the credential's policy binds only the
+      // requester's own projects (PM-1058).
+      if (target.scope === 'instance' && (!email || findHumanByEmail(config, email)?.access !== 'owner'))
+        continue;
+      assertIntegratorAccess(config, 'write');
+    }
   }
 }
 

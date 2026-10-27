@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { canManageInstancePause, PauseRequest, routes } from '@projectman/shared';
+import { PauseRequest, routes } from '@projectman/shared';
 import type { InstancePauseView, ProjectPauseView } from '@projectman/shared';
 import type { ApiDomain } from './ports';
 import type { PauseRequester } from '../runtime/sessions';
@@ -10,8 +10,8 @@ import { parseBody } from '../http';
 
 /**
  * The team's pause (PM-219). A project's pause is for its admins and owners, whom every member
- * may look at; the instance's is for a person who is an owner in every project, whom any member
- * of some project may look at (`canManageInstancePause`).
+ * may look at; the instance's is for the host owner (`domain.instanceOwner`), whom any member of
+ * some project may look at. The pause acts on the whole instance; only the listing is filtered by membership.
  */
 export function registerPauseRoutes(app: FastifyInstance, domain: ApiDomain): void {
   type ProjectParams = { Params: { key: string } };
@@ -61,18 +61,17 @@ export function registerPauseRoutes(app: FastifyInstance, domain: ApiDomain): vo
       })),
     );
     const member = accesses.filter((a) => a.access).map((a) => a.key);
-    if (member.length === 0) throw forbidden('insufficient_access', 'requires membership in a project');
-    return {
-      projectKeys: member,
-      canManage: canManageInstancePause(accesses.map((a) => a.access?.access ?? null)),
-    };
+    const canManage = await domain.instanceOwner(user.email);
+    if (member.length === 0 && !canManage)
+      throw forbidden('insufficient_access', 'requires membership in a project');
+    return { projectKeys: member, canManage };
   }
   const instanceView = (viewer: { projectKeys: string[]; canManage: boolean }): InstancePauseView =>
     domain.pauses.instanceView(viewer.projectKeys, viewer.canManage);
   async function manageInstance(request: FastifyRequest) {
     const viewer = await instanceViewer(request);
     if (!viewer.canManage)
-      throw forbidden('insufficient_access', 'only an owner of every project may pause the instance');
+      throw forbidden('insufficient_access', 'only the host owner may pause the instance');
     return viewer;
   }
 

@@ -59,6 +59,7 @@ export function mockProject(backend = new MockBackend()) {
     isOwner: true,
     me: {
       ...backend.user,
+      instanceOwner: true,
       handles: { AC: 'owner' },
       projects: [
         {

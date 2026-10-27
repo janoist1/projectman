@@ -2336,4 +2336,37 @@ migrations.push({
     ORDER BY seq DESC LIMIT 1
   ) WHERE mode = 'legacy' AND revoked_at IS NULL;`,
 });
+migrations.push({
+  version: 115,
+  name: 'fold legacy task checks into labels',
+  // PM-1031: recorded checks become stored labels once instead of being merged on every read.
+  sql: `WITH legacy_check_labels(check_name, state, label) AS (VALUES
+    ('code_review', 'passed', 'code-review-ok'),
+    ('code_review', 'failed', 'code-review-changes'),
+    ('code_review', 'retest_needed', 'code-review-changes'),
+    ('code_review', 'blocked', 'code-review-blocked'),
+    ('security_review', 'passed', 'security-ok'),
+    ('security_review', 'failed', 'security-changes'),
+    ('security_review', 'retest_needed', 'security-changes'),
+    ('security_review', 'blocked', 'security-changes'),
+    ('qa', 'passed', 'qa-ok'),
+    ('qa', 'failed', 'qa-failed'),
+    ('qa', 'blocked', 'qa-failed'),
+    ('qa', 'retest_needed', 'qa-retest'),
+    ('client_test', 'passed', 'client-accepted'),
+    ('client_test', 'failed', 'client-changes'),
+    ('client_test', 'blocked', 'client-changes'),
+    ('client_test', 'retest_needed', 'client-changes')
+  )
+  UPDATE tasks SET labels = (
+    SELECT json_group_array(value) FROM (
+      SELECT DISTINCT value FROM (
+        SELECT value FROM json_each(CASE WHEN json_valid(tasks.labels) THEN tasks.labels ELSE '[]' END)
+        UNION ALL
+        SELECT mapping.label FROM json_each(CASE WHEN json_valid(tasks.checks) THEN tasks.checks ELSE '{}' END) AS recorded
+          JOIN legacy_check_labels AS mapping ON mapping.check_name = recorded.key AND mapping.state = recorded.value
+      )
+    )
+  ), checks = '{}' WHERE checks <> '{}';`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

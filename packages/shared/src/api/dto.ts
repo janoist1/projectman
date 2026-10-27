@@ -463,9 +463,9 @@ export const Me = z.object({
     .default([]),
   /**
    * The user may manage the instance as a whole (`canManageInstancePause` on every project):
-   * they see the machine display. Absent (an older server): false.
+   * they see the machine display.
    */
-  instanceOwner: z.boolean().optional(),
+  instanceOwner: z.boolean(),
 });
 export type Me = z.infer<typeof Me>;
 
@@ -595,7 +595,7 @@ export const MemberView = z.object({
   /**
    * AI members only: the work the member does on cards right now, one entry per working task session
    * (PM-207). A card is "working" only when it has an entry here; `status` and `activity` describe the
-   * member as a whole. Omitted: none (and by older servers).
+   * member as a whole. Omitted for humans.
    */
   taskWork: z.array(TaskWork).optional(),
   sponsor: MemberHandle.nullable(),
@@ -620,8 +620,7 @@ export const MemberView = z.object({
   onLeave: z.boolean().optional(),
   /**
    * AI members only: whether the member's commands can reach any outbound address (PM-355). The server
-   * always fills it in (a member without the setting reads `true`); a missing value (an older server,
-   * a test fake) is read as on.
+   * always fills it in for AI members (a member without the setting reads `true`). Omitted for humans.
    */
   outboundNetwork: z.boolean().optional(),
   /** AI members only: the effective machine access (`machineAccessOf`, decision 66); missing (an older server): off. */
@@ -927,7 +926,7 @@ export const MemberProfile = z.object({
   /** What takes the member's places (PM-297); filled in where `capacityUsed` is. */
   capacityHolders: z.array(CapacityHolder).optional(),
   email: z.string().optional(),
-  /** AI members: the tokens their sessions used lately (PM-178); omitted for humans and by older servers. */
+  /** AI members: the tokens their sessions used lately (PM-178); omitted for humans. */
   usage: MemberUsage.optional(),
 });
 export type MemberProfile = z.infer<typeof MemberProfile>;
@@ -983,8 +982,8 @@ export const RoleView = z.object({
   name: z.string(),
   summary: z.string(),
   notTheirJob: z.string(),
-  /** When to turn to a member holding the role; omitted by older servers. */
-  whenToAsk: z.string().optional(),
+  /** When to turn to a member holding the role. */
+  whenToAsk: z.string(),
   holders: RoleHolders,
   builtIn: z.boolean(),
   duties: z.array(DutyId).optional(),
@@ -1019,8 +1018,8 @@ export const LabelView = LabelDefinition.extend({ holders: z.array(z.string()) }
 export type LabelView = z.infer<typeof LabelView>;
 
 export const BoardView = z.object({
-  /** Public project admission switch; omitted by older servers. */
-  aiEnabled: z.boolean().optional(),
+  /** Public project admission switch. */
+  aiEnabled: z.boolean(),
   project: ProjectSummary,
   columns: z.array(BoardColumnView),
   stages: z.array(Stage),

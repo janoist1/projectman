@@ -177,9 +177,6 @@ export function approvalPolicyChanged(previous: ProjectConfig, next: ProjectConf
   return signature(previous) !== signature(next) || releaseSignature(previous) !== releaseSignature(next);
 }
 
-/** @deprecated Renamed to `approvalPolicyChanged`; `ownerOnlyChanges` covers every owner-only rule. */
-export const humanApprovalChanged = approvalPolicyChanged;
-
 function locationsSignature(config: ProjectConfig): string {
   return JSON.stringify({
     workspace: config.project.workspacePath,

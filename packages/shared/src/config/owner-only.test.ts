@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { humanApprovalChanged, approvalPolicyChanged, ownerOnlyChanges } from './owner-only';
+import { approvalPolicyChanged, ownerOnlyChanges } from './owner-only';
 import type { OwnerOnlyChange } from './owner-only';
 import { ProjectConfig } from './schema';
 
@@ -300,9 +300,5 @@ describe('ownerOnlyChanges', () => {
     expect(changed((c) => void c.team.members.push({ ...ai(c, 'dev-1'), handle: 'dev-2' }))).not.toContain(
       'machine_access',
     );
-  });
-
-  it('keeps the old name of the approval policy check', () => {
-    expect(humanApprovalChanged).toBe(approvalPolicyChanged);
   });
 });

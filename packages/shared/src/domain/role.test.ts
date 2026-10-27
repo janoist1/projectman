@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { RoleView } from '../api/dto';
 import { CustomRoleDefinition, RoleOverrides } from './role';
 
 const steward = {
@@ -30,10 +29,5 @@ describe('role texts', () => {
     });
     expect(overrides.devops?.whenToAsk).toBeUndefined();
     expect(RoleOverrides.safeParse({ qa: { duties: [], notTheirJob: 'x'.repeat(201) } }).success).toBe(false);
-  });
-
-  it('reads role views from older servers without the text', () => {
-    const view = RoleView.parse({ ...steward, notTheirJob: '', builtIn: false });
-    expect(view.whenToAsk).toBeUndefined();
   });
 });

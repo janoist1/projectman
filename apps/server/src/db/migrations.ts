@@ -2417,4 +2417,11 @@ migrations.push({
     revoked_at       TEXT
   );`,
 });
+migrations.push({
+  version: 119,
+  name: 'project creator',
+  // PM-1062: who created the project. No backfill: null means the host owner registered it (every project
+  // before owner accounts existed, and a project synced from the customization store).
+  sql: `ALTER TABLE projects ADD COLUMN created_by TEXT REFERENCES users(id);`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

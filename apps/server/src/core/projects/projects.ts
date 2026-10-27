@@ -429,6 +429,7 @@ export class ProjectService {
         configVersion: version,
         createdAt: at,
         updatedAt: at,
+        createdBy: rights.userId || null,
       };
       this.ctx.repos.projects.insert(record);
       this.cache.set(req.key, { config, version });
@@ -591,6 +592,7 @@ export class ProjectService {
             configVersion: loaded.version,
             createdAt: at,
             updatedAt: at,
+            createdBy: null,
           });
           await this.ctx.events.emit('config_changed', {
             projectKey: key,

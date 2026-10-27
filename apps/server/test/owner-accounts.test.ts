@@ -250,6 +250,39 @@ describe('owner accounts', () => {
       expect([engine.statusCode, errorCode(engine)]).toEqual([403, 'owner_only']);
     });
 
+    it('never falls back to the host’s machine, whoever its configuration names an owner', async () => {
+      await connectEngine(guestEngine.key);
+      expect((await createGuestProject(guestCookie, { engineId: guestEngine.engine.id })).statusCode).toBe(
+        201,
+      );
+      const hostEngine = registry.create('Host Mac', hostId).engine;
+      registry.setDefault(hostEngine.id);
+      // The project owner writes the host into the configuration as an owner and drops the binding.
+      const draft = structuredClone(await h.app.projectman.domain.projects.config('GU'));
+      draft.team.members.push({
+        kind: 'human',
+        handle: 'host',
+        displayName: 'Host',
+        email: OWNER_LOGIN.email,
+        access: 'owner',
+        roles: [],
+      });
+      const saved = await inject(h.app, 'PUT', routes.config('GU'), guestCookie, draft);
+      expect(saved.statusCode, saved.body).toBe(200);
+      const unbound = await inject(
+        h.app,
+        'DELETE',
+        routes.projectEngine('GU', guestEngine.engine.id),
+        guestCookie,
+      );
+      expect(unbound.statusCode).toBe(204);
+      expect(registry.projectEngine('GU')).toBeNull();
+      // The host's own consent is a binding of their engine, made with their own login.
+      const consent = await inject(h.app, 'PUT', routes.projectEngine('GU', hostEngine.id), host, {});
+      expect(consent.statusCode, consent.body).toBe(200);
+      expect(registry.projectEngine('GU')).toBe(hostEngine.id);
+    });
+
     it('keeps the host owner’s project creation without an engine as it was', async () => {
       const key = 'HO';
       const res = await withoutOnboarding(h.app.projectman.domain, () =>
@@ -308,6 +341,21 @@ describe('owner accounts', () => {
       expect((await inject(h.app, 'GET', routes.projects(), guestCookie)).json()).toEqual([
         expect.objectContaining({ key: 'GU' }),
       ]);
+    });
+
+    it('pauses a project they created even when the host is named a member of it', async () => {
+      const draft = structuredClone(await h.app.projectman.domain.projects.config('GU'));
+      draft.team.members.push({
+        kind: 'human',
+        handle: 'host',
+        displayName: 'Host',
+        email: OWNER_LOGIN.email,
+        access: 'owner',
+        roles: [],
+      });
+      expect((await inject(h.app, 'PUT', routes.config('GU'), guestCookie, draft)).statusCode).toBe(200);
+      await revoke();
+      expect(h.app.projectman.domain.pauses.isPaused('GU')).toBe(true);
     });
 
     it('can be repeated without harm, and refuses a non-host caller and an unknown account', async () => {

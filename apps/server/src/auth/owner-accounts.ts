@@ -20,8 +20,8 @@ export interface OwnerAccountPorts {
 
 /**
  * The owner accounts of the instance (PM-1062): the list, and the host owner's revocation. Revoking is one
- * request and repeating it is harmless: the account stops creating projects and engines, the owner's projects
- * that the host cannot see are paused, their engines are revoked and their integrator keys are revoked. The
+ * request and repeating it is harmless: the account stops creating projects and engines, the projects they
+ * created (and the ones they own that the host cannot see) are paused, their engines are revoked and their integrator keys are revoked. The
  * login and the data stay.
  */
 export class OwnerAccountService {
@@ -64,14 +64,15 @@ export class OwnerAccountService {
     const user = this.repos.users.get(userId);
     if (!user || !this.repos.ownerAccounts.get(userId)) throw notFound('owner account', userId);
     this.repos.ownerAccounts.revoke(userId, host.id, this.now().toISOString());
-    // The projects the host cannot see stay in the owner's hands, but their work stops now.
-    for (const project of await this.ports.projectsFor(user.email)) {
-      if (project.access !== 'owner' || (await this.ports.accessFor(project.key, host.email))) continue;
-      await this.ports.pauses.pause(
-        { scope: 'project', projectKey: project.key },
-        { userId: host.id, source: 'app' },
-      );
-    }
+    // The projects stay in the owner's hands, but their work stops now: every project the user created (a fact
+    // the server wrote, whoever the configuration names a member since), and every other project they own
+    // where the host has no seat.
+    const toPause = new Set(this.repos.projects.keysCreatedBy(userId));
+    for (const project of await this.ports.projectsFor(user.email))
+      if (project.access === 'owner' && !(await this.ports.accessFor(project.key, host.email)))
+        toPause.add(project.key);
+    for (const projectKey of toPause)
+      await this.ports.pauses.pause({ scope: 'project', projectKey }, { userId: host.id, source: 'app' });
     for (const engine of this.ports.engines?.listFor({ userId }) ?? [])
       if (!engine.revokedAt) this.ports.engines?.revoke(engine.id, host.id);
     this.auth.revokeIntegratorAccessKeysOf(userId);

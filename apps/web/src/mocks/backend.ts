@@ -2441,6 +2441,8 @@ export class MockBackend {
         bindings: [],
         globalDefault: fallback ? { id: fallback.id, ownerUserId: fallback.createdBy } : null,
         projectOwnerUserIds: access === 'owner' ? [userId] : [],
+        // The engine routes of the fake serve the seeded project only, which the host owner registered.
+        projectCreatedBy: null,
       });
       const engine = chosen ? engineOf(chosen) : undefined;
       return ok({ engines: engine ? [viewOf(engine, true)] : [] });

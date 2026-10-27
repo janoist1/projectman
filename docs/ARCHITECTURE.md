@@ -2995,7 +2995,11 @@ workers follow the machine's size.
   super command). `EngineRegistry.projectEngine` applies the pure rule `projectEngineOf` of
   `packages/shared`: the live default binding; none (`engine_offline`) when it is revoked, never a silent
   move to another machine; with no binding the global default engine, but only while its owner is among
-  the project's owners. So a single-machine or `local` installation and a project nobody bound run as
+  the project's owners and no other user created the project (`projects.created_by`, migration 119, PM-1062:
+  null for a project the host owner registered, the creator's user id for one made in the app; no route
+  changes it). The configuration names the owners and a project owner edits it freely, so an owner
+  account's project reaches the host's machine only through an explicit binding of the host's own login.
+  Revoking an owner account pauses the projects it created too. So a single-machine or `local` installation and a project nobody bound run as
   before. Each write is one transaction with an `engine` row of the project's change journal, then the
   wake, an `engine_changed` event with the `projectKey`, and `onProjectEngineChange`: the GitHub watches
   of that project move to the new base engine (`github.unwatch` on the old, `github.watch` on the new;

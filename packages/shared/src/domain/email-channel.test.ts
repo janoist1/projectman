@@ -10,6 +10,7 @@ import {
   emailContactChangeRefusal,
   emailMailboxOf,
   emailMailboxOwners,
+  emailMailboxReserved,
   emailMailboxTaken,
   emailMemberAddress,
   emailReplyAddress,
@@ -294,7 +295,12 @@ describe('email member address', () => {
     expect(emailMailboxOwners(configs, 'nobody')).toEqual([]);
   });
   it('leads a former handle to the renamed member, unless a live name bears it', () => {
-    const renamed = AiMemberConfig.parse({ ...ai, handle: 'haini', formerHandles: ['dev'], email: { enabled: true } });
+    const renamed = AiMemberConfig.parse({
+      ...ai,
+      handle: 'haini',
+      formerHandles: ['dev'],
+      email: { enabled: true },
+    });
     expect(emailMailboxOwners([configOf('AR', [renamed])], 'dev')).toEqual([
       { projectKey: 'AR', handle: 'haini' },
     ]);
@@ -317,6 +323,14 @@ describe('email member address', () => {
     expect(emailMailboxTaken(configs, 'AR', 'dev', 'pm')).toBe(true);
     expect(emailMailboxTaken(configs, 'AR', 'pm', 'pm')).toBe(false);
     expect(emailMailboxTaken(configs, 'AR', 'dev', 'free')).toBe(false);
+  });
+  it('reserves the former handle of a renamed member in every project', () => {
+    const renamed = AiMemberConfig.parse({ ...ai, handle: 'haini', formerHandles: ['dev'] });
+    const configs = [configOf('AR', [renamed]), configOf('BR', [on('pm')])];
+    expect(emailMailboxReserved(configs, 'BR', 'pm', 'dev')).toBe(true);
+    expect(emailMailboxTaken(configs, 'BR', 'pm', 'dev')).toBe(true);
+    expect(emailMailboxReserved(configs, 'AR', 'haini', 'dev')).toBe(false);
+    expect(emailMailboxReserved(configs, 'BR', 'pm', 'free')).toBe(false);
   });
   it('keeps the mailbox when the switches change', () => {
     expect(applyMemberEmailChange({ enabled: true, mailbox: 'planner' }, { enabled: false })).toEqual({

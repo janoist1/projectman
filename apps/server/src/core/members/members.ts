@@ -52,7 +52,13 @@ import type {
 import { aiMemberDefaults } from '@projectman/templates';
 import type { MemberCapacity, MemberProfileSessions, MemberRenameRuntime } from './ports';
 import { findHumanByEmail, requireAiMember, requireHuman } from './access';
-import { applyMemberEmailChange, emailMailboxTaken, ownerHandles } from '@projectman/shared';
+import {
+  applyMemberEmailChange,
+  emailMailboxOf,
+  emailMailboxReserved,
+  emailMailboxTaken,
+  ownerHandles,
+} from '@projectman/shared';
 import type { ProjectAccess } from './access';
 import { isoNow } from '../base';
 import type { DomainContext } from '../base';
@@ -388,13 +394,23 @@ export class MemberService {
     return view;
   }
 
-  /** 409 `email_mailbox_taken` when another AI member, in this or any other project, has this mailbox name (PM-989). */
-  private assertMailboxFree(draft: ProjectConfig, handle: string, mailbox: string): void {
+  /**
+   * 409 `email_mailbox_taken` when another AI member, in this or any other project, has this mailbox name
+   * (PM-989). `reserved` checks only the names other members were renamed from (PM-1025): a mailbox that
+   * becomes live under its default name (the handle) may share a live name, as before, but never a former one.
+   */
+  private assertMailboxFree(
+    draft: ProjectConfig,
+    handle: string,
+    mailbox: string,
+    scope: 'any' | 'reserved' = 'any',
+  ): void {
     const others = this.projects
       .summaries()
       .filter((project) => project.key !== draft.project.key)
       .flatMap((project) => this.projects.cachedConfig(project.key) ?? []);
-    if (emailMailboxTaken([draft, ...others], draft.project.key, handle, mailbox))
+    const taken = scope === 'any' ? emailMailboxTaken : emailMailboxReserved;
+    if (taken([draft, ...others], draft.project.key, handle, mailbox))
       throw conflict('email_mailbox_taken', `the mailbox name ${mailbox} is taken`, { mailbox });
   }
 
@@ -520,7 +536,10 @@ export class MemberService {
       }
       if (req.email !== undefined) {
         if (req.email.mailbox !== undefined) this.assertMailboxFree(draft, handle, req.email.mailbox);
+        const wasEnabled = member.email?.enabled === true;
         member.email = applyMemberEmailChange(member.email, req.email, handle);
+        if (req.email.mailbox === undefined && !wasEnabled && member.email.enabled)
+          this.assertMailboxFree(draft, handle, emailMailboxOf(member), 'reserved');
         fields.push('email');
       }
       if (req.onLeave !== undefined) {
@@ -654,6 +673,7 @@ export class MemberService {
     if (to === handle || this.takenHandles(projectKey, draft).has(to))
       throw conflict('handle_taken', `handle already used: ${to}`);
     if (member.email?.enabled) this.assertMailboxFree(draft, handle, to);
+    else this.assertMailboxFree(draft, handle, to, 'reserved');
     this.assertIdle(projectKey, member);
     Object.assign(draft, renameMemberInConfig(draft, handle, to));
   }

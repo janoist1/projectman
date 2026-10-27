@@ -191,8 +191,11 @@ export function emailMailboxOwners(
   return live.length > 0 ? live : owners((member) => member.formerHandles?.includes(mailbox) === true);
 }
 
-/** Whether another AI member, in any project and switches aside, already has this mailbox name. */
-export function emailMailboxTaken(
+/**
+ * Whether another AI member, in any project and switches aside, was once renamed from this mailbox name
+ * (PM-1025): the name stays that member's, so a reply to its old address never lands with someone else.
+ */
+export function emailMailboxReserved(
   configs: readonly ProjectConfig[],
   projectKey: string,
   handle: string,
@@ -203,8 +206,28 @@ export function emailMailboxTaken(
       (member) =>
         member.kind === 'ai' &&
         !(config.project.key === projectKey && member.handle === handle) &&
-        emailMailboxOf(member) === mailbox,
+        member.formerHandles?.includes(mailbox) === true,
     ),
+  );
+}
+
+/** Whether another AI member, in any project and switches aside, already has this mailbox name, live or reserved. */
+export function emailMailboxTaken(
+  configs: readonly ProjectConfig[],
+  projectKey: string,
+  handle: string,
+  mailbox: string,
+): boolean {
+  return (
+    emailMailboxReserved(configs, projectKey, handle, mailbox) ||
+    configs.some((config) =>
+      config.team.members.some(
+        (member) =>
+          member.kind === 'ai' &&
+          !(config.project.key === projectKey && member.handle === handle) &&
+          emailMailboxOf(member) === mailbox,
+      ),
+    )
   );
 }
 

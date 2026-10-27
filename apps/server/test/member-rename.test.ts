@@ -117,6 +117,14 @@ describe('member rename', () => {
     await expect(rename('dev-1', 'builder')).rejects.toMatchObject({ code: 'email_mailbox_taken' });
   });
 
+  it('keeps the old handle as a mailbox name of the renamed member', async () => {
+    h = await createDomainHarness();
+    await rename('dev-1', 'builder');
+    await expect(
+      h.domain.members.update('AR', 'dev-2', { email: { enabled: true, mailbox: 'dev-1' } }, by()),
+    ).rejects.toMatchObject({ code: 'email_mailbox_taken' });
+  });
+
   it('moves the e-mail address with the handle', async () => {
     h = await createDomainHarness();
     await h.domain.members.update('AR', 'dev-1', { email: { enabled: true, mailbox: 'custom' } }, by());

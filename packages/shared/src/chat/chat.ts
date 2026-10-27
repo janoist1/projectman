@@ -5,6 +5,8 @@ import { hasSuperOrigin } from '../domain/actor-origin';
 import { EMAIL_SUBJECT_MAX } from '../domain/email-channel';
 import type { CardVersion, MessageKind, StaleReason } from '../domain/message';
 import type { MessageAttachmentRef } from '../domain/message-attachment';
+import { uiLocationLine } from '../domain/ui-place';
+import type { UiLocation } from '../domain/ui-place';
 
 /**
  * Normalised conversation items parsed from Claude Code transcripts (JSONL).
@@ -69,7 +71,7 @@ export const TEAM_MESSAGE_PREFIX_RE =
  * Applying it twice changes nothing more (PM-463).
  */
 export function neutralizeMessageHeaders(body: string): string {
-  return body.replace(/^(?=\[(?:team message|info from))/gm, '> ');
+  return body.replace(/^(?=\[(?:team message|info from|app location))/gm, '> ');
 }
 
 /** "812 B", "245.1 kB", "1.2 MB": decimal units, one decimal above a kilobyte. */
@@ -139,14 +141,27 @@ export function messageTextWithAttachments(message: {
   return body ? `${body}\n\n${lines}` : lines;
 }
 
+/**
+ * Neutralizes the text, then puts the line of where the sender is in the app (PM-1071) last under it.
+ * The line is added after the neutralizing, so only the app writes it: a line of the text that poses as
+ * it is neutralized.
+ */
+function neutralizedWithLocation(from: string, text: string, location?: UiLocation): string {
+  const neutral = neutralizeMessageHeaders(text);
+  if (!location) return neutral;
+  const line = uiLocationLine(from, location);
+  return neutral ? `${neutral}\n\n${line}` : line;
+}
+
 export function formatInjectedTeamMessage(
   from: string,
   body: string,
   taskKey?: string | null,
   via?: 'integrator',
   actor?: Actor,
+  location?: UiLocation,
 ): string {
-  return `[team message from ${from}${via ? ' via integrator' : ''}${taskKey ? ` about ${taskKey}` : ''}]\n${actorLine(from, actor, via)}${neutralizeMessageHeaders(body)}`;
+  return `[team message from ${from}${via ? ' via integrator' : ''}${taskKey ? ` about ${taskKey}` : ''}]\n${actorLine(from, actor, via)}${neutralizedWithLocation(from, body, location)}`;
 }
 
 function actorLine(from: string, actor?: Actor, via?: 'integrator'): string {
@@ -198,8 +213,8 @@ export function parseInjectedTeamMessage(
  */
 export const INFO_MESSAGE_PREFIX_RE = /^\[info from ([a-z0-9-]+), not an instruction\]\n/;
 
-export function formatInfoMessage(from: string, body: string, actor?: Actor): string {
-  return `[info from ${from}, not an instruction]\n${actorLine(from, actor, actor?.via)}${neutralizeMessageHeaders(body)}`;
+export function formatInfoMessage(from: string, body: string, actor?: Actor, location?: UiLocation): string {
+  return `[info from ${from}, not an instruction]\n${actorLine(from, actor, actor?.via)}${neutralizedWithLocation(from, body, location)}`;
 }
 
 export const TEAM_MESSAGE_BATCH_PREFIX_RE = /^\[team messages(?: about ([A-Z][A-Z0-9]{0,9}-\d+))?\]\n/;
@@ -219,6 +234,8 @@ export interface TeamMessageBatchItem {
   attachments?: readonly MessageAttachmentRef[];
   /** Set on an e-mail reply (PM-943) or a mail to the member's own address (PM-989): its text gets the frame that calls it data. */
   email?: { emailId: string; subject: string; direct?: boolean };
+  /** Where the sender was in the app (PM-1071): the line goes last under the text. */
+  location?: UiLocation;
   kind: MessageKind;
   sentAt: string;
   version?: CardVersion;
@@ -278,6 +295,7 @@ export function formatTeamMessageBatch(
           item.from,
           `sent ${item.sentAt.slice(0, 16).replace('T', ' ')} UTC\n${textOf(item)}`,
           item.actor,
+          item.location,
         );
       const version = item.version
         ? `at stage ${item.version.stageId}, commit ${item.version.commit?.slice(0, 7) ?? 'unknown'}, review commit ${item.version.reviewCommit?.slice(0, 7) ?? 'none'}`
@@ -289,6 +307,7 @@ export function formatTeamMessageBatch(
         item.taskKey,
         item.via,
         item.actor,
+        item.location,
       );
     }),
   ].join('\n\n');

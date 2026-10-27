@@ -22,6 +22,10 @@ describe('legacy task check migration', () => {
     const db = new Database(':memory:');
     for (const migration of migrations.filter((item) => item.version <= 114)) db.exec(migration.sql);
     db.pragma('user_version = 114');
+    // The repositories prepare statements for the current schema: add the columns of migration 116
+    // (PM-1071) for that, and drop them again below so that migrating can add them.
+    db.exec('ALTER TABLE team_messages ADD COLUMN location TEXT');
+    db.exec('ALTER TABLE team_messages ADD COLUMN places TEXT');
     const repos = createRepositories(db);
     repos.projects.insert({
       key: 'AR',
@@ -33,6 +37,8 @@ describe('legacy task check migration', () => {
     });
     repos.tasks.insert(sampleTask({ labels }));
     db.prepare('UPDATE tasks SET checks = ? WHERE key = ?').run(checks, 'AR-1');
+    db.exec('ALTER TABLE team_messages DROP COLUMN location');
+    db.exec('ALTER TABLE team_messages DROP COLUMN places');
     return repos;
   }
 

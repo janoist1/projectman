@@ -7,6 +7,7 @@ import {
   MessageKind,
   MessageSubject,
   TeamMessage as TeamMessageSchema,
+  UiLocation,
 } from '@projectman/shared';
 import type { Statement } from 'better-sqlite3';
 import type { Db } from './database';
@@ -38,6 +39,10 @@ interface MessageRow {
   attachments: string | null;
   /** The e-mail reply the message carries (PM-943); NULL on every other message. */
   email: string | null;
+  /** Where the sender was in the app (PM-1071); NULL when unknown. */
+  location: string | null;
+  /** The places the project manager offers under the message (PM-1071); NULL: none. */
+  places: string | null;
 }
 
 /** A message without its body: who it is between and who read it. */
@@ -72,6 +77,8 @@ const toMessage = (r: MessageRow): TeamMessage => {
   const attachments = attachmentsOf(r.attachments);
   const actor = superActorOf(r);
   const email = r.email ? TeamMessageSchema.shape.email.safeParse(parseJson(r.email, null)) : null;
+  const location = r.location ? UiLocation.safeParse(parseJson(r.location, null)) : null;
+  const places = r.places ? TeamMessageSchema.shape.places.safeParse(parseJson(r.places, null)) : null;
   return {
     id: r.id,
     projectKey: r.project_key,
@@ -87,6 +94,8 @@ const toMessage = (r: MessageRow): TeamMessage => {
     ...(r.receipts ? { receipts: parseJson(r.receipts, []) } : {}),
     ...(attachments ? { attachments } : {}),
     ...(email?.success && email.data ? { email: email.data } : {}),
+    ...(location?.success ? { location: location.data } : {}),
+    ...(places?.success && places.data?.length ? { places: places.data } : {}),
     ...(r.via ? { via: r.via } : {}),
     ...(actor ? { actor } : {}),
     ...(r.origin
@@ -114,8 +123,8 @@ export function createMessageRepository(db: Db) {
        AND instr(body, ?) > 0 LIMIT 1`,
     ),
     insert: db.prepare(
-      `INSERT INTO team_messages (id, project_key, from_handle, to_handles, task_key, body, created_at, delivered_at, receipts, answer, via, origin, kind, version, subject, relayed, operator_request, operator_signal, attachments, actor_meta, email)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO team_messages (id, project_key, from_handle, to_handles, task_key, body, created_at, delivered_at, receipts, answer, via, origin, kind, version, subject, relayed, operator_request, operator_signal, attachments, actor_meta, email, location, places)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ),
     setAttachments: db.prepare('UPDATE team_messages SET attachments = ? WHERE id = ?'),
     countUnread: db.prepare(
@@ -233,6 +242,8 @@ export function createMessageRepository(db: Db) {
           m.attachments?.length ? toJson(m.attachments) : null,
           m.actor ? originMetaJson(m.actor) : null,
           m.email ? toJson(m.email) : null,
+          m.location ? toJson(m.location) : null,
+          m.places?.length ? toJson(m.places) : null,
         );
         refreshPending(m.id);
       })();

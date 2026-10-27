@@ -2369,4 +2369,12 @@ migrations.push({
     )
   ), checks = '{}' WHERE checks <> '{}';`,
 });
+migrations.push({
+  version: 116,
+  name: 'message location and places',
+  // PM-1071: where the sender was in the app (JSON, NULL: unknown), and the places the project manager
+  // offers under the message as buttons (JSON list, NULL: none).
+  sql: `ALTER TABLE team_messages ADD COLUMN location TEXT;
+  ALTER TABLE team_messages ADD COLUMN places TEXT;`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

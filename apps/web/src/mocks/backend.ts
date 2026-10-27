@@ -1485,6 +1485,8 @@ export class MockBackend {
     answer?: TeamMessageAnswer,
     relayed?: TeamMessage['relayed'],
     attachments?: MessageAttachmentRef[],
+    /** Where the sender was (a person's message) and the places offered (the project manager's), PM-1071. */
+    where?: Pick<TeamMessage, 'location' | 'places'>,
   ): TeamMessage {
     const refusal = this.teamMessageRefusal(from, recipients, text, Boolean(attachments?.length));
     if (refusal) throw new Error(`The server refuses this team message: ${JSON.stringify(refusal.body)}`);
@@ -1508,6 +1510,8 @@ export class MockBackend {
       ...(answer ? { answer } : {}),
       ...(relayed ? { relayed } : {}),
       ...(attachments?.length ? { attachments: clone(attachments) } : {}),
+      ...(where?.location ? { location: clone(where.location) } : {}),
+      ...(where?.places?.length ? { places: clone(where.places) } : {}),
     };
     this.messages.push(message);
     this.emit({ type: 'team_message', projectKey: message.projectKey, message: clone(message) });
@@ -5953,6 +5957,7 @@ export class MockBackend {
       undefined,
       undefined,
       attached as MessageAttachmentRef[],
+      input.location ? { location: input.location } : undefined,
     );
     for (const file of attached) file!.messageId = message.id;
     if (signal) {

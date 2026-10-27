@@ -1,4 +1,4 @@
-import type { SentMessageRecipient } from '../contracts';
+import type { MessagePlaceArg, SentMessageRecipient } from '../contracts';
 import type { WorkItemRef } from '@projectman/shared';
 import type {
   InboxToolsHandler,
@@ -210,6 +210,7 @@ export class TeamToolsService implements TeamToolsHandler {
       actionableSignalIds?: string[];
       /** Paths of files of the caller's session folder or working directory (PM-520). */
       attachments?: string[];
+      places?: MessagePlaceArg[];
     },
   ): Promise<{
     messageId: string;

@@ -157,7 +157,19 @@ it(
       allowUnsandboxedCommands: false,
       failIfUnavailable: true,
       // The app home holds every member's worktree and workspace: read-only as a whole (PM-188).
-      filesystem: { allowWrite: [], denyWrite: [workspace, worktree, home, sessionConfigRoot], denyRead },
+      filesystem: {
+        allowWrite: [],
+        denyWrite: [workspace, worktree, home, sessionConfigRoot],
+        // PM-425: the home and the app home are closed to reading, with every Claude transcript; only its
+        // own project and card (the worktree, the git settings) are opened again.
+        denyRead: expect.arrayContaining([
+          userHome,
+          home,
+          ...denyRead,
+          join(userHome, '.claude', 'projects'),
+        ]),
+        allowRead: expect.arrayContaining([worktree, join(userHome, '.gitconfig')]),
+      },
       network: { allowedDomains: ['registry.npmjs.org'], strictAllowlist: true, allowLocalBinding: true },
       // The repository is on GitHub: `gh` with any arguments, as a command of its own (PM-188).
       excludedCommands: ['gh pr view:*', 'gh pr diff:*'],
@@ -172,9 +184,15 @@ it(
         `Edit(/${home}/**)`,
         `Read(/${join(userHome, '.ssh')})`,
         `Read(/${join(userHome, '.ssh')}/**)`,
+        `Read(/${join(userHome, '.claude', 'projects')}/**)`,
       ]),
     );
     expect(reader.permissions.allow).toContain('Bash(gh pr view:*)');
+    // PM-425: no file tool is allowed on every path; the card's worktree is allowed by name.
+    expect(reader.permissions.allow).not.toEqual(expect.arrayContaining(['Read']));
+    expect(reader.permissions.allow).not.toEqual(expect.arrayContaining(['Grep']));
+    expect(reader.permissions.allow).not.toEqual(expect.arrayContaining(['Glob']));
+    expect(reader.permissions.allow).toContain(`Read(/${worktree}/**)`);
 
     // A Codex reviewer: its read-only sandbox and its questions, as before.
     const review = await waitForSession(domain, { member: 'cr' });
@@ -195,6 +213,11 @@ it(
         (arg) => arg.startsWith('permissions.projectman=') && arg.includes('extends=":read-only"'),
       ),
     ).toBe(true);
+    // PM-425: the reviewer's profile closes the home and the app home, and opens its own worktree again.
+    const reviewerProfile = codexArgs.find((arg) => arg.startsWith('permissions.projectman='))!;
+    expect(reviewerProfile).toContain(`"${userHome}"="deny"`);
+    expect(reviewerProfile).toContain(`"${home}"="deny"`);
+    expect(reviewerProfile).toContain(`"${worktree}"="read"`);
     expect(option(codexArgs, '--ask-for-approval')).toBe('on-request');
     expect(JSON.stringify(codexArgs)).not.toContain('sandbox_workspace_write');
     expect(JSON.stringify(codexArgs)).not.toContain('denyWrite');

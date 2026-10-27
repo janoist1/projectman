@@ -2,6 +2,7 @@ import type {
   DeniedSessionOperation,
   ReviewCopyMode,
   SessionAccess,
+  SessionReadBoundary,
   ShellToolRule,
 } from '@projectman/shared';
 
@@ -74,6 +75,13 @@ export interface SessionPolicy {
      * Present only with `sessionFolder`.
      */
     sessionFoldersRoot?: string;
+    /**
+     * Only a reading session (PM-425): the places below the user's home and the app home it reads (the
+     * exact files and directory subtrees in `allowedPaths`) and the roots that stay closed otherwise.
+     * Every provider's file-tool decision uses this one list (`readBoundaryVerdict`); the CLI's own
+     * sandbox is rendered from the same list. `deniedPaths` stay denied whatever it allows.
+     */
+    readBoundary?: SessionReadBoundary;
   };
   deniedOperations: DeniedSessionOperation[];
   network: {

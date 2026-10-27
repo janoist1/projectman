@@ -22,6 +22,7 @@ import { registerEmailLoginRoutes } from './email-login-routes';
 export { createAttemptLimiter, MAX_FAILED_ATTEMPTS_ALL_CLIENTS } from '../kernel';
 export { AuthService, SESSION_TTL_MS } from './auth-service';
 export type { AuthUser } from './auth-service';
+export { OwnerAccountService } from './owner-accounts';
 export { clientAddress, isLocalRequest, requestProtocol } from '../kernel';
 export { createSetupCode, MAX_SETUP_CODE_FAILURES } from './setup-code';
 export { deriveEmailLoginKey, deriveEmailReplyKey, loadOrCreateSecret } from './secret';
@@ -65,6 +66,8 @@ export function integratorChannel(request: Pick<FastifyRequest, 'url' | 'headers
 const PUBLIC_ROUTES = new Set([
   `GET ${routes.invite(':token')}`,
   `POST ${routes.acceptInvite(':token')}`,
+  `GET ${routes.ownerInvite(':token')}`,
+  `POST ${routes.acceptOwnerInvite(':token')}`,
   `GET ${routes.setupStatus()}`,
   `POST ${routes.setup()}`,
   `POST ${routes.login()}`,
@@ -109,7 +112,7 @@ export async function meOf(domain: AuthDomain, user: AuthUser, auth?: AuthServic
     handles: await domain.handlesFor(user.email),
     projects: await domain.projectsFor(user.email),
     instanceOwner: await domain.instanceOwner(user.email),
-    ...(auth ? { hostOwner: auth.isHostOwner(user.id) } : {}),
+    ...(auth ? { hostOwner: auth.isHostOwner(user.id), ownerAccount: auth.isOwnerAccount(user.id) } : {}),
   };
 }
 
@@ -311,8 +314,7 @@ export function registerAuth(
   });
 
   app.get(routes.me(), async (request) => ({
-    ...(await meOf(domain, request.user!)),
-    hostOwner: auth.isHostOwner(request.user!.id),
+    ...(await meOf(domain, request.user!, auth)),
     ...(request.via ? { via: request.via } : {}),
   }));
 

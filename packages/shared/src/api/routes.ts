@@ -136,6 +136,16 @@ export const routes = {
   invite: (token: string) => `/api/invites/${token}`,
   acceptInvite: (token: string) => `/api/invites/${token}/accept`,
 
+  /** The host owner's owner invitations (PM-1062): `POST` creates, `GET` lists, `DELETE` revokes one. */
+  ownerInvitations: () => '/api/owner-invitations',
+  ownerInvitation: (id: string) => `/api/owner-invitations/${id}`,
+  /** The owner accounts: `GET` the list; `POST` revokes one (and pauses what it owned). */
+  ownerAccounts: () => '/api/owner-accounts',
+  revokeOwnerAccount: (userId: string) => `/api/owner-accounts/${userId}/revoke`,
+  /** The public link of an owner invitation: `GET` inspects it, `POST` accepts it. */
+  ownerInvite: (token: string) => `/api/owner-invites/${token}`,
+  acceptOwnerInvite: (token: string) => `/api/owner-invites/${token}/accept`,
+
   /** GET the project's pauses (`ProjectPauseView`); POST pauses it (`PauseRequest`), admin at least. */
   projectPause: (key: string) => `/api/projects/${key}/pause`,
   projectPauseResume: (key: string) => `/api/projects/${key}/pause/resume`,

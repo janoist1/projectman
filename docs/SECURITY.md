@@ -178,7 +178,11 @@ tenants into separate OS accounts or machines.
 frame-ancestors 'none'` and `X-Frame-Options: DENY` (PM-211), so no other site can frame
   the interface to trick a signed-in user (clickjacking). The interface uses no iframe.
 - REST and team tools check membership, access, project/resource ownership and
-  current gate eligibility. Initial host owner alone creates projects. Account
+  current gate eligibility. The initial host owner and the owner accounts (PM-1062) create projects;
+  an owner account must name an engine of its own and the folder is checked on that engine. The host owner
+  invites an owner account by a single-use link (256-bit token, SHA-256 hash stored, 7 days, public and
+  attempt-limited routes, redacted in request logs) and revokes it with their own login: its projects the host
+  cannot see are paused, its engines and integrator keys are revoked, its login and data stay. Account
   rebinding, filesystem locations, admin grants and release approvers are owner-only.
   Owners and admins may invite an existing human seat without an email; acceptance
   binds only that still-unclaimed seat to the invited account, preserving its identity

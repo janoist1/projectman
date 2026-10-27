@@ -84,6 +84,16 @@ export function createIntegratorKeyRepository(db: Db) {
         return row ? accessInfo(revokeRow(row, at), at) : null;
       })();
     },
+    /** Revokes every key of the user that is not revoked, one audit row each; returns how many it revoked. */
+    revokeAllOf(userId: string, at: string): number {
+      return db.transaction(() => {
+        const rows = db
+          .prepare('SELECT * FROM integrator_keys WHERE user_id = ? AND revoked_at IS NULL ORDER BY rowid')
+          .all(userId) as KeyRow[];
+        for (const row of rows) revokeRow(row, at);
+        return rows.length;
+      })();
+    },
     resolveKey(hash: string, at: string) {
       return credential(
         db

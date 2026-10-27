@@ -4,7 +4,10 @@ import type { FastifyRequest } from 'fastify';
 export function serializeRequest(request: FastifyRequest) {
   const url = request.url
     .split('?')[0]!
-    .replace(/^(\/api\/invites\/|\/invite\/|\/hooks\/|\/mcp\/)[^/]+/i, '$1[redacted]');
+    .replace(
+      /^(\/api\/invites\/|\/invite\/|\/api\/owner-invites\/|\/owner-invite\/|\/hooks\/|\/mcp\/)[^/]+/i,
+      '$1[redacted]',
+    );
   return {
     method: request.method,
     url,

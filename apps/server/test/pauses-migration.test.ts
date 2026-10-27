@@ -51,7 +51,9 @@ describe('pauses migration (PM-219)', () => {
     const db = new Database(':memory:');
     try {
       migrate(db);
-      db.exec(`INSERT INTO projects VALUES ('AR', 'Example', NULL, 'v1', '2026-01-01', '2026-01-01');`);
+      db.exec(
+        `INSERT INTO projects (key, name, template_id, config_version, created_at, updated_at) VALUES ('AR', 'Example', NULL, 'v1', '2026-01-01', '2026-01-01');`,
+      );
       const repos = createRepositories(db);
       repos.sessions.insert({
         id: 'ses_1',

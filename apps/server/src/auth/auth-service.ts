@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { hash, verify } from '@node-rs/argon2';
+import { isOwnerAccount } from '@projectman/shared';
 import type {
   CreateIntegratorAccessKeyRequest,
   IntegratorChannel,
@@ -63,6 +64,13 @@ export class AuthService {
   revokeIntegratorAccessKey(userId: string, id: string) {
     const revoked = this.repos.integratorKeys.revokeById(userId, id, this.now().toISOString());
     this.keysChanged();
+    return revoked;
+  }
+
+  /** Revokes every integrator key of the user, with the audit rows; the revocation of an owner account (PM-1062). */
+  revokeIntegratorAccessKeysOf(userId: string): number {
+    const revoked = this.repos.integratorKeys.revokeAllOf(userId, this.now().toISOString());
+    if (revoked > 0) this.keysChanged();
     return revoked;
   }
 
@@ -278,6 +286,11 @@ export class AuthService {
   async instanceOwner(email: string): Promise<boolean> {
     const user = this.repos.users.findByEmail(email.trim());
     return user !== null && this.isHostOwner(user.id);
+  }
+
+  /** Whether the user holds an active owner account (PM-1062); the host owner has none, they are above it. */
+  isOwnerAccount(userId: string): boolean {
+    return isOwnerAccount(this.repos.ownerAccounts.get(userId));
   }
 
   /** First-run setup: creates the owner account; refused once any user exists. */

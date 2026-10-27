@@ -1233,7 +1233,9 @@ export const hu = {
       card_busy: 'A kártyán már dolgozik egy azonos szerepű tag.',
       engine_not_found: 'Nincs ilyen motor.',
       engine_revoked: 'Ezt a motort visszavonták.',
-      engine_not_owned: 'Ezt a motort csak a gazdája kötheti a projekthez.',
+      engine_not_owned:
+        'Ezt a motort csak a gazdája kötheti projekthez, kezelheti vagy használhatja új projekthez.',
+      owner_account_exists: 'Ehhez az e-mail-címhez már tartozik tulajdonosi fiók (vagy a gazdáé).',
       engine_in_use: 'A projektnek még fut munkamenete ezen a motoron.',
       engine_is_default: 'Ez a projekt alapmotorja. Előbb tegyél alappá egy másikat.',
       engine_not_bound: 'Ez a motor nincs a projekthez kötve.',

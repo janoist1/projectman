@@ -87,7 +87,9 @@ describe('semantic engine', () => {
   beforeEach(async () => {
     db = openDatabase(':memory:');
     await loadVectorExtension(db);
-    db.exec(`INSERT INTO projects VALUES ('AR', 'Example', NULL, 'v1', '2026-01-01', '2026-01-01')`);
+    db.exec(
+      `INSERT INTO projects (key, name, template_id, config_version, created_at, updated_at) VALUES ('AR', 'Example', NULL, 'v1', '2026-01-01', '2026-01-01')`,
+    );
     embedder = fakeEmbedder();
     clock = Date.parse('2026-10-01T10:00:00.000Z');
     warnings.length = 0;

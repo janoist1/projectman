@@ -166,6 +166,9 @@ export const UNJOURNALED_TABLES: Readonly<Record<string, string>> = {
   engines: 'written with the project fan-out by the engine registry, in its own transaction',
   project_engines:
     'written by the engine registry in one transaction with the project’s own engine journal row (PM-1060)',
+  owner_accounts: 'instance-level accounts of the host owner’s administration (PM-1062), not project state',
+  owner_invitations:
+    'instance-level invitations of the host owner’s administration (PM-1062), not project state',
   feedback_events: 'the feedback tool has its own read model',
   feedback_launch_codes: 'the feedback tool has its own read model',
   feedback_marker_colors: 'the feedback tool has its own read model',

@@ -9,7 +9,13 @@ import type { ChangeJournal } from '../core/base';
 import type { AttachmentService, MessageAttachmentService } from '../core/attachments';
 import type { BoardService, CardMeasure, InvolvementService, TaskService, TaskWaits } from '../core/tasks';
 import type { ProjectService, RoleService, ChecklistService } from '../core/projects';
-import type { InvitationService, MemberService, MemberProfiles, ProjectAccess } from '../core/members';
+import type {
+  InvitationService,
+  MemberService,
+  MemberProfiles,
+  OwnerInvitationService,
+  ProjectAccess,
+} from '../core/members';
 import type { MessageService, Messaging } from '../core/messages';
 import type { InboxService } from '../core/inbox';
 import type { MemberQueue } from '../core/member-queue';
@@ -46,6 +52,7 @@ export interface ApiDomain extends AuthDomain {
   readonly handoffs: HandoffService;
   readonly inbox: InboxService;
   readonly invitations: InvitationService;
+  readonly ownerInvitations: OwnerInvitationService;
   readonly involvements: InvolvementService;
   readonly machine: MachineMonitor;
   readonly members: MemberService;

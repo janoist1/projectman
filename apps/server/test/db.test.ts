@@ -26,6 +26,8 @@ describe('legacy task check migration', () => {
     // (PM-1071) for that, and drop them again below so that migrating can add them.
     db.exec('ALTER TABLE team_messages ADD COLUMN location TEXT');
     db.exec('ALTER TABLE team_messages ADD COLUMN places TEXT');
+    // The same for migration 119 (PM-1062).
+    db.exec('ALTER TABLE projects ADD COLUMN created_by TEXT');
     const repos = createRepositories(db);
     repos.projects.insert({
       key: 'AR',
@@ -39,6 +41,7 @@ describe('legacy task check migration', () => {
     db.prepare('UPDATE tasks SET checks = ? WHERE key = ?').run(checks, 'AR-1');
     db.exec('ALTER TABLE team_messages DROP COLUMN location');
     db.exec('ALTER TABLE team_messages DROP COLUMN places');
+    db.exec('ALTER TABLE projects DROP COLUMN created_by');
     return repos;
   }
 

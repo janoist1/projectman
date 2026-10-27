@@ -2716,6 +2716,16 @@ workers follow the machine's size.
   the engine's owner and the members of the projects that use it (the rules are `canSeeEngine` and
   `canSeeEngineMachine` in `packages/shared`). A remote engine of another owner therefore needs nothing more than
   its link; what it may be sent is decided on the hub.
+  PM-1062 adds the owner account (protocol unchanged): the host owner invites an owner by an e-mail link
+  (`owner_invitations`, migration 118; a 7-day single-use token stored as a SHA-256 hash, public and
+  attempt-limited `GET`/`POST /api/owner-invites/:token[/accept]`); acceptance grants `owner_accounts` and starts
+  a session. An owner account creates and revokes its own engines (`canCreateEngine`, `canManageEngine`), but
+  the machine default stays the host owner's. The host owner revokes the account
+  (`POST /api/owner-accounts/:userId/revoke`, own login only): the account is marked, its projects the host has
+  no seat in are paused, its engines and integrator keys are revoked; the login and the data stay. The folder
+  check of a new project runs on the engine the creator chose (`NewProjectEngines.isDirectory(engineId, path)`),
+  which then becomes the project's default binding. It needs nothing new on a remote engine: `host.is_directory`
+  already exists.
   File export forwards `exactRoot` when the caller requires a root without symbolic links.
   PM-739 adds `workspace.publishTaskBranch` (`[key, taskKey, branch, commit]` → strict `{path, ref}`):
   the engine hands a developer's task commit over to its own repository; the cloud never names a path
@@ -2985,7 +2995,11 @@ workers follow the machine's size.
   super command). `EngineRegistry.projectEngine` applies the pure rule `projectEngineOf` of
   `packages/shared`: the live default binding; none (`engine_offline`) when it is revoked, never a silent
   move to another machine; with no binding the global default engine, but only while its owner is among
-  the project's owners. So a single-machine or `local` installation and a project nobody bound run as
+  the project's owners and no other user created the project (`projects.created_by`, migration 119, PM-1062:
+  null for a project the host owner registered, the creator's user id for one made in the app; no route
+  changes it). The configuration names the owners and a project owner edits it freely, so an owner
+  account's project reaches the host's machine only through an explicit binding of the host's own login.
+  Revoking an owner account pauses the projects it created too. So a single-machine or `local` installation and a project nobody bound run as
   before. Each write is one transaction with an `engine` row of the project's change journal, then the
   wake, an `engine_changed` event with the `projectKey`, and `onProjectEngineChange`: the GitHub watches
   of that project move to the new base engine (`github.unwatch` on the old, `github.watch` on the new;
@@ -2995,7 +3009,8 @@ workers follow the machine's size.
   `holdsProject` of the list); it never decides the binding.
   **Does this work on a remote engine?** This entry is the cloud's side of the remote engine: nothing
   here starts a process on the cloud's host. Without a connected engine a project cannot be created
-  (`isDirectory` answers `engine_offline`, HTTP 409), a full test is refused with `engine_offline`, and
+  (`isDirectory` answers `engine_offline`, HTTP 409; PM-1062: the engine is the one the creator chose, an
+  owner account must name one of its own, `engine_not_owned` / `engine_offline` / `engine_revoked`), a full test is refused with `engine_offline`, and
   the machine view is `engine_offline`. Moving the cloud onto a host with no CLIs is the goal; the
   `hello` paths are the engine's own and are never opened by the cloud.
   **Boundary proof (PM-667):** `test/cloud-engine.test.ts` (fixture `test/helpers/cloud-engine.ts`) joins

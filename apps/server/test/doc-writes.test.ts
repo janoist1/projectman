@@ -997,7 +997,9 @@ describe('autonomous lessons (PM-1004)', () => {
         const value = binding === 'state' ? 'queued' : binding === 'project' ? 'OTHER' : 'other';
         if (binding === 'project') {
           h.repos.db
-            .prepare("INSERT INTO projects VALUES ('OTHER', 'Other', NULL, 'v1', '2026-01-01', '2026-01-01')")
+            .prepare(
+              "INSERT INTO projects (key, name, template_id, config_version, created_at, updated_at) VALUES ('OTHER', 'Other', NULL, 'v1', '2026-01-01', '2026-01-01')",
+            )
             .run();
           h.repos.db
             .prepare('UPDATE member_queue_items SET project_key = ? WHERE id = ?')

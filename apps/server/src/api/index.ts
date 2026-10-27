@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { registerWebPushRoutes } from './web-push';
-import type { AuthService } from '../auth';
+import type { AuthService, OwnerAccountService } from '../auth';
 import type { ApiDomain } from './ports';
 import type { EngineRegistry } from '../runtime/sessions';
 import { registerEngineRoutes } from './engines';
@@ -15,6 +15,7 @@ import { registerFeedbackWidgetRoutes } from './feedback-widget';
 import { registerProjectEventRoutes } from './project-events';
 import { registerStructureRoutes } from './structure';
 import { registerInvitationRoutes } from './invitations';
+import { registerOwnerAccountRoutes } from './owner-accounts';
 import { registerMemberRoutes } from './members';
 import { registerEmailChannelRoutes } from './email-channel';
 import { registerOperatorRoutes } from './operator';
@@ -37,6 +38,7 @@ export interface ApiServices {
   engineRegistry?: EngineRegistry;
   domain: ApiDomain;
   auth: AuthService;
+  ownerAccounts: OwnerAccountService;
   /** The header that names the real client behind a trusted entrance (see clientAddress). */
   clientIpHeader?: string;
   /** The built feedback widget script (PM-509); absent or missing on disk: its route answers 404. */
@@ -111,4 +113,5 @@ export function registerApiRoutes(app: FastifyInstance, services: ApiServices): 
   });
   registerConfigRoutes(app, domain);
   registerInvitationRoutes(app, services);
+  registerOwnerAccountRoutes(app, services);
 }

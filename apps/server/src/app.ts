@@ -18,6 +18,7 @@ import {
   deriveEmailReplyKey,
   loadOrCreateSecret,
   MAX_SETUP_CODE_FAILURES,
+  OwnerAccountService,
   registerAuth,
 } from './auth';
 import { serializeRequest } from './http';
@@ -536,6 +537,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
         ? { releaseHybrid: { binding: options.releaseHybrid, engines: releaseEngineStatuses } }
         : {}),
       engineName: (id) => engineRegistry?.list().find((engine) => engine.id === id)?.name ?? null,
+      ...(engineRegistry ? { engineRegistry } : {}),
       ...(options.administrationSocket || remote
         ? {
             administration: {
@@ -726,6 +728,16 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     registerApiRoutes(app, {
       domain,
       auth,
+      ownerAccounts: new OwnerAccountService({
+        repos: repos!,
+        auth,
+        ports: {
+          projectsFor: (email) => domain.projectsFor(email),
+          accessFor: (projectKey, email) => domain.accessFor(projectKey, email),
+          pauses: domain.pauses,
+          engines: engineRegistry,
+        },
+      }),
       clientIpHeader,
       engineRegistry,
       feedbackWidgetFile: options.feedbackWidgetFile,

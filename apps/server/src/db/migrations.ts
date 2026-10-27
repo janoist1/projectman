@@ -2393,4 +2393,35 @@ migrations.push({
   CREATE UNIQUE INDEX project_engines_one_default ON project_engines(project_key) WHERE is_default = 1;
   CREATE INDEX project_engines_engine ON project_engines(engine_id);`,
 });
+migrations.push({
+  version: 118,
+  name: 'owner accounts and owner invitations',
+  // PM-1062: the host owner invites another owner. An owner account lets the user create projects and
+  // engines of their own; a revoked one keeps its row (and the user's login, data and projects).
+  sql: `CREATE TABLE owner_accounts (
+    user_id    TEXT NOT NULL PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    granted_by TEXT NOT NULL REFERENCES users(id),
+    granted_at TEXT NOT NULL,
+    revoked_at TEXT,
+    revoked_by TEXT REFERENCES users(id)
+  );
+  CREATE TABLE owner_invitations (
+    id               TEXT NOT NULL PRIMARY KEY,
+    email            TEXT NOT NULL COLLATE NOCASE,
+    token_hash       TEXT NOT NULL UNIQUE,
+    created_by       TEXT NOT NULL REFERENCES users(id),
+    created_at       TEXT NOT NULL,
+    expires_at       TEXT NOT NULL,
+    accepted_at      TEXT,
+    accepted_user_id TEXT REFERENCES users(id),
+    revoked_at       TEXT
+  );`,
+});
+migrations.push({
+  version: 119,
+  name: 'project creator',
+  // PM-1062: who created the project. No backfill: null means the host owner registered it (every project
+  // before owner accounts existed, and a project synced from the customization store).
+  sql: `ALTER TABLE projects ADD COLUMN created_by TEXT REFERENCES users(id);`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

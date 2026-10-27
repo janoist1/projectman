@@ -79,7 +79,10 @@ export type ProjectEngineBinding = z.infer<typeof ProjectEngineBinding>;
  * 1. A default binding whose engine is not revoked: that engine.
  * 2. A default binding whose engine is revoked: null. It does not move to another machine silently; the
  *    project owner picks a new default.
- * 3. No binding: the global default, while its owner is one of the project's owners; otherwise null.
+ * 3. No binding: the global default, while its owner is one of the project's owners and no other user
+ *    created the project; otherwise null. The owners come from the project's configuration, which a project
+ *    owner edits freely, so the fallback also rests on a fact the server alone writes: an owner account's
+ *    project never lands on the host's machine unless the host binds it (PM-1062).
  */
 export function projectEngineOf(input: {
   bindings: readonly ProjectEngineBinding[];
@@ -87,12 +90,17 @@ export function projectEngineOf(input: {
   globalDefault: { id: EngineId; ownerUserId: string } | null;
   /** The user ids of the members with `owner` access to the project. */
   projectOwnerUserIds: readonly string[];
+  /** `projects.created_by`; null: registered by the host owner (before PM-1062, or from the customization store). */
+  projectCreatedBy: string | null;
 }): EngineId | null {
   const base = input.bindings.find((binding) => binding.isDefault);
   if (base) return base.revoked ? null : base.engineId;
   if (input.bindings.length > 0) return null;
   const fallback = input.globalDefault;
-  return fallback && input.projectOwnerUserIds.includes(fallback.ownerUserId) ? fallback.id : null;
+  if (!fallback || !input.projectOwnerUserIds.includes(fallback.ownerUserId)) return null;
+  return input.projectCreatedBy === null || input.projectCreatedBy === fallback.ownerUserId
+    ? fallback.id
+    : null;
 }
 
 interface EngineBindingActor {

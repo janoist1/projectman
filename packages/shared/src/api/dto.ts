@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { BoardPlacement } from '../domain/board-order';
 import { ComplexityPoints, COMPLEXITY_REASON_MAX } from '../domain/complexity';
 import { DutyId } from '../domain/duty';
+import { EngineId } from '../domain/engine';
 import { ChatItem } from '../chat/chat';
 import {
   AutoCompactWindowTokens,
@@ -458,6 +459,8 @@ export type EmailLoginRateLimitedDetails = z.infer<typeof EmailLoginRateLimitedD
 
 export const Me = z.object({
   hostOwner: z.boolean().optional(),
+  /** The user holds an active owner account (PM-1062): may create projects and engines of their own. */
+  ownerAccount: z.boolean().optional(),
   via: z.literal('integrator').optional(),
   userId: z.string(),
   name: z.string(),
@@ -547,6 +550,11 @@ export const CreateProjectRequest = z.object({
   repos: z.array(RepoConfig).optional(),
   /** Who moves the cards on; absent means `worker`. `creator` makes the creating human the mover. */
   cardMover: z.enum(['worker', 'project_manager', 'creator']).optional(),
+  /**
+   * The engine the project is created on (PM-1062): the folder is checked there and it becomes the project's
+   * base engine. Required for an owner account; the host owner may leave it out (today's way).
+   */
+  engineId: EngineId.optional(),
 });
 export type CreateProjectRequest = z.infer<typeof CreateProjectRequest>;
 
@@ -1479,6 +1487,46 @@ export const PublicInviteView = z.object({
   emailHint: z.string().optional(),
 });
 export type PublicInviteView = z.infer<typeof PublicInviteView>;
+
+/* ---------- owner accounts (PM-1062) ---------- */
+
+/** An invitation of a new owner; never includes the token or its hash. */
+export const OwnerInvitationView = z.object({
+  id: z.string(),
+  email: z.string(),
+  /** The display name of the inviter. */
+  invitedBy: z.string(),
+  createdAt: z.string(),
+  expiresAt: z.string(),
+  acceptedAt: z.string().nullable(),
+  revokedAt: z.string().nullable(),
+});
+export type OwnerInvitationView = z.infer<typeof OwnerInvitationView>;
+export const OwnerInvitationsView = z.object({ invitations: z.array(OwnerInvitationView) });
+export type OwnerInvitationsView = z.infer<typeof OwnerInvitationsView>;
+/** `path` is the link to hand over: `/owner-invite/<token>`. */
+export const CreatedOwnerInvitation = OwnerInvitationView.extend({ path: z.string() });
+export type CreatedOwnerInvitation = z.infer<typeof CreatedOwnerInvitation>;
+export const CreateOwnerInviteRequest = z.object({ email: z.string().email() }).strict();
+export type CreateOwnerInviteRequest = z.infer<typeof CreateOwnerInviteRequest>;
+
+export const PublicOwnerInviteView = z.object({
+  inviterName: z.string(),
+  expiresAt: z.string(),
+  requiresLogin: z.boolean(),
+});
+export type PublicOwnerInviteView = z.infer<typeof PublicOwnerInviteView>;
+
+export const OwnerAccountView = z.object({
+  userId: z.string(),
+  name: z.string(),
+  email: z.string(),
+  grantedAt: z.string(),
+  revokedAt: z.string().nullable(),
+});
+export type OwnerAccountView = z.infer<typeof OwnerAccountView>;
+export const OwnerAccountsView = z.object({ accounts: z.array(OwnerAccountView) });
+export type OwnerAccountsView = z.infer<typeof OwnerAccountsView>;
 
 /** Puts a theme or card into the project's focus (PM-427); `position` is 1-based, absent: the end of the list. */
 export const ProjectFocusAddRequest = z.object({

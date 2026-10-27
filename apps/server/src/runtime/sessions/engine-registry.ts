@@ -170,6 +170,7 @@ export class EngineRegistry {
       bindings: this.projectBindings(projectKey),
       globalDefault: fallback ? { id: fallback.id, ownerUserId: fallback.created_by } : null,
       projectOwnerUserIds: this.projectOwners(projectKey),
+      projectCreatedBy: this.repos.projects.get(projectKey)?.createdBy ?? null,
     });
   }
 

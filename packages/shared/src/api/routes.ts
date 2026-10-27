@@ -20,6 +20,8 @@ export const routes = {
   pushDeviceTest: (id: string) => `/api/me/push/devices/${id}/test`,
   pushUnsubscribe: () => '/api/me/push/unsubscribe',
   projectManager: (key: string) => `/api/projects/${key}/project-manager`,
+  /** GET the project manager's member queue (`MemberQueueView`, PM-894, PM-1042); `?closedSince=<iso>`. */
+  projectManagerQueue: (key: string) => `/api/projects/${key}/project-manager/queue`,
   /** GET the Operator's channel with its requests and steps (`OperatorChannel`, PM-463) of the viewer's own conversation (PM-475); a person's own login only. */
   operator: (key: string) => `/api/projects/${key}/operator`,
   /** GET the Operator's member queue (`MemberQueueView`, PM-894); `?closedSince=<iso>`. */
@@ -58,7 +60,6 @@ export const routes = {
   engineUpload: (token: string) => `/engine/files/uploads/${token}`,
   /** The engine fetches an attachment from here (PM-314): `GET`; the token comes with the request. */
   engineDownload: (token: string) => `/engine/files/downloads/${token}`,
-  integratorKey: () => '/api/auth/integrator-key',
   integratorKeys: () => '/api/auth/integrator-keys',
   integratorAccessKey: (id: string) => `/api/auth/integrator-keys/${id}`,
   integratorKeyAudit: () => '/api/auth/integrator-keys/audit',
@@ -166,6 +167,8 @@ export const routes = {
   memberMemories: (key: string, handle: string) => `/api/projects/${key}/members/${handle}/memories`,
   startConversation: (key: string, handle: string) => `/api/projects/${key}/members/${handle}/conversation`,
   removeHuman: (key: string, handle: string) => `/api/projects/${key}/members/${handle}/remove`,
+  /** POST (owner, `RenameMemberRequest`): renames an AI member; answers the new `MemberView` (PM-1025). */
+  memberRename: (key: string, handle: string) => `/api/projects/${key}/members/${handle}/rename`,
   teamMessages: (key: string) => `/api/projects/${key}/messages`,
   /** GET: the viewer's conversations with the other members, with the unread count of each (PM-78). */
   teamThreads: (key: string) => `/api/projects/${key}/messages/threads`,

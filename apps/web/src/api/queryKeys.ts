@@ -13,10 +13,10 @@ export const queryKeys = {
   checklist: (key: string) => ['project', key, 'checklist'] as const,
   serverVersion: ['server-version'] as const,
   operatorKnowledge: (key: string) => ['project', key, 'operator-knowledge'] as const,
-  /** The Operator's queue (PM-894); the shorter key is every `closedSince` of it. */
+  /** The corner member's queue (PM-894, PM-1042); the shorter key is every member and `closedSince` of it. */
   operatorQueueAll: (key: string) => ['project', key, 'operator-queue'] as const,
-  operatorQueue: (key: string, closedSince: string) =>
-    ['project', key, 'operator-queue', closedSince] as const,
+  operatorQueue: (key: string, handle: string, closedSince: string) =>
+    ['project', key, 'operator-queue', handle, closedSince] as const,
   /** The Operator's grant for machine operations (PM-881); one for the whole instance. */
   operatorGrant: ['operator-grant'] as const,
   operatorGrantAudit: ['operator-grant-audit'] as const,
@@ -83,10 +83,11 @@ export const queryKeys = {
   /** The e-mail channel (PM-942): its state, and its log (the pages of one infinite query). */
   emailChannel: (key: string) => ['project', key, 'email', 'channel'] as const,
   emailLog: (key: string) => ['project', key, 'email', 'log'] as const,
-  /** The project manager's channel state (PM-429); its own prefix, reloaded on the events that change it. */
+  /**
+   * The viewer's corner: the project manager's channel state (PM-429) with its requests, signals and queue
+   * (PM-1042); its own prefix, reloaded on the events that change it and on the signals.
+   */
   projectManager: (key: string) => ['project', key, 'project-manager'] as const,
-  /** The viewer's Operator channel (PM-447); reloaded on the same events and on the signals. */
-  operator: (key: string) => ['project', key, 'operator'] as const,
   schedules: (key: string) => ['project', key, 'schedules'] as const,
   members: (key: string) => ['project', key, 'members'] as const,
   roles: (key: string) => ['project', key, 'roles'] as const,

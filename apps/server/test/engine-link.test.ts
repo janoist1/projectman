@@ -151,7 +151,7 @@ describe('cloud engine registry and link', () => {
     expect((await inject(h.app, 'POST', routes.engines(), developer, { name: 'x' })).statusCode).toBe(403);
     expect((await inject(h.app, 'GET', routes.engineStatus(), developer)).statusCode).toBe(200);
     expect((await inject(h.app, 'GET', routes.engineStatus(), client)).statusCode).toBe(200);
-    const keyResponse = await inject(h.app, 'POST', routes.integratorKey(), cookie, {});
+    const keyResponse = await inject(h.app, 'POST', routes.integratorKeys(), cookie, { mode: 'read' });
     const headers = { authorization: `Bearer ${keyResponse.json().secret}` };
     const engine = await create();
     for (const url of [
@@ -162,8 +162,7 @@ describe('cloud engine registry and link', () => {
       const response = await h.app.inject({ method: 'POST', url, headers, payload: { name: 'x' } });
       expect(response.statusCode).toBe(403);
       expect(response.json().error).toMatchObject({
-        code: 'owner_login_required',
-        details: { category: 'engines' },
+        code: 'integrator_read_only',
       });
     }
     expect((await h.app.inject({ method: 'GET', url: routes.engines(), headers })).statusCode).toBe(200);

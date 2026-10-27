@@ -507,11 +507,11 @@ describe('e-mail login of invited clients (PM-670)', () => {
         expect([res.statusCode, res.json().error.code]).toEqual([401, 'invalid_credentials']);
       }
       // No integrator key for it, even if it were the host owner.
-      const key = await inject(h.app, 'GET', routes.integratorKey(), cookie);
+      const key = await inject(h.app, 'GET', routes.integratorKeys(), cookie);
       expect(key.statusCode).toBe(403);
       const userId = users().findByEmail('kata@acme.test')!.id;
       expect(h.app.projectman.auth.hasPassword(userId)).toBe(false);
-      expect(h.app.projectman.auth.resolveIntegratorKey('pmi_not-a-key')).toBeNull();
+      expect(h.app.projectman.auth.resolveIntegratorCredential('pmi_not-a-key', 'rest')).toBeNull();
 
       // A developer invitation for the same address cannot be taken with a password it does not have.
       await secondProject();
@@ -734,7 +734,9 @@ describe('e-mail login of invited clients (PM-670)', () => {
       const second = await post(routes.setup(), OWNER_LOGIN);
       expect(second.statusCode).toBe(409);
       // The host owner still holds an integrator key with a password.
-      expect((await inject(h.app, 'POST', routes.integratorKey(), owner, {})).statusCode).toBe(201);
+      expect(
+        (await inject(h.app, 'POST', routes.integratorKeys(), owner, { mode: 'super' })).statusCode,
+      ).toBe(201);
     });
   });
 });

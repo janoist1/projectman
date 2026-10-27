@@ -233,18 +233,48 @@ describe('separate PM and Operator authorization', () => {
     const channel = await h.domain.projectManagerChannels.operatorView('AR', 'owner');
     expect(channel.requests).toHaveLength(1);
     expect(channel.requests[0]?.id).not.toBe(requests().openFor(pm.sessionId)?.id);
+    // The app super path resolves the owner's account, unlike the legacy Operator path.
+    h.repos.users.insert({
+      id: 'usr_coordination_owner',
+      name: OWNER.name,
+      email: OWNER.email,
+      passwordHash: 'unused-test-hash',
+      createdAt: now.toISOString(),
+    });
     await expect(
       h.domain.teamTools.operate(pm, {
         title: 'Change capacity',
         operation: { op: 'member_update', handle: 'dev-1', changes: { capacity: 2 } },
       }),
-    ).rejects.toThrow('operator_only');
+    ).resolves.toMatchObject({ status: 'done' });
+    expect(
+      (await h.domain.projects.config('AR')).team.members.find((member) => member.handle === 'dev-1'),
+    ).toMatchObject({ capacity: 2 });
     await expect(
       h.domain.teamTools.operate(operator, {
         title: 'Change capacity',
         operation: { op: 'member_update', handle: 'dev-1', changes: { capacity: 2 } },
       }),
     ).resolves.toMatchObject({ status: 'done' });
+  });
+
+  it("gives the corner the PM's own requests and delivered signals, and a guest none of them", async () => {
+    await setup();
+    const { signal } = await idleSignal();
+    await deliverSignals();
+    const pm = await ownerMessage('pm');
+    const corner = await h.domain.projectManagerChannels.view('AR', 'owner');
+    expect(corner).toMatchObject({ member: { handle: 'pm' }, readOnly: false });
+    expect(corner.requests.map((r) => r.id)).toEqual([requests().openFor(pm.sessionId)!.id]);
+    expect(corner.signals.map((s) => s.id)).toContain(signal.id);
+    expect(corner.openSignals).toBeGreaterThan(0);
+    await expect(h.domain.projectManagerChannels.view('AR', 'guest')).resolves.toMatchObject({
+      readOnly: true,
+      requests: [],
+      signals: [],
+      openSignals: 0,
+      queue: { open: 0, current: null },
+    });
   });
 
   it('opens nothing for another human, integrator, system signal, member message or knowledge approval', async () => {

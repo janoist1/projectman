@@ -156,38 +156,4 @@ export default async ({ instance, open, shoot, step }) => {
       .waitFor();
     await shoot(page, 'member-involvements', { widths: [1512, 390], highlight: 'p[class*="involvement"]' });
   });
-  await step('integrator key states with a fictional secret', async () => {
-    const metadata = {
-      prefix: 'pmi_example',
-      createdAt: at(1),
-      expiresAt: new Date(Date.now() + 90 * 86_400_000).toISOString(),
-      lastUsedAt: at(8),
-      revokedAt: null,
-      state: 'active',
-    };
-    let key = null;
-    await page.route('**/api/auth/integrator-key', async (route) => {
-      if (route.request().method() === 'POST') {
-        key = metadata;
-        await route.fulfill({ status: 201, json: { key, secret: 'pmi_example_not_a_real_access_key' } });
-      } else await route.fulfill({ json: { key } });
-    });
-    await visit('/p/AC/settings/integrator');
-    await page.getByText('Még nincs kulcs.', { exact: true }).waitFor();
-    await shot('integrator-no-key');
-    await page.getByRole('button', { name: 'Kulcs létrehozása', exact: true }).click();
-    await page.getByRole('dialog').getByRole('button', { name: 'Kulcs létrehozása', exact: true }).click();
-    await page.getByText('pmi_example_not_a_real_access_key', { exact: true }).waitFor();
-    await shot('integrator-once-visible-example');
-    await page.getByRole('button', { name: 'Kész, bemásoltam' }).click();
-    await shot('integrator-active');
-    key = { ...metadata, expiresAt: new Date(Date.now() + 3 * 86_400_000).toISOString() };
-    await page.reload();
-    await page.getByText(/A kulcs 3 nap múlva lejár/).waitFor();
-    await shot('integrator-expiring');
-    key = { ...metadata, state: 'revoked', revokedAt: at(9) };
-    await page.reload();
-    await page.getByText('Visszavonva', { exact: true }).waitFor();
-    await shot('integrator-revoked');
-  });
 };

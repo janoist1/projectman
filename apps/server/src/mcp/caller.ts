@@ -260,6 +260,23 @@ export class ToolCaller {
   ): Promise<CallerWithRequest> {
     const config = await this.projects.config(ctx.projectKey);
     if (
+      ['operate', 'execute_operation', 'get_operation', 'get_role_configuration'].includes(tool) &&
+      !isOperator(memberOf(config, ctx.member))
+    ) {
+      this.assertCoordinationSession(ctx, config);
+      const request = this.coordinationRequests.openFor(ctx.sessionId);
+      if (
+        !request ||
+        !isOwner(config, request.fromHandle) ||
+        (request.source !== 'message' && request.source !== 'answer')
+      )
+        throw new TeamToolError(
+          'forbidden',
+          'operator_no_request: shared operations require an open owner message or answer.',
+        );
+      return { config, request, guest: null };
+    }
+    if (
       [
         'read_project_doc',
         'write_project_docs',
@@ -299,7 +316,6 @@ export class ToolCaller {
         'combine_questions',
         'screen_question',
         'dismiss_signal',
-        'open_integrator_todo',
         'triage_loop',
         'start_task',
         'start_member',

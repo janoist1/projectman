@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto';
 import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { IntegratorKeyMode } from '@projectman/shared';
 import { AuthService } from '../src/auth';
 import { createRepositories, LATEST_SCHEMA_VERSION, migrate, migrations, openDatabase } from '../src/db';
 import type { Db, Repositories } from '../src/db';
@@ -28,18 +27,15 @@ describe('integrator key modes and lifecycle', () => {
     auth = new AuthService({ repos, now: () => now });
   });
   afterEach(() => db.close());
-  const create = (mode: IntegratorKeyMode) =>
-    mode === 'legacy'
-      ? auth.createIntegratorKey('owner', null)
-      : auth.createIntegratorAccessKey('owner', { mode, expiresInDays: 7 });
+  const create = (mode: 'super' | 'read') =>
+    auth.createIntegratorAccessKey('owner', { mode, expiresInDays: 7 });
   const list = () => auth.integratorAccessKeys('owner');
   const audit = () => auth.integratorKeyAudit('owner', { limit: 100 });
   const advance = (ms: number) => {
     now = new Date(now.getTime() + ms);
   };
 
-  it('replaces only the same mode and keeps the singular legacy view unchanged', () => {
-    const legacy = create('legacy');
+  it('replaces only the same mode', () => {
     const first = create('super');
     const read = create('read');
     const second = create('super');
@@ -47,32 +43,15 @@ describe('integrator key modes and lifecycle', () => {
       ['super', 'active'],
       ['read', 'active'],
       ['super', 'revoked'],
-      ['legacy', 'active'],
     ]);
-    expect(auth.integratorKey('owner')).toEqual(legacy.key);
     expect(auth.resolveIntegratorCredential(first.secret, 'rest')).toBeNull();
-    for (const [created, mode] of [
-      [legacy, 'legacy'],
-      [read, 'read'],
-      [second, 'super'],
-    ] as const) {
-      expect(auth.resolveIntegratorCredential(created.secret, 'rest')).toMatchObject({ mode });
-    }
-    expect(auth.resolveIntegratorKey(second.secret)).toBeNull();
-    auth.revokeIntegratorKey('owner');
-    expect(
-      list()
-        .filter((key) => key.state === 'active')
-        .map((key) => key.mode),
-    ).toEqual(['super', 'read']);
-    expect(auth.resolveIntegratorCredential(legacy.secret, 'rest')).toBeNull();
-    expect(audit().entries.map((entry) => [entry.mode, entry.action])).toEqual([
-      ['legacy', 'revoked'],
-      ['super', 'created'],
-      ['super', 'revoked'],
-      ['read', 'created'],
-      ['super', 'created'],
-      ['legacy', 'created'],
+    expect(auth.resolveIntegratorCredential(read.secret, 'rest')).toMatchObject({ mode: 'read' });
+    expect(auth.resolveIntegratorCredential(second.secret, 'rest')).toMatchObject({ mode: 'super' });
+    expect(audit().entries.map((entry) => entry.action)).toEqual([
+      'created',
+      'revoked',
+      'created',
+      'created',
     ]);
   });
 
@@ -91,21 +70,6 @@ describe('integrator key modes and lifecycle', () => {
       /CHECK/,
     );
     expect(create('read').key.state).toBe('active');
-  });
-
-  it('replaces a legacy key without revoking explicit modes', () => {
-    const first = create('legacy');
-    create('super');
-    create('read');
-    const second = create('legacy');
-    expect(list().map((key) => [key.mode, key.state])).toEqual([
-      ['legacy', 'active'],
-      ['read', 'active'],
-      ['super', 'active'],
-      ['legacy', 'revoked'],
-    ]);
-    expect(auth.integratorKey('owner')).toEqual(second.key);
-    expect(auth.resolveIntegratorCredential(first.secret, 'rest')).toBeNull();
   });
 
   it('rolls replacement and its audit back together when the create audit cannot be written', () => {
@@ -192,13 +156,10 @@ describe('integrator key modes and lifecycle', () => {
     }
   });
 
-  it.each(['legacy', 'super', 'read'] as const)(
+  it.each(['super', 'read'] as const)(
     'rejects revoked, expired and invalid %s credentials without usage writes',
     (mode) => {
-      const created =
-        mode === 'legacy'
-          ? auth.createIntegratorKey('owner', 1)
-          : auth.createIntegratorAccessKey('owner', { mode, expiresInDays: 1 });
+      const created = auth.createIntegratorAccessKey('owner', { mode, expiresInDays: 1 });
       const principal = auth.resolveIntegratorCredential(created.secret, 'cli')!;
       const used = list()[0]!.lastUsedAt;
       advance(86_400_000);
@@ -214,6 +175,14 @@ describe('integrator key modes and lifecycle', () => {
       expect(list()[0]!.lastUsedAt).toBe(used);
     },
   );
+
+  it('refuses reactivation and validity checks after a key becomes legacy', () => {
+    const created = create('super');
+    const principal = auth.resolveIntegratorCredential(created.secret, 'rest')!;
+    db.prepare("UPDATE integrator_keys SET mode = 'legacy' WHERE id = ?").run(principal.keyId);
+    expect(auth.reactivate(principal)).toBeNull();
+    expect(() => auth.assertActive(principal)).toThrow(expect.objectContaining({ status: 401 }));
+  });
 
   it('keeps a non-expiring explicit key active until revocation', () => {
     const created = auth.createIntegratorAccessKey('owner', { mode: 'super', expiresInDays: null });
@@ -244,7 +213,50 @@ describe('integrator key modes and lifecycle', () => {
 });
 
 describe('integrator credential migration', () => {
-  it('preserves an old credential as legacy with no recorded channel and migrates idempotently', () => {
+  it('audits only newly revoked legacy rows and leaves explicit keys and earlier audit untouched', () => {
+    const db = openDatabase(':memory:');
+    try {
+      const repos = createRepositories(db);
+      repos.users.insert(user('owner'));
+      const insert = db.prepare(`INSERT INTO integrator_keys
+        (id, user_id, prefix, token_hash, created_at, mode, revoked_at, expires_at)
+        VALUES (?, 'owner', ?, ?, ?, ?, ?, ?)`);
+      for (const [id, mode, revokedAt, expiresAt] of [
+        ['active', 'legacy', null, null],
+        ['revoked', 'legacy', START, null],
+        ['super', 'super', null, null],
+        ['read', 'read', null, null],
+      ] as const)
+        insert.run(id, id, id, START, mode, revokedAt, expiresAt);
+      repos.integratorKeyAudit.insert('owner', {
+        keyId: 'revoked',
+        prefix: 'revoked',
+        mode: 'legacy',
+        action: 'revoked',
+        at: START,
+      });
+      const migration = migrations.find((m) => m.name === 'revoke legacy integrator keys')!;
+      db.transaction(() => db.exec(migration.sql))();
+      const keys = repos.integratorKeys.list('owner', START);
+      expect(keys.filter((k) => k.mode !== 'legacy').map((k) => k.state)).toEqual(['active', 'active']);
+      expect(keys.filter((k) => k.mode === 'legacy').every((k) => k.state === 'revoked')).toBe(true);
+      const entries = repos.integratorKeyAudit.list('owner', { limit: 50 }).entries;
+      expect(entries).toHaveLength(2);
+      expect(entries.find((e) => e.keyId === 'revoked')!.at).toBe(START);
+      for (const id of ['active'])
+        expect(entries.find((e) => e.keyId === id)).toMatchObject({
+          action: 'revoked',
+          mode: 'legacy',
+          at: keys.find((k) => k.id === id)!.revokedAt,
+        });
+      db.transaction(() => db.exec(migration.sql))();
+      expect(repos.integratorKeyAudit.list('owner', { limit: 50 }).entries).toEqual(entries);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('revokes an old credential, preserves its history and migrates idempotently', () => {
     const db = new Database(':memory:');
     try {
       const version = migrations.find(
@@ -271,17 +283,25 @@ describe('integrator credential migration', () => {
         {
           id: 'old',
           prefix: 'pmi_old',
-          state: 'active',
+          state: 'revoked',
           createdAt: START,
           lastUsedAt: START,
           expiresAt: null,
-          revokedAt: null,
+          revokedAt: expect.any(String),
           mode: 'legacy',
           lastUsedChannel: null,
         },
       ]);
-      expect(repos.integratorKeys.resolveKey('old-hash', START)).toMatchObject({ id: 'old', mode: 'legacy' });
-      expect(repos.integratorKeyAudit.list('owner', { limit: 50 }).entries).toEqual([]);
+      expect(repos.integratorKeys.resolveKey('old-hash', START)).toBeNull();
+      const entries = repos.integratorKeyAudit.list('owner', { limit: 50 }).entries;
+      expect(entries).toEqual([
+        expect.objectContaining({
+          keyId: 'old',
+          mode: 'legacy',
+          action: 'revoked',
+          at: repos.integratorKeys.list('owner', START)[0]!.revokedAt,
+        }),
+      ]);
     } finally {
       db.close();
     }

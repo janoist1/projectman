@@ -76,11 +76,11 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
   tools: [
     defineTool({
       name: 'get_role_configuration',
-      audience: { roles: ['operator'] },
+      audience: { roles: ['operator', 'project_manager'] },
       title: 'Read one built-in role configuration',
       readOnly: true,
       description:
-        'Only the Operator in its owner general conversation, never guests. Needs no open request. Returns the configuration version, the stored override (null when absent), and the effective full role bundle. Read before editing a role; preserve its existing instructions and other bundle fields.',
+        'Only the Operator or selected PM in its own general conversation during an open owner request, never guests. Returns the configuration version, the stored override (null when absent), and the effective full role bundle. Read before editing a role; preserve its existing instructions and other bundle fields.',
       input: { role: BuiltInRoleId },
       external: {
         access: 'read',
@@ -336,11 +336,11 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
 
     defineTool({
       name: 'operate',
-      audience: { roles: ['operator'] },
+      audience: { roles: ['operator', 'project_manager'] },
       title: 'Operate the project',
       readOnly: false,
       description:
-        'Only the Operator, during an open owner request. Propose a configuration, member, session, message or project pause operation. The server executes immediate changes, requests owner approval for restricted changes, and refuses forbidden changes. Before changing a built-in role, use get_role_configuration, preserve existing instructions and other bundle fields, and send only the affected role in config_patch.roleOverrides. Each supplied bundle replaces that role completely; omitted roles stay unchanged. Set a role to null to reset only that role to built-in defaults; an empty map changes no roles. To add or change one pipeline label (name, color, meaning) send only that label in config_patch.labels, keyed by label id, e.g. {"bug": {"color": "red"}}; omitted fields and all other labels, stages and columns stay unchanged, and null removes the color or meaning. session_stop and message_send require plan (why, impact, reversible). message_send is for non-owner humans, with the exact text the owner approves. Title describes the result in the project language (1–120 characters).',
+        'Only the Operator or selected PM, in its own general conversation during an open owner request. The PM uses the shared operation path in its own name; K3 effects wait for the owner. Propose a configuration, member, session, message or project pause operation. The server executes immediate changes, requests owner approval for restricted changes, and refuses forbidden changes. Before changing a built-in role, use get_role_configuration, preserve existing instructions and other bundle fields, and send only the affected role in config_patch.roleOverrides. Each supplied bundle replaces that role completely; omitted roles stay unchanged. Set a role to null to reset only that role to built-in defaults; an empty map changes no roles. To add or change one pipeline label (name, color, meaning) send only that label in config_patch.labels, keyed by label id, e.g. {"bug": {"color": "red"}}; omitted fields and all other labels, stages and columns stay unchanged, and null removes the color or meaning. session_stop and message_send require plan (why, impact, reversible). message_send is for non-owner humans, with the exact text the owner approves. Title describes the result in the project language (1–120 characters).',
       input: {
         title: z.string().trim().min(1).max(120),
         operation: kindInput('op', OperatorOperation.options, 'The operation'),
@@ -354,11 +354,11 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
 
     defineTool({
       name: 'execute_operation',
-      audience: { roles: ['operator'] },
-      title: 'Execute one command as the Operator',
+      audience: { roles: ['operator', 'project_manager'] },
+      title: 'Execute one command as the Operator or PM',
       readOnly: false,
       description:
-        'Only the Operator, in its own general conversation during an open owner message or answer. Starts ONE command on the shared operation path, logged as you: {operation}. command is {kind, ...fields of that kind}. workspace_release frees the workspace an unresolved process cleanup keeps reserved without proof that the processes stopped: only on the owner’s explicit request in that conversation, never on a signal by itself; the server refuses it unless the open request is the owner’s own message or answer (operator_owner_only), not a queue item; reason is the owner’s stated reason. Configuration, member, session, message and project-pause changes stay with operate (kinds operate and member_update are refused with super_operation_unsupported). A K3 effect (deletion, security, cost and permission decisions) is not run: the operation waits in waiting_owner and the owner answers with their own login; after the owner’s yes the server runs it by itself, so do not repeat the call. Machine operations (administration) need the owner’s grant: without one the call fails with operator_grant_inactive, and you hand the matter over to the owner. request_key (1–100 characters of A-Z a-z 0-9 . _ -) names this call within the request: the same key is the same operation and never runs twice; the same key with another command is refused (super_request_conflict). Follow it with get_operation until the state is final.',
+        'Only the Operator or selected PM, in its own general conversation during an open owner message or answer. The PM may use task_create, task_update, task_labels, task_start, task_cancel, member_update, merge_order and operate. Every other kind, including administration, is refused with command_not_for_project_manager; with machine access enabled use open_integrator_todo for the integrator, otherwise ask the owners with ask_human. Starts ONE command on the shared operation path, logged as you: {operation}. command is {kind, ...fields of that kind}. workspace_release frees the workspace an unresolved process cleanup keeps reserved without proof that the processes stopped: only on the owner’s explicit request in that conversation, never on a signal by itself; the server refuses it unless the open request is the owner’s own message or answer (operator_owner_only), not a queue item; reason is the owner’s stated reason. Use operate for configuration, member, session, message and project-pause changes. For the Operator, kinds operate and member_update are refused here with super_operation_unsupported. A K3 effect (deletion, security, cost and permission decisions) is not run: the operation waits in waiting_owner and the owner answers with their own login; after the owner’s yes the server runs it by itself, so do not repeat the call. Only the Operator may request machine operations (administration), which need the owner’s grant: without one the call fails with operator_grant_inactive, and you hand the matter over to the owner. request_key (1–100 characters of A-Z a-z 0-9 . _ -) names this call within the request: the same key is the same operation and never runs twice; the same key with another command is refused (super_request_conflict). Follow it with get_operation until the state is final.',
       input: {
         request_key: z
           .string()
@@ -383,11 +383,11 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
 
     defineTool({
       name: 'get_operation',
-      audience: { roles: ['operator'] },
+      audience: { roles: ['operator', 'project_manager'] },
       title: 'Read an operation',
       readOnly: true,
       description:
-        'Only the Operator, during an open owner request. One operation of this project and, once the adapter recorded it, its result: {operation, result}. A running operation is settled first, so ask again until its state is final.',
+        'Only the Operator or selected PM, in its own general conversation during an open owner request. One operation of this project and, once the adapter recorded it, its result: {operation, result}. A running operation is settled first, so ask again until its state is final.',
       input: { operation_id: GetSuperOperationArgs.shape.operation_id },
       async run({ ctx, args, handler }) {
         return JSON.stringify(await handler.getOperation(ctx, { operationId: args.operation_id }));
@@ -542,11 +542,11 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
 
     defineTool({
       name: 'open_integrator_todo',
-      audience: { roles: ['project_manager'] },
+      audience: { capabilities: ['machine_access'] },
       title: 'Open a todo for the integrator',
       readOnly: false,
       description:
-        "Only the selected PM in its internal general conversation; needs no owner request. When a stalled, silent, outage or nobody signal needs someone to act, open a todo in the integrator's queue instead of asking the owners: what to do, where, and what is expected. The Operator takes the todos from its queue one at a time and wakes for each; use this tool, not a message to the Operator, for a step that needs its hands. Its answer (done, or handed to the owners with the reason) comes back to you as the asker. When the integrator is not available the owners get it and the result says so. A card projectman already follows (an open or handed-over obligation) is refused with obligation_tracked: projectman wakes the responsible and hands the step over itself. A decision only the owners make (cost, deletion, publishing, direction, approval) is not a todo: use ask_human.",
+        "Only for a member with machine access (an owner switches it on); needs no owner request. Put machine work (an installation, a setting) in the owners' queue: what to do, where, and what is expected. The owner's connected Claude takes the todos from the queue one at a time; use this tool, not a message, for a step that needs its hands. Its answer (done, or handed to the owners with the reason) comes back to you as the asker. When the integrator is not available the owners get it and the result says so. For the project manager: when a stalled, silent, outage or nobody signal needs someone to act, open a todo instead of asking the owners; a card projectman already follows (an open or handed-over obligation) is refused with obligation_tracked, because projectman wakes the responsible and hands the step over itself. A decision only the owners make (cost, deletion, publishing, direction, approval) is not a todo: use ask_human.",
       input: {
         task_key: TaskKey.optional(),
         question: z.string().trim().min(1).max(2000),

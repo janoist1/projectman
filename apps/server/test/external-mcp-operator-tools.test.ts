@@ -8,7 +8,7 @@ import { createAppHarness, createProject, inject, setupOwner } from './helpers/a
 import type { AppHarness } from './helpers/app-harness';
 import { createGitSeed } from './helpers/git-seed';
 
-type Mode = 'legacy' | 'super' | 'read';
+type Mode = 'super' | 'read';
 
 interface ToolResult {
   content: { type: string; text?: string }[];
@@ -37,7 +37,6 @@ describe('the bearer MCP endpoint: the Operator tools (PM-784)', () => {
   function key(mode: Mode) {
     const { auth, repos } = h.app.projectman;
     const user = repos.users.list()[0]!;
-    if (mode === 'legacy') return { secret: auth.createIntegratorKey(user.id, null).secret, id: '' };
     const created = auth.createIntegratorAccessKey(user.id, { mode, expiresInDays: 7 });
     return { secret: created.secret, id: created.key.id };
   }
@@ -273,7 +272,7 @@ describe('the bearer MCP endpoint: the Operator tools (PM-784)', () => {
   });
 
   describe('the documents, the role configuration, the release and the review', () => {
-    it('reads the role configuration in the super and read modes and never in the legacy mode', async () => {
+    it('reads the role configuration in the super and read modes', async () => {
       const superRead = await call(key('super').secret, 'get_role_configuration', {
         project_key: 'AR',
         role: 'developer',
@@ -286,14 +285,6 @@ describe('the bearer MCP endpoint: the Operator tools (PM-784)', () => {
         role: 'developer',
       });
       expect(readRead.structuredContent).toMatchObject({ role: 'developer' });
-      expect(
-        code(
-          await call(key('legacy').secret, 'get_role_configuration', {
-            project_key: 'AR',
-            role: 'developer',
-          }),
-        ),
-      ).toBe('integrator_not_allowed');
       expect(
         code(
           await call(key('super').secret, 'get_role_configuration', {
@@ -382,7 +373,7 @@ describe('the bearer MCP endpoint: the Operator tools (PM-784)', () => {
       expect(readFileSync(join(h.workspace, path), 'utf8')).toContain('A new lesson');
     });
 
-    it('keeps the document writers from a read key and from a legacy key', async () => {
+    it('keeps the document writers from a read key', async () => {
       const args = {
         project_key: 'AR',
         base_commit: 'a'.repeat(40),
@@ -390,12 +381,6 @@ describe('the bearer MCP endpoint: the Operator tools (PM-784)', () => {
         edits: [{ doc: 'lessons', old_text: '', new_text: 'x' }],
       };
       expect(code(await call(key('read').secret, 'write_project_docs', args))).toBe('integrator_read_only');
-      expect(code(await call(key('legacy').secret, 'write_project_docs', args))).toBe(
-        'integrator_not_allowed',
-      );
-      expect(
-        code(await call(key('legacy').secret, 'read_project_doc', { project_key: 'AR', doc: 'lessons' })),
-      ).toBe('integrator_not_allowed');
     });
 
     it('validates the release proposal and the review request', async () => {
@@ -435,7 +420,7 @@ describe('the bearer MCP endpoint: the Operator tools (PM-784)', () => {
   });
 
   describe('read_attachment', () => {
-    it('validates its arguments and refuses the legacy mode', async () => {
+    it('validates its arguments', async () => {
       const { secret } = key('super');
       const base = { project_key: 'AR', task_key: 'AR-1', attachment_id: 'att_none' };
       expect(code(await call(secret, 'read_attachment', { ...base, offset_bytes: -1 }))).toBe(
@@ -448,7 +433,6 @@ describe('the bearer MCP endpoint: the Operator tools (PM-784)', () => {
       expect(code(await call(secret, 'read_attachment', { ...base, path: '/etc/passwd' }))).toBe(
         'invalid_request',
       );
-      expect(code(await call(key('legacy').secret, 'read_attachment', base))).toBe('integrator_not_allowed');
     });
 
     /** A PNG-looking file whose bytes all differ by position, so a wrong offset or a re-encoding shows. */

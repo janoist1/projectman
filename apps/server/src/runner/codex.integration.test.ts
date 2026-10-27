@@ -346,15 +346,7 @@ describe('runner with the fake Codex CLI', { timeout: 30_000 }, () => {
       projects: { [cwd]: { trust_level: 'trusted' } },
       project_doc_fallback_filenames: ['CLAUDE.md'],
       developer_instructions: 'You are fe-1, a developer.\nSpeak "Hungarian".',
-      mcp_optional_startup_grace_ms: 0,
-      mcp_servers: {
-        team: {
-          url: s.mcpUrl,
-          required: true,
-          startup_timeout_sec: 20,
-          default_tools_approval_mode: 'approve',
-        },
-      },
+      mcp_servers: { team: { url: s.mcpUrl, default_tools_approval_mode: 'approve' } },
       features: { hooks: true },
     });
     expect(Object.keys(config.hooks).sort()).toEqual(

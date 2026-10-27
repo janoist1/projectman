@@ -102,6 +102,7 @@ import { LiveSessions } from './live-sessions';
 import { LiveSessionSweep } from './live-reconcile';
 import { ProviderLimits } from './provider-limits';
 import { SessionTimers } from './session-timers';
+import type { StartHolds } from './start-holds';
 import { TurnFinishes } from './turn-finish';
 import { MemberWorkspaces } from './workspaces';
 import { engineIdOf, engineOption } from './engines';
@@ -154,6 +155,8 @@ export interface SessionOrchestratorDeps {
   /** The project's focus (PM-437), named in the kick-off brief. */
   projectFocus: Pick<ProjectFocusService, 'get' | 'places'>;
   members: MemberService;
+  /** Members whose starts a handle rename holds back (PM-1025). */
+  startHolds?: Pick<StartHolds, 'assertFree'>;
   timeline: TimelineService;
   runner: SessionRunner;
   transcripts: TranscriptReader;
@@ -563,6 +566,7 @@ export class SessionOrchestrator {
           projectManager: false,
           merger: false,
           email: false,
+          machineAccess: false,
           duties: new Set(),
         };
   }
@@ -812,6 +816,7 @@ export class SessionOrchestrator {
     const result = await this.locks.run(sessionLockKey(projectKey, handle, workItem), async () => {
       const config = await this.deps.projects.config(projectKey);
       const member = requireAiMember(config, handle);
+      this.deps.startHolds?.assertFree(projectKey, handle);
       const task = workItem.type === 'task' ? this.deps.tasks.get(projectKey, workItem.taskKey) : null;
       assertIntegratorAccess(config, 'write');
       assertSuperMutation(config, { kind: 'runtime_start', providers: [member.provider ?? 'claude'] });

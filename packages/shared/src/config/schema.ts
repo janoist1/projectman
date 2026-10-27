@@ -157,6 +157,12 @@ export const AiMemberConfig = z.object({
    * (`DEFAULT_OUTBOUND_NETWORK`), so members from before the setting have it on.
    */
   outboundNetwork: z.boolean().optional(),
+  /**
+   * Whether the member may put machine work in the owners' queue (decision 66); owner only. Absent means
+   * the role's default (`machineAccessOf`): on for a project manager, off for everyone else. An explicit
+   * `false` is kept: for a project manager it differs from absent.
+   */
+  machineAccess: z.boolean().optional(),
 });
 export type AiMemberConfig = z.infer<typeof AiMemberConfig>;
 

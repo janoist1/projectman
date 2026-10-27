@@ -52,8 +52,8 @@ function renderLayout(
   const viewer = options.viewer ?? 'owner';
   const access = options.access ?? (viewer === 'owner' ? 'owner' : 'client');
   project.backend.viewerHandle = viewer;
-  // A client writes only to the contacts; the Operator is one (PM-985).
-  project.backend.config.team.contacts = options.contacts ?? ['operator'];
+  // A client writes only to the contacts; the project manager is one (PM-985).
+  project.backend.config.team.contacts = options.contacts ?? ['pm'];
   const me = {
     ...project.context.me,
     handles: { AC: viewer },
@@ -77,7 +77,8 @@ function renderLayout(
 
 const button = () =>
   screen.findByRole('button', { name: new RegExp(`^${t('operator.button.aria', { status: '' })}`) });
-const operatorName = (project: Project) => project.backend.findMember('operator')!.displayName;
+const operatorName = (project: Project) => project.backend.findMember('pm')!.displayName;
+const builtInOperatorName = (project: Project) => project.backend.findMember('operator')!.displayName;
 const posted = (project: Project, suffix: string) =>
   project.requests.filter((r) => r.method === 'POST' && r.path.endsWith(suffix));
 
@@ -227,6 +228,34 @@ describe('the Operator button', () => {
   });
 });
 
+describe('the project manager on leave', () => {
+  it('says so in a band, links the profile for an owner and still takes a message', async () => {
+    const project = mockProject();
+    const pm = project.backend.config.team.members.find((member) => member.handle === 'pm');
+    if (pm?.kind !== 'ai') throw new Error('The fixture has no project manager');
+    pm.onLeave = true;
+    renderLayout(project);
+    const operator = await button();
+    await waitFor(() =>
+      expect(operator.getAttribute('aria-label')).toBe(
+        t('operator.button.aria', { status: t('operator.status.on_leave') }),
+      ),
+    );
+    fireEvent.click(operator);
+    const panel = await screen.findByRole('dialog');
+    expect(await within(panel).findByText(t('operator.banner.onLeave'))).toBeTruthy();
+    expect(
+      within(panel)
+        .getByRole('link', { name: new RegExp(t('operator.banner.profile')) })
+        .getAttribute('href'),
+    ).toBe('/p/AC/team/pm');
+    const composer = within(panel).getByRole('textbox', { name: t('operator.composer.label') });
+    fireEvent.change(composer, { target: { value: 'Várom a visszatérést' } });
+    fireEvent.keyDown(composer, { key: 'Enter' });
+    await waitFor(() => expect(posted(project, '/messages')[0]?.body).toMatchObject({ to: ['pm'] }));
+  });
+});
+
 describe('the Operator panel', () => {
   it('opens beside the page with the focus in the composer and closes with Escape, back to the button', async () => {
     const project = mockProject();
@@ -262,7 +291,7 @@ describe('the Operator panel', () => {
     fireEvent.keyDown(composer, { key: 'Enter' });
     await waitFor(() =>
       expect(posted(project, '/messages')[0]?.body).toEqual({
-        to: ['operator'],
+        to: ['pm'],
         text: 'Mi az állás?',
         location: { page: 'board' },
       }),
@@ -284,7 +313,7 @@ describe('the Operator panel', () => {
     fireEvent.keyDown(composer, { key: 'Enter' });
     await waitFor(() =>
       expect(posted(project, '/messages')[0]?.body).toEqual({
-        to: ['operator'],
+        to: ['pm'],
         text: 'Nézd meg ezt',
         taskKey: 'AC-20',
         location: { page: 'board', taskKey: 'AC-20', view: 'card' },
@@ -387,8 +416,10 @@ describe('the Operator panel', () => {
     fireEvent.click(await button());
     const panel = await screen.findByRole('dialog');
     expect(await within(panel).findByText(t('operator.intro.title'))).toBeTruthy();
-    // The owner is told where the daily work distributor is.
-    expect(within(panel).getByText(t('operator.intro.transitionLink'), { exact: false })).toBeTruthy();
+    // The owner is told where the earlier conversation with the Operator stays.
+    expect(
+      within(panel).getByRole('link', { name: new RegExp(t('operator.intro.earlierLink')) }),
+    ).toBeTruthy();
 
     const composer = within(panel).getByRole<HTMLTextAreaElement>('textbox', {
       name: t('operator.composer.label'),
@@ -406,7 +437,9 @@ describe('the Operator panel', () => {
     const panel = await screen.findByRole('dialog');
     expect(await within(panel).findByText(t('operator.intro.other.readOnly'))).toBeTruthy();
     expect(within(panel).getByText(t('operator.panel.observers'))).toBeTruthy();
-    expect(within(panel).queryByText(t('operator.intro.transitionLink'), { exact: false })).toBeNull();
+    expect(
+      within(panel).queryByRole('link', { name: new RegExp(t('operator.intro.earlierLink')) }),
+    ).toBeNull();
     expect(within(panel).queryByRole('button', { name: t('operator.intro.examples.writer') })).toBeNull();
   });
 
@@ -425,7 +458,7 @@ describe('the Operator panel', () => {
   it('says there is no Operator when the project has none', async () => {
     const project = mockProject();
     const config = project.backend.config;
-    config.team.members = config.team.members.filter((member) => member.handle !== 'operator');
+    config.team.members = config.team.members.filter((member) => member.handle !== 'pm');
     renderLayout(project);
     fireEvent.click(await button());
     expect(await screen.findByText(t('operator.missing.title'))).toBeTruthy();
@@ -436,8 +469,8 @@ describe('the Operator panel', () => {
     const base = project.backend.sessions[0]!;
     project.backend.sessions.push({
       ...base,
-      id: 'ses_operator',
-      member: 'operator',
+      id: 'ses_pm',
+      member: 'pm',
       workItem: { type: 'general' },
       state: 'idle',
     });
@@ -447,7 +480,7 @@ describe('the Operator panel', () => {
     const link = await within(panel).findByRole('link', {
       name: new RegExp(t('operator.panel.fullSession')),
     });
-    expect(link.getAttribute('href')).toBe('/p/AC/sessions/ses_operator');
+    expect(link.getAttribute('href')).toBe('/p/AC/sessions/ses_pm');
     unmount();
 
     renderLayout(project, '/p/AC', { access: 'developer' });
@@ -463,7 +496,7 @@ describe('the Operator panel', () => {
 describe('the steps of a request', () => {
   it('lists what the Operator did in three groups under the request, with the server reason of a refusal', async () => {
     const project = mockProject();
-    const asked = project.backend.sendTeamMessage('owner', ['operator'], null, 'Állítsd át a szövegírót');
+    const asked = project.backend.sendTeamMessage('owner', ['pm'], null, 'Állítsd át a szövegírót');
     project.backend.operatorRequests = [
       request(
         [
@@ -492,7 +525,7 @@ describe('the steps of a request', () => {
 
   it('shows what a done step changed, with a link to the history when it made a configuration version', async () => {
     const project = mockProject();
-    const asked = project.backend.sendTeamMessage('owner', ['operator'], null, 'Kapcsold ki a szabadságot');
+    const asked = project.backend.sendTeamMessage('owner', ['pm'], null, 'Kapcsold ki a szabadságot');
     project.backend.operatorRequests = [
       request(
         [
@@ -527,7 +560,7 @@ describe('the steps of a request', () => {
         const owner = project.backend.members.find((member) => member.handle === 'owner')!;
         project.backend.members.push({ ...owner, handle: 'owner-2', displayName: 'Második' });
       }
-      const asked = project.backend.sendTeamMessage('kata', ['operator'], null, 'Töröld a szövegírót');
+      const asked = project.backend.sendTeamMessage('kata', ['pm'], null, 'Töröld a szövegírót');
       project.backend.operatorRequests = [
         request(
           [
@@ -552,12 +585,7 @@ describe('the steps of a request', () => {
 
   it('decides a proposal inline for the owner, and shows the card as approved', async () => {
     const project = mockProject();
-    const asked = project.backend.sendTeamMessage(
-      'owner',
-      ['operator'],
-      null,
-      'Adj a fejlesztőnek több jogot',
-    );
+    const asked = project.backend.sendTeamMessage('owner', ['pm'], null, 'Adj a fejlesztőnek több jogot');
     project.backend.inbox.push(approvalItem('stp_1'));
     project.backend.operatorRequests = [
       request(
@@ -584,12 +612,7 @@ describe('the steps of a request', () => {
 
   it('does not offer the decision to a person who may not decide', async () => {
     const project = mockProject();
-    const asked = project.backend.sendTeamMessage(
-      'kata',
-      ['operator'],
-      null,
-      'Adj a fejlesztőnek több jogot',
-    );
+    const asked = project.backend.sendTeamMessage('kata', ['pm'], null, 'Adj a fejlesztőnek több jogot');
     project.backend.inbox.push(approvalItem('stp_1'));
     project.backend.operatorRequests = [
       request(
@@ -623,9 +646,9 @@ describe('unanchored Operator signals', () => {
         raisedAt: `2026-10-10T08:${String(index).padStart(2, '0')}:00.000Z`,
       }),
     );
-    const question = project.backend.sendTeamMessage('owner', ['operator'], null, 'Question');
+    const question = project.backend.sendTeamMessage('owner', ['pm'], null, 'Question');
     question.createdAt = '2026-10-10T09:00:00.000Z';
-    const reply = project.backend.sendTeamMessage('operator', ['owner'], null, 'Latest reply');
+    const reply = project.backend.sendTeamMessage('pm', ['owner'], null, 'Latest reply');
     reply.createdAt = '2026-10-10T09:01:00.000Z';
     return project;
   }
@@ -719,13 +742,13 @@ describe('unanchored Operator signals', () => {
     fireEvent.click(screen.getByRole('button', { name: t('operator.signal.dismissAllCancel') }));
     expect(project.requests.filter((r) => r.path.endsWith('/dismiss'))).toHaveLength(0);
     project.backend.operatorSignals[0]!.state = 'resolved';
-    const refreshes = project.requests.filter((r) => r.path.endsWith('/operator')).length;
+    const refreshes = project.requests.filter((r) => r.path.endsWith('/project-manager')).length;
     fireEvent.click(bulk());
     fireEvent.click(screen.getByRole('button', { name: t('operator.signal.dismissAllYes') }));
     const settled = await screen.findByRole('button', { name: new RegExp(t('operator.signal.pendingNone')) });
     await waitFor(() => expect(settled.getAttribute('aria-expanded')).toBe('false'));
     expect(project.requests.filter((r) => r.path.endsWith('/dismiss'))).toHaveLength(6);
-    expect(project.requests.filter((r) => r.path.endsWith('/operator')).length - refreshes).toBe(1);
+    expect(project.requests.filter((r) => r.path.endsWith('/project-manager')).length - refreshes).toBe(1);
     expect(document.activeElement).toBe(settled);
     fireEvent.click(settled);
     expect(screen.getAllByRole('listitem')).toHaveLength(6);
@@ -805,7 +828,7 @@ describe('unanchored Operator signals', () => {
 
 describe('a signal the Operator raised', () => {
   const presenting = (project: Project, body = 'A kártyát most senki nem viheti.') =>
-    project.backend.sendTeamMessage('operator', ['owner'], 'AC-20', body);
+    project.backend.sendTeamMessage('pm', ['owner'], 'AC-20', body);
 
   it.each([false, true])(
     'hides coordinator-only cards and preserves their message (mixed: %s)',
@@ -967,7 +990,7 @@ describe('a signal the Operator raised', () => {
     fireEvent.click(await screen.findByRole('button', { name: t('operator.signal.accept') }));
     await waitFor(() =>
       expect(posted(project, '/messages')[0]?.body).toEqual({
-        to: ['operator'],
+        to: ['pm'],
         text: t('operator.signal.acceptMessage'),
         operatorSignal: 'sig_1',
         taskKey: 'AC-20',
@@ -1347,7 +1370,7 @@ describe('the Operator in the history of the settings', () => {
         ]}
       />,
     );
-    expect(await screen.findByText(new RegExp(`^${operatorName(project)} ·`))).toBeTruthy();
+    expect(await screen.findByText(new RegExp(`^${builtInOperatorName(project)} ·`))).toBeTruthy();
     expect(screen.getByText(t('settings.history.approvedBy', { name: t('common.you') }))).toBeTruthy();
     const request = screen.getByText(t('settings.history.request', { quote }));
     expect(request.getAttribute('title')).toBe(quote);
@@ -1391,7 +1414,7 @@ describe('the built-in Operator in the team', () => {
   it('has a built-in chip, and a menu with no leave and no retire', async () => {
     const project = mockProject();
     project.render(<TeamPage />);
-    const name = operatorName(project);
+    const name = builtInOperatorName(project);
     const row = (await screen.findByRole('link', { name })).closest('tr')!;
     expect(within(row).getByText(t('operator.builtIn.chip'))).toBeTruthy();
     fireEvent.click(within(row).getByRole('button', { name: t('team.moreFor', { name }) }));
@@ -1405,7 +1428,7 @@ describe('the built-in Operator in the team', () => {
   it('edits only the provider, the model and the effort', async () => {
     const project = mockProject();
     project.render(<TeamPage />);
-    const name = operatorName(project);
+    const name = builtInOperatorName(project);
     const row = (await screen.findByRole('link', { name })).closest('tr')!;
     fireEvent.click(within(row).getByRole('button', { name: t('team.moreFor', { name }) }));
     fireEvent.click(within(row).getByRole('button', { name: t('operator.builtIn.editMember') }));

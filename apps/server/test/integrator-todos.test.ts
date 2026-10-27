@@ -52,7 +52,8 @@ describe('integrator todo REST and durable lifecycle', () => {
     return h.app.projectman.domain.inbox.create({
       projectKey: 'AR',
       kind,
-      source: 'dev-1',
+      // The project manager has machine access by role (decision 66); a developer does not.
+      source: 'pm',
       assignees: ['owner'],
       title: 'Measure the hub',
       payload: {
@@ -273,12 +274,7 @@ describe('integrator todo REST and durable lifecycle', () => {
 
   it('keeps normal resolve and relay closed to integrator todos, and permits the owner login', async () => {
     const item = await opened();
-    for (const auth of [
-      headers(),
-      {
-        authorization: `Bearer ${h.app.projectman.auth.createIntegratorKey(h.app.projectman.repos.users.list()[0]!.id, null).secret}`,
-      },
-    ]) {
+    for (const auth of [headers()]) {
       const response = await h.app.inject({
         method: 'POST',
         url: routes.resolveInbox('AR', item.id),
@@ -442,7 +438,7 @@ it('defaults to unavailable when no integrator access adapter was provided', asy
     const item = h.domain.inbox.create({
       projectKey: 'AR',
       kind: 'question',
-      source: 'dev-1',
+      source: 'pm',
       assignees: ['owner'],
       title: 'Measure',
       state: 'screening',
@@ -453,6 +449,29 @@ it('defaults to unavailable when no integrator access adapter was provided', asy
     expect(result!.payload).toMatchObject({
       recipient: 'owner',
       screening: { recipientRefusal: 'integrator_unavailable' },
+    });
+  } finally {
+    await h.cleanup();
+  }
+});
+
+it('keeps the todo of an asker without machine access with the owners', async () => {
+  const h = await createDomainHarness({ integratorTodoAccess: { available: () => true } });
+  try {
+    const item = h.domain.inbox.create({
+      projectKey: 'AR',
+      kind: 'question',
+      source: 'dev-1',
+      assignees: ['owner'],
+      title: 'Measure',
+      state: 'screening',
+      payload: { question: 'Measure', requestedRecipient: 'integrator', screening: { until: START } },
+      options: [],
+    });
+    const result = await h.domain.inbox.releaseScreened(item.id, { outcome: 'todo', todo: step, by: 'pm' });
+    expect(result!.payload).toMatchObject({
+      recipient: 'owner',
+      screening: { recipientRefusal: 'no_machine_access' },
     });
   } finally {
     await h.cleanup();

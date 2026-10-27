@@ -67,7 +67,19 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   (`memberStorageHandle`, PM-1024): the first of its `formerHandles` (earlier handles, oldest
   first, written by a rename), else the current handle. Renaming a member therefore moves
   nothing on disk, and the agent's conversations keep their working directory. The task and
-  session comparisons (assignee, `session.member`, bindings) use the current handle. Humans have an **access level** (`owner`, `admin`, `developer`, `client`,
+  session comparisons (assignee, `session.member`, bindings) use the current handle.
+  **Renaming an AI member** (PM-1025) is an owner-only operation (REST `POST
+/api/projects/:key/members/:handle/rename`, the Operator's `member_rename` with an approval):
+  `MemberService.rename` holds the member's starts (`StartHolds`, `member_renaming`), refuses with
+  `member_session_live` while a session, a held workspace reservation, a `processing` queue item or
+  a deferred start of the member exists, and commits one configuration change carrying
+  `renames: {from: to}`. In that commit the configuration listeners see the previous configuration
+  with the rename applied (so nothing is retired or hired), the handle columns of the database are
+  rewritten in the same step (`apps/server/src/db/member-handles.ts`, `REWRITTEN_HANDLE_COLUMNS`),
+  and a `member_renamed {from, to, version}` event is appended. The timeline's earlier events keep
+  the old handle; viewers and the agents' text resolve it through `formerHandles` (the **alias**: a
+  message to the old handle reaches the member, the context pack lists "formerly `x`"). The e-mail
+  mailbox follows the new handle (see "E-mail"). Humans have an **access level** (`owner`, `admin`, `developer`, `client`,
   `viewer`) that governs what they may do in the app, and may hold several roles. An AI
   member holds exactly one role and has a provider (`claude` or `codex`), a model and effort,
   an optional **cheap subagent** (PM-179: a Claude Code member's sessions get a `reader-<model>`
@@ -518,7 +530,9 @@ Enforced on every configuration change, whoever makes it
 (`packages/shared/src/config/invariants.ts`; the changes only an owner may make are in
 `packages/shared/src/config/owner-only.ts`):
 
-- handles are unique; at least one human owner exists; AI sponsors are humans;
+- handles are unique, and a handle once used is never reissued: the `formerHandles` of every AI
+  member and the `from` of every `member_renamed` event stay taken (PM-1025); at least one human
+  owner exists; AI sponsors are humans;
 - repository names, board column ids, stage ids and label ids are unique;
 - stage owners and members named by labels refer to existing members; every role a member
   holds exists and suits the kind of member; custom role ids are unique and never reuse a
@@ -802,6 +816,12 @@ This module needs no Effect program: retries belong to admission, reply relay us
 `background.run`, and the 60-second signal sweep runs in `kernel/sweeps.ts`; assembly
 (`assembly.ts`) declares the sweep list.
 
+The top right corner (PM-1042, decision 65) belongs to the project manager. `GET routes.projectManager`
+returns a `ProjectManagerCorner`: the manager's channel plus, for the viewer, the requests and steps, the
+signals and the manager's queue; a person who is not an owner gets `readOnly` and no signals or queue. The web
+queue view reads `routes.memberQueue` for the manager. The machine grant is shown on the machine panel and
+managed in Settings → Integrator. The Operator's own channel route stays until PM-1045.
+
 Personal conversational style (PM-688) lives in `services/operator/preferences.ts`.
 `get_operator_preference` and `set_operator_preference` choose the person from the
 authenticated Operator session and its current human request, or the selected active PM's
@@ -950,6 +970,15 @@ hashes); `member_queue_items` (PM-894, migration 98: one row per item in an AI m
 queue"; not journaled); `sessions.execution_profile` (PM-141) is a column, not a table. Schema changes are numbered migrations in `apps/server/src/db/migrations.ts`;
 the server refuses a database a newer build migrated.
 
+**Handle columns (PM-1025).** Every column that stores a member handle is registered in
+`apps/server/src/db/member-handles.ts`: either rewritten by a rename (`REWRITTEN_HANDLE_COLUMNS`,
+`REWRITTEN_HANDLE_JSON`: tasks, messages, inbox, sessions, `member_state`, `member_queue_items`,
+`task_workspace_bindings`, …) or deliberately not (`UNREWRITTEN_HANDLE_COLUMNS`: the storage keys,
+e.g. `member_workspaces.member`, which hold the storage handle, and the append-only timeline). A
+guard test (`member-handles-columns.test.ts`) fails when a new handle column is in neither list.
+The rewrite is idempotent; at startup `MemberService.recoverRenames` completes a rename whose
+configuration was saved but whose database step did not run.
+
 ## Member queue (PM-894)
 
 Every AI member has one durable queue of what is waiting for them: a message, an Operator todo, a fix limit decision
@@ -990,7 +1019,7 @@ Every AI member has one durable queue of what is waiting for them: a message, an
   stopped. An old `message_wake` deferred-start row is read once (`ensure`) and deleted.
 - **API** (`apps/server/src/api/member-queue.ts`): `GET /api/projects/:key/operator/queue` only (PM-1030 deleted the
   per-member and all-members routes; nothing called them). Access: a person's own login (developer or more) or
-  an integrator read or super key; the legacy integrator key is refused (`operator_owner_only`). The Operator channel (`OperatorChannel.queue`) carries the open count and the item in work.
+  an integrator read or super key. Legacy keys fail authentication with 401 (PM-1037). The Operator channel (`OperatorChannel.queue`) carries the open count and the item in work.
 - **WebSocket**: `member_queue_changed {projectKey, member}`, once per member per unit of work. Clients do not see it.
 - **Remote engine**: no machine-dependent part is added. The queue, the driver and the sweep live on the hub with the
   database; only the session start crosses to an engine, as before. A member whose engine is offline waits with
@@ -1077,10 +1106,10 @@ connection, `ToolContext` with a `sessionId`).
   shared ones with the reason (`EXTERNAL_DENIED`); a test checks that every shared tool is exactly one of the two.
 - **Project switching is stateless.** Every project tool takes a required `project_key`; `list_projects {}` returns the
   projects where the key's holder is an owner at this moment. An unknown project and one the holder does not own are
-  refused alike (`insufficient_access`). `tools/list` is filtered by the key's mode (`super`, `read`, `legacy`); a forbidden
+  refused alike (`insufficient_access`). `tools/list` is filtered by the key's mode (`super`, `read`); a forbidden
   tool called directly is refused by the same table (`integrator_not_allowed`, `integrator_read_only`).
 - **Same right, same audit.** A call runs through `SuperOperator.execute` (`super` and `read` keys: the REST scope; `super`:
-  the audit row `mcp_<tool>`); a `legacy` key keeps the unscoped, unaudited REST behaviour. The super tools
+  the audit row `mcp_<tool>`). Legacy keys fail authentication with 401 (PM-1037). The super tools
   (`list_super_handoffs`, `execute_super_handoff`, `super_operate`, `get_super_operation`, `query_super_diagnostics`,
   `get_administration_status`, `get_administration_logs`, `get_machine_snapshot`, `relay_owner_answer`) are `super` only and answer with structured
   JSON plus the domain `errorCode`.
@@ -2074,6 +2103,12 @@ workers follow the machine's size.
   protections stay in place; a denied operation is reported through the command's exit code and stderr.
 
 - **Durable super-mode handoff and owner-bound operations (PM-762, Super mode 6/10)** —
+  The app principal also belongs to the selected project manager (PM-1041): its server-issued `member`
+  binds the actor to that member's own general session and open owner request. Project commands use
+  the shared operation path under the owner's authority; machine and other unlisted command kinds
+  are refused with `command_not_for_project_manager` and handed off through `open_integrator_todo`.
+  Owner-reserved effects still wait for the owner's own login. App principals stay on the server;
+  this adds no machine dependency or remote-engine boundary.
   `services/super-operator/handoffs.ts` (`SuperHandoffService`), `db/super-handoffs.ts` (migration 83:
   `super_handoffs`, `super_operations`), `packages/shared/src/{api/super-handoff,config/super-command}.ts`,
   `core/inbox/inbox.ts` (the owner's-own-login rule, the relay), the Operator MCP tool `request_super_operation`
@@ -2485,7 +2520,13 @@ workers follow the machine's size.
   is the handle or `ai.email.mailbox`, unique server-wide). The mail lands in the member's conversation as a
   reply linked by MIME headers when answering a member's mail (PM-1018), otherwise as a direct
   team message, and its attachments go through the message-attachments storage on the hub, so nothing new
-  crosses to an engine.
+  crosses to an engine. **Rename (PM-1025):** a rename deletes `ai.email.mailbox`, so the address becomes
+  `<new handle>@<reply domain>` (it is refused with `email_mailbox_taken` when that mailbox is another
+  member's). Mail to the old address still arrives: `emailMailboxOwners` also matches the `formerHandles`
+  of an AI member, so the old name resolves to the same member; a live holder of the same name does not
+  win over it but shares it, and the existing shared-name branch parks the mail. The old name stays reserved
+  in every project (`emailMailboxReserved`): no chosen mailbox, e-mail switch-on or rename may take it.
+  No new boundary: it is the same hub-only rule.
 
 - **Feedback widget public entrance and screenshot store (PM-506, PM-508)** —
   `apps/server/src/services/feedback/{service,screenshots,notices,widget}.ts`, `apps/server/src/api/feedback.ts`,
@@ -2753,6 +2794,14 @@ workers follow the machine's size.
     waits for the Operator or super side. The hub alone persists and publishes the handoff;
     no engine operation or credential crosses the boundary. PM-801 puts the integrator's fix-limit
     decisions on the same sweep (`planIntegratorInboxEscalation`): hub-side only.
+    Machine access (decision 66, PM-1073): `AiMemberConfig.machineAccess` (shown as "Külső teendő (MCP)") lets an
+    AI member put machine todos in the owners' integrator queue. The rule is `machineAccessOf` /
+    `machineTodoIssuerAllowed` in `packages/shared/src/config/machine-access.ts`: an absent value follows the
+    role (the selected, non-temp project manager has it, nobody else; no migration), the system and the Operator
+    member issue as before. Only an owner changes it (`ownerOnlyChanges` `machine_access`); a role change pins
+    the effective value. `open_integrator_todo` is listed only to such members (`ToolAudience.capabilities`) and
+    the handler decides (`machine_access_required`); screening refuses the integrator recipient with
+    `no_machine_access`. Hub-side only: no engine operation, credential or process is added.
     PM-712 applies the same server-owned queue and receipt pattern to suspected loops:
     `runtime/watchers/loop-watch.ts` stores generation, assessment and the remaining ten-minute
     online budget in `task_loops.triage_json`; `services/operator/loop-triage.ts` sends a
@@ -3010,7 +3059,10 @@ workers follow the machine's size.
   The host owner's own login manages explicit `super`/`read` keys with 1/7/30/365-day expiry
   or no expiry (`expiresInDays: null`, PM-825; default 7 days). The hub already stores a null
   `expires_at` and authenticates it until revocation; no migration or engine operation is needed.
-  Existing keys and the singular API remain `legacy`. Replacement revokes only
+  Legacy keys are revoked with a lifecycle audit by migration 114 (PM-1037); the singular API is removed.
+  Authentication rejects legacy rows, which remain readable in key lists and audit history. Before release,
+  the owner must replace any active legacy credential on the integrator's machine with a super or read key.
+  Replacement revokes only
   the same mode, with a database uniqueness constraint and transactional lifecycle audit.
   The shared credential resolver returns the stored mode and key id; `assertActive` rechecks
   that row and its owner without updating usage. Authentication records `mcp`, `cli` or `rest`
@@ -3678,13 +3730,19 @@ assumption or remote-engine RPC.
   PM-311). CLI hooks and MCP target the server's loopback URL (`127.0.0.1:4800` for the live
   instance; the port is configurable). The internal guard also checks the peer, Host and
   forwarding/origin headers; merely changing the URL to a public server cannot work.
-  **Codex catalog readiness (PM-1055):** `runner/providers/codex/args.ts` marks `team` as
-  required and disables the optional MCP startup grace (Codex 0.159.1 otherwise waits only
-  one second for an optional server's initial catalog). Its startup timeout is 20 seconds,
-  below the runner's 30-second stalled-start indication. This applies to new and resumed
-  Codex and NanoGPT sessions. **Remote engine:** these CLI settings run on the engine;
-  the existing token-bound loopback relay supplies the catalog. No new data crosses the
-  boundary and authentication is unchanged.
+  **Codex team server stays optional (PM-1070):** `runner/providers/codex/args.ts` passes
+  `mcp_servers.team` with only its `url` and tool approvals. PM-1055 had set
+  `required = true`, a 20-second startup timeout and `mcp_optional_startup_grace_ms = 0`;
+  from that deploy every Codex session exited at start ("agent CLI exited before it was
+  ready"), so it was reverted. A failing team MCP must cost the tools, not the session.
+  The root cause of the team MCP start failure is investigated separately.
+  **Remote engine:** unchanged; the token-bound loopback relay supplies the catalog.
+  **Team MCP relay log (PM-1072):** the engine logs each `initialize` and `tools/list` relay
+  (method, status, elapsed time) at info, and every refused (non-2xx), failed or badly
+  answered relay at warn; the cloud logs why it refused a relayed token. Neither logs the
+  token or the body. A Codex session without team tools therefore shows in the engine log
+  where its handshake stopped (no call, a slow one, a refusal); the cause of the intermittent
+  missing tools was not yet reproduced with a real Codex run.
   Submission timeouts (PM-442) log retry count, elapsed time, command/idle state and bounded
   CLI diagnostics from `runner/input-queue.ts` and `runner/session.ts`: prompt/resume flags,
   the last hook name/time, blocking-screen detection and at most 500 characters from the last
@@ -4980,7 +5038,7 @@ retired, `operator_required` 409; it cannot go on leave), `isOperatorActor` (an 
   and before push/advance checks the selected PM or transitional Operator, repository/default branch and lessons path; conflicting
   provenance is refused. Delayed results use the existing system-message path, and stale lessons request a
   reread and retry. Super MCP lessons still use `requestExternal`, key provenance and key/owner/Operator
-  reauthorization; neither read nor legacy keys acquire write permission. See the `merge.read_file` /
+  reauthorization; read keys cannot write and legacy keys fail authentication (PM-1037). See the `merge.read_file` /
   `merge.commit_files` machine inventory above for the unchanged remote-engine boundary.
 - **Searchable document copies (PM-744, PM-788).** `services/history/document-sync.ts` maintains a cloud SQLite
   copy of each configured repository's fixed `docs/DECISIONS.md` and `docs/LESSONS.md` paths. The assembly reader

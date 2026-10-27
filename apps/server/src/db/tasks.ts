@@ -1,6 +1,5 @@
 import { TaskComplexity, taskSeq } from '@projectman/shared';
 import type { CollectingSourceEvidence, RankedCard, Task, TaskLink, TaskPriority } from '@projectman/shared';
-import { legacyCheckLabels } from '@projectman/templates';
 import type { Statement } from 'better-sqlite3';
 import type { TaskSchedulingQuery } from '../contracts';
 import type { Db } from './database';
@@ -30,7 +29,6 @@ interface TaskRow {
   priority: number | null;
   board_rank: number;
   labels: string;
-  checks: string;
   visibility: string;
   created_by: string;
   created_at: string;
@@ -169,13 +167,7 @@ function toTask(r: TaskRow, links: TaskLink[]): Task {
     repo: r.repo,
     priority: r.priority === null ? null : (PRIORITY_LEVEL[r.priority] ?? null),
     boardRank: r.board_rank,
-    // Checks recorded before labels read as their labels; the next label write clears the column.
-    labels: [
-      ...new Set([
-        ...parseJson<string[]>(r.labels, []),
-        ...legacyCheckLabels(parseJson<Record<string, string>>(r.checks, {})),
-      ]),
-    ],
+    labels: parseJson<string[]>(r.labels, []),
     links,
     createdBy: r.created_by,
     createdAt: r.created_at,
@@ -235,9 +227,9 @@ export function createTaskRepository(db: Db) {
     deleteLink: db.prepare(`DELETE FROM task_links WHERE task_id = ? AND kind = ? AND repo = '' AND ref = ?`),
     insert: db.prepare(
       `INSERT INTO tasks (id, project_key, key, seq, title, description, stage_id, status, assignee,
-         repo, priority, labels, checks, visibility, created_by, created_at, stage_entered_at, updated_at, closed_at, parent_key,
+         repo, priority, labels, visibility, created_by, created_at, stage_entered_at, updated_at, closed_at, parent_key,
          kind, theme_key, board_rank, complexity)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ),
     setBoardRank: db.prepare('UPDATE tasks SET board_rank = ? WHERE key = ? AND project_key = ?'),
     // The open cards of a project that stand in these stages (themes are no cards of the board).
@@ -439,7 +431,6 @@ export function createTaskRepository(db: Db) {
           task.repo,
           task.priority === null ? null : PRIORITY_COLUMN[task.priority],
           toJson(task.labels),
-          '{}',
           'shared', // Legacy column, not read since PM-987.
           task.createdBy,
           task.createdAt,
@@ -578,10 +569,7 @@ export function createTaskRepository(db: Db) {
       return statements.deleteLink.run(taskId, kind, ref).changes > 0;
     },
 
-    /**
-     * Writes only the fields in `patch`, so concurrent changes of other fields survive. Writing
-     * labels also clears the legacy checks column they were read with.
-     */
+    /** Writes only the fields in `patch`, so concurrent changes of other fields survive. */
     update(id: string, patch: TaskPatch): void {
       const fields = (Object.keys(COLUMNS) as Array<keyof TaskPatch>).filter((f) => patch[f] !== undefined);
       if (fields.length === 0) return;
@@ -589,7 +577,6 @@ export function createTaskRepository(db: Db) {
       let statement = updates.get(signature);
       if (!statement) {
         const sets = fields.map((f) => `${COLUMNS[f]} = @${f}`);
-        if (fields.includes('labels')) sets.push(`checks = '{}'`);
         statement = db.prepare(`UPDATE tasks SET ${sets.join(', ')} WHERE id = @id`);
         updates.set(signature, statement);
       }

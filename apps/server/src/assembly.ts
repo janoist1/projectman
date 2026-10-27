@@ -154,7 +154,7 @@ import { outputTail, withGithubActions } from './full-test';
 import { DecisionCandidates, DocWrites } from './services/project-docs';
 import { Merges } from './services/merges';
 import { MergeCardLock, startSweeps, type RunningSweeps } from './kernel';
-import { createPermissionBroker, engineIdOf, fullTestSandbox } from './runtime/sessions';
+import { createPermissionBroker, engineIdOf, fullTestSandbox, StartHolds } from './runtime/sessions';
 import {
   ReleaseDeployments,
   ReleasePublishService,
@@ -790,7 +790,13 @@ export function createDomain(opts: DomainOptions) {
   const cardQuestions = new CardQuestions({ ctx });
   const roles = new RoleService({ projects });
   const mergeCards = new MergeCardLock();
+  const startHolds = new StartHolds();
+  members.useRenameRuntime({
+    holdStarts: (key, handle) => startHolds.hold(key, handle),
+    deferredStartNames: (key, handle) => deferredStarts.names(key, handle),
+  });
   const sessions = new SessionOrchestrator({
+    startHolds,
     mergeCards,
     onAuthError: (key, handle, provider, engineId) => {
       void outages.observeAuthError(key, handle, provider, engineId).catch(() => {});
@@ -1832,6 +1838,7 @@ export function createDomain(opts: DomainOptions) {
     retry: retryDeferredStarts,
     engineName: opts.engineName,
   });
+  events.on('config_changed', (change) => outages.configChanged(change));
   const unsubscribeOutageKeys = providerKeys?.onChange(() => {
     if (opts.standby) return;
     background.run(
@@ -2058,6 +2065,7 @@ export function createDomain(opts: DomainOptions) {
     engineLinked,
   });
   const appOperations = createOperatorAppOperations({
+    ctx,
     credentials: appCredentials,
     superOperator,
     superAdministration,
@@ -2464,6 +2472,7 @@ export function createDomain(opts: DomainOptions) {
     /** Startup: import projects from the repository, clean up state that did not survive a restart, watch PRs. */
     async start(): Promise<void> {
       await projects.syncFromStore();
+      members.recoverRenames();
       // The history index holds every database source before the server reports itself ready (PM-786).
       await history.init();
       await historyDocuments.init();

@@ -7,6 +7,7 @@ import {
   isCoordinationActor,
   isProjectManager,
   isRequiredProjectManager,
+  managerConversationOf,
   PROJECT_MANAGER_ROLE,
   projectManagerAmong,
   projectManagerMoveRefusal,
@@ -231,6 +232,20 @@ describe('sessionWorkItemOf', () => {
       { type: 'general' },
     ] as const)
       expect(sessionWorkItemOf(pm, item)).toEqual(item);
+  });
+});
+
+describe('managerConversationOf', () => {
+  it('shares the general conversation with owners and gives every other person their own', () => {
+    const config = configWith([
+      ai('pm'),
+      { kind: 'human', handle: 'cleo', displayName: 'Cleo', access: 'client' },
+      { kind: 'human', handle: 'vic', displayName: 'Vic', access: 'viewer' },
+    ]);
+    expect(managerConversationOf(config, 'owner')).toEqual({ type: 'general' });
+    expect(managerConversationOf(config, 'pm')).toEqual({ type: 'general' });
+    expect(managerConversationOf(config, 'cleo')).toEqual({ type: 'general', with: 'cleo' });
+    expect(managerConversationOf(config, 'vic')).toEqual({ type: 'general', with: 'vic' });
   });
 });
 

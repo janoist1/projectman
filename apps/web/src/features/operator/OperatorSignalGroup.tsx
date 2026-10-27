@@ -110,7 +110,7 @@ export function OperatorSignalGroup({
         }
       }),
     );
-    await client.invalidateQueries({ queryKey: queryKeys.operator(key) });
+    await client.invalidateQueries({ queryKey: queryKeys.projectManager(key) });
     setProgress(null);
     setFailures(failed);
     if (failed.length) focus.current = 'retry';

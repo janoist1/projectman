@@ -167,7 +167,7 @@ export const hu = {
   operatorGrant: {
     title: 'Operátor jogosítványa',
     intro:
-      'Egy Operátor van. A super jogosítvánnyal a zárt környezeten kívül is dolgozhat: a gépeden, típusos és naplózott műveletekkel, a saját nevén.',
+      'Egy Operátor van. A super jogosítvánnyal a zárt környezeten kívül is dolgozhat: a gépeden, típusos és naplózott műveletekkel, a saját nevén. A projekt ügyeit ettől függetlenül a projektmenedzser viszi.',
     heading: 'Super jogosítvány',
     active: 'Megadva',
     inactive: 'Nincs megadva',
@@ -273,8 +273,6 @@ export const hu = {
     superSecretTitle: 'Új Claude Code-kulcs',
     emptyHint: 'Kulcs nélkül a Claude Code nem csatlakozhat. Az Operátor nélküle is dolgozik.',
     past: 'Korábbi kulcsok ({n})',
-    legacy: 'Ezzel a kulccsal a műveletek még a te neveden látszanak. Cserélj Claude Code-kulcsra.',
-    upgrade: 'Csere Claude Code-kulcsra',
     ownerOnly: 'A kulcsokat csak a tulajdonos kezelheti, a saját bejelentkezésével.',
     today:
       'A Claude Code-kulcs ma lejár. Adj újat időben, különben a Claude Code hívásai elutasítást kapnak.',
@@ -462,6 +460,21 @@ export const hu = {
     engineOfflineTitle: 'A motor most nem elérhető, a gépe nem látszik.',
     engineOfflineBody: 'Amint csatlakozik, a kijelző magától frissül.',
     engineOfflineSince: 'Utoljára {ago} jelentkezett. ',
+    /** The Operator's machine grant (PM-1042): the row at the bottom of the panel, for the instance owner. */
+    grant: {
+      on: 'Az Operátor super jogosítványa: megadva, {expiry}.',
+      onHint: 'A gépen futó műveleteket maga végzi.',
+      off: 'Az Operátor super jogosítványa: nincs megadva.',
+      offHint: 'Ami a gépen futna, azt átadja neked.',
+      manage: 'Kezelés',
+      give: 'Megadás…',
+      unknown: 'A jogosítvány állapota most nem látszik.',
+      chip: 'super',
+      dot: 'Operátor super jogosítvánnyal',
+      untilRevoked: 'visszavonásig',
+      untilToday: 'ma {time}-ig',
+      untilDate: '{date} {time}-ig',
+    },
   },
   /** Hybrid mode (PM-316): the AI engine's state, and the engines in the settings. */
   engines: {
@@ -1169,6 +1182,14 @@ export const hu = {
     invalidResponse: 'A szerver válasza nem a várt formátumú.',
     /** Detail of `handover_uncommitted`: the working directory and how many files are uncommitted. */
     handoverUncommitted: 'A munkafa: {path}; mentetlen fájlok száma: {count}.',
+    /** `member_session_live` with what holds the member named (PM-1026). */
+    memberSessionLive: 'Most nem nevezhető át, mert {reason}. Próbáld újra, ha végzett.',
+    memberSessionLiveReason: {
+      session: 'éppen dolgozik egy munkamenetben',
+      workspace: 'a munkaterülete még foglalt egy kártyához',
+      queue: 'éppen feldolgoz egy neki küldött üzenetet',
+      deferred_start: 'egy munkája indulásra vár',
+    },
     /** `owner_login_required` with its category named (PM-418). */
     ownerLoginRequiredIn: 'Ezt csak a tulajdonos teheti meg, a saját bejelentkezésével: {what}.',
     ownerLoginRequiredCategory: {
@@ -1341,6 +1362,8 @@ export const hu = {
       operator_never:
         'Ezt az eszközt az Operátor nem használhatja: más tagok döntései és az átadások nem az övéi.',
       operator_only: 'Ezt a műveletet csak az Operátor használhatja.',
+      command_not_for_project_manager:
+        'Ezt a műveletet a projektmenedzser nem végezheti el. Gépi hozzáféréssel integrátor-teendőt adhatsz, egyébként kérd a tulajdonos segítségét.',
       project_manager_only:
         'Ezt a műveletet csak az aktuális projektmenedzser használhatja a saját belső beszélgetésében.',
       place_not_target: 'Ide a projektmenedzser nem visz: ez nem a projekt része.',
@@ -1446,6 +1469,8 @@ export const hu = {
       duplicate_feedback_surface: 'Két felületnek azonos az azonosítója vagy a címe.',
       not_an_outage_alert: 'Ez nem kiesési figyelmeztetés.',
       handle_taken: 'Ez az azonosító már foglalt.',
+      member_session_live: 'Most nem nevezhető át, mert dolgozik.',
+      member_renaming: 'Ennek a tagnak most nevezzük át az azonosítóját. Pár másodperc múlva próbáld újra.',
       member_at_capacity: 'Ennek a tagnak most nincs szabad kapacitása.',
       member_on_leave: 'Ez a tag szabadságon van; amíg vissza nem hívod, nem kap munkát.',
       ai_limit_reached: 'Most dolgozik a megengedett számú AI-tag; az új munka később indul.',
@@ -1724,6 +1749,10 @@ export const hu = {
     filteredEmpty: 'Ebben a szűrésben nincs kártya.',
     assigneeLabel: 'Felelős: {name}',
     columnCount: '{count} feladat',
+    /** The column head of the queue a work stage follows (PM-1079): is there anything a person can start. */
+    startableCount: '{count} indítható',
+    startableNone: 'nincs indítható',
+    startableLabel: '{count} kártya indítható',
     noResults: 'Nincs találat erre: „{query}”',
     workingNow: 'Most dolgozik',
     nobodyWorking: 'Most senki nem dolgozik.',
@@ -1996,7 +2025,8 @@ export const hu = {
         start: 'Indulásra vár',
         freeMember: 'Szabad fejlesztőre vár',
         fullTest: 'Teljes teszt',
-        prerequisite: 'Előfeltételre vár',
+        /** Short, so the card's one line keeps the card it waits for (PM-1079). */
+        prerequisite: 'Vár',
         done: 'Kész a munka',
         blocked: 'Elakadt',
         held: 'Áll',
@@ -2179,9 +2209,15 @@ export const hu = {
     ready: 'Indítható',
     prerequisite: 'Előfeltételre vár',
     /** No article or suffix after the key: its letters and number differ by project. */
-    prerequisiteOn: 'Előfeltételre vár: {key}',
-    prerequisiteOnMore: 'Előfeltételre vár: {key} +{more}',
-    prerequisiteOnMoreLabel: 'Előfeltételre vár: {key} és még {more} kártya',
+    prerequisiteOn: 'Vár · {ref}',
+    /** The stage is where the prerequisite stands now (PM-1079); left out where the viewer does not see it. */
+    prerequisiteRef: '{key} ({stage})',
+    prerequisiteMore: '{ref} +{more}',
+    /** Spoken and tooltip forms of the same wait. */
+    prerequisiteLabel: 'Előfeltételre vár: {key}',
+    prerequisiteLabelStage: 'Előfeltételre vár: {key}, ez most itt tart: {stage}',
+    prerequisiteLabelMore: '{base}; és még {more} kártya',
+    prerequisiteLine: '{key} – {title} · {stage}',
     duplicateOf: 'Duplikátum: {key}',
     done: 'Kész · {when}',
     /** The TaskStatus values. */
@@ -3115,7 +3151,7 @@ export const hu = {
       title: 'Indulás',
       next: 'Következő: {title}',
       complete: 'Minden megvan',
-      intro: 'Ezt nézzük végig együtt. Amit elintézünk, azt az Operátor kipipálja.',
+      intro: 'Ezt nézzük végig együtt. Amit elintézünk, azt a projektmenedzser kipipálja.',
       state: { open: 'hátra', done: 'kész', not_needed: 'nem kell' },
       reason: 'Nem kell: {reason}',
       condition: {
@@ -3148,51 +3184,37 @@ export const hu = {
       loadFailed: 'Az indulási lista most nem töltődött be.',
       indicator: {
         text: 'Indulás {settled}/{total}',
-        label: 'Indulási lista: {total} tételből {settled} rendben. Megnyitás az Operátor paneljén.',
+        label: 'Indulási lista: {total} tételből {settled} rendben. Megnyitás a projektmenedzser paneljén.',
         title: 'Indulási lista',
       },
     },
-    name: 'Operátor',
-    short: 'Op',
+    name: 'Projektmenedzser',
+    short: 'PM',
     button: {
-      aria: 'Beszélgetés az Operátorral · {status}',
+      aria: 'Beszélgetés a projektmenedzserrel · {status}',
       newReply: 'új válasz',
       signals: '{count} új jelzés',
       queue: 'sorban {count}',
-      super: 'super jogosítvánnyal',
     },
     queue: {
-      toggle: 'Az Operátor sora',
-      toggleCount: 'Az Operátor sora · {count} tétel',
-      title: 'Az Operátor sora',
+      toggle: 'A projektmenedzser sora',
+      toggleCount: 'A projektmenedzser sora · {count} tétel',
+      title: 'A projektmenedzser sora',
       back: 'Beszélgetés',
-      superChip: 'super',
-      superChipTitle: 'Super jogosítvány · {expiry}',
       now: 'Most',
       strip: {
         now: 'Most: {title}',
         more: 'még {count}',
         starting: 'Indul… általában fél perc',
         waiting: '{status} · {count} tétel vár',
-        label: 'Az Operátor sorának megnyitása',
+        label: 'A projektmenedzser sorának megnyitása',
       },
       loadFailed: 'Nem sikerült betölteni a sort.',
       refreshFailed: 'Nem sikerült frissíteni.',
       retry: 'Újra',
       first: {
-        title: 'Itt látod, mi vár az Operátorra.',
-        lead: 'Ha egy tag teendőt nyit vagy üzen neki, az Operátor magától elindul, és sorban végigmegy mindenen. Neked csak az jön, ami a tiéd.',
-      },
-      grant: {
-        on: 'Super jogosítvánnyal dolgozik, {expiry}.',
-        off: 'Super jogosítvány nélkül dolgozik: a gépen futó műveleteket neked adja át.',
-        offOther: 'Super jogosítvány nélkül dolgozik: a gépen futó műveleteket a tulajdonosnak adja át.',
-        manage: 'Kezelés',
-        give: 'Megadás…',
-        unknown: 'A jogosítvány állapota most nem látszik.',
-        untilRevoked: 'visszavonásig',
-        untilToday: 'ma {time}-ig',
-        untilDate: '{date} {time}-ig',
+        title: 'Itt látod, mi vár a projektmenedzserre.',
+        lead: 'Ha egy tag teendőt nyit vagy üzen neki, a projektmenedzser magától elindul, és sorban végigmegy mindenen. Neked csak az jön, ami a tiéd.',
       },
       restarted:
         '{time}-kor a munkamenet leállt. A rendszer újraindította, a megkezdett tétel elölről indult.',
@@ -3202,7 +3224,7 @@ export const hu = {
         oldestAgo: 'a legrégebbi {ago} vár',
         oldestSince: 'a legrégebbi {since} óta vár',
         empty: 'A sor üres.',
-        emptyHint: 'Ha jön valami, az Operátor magától elindul.',
+        emptyHint: 'Ha jön valami, a projektmenedzser magától elindul.',
       },
       openList: 'A sor tételei',
       closedToday: 'Ma lezárva · {count}',
@@ -3262,26 +3284,27 @@ export const hu = {
       quotaUntil: 'Keretre vár {until}-ig',
       paused: 'Szünetel',
       waiting: 'Várakozik',
+      on_leave: 'Szabadságon',
       missing: 'Nincs',
     },
     panel: {
       close: 'Bezárás',
-      subline: 'a kéréseidet intézi',
+      subline: 'a projektet viszi',
       fullSession: 'Teljes munkamenet',
-      fullSessionTitle: 'Az Operátor munkamenetének megnyitása',
+      fullSessionTitle: 'A projektmenedzser munkamenetének megnyitása',
       observers: 'A beszélgetést rajtad kívül a tulajdonos és az admin láthatja.',
     },
     thread: {
-      label: 'Beszélgetés az Operátorral',
+      label: 'Beszélgetés a projektmenedzserrel',
     },
     intro: {
-      title: 'Szia, én vagyok az Operátor.',
+      title: 'Szia, én vagyok a projektmenedzser.',
       attach: 'Ha valami furcsát látsz, küldj róla képet: illeszd be a képernyőképet, vagy húzd ide.',
       attachPhone: 'Ha valami furcsát látsz, küldj róla képet a {icon} gombbal.',
-      lead: 'Írd le a saját szavaiddal, mit szeretnél a projektben, és elintézem. Ha valami elakad, szólok, de csak akkor változtatok, ha kéred.',
+      lead: 'Írd le a saját szavaiddal, mit szeretnél a projektben, és elintézem: én viszem a kártyákat, a szabályokat és a kérdéseket.',
       points: {
-        card: 'Kártyát nyitok, mozgatok, indítok, címkézek.',
-        members: 'Átállítom a tagokat: modell, kapacitás, szabadság.',
+        card: 'Kártyát nyitok, mozgatok, indítok, átosztok.',
+        members: 'Átállítom a csapatot: modell, kapacitás, szabadság.',
         state: 'Megmondom, mi a helyzet, és miért áll valami.',
       },
       approval:
@@ -3293,9 +3316,8 @@ export const hu = {
         writer: 'A szövegíró legyen Sonnet',
         mine: 'Hol látom a kártyáimat?',
       },
-      transition:
-        'A napi munkát továbbra is a Projektmenedzser osztja el, magától; neki az Üzenetekben írhatsz.',
-      transitionLink: 'Korábbi beszélgetésetek',
+      earlier: 'Az Operátorral folytatott korábbi beszélgetés az Üzenetekben marad.',
+      earlierLink: 'Üzenetek',
       other: {
         attach: 'Ha valami furcsát látsz, küldj róla képet: illeszd be a képernyőképet, vagy húzd ide.',
         lead: 'Kérdezz bátran: segítek eligazodni a projektben, és megmondom, mi a helyzet.',
@@ -3314,15 +3336,17 @@ export const hu = {
       sessions: 'Munkamenetek',
     },
     composer: {
-      label: 'Üzenet az Operátornak',
-      placeholder: 'Írj az Operátornak…',
-      placeholderOther: 'Kérdezd az Operátort…',
+      label: 'Üzenet a projektmenedzsernek',
+      placeholder: 'Írj a projektmenedzsernek…',
+      placeholderOther: 'Kérdezd a projektmenedzsert…',
     },
     banner: {
       quota:
-        'Elfogyott az Operátor kerete. {until}-kor töltődik újra; az üzeneted megmarad, és akkor válaszol.',
-      quotaUnknown: 'Elfogyott az Operátor kerete. Az üzeneted megmarad, amint lesz kerete, válaszol.',
-      paused: 'A projekt szünetel. Az üzeneted megmarad, a folytatás után az Operátor válaszol.',
+        'Elfogyott a projektmenedzser kerete. {until}-kor töltődik újra; az üzeneted megmarad, és akkor válaszol.',
+      quotaUnknown: 'Elfogyott a projektmenedzser kerete. Az üzeneted megmarad, amint lesz kerete, válaszol.',
+      paused: 'A projekt szünetel. Az üzeneted megmarad, a folytatás után a projektmenedzser válaszol.',
+      onLeave: 'A projektmenedzser szabadságon van. Az üzeneted megmarad, és visszatérése után válaszol.',
+      profile: 'Profil',
       resume: 'Folytatás…',
       starting: 'Indul… általában fél perc',
       waiting: '{reason}. Amint lehet, sorra kerül.',
@@ -3338,7 +3362,8 @@ export const hu = {
     },
     loadFailed: 'Nem sikerült betölteni a beszélgetést.',
     missing: {
-      title: 'Ebben a projektben még nincs Operátor.',
+      title: 'Ebben a projektben még nincs projektmenedzser.',
+      hint: 'Amíg nincs, a projekt ügyeit a tulajdonos intézi.',
       team: 'Csapat',
     },
     builtIn: {
@@ -3383,6 +3408,7 @@ export const hu = {
         member_change: 'Tag módosítása',
         member_hire: 'Tag felvétele',
         member_retire: 'Tag elbocsátása',
+        member_rename: 'Tag átnevezése',
         config_revert: 'Beállítás visszaállítása',
         session_stop: 'Munkamenet leállítása',
         project_pause: 'A projekt szüneteltetése',
@@ -3502,6 +3528,8 @@ export const hu = {
         labels: 'A már felkerült címkék nem változnak, a szabály a következő döntéstől érvényes.',
         member_hire: 'Az új tag a mentés után azonnal munkát kaphat.',
         member_retire: 'A tag futó munkamenetei leállnak, a munkáját a csapat veszi át.',
+        member_rename:
+          'A tag azonosítója az új névre vált, a korábbi bejegyzések a régi névvel maradnak; a levelezési címe is az új azonosítót követi.',
         member_other: 'A tag futó munkamenetei nem változnak.',
         locations: 'A futó munkamenetek nem változnak; az új helyet az újonnan indulók használják.',
         review_test:
@@ -3629,7 +3657,10 @@ export const hu = {
     emailSendWithoutApproval: 'Jóváhagyás nélkül küldhet',
     emailApprovalHint: 'Kikapcsolva minden levele előbb a Rád vár listádba kerül.',
     emailAutoHint: 'A levelei azonnal kimennek. Utólag a Beállítások › E-mail naplójában látod őket.',
-    emailOwnerOnly: 'Ezt csak a tulajdonos állíthatja.',
+    ownerOnly: 'Ezt csak a tulajdonos állíthatja.',
+    machineAccess: 'Külső teendőt adhat (MCP)',
+    machineAccessHint:
+      'Telepítést, beállítást tehet a tulajdonosok sorába. A sort a tulajdonos MCP-n csatlakozott Claude-ja dolgozza fel.',
     save: 'Mentés',
     saved: 'A tag adatai mentve.',
   },
@@ -5132,6 +5163,7 @@ export const hu = {
       question_answer_delivered: 'Megkapta.',
       member_hired: 'Felvéve: {handle}',
       member_retired: 'Elbocsátva: {handle}',
+      member_renamed: 'Azonosító átnevezve: {from} → {to}',
       member_retired_handover: 'Elbocsátva: {handle}, a munkái átkerültek: {to}',
       config_changed: 'Beállítás módosítva: {message}',
       contactAdded: 'Kapcsolattartó lett: {name}',
@@ -5397,6 +5429,36 @@ export const hu = {
     deleteDescription:
       'A NanoGPT-tagok új munkamenete nem indul, amíg új kulcsot nem adsz meg. A már futók nem állnak le.',
   },
+  /** Renaming an AI member's handle (PM-1026). */
+  memberRename: {
+    menu: 'Azonosító átnevezése',
+    menuFor: '{name} azonosítójának átnevezése',
+    title: '{name} azonosítójának átnevezése',
+    intro:
+      'Ezzel az azonosítóval hivatkoznak rá a csapatban, a kártyákon és az üzenetekben. A neve nem változik.',
+    label: 'Új azonosító',
+    hint: 'Kisbetű, szám és kötőjel, legfeljebb 32 karakter. Most: {handle}',
+    consequencesTitle: 'Mi történik?',
+    carriesOn:
+      'A kártyái, üzenetei és munkái az új azonosítóval mennek tovább; a munkaterülete és a beszélgetései megmaradnak.',
+    oldHandleReserved:
+      'A régi azonosító ({handle}) foglalt marad: más tag nem kaphatja meg, és a régi hivatkozások ide vezetnek.',
+    emailFollows: 'Az e-mail-címe {address} lesz; a régi címére küldött levelek is megérkeznek hozzá.',
+    emailFollowsNoDomain:
+      'Az e-mail-címe az új azonosítót követi; a régi címére küldött levelek is megérkeznek hozzá.',
+    newHandle: 'új azonosító',
+    notWhileWorking: 'Amíg dolgozik, nem nevezhető át.',
+    submit: 'Átnevezés',
+    submitting: 'Átnevezés…',
+    done: 'Átnevezve: {from} → {to}',
+    invalid:
+      'Kisbetűvel vagy számmal kezdődjön, és csak kisbetű, szám és kötőjel lehet benne (legfeljebb 32 karakter).',
+    unchanged: 'Ez a mostani azonosítója. Írj be egy újat.',
+    taken: 'A(z) „{handle}” azonosító foglalt: egy tag most vagy korábban ezt használta. Válassz másikat.',
+    mailboxTaken: 'Ezt az azonosítót e-mail-címként már egy másik tag használja. Válassz másikat.',
+    working: 'Most dolgozik ({work}). Ha végzett, átnevezheted.',
+    former: 'korábban:',
+  },
   retire: {
     title: 'Elbocsátás: {name}',
     body: 'A lépései és a futó feladatai átkerülnek, az előzményei megmaradnak. Kire szálljanak át?',
@@ -5458,6 +5520,7 @@ export const hu = {
     waiting: 'Döntésére vár',
     email: 'E-mail',
     capacity: 'Kapacitás: {used} / {max}',
+    machineAccess: 'Külső teendőt adhat a tulajdonosoknak (MCP).',
     /** A card waits for this member's place (PM-297). */
     full: 'Tele van.',
     fullOf: 'Tele van ({used}/{max}).',

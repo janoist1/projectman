@@ -89,6 +89,14 @@ describe('tool audience', () => {
     });
   });
 
+  it.each([false, true])(
+    'lists the machine todo tool only with machine access (%s)',
+    async (machineAccess) => {
+      const result = await listToolsFor({ ...developerAudience, machineAccess });
+      expect(result.tools.some((tool) => tool.name === 'open_integrator_todo')).toBe(machineAccess);
+    },
+  );
+
   it.each([false, true])('lists deployment tools only for their duty holder (%s)', async (holdsDuty) => {
     const result = await listToolsFor({
       ...developerAudience,
@@ -132,11 +140,15 @@ describe('tool audience', () => {
   });
 
   it.each([
-    { audience: { ...developerAudience, projectManager: true }, present: 'start_task', absent: 'operate' },
     {
       audience: { ...developerAudience, projectManager: true },
-      present: 'propose_operator_knowledge',
-      absent: 'execute_operation',
+      present: 'operate',
+      absent: 'get_machine_logs',
+    },
+    {
+      audience: { ...developerAudience, projectManager: true },
+      present: 'execute_operation',
+      absent: 'check_release',
     },
     {
       audience: { ...developerAudience, projectManager: true },
@@ -145,8 +157,8 @@ describe('tool audience', () => {
     },
     {
       audience: { ...developerAudience, projectManager: true },
-      present: 'set_operator_preference',
-      absent: 'execute_operation',
+      present: 'get_role_configuration',
+      absent: 'get_history_search_stats',
     },
     {
       audience: { ...developerAudience, duties: new Set(['feedback_processing'] as const) },

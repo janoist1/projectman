@@ -1,7 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import {
   routes,
-  TASK_CREATE_MIN_ACCESS,
   OperatorApprovalWaiverRequest,
   canReadOperatorKnowledge,
   SuperAuditQuery,
@@ -88,11 +87,7 @@ export function registerOperatorRoutes(app: FastifyInstance, deps: { domain: Api
   );
   app.get<ProjectParams>(routes.operatorKnowledge(':key'), async (request) => {
     const access = await requireAccess(domain, request, request.params.key);
-    if (
-      (access.via && !request.principal) ||
-      request.principal?.mode === 'legacy' ||
-      !canReadOperatorKnowledge({ access: access.access })
-    )
+    if ((access.via && !request.principal) || !canReadOperatorKnowledge({ access: access.access }))
       throw forbidden(
         'operator_owner_only',
         'shared knowledge requires an owner or admin using their own login',
@@ -101,15 +96,11 @@ export function registerOperatorRoutes(app: FastifyInstance, deps: { domain: Api
   });
   app.get<ProjectParams>(routes.operatorPreferences(':key'), async (request) => {
     const access = await requireAccess(domain, request, request.params.key, { minimum: 'admin' });
-    if (access.via && request.principal?.mode === 'legacy')
-      throw forbidden('operator_owner_only', 'preferences require a person’s own login');
     return domain.operatorPreferences.list(request.params.key);
   });
 
   app.get<ProjectParams>(routes.operatorPreferenceMe(':key'), async (request) => {
     const access = await requireAccess(domain, request, request.params.key);
-    if (access.via && request.principal?.mode === 'legacy')
-      throw forbidden('operator_owner_only', 'preferences require a person’s own login');
     return domain.operatorPreferences.me(request.params.key, access.handle);
   });
 
@@ -124,9 +115,18 @@ export function registerOperatorRoutes(app: FastifyInstance, deps: { domain: Api
     },
   );
 
+  /**
+   * The corner's conversation with the project manager (PM-1042): any person's own login; the owners share one,
+   * everyone else has theirs, read only. The integrator key never sees it.
+   */
   app.get<ProjectParams>(routes.projectManager(':key'), async (request) => {
-    await requireAccess(domain, request, request.params.key, { minimum: TASK_CREATE_MIN_ACCESS });
-    return domain.projectManagerChannels.view(request.params.key);
+    const access = await requireAccess(domain, request, request.params.key);
+    if (access.via)
+      throw forbidden(
+        'operator_owner_only',
+        "only a person's own login may see the project manager's conversation",
+      );
+    return domain.projectManagerChannels.view(request.params.key, access.handle);
   });
 
   /**

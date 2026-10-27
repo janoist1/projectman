@@ -102,12 +102,21 @@ describe('durable integrator todo rules', () => {
     }
   });
   it('allows screening to override the proposal in either direction', () => {
-    expect(selectTodoRecipient(todo(), 'owner', true)).toEqual({ recipient: 'owner' });
-    expect(selectTodoRecipient(todo(), 'integrator', true)).toEqual({ recipient: 'integrator' });
-    expect(selectTodoRecipient(todo(), 'integrator', false)).toEqual({
+    expect(selectTodoRecipient(todo(), 'owner', true, true)).toEqual({ recipient: 'owner' });
+    expect(selectTodoRecipient(todo(), 'integrator', true, true)).toEqual({ recipient: 'integrator' });
+    expect(selectTodoRecipient(todo(), 'integrator', false, true)).toEqual({
       recipient: 'owner',
       recipientRefusal: 'integrator_unavailable',
     });
+  });
+  it('keeps an asker without machine access out of the integrator queue', () => {
+    expect(selectTodoRecipient(todo(), 'integrator', true, false)).toEqual({
+      recipient: 'owner',
+      recipientRefusal: 'no_machine_access',
+    });
+    expect(selectTodoRecipient(todo(), 'integrator', false, false).recipientRefusal).toBe(
+      'no_machine_access',
+    );
   });
   it.each([
     'approvalLabel',
@@ -122,7 +131,7 @@ describe('durable integrator todo rules', () => {
   ])('fails closed on the raw protected %s field, even when null', (key) => {
     const item = todo();
     item.payload[key] = null;
-    expect(selectTodoRecipient(item, 'integrator', true)).toEqual({
+    expect(selectTodoRecipient(item, 'integrator', true, true)).toEqual({
       recipient: 'owner',
       recipientRefusal: 'protected_question',
     });

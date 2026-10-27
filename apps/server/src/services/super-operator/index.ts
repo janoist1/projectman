@@ -2,6 +2,7 @@ import type {
   IntegratorCredentialAuthority,
   IntegratorExecutionContext,
   IntegratorExecutionScope,
+  IntegratorPrincipal,
   SuperMutationAuthorizer,
 } from '../../contracts';
 import { assertIntegratorAccess, runIntegratorExecution, forbidden } from '../../kernel';
@@ -40,6 +41,13 @@ export { INTEGRATOR_INBOX_LIMIT, listIntegratorInbox, resolveIntegratorFixLimit 
 export { updateInstanceKnowledge } from './instance-knowledge';
 export { createSuperRights } from './rights';
 
+const principalActor = (config: ProjectConfig, principal: IntegratorPrincipal) =>
+  superActorOf(
+    config,
+    { id: principal.keyId, prefix: principal.prefix },
+    principal.source === 'app' ? principal.member : undefined,
+  );
+
 /** Authenticated execution shared by REST and bearer MCP. The composition supplies domain ports. */
 export function createSuperOperator(deps: {
   projects: Pick<ProjectService, 'config' | 'cachedConfig' | 'summaries'>;
@@ -69,9 +77,7 @@ export function createSuperOperator(deps: {
     const projectKey = input.projectKey ?? null;
     const initial = deps.projects.cachedConfig(projectKey ?? deps.projects.summaries()[0]?.key ?? '');
     const actor =
-      initial && input.principal.mode === 'super'
-        ? superActorOf(initial, { id: input.principal.keyId, prefix: input.principal.prefix })
-        : null;
+      initial && input.principal.mode === 'super' ? principalActor(initial, input.principal) : null;
     const authorized = new Set<string>();
     const check = (
       config: ProjectConfig,
@@ -91,7 +97,7 @@ export function createSuperOperator(deps: {
         ownerMembership: owner?.access === 'owner',
       });
       if (!verdict.allowed) throw forbidden(verdict.code, 'the credential cannot perform this operation');
-      const expected = superActorOf(config, { id: input.principal.keyId, prefix: input.principal.prefix });
+      const expected = principalActor(config, input.principal);
       if (
         by &&
         input.principal.mode === 'super' &&
@@ -144,9 +150,7 @@ export function createSuperOperator(deps: {
       actorFor(config) {
         if (config) check(config, 'write');
         const bound =
-          config && input.principal.mode === 'super'
-            ? superActorOf(config, { id: input.principal.keyId, prefix: input.principal.prefix })
-            : actor;
+          config && input.principal.mode === 'super' ? principalActor(config, input.principal) : actor;
         if (!bound) throw forbidden('insufficient_access', 'the mutation has no bound actor');
         return bound;
       },
@@ -180,7 +184,7 @@ export function createSuperOperator(deps: {
         assertIntegratorAccess(config, 'read');
         // A read key's call is audited too (PM-784): the entry carries the project's Operator and the key's
         // id and prefix, while the principal's mode stays `read`.
-        const actor = superActorOf(config, { id: context.principal.keyId, prefix: context.principal.prefix });
+        const actor = principalActor(config, context.principal);
         if (!actor) return run();
         return deps.audit.runExternal(
           { projectKey: target.projectKey, actor, requestId: context.requestId },
@@ -205,10 +209,7 @@ export function createSuperOperator(deps: {
         let work = run;
         for (const config of projects) {
           assertIntegratorAccess(config, 'read');
-          const actor = superActorOf(config, {
-            id: context.principal.keyId,
-            prefix: context.principal.prefix,
-          });
+          const actor = principalActor(config, context.principal);
           if (context.principal.mode !== 'super' || !actor) continue;
           const next = work;
           work = () =>
@@ -257,10 +258,7 @@ export function createSuperOperator(deps: {
         let work = () => run(owned.map((config) => ({ key: config.project.key, name: config.project.name })));
         if (context.principal.mode === 'super') {
           for (const config of owned) {
-            const actor = superActorOf(config, {
-              id: context.principal.keyId,
-              prefix: context.principal.prefix,
-            });
+            const actor = principalActor(config, context.principal);
             if (!actor) continue;
             const next = work;
             work = () =>

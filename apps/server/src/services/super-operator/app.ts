@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { OPERATOR_APP_CREDENTIAL_PREFIX, operatorOf } from '@projectman/shared';
+import { OPERATOR_APP_CREDENTIAL_PREFIX, operatorOf, coordinationMemberOf } from '@projectman/shared';
 import type {
   HumanMemberConfig,
   ProjectConfig,
@@ -62,7 +62,9 @@ export function createOperatorAppSessions(deps: {
       const config = deps.projects.cachedConfig(session.projectKey);
       return (
         !!config &&
-        operatorOf(config)?.handle === session.member &&
+        session.member === principal.member &&
+        (operatorOf(config)?.handle === session.member ||
+          coordinationMemberOf(config)?.handle === session.member) &&
         session.workItem.type === 'general' &&
         !session.workItem.with &&
         deps.hasOpenRequest(session.id)
@@ -75,12 +77,17 @@ interface OperatorAppCredentials {
   /** What every consumer of the shared path asks: keys go to the stored-key authority, app principals to the sessions. */
   authority: IntegratorCredentialAuthority;
   /** The principal of a live Operator session; null when the project has no owner with an account. */
-  issue(config: ProjectConfig, sessionId: string): IntegratorPrincipal | null;
+  issue(config: ProjectConfig, sessionId: string, member: string): IntegratorPrincipal | null;
   /**
    * The principal that continues an operation after the owner's yes: it needs no live session, because the
    * owner's own login approved exactly that operation (the service checks it again before it runs).
    */
-  issueApproved(config: ProjectConfig, sessionId: string, ownerHandle: string): IntegratorPrincipal | null;
+  issueApproved(
+    config: ProjectConfig,
+    sessionId: string,
+    ownerHandle: string,
+    member: string,
+  ): IntegratorPrincipal | null;
 }
 
 export function createOperatorAppCredentials(deps: {
@@ -96,6 +103,7 @@ export function createOperatorAppCredentials(deps: {
     config: ProjectConfig,
     sessionId: string,
     owner: string | null,
+    sessionMember: string,
   ): IntegratorPrincipal | null => {
     const owners = config.team.members
       .filter(
@@ -116,6 +124,7 @@ export function createOperatorAppCredentials(deps: {
           prefix: OPERATOR_APP_CREDENTIAL_PREFIX,
           mode: 'super',
           source: 'app',
+          member: sessionMember,
         } as const);
     }
     return null;
@@ -134,13 +143,13 @@ export function createOperatorAppCredentials(deps: {
       user: (id) => deps.base?.user(id) ?? deps.user(id),
       ...(deps.base?.reactivate ? { reactivate: (stored) => deps.base!.reactivate!(stored) } : {}),
     },
-    issue(config, sessionId) {
-      const principal = principalOf(config, sessionId, null);
+    issue(config, sessionId, member) {
+      const principal = principalOf(config, sessionId, null, member);
       if (principal) live.add(principal);
       return principal;
     },
-    issueApproved(config, sessionId, ownerHandle) {
-      const principal = principalOf(config, sessionId, ownerHandle);
+    issueApproved(config, sessionId, ownerHandle, member) {
+      const principal = principalOf(config, sessionId, ownerHandle, member);
       if (principal) {
         live.add(principal);
         approved.add(principal);
@@ -163,6 +172,7 @@ interface AppOperationInput {
  * rest (K3 effects wait for the owner's yes).
  */
 export function createOperatorAppOperations(deps: {
+  ctx: DomainContext;
   credentials: OperatorAppCredentials;
   superOperator: Pick<SuperOperator, 'access' | 'execute'>;
   superAdministration: Pick<SuperAdministration, 'operate' | 'operation'>;
@@ -200,16 +210,26 @@ export function createOperatorAppOperations(deps: {
     /** Starts a command for the Operator session's open request. */
     async execute(projectKey: string, sessionId: string, input: AppOperationInput): Promise<SuperOperation> {
       const config = await deps.projects.config(projectKey);
-      return run(deps.credentials.issue(config, sessionId), projectKey, input);
+      const session = deps.ctx.repos.sessions.get(sessionId);
+      if (!session || session.projectKey !== projectKey)
+        throw forbidden('insufficient_access', 'the app session belongs to another project');
+      return run(deps.credentials.issue(config, sessionId, session.member), projectKey, input);
     },
     /** Goes on with an operation the owner said yes to; the same call as the first one, now under the owner's yes. */
     async resume(operation: SuperOperation, keyId: string, ownerHandle: string): Promise<SuperOperation> {
       const config = await deps.projects.config(operation.projectKey);
-      return run(deps.credentials.issueApproved(config, keyId, ownerHandle), operation.projectKey, {
-        requestId: operation.requestId,
-        ...(operation.taskKey ? { taskKey: operation.taskKey } : {}),
-        command: operation.command,
-      });
+      const session = deps.ctx.repos.sessions.get(keyId);
+      if (!session || session.projectKey !== operation.projectKey)
+        throw forbidden('insufficient_access', 'the app session is no longer available');
+      return run(
+        deps.credentials.issueApproved(config, keyId, ownerHandle, session.member),
+        operation.projectKey,
+        {
+          requestId: operation.requestId,
+          ...(operation.taskKey ? { taskKey: operation.taskKey } : {}),
+          command: operation.command,
+        },
+      );
     },
     /** The operation and its recorded result (a running one is settled first). */
     read(projectKey: string, operationId: string): Promise<SuperOperationDetail> {

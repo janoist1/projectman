@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ProjectManagerChannel, routes } from '@projectman/shared';
+import { ProjectManagerChannel, ProjectManagerCorner, routes } from '@projectman/shared';
 import { createDomainHarness, OWNER_ACTOR, type DomainHarness } from './helpers/domain-harness';
 import {
   addHumanAndLogin,
@@ -28,11 +28,18 @@ async function harness(onLeave = false) {
         pm.onLeave = onLeave;
         pm.capacity = 1;
       }
+      config.team.members.push({
+        kind: 'human',
+        handle: 'kata',
+        displayName: 'Kata',
+        access: 'client',
+        roles: [],
+      });
     },
   });
   return h;
 }
-const view = () => h.domain.projectManagerChannels.view('AR');
+const view = () => h.domain.projectManagerChannels.view('AR', 'owner');
 
 describe('the permanent project manager channel', () => {
   it.each(['direct', 'admission'] as const)(
@@ -265,20 +272,40 @@ describe('the permanent project manager channel', () => {
     });
   });
 
-  it('returns the DTO to developers and refuses clients and viewers', async () => {
+  it('shows a person who is not an owner the session their message really goes to', async () => {
+    await harness();
+    const { session } = await h.domain.sessions.ensureSession('AR', 'pm', { type: 'general' });
+    h.repos.sessions.update(session.id, { state: 'working' });
+    expect(await h.domain.projectManagerChannels.view('AR', 'kata')).toMatchObject({
+      readOnly: true,
+      state: 'working',
+      sessionId: session.id,
+    });
+  });
+
+  it('returns the corner to every person of the project, read only for those who are not owners', async () => {
     app = await createAppHarness({ app: { claudeTmpRoots: [] } });
     const owner = await setupOwner(app.app);
     await createProject(app, owner);
+    const corner = async (cookie: string) => {
+      const response = await app.app.inject({ url: routes.projectManager('AR'), headers: { cookie } });
+      expect(response.statusCode).toBe(200);
+      return ProjectManagerCorner.parse(response.json());
+    };
+    expect(await corner(owner)).toMatchObject({ member: { handle: 'pm' }, readOnly: false });
     for (const access of ['developer', 'client', 'viewer'] as const) {
       const cookie = await addHumanAndLogin(app.app, {
         handle: access,
         access,
         email: `${access}@example.com`,
       });
-      const response = await app.app.inject({ url: routes.projectManager('AR'), headers: { cookie } });
-      expect(response.statusCode).toBe(access === 'developer' ? 200 : 403);
-      if (access === 'developer')
-        expect(ProjectManagerChannel.parse(response.json()).member?.handle).toBe('pm');
+      expect(await corner(cookie)).toMatchObject({
+        member: { handle: 'pm' },
+        readOnly: true,
+        signals: [],
+        openSignals: 0,
+        queue: { open: 0, current: null },
+      });
     }
   });
 
@@ -289,7 +316,7 @@ describe('the permanent project manager channel', () => {
       ...config,
       team: { ...config.team, members: config.team.members.filter((m) => m.handle !== 'pm') },
     });
-    expect(await view()).toEqual({ member: null, state: 'missing', sessionId: null });
+    expect(await view()).toMatchObject({ member: null, state: 'missing', sessionId: null, requests: [] });
     vi.restoreAllMocks();
   });
 });

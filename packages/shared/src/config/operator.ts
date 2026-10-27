@@ -19,6 +19,7 @@ import { OPERATOR_ROLE, isOperator } from './operator-member';
 import { ownerOnlyChanges } from './owner-only';
 import type { OwnerOnlyChange } from './owner-only';
 import { ownerReservedEffect } from './super-mutation';
+import { machineAccessOf } from './machine-access';
 import { approverOf, outboundNetworkOf } from './permission-level';
 import type { AiMemberConfig, MemberConfig, ProjectConfig } from './schema';
 
@@ -344,6 +345,7 @@ function highestLevel(changes: readonly ConfigChangeRow[]): OperatorLevel {
 
 const OWNER_ONLY_AREA: Record<OwnerOnlyChange, ConfigChangeArea> = {
   email_send_policy: 'member',
+  machine_access: 'member',
   locations: 'project',
   admin_or_account: 'member',
   approval_policy: 'gate',
@@ -511,6 +513,7 @@ function normalizedMember(member: MemberConfig): Entity {
     onLeave: member.onLeave ?? false,
     approver: approverOf(member),
     outboundNetwork: outboundNetworkOf(member),
+    machineAccess: machineAccessOf(member),
   };
 }
 
@@ -628,11 +631,13 @@ function newMemberPermissionRows(member: AiMemberConfig): ConfigChangeRow[] {
       permissionMode: DEFAULT_PERMISSION_MODE,
       approver: DEFAULT_NEW_MEMBER_APPROVER,
       outboundNetwork: DEFAULT_OUTBOUND_NETWORK,
+      machineAccess: false,
     },
     {
       permissionMode: member.permissionMode ?? 'default',
       approver: approverOf(member),
       outboundNetwork: outboundNetworkOf(member),
+      machineAccess: machineAccessOf(member),
     },
     () => 'approval',
   );
@@ -820,6 +825,7 @@ function approvalWaivable(
         permissionMode: DEFAULT_PERMISSION_MODE,
         approver: DEFAULT_NEW_MEMBER_APPROVER,
         outboundNetwork: DEFAULT_OUTBOUND_NETWORK,
+        machineAccess: false,
         instructions: '',
         temp: false,
       },

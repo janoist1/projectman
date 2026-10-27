@@ -10,6 +10,8 @@ coverage/
 *.tsbuildinfo
 # local runtime data (never commit)
 .data/
+# a SQLite session left behind by a database named ":memory:" opened as a file
+apps/server/:memory:*
 .projectman/
 .demo/
 # the local embedding model of the history search, fetched by `npm run prepare:history-model` (PM-767)

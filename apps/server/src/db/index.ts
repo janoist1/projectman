@@ -42,6 +42,7 @@ import { createDocWriteRepository } from './doc-writes';
 export type { DocWriteEdit, DocWritePatch, DocWriteRecord } from './doc-writes';
 import { createMemberWorkspaceRepository } from './member-workspaces';
 import { createInboxRepository } from './inbox';
+import { createMemberHandleRepository } from './member-handles';
 import { createMemberStateRepository } from './member-state';
 import { createMessageRepository } from './messages';
 import { createMemberQueueRepository } from './member-queue';
@@ -159,6 +160,7 @@ export function createRepositories(db: Db) {
     memberQueue: createMemberQueueRepository(db),
     inbox: createInboxRepository(db),
     memberState: createMemberStateRepository(db),
+    memberHandles: createMemberHandleRepository(db),
     feedback: createFeedbackRepository(db),
     systemFeedback: createSystemFeedbackRepository(db),
     emailChannel: createEmailChannelRepository(db),

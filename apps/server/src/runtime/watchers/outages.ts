@@ -169,6 +169,14 @@ export class WorkOutages {
     });
   }
 
+  /** A renamed member's failures were recorded under its old handle (PM-1025); the next check records them again. */
+  configChanged(change: { projectKey: string; renames?: Readonly<Record<string, string>> }): void {
+    for (const from of Object.keys(change.renames ?? {})) {
+      const key = memberKey(change.projectKey, from);
+      for (const memory of [this.failures, this.engineFailures, this.views]) memory.delete(key);
+    }
+  }
+
   forMember(projectKey: string, handle: string): WorkOutage | undefined {
     return this.views.get(memberKey(projectKey, handle));
   }

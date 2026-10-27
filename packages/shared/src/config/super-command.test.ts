@@ -4,7 +4,23 @@ import { SuperCommand as SuperCommandSchema } from '../api/super-handoff';
 import { AiMemberConfig, ProjectConfig } from './schema';
 import { SuperCommandUnclassifiable, superCommandEffects, superCommandMutations } from './super-command';
 import type { SuperCommandContext } from './super-command';
-import { ownerReservedEffect, SUPER_ADMINISTRATION_COMMANDS } from './super-mutation';
+import { coordinationMemberOf } from './project-manager';
+import { operatorOf } from './operator-member';
+import {
+  ownerReservedEffect,
+  SUPER_ADMINISTRATION_COMMANDS,
+  projectManagerCommandRefusal,
+  superConfigMutations,
+} from './super-mutation';
+
+it.each([
+  ['task_create', null],
+  ['merge', 'command_not_for_project_manager'],
+  ['administration', 'command_not_for_project_manager'],
+  ['future_command', 'command_not_for_project_manager'],
+])('checks the project manager command allowlist for %s', (kind, refusal) => {
+  expect(projectManagerCommandRefusal({ kind: kind! })).toBe(refusal);
+});
 
 function config() {
   return ProjectConfig.parse({
@@ -244,35 +260,142 @@ describe('super command classification (PM-762)', () => {
     expect(effects(command)).toEqual(['security']);
   });
 
-  it.each(['model', 'instructions', 'roleOverride'] as const)(
-    'reserves Operator self changes: %s',
-    (field) => {
-      const ctx = context();
-      ctx.config.team.members.push(
-        AiMemberConfig.parse({
-          handle: 'operator',
-          kind: 'ai',
-          displayName: 'Operator',
-          role: 'ai_operator',
-          sponsor: 'owner',
-        }),
-      );
-      const command: SuperCommand =
-        field === 'roleOverride'
-          ? operate({
-              op: 'config_patch',
-              patch: {
-                roleOverrides: {
-                  ai_operator: { duties: ['project_operation'], instructions: 'Updated role instructions' },
-                },
+  it.each([
+    ['operator', 'ai_operator', 'model'],
+    ['operator', 'ai_operator', 'instructions'],
+    ['operator', 'ai_operator', 'roleOverride'],
+    ['pm', 'project_manager', 'model'],
+    ['pm', 'project_manager', 'instructions'],
+    ['pm', 'project_manager', 'roleOverride'],
+  ] as const)('reserves %s self changes (%s): %s', (handle, role, field) => {
+    const ctx = context();
+    ctx.config.team.members.push(
+      AiMemberConfig.parse({
+        handle,
+        kind: 'ai',
+        displayName: 'Operator',
+        role,
+        sponsor: 'owner',
+      }),
+    );
+    const command: SuperCommand =
+      field === 'roleOverride'
+        ? operate({
+            op: 'config_patch',
+            patch: {
+              roleOverrides: {
+                [role]: { duties: ['project_operation'], instructions: 'Updated role instructions' },
               },
-            })
-          : { kind: 'member_update', handle: 'operator', request: { [field]: 'Updated value' } };
-      expect(superCommandMutations(command, ctx)).toContainEqual({
-        kind: 'permission_change',
-        handle: 'operator',
-      });
-      expect(superCommandEffects(command, ctx)).toEqual(['security']);
+            },
+          })
+        : { kind: 'member_update', handle, request: { [field]: 'Updated value' } };
+    expect(superCommandMutations(command, ctx)).toContainEqual({
+      kind: 'permission_change',
+      handle,
+    });
+    expect(superCommandEffects(command, ctx)).toEqual(['security']);
+  });
+
+  it.each([
+    ['project_manager', 'role'],
+    ['project_manager', 'onLeave'],
+    ['ai_operator', 'role'],
+    ['ai_operator', 'onLeave'],
+  ] as const)('reserves %s selection changes through %s', (role, field) => {
+    const ctx = context();
+    ctx.config.team.members.push(
+      AiMemberConfig.parse({
+        kind: 'ai',
+        handle: 'current',
+        displayName: 'Current delegate',
+        role,
+        sponsor: 'owner',
+      }),
+    );
+    const candidate = ctx.config.team.members.find((member) => member.handle === 'dev-1')!;
+    if (candidate.kind !== 'ai') throw new Error('expected AI fixture');
+    if (field === 'onLeave') {
+      candidate.role = role;
+      candidate.onLeave = true;
+    }
+    const next = structuredClone(ctx.config);
+    const replacement = next.team.members.find((member) => member.handle === candidate.handle)!;
+    if (replacement.kind !== 'ai') throw new Error('expected AI fixture');
+    if (field === 'role') replacement.role = role;
+    else replacement.onLeave = false;
+    const select = role === 'project_manager' ? coordinationMemberOf : operatorOf;
+    expect(select(ctx.config)?.handle).toBe('current');
+    expect(select(next)?.handle).toBe(candidate.handle);
+    expect(superConfigMutations(ctx.config, next)).toContainEqual({
+      kind: 'permission_change',
+      handle: candidate.handle,
+    });
+    expect(ownerReservedEffect(ctx.config, { kind: 'config_change', next })).toBe('security');
+    const command = operate({
+      op: 'member_update',
+      handle: candidate.handle,
+      changes: field === 'role' ? { role } : { onLeave: false },
+    });
+    expect(superCommandMutations(command, ctx)).toContainEqual({
+      kind: 'permission_change',
+      handle: candidate.handle,
+    });
+    expect(superCommandEffects(command, ctx)).toEqual(['security']);
+  });
+
+  it('reserves another member machine access before executing its update', () => {
+    const command: SuperCommand = {
+      kind: 'member_update',
+      handle: 'dev-1',
+      request: { machineAccess: true },
+    };
+    expect(superCommandMutations(command, context())).toContainEqual({
+      kind: 'permission_change',
+      handle: 'dev-1',
+    });
+    expect(effects(command)).toEqual(['security']);
+  });
+
+  it.each([true, false])(
+    'reserves an effective machine access change to %s at the configuration boundary',
+    (machineAccess) => {
+      const previous = config();
+      const member = previous.team.members.find((candidate) => candidate.handle === 'dev-1')!;
+      if (member.kind !== 'ai') throw new Error('expected AI fixture');
+      member.machineAccess = !machineAccess;
+      const next = structuredClone(previous);
+      const updated = next.team.members.find((candidate) => candidate.handle === member.handle)!;
+      if (updated.kind !== 'ai') throw new Error('expected AI fixture');
+      updated.machineAccess = machineAccess;
+      expect(
+        superConfigMutations(previous, next).map((mutation) => ownerReservedEffect(previous, mutation)),
+      ).toContain('security');
     },
   );
+
+  it('keeps restating the effective machine access default routine at the configuration boundary', () => {
+    const previous = config();
+    const next = structuredClone(previous);
+    const member = next.team.members.find((candidate) => candidate.handle === 'dev-1')!;
+    if (member.kind !== 'ai') throw new Error('expected AI fixture');
+    member.machineAccess = false;
+    expect(ownerReservedEffect(previous, { kind: 'config_change', next })).toBeNull();
+  });
+
+  it('reserves a coordinator member edit at the final configuration boundary', () => {
+    const previous = config();
+    previous.team.members.push(
+      AiMemberConfig.parse({
+        kind: 'ai',
+        handle: 'pm',
+        displayName: 'PM',
+        role: 'project_manager',
+        sponsor: 'owner',
+      }),
+    );
+    const next = structuredClone(previous);
+    next.team.members.find((member) => member.handle === 'pm')!.displayName = 'Updated PM';
+    expect(superConfigMutations(previous, next)).toContainEqual({ kind: 'permission_change', handle: 'pm' });
+    expect(ownerReservedEffect(previous, { kind: 'config_change', next })).toBe('security');
+  });
 });

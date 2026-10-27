@@ -663,18 +663,5 @@ describe('preference REST reads', () => {
             .sort(),
         ).toEqual([...cookies.keys()].sort());
     }
-    const key = await inject(h.app, 'POST', routes.integratorKey(), owner, undefined);
-    for (const url of [routes.operatorPreferenceMe('AR'), routes.operatorPreferences('AR')]) {
-      const response = await h.app.inject({
-        method: 'GET',
-        url,
-        headers: { authorization: `Bearer ${key.json().secret}` },
-      });
-      expect(response.statusCode).toBe(403);
-      expect(response.json().error.code).toBe('operator_owner_only');
-      expect(
-        (await inject(h.app, 'PUT', url, cookies.get('ada')!, { preference: detailed })).statusCode,
-      ).toBe(404);
-    }
   });
 });

@@ -343,6 +343,12 @@ or replaced. If it leaks, it can be used until revocation; the owner can revoke 
 in the same settings section. Non-expiring keys show no imminent-expiry warning.
 The key's lifetime is separate from the Operator's machine-access grant.
 
+**Before deploying PM-1037:** the owner must check Settings → Integrator for an active
+“Régi kulcs” (legacy key). If one exists, issue a super or read key and replace the integrator's
+stored credential before approving the release. Migration 114 revokes legacy keys with an audit
+entry; their rows remain visible in history. Legacy credentials then receive 401 on REST, MCP
+and event reads. The singular `/api/auth/integrator-key` endpoint is removed.
+
 The secret is shown once; save it as `~/.config/projectman/integrator-key` on the integrator's
 machine, with directory mode 700 and file mode 600. Never put it in a message, task, commit,
 member prompt or engine payload.
@@ -350,7 +356,7 @@ Send it in the `Authorization: Bearer <key>` header on `/api/*` requests. For ex
 The key works only over HTTPS or a local connection; `tailscale serve` must expose an HTTPS target when used with it.
 
 ```sh
-curl -H "Authorization: Bearer $(cat ~/.config/projectman/integrator-key)" http://localhost:4800/api/me
+curl -H "Authorization: Bearer $(cat ~/.config/projectman/integrator-key)" http://localhost:4800/api/projects
 ```
 
 Against a cloud installation (hybrid mode, [HYBRID.md](HYBRID.md)) the request first has to pass
@@ -364,19 +370,15 @@ curl \
   -H "CF-Access-Client-Id: $(cat ~/.config/projectman/access-client-id)" \
   -H "CF-Access-Client-Secret: $(cat ~/.config/projectman/access-client-secret)" \
   -H "Authorization: Bearer $(cat ~/.config/projectman/integrator-key)" \
-  https://projectman.example.com/api/me
+  https://projectman.example.com/api/projects
 ```
 
 Bearer authentication takes precedence over a login cookie. A revoked or expired key fails with
-`integrator_key_invalid`; a replacement immediately revokes the previous key. Keys cannot approve
-human decisions or approval labels, and cannot manage keys or authenticate a websocket connection.
-The owner must give approvals using their own login. Keys also cannot change the rules of
-approval labels and gates (including the order, ids and kinds of the stages), owner-only
-settings or `maxFixRounds`, manage members (except sending them on leave and calling them back),
-set temporary workers, or create or accept invitations; listing and revoking invitations is
-allowed. Such a request fails with 403 `owner_login_required` and `details.category`
-(`approval_rules`, `owner_settings`, `members`, `invitations`), and nothing is written. Every key operation remains attributed to
-the integrator (`via: integrator`), even after revocation.
+`integrator_key_invalid`; a replacement immediately revokes the previous key of the same mode.
+Read keys cannot write. Super keys act as the project's Operator under the current owner's
+membership and the shared mutation policy. Owner-reserved security, deletion and cost effects
+remain refused without an exact owner grant. Keys cannot manage keys or authenticate a websocket
+connection. Operations retain their integrator attribution and audit after revocation.
 
 ## The integrator's MCP endpoint (PM-760)
 
@@ -393,7 +395,7 @@ An MCP client (an AI tool working for the owner) can use the same keys over MCP 
   works only in projects where the key's holder is an owner right now. `list_projects` lists them.
 - `tools/list` follows the key's mode. A `super` key gets the shared project tools and the super tools
   (hand-offs, `super_operate`, diagnostics, administration status and logs, `relay_owner_answer`); a
-  `read` key gets the read tools only; a `legacy` key gets the shared project tools and no super tool. A
+  `read` key gets the read tools only. Legacy keys fail authentication with 401. A
   tool called directly that the mode does not allow is refused (`integrator_not_allowed`,
   `integrator_read_only`), and the member's session, decision and file tools are never offered.
   `super` and `read` keys use the same scope as over REST, and a `super` key's calls are audited as

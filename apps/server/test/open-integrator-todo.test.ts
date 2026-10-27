@@ -3,7 +3,7 @@ import { questionPayloadOf } from '@projectman/shared';
 import type { ProjectConfig } from '@projectman/shared';
 import { TeamToolError } from '../src/contracts';
 import type { ToolContext } from '../src/contracts';
-import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
+import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { rejection } from './helpers/errors';
 import { flush, settle } from './helpers/fakes';
@@ -100,20 +100,58 @@ describe('open_integrator_todo', () => {
     expect(h.domain.inbox.countOpenFor('AR', 'owner')).toBe(1);
   });
 
-  it('refuses a member who is not the project manager', async () => {
+  async function developerContext(): Promise<ToolContext> {
     const started = await h.domain.taskStarts.start('AR', 'AR-1', {
       actor: OWNER_ACTOR,
       author: owner as never,
     });
-    const dev: ToolContext = {
-      projectKey: 'AR',
-      member: 'dev-1',
-      sessionId: started.session!.id,
-      taskKey: 'AR-1',
-    };
+    return { projectKey: 'AR', member: 'dev-1', sessionId: started.session!.id, taskKey: 'AR-1' };
+  }
+  const setMachineAccess = (handle: string, machineAccess: boolean) =>
+    h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (draft) => {
+      const member = draft.team.members.find((m) => m.handle === handle);
+      if (member?.kind === 'ai') member.machineAccess = machineAccess;
+      return 'Set machine access';
+    });
+
+  it('refuses a member without machine access', async () => {
+    const dev = await developerContext();
     const err = await rejection(open({}, dev), TeamToolError);
     expect(err.code).toBe('forbidden');
+    expect(err.message).toContain('machine_access_required');
     expect(h.domain.inbox.list('AR', {}).filter((i) => i.source === 'dev-1')).toEqual([]);
+  });
+
+  it('refuses the project manager whose machine access an owner switched off', async () => {
+    await setMachineAccess('pm', false);
+    const err = await rejection(open(), TeamToolError);
+    expect(err.message).toContain('machine_access_required');
+  });
+
+  it('lets a developer with machine access open a todo, and the answer returns to them', async () => {
+    await setMachineAccess('dev-1', true);
+    const dev = await developerContext();
+    // The obligation check is the project manager's own: a developer's card is not refused for it.
+    h.domain.obligations.open({
+      projectKey: 'AR',
+      taskKey: 'AR-1',
+      kind: 'merge',
+      responsible: 'cr',
+      subject: 'mrg_AR-1',
+      openedAt: NOW.toISOString(),
+    });
+
+    const opened = await open({}, dev);
+
+    expect(opened.recipient).toBe('integrator');
+    expect(item(opened.itemId)).toMatchObject({ source: 'dev-1', taskKey: 'AR-1', state: 'open' });
+  });
+
+  it('refuses a conversation with a guest', async () => {
+    const session = h.repos.sessions.get(pm.sessionId)!;
+    h.repos.sessions.insert({ ...session, id: 'ses_pm_guest', workItem: { type: 'general', with: 'dana' } });
+    const err = await rejection(open({}, { ...pm, sessionId: 'ses_pm_guest' }), TeamToolError);
+    expect(err.message).toContain('operator_owner_only');
   });
 
   it('refuses a card projectman follows itself, and writes nothing', async () => {

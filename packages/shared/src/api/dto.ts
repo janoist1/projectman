@@ -139,6 +139,7 @@ export const OperatorAction = z.enum([
   'member_change',
   'member_hire',
   'member_retire',
+  'member_rename',
   'config_revert',
   'session_stop',
   'project_pause',
@@ -273,22 +274,25 @@ export const OperatorSignal = z.object({
 });
 export type OperatorSignal = z.infer<typeof OperatorSignal>;
 /**
- * The viewer's Operator conversation as the project manager's, plus the last 50 requests (the newest last).
- * `readOnly` (PM-475): the conversation is with a person who is not an owner, so the Operator only reads and answers
- * (and the owners' system signals stay out of it).
+ * The viewer's conversation with the project manager in the top right corner (PM-1042), plus the last 50
+ * requests (the newest last). `readOnly` (PM-475, decision 59): the conversation is with a person who is not an
+ * owner, so the project manager only reads and answers (and the owners' system signals stay out of it).
  */
-export const OperatorChannel = ProjectManagerChannel.extend({
+export const ProjectManagerCorner = ProjectManagerChannel.extend({
   requests: z.array(OperatorRequestView),
   readOnly: z.boolean(),
   signals: z.array(OperatorSignal),
   openSignals: z.number().int(),
-  /** The Operator's member queue (PM-894): the open items and the one being processed. */
+  /** The project manager's member queue (PM-894): the open items and the one being processed. */
   queue: z.object({
     open: z.number().int().min(0),
     current: z.object({ id: z.string(), title: z.string() }).nullable(),
   }),
 });
-export type OperatorChannel = z.infer<typeof OperatorChannel>;
+export type ProjectManagerCorner = z.infer<typeof ProjectManagerCorner>;
+/** The corner's shape under its old name, until the Operator leaves the app (PM-1045). */
+export const OperatorChannel = ProjectManagerCorner;
+export type OperatorChannel = ProjectManagerCorner;
 
 /* ---------- auth ---------- */
 
@@ -327,14 +331,6 @@ export const IntegratorKeyInfo = z.object({
   revokedAt: z.string().nullable(),
 });
 export type IntegratorKeyInfo = z.infer<typeof IntegratorKeyInfo>;
-export const IntegratorKeyResponse = z.object({ key: IntegratorKeyInfo.nullable() });
-export type IntegratorKeyResponse = z.infer<typeof IntegratorKeyResponse>;
-export const CreateIntegratorKeyRequest = z.object({
-  expiresInDays: z.union([z.literal(30), z.literal(90), z.literal(365), z.null()]).default(90),
-});
-export const CreatedIntegratorKey = z.object({ key: IntegratorKeyInfo, secret: z.string() });
-export type CreatedIntegratorKey = z.infer<typeof CreatedIntegratorKey>;
-
 export const IntegratorKeyMode = z.enum(['legacy', 'super', 'read']);
 export type IntegratorKeyMode = z.infer<typeof IntegratorKeyMode>;
 export const IntegratorChannel = z.enum(['mcp', 'cli', 'rest']);
@@ -471,9 +467,9 @@ export const Me = z.object({
     .default([]),
   /**
    * The user may manage the instance as a whole (`canManageInstancePause` on every project):
-   * they see the machine display. Absent (an older server): false.
+   * they see the machine display.
    */
-  instanceOwner: z.boolean().optional(),
+  instanceOwner: z.boolean(),
 });
 export type Me = z.infer<typeof Me>;
 
@@ -603,7 +599,7 @@ export const MemberView = z.object({
   /**
    * AI members only: the work the member does on cards right now, one entry per working task session
    * (PM-207). A card is "working" only when it has an entry here; `status` and `activity` describe the
-   * member as a whole. Omitted: none (and by older servers).
+   * member as a whole. Omitted for humans.
    */
   taskWork: z.array(TaskWork).optional(),
   sponsor: MemberHandle.nullable(),
@@ -628,12 +624,19 @@ export const MemberView = z.object({
   onLeave: z.boolean().optional(),
   /**
    * AI members only: whether the member's commands can reach any outbound address (PM-355). The server
-   * always fills it in (a member without the setting reads `true`); a missing value (an older server,
-   * a test fake) is read as on.
+   * always fills it in for AI members (a member without the setting reads `true`). Omitted for humans.
    */
   outboundNetwork: z.boolean().optional(),
+  /** AI members only: the effective machine access (`machineAccessOf`, decision 66); missing (an older server): off. */
+  machineAccess: z.boolean().optional(),
+  /** AI members only: the earlier handles, the oldest first (PM-1025); omitted: never renamed. */
+  formerHandles: z.array(MemberHandle).optional(),
 });
 export type MemberView = z.infer<typeof MemberView>;
+
+/** Renames an AI member (PM-1025): the new handle. Owner only. */
+export const RenameMemberRequest = z.strictObject({ handle: MemberHandle });
+export type RenameMemberRequest = z.infer<typeof RenameMemberRequest>;
 
 /** Adds an unclaimed human seat, without an account or invitation. */
 export const AddHumanMemberRequest = z.object({
@@ -683,6 +686,8 @@ export const UpdateMemberRequest = z.object({
   autoCompactWindowTokens: AutoCompactWindowTokens.nullable().optional(),
   /** AI only, owner only (PM-355): whether the member's commands can reach the network. */
   outboundNetwork: z.boolean().optional(),
+  /** AI only, owner only (decision 66): whether the member may put machine work in the owners' queue. */
+  machineAccess: z.boolean().optional(),
   /** AI only; the cheap subagent's model (PM-179), null switches it off. */
   cheapSubagent: CheapSubagentModel.nullable().optional(),
   displayName: z.string().trim().min(1).optional(),
@@ -737,6 +742,8 @@ export const OperatorOperation = z.discriminatedUnion('op', [
   z.strictObject({ op: z.literal('member_update'), handle: MemberHandle, changes: OperatorMemberChanges }),
   z.strictObject({ op: z.literal('member_hire'), request: HireMemberRequest }),
   z.strictObject({ op: z.literal('member_retire'), handle: MemberHandle }),
+  /** Renames an AI member's handle (PM-1025); `to` is the new handle. */
+  z.strictObject({ op: z.literal('member_rename'), handle: MemberHandle, to: MemberHandle }),
   z.strictObject({ op: z.literal('config_revert'), version: z.string() }),
   z.strictObject({ op: z.literal('session_stop'), sessionId: z.string() }),
   z.strictObject({ op: z.literal('project_pause'), reason: PauseRequest.shape.reason }),
@@ -865,6 +872,7 @@ export const OperatorConsequence = z.enum([
   'labels',
   'member_hire',
   'member_retire',
+  'member_rename',
   'member_other',
   'locations',
   'review_test',
@@ -922,7 +930,7 @@ export const MemberProfile = z.object({
   /** What takes the member's places (PM-297); filled in where `capacityUsed` is. */
   capacityHolders: z.array(CapacityHolder).optional(),
   email: z.string().optional(),
-  /** AI members: the tokens their sessions used lately (PM-178); omitted for humans and by older servers. */
+  /** AI members: the tokens their sessions used lately (PM-178); omitted for humans. */
   usage: MemberUsage.optional(),
 });
 export type MemberProfile = z.infer<typeof MemberProfile>;
@@ -978,8 +986,8 @@ export const RoleView = z.object({
   name: z.string(),
   summary: z.string(),
   notTheirJob: z.string(),
-  /** When to turn to a member holding the role; omitted by older servers. */
-  whenToAsk: z.string().optional(),
+  /** When to turn to a member holding the role. */
+  whenToAsk: z.string(),
   holders: RoleHolders,
   builtIn: z.boolean(),
   duties: z.array(DutyId).optional(),
@@ -1014,8 +1022,8 @@ export const LabelView = LabelDefinition.extend({ holders: z.array(z.string()) }
 export type LabelView = z.infer<typeof LabelView>;
 
 export const BoardView = z.object({
-  /** Public project admission switch; omitted by older servers. */
-  aiEnabled: z.boolean().optional(),
+  /** Public project admission switch. */
+  aiEnabled: z.boolean(),
   project: ProjectSummary,
   columns: z.array(BoardColumnView),
   stages: z.array(Stage),

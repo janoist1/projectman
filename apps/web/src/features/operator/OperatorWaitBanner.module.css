@@ -16,6 +16,12 @@
   min-width: 0;
 }
 
+.link {
+  flex-shrink: 0;
+  font-weight: 700;
+  color: var(--c-accent-text);
+}
+
 .dots {
   display: inline-flex;
   gap: 3px;

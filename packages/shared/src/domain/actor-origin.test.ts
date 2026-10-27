@@ -18,6 +18,7 @@ const config = {
     members: [
       { kind: 'ai', handle: 'operator', role: 'ai_operator' },
       { kind: 'ai', handle: 'other', role: 'developer' },
+      { kind: 'ai', handle: 'pm', role: 'project_manager' },
     ],
     roles: [],
   },
@@ -68,6 +69,15 @@ describe('super-mode actor origin (PM-757)', () => {
   it('computes the super actor from the configuration, with the Operator as handle', () => {
     expect(superActorOf(config, credential)).toEqual(superActor);
     expect(superActorOf({ team: { members: [], roles: [] } } as never, credential)).toBeNull();
+  });
+
+  it.each(['operator', 'pm'])('binds the app super actor to %s', (member) => {
+    expect(superActorOf(config, credential, member)).toEqual({ ...superActor, handle: member });
+    expect(isSuperOperatorActor(config, { ...superActor, handle: member })).toBe(true);
+  });
+
+  it('refuses an app super actor outside the Operator and selected coordinator', () => {
+    expect(superActorOf(config, credential, 'other')).toBeNull();
   });
 
   it('recognises the super origin apart from the direct mode and grants nothing by itself', () => {

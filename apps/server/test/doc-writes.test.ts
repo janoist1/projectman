@@ -144,8 +144,15 @@ async function say(from: string, text = 'Please update the log', to = 'operator'
   await settle();
 }
 const operatorSessions = (): Session[] => h.domain.sessions.list('AR', { member: 'operator' });
-const ownerConversation = (): Session =>
-  operatorSessions().find((s) => s.workItem.type === 'general' && s.workItem.with === undefined)!;
+/** The member's general conversation with the owner; the session starts asynchronously. */
+const ownerConversation = (member = 'operator'): Promise<Session> =>
+  waitFor(
+    () =>
+      h.domain.sessions
+        .list('AR', { member })
+        .find((s) => s.workItem.type === 'general' && s.workItem.with === undefined),
+    { what: `the ${member} conversation with the owner` },
+  );
 const toolOf = (session: Session): ToolContext => ({
   projectKey: 'AR',
   member: session.member,
@@ -155,10 +162,11 @@ const toolOf = (session: Session): ToolContext => ({
 /** The owner asks the document maintainer something: its conversation and an open request. */
 async function ownerAsks(member = 'operator'): Promise<{ ctx: ToolContext; requestId: string }> {
   await say('owner', undefined, member);
-  const session = h.domain.sessions
-    .list('AR', { member })
-    .find((session) => session.workItem.type === 'general' && session.workItem.with === undefined)!;
-  return { ctx: toolOf(session), requestId: h.repos.operatorRequests.openOfSession(session.id)[0]!.id };
+  const session = await ownerConversation(member);
+  const request = await waitFor(() => h.repos.operatorRequests.openOfSession(session.id)[0], {
+    what: `the open request of the ${member} conversation`,
+  });
+  return { ctx: toolOf(session), requestId: request.id };
 }
 const stepsOf = (requestId: string) => h.repos.operatorRequests.steps(requestId);
 const refusal = async (promise: Promise<unknown>) => (await rejection(promise, TeamToolError)).message;
@@ -829,6 +837,11 @@ describe('write_project_docs (PM-495)', () => {
       });
       return { merger, requestId };
     }
+    /** The restarted server finishes the left-over write in the background. */
+    const publishedAfterRestart = () =>
+      waitFor(() => h.repos.docWrites.get('dw_left')?.state === 'published', {
+        what: 'the left-over write to be published',
+      });
     async function repoName(): Promise<string> {
       return (await h.domain.projects.config('AR')).project.repos[0]!.name;
     }
@@ -839,7 +852,7 @@ describe('write_project_docs (PM-495)', () => {
       merger.state.remote = 'c'.repeat(40);
       merger.state.remoteHas.add('c'.repeat(40));
       h = await restartDomainHarness(h, { merger });
-      await settle();
+      await publishedAfterRestart();
       expect(h.repos.docWrites.get('dw_left')).toMatchObject({
         state: 'published',
         commitSha: 'c'.repeat(40),
@@ -851,14 +864,20 @@ describe('write_project_docs (PM-495)', () => {
       });
       expect(merger.push).not.toHaveBeenCalled();
       expect(stepsOf(requestId)).toMatchObject([{ id: 'ops_left', status: 'done' }]);
-      const messages = h.repos.messages.list('AR', { member: 'operator' }).filter((m) => m.from === 'system');
+      const messages = await waitFor(
+        () => {
+          const sent = h.repos.messages.list('AR', { member: 'operator' }).filter((m) => m.from === 'system');
+          return sent.length > 0 && sent;
+        },
+        { what: 'the message to the Operator about the published write' },
+      );
       expect(messages).toMatchObject([{ kind: 'info', body: expect.stringContaining('c'.repeat(40)) }]);
     });
 
     it('queues a write again, and runs it, when its commit is not on the remote', async () => {
       const { merger } = await leaveRunning('c'.repeat(40));
       h = await restartDomainHarness(h, { merger });
-      await settle();
+      await publishedAfterRestart();
       expect(h.repos.docWrites.get('dw_left')).toMatchObject({
         state: 'published',
         commitSha: 'w1'.padEnd(40, '0'),
@@ -869,7 +888,7 @@ describe('write_project_docs (PM-495)', () => {
     it('runs a write that never got as far as a commit', async () => {
       const { merger } = await leaveRunning(null);
       h = await restartDomainHarness(h, { merger });
-      await settle();
+      await publishedAfterRestart();
       expect(h.repos.docWrites.get('dw_left')).toMatchObject({ state: 'published' });
     });
   });
@@ -903,15 +922,19 @@ describe('autonomous lessons (PM-1004)', () => {
         { kind: 'action' },
       );
     }
-    await settle();
-    const item = h.repos.memberQueue.listOpen('AR', 'operator').find((item) => item.state === 'processing')!;
-    expect(item).toBeDefined();
-    expect(h.repos.operatorRequests.openOfSession(item.sessionId!)[0]).toMatchObject({
+    const item = await waitFor(
+      () => h.repos.memberQueue.listOpen('AR', 'operator').find((item) => item.state === 'processing'),
+      { what: 'the processing Operator queue item' },
+    );
+    const request = await waitFor(() => h.repos.operatorRequests.openOfSession(item.sessionId!)[0], {
+      what: 'the open Operator request of the queue item',
+    });
+    expect(request).toMatchObject({
       source: 'queue',
       queueItemId: item.id,
       fromHandle: from,
     });
-    return { ctx: toolOf(ownerConversation()), item };
+    return { ctx: toolOf(await ownerConversation()), item };
   }
 
   it('reads and creates missing lessons without an owner request or owner attribution', async () => {
@@ -1224,7 +1247,7 @@ describe('write_project_docs through the bearer MCP (PM-784)', () => {
   });
 
   /** A live scope of a key, as the authenticated facade makes it; the checks of membership are the facade's own. */
-  async function scope(mode: 'super' | 'read' | 'legacy' = 'super', userId = OWNER_USER) {
+  async function scope(mode: 'super' | 'read' = 'super', userId = OWNER_USER) {
     const config = await h.domain.projects.config('AR');
     const actor = superActorOf(config, KEY)!;
     return {
@@ -1370,14 +1393,11 @@ describe('write_project_docs through the bearer MCP (PM-784)', () => {
     expect(merger.commitFiles).not.toHaveBeenCalled();
   });
 
-  it('refuses a read key, a legacy key and a build without the runner', async () => {
+  it('refuses a read key and a build without the runner', async () => {
     const merger = (await setup())!;
     const writes = externalWrites(merger, allowing);
     await expect(request(writes, await scope('read'))).rejects.toMatchObject({
       code: 'integrator_read_only',
-    });
-    await expect(request(writes, await scope('legacy'))).rejects.toMatchObject({
-      code: 'integrator_not_allowed',
     });
     const without = externalWrites(merger, null);
     await expect(request(without, await scope())).rejects.toMatchObject({ code: 'integrator_not_allowed' });

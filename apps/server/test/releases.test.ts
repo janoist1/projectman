@@ -984,7 +984,7 @@ describe('the release flow', () => {
     beforeEach(async () => setup());
 
     /** A live scope of a key, as the authenticated facade makes it; `revoked` turns true when the key goes. */
-    async function scope(mode: 'super' | 'read' | 'legacy' = 'super', revoked: () => boolean = () => false) {
+    async function scope(mode: 'super' | 'read' = 'super', revoked: () => boolean = () => false) {
       const actor = superActorOf(await h.domain.projects.config('AR'), KEY)!;
       return {
         active: true,
@@ -1066,7 +1066,7 @@ describe('the release flow', () => {
       expect(h.repos.releases.open('AR')).toMatchObject({ state: 'approved', decidedBy: 'owner' });
     });
 
-    it('refuses an open release, a read or a legacy key and a call outside a scope, and writes nothing', async () => {
+    it('refuses an open release, a read key and a call outside a scope, and writes nothing', async () => {
       await inScope(await scope(), () =>
         h.domain.releases.proposeExternal('AR', { title: 'First', summary: 'x' }),
       );
@@ -1079,10 +1079,7 @@ describe('the release flow', () => {
         inScope(await scope(), () => h.domain.releases.previewExternal('AR')),
       ).rejects.toMatchObject({ code: 'release_open' });
       await decide('reject');
-      for (const [mode, code] of [
-        ['read', 'integrator_read_only'],
-        ['legacy', 'integrator_not_allowed'],
-      ] as const) {
+      for (const [mode, code] of [['read', 'integrator_read_only']] as const) {
         await expect(
           inScope(await scope(mode), () =>
             h.domain.releases.proposeExternal('AR', { title: 'No', summary: 'x' }),

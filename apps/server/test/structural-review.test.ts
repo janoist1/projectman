@@ -562,7 +562,7 @@ describe('the integrator in super mode requests a review (PM-784)', () => {
     return cached.reviews;
   };
   /** A live scope of a key, as the authenticated facade makes it; `revoked` turns true when the key goes. */
-  function scope(mode: 'super' | 'read' | 'legacy' = 'super', revoked: () => boolean = () => false) {
+  function scope(mode: 'super' | 'read' = 'super', revoked: () => boolean = () => false) {
     const actor = superActorOf(config(), KEY)!;
     return {
       active: true,
@@ -709,15 +709,12 @@ describe('the integrator in super mode requests a review (PM-784)', () => {
     await expect(request(signal.id, start)).rejects.toMatchObject({ code: 'operator_signal_closed' });
   });
 
-  it('refuses a read or legacy key and a call outside a scope, and starts nothing', async () => {
+  it('refuses a read key and a call outside a scope, and starts nothing', async () => {
     await setup();
     const { signal } = await detected();
     const start = startWith();
     await expect(request(signal.id, start, { scope: scope('read') })).rejects.toMatchObject({
       code: 'integrator_read_only',
-    });
-    await expect(request(signal.id, start, { scope: scope('legacy') })).rejects.toMatchObject({
-      code: 'integrator_not_allowed',
     });
     await expect(request(signal.id, start, { scope: null })).rejects.toMatchObject({
       code: 'insufficient_access',

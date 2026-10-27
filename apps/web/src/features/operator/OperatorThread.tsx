@@ -1,9 +1,9 @@
 import clsx from 'clsx';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router';
-import { PROJECT_MANAGER_ROLE, isUnreadBy } from '@projectman/shared';
+import { OPERATOR_ROLE, isUnreadBy } from '@projectman/shared';
 import type {
-  OperatorChannel,
+  ProjectManagerCorner,
   OperatorRequestView,
   OperatorSignal,
   TeamMessage,
@@ -123,7 +123,7 @@ export function OperatorThread({
   onExample,
 }: {
   handle: string;
-  channel: OperatorChannel;
+  channel: ProjectManagerCorner;
   failed: FailedOperatorMessage | null;
   onRetry: () => void;
   /** An example of the introduction was picked: it goes into the message box. */
@@ -162,11 +162,12 @@ export function OperatorThread({
   const entries = operatorEntries(messages, unanchoredSignals);
   const retainSignal = (id: string) =>
     setDismissedHere((previous) => (previous.has(id) ? previous : new Set([...previous, id])));
-  const pmHandle = [...members.values()].find(
-    (m) => m.kind === 'ai' && m.role === PROJECT_MANAGER_ROLE,
+  // The earlier conversation with the Operator stays in the Messages (PM-1042); until it leaves the app (PM-1045).
+  const operatorHandle = [...members.values()].find(
+    (m) => m.kind === 'ai' && m.role === OPERATOR_ROLE,
   )?.handle;
 
-  // Opening is reading: the Operator's unread replies, while the panel is visible.
+  // Opening is reading: the project manager's unread replies, while the panel is visible.
   const unreadKey = messages
     .filter((m) => m.from === handle && isUnreadBy(m, myHandle))
     .map((m) => m.id)
@@ -336,11 +337,11 @@ export function OperatorThread({
               </button>
             ))}
           </div>
-          {isOwner && pmHandle ? (
+          {isOwner && operatorHandle ? (
             <p className={clsx(styles.introBody, styles.transition)}>
-              {t('operator.intro.transition')}{' '}
-              <Link to={`/p/${key}/messages/with/${pmHandle}`} className={styles.transitionLink}>
-                {t('operator.intro.transitionLink')} →
+              {t('operator.intro.earlier')}{' '}
+              <Link to={`/p/${key}/messages/with/${operatorHandle}`} className={styles.transitionLink}>
+                {t('operator.intro.earlierLink')} →
               </Link>
             </p>
           ) : null}

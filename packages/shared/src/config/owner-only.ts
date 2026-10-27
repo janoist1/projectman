@@ -10,6 +10,7 @@ import { operatorWatchOf } from './operator-watch';
 import { dutyMembers, roleBundle } from './duties';
 import { stageApprovers } from './gates';
 import { labelDefinition, labelHolders } from './labels';
+import { machineAccessOf } from './machine-access';
 import { approverOf, outboundNetworkOf } from './permission-level';
 import type { AiMemberConfig, ProjectConfig } from './schema';
 
@@ -30,7 +31,9 @@ import type { AiMemberConfig, ProjectConfig } from './schema';
  * - `operator_watch`: how much the Operator does on its own on a system signal (PM-548);
  * - `operator_approval_waiver`: whether eligible Operator changes may skip the approval click (PM-691);
  * - `email_send_policy`: whether an AI member can send email without human approval (PM-940), except
- *   that switching sending on or off clears the bypass with it (PM-956).
+ *   that switching sending on or off clears the bypass with it (PM-956);
+ * - `machine_access`: whether an AI member may put machine work in the owners' queue (decision 66), by its
+ *   effective value (`machineAccessOf`).
  */
 export type OwnerOnlyChange =
   | 'locations'
@@ -42,7 +45,8 @@ export type OwnerOnlyChange =
   | 'review_test'
   | 'operator_watch'
   | 'operator_approval_waiver'
-  | 'email_send_policy';
+  | 'email_send_policy'
+  | 'machine_access';
 
 /** The owner-only changes from `previous` to `next`, in the order above; empty when there are none. */
 export function ownerOnlyChanges(
@@ -76,7 +80,20 @@ export function ownerOnlyChanges(
     })
   )
     changes.push('email_send_policy');
+  if (machineAccessChanged(previous, next)) changes.push('machine_access');
   return changes;
+}
+
+/**
+ * An AI member's effective machine access differs; a new member counts as having none before. Compared by
+ * the effective value, so restating the role's default changes nothing.
+ */
+function machineAccessChanged(previous: ProjectConfig, next: ProjectConfig): boolean {
+  return next.team.members.some((member) => {
+    if (member.kind !== 'ai') return false;
+    const old = previous.team.members.find((m) => m.handle === member.handle);
+    return machineAccessOf(member) !== (old !== undefined && machineAccessOf(old));
+  });
 }
 
 /** The repositories that have a full test or run it only at the merge, with those two settings. */
@@ -159,9 +176,6 @@ export function approvalPolicyChanged(previous: ProjectConfig, next: ProjectConf
     });
   return signature(previous) !== signature(next) || releaseSignature(previous) !== releaseSignature(next);
 }
-
-/** @deprecated Renamed to `approvalPolicyChanged`; `ownerOnlyChanges` covers every owner-only rule. */
-export const humanApprovalChanged = approvalPolicyChanged;
 
 function locationsSignature(config: ProjectConfig): string {
   return JSON.stringify({

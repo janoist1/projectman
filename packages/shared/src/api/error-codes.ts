@@ -106,6 +106,10 @@ export const ERROR_CODES = [
   'project_manager_required',
   'operator_required',
   'operator_fixed',
+  // 409; `details.reason`: session | workspace | queue | deferred_start (PM-1025)
+  'member_session_live',
+  // 409: a start while the member is being renamed
+  'member_renaming',
   'project_manager_move_refused',
   'builtin_role',
   'role_id_mismatch',
@@ -274,6 +278,8 @@ export const ERROR_CODES = [
   'operator_no_request',
   'operator_never',
   'operator_only',
+  // The app project manager must hand machine and unsupported commands to the integrator (403).
+  'command_not_for_project_manager',
   'project_manager_only',
   'operator_preference_no_person',
   'operator_approval_stale',

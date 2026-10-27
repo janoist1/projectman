@@ -5,6 +5,7 @@ import type { MemberHandle } from '../domain/member';
 import type { WorkItemRef } from '../domain/session';
 import { isOnLeave } from './leave';
 import { memberOf } from './lookup';
+import { coordinationMemberOf } from './project-manager';
 import type { AiMemberConfig, MemberConfig, ProjectConfig } from './schema';
 
 // Kept apart from operator.ts, which pulls in the integrator and owner-only rules: domain/task.ts needs
@@ -62,15 +63,19 @@ export function isOperatorActor(
 }
 
 /**
- * The actor of the Operator's super mode (PM-757): the project's Operator, acting through the integrator
- * with the credential's id and prefix. The handle is the server's (`operatorOf`), never a request's;
- * null when the project has no Operator. Only the authenticated execution context may call this.
+ * The super actor (PM-757, PM-1041): the project's Operator, or the server-issued app session member
+ * when it is the Operator or selected coordinator. A caller-supplied actor grants no authority.
+ * Without a member the stored-key behavior is unchanged. Only authenticated execution may call this.
  */
 export function superActorOf(
   config: Pick<ProjectConfig, 'team'>,
   credential: ActorCredential,
+  member?: string,
 ): SuperActor | null {
-  const operator = operatorOf(config);
+  const operator =
+    member === undefined
+      ? operatorOf(config)
+      : [operatorOf(config), coordinationMemberOf(config)].find((candidate) => candidate?.handle === member);
   if (!operator) return null;
   return {
     kind: 'ai',
@@ -82,10 +87,13 @@ export function superActorOf(
 }
 
 /**
- * Whether the actor has the super mode's origin and is the Operator the project has now. It tells the
+ * Whether the actor has the super mode's origin and is the current Operator or selected coordinator. It tells the
  * origin apart (the direct base mode stays `isOperatorActor`); it grants nothing: an actor read from a
  * JSON body or a stored row is not authority, only the authenticated principal is.
  */
 export function isSuperOperatorActor(config: Pick<ProjectConfig, 'team'>, actor: Actor): boolean {
-  return hasSuperOrigin(actor) && operatorOf(config)?.handle === actor.handle;
+  return (
+    hasSuperOrigin(actor) &&
+    (operatorOf(config)?.handle === actor.handle || coordinationMemberOf(config)?.handle === actor.handle)
+  );
 }

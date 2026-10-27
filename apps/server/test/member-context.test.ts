@@ -236,14 +236,8 @@ describe('member context endpoint', () => {
     expect(response.json().error.code).toBe('insufficient_access');
   });
 
-  it.each(['legacy', 'super', 'read'] as const)('refuses a %s bearer principal', async (mode) => {
-    const issued = await inject(
-      h.app,
-      'POST',
-      mode === 'legacy' ? routes.integratorKey() : routes.integratorKeys(),
-      cookie,
-      mode === 'legacy' ? {} : { mode },
-    );
+  it.each(['super', 'read'] as const)('refuses a %s bearer principal', async (mode) => {
+    const issued = await inject(h.app, 'POST', routes.integratorKeys(), cookie, { mode });
     expect(issued.statusCode, issued.body).toBe(201);
     const response = await h.app.inject({
       url: url(),

@@ -10,6 +10,7 @@ import {
   emailContactChangeRefusal,
   emailMailboxOf,
   emailMailboxOwners,
+  emailMailboxReserved,
   emailMailboxTaken,
   emailMemberAddress,
   emailReplyAddress,
@@ -293,6 +294,32 @@ describe('email member address', () => {
     expect(emailMailboxOwners(configs, 'pm')).toEqual([{ projectKey: 'BR', handle: 'pm' }]);
     expect(emailMailboxOwners(configs, 'nobody')).toEqual([]);
   });
+  it('leads a former handle to the renamed member, and shares it with a live name', () => {
+    const renamed = AiMemberConfig.parse({
+      ...ai,
+      handle: 'haini',
+      formerHandles: ['dev'],
+      email: { enabled: true },
+    });
+    expect(emailMailboxOwners([configOf('AR', [renamed])], 'dev')).toEqual([
+      { projectKey: 'AR', handle: 'haini' },
+    ]);
+    expect(emailMailboxOwners([configOf('AR', [renamed]), configOf('BR', [on('dev')])], 'dev')).toEqual([
+      { projectKey: 'BR', handle: 'dev' },
+      { projectKey: 'AR', handle: 'haini' },
+    ]);
+  });
+  it('counts a member once when its mailbox is also its former handle', () => {
+    const renamed = AiMemberConfig.parse({
+      ...ai,
+      handle: 'haini',
+      formerHandles: ['dev'],
+      email: { enabled: true, mailbox: 'dev' },
+    });
+    expect(emailMailboxOwners([configOf('AR', [renamed])], 'dev')).toEqual([
+      { projectKey: 'AR', handle: 'haini' },
+    ]);
+  });
   it('reports every owner when two members share a mailbox', () => {
     const configs = [configOf('AR', [on('pm')]), configOf('BR', [on('pm')])];
     expect(emailMailboxOwners(configs, 'pm')).toHaveLength(2);
@@ -308,6 +335,14 @@ describe('email member address', () => {
     expect(emailMailboxTaken(configs, 'AR', 'dev', 'pm')).toBe(true);
     expect(emailMailboxTaken(configs, 'AR', 'pm', 'pm')).toBe(false);
     expect(emailMailboxTaken(configs, 'AR', 'dev', 'free')).toBe(false);
+  });
+  it('reserves the former handle of a renamed member in every project', () => {
+    const renamed = AiMemberConfig.parse({ ...ai, handle: 'haini', formerHandles: ['dev'] });
+    const configs = [configOf('AR', [renamed]), configOf('BR', [on('pm')])];
+    expect(emailMailboxReserved(configs, 'BR', 'pm', 'dev')).toBe(true);
+    expect(emailMailboxTaken(configs, 'BR', 'pm', 'dev')).toBe(true);
+    expect(emailMailboxReserved(configs, 'AR', 'haini', 'dev')).toBe(false);
+    expect(emailMailboxReserved(configs, 'BR', 'pm', 'free')).toBe(false);
   });
   it('keeps the mailbox when the switches change', () => {
     expect(applyMemberEmailChange({ enabled: true, mailbox: 'planner' }, { enabled: false })).toEqual({

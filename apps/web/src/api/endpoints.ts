@@ -42,9 +42,8 @@ import {
   MemberMemories,
   Session,
   TeamMessage,
-  OperatorChannel,
   OperatorSignal,
-  ProjectManagerChannel,
+  ProjectManagerCorner,
   ProvidersView,
   CreatedInvitation,
   InvitationsView,
@@ -71,8 +70,6 @@ import {
   TeamThreadsView,
   routes,
   InvolvementsResponse,
-  IntegratorKeyResponse,
-  CreatedIntegratorKey,
 } from '@projectman/shared';
 import type {
   SetChecklistItemStateRequest,
@@ -113,6 +110,7 @@ import type {
   AddHumanMemberRequest,
   LoginRequest,
   ResolveInboxRequest,
+  RenameMemberRequest,
   RetireMemberRequest,
   RevertConfigRequest,
   SendMessageRequest,
@@ -186,15 +184,6 @@ export const api = {
     }),
   involvements: (key: string, query = '') =>
     apiRequest(routes.involvements(key) + query, { schema: InvolvementsResponse }),
-  integratorKey: () => apiRequest(routes.integratorKey(), { schema: IntegratorKeyResponse }),
-  createIntegratorKey: (expiresInDays: 30 | 90 | 365 | null) =>
-    apiRequest(routes.integratorKey(), {
-      method: 'POST',
-      body: { expiresInDays },
-      schema: CreatedIntegratorKey,
-    }),
-  revokeIntegratorKey: () =>
-    apiRequest(routes.integratorKey(), { method: 'DELETE', schema: IntegratorKeyResponse }),
   machine: (panel: boolean, signal?: AbortSignal) =>
     apiRequest(`${routes.machine()}${panel ? '?panel=1' : ''}`, { schema: MachineView, signal }),
   /** Hybrid mode (PM-316): `single` on a one-machine installation, else the engines the viewer may see. */
@@ -306,6 +295,8 @@ export const api = {
     apiRequest<unknown>(routes.members(key), { method: 'POST', body }),
   retireMember: (key: string, handle: string, body: RetireMemberRequest) =>
     apiRequest<unknown>(routes.member(key, handle), { method: 'DELETE', body }),
+  renameMember: (key: string, handle: string, body: RenameMemberRequest) =>
+    apiRequest(routes.memberRename(key, handle), { method: 'POST', body, schema: MemberView }),
 
   session: (key: string, sessionId: string) =>
     apiRequest(routes.session(key, sessionId), { schema: SessionDetail }),
@@ -353,13 +344,14 @@ export const api = {
   readTeamMessages: (key: string, ids: string[]) =>
     apiRequest(routes.readTeamMessages(key), { method: 'POST', body: { ids }, schema: TeamMessagesView }),
   teamThreads: (key: string) => apiRequest(routes.teamThreads(key), { schema: TeamThreadsView }),
-  /** The state of the project manager's channel: who it is and whether it can answer now (PM-434). */
-  projectManager: (key: string) => apiRequest(routes.projectManager(key), { schema: ProjectManagerChannel }),
-  /** The viewer's own conversation with the Operator: its state, requests with steps and signals (PM-463, PM-475). */
-  operator: (key: string) => apiRequest(routes.operator(key), { schema: OperatorChannel }),
-  /** The Operator's member queue: the open items and those closed since `closedSince` (PM-894). */
-  operatorQueue: (key: string, closedSince: string) =>
-    apiRequest(`${routes.operatorQueue(key)}?closedSince=${encodeURIComponent(closedSince)}`, {
+  /**
+   * The viewer's own conversation with the project manager: who it is, whether it can answer now, requests with
+   * steps, signals and the queue (PM-434, PM-475, PM-1042).
+   */
+  projectManager: (key: string) => apiRequest(routes.projectManager(key), { schema: ProjectManagerCorner }),
+  /** The project manager's queue: the open items and those closed since `closedSince` (PM-894, PM-1042). */
+  projectManagerQueue: (key: string, closedSince: string) =>
+    apiRequest(`${routes.projectManagerQueue(key)}?closedSince=${encodeURIComponent(closedSince)}`, {
       schema: MemberQueueView,
     }),
   /** The owner's grant of machine operations to the Operator, as the viewer may see it (PM-881). */

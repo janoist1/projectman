@@ -145,7 +145,7 @@ describe('the board that starts as public', () => {
   });
 
   it('has no bearer fallback on a public board without a configured machine hostname', async () => {
-    const key = await inject(app, 'POST', routes.integratorKey(), owner, {});
+    const key = await inject(app, 'POST', routes.integratorKeys(), owner, { mode: 'super' });
     expect(key.statusCode).toBe(201);
     await goPublic();
     const headers = { ...TUNNEL_HEADERS, authorization: `Bearer ${key.json().secret}`, cookie: owner };

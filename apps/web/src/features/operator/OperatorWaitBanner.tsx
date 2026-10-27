@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
-import type { OperatorChannel } from '@projectman/shared';
+import { Link } from 'react-router';
+import type { ProjectManagerChannel } from '@projectman/shared';
 import { useProject, useProjectIndexes } from '../../app/contexts';
 import { Button } from '../../components/Button';
 import { formatTime } from '../../i18n/format';
@@ -8,11 +9,30 @@ import { startWaitingText } from '../../lib/taskState';
 import { operatorWaitOf } from './operatorChannel';
 import styles from './OperatorWaitBanner.module.css';
 
-/** The line above the composer that says why the Operator cannot answer right now (PM-429, PM-447). */
-export function OperatorWaitBanner({ channel }: { channel: OperatorChannel }) {
-  const { key, can, myHandle, openPauseDetails, closeOperator } = useProject();
+/** The line above the composer that says why the project manager cannot answer right now (PM-429, PM-447, PM-1042). */
+export function OperatorWaitBanner({ channel }: { channel: ProjectManagerChannel }) {
+  const { key, can, isOwner, myHandle, openPauseDetails, closeOperator } = useProject();
   const { members } = useProjectIndexes(key);
   const wait = operatorWaitOf(channel);
+
+  // A message to someone on leave is kept and answered when they are back, so writing stays open (PM-1042).
+  if (channel.state === 'on_leave')
+    return (
+      <Banner
+        text={t('operator.banner.onLeave')}
+        action={
+          isOwner && channel.member ? (
+            <Link
+              to={`/p/${key}/team/${channel.member.handle}`}
+              className={styles.link}
+              onClick={closeOperator}
+            >
+              {t('operator.banner.profile')} →
+            </Link>
+          ) : null
+        }
+      />
+    );
 
   // The panel does not cover the pause bar's details, where the team is resumed.
   const resumeTeam = () => {

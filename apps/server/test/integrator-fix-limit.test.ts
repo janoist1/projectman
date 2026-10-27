@@ -382,13 +382,8 @@ describe('integrator fix limit decision', () => {
     const { auth } = h.app.projectman;
     const user = repos().users.list()[0]!;
     const read = auth.createIntegratorAccessKey(user.id, { mode: 'read', expiresInDays: 7 });
-    const legacy = auth.createIntegratorKey(user.id, null);
     const refused = [
       [await decide(created.id, 'another_round', undefined, { authorization: `Bearer ${read.secret}` }), 403],
-      [
-        await decide(created.id, 'another_round', undefined, { authorization: `Bearer ${legacy.secret}` }),
-        403,
-      ],
       [await decide(created.id, 'another_round', undefined, { cookie }), 403],
     ] as const;
     for (const [response, status] of refused) expect(response.statusCode, response.body).toBe(status);

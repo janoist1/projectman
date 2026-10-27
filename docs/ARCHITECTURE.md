@@ -3685,6 +3685,12 @@ assumption or remote-engine RPC.
   ready"), so it was reverted. A failing team MCP must cost the tools, not the session.
   The root cause of the team MCP start failure is investigated separately.
   **Remote engine:** unchanged; the token-bound loopback relay supplies the catalog.
+  **Team MCP relay log (PM-1072):** the engine logs each `initialize` and `tools/list` relay
+  (method, status, elapsed time) at info, and every refused (non-2xx), failed or badly
+  answered relay at warn; the cloud logs why it refused a relayed token. Neither logs the
+  token or the body. A Codex session without team tools therefore shows in the engine log
+  where its handshake stopped (no call, a slow one, a refusal); the cause of the intermittent
+  missing tools was not yet reproduced with a real Codex run.
   Submission timeouts (PM-442) log retry count, elapsed time, command/idle state and bounded
   CLI diagnostics from `runner/input-queue.ts` and `runner/session.ts`: prompt/resume flags,
   the last hook name/time, blocking-screen detection and at most 500 characters from the last

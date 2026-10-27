@@ -78,9 +78,11 @@ export class EngineRegistry {
     this.now = options.now ?? (() => new Date());
   }
 
-  private view(row: EngineRecord): EngineView {
+  /** `viewerUserId`: the caller, who is told whether the engine is theirs (`ownedByMe`); without one the field is absent. */
+  private view(row: EngineRecord, viewerUserId?: string): EngineView {
     const hello = row.last_hello ? StoredHello.parse(JSON.parse(row.last_hello)) : null;
     return {
+      ...(viewerUserId === undefined ? {} : { ownedByMe: row.created_by === viewerUserId }),
       id: row.id,
       name: row.name,
       isDefault: !!row.is_default,
@@ -337,7 +339,7 @@ export class EngineRegistry {
       .list()
       .filter((row) => viewerIsHostOwner || row.created_by === viewer.userId)
       .map((row) => {
-        const view = this.view(row);
+        const view = this.view(row, viewer.userId);
         const machine = canSeeEngineMachine({
           viewerUserId: viewer.userId,
           viewerIsHostOwner,
@@ -397,7 +399,7 @@ export class EngineRegistry {
       this.repos.engines.create({ id, name, userId, hash, prefix, at: this.now().toISOString() }),
     );
     this.changed(id);
-    return { engine: this.view(row), key };
+    return { engine: this.view(row, userId), key };
   }
   resolve(key: string): EngineId | null {
     if (!/^pme_[A-Za-z0-9_-]{43}$/.test(key)) return null;
@@ -416,7 +418,15 @@ export class EngineRegistry {
     this.projectEngineChanged(
       wasDefault ? this.repos.projectChanges.projectKeys() : this.repos.projectEngines.projectKeysOf(id),
     );
-    return this.view(this.repos.engines.get(id)!);
+    return this.view(this.repos.engines.get(id)!, userId);
+  }
+  /** Renames an engine that is not revoked; the machine's hello brings no name, so the hub's is the only one (PM-1077). */
+  rename(id: string, name: string, userId: string): EngineView {
+    assertSuperMutation(null, { kind: 'routine', operation: 'engine_rename' });
+    this.active(id);
+    this.journaled([id], () => this.repos.engines.rename(id, name));
+    this.changed(id);
+    return this.view(this.repos.engines.get(id)!, userId);
   }
   setDefault(id: string): EngineView[] {
     assertSuperMutation(null, { kind: 'routine', operation: 'engine_default' });

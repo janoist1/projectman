@@ -54,7 +54,7 @@ export interface EngineCliIo {
 }
 
 const USAGE = `usage:
-  npm run engine -- init --cloud <https-url> --id <eng_…> [--name <name>] [--force]   (the key on standard input)
+  npm run engine -- init --cloud <https-url> --id <eng_…> [--name <name>] [--link-headers-file <path>] [--force]   (the key on standard input)
   npm run engine -- project set <KEY> <path>
   npm run engine -- repo add <KEY> <repo> <path> [--full-test "<command>"]
   npm run engine -- repo remove <KEY> <repo>
@@ -70,7 +70,7 @@ interface Parsed {
 }
 
 const BOOLEAN_FLAGS = new Set(['force']);
-const VALUE_FLAGS = new Set(['cloud', 'id', 'name', 'home', 'full-test']);
+const VALUE_FLAGS = new Set(['cloud', 'id', 'name', 'home', 'full-test', 'link-headers-file']);
 
 function parse(argv: string[]): Parsed {
   const positional: string[] = [];
@@ -104,6 +104,20 @@ const absoluteDirectory = (value: string, cwd: string, what: string): string => 
   }
   if (!statSync(real).isDirectory())
     throw new EngineConfigError('path_not_directory', `${what} is not a directory: ${real}`);
+  return real;
+};
+
+/** The real path of an existing regular file, resolved against `cwd`; its content is never read here. */
+const absoluteFile = (value: string, cwd: string, what: string): string => {
+  const resolved = path.resolve(cwd, value);
+  let real: string;
+  try {
+    real = realpathSync(resolved);
+  } catch {
+    throw new EngineConfigError('path_missing', `${what} does not exist: ${resolved}`);
+  }
+  if (!statSync(real).isFile())
+    throw new EngineConfigError('path_not_file', `${what} is not a regular file: ${real}`);
   return real;
 };
 
@@ -144,13 +158,18 @@ export async function runEngineCli(argv: string[], io: EngineCliIo): Promise<num
           );
         if (key.length < 16 || key.length > 512 || /\s/.test(key))
           throw new EngineConfigError('key_invalid', 'That does not look like an engine key.');
+        // Without the switch the previous file stays; with it the file is the one named, resolved against the cwd.
+        const headersFlag = flags.get('link-headers-file');
+        const linkHeadersFile = headersFlag
+          ? absoluteFile(headersFlag, io.cwd, 'The link headers file')
+          : previous?.linkHeadersFile;
         const config = EngineConfig.parse({
           schemaVersion: 1,
           cloudUrl: cloud,
           engineId: id,
           ...(flags.get('name') ? { name: flags.get('name') } : {}),
           ...(previous?.keyFile ? { keyFile: previous.keyFile } : {}),
-          ...(previous?.linkHeadersFile ? { linkHeadersFile: previous.linkHeadersFile } : {}),
+          ...(linkHeadersFile ? { linkHeadersFile } : {}),
           projects: previous?.projects ?? [],
           repos: previous?.repos ?? [],
           maxPermissionMode: previous?.maxPermissionMode ?? 'auto',
@@ -161,7 +180,9 @@ export async function runEngineCli(argv: string[], io: EngineCliIo): Promise<num
         io.out(
           `engine ${id} configured at ${files.config}; the key is in ${config.keyFile ?? files.key} (mode 0600)`,
         );
-        io.out('next: project set, repo add, then "npm run engine -- start"');
+        io.out(
+          'next: project set, repo add, then "npm run engine -- service install" (restarts the engine so it reports the project) or "npm run engine -- start"',
+        );
         return 0;
       }
       case 'project': {

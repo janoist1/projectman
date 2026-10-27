@@ -277,12 +277,18 @@ On the Mac, with the engine ([ARCHITECTURE.md](ARCHITECTURE.md), "Cloud composit
    object into a file with mode 600, outside the engine's home and workspaces, for example
    `~/.config/projectman/access-token.json`:
    `{"CF-Access-Client-Id": "<id>.access", "CF-Access-Client-Secret": "<secret>"}`.
-3. `pbpaste | npm run engine -- init --cloud https://projectman.example.com --id eng_… --name "My Mac"`
-   (the machine key from the clipboard goes in on standard input), then add
-   `"linkHeadersFile": "/Users/<you>/.config/projectman/access-token.json"` to the engine's
-   `engine.json` in the engine home.
+3. `pbpaste | npm run engine -- init --cloud https://projectman.example.com --id eng_… --name "My Mac" --link-headers-file ~/.config/projectman/access-token.json`
+   (the machine key from the clipboard goes in on standard input). The switch takes an existing
+   regular file, resolved against the working directory, and writes its real path into the engine's
+   `engine.json`; without it a file set earlier stays, so there is no need to edit `engine.json` by
+   hand.
 4. `npm run engine -- project set <KEY> <path>`, then `npm run engine -- start`. The web app's
-   engine button turns to connected.
+   engine button turns to connected. The hub creates a project on an engine before the engine
+   holds its folder (the folder check answers `not_held` for a path outside the engine's roots), so
+   `project set` can come after the project exists. The engine reports a project in its hello, so a
+   running engine learns of the new `project set` only after a restart: run
+   `npm run engine -- service install` (it restarts the LaunchAgent) or stop and `start` it again.
+   The project's sessions wait with `engine_offline` until then.
 
 The machine key and the service token are different secrets with different jobs: revoke either
 without the other (the key in Settings → Engines, the token in Cloudflare).

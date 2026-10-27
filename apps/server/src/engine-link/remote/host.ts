@@ -551,7 +551,16 @@ export function createRemoteEngineDirectory(options: RemoteDirectoryOptions): Re
           logger.warn({ err, engineId: id }, 'could not prepare the portable paths');
         }
       },
-      isDirectory: (target) => call('host.is_directory', { path: target }),
+      // The engine answers only within its own roots; a folder outside them is one it does not hold yet, which
+      // the hub does not probe further (the owner's disk is not its business).
+      workspaceState: async (target) => {
+        try {
+          return (await call('host.is_directory', { path: target })) ? 'directory' : 'missing';
+        } catch (err) {
+          if (err instanceof EngineCallError && err.code === 'path_outside_roots') return 'not_held';
+          throw err;
+        }
+      },
       resolveGitDir: (repoPath) => call('host.resolve_git_dir', { repoPath }),
       realpath: (target) => call('host.realpath', { path: target }),
       isRealDirectory: (dir) => call('host.is_real_directory', { dir }),

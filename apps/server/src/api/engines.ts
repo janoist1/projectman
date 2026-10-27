@@ -1,17 +1,19 @@
 import type { FastifyInstance } from 'fastify';
 import {
+  AgentProvider,
   BindProjectEngineRequest,
   CreateEngineRequest,
   LOCAL_ENGINE_ID,
+  RenameEngineRequest,
   canBindEngine,
   canCreateEngine,
   canManageEngine,
   canUnbindEngine,
   routes,
 } from '@projectman/shared';
-import type { ProjectEngineView } from '@projectman/shared';
+import type { EngineId, EngineProvidersView, ProjectEngineView } from '@projectman/shared';
 import type { ApiServices } from './index';
-import { DomainError, forbidden, notFound } from '../kernel';
+import { conflict, DomainError, forbidden, notFound } from '../kernel';
 import { currentUser, instanceUser, requireOwnLogin } from './context';
 import { parseBody } from '../http';
 
@@ -74,6 +76,53 @@ export function registerEngineRoutes(app: FastifyInstance, services: ApiServices
       throw forbidden('engine_not_owned', 'Only the engine owner or the host owner may revoke it');
     return engineRegistry.revoke(request.params.id, manager.userId);
   });
+  // One engine of the caller (PM-1077): the host owner's any, anyone else's their own. Another owner's engine is
+  // not there for them (404, like the lists), never a 403.
+  const ownEngine = async (
+    request: Parameters<typeof currentUser>[0],
+    id: string,
+    access: 'read' | 'write',
+  ) => {
+    const user = await instanceUser(domain, request, access);
+    if (request.principal?.mode !== 'super') requireOwnLogin(request, 'engines');
+    const isHostOwner = auth.isHostOwner(user.id);
+    const engineOwner = engineRegistry.ownerOf(id);
+    if (
+      engineOwner === null ||
+      !canManageEngine({ isHostOwner, actorUserId: user.id, engineOwnerUserId: engineOwner })
+    )
+      throw new DomainError('engine_not_found', 'Engine not found', { status: 404 });
+    return { userId: user.id, isHostOwner };
+  };
+  app.patch<{ Params: { id: string } }>(routes.engine(':id'), async (request) => {
+    const owner = await ownEngine(request, request.params.id, 'write');
+    const body = parseBody(RenameEngineRequest, request.body);
+    return engineRegistry.rename(request.params.id, body.name, owner.userId);
+  });
+  // The provider logins on the engine's machine, asked of the machine itself (the remote runner's `provider.status`).
+  app.get<{ Params: { id: string }; Querystring: { refresh?: string } }>(
+    routes.engineProviders(':id'),
+    async (request): Promise<EngineProvidersView> => {
+      const { id } = request.params;
+      const owner = await ownEngine(request, id, 'read');
+      if (!engineRegistry.ids().includes(id as EngineId)) throw conflict('engine_revoked', 'Engine revoked');
+      const refresh = request.query.refresh === '1';
+      const checkedAt = new Date().toISOString();
+      // The NanoGPT key is the host's: its login is shown to the host owner alone.
+      const providers = AgentProvider.options.filter((name) => name !== 'nanogpt' || owner.isHostOwner);
+      return {
+        providers: await Promise.all(
+          providers.map(
+            async (provider) =>
+              (await domain.runnerModule.runner.providerStatus?.(provider, {
+                engineId: id as EngineId,
+                refresh,
+              })) ?? { provider, loggedIn: null, method: null, checkedAt },
+          ),
+        ),
+      };
+    },
+  );
   // The machine-wide default is the host's alone.
   app.post<{ Params: { id: string } }>(routes.defaultEngine(':id'), async (request) => {
     if (!(await actor(request)).isHostOwner)

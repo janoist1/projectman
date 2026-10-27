@@ -470,6 +470,22 @@ describe('cloud mode remote parts', () => {
       expect(await host.heavyRunSessions()).toEqual([]);
     });
 
+    it('reads a working directory as a directory or missing, `not_held` outside the roots, and passes other failures on (PM-1077)', async () => {
+      const engine = await online();
+      const host = remote.directory.host('eng_a' as never)!;
+      engine.answer('host.is_directory', ({ path: target }) => target === '/engine/work');
+      expect(await host.workspaceState('/engine/work')).toBe('directory');
+      expect(await host.workspaceState('/engine/typo')).toBe('missing');
+      engine.answer('host.is_directory', () => {
+        throw Object.assign(new Error('outside'), { code: 'path_outside_roots' });
+      });
+      expect(await host.workspaceState('/owner/disk')).toBe('not_held');
+      engine.answer('host.is_directory', () => {
+        throw Object.assign(new Error('boom'), { code: 'timeout' });
+      });
+      await expect(host.workspaceState('/owner/disk')).rejects.toMatchObject({ linkCode: 'timeout' });
+    });
+
     it('skips preparation on old engines, otherwise returns readiness and preserves dependency refusals', async () => {
       const engine = await online();
       const manager = remote.directory.host('eng_a' as never)!.memberWorkspaces!;

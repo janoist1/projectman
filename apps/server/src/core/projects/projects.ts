@@ -43,7 +43,7 @@ import type {
   OperatorApprovalWaiverRequest,
 } from '@projectman/shared';
 import { ConfigStoreError } from '../../config';
-import type { ConfigStore, OperatorConfigAuthorization } from '../../contracts';
+import type { ConfigStore, OperatorConfigAuthorization, WorkspaceState } from '../../contracts';
 import type { ProjectRecord } from '../../db';
 import { projectAccessFor } from '../members';
 import { isoNow } from '../base';
@@ -216,8 +216,12 @@ export interface NewProjectEngines {
    * binding is written (the folder is checked on the host's engine).
    */
   chooseForNewProject(input: ProjectCreator & { engineId?: EngineId }): EngineId | null;
-  /** Whether the path is a directory on the engine; null is the host's engine. */
-  isDirectory(engineId: EngineId | null, path: string): Promise<boolean>;
+  /**
+   * What the path is on the engine; null is the host's engine. `not_held`: the engine answers only within its own
+   * roots and does not hold the folder yet (a new owner's machine, before `project set`), which does not refuse
+   * the project (PM-1077).
+   */
+  workspaceState(engineId: EngineId | null, path: string): Promise<WorkspaceState>;
   /** Binds the engine to the created project as its default. */
   bind(projectKey: string, engineId: EngineId, userId: string): void;
 }
@@ -403,7 +407,10 @@ export class ProjectService {
       }
       const config = this.buildConfig(req, creator);
       const engineId = this.engines.chooseForNewProject({ ...rights, engineId: req.engineId });
-      if (!isAbsolute(req.workspacePath) || !(await this.engines.isDirectory(engineId, req.workspacePath))) {
+      if (
+        !isAbsolute(req.workspacePath) ||
+        (await this.engines.workspaceState(engineId, req.workspacePath)) === 'missing'
+      ) {
         throw invalid('workspace_not_found', `workspace directory not found: ${req.workspacePath}`);
       }
       // The rule is the invariant's (one place); creation answers it with a code of its own.

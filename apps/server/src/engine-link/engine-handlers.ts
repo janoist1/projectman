@@ -452,7 +452,7 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
       return ids.filter((id) => running.has(id));
     },
     async 'host.is_directory'({ path: target }) {
-      return engine.isDirectory(target);
+      return (await engine.workspaceState(target)) === 'directory';
     },
     async 'host.resolve_git_dir'({ repoPath }) {
       return engine.resolveGitDir(repoPath);

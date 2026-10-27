@@ -60,6 +60,7 @@ export type SuperRoutineMutation =
   | 'guest_update'
   | 'engine_create'
   | 'engine_default'
+  | 'engine_rename'
   | 'merge_start'
   | 'merge_order'
   | 'project_pause'
@@ -122,6 +123,7 @@ const routines = new Set<SuperRoutineMutation>([
   'guest_update',
   'engine_create',
   'engine_default',
+  'engine_rename',
   'merge_start',
   'merge_order',
   'project_pause',

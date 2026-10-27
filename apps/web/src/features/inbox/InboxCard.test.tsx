@@ -125,6 +125,13 @@ describe('InboxCard', () => {
     });
   });
 
+  it('moves the focus into the field when the own answer button opens it', () => {
+    const { card } = renderCard(item('inb_q_ga4'));
+    expect(within(card).queryByLabelText(t('inbox.answerLabel'))).toBeNull();
+    fireEvent.click(within(card).getByRole('button', { name: t('inbox.options.answer') }));
+    expect(document.activeElement).toBe(within(card).getByLabelText(t('inbox.answerLabel')));
+  });
+
   it('names the stage move of a gate decision and approves or rejects it', () => {
     const entry = item('inb_dec_release');
     const { onResolve, card } = renderCard(entry);

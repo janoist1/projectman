@@ -23,6 +23,7 @@ const status = (() => {
 })();
 const SLOW = 180_000;
 const QUESTION = 'Which colour should the basket button be?';
+const QUESTION_OPTIONS = ['Green', 'Blue'];
 const shotsScript = fileURLToPath(new URL('../../../scripts/shots.mjs', import.meta.url));
 const calmMachineFile = fileURLToPath(
   new URL('../../../scripts/fixtures/machine/calm.json', import.meta.url),
@@ -193,7 +194,9 @@ describe.skipIf(!status.installed)('npm run shots with a browser', () => {
         );
         const id = await sharedInstance.startSession('AC', 'AC-1', developer.handle);
         await sharedInstance.waitIdle('AC', id);
-        await sharedInstance.setFakeCalls([{ tool: 'ask_human', arguments: { question: QUESTION } }]);
+        await sharedInstance.setFakeCalls([
+          { tool: 'ask_human', arguments: { question: QUESTION, options: QUESTION_OPTIONS } },
+        ]);
         await sharedInstance.say('AC', id, 'CALLS please');
         await sharedInstance.waitIdle('AC', id);
         await sharedInstance.setFakeCalls([]);

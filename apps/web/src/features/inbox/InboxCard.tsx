@@ -277,6 +277,13 @@ export function InboxCard({
   const uploads = useMessageAttachmentUploads(item.projectKey);
   const picker = useRef<HTMLInputElement>(null);
   const answerInput = useRef<HTMLTextAreaElement>(null);
+  // Only the "own answer" button moves focus into the field; a card that starts open must not take it.
+  const focusAnswerOnOpen = useRef(false);
+  useEffect(() => {
+    if (!answering || !focusAnswerOnOpen.current) return;
+    focusAnswerOnOpen.current = false;
+    answerInput.current?.focus();
+  }, [answering]);
   const isMobile = useIsMobile();
   const addFiles = (files: readonly File[]) => {
     setAnswerError(null);
@@ -995,7 +1002,15 @@ export function InboxCard({
             <OutageCheck item={item} size={buttonSize === 'xl' ? 'xl' : 'lg'} />
           ) : null}
           {allowsFreeAnswer && !answering ? (
-            <Button variant="ghost" size={buttonSize} onClick={() => setAnswering(true)} disabled={pending}>
+            <Button
+              variant="ghost"
+              size={buttonSize}
+              onClick={() => {
+                focusAnswerOnOpen.current = true;
+                setAnswering(true);
+              }}
+              disabled={pending}
+            >
               {answerOption ? optionLabel(answerOption) : t('inbox.answerOwn')}
             </Button>
           ) : null}

@@ -3996,7 +3996,7 @@ export const hu = {
       deny: 'Elutasítom',
       approve: 'Jóváhagyom',
       reject: 'Elutasítom',
-      answer: 'Saját válasz',
+      answer: 'Más válasz',
       seen: 'Láttam',
       stop_work: 'Leállítom a munkát',
       let_run: 'Hadd fusson',
@@ -4519,7 +4519,7 @@ export const hu = {
     answerLabel: 'Válaszod',
     answerPlaceholder: 'Írd ide a válaszod…',
     answerSubmit: 'Válasz küldése',
-    answerOwn: 'Saját válasz',
+    answerOwn: 'Más válasz',
     /** The files a question names (PM-498): tiles that open or download them. */
     attachments: {
       title: 'Csatolmányok a válaszhoz',

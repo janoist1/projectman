@@ -69,7 +69,8 @@ export const INBOX_TOOL_GROUP: TeamToolGroup = {
           .optional()
           .describe(
             'Suggested answers shown as buttons: a short label and its consequence (a plain label string is ' +
-              'accepted too). Offer them whenever the decision has alternatives; omit for a free-text answer.',
+              'accepted too). Required for a decision, a yes/no question too; omit only with ' +
+              'response_purpose information. The answerer can always write another answer.',
           ),
         recommended: z
           .string()
@@ -138,13 +139,22 @@ export const INBOX_TOOL_GROUP: TeamToolGroup = {
           'Suggested todo recipient (default owner); screening decides.',
         ),
         response_purpose: QuestionResponsePurpose.optional().describe(
-          'information: a plain factual question, no decision; the integrator may relay the answer. ' +
+          'information: a plain factual question, no decision; the integrator may relay the answer; needs no options. ' +
             'owner_decision (default): a choice or anything with cost, deletion or security; only the owner answers.',
         ),
       },
       check(args, issue) {
         if ((args.reask_of === undefined) !== (args.reask_reason === undefined))
           issue('reask_of', 'reask_of and reask_reason go together: give both or neither.');
+        if (args.options === undefined && (args.response_purpose ?? 'owner_decision') === 'owner_decision') {
+          issue(
+            'options',
+            'A decision needs its choices as options, a yes/no question too (for example Yes / No in the ' +
+              "project's language, each with its consequence). The answerer can always write another answer, " +
+              'so do not add an "other" option. For a plain factual question that is no decision, set ' +
+              'response_purpose to information.',
+          );
+        }
         const labels = questionChoices(args.options).map((choice) => choice.label);
         if (args.recommended !== undefined && !labels.includes(args.recommended)) {
           issue(
@@ -166,7 +176,7 @@ export const INBOX_TOOL_GROUP: TeamToolGroup = {
         modes: ['super'],
         omit: ['reask_of', 'reask_reason', 'recipient'],
         description:
-          'Ask the owners a question you cannot decide yourself. It goes to their inbox, unscreened: {inbox_item_id, state: "open", approval_label?, attachments}. Only an owner answers it, with their own login; you cannot answer it yourself, and no one wakes you when it is answered. Read the answer with get_super_question, and withdraw a moot question with withdraw_question. Write for a non-specialist who often reads on a phone: one plain sentence that names the decision, the options by what happens if one is picked, one recommended option with a one-sentence reason, technical background in details. response_purpose information marks a plain factual question whose answer is no decision; owner_decision (default) is a choice, an approval or anything with cost, deletion or security. `to` names existing humans (owners only for an owner decision); omit it to ask the current owners. task_key and attachments name a card and files of that card or its parent; there is no default card.',
+          'Ask the owners a question you cannot decide yourself. It goes to their inbox, unscreened: {inbox_item_id, state: "open", approval_label?, attachments}. Only an owner answers it, with their own login; you cannot answer it yourself, and no one wakes you when it is answered. Read the answer with get_super_question, and withdraw a moot question with withdraw_question. Write for a non-specialist who often reads on a phone: one plain sentence that names the decision, the options by what happens if one is picked, one recommended option with a one-sentence reason, technical background in details. response_purpose information marks a plain factual question whose answer is no decision; owner_decision (default) is a choice, an approval or anything with cost, deletion or security. options are required for an owner decision. `to` names existing humans (owners only for an owner decision); omit it to ask the current owners. task_key and attachments name a card and files of that card or its parent; there is no default card.',
         async run({ ctx, args, handler }) {
           const asked = await handler.askHuman(ctx, {
             question: args.question,

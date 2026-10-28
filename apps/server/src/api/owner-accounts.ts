@@ -51,7 +51,7 @@ export function registerOwnerAccountRoutes(
     return reply.code(204).send();
   });
   app.get(routes.ownerAccounts(), async (request): Promise<OwnerAccountsView> => {
-    return { accounts: ownerAccounts.list(host(request)) };
+    return { accounts: await ownerAccounts.list(host(request)) };
   });
   app.post<{ Params: { userId: string } }>(routes.revokeOwnerAccount(':userId'), async (request) =>
     ownerAccounts.revoke(request.params.userId, host(request)),

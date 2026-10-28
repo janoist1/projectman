@@ -8,6 +8,7 @@
 //   npm run engine -- logs [--lines N] [--json]   (PM-1087; the end of the service's output and error logs)
 //   npm run engine -- keep-awake on|off   (PM-1086; the Mac stays awake while work runs; after the engine restarts)
 //   npm run engine -- start
+//   npm run engine -- app install|uninstall   (PM-1088; native macOS menu bar app)
 //   npm run engine -- service install|uninstall|status|start|stop|restart   (macOS LaunchAgent, PM-318, PM-1087; deploy/mac/com.projectman.engine.plist)
 //   npm run engine -- move-work-root <absolute path>   (PM-846; the engine is stopped; docs/DEPLOY.md "Separate work volume")
 //   (all:[--home <dir>]; the home is PROJECTMAN_HOME or ~/.projectman)
@@ -15,7 +16,7 @@
 // `start` runs the server in engine mode (PROJECTMAN_MODE=engine) in the foreground; stop it with Ctrl-C
 // or SIGTERM, which pauses the running sessions first. Exit status: 0 done, 1 refused or not healthy, 2 wrong usage.
 import { spawn, spawnSync } from 'node:child_process';
-import { homedir } from 'node:os';
+import { homedir, release } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runEngineCli } from './commands';
@@ -30,6 +31,20 @@ async function readStdin(): Promise<string | null> {
 }
 
 runEngineCli(process.argv.slice(2), {
+  menubar: {
+    applicationsDir: path.join(homedir(), 'Applications'),
+    supportDir: path.join(homedir(), 'Library/Application Support/projectman'),
+    buildDir: path.join(homedir(), 'Library/Caches/projectman/menubar-build'),
+    osRelease: release(),
+    run: (command, args) => {
+      const result = spawnSync(command, args, { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
+      return {
+        status: result.status ?? 1,
+        stdout: result.stdout ?? '',
+        stderr: result.stderr ?? result.error?.message ?? '',
+      };
+    },
+  },
   env: process.env,
   cwd: process.cwd(),
   readStdin,

@@ -33,7 +33,7 @@ Documentation map:
 2. **English source code** (decision 10). Identifiers, comments, file names, commit
    messages, prompts for AI members: English. The Hungarian UI lives only in locale files
    (`apps/web/src/i18n/hu.ts`, `apps/feedback-widget/src/i18n/hu.ts`,
-   `packages/templates/src/locales/hu.ts`). Data written by
+   `packages/templates/src/locales/hu.ts`, `deploy/mac/menubar/Resources/hu.lproj/Localizable.strings`). Data written by
    people and agents (task titles, notes, messages, label names) is in the project's language.
 3. **No real agent or `gh` CLI in automated tests.** Tests use fakes that speak the same
    protocol: `apps/server/test/fixtures/fake-claude.mjs`, `fake-codex.mjs`, and
@@ -1939,6 +1939,27 @@ workers follow the machine's size.
   markers have the same candidate-code trust boundary as the script and its exit code.
 
 ## Machine-dependent parts (PM-341)
+
+- **Engine menu bar app (PM-1088)** — `deploy/mac/menubar/` (Swift 5.9 package, AppKit
+  `NSStatusItem` / `NSMenu` and a SwiftUI details window), `scripts/engine/menubar.ts`,
+  `deploy/mac/com.projectman.engine-menubar.plist`. `npm run engine -- app install|uninstall`
+  builds locally with Command Line Tools, assembles and ad-hoc signs
+  `~/Applications/projectman motor.app`, and registers its Aqua LaunchAgent in
+  `~/Library/LaunchAgents`. `KeepAlive {SuccessfulExit:false}` restarts crashes; a clean Quit
+  leaves the engine running and the menu app closed until the next login. Installation state is
+  `~/Library/Application Support/projectman/menubar.json`; build files live in
+  `~/Library/Caches/projectman/menubar-build`. **Machine assumptions:** macOS 13+, Swift Command
+  Line Tools, `codesign`, `launchctl`, the logged-in user's Applications and Library folders.
+  The app re-reads the engine service's plist before every CLI call to follow release checkout
+  changes; only when that plist is absent does it use `menubar.json`. It calls the local
+  `scripts/engine/cli.ts`, takes `overall` from `status --json` without deriving engine state,
+  and passes only PATH, HOME and a temporary directory to node. Polls are serialized (15 s while
+  running or visible, 60 s otherwise; 2 s while awaiting an action's target, up to 120 s).
+  **Remote engine:** the app and CLI both run on the engine's Mac; nothing crosses the
+  server/engine boundary. Linux and Windows are unsupported. Existing inventory entry:
+  “Engine service (launchd)” (its plist is read, not changed by the menu app).
+  Core checks: `swift test --package-path deploy/mac/menubar`; fixture compatibility is checked
+  by `apps/server/test/engine-menubar.test.ts`. **Module:** `deploy`, `scripts`.
 
 - **Keep awake while working (PM-1086)** — `engine-host/keep-awake.ts` (`createKeepAwake`,
   `spawnKeepAwakeProcess`), wired in `engine-app.ts` to its 1 s poll; `engine-handlers.ts` `activeRuns()`

@@ -257,6 +257,38 @@ and `npm run engine -- logs [--lines N]` the end of the service's logs. The plis
 that a stop or restart does not kill the engine while it pauses the work: **on a machine where the service is
 already installed, run `npm run engine -- service install` once more** for the new setting to apply.
 
+## Engine menu bar app (macOS 13+, PM-1088)
+
+On the engine's Mac, from its checkout, install Apple's Command Line Tools if needed
+(`xcode-select --install`), then run:
+
+```
+npm run engine -- app install
+```
+
+This builds a native Swift app, ad-hoc signs it and installs it as
+`~/Applications/projectman motor.app`. A LaunchAgent starts it now and at login; it restarts
+after a crash. Quit closes the menu app until the next login and leaves the engine running.
+The menu shows the engine's state, work count, keep-awake state and local details. Start,
+Stop and Restart control the engine's installed service. A terminal-started engine must be
+stopped in that terminal; a stopped engine without a service offers the service install command.
+
+The app reads the engine LaunchAgent on each query, so a release's new checkout is picked up
+automatically. A release does not rebuild the menu app. To update it, run `app install` again;
+this is required when the status schema version changes. Build/sign failures preserve the
+existing app. All paths belong to the current macOS user. Build cache:
+`~/Library/Caches/projectman/menubar-build`; fallback CLI location:
+`~/Library/Application Support/projectman/menubar.json`. Engine data is not removed by:
+
+```
+npm run engine -- app uninstall
+```
+
+Uninstall removes the app, its LaunchAgent, fallback location and build cache. If macOS disables
+the background item in Login Items, enable it there before reinstalling. Test the Swift core
+with `swift test --package-path deploy/mac/menubar`; the Node fixture guard checks the CLI
+contract. Native menu screenshots and VoiceOver checks require the logged-in Mac desktop.
+
 ## Separate work volume on a Mac (PM-846)
 
 macOS keeps a log of every file change in the `fseventsd` daemon. Task worktrees, member workspaces,

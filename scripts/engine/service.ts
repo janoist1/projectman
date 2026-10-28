@@ -85,6 +85,7 @@ interface PlistValues {
   home: string;
   logOut: string;
   logErr: string;
+  executable?: string;
 }
 
 /** Fills the template; a placeholder the values do not know is an error, so a typo cannot ship. */
@@ -97,6 +98,7 @@ export function renderPlist(template: string, values: PlistValues): string {
     HOME: values.home,
     LOG_OUT: values.logOut,
     LOG_ERR: values.logErr,
+    EXECUTABLE: values.executable ?? values.node,
   };
   return template.replace(/\{\{([A-Z_]+)\}\}/g, (_match, name: string) => {
     const value = map[name];
@@ -199,7 +201,7 @@ export function installService(options: ServiceOptions): void {
 }
 
 /** Loads the job; launchd's "busy" answer is retried while it still tears the old job down. */
-function bootstrapJob(options: ServiceOptions, plist: string): void {
+export function bootstrapJob(options: ServiceOptions, plist: string, errorCode = 'service_bootstrap'): void {
   let loaded = options.launchctl(['bootstrap', `gui/${options.uid}`, plist]);
   const tryLimit = options.bootstrapTries ?? BOOTSTRAP_TRIES;
   for (let tries = 1; loaded.status === BOOTSTRAP_BUSY && tries < tryLimit; tries += 1) {
@@ -208,7 +210,7 @@ function bootstrapJob(options: ServiceOptions, plist: string): void {
   }
   if (loaded.status !== 0)
     throw new EngineConfigError(
-      'service_bootstrap',
+      errorCode,
       `launchctl bootstrap failed (${loaded.status}): ${(loaded.stderr || loaded.stdout).trim() || 'no output'}`,
     );
 }

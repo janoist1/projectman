@@ -211,7 +211,6 @@ export class TeamToolsService implements TeamToolsHandler {
     deliveredTo: string[];
     recipients: SentMessageRecipient[];
     routed?: { handle: string; workItem: WorkItemRef }[];
-    operator: boolean;
   }> {
     return this.tools.messages.sendMessage(ctx, args);
   }

@@ -194,7 +194,6 @@ export interface SentMessageRecipient {
 }
 
 export interface MemberAudience {
-  operator: boolean;
   projectManager: boolean;
   merger: boolean;
   /** The project's e-mail channel is on and this member may send e-mail (the e-mail tools' handler check). */
@@ -824,8 +823,6 @@ export interface MessageToolsHandler {
     recipients: SentMessageRecipient[];
     /** Only the recipients that get the message somewhere else than on its own card (PM-182). */
     routed?: { handle: MemberHandle; workItem: WorkItemRef }[];
-    /** The sender is the Operator (PM-543): the text then never sends it to a person. */
-    operator: boolean;
   }>;
 }
 

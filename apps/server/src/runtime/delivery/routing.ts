@@ -1,7 +1,6 @@
 import {
   DEFAULT_AGENT_PROVIDER,
   isOpenTask,
-  isOperator,
   isProjectManager,
   isRefining,
   isTheme,
@@ -202,7 +201,7 @@ export class MessageRouter implements MessageRouting {
   ): MessageHoldName | null {
     // The project manager runs on the engine too: no engine, no delivery, whatever its other holds are.
     if (this.heldForEngine(config.project.key, handle)) return 'engine';
-    if (isProjectManager(memberOf(config, handle)) || isOperator(memberOf(config, handle))) return null;
+    if (isProjectManager(memberOf(config, handle))) return null;
     if (this.heldForHandoff(task, handle)) return 'handoff';
     if (this.heldForTurn(config, task, handle, opts)) return 'refinement_turn';
     if (this.heldForFixLimit(config, task, from, handle)) return 'fix_limit';
@@ -349,7 +348,7 @@ export class MessageRouter implements MessageRouting {
     if (!task) return false;
     const config = await this.projects.config(session.projectKey);
     const member = memberOf(config, session.member);
-    if (isProjectManager(member) || isOperator(member)) return false;
+    if (isProjectManager(member)) return false;
     return (
       this.heldForHandoff(task, session.member) ||
       this.heldForTurn(config, task, session.member, {}) ||
@@ -425,14 +424,6 @@ export class MessageRouter implements MessageRouting {
       ...(!wakes && stale ? { stale } : {}),
     };
     if (!running && !wakes) return notWoken;
-    const operator = isOperator(memberOf(config, handle));
-    // The Operator takes what does not wake it (an information, a blocked message) only with the owner's next
-    // one. What wakes it and is not a person's (PM-885) is a queue item of its lane: the driver delivers it.
-    if (operator && !wakes) return notWoken;
-    if (operator && !facts.fromHuman) {
-      wake();
-      return { delivery: 'wake' };
-    }
     if (running && running.state === 'waiting_permission' && memberOf(config, message.from)?.kind !== 'human')
       return {
         delivery: 'after_turn',
@@ -461,9 +452,7 @@ export class MessageRouter implements MessageRouting {
         wake();
         return { delivery: 'wake' };
       }
-      // The Operator's messages go in as one batch (the owner's and the information waiting with it).
-      if (!operator && memberOf(config, message.from)?.kind === 'human')
-        this.delivery.deliver(running, message);
+      if (memberOf(config, message.from)?.kind === 'human') this.delivery.deliver(running, message);
       else this.delivery.deliverWaiting(running);
       return { delivery: running.state === 'idle' ? 'typed_now' : 'after_turn' };
     }

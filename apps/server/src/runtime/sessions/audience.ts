@@ -5,7 +5,6 @@ import {
   emailChannelOn,
   emailSenderOf,
   hasMachineAccess,
-  isOperator,
   isProjectManager,
   memberOf,
 } from '@projectman/shared';
@@ -16,7 +15,6 @@ import type { MemberAudience } from '../../contracts';
 export function memberAudience(config: ProjectConfig, handle: MemberHandle): MemberAudience {
   const member = memberOf(config, handle);
   return {
-    operator: isOperator(member),
     projectManager: isProjectManager(member),
     // The list is session-wide: include anyone who can merge a card under this policy.
     merger: cardMerger(config, { assignee: handle }, handle) === handle,

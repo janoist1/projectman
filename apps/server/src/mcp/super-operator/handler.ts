@@ -8,7 +8,6 @@ import {
   machineTodoIssuerAllowed,
   memberOf,
   needsRepoChoice,
-  operatorOf,
   roleBundle,
   TaskKey,
   TaskStatus as TaskStatusSchema,
@@ -644,22 +643,11 @@ export class ExternalTools implements ExternalToolsHandler {
     return this.deps.history.read(ctx.projectKey, await this.historyViewer(ctx), args);
   }
 
-  /** The project's Operator: the tools of its role are served only when the team has one. */
-  private async operatorHandle(projectKey: string): Promise<string> {
-    const operator = operatorOf(await this.deps.projects.config(projectKey));
-    if (!operator) throw forbidden('integrator_not_allowed', 'the project has no Operator to act as');
-    return operator.handle;
-  }
-
   async readProjectDoc(
     ctx: ExternalToolContext,
     args: { doc: ProjectDoc; fromLine?: number; lineCount?: number },
   ) {
-    const read = await this.deps.docWrites.read(
-      ctx.projectKey,
-      await this.operatorHandle(ctx.projectKey),
-      args.doc,
-    );
+    const read = await this.deps.docWrites.read(ctx.projectKey, this.access(ctx).handle, args.doc);
     return docWindow(args.doc, read, args.fromLine, args.lineCount);
   }
 
@@ -712,7 +700,6 @@ export class ExternalTools implements ExternalToolsHandler {
     ctx: ExternalToolContext,
     args: Parameters<ExternalToolsHandler['getRoleConfiguration']>[1],
   ) {
-    await this.operatorHandle(ctx.projectKey);
     const loaded = await this.deps.projects.load(ctx.projectKey);
     return {
       version: loaded.version,

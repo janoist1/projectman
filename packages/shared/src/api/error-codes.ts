@@ -105,8 +105,6 @@ export const ERROR_CODES = [
   'duplicate_role',
   'role_in_use',
   'project_manager_required',
-  'operator_required',
-  'operator_fixed',
   // 409; `details.reason`: session | workspace | queue | deferred_start (PM-1025)
   'member_session_live',
   // 409: a start while the member is being renamed
@@ -289,8 +287,6 @@ export const ERROR_CODES = [
   // The Operator (PM-463): a message to it only from an owner's own login; a write without an open
   // request of the owner; a tool it never calls.
   'operator_owner_only',
-  // The Operator exists only when the owner's client connects (PM-1045, 409): no session, no message to it.
-  'operator_connected_only',
   // A connected Claude's step on a queue item (decision 66): the item is not open for the key's holder (403),
   // or its issuer has no machine access (409).
   'queue_item_not_yours',

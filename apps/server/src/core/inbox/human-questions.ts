@@ -2,7 +2,6 @@ import {
   coordinationMemberOf,
   externalOriginActor,
   hasBoundOrigin,
-  isOperator,
   memberOf,
   ownerHandles,
   QUESTION_SCREENING_MINUTES,
@@ -86,9 +85,8 @@ export class HumanQuestions implements HumanQuestionsPort {
     const task = taskKey ? this.tasks.find(projectKey, taskKey) : null;
     if (taskKey && !task) throw missing(`Task ${taskKey} does not exist in this project.`);
 
-    // The Operator and a connected Claude ask only the owners (PM-463, decision 66): an answer of anyone else
-    // would not be a request to them.
-    const operator = external || isOperator(memberOf(config, asker));
+    // A connected Claude asks only the owners (decision 66): an answer of anyone else would not be a
+    // request to them.
     let unscreened: { reason: string; previousItemId: string } | null = null;
     if (caller.kind === 'member') unscreened = this.reask(projectKey, caller.member, input);
     else if (
@@ -112,17 +110,14 @@ export class HumanQuestions implements HumanQuestionsPort {
       if (notHuman.length > 0)
         throw refuse(`ask_human can only ask human members; these are not: ${notHuman.join(', ')}.`);
       const owners = ownerHandles(config);
-      const notOwner =
-        operator || (external && responsePurpose === 'owner_decision')
-          ? input.to.filter((h) => !owners.includes(h))
-          : [];
+      const notOwner = external ? input.to.filter((h) => !owners.includes(h)) : [];
       if (notOwner.length > 0)
         throw refuse(
-          `operator_owner_only: the ${external ? 'integrator' : 'Operator'} asks only the owners; these are not: ${notOwner.join(', ')}.`,
+          `operator_owner_only: the integrator asks only the owners; these are not: ${notOwner.join(', ')}.`,
         );
       assignees = unique(input.to);
     } else {
-      assignees = operator ? ownerHandles(config) : sponsorOrOwners(config, asker);
+      assignees = external ? ownerHandles(config) : sponsorOrOwners(config, asker);
     }
 
     const choices = questionChoices(input.options);

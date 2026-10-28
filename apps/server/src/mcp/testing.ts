@@ -10,7 +10,6 @@ import { BUILT_IN_ROLE_DUTIES, DEFAULT_OPERATOR_PREFERENCE, TaskComplexity } fro
 import { TeamToolError, type TeamToolsHandler, type ToolContext, type MemberAudience } from '../contracts';
 
 export const operatorAudience: MemberAudience = {
-  operator: true,
   projectManager: false,
   merger: false,
   email: false,
@@ -541,7 +540,6 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
         messageId,
         deliveredTo: args.to,
         recipients: args.to.map((handle) => ({ handle, delivery: 'typed_now' as const })),
-        operator: false,
       };
     },
 

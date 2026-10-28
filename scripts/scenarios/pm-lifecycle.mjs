@@ -108,6 +108,8 @@ export default async ({ instance, open, shoot, step, log }) => {
       return route.fulfill({ response, json: withReason(await response.json()) });
     });
     await page.reload();
+    // The card opens in a side panel; its timeline sits on the "Idővonal" tab.
+    await page.getByText('Idővonal', { exact: true }).first().click();
     await page.getByText(REASON, { exact: false }).first().waitFor();
     await page.getByText(REASON, { exact: false }).first().scrollIntoViewIfNeeded();
     await shoot(page, 'g-timeline-reopened', { widths: [1512] });

@@ -19,6 +19,7 @@ import {
   memberOf,
   memberStorageHandle,
   permissionDecidersNow,
+  RETIRED_OPERATOR_HANDLE,
   messageRoute,
   sameWorkItem,
   sessionWorkItemOf,
@@ -651,13 +652,19 @@ export class SessionOrchestrator {
   }
 
   /**
-   * Whether only the owner and the admin see the session: a project manager's conversation with someone who
-   * is not an owner (PM-475, PM-1080), which holds that person's messages.
+   * Whether only the owner and the admin see the session: a conversation with someone who is not an owner
+   * (PM-475, PM-1080), which holds that person's messages, and every session of the retired Operator (decision
+   * 66, PM-1076), whose member is gone from the config and whose rows keep its internal owner conversations.
+   * Fails closed: a `with` conversation stays restricted whoever the member is now, and the session row does
+   * not store the role, so the retired handle stands for it.
    */
   isRestrictedSession(sessionId: string): boolean {
     const session = this.find(sessionId);
-    const config = session ? this.deps.projects.cachedConfig(session.projectKey) : null;
-    if (!session || !config) return false;
+    if (!session) return false;
+    if (session.member === RETIRED_OPERATOR_HANDLE) return true;
+    if (session.workItem.type === 'general' && session.workItem.with !== undefined) return true;
+    const config = this.deps.projects.cachedConfig(session.projectKey);
+    if (!config) return false;
     const member = memberOf(config, session.member);
     return guestOfConversation(config, member, session.workItem) !== undefined;
   }

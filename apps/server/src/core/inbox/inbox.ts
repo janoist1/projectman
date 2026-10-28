@@ -86,7 +86,7 @@ import type {
   TaskStartWaiting,
   WorkItemRef,
 } from '@projectman/shared';
-import { fixLimitDeciders, ownerHandles } from '@projectman/shared';
+import { fixLimitDeciders, ownerHandles, RETIRED_OPERATOR_HANDLE } from '@projectman/shared';
 import { isoNow } from '../base';
 import type { DomainContext } from '../base';
 import { bodyForOwners, formatFixLimitItem } from './fix-limit-text';
@@ -560,6 +560,9 @@ export class InboxService {
    */
   private reservedDecisionRefusal(item: InboxItem, actor: Actor): 'owner_approval_required' | null {
     const sessionMember = item.sessionId ? this.ctx.repos.sessions.get(item.sessionId)?.member : null;
+    // What the retired Operator asked stays the owner's too (decision 66): its member is gone, its items remain.
+    if (item.source === RETIRED_OPERATOR_HANDLE || sessionMember === RETIRED_OPERATOR_HANDLE)
+      return 'owner_approval_required';
     return superDecisionRefusal(item, { operatorHandle: actor.handle, sessionMember });
   }
 

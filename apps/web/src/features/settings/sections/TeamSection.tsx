@@ -23,6 +23,7 @@ import { useProject, useProjectIndexes } from '../../../app/contexts';
 import { Avatar } from '../../../components/Avatar';
 import { Chip } from '../../../components/Chip';
 import { ErrorBanner } from '../../../components/ErrorBanner';
+import { Icon } from '../../../components/Icon';
 import { MoverChoice } from '../../../components/MoverChoice';
 import { SelectField } from '../../../components/Field';
 import { t } from '../../../i18n/t';
@@ -314,12 +315,20 @@ function ComplexityControls({ config }: { config: ProjectConfig }) {
         </p>
       ) : null}
       <details open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
-        <summary>{t('settings.team.complexity.choose')}</summary>
+        <summary className={shared.foldSummary}>
+          <Icon name="chevronRight" size={14} strokeWidth={2.4} className={shared.chevron} />
+          {t('settings.team.complexity.choose')}
+        </summary>
         <fieldset className={shared.controls} disabled={locked || saving} aria-busy={saving}>
           <legend>{t('settings.team.complexity.question')}</legend>
           {DUTY_GROUPS.map((group) => (
-            <div key={group} role="group" aria-labelledby={`settings-complexity-group-${group}`}>
-              <p id={`settings-complexity-group-${group}`} className={shared.groupTitle}>
+            <div
+              key={group}
+              role="group"
+              className={shared.subGroup}
+              aria-labelledby={`settings-complexity-group-${group}`}
+            >
+              <p id={`settings-complexity-group-${group}`} className={shared.fieldLabel}>
                 {t(`duties.${group}`)}
               </p>
               {DUTY_IDS.filter((id) => DUTIES[id].group === group).map((id) => {

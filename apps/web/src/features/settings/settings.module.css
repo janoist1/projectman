@@ -279,6 +279,49 @@
   overflow-wrap: anywhere;
 }
 
+/* The folded part's opener: a finger tall, with a chevron that turns when it opens (as on the roles page). */
+.foldSummary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  cursor: pointer;
+  list-style: none;
+  font-size: var(--text-sm);
+}
+
+.foldSummary::-webkit-details-marker {
+  display: none;
+}
+
+.foldSummary:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+}
+
+.chevron {
+  flex-shrink: 0;
+  color: var(--c-ink-4);
+  transition: transform 120ms ease;
+}
+
+details[open] > .foldSummary .chevron {
+  transform: rotate(90deg);
+}
+
+/* A duty group's subheading in the folded list: a step below the group title, spaced from the group above. */
+.subGroup {
+  margin: 8px 0 0;
+}
+
+.subGroup:first-of-type {
+  margin-top: 0;
+}
+
+.subGroup > p:first-child {
+  margin: 0;
+}
+
 /* The members who hold a duty now, under its tick, indented past the checkbox. */
 .holders {
   padding-left: 28px;

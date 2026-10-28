@@ -18,6 +18,7 @@ function raw(): {
     merger?: unknown;
     projectManagerMoves?: unknown;
     prioritySetters?: unknown;
+    taskCreateAccess?: unknown;
     viewerRecipients?: unknown;
   };
   pipeline: { stages: Array<Record<string, unknown>>; labels: Array<{ id: string; setBy?: unknown }> };
@@ -26,6 +27,7 @@ function raw(): {
   config.team.merger = { kind: 'code_reviewer' };
   config.team.projectManagerMoves = 'queues_and_start';
   config.team.prioritySetters = ['project_manager'];
+  config.team.taskCreateAccess = 'developer';
   config.team.viewerRecipients = 'project_manager';
   return config;
 }
@@ -82,6 +84,21 @@ describe('project configuration migrations', () => {
     });
     expect(migrate(reloaded).config.team.projectManagerMoves).toBe('start_only');
     expect(migrate(reloaded).config.team.viewerRecipients).toBe('contacts');
+  });
+
+  it('defaults a missing task create access to developer and keeps a saved one through the files (PM-1100)', () => {
+    const legacy = raw();
+    delete legacy.team.taskCreateAccess;
+    expect(migrate(legacy).config.team.taskCreateAccess).toBe('developer');
+    const saved = migrate(raw()).config;
+    saved.team.taskCreateAccess = 'client';
+    const files = splitProjectConfig(saved);
+    const reloaded = mergeProjectFiles({
+      'project.yaml': parseYamlFile('project.yaml', files['project.yaml']),
+      'team.yaml': parseYamlFile('team.yaml', files['team.yaml']),
+      'pipeline.yaml': parseYamlFile('pipeline.yaml', files['pipeline.yaml']),
+    });
+    expect(migrate(reloaded).config.team.taskCreateAccess).toBe('client');
   });
 
   it('passes a current configuration through untouched', () => {

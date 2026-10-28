@@ -5738,6 +5738,17 @@ pid=,ppid=,pgid=,uid=,rss=,%cpu=,time=,lstart=,args=` line per process), `envVal
 - **Screenshots.** `PROJECTMAN_MACHINE_FIXTURE=<json>` (`npm run shots -- … --machine <file>`,
   [SCREENSHOTS.md](SCREENSHOTS.md)) swaps the probe for fixed data that never signals; the server warns at start.
 
+## Who may open a card (PM-1100)
+
+`team.taskCreateAccess` (`owner|admin|developer|client`, default `developer`, the earlier behavior)
+is the lowest human access that may open a new card. `packages/shared/src/config/task-create.ts`
+owns the rule (`canCreateTasks`, `createsInFirstStageOnly`); the `POST /tasks` route and the web
+fake both call it. A viewer never may, AI members always may (the MCP `create_task` is unchanged),
+and a client's card starts in the first stage only (403 for any other `stageId`). Only an owner
+may change the setting (owner-only change `task_create_access`, never waivable by an Operator).
+The web separates `can.newCards` (the "new card" buttons) from `can.createTasks` (moving, editing
+and starting cards, developer level). No machine-dependent part is affected.
+
 ## Card mover and hand-on requests (PM-439)
 
 `team.cardMover` selects the worker (default), project manager, or a named human who moves

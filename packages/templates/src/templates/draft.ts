@@ -4,6 +4,7 @@ import {
   defaultMerger,
   DEFAULT_PRIORITY_SETTERS,
   DEFAULT_PROJECT_MANAGER_MOVES,
+  DEFAULT_TASK_CREATE_ACCESS,
   DEFAULT_VIEWER_RECIPIENTS,
   isProjectManager,
   type AiBuiltInRoleId,
@@ -191,6 +192,7 @@ function draftProject(templateId: TemplateId, input: BuildTemplateInput): Templa
           projectManagerMoves: DEFAULT_PROJECT_MANAGER_MOVES,
           prioritySetters: [...DEFAULT_PRIORITY_SETTERS],
           viewerRecipients: DEFAULT_VIEWER_RECIPIENTS,
+          taskCreateAccess: DEFAULT_TASK_CREATE_ACCESS,
         },
         pipeline: {
           ...pipeline,

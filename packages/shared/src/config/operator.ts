@@ -224,6 +224,7 @@ function highestLevel(changes: readonly ConfigChangeRow[]): OperatorLevel {
 const OWNER_ONLY_AREA: Record<OwnerOnlyChange, ConfigChangeArea> = {
   email_send_policy: 'member',
   machine_access: 'member',
+  task_create_access: 'member',
   locations: 'project',
   admin_or_account: 'member',
   approval_policy: 'gate',

@@ -1,6 +1,7 @@
 import {
   DEFAULT_PRIORITY_SETTERS,
   DEFAULT_PROJECT_MANAGER_MOVES,
+  DEFAULT_TASK_CREATE_ACCESS,
   DEFAULT_VIEWER_RECIPIENTS,
   ProjectConfig,
 } from '@projectman/shared';
@@ -29,6 +30,7 @@ function testConfigInput(input: BuildTemplateInput): ProjectConfigInput {
       projectManagerMoves: DEFAULT_PROJECT_MANAGER_MOVES,
       prioritySetters: [...DEFAULT_PRIORITY_SETTERS],
       viewerRecipients: DEFAULT_VIEWER_RECIPIENTS,
+      taskCreateAccess: DEFAULT_TASK_CREATE_ACCESS,
       // Stored explicitly, as the migration writes it (PM-1097).
       complexitySetters: ['requirements_analysis', 'task_breakdown'],
       // Stored explicitly, as the migration writes it; the developer, so that tests may drop the review stage.

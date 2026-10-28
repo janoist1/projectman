@@ -220,6 +220,13 @@ describe('ConfigStore (customization repository)', () => {
     },
   );
 
+  it('keeps the task create access in team.yaml (PM-1100)', async () => {
+    const config = testConfig();
+    config.team.taskCreateAccess = 'client';
+    await store.save('AR', config, { author, message: 'Create project AR' });
+    expect((await store.load('AR')).config.team.taskCreateAccess).toBe('client');
+  });
+
   it('keeps custom roles and human roles in team.yaml and loads files written before them', async () => {
     const config = testConfig();
     config.team.roles.push({

@@ -68,6 +68,8 @@ export const PatchConfigRequest = z
     releaseFourEyes: z.boolean().optional(),
     operatorWatch: OperatorWatch.nullable().optional(),
     cardMover: ProjectConfig.shape.team.shape.cardMover,
+    /** The lowest human access that may open a new card (PM-1100). Owner-only (`task_create_access`). */
+    taskCreateAccess: ProjectConfig.shape.team.shape.taskCreateAccess,
     projectManagerMoves: ProjectConfig.shape.team.shape.projectManagerMoves,
     /** Who besides people may set a card's priority (PM-1096): the whole list replaces the saved one, [] too. */
     prioritySetters: ProjectConfig.shape.team.shape.prioritySetters,
@@ -273,6 +275,7 @@ export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigReques
     team: {
       ...team,
       ...(patch.cardMover !== undefined ? { cardMover: patch.cardMover } : {}),
+      ...(patch.taskCreateAccess !== undefined ? { taskCreateAccess: patch.taskCreateAccess } : {}),
       ...(patch.projectManagerMoves !== undefined ? { projectManagerMoves: patch.projectManagerMoves } : {}),
       ...(patch.prioritySetters !== undefined ? { prioritySetters: patch.prioritySetters } : {}),
       ...(patch.complexitySetters !== undefined ? { complexitySetters: patch.complexitySetters } : {}),

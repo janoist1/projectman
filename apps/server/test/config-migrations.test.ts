@@ -671,3 +671,30 @@ describe('Senior mark migration (PM-1007)', () => {
     expect(config.team.members.find((m) => m.handle === 'dev-2')).not.toHaveProperty('complexityLimit');
   });
 });
+
+describe('separate mailbox name migration (PM-1039)', () => {
+  const member = (config: ReturnType<typeof raw>, handle: string) =>
+    config.team.members.find((m) => m.handle === handle)!;
+
+  it('drops the mailbox name, warns only when it differed from the handle, and is done once', () => {
+    const legacy = raw();
+    Object.assign(member(legacy, 'dev-1'), { email: { enabled: true, mailbox: 'builder' } });
+    Object.assign(member(legacy, 'dev-2'), { email: { enabled: true, mailbox: 'dev-2' } });
+    const first = migrate(legacy);
+    expect(member(first.migrated as ReturnType<typeof raw>, 'dev-1').email).toEqual({ enabled: true });
+    expect(first.config.team.members.find((m) => m.handle === 'dev-1')).toMatchObject({
+      email: { enabled: true },
+    });
+    expect(first.config.team.members.find((m) => m.handle === 'dev-2')).toMatchObject({
+      email: { enabled: true },
+    });
+    expect(first.warn).toHaveBeenCalledTimes(1);
+    expect(first.warn).toHaveBeenCalledWith(
+      { projectKey: 'AR', member: 'dev-1', mailbox: 'builder' },
+      expect.stringContaining('mailbox'),
+    );
+    const again = migrate(first.migrated);
+    expect(again.config).toEqual(first.config);
+    expect(again.warn).not.toHaveBeenCalled();
+  });
+});

@@ -22,8 +22,8 @@ export function currentHandleOf(config: Pick<ProjectConfig, 'team'>, handle: str
 
 /**
  * The configuration after the AI member `from` was renamed to `to` (PM-1025): every reference to the
- * handle follows, `from` joins the member's former handles, and the member's own mailbox name is
- * dropped so its address is `<to>@<domain>`. The caller checked that the rename is allowed.
+ * handle follows and `from` joins the member's former handles; the member's address, being its
+ * handle, becomes `<to>@<domain>`. The caller checked that the rename is allowed.
  */
 export function renameMemberInConfig(config: ProjectConfig, from: string, to: string): ProjectConfig {
   const swap = (handle: string): string => (handle === from ? to : handle);
@@ -44,13 +44,11 @@ export function renameMemberInConfig(config: ProjectConfig, from: string, to: st
       members: config.team.members.map((member) => {
         if (member.kind !== 'ai') return member;
         if (member.handle !== from) return { ...member, sponsor: swap(member.sponsor) };
-        const { mailbox: _mailbox, ...email } = member.email ?? { enabled: false };
         return {
           ...member,
           handle: to,
           formerHandles: [...(member.formerHandles ?? []), from],
           sponsor: swap(member.sponsor),
-          ...(member.email ? { email } : {}),
         };
       }),
     },

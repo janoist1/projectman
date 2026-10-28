@@ -7,6 +7,7 @@ import {
   OWNER_ACTOR,
   type DomainHarness,
 } from '../../../test/helpers/domain-harness';
+import { addTwinEmailProject } from '../../../test/helpers/email-twin-project';
 import { EmailSendError, type OutboundMail } from './ses-sender';
 import type { DeliveryEvent, InboundMail } from './types';
 
@@ -466,16 +467,19 @@ describe('EmailInbound', () => {
       expect(alerts()).toEqual([]);
     });
 
-    it('reaches the member under a renamed mailbox only', async () => {
-      const { emailChannel, reply, change } = await setupDirect();
-      await change('Rename the mailbox', (members) => {
-        const member = members.find((candidate) => candidate.handle === 'dev-1');
-        if (member?.kind === 'ai') member.email = { enabled: true, mailbox: 'builder' };
-      });
-      expect(await emailChannel.inbound.receive(reply({ to: address }))).toBe('dropped');
+    it('reaches a renamed member under the new and the old address (PM-1025)', async () => {
+      const { harness, emailChannel, reply } = await setupDirect();
+      await harness.domain.members.rename('AR', 'dev-1', 'builder', { actor: OWNER_ACTOR, author: OWNER });
+      expect(await emailChannel.inbound.receive(reply({ to: address }))).toBe('delivered');
       expect(await emailChannel.inbound.receive(reply({ to: 'builder@reply.example.test' }))).toBe(
         'delivered',
       );
+    });
+
+    it('drops a mail to a name that was only ever a separate mailbox name (PM-1039)', async () => {
+      const { emailChannel, reply, inboundRows } = await setupDirect();
+      expect(await emailChannel.inbound.receive(reply({ to: 'planner@reply.example.test' }))).toBe('dropped');
+      expect(inboundRows()).toEqual([]);
     });
 
     it('gives a reply address precedence over a member address', async () => {
@@ -497,12 +501,9 @@ describe('EmailInbound', () => {
       expect(alerts()).toEqual([]);
     });
 
-    it('drops a mail to a mailbox that two members share', async () => {
-      const { emailChannel, reply, change, inboundRows } = await setupDirect();
-      await change('Share a mailbox', (members) => {
-        const member = members.find((candidate) => candidate.handle === 'dev-2');
-        if (member?.kind === 'ai') member.email = { enabled: true, mailbox: 'dev-1' };
-      });
+    it('drops a mail to a handle that members of two projects share', async () => {
+      const { harness, emailChannel, reply, inboundRows } = await setupDirect();
+      await addTwinEmailProject(harness);
       expect(await emailChannel.inbound.receive(reply({ to: address }))).toBe('dropped');
       expect(inboundRows()).toEqual([]);
     });

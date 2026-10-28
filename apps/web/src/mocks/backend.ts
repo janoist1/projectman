@@ -3735,20 +3735,12 @@ export class MockBackend {
     }
     const next = clone(this.config);
     const nextMember = memberOf(next, handle)!;
-    // The same rule as the server: a mailbox name is unique across the projects of the server.
-    const mailbox = input.email?.mailbox;
-    if (
-      mailbox !== undefined &&
-      emailMailboxTaken([next, ...this.email.otherProjects], next.project.key, handle, mailbox)
-    )
-      return error(409, 'email_mailbox_taken', 'The mailbox name is taken', { mailbox });
     if (nextMember.kind === 'ai') {
       if (input.permissionMode !== undefined) nextMember.permissionMode = input.permissionMode;
       if (input.approver !== undefined) nextMember.approver = input.approver;
       if (input.outboundNetwork !== undefined) nextMember.outboundNetwork = input.outboundNetwork;
       if (input.machineAccess !== undefined) nextMember.machineAccess = input.machineAccess;
-      if (input.email !== undefined)
-        nextMember.email = applyMemberEmailChange(nextMember.email, input.email, handle);
+      if (input.email !== undefined) nextMember.email = applyMemberEmailChange(nextMember.email, input.email);
     }
     if (input.access !== undefined && nextMember.kind !== 'human')
       return error(400, 'not_human_member', 'Access is for humans');
@@ -3802,7 +3794,7 @@ export class MockBackend {
       if (input.outboundNetwork !== undefined) config.outboundNetwork = input.outboundNetwork;
       if (input.machineAccess !== undefined) config.machineAccess = input.machineAccess;
       if (input.email !== undefined) {
-        config.email = applyMemberEmailChange(config.email, input.email, handle);
+        config.email = applyMemberEmailChange(config.email, input.email);
         member.email = {
           enabled: config.email.enabled,
           sendWithoutApproval: config.email.sendWithoutApproval ?? false,

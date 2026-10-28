@@ -149,7 +149,7 @@ describe('the e-mail settings section', () => {
     expect(screen.getByText(t('settings.email.senders.title'))).toBeTruthy();
     expect(
       screen.getByText(
-        t('settings.email.senders.addressWhenOn', { mailbox: 'fe-1', domain: 'mail.example.com' }),
+        t('settings.email.senders.addressWhenOn', { handle: 'fe-1', domain: 'mail.example.com' }),
       ),
     ).toBeTruthy();
     expect(screen.queryByText(t('settings.email.contacts.title'))).toBeNull();
@@ -157,10 +157,6 @@ describe('the e-mail settings section', () => {
   });
 
   describe('the address of a member (PM-989)', () => {
-    const renameButton = () => screen.findByRole('button', { name: /Átírás|postafiókjának átírása/ });
-    const memberPatches = (p: ReturnType<typeof mockProject>) =>
-      p.requests.filter((request) => request.method === 'PATCH' && request.path.endsWith('/members/fe-1'));
-
     it('shows the address and copies it', async () => {
       const p = mailProject();
       const writeText = vi.fn().mockResolvedValue(undefined);
@@ -187,22 +183,6 @@ describe('the e-mail settings section', () => {
       expect(screen.getByText(t('settings.email.senders.copy'))).toBeTruthy();
     });
 
-    it('confirms a rename also while the channel is off and the member has no address yet', async () => {
-      const p = mailProject({ enabled: false });
-      await open(p);
-      fireEvent.click(await renameButton());
-      fireEvent.change(await screen.findByLabelText(t('settings.email.senders.mailboxLabel')), {
-        target: { value: 'front-desk' },
-      });
-      fireEvent.click(screen.getByRole('button', { name: t('settings.email.senders.save') }));
-      expect(await screen.findByText(t('settings.email.senders.saved'))).toBeTruthy();
-      expect(
-        screen.getByText(
-          t('settings.email.senders.addressWhenOn', { mailbox: 'front-desk', domain: 'mail.example.com' }),
-        ),
-      ).toBeTruthy();
-    });
-
     it('says to copy by hand when the clipboard is refused', async () => {
       const p = mailProject();
       const writeText = vi.fn().mockRejectedValue(new Error('denied'));
@@ -214,82 +194,15 @@ describe('the e-mail settings section', () => {
       );
     });
 
-    it('renames the mailbox and shows the new address', async () => {
+    it('has no mailbox editor: the address is the handle (PM-1039)', async () => {
       const p = mailProject();
       await open(p);
-      fireEvent.click(await renameButton());
-      const field = await screen.findByLabelText(t('settings.email.senders.mailboxLabel'));
-      expect((field as HTMLInputElement).value).toBe('fe-1');
-      fireEvent.change(field, { target: { value: ' Front-Desk ' } });
-      fireEvent.click(screen.getByRole('button', { name: t('settings.email.senders.save') }));
-      await waitFor(() => expect(memberPatches(p)).toHaveLength(1));
-      expect(memberPatches(p)[0]!.body).toMatchObject({ email: { mailbox: 'front-desk' } });
-      expect(await screen.findByText('front-desk@mail.example.com')).toBeTruthy();
-      expect(await screen.findByText(t('settings.email.senders.saved'))).toBeTruthy();
+      expect(await screen.findByText('fe-1@mail.example.com')).toBeTruthy();
+      expect(screen.queryByRole('textbox')).toBeNull();
+      expect(screen.queryByRole('button', { name: /Átírás|postafiókjának átírása/ })).toBeNull();
     });
 
-    it('sends nothing when the name is unchanged', async () => {
-      const p = mailProject();
-      await open(p);
-      fireEvent.click(await renameButton());
-      fireEvent.click(await screen.findByRole('button', { name: t('settings.email.senders.save') }));
-      await waitFor(() =>
-        expect(screen.queryByLabelText(t('settings.email.senders.mailboxLabel'))).toBeNull(),
-      );
-      expect(memberPatches(p)).toHaveLength(0);
-    });
-
-    it('refuses a name of a wrong shape without asking the server', async () => {
-      const p = mailProject();
-      await open(p);
-      fireEvent.click(await renameButton());
-      fireEvent.change(await screen.findByLabelText(t('settings.email.senders.mailboxLabel')), {
-        target: { value: 'r-reply' },
-      });
-      fireEvent.click(screen.getByRole('button', { name: t('settings.email.senders.save') }));
-      expect((await screen.findByRole('alert')).textContent).toContain(
-        t('settings.email.senders.mailboxInvalid'),
-      );
-      expect(memberPatches(p)).toHaveLength(0);
-    });
-
-    it('says a name is taken, also by a member of another project', async () => {
-      const p = mailProject();
-      const other = structuredClone(p.backend.config);
-      other.project.key = 'ZZ';
-      const twin = other.team.members.find((member) => member.handle === 'fe-1');
-      if (twin?.kind === 'ai') twin.email = { enabled: true, mailbox: 'taken' };
-      p.backend.email.otherProjects = [other];
-      await open(p);
-      fireEvent.click(await renameButton());
-      fireEvent.change(await screen.findByLabelText(t('settings.email.senders.mailboxLabel')), {
-        target: { value: 'taken' },
-      });
-      fireEvent.click(screen.getByRole('button', { name: t('settings.email.senders.save') }));
-      expect((await screen.findByRole('alert')).textContent).toContain(
-        t('settings.email.senders.mailboxTaken', { mailbox: 'taken' }),
-      );
-      // The form stays open for another try.
-      expect(screen.getByLabelText(t('settings.email.senders.mailboxLabel'))).toBeTruthy();
-    });
-
-    it('closes the form on Escape and puts focus back on the button', async () => {
-      const p = mailProject();
-      await open(p);
-      fireEvent.click(await renameButton());
-      fireEvent.keyDown(await screen.findByLabelText(t('settings.email.senders.mailboxLabel')), {
-        key: 'Escape',
-      });
-      // The button is made again when the form closes: focus goes to the new one.
-      await waitFor(() =>
-        expect(document.activeElement).toBe(
-          screen.getByRole('button', { name: /Átírás|postafiókjának átírása/ }),
-        ),
-      );
-      expect(memberPatches(p)).toHaveLength(0);
-    });
-
-    it('says why a member has no address when another project uses the same name', async () => {
+    it('says why a member has no address when another project uses the same handle', async () => {
       const p = mailProject();
       const other = structuredClone(p.backend.config);
       other.project.key = 'ZZ';
@@ -298,7 +211,7 @@ describe('the e-mail settings section', () => {
       p.backend.email.otherProjects = [other];
       await open(p);
       expect(
-        await screen.findByText(t('settings.email.senders.addressConflict', { mailbox: 'fe-1' })),
+        await screen.findByText(t('settings.email.senders.addressConflict', { handle: 'fe-1' })),
       ).toBeTruthy();
       expect(screen.queryByText('fe-1@mail.example.com')).toBeNull();
     });

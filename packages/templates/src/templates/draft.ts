@@ -2,6 +2,7 @@ import {
   ProjectConfig,
   BUILT_IN_ROLE_DUTIES,
   defaultMerger,
+  DEFAULT_PROJECT_MANAGER_MOVES,
   isProjectManager,
   type AiBuiltInRoleId,
   type BoardColumn,
@@ -185,6 +186,7 @@ function draftProject(templateId: TemplateId, input: BuildTemplateInput): Templa
           roles: [],
           limits,
           cardMover: input.cardMover ?? { kind: 'worker' },
+          projectManagerMoves: DEFAULT_PROJECT_MANAGER_MOVES,
         },
         pipeline: {
           ...pipeline,

@@ -13,6 +13,7 @@ import type { SuperAuditService } from '../../core/timeline';
 import {
   canonical,
   hasSuperOrigin,
+  holdsOwnership,
   ownerReservedEffect,
   superAccessVerdict,
   superActorOf,
@@ -46,16 +47,6 @@ const principalActor = (config: ProjectConfig, principal: IntegratorPrincipal) =
     config,
     { id: principal.keyId, prefix: principal.prefix },
     principal.source === 'app' ? principal.member : undefined,
-  );
-
-/** Whether the person with this e-mail is an owner member of the project, as of its current configuration. */
-const holdsOwnership = (config: ProjectConfig, email: string | undefined): boolean =>
-  email !== undefined &&
-  config.team.members.some(
-    (member) =>
-      member.kind === 'human' &&
-      member.access === 'owner' &&
-      member.email?.trim().toLowerCase() === email.trim().toLowerCase(),
   );
 
 /** Authenticated execution shared by REST and bearer MCP. The composition supplies domain ports. */

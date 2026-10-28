@@ -60,6 +60,9 @@ export const TEAM_TOOL_NAMES = [
   'send_email',
   'set_email_contact',
   'list_email_contacts',
+  'ask_host',
+  'list_host_requests',
+  'withdraw_host_request',
   'list_members',
   'get_task',
   'get_project_state',
@@ -125,7 +128,7 @@ export interface ToolAudience {
   /** Visible to a member who may use the channel (e-mail: the channel is on and the member may send). */
   channels?: readonly 'email'[];
   /** Visible to a member with this capability (machine access: the owners' machine queue, decision 66). */
-  capabilities?: readonly 'machine_access'[];
+  capabilities?: readonly ('machine_access' | 'host_requests')[];
 }
 
 export function toolVisible(audience: ToolAudience | undefined, member: MemberAudience): boolean {
@@ -141,7 +144,11 @@ export function toolVisible(audience: ToolAudience | undefined, member: MemberAu
       false) ||
     (audience.duties?.some((duty) => member.duties.has(duty)) ?? false) ||
     (audience.channels?.some((channel) => channel === 'email' && member.email) ?? false) ||
-    (audience.capabilities?.some((capability) => capability === 'machine_access' && member.machineAccess) ??
+    (audience.capabilities?.some(
+      (capability) =>
+        (capability === 'machine_access' && member.machineAccess) ||
+        (capability === 'host_requests' && member.hostRequests),
+    ) ??
       false)
   );
 }

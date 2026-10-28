@@ -223,6 +223,11 @@ export const ERROR_CODES = [
   'engine_not_host',
   'nanogpt_key_not_for_engine',
   'host_only',
+  // A request to the host (PM-1064): the project's owners include the host (409), five are open already (409),
+  // or it was answered or withdrawn already (409).
+  'host_request_not_needed',
+  'host_request_limit',
+  'host_request_closed',
   'ai_disabled',
   'ai_limit_reached',
   'plan_usage_paused',

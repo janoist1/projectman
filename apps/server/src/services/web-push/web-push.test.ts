@@ -139,6 +139,66 @@ describe('web push service', () => {
     await service.onItem(item());
     expect(transport.calls).toHaveLength(1);
   });
+  describe('a request to the host (PM-1064)', () => {
+    const request = { requestId: 'hreq_1', projectKey: 'BR', title: 'Need a right' };
+
+    it('sends the title and a link to the host’s own first project, with nothing else of the request', async () => {
+      subscribe();
+      await service.notifyHost({ userId: user.id }, request);
+      expect(transport.calls).toHaveLength(1);
+      expect(PushPayload.parse(JSON.parse(transport.calls[0]!.payload))).toMatchObject({
+        kind: 'item',
+        body: 'Need a right',
+        tag: 'host-request-hreq_1',
+        url: '/p/AR/settings/owners',
+      });
+      expect(transport.calls[0]!.payload).not.toContain('BR');
+    });
+
+    it.each(['category', 'viewing', 'quiet'] as const)('is not sent while %s', async (reason) => {
+      subscribe();
+      if (reason === 'category')
+        service.settings(user.id, {
+          ...DEFAULT_PUSH_SETTINGS,
+          categories: { ...DEFAULT_PUSH_SETTINGS.categories, host_request: false },
+        });
+      if (reason === 'viewing') presence.setVisible('connection', user.email, true);
+      if (reason === 'quiet') {
+        time = new Date('2026-10-20T23:00:00Z');
+        service.settings(user.id, {
+          ...DEFAULT_PUSH_SETTINGS,
+          quietHours: { ...DEFAULT_PUSH_SETTINGS.quietHours, enabled: true },
+        });
+      }
+      await service.notifyHost({ userId: user.id }, request);
+      expect(transport.calls).toHaveLength(0);
+    });
+
+    it('reads the category as on in settings saved before it existed', () => {
+      repos.db
+        .prepare(
+          'INSERT INTO web_push_settings (user_id, categories, quiet_enabled, quiet_start, quiet_end, time_zone, updated_at) VALUES (?, ?, 0, ?, ?, ?, ?)',
+        )
+        .run(
+          user.id,
+          JSON.stringify({
+            question: false,
+            decision: true,
+            approval: true,
+            permission: true,
+            release: true,
+          }),
+          '22:00',
+          '07:00',
+          'UTC',
+          time.toISOString(),
+        );
+      expect(service.overview(user.id).settings.categories).toMatchObject({
+        question: false,
+        host_request: true,
+      });
+    });
+  });
   it('delivers an item to each enabled device', async () => {
     subscribe('desktop');
     subscribe('phone');

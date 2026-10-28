@@ -24,6 +24,7 @@ import {
 } from './mcp';
 import { createInboxService } from './core/inbox';
 import { createWebPushService } from './services/web-push';
+import { createHostRequestsService } from './services/host-requests';
 import type { PushTransport } from './contracts';
 import type { IntegratorTodoAccess } from './core/inbox';
 import { createStructureService } from './services/structure';
@@ -233,7 +234,7 @@ import {
   type EmailChannelEnv,
   type SqsLike,
 } from './services/email-channel';
-import { EmailChannelTools } from './mcp';
+import { EmailChannelTools, HostRequestTools } from './mcp';
 import type { EmailSender } from './services/email-channel';
 
 import { ProviderKeys } from './runtime/usage';
@@ -809,6 +810,7 @@ export function createDomain(opts: DomainOptions) {
     transcripts: runnerModule.transcripts,
     contextBuilder: opts.contextBuilder,
     visibleTeamTools,
+    hostOwnerEmail: () => opts.accounts.hostOwner()?.email ?? null,
     cardQuestions,
     memory: opts.memory,
     operatorPreferences,
@@ -1700,6 +1702,16 @@ export function createDomain(opts: DomainOptions) {
   });
   // The in-app Operator's super-operation path (PM-888) is composed below, after the tools that use it.
   let superPath: { operations: OperatorAppOperations; administration: SuperAdministration } | null = null;
+  const hostRequests = createHostRequestsService({
+    ctx,
+    host: () => opts.accounts.hostOwner(),
+    projects,
+    tasks,
+    messaging,
+    inbox,
+    timeline,
+    notifyHost: (host, request) => webPush.notifyHost(host, request),
+  });
   const teamTools = new TeamToolsService({
     tools: {
       history: new HistoryTools({ calls: toolCaller, ctx, projects, history }),
@@ -1770,6 +1782,7 @@ export function createDomain(opts: DomainOptions) {
       operatorQueue: new OperatorQueueTools({ projects, finisher: operatorQueueFinisher }),
       sessions: new SessionTools({ calls: toolCaller, ctx, sessions }),
       email: new EmailChannelTools({ calls: toolCaller, projects, email: emailChannel }),
+      hostRequests: new HostRequestTools({ calls: toolCaller, hostRequests }),
     },
   });
   const agentQuestions = new AgentQuestions({
@@ -2375,6 +2388,7 @@ export function createDomain(opts: DomainOptions) {
     engineCounters,
     checklist,
     webPush,
+    hostRequests,
     superOperator,
     superHandoffs,
     superAdministration,
@@ -2794,6 +2808,7 @@ export function createDomain(opts: DomainOptions) {
         inbox,
         history,
         operatorKnowledge: opts.operatorKnowledge,
+        hostRequests,
       }).backend();
     },
 

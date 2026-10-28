@@ -7,7 +7,14 @@ import type { CloudConfig } from '../../../scripts/cloud/config';
 import { DomainError, humanActor } from '../src/kernel';
 import { EXTERNAL_DENIED, EXTERNAL_TOOLS } from '../src/mcp/super-operator/registry';
 import { TEAM_TOOL_NAMES } from '../src/mcp';
-import { addHumanAndLogin, createAppHarness, createProject, setupOwner } from './helpers/app-harness';
+import {
+  addHumanAndLogin,
+  createAppHarness,
+  createForeignProject,
+  createProject,
+  OWNER_LOGIN,
+  setupOwner,
+} from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 
 type Mode = 'super' | 'read';
@@ -25,6 +32,8 @@ const PROJECTLESS_TOOLS = [
   'list_integrator_inbox',
   'get_operator_instance_knowledge',
   'update_operator_instance_knowledge',
+  'list_host_inbox',
+  'answer_host_request',
 ];
 
 describe('the bearer MCP endpoint (PM-760)', () => {
@@ -310,6 +319,43 @@ describe('the bearer MCP endpoint (PM-760)', () => {
     });
     expect(denied.structuredContent?.errorCode).toBe('integrator_read_only');
     expect((await call(other, 'get_operator_instance_knowledge')).isError).toBe(true);
+  });
+
+  it('lists and answers the requests to the host with the host’s super key (PM-1064)', async () => {
+    await createForeignProject(h, cookie, 'BR');
+    await h.app.projectman.domain.projects.update(
+      'BR',
+      { actor: humanActor('owner'), author: OWNER_LOGIN },
+      (draft) => {
+        for (const member of draft.team.members)
+          if (member.kind === 'ai' && member.handle === 'pm') member.onLeave = false;
+        return 'Put the project manager on duty';
+      },
+    );
+    const { id } = await h.app.projectman.domain.hostRequests.open('BR', 'pm', {
+      title: 'Need a right',
+      body: 'Please grant it.',
+    });
+    const { secret } = key('super');
+    const listed = await call(secret, 'list_host_inbox', { state: 'open' });
+    expect(listed.structuredContent?.requests).toEqual([expect.objectContaining({ id, projectKey: 'BR' })]);
+
+    expect((await call(key('read').secret, 'list_host_inbox')).isError).toBeFalsy();
+    const readOnly = await call(key('read').secret, 'answer_host_request', {
+      id,
+      outcome: 'answered',
+      answer: 'x',
+    });
+    expect(readOnly.structuredContent?.errorCode).toBe('integrator_read_only');
+
+    const answered = await call(secret, 'answer_host_request', {
+      id,
+      outcome: 'answered',
+      answer: 'Granted.',
+    });
+    expect(answered.isError, answered.content[0]!.text).toBeUndefined();
+    expect(answered.structuredContent?.request).toMatchObject({ state: 'answered', answeredVia: 'super' });
+    expect(audit().some((entry) => entry.operation === 'mcp_answer_host_request')).toBe(true);
   });
 
   it('lists the integrator inbox of every owned project without project_key and leaves out one it does not own', async () => {

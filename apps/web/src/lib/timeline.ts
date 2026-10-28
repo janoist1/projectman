@@ -400,6 +400,16 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
         ...(str(d.message) ? { detail: str(d.message) } : {}),
       };
     }
+    case 'host_request_opened':
+      return normal(t('timeline.events.host_request_opened', { title: str(d.title) }));
+    case 'host_request_answered':
+      return normal(
+        t(`timeline.events.host_request_answered.${d.outcome === 'declined' ? 'declined' : 'answered'}`, {
+          title: str(d.title),
+        }),
+      );
+    case 'host_request_withdrawn':
+      return normal(t('timeline.events.host_request_withdrawn', { title: str(d.title) }));
     case 'release_changed': {
       const commit = shortCommit(str(d.commit));
       const key = 'timeline.events.release_changed';

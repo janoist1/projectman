@@ -37,6 +37,20 @@ it('renders a member rename with both handles as they were recorded (PM-1026)', 
   );
 });
 
+it.each([
+  ['host_request_opened', {}, 'timeline.events.host_request_opened'],
+  ['host_request_withdrawn', {}, 'timeline.events.host_request_withdrawn'],
+  ['host_request_answered', { outcome: 'answered' }, 'timeline.events.host_request_answered.answered'],
+  ['host_request_answered', { outcome: 'declined' }, 'timeline.events.host_request_answered.declined'],
+] as const)('renders %s with the request title (PM-1064)', (type, extra, key) => {
+  const event: TimelineEvent = {
+    ...creation,
+    type,
+    data: { requestId: 'hreq_1', title: 'Need a right', ...extra },
+  };
+  expect(describeEvent(event, context).text).toBe(t(key, { title: 'Need a right' }));
+});
+
 describe('merge queue timeline text (PM-576)', () => {
   it('names the cards a merge was put ahead of and the reason', () => {
     const event: TimelineEvent = {

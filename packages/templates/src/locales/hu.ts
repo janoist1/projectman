@@ -42,6 +42,7 @@ export const hu: TemplateLocale = {
       approval: 'Jóváhagyás vár rád',
       permission: 'Engedélykérés vár rád',
       release: 'Kiadás vár a jóváhagyásodra',
+      host_request: 'Kérés érkezett hozzád',
     },
     digest: { title: '{n} teendő vár rád', body: 'A csendes órák alatt érkeztek.' },
     test: { title: 'Próbaértesítés', body: 'Ha ezt látod, működik.' },

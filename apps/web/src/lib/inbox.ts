@@ -350,6 +350,11 @@ export function alertText(
       excerpt: alert.excerpt,
       reason: alert.reason,
     });
+  if (alert.alert === 'host_request_answered')
+    return t(`inbox.alerts.host_request_answered.${alert.outcome}`, {
+      title: alert.title,
+      answer: alert.answer,
+    });
   if (alert.alert === 'session_input')
     return t('inbox.alerts.session_input.body', {
       member: nameOf(item.source, members, myHandle),

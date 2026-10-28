@@ -50,7 +50,7 @@ export type ChecklistItemKey =
 export type TemplateMemberKey = 'daily_worker';
 
 export interface WebPushText {
-  title: Record<'question' | 'decision' | 'approval' | 'permission' | 'release', string>;
+  title: Record<'question' | 'decision' | 'approval' | 'permission' | 'release' | 'host_request', string>;
   digest: { title: string; body: string };
   test: { title: string; body: string };
 }

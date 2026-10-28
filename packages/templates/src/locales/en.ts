@@ -33,6 +33,7 @@ export const en: TemplateLocale = {
       approval: 'An approval awaits you',
       permission: 'A permission request awaits you',
       release: 'A release awaits your approval',
+      host_request: 'A request has come to you',
     },
     digest: { title: '{n} items await you', body: 'They arrived during quiet hours.' },
     test: { title: 'Test notification', body: 'If you see this, it works.' },

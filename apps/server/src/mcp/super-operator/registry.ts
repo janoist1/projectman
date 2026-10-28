@@ -22,6 +22,8 @@ const FILES = 'it moves files between a session folder or working directory and 
 const MEMBER_DUTY = 'it is a duty of an AI member of the card: its session, its hand-over or its merge duty';
 const EMAIL =
   'it is a tool of an AI member who is allowed to send e-mail; the integrator is not an e-mail sender';
+const HOST_REQUEST =
+  "it is the project manager's tool inside its own project; the host reads and answers requests with list_host_inbox and answer_host_request";
 const UNBOUND = 'it has no external binding yet';
 const PRIVATE_STATS =
   "it reads the private search statistics, which only the Operator shows to an owner's or admin's own request";
@@ -82,6 +84,9 @@ export const EXTERNAL_DENIED: Partial<Record<TeamToolName, string>> = {
   send_email: EMAIL,
   set_email_contact: EMAIL,
   list_email_contacts: EMAIL,
+  ask_host: HOST_REQUEST,
+  list_host_requests: HOST_REQUEST,
+  withdraw_host_request: HOST_REQUEST,
 };
 
 export function externalDenial(name: string): string {

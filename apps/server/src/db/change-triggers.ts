@@ -169,6 +169,8 @@ export const UNJOURNALED_TABLES: Readonly<Record<string, string>> = {
   owner_accounts: 'instance-level accounts of the host owner’s administration (PM-1062), not project state',
   owner_invitations:
     'instance-level invitations of the host owner’s administration (PM-1062), not project state',
+  host_requests:
+    'requests of a project manager to the host (PM-1064); the host reads them from their own list and the project sees their timeline events',
   feedback_events: 'the feedback tool has its own read model',
   feedback_launch_codes: 'the feedback tool has its own read model',
   feedback_marker_colors: 'the feedback tool has its own read model',

@@ -15,6 +15,7 @@ export const operatorAudience: MemberAudience = {
   merger: false,
   email: false,
   machineAccess: false,
+  hostRequests: false,
   duties: new Set(),
 };
 
@@ -233,6 +234,18 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
     async listEmailContacts(ctx) {
       await enter('listEmailContacts', ctx, {});
       return [];
+    },
+    async askHost(ctx, args) {
+      await enter('askHost', ctx, args);
+      return { id: 'hreq_fake', state: 'open' };
+    },
+    async listHostRequests(ctx, args) {
+      await enter('listHostRequests', ctx, args);
+      return [];
+    },
+    async withdrawHostRequest(ctx, args) {
+      await enter('withdrawHostRequest', ctx, args);
+      return { id: args.id, state: 'withdrawn' };
     },
     async mergeTask(ctx, args) {
       await enter('mergeTask', ctx, args);

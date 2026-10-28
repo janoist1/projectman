@@ -2424,4 +2424,26 @@ migrations.push({
   // before owner accounts existed, and a project synced from the customization store).
   sql: `ALTER TABLE projects ADD COLUMN created_by TEXT REFERENCES users(id);`,
 });
+migrations.push({
+  version: 120,
+  name: 'host requests',
+  // PM-1064: a request the project manager opens to the instance's host. The host sees only the text, never
+  // the project's cards; task_key is the card the request is about, for the project's own timeline.
+  sql: `CREATE TABLE host_requests (
+    id           TEXT NOT NULL PRIMARY KEY,
+    project_key  TEXT NOT NULL REFERENCES projects(key) ON DELETE CASCADE,
+    task_key     TEXT,
+    opened_by    TEXT NOT NULL,
+    title        TEXT NOT NULL,
+    body         TEXT NOT NULL,
+    state        TEXT NOT NULL CHECK (state IN ('open','answered','declined','withdrawn')),
+    answer       TEXT,
+    answered_by  TEXT REFERENCES users(id),
+    answered_via TEXT CHECK (answered_via IN ('web','super')),
+    created_at   TEXT NOT NULL,
+    updated_at   TEXT NOT NULL
+  );
+  CREATE INDEX host_requests_open ON host_requests(state, created_at);
+  CREATE INDEX host_requests_project ON host_requests(project_key, state);`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

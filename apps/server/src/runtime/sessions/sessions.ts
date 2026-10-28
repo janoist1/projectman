@@ -163,6 +163,8 @@ export interface SessionOrchestratorDeps {
   transcripts: TranscriptReader;
   contextBuilder: ContextPackBuilder;
   visibleTeamTools: VisibleTeamTools;
+  /** The host owner's e-mail, or null before the first-run setup: who a request to the host goes to (PM-1064). */
+  hostOwnerEmail(): string | null;
   /** The questions asked on a card, listed in the brief and in a resumed session's first message (PM-249). */
   cardQuestions: Pick<CardQuestions, 'list'>;
   memory: MemberMemoryStore;
@@ -562,13 +564,14 @@ export class SessionOrchestrator {
   audienceOf(ctx: ToolContext): MemberAudience {
     const config = this.deps.projects.cachedConfig(ctx.projectKey);
     return config
-      ? memberAudience(config, ctx.member)
+      ? memberAudience(config, ctx.member, { hostOwnerEmail: this.deps.hostOwnerEmail() })
       : {
           operator: false,
           projectManager: false,
           merger: false,
           email: false,
           machineAccess: false,
+          hostRequests: false,
           duties: new Set(),
         };
   }
@@ -631,7 +634,9 @@ export class SessionOrchestrator {
             ?.slice(2) ?? topic;
         return [{ topic, title, ...counted(text) }];
       }),
-      tools: this.deps.visibleTeamTools(memberAudience(config, handle)),
+      tools: this.deps.visibleTeamTools(
+        memberAudience(config, handle, { hostOwnerEmail: this.deps.hostOwnerEmail() }),
+      ),
     };
   }
 

@@ -77,6 +77,15 @@
 .stepBody > * {
   margin: 0;
 }
+/* The tabs share the step's width equally, so the second one never runs past the track. */
+.tabs {
+  width: 100%;
+}
+.tabs > button {
+  flex: 1;
+  min-width: 0;
+  justify-content: center;
+}
 .stepTitle {
   font-size: var(--text-md);
   font-weight: 700;
@@ -92,6 +101,12 @@
 }
 .hint {
   color: var(--c-ink-3);
+  font-size: 13px;
+}
+/* The way to the sign-in sits under the message, not squeezed beside it. */
+.invalidLink {
+  margin: 0;
+  text-align: center;
   font-size: 13px;
 }
 .sub {
@@ -120,7 +135,6 @@
   background: none;
   color: var(--c-accent);
   font: inherit;
-  font-weight: 600;
   cursor: pointer;
 }
 .linkButton:hover {

@@ -296,7 +296,12 @@ export function CreateProjectPage() {
             </details>
           </section>
           {noMachine ? null : (
-            <ProviderChoice query={providers} value={provider} onChange={setChosenProvider} />
+            <ProviderChoice
+              query={providers}
+              value={provider}
+              onChange={setChosenProvider}
+              machine={selected?.name}
+            />
           )}
           <div className={styles.bar}>
             {create.isError && errorCode(create.error) !== 'workspace_not_found' ? (

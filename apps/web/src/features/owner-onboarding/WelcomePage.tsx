@@ -204,7 +204,7 @@ function ProviderStep({
                 </span>
                 {entry.loggedIn === false && !optionalMissing ? (
                   <span className={styles.providerTodo}>
-                    <ProviderTodo provider={provider} entry={entry} canManageKeys={false} />
+                    <ProviderTodo provider={provider} entry={entry} canManageKeys={false} onMachine />
                   </span>
                 ) : null}
               </div>

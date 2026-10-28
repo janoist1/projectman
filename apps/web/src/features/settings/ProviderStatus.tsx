@@ -28,10 +28,13 @@ export function ProviderTodo({
   provider,
   entry,
   canManageKeys,
+  onMachine = false,
 }: {
   provider: AgentProvider;
   entry?: ProviderLoginStatus;
   canManageKeys: boolean;
+  /** The provider is checked on the owner's own machine, not on the server. */
+  onMachine?: boolean;
 }) {
   if (!entry || entry.loggedIn === null) return <>{t('projects.create.providerUnknownHelp')}</>;
   if (entry.loggedIn) return null;
@@ -64,7 +67,9 @@ export function ProviderTodo({
   if (entry.problem === 'cli_missing')
     return (
       <>
-        {t('projects.create.installProvider', { cli: t(`projects.create.cliNames.${provider}`) })}{' '}
+        {t(onMachine ? 'projects.create.installProviderMachine' : 'projects.create.installProvider', {
+          cli: t(`projects.create.cliNames.${provider}`),
+        })}{' '}
         <code>{t(`providerSettings.loginCommands.${provider}`)}</code>
       </>
     );

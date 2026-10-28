@@ -27,6 +27,16 @@
 .stacked button {
   align-self: flex-start;
 }
+/* On a narrow screen the button goes under the command instead of taking a third of its width. */
+@media (max-width: 480px) {
+  .copyRow {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .copyRow button {
+    align-self: flex-start;
+  }
+}
 .scroll {
   max-height: 180px;
   overflow-y: auto;

@@ -20,10 +20,13 @@ export function ProviderChoice({
   query,
   value,
   onChange,
+  machine,
 }: {
   query: ProviderQuery;
   value: AgentProvider;
   onChange: (provider: AgentProvider) => void;
+  /** The name of the machine whose logins are shown; none means the server's. */
+  machine?: string;
 }) {
   const [keyOpen, setKeyOpen] = useState(false);
   const [announcement, setAnnouncement] = useState('');
@@ -64,7 +67,11 @@ export function ProviderChoice({
           {t('projects.create.recheck')}
         </Button>
       </div>
-      <p className={styles.help}>{t('projects.create.providersHelp')}</p>
+      <p className={styles.help}>
+        {machine
+          ? t('projects.create.providersHelpMachine', { machine })
+          : t('projects.create.providersHelp')}
+      </p>
       <fieldset className={styles.fieldset} aria-busy={query.isPending}>
         <legend>{t('projects.create.providerLegend')}</legend>
         <div className={styles.providerList}>
@@ -115,6 +122,7 @@ export function ProviderChoice({
                       provider={provider}
                       entry={entry}
                       canManageKeys={query.data?.canManageKeys === true}
+                      onMachine={machine !== undefined}
                     />
                     {provider === 'nanogpt' &&
                     entry?.loggedIn === false &&

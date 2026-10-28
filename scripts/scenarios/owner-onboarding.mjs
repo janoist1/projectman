@@ -181,7 +181,8 @@ export default async ({ open, shoot, step, log }) => {
 
   await step('e. step 3, provider logins', async () => {
     state.engines = [connected()];
-    state.logins = [login('claude', 'out'), login('codex', 'in'), login('gemini', 'missing')];
+    // Nobody is logged in yet: the step is open, the project manager's provider (Claude) is the one to fix first.
+    state.logins = [login('claude', 'out'), login('codex', 'out'), login('gemini', 'missing')];
     welcome = await open({ path: '/welcome' });
     await welcome.getByText(TEXT.step3).first().waitFor();
     await welcome.getByText('Codex', { exact: false }).first().waitFor();
@@ -204,6 +205,9 @@ export default async ({ open, shoot, step, log }) => {
     const page = await open({ path: `/projects/new?engine=${online.id}` });
     await page.getByText(TEXT.engineLegend, { exact: true }).first().waitFor();
     await shoot(page, 'g-wizard-engine', { widths: WIDTHS });
+    // The sticky bottom bar covers the lower machine in a full-page image, so the machine block also gets a viewport shot.
+    await page.getByText(TEXT.engineLegend, { exact: true }).first().scrollIntoViewIfNeeded();
+    await shoot(page, 'g-wizard-engine-viewport', { widths: [390], fullPage: false });
   });
 
   await step('h. the wizard without a connected machine', async () => {

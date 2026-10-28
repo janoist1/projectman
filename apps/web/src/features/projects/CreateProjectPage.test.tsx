@@ -245,6 +245,8 @@ it('creates a project on the preselected machine of an owner account and goes on
   renderForm(project, `/projects/new?engine=${laptop.id}`);
   await ready();
   expect(((await screen.findByRole('radio', { name: /Laptop/ })) as HTMLInputElement).checked).toBe(true);
+  // The providers are those of the chosen machine, and the page says so instead of naming the server.
+  expect(screen.getByText(t('projects.create.providersHelpMachine', { machine: 'Laptop' }))).toBeTruthy();
   fill();
   submit();
   const probe = await screen.findByTestId('created-project');

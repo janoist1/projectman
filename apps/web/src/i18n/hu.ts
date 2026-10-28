@@ -1776,6 +1776,7 @@ export const hu = {
       english: 'Angol (English)',
       providersTitle: 'AI-szolgáltatók',
       providersHelp: 'Ezeken dolgoznak az AI-tagok. A szerveren nézzük, minden projektre közös.',
+      providersHelpMachine: 'Ezeken dolgoznak az AI-tagok. A(z) {machine} gépen nézzük.',
       providerLegend: 'Melyiken induljon a kezdőcsapat? Később tagonként átállíthatod.',
       recheck: 'Újraellenőrzés',
       rechecked: 'Újraellenőrizve: {statuses}',
@@ -1787,6 +1788,7 @@ export const hu = {
       cliTooOld: 'Túl régi verzió',
       cliNames: { claude: 'a Claude Code-ot', codex: 'a Codex CLI-t', gemini: 'az Antigravity CLI-t (agy)' },
       installProvider: 'Telepítsd a szerverre {cli}, utána futtasd:',
+      installProviderMachine: 'Telepítsd a gépedre {cli}, utána futtasd:',
       updateProvider: 'Frissítsd a szerveren {cli}: most {cliVersion}, legalább {minCliVersion} kell.',
       noneReady: 'Egyik szolgáltató sincs kész.',
       noneReadyHelp:

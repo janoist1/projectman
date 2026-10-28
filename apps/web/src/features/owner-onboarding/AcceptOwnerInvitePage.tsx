@@ -37,13 +37,17 @@ export function AcceptOwnerInvitePage() {
 
 function InvalidInvite() {
   return (
-    <EmptyState
-      icon="lock"
-      titleAs="h2"
-      title={t('ownerOnboarding.invite.invalidTitle')}
-      body={t('ownerOnboarding.invite.invalidBody')}
-      action={<Link to="/login">{t('ownerOnboarding.invite.hasAccount')}</Link>}
-    />
+    <>
+      <EmptyState
+        icon="lock"
+        titleAs="h2"
+        title={t('ownerOnboarding.invite.invalidTitle')}
+        body={t('ownerOnboarding.invite.invalidBody')}
+      />
+      <p className={styles.invalidLink}>
+        <Link to="/login">{t('ownerOnboarding.invite.hasAccount')}</Link>
+      </p>
+    </>
   );
 }
 

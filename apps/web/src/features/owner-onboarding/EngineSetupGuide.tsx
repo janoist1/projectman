@@ -67,6 +67,7 @@ export function EngineSetupGuide({
   return (
     <div className={styles.stepBody}>
       <SegmentedControl
+        className={styles.tabs}
         label={t('ownerOnboarding.guide.tabsLabel')}
         value={mode}
         onChange={setMode}

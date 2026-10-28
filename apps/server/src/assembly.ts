@@ -1018,6 +1018,12 @@ export function createDomain(opts: DomainOptions) {
   // A card worked out is offered for starting by the next round; a collecting card that cannot start says so (PM-804).
   refinement.useNotify((task, recipient) => startRound.refined(task, recipient));
   const handOver = new StageHandOver({ projects, tasks, sessions, admission, delivery });
+  events.on('session_ended', (session) => {
+    background.run(
+      () => handOver.resumeInterrupted(session),
+      (err) => opts.logger.warn({ err, sessionId: session.id }, 'interrupted stage resume failed'),
+    );
+  });
   // A card at its fix round limit holds back its assignee's messages and hand-over notice (PM-262); the
   // hold needs the classes it binds to, which are built first.
   const fixLimit = new FixLimitWatch({

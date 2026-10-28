@@ -1,6 +1,6 @@
 import { isOnLeave, isRefinementStage, memberOf, stageIndex, stageOf, stageOwners } from '@projectman/shared';
 import type { AiMemberConfig, ProjectConfig, Session, Stage, Task } from '@projectman/shared';
-import { conflict } from '../../kernel';
+import { conflict, SYSTEM_ACTOR } from '../../kernel';
 import type { MessageDelivery } from '../delivery';
 import type { ProjectService } from '../../core/projects';
 import type { SessionOrchestrator } from '../sessions';
@@ -57,6 +57,16 @@ export class StageHandOver {
     await this.admission.attempt(this.startFor(change));
   }
 
+  /** An interrupted card keeps its member and conversation, under normal stage admission. */
+  async resumeInterrupted(session: Session): Promise<void> {
+    if (session.lastStop?.kind !== 'server_restart' || session.workItem.type !== 'task') return;
+    const task = this.tasks.find(session.projectKey, session.workItem.taskKey);
+    if (!task || task.status !== 'active') return;
+    await this.admission.attempt(
+      this.startFor({ task, from: task.stageId, to: task.stageId, actor: SYSTEM_ACTOR }, session.member),
+    );
+  }
+
   /**
    * A hand-over that was deferred when the server stopped, made again from what was stored;
    * null when its task is gone.
@@ -64,23 +74,39 @@ export class StageHandOver {
   rebuild(spec: Extract<StartSpec, { kind: 'hand_over' }>): AutomaticStart | null {
     const task = this.tasks.find(spec.projectKey, spec.taskKey);
     return task
-      ? this.startFor({ task, from: spec.from, to: spec.to, actor: spec.actor, eventId: spec.eventId })
+      ? this.startFor(
+          { task, from: spec.from, to: spec.to, actor: spec.actor, eventId: spec.eventId },
+          spec.resumeMember,
+        )
       : null;
   }
 
-  private startFor(change: StageChange): AutomaticStart {
+  private startFor(change: StageChange, resumeMember?: string): AutomaticStart {
     const { projectKey, key: taskKey } = change.task;
     const config = this.projects.cachedConfig(projectKey);
     const stage = config && stageOf(config, change.to);
     const owners = config && stage ? stageOwners(config, stage) : [];
     let waitsFor =
-      stage?.kind === 'work'
+      resumeMember ??
+      (stage?.kind === 'work'
         ? (change.task.assignee ?? undefined)
         : owners.length === 1
           ? owners[0]
-          : undefined;
+          : undefined);
+    const ownsStage = (task: Task, config: ProjectConfig): boolean => {
+      if (!resumeMember) return true;
+      const stage = stageOf(config, task.stageId);
+      return stage?.kind === 'work'
+        ? task.assignee === resumeMember
+        : stage?.kind === 'step' &&
+            !isRefinementStage(stage) &&
+            task.assignee !== resumeMember &&
+            stageOwners(config, stage).includes(resumeMember);
+    };
     return {
-      key: `hand-over:${projectKey}:${taskKey}`,
+      key: resumeMember
+        ? `restart-resume:${projectKey}:${taskKey}:${resumeMember}`
+        : `hand-over:${projectKey}:${taskKey}`,
       projectKey,
       taskKey,
       spec: () => ({
@@ -91,12 +117,19 @@ export class StageHandOver {
         to: change.to,
         actor: change.actor,
         eventId: change.eventId,
+        ...(resumeMember ? { resumeMember } : {}),
       }),
-      stillValid: (task) => task !== null && task.stageId === change.to && task.status === 'active',
+      stillValid: (task) => {
+        if (!task || task.stageId !== change.to || task.status !== 'active') return false;
+        const current = this.projects.cachedConfig(projectKey);
+        return !resumeMember || (!!current && ownsStage(task, current));
+      },
       waitsFor: () => waitsFor,
       defers: ['full_test_pending'],
       blocked: (task, config) => this.fullTests?.holds(task, config) ?? false,
-      retry: () => this.handOff(change),
+      retry: async () => {
+        await this.admission.attempt(this.startFor(change, resumeMember));
+      },
       log: {
         deferred: 'stage hand-over deferred',
         retryFailed: 'stage hand-over retry failed',
@@ -107,6 +140,7 @@ export class StageHandOver {
         if (task.stageId !== change.to || task.status !== 'active') return;
         const current: StageChange = { ...change, task };
         const config = await this.projects.config(projectKey);
+        if (!ownsStage(task, config)) return;
         const stage = stageOf(config, change.to);
         if (!stage || stage.kind === 'queue' || stage.kind === 'done') return;
         // A stage for refinement has its own line: one member per step, never the whole stage's owners.
@@ -119,7 +153,7 @@ export class StageHandOver {
           if (this.sessions.findRunning(projectKey, task.assignee, workItem))
             return this.notify(current, stage, task.assignee);
           const wentBack = stageIndex(config.pipeline, change.to) < stageIndex(config.pipeline, change.from);
-          if (assignee?.kind !== 'ai' || (!wentBack && isOnLeave(assignee))) return;
+          if (assignee?.kind !== 'ai' || (!resumeMember && !wentBack && isOnLeave(assignee))) return;
           // A forward hand-over applies to the assignment at the move, not to a later assignment.
           if (!wentBack && change.task.assignee !== task.assignee) return;
           if (change.actor.kind === 'ai' && change.actor.handle === assignee.handle) return;
@@ -152,6 +186,7 @@ export class StageHandOver {
             taskKey,
           });
         const owners = stageOwners(config, stage)
+          .filter((handle) => !resumeMember || handle === resumeMember)
           .map((handle) => memberOf(config, handle))
           .filter((m): m is AiMemberConfig => m?.kind === 'ai' && m.handle !== task.assignee);
         if (owners.length === 0) return;

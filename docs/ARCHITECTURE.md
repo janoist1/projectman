@@ -1940,6 +1940,15 @@ workers follow the machine's size.
 
 ## Machine-dependent parts (PM-341)
 
+- **Interrupted card continuation (PM-1092)** — `runtime/sessions/sessions.ts` closes lost live
+  sessions with `server_restart` during startup or engine reconciliation; `runtime/admission/hand-over.ts`
+  resumes their current work-stage assignee or review-stage owner through normal admission. The
+  persisted `hand_over.resumeMember` keeps the same member while capacity, pauses or an offline engine
+  hold the continuation; a changed stage or assignment invalidates it. **Machine assumptions:** the
+  existing provider transcript on the session's engine supplies the resumed conversation. **Remote
+  engine:** the hub stores and retries the continuation; the existing session-start RPC runs the CLI
+  on the engine after it reconnects. No new transport or shared filesystem is required.
+
 - **Keep awake while working (PM-1086)** — `engine-host/keep-awake.ts` (`createKeepAwake`,
   `spawnKeepAwakeProcess`), wired in `engine-app.ts` to its 1 s poll; `engine-handlers.ts` `activeRuns()`
   counts the merge-check and screenshot runs; `engine.json` `keepAwake` and `npm run engine -- keep-awake
@@ -3073,7 +3082,8 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   unseen). **Cloud restart:** the runner's shutdown cannot reach the engine, because the websocket plugin
   closes the links before `app.ts`'s close hook runs; the session the engine keeps running is ended by
   the reconciliation when the engine reconnects (its team-tools token is gone with the cloud's memory),
-  and the next message resumes the conversation from its transcript. No session survives a cloud restart
+  and interrupted card work resumes automatically through admission from its transcript (PM-1092);
+  general conversations resume on their next message. No session survives a cloud restart
   seamlessly. A session may read its card's `attachments-cache/<project>/<task>` folder on the engine
   (a read-only sandbox root; never a working directory).
   **Module:** `engine-link`

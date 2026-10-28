@@ -147,6 +147,30 @@ describe('the focus strip', () => {
     expect(screen.queryByRole('button', { name: t('focus.edit') })).toBeNull();
   });
 
+  it('is one row on a phone: the title with the count and the filter, no chips', async () => {
+    vi.spyOn(window, 'matchMedia').mockImplementation((query) => ({
+      matches: true,
+      media: query,
+      onchange: null,
+      addEventListener() {},
+      removeEventListener() {},
+      addListener() {},
+      removeListener() {},
+      dispatchEvent: () => false,
+    }));
+    renderBoard(focused('AC-24', 'AC-23', 'AC-22'));
+    const region = within(await findStrip());
+    const open = await region.findByRole('button', { name: /^Fókusz megnyitása/ });
+    expect(open.textContent).toContain(t('focus.title'));
+    expect(open.textContent).toContain(t('focus.itemCount', { count: 3 }));
+    expect(region.queryByRole('list', { name: t('focus.chipsLabel') })).toBeNull();
+    expect(region.getByRole('button', { name: t('focus.only') })).toBeTruthy();
+    expect(region.queryByRole('button', { name: t('focus.edit') })).toBeNull();
+    // The title button is the way into the panel.
+    fireEvent.click(open);
+    expect(await screen.findByRole('dialog')).toBeTruthy();
+  });
+
   it('shows a key for an item the board does not know', async () => {
     const project = focused('AC-999');
     renderBoard(project);
@@ -272,6 +296,34 @@ describe('the focus panel', () => {
     expect(project.backend.focusItems).toHaveLength(2);
   });
 
+  it('does not add the general error text after its own sentence', async () => {
+    const project = focused('AC-24');
+    // A refusal with a code the page has no text for: only the general text could follow ours.
+    project.backend.focusSaveError = { status: 500, code: 'unmapped_failure' as never };
+    renderBoard(project);
+    const panel = await openPanel();
+    await waitFor(() => expect(rows(panel)).toHaveLength(1));
+    fireEvent.click(
+      panel.getByRole('button', { name: t('focus.remove', { title: titleOf(project.backend, 'AC-24') }) }),
+    );
+    const banner = await panel.findByRole('alert');
+    expect(banner.textContent).toContain(t('focus.saveFailed'));
+    expect(banner.textContent).not.toContain(t('errors.generic'));
+  });
+
+  it('shows a ready card as "indulhat" without repeating the stage name', async () => {
+    const project = mockProject();
+    const ready = create(project.backend, 'Ready card');
+    project.backend.updateTask(ready.key, { stageId: 'ready' });
+    project.backend.focusItems = [entry(ready.key)];
+    renderBoard(project);
+    const panel = await openPanel();
+    await waitFor(() => expect(rows(panel)).toHaveLength(1));
+    const row = rows(panel)[0]!;
+    expect(row.textContent).toContain(t('focus.cardReady'));
+    expect(row.textContent).not.toContain('Indulhat');
+  });
+
   it('is a read-only list for a viewer who may not change it', async () => {
     const project = focused('AC-24');
     project.backend.viewerHandle = 'qa';
@@ -387,8 +439,9 @@ describe('the "Fókusz" row of a card', () => {
         content.includes(t('focus.row.viaTheme', { position: 1, title: 'Webshop epic' })),
       ),
     ).toBeTruthy();
-    // A card that is only covered has nothing to take off.
+    // A card that is only covered has nothing to take off, and adding it would contradict its place.
     expect(screen.queryByRole('button', { name: t('focus.row.remove') })).toBeNull();
+    expect(screen.queryByRole('button', { name: t('focus.row.add') })).toBeNull();
   });
 
   it('shows a refusal in the drawer and leaves the row as it was', async () => {
@@ -480,6 +533,20 @@ describe('the focus on the map', () => {
       expect(names.some((name) => name.includes('Webshop epic'))).toBe(true);
       expect(names.some((name) => name.includes('Hosting epic'))).toBe(true);
     });
+  });
+
+  it('marks the theme on its tile in the overview', async () => {
+    const { project } = themedMap();
+    project.render(routes, '/p/AC/map');
+    await waitFor(() =>
+      expect(screen.getAllByRole('img', { name: t('focus.mark', { position: 1 }) }).length).toBeGreaterThan(
+        0,
+      ),
+    );
+    const tile = tiles().find((link) => (link.getAttribute('aria-label') ?? '').includes('Webshop epic'));
+    expect(within(tile!).getByRole('img', { name: t('focus.mark', { position: 1 }) })).toBeTruthy();
+    const hosting = tiles().find((link) => (link.getAttribute('aria-label') ?? '').includes('Hosting epic'));
+    expect(within(hosting!).queryByRole('img')).toBeNull();
   });
 
   it('marks the theme in a group and the cards it covers', async () => {

@@ -158,22 +158,18 @@
   color: var(--c-accent-text);
 }
 
+.countText {
+  font-weight: 600;
+  color: var(--c-ink-3);
+}
+
 @media (max-width: 767px) {
   .strip {
-    flex-wrap: wrap;
     margin: 8px 12px 0;
   }
+}
 
-  .chips {
-    order: 3;
-    flex-basis: 100%;
-  }
-
-  .chipTitle {
-    max-width: 14ch;
-  }
-
-  .openTitle {
-    display: none;
-  }
+/* The map's page has its own side padding. */
+.flush {
+  margin: 0;
 }

@@ -6,6 +6,7 @@ import { StateMark } from '../../components/StateMark';
 import { t } from '../../i18n/t';
 import { columnSegments } from '../../lib/pipeline';
 import type { PipelineIndex } from '../../lib/pipeline';
+import { FocusMark } from '../focus/FocusMark';
 import styles from './GroupTile.module.css';
 
 /** The most urgent signal of a group colours the tile's left edge. */
@@ -73,6 +74,7 @@ export function GroupTile({
         <span className={styles.kind}>
           <span className={styles.kindName}>{kind}</span>
           {group.kind !== 'other' ? <span className={styles.key}>{group.key}</span> : null}
+          {group.kind !== 'other' ? <FocusMark taskKey={group.key} /> : null}
         </span>
         <span className={styles.title} title={title}>
           {title}

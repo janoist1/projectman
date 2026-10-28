@@ -14,7 +14,7 @@ export function focusMarkLabel(place: FocusPlaceView): string {
     : t('focus.markViaCard', { position, key: via.key });
 }
 
-/** The place in words for the card's row: "2. hely, a Hibrid mód témán át". */
+/** The place in words for the card's row: "2. hely, a témáján át (Hibrid mód)". */
 export function focusPlaceText(place: FocusPlaceView): string {
   const { position, via } = place;
   if (!via) return t('focus.row.place', { position });

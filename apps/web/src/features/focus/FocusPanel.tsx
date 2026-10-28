@@ -159,7 +159,9 @@ function PanelBody({ onClose }: { onClose: () => void }) {
       {failure ? (
         <ErrorBanner className={styles.banner}>
           <span>
-            {t('focus.saveFailed')} {failure.message}
+            {t('focus.saveFailed')}
+            {/* The general "something went wrong" adds nothing after our own sentence; a specific reason does. */}
+            {failure.message === t('errors.generic') ? '' : ` ${failure.message}`}
           </span>
           <Button variant="secondary" size="sm" onClick={failure.retry}>
             {t('focus.retry')}
@@ -231,9 +233,10 @@ function PanelBody({ onClose }: { onClose: () => void }) {
                     ) : task ? (
                       <>
                         <span className={styles.key}>{item.key}</span>
-                        {stageName ? <span>{stageName}</span> : null}
                         {readyCard(task) ? (
                           <span className={styles.ready}>{t('focus.cardReady')}</span>
+                        ) : stageName ? (
+                          <span>{stageName}</span>
                         ) : null}
                       </>
                     ) : null}

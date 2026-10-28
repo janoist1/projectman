@@ -165,7 +165,10 @@ dialog.sheet {
 }
 
 .ready {
-  color: var(--c-done-text, var(--c-accent-text));
+  padding: 1px 6px;
+  border-radius: var(--radius-xs);
+  background: var(--c-ok-bg);
+  color: var(--c-ok-text);
   font-weight: 700;
 }
 

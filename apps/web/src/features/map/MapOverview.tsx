@@ -100,7 +100,7 @@ export function MapOverview() {
   return (
     <div className={styles.page}>
       {header(summary)}
-      <FocusStrip />
+      <FocusStrip flush />
       <MapToolbar
         show={filters.show}
         member={member}

@@ -69,6 +69,10 @@ export default async ({ instance, open, shoot, step, log }) => {
     const dialog = await openPanel(openButton());
     await dialog.getByRole('list', { name: ui.focus.listLabel }).waitFor();
     await shoot(page, 'focus-panel', { widths });
+    // The changes the three adds left, in the fold under the list.
+    await dialog.getByText(ui.focus.changes, { exact: true }).click();
+    await dialog.getByText(prefix(ui.timeline.events.focus_added).trim(), { exact: false }).first().waitFor();
+    await shoot(page, 'focus-panel-changes', { widths });
   });
 
   await step('the panel search', async () => {
@@ -81,9 +85,10 @@ export default async ({ instance, open, shoot, step, log }) => {
   });
 
   await step('the panel when a save is refused', async () => {
+    // A refusal with a code of its own, as the server gives one (a full list); only its text follows ours.
     await page.route(
       '**/api/projects/AC/focus/items/**',
-      failing(500, 'screenshot_failure', 'Simulated failure'),
+      failing(409, 'focus_full', 'The focus holds at most 20 items.'),
     );
     const dialog = page.getByRole('dialog');
     await dialog
@@ -110,6 +115,10 @@ export default async ({ instance, open, shoot, step, log }) => {
     await board('/p/AC/map?focus=1');
     await page.getByRole('button', { name: ui.focus.only }).first().waitFor();
     await shoot(page, 'focus-map-filter', { widths });
+    // The overview without the filter: the strip, and the focus mark on the theme's tile.
+    await board('/p/AC/map');
+    await page.getByRole('button', { name: openButton() }).waitFor();
+    await shoot(page, 'focus-map-overview', { widths });
   });
 
   await step('the row of a card in the focus through its theme, and one outside', async () => {
@@ -118,6 +127,10 @@ export default async ({ instance, open, shoot, step, log }) => {
     page = await open({ path: `/p/AC/tasks/${form.key}` });
     await page.locator(rowLabel).waitFor();
     await shoot(page, 'focus-drawer-row', { widths, highlight: rowLabel });
+    // A card that is an item itself: its place and the "Levétel" button.
+    page = await open({ path: `/p/AC/tasks/${refunds.key}` });
+    await page.getByRole('button', { name: ui.focus.row.remove }).waitFor();
+    await shoot(page, 'focus-drawer-row-remove', { widths, highlight: rowLabel });
     page = await open({ path: `/p/AC/tasks/${outside.key}` });
     await page.getByRole('button', { name: ui.focus.row.add }).waitFor();
     await shoot(page, 'focus-drawer-row-add', { widths, highlight: rowLabel });

@@ -44,7 +44,8 @@ export function FocusRow({ task }: { task: Task }) {
             {t('focus.row.remove')}
           </Button>
         ) : null}
-        {canEdit && !listed && open ? (
+        {/* A card that has a place through its theme or parent is not added on its own: "1. hely" would be false. */}
+        {canEdit && !listed && !place && open ? (
           <Button
             variant="secondary"
             size="sm"

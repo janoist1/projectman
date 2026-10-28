@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   BUILT_IN_ROLE_DUTIES,
-  isOperator,
   isToleratedOnLoad,
   ProjectConfig,
   projectManagersOf,
@@ -28,27 +27,6 @@ function migrate(config: unknown) {
 }
 
 describe('project configuration migrations', () => {
-  it.each(['none', 'ai'] as const)(
-    'fixes the Operator approver %s idempotently without relaxing mode or network',
-    (approver) => {
-      const legacy = raw();
-      const operator = legacy.team.members.find((member) => member.role === 'ai_operator')!;
-      Object.assign(operator, { approver, permissionMode: 'plan', outboundNetwork: false });
-      const first = migrate(legacy);
-      expect(first.config.team.members.find((member) => isOperator(member))).toMatchObject({
-        approver: 'human',
-        permissionMode: 'plan',
-        outboundNetwork: false,
-      });
-      expect(first.warn).toHaveBeenCalledWith(
-        { projectKey: 'AR', member: 'operator', fields: ['approver'] },
-        'Fixed the Operator',
-      );
-      const again = migrate(first.migrated);
-      expect(again.config).toEqual(first.config);
-      expect(again.warn).not.toHaveBeenCalled();
-    },
-  );
   it('passes a current configuration through untouched', () => {
     const current = raw();
     const { migrated, warn } = migrate(current);
@@ -388,198 +366,73 @@ describe('release approval migration (decision 19)', () => {
     });
   });
 
-  describe('the Operator every project has (PM-447)', () => {
-    const operators = (config: ProjectConfig) => config.team.members.filter((m) => isOperator(m));
-    const withoutOperator = () => {
+  describe('the retired Operator (decision 66, PM-1076)', () => {
+    /** A configuration from before: an Operator on leave, scheduled, with its own role override and as the temp role. */
+    const withOperator = () => {
       const legacy = raw();
-      legacy.team.members = legacy.team.members.filter((m) => m.role !== 'ai_operator');
-      return legacy;
-    };
-
-    it('adds an Operator at work, sponsored by the first human owner, to a project without one', () => {
-      const { config, warn } = migrate(withoutOperator());
-      expect(operators(config)).toHaveLength(1);
-      expect(config.team.members.at(-1)).toMatchObject({
+      legacy.team.members.push({
         kind: 'ai',
         handle: 'operator',
-        role: 'ai_operator',
         displayName: 'Operator',
-        sponsor: 'owner',
-        temp: false,
-      });
-      expect(config.team.members.at(-1)).not.toHaveProperty('onLeave', true);
-      expect(validateProjectConfig(config).filter((i) => i.severity !== 'warning')).toEqual([]);
-      expect(warn).toHaveBeenCalledWith({ projectKey: 'AR', member: 'operator' }, 'Added the Operator');
-      expect(warn).toHaveBeenCalledTimes(1);
-    });
-
-    it('adds it to a configuration written before the Operator, with the project manager and all', () => {
-      const legacy = withoutOperator();
-      (legacy as unknown as { project: Record<string, unknown> }).project.language = 'hu';
-      const { config } = migrate(legacy);
-      expect(config.team.members.at(-1)).toMatchObject({ role: 'ai_operator', displayName: 'Operátor' });
-      expect(projectManagersOf(config)).toHaveLength(1);
-    });
-
-    it('takes the next free handle when operator is taken', () => {
-      const legacy = withoutOperator();
-      legacy.team.members.push({
-        kind: 'ai',
-        handle: 'operator',
-        displayName: 'Someone',
-        role: 'developer',
-        sponsor: 'owner',
-      });
-      const { config } = migrate(legacy);
-      expect(config.team.members.at(-1)).toMatchObject({ handle: 'operator-2', role: 'ai_operator' });
-      expect(operators(config)).toHaveLength(1);
-    });
-
-    it('adds one when the only Operator is a temp worker', () => {
-      const legacy = withoutOperator();
-      legacy.team.members.push({
-        kind: 'ai',
-        handle: 'operator',
-        displayName: 'Op',
         role: 'ai_operator',
         sponsor: 'owner',
-        temp: true,
-      });
-      const { config } = migrate(legacy);
-      expect(operators(config)).toHaveLength(1);
-      expect(operators(config)[0]!.handle).toBe('operator-2');
-    });
-
-    it('changes nothing where an Operator exists', () => {
-      const current = raw();
-      const before = JSON.parse(JSON.stringify(current));
-      const { migrated, warn } = migrate(current);
-      expect(migrated).toBe(current);
-      expect(migrated).toEqual(before);
-      expect(warn).not.toHaveBeenCalled();
-    });
-
-    it('adds nothing without a human owner', () => {
-      const legacy = withoutOperator();
-      for (const member of legacy.team.members) if (member.kind === 'human') member.access = 'admin';
-      const { migrated, warn } = migrate(legacy);
-      expect(operators(ProjectConfig.parse(migrated))).toEqual([]);
-      expect(warn).not.toHaveBeenCalled();
-    });
-
-    it('is done once', () => {
-      const { migrated } = migrate(withoutOperator());
-      const again = vi.fn();
-      expect(migrateProjectConfig(migrated, { projectKey: 'AR', logger: { warn: again } })).toBe(migrated);
-      expect(again).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('the Operator is fixed (PM-473)', () => {
-    const operatorOf = (c: { team: { members: Array<Record<string, unknown>> } }) =>
-      c.team.members.find((m) => m.role === 'ai_operator')!;
-    /** A configuration from before: the Operator on leave, scheduled, with its own capacity and instructions. */
-    const loose = () => {
-      const legacy = raw();
-      Object.assign(operatorOf(legacy), {
         onLeave: true,
         schedule: { cron: '0 9 * * *', prompt: 'Look around.' },
-        capacity: 3,
-        instructions: 'Do more.',
-        displayName: 'Boss',
-        model: 'sonnet',
-        provider: 'codex',
-        effort: 'high',
-        permissionMode: 'acceptEdits',
-        approver: 'human',
-        outboundNetwork: false,
       });
       const team = legacy.team as unknown as {
+        contacts?: string[];
         roleOverrides?: Record<string, unknown>;
         limits: { tempWorkers?: Record<string, unknown> };
       };
-      team.roleOverrides = { ai_operator: { duties: ['project_operation'], instructions: 'Be bold.' } };
+      team.contacts = ['pm', 'operator'];
+      team.roleOverrides = {
+        ai_operator: { duties: ['project_operation'], instructions: 'Be bold.' },
+        qa: { duties: ['testing_acceptance'], instructions: 'Test.' },
+      };
       team.limits.tempWorkers = { enabled: true, max: 1, role: 'ai_operator' };
+      legacy.pipeline.stages.find((s) => s.id === 'backlog')!.owners = ['owner', 'operator'];
       return legacy;
     };
 
-    it('takes away the leave and the schedule, sets capacity 1 and no instructions, and warns', () => {
-      const { config, warn } = migrate(loose());
-      const operator = config.team.members.find((m) => isOperator(m))!;
-      expect(operator).not.toHaveProperty('onLeave');
-      expect(operator).not.toHaveProperty('schedule');
-      expect(operator).toMatchObject({ capacity: 1, instructions: '' });
-      expect(warn).toHaveBeenCalledWith(
-        { projectKey: 'AR', member: 'operator', fields: ['onLeave', 'schedule', 'capacity', 'instructions'] },
-        'Fixed the Operator',
-      );
-    });
-
-    it('drops a stated onLeave: false without a warning: nothing was changed', () => {
-      const legacy = raw();
-      Object.assign(operatorOf(legacy), { onLeave: false });
-      const { config, warn } = migrate(legacy);
-      expect(config.team.members.find((m) => isOperator(m))).not.toHaveProperty('onLeave');
-      expect(warn).not.toHaveBeenCalledWith(expect.anything(), 'Fixed the Operator');
-    });
-
-    it('keeps the name, model, provider, effort, permission mode, approver and network as they are', () => {
-      const { config } = migrate(loose());
-      expect(config.team.members.find((m) => isOperator(m))).toMatchObject({
-        displayName: 'Boss',
-        sponsor: 'owner',
-        model: 'sonnet',
-        provider: 'codex',
-        effort: 'high',
-        permissionMode: 'acceptEdits',
-        approver: 'human',
-        outboundNetwork: false,
-      });
-    });
-
-    it('drops the role override and puts the temp workers back on the developer role', () => {
-      const { config, warn } = migrate(loose());
-      expect(config.team.roleOverrides?.ai_operator).toBeUndefined();
-      expect(config.team.limits.tempWorkers).toMatchObject({ enabled: true, role: 'developer' });
-      expect(warn).toHaveBeenCalledWith(
-        { projectKey: 'AR', fields: ['roleOverrides.ai_operator'] },
-        'Fixed the Operator',
-      );
-      expect(warn).toHaveBeenCalledWith(
-        { projectKey: 'AR', fields: ['limits.tempWorkers.role'] },
-        'Fixed the Operator',
-      );
-    });
-
-    it('leaves other roles’ overrides and every other member alone', () => {
-      const legacy = loose();
-      const dev = legacy.team.members.find((m) => m.handle === 'dev-1')!;
-      Object.assign(dev, { onLeave: true, capacity: 3, instructions: 'Mine.' });
-      (legacy.team as unknown as { roleOverrides: Record<string, unknown> }).roleOverrides.qa = {
-        duties: ['testing_acceptance'],
-        instructions: 'Test.',
-      };
-      const { config } = migrate(legacy);
-      expect(config.team.members.find((m) => m.handle === 'dev-1')).toMatchObject({
-        onLeave: true,
-        capacity: 3,
-        instructions: 'Mine.',
-      });
+    it('removes the member and every reference to it, and the configuration loads', () => {
+      const { config, warn } = migrate(withOperator());
+      expect(config.team.members.some((m) => m.handle === 'operator')).toBe(false);
+      expect(config.team.contacts).toEqual(['pm']);
+      expect(config.pipeline.stages.find((s) => s.id === 'backlog')!.owners).toEqual(['owner']);
+      expect(config.team.roleOverrides).not.toHaveProperty('ai_operator');
       expect(config.team.roleOverrides?.qa).toBeDefined();
+      expect(config.team.limits.tempWorkers).toMatchObject({ enabled: true, role: 'developer' });
+      expect(validateProjectConfig(config).filter((i) => i.severity !== 'warning')).toEqual([]);
+      expect(warn).toHaveBeenCalledWith(
+        { projectKey: 'AR', members: ['operator'] },
+        'Removed the retired Operator member',
+      );
     });
 
-    it('fixes both of two Operators and loads', () => {
-      const legacy = loose();
-      legacy.team.members.push({ ...operatorOf(legacy), handle: 'operator-2' });
-      const { config, warn } = migrate(legacy);
-      expect(config.team.members.filter((m) => isOperator(m))).toHaveLength(2);
-      for (const m of config.team.members.filter((m) => isOperator(m)))
-        expect(m).not.toHaveProperty('onLeave');
-      expect(warn.mock.calls.filter(([fields]) => 'member' in fields)).toHaveLength(2);
+    it('is done once and the removed addOperator and fixOperator do not bring it back', () => {
+      const first = migrate(withOperator());
+      const again = vi.fn();
+      const snapshot = JSON.parse(JSON.stringify(first.migrated));
+      expect(migrateProjectConfig(first.migrated, { projectKey: 'AR', logger: { warn: again } })).toEqual(
+        snapshot,
+      );
+      expect(again).not.toHaveBeenCalled();
+      expect(first.config.team.members.filter((m) => m.kind === 'ai' && m.role === 'ai_operator')).toEqual(
+        [],
+      );
     });
 
-    it('does not fix a temp worker with the role, and does not warn when there is nothing to fix', () => {
-      const legacy = raw();
+    it('derives a default merger when the stored one named the removed Operator', () => {
+      const legacy = withOperator();
+      legacy.team.merger = { kind: 'member', handle: 'operator' };
+      const { config } = migrate(legacy);
+      expect(config.team.merger).toBeDefined();
+      expect(config.team.merger).not.toMatchObject({ handle: 'operator' });
+      expect(validateProjectConfig(config).filter((i) => i.severity !== 'warning')).toEqual([]);
+    });
+
+    it('removes a temp worker with the role too, and leaves every other member alone', () => {
+      const legacy = withOperator();
       legacy.team.members.push({
         kind: 'ai',
         handle: 'standin',
@@ -587,19 +440,19 @@ describe('release approval migration (decision 19)', () => {
         role: 'ai_operator',
         sponsor: 'owner',
         temp: true,
-        onLeave: true,
       });
-      const { config, warn } = migrate(legacy);
-      expect(config.team.members.find((m) => m.handle === 'standin')).toMatchObject({ onLeave: true });
-      expect(warn).not.toHaveBeenCalled();
+      const { config } = migrate(legacy);
+      expect(config.team.members.map((m) => m.handle)).toEqual(raw().team.members.map((m) => m.handle));
     });
 
-    it('is done once', () => {
-      const { migrated } = migrate(loose());
-      const again = vi.fn();
-      const snapshot = JSON.parse(JSON.stringify(migrated));
-      expect(migrateProjectConfig(migrated, { projectKey: 'AR', logger: { warn: again } })).toEqual(snapshot);
-      expect(again).not.toHaveBeenCalled();
+    it('adds nothing to a project that never had an Operator, and the project manager stays the only coordinator', () => {
+      const current = raw();
+      const before = JSON.parse(JSON.stringify(current));
+      const { migrated, config, warn } = migrate(current);
+      expect(migrated).toBe(current);
+      expect(migrated).toEqual(before);
+      expect(projectManagersOf(config)).toHaveLength(1);
+      expect(warn).not.toHaveBeenCalled();
     });
   });
 

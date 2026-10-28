@@ -78,7 +78,9 @@ describe('project creation with a card mover (PM-459)', () => {
     expect(res.statusCode, res.body).toBe(201);
     const { config } = await h.app.projectman.configStore.load('BB');
     expect(config.project).toMatchObject({ templateId: 'starter', language: 'en' });
-    expect(config.team.members.filter((member) => member.kind === 'ai')).toHaveLength(3);
+    expect(config.team.members.filter((member) => member.kind === 'ai')).toHaveLength(2);
+    // A new project gets no Operator member (decision 66, PM-1076).
+    expect(config.team.members.some((member) => member.handle === 'operator')).toBe(false);
     expect(
       config.team.members
         .filter((member) => member.kind === 'ai')

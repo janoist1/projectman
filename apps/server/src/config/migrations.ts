@@ -274,6 +274,9 @@ function removeOperator(raw: unknown, { projectKey, logger }: MigrationContext):
           stage.owners = stage.owners.filter((h) => !gone.has(String(h)));
       }
     }
+    // A merger naming the Operator was never valid; dropped, `addMerger` (next in the chain) derives the default.
+    const merger = asRecord(team.merger);
+    if (merger?.kind === 'member' && gone.has(String(merger.handle))) delete team.merger;
     logger.warn({ projectKey, members: [...gone] }, 'Removed the retired Operator member');
   }
   const overrides = asRecord(team.roleOverrides);

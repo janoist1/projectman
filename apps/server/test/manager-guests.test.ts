@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { OPERATOR_GUEST_IDLE_CLOSE_MINUTES, routes } from '@projectman/shared';
+import { GUEST_IDLE_CLOSE_MINUTES, routes } from '@projectman/shared';
 import type { AiMemberConfig, ProjectConfig, Session } from '@projectman/shared';
 import { TeamToolError } from '../src/contracts';
 import type { ToolContext } from '../src/contracts';
@@ -133,7 +133,7 @@ describe('the PM talks with a person who is not an owner in a conversation of th
     h.runner.setState(cleo.id, 'working');
     h.runner.setState(cleo.id, 'idle');
     await settle();
-    now = new Date(now.getTime() + (OPERATOR_GUEST_IDLE_CLOSE_MINUTES - 1) * 60_000);
+    now = new Date(now.getTime() + (GUEST_IDLE_CLOSE_MINUTES - 1) * 60_000);
     await h.domain.sessionCloser.sweep();
     expect(h.runner.isRunning(cleo.id)).toBe(true);
     now = new Date(now.getTime() + 60_000);

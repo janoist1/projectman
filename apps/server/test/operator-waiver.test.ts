@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { roleBundle, routes } from '@projectman/shared';
-import type { OperatorOperation } from '@projectman/shared';
+import { routes } from '@projectman/shared';
+import type { OperatorOperation, OperatorPlan, ProjectConfig } from '@projectman/shared';
 import type { ToolContext } from '../src/contracts';
-import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
+import { DomainError } from '../src/kernel';
+import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { seedOperatorRequest } from './helpers/operator-session';
 import { addHumanAndLogin, createAppHarness, createProject, inject, setupOwner } from './helpers/app-harness';
@@ -24,10 +25,19 @@ afterEach(async () => {
   await app?.close();
 });
 
-async function setup(enabled = true, persistent = false) {
-  h = await createDomainHarness({ persistent });
-  const { session } = seedOperatorRequest(h, 'AR', { text: 'Set up the agreement and requested changes.' });
-  ctx = { projectKey: 'AR', member: 'operator', sessionId: session.id, taskKey: null };
+/** The test template's project manager is on leave; the Operator tool surface is its alone (decision 66). */
+const pmOnDuty = (config: ProjectConfig) => {
+  for (const member of config.team.members)
+    if (member.handle === 'pm' && member.kind === 'ai') member.onLeave = false;
+};
+
+async function setup(enabled = true) {
+  h = await createDomainHarness({ adjust: pmOnDuty });
+  const { session } = seedOperatorRequest(h, 'AR', {
+    member: 'pm',
+    text: 'Set up the agreement and requested changes.',
+  });
+  ctx = { projectKey: 'AR', member: 'pm', sessionId: session.id, taskKey: null };
   const proposal = await h.domain.teamTools.proposeOperatorKnowledge(ctx, {
     expected_revision: 0,
     title: 'Agreement',
@@ -59,127 +69,43 @@ const rename = (): OperatorOperation => ({
   op: 'config_patch',
   patch: { project: { name: 'Changed name' } },
 });
-const operate = (operation: OperatorOperation = rename()) =>
-  h.domain.teamTools.operate(ctx, { title: 'Requested change', operation });
+/** The waiver rules live in the approval service; the `operate` tool no longer reaches it (decision 66). */
+const operate = (operation: OperatorOperation = rename(), title = 'Requested change', plan?: OperatorPlan) =>
+  h.domain.operatorActions
+    .run('AR', h.repos.operatorRequests.openOfSession(ctx.sessionId)[0]!.id, title, operation, plan)
+    .catch((err: unknown) => {
+      if (err instanceof DomainError) throw new Error(`${err.code}: ${err.message}`);
+      throw err;
+    });
 
 describe('Operator approval waiver execution', () => {
-  it('keeps targeted role patches in waiver intents and preserves unrelated role edits before execution', async () => {
-    await setup();
-    const before = await h.domain.projects.load('AR');
-    await h.domain.projects.patch(
-      'AR',
-      {
-        baseVersion: before.version,
-        roleOverrides: {
-          developer: {
-            ...roleBundle(before.config, 'developer'),
-            instructions: 'Original.',
-            summary: 'Original summary',
-          },
-          architect: { ...roleBundle(before.config, 'architect'), instructions: 'Original architect.' },
-        },
-      },
-      by,
-    );
-    const read = await h.domain.teamTools.getRoleConfiguration(ctx, { role: 'developer' });
-    const operation: OperatorOperation = {
-      op: 'config_patch',
-      patch: {
-        roleOverrides: {
-          developer: { ...read.effective, instructions: 'Original.\nAdded.', summary: 'Updated summary' },
-        },
-      },
-    };
-    const execute = h.domain.operatorActions.execute.bind(h.domain.operatorActions);
-    vi.spyOn(h.domain.operatorActions, 'execute').mockImplementationOnce(async (...args) => {
-      const loaded = await h.domain.projects.load('AR');
-      await h.domain.projects.patch(
-        'AR',
-        {
-          baseVersion: loaded.version,
-          roleOverrides: {
-            ...loaded.config.team.roleOverrides,
-            architect: {
-              ...roleBundle(loaded.config, 'architect'),
-              instructions: 'Concurrent unrelated edit.',
-            },
-          },
-        },
-        by,
-      );
-      return execute(...args);
-    });
-    const result = await operate(operation);
-    expect(result.status).toBe('done');
-    expect(
-      h.repos.operatorRequests.executions('AR').find((intent) => intent.id === result.step_id),
-    ).toMatchObject({ status: 'committed', operation });
+  it('previews an ordinary change as waiver eligible but waits for the click without a commit path', async () => {
+    await setup(false);
     const request = h.repos.operatorRequests.openOfSession(ctx.sessionId)[0]!;
-    expect(
-      h.repos.operatorRequests.steps(request.id).find((step) => step.id === result.step_id),
-    ).toMatchObject({ approvalMode: 'waived' });
-    const saved = (await h.domain.projects.config('AR')).team.roleOverrides!;
-    expect(saved.developer).toEqual(
-      operation.op === 'config_patch' && operation.patch.roleOverrides!.developer,
-    );
-    expect(saved.architect?.instructions).toBe('Concurrent unrelated edit.');
-  });
-  it.each([false, true])('keeps the original preview and executes only with waiver %s', async (enabled) => {
-    await setup(enabled);
-    const request = h.repos.operatorRequests.openOfSession(ctx.sessionId)[0]!;
-    expect(await h.domain.operatorActions.preview('AR', 'operator', request, rename())).toMatchObject({
+    expect(await h.domain.operatorActions.preview('AR', 'pm', request, rename())).toMatchObject({
       level: 'approval',
       waiverEligible: true,
     });
     const result = await operate();
-    expect(result.status).toBe(enabled ? 'done' : 'awaiting_approval');
-    const step = h.repos.operatorRequests.steps(request.id).find((step) => step.id === result.step_id)!;
-    expect(step).toMatchObject({
-      agreementVersion: enabled ? 1 : null,
-      approvalMode: enabled ? 'waived' : null,
-    });
-    if (!enabled) return;
+    expect(result.status).toBe('awaiting_approval');
     expect(
-      h.domain.timeline.list('AR').filter((event) => event.type === 'operator_approval_waived'),
-    ).toHaveLength(1);
-    expect((await h.domain.projects.history('AR'))[0]).toMatchObject({
-      operatorStepId: result.step_id,
-      operatorRequestId: request.id,
-      operatorAgreementVersion: 1,
-      operatorApprovalMode: 'waived',
-    });
-    expect(h.repos.operatorRequests.executions('AR')).toMatchObject([
-      { id: result.step_id, status: 'committed', changes: step.changes },
-    ]);
-    expect(
-      h.repos.messages
-        .list('AR', { member: 'operator' })
-        .some((message) => message.body.includes('Changed name') && message.body.includes('->')),
-    ).toBe(true);
-    expect(await operate()).toMatchObject({ status: 'done', step_id: result.step_id });
-    expect(h.repos.operatorRequests.executions('AR')).toHaveLength(1);
+      h.repos.operatorRequests.steps(request.id).find((step) => step.id === result.step_id),
+    ).toMatchObject({ agreementVersion: null, approvalMode: null });
   });
 
-  it.each([undefined, false] as const)(
-    'waives only a hire with template network rights (%s)',
-    async (outboundNetwork) => {
-      await setup();
-      const result = await operate({
-        op: 'member_hire',
-        request: {
-          role: 'developer',
-          handle: 'writer',
-          ...(outboundNetwork !== undefined ? { outboundNetwork } : {}),
-        },
-      });
-      expect(result.status).toBe(outboundNetwork === false ? 'awaiting_approval' : 'done');
-    },
-  );
+  it('keeps a hire without network rights on the click path', async () => {
+    await setup();
+    const result = await operate({
+      op: 'member_hire',
+      request: { role: 'developer', handle: 'writer', outboundNetwork: false },
+    });
+    expect(result.status).toBe('awaiting_approval');
+  });
 
   it.each([
     { op: 'member_update', handle: 'dev-1', changes: { outboundNetwork: false } },
     { op: 'member_update', handle: 'dev-1', changes: { approver: 'none' } },
-    { op: 'member_update', handle: 'operator', changes: { model: 'sonnet' } },
+    { op: 'member_update', handle: 'pm', changes: { model: 'sonnet' } },
     { op: 'config_patch', patch: { operatorWatch: 'drive' } },
     {
       op: 'config_patch',
@@ -195,79 +121,17 @@ describe('Operator approval waiver execution', () => {
     expect(h.repos.operatorRequests.executions('AR')).toHaveLength(0);
   });
 
-  it.each(['waiver', 'agreement', 'request'] as const)(
-    'rechecks %s after preview and before commit',
-    async (change) => {
-      await setup();
-      const original = h.domain.operatorActions.preview.bind(h.domain.operatorActions);
-      vi.spyOn(h.domain.operatorActions, 'preview').mockImplementationOnce(async (...args) => {
-        const preview = await original(...args);
-        if (change === 'waiver') await setWaiver(false);
-        if (change === 'request') h.repos.operatorRequests.close(args[2].id, new Date().toISOString());
-        return preview;
-      });
-      if (change === 'agreement') {
-        const execute = h.domain.operatorActions.execute.bind(h.domain.operatorActions);
-        vi.spyOn(h.domain.operatorActions, 'execute').mockImplementationOnce(async (...args) => {
-          const proposal = await h.domain.teamTools.proposeOperatorKnowledge(ctx, {
-            expected_revision: 1,
-            title: 'New agreement',
-            operations: [],
-            change: {
-              kind: 'agreement_replace',
-              agreement: {
-                summary: 'A newer agreement',
-                involvement: 'important',
-                extraCritical: [],
-              },
-            },
-          });
-          await h.domain.inbox.resolve('AR', proposal.inbox_item_id, { optionId: 'approve' }, owner);
-          return execute(...args);
-        });
-      }
-      if (change === 'request') expect((await operate()).status).toBe('awaiting_approval');
-      else
-        await expect(operate()).rejects.toThrow(
-          change === 'waiver' ? 'owner_approval_required' : 'operator_knowledge_stale',
-        );
-      expect((await h.domain.projects.config('AR')).project.name).not.toBe('Changed name');
-      expect(h.repos.operatorRequests.executions('AR')).toHaveLength(0);
-    },
-  );
-
-  it('commits a concurrent retry only once for the same request and operation', async () => {
+  it('keeps a closed request on the click path after the preview', async () => {
     await setup();
-    const before = await h.domain.projects.history('AR');
-    await Promise.allSettled([operate(), operate()]);
-    expect((await h.domain.projects.history('AR')).length).toBe(before.length + 1);
-    expect(
-      h.repos.operatorRequests.executions('AR').filter((intent) => intent.status === 'committed'),
-    ).toHaveLength(1);
-    expect(
-      h.domain.timeline.list('AR').filter((event) => event.type === 'operator_approval_waived'),
-    ).toHaveLength(1);
-  });
-
-  it('records an actual protected approval with click attribution', async () => {
-    await setup();
-    const proposal = await operate({
-      op: 'member_update',
-      handle: 'dev-1',
-      changes: { outboundNetwork: false },
+    const original = h.domain.operatorActions.preview.bind(h.domain.operatorActions);
+    vi.spyOn(h.domain.operatorActions, 'preview').mockImplementationOnce(async (...args) => {
+      const preview = await original(...args);
+      h.repos.operatorRequests.close(args[2].id, new Date().toISOString());
+      return preview;
     });
-    await h.domain.inbox.resolve('AR', proposal.inbox_item_id!, { optionId: 'approve' }, owner);
-    expect((await h.domain.projects.history('AR'))[0]).toMatchObject({
-      operatorApprovalMode: 'click',
-      operatorAgreementVersion: 1,
-      operatorStepId: proposal.step_id,
-    });
-    expect(h.repos.operatorRequests.executions('AR')).toMatchObject([
-      { approvalMode: 'click', status: 'committed' },
-    ]);
-    expect(
-      h.domain.timeline.list('AR').filter((event) => event.type === 'operator_approval_waived'),
-    ).toHaveLength(0);
+    expect((await operate()).status).toBe('awaiting_approval');
+    expect((await h.domain.projects.config('AR')).project.name).not.toBe('Changed name');
+    expect(h.repos.operatorRequests.executions('AR')).toHaveLength(0);
   });
 
   it.each(['integrator', 'ai'] as const)(
@@ -277,7 +141,7 @@ describe('Operator approval waiver execution', () => {
       const actor =
         source === 'integrator'
           ? { ...OWNER_ACTOR, via: 'integrator' as const }
-          : { kind: 'ai' as const, handle: 'operator' };
+          : { kind: 'ai' as const, handle: 'pm' };
       await expect(
         h.domain.projects.setOperatorApprovalWaiver(
           'AR',
@@ -300,8 +164,7 @@ describe('Operator approval waiver execution', () => {
         messageId: message.id,
         fromHandle: message.from,
       });
-      if (source === 'ai') await expect(operate()).rejects.toThrow('operator_owner_only');
-      else expect((await operate()).status).toBe('awaiting_approval');
+      expect((await operate()).status).toBe('awaiting_approval');
       expect(h.repos.operatorRequests.executions('AR')).toHaveLength(0);
     },
   );
@@ -311,11 +174,11 @@ describe('Operator approval waiver execution', () => {
     async (op) => {
       await setup();
       const { session } = await h.domain.sessions.ensureSession('AR', 'dev-1', { type: 'general' });
-      const result = await h.domain.teamTools.operate(ctx, {
-        title: 'Runtime change',
-        operation: op === 'project_pause' ? { op } : { op, sessionId: session.id },
-        plan: { why: 'Owner requested a runtime change', impact: 'Stops work', reversible: true },
-      });
+      const result = await operate(
+        op === 'project_pause' ? { op } : { op, sessionId: session.id },
+        'Runtime change',
+        { why: 'Owner requested a runtime change', impact: 'Stops work', reversible: true },
+      );
       expect(result.status).toBe('awaiting_approval');
       expect(h.repos.operatorRequests.executions('AR')).toHaveLength(0);
     },
@@ -393,46 +256,6 @@ describe('Operator approval waiver execution', () => {
     await expect(setWaiver(false)).resolves.toMatchObject({ enabled: false });
     await expect(setWaiver(true)).rejects.toMatchObject({ code: 'operator_knowledge_stale' });
   });
-
-  it('recovers a commit after the journal update was interrupted, without replay or duplicate audit', async () => {
-    await setup(true, true);
-    const finish = vi.spyOn(h.repos.operatorRequests, 'finishExecution').mockImplementationOnce(() => {
-      throw new Error('interrupted journal update');
-    });
-    await expect(operate()).rejects.toThrow('interrupted journal update');
-    finish.mockRestore();
-    const intent = h.repos.operatorRequests.executions('AR')[0]!;
-    expect(intent.status).toBe('prepared');
-    h = await restartDomainHarness(h);
-    expect(h.repos.operatorRequests.executions('AR')[0]).toMatchObject({
-      status: 'committed',
-      id: intent.id,
-    });
-    expect(
-      h.repos.operatorRequests.steps(intent.requestId).find((step) => step.id === intent.id),
-    ).toMatchObject({ status: 'done', approvalMode: 'waived', agreementVersion: 1 });
-    const version = (await h.domain.projects.load('AR')).version;
-    await h.domain.operatorActions.recover();
-    expect((await h.domain.projects.load('AR')).version).toBe(version);
-    expect(
-      h.domain.timeline.list('AR').filter((event) => event.type === 'operator_approval_waived'),
-    ).toHaveLength(1);
-  });
-
-  it('fails an uncommitted closed-request intent after restart and does not create a request', async () => {
-    await setup(true, true);
-    vi.spyOn(h.configStore, 'save').mockRejectedValueOnce(new Error('before commit'));
-    await expect(operate()).rejects.toThrow('before commit');
-    const intent = h.repos.operatorRequests.executions('AR')[0]!;
-    h.repos.operatorRequests.close(intent.requestId, new Date().toISOString());
-    h = await restartDomainHarness(h);
-    expect(h.repos.operatorRequests.executions('AR')[0]).toMatchObject({
-      status: 'failed',
-      refusal: { code: 'operator_no_request' },
-    });
-    expect(h.repos.operatorRequests.openOfProject('AR')).toHaveLength(0);
-    expect((await h.domain.projects.config('AR')).project.name).not.toBe('Changed name');
-  });
 });
 
 describe('owner-only waiver API', () => {
@@ -463,9 +286,13 @@ describe('owner-only waiver API', () => {
       409,
     );
     const domain = app.app.projectman.domain;
-    const { session } = seedOperatorRequest(app.app.projectman, 'AR', { text: 'Agree to ordinary changes' });
+    await domain.members.update('AR', 'pm', { onLeave: false }, by);
+    const { session } = seedOperatorRequest(app.app.projectman, 'AR', {
+      member: 'pm',
+      text: 'Agree to ordinary changes',
+    });
     const proposal = await domain.teamTools.proposeOperatorKnowledge(
-      { projectKey: 'AR', member: 'operator', sessionId: session.id, taskKey: null },
+      { projectKey: 'AR', member: 'pm', sessionId: session.id, taskKey: null },
       {
         expected_revision: 0,
         title: 'Agreement',
@@ -481,7 +308,10 @@ describe('owner-only waiver API', () => {
       },
     );
     await domain.inbox.resolve('AR', proposal.inbox_item_id, { optionId: 'approve' }, owner);
-    const enabled = await inject(app.app, 'PUT', routes.operatorApprovalWaiver('AR'), cookie, body);
+    const enabled = await inject(app.app, 'PUT', routes.operatorApprovalWaiver('AR'), cookie, {
+      ...body,
+      baseVersion: (await domain.projects.load('AR')).version,
+    });
     expect(enabled.statusCode).toBe(200);
     expect(enabled.json()).toMatchObject({ enabled: true, agreementVersion: 1 });
     const patch = await inject(app.app, 'PATCH', routes.config('AR'), cookie, {

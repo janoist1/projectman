@@ -38,7 +38,6 @@
   "[\"exports\",\"apps/web/src/features/messages/receipts.ts\",\"unreadMessages\"]",
   "[\"exports\",\"apps/web/src/features/messages/useCardBusySend.tsx\",\"CardBusyDeclined\"]",
   "[\"exports\",\"apps/web/src/features/operator/OperatorChanges.tsx\",\"CHANGES_SHOWN\"]",
-  "[\"exports\",\"apps/web/src/features/operator/useRequiredMember.ts\",\"useIsRequiredOperator\"]",
   "[\"exports\",\"apps/web/src/features/pause/PauseBanner.tsx\",\"PauseBar\"]",
   "[\"exports\",\"apps/web/src/features/settings/DetailPanel.tsx\",\"MissingSettingsElement\"]",
   "[\"exports\",\"apps/web/src/features/settings/DetailPanel.tsx\",\"SettingsDetailLayout\"]",

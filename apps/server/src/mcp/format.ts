@@ -999,9 +999,9 @@ export function formatQuestionAsked(
   const approvalNote = approvalLabel
     ? `\nNote: an answer to this question does not put the label \`${approvalLabel}\` on the card. The app asks the label's holders for the approval in their inbox (a gate request); this question closes by itself once the label is on.`
     : '';
-  // The Operator looks first (PM-558): the asker is told so, and that no person is needed for it to move on.
+  // The project manager looks first (PM-558): the asker is told so, and that no person is needed for it to move on.
   const where = screening
-    ? `went to the Operator first, who answers it, passes it to a member or sends it on to the people${whose}. A person gets it within ${QUESTION_SCREENING_MINUTES} minutes at the latest, and the Operator's result arrives in this session as a team message. If the Operator settled it without a person and you still need a person's answer, ask again with reask_of and reask_reason`
+    ? `went to the project manager first, who answers it, passes it to a member or sends it on to the people${whose}. A person gets it within ${QUESTION_SCREENING_MINUTES} minutes at the latest, and the project manager's result arrives in this session as a team message. If the project manager settled it without a person and you still need a person's answer, ask again with reask_of and reask_reason`
     : `is waiting in the inbox${whose}`;
   return `Question ${inboxItemId} ${where}.${files}${hint ? `\nTip for your next question: ${hint}` : ''}${approvalNote}`;
 }

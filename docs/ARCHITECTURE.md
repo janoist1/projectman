@@ -297,10 +297,12 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   humans, save memories and work with attachments (list, read by local path, attach a file of
   their own working directory, delete their own; PM-113, see [SECURITY.md](SECURITY.md)). Text
   an agent writes in its own session reaches nobody.
-  Tool definitions may declare an optional audience of roles (Operator, project manager,
+  Tool definitions may declare an optional audience of roles (project manager,
   named merger) or duties (`mcp/kit.ts`, PM-973). `runtime/sessions` derives the member audience
   from the current project configuration for every stateless MCP request; registration keeps
-  tools with no audience or any matching role/duty. The Operator always sees all tools.
+  tools with no audience or any matching role/duty. Since decision 66 (PM-1076) there is no Operator
+  audience that sees everything; the tools that were the Operator's alone (`check_release`,
+  `get_history_search_stats`, `get_machine_status`, `get_machine_logs`) declare `roles: []`, so nobody sees them.
   This is list visibility only: handlers remain the permission authority. Tools whose access
   depends on a particular request, decision maker or conversation remain visible unless a role/duty
   is also a necessary condition; further session/request checks stay in the handler.
@@ -822,6 +824,18 @@ signals and the manager's queue; a person who is not an owner gets `readOnly` an
 queue view reads `routes.memberQueue` for the manager. The machine grant is shown on the machine panel and
 managed in Settings → Integrator. The Operator's own channel route is gone (PM-1045): the app has no Operator.
 
+**No Operator member (decision 66, PM-1076).** A project has no `ai_operator` role and no member that holds it, and
+a new project (template, `POST /projects`) gets none. The configuration migration `removeOperator`
+(`config/migrations.ts`) removes the stored Operator member with its contacts, stage owners, role override and
+temp-worker role (the temp role becomes `developer`), logs a warning and is idempotent; the old `addOperator` and
+`fixOperator` migrations are gone, so nothing puts it back. The handle `operator` stays taken
+(`RETIRED_OPERATOR_HANDLE`, `members.takenHandles`), because old events, messages and `operator_requests` /
+`operator_steps` rows still name it; the web shows such a name as the raw handle. A connected Claude acts as its
+key holder or as the issuer of an integrator queue item (PM-1074), and the project manager acts as the selected
+coordinator (`coordinatorSuperActorOf`, `isCoordinatorSuperActor` in `config/operator-member.ts`). The Operator
+tool surface (`operate`, knowledge, preferences, diagnostics) is the selected project manager's. The external MCP
+tool names (`super_operate`, ...), `integrator_keys` and the old rows are unchanged.
+
 Personal conversational style (PM-688) lives in `services/operator/preferences.ts`.
 `get_operator_preference` and `set_operator_preference` choose the person from the
 authenticated Operator session and its current human request, or the selected active PM's
@@ -996,11 +1010,11 @@ Every AI member has one durable queue of what is waiting for them: a message, an
   remember it. A message gets an item for each AI recipient it is pending for (a receipt without `deliveredAt`; the
   `team_message_pending` table is gone since migration 99); the item closes
   `done`/`delivered` on delivery and `cancelled`/`source_closed` when the receipt is settled any other way. Since
-  PM-1045 the Operator gets no item at all: it runs no session in the app (`operatorRunsInApp = false`,
-  `runsInApp`), so a message to it is refused (`operator_connected_only`) and an integrator todo or narrow fix
-  limit decision stays an open inbox item, which the connected client reads through the super-mode tools
-  (`open_integrator_todo`, `resolveIntegratorTodo`). Migration 121 cancelled the Operator rows that were open
-  (the inbox items stayed). Both reconcilers are idempotent and a failure is logged and never changes what the
+  PM-1045 the Operator gets no item at all, and since PM-1076 (decision 66) it is no member: a message to the
+  handle `operator` finds no member, and an integrator todo or narrow fix limit decision stays an open inbox item,
+  which the connected client reads through the super-mode tools (`open_integrator_todo`,
+  `resolveIntegratorTodo`). Migration 121 cancelled the Operator rows that were open (the inbox items stayed).
+  Both reconcilers are idempotent and a failure is logged and never changes what the
   source write does.
 - **Invariant**: the open message items are exactly the messages pending for an AI recipient. `recover()` runs at
   startup (after `messageAttachments.recover()`) and fills in what is missing or closes what is stale; running it again
@@ -1299,12 +1313,9 @@ and are typed in after the restart, which gets no continue message. Grants "for 
 `permissionGrantsLost` says so in the header. Each change is a `session_permission_changed`
 timeline event (the owner, `field`, `from`, `to`, `reset`, `restart`).
 
-The Operator's approver stays `human`, with source `member` (PM-691), even with a historical
-`none`/`ai` member setting or any session override. `SessionPermissionMember` preserves its identity
-for `isOperator`; ordinary and missing members retain their session settings. The shared
-`sessionApproverChangeRefusal` rejects Operator `none`/`ai` updates with 403 `operator_fixed` before
-any write, restart or event; `human`/`null` clears the override. Mixed mode/forbidden-approver patches
-are atomic. Starts, resumes, permission routing and the session header use the same effective rule.
+The Operator's fixed approver (PM-691, 403 `operator_fixed`, `sessionApproverChangeRefusal`) is gone with the
+Operator member (decision 66, PM-1076): every AI member keeps its session settings. Mixed mode/approver
+patches are atomic. Starts, resumes, permission routing and the session header use the same effective rule.
 
 ## Session policy migration (PM-87 / PM-127)
 
@@ -3251,9 +3262,9 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   key holder in person (`kind: human`, `via: integrator`, `through: {holder, credential}`), or, with
   `queue_item_id` on `super_operate` / `execute_super_handoff`, as the member who issued that open integrator queue
   item (`kind: ai`, the same `through`; `queue_item_not_yours` / `issuer_without_machine_access` refuse it). After the
-  owner's own yes on a K3 question the step also carries `approvedBy`, set by the server only. The `operator`
-  member and the old `operatorMode: super` events stay readable; `superActorOf` serves only the in-app Operator
-  principal. The actor is created and stored on the hub (`actor_meta`); no machine-dependent part is added.
+  owner's own yes on a K3 question the step also carries `approvedBy`, set by the server only. The old
+  `operatorMode: super` events stay readable; `coordinatorSuperActorOf` serves only the selected coordinator's
+  in-app session (PM-1076: `superActorOf` and the Operator member are gone). The actor is created and stored on the hub (`actor_meta`); no machine-dependent part is added.
   **Two kinds of key holder (PM-1063):** a tool with `hostOnly: true` (`mcp/kit.ts`: `get_administration_status`,
   `get_administration_logs`, `get_machine_snapshot` and the two instance-knowledge tools; the host-request tools of
   PM-1064 take the same flag) is absent from `tools/list` of a further owner's key and answers `host_only` if called
@@ -5337,7 +5348,7 @@ listAnsweredQuestions`). `list_decision_candidates { limit? }` (1..50, default 2
   (`OperatorChannel.readOnly`). The Operator's sessions are seen by owners and admins only
   (`canSeeOperatorSessions`: REST, WebSocket events and terminal, the member profile). Capacity (1) counts the guest
   conversations only (`Admission.memberLoad`): the owner's never waits; a guest conversation closes after
-  `OPERATOR_GUEST_IDLE_CLOSE_MINUTES` (5) idle. No machine-dependent part is affected.
+  `GUEST_IDLE_CLOSE_MINUTES` (5; renamed by PM-1076) idle. No machine-dependent part is affected.
   (PM-1045: the app starts no Operator session any more, so these Operator guest conversations are history; the
   project manager's follow below. Old Operator sessions and events stay readable.)
   **The project manager has the same guest conversations (PM-1080, PM-1023 K3b).** One rule decides who has them,

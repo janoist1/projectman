@@ -1,20 +1,22 @@
 import type {
   Attachment,
+  DutyId,
   FeedbackMarkDetail,
   MemberView,
   TaskDetail,
   TimelineEvent,
   TimelineEventType,
 } from '@projectman/shared';
-import { BUILT_IN_ROLE_DUTIES, DEFAULT_OPERATOR_PREFERENCE, TaskComplexity } from '@projectman/shared';
+import { BUILT_IN_ROLE_DUTIES, DEFAULT_OPERATOR_PREFERENCE, DUTIES, TaskComplexity } from '@projectman/shared';
 import { TeamToolError, type TeamToolsHandler, type ToolContext, type MemberAudience } from '../contracts';
 
-export const operatorAudience: MemberAudience = {
-  projectManager: false,
-  merger: false,
-  email: false,
-  machineAccess: false,
-  duties: new Set(),
+/** A member who holds every role, channel, capability and duty that opens a tool (not the retired Operator-only ones). */
+export const fullAudience: MemberAudience = {
+  projectManager: true,
+  merger: true,
+  email: true,
+  machineAccess: true,
+  duties: new Set(Object.keys(DUTIES) as DutyId[]),
 };
 
 /**

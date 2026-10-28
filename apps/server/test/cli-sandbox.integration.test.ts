@@ -1,7 +1,7 @@
 import { waitForSession } from './helpers/domain-harness';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { isOperator, routes } from '@projectman/shared';
+import { routes } from '@projectman/shared';
 import type { Task } from '@projectman/shared';
 import { afterEach, expect, it, vi } from 'vitest';
 import { SESSION_CONFIG_DIR } from '../src/contracts';
@@ -45,8 +45,7 @@ it(
     const author = { actor: { kind: 'human' as const, handle: 'owner' }, author: OWNER_LOGIN };
     await domain.projects.update('AR', author, (config) => {
       for (const member of config.team.members) {
-        // The Operator is fixed (PM-473): its permission mode is not for a test to change.
-        if (member.kind !== 'ai' || isOperator(member)) continue;
+        if (member.kind !== 'ai') continue;
         member.permissionMode = 'auto';
         member.approver = 'none';
         // PM-355: the network is on by default; the reader has it switched off, to see both shapes.

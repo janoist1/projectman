@@ -126,11 +126,10 @@ import {
   holdersAllow,
   isBuiltInRole,
   isOnLeave,
-  isRequiredOperator,
   isRequiredProjectManager,
   isOpenTask,
-  isOperator,
   isProjectManager,
+  RETIRED_OPERATOR_HANDLE,
   cardBusyGroups,
   cardWorkerSessions,
   openPrerequisites,
@@ -148,7 +147,6 @@ import {
   nextCronRun,
   OPERATOR_DISMISS_OPTION,
   operatorApprovalOf,
-  operatorOf,
   projectManagerOf,
   noApproverReason,
   approverBlocker,
@@ -156,7 +154,6 @@ import {
   permissionView,
   machineAccessOf,
   effectiveSessionPermissions,
-  sessionApproverChangeRefusal,
   duplicateMarkRefusal,
   planLabelChange,
   planRelations,
@@ -2683,8 +2680,6 @@ export class MockBackend {
     }
     if (rest === '/project-manager/queue' && method === 'GET')
       return this.memberQueue(projectManagerOf(this.config)?.handle ?? 'pm', query);
-    if (rest === '/operator/queue' && method === 'GET')
-      return this.memberQueue(operatorOf(this.config)?.handle ?? 'operator', query);
     if (rest === '/operator/preferences/me' && method === 'GET')
       return ok(
         clone(
@@ -3211,6 +3206,7 @@ export class MockBackend {
   /** Handles in use now or in the past (the configuration, retired members, sessions): never reused. */
   private takenHandles(config: ProjectConfig = this.config): Set<string> {
     return new Set([
+      RETIRED_OPERATOR_HANDLE,
       ...config.team.members.map((member) => member.handle),
       ...this.members.map((member) => member.handle),
       ...this.sessions.map((session) => session.member),
@@ -5706,7 +5702,6 @@ export class MockBackend {
     const config = memberOf(this.config, handle);
     if (!member || !config || member.status === 'retired') return error(404, 'not_found', 'Unknown member');
     if (config.kind !== 'ai') return error(400, 'not_ai_member', 'Only AI members can be renamed');
-    if (isOperator(config)) return error(409, 'operator_fixed', 'The Operator cannot be renamed');
     const to = input.handle;
     const former = this.members.flatMap((entry) => entry.formerHandles ?? []);
     if (to === handle || this.takenHandles().has(to) || former.includes(to))
@@ -5744,8 +5739,6 @@ export class MockBackend {
         'project_manager_required',
         'the only AI project manager cannot be retired; hire another one first',
       );
-    if (isRequiredOperator(this.config, handle))
-      return error(409, 'operator_required', 'the Operator cannot be retired');
     const target = input.handoverTo ? this.findMember(input.handoverTo) : undefined;
     const next = clone(this.config);
     next.team.members = next.team.members.filter((m) => m.handle !== handle);
@@ -5999,7 +5992,7 @@ export class MockBackend {
       const member = memberOf(this.config, handle);
       if (member?.kind !== 'ai') return null;
       const { role } = member;
-      return isOperator(member) || isProjectManager(member) ? null : { handle, role };
+      return isProjectManager(member) ? null : { handle, role };
     };
     const working = workers.flatMap((session) => {
       const member = aiOf(session.member);
@@ -6019,29 +6012,24 @@ export class MockBackend {
       return error(403, 'insufficient_access', 'Developer or client required');
     const input = parseBody(SendTeamMessageRequest, body);
     if (!input) return error(400, 'invalid_request', 'Invalid message');
-    // The same rule as the server's: nobody writes to the Operator (it exists only when the owner connects a
-    // client, PM-1045), a viewer writes to the project manager alone, a client to the contacts alone (PM-985).
-    // A fixture can also mark a viewer by the member's role.
+    // The same rule as the server's: a viewer writes to the project manager alone, a client to the contacts
+    // alone (PM-985). A fixture can also mark a viewer by the member's role.
     const managerHandle = projectManagerOf(this.config)?.handle;
     const notManager = input.to.filter((handle) => handle !== managerHandle);
-    const operatorRefusal = teamMessageRecipientRefusal(this.config, this.viewerHandle, input.to);
+    const sharedRefusal = teamMessageRecipientRefusal(this.config, this.viewerHandle, input.to);
     const recipientRefusal =
-      operatorRefusal?.code === 'operator_connected_only'
-        ? operatorRefusal
-        : viewer.role === 'viewer'
-          ? notManager.length > 0
-            ? { code: 'insufficient_access' as const, recipients: notManager }
-            : null
-          : operatorRefusal;
+      viewer.role === 'viewer'
+        ? notManager.length > 0
+          ? { code: 'insufficient_access' as const, recipients: notManager }
+          : null
+        : sharedRefusal;
     if (recipientRefusal)
       return error(
-        recipientRefusal.code === 'operator_connected_only' ? 409 : 403,
+        403,
         recipientRefusal.code,
         recipientRefusal.code === 'recipient_not_contact'
           ? 'the message goes only to the contacts of the project'
-          : recipientRefusal.code === 'operator_connected_only'
-            ? 'the recipient exists only when the owner connects a client'
-            : 'Developer or client access required',
+          : 'Developer or client access required',
         { recipients: recipientRefusal.recipients },
       );
     if (input.taskKey) {
@@ -6395,8 +6383,6 @@ export class MockBackend {
     if (!session) return error(404, 'not_found', 'Unknown session');
     const member = memberOf(this.config, session.member);
     if (member?.kind !== 'ai') return error(404, 'not_found', 'Unknown member');
-    const refusal = sessionApproverChangeRefusal(member, input.approver);
-    if (refusal) return error(403, refusal, 'The Operator approver is fixed to human');
     if (input.approver) {
       const blocker = approverBlocker(this.config, member.handle, input.approver);
       if (blocker) return error(422, 'approver_unavailable', 'This approver is not available', { blocker });
@@ -6408,7 +6394,7 @@ export class MockBackend {
       else next.permissionModeOverride = input.permissionMode;
     }
     if (input.approver !== undefined) {
-      if (isOperator(member) || input.approver === null) delete next.approverOverride;
+      if (input.approver === null) delete next.approverOverride;
       else next.approverOverride = input.approver;
     }
     const to = effectiveSessionPermissions(member, next);
@@ -6574,7 +6560,7 @@ export class MockBackend {
       ];
       for (const member of members) {
         const refusal = superDecisionRefusal(member, {
-          operatorHandle: operatorOf(this.config)?.handle ?? null,
+          operatorHandle: RETIRED_OPERATOR_HANDLE,
           sessionMember: this.sessions.find((session) => session.id === member.sessionId)?.member,
         });
         const question = member.kind === 'question' ? member.payload : null;

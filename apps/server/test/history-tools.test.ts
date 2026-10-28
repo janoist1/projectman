@@ -150,16 +150,16 @@ describe('the history tools of a member (PM-787)', () => {
     });
   });
 
-  describe('the Operator in a guest’s conversation', () => {
-    // The app starts no Operator session (PM-1045): the guest's conversation is seeded.
-    const say = (from: string) => seedOperatorSession(h, 'AR', { with: from });
+  describe('the project manager in a guest’s conversation', () => {
+    // The guest's conversation is seeded.
+    const say = (from: string) => seedOperatorSession(h, 'AR', { member: 'pm', with: from });
     const conversationWith = (handle: string): Session | undefined =>
       h.domain.sessions
-        .list('AR', { member: 'operator' })
+        .list('AR', { member: 'pm' })
         .find((s) => s.workItem.type === 'general' && s.workItem.with === handle);
     const toolOf = (handle: string): ToolContext => ({
       projectKey: 'AR',
-      member: 'operator',
+      member: 'pm',
       sessionId: conversationWith(handle)!.id,
       taskKey: null,
     });
@@ -170,7 +170,7 @@ describe('the history tools of a member (PM-787)', () => {
       say('acme');
       const found = await tools().searchHistory(toolOf('acme'), { query: 'page' });
       expect(found.matches).toHaveLength(2);
-      // The record names the guest, not the Operator.
+      // The record names the guest, not the project manager.
       expect(rows().map((row) => [row.member, row.via])).toEqual([['acme', null]]);
       expect(found).toEqual(await h.domain.history.search('AR', as('acme'), { query: 'page' }));
     });

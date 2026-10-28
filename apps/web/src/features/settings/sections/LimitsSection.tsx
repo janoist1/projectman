@@ -7,7 +7,6 @@ import {
   DEFAULT_MAX_FIX_ROUNDS,
   DEFAULT_MIN_FREE_DISK_GB,
   DEFAULT_SENIOR_WAIT_MINUTES,
-  OPERATOR_ROLE,
   boundaryOwners,
   loopDeciders,
   loopWatchOf,
@@ -180,7 +179,7 @@ function LimitsControls({ config }: { config: ProjectConfig }) {
             }
           >
             {(roles.data?.roles ?? [])
-              .filter((role) => role.holders !== 'human' && role.id !== OPERATOR_ROLE)
+              .filter((role) => role.holders !== 'human')
               .map((role) => (
                 <option key={role.id} value={role.id}>
                   {role.name}

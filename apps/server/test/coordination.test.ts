@@ -6,7 +6,7 @@ import { CoordinationRequests, OperatorRequests, OperatorSteps } from '../src/se
 import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
-import { seedOperatorRequest, seedOperatorSession } from './helpers/operator-session';
+import { seedOperatorSession } from './helpers/operator-session';
 
 let h: DomainHarness;
 let now: Date;
@@ -39,7 +39,7 @@ async function setup(adjust?: (config: ProjectConfig) => void) {
 
 const requests = () => new CoordinationRequests({ ctx: h.domain.ctx, projects: h.domain.projects });
 async function internal(member = 'pm'): Promise<ToolContext> {
-  // The app starts no Operator (PM-1045): its session row is seeded.
+  // The Operator is retired (decision 66): only a legacy row of its old session is seeded.
   const session =
     member === 'operator'
       ? seedOperatorSession(h, 'AR', { at: now.toISOString() })
@@ -59,13 +59,6 @@ async function deliverSignals(): Promise<void> {
   }
 }
 async function ownerMessage(member: string) {
-  if (member === 'operator') {
-    const { session } = seedOperatorRequest(h, 'AR', {
-      text: 'Coordinate this request.',
-      at: now.toISOString(),
-    });
-    return { projectKey: 'AR', member, sessionId: session.id, taskKey: null } satisfies ToolContext;
-  }
   const running = h.domain.sessions.list('AR', { member })[0];
   if (running) h.runner.setState(running.id, 'idle');
   await h.domain.messaging.sendReporting(
@@ -227,17 +220,13 @@ describe('separate PM and Operator authorization', () => {
     expect(requests().openFor(pm.sessionId)).toBeNull();
   });
 
-  it('uses only the PM own delivered owner request and keeps it out of the Operator channel', async () => {
+  it('uses only the PM own delivered owner request', async () => {
     await setup();
-    const operator = await ownerMessage('operator');
     const pm = await internal();
     expect(requests().openFor(pm.sessionId)).toBeNull();
     await expect(h.domain.teamTools.startMember(pm, { member: 'dev-2', text: 'Work.' })).rejects.toThrow(
       'operator_no_request',
     );
-    await expect(
-      h.domain.teamTools.startMember(operator, { member: 'dev-2', text: 'Work.' }),
-    ).rejects.toThrow('project_manager_only');
     await ownerMessage('pm');
     expect(requests().openFor(pm.sessionId)?.sessionId).toBe(pm.sessionId);
     const started = await h.domain.teamTools.startMember(pm, { member: 'dev-2', text: 'Work.' });
@@ -259,12 +248,6 @@ describe('separate PM and Operator authorization', () => {
     expect(
       (await h.domain.projects.config('AR')).team.members.find((member) => member.handle === 'dev-1'),
     ).toMatchObject({ capacity: 2 });
-    await expect(
-      h.domain.teamTools.operate(operator, {
-        title: 'Change capacity',
-        operation: { op: 'member_update', handle: 'dev-1', changes: { capacity: 2 } },
-      }),
-    ).resolves.toMatchObject({ status: 'done' });
   });
 
   it("gives the corner the PM's own requests and delivered signals, and a guest none of them", async () => {
@@ -322,16 +305,15 @@ describe('separate PM and Operator authorization', () => {
     expect(requests().openFor(pm.sessionId)).toBeNull();
   });
 
-  it('allows internal PM and Operator state reads, but refuses a foreign token or guest session', async () => {
+  it('allows the internal PM state read, but refuses a foreign token or guest session', async () => {
     await setup();
     const pm = await internal();
-    const operator = await internal('operator');
+    const developer = await internal('dev-1');
     await expect(h.domain.teamTools.getProjectState(pm, {})).resolves.toHaveProperty('stages');
-    await expect(h.domain.teamTools.getProjectState(operator, {})).resolves.toHaveProperty('stages');
     const session = h.repos.sessions.get(pm.sessionId)!;
     h.repos.sessions.insert({ ...session, id: 'ses_pm_guest', workItem: { type: 'general', with: 'guest' } });
     for (const ctx of [
-      { ...pm, sessionId: operator.sessionId },
+      { ...pm, sessionId: developer.sessionId },
       { ...pm, sessionId: 'external' },
     ])
       await expect(h.domain.teamTools.getProjectState(ctx, {})).rejects.toThrow('project_manager_only');
@@ -341,15 +323,15 @@ describe('separate PM and Operator authorization', () => {
     ).rejects.toThrow('operator_owner_only');
   });
 
-  it('screens Operator questions through the PM, while PM own questions go straight to people', async () => {
+  it('screens a developer question through the PM, while PM own questions go straight to people', async () => {
     await setup();
-    const operator = await ownerMessage('operator');
+    const developer = await internal('dev-1');
     const pm = await internal();
-    const question = await h.domain.teamTools.askHuman(operator, { question: 'Which documented setting?' });
+    const question = await h.domain.teamTools.askHuman(developer, { question: 'Which documented setting?' });
     await flush();
     expect(h.domain.inbox.get('AR', question.inboxItemId).state).toBe('screening');
     await expect(
-      h.domain.teamTools.screenQuestion(operator, {
+      h.domain.teamTools.screenQuestion(developer, {
         itemId: question.inboxItemId,
         outcome: 'moot',
         note: 'No.',
@@ -423,7 +405,7 @@ describe('persisted coordination signal bindings', () => {
     ).resolves.toHaveProperty('session_id');
   });
 
-  it('preserves presented legacy signals, and an acceptance through the Operator is refused (PM-1045)', async () => {
+  it('preserves presented legacy signals, and an acceptance sent to the retired Operator finds no member', async () => {
     await setup();
     const { signal } = await idleSignal();
     const sent = await h.domain.messaging.sendReporting(
@@ -448,7 +430,7 @@ describe('persisted coordination signal bindings', () => {
         { to: ['operator'], text: 'Accept the earlier proposal.' },
         { actor: OWNER_ACTOR, operatorSignal: signal.id },
       ),
-    ).rejects.toMatchObject({ code: 'operator_connected_only' });
+    ).rejects.toMatchObject({ code: 'not_found' });
     expect(h.repos.operatorSignals.get(signal.id)?.state).toBe('open');
   });
 

@@ -9,7 +9,6 @@ import {
   DEFAULT_PROVIDER_MODELS,
   holdersAllow,
   HumanAccess,
-  isOperator,
   isDeveloper,
   COMPLEXITY_POINTS,
   ComplexityPoints,
@@ -351,86 +350,6 @@ function EditMemberForm({
   );
 }
 
-/**
- * The built-in Operator (PM-447): only its provider, model and effort can be changed; everything else about it is
- * fixed by the role and shown, not editable.
- */
-function EditOperatorForm({
-  member,
-  config,
-  onDone,
-}: {
-  member: MemberView;
-  config?: ProjectConfig;
-  onDone: () => void;
-}) {
-  const { key } = useProject();
-  const update = useUpdateMember(key);
-  const toast = useToast();
-  const original = config?.team.members.find((entry) => entry.handle === member.handle);
-  const ai = original?.kind === 'ai' ? original : undefined;
-  const [provider, setProvider] = useState<AgentProvider>(
-    ai?.provider ?? member.provider ?? DEFAULT_AGENT_PROVIDER,
-  );
-  const [effort, setEffort] = useState<AgentEffort | undefined>(
-    effortForProvider(provider, ai?.effort ?? member.effort),
-  );
-  const [model, setModel] = useState(ai?.model ?? member.model ?? DEFAULT_PROVIDER_MODELS[provider]);
-  const formId = useId();
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    if (!model.trim()) return;
-    update.mutate(
-      { handle: member.handle, body: { provider, effort: effort ?? null, model: model.trim() } },
-      {
-        onSuccess: () => {
-          toast.show(t('memberEdit.saved'));
-          onDone();
-        },
-      },
-    );
-  };
-  return (
-    <Dialog
-      open
-      onClose={onDone}
-      title={t('operator.builtIn.editTitle')}
-      error={update.isError ? <ErrorBanner>{errorMessage(update.error)}</ErrorBanner> : null}
-      footer={
-        <>
-          <Button variant="secondary" size="md" onClick={onDone}>
-            {t('common.cancel')}
-          </Button>
-          <Button type="submit" form={formId} variant="primary" size="md" loading={update.isPending}>
-            {t('memberEdit.save')}
-          </Button>
-        </>
-      }
-    >
-      <form id={formId} className={styles.form} onSubmit={submit}>
-        <p className={styles.toggleHint}>{t('operator.builtIn.editLead')}</p>
-        <dl className={styles.fixed}>
-          <dt>{t('hire.displayName')}</dt>
-          <dd>{member.displayName}</dd>
-          <dt>{t('operator.builtIn.role')}</dt>
-          <dd>{t('operator.builtIn.roleValue')}</dd>
-        </dl>
-        <ProviderFields
-          provider={provider}
-          model={model}
-          effort={effort}
-          onProviderChange={(next, nextModel) => {
-            setProvider(next);
-            setModel(nextModel);
-          }}
-          onModelChange={setModel}
-          onEffortChange={setEffort}
-        />
-      </form>
-    </Dialog>
-  );
-}
-
 export function EditMemberDialog({
   member,
   config,
@@ -442,8 +361,6 @@ export function EditMemberDialog({
   roles: readonly RoleView[];
   onClose: () => void;
 }) {
-  if (member && isOperator(member))
-    return <EditOperatorForm key={member.handle} member={member} config={config} onDone={onClose} />;
   return member ? (
     <EditMemberForm key={member.handle} member={member} config={config} roles={roles} onDone={onClose} />
   ) : null;

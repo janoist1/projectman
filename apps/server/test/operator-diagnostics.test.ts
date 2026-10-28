@@ -9,7 +9,7 @@ import { capturingLogger, FakeWorktreeManager } from './helpers/fakes';
 
 let h: DomainHarness;
 const at = (n = 0) => new Date(Date.UTC(2026, 9, 16, 10, 0, n)).toISOString();
-const context = (member = 'operator') => ({
+const context = (member = 'pm') => ({
   sessionId: `ses_${member}`,
   projectKey: 'AR',
   member,
@@ -50,7 +50,6 @@ async function setup(extra: NonNullable<Parameters<typeof createDomainHarness>[0
     },
   });
   await h.domain.tasks.create('AR', { title: 'Diagnose' }, OWNER_ACTOR);
-  h.repos.sessions.insert(session('ses_operator', 'operator', null));
   h.repos.sessions.insert(session('ses_pm', 'pm', null));
   vi.spyOn(h.domain.machine, 'view').mockResolvedValue({
     sampledAt: at(30),
@@ -256,9 +255,6 @@ describe('filtered Operator diagnostics', () => {
     expect(JSON.stringify(result)).not.toContain('unrelated');
     h.repos.tasks.update(h.domain.tasks.get('AR', 'AR-1').id, { labels: ['changed'] });
     expect((await read()).task.labels).toEqual(['changed']);
-    expect(
-      await h.domain.teamTools.getOperatorDiagnostics(context('pm'), { taskKey: 'AR-1' }),
-    ).toHaveProperty('task.taskKey', 'AR-1');
   });
 
   it('keeps unavailable activity and engine readings null without reading transcripts', async () => {
@@ -273,23 +269,18 @@ describe('filtered Operator diagnostics', () => {
 
   it('refuses guest, customer, forged session and non-coordinator actors in the service itself', async () => {
     await setup();
-    for (const member of ['operator', 'pm']) {
-      h.repos.sessions.insert({
-        ...session(`ses_guest_${member}`, member, null),
-        workItem: { type: 'general', with: 'guest' },
-      });
-      for (const ctx of [context(member), { ...context(member), sessionId: 'ses_missing' }]) {
-        const guest = ctx.sessionId === 'ses_missing' ? ctx : { ...ctx, sessionId: `ses_guest_${member}` };
-        await expect(h.domain.projectState.diagnostics(guest, 'AR-1')).rejects.toMatchObject({ status: 403 });
-      }
-    }
+    h.repos.sessions.insert({
+      ...session('ses_guest_pm', 'pm', null),
+      workItem: { type: 'general', with: 'guest' },
+    });
+    for (const sessionId of ['ses_guest_pm', 'ses_missing'])
+      await expect(
+        h.domain.projectState.diagnostics({ ...context(), sessionId }, 'AR-1'),
+      ).rejects.toMatchObject({ status: 403 });
     await expect(h.domain.projectState.diagnostics(context('dev-1'), 'AR-1')).rejects.toMatchObject({
       status: 403,
       code: 'operator_only',
     });
-    await expect(
-      h.domain.projectState.diagnostics({ ...context(), member: 'pm' }, 'AR-1'),
-    ).rejects.toMatchObject({ status: 403 });
     await expect(h.domain.projectState.diagnostics(context(), 'OTHER-1')).rejects.toMatchObject({
       status: 404,
     });
@@ -299,22 +290,7 @@ describe('filtered Operator diagnostics', () => {
     );
     await expect(
       h.domain.projectState.diagnostics({ ...context(), projectKey: 'BR' }, 'BR-1'),
-    ).rejects.toMatchObject({ status: 403, code: 'operator_owner_only' });
-    h.repos.operatorRequests.insert({
-      id: 'guest_request',
-      projectKey: 'AR',
-      sessionId: 'ses_operator',
-      source: 'message',
-      messageId: null,
-      inboxItemId: null,
-      fromHandle: 'guest',
-      quote: sentinel,
-      openedAt: at(20),
-    });
-    await expect(h.domain.projectState.diagnostics(context(), 'AR-1')).rejects.toMatchObject({
-      status: 403,
-      code: 'operator_owner_only',
-    });
+    ).rejects.toMatchObject({ status: 403 });
   });
 
   it('rechecks the session after an awaited machine read', async () => {
@@ -322,7 +298,7 @@ describe('filtered Operator diagnostics', () => {
     h.repos.sessions.insert(session('ses_card', 'dev-1', 'AR-1'));
     vi.mocked(h.domain.machine.view).mockImplementation(async () => {
       const get = h.repos.sessions.get.bind(h.repos.sessions);
-      vi.spyOn(h.repos.sessions, 'get').mockImplementation((id) => (id === 'ses_operator' ? null : get(id)));
+      vi.spyOn(h.repos.sessions, 'get').mockImplementation((id) => (id === 'ses_pm' ? null : get(id)));
       throw new Error(sentinel);
     });
     await expect(read()).rejects.toMatchObject({ code: 'forbidden' });

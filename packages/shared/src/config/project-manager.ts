@@ -36,7 +36,7 @@ export function managerConversationOf(config: Pick<ProjectConfig, 'team'>, from:
     : { type: 'general' };
 }
 
-/** The selected, available coordinator; an Operator never substitutes for a missing PM. */
+/** The selected, available coordinator; null while the project manager is on leave. */
 export function coordinationMemberOf(config: Pick<ProjectConfig, 'team'>): AiMemberConfig | null {
   const member = projectManagerOf(config);
   return member && !isOnLeave(member) ? member : null;

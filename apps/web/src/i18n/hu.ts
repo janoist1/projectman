@@ -1364,12 +1364,7 @@ export const hu = {
       role_in_use: 'A szerep még használatban van.',
       project_manager_required:
         'Nem bocsátható el: ő a projekt egyetlen AI Projektmenedzsere. Előbb vegyél fel egy másikat.',
-      operator_required: 'Nem bocsátható el: az Operátor a projekt állandó tagja.',
-      operator_fixed:
-        'Az Operátoron csak a modell, a szolgáltató és az erőfeszítés állítható. Nem küldhető szabadságra, nem bocsátható el, és második Operátor nem vehető fel.',
       operator_owner_only: 'Ezt csak a projekt tulajdonosa kérheti az Operátortól.',
-      operator_connected_only:
-        'Az Operátor csak akkor létezik, ha a tulajdonos kliense csatlakozik, ezért neki nem lehet üzenni. Gépi munkához nyiss integrátor-teendőt, minden máshoz kérdezz embert.',
       queue_item_not_yours:
         'Ez a sorelem nem nyitott a kulcs tulajdonosának: nem hozzá tartozik, vagy már lezárult, vagy másik projekté.',
       issuer_without_machine_access:
@@ -3333,8 +3328,6 @@ export const hu = {
         writer: 'A szövegíró legyen Sonnet',
         mine: 'Hol látom a kártyáimat?',
       },
-      earlier: 'Az Operátorral folytatott korábbi beszélgetés az Üzenetekben marad.',
-      earlierLink: 'Üzenetek',
       other: {
         attach: 'Ha valami furcsát látsz, küldj róla képet: illeszd be a képernyőképet, vagy húzd ide.',
         lead: 'Kérdezz bátran: segítek eligazodni a projektben, és megmondom, mi a helyzet.',
@@ -3382,19 +3375,6 @@ export const hu = {
       title: 'Ebben a projektben még nincs projektmenedzser.',
       hint: 'Amíg nincs, a projekt ügyeit a tulajdonos intézi.',
       team: 'Csapat',
-    },
-    builtIn: {
-      chip: 'beépített',
-      title:
-        'Az Operátor a projekt beépített tagja: nem küldhető szabadságra, és nem bocsátható el. Csak a modellje, a szolgáltatója és az erőfeszítése állítható.',
-      subline: 'Intézi a kéréseidet',
-      edit: 'Modell és erőfeszítés…',
-      editMember: 'Az Operátor modelljének szerkesztése',
-      editTitle: 'Az Operátor modellje',
-      editLead:
-        'Csak a szolgáltató, a modell és az erőfeszítés módosítható; a többi a beépített szerep része.',
-      role: 'Szerep',
-      roleValue: 'Operátor (beépített)',
     },
     steps: {
       label: 'Lépések',
@@ -6407,9 +6387,6 @@ export const hu = {
       mover_not_member: 'A kártyákat továbbvivő ember már nem tagja a projektnek.',
       mover_cannot_move: 'A kártyákat továbbvivő nem mozgathat kártyát.',
       mover_on_leave: 'A kártyákat továbbvivő Projektmenedzser szabadságon van.',
-      operator_approver_fixed: 'Az Operátor engedélykérője csak ember lehet.',
-      operator_merger_forbidden: 'Az Operátor nem lehet beolvasztó.',
-      operator_boundary_duty_forbidden: 'Az Operátor nem kaphat engedélykéréseket eldöntő feladatkört.',
       review_test_runner_github:
         'A GitHub Actions futtatóhoz a repónak meg kell adni a GitHub tulajdonos/név párját.',
     },

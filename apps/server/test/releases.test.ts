@@ -1,6 +1,6 @@
 import net from 'node:net';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { MemberConfig, releaseApprovalOf, superActorOf } from '@projectman/shared';
+import { MemberConfig, releaseApprovalOf, coordinatorSuperActorOf } from '@projectman/shared';
 import type { InboxItem, ProjectConfig, ReleaseReport } from '@projectman/shared';
 import { sendControlRequest } from '../../../scripts/control/client';
 import { serveControlConnection } from '../src/control';
@@ -65,6 +65,9 @@ describe('the release flow', () => {
       ...(opts.appVersion ? { appVersion: opts.appVersion } : {}),
       ...(opts.appTag ? { appTag: opts.appTag } : {}),
       adjust(config: ProjectConfig) {
+        // The selected project manager is the coordinator a key in super mode acts as.
+        const pm = config.team.members.find((member) => member.handle === 'pm');
+        if (pm?.kind === 'ai') pm.onLeave = false;
         config.team.members.push(
           MemberConfig.parse({
             kind: 'ai',
@@ -283,21 +286,12 @@ describe('the release flow', () => {
       await expect(h.domain.releases.check('AR')).rejects.toThrow('broken config');
     });
 
-    it('is open to the Operator only as a tool', async () => {
+    it('is closed to every member as a tool', async () => {
       await setup();
-      const operator: ToolContext = {
-        projectKey: 'AR',
-        member: 'operator',
-        sessionId: 'ses_op',
-        taskKey: null,
-      };
       await expect(h.domain.teamTools.checkRelease(devops, {})).rejects.toMatchObject({
         code: 'forbidden',
         message: expect.stringContaining('operator_only'),
       });
-      const result = await h.domain.teamTools.checkRelease(operator, {});
-      expect(result.refusal).toBeNull();
-      expect(result.candidate?.commit).toBe(sha(3));
     });
   });
 
@@ -915,7 +909,7 @@ describe('the release flow', () => {
 
     /** A live scope of a key, as the authenticated facade makes it; `revoked` turns true when the key goes. */
     async function scope(mode: 'super' | 'read' = 'super', revoked: () => boolean = () => false) {
-      const actor = superActorOf(await h.domain.projects.config('AR'), KEY)!;
+      const actor = coordinatorSuperActorOf(await h.domain.projects.config('AR'), KEY)!;
       return {
         active: true,
         context: {
@@ -942,7 +936,7 @@ describe('the release flow', () => {
     const inScope = <T>(s: IntegratorExecutionScope, run: () => Promise<T>) => runIntegratorExecution(s, run);
     const superActor = () => ({
       kind: 'ai',
-      handle: 'operator',
+      handle: 'pm',
       via: 'integrator',
       operatorMode: 'super',
       credential: KEY,
@@ -959,7 +953,7 @@ describe('the release flow', () => {
       expect(h.domain.tasks.list('AR').filter((card) => card.kind === 'theme')).toEqual([]);
     });
 
-    it('proposes as the Operator through the key, for the owners’ approval, without the duty check', async () => {
+    it('proposes as the project manager through the key, for the owners’ approval, without the duty check', async () => {
       const { release, candidate } = await inScope(await scope(), () =>
         h.domain.releases.proposeExternal('AR', { title: 'Super release', summary: '- AR-1' }),
       );
@@ -967,14 +961,14 @@ describe('the release flow', () => {
         state: 'proposed',
         commit: sha(3),
         tasks: ['AR-1', 'AR-2', 'AR-3'],
-        proposedBy: 'operator',
+        proposedBy: 'pm',
         taskKey: 'AR-4',
       });
       expect(candidate.tasks).toHaveLength(3);
       expect(task('AR-4')).toMatchObject({ kind: 'theme', title: 'Super release' });
       const items = h.domain.inbox.list('AR', { kind: 'release', state: 'open' });
       expect(items).toHaveLength(1);
-      expect(items[0]).toMatchObject({ assignees: ['owner'], taskKey: 'AR-4', source: 'operator' });
+      expect(items[0]).toMatchObject({ assignees: ['owner'], taskKey: 'AR-4', source: 'pm' });
       // The events carry the whole actor of the key, never only the handle.
       const created = h.domain.timeline
         .list('AR', { taskKey: 'AR-4' })

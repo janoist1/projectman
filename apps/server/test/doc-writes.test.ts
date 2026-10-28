@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
-import { superActorOf } from '@projectman/shared';
+import { coordinatorSuperActorOf } from '@projectman/shared';
 import type { ProjectConfig, ProjectDoc, Session } from '@projectman/shared';
 import { TeamToolError } from '../src/contracts';
 import type {
@@ -21,7 +21,6 @@ import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from '.
 import type { DomainHarness } from './helpers/domain-harness';
 import { rejection } from './helpers/errors';
 import { settle } from './helpers/fakes';
-import { seedOperatorRequest } from './helpers/operator-session';
 
 let h: DomainHarness;
 afterEach(async () => {
@@ -121,7 +120,7 @@ async function setup(
     persistent: opts.persistent,
     adjust(config) {
       if (opts.docs !== false) withDocs(config);
-      if (opts.pm) {
+      if (opts.pm !== false) {
         const pm = config.team.members.find((member) => member.handle === 'pm');
         if (pm?.kind === 'ai') pm.onLeave = false;
       }
@@ -134,19 +133,18 @@ async function setup(
         roles: [],
       });
       // A client may message only the contacts.
-      config.team.contacts = ['operator'];
+      config.team.contacts = ['pm'];
     },
   });
   return merger;
 }
 
-async function say(from: string, text = 'Please update the log', to = 'operator') {
+async function say(from: string, text = 'Please update the log', to = 'pm') {
   await h.domain.messaging.sendReporting('AR', from, { to: [to], text });
   await settle();
 }
-const operatorSessions = (): Session[] => h.domain.sessions.list('AR', { member: 'operator' });
 /** The member's general conversation with the owner; the session starts asynchronously. */
-const ownerConversation = (member = 'operator'): Promise<Session> =>
+const ownerConversation = (member = 'pm'): Promise<Session> =>
   waitFor(
     () =>
       h.domain.sessions
@@ -161,12 +159,7 @@ const toolOf = (session: Session): ToolContext => ({
   taskKey: null,
 });
 /** The owner asks the document maintainer something: its conversation and an open request. */
-async function ownerAsks(member = 'operator'): Promise<{ ctx: ToolContext; requestId: string }> {
-  if (member === 'operator') {
-    // The app starts no Operator session (PM-1045): seed the one an owner message used to leave.
-    const { session, request } = seedOperatorRequest(h, 'AR');
-    return { ctx: toolOf(session), requestId: request.id };
-  }
+async function ownerAsks(member = 'pm'): Promise<{ ctx: ToolContext; requestId: string }> {
   await say('owner', undefined, member);
   const session = await ownerConversation(member);
   const request = await waitFor(() => h.repos.operatorRequests.openOfSession(session.id)[0], {
@@ -218,12 +211,6 @@ describe('project manager documents (PM-1044)', () => {
     const merger = (await setup(fakeDocsMerger(), { pm: true }))!;
     expect(await refusal(write(await internal()))).toMatch(/^operator_no_request:/);
     expect(merger.commitFiles).not.toHaveBeenCalled();
-  });
-
-  it('does not inherit an owner request sent to the Operator', async () => {
-    await setup(fakeDocsMerger(), { pm: true });
-    await ownerAsks();
-    expect(await refusal(write(await internal()))).toMatch(/^operator_no_request:/);
   });
 
   it('maintains lessons without an owner request through the publication recheck', async () => {
@@ -346,7 +333,7 @@ describe('read_project_doc (PM-495)', () => {
     });
   });
 
-  it('needs no open request, and is the Operator’s only', async () => {
+  it('needs no open request, and is the project manager’s only', async () => {
     await setup();
     const { ctx, requestId } = await ownerAsks();
     h.repos.operatorRequests.close(requestId, new Date().toISOString());
@@ -411,7 +398,7 @@ describe('write_project_docs (PM-495)', () => {
       try {
         const result = await writes.request({
           projectKey: 'AR',
-          author: 'operator',
+          author: 'pm',
           requestedBy: 'owner',
           requestId,
           baseCommit: BASE,
@@ -451,7 +438,7 @@ describe('write_project_docs (PM-495)', () => {
     const input = merger.commitFiles.mock.calls[0]![1];
     expect(input.onto).toBe(BASE);
     expect(input.message).toBe(
-      `Add decision 3\n\nProjectman-Operator: operator\nProjectman-Request: ${requestId}\nProjectman-Requested-By: owner`,
+      `Add decision 3\n\nProjectman-Operator: pm\nProjectman-Request: ${requestId}\nProjectman-Requested-By: owner`,
     );
     expect(merger.push).toHaveBeenCalledWith(expect.anything(), {
       base: expect.any(String),
@@ -466,7 +453,7 @@ describe('write_project_docs (PM-495)', () => {
     expect(h.repos.docWrites.get(result.write_id)).toMatchObject({
       state: 'published',
       commitSha: 'w1'.padEnd(40, '0'),
-      author: 'operator',
+      author: 'pm',
       requestedBy: 'owner',
     });
     await vi.waitFor(async () => {
@@ -479,9 +466,7 @@ describe('write_project_docs (PM-495)', () => {
       expect(copy.matches[0]?.document).toMatchObject({ path: DECISIONS, commit: 'w1'.padEnd(40, '0') });
     });
     // The answer was the tool's: no message follows.
-    expect(h.repos.messages.list('AR', { member: 'operator' }).filter((m) => m.from === 'system')).toEqual(
-      [],
-    );
+    expect(h.repos.messages.list('AR', { member: 'pm' }).filter((m) => m.from === 'system')).toEqual([]);
   });
 
   it('writes both files in one commit', async () => {
@@ -589,7 +574,7 @@ describe('write_project_docs (PM-495)', () => {
       expect(merger.commitFiles).not.toHaveBeenCalled();
     });
 
-    it('refuses a member who is not the Operator', async () => {
+    it('refuses a member who is not the project manager', async () => {
       await setup();
       const { ctx } = await ownerAsks();
       expect(await refusal(write({ ...ctx, member: 'dev-1' }))).toMatch(/^operator_only:/);
@@ -917,7 +902,7 @@ describe('autonomous lessons (PM-1004)', () => {
     expect(merger.commitFiles.mock.calls[0]![1].message.split('\n')).toEqual([
       'Add decision 3',
       '',
-      'Projectman-Operator: operator',
+      'Projectman-Operator: pm',
       'Projectman-Operator-Mode: autonomous-lessons',
     ]);
   });
@@ -964,10 +949,10 @@ describe('autonomous lessons (PM-1004)', () => {
     },
   );
 
-  it('rejects a context that does not identify the Operator session', async () => {
+  it('rejects a context that does not identify the project manager session', async () => {
     await setup();
     const ctx = { ...(await internal()), sessionId: 'unknown' };
-    expect(await refusal(write(ctx, [lesson()]))).toMatch(/^operator_owner_only:/);
+    expect(await refusal(write(ctx, [lesson()]))).toMatch(/^project_manager_only:/);
   });
 
   it('continues a delayed lessons write after a restart and sends its result without an owner step', async () => {
@@ -1033,7 +1018,7 @@ describe('autonomous lessons (PM-1004)', () => {
       await setup();
       const input = {
         projectKey: 'AR',
-        author: invalid === 'author' ? 'dev-1' : 'operator',
+        author: invalid === 'author' ? 'dev-1' : 'pm',
         baseCommit: BASE,
         message: 'Record lesson',
         edits: invalid === 'empty' ? [] : invalid === 'mixed' ? [lesson(), append('Third')] : [lesson()],
@@ -1045,7 +1030,7 @@ describe('autonomous lessons (PM-1004)', () => {
     },
   );
 
-  it.each(['lessons', 'repo', 'base', 'operator'] as const)(
+  it.each(['lessons', 'repo', 'base', 'pm'] as const)(
     'revokes a queued write when its %s authorization changes',
     async (change) => {
       const merger = (await setup())!;
@@ -1053,8 +1038,7 @@ describe('autonomous lessons (PM-1004)', () => {
       const busy = vi.spyOn(h.domain.merges, 'busy').mockReturnValue(true);
       const queued = await write(ctx, [lesson()]);
       const config = structuredClone(await h.domain.projects.config('AR'));
-      if (change === 'operator')
-        config.team.members = config.team.members.filter((m) => m.handle !== 'operator');
+      if (change === 'pm') config.team.members = config.team.members.filter((m) => m.handle !== 'pm');
       else if (change === 'lessons') delete config.project.repos[0]!.docs!.lessons;
       else if (change === 'repo') config.project.repos[0]!.name = 'other';
       else config.project.repos[0]!.defaultBranch = 'other';
@@ -1073,7 +1057,7 @@ describe('autonomous lessons (PM-1004)', () => {
 
   it.each([
     { change: 'lessons', remote: true },
-    { change: 'operator', remote: true },
+    { change: 'pm', remote: true },
     { change: 'lessons', remote: false },
   ])('rechecks $change immediately before publication (remote: $remote)', async ({ change, remote }) => {
     const merger = (await setup())!;
@@ -1088,8 +1072,7 @@ describe('autonomous lessons (PM-1004)', () => {
       });
     merger.checkoutConflicts.mockImplementationOnce(async () => {
       const config = structuredClone(await h.domain.projects.config('AR'));
-      if (change === 'operator')
-        config.team.members = config.team.members.filter((m) => m.handle !== 'operator');
+      if (change === 'pm') config.team.members = config.team.members.filter((m) => m.handle !== 'pm');
       else config.project.repos[0]!.docs!.lessons = 'other.md';
       vi.spyOn(h.domain.projects, 'config').mockResolvedValue(config);
       return [];
@@ -1144,7 +1127,7 @@ describe('write_project_docs through the bearer MCP (PM-784)', () => {
   /** A live scope of a key, as the authenticated facade makes it; the checks of membership are the facade's own. */
   async function scope(mode: 'super' | 'read' = 'super', userId = OWNER_USER) {
     const config = await h.domain.projects.config('AR');
-    const actor = superActorOf(config, KEY)!;
+    const actor = coordinatorSuperActorOf(config, KEY)!;
     return {
       active: true,
       context: {
@@ -1217,7 +1200,7 @@ describe('write_project_docs through the bearer MCP (PM-784)', () => {
       [
         'Add decision 3',
         '',
-        'Projectman-Operator: operator',
+        'Projectman-Operator: pm',
         'Projectman-Operator-Mode: super',
         'Projectman-Via: integrator',
         `Projectman-Credential-Id: ${KEY.id}`,
@@ -1228,7 +1211,7 @@ describe('write_project_docs through the bearer MCP (PM-784)', () => {
     const id = (outcome as { id: string }).id;
     expect(h.repos.docWrites.get(id)).toMatchObject({
       state: 'published',
-      author: 'operator',
+      author: 'pm',
       requestedBy: null,
       requestId: null,
       externalOrigin: { ownerUserId: OWNER_USER, requestId: 'req-ext-1' },

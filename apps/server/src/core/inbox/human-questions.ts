@@ -95,7 +95,7 @@ export class HumanQuestions implements HumanQuestionsPort {
       (input.recipient !== undefined && input.recipient !== 'owner')
     )
       throw refuse('The integrator cannot re-ask or choose the recipient.');
-    // Every other AI member's question goes through the Operator first (PM-558); a re-ask does not.
+    // Every other AI member's question goes through the project manager first (PM-558); a re-ask does not.
     const screened =
       caller.kind === 'member' &&
       this.questionScreening.enabled &&

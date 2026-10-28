@@ -3,7 +3,9 @@ const WIDTHS = [1512, 390];
 
 export default async ({ instance, open, shoot, step }) => {
   const owner = (await instance.api('/api/me')).handles.AC;
-  const member = (await instance.api('/api/projects/AC/members')).find((item) => item.role === 'ai_operator');
+  const member = (await instance.api('/api/projects/AC/members')).find(
+    (item) => item.role === 'project_manager',
+  );
   const state = { messages: [], upload: 'ready', sendFails: false, count: 0 };
   const attachment = (name, preview = 'image') => ({
     id: `msa_screenshot${String(++state.count).padStart(4, '0')}`,

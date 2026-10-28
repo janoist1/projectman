@@ -370,7 +370,7 @@ export function TeamSection({ config }: { config: ProjectConfig }) {
       </section>
       <section aria-labelledby="settings-pm-moves-title">
         <h3 id="settings-pm-moves-title" className={shared.groupTitle}>
-          {t('settings.team.projectManagerMoves.label')}
+          {t('settings.team.projectManagerMoves.title')}
         </h3>
         {can.manageTeam ? (
           <ProjectManagerMovesControls config={config} />

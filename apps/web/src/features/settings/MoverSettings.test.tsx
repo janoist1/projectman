@@ -43,7 +43,7 @@ describe('the card mover in the settings (PM-439)', () => {
     project.backend.config.team.projectManagerMoves = 'start_only';
     project.render(<SettingsTestRoutes initialSection="team" />, '/', { can: { manageTeam: false } });
     const group = within(
-      await screen.findByRole('region', { name: t('settings.team.projectManagerMoves.label') }),
+      await screen.findByRole('region', { name: t('settings.team.projectManagerMoves.title') }),
     );
     expect(group.queryByRole('combobox')).toBeNull();
     expect(group.getByText(t('settings.team.projectManagerMoves.start_only'))).toBeTruthy();

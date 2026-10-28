@@ -508,6 +508,47 @@ export function useRevokeEngine() {
   });
 }
 
+/** The owner renames an engine; the lists that show its name (the project's engines too) load again. */
+export function useRenameEngine() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, name }: { id: string; name: string }) => api.renameEngine(id, name),
+    onSuccess: () =>
+      Promise.all([
+        refreshEngines(client),
+        client.invalidateQueries({ queryKey: queryKeys.projectEnginesAll }),
+      ]),
+  });
+}
+
+function refreshProjectEngines(client: QueryClient, projectKey: string) {
+  return Promise.all([
+    client.invalidateQueries({ queryKey: queryKeys.projectEngines(projectKey) }),
+    client.invalidateQueries({ queryKey: queryKeys.engineStatus }),
+  ]);
+}
+
+/** Binds an engine to the project (PM-1060); `isDefault` makes it the project's base engine as well. */
+export function useBindProjectEngine(projectKey: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ engineId, isDefault }: { engineId: string; isDefault: boolean }) =>
+      api.bindProjectEngine(projectKey, engineId, isDefault),
+    onSuccess: () => refreshProjectEngines(client, projectKey),
+    // `engine_revoked` and `engine_not_owned` mean the list on screen is out of date.
+    onError: () => refreshProjectEngines(client, projectKey),
+  });
+}
+
+export function useUnbindProjectEngine(projectKey: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (engineId: string) => api.unbindProjectEngine(projectKey, engineId),
+    onSuccess: () => refreshProjectEngines(client, projectKey),
+    onError: () => refreshProjectEngines(client, projectKey),
+  });
+}
+
 export function useSetDefaultEngine() {
   const client = useQueryClient();
   return useMutation({

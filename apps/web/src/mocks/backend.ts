@@ -31,6 +31,7 @@ import {
   canBindEngine,
   canUnbindEngine,
   CreateEngineRequest,
+  RenameEngineRequest,
   projectEngineOf,
   StopOrphansRequest,
   StopSessionRequest,
@@ -2098,7 +2099,9 @@ export class MockBackend {
         });
         if (!verdict.allowed) return error(403, verdict.code, 'Credential management refused');
       }
-      if (!this.me().hostOwner) return error(403, 'owner_only', 'Own host-owner login required');
+      // The host owner and an owner account hold a key (PM-1063).
+      if (!this.me().hostOwner && !this.me().ownerAccount)
+        return error(403, 'owner_only', 'Own owner login required');
       this.integratorKeys = this.integratorKeys.map((key) =>
         key.state === 'active' && key.expiresAt && key.expiresAt <= nowIso()
           ? { ...key, state: 'expired' }
@@ -2442,6 +2445,19 @@ export class MockBackend {
             ...(engine.online && !logins[provider] ? { problem: 'not_logged_in' as const } : {}),
           })),
       });
+    }
+    const renamed = /^\/api\/engines\/(eng_[a-z0-9]{12})$/.exec(path);
+    if (renamed && method === 'PATCH') {
+      const engine = this.engines.find((entry) => entry.id === renamed[1]);
+      // Another owner's engine is not there for the caller (404, like the lists).
+      if (!engine || (!me.hostOwner && engine.createdBy !== userId))
+        return error(404, 'engine_not_found', 'Engine not found');
+      const input = parseBody(RenameEngineRequest, body);
+      if (!input) return error(400, 'invalid_request', 'Invalid engine name');
+      if (engine.revokedAt) return error(409, 'engine_revoked', 'The engine is revoked');
+      engine.name = input.name;
+      this.emit({ type: 'engine_changed', engine: this.engineStatus(engine) });
+      return ok(asSeen(engine));
     }
     const m = /^\/api\/engines\/(local|eng_[a-z0-9]{12})\/(revoke|default)$/.exec(path);
     if (m && method === 'POST') {

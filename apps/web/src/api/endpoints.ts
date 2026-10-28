@@ -27,6 +27,7 @@ import {
   EngineProvidersView,
   EngineStatusResponse,
   EngineView,
+  ProjectEngineView,
   ProjectEnginesResponse,
   PublicOwnerInviteView,
   MachineView,
@@ -204,6 +205,18 @@ export const api = {
       schema: EngineProvidersView,
     }),
   projectEngines: (key: string) => apiRequest(routes.projectEngines(key), { schema: ProjectEnginesResponse }),
+  /** PM-1077: the engine's owner renames it. */
+  renameEngine: (id: string, name: string) =>
+    apiRequest(routes.engine(id), { method: 'PATCH', body: { name }, schema: EngineView }),
+  /** PM-1060: binds the engine to the project; `isDefault` also makes it the project's base engine. */
+  bindProjectEngine: (key: string, engineId: string, isDefault: boolean) =>
+    apiRequest(routes.projectEngine(key, engineId), {
+      method: 'PUT',
+      body: isDefault ? { default: true } : {},
+      schema: ProjectEngineView,
+    }),
+  unbindProjectEngine: (key: string, engineId: string) =>
+    apiRequest<null>(routes.projectEngine(key, engineId), { method: 'DELETE' }),
   stopOrphans: (body: StopOrphansRequest) =>
     apiRequest(routes.machineOrphansStop(), { method: 'POST', body, schema: StopOrphansResult }),
   addHumanMember: (key: string, body: AddHumanMemberRequest) =>

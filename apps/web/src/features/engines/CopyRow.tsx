@@ -11,7 +11,18 @@ const COPIED_MS = 1600;
  * A command or text with its own "Másolás" button. `scroll` is for a long, multi-line text (an instruction
  * for an assistant): the box scrolls at a fixed height and can be reached with the keyboard.
  */
-export function CopyRow({ text, label, scroll = false }: { text: string; label: string; scroll?: boolean }) {
+export function CopyRow({
+  text,
+  label,
+  scroll = false,
+  copyLabel = t('engines.copy'),
+}: {
+  text: string;
+  label: string;
+  scroll?: boolean;
+  /** The button's text before the copy; a long text says what it copies ("Utasítás másolása"). */
+  copyLabel?: string;
+}) {
   const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle');
   // "Másolva" is a confirmation, not a state: it goes back to "Másolás" after a moment.
   useEffect(() => {
@@ -38,7 +49,7 @@ export function CopyRow({ text, label, scroll = false }: { text: string; label: 
           {text}
         </code>
         <Button variant="secondary" size="md" onClick={() => void copy()}>
-          {t(state === 'copied' ? 'engines.copied' : 'engines.copy')}
+          {state === 'copied' ? t('engines.copied') : copyLabel}
         </Button>
       </div>
       {state === 'failed' && <ErrorBanner>{t('engines.copyFailed')}</ErrorBanner>}

@@ -37,6 +37,14 @@ export type CardMover = z.infer<typeof CardMover>;
 export const ProjectManagerMoves = z.enum(['queues_and_start', 'start_only']);
 export type ProjectManagerMoves = z.infer<typeof ProjectManagerMoves>;
 
+/** A card lifecycle action the selected project manager may take on its own (PM-1098); people of admin access always may. 'cancel' also covers marking a started card as a duplicate. */
+export const ProjectManagerLifecycleAction = z.enum(['assign', 'cancel', 'reopen']);
+export type ProjectManagerLifecycleAction = z.infer<typeof ProjectManagerLifecycleAction>;
+export const ProjectManagerLifecycle = z
+  .array(ProjectManagerLifecycleAction)
+  .refine((ids) => new Set(ids).size === ids.length, 'duplicate lifecycle actions');
+export type ProjectManagerLifecycle = z.infer<typeof ProjectManagerLifecycle>;
+
 /** Who besides people may set or clear a card's priority (PM-1096). Absent: the project managers (PM-433). */
 export const PrioritySetter = z.enum(['project_manager', 'prioritization_duty']);
 export type PrioritySetter = z.infer<typeof PrioritySetter>;
@@ -419,6 +427,8 @@ export const ProjectConfig = z.object({
     cardMover: CardMover.optional(),
     /** Independent PM moves (PM-1094); absent: DEFAULT_PROJECT_MANAGER_MOVES applies. */
     projectManagerMoves: ProjectManagerMoves.optional(),
+    /** Lifecycle actions the PM may take on its own (PM-1098); absent: DEFAULT_PROJECT_MANAGER_LIFECYCLE. */
+    projectManagerLifecycle: ProjectManagerLifecycle.optional(),
     /** Who besides people may set a card's priority (PM-1096); absent: DEFAULT_PRIORITY_SETTERS applies. */
     prioritySetters: PrioritySetters.optional(),
     /** Duties whose holders may set complexity points; absent: `DEFAULT_COMPLEXITY_SETTERS`. */

@@ -7,6 +7,7 @@ import {
   DEFAULT_COMPLEXITY_SETTERS,
   DEFAULT_PROJECT_LANGUAGE,
   DEFAULT_PRIORITY_SETTERS,
+  DEFAULT_PROJECT_MANAGER_LIFECYCLE,
   DEFAULT_PROJECT_MANAGER_MOVES,
   DEFAULT_TEMP_MAX_POINTS,
   DEFAULT_VIEWER_RECIPIENTS,
@@ -285,6 +286,14 @@ function addPrioritySetters(raw: unknown): unknown {
   return raw;
 }
 
+/** Existing projects keep today's lifecycle rights: the project manager reassigns and cancels (PM-1098). */
+function addProjectManagerLifecycle(raw: unknown): unknown {
+  const team = asRecord(asRecord(raw)?.team);
+  if (team && team.projectManagerLifecycle === undefined)
+    team.projectManagerLifecycle = [...DEFAULT_PROJECT_MANAGER_LIFECYCLE];
+  return raw;
+}
+
 /** Existing projects keep a viewer writing to the project manager only (PM-1102). */
 function addViewerRecipients(raw: unknown): unknown {
   const team = asRecord(asRecord(raw)?.team);
@@ -431,50 +440,53 @@ function addTempMaxPoints(raw: unknown): unknown {
  *   - a missing merger becomes the code reviewer or the developer, by the pipeline (above), judged on
  *     the configuration without the Operator;
  *   - an override of the project manager role gets the feedback processing duty (above);
- *   - a temp workers section without a card limit gets `DEFAULT_TEMP_MAX_POINTS` (above), last.
+ *   - a temp workers section without a card limit gets `DEFAULT_TEMP_MAX_POINTS` (above);
+ *   - missing project manager lifecycle actions become reassigning and cancelling (above), last.
  * Stage kinds from before decision 18 (review, deploy, …) are read by the pipeline schema
  * itself (packages/shared/src/domain/pipeline.ts).
  */
 export function migrateProjectConfig(raw: unknown, context: MigrationContext): unknown {
-  return addTempMaxPoints(
-    addFeedbackProcessing(
-      addMerger(
-        removeOperator(
-          addViewerRecipients(
-            addComplexitySetters(
-              addPrioritySetters(
-                addProjectManagerMoves(
-                  addCardMover(
-                    addProjectManager(
-                      migrateReleaseApproval(
-                        migrateLegacyConfig(
-                          migrateCodexBypass(
-                            migrateScheduledRole(
-                              dropMessageBurst(
-                                migrateSeniorLimit(
-                                  dropEmailMailbox(migrateShadowingRoles(raw, context), context),
+  return addProjectManagerLifecycle(
+    addTempMaxPoints(
+      addFeedbackProcessing(
+        addMerger(
+          removeOperator(
+            addViewerRecipients(
+              addComplexitySetters(
+                addPrioritySetters(
+                  addProjectManagerMoves(
+                    addCardMover(
+                      addProjectManager(
+                        migrateReleaseApproval(
+                          migrateLegacyConfig(
+                            migrateCodexBypass(
+                              migrateScheduledRole(
+                                dropMessageBurst(
+                                  migrateSeniorLimit(
+                                    dropEmailMailbox(migrateShadowingRoles(raw, context), context),
+                                    context,
+                                  ),
                                   context,
                                 ),
                                 context,
                               ),
                               context,
                             ),
-                            context,
                           ),
+                          context,
                         ),
                         context,
                       ),
-                      context,
                     ),
                   ),
                 ),
               ),
             ),
+            context,
           ),
-          context,
         ),
+        context,
       ),
-      context,
     ),
   );
 }

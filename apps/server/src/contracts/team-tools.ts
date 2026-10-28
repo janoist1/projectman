@@ -1101,6 +1101,11 @@ export interface OperatorToolsHandler {
     ctx: ToolContext,
     args: { taskKey: string; reason: string },
   ): Promise<{ task_key: string; status: string }>;
+  /** reopen_task (PM-1098): the selected PM reopens a cancelled card when the project settings allow it. */
+  reopenTask(
+    ctx: ToolContext,
+    args: { taskKey: string; reason: string },
+  ): Promise<{ task_key: string; status: string }>;
   /**
    * screen_question (PM-558): the Operator settles a question of an AI member that waits for its screening:
    * `answered` (with `answer`), `forwarded` (to a member, `forwardTo`), `moot`, or sent on to the people as a

@@ -503,6 +503,10 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       await enter('cancelTask', ctx, args);
       return { task_key: args.taskKey, status: 'cancelled' };
     },
+    async reopenTask(ctx, args) {
+      await enter('reopenTask', ctx, args);
+      return { task_key: args.taskKey, status: 'active' };
+    },
     async openIntegratorTodo(ctx, args) {
       await enter('openIntegratorTodo', ctx, args);
       return { itemId: 'inb_todo_1', recipient: 'integrator', recipientRefusal: null };

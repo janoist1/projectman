@@ -157,6 +157,7 @@ import {
   machineAccessOf,
   effectiveSessionPermissions,
   duplicateMarkRefusal,
+  lifecycleAllowed,
   planLabelChange,
   planRelations,
   pullRequestsMerged,
@@ -5234,7 +5235,6 @@ export class MockBackend {
     change: RelationsChange,
     cards: readonly Task[] = this.tasks,
   ): { steps: RelationStep[]; closes: boolean } | MockResponse {
-    const viewer = this.findMember(this.viewerHandle);
     const plan = planRelations({
       task,
       cards,
@@ -5245,7 +5245,7 @@ export class MockBackend {
           task,
           stageKind: stageOf(this.config, task.stageId)?.kind,
           hasLiveSession: this.taskSessions(task.key).some((session) => this.isLive(session)),
-          mayCancel: viewer?.kind === 'human' && (viewer.role === 'admin' || viewer.role === 'owner'),
+          mayCancel: lifecycleAllowed(this.config, { kind: 'human', handle: this.viewerHandle }, 'cancel'),
         }),
     });
     if (plan.ok) return plan;

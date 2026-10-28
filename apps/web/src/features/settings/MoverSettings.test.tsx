@@ -89,6 +89,45 @@ describe('the card mover in the settings (PM-439)', () => {
     ).toBeTruthy();
   });
 
+  it('shows assigning and cancelling as the default PM lifecycle actions, and saves a ticked reopen at once (PM-1098)', async () => {
+    const project = mockProject();
+    project.render(<SettingsTestRoutes initialSection="team" />);
+    const group = within(
+      await screen.findByRole('region', { name: t('settings.team.projectManagerLifecycle.label') }),
+    );
+    const box = (action: 'assign' | 'cancel' | 'reopen') =>
+      group.getByRole('checkbox', {
+        name: new RegExp(t(`settings.team.projectManagerLifecycle.${action}`)),
+      }) as HTMLInputElement;
+    expect([box('assign').checked, box('cancel').checked, box('reopen').checked]).toEqual([
+      true,
+      true,
+      false,
+    ]);
+    fireEvent.click(box('reopen'));
+    await waitFor(() =>
+      expect(project.backend.config.team.projectManagerLifecycle).toEqual(['assign', 'cancel', 'reopen']),
+    );
+    expect(lastConfigPatch(project.requests).projectManagerLifecycle).toEqual(['assign', 'cancel', 'reopen']);
+    // Unticking all three is the admins-only setting, saved as [] and not left out of the patch.
+    for (const action of ['assign', 'cancel', 'reopen'] as const) {
+      await waitFor(() => expect(box(action).closest('fieldset')!.disabled).toBe(false));
+      fireEvent.click(box(action));
+    }
+    await waitFor(() => expect(project.backend.config.team.projectManagerLifecycle).toEqual([]));
+    expect(await group.findByText(t('settings.team.projectManagerLifecycle.adminsOnly'))).toBeTruthy();
+  });
+
+  it('only tells a member who may not manage the team what the project manager may do with cards (PM-1098)', async () => {
+    const project = mockProject();
+    project.render(<SettingsTestRoutes initialSection="team" />, '/', { can: { manageTeam: false } });
+    const group = within(
+      await screen.findByRole('region', { name: t('settings.team.projectManagerLifecycle.label') }),
+    );
+    expect(group.queryByRole('checkbox')).toBeNull();
+    expect(group.getByText(t('settings.team.projectManagerLifecycle.cancel'))).toBeTruthy();
+  });
+
   it('shows the worker as the default, and saves another choice at once', async () => {
     const project = mockProject();
     project.render(<SettingsTestRoutes initialSection="team" />);

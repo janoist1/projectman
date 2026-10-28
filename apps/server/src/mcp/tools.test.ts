@@ -259,6 +259,7 @@ describe('team tool registration', () => {
         'start_task',
         'reassign_task',
         'cancel_task',
+        'reopen_task',
         'start_member',
       ],
       'services/feedback': [

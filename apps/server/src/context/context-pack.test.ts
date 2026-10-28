@@ -2686,6 +2686,20 @@ describe('expected steps', () => {
     expect(pack.appendSystemPrompt).not.toContain('and priorities');
   });
 
+  it('names the card lifecycle tools in the project manager prompt only for the actions the setting allows (PM-1098)', () => {
+    const project = buildProject();
+    addMember(project, 'pm', 'project_manager');
+    const prompt = () => builder.build(input({ project, handle: 'pm' })).appendSystemPrompt;
+    project.team.projectManagerLifecycle = ['assign', 'cancel', 'reopen'];
+    expect(prompt()).toContain('reopen_task');
+    project.team.projectManagerLifecycle = ['assign', 'cancel'];
+    expect(prompt()).toContain('reassign_task');
+    expect(prompt()).not.toContain('reopen_task');
+    project.team.projectManagerLifecycle = [];
+    expect(prompt()).not.toContain('reassign_task');
+    expect(prompt()).not.toContain('cancel_task');
+  });
+
   it('tells a member holding the prioritization duty that it may set a priority, when the setting allows it (PM-1096)', () => {
     const project = buildProject();
     addMember(project, 'pm', 'project_manager');

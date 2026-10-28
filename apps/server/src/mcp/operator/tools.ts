@@ -602,7 +602,7 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       title: 'Reassign a task',
       readOnly: false,
       description:
-        "Only the selected PM in its internal general conversation; needs no owner request. Change a card's assignee (null clears it) and give the reason: it is on the card's timeline under your name. On a started card the old assignee hands its work over (a note first), as for a person's reassignment. The member must exist and not be on leave; a closed card or a theme is refused. This does not start work: use start_task for that.",
+        "Only the selected PM in its internal general conversation; needs no owner request. Change a card's assignee (null clears it) and give the reason: it is on the card's timeline under your name. On a started card the old assignee hands its work over (a note first), as for a person's reassignment. The member must exist and not be on leave; a closed card or a theme is refused. This does not start work: use start_task for that. Only when the project settings let the PM reassign cards (otherwise project_manager_lifecycle_refused).",
       input: {
         task_key: TaskKey,
         assignee: MemberHandle.nullable(),
@@ -625,10 +625,23 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       title: 'Cancel a task',
       readOnly: false,
       description:
-        "Only the selected PM in its internal general conversation; needs no owner request. Close a card as cancelled (its sessions stop; assignee, stage and files stay) and give the reason: it is on the card's timeline under your name. A closed card or a theme is refused. Deleting a card stays with the owners.",
+        "Only the selected PM in its internal general conversation; needs no owner request. Close a card as cancelled (its sessions stop; assignee, stage and files stay) and give the reason: it is on the card's timeline under your name. A closed card or a theme is refused. Deleting a card stays with the owners. Only when the project settings let the PM cancel cards (otherwise project_manager_lifecycle_refused); the same right lets you mark a started card as a duplicate (duplicate_of).",
       input: { task_key: TaskKey, reason: z.string().trim().min(1).max(500) },
       async run({ ctx, args, handler }) {
         return JSON.stringify(await handler.cancelTask(ctx, { taskKey: args.task_key, reason: args.reason }));
+      },
+    }),
+
+    defineTool({
+      name: 'reopen_task',
+      audience: { roles: ['project_manager'] },
+      title: 'Reopen a cancelled task',
+      readOnly: false,
+      description:
+        'Only the selected PM in its internal general conversation, and only when the project settings let it reopen cards (otherwise project_manager_lifecycle_refused). Reopens a cancelled card in its stage with no assignee; the reason is on the timeline under your name. A theme or an open card is refused. Starting work stays explicit: start_task.',
+      input: { task_key: TaskKey, reason: z.string().trim().min(1).max(500) },
+      async run({ ctx, args, handler }) {
+        return JSON.stringify(await handler.reopenTask(ctx, { taskKey: args.task_key, reason: args.reason }));
       },
     }),
 

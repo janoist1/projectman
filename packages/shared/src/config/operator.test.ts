@@ -251,6 +251,7 @@ describe('approval waiver eligibility (PM-691)', () => {
     ['project manager moves', (n) => (n.team.projectManagerMoves = 'start_only')],
     ['priority setters', (n) => (n.team.prioritySetters = [])],
     ['complexity setters', (n) => (n.team.complexitySetters = ['implementation'])],
+    ['project manager lifecycle', (n) => (n.team.projectManagerLifecycle = ['reopen'])],
     ['display name', (n) => (ai(n, 'writer').displayName = 'Author')],
     ['specialty', (n) => (ai(n, 'writer').specialty = 'Documentation')],
     ['provider', (n) => (ai(n, 'writer').provider = 'codex')],

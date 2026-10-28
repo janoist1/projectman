@@ -58,8 +58,8 @@ const ADDED_RELATIONS_HELP =
   'part_of: this card is a one-level subtask of the other (same project); prerequisite: this card can ' +
   'only be done after the other (order cards with this, not with a "Dependencies" text); related: the ' +
   'cards belong together, nothing more; duplicate_of: this card duplicates the other and is closed ' +
-  'pointing at it (only a card that has not started: waiting in a queue stage, no session; otherwise an ' +
-  'admin or the owner marks it). Point at the original, never at another duplicate.';
+  'pointing at it (only a card that has not started: waiting in a queue stage, no session; otherwise ' +
+  'whoever may cancel it marks it: an admin, the owner, or the project manager when the project settings allow it). Point at the original, never at another duplicate.';
 
 const addedRelationInput = z.object({
   kind: AddableRelationKind,

@@ -219,7 +219,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": false,
       "title": "Cancel a task",
     },
-    "description": "Only the selected PM in its internal general conversation; needs no owner request. Close a card as cancelled (its sessions stop; assignee, stage and files stay) and give the reason: it is on the card's timeline under your name. A closed card or a theme is refused. Deleting a card stays with the owners.",
+    "description": "Only the selected PM in its internal general conversation; needs no owner request. Close a card as cancelled (its sessions stop; assignee, stage and files stay) and give the reason: it is on the card's timeline under your name. A closed card or a theme is refused. Deleting a card stays with the owners. Only when the project settings let the PM cancel cards (otherwise project_manager_lifecycle_refused); the same right lets you mark a started card as a duplicate (duplicate_of).",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,
@@ -2587,6 +2587,17 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                         },
                         "type": "object",
                       },
+                      "projectManagerLifecycle": {
+                        "items": {
+                          "enum": [
+                            "assign",
+                            "cancel",
+                            "reopen",
+                          ],
+                          "type": "string",
+                        },
+                        "type": "array",
+                      },
                       "projectManagerMoves": {
                         "enum": [
                           "queues_and_start",
@@ -3681,7 +3692,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": false,
       "title": "Reassign a task",
     },
-    "description": "Only the selected PM in its internal general conversation; needs no owner request. Change a card's assignee (null clears it) and give the reason: it is on the card's timeline under your name. On a started card the old assignee hands its work over (a note first), as for a person's reassignment. The member must exist and not be on leave; a closed card or a theme is refused. This does not start work: use start_task for that.",
+    "description": "Only the selected PM in its internal general conversation; needs no owner request. Change a card's assignee (null clears it) and give the reason: it is on the card's timeline under your name. On a started card the old assignee hands its work over (a note first), as for a person's reassignment. The member must exist and not be on leave; a closed card or a theme is refused. This does not start work: use start_task for that. Only when the project settings let the PM reassign cards (otherwise project_manager_lifecycle_refused).",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,
@@ -3770,6 +3781,37 @@ exports[`team tool definitions > preserves the public tool definitions across mo
     },
     "name": "record_system_feedback",
     "title": "Record a gap in projectman",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Reopen a cancelled task",
+    },
+    "description": "Only the selected PM in its internal general conversation, and only when the project settings let it reopen cards (otherwise project_manager_lifecycle_refused). Reopens a cancelled card in its stage with no assignee; the reason is on the timeline under your name. A theme or an open card is refused. Starting work stays explicit: start_task.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "reason": {
+          "maxLength": 500,
+          "minLength": 1,
+          "type": "string",
+        },
+        "task_key": {
+          "pattern": "^[A-Z][A-Z0-9]{0,9}-\\d+$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "task_key",
+        "reason",
+      ],
+      "type": "object",
+    },
+    "name": "reopen_task",
+    "title": "Reopen a cancelled task",
   },
   {
     "annotations": {
@@ -4712,7 +4754,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
           "type": "array",
         },
         "add_relations": {
-          "description": "Relations of this card to other cards to add. part_of: this card is a one-level subtask of the other (same project); prerequisite: this card can only be done after the other (order cards with this, not with a "Dependencies" text); related: the cards belong together, nothing more; duplicate_of: this card duplicates the other and is closed pointing at it (only a card that has not started: waiting in a queue stage, no session; otherwise an admin or the owner marks it). Point at the original, never at another duplicate. A refused relation (a prerequisite loop, itself, another project) refuses the whole call.",
+          "description": "Relations of this card to other cards to add. part_of: this card is a one-level subtask of the other (same project); prerequisite: this card can only be done after the other (order cards with this, not with a "Dependencies" text); related: the cards belong together, nothing more; duplicate_of: this card duplicates the other and is closed pointing at it (only a card that has not started: waiting in a queue stage, no session; otherwise whoever may cancel it marks it: an admin, the owner, or the project manager when the project settings allow it). Point at the original, never at another duplicate. A refused relation (a prerequisite loop, itself, another project) refuses the whole call.",
           "items": {
             "properties": {
               "kind": {

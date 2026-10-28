@@ -18,6 +18,7 @@ import type {
   InboxItem,
   MemberHandle,
   ProjectConfig,
+  ProjectManagerLifecycleAction,
   Session,
   Task,
   TaskReadyHold,
@@ -44,6 +45,7 @@ import {
   memberOf,
   partsClosedWaiver,
   priorityRefusal,
+  projectManagerMayLifecycle,
   repoOf,
   subtaskParentRefusal,
   timelineNoteExcerpt,
@@ -61,7 +63,14 @@ import type { TaskPatch } from '../../db';
 import { requireHuman } from '../members';
 import { isoNow } from '../base';
 import type { DomainContext } from '../base';
-import { conflict, forbidden, invalid, projectManagerMoveRefused, themeRefused } from '../../kernel';
+import {
+  conflict,
+  forbidden,
+  invalid,
+  projectManagerLifecycleRefused,
+  projectManagerMoveRefused,
+  themeRefused,
+} from '../../kernel';
 import type { AddedRelation } from '../base';
 import type { InboxService } from '../inbox';
 import type { ProjectService } from '../projects';
@@ -465,7 +474,7 @@ export class TaskService implements TaskSchedulingReader {
   ): Promise<Task & { handoffStart?: HandoffStart }> {
     const config =
       change.assignee !== undefined
-        ? await this.requireLifecycleAccess(projectKey, actor, { coordinator: true })
+        ? await this.requireLifecycleAccess(projectKey, actor, 'assign')
         : await this.projects.config(projectKey);
     assertIntegratorAccess(config, 'write', actor);
     const effects: Effect[] = [];
@@ -942,7 +951,7 @@ export class TaskService implements TaskSchedulingReader {
 
   /** Closes the task and stops its sessions while preserving assignment, stage and files. */
   async cancel(projectKey: string, taskKey: string, req: CancelTaskRequest, actor: Actor): Promise<Task> {
-    await this.requireLifecycleAccess(projectKey, actor, { coordinator: true });
+    await this.requireLifecycleAccess(projectKey, actor, 'cancel');
     const effects: Effect[] = [];
     const next = this.ctx.unitOfWork(() => {
       const task = this.get(projectKey, taskKey);
@@ -1034,11 +1043,18 @@ export class TaskService implements TaskSchedulingReader {
 
   /**
    * Reopens in the same stage, with no assignee; starting work remains explicit. A theme is reopened by
-   * a person of developer access, any other card by an admin.
+   * a person of developer access, any other card by an admin or, when the project settings allow it, the
+   * selected PM (PM-1098). `reason` goes on the timeline.
    */
-  async reopen(projectKey: string, taskKey: string, actor: Actor): Promise<Task> {
-    const config = await this.projects.config(projectKey);
-    requireHuman(config, actor, isTheme(this.get(projectKey, taskKey)) ? 'developer' : 'admin');
+  async reopen(
+    projectKey: string,
+    taskKey: string,
+    actor: Actor,
+    opts: { reason?: string } = {},
+  ): Promise<Task> {
+    if (isTheme(this.get(projectKey, taskKey)))
+      requireHuman(await this.projects.config(projectKey), actor, 'developer');
+    else await this.requireLifecycleAccess(projectKey, actor, 'reopen');
     return this.ctx.unitOfWork(() => {
       const task = this.get(projectKey, taskKey);
       if (task.status !== 'cancelled') {
@@ -1059,6 +1075,7 @@ export class TaskService implements TaskSchedulingReader {
           fields: ['status', 'closedAt', 'assignee'],
           action: 'reopened',
           previousAssignee: task.assignee,
+          ...(opts.reason ? { reason: opts.reason } : {}),
         },
       });
       this.publish(next);
@@ -1066,14 +1083,20 @@ export class TaskService implements TaskSchedulingReader {
     });
   }
 
-  /** An admin; with `coordinator` also the selected PM acting directly (PM-1040: reassign and cancel). */
+  /**
+   * An admin; the selected PM acting directly only when the project settings list the action (PM-1040,
+   * PM-1098).
+   */
   private async requireLifecycleAccess(
     projectKey: string,
     actor: Actor,
-    opts: { coordinator?: boolean } = {},
+    action: ProjectManagerLifecycleAction,
   ): Promise<ProjectConfig> {
     const config = await this.projects.config(projectKey);
-    if (opts.coordinator && isCoordinationActor(config, actor)) return config;
+    if (isCoordinationActor(config, actor)) {
+      if (projectManagerMayLifecycle(config, actor, action)) return config;
+      throw projectManagerLifecycleRefused(action);
+    }
     requireHuman(config, actor, 'admin');
     return config;
   }

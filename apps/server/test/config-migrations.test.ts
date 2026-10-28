@@ -18,6 +18,7 @@ function raw(): {
     merger?: unknown;
     projectManagerMoves?: unknown;
     prioritySetters?: unknown;
+    projectManagerLifecycle?: unknown;
     viewerRecipients?: unknown;
   };
   pipeline: { stages: Array<Record<string, unknown>>; labels: Array<{ id: string; setBy?: unknown }> };
@@ -26,6 +27,7 @@ function raw(): {
   config.team.merger = { kind: 'code_reviewer' };
   config.team.projectManagerMoves = 'queues_and_start';
   config.team.prioritySetters = ['project_manager'];
+  config.team.projectManagerLifecycle = ['assign', 'cancel'];
   config.team.viewerRecipients = 'project_manager';
   return config;
 }
@@ -102,6 +104,15 @@ describe('project configuration migrations', () => {
     const set = raw();
     (set.team as { complexitySetters?: unknown }).complexitySetters = [];
     expect(migrate(set).config.team.complexitySetters).toEqual([]);
+  });
+
+  it("gives a configuration without lifecycle actions today's rights and keeps a set list (PM-1098)", () => {
+    const legacy = raw();
+    delete legacy.team.projectManagerLifecycle;
+    expect(migrate(legacy).config.team.projectManagerLifecycle).toEqual(['assign', 'cancel']);
+    const set = raw();
+    set.team.projectManagerLifecycle = [];
+    expect(migrate(set).config.team.projectManagerLifecycle).toEqual([]);
   });
 
   it('drops the removed message storm threshold without carrying its value over (PM-261)', () => {

@@ -141,7 +141,9 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   **Themes** (PM-192/PM-205): a card of `kind: 'theme'` (`tasks.kind`, default `task`) groups other
   cards. It has a key, title, description and timeline, and is open or closed (closed = `cancelled`,
   through the close route, by a human of developer access; reopened with `reopen`, which asks admin
-  access for any other card). It is in no stage (it carries the first stage's id because the field is
+  access for any other card, or the selected PM when `team.projectManagerLifecycle` lists `reopen`;
+  the PM's other lifecycle rights, reassigning and cancelling (also marking a started card as a duplicate),
+  follow the same setting through `lifecycleAllowed`, PM-1040, PM-1098). It is in no stage (it carries the first stage's id because the field is
   required), has no assignee or repository, is never moved or started, has no session (messages about it
   go to the recipient's general chat) and is no part, whole, prerequisite or prerequisite-of of a card;
   it duplicates only a theme and is related to anything. The one `isTheme` predicate in

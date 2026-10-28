@@ -379,6 +379,22 @@ export class OperatorTools implements OperatorToolsHandler {
     });
   }
 
+  async reopenTask(ctx: ToolContext, args: { taskKey: string; reason: string }) {
+    return this.calls.guard(async () => {
+      await this.calls.callerWithRequest(ctx, 'reopen_task');
+      const taskKey = this.calls.validTaskKey(ctx, args.taskKey);
+      try {
+        const task = await this.tasks.reopen(ctx.projectKey, taskKey, aiActor(ctx.member), {
+          reason: args.reason,
+        });
+        return { task_key: task.key, status: task.status };
+      } catch (err) {
+        if (err instanceof DomainError) throw toToolError(err);
+        throw err;
+      }
+    });
+  }
+
   async openIntegratorTodo(
     ctx: ToolContext,
     args: { taskKey?: string; question: string; what: string; where: string; expected: string },

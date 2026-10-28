@@ -1399,6 +1399,50 @@ commit that is pushed to a public `main`. The channel is narrow:
   it into the commit. The patterns and the command are the owner's to choose; the merge check, code review
   and the diff of the merge commit are the safeguards after that. Keep tokens out of remote URLs.
 
+## Web push, the service worker and the member context preview (PM-814, PM-815, PM-827, PM-1000, PM-1013)
+
+**The VAPID private key.** The installation key lives in `~/.projectman/secrets/web-push.json`: a 0600 file in a
+0700 directory (`services/web-push/secret.ts`; both modes are enforced on every start). It is created once,
+published atomically (a concurrent start never replaces it) and checked against its public half; a corrupt file
+stops web push with a sanitized error and never prints the key. The overview, logs and errors never carry it.
+If it leaks, an attacker who also knows a device's endpoint URL could send forged notifications to that device
+(any title and body; a tap still opens only a page of this app). The key alone reveals no endpoint: the
+endpoints, `p256dh` and `auth` values are stored only in the database. To replace the key: stop the server,
+delete `secrets/web-push.json` and start it. A new key is generated, every device that was subscribed with the
+old one is marked expired and its endpoint and keys are wiped (`expireOtherKeys`), and each person turns
+notifications on again, which makes their browser subscribe with the new public key.
+
+**The endpoint allowlist.** `isAllowedPushEndpoint` (`packages/shared`) is the SSRF guard. It accepts an
+`https` URL with a plain host, no port, no user name or password, no whitespace or backslash, and only the known
+push services (`fcm.googleapis.com`, `android.googleapis.com`, `updates.push.services.mozilla.com`,
+`web.push.apple.com`, and the `.push.services.mozilla.com`, `.push.apple.com` and `.notify.windows.com`
+subdomains). The server checks it when a device subscribes (`web_push_endpoint_invalid`), again before every send
+and in the transport itself. The transport does not follow redirects.
+
+**An endpoint belongs to one person (PM-1013).** Subscribing with an endpoint that another user's device already
+holds is refused with 409 `web_push_endpoint_taken`; the other row is left untouched, so nobody can take over
+or delete another person's device by sending its endpoint URL. Subscribing again with one's own endpoint updates
+that row and does not count against the limit of 20 devices per person. In a shared browser, the next person
+gets the 409 because the previous person's subscription is still in the browser (logging out does not remove
+a push device); the web app then drops the browser's subscription and subscribes anew once. The old row stays
+until the push service answers 404 or 410 at a send, which expires it.
+
+**What a push carries.** Only a fixed title of the item's category and the card key (or the project key of a
+release), plus the item id and the page to open. Never a question, decision or message text. The recipients are
+the human members whose project access lets them see the item (`canSeeInboxItem`); device and settings queries
+filter by `user_id`, so a person sees and changes only their own devices. A push-management call with an
+integrator key is refused (`web_push_integrator_refused`).
+
+**The service worker** (`apps/web/src/pwa/sw.js`). It caches only `/offline.html`, and serves it only when a page
+load of this origin finds no network. It never answers `/api`, `/ws`, `/hooks`, `/mcp` or `/feedback`, and
+caches no API, authentication or Cloudflare Access response and no app shell. A notification tap opens only a
+path of the same origin; anything else becomes the front page (`targetPath`).
+
+**The member context preview** (`GET` the member's context, `apps/server/src/api/members.ts`). It shows what a
+member's context pack would contain, so it is for the owner's own login only: a principal (team token) is
+refused, a project role below owner is refused, and so is access `via` another identity (an integrator).
+It issues no MCP token.
+
 ## Findings
 
 | Severity | Finding                                                                                                                  | Status                                                                                                                                                                                                                                                                                         |

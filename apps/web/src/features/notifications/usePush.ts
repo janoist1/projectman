@@ -2,7 +2,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useState } from 'react';
 import type { PushDeviceView, PushOverview, PushSettings } from '@projectman/shared';
 import { api } from '../../api/endpoints';
+import { isApiError } from '../../api/client';
 import { queryKeys } from '../../api/queryKeys';
+import { t } from '../../i18n/t';
+import { codeMessage } from '../../lib/errors';
 import {
   currentSubscription,
   endpointHash,
@@ -80,7 +83,7 @@ export type ThisDeviceState =
   | { kind: 'ios_install' }
   | { kind: 'denied' }
   | { kind: 'asking' }
-  | { kind: 'off'; failed: boolean }
+  | { kind: 'off'; failure: string | null }
   | { kind: 'expired'; device: PushDeviceView }
   | { kind: 'on'; device: PushDeviceView };
 
@@ -109,7 +112,7 @@ export function useThisDevice(overview: PushOverview | undefined): ThisDevice {
   const [permission, setPermission] = useState<PushPermission>(() => readPermission());
   const [hash, setHash] = useState<string | null | undefined>(undefined);
   const [asking, setAsking] = useState(false);
-  const [failed, setFailed] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
 
   useEffect(() => {
     let live = true;
@@ -129,19 +132,33 @@ export function useThisDevice(overview: PushOverview | undefined): ThisDevice {
   const subscribe = useCallback(async (): Promise<boolean> => {
     if (!overview?.publicKey) return false;
     setAsking(true);
-    setFailed(false);
+    setFailure(null);
     try {
       const replaced = device;
-      const subscription = await subscribeBrowser(overview.publicKey);
-      const saved = await api.subscribePush({ ...subscription, installed: isInstalledApp() });
+      const save = async () =>
+        api.subscribePush({ ...(await subscribeBrowser(overview.publicKey!)), installed: isInstalledApp() });
+      let saved: PushDeviceView;
+      try {
+        saved = await save();
+      } catch (error) {
+        // A shared browser still carries the previous person's subscription (PM-1013): drop it, ask the
+        // push service for a new one, and try once more. A second refusal is shown as it is.
+        if (!isApiError(error) || error.code !== 'web_push_endpoint_taken') throw error;
+        await unsubscribeBrowser().catch(() => false);
+        saved = await save();
+      }
       // The revoked subscription's row is replaced by the new one, not kept next to it.
       if (replaced?.state === 'expired' && replaced.id !== saved.id) {
         await api.removePushDevice(replaced.id).catch(() => undefined);
       }
       await client.invalidateQueries({ queryKey: queryKeys.push });
       return true;
-    } catch {
-      setFailed(true);
+    } catch (error) {
+      setFailure(
+        isApiError(error) && error.code === 'web_push_endpoint_taken'
+          ? (codeMessage(error.code) ?? t('notifications.enableFailed'))
+          : t('notifications.enableFailed'),
+      );
       return false;
     } finally {
       setAsking(false);
@@ -156,7 +173,7 @@ export function useThisDevice(overview: PushOverview | undefined): ThisDevice {
         answer = await requestPermission();
       } catch {
         setAsking(false);
-        setFailed(true);
+        setFailure(t('notifications.enableFailed'));
         return false;
       }
       setAsking(false);
@@ -193,7 +210,7 @@ export function useThisDevice(overview: PushOverview | undefined): ThisDevice {
   else if (permission === 'denied') state = { kind: 'denied' };
   else if (device?.state === 'expired') state = { kind: 'expired', device };
   else if (device?.enabled) state = { kind: 'on', device };
-  else state = { kind: 'off', failed };
+  else state = { kind: 'off', failure };
 
   return { state, device, support, enable, recheck, disable, forget };
 }

@@ -111,6 +111,29 @@ describe('this device', () => {
     expect(screen.getByText(t('notifications.off.title'))).toBeTruthy();
   });
 
+  it('subscribes anew once when the browser still carries another person’s endpoint', async () => {
+    const project = renderPage();
+    project.backend.push.foreignHashes.add(browserHash('previous-user'));
+    pushBrowserModule.subscribeBrowser.mockImplementationOnce(async () => {
+      fakeBrowser.subscription = browserSubscription('previous-user');
+      return fakeBrowser.subscription;
+    });
+    fireEvent.click(await screen.findByRole('button', { name: t('notifications.off.action') }));
+    expect(await screen.findByText(t('notifications.on.title'))).toBeTruthy();
+    expect(pushBrowserModule.subscribeBrowser).toHaveBeenCalledTimes(2);
+    expect(pushBrowserModule.unsubscribeBrowser).toHaveBeenCalledTimes(1);
+    expect(project.backend.push.devices).toMatchObject([{ endpointHash: browserHash() }]);
+  });
+
+  it('shows the endpoint-taken message when the second subscribe is refused too', async () => {
+    const project = renderPage();
+    project.backend.push.foreignHashes.add(browserHash());
+    fireEvent.click(await screen.findByRole('button', { name: t('notifications.off.action') }));
+    expect(await screen.findByText(codeMessage('web_push_endpoint_taken')!)).toBeTruthy();
+    expect(pushBrowserModule.subscribeBrowser).toHaveBeenCalledTimes(2);
+    expect(project.backend.push.devices).toHaveLength(0);
+  });
+
   it('offers a one-press re-enable for a revoked subscription and replaces the dead row', async () => {
     const project = mockProject();
     fakeBrowser.permission = 'granted';

@@ -171,7 +171,10 @@ async function startTask(h: Harness) {
     expect(detail.task.labels).toEqual(labels);
     if (status === 'done') expect(detail.task.closedAt).toEqual(expect.any(String));
     const businessEvents = detail.timeline.filter((event) => !event.type.startsWith('session_'));
-    expect(businessEvents).toHaveLength(events.length);
+    expect(
+      businessEvents,
+      `timeline: ${businessEvents.map((event) => `${event.type} ${JSON.stringify(event.data)}`).join('; ')}`,
+    ).toHaveLength(events.length);
     events.forEach((event, i) => expect(businessEvents[i]).toMatchObject(event));
     // A session closes by itself when its member's step on the card is done (PM-295), and starts again,
     // resumed, when the member is needed again: so each session has one fresh start, and any number of
@@ -501,6 +504,9 @@ async function approve(h: Harness, j: Journey, member: string, target: string, c
     actor: owner,
     data: { from, to: target, approvedBy: ['owner'], inboxItemIds: [item.id] },
   });
+  // The approver's session may be running already: the hand-over then tells it with a stored message in
+  // the background (PM-82), so wait for it before the timeline is read.
+  await handedOverTo(h, j, null, from, target);
   // The card may lack only the next approval now (merge, then release): the system asks for it.
   await awaitSystem(h, j);
   await j.assertState(target, target === 'done' ? 'done' : undefined);

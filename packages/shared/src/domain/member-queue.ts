@@ -1,7 +1,5 @@
 import { z } from 'zod';
 import { memberOf } from '../config/lookup';
-import { isOnLeave } from '../config/leave';
-import { isOperator, operatorOf } from '../config/operator-member';
 import { hasGuestConversations, managerConversationOf, sessionWorkItemOf } from '../config/project-manager';
 import type { ProjectConfig } from '../config/schema';
 import { MemberHandle } from './member';
@@ -211,37 +209,28 @@ export function memberQueueUrgency(kind: MemberQueueItemKind): number {
 
 /**
  * Which start limits apply when an item wakes its member (PM-925): the member's capacity and the team's
- * concurrent AI limit. Decisions the team waits on, and everything the Operator does, must not stand
- * behind a full team; only the Operator's conversation with a person who is not an owner (PM-475) is
- * counted in its capacity, as that one is the person's own.
+ * concurrent AI limit. Decisions the team waits on must not stand behind a full team.
  */
-export function memberQueueStartLimits(
-  config: Pick<ProjectConfig, 'team'>,
-  member: string,
-  kind: MemberQueueItemKind,
-  place?: WorkItemRef,
-): { capacity: boolean; aiLimit: boolean } {
-  if (isOperator(memberOf(config, member)))
-    return { capacity: place?.type === 'general' && place.with !== undefined, aiLimit: false };
+export function memberQueueStartLimits(kind: MemberQueueItemKind): { capacity: boolean; aiLimit: boolean } {
   const free = kind === 'permission' || kind === 'fix_limit' || kind === 'screening';
   return { capacity: !free, aiLimit: !free };
 }
 
 /**
- * The Operator processes its queue: one exists (`operatorOf`), not on leave, and the team's AI is enabled
- * (PM-885).
+ * Integrator items stay on the integrator side while an owner has a live super key (PM-1045): that owner's
+ * connected Claude works them. Without one they go to the owners. `hasActiveSuperKey` takes the owner's email.
  */
-export function operatorQueueAvailable(config: Pick<ProjectConfig, 'team'>): boolean {
-  const operator = operatorOf(config);
-  return !!operator && !isOnLeave(operator) && config.team.limits.aiEnabled;
-}
-
-/**
- * Integrator items stay with the Operator's side while the project has an Operator (PM-1003): on leave
- * or with AI off they wait for it or the super side; only without one do they go to the owners.
- */
-export function integratorSideAvailable(config: Pick<ProjectConfig, 'team'>): boolean {
-  return !!operatorOf(config);
+export function integratorSideAvailable(
+  config: Pick<ProjectConfig, 'team'>,
+  hasActiveSuperKey: (ownerEmail: string) => boolean,
+): boolean {
+  return config.team.members.some(
+    (member) =>
+      member.kind === 'human' &&
+      member.access === 'owner' &&
+      !!member.email &&
+      hasActiveSuperKey(member.email),
+  );
 }
 
 /**

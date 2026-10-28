@@ -128,15 +128,4 @@ export function registerOperatorRoutes(app: FastifyInstance, deps: { domain: Api
       );
     return domain.projectManagerChannels.view(request.params.key, access.handle);
   });
-
-  /**
-   * The viewer's own conversation with the Operator and the log of its steps: any person's own login (PM-475);
-   * the owners share one, everyone else has theirs, read only. The integrator key never sees it (PM-463).
-   */
-  app.get<ProjectParams>(routes.operator(':key'), async (request) => {
-    const access = await requireAccess(domain, request, request.params.key);
-    if (access.via)
-      throw forbidden('operator_owner_only', "only a person's own login may see the Operator's conversation");
-    return domain.projectManagerChannels.operatorView(request.params.key, access.handle);
-  });
 }

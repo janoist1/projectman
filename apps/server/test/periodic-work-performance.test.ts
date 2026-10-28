@@ -846,7 +846,7 @@ describe('periodic work performance protocol (PM-733)', () => {
     for (const history of [20, 200]) {
       const h = await fixture(history, history, true);
       try {
-        expect(await paths(h).pending()).toEqual({ count: 20, engineCount: 20 });
+        expect(await paths(h).pending()).toEqual({ count: 17, engineCount: 17 });
         for (const project of PROJECTS)
           expect(h.repos.tasks.list(project).filter((t) => t.status === 'active')).toHaveLength(10);
       } finally {

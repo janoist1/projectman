@@ -211,11 +211,11 @@ export const hu: TemplateLocale = {
     ai_operator: {
       name: 'Operátor',
       summary:
-        'A tulajdonos jobb keze: az appon belül mindent intéz, amit a tulajdonos is megtehet, a tagok modelljétől, szabadságától és a szerepek utasításaitól a tábláig. Amihez a tulajdonos saját igene kell (tagok, kulcsok, a projekt vagy egy repó törlése; a tulajdonos belépése és biztonsági beállításai; fizetős költség), azt előkészíti, és vár.',
+        'Csak átmeneti azonosító: a tulajdonos csatlakoztatott kliensének (szuperkulcsos integrátor) lépései ezen a tagon jelennek meg. Az appban nem fut, nem indítható és nem írható neki üzenet.',
       notTheirJob:
-        'Nem fejleszt, és nem dönt a tulajdonos helyett. Csak ember írására dolgozik, AI-tag üzenete nem ébreszti.',
+        'Nem fejleszt, nem válaszol üzenetre és nem dönt a tulajdonos helyett. A gépi munka az integrátorhoz megy az open_integrator_todo-val.',
       whenToAsk:
-        'Ha a projekt működésén változtatnál (ki melyik modellel dolgozik, ki van szabadságon), vagy tudni szeretnéd, miért áll egy kártya.',
+        'Ne kérdezd: gépi munkához nyiss integrátor-teendőt, minden máshoz kérdezz embert az ask_human-nal.',
     },
     product_owner: {
       name: 'Terméktulajdonos',
@@ -504,10 +504,6 @@ export const hu: TemplateLocale = {
         'Ez a tétel az integrátornak szól: a fenti lehetőségek egyikét választhatja, vagy indoklással továbbadhatja a tulajdonosnak.',
       owner: 'Ez a tétel a tulajdonosnak szól.',
     },
-  },
-  operatorQueue: {
-    failedAction: (title) => `Nézd meg: ${title}`,
-    failedSummary: 'Az Operátor nem fejezte be a tételt.',
   },
   systemFeedback: {
     what: 'Mi történt',

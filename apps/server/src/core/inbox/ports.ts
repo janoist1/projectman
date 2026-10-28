@@ -1,6 +1,6 @@
 import type { InboxItem, MemberHandle, ProjectConfig } from '@projectman/shared';
 
-/** Whether integrator work stays on its side: an Operator exists, including on leave or with AI off (PM-1003). */
+/** Whether integrator work stays on its side: an owner has a live super key, so a connected client can work it (PM-1045). */
 export interface IntegratorTodoAccess {
   available(config: ProjectConfig): boolean;
 }

@@ -322,26 +322,19 @@ describe('integrator todo REST and durable lifecycle', () => {
     );
   });
 
-  it('falls back to owner when the project has no Operator', async () => {
-    const projects = h.app.projectman.domain.projects;
-    const config = structuredClone(await projects.config('AR'));
-    config.team.members = config.team.members.filter(
-      (member) => member.kind !== 'ai' || member.role !== 'ai_operator',
+  it('falls back to owner when no owner has a live super key (PM-1045)', async () => {
+    h.app.projectman.auth.revokeIntegratorAccessKey(
+      h.app.projectman.repos.users.list()[0]!.id,
+      superKey.key.id,
     );
-    vi.spyOn(projects, 'config').mockResolvedValue(config);
     const item = await opened();
     expect(item.payload).toMatchObject({
       recipient: 'owner',
       screening: { recipientRefusal: 'integrator_unavailable' },
     });
-    expect(await refusal(resolve(item.id))).toBe('insufficient_access');
   });
 
-  it('keeps a todo for the Operator without any super access key', async () => {
-    h.app.projectman.auth.revokeIntegratorAccessKey(
-      h.app.projectman.repos.users.list()[0]!.id,
-      superKey.key.id,
-    );
+  it('keeps a todo on the integrator side while an owner has a live super key (PM-1045)', async () => {
     const item = await opened();
     expect(item.payload).toMatchObject({ recipient: 'integrator' });
     expect(item.payload.screening).not.toHaveProperty('recipientRefusal');
@@ -401,6 +394,21 @@ describe('integrator todo REST and durable lifecycle', () => {
     now = new Date(now.getTime() + 86_400_000);
     await resolve(item.id);
     expect(events('question_recipient_escalated')).toHaveLength(0);
+  });
+
+  it('sweeps a todo to the owners once no owner has a live super key (PM-1045)', async () => {
+    const item = await opened();
+    await h.app.projectman.domain.inbox.sweepIntegratorTodos();
+    expect(current(item.id).payload).toMatchObject({ recipient: 'integrator' });
+    expect(events('question_recipient_escalated')).toHaveLength(0);
+
+    h.app.projectman.auth.revokeIntegratorAccessKey(
+      h.app.projectman.repos.users.list()[0]!.id,
+      superKey.key.id,
+    );
+    await h.app.projectman.domain.inbox.sweepIntegratorTodos();
+    expect(current(item.id).payload).toMatchObject({ recipient: 'owner' });
+    expect(events('question_recipient_escalated')).toHaveLength(1);
   });
 
   it('rechecks credentials immediately before durable closure and refuses forged actors', async () => {

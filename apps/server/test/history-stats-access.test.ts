@@ -2,12 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Session } from '@projectman/shared';
 import { TeamToolError } from '../src/contracts';
 import type { ToolContext } from '../src/contracts';
-import { waitFor } from '../src/runner/test-helpers';
 import { OPERATOR_REQUEST_TTL_MS } from '../src/services/operator';
 import type { DomainHarness } from './helpers/domain-harness';
 import { rejection } from './helpers/errors';
-import { flush, settle } from './helpers/fakes';
 import { as, historyHarness } from './helpers/history';
+import { seedOperatorRequest } from './helpers/operator-session';
 
 const OWNER = { handle: 'owner', access: 'owner' } as const;
 
@@ -49,28 +48,45 @@ describe('the private history search statistics through the Operator', () => {
   });
   const opened = (from: string) => h.repos.operatorRequests.openOfSession(conversationOf(from)!.id);
 
-  /** A person writes to the Operator with their own login; resolves when the message is in the conversation. */
-  async function say(from: string, text = 'Show me the search statistics') {
-    const result = await h.domain.messaging.sendReporting(
-      'AR',
+  /** A person's message request in the Operator's conversation with them, seeded (the app starts no Operator). */
+  function say(from: string, text = 'Show me the search statistics') {
+    const { request } = seedOperatorRequest(h, 'AR', {
       from,
-      { to: ['operator'], text },
-      { awaitWake: true },
-    );
-    await settle();
-    await waitFor(
-      () => {
-        const session = conversationOf(from);
-        return (
-          session &&
-          h.runner.started.some((spec) => spec.sessionId === session.id) &&
-          h.repos.messages.get(result.message.id)?.deliveredAt &&
-          opened(from).length > 0
-        );
-      },
-      { what: `${from}’s message to reach the Operator conversation` },
-    );
-    return result;
+      with: from === 'owner' ? undefined : from,
+      at: clock.toISOString(),
+      text,
+    });
+    return { message: { id: request.messageId! } };
+  }
+
+  /** The person's answer to the Operator's question: the old request closes and an answer request opens. */
+  function answer(from: string, inboxItemId: string) {
+    const session = conversationOf(from)!;
+    for (const request of opened(from)) h.repos.operatorRequests.close(request.id, clock.toISOString());
+    const messageId = `msg_answer_${inboxItemId}`;
+    h.repos.messages.insert({
+      id: messageId,
+      projectKey: 'AR',
+      from,
+      to: ['operator'],
+      taskKey: null,
+      body: 'The answer',
+      createdAt: clock.toISOString(),
+      deliveredAt: clock.toISOString(),
+      origin: { kind: 'answer', inboxItemId },
+      answer: { inboxItemId, question: 'The question', answer: 'The answer' },
+    });
+    h.repos.operatorRequests.insert({
+      id: `opr_answer_${inboxItemId}`,
+      projectKey: 'AR',
+      sessionId: session.id,
+      source: 'answer',
+      messageId,
+      inboxItemId,
+      fromHandle: from,
+      quote: 'The answer',
+      openedAt: clock.toISOString(),
+    });
   }
 
   const forbidden = async (ctx: ToolContext) => {
@@ -114,10 +130,8 @@ describe('the private history search statistics through the Operator', () => {
         question: 'How much of the history do you want to see?',
         options: ['All', 'The last week'],
       });
-      h.runner.setState(conversationOf('owner')!.id, 'idle');
-      await vi.waitFor(() => expect(opened('owner')).toHaveLength(0));
       await h.domain.inbox.resolve('AR', inboxItemId, { optionId: 'option_1' }, OWNER);
-      await flush();
+      answer('owner', inboxItemId);
       expect(opened('owner')).toHaveLength(1);
       expect(opened('owner')[0]).toMatchObject({ source: 'answer', inboxItemId, fromHandle: 'owner' });
       await expect(tools().getHistorySearchStats(toolOf('owner'), {})).resolves.toMatchObject({
@@ -151,8 +165,7 @@ describe('the private history search statistics through the Operator', () => {
       await say('owner');
       const ctx = toolOf('owner');
       await expect(tools().getHistorySearchStats(ctx, {})).resolves.toBeTruthy();
-      h.runner.setState(ctx.sessionId, 'idle');
-      await vi.waitFor(() => expect(opened('owner')).toHaveLength(0));
+      for (const request of opened('owner')) h.repos.operatorRequests.close(request.id, clock.toISOString());
       await forbidden(ctx);
     });
 
@@ -228,10 +241,8 @@ describe('the private history search statistics through the Operator', () => {
         question: 'How much of the history do you want to see?',
         options: ['All', 'The last week'],
       });
-      h.runner.setState(conversationOf('owner')!.id, 'idle');
-      await vi.waitFor(() => expect(opened('owner')).toHaveLength(0));
       await h.domain.inbox.resolve('AR', inboxItemId, { optionId: 'option_1' }, OWNER);
-      await flush();
+      answer('owner', inboxItemId);
       const ctx = toolOf('owner');
       await expect(tools().getHistorySearchStats(ctx, {})).resolves.toBeTruthy();
       const original = h.repos.db

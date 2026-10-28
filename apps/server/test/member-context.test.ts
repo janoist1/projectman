@@ -23,7 +23,7 @@ describe('member context preview', () => {
   it.each(['general', 'task'] as const)('uses the launch input for a fresh %s conversation', async (kind) => {
     const task =
       kind === 'task' ? await h.domain.tasks.create('AR', { title: 'Preview work' }, OWNER_ACTOR) : null;
-    const handle = task ? 'cr' : 'operator';
+    const handle = task ? 'cr' : 'dev-1';
     h.memory.notes.set(`AR/${handle}`, 'Remember 🧭');
     await h.domain.sessions.previewContext('AR', handle, {
       viewer: 'owner',
@@ -51,9 +51,9 @@ describe('member context preview', () => {
   it('returns builder text, ordered guides, sections and code point counts', async () => {
     const builder = createContextPackBuilder();
     const build = vi.spyOn(h.contextBuilder, 'build').mockImplementation((input) => builder.build(input));
-    h.memory.notes.set('AR/operator', 'Remember 🧭');
+    h.memory.notes.set('AR/pm', 'Remember 🧭');
     const preview = MemberContextPreview.parse(
-      await h.domain.sessions.previewContext('AR', 'operator', { viewer: 'owner' }),
+      await h.domain.sessions.previewContext('AR', 'pm', { viewer: 'owner' }),
     );
     const input = build.mock.calls[0]![0];
     const pack = builder.build(input);

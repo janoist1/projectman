@@ -2444,4 +2444,17 @@ migrations.push({
     DROP TABLE operator_signals_old;
     CREATE UNIQUE INDEX operator_signals_open ON operator_signals(project_key, case_key) WHERE resolved_at IS NULL;`,
 });
+migrations.push({
+  version: 121,
+  name: 'close the in-app Operator queue rows',
+  // PM-1045: the Operator no longer runs in the app, so its open queue rows will never be worked. They are
+  // closed as cancelled (a closed row stays under the unique key, so the reconciler does not insert it
+  // again); the inbox items behind them stay open for the integrator side. The members are told apart by the
+  // handle the Operator is created with (`operator`, `operator-2`, ...): the role lives in the configuration,
+  // which a migration cannot read, and the queue reconciler skips the Operator from now on in any case.
+  sql: `UPDATE member_queue_items
+    SET state = 'cancelled', close_reason = 'source_closed', closed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+    WHERE state IN ('queued', 'processing')
+      AND (member = 'operator' OR member GLOB 'operator-[0-9]*');`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

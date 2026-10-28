@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createDomainHarness, OWNER_ACTOR, type DomainHarness } from './helpers/domain-harness';
 import { flush, planUsage } from './helpers/fakes';
+import { seedOperatorSession } from './helpers/operator-session';
 import { TEAM_TOOLS } from '../src/mcp';
 import { formatProjectState } from '../src/mcp/format';
 
@@ -103,10 +104,7 @@ describe('project state from server records', () => {
         }),
     });
     await h.domain.tasks.create('AR', { title: 'Internal checkout' }, OWNER_ACTOR);
-    const { session } = await h.domain.sessions.ensureSession('AR', 'operator', {
-      type: 'general',
-      with: 'guest',
-    });
+    const session = seedOperatorSession(h, 'AR', { with: 'guest' });
     for (const args of [{}, { taskKey: 'AR-1' }]) {
       await expect(
         h.domain.teamTools.getProjectState({ ...operator, sessionId: session.id }, args),

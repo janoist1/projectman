@@ -4,7 +4,6 @@ import type {
   MemberQueueCloseReason,
   MemberQueueItem,
   MemberQueueView,
-  OperatorQueueOutcome,
   ProjectConfig,
   TeamMessage,
 } from '@projectman/shared';
@@ -13,14 +12,12 @@ import {
   MEMBER_QUEUE_CLOSED_LIMIT,
   coordinationMemberOf,
   questionPayloadOf,
-  isIntegratorFixLimitDecision,
-  operatorOwesInboxItem,
+  isOperator,
   memberOf,
   memberQueueSourceOf,
   messageRoute,
   messageWakes,
   nominalMessagePlace,
-  operatorOf,
   pendingRecipientsOf,
   permissionDelegationOf,
   SYSTEM_SENDER,
@@ -42,20 +39,13 @@ interface MemberQueueProjects {
 
 const TITLE_MAX = 200;
 
-/** How the Operator ends its item: the state, the reason and what it did. */
-export interface PlannedClose {
-  state: 'done' | 'handed_off';
-  reason: MemberQueueCloseReason;
-  outcome: OperatorQueueOutcome;
-}
-
 /**
  * How the PM's screening item ends when its question leaves screening: the PM decided it (done), the people
  * got it because the PM could not or did not (handed off), or something else ended it (null: cancelled).
  */
 function screeningClose(
   item: InboxItem,
-): { state: PlannedClose['state']; reason: MemberQueueCloseReason } | null {
+): { state: 'done' | 'handed_off'; reason: MemberQueueCloseReason } | null {
   const screening = questionPayloadOf(item)?.screening;
   if (screening?.outcome) return { state: 'done', reason: 'resolved' };
   if (screening?.fallback) return { state: 'handed_off', reason: 'handed_off' };
@@ -72,7 +62,7 @@ const toView = (item: StoredMemberQueueItem): MemberQueueItem => ({
 });
 
 /**
- * The member queue (PM-894, slice A): a row per message or Operator item addressed to an AI member,
+ * The member queue (PM-894, slice A): a row per message or inbox item addressed to an AI member,
  * kept true by the two writes that make the sources (a message's pending receipts, an inbox item) and by
  * `recover` at startup. It stores and shows; waking and delivery stay with the messaging (PM-925 takes them over).
  *
@@ -108,23 +98,6 @@ export class MemberQueue {
   }
 
   private readonly changeListeners: Array<(projectKey: string, member: string) => void> = [];
-  private readonly planned = new Map<string, PlannedClose>();
-
-  /**
-   * The Operator ends its item (PM-885): the close of the item's source that follows, inside this process,
-   * ends the item as `close` says. Returns the call that takes the plan back (always call it when done).
-   */
-  plan(itemId: string, close: PlannedClose): () => void {
-    this.planned.set(itemId, close);
-    return () => {
-      this.planned.delete(itemId);
-    };
-  }
-
-  /** One item as the stored row has it, any state; null when there is none. */
-  stored(id: string): StoredMemberQueueItem | null {
-    return this.ctx.repos.memberQueue.get(id);
-  }
 
   /**
    * Queues an item of a source that makes its items itself (the system signals); false when the source has one
@@ -142,19 +115,6 @@ export class MemberQueue {
   get(id: string): MemberQueueItem | null {
     const item = this.ctx.repos.memberQueue.get(id);
     return item ? toView(item) : null;
-  }
-
-  /** Ends one open item as `close` says (the Operator is done with a message item); the closed item, else null. */
-  finish(item: StoredMemberQueueItem, close: PlannedClose): StoredMemberQueueItem | null {
-    const closed = this.ctx.repos.memberQueue.closeBySource(item.projectKey, item.source, {
-      state: close.state,
-      reason: close.reason,
-      at: isoNow(this.ctx),
-      member: item.member,
-      outcome: close.outcome,
-    });
-    this.changed(closed);
-    return closed[0] ?? null;
   }
 
   /**
@@ -247,7 +207,9 @@ export class MemberQueue {
     const touched: StoredMemberQueueItem[] = [];
     const at = isoNow(this.ctx);
     for (const handle of pending) {
-      if (memberOf(config, handle)?.kind !== 'ai') continue;
+      const recipient = memberOf(config, handle);
+      // The Operator exists only when the owner connects (PM-1045): nothing is queued for it.
+      if (recipient?.kind !== 'ai' || isOperator(recipient)) continue;
       const item = {
         id: newId('mqi'),
         projectKey: message.projectKey,
@@ -267,8 +229,6 @@ export class MemberQueue {
       if (pending.has(open.member)) continue;
       const receipt = message.receipts?.find((r) => r.handle === open.member);
       const delivered = !!receipt?.deliveredAt && !receipt.handedOffTo;
-      // The Operator works a message it has been given until it says it is done (`finish_queue_item`).
-      if (delivered && open.state === 'processing') continue;
       touched.push(
         ...repo.closeBySource(message.projectKey, source, {
           state: delivered ? 'done' : 'cancelled',
@@ -282,9 +242,9 @@ export class MemberQueue {
   }
 
   /**
-   * Makes the Operator's item of an inbox item true: queued while the item is open and addressed to the
-   * integrator (a todo, or a fix limit decision), closed otherwise: done when the integrator resolved it,
-   * cancelled when anything else ended it, escalation to the owner included.
+   * Makes the PM's screening item of an inbox item true: queued while the question is in screening, closed
+   * otherwise. An integrator item (a todo, or a fix limit decision) queues nothing: the owner's connected
+   * Claude works it (PM-1045).
    */
   syncInbox(item: InboxItem): void {
     const config = this.projects.cachedConfig(item.projectKey);
@@ -301,18 +261,8 @@ export class MemberQueue {
     const source: MemberQueueSourceKey = { type: 'inbox', id: item.id };
     const touched: StoredMemberQueueItem[] = [];
     const at = isoNow(this.ctx);
-    // The items the inbox item is owed to now: the Operator's todo or held decision, or the PM's screening.
-    const wanted = new Map<
-      string,
-      { member: string; kind: 'todo' | 'fix_limit' | 'screening'; from: string | null }
-    >();
-    const operator = operatorOf(config);
-    if (operatorOwesInboxItem(item) && operator)
-      wanted.set(operator.handle, {
-        member: operator.handle,
-        kind: isIntegratorFixLimitDecision(item) ? 'fix_limit' : 'todo',
-        from: null,
-      });
+    // The items the inbox item is owed to now: the PM's screening.
+    const wanted = new Map<string, { member: string; kind: 'screening'; from: string | null }>();
     const pm = coordinationMemberOf(config);
     if (item.kind === 'question' && item.state === 'screening' && pm && pm.kind === 'ai') {
       // A combined group is screened as one: its primary question carries the item.
@@ -340,21 +290,13 @@ export class MemberQueue {
     const byIntegrator = !!resolution && (resolution.integratorTodo || resolution.integratorFixLimit);
     for (const open of repo.listOpenOfSource(item.projectKey, source)) {
       if (wanted.get(open.member)?.kind === open.kind) continue;
-      // The Operator that ends its item (`finish_queue_item`) says how: its ending wins over the default.
-      const planned = this.planned.get(open.id);
       const fallback = open.kind === 'screening' ? screeningClose(item) : null;
-      const state: PlannedClose['state'] | 'cancelled' =
-        planned?.state ?? fallback?.state ?? (byIntegrator ? 'done' : 'cancelled');
+      const state: 'done' | 'handed_off' | 'cancelled' =
+        fallback?.state ?? (byIntegrator ? 'done' : 'cancelled');
       const reason: MemberQueueCloseReason =
-        planned?.reason ?? fallback?.reason ?? (byIntegrator ? 'resolved' : 'source_closed');
+        fallback?.reason ?? (byIntegrator ? 'resolved' : 'source_closed');
       touched.push(
-        ...repo.closeBySource(item.projectKey, source, {
-          state,
-          reason,
-          at,
-          member: open.member,
-          ...(planned ? { outcome: planned.outcome } : {}),
-        }),
+        ...repo.closeBySource(item.projectKey, source, { state, reason, at, member: open.member }),
       );
     }
     this.changed(touched);

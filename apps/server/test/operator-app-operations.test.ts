@@ -1,9 +1,9 @@
-import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OPERATOR_APP_CREDENTIAL_PREFIX } from '@projectman/shared';
 import type { SuperCommand } from '@projectman/shared';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
+import { seedOperatorRequest } from './helpers/operator-session';
 import type { AdministrationPort, IntegratorPrincipal, ToolContext } from '../src/contracts';
 import type { DomainContext } from '../src/core/base';
 import { TEAM_TOOLS } from '../src/mcp/tools';
@@ -37,7 +37,7 @@ describe('the in-app Operator on the shared super-operation path (PM-888)', () =
       openedAt: new Date().toISOString(),
     });
 
-  const boot = async (administration?: AdministrationPort, member = 'operator') => {
+  const boot = async (administration?: AdministrationPort, member = 'pm') => {
     h = await createDomainHarness({
       adjust: (config) => {
         if (member === 'pm') {
@@ -97,14 +97,6 @@ describe('the in-app Operator on the shared super-operation path (PM-888)', () =
       expect(other.operation.id).not.toBe(first.operation.id);
     });
 
-    it('refuses the command kinds that have their own tool', async () => {
-      const operate: SuperCommand = { kind: 'operate', operation: { op: 'project_pause' } };
-      await expect(execute('op', operate)).rejects.toMatchObject({
-        message: expect.stringContaining('super_operation_unsupported'),
-      });
-      expect(h.repos.operatorRequests.steps(REQUEST)).toEqual([]);
-    });
-
     it('is refused with no open owner request, and from an approval request', async () => {
       h.repos.operatorRequests.close(REQUEST, NOW);
       await expect(execute('closed')).rejects.toMatchObject({
@@ -115,70 +107,14 @@ describe('the in-app Operator on the shared super-operation path (PM-888)', () =
       expect(h.repos.tasks.get('AR-1')).toBeNull();
     });
 
-    it('releases no workspace on a queue item, only on a direct message or answer of an owner (PM-935)', async () => {
-      const release: SuperCommand = {
-        kind: 'workspace_release',
-        scopeId: 'scp_0123456789abcdef',
-        reason: 'Checked',
-      };
-      h.repos.operatorRequests.close(REQUEST, NOW);
-      openRequest(ctx.sessionId, 'opr_app_release', 'queue');
-      await expect(execute('release', release)).rejects.toMatchObject({
-        code: 'forbidden',
-        message: expect.stringContaining('operator_owner_only'),
-      });
-      expect(h.repos.operatorRequests.steps('opr_app_release')).toMatchObject([
-        { status: 'refused', refusal: { code: 'operator_owner_only' } },
-      ]);
-      // A member's request is a guest request: refused before the command is looked at.
-      h.repos.operatorRequests.close('opr_app_release', NOW);
-      openRequest(ctx.sessionId, 'opr_app_member', 'message', 'dev-1');
-      await expect(execute('release-member', release)).rejects.toMatchObject({ code: 'forbidden' });
-    });
-
-    it('lets a workspace release through on an owner message (PM-935)', async () => {
-      // No cleanup exists for the scope, so the command itself fails: the call was not refused.
-      const { operation } = await execute('release-owner', {
-        kind: 'workspace_release',
-        scopeId: 'scp_0123456789abcdef',
-        reason: 'Checked',
-      });
-      expect(operation).toMatchObject({ state: 'failed' });
-    });
-
-    it('resolves no inbox item on a queue item, so no approval comes from a member`s message (PM-1010)', async () => {
-      const item = h.domain.inbox.create({
-        projectKey: 'AR',
-        kind: 'question',
-        source: 'dev-1',
-        assignees: ['owner'],
-        title: 'Approve it',
-        payload: { question: 'Approve?', responsePurpose: 'owner_decision' },
-        options: [{ id: 'yes', label: 'yes', style: 'primary' }],
-      });
-      const resolve: SuperCommand = { kind: 'inbox_resolve', itemId: item.id, request: { optionId: 'yes' } };
-      h.repos.operatorRequests.close(REQUEST, NOW);
-      openRequest(ctx.sessionId, 'opr_app_queue', 'queue');
-      await expect(execute('resolve', resolve)).rejects.toMatchObject({
-        code: 'forbidden',
-        message: expect.stringContaining('operator_owner_only'),
-      });
-      expect(h.domain.inbox.get('AR', item.id).state).toBe('open');
-      // The same command on the owner's own message goes through.
-      h.repos.operatorRequests.close('opr_app_queue', NOW);
-      openRequest(ctx.sessionId, 'opr_app_owner');
-      expect((await execute('resolve-owner', resolve)).operation.state).toBe('succeeded');
-    });
-
     it('sets no approval label on a member`s request, and sets it on an owner`s own (PM-1010)', async () => {
       await execute('card');
       h.repos.operatorRequests.close(REQUEST, NOW);
-      openRequest(ctx.sessionId, 'opr_app_queue', 'queue');
+      openRequest(ctx.sessionId, 'opr_app_member', 'message', 'dev-1');
       const label: SuperCommand = { kind: 'task_labels', taskKey: 'AR-1', request: { add: ['merge-ok'] } };
-      const refused = (await execute('label', label)).operation;
-      expect(refused).toMatchObject({ state: 'failed' });
+      await expect(execute('label', label)).rejects.toMatchObject({ code: 'forbidden' });
       expect(h.repos.tasks.get('AR-1')?.labels).not.toContain('merge-ok');
-      h.repos.operatorRequests.close('opr_app_queue', NOW);
+      h.repos.operatorRequests.close('opr_app_member', NOW);
       openRequest(ctx.sessionId, 'opr_app_owner');
       expect((await execute('label-owner', label)).operation.state).toBe('succeeded');
       expect(h.repos.tasks.get('AR-1')?.labels).toContain('merge-ok');
@@ -199,41 +135,6 @@ describe('the in-app Operator on the shared super-operation path (PM-888)', () =
         code: 'forbidden',
       });
       expect(h.repos.tasks.get('AR-1')).toBeNull();
-    });
-
-    it('waits for the owner on a reserved effect and goes on by itself after the owner`s yes', async () => {
-      const keyId = 'ikey_app_victim';
-      h.repos.integratorKeys.create({
-        id: keyId,
-        userId,
-        prefix: 'pmi_app_victim',
-        hash: createHash('sha256').update('pmi_app_victim_secret').digest('hex'),
-        mode: 'read',
-        at: NOW,
-        expiresAt: null,
-      });
-      const revoked: string[] = [];
-      h.domain.superHandoffs.registerExecutor('credential_revoke', async (job) => {
-        if (job.command.kind === 'credential_revoke') revoked.push(job.command.keyId);
-      });
-      const { operation } = await execute('revoke', { kind: 'credential_revoke', keyId });
-      expect(operation.state).toBe('waiting_owner');
-      expect(revoked).toEqual([]);
-      expect(h.repos.operatorRequests.steps(REQUEST)).toMatchObject([
-        { action: 'operation', operationId: operation.id, status: 'awaiting_approval' },
-      ]);
-      // The Operator's turn is over by the time the owner answers.
-      h.repos.operatorRequests.close(REQUEST, NOW);
-      await h.domain.inbox.resolve(
-        'AR',
-        operation.ownerQuestionId!,
-        { optionId: 'yes' },
-        { handle: 'owner', access: 'owner' },
-      );
-      await vi.waitFor(() =>
-        expect(h.domain.superHandoffs.operation('AR', operation.id).state).toBe('succeeded'),
-      );
-      expect(revoked).toEqual([keyId]);
     });
   });
 
@@ -260,39 +161,24 @@ describe('the in-app Operator on the shared super-operation path (PM-888)', () =
       ).rejects.toMatchObject({ code: 'insufficient_access' });
     });
 
-    it('is active only for a live Operator session in its own general conversation with an open request', async () => {
-      const open = new Set([ctx.sessionId, 'ses_app_guest', 'ses_app_dev']);
+    it('is never active for the Operator, which has no app session (PM-1045)', () => {
       const sessions = createOperatorAppSessions({
         ctx: { repos: h.repos } as unknown as DomainContext,
         projects: h.domain.projects,
-        hasOpenRequest: (id) => open.has(id),
+        hasOpenRequest: () => true,
       });
-      const principal = (keyId: string, source: 'app' | 'key' = 'app'): IntegratorPrincipal => ({
-        kind: 'integrator',
-        userId,
-        keyId,
-        prefix: OPERATOR_APP_CREDENTIAL_PREFIX,
-        mode: 'super',
-        source,
-        member: 'operator',
-      });
-      const base = h.repos.sessions.get(ctx.sessionId)!;
-      h.repos.sessions.insert({
-        ...base,
-        id: 'ses_app_guest',
-        workItem: { type: 'general', with: 'guest' } as const,
-      });
-      h.repos.sessions.insert({ ...base, id: 'ses_app_dev', member: 'dev-1' });
-      expect(sessions.active(principal(ctx.sessionId))).toBe(true);
-      expect(sessions.active(principal('ses_app_guest'))).toBe(false);
-      expect(sessions.active(principal('ses_app_dev'))).toBe(false);
-      expect(sessions.active(principal(ctx.sessionId, 'key'))).toBe(false);
-      expect(sessions.active(principal('ses_unknown'))).toBe(false);
-      open.delete(ctx.sessionId);
-      expect(sessions.active(principal(ctx.sessionId))).toBe(false);
-      open.add(ctx.sessionId);
-      h.repos.sessions.update(ctx.sessionId, { state: 'exited' });
-      expect(sessions.active(principal(ctx.sessionId))).toBe(false);
+      const { session } = seedOperatorRequest(h, 'AR');
+      expect(
+        sessions.active({
+          kind: 'integrator',
+          userId,
+          keyId: session.id,
+          prefix: OPERATOR_APP_CREDENTIAL_PREFIX,
+          mode: 'super',
+          source: 'app',
+          member: 'operator',
+        }),
+      ).toBe(false);
     });
   });
 
@@ -453,66 +339,6 @@ describe('the in-app Operator on the shared super-operation path (PM-888)', () =
           }),
         ]),
       );
-    });
-  });
-
-  describe('machine reads', () => {
-    const submit = vi.fn();
-    const port = {
-      submit,
-      status: async (target: unknown) => ({
-        target,
-        online: true,
-        version: 'v-test',
-        bootId: 'boot-1',
-        capabilities: ['status', 'logs', 'machine'],
-        activeOperationId: null,
-      }),
-      logs: async () => ({ entries: [{ at: NOW, level: 'info', code: 'fixture', message: 'entry' }] }),
-      machine: async () => ({
-        at: NOW,
-        loadAvg: [0.5, 0.4, 0.3],
-        memory: { totalBytes: 16_000_000_000, availableBytes: 8_000_000_000 },
-        swap: null,
-        topProcesses: [],
-      }),
-    } as unknown as AdministrationPort;
-    beforeEach(() => boot(port));
-
-    it('are refused without the owner`s grant', async () => {
-      const target = { kind: 'hub' } as const;
-      await expect(h.domain.teamTools.getMachineStatus(ctx, { target })).rejects.toMatchObject({
-        code: 'forbidden',
-        message: expect.stringContaining('operator_grant_inactive'),
-      });
-      await expect(h.domain.teamTools.getMachineLogs(ctx, { target, limit: 5 })).rejects.toMatchObject({
-        message: expect.stringContaining('operator_grant_inactive'),
-      });
-    });
-
-    it('never let an owner_command run before the owner`s yes, grant or not', async () => {
-      h.auth.grantOperator(userId, 'until_revoked');
-      const { operation } = await execute('shell', {
-        kind: 'administration',
-        request: {
-          kind: 'owner_command',
-          target: { kind: 'hub' },
-          command: 'uptime',
-          reason: 'Check the load',
-        },
-      } as SuperCommand);
-      expect(operation.state).toBe('waiting_owner');
-      expect(operation.ownerQuestionId).not.toBeNull();
-      expect(submit).not.toHaveBeenCalled();
-    });
-
-    it('answer with the owner`s grant', async () => {
-      h.auth.grantOperator(userId, 'until_revoked');
-      const target = { kind: 'hub' } as const;
-      const status = await h.domain.teamTools.getMachineStatus(ctx, { target });
-      expect(status.status.online).toBe(true);
-      expect(status.machine?.loadAvg).toEqual([0.5, 0.4, 0.3]);
-      expect((await h.domain.teamTools.getMachineLogs(ctx, { target, limit: 5 })).entries).toHaveLength(1);
     });
   });
 

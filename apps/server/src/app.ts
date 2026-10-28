@@ -528,8 +528,10 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       integratorCredentials: auth,
       revokeIntegratorAccessKey: (userId, keyId) => auth.revokeIntegratorAccessKey(userId, keyId),
       operatorGrants: auth.operatorGrantGate,
-      // The Operator works the todos and fix limit decisions itself (PM-885); no key is needed any more.
-      integratorTodoAccess: { available: integratorSideAvailable },
+      // Integrator items wait for the owner's connected client while an owner has a live super key (PM-1045).
+      integratorTodoAccess: {
+        available: (config) => integratorSideAvailable(config, (email) => auth.hasActiveSuperKey(email)),
+      },
       appVersion: options.appVersion ?? 'dev',
       ...(options.appTag ? { appTag: options.appTag } : {}),
       ...(options.releaseTarget ? { releaseTarget: options.releaseTarget } : {}),

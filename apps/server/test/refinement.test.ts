@@ -244,39 +244,35 @@ describe('Refinement line', () => {
     expect(notices()).toHaveLength(1);
   });
 
-  it.each(['human', 'operator', 'timeline'] as const)(
-    'routes completion to %s without an inbox alert',
-    async (route) => {
-      h = await createDomainHarness({
-        persistent: true,
-        adjust: (config) => {
-          setup()(config);
-          if (route === 'human') config.team.cardMover = { kind: 'human', handle: 'owner' };
-        },
-      });
-      if (route !== 'human') {
-        // Older configurations can lack the now-required project manager.
-        const config = structuredClone(await h.domain.projects.config('AR'));
-        config.team.members = config.team.members.filter(
-          (member) =>
-            member.kind !== 'ai' ||
-            (member.role !== 'project_manager' && (route !== 'timeline' || member.role !== 'ai_operator')),
-        );
-        vi.spyOn(h.domain.projects, 'config').mockResolvedValue(config);
-      }
-      await h.domain.tasks.create('AR', { title: 'Ready card', labels: ['scope-ok'] }, OWNER_ACTOR);
-      await label({ add: ['refine'] });
-      await vi.waitFor(() => expect(turn()?.data.reason).toBe('done'));
-      await flush();
-      expect(alerts('done')).toEqual([]);
-      const messages = h.domain.messages.list('AR', { taskKey: 'AR-1' });
-      // The start offer (PM-804) goes to an AI member only: a human card mover moves the card unprompted.
-      if (route !== 'operator') expect(messages).toEqual([]);
-      else expect(messages).toEqual([expect.objectContaining({ to: ['operator'], kind: 'action' })]);
-      await h.domain.refinement.changed(task());
-      expect(h.domain.messages.list('AR', { taskKey: 'AR-1' })).toHaveLength(messages.length);
-    },
-  );
+  it.each(['human', 'timeline'] as const)('routes completion to %s without an inbox alert', async (route) => {
+    h = await createDomainHarness({
+      persistent: true,
+      adjust: (config) => {
+        setup()(config);
+        if (route === 'human') config.team.cardMover = { kind: 'human', handle: 'owner' };
+      },
+    });
+    if (route !== 'human') {
+      // Older configurations can lack the now-required project manager.
+      const config = structuredClone(await h.domain.projects.config('AR'));
+      config.team.members = config.team.members.filter(
+        (member) =>
+          member.kind !== 'ai' || (member.role !== 'project_manager' && member.role !== 'ai_operator'),
+      );
+      vi.spyOn(h.domain.projects, 'config').mockResolvedValue(config);
+    }
+    await h.domain.tasks.create('AR', { title: 'Ready card', labels: ['scope-ok'] }, OWNER_ACTOR);
+    await label({ add: ['refine'] });
+    await vi.waitFor(() => expect(turn()?.data.reason).toBe('done'));
+    await flush();
+    expect(alerts('done')).toEqual([]);
+    const messages = h.domain.messages.list('AR', { taskKey: 'AR-1' });
+    // The start offer (PM-804) goes to an AI member only: a human card mover moves the card unprompted, and
+    // the Operator is no recipient (PM-1045).
+    expect(messages).toEqual([]);
+    await h.domain.refinement.changed(task());
+    expect(h.domain.messages.list('AR', { taskKey: 'AR-1' })).toHaveLength(messages.length);
+  });
 
   it('starts the project manager without a card role for the completion message', async () => {
     h = await createDomainHarness({
@@ -301,28 +297,6 @@ describe('Refinement line', () => {
       ),
     );
     expect(h.domain.sessions.list('AR', { member: 'pm' })[0]?.workItem).toEqual({ type: 'general' });
-  });
-
-  it('wakes the Operator with the completion notice through its work queue', async () => {
-    h = await createDomainHarness({ adjust: setup() });
-    const config = structuredClone(await h.domain.projects.config('AR'));
-    config.team.members = config.team.members.filter(
-      (member) => member.kind !== 'ai' || member.role !== 'project_manager',
-    );
-    vi.spyOn(h.domain.projects, 'config').mockResolvedValue(config);
-    await h.domain.tasks.create('AR', { title: 'Ready card', labels: ['scope-ok'] }, OWNER_ACTOR);
-    await label({ add: ['refine'] });
-    await vi.waitFor(() => expect(turn()?.data.reason).toBe('done'));
-    await vi.waitFor(() =>
-      expect(h.runner.started.some((start) => start.initialMessage?.includes('Can start now: AR-1'))).toBe(
-        true,
-      ),
-    );
-    await vi.waitFor(() =>
-      expect(h.domain.messages.list('AR', { taskKey: 'AR-1' })[0]?.receipts?.[0]?.deliveredAt).toEqual(
-        expect.any(String),
-      ),
-    );
   });
 
   it('finishes refinement and records the failure when the notification cannot be sent', async () => {

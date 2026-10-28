@@ -117,14 +117,14 @@ it('preserves queue rows and indexes while adding checklist notices', () => {
     ).run(now, now);
     db.prepare(
       `INSERT INTO member_queue_items (id, project_key, member, kind, source_type, source_id, place, queued_at, payload, wait_details)
-      VALUES ('old', 'AR', 'operator', 'start', 'start', 'old-start', '{"type":"general"}', ?, '{"spec":1}', '{"provider":"claude"}')`,
+      VALUES ('old', 'AR', 'dev-1', 'start', 'start', 'old-start', '{"type":"general"}', ?, '{"spec":1}', '{"provider":"claude"}')`,
     ).run(now);
     const before = db.prepare('SELECT * FROM member_queue_items').all();
     migrate(db);
     expect(db.prepare('SELECT * FROM member_queue_items').all()).toEqual(before);
     db.prepare(
       `INSERT INTO member_queue_items (id, project_key, member, kind, source_type, source_id, place, queued_at)
-      VALUES ('new', 'AR', 'operator', 'checklist', 'checklist', 'onboarding', '{"type":"general"}', ?)`,
+      VALUES ('new', 'AR', 'dev-1', 'checklist', 'checklist', 'onboarding', '{"type":"general"}', ?)`,
     ).run(now);
     expect(
       db

@@ -282,15 +282,13 @@ describe('human team messages and member profiles', () => {
       expect(h.app.projectman.domain.sessions.list(key, { member: 'dev-1' })).toEqual([]);
     });
 
-    it('refuses everyone when no contact is set, the Operator included', async () => {
+    it('refuses everyone when no contact is set', async () => {
       const kata = await human('kata', 'client');
-      for (const to of ['dev-1', 'operator']) {
-        const res = await send([to], kata);
-        expect(res.statusCode).toBe(403);
-        expect(res.json()).toMatchObject({
-          error: { code: 'recipient_not_contact', details: { recipients: [to] } },
-        });
-      }
+      const res = await send(['dev-1'], kata);
+      expect(res.statusCode).toBe(403);
+      expect(res.json()).toMatchObject({
+        error: { code: 'recipient_not_contact', details: { recipients: ['dev-1'] } },
+      });
     });
 
     it('checks the recipients again with the fresh config when recording', async () => {
@@ -310,14 +308,14 @@ describe('human team messages and member profiles', () => {
       expect(h.app.projectman.repos.messages.list(key)).toHaveLength(before);
     });
 
-    it('lets a viewer message only the Operator, and keeps insufficient_access', async () => {
+    it('lets a viewer message only the project manager, and keeps insufficient_access', async () => {
       const vera = await human('vera', 'viewer');
       const res = await send(['dev-1'], vera);
       expect(res.statusCode).toBe(403);
       expect(res.json()).toMatchObject({
         error: { code: 'insufficient_access', details: { recipients: ['dev-1'] } },
       });
-      expect((await send(['operator'], vera)).statusCode).toBe(202);
+      expect((await send(['pm'], vera)).statusCode).toBe(202);
     });
   });
 

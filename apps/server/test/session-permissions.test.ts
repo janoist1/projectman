@@ -8,6 +8,7 @@ import type { AppHarness } from './helpers/app-harness';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
+import { seedOperatorRequest } from './helpers/operator-session';
 
 /** Delegation on, and the reviewer `cr` holds the boundary authorization duty: an AI decider. */
 function withDecider(config: ProjectConfig) {
@@ -62,12 +63,10 @@ describe('the permission settings of one session (PM-170)', () => {
       .broker()
       .decide({ sessionId, toolName: 'Bash', toolInput: { command }, raw: {} }, new AbortController().signal);
 
+  /** An old Operator session row: the app starts no Operator any more (PM-1045). */
   async function runningOperator() {
     await running(withDecider);
-    const { session } = await h.domain.sessions.ensureSession('AR', 'operator', { type: 'general' });
-    h.runner.emit({ type: 'transcript_path', sessionId: session.id, path: '/fake/operator.jsonl' });
-    expect(h.contextBuilder.inputs.at(-1)!.member.approver).toBe('human');
-    return session.id;
+    return seedOperatorRequest(h, 'AR').session.id;
   }
 
   it.each(['none', 'ai'] as const)(
@@ -111,36 +110,7 @@ describe('the permission settings of one session (PM-170)', () => {
     h.repos.sessions.update(sessionId, { approverOverride: 'none' });
     const changed = await set(sessionId, { permissionMode: 'plan' });
     expect(changed.approverOverride).toBe('none');
-    expect(h.contextBuilder.inputs.at(-1)!.member.approver).toBe('human');
   });
-
-  it.each(['none', 'ai'] as const)(
-    'resumes an Operator with the legacy override %s using human context and permission inbox',
-    async (approverOverride) => {
-      const sessionId = await runningOperator();
-      await h.domain.sessions.stop('AR', sessionId);
-      h.repos.sessions.update(sessionId, { approverOverride });
-      await h.domain.sessions.ensureSession('AR', 'operator', { type: 'general' });
-      expect(h.runner.lastStarted()).toMatchObject({ sessionId, resume: true });
-      expect(h.contextBuilder.inputs.at(-1)!.member.approver).toBe('human');
-      // The old database value is inert; starts do not rewrite historical session settings.
-      expect(h.domain.sessions.get('AR', sessionId).approverOverride).toBe(approverOverride);
-      const controller = new AbortController();
-      const decision = h.runnerModule
-        .broker()
-        .decide(
-          { sessionId, toolName: 'Bash', toolInput: { command: 'curl https://example.com' }, raw: {} },
-          controller.signal,
-        );
-      await flush();
-      const items = h.domain.inbox.list('AR', { kind: 'permission', state: 'open' });
-      expect(items).toHaveLength(1);
-      expect(items[0]!.assignees).toEqual(['owner']);
-      expect(items[0]!.payload).not.toHaveProperty('delegation');
-      controller.abort();
-      await decision;
-    },
-  );
 
   it('restarts a session in a turn into the new mode at its next idle moment, with its conversation', async () => {
     const sessionId = await running();
@@ -446,7 +416,7 @@ describe('PATCH a session (PM-170)', () => {
   it('returns 403 for the Operator nonhuman approver before AI availability and rejects a mixed patch', async () => {
     const { cookie } = await setup();
     const domain = h.app.projectman.domain;
-    const { session } = await domain.sessions.ensureSession('AR', 'operator', { type: 'general' });
+    const { session } = seedOperatorRequest(h.app.projectman, 'AR');
     const before = structuredClone(domain.sessions.get('AR', session.id));
     for (const approver of ['none', 'ai']) {
       const refused = await inject(h.app, 'PATCH', routes.session('AR', session.id), cookie, {

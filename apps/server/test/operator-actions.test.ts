@@ -23,6 +23,7 @@ import {
 import type { DomainHarness, HarnessSnapshot } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
 import { autonomy } from './helpers/operator-autonomy';
+import { seedOperatorRequest } from './helpers/operator-session';
 
 // The approval tests below are about the approval item itself, which an owner-asked change now skips.
 vi.mock('@projectman/shared', async (original) =>
@@ -84,17 +85,9 @@ async function setup(persistent = false, adjust?: (config: ProjectConfig) => voi
         return 'Adjust test configuration';
       });
   }
-  await h.domain.messaging.sendReporting(
-    'AR',
-    'owner',
-    {
-      to: ['operator'],
-      text: 'Change the writer to Sonnet.\nAllow network access.',
-    },
-    { awaitWake: true },
-  );
-  await flush();
-  const session = await waitForSession(h.domain, { member: 'operator' });
+  const { session } = seedOperatorRequest(h, 'AR', {
+    text: 'Change the writer to Sonnet.\nAllow network access.',
+  });
   ctx = { projectKey: 'AR', member: 'operator', sessionId: session.id, taskKey: null };
 }
 const plan: OperatorPlan = {
@@ -806,9 +799,9 @@ describe('Operator actions and owner approvals (PM-464)', () => {
       approvedBy: 'owner',
     });
     expect(h.repos.operatorRequests.steps(operatorApprovalOf(item)!.requestId)[0]?.status).toBe('approved');
-    expect(h.repos.messages.pending('AR', 'operator').some((m) => m.body.includes('approved by owner'))).toBe(
-      true,
-    );
+    expect(
+      h.repos.messages.list('AR', { member: 'operator' }).some((m) => m.body.includes('approved by owner')),
+    ).toBe(true);
   });
 
   it('rejects without changing configuration or waking the Operator', async () => {
@@ -820,7 +813,9 @@ describe('Operator actions and owner approvals (PM-464)', () => {
     expect((await member()).outboundNetwork).toBe(false);
     const request = h.repos.operatorRequests.latest('AR', 1)[0]!;
     expect(h.repos.operatorRequests.steps(request.id)[0]?.status).toBe('rejected');
-    expect(h.repos.messages.pending('AR', 'operator').some((m) => m.body.includes('rejected'))).toBe(true);
+    expect(h.repos.messages.list('AR', { member: 'operator' }).some((m) => m.body.includes('rejected'))).toBe(
+      true,
+    );
   });
 
   it('marks a changed field stale proactively and permits only dismissal', async () => {

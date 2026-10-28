@@ -1,6 +1,6 @@
 import net from 'node:net';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { isOperator, MemberConfig, releaseApprovalOf, superActorOf } from '@projectman/shared';
+import { MemberConfig, releaseApprovalOf, superActorOf } from '@projectman/shared';
 import type { InboxItem, ProjectConfig, ReleaseReport } from '@projectman/shared';
 import { sendControlRequest } from '../../../scripts/control/client';
 import { serveControlConnection } from '../src/control';
@@ -8,9 +8,6 @@ import type { ControlRelease } from '../src/control';
 import type { BranchMerger, IntegratorExecutionScope, MergeBaseState } from '../src/contracts';
 import { conflict, forbidden, runIntegratorExecution } from '../src/kernel';
 import type { Resolver } from '../src/core/inbox';
-import type { Messaging } from '../src/core/messages';
-import type { ProjectService } from '../src/core/projects';
-import { ReleaseRoadmapNotices } from '../src/services/releases';
 import type { ToolContext } from '../src/contracts';
 import { createDomainHarness, OWNER as OWNER_AUTHOR, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
@@ -59,8 +56,6 @@ describe('the release flow', () => {
       target?: boolean;
       merged?: typeof MERGED;
       head?: string;
-      /** The repository's roadmap path (default: set). */
-      roadmap?: boolean;
     } = {},
   ) {
     merger = fakeMerger(opts.head ?? sha(3));
@@ -70,7 +65,6 @@ describe('the release flow', () => {
       ...(opts.appVersion ? { appVersion: opts.appVersion } : {}),
       ...(opts.appTag ? { appTag: opts.appTag } : {}),
       adjust(config: ProjectConfig) {
-        if (opts.roadmap !== false) config.project.repos[0]!.docs = { roadmap: 'docs/ROADMAP.md' };
         config.team.members.push(
           MemberConfig.parse({
             kind: 'ai',
@@ -880,70 +874,6 @@ describe('the release flow', () => {
         ok: false,
         error: { code: 'release_not_configured' },
       });
-    });
-  });
-
-  describe('the roadmap check offered to the Operator (PM-497)', () => {
-    const notes = () =>
-      h.repos.messages.list('AR', { member: 'operator' }).filter((message) => message.from === 'system');
-
-    it('sends the Operator one info note when a release is proposed, which wakes nobody', async () => {
-      await setup();
-      const { release } = await propose({ title: 'Autumn release' });
-      expect(notes()).toHaveLength(1);
-      expect(notes()[0]).toMatchObject({
-        kind: 'info',
-        to: ['operator'],
-        taskKey: null,
-        body: expect.stringContaining(`Autumn release (${release.id}) was proposed`),
-      });
-      expect(notes()[0]!.body).toContain('only after the owner says yes');
-      expect(h.domain.sessions.list('AR', { member: 'operator' })).toEqual([]);
-    });
-
-    it('does not send a release its note a second time', async () => {
-      await setup();
-      const { release } = await propose();
-      await h.domain.ctx.events.emit('release_proposed', { release });
-      expect(notes()).toHaveLength(1);
-    });
-
-    it('sends a note for the next release too', async () => {
-      await setup();
-      await propose();
-      await decide('reject');
-      await propose({ title: 'Second' });
-      expect(notes()).toHaveLength(2);
-    });
-
-    it('sends nothing for another state of the release', async () => {
-      await setup();
-      await approved();
-      const before = notes().length;
-      const [release] = h.domain.releases.list('AR');
-      await h.domain.ctx.events.emit('release_proposed', { release: { ...release!, state: 'approved' } });
-      expect(notes()).toHaveLength(before);
-    });
-
-    it('sends nothing without a roadmap path', async () => {
-      await setup({ roadmap: false });
-      await propose();
-      expect(notes()).toEqual([]);
-    });
-
-    it('sends nothing without an Operator', async () => {
-      await setup();
-      const { release } = await propose();
-      const config = structuredClone(await h.domain.projects.config('AR'));
-      config.team.members = config.team.members.filter((member) => !isOperator(member));
-      const send = vi.fn();
-      const notices = new ReleaseRoadmapNotices({
-        ctx: h.domain.ctx,
-        projects: { config: async () => config } as unknown as ProjectService,
-        messaging: { send } as unknown as Messaging,
-      });
-      await notices.proposed({ release: { ...release, id: 'rel_other' } });
-      expect(send).not.toHaveBeenCalled();
     });
   });
 

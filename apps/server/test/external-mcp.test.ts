@@ -112,24 +112,9 @@ describe('the bearer MCP endpoint (PM-760)', () => {
         { id: 'todo_cannot', label: 'Cannot', style: 'secondary' },
       ],
     });
-    await domain.inbox.passOnToSuper('AR', item.id, {
-      queueItemId: 'mqi_handoff',
-      reason: 'no_grant',
-      action: 'Measure the machine',
-      detail: 'The Operator needs the latency report.',
-      operationId: null,
-    });
     const listed = await call(secret, 'list_integrator_inbox', { project_key: 'AR' });
     const text = listed.content[0]!.text!;
-    for (const field of [
-      'What: Measure',
-      'Where: Hub',
-      'Expected: Result',
-      'no_grant',
-      'Measure the machine',
-      'latency report',
-    ])
-      expect(text).toContain(field);
+    for (const field of ['What: Measure', 'Where: Hub', 'Expected: Result']) expect(text).toContain(field);
     const result = await call(secret, 'resolve_integrator_todo', {
       project_key: 'AR',
       item_id: item.id,

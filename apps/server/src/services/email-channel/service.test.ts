@@ -1,6 +1,6 @@
 import type { ProjectConfig } from '@projectman/shared';
 import { EMAIL_SENDS_PER_CONTACT_DAY } from '@projectman/shared';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { EmailSender, OutboundMail } from './ses-sender';
 import { EmailSendError } from './ses-sender';
 import {
@@ -503,6 +503,31 @@ describe('EmailChannelService', () => {
       expect(harness.domain.inbox.get('AR', itemId).state).toBe('resolved');
     });
 
+    it.each([
+      {
+        name: 'a send without approval',
+        withoutApproval: true,
+        run: async (s: Awaited<ReturnType<typeof setup>>) => s.emailChannel.send('AR', 'dev-1', mail),
+      },
+      {
+        name: 'an approval',
+        withoutApproval: false,
+        run: async (s: Awaited<ReturnType<typeof setup>>) => {
+          await s.emailChannel.send('AR', 'dev-1', mail);
+          await s.approve('approve');
+          return { status: 'sent' };
+        },
+      },
+    ])('keeps the sent outcome of $name when telling the sender fails', async ({ withoutApproval, run }) => {
+      const state = await setup({ withoutApproval });
+      const notices = vi.spyOn(state.harness.domain.messaging, 'send').mockRejectedValue(new Error('down'));
+      await expect(run(state)).resolves.toMatchObject({ status: 'sent' });
+      expect(state.sent).toHaveLength(1);
+      expect(state.outbound()[0]).toMatchObject({ status: 'sent' });
+      expect(notices).toHaveBeenCalled();
+      for (const [, , input] of notices.mock.calls) expect(input.text).not.toContain('could not be sent');
+    });
+
     it('refuses an approval from the integrator or super mode', async () => {
       const { emailChannel, sent, pendingItem, harness } = await setup();
       await emailChannel.send('AR', 'dev-1', mail);
@@ -551,13 +576,19 @@ describe('EmailChannelService', () => {
     });
 
     it('records an opt-out the person asked for without a source', async () => {
-      const { emailChannel } = await setup();
+      const { emailChannel, harness } = await setup();
       expect(
         emailChannel.setContactByMember('AR', 'dev-1', { handle: 'acme', wants: false, requestedBy: 'acme' }),
       ).toEqual({ handle: 'acme', wants: false });
       expect(emailChannel.contactsForMember('AR').find((contact) => contact.handle === 'acme')?.wants).toBe(
         false,
       );
+      const rows = harness.repos.db
+        .prepare(
+          "SELECT source FROM email_contacts WHERE handle = 'acme' UNION ALL SELECT source FROM email_contact_events WHERE handle = 'acme' AND wants = 0",
+        )
+        .all();
+      expect(rows).toEqual([{ source: 'member' }, { source: 'member' }]);
     });
 
     it('lists contacts with an address flag only', async () => {

@@ -1,12 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  canManageInstancePause,
-  isWorkPaused,
-  NUDGE_POINTS,
-  PauseRequest,
-  pauseStateOf,
-  RESTART_POINTS,
-} from './pause';
+import { isWorkPaused, NUDGE_POINTS, PauseRequest, pauseStateOf, RESTART_POINTS } from './pause';
 
 describe('isWorkPaused', () => {
   it('holds every project under an instance pause', () => {
@@ -21,21 +14,6 @@ describe('isWorkPaused', () => {
 
   it('is false without an open pause', () => {
     expect(isWorkPaused([], 'EX')).toBe(false);
-  });
-});
-
-describe('canManageInstancePause', () => {
-  it('needs owner access in every project', () => {
-    expect(canManageInstancePause(['owner', 'owner'])).toBe(true);
-    expect(canManageInstancePause(['owner', 'admin'])).toBe(false);
-  });
-
-  it('refuses a project without access', () => {
-    expect(canManageInstancePause(['owner', null])).toBe(false);
-  });
-
-  it('refuses an instance without projects', () => {
-    expect(canManageInstancePause([])).toBe(false);
   });
 });
 

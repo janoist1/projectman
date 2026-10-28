@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
-import { operatorQueueAvailable, superActorOf } from '@projectman/shared';
+import { superActorOf } from '@projectman/shared';
 import type { ProjectConfig, ProjectDoc, Session } from '@projectman/shared';
 import { TeamToolError } from '../src/contracts';
 import type {
@@ -21,6 +21,7 @@ import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from '.
 import type { DomainHarness } from './helpers/domain-harness';
 import { rejection } from './helpers/errors';
 import { settle } from './helpers/fakes';
+import { seedOperatorRequest } from './helpers/operator-session';
 
 let h: DomainHarness;
 afterEach(async () => {
@@ -116,7 +117,7 @@ async function setup(
 ) {
   h = await createDomainHarness({
     merger,
-    integratorTodoAccess: { available: operatorQueueAvailable },
+    integratorTodoAccess: { available: () => true },
     persistent: opts.persistent,
     adjust(config) {
       if (opts.docs !== false) withDocs(config);
@@ -161,6 +162,11 @@ const toolOf = (session: Session): ToolContext => ({
 });
 /** The owner asks the document maintainer something: its conversation and an open request. */
 async function ownerAsks(member = 'operator'): Promise<{ ctx: ToolContext; requestId: string }> {
+  if (member === 'operator') {
+    // The app starts no Operator session (PM-1045): seed the one an owner message used to leave.
+    const { session, request } = seedOperatorRequest(h, 'AR');
+    return { ctx: toolOf(session), requestId: request.id };
+  }
   await say('owner', undefined, member);
   const session = await ownerConversation(member);
   const request = await waitFor(() => h.repos.operatorRequests.openOfSession(session.id)[0], {
@@ -588,23 +594,6 @@ describe('write_project_docs (PM-495)', () => {
       const { ctx } = await ownerAsks();
       expect(await refusal(write({ ...ctx, member: 'dev-1' }))).toMatch(/^operator_only:/);
     });
-
-    it('refuses a conversation with someone who is not an owner', async () => {
-      const merger = (await setup())!;
-      await say('cleo', 'Please change the log');
-      const session = await waitFor(
-        () => operatorSessions().find((s) => s.workItem.type === 'general' && s.workItem.with === 'cleo'),
-        { what: 'the Operator conversation with cleo' },
-      );
-      const request = await waitFor(() => h.repos.operatorRequests.openOfSession(session.id)[0], {
-        what: 'the open Operator request from cleo',
-      });
-      expect(await refusal(write(toolOf(session)))).toMatch(/^operator_owner_only:/);
-      expect(merger.commitFiles).not.toHaveBeenCalled();
-      expect(stepsOf(request.id)).toMatchObject([
-        { action: 'docs_write', status: 'refused', refusal: { code: 'operator_owner_only' } },
-      ]);
-    });
   });
 
   describe('the repository slot', () => {
@@ -617,9 +606,9 @@ describe('write_project_docs (PM-495)', () => {
       expect(await refusal(write(ctx, [append('4. Fourth')]))).toMatch(/^docs_write_pending:/);
     });
 
-    it('queues behind a merge, runs when the slot frees, and tells the Operator how it ended', async () => {
-      const merger = (await setup())!;
-      const { ctx, requestId } = await ownerAsks();
+    it('queues behind a merge, runs when the slot frees, and tells the PM how it ended', async () => {
+      const merger = (await setup(fakeDocsMerger(), { pm: true }))!;
+      const { ctx, requestId } = await ownerAsks('pm');
       const busy = vi.spyOn(h.domain.merges, 'busy').mockReturnValue(true);
       vi.spyOn(h.domain.merges, 'holder').mockReturnValue('AR-1');
       const queued = await write(ctx);
@@ -634,7 +623,7 @@ describe('write_project_docs (PM-495)', () => {
 
       expect(h.repos.docWrites.get(queued.write_id)).toMatchObject({ state: 'published' });
       expect(stepsOf(requestId)).toMatchObject([{ action: 'docs_write', status: 'done' }]);
-      const messages = h.repos.messages.list('AR', { member: 'operator' }).filter((m) => m.from === 'system');
+      const messages = h.repos.messages.list('AR', { member: 'pm' }).filter((m) => m.from === 'system');
       expect(messages).toMatchObject([
         { kind: 'info', taskKey: null, body: expect.stringContaining('w1'.padEnd(40, '0')) },
       ]);
@@ -665,8 +654,8 @@ describe('write_project_docs (PM-495)', () => {
     });
 
     it('answers running when the write is not over in time, and the message tells the result', async () => {
-      const merger = (await setup())!;
-      const { ctx, requestId } = await ownerAsks();
+      const merger = (await setup(fakeDocsMerger(), { pm: true }))!;
+      const { ctx, requestId } = await ownerAsks('pm');
       let release!: () => void;
       const gate = new Promise<void>((resolve) => {
         release = resolve;
@@ -687,7 +676,7 @@ describe('write_project_docs (PM-495)', () => {
       release();
       await settle();
       expect(stepsOf(requestId)).toMatchObject([{ status: 'done' }]);
-      const messages = h.repos.messages.list('AR', { member: 'operator' }).filter((m) => m.from === 'system');
+      const messages = h.repos.messages.list('AR', { member: 'pm' }).filter((m) => m.from === 'system');
       expect(messages).toHaveLength(1);
     });
   });
@@ -795,10 +784,10 @@ describe('write_project_docs (PM-495)', () => {
   });
 
   describe('after a restart', () => {
-    /** A write the last server left running, with the Operator’s request and step it belongs to. */
+    /** A write the last server left running, with the PM’s request and step it belongs to. */
     async function leaveRunning(commitSha: string | null) {
-      const merger = (await setup(fakeDocsMerger(), { persistent: true }))!;
-      const { requestId } = await ownerAsks();
+      const merger = (await setup(fakeDocsMerger(), { persistent: true, pm: true }))!;
+      const { requestId } = await ownerAsks('pm');
       const now = new Date().toISOString();
       h.repos.operatorRequests.insertStep({
         id: 'ops_left',
@@ -821,8 +810,8 @@ describe('write_project_docs (PM-495)', () => {
         base: 'main',
         baseCommit: BASE,
         edits: [{ path: DECISIONS, old_text: '', new_text: '3. Third' }],
-        message: 'Add decision 3\n\nProjectman-Operator: operator',
-        author: 'operator',
+        message: 'Add decision 3\n\nProjectman-Operator: pm',
+        author: 'pm',
         requestedBy: 'owner',
         requestId,
         stepId: 'ops_left',
@@ -866,10 +855,10 @@ describe('write_project_docs (PM-495)', () => {
       expect(stepsOf(requestId)).toMatchObject([{ id: 'ops_left', status: 'done' }]);
       const messages = await waitFor(
         () => {
-          const sent = h.repos.messages.list('AR', { member: 'operator' }).filter((m) => m.from === 'system');
+          const sent = h.repos.messages.list('AR', { member: 'pm' }).filter((m) => m.from === 'system');
           return sent.length > 0 && sent;
         },
-        { what: 'the message to the Operator about the published write' },
+        { what: 'the message to the PM about the published write' },
       );
       expect(messages).toMatchObject([{ kind: 'info', body: expect.stringContaining('c'.repeat(40)) }]);
     });
@@ -905,36 +894,10 @@ describe('autonomous lessons (PM-1004)', () => {
     h.repos.operatorRequests.close(requestId, new Date().toISOString());
     return ctx;
   }
-  async function fromQueue(from: 'system' | 'dev-1') {
-    if (from === 'system') {
-      await h.domain.inbox.openIntegratorTodo({
-        projectKey: 'AR',
-        taskKey: null,
-        askedBy: 'system',
-        question: 'Record the lesson',
-        todo: { what: 'Record a lesson', where: 'Project documents', expected: 'A recorded lesson' },
-      });
-    } else {
-      await h.domain.messaging.send(
-        'AR',
-        from,
-        { to: ['operator'], text: 'Record the lesson' },
-        { kind: 'action' },
-      );
-    }
-    const item = await waitFor(
-      () => h.repos.memberQueue.listOpen('AR', 'operator').find((item) => item.state === 'processing'),
-      { what: 'the processing Operator queue item' },
-    );
-    const request = await waitFor(() => h.repos.operatorRequests.openOfSession(item.sessionId!)[0], {
-      what: 'the open Operator request of the queue item',
-    });
-    expect(request).toMatchObject({
-      source: 'queue',
-      queueItemId: item.id,
-      fromHandle: from,
-    });
-    return { ctx: toolOf(await ownerConversation()), item };
+  async function internalPm() {
+    const { session } = await h.domain.sessions.ensureSession('AR', 'pm', { type: 'general' });
+    await settle();
+    return toolOf(session);
   }
 
   it('reads and creates missing lessons without an owner request or owner attribution', async () => {
@@ -972,80 +935,10 @@ describe('autonomous lessons (PM-1004)', () => {
     expect(await refusal(write(ctx, [lesson()]))).toMatch(/^docs_not_configured:/);
   });
 
-  it.each(['system', 'dev-1'] as const)(
-    'reads and writes lessons from a real %s queue request',
-    async (from) => {
-      await setup();
-      const { ctx } = await fromQueue(from);
-      const read = await h.domain.teamTools.readProjectDoc(ctx, { doc: 'lessons' });
-      expect(await write(ctx, [lesson()], read.commit)).toMatchObject({ state: 'published' });
-    },
-  );
-
-  it.each(['session', 'project', 'member', 'state', 'missing'] as const)(
-    'rejects a queue request with an invalid %s binding for reads and writes',
-    async (binding) => {
-      const merger = (await setup())!;
-      const { ctx, item } = await fromQueue('system');
-      const request = h.repos.operatorRequests.openOfSession(ctx.sessionId)[0]!;
-      if (binding === 'missing') {
-        h.repos.db.prepare('UPDATE operator_requests SET queue_item_id = NULL WHERE id = ?').run(request.id);
-      } else {
-        const column = { session: 'session_id', project: 'project_key', member: 'member', state: 'state' }[
-          binding
-        ];
-        const value = binding === 'state' ? 'queued' : binding === 'project' ? 'OTHER' : 'other';
-        if (binding === 'project') {
-          h.repos.db
-            .prepare(
-              "INSERT INTO projects (key, name, template_id, config_version, created_at, updated_at) VALUES ('OTHER', 'Other', NULL, 'v1', '2026-01-01', '2026-01-01')",
-            )
-            .run();
-          h.repos.db
-            .prepare('UPDATE member_queue_items SET project_key = ? WHERE id = ?')
-            .run(value, item.id);
-        } else
-          h.repos.db.prepare(`UPDATE member_queue_items SET ${column} = ? WHERE id = ?`).run(value, item.id);
-      }
-      expect(await refusal(h.domain.teamTools.readProjectDoc(ctx, { doc: 'lessons' }))).toMatch(
-        /^operator_owner_only:/,
-      );
-      expect(await refusal(write(ctx, [lesson()]))).toMatch(/^operator_owner_only:/);
-      expect(merger.commitFiles).not.toHaveBeenCalled();
-    },
-  );
-
-  it('keeps mixed and other documents behind the owner-request guard in the queue', async () => {
-    await setup();
-    const { ctx } = await fromQueue('dev-1');
-    for (const edits of [
-      [lesson(), append('Third')],
-      [{ doc: 'roadmap' as const, old_text: '', new_text: 'Next' }],
-    ])
-      expect(await refusal(write(ctx, edits))).toMatch(/^operator_owner_only:/);
-    expect(await refusal(h.domain.teamTools.readProjectDoc(ctx, { doc: 'decisions' }))).toMatch(
-      /^operator_owner_only:/,
-    );
-    expect(h.repos.docWrites.openOf('AR')).toBeNull();
-  });
-
   it('keeps mixed edits behind the owner-request guard with no request', async () => {
     await setup();
     const ctx = await internal();
     expect(await refusal(write(ctx, [lesson(), append('Third')]))).toMatch(/^operator_no_request:/);
-  });
-
-  it('refuses lessons in a guest conversation', async () => {
-    await setup();
-    await say('cleo');
-    const guest = operatorSessions().find(
-      (s) => s.workItem.type === 'general' && s.workItem.with === 'cleo',
-    )!;
-    const ctx = toolOf(guest);
-    expect(await refusal(h.domain.teamTools.readProjectDoc(ctx, { doc: 'lessons' }))).toMatch(
-      /^operator_owner_only:/,
-    );
-    expect(await refusal(write(ctx, [lesson()]))).toMatch(/^operator_owner_only:/);
   });
 
   it.each(['approval', 'message', 'answer'] as const)(
@@ -1078,15 +971,15 @@ describe('autonomous lessons (PM-1004)', () => {
   });
 
   it('continues a delayed lessons write after a restart and sends its result without an owner step', async () => {
-    const merger = (await setup(fakeDocsMerger(), { persistent: true }))!;
-    const ctx = await internal();
+    const merger = (await setup(fakeDocsMerger(), { persistent: true, pm: true }))!;
+    const ctx = await internalPm();
     vi.spyOn(h.domain.merges, 'busy').mockReturnValue(true);
     const queued = await write(ctx, [lesson()]);
     expect(queued.state).toBe('queued');
     h = await restartDomainHarness(h, { merger });
     await settle();
     expect(h.repos.docWrites.get(queued.write_id)).toMatchObject({ state: 'published', stepId: null });
-    const messages = h.repos.messages.list('AR', { member: 'operator' }).filter((m) => m.from === 'system');
+    const messages = h.repos.messages.list('AR', { member: 'pm' }).filter((m) => m.from === 'system');
     expect(messages).toMatchObject([{ kind: 'info', body: expect.stringContaining(queued.write_id) }]);
   });
 
@@ -1224,8 +1117,8 @@ describe('autonomous lessons (PM-1004)', () => {
   });
 
   it('reports stale lessons with a retry instead of requesting owner approval', async () => {
-    const merger = (await setup())!;
-    const ctx = await internal();
+    const merger = (await setup(fakeDocsMerger(), { pm: true }))!;
+    const ctx = await internalPm();
     const busy = vi.spyOn(h.domain.merges, 'busy').mockReturnValue(true);
     const queued = await write(ctx, [lesson()]);
     merger.state.remote = 'e'.repeat(40);
@@ -1234,7 +1127,7 @@ describe('autonomous lessons (PM-1004)', () => {
     h.domain.docWrites.pump();
     await settle();
     expect(h.repos.docWrites.get(queued.write_id)?.state).toBe('stale');
-    const message = h.repos.messages.list('AR', { member: 'operator' }).find((m) => m.from === 'system')!;
+    const message = h.repos.messages.list('AR', { member: 'pm' }).find((m) => m.from === 'system')!;
     expect(message.body).toContain('retry');
     expect(message.body).not.toContain('owner');
   });

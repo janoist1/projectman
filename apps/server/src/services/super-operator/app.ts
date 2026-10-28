@@ -1,10 +1,5 @@
 import { createHash } from 'node:crypto';
-import {
-  OPERATOR_APP_CREDENTIAL_PREFIX,
-  appRequestOrigin,
-  operatorOf,
-  coordinationMemberOf,
-} from '@projectman/shared';
+import { OPERATOR_APP_CREDENTIAL_PREFIX, appRequestOrigin, coordinationMemberOf } from '@projectman/shared';
 import type {
   HumanMemberConfig,
   ProjectConfig,
@@ -68,8 +63,7 @@ export function createOperatorAppSessions(deps: {
       return (
         !!config &&
         session.member === principal.member &&
-        (operatorOf(config)?.handle === session.member ||
-          coordinationMemberOf(config)?.handle === session.member) &&
+        coordinationMemberOf(config)?.handle === session.member &&
         session.workItem.type === 'general' &&
         !session.workItem.with &&
         deps.hasOpenRequest(session.id)

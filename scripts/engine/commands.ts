@@ -1,4 +1,4 @@
-import { existsSync, realpathSync, statSync } from 'node:fs';
+import { existsSync, realpathSync, statSync, unlinkSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import {
@@ -65,6 +65,8 @@ const USAGE = `usage:
   npm run engine -- project set <KEY> <path>
   npm run engine -- repo add <KEY> <repo> <path> [--full-test "<command>"]
   npm run engine -- repo remove <KEY> <repo>
+  npm run engine -- nanogpt-key set   (this engine's own NanoGPT key on standard input; its sessions then use it)
+  npm run engine -- nanogpt-key clear
   npm run engine -- status [--json]   (--json: one line, the state for other programs; exit 0 in every state)
   npm run engine -- logs [--lines N] [--json]   (the end of the service's output and error logs; N up to ${LOG_LINES_MAX})
   npm run engine -- keep-awake on|off   (keep the Mac awake while work runs; takes effect when the engine restarts)
@@ -195,6 +197,7 @@ export async function runEngineCli(argv: string[], io: EngineCliIo): Promise<num
           ...(flags.get('name') ? { name: flags.get('name') } : {}),
           ...(previous?.keyFile ? { keyFile: previous.keyFile } : {}),
           ...(linkHeadersFile ? { linkHeadersFile } : {}),
+          ...(previous?.nanogptKeyFile ? { nanogptKeyFile: previous.nanogptKeyFile } : {}),
           projects: previous?.projects ?? [],
           repos: previous?.repos ?? [],
           maxPermissionMode: previous?.maxPermissionMode ?? 'auto',
@@ -259,6 +262,41 @@ export async function runEngineCli(argv: string[], io: EngineCliIo): Promise<num
           return 0;
         }
         throw new UsageError('repo add or repo remove');
+      }
+      case 'nanogpt-key': {
+        if (rest.length > 0 || (sub !== 'set' && sub !== 'clear'))
+          throw new UsageError('nanogpt-key set (the key on standard input) or nanogpt-key clear');
+        const config = loadEngineConfig(home);
+        if (sub === 'set') {
+          const key = (await io.readStdin())?.trim();
+          if (!key)
+            throw new UsageError(
+              'the NanoGPT key is read from standard input: pbpaste | npm run engine -- nanogpt-key set',
+            );
+          if (key.length > 512 || /\s/.test(key))
+            throw new EngineConfigError('key_invalid', 'That does not look like a NanoGPT key.');
+          const keyFile = config.nanogptKeyFile ?? files.nanogptKey;
+          // Checked before anything is written: a key file inside a session root is refused.
+          const next = EngineConfig.parse({ ...config, nanogptKeyFile: keyFile });
+          resolveEngineConfig(next, home, resolveOptions);
+          writeSecretFile(keyFile, `${key}\n`);
+          saveEngineConfig(home, next);
+          io.out(`the NanoGPT key is in ${keyFile} (mode 0600); restart the engine to use it`);
+          return 0;
+        }
+        if (!config.nanogptKeyFile) {
+          io.out('this engine has no NanoGPT key of its own');
+          return 0;
+        }
+        const { nanogptKeyFile, ...withoutKey } = config;
+        try {
+          unlinkSync(nanogptKeyFile);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+        }
+        saveEngineConfig(home, withoutKey);
+        io.out('the NanoGPT key of this engine is removed; restart the engine');
+        return 0;
       }
       case 'status': {
         if (sub !== undefined) throw new UsageError('status takes no arguments');
@@ -405,7 +443,7 @@ export async function runEngineCli(argv: string[], io: EngineCliIo): Promise<num
       }
       default:
         throw new UsageError(
-          'commands: init, project set, repo add, repo remove, status, logs, keep-awake, start, service, move-work-root',
+          'commands: init, project set, repo add, repo remove, nanogpt-key, status, logs, keep-awake, start, service, move-work-root',
         );
     }
   } catch (error) {

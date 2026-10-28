@@ -201,6 +201,9 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
   // The key and the extra headers are read here once so a wrong mode stops the start, not a later reconnect.
   readSecretFile(resolved.keyFile, 'The engine key');
   if (resolved.linkHeadersFile) readLinkHeaders(resolved.linkHeadersFile);
+  // PM-1068: the same for the engine's own NanoGPT key; the value is read again at every use, not kept here.
+  const nanogptKeyFile = resolved.nanogptKeyFile;
+  if (nanogptKeyFile) readSecretFile(nanogptKeyFile, 'The NanoGPT key');
   const files = engineFiles(home, resolved);
   const instanceTag = createHash('sha256').update(realpathSync(home)).digest('hex').slice(0, 16);
   const bootId = randomBytes(8).toString('hex');
@@ -295,8 +298,25 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
     },
   };
 
-  // The NanoGPT key is fetched per session start and kept in memory only: nothing writes it to a file, the
-  // log or the status. Outside such a start (plan usage, the login check) there is no key to give.
+  // The engine's own NanoGPT key file (PM-1068): read at every use, so a changed file takes effect at once.
+  // A file that cannot be read gives no key; the log names the error code only, never the key.
+  const ownNanogptKey = nanogptKeyFile
+    ? async (): Promise<string | null> => {
+        try {
+          return readSecretFile(nanogptKeyFile, 'The NanoGPT key');
+        } catch (error) {
+          log.warn(
+            { code: error instanceof EngineConfigError ? error.code : 'internal' },
+            'the NanoGPT key file could not be read',
+          );
+          return null;
+        }
+      }
+    : undefined;
+
+  // Without an own key file the NanoGPT key is fetched per session start and kept in memory only: nothing
+  // writes it to a file, the log or the status. Outside such a start (plan usage, the login check) there is
+  // no key to give.
   const nanogptScope = new AsyncLocalStorage<{
     sessionId: string;
     active: boolean;
@@ -395,8 +415,8 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
     codexBin: options.codexBin ?? APP_DEFAULTS.codexBin,
     codexHome: options.codexHome,
     nanogptCodexHome,
-    nanogptKey,
-    nanogptKeyInCloud: true,
+    nanogptKey: ownNanogptKey ?? nanogptKey,
+    nanogptKeyInCloud: !ownNanogptKey,
     geminiBin: options.geminiBin,
     geminiConfigDir,
     claudeConfigPath: options.claudeConfigPath,
@@ -572,7 +592,7 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
     emit,
     terminals,
     exportDir,
-    nanogptStart,
+    ...(ownNanogptKey ? {} : { nanogptStart }),
     administration,
   });
 
@@ -627,6 +647,7 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
       uid,
       bootId,
       ...(administrationAdvertised ? { administration: administrationAdvertised } : {}),
+      ...(nanogptKeyFile ? { nanogptKey: 'engine' as const } : {}),
     };
   }
 

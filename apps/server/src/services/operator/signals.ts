@@ -44,7 +44,10 @@ import {
   OPERATOR_READY_STALL_OWNER_MINUTES,
   OPERATOR_READY_WAITING_MINUTES,
   OPERATOR_SILENT_WORK_MINUTES,
+  OPERATOR_START_FETCH_FAILED_MINUTES,
   OPERATOR_UNRELEASED_HOURS,
+  START_BLOCKED_REASONS,
+  StartBlockedFacts,
 } from '@projectman/shared';
 import type {
   AnswerEvidence,
@@ -55,7 +58,9 @@ import type {
   ProjectConfig,
   RefinementStallFacts,
   Stage,
+  StartBlockedReason,
   Task,
+  TaskStartWaiting,
   TaskWait,
   TimelineEvent,
   WorkStalledAlert,
@@ -159,6 +164,11 @@ const WAKE_HEADERS: Record<OperatorWatch, string> = {
   drive: `${WAKE_CHECK} ${WAKE_STEP} When steps_left is 0, bring the signal to the owners. ${WAKE_NEVER} ${WAKE_DISMISS} ${WAKE_REFINEMENT} ${WAKE_STRUCTURAL} ${WAKE_ONE_MESSAGE}`,
 };
 
+/** The case key of a card's blocked start: one per card and reason (PM-455). */
+function startBlockedCaseKey(taskKey: string, reason: StartBlockedReason): string {
+  return `start_blocked:${taskKey}:${reason}`;
+}
+
 /** The member of an `answer_stalled` case key: `answer_stalled:<taskKey>:<member>:<evidenceId>`. */
 function answerStalledMember(caseKey: string): string | null {
   return caseKey.split(':')[2] ?? null;
@@ -197,7 +207,10 @@ export class OperatorSignals {
     taskWaits: TaskWaits;
     activeOutageIds: (projectKey: string) => ReadonlySet<string> | null;
     releases: Pick<OperatorReleases, 'unreleased'>;
-    inbox: Pick<InboxService, 'create' | 'cancel' | 'list'>;
+    inbox: Pick<InboxService, 'create' | 'cancel' | 'list' | 'closeQuestionsOfSignal'>;
+    startWaitingOf: (task: Task) => TaskStartWaiting | undefined;
+    /** Whether a deferred start of the card is under a new attempt: its wait reads empty meanwhile. */
+    startAttempting: (task: Task) => boolean;
     startHandled?: (task: Task) => boolean;
   }) {
     this.deps = privateDeps;
@@ -222,7 +235,11 @@ export class OperatorSignals {
     activeOutageIds: (projectKey: string) => ReadonlySet<string> | null;
     releases: Pick<OperatorReleases, 'unreleased'>;
     /** The owners' `work_stalled` alert (PM-1082). */
-    inbox: Pick<InboxService, 'create' | 'cancel' | 'list'>;
+    inbox: Pick<InboxService, 'create' | 'cancel' | 'list' | 'closeQuestionsOfSignal'>;
+    /** Why the start of AI work on a stored card waits (PM-455): the scheduling reads carry no `startWaiting`. */
+    startWaitingOf: (task: Task) => TaskStartWaiting | undefined;
+    /** Whether a deferred start of the card is under a new attempt: its wait reads empty meanwhile. */
+    startAttempting: (task: Task) => boolean;
     /** The start round already acts on the ready card: it holds it on purpose or asked a member to start it (PM-804). */
     startHandled?: (task: Task) => boolean;
   };
@@ -270,6 +287,8 @@ export class OperatorSignals {
     signal.resolvedAt = isoNow(this.deps.ctx);
     if (signal.state === 'pending' || signal.state === 'open') signal.state = 'resolved';
     this.save(signal, visible);
+    // A question asked about the signal has nothing left to answer (PM-455).
+    void this.deps.inbox.closeQuestionsOfSignal(projectKey, signal.id).catch(() => undefined);
   }
 
   /**
@@ -510,8 +529,70 @@ export class OperatorSignals {
       allowed.members =
         ready && task.assignee === answerStalledMember(signal.caseKey) ? startable([task.assignee!]) : [];
       allowed.taskKey = task.key;
+    } else if (signal.kind === 'start_blocked') {
+      const facts = this.startBlockedFacts(config, signal);
+      if (facts?.reason === 'workspace_dirty' && facts.member && facts.heldBy) {
+        // The workspace stands on the held card's branch: the member's session there can finish or commit its work.
+        allowed.members = startable([facts.member]);
+        allowed.taskKey = facts.heldBy;
+      } else if (facts?.reason === 'workspace_fetch_failed') {
+        allowed.members = startable(dutyMembers(config, 'deployment').map((m) => m.handle));
+        allowed.taskKey = signal.taskKey;
+      }
     }
     return allowed;
+  }
+
+  /** The start wait of a card that a `start_blocked` signal speaks for, or null (PM-455). */
+  private startBlockedReason(task: Task): StartBlockedReason | null {
+    if (!isOpenTask(task) || isTheme(task)) return null;
+    const reason = this.deps.startWaitingOf(task)?.reason;
+    return START_BLOCKED_REASONS.find((r) => r === reason) ?? null;
+  }
+
+  /**
+   * Whether the system is trying the card's deferred start right now. The wait reads empty for the length of the
+   * attempt (a fetch may take a minute), which says nothing about the cause: the signal stays as it is (PM-455).
+   */
+  private startAttemptRunning(task: Task): boolean {
+    return (
+      isOpenTask(task) &&
+      !isTheme(task) &&
+      this.deps.startWaitingOf(task) === undefined &&
+      this.deps.startAttempting(task)
+    );
+  }
+
+  /**
+   * The facts of a `start_blocked` signal while its case stands, else null. The git error text is not among
+   * them: a remote URL in it may carry credentials, and the server log has it.
+   */
+  private startBlockedFacts(config: ProjectConfig, signal: OperatorSignalRecord): StartBlockedFacts | null {
+    const { ctx } = this.deps;
+    const task = signal.taskKey ? ctx.repos.tasks.get(signal.taskKey) : null;
+    const waiting = task ? this.deps.startWaitingOf(task) : undefined;
+    if (!task || !waiting || waiting.reason !== signal.subject || this.startBlockedReason(task) === null)
+      return null;
+    const reason = waiting.reason as StartBlockedReason;
+    const branch = reason === 'repo_required' ? null : (waiting.branch ?? null);
+    const heldBy =
+      reason === 'workspace_dirty' && branch
+        ? (this.openCards(signal.projectKey)
+            .filter((card) => card.links.some((link) => link.kind === 'branch' && link.ref === branch))
+            .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0]?.key ?? null)
+        : null;
+    return StartBlockedFacts.parse({
+      reason,
+      member: waiting.member ?? null,
+      since: waiting.since,
+      repos: reason === 'repo_required' ? config.project.repos.map((repo) => repo.name) : [],
+      parentRepo:
+        reason === 'repo_required' && task.parentKey
+          ? (ctx.repos.tasks.get(task.parentKey)?.repo ?? null)
+          : null,
+      branch,
+      heldBy,
+    });
   }
 
   /** The one step a signal allows at this level, as the coordinator is told (the budget is told apart). */
@@ -617,6 +698,19 @@ export class OperatorSignals {
         active.add(caseKey);
         this.raise({ projectKey: key, kind: 'nobody', caseKey, taskKey, subject: task.stageId });
       }
+      for (const task of cards) {
+        const reason = this.startBlockedReason(task);
+        if (!reason) {
+          if (this.startAttemptRunning(task))
+            for (const signal of this.deps.ctx.repos.operatorSignals.list(key))
+              if (signal.kind === 'start_blocked' && signal.taskKey === task.key && !signal.resolvedAt)
+                active.add(signal.caseKey);
+          continue;
+        }
+        const caseKey = startBlockedCaseKey(task.key, reason);
+        active.add(caseKey);
+        this.raise({ projectKey: key, kind: 'start_blocked', caseKey, taskKey: task.key, subject: reason });
+      }
       for (const session of this.deps.ctx.repos.sessions.list(key)) {
         if (
           session.state !== 'working' ||
@@ -664,7 +758,10 @@ export class OperatorSignals {
         if (signal.kind === 'outage' && outages !== null && !outages.has(signal.subject ?? ''))
           this.resolve(key, signal.caseKey);
         if (
-          (signal.kind === 'nobody' || signal.kind === 'silent' || BOARD_KINDS.has(signal.kind)) &&
+          (signal.kind === 'nobody' ||
+            signal.kind === 'silent' ||
+            signal.kind === 'start_blocked' ||
+            BOARD_KINDS.has(signal.kind)) &&
           !active.has(signal.caseKey)
         )
           this.resolve(key, signal.caseKey);
@@ -800,13 +897,15 @@ export class OperatorSignals {
                   ? this.readyFacts(s)
                   : s.kind === 'answer_stalled'
                     ? this.answerStalledFacts(s)
-                    : s.kind === 'refinement_stalled'
-                      ? { refinement: this.refinementStallFacts(config, s) }
-                      : s.inboxItemId
-                        ? ctx.repos.inbox.get(s.inboxItemId)?.payload
-                        : s.subject
-                          ? ctx.repos.sessions.get(s.subject)?.activity
-                          : null,
+                    : s.kind === 'start_blocked'
+                      ? this.startBlockedFacts(config, s)
+                      : s.kind === 'refinement_stalled'
+                        ? { refinement: this.refinementStallFacts(config, s) }
+                        : s.inboxItemId
+                          ? ctx.repos.inbox.get(s.inboxItemId)?.payload
+                          : s.subject
+                            ? ctx.repos.sessions.get(s.subject)?.activity
+                            : null,
             step: this.stepOf(level, config, s),
             steps_left: structuralKind(s.kind) ? 0 : budget.left,
             next_step_at: structuralKind(s.kind) ? null : budget.nextAt,
@@ -886,7 +985,20 @@ export class OperatorSignals {
         this.resolve(projectKey, s.caseKey);
         return false;
       }
+      // The facts of a start under a new attempt cannot be read; the signal is told after the attempt (PM-455).
+      if (s.kind === 'start_blocked') {
+        const card = s.taskKey ? ctx.repos.tasks.get(s.taskKey) : null;
+        if (card && this.startAttemptRunning(card)) return false;
+      }
       // Free capacity is raised at once but wakes the coordinator only if the stall lasts without a break (PM-547, PM-1082).
+      // A failed fetch may be a network blip the system's own retries mend: told only if it outlasts them (PM-455).
+      if (
+        s.kind === 'start_blocked' &&
+        s.subject === 'workspace_fetch_failed' &&
+        !s.deliveredAt &&
+        now - Date.parse(s.raisedAt) < OPERATOR_START_FETCH_FAILED_MINUTES * 60_000
+      )
+        return false;
       if (s.kind !== 'ready_waiting' || again) return true;
       const stalledSince = this.stallStart(projectKey);
       return stalledSince !== null && now - stalledSince >= OPERATOR_READY_WAITING_MINUTES * 60_000;
@@ -923,6 +1035,10 @@ export class OperatorSignals {
         task.stageId === s.subject &&
         taskWaits.ofCard(config, task)?.reason === 'nobody'
       );
+    }
+    if (s.kind === 'start_blocked') {
+      const task = s.taskKey ? ctx.repos.tasks.get(s.taskKey) : null;
+      return !!task && (this.startBlockedReason(task) === s.subject || this.startAttemptRunning(task));
     }
     if (s.kind === 'refinement_stalled') {
       const stall = refinementStallOf(s.projectKey, s.caseKey);

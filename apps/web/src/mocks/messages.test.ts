@@ -150,7 +150,7 @@ describe('mock team messaging and profiles', () => {
     }
     expect(b.messages).toHaveLength(1);
   });
-  it.each(['role', 'access'] as const)('restricts a viewer set through %s to the Operator alone', (field) => {
+  it.each(['role', 'access'] as const)('restricts a viewer set through %s to the PM alone', (field) => {
     const b = backend();
     b.viewerHandle = 'kata';
     if (field === 'role') b.findMember('kata')!.role = 'viewer';
@@ -159,13 +159,22 @@ describe('mock team messaging and profiles', () => {
       if (member.kind !== 'human') throw new Error('Expected a human fixture');
       member.access = 'viewer';
     }
-    for (const to of [['fe-1'], ['operator', 'fe-1']]) {
+    for (const to of [['fe-1'], ['pm', 'fe-1']]) {
       expect(b.handle('POST', `${base}/messages`, { to, text: 'Acme request' }).status).toBe(403);
       expect(b.messages).toHaveLength(0);
     }
-    expect(b.handle('POST', `${base}/messages`, { to: ['operator'], text: 'Acme request' }).status).toBe(202);
+    expect(b.handle('POST', `${base}/messages`, { to: ['pm'], text: 'Acme request' }).status).toBe(202);
     expect(b.messages).toHaveLength(1);
-    expect(b.messages[0]).toMatchObject({ from: 'kata', to: ['operator'] });
+    expect(b.messages[0]).toMatchObject({ from: 'kata', to: ['pm'] });
+  });
+  it.each(['owner', 'kata'])('refuses a message to the Operator from %s (PM-1045)', (viewerHandle) => {
+    const b = backend();
+    b.viewerHandle = viewerHandle;
+    expect(b.handle('POST', `${base}/messages`, { to: ['operator'], text: 'Acme request' })).toMatchObject({
+      status: 409,
+      body: { error: { code: 'operator_connected_only' } },
+    });
+    expect(b.messages).toHaveLength(0);
   });
   it('trims messages and never sends one to its sender', () => {
     const b = backend();

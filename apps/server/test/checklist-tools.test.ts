@@ -2,9 +2,9 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { AiMemberConfig, Session } from '@projectman/shared';
 import type { ToolContext, UpdateChecklistInput } from '../src/contracts';
 import { TEAM_TOOLS } from '../src/mcp/tools';
-import { createDomainHarness, waitForSession } from './helpers/domain-harness';
+import { createDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
-import { flush } from './helpers/fakes';
+import { seedOperatorRequest } from './helpers/operator-session';
 
 let h: DomainHarness;
 let ctx: ToolContext;
@@ -18,14 +18,7 @@ async function setup() {
       (config.team.members.find((m) => m.handle === 'pm') as AiMemberConfig).onLeave = false;
     },
   });
-  await h.domain.messaging.sendReporting(
-    'AR',
-    'owner',
-    { to: ['operator'], text: 'Set up the checklist' },
-    { awaitWake: true },
-  );
-  await flush();
-  const session = await waitForSession(h.domain, { member: 'operator' });
+  const { session } = seedOperatorRequest(h, 'AR', { text: 'Set up the checklist' });
   ctx = { projectKey: 'AR', member: 'operator', sessionId: session.id, taskKey: null };
 }
 

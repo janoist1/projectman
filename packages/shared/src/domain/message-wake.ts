@@ -46,22 +46,15 @@ export interface WakeFacts {
   fromOwnLogin: boolean;
   /** The message answers or passes on a question (origin `answer` or `question_forward`, PM-556): it wakes like a person's. */
   answersQuestion: boolean;
-  /** The Operator processes its queue (`operatorQueueAvailable`): an AI member's or the system's action message wakes it (PM-885). Default false. */
-  operatorQueueAvailable?: boolean;
 }
 
 /**
- * Whether a message to the Operator wakes it (PM-885): a person's own-login message, or, while the Operator
- * processes its queue, a valid action message of an AI member or the system. A person's message sent with the
- * integrator key never does.
+ * Whether a message to the Operator wakes it: only a person's own-login message (an old message; the Operator
+ * runs no session in the app since PM-1045, and a new message to it is refused). A person's message sent with
+ * the integrator key never does.
  */
-function operatorMessageWakes(
-  message: Pick<TeamMessage, 'kind'>,
-  facts: WakeFacts,
-  stale: StaleReason | null,
-): boolean {
-  if (facts.fromHuman) return facts.fromOwnLogin;
-  return (facts.operatorQueueAvailable ?? false) && (message.kind ?? 'action') === 'action' && stale === null;
+function operatorMessageWakes(facts: WakeFacts): boolean {
+  return facts.fromHuman && facts.fromOwnLogin;
 }
 
 /**
@@ -76,8 +69,7 @@ export function messageWakeBlock(
   stale: StaleReason | null,
 ): WakeBlock | null {
   if ((message.kind ?? 'action') !== 'action' || stale !== null) return null;
-  if (facts.recipientIsOperator)
-    return operatorMessageWakes(message, facts, stale) ? null : 'operator_owner_only';
+  if (facts.recipientIsOperator) return operatorMessageWakes(facts) ? null : 'operator_owner_only';
   if (facts.answersQuestion) return null;
   return !facts.fromHuman && facts.fromAi && !facts.recipientHasRole ? 'no_card_role' : null;
 }
@@ -87,7 +79,7 @@ export function messageWakes(
   facts: WakeFacts,
   stale: StaleReason | null,
 ): boolean {
-  if (facts.recipientIsOperator) return operatorMessageWakes(message, facts, stale);
+  if (facts.recipientIsOperator) return operatorMessageWakes(facts);
   return (
     facts.fromHuman ||
     facts.answersQuestion ||

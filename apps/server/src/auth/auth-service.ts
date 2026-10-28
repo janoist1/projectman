@@ -86,6 +86,15 @@ export class AuthService {
     };
   }
 
+  /**
+   * Whether the account with this email has a live (not revoked, not expired) super key: the owner's connected
+   * client can work the integrator queue (PM-1045). False for an unknown email.
+   */
+  hasActiveSuperKey(email: string): boolean {
+    const user = this.repos.users.findByEmail(email.trim());
+    return !!user && this.repos.integratorKeys.hasActiveSuper(user.id, this.now().toISOString());
+  }
+
   /** Milliseconds until an integrator key expires; null: it does not (or is unknown). */
   integratorKeyExpiresInMs(keyId: string): number | null {
     const at = this.repos.integratorKeys.expiresAt(keyId);

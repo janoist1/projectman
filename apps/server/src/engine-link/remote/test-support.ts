@@ -108,6 +108,8 @@ export function createFakeCloud(): FakeCloud {
   const known: EngineId[] = [];
   let defaultId: EngineId | null = null;
   const foreign = new Set<EngineId>();
+  /** Engines whose latest hello said `nanogptKey: 'engine'` (PM-1068). */
+  const ownKey = new Set<EngineId>();
   /** Bindings of a project that are not its base engine. */
   const alsoBound = new Map<string, Set<EngineId>>();
   const projectEngines = new Map<string, EngineId | null>();
@@ -118,6 +120,7 @@ export function createFakeCloud(): FakeCloud {
     defaultId: () => defaultId,
     hostEngine: () => (defaultId && !foreign.has(defaultId) ? defaultId : null),
     ownedByHost: (id) => !foreign.has(id),
+    ownNanogptKey: (id) => ownKey.has(id),
     isBound: (id, projectKey) =>
       registry.projectEngine(projectKey) === id || (alsoBound.get(projectKey)?.has(id) ?? false),
     bindAlso(projectKey, id) {
@@ -176,6 +179,8 @@ export function createFakeCloud(): FakeCloud {
       registry.add(id);
       online.add(id);
       const hello = helloOf(options.hello);
+      if (hello.nanogptKey === 'engine') ownKey.add(id);
+      else ownKey.delete(id);
       const requests: FakeEngine['requests'] = [];
       let engineRpc: EngineRpc;
       const cloudRpc: EngineRpc = createEngineRpc({

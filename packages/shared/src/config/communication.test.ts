@@ -139,15 +139,25 @@ describe('teamMessageRecipientRefusal', () => {
     expect(teamMessageRecipientRefusal(config, 'cleo', ['pm'])).toBeNull();
   });
 
-  it('refuses the whole message when one recipient is no contact, the Operator included', () => {
-    expect(teamMessageRecipientRefusal(config, 'cleo', ['pm', 'dev-1', 'op', 'op'])).toEqual({
+  it('refuses the whole message when one recipient is no contact', () => {
+    expect(teamMessageRecipientRefusal(config, 'cleo', ['pm', 'dev-1', 'dev-1'])).toEqual({
       code: 'recipient_not_contact',
-      recipients: ['dev-1', 'op'],
+      recipients: ['dev-1'],
     });
   });
 
-  it('lets a viewer write to the project manager and the Operator alone', () => {
-    expect(teamMessageRecipientRefusal(config, 'vic', ['pm', 'op'])).toBeNull();
+  it.each(['owner', 'cleo', 'vic', 'dev-1', 'system'])(
+    'refuses a message to the Operator from %s: it exists only when the owner connects (PM-1045)',
+    (from) => {
+      expect(teamMessageRecipientRefusal(config, from, ['pm', 'op', 'op'])).toEqual({
+        code: 'operator_connected_only',
+        recipients: ['op'],
+      });
+    },
+  );
+
+  it('lets a viewer write to the project manager alone', () => {
+    expect(teamMessageRecipientRefusal(config, 'vic', ['pm'])).toBeNull();
     expect(teamMessageRecipientRefusal(config, 'vic', ['pm', 'dev-1'])).toEqual({
       code: 'insufficient_access',
       recipients: ['dev-1'],

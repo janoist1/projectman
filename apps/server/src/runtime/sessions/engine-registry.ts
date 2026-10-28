@@ -19,6 +19,8 @@ const StoredHello = z.object({
   platform: z.enum(['darwin', 'linux']),
   version: z.string(),
   providers: z.array(EngineProvider),
+  /** PM-1068: 'engine' when the engine holds its own NanoGPT key file; the key itself never reaches the cloud. */
+  nanogptKey: z.literal('engine').optional(),
 });
 export type EngineHelloMetadata = z.infer<typeof StoredHello>;
 export const machineKeyHash = (key: string): string => createHash('sha256').update(key).digest('hex');
@@ -140,6 +142,13 @@ export class EngineRegistry {
   ownedByHost(id: EngineId): boolean {
     const owner = this.ownerOf(id);
     return owner !== null && this.isHostOwner(owner);
+  }
+
+  /** The engine's latest hello said it holds its own NanoGPT key (PM-1068): it needs nothing from the cloud for NanoGPT. */
+  ownNanogptKey(id: EngineId): boolean {
+    const row = this.repos.engines.get(id);
+    if (!row?.last_hello) return false;
+    return StoredHello.parse(JSON.parse(row.last_hello)).nanogptKey === 'engine';
   }
 
   /** The project's work may go to this engine: it is bound to the project, or it is the project's fallback engine. */

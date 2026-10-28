@@ -10,7 +10,6 @@ export { focusPlaceText } from './focus';
 export { describeLink, linkTarget } from './links';
 export { relationLines, relationPhrase } from './relations';
 export { relationNoticeText, type RelationNoticeRelation } from './relation-notice';
-export { operatorQueueReminderText, operatorQueueText } from './operator-queue';
 export { partsLeftText } from './parts-left';
 export { roleLabel } from './role';
 export { collectorNotReadyText, startOfferText } from './start-offer';

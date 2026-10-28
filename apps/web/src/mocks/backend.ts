@@ -484,6 +484,8 @@ export class MockBackend {
   viewerHandle: string = fixtures.OWNER;
   /** Tests can exercise the same credential policy as REST without an HTTP bearer secret. */
   integratorMode: 'super' | 'read' | null = null;
+  /** Whether some owner has a live super key (PM-1045); the integrator's todos go to the owners without one. */
+  liveSuperKey = true;
   private readonly mergeOrders = new Map<string, { revision: number; taskKeys: string[] }>();
   /** A release decision is refused with `owner_approval_required`, like an integrator key's (PM-491). */
   refuseReleaseApproval = false;
@@ -1855,8 +1857,8 @@ export class MockBackend {
   }
 
   sweepIntegratorTodos(now: string): void {
-    // Like the server: the Operator's items go to the owners only when it does not work its queue (no clock).
-    if (integratorSideAvailable(this.config)) return;
+    // Like the server: the integrator's items go to the owners only when no owner has a live super key (no clock).
+    if (integratorSideAvailable(this.config, () => this.liveSuperKey)) return;
     for (const item of this.inbox) {
       const patch = planIntegratorInboxEscalation(
         item,
@@ -2185,12 +2187,11 @@ export class MockBackend {
     if ((path === '/api/providers' && method === 'GET') || path === '/api/providers/nanogpt/key') {
       if (path === '/api/providers' && this.providersFail)
         return error(503, 'internal_error', 'Providers unavailable');
-      const member = memberOf(this.config, this.viewerHandle);
       const canManageKeys =
-        this.canManageKeys ?? canManageProviderKeys([member?.kind === 'human' ? member.access : null]);
+        this.canManageKeys ?? canManageProviderKeys({ hostOwner: this.me().hostOwner === true });
       if (path === '/api/providers/nanogpt/key') {
         if (!canManageKeys)
-          return error(403, 'insufficient_access', 'Only an owner of every project may manage provider keys');
+          return error(403, 'insufficient_access', 'Only the host owner may manage provider keys');
         if (method === 'PUT') {
           const input = parseBody(SetProviderKeyRequest, body);
           if (!input) return error(400, 'invalid_request', 'Invalid key');
@@ -6019,23 +6020,29 @@ export class MockBackend {
       return error(403, 'insufficient_access', 'Developer or client required');
     const input = parseBody(SendTeamMessageRequest, body);
     if (!input) return error(400, 'invalid_request', 'Invalid message');
-    // The same rule as the server's: a viewer writes to the Operator alone, a client to the contacts alone (PM-985).
+    // The same rule as the server's: nobody writes to the Operator (it exists only when the owner connects a
+    // client, PM-1045), a viewer writes to the project manager alone, a client to the contacts alone (PM-985).
     // A fixture can also mark a viewer by the member's role.
-    const operatorHandle = operatorOf(this.config)?.handle;
-    const notOperator = input.to.filter((handle) => handle !== operatorHandle);
+    const managerHandle = projectManagerOf(this.config)?.handle;
+    const notManager = input.to.filter((handle) => handle !== managerHandle);
+    const operatorRefusal = teamMessageRecipientRefusal(this.config, this.viewerHandle, input.to);
     const recipientRefusal =
-      viewer.role === 'viewer'
-        ? notOperator.length > 0
-          ? { code: 'insufficient_access' as const, recipients: notOperator }
-          : null
-        : teamMessageRecipientRefusal(this.config, this.viewerHandle, input.to);
+      operatorRefusal?.code === 'operator_connected_only'
+        ? operatorRefusal
+        : viewer.role === 'viewer'
+          ? notManager.length > 0
+            ? { code: 'insufficient_access' as const, recipients: notManager }
+            : null
+          : operatorRefusal;
     if (recipientRefusal)
       return error(
-        403,
+        recipientRefusal.code === 'operator_connected_only' ? 409 : 403,
         recipientRefusal.code,
         recipientRefusal.code === 'recipient_not_contact'
           ? 'the message goes only to the contacts of the project'
-          : 'Developer or client access required',
+          : recipientRefusal.code === 'operator_connected_only'
+            ? 'the recipient exists only when the owner connects a client'
+            : 'Developer or client access required',
         { recipients: recipientRefusal.recipients },
       );
     if (input.taskKey) {

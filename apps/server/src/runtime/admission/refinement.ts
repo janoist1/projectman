@@ -9,7 +9,6 @@ import {
   isOpenTask,
   isInformationalAlert,
   memberOf,
-  operatorOf,
   projectManagerOf,
   PENDING_INBOX_STATES,
   refinementStallRefusal,
@@ -374,8 +373,7 @@ export class RefinementSteps {
     const latest = this.recorded(projectKey, taskKey);
     if (!changed && (!latest || isClosedTurn(latest.reason))) return;
     this.append(task, null, null, 'done');
-    const recipient =
-      cardMoverHandle(config) ?? projectManagerOf(config)?.handle ?? operatorOf(config)?.handle;
+    const recipient = cardMoverHandle(config) ?? projectManagerOf(config)?.handle;
     if (recipient) await this.notifyDone?.(task, recipient);
   }
 

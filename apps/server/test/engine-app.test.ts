@@ -592,6 +592,60 @@ describe('engine process', () => {
       await call('session.start', startSpec({ provider: 'nanogpt' }));
       expect(seen).toEqual([null, null]);
     });
+
+    it('is not announced in the hello without an own key file', async () => {
+      await startEngine();
+      await cloud.connected();
+      expect(cloud.hellos[0]).not.toHaveProperty('nanogptKey');
+    });
+
+    describe('own key file (PM-1068)', () => {
+      const keyFile = () => path.join(base, 'keys', 'nanogpt.key');
+      const useKeyFile = (content = `${NANOGPT_KEY}\n`) => {
+        writeSecretFile(keyFile(), content);
+        saveEngineConfig(home, { ...loadEngineConfig(home), nanogptKeyFile: keyFile() });
+      };
+
+      it('is read from the file at every use, never from the cloud, and announced in the hello', async () => {
+        const requests: string[] = [];
+        cloud.handle('secret.nanogpt_key', ({ sessionId }) => {
+          requests.push(sessionId);
+          return { key: 'cloud-key-must-not-be-used' };
+        });
+        useKeyFile();
+        const seen = readsKeyOnStart();
+        await startEngine();
+        const { call } = await cloud.connected();
+        expect(fake.options()?.nanogptKeyInCloud).toBe(false);
+        await call('session.start', startSpec({ sessionId: 's-nano', provider: 'nanogpt' }));
+        expect(seen).toEqual([NANOGPT_KEY, NANOGPT_KEY]);
+        // Outside a start (the plan usage, the login check) the key is there too, and a changed file counts at once.
+        await expect(nanogptKeyOf()()).resolves.toBe(NANOGPT_KEY);
+        writeSecretFile(keyFile(), 'ng-replaced-1234567890\n');
+        await expect(nanogptKeyOf()()).resolves.toBe('ng-replaced-1234567890');
+        expect(requests).toEqual([]);
+        expect(cloud.hellos[0]).toMatchObject({ nanogptKey: 'engine' });
+        expect(JSON.stringify(cloud.hellos)).not.toContain(NANOGPT_KEY);
+      });
+
+      it('gives no key for a file that became unreadable, and logs the error code only', async () => {
+        useKeyFile();
+        await startEngine();
+        await cloud.connected();
+        chmodSync(keyFile(), 0o644);
+        await expect(nanogptKeyOf()()).resolves.toBeNull();
+        expect(logLines.join('\n')).toContain('secret_permissions');
+        expect(logLines.join('\n')).not.toContain(NANOGPT_KEY);
+      });
+
+      it('stops the start when the file is missing or readable by others', async () => {
+        saveEngineConfig(home, { ...loadEngineConfig(home), nanogptKeyFile: keyFile() });
+        await expect(build()).rejects.toMatchObject({ code: 'secret_missing' });
+        useKeyFile();
+        chmodSync(keyFile(), 0o644);
+        await expect(build()).rejects.toMatchObject({ code: 'secret_permissions' });
+      });
+    });
   });
 
   describe('team tools over the loopback address', () => {

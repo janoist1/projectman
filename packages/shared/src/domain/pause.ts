@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { EngineId } from './engine';
-import { HumanAccess, MemberHandle } from './member';
+import { MemberHandle } from './member';
 import {
   HybridDeployment,
   Release,
@@ -205,15 +205,6 @@ export interface OpenPause {
 /** Work of a project is held while its own pause or the instance's is open. */
 export function isWorkPaused(pauses: readonly OpenPause[], projectKey: string): boolean {
   return pauses.some((p) => p.scope === 'instance' || p.projectKey === projectKey);
-}
-
-/**
- * Whether a person is 'owner' in every project they are looked up in (at least one). `null`: no access to that
- * project. It no longer decides who pauses the instance (the host owner does, PM-1058); its remaining use is
- * `canManageProviderKeys`, which another slice moves (PM-1068).
- */
-export function canManageInstancePause(accesses: readonly (HumanAccess | null)[]): boolean {
-  return accesses.length > 0 && accesses.every((a) => a === 'owner');
 }
 
 /** 'paused' when every session has a point (no sessions: 'paused'). */

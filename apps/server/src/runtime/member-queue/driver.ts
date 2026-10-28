@@ -570,7 +570,7 @@ export class MemberQueueWorker implements MemberQueueDriver {
         workItem: place,
         messages,
         cause: lane.cause(first.item),
-        ...memberQueueStartLimits(config, member.handle, first.item.kind, first.place),
+        ...memberQueueStartLimits(first.item.kind),
       });
     // The first input of the session the start made: the items count as delivered only when it was typed.
     const started: { firstInput?: Promise<boolean>; sessionId?: string } = {};

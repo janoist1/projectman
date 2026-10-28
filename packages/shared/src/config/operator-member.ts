@@ -2,7 +2,6 @@ import { hasSuperOrigin } from '../domain/actor-origin';
 import type { ActorCredential, SuperActor } from '../domain/actor-origin';
 import type { Actor } from '../domain/event';
 import type { MemberHandle } from '../domain/member';
-import type { WorkItemRef } from '../domain/session';
 import { isOnLeave } from './leave';
 import { memberOf } from './lookup';
 import { coordinationMemberOf } from './project-manager';
@@ -41,14 +40,16 @@ export function isRequiredOperator(config: Pick<ProjectConfig, 'team'>, handle: 
 export const OPERATOR_GUEST_IDLE_CLOSE_MINUTES = 5;
 
 /**
- * Where the Operator's conversation with `from` runs (PM-475): the owners, the AI members and the system
- * share the one general conversation; every other person has their own, named by `with`.
+ * Whether the Operator member runs sessions in the app (PM-1045): no, it exists only while the owner connects
+ * their own Claude with a super key. The `operator` member stays as the identity of that client's steps.
  */
-export function operatorConversationOf(config: Pick<ProjectConfig, 'team'>, from: string): WorkItemRef {
-  const sender = memberOf(config, from);
-  return sender?.kind === 'human' && sender.access !== 'owner'
-    ? { type: 'general', with: from }
-    : { type: 'general' };
+export const operatorRunsInApp: boolean = false;
+
+/** Whether a session may run for `member` in the app: not for the Operator, which exists only when connected. */
+export function runsInApp(
+  member: { kind: MemberConfig['kind']; role?: string; temp?: boolean } | null | undefined,
+): boolean {
+  return operatorRunsInApp || !isOperator(member);
 }
 
 /**

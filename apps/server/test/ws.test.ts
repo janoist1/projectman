@@ -1,4 +1,3 @@
-import { waitForSession } from './helpers/domain-harness';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { routes } from '@projectman/shared';
 import type { ServerEvent, Task, TaskDetail } from '@projectman/shared';
@@ -249,36 +248,6 @@ describe('websocket', () => {
     ws.send(JSON.stringify({ type: 'terminal_input', sessionId, data: 'x' }));
     await waitFor(events, ofType('error'));
     expect(h.runner.input).toEqual([]);
-  });
-
-  it('lets an admin watch the Operator’s terminal but only the owner type into it (PM-475)', async () => {
-    const sent = await h.app.inject({
-      method: 'POST',
-      url: routes.sendTeamMessage('AR'),
-      headers: { cookie },
-      payload: { to: ['operator'], text: 'Hello' },
-    });
-    expect(sent.statusCode).toBe(202);
-    await new Promise((r) => setTimeout(r, 50));
-    const session = await waitForSession(h.app.projectman.domain, { member: 'operator' });
-    const adminCookie = await addHumanAndLogin(h.app, { handle: 'ada', name: 'Ada', access: 'admin' });
-
-    const admin = await connect({ cookie: adminCookie });
-    await waitFor(admin.events, ofType('hello'));
-    admin.ws.send(JSON.stringify({ type: 'terminal_attach', sessionId: session.id }));
-    await waitFor(admin.events, ofType('terminal_snapshot'));
-    admin.ws.send(JSON.stringify({ type: 'terminal_input', sessionId: session.id, data: 'rm -rf' }));
-    await waitFor(admin.events, ofType('error'));
-    expect(h.runner.input).toEqual([]);
-
-    const owner = await connect();
-    await waitFor(owner.events, ofType('hello'));
-    owner.ws.send(JSON.stringify({ type: 'terminal_attach', sessionId: session.id }));
-    await waitFor(owner.events, ofType('terminal_snapshot'));
-    owner.ws.send(JSON.stringify({ type: 'terminal_input', sessionId: session.id, data: 'y\r' }));
-    const deadline = Date.now() + 1000;
-    while (h.runner.input.length === 0 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 5));
-    expect(h.runner.input).toEqual([{ sessionId: session.id, data: 'y\r' }]);
   });
 
   it('tells the runner a terminal has no viewer left only when the last viewer leaves (PM-312)', async () => {

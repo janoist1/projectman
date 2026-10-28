@@ -36,8 +36,16 @@ export const OPERATOR_SIGNAL_STEP_GAP_MINUTES = 30;
  */
 export const OPERATOR_SIGNAL_STEP_KINDS: Record<OperatorWatch, readonly OperatorSignalKind[]> = {
   report: [],
-  unblock: ['idle', 'merge_waiting', 'merge_blocked', 'answer_stalled'],
-  drive: ['idle', 'merge_waiting', 'merge_blocked', 'unreleased', 'ready_waiting', 'answer_stalled'],
+  unblock: ['idle', 'merge_waiting', 'merge_blocked', 'answer_stalled', 'start_blocked'],
+  drive: [
+    'idle',
+    'merge_waiting',
+    'merge_blocked',
+    'unreleased',
+    'ready_waiting',
+    'answer_stalled',
+    'start_blocked',
+  ],
 };
 /**
  * The signal kinds whose wake-ups go on the project's fast line (PM-694): at most one wake-up per

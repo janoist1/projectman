@@ -289,6 +289,8 @@ export const ERROR_CODES = [
   // The Operator (PM-463): a message to it only from an owner's own login; a write without an open
   // request of the owner; a tool it never calls.
   'operator_owner_only',
+  // The Operator exists only when the owner's client connects (PM-1045, 409): no session, no message to it.
+  'operator_connected_only',
   'operator_no_request',
   'operator_never',
   'operator_only',

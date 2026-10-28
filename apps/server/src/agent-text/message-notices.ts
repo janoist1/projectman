@@ -23,6 +23,7 @@ export const QUESTION_CLOSE_REASONS: Record<QuestionCloseRule, string> = {
   group_withdrawn: 'every asker withdrew the shared question',
   operator_moot: 'the Operator found it moot: nothing is left to answer',
   obligation_closed: 'the step it handed over was done or dropped meanwhile',
+  signal_resolved: 'the signal it was asked about ended by itself: nothing is left to answer',
 };
 
 /** Why a session joined a card, as the joined notice says it (empty when nothing is known). */

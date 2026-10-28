@@ -422,6 +422,22 @@ describe('release approval migration (decision 19)', () => {
       );
     });
 
+    it('takes the Operator out of the labels it could set by name, so the configuration still loads', () => {
+      const legacy = withOperator();
+      const base = { name: 'Fictional', color: 'gray' };
+      legacy.pipeline.labels.push(
+        { ...base, id: 'with-others', setBy: { members: ['operator', 'owner'] } } as never,
+        { ...base, id: 'with-duty', setBy: { members: ['operator'], duties: ['code_review'] } } as never,
+        { ...base, id: 'only-operator', setBy: { members: ['operator'] } } as never,
+      );
+      const { config } = migrate(legacy);
+      const setBy = (id: string) => config.pipeline.labels.find((l) => l.id === id)!.setBy;
+      expect(setBy('with-others')).toEqual({ members: ['owner'] });
+      expect(setBy('with-duty')).toEqual({ duties: ['code_review'] });
+      expect(setBy('only-operator')).toBe('humans');
+      expect(validateProjectConfig(config).filter((i) => i.severity !== 'warning')).toEqual([]);
+    });
+
     it('derives a default merger when the stored one named the removed Operator', () => {
       const legacy = withOperator();
       legacy.team.merger = { kind: 'member', handle: 'operator' };

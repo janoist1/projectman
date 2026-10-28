@@ -38,7 +38,7 @@ import type {
   OperatorApprovalWaiverRequest,
 } from '@projectman/shared';
 import { ConfigStoreError } from '../../config';
-import type { ConfigStore, OperatorConfigAuthorization, WorkspaceState } from '../../contracts';
+import type { ConfigStore, WorkspaceState } from '../../contracts';
 import type { ProjectRecord } from '../../db';
 import { projectAccessFor } from '../members';
 import { isoNow } from '../base';
@@ -223,15 +223,10 @@ export class ProjectService {
   private readonly engines: NewProjectEngines;
   private readonly cache = new Map<string, LoadedProject>();
   private readonly locks = new KeyedMutex();
-  private operatorAuthorization?: OperatorConfigAuthorization;
   private agreementVersion?: (key: string) => Promise<number | null>;
   private readonly waiverEdits = new WeakSet<ConfigChangeMeta>();
 
-  useOperatorAuthorization(
-    port: OperatorConfigAuthorization,
-    agreementVersion: (key: string) => Promise<number | null>,
-  ): void {
-    this.operatorAuthorization = port;
+  useAgreementVersion(agreementVersion: (key: string) => Promise<number | null>): void {
     this.agreementVersion = agreementVersion;
   }
 

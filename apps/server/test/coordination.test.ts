@@ -80,7 +80,7 @@ async function idleSignal() {
   return { card, signal, pm: await internal() };
 }
 
-describe('separate PM and Operator authorization', () => {
+describe('PM authorization', () => {
   it('reserves structural approval without accepting legacy approval rows or knowledge continuations', async () => {
     await setup();
     const pm = await internal();

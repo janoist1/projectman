@@ -1529,8 +1529,7 @@ export function createDomain(opts: DomainOptions) {
     messaging,
   };
   const operatorActions = new OperatorActions(operatorDeps);
-  projects.useOperatorAuthorization(
-    operatorActions,
+  projects.useAgreementVersion(
     async (key) => (await opts.operatorKnowledge.readKnowledge(key)).agreement?.version ?? null,
   );
   const operatorApprovals = new OperatorApprovals({ ...operatorDeps, actions: operatorActions });

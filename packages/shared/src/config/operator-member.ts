@@ -30,7 +30,7 @@ export function coordinatorSuperActorOf(
   member?: string,
 ): SuperActor | null {
   const coordinator = coordinationMemberOf(config);
-  if (!coordinator || (member !== undefined && coordinator.handle !== member)) return null;
+  if (!coordinator || coordinator.handle !== member) return null;
   return {
     kind: 'ai',
     handle: coordinator.handle,

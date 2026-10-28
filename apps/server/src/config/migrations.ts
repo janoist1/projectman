@@ -267,11 +267,24 @@ function removeOperator(raw: unknown, { projectKey, logger }: MigrationContext):
       (m) => !(asRecord(m)?.kind === 'ai' && gone.has(String(asRecord(m)?.handle))),
     );
     if (Array.isArray(team.contacts)) team.contacts = team.contacts.filter((h) => !gone.has(String(h)));
-    const stages = asRecord(config.pipeline)?.stages;
-    if (Array.isArray(stages)) {
-      for (const stage of stages.map(asRecord)) {
+    const pipeline = asRecord(config.pipeline);
+    if (Array.isArray(pipeline?.stages)) {
+      for (const stage of pipeline.stages.map(asRecord)) {
         if (stage && Array.isArray(stage.owners))
           stage.owners = stage.owners.filter((h) => !gone.has(String(h)));
+      }
+    }
+    // A label the Operator could set by name: the other setters stay. A label nobody else could set falls to
+    // the humans (an empty `setBy` does not parse), the narrowest rule that still loads.
+    if (Array.isArray(pipeline?.labels)) {
+      for (const label of pipeline.labels.map(asRecord)) {
+        const setBy = asRecord(label?.setBy);
+        if (!label || !setBy || !Array.isArray(setBy.members)) continue;
+        const members = setBy.members.filter((h) => !gone.has(String(h)));
+        if (members.length === setBy.members.length) continue;
+        if (members.length) setBy.members = members;
+        else if (Array.isArray(setBy.duties) && setBy.duties.length) delete setBy.members;
+        else label.setBy = 'humans';
       }
     }
     // A merger naming the Operator was never valid; dropped, `addMerger` (next in the chain) derives the default.

@@ -1695,7 +1695,7 @@ export class SessionOrchestrator {
       data: { member: ended.member, exitCode, ...(reason ? { reason } : {}), ...(why ? { stop: why } : {}) },
     });
     this.publishSession(ended);
-    void this.ctx.events.emit('session_ended', ended);
+    void this.ctx.events.emit('session_ended', { ...ended, previousState: session.state });
     this.recomputeMemberState(ended.projectKey, ended.member);
     return ended;
   }

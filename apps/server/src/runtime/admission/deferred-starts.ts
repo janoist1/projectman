@@ -39,6 +39,8 @@ export const StartSpec = z.discriminatedUnion('kind', [
     to: z.string(),
     actor: Actor,
     eventId: z.string().optional(),
+    /** Resume this interrupted stage owner after an engine restart (PM-1092). */
+    resumeMember: MemberHandle.optional(),
   }),
   /**
    * A card moved without an assignee into the work stage `to` (PM-119), by `actor` from `from`:
@@ -115,7 +117,7 @@ function specMembers(spec: StartSpec): string[] {
     case 'work_start':
       return [spec.assignee, spec.developer, spec.actor.handle].filter((h): h is string => !!h);
     case 'hand_over':
-      return spec.actor.handle ? [spec.actor.handle] : [];
+      return [spec.actor.handle, spec.resumeMember].filter((h): h is string => !!h);
     default:
       return [];
   }

@@ -1110,6 +1110,8 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
       await sweep();
       expect(rows(key)).toMatchObject([{ kind: 'work', responsible: 'dev-1' }]);
       expect(reminders(key)).toHaveLength(1);
+      // The reminder's turn finishes without a result, so restart must not resume active work.
+      await endTurns(key);
       await restart();
       await sweep();
       expect(reminders(key)).toHaveLength(1);

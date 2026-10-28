@@ -3,6 +3,7 @@ import {
   BUILT_IN_ROLE_DUTIES,
   defaultMerger,
   DEFAULT_PROJECT_MANAGER_MOVES,
+  DEFAULT_VIEWER_RECIPIENTS,
   isProjectManager,
   type AiBuiltInRoleId,
   type BoardColumn,
@@ -187,6 +188,7 @@ function draftProject(templateId: TemplateId, input: BuildTemplateInput): Templa
           limits,
           cardMover: input.cardMover ?? { kind: 'worker' },
           projectManagerMoves: DEFAULT_PROJECT_MANAGER_MOVES,
+          viewerRecipients: DEFAULT_VIEWER_RECIPIENTS,
         },
         pipeline: {
           ...pipeline,

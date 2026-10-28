@@ -61,19 +61,31 @@ export function MessagesPage() {
   );
   // Old conversations stay in the list; a new one starts only with someone the viewer may write to (PM-985).
   const rest = useMemo(() => allRest.filter(canWriteTo), [allRest, canWriteTo]);
-  const reachable = contacts.contacts.filter(
+  const reachable = contacts.recipients.filter(
     (handle) => handle !== myHandle && members.get(handle)?.status !== 'retired' && members.has(handle),
   );
   const noContacts = contacts.restricted && contacts.ready && reachable.length === 0;
-  // The "Új üzenet" button needs someone to write to: with no contacts there is none (PM-985).
+  // The "Új üzenet" button needs someone to write to: with no one allowed there is none (PM-985, PM-1102).
   const canSend =
-    Boolean(access && ['owner', 'admin', 'developer', 'client'].includes(access)) &&
+    Boolean(access && ['owner', 'admin', 'developer', 'client', 'viewer'].includes(access)) &&
     !(contacts.restricted && (!contacts.ready || noContacts));
   const introText = !contacts.restricted
     ? undefined
     : noContacts
-      ? { title: t('messages.list.noContactsTitle'), body: t('messages.list.noContactsBody') }
-      : { title: t('messages.list.introTitle'), body: t('messages.list.contactsIntroBody') };
+      ? {
+          title: t(
+            contacts.limit === 'contacts' ? 'messages.list.noContactsTitle' : 'messages.list.noManagerTitle',
+          ),
+          body: t(access === 'client' ? 'messages.list.noContactsBody' : 'messages.list.cannotSendBody'),
+        }
+      : {
+          title: t('messages.list.introTitle'),
+          body: t(
+            contacts.limit === 'contacts'
+              ? 'messages.list.contactsIntroBody'
+              : 'messages.list.managerIntroBody',
+          ),
+        };
   const questionTitles = useMemo(() => {
     const titles = new Map<string, string>();
     for (const row of rows) {

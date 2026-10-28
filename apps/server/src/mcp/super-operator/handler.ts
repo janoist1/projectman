@@ -8,11 +8,11 @@ import {
   machineTodoIssuerAllowed,
   memberOf,
   needsRepoChoice,
-  operatorOf,
   roleBundle,
   TaskKey,
   TaskStatus as TaskStatusSchema,
 } from '@projectman/shared';
+import type { HostRequestState } from '@projectman/shared';
 import type {
   ExternalAttachmentRead,
   ExternalDocWriteState,
@@ -63,6 +63,7 @@ import {
   invalid,
   unique,
 } from '../../kernel';
+import type { HostRequestsService } from '../../services/host-requests';
 import type { ProjectState, StructuralReviews } from '../../services/operator';
 import { docWindow } from '../../services/project-docs';
 import type { DocWrites } from '../../services/project-docs';
@@ -113,6 +114,7 @@ interface ExternalToolsDeps {
     OperatorKnowledgeStore,
     'readInstanceKnowledge' | 'compareAndSwapInstanceKnowledge'
   >;
+  hostRequests: Pick<HostRequestsService, 'listForHost' | 'answer'>;
 }
 
 /**
@@ -583,8 +585,11 @@ export class ExternalTools implements ExternalToolsHandler {
     };
   }
 
-  /** The knowledge read needs at least one project the key's holder owns: the audit lands in those. */
-  private async instanceKnowledgeScope<T>(
+  /**
+   * What only the instance host's key does (the instance knowledge, PM-1061; the requests to the host, PM-1064):
+   * it needs at least one project the key's holder owns, where the audit lands.
+   */
+  private async hostScope<T>(
     principal: IntegratorPrincipal,
     requestId: string,
     operation: string,
@@ -593,7 +598,7 @@ export class ExternalTools implements ExternalToolsHandler {
     const email = this.holder(principal);
     // The instance knowledge describes the host's machine: only the host owner's key reads or changes it (PM-1061).
     if (!this.deps.credentials.isHostOwner?.(principal.userId))
-      throw forbidden('host_only', 'only the host owner’s key may use the instance knowledge');
+      throw forbidden('host_only', 'only the host owner’s key may use this');
     return this.deps.superOperator.executeOwned(
       { principal, email, requestId },
       operation,
@@ -606,7 +611,7 @@ export class ExternalTools implements ExternalToolsHandler {
   }
 
   async getInstanceKnowledge(principal: IntegratorPrincipal, requestId: string) {
-    return this.instanceKnowledgeScope(principal, requestId, 'mcp_get_operator_instance_knowledge', () =>
+    return this.hostScope(principal, requestId, 'mcp_get_operator_instance_knowledge', () =>
       this.deps.operatorKnowledge.readInstanceKnowledge(),
     );
   }
@@ -616,8 +621,29 @@ export class ExternalTools implements ExternalToolsHandler {
     requestId: string,
     args: Parameters<ExternalToolsHandler['updateInstanceKnowledge']>[2],
   ) {
-    return this.instanceKnowledgeScope(principal, requestId, 'mcp_update_operator_instance_knowledge', () =>
+    return this.hostScope(principal, requestId, 'mcp_update_operator_instance_knowledge', () =>
       updateInstanceKnowledge(this.deps.operatorKnowledge, args, new Date().toISOString()),
+    );
+  }
+
+  async listHostInbox(principal: IntegratorPrincipal, requestId: string, args: { state?: HostRequestState }) {
+    return this.hostScope(principal, requestId, 'mcp_list_host_inbox', () =>
+      this.deps.hostRequests.listForHost(principal.userId, args.state),
+    );
+  }
+
+  async answerHostRequest(
+    principal: IntegratorPrincipal,
+    requestId: string,
+    args: Parameters<ExternalToolsHandler['answerHostRequest']>[2],
+  ) {
+    return this.hostScope(principal, requestId, 'mcp_answer_host_request', () =>
+      this.deps.hostRequests.answer(
+        principal.userId,
+        args.id,
+        { outcome: args.outcome, answer: args.answer },
+        'super',
+      ),
     );
   }
 
@@ -644,22 +670,11 @@ export class ExternalTools implements ExternalToolsHandler {
     return this.deps.history.read(ctx.projectKey, await this.historyViewer(ctx), args);
   }
 
-  /** The project's Operator: the tools of its role are served only when the team has one. */
-  private async operatorHandle(projectKey: string): Promise<string> {
-    const operator = operatorOf(await this.deps.projects.config(projectKey));
-    if (!operator) throw forbidden('integrator_not_allowed', 'the project has no Operator to act as');
-    return operator.handle;
-  }
-
   async readProjectDoc(
     ctx: ExternalToolContext,
     args: { doc: ProjectDoc; fromLine?: number; lineCount?: number },
   ) {
-    const read = await this.deps.docWrites.read(
-      ctx.projectKey,
-      await this.operatorHandle(ctx.projectKey),
-      args.doc,
-    );
+    const read = await this.deps.docWrites.read(ctx.projectKey, this.access(ctx).handle, args.doc);
     return docWindow(args.doc, read, args.fromLine, args.lineCount);
   }
 
@@ -712,7 +727,6 @@ export class ExternalTools implements ExternalToolsHandler {
     ctx: ExternalToolContext,
     args: Parameters<ExternalToolsHandler['getRoleConfiguration']>[1],
   ) {
-    await this.operatorHandle(ctx.projectKey);
     const loaded = await this.deps.projects.load(ctx.projectKey);
     return {
       version: loaded.version,

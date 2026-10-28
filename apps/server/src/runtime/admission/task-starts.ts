@@ -17,8 +17,7 @@ import {
   isOnLeave,
   isOpenTask,
   isTheme,
-  isOperatorActor,
-  isSuperOperatorActor,
+  isCoordinatorSuperActor,
   memberOf,
   projectRefines,
   reachingDevelopers,
@@ -167,7 +166,7 @@ function refuseOwnStageApproval(task: Task, evaluation: GateEvaluation): void {
 }
 
 function startsAsPerson(config: ProjectConfig, actor: Actor): boolean {
-  return actor.kind === 'human' || isOperatorActor(config, actor) || isSuperOperatorActor(config, actor);
+  return actor.kind === 'human' || isCoordinatorSuperActor(config, actor);
 }
 
 /**
@@ -257,10 +256,7 @@ export class TaskStarts implements WorkEntryCheck {
     if (opts.automatic && !this.canStartAutomatically(task)) return skipped;
     if (isTheme(task)) throw themeRefused(taskKey, 'be started');
     if (!isOpenTask(task)) throw conflict('task_closed', `task ${taskKey} is ${task.status}`);
-    if (
-      (isOperatorActor(config, opts.actor) || !coordinationActorRefusal(config, opts.actor)) &&
-      task.fixLimit
-    )
+    if (!coordinationActorRefusal(config, opts.actor) && task.fixLimit)
       throw forbidden('operator_never', 'the coordinator cannot start a task held by its fix round limit');
     if (opts.stillWanted && !opts.stillWanted(task)) return skipped;
     const workStage = workStageOf(config, task);
@@ -380,7 +376,7 @@ export class TaskStarts implements WorkEntryCheck {
     if (!startWanted) return skipped;
     // A person's Start of a card held by its fix round limit (PM-262) is one more round for its assignee.
     const anotherRound =
-      (opts.actor.kind === 'human' || isSuperOperatorActor(config, opts.actor)) &&
+      (opts.actor.kind === 'human' || isCoordinatorSuperActor(config, opts.actor)) &&
       task.assignee === member.handle &&
       !!this.fixLimit?.humanStart(task, opts.actor);
     if (task.assignee !== member.handle) {
@@ -610,8 +606,8 @@ export class TaskStarts implements WorkEntryCheck {
       config.project.key,
       { role: temp.role },
       {
-        actor: isOperatorActor(config, opts.actor) ? SYSTEM_ACTOR : opts.actor,
-        author: isOperatorActor(config, opts.actor) ? SYSTEM_AUTHOR : opts.author,
+        actor: opts.actor,
+        author: opts.author,
         sponsor,
       },
       { temp: true, stageId: workStage.owners !== undefined ? workStage.id : undefined },

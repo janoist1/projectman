@@ -59,6 +59,9 @@ export const TEAM_TOOL_NAMES = [
   'send_email',
   'set_email_contact',
   'list_email_contacts',
+  'ask_host',
+  'list_host_requests',
+  'withdraw_host_request',
   'list_members',
   'get_task',
   'get_project_state',
@@ -119,28 +122,26 @@ export function toolOutputText(output: string | ToolOutput): string {
 
 /** Session-list visibility only; handlers remain the authority for permission checks. */
 export interface ToolAudience {
-  roles?: readonly ('operator' | 'project_manager' | 'merger')[];
+  roles?: readonly ('project_manager' | 'merger')[];
   duties?: readonly DutyId[];
   /** Visible to a member who may use the channel (e-mail: the channel is on and the member may send). */
   channels?: readonly 'email'[];
   /** Visible to a member with this capability (machine access: the owners' machine queue, decision 66). */
-  capabilities?: readonly 'machine_access'[];
+  capabilities?: readonly ('machine_access' | 'host_requests')[];
 }
 
 export function toolVisible(audience: ToolAudience | undefined, member: MemberAudience): boolean {
-  if (!audience || member.operator) return true;
+  if (!audience) return true;
   return (
-    (audience.roles?.some((role) =>
-      role === 'operator'
-        ? member.operator
-        : role === 'project_manager'
-          ? member.projectManager
-          : member.merger,
-    ) ??
+    (audience.roles?.some((role) => (role === 'project_manager' ? member.projectManager : member.merger)) ??
       false) ||
     (audience.duties?.some((duty) => member.duties.has(duty)) ?? false) ||
     (audience.channels?.some((channel) => channel === 'email' && member.email) ?? false) ||
-    (audience.capabilities?.some((capability) => capability === 'machine_access' && member.machineAccess) ??
+    (audience.capabilities?.some(
+      (capability) =>
+        (capability === 'machine_access' && member.machineAccess) ||
+        (capability === 'host_requests' && member.hostRequests),
+    ) ??
       false)
   );
 }

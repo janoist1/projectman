@@ -6,7 +6,7 @@ import {
   NUDGE_POINTS,
   pauseStateOf,
   RESTART_POINTS,
-  superActorOf,
+  coordinatorSuperActorOf,
 } from '@projectman/shared';
 import type {
   Actor,
@@ -753,12 +753,12 @@ export class PauseService {
         const member = findHumanByEmail(config, user.email);
         if (!member) continue;
         // A super request is the key holder's step (their connected Claude) only while the holder is an owner
-        // there; an in-app session keeps the old actor, the Operator or the selected coordinator.
+        // there; an in-app session keeps the old actor, the selected coordinator.
         const principal = integratorExecution()?.principal;
         const superActor =
           by.credential && member.access === 'owner'
             ? principal?.source === 'app'
-              ? superActorOf(config, by.credential, principal.member)
+              ? coordinatorSuperActorOf(config, by.credential, principal.member)
               : connectedActorOf(member.handle, by.credential)
             : null;
         actors.set(

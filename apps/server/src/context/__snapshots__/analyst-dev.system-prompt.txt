@@ -12,7 +12,6 @@ Address members by handle.
 - `fe-1`: Frontend developer (AI, developer, Frontend)
 - `be-1`: Backend developer (AI, developer, Backend)
 - `pm`: Project manager (AI, project manager)
-- `operator`: Operator (AI, operator)
 - `analyst`: analyst (AI, business analyst) ← you
 
 # How the team works

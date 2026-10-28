@@ -12,7 +12,6 @@ import {
   MEMBER_QUEUE_CLOSED_LIMIT,
   coordinationMemberOf,
   questionPayloadOf,
-  isOperator,
   memberOf,
   memberQueueSourceOf,
   messageRoute,
@@ -208,8 +207,7 @@ export class MemberQueue {
     const at = isoNow(this.ctx);
     for (const handle of pending) {
       const recipient = memberOf(config, handle);
-      // The Operator exists only when the owner connects (PM-1045): nothing is queued for it.
-      if (recipient?.kind !== 'ai' || isOperator(recipient)) continue;
+      if (recipient?.kind !== 'ai') continue;
       const item = {
         id: newId('mqi'),
         projectKey: message.projectKey,

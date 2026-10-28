@@ -1,4 +1,4 @@
-import { connectedActorOf, hasAccess, memberOf, superActorOf } from '@projectman/shared';
+import { connectedActorOf, coordinatorSuperActorOf, hasAccess, memberOf } from '@projectman/shared';
 import type {
   Actor,
   AiMemberConfig,
@@ -85,7 +85,7 @@ export function projectAccessFor(config: ProjectConfig, email: string): ProjectA
  * The actor of a step made with a super principal in a project (decision 66): the key's holder in person
  * (`holder`, a member now), or the AI member `issuer` of the queue item the step works on, in both cases
  * through the holder's connected Claude and the key. An in-app session (`source: 'app'`) keeps the old actor,
- * the project's Operator or selected coordinator. Null when there is no such member to act as.
+ * the project's selected coordinator. Null when there is no such member to act as.
  */
 export function principalActorOf(
   config: Pick<ProjectConfig, 'team'>,
@@ -94,7 +94,7 @@ export function principalActorOf(
   issuer?: string,
 ): BoundActor | null {
   const credential = { id: principal.keyId, prefix: principal.prefix };
-  if (principal.source === 'app') return superActorOf(config, credential, principal.member);
+  if (principal.source === 'app') return coordinatorSuperActorOf(config, credential, principal.member);
   if (!holder || memberOf(config, holder)?.kind !== 'human') return null;
   return connectedActorOf(holder, credential, issuer === undefined ? {} : { issuer });
 }

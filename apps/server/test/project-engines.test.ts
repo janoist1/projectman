@@ -200,4 +200,15 @@ describe('the engines of a project', () => {
     expect(registry.projectEngine('AR')).toBe(engA);
     expect(engineEntries('AR')).toBeGreaterThan(0);
   });
+
+  it('holds the checklist engine item only once the project engine reported the project (PM-1069)', async () => {
+    const checklist = h.app.projectman.domain.checklist;
+    const engineItem = async () => (await checklist.get('AR'))!.items.find((item) => item.id === 'engine')!;
+    expect(await engineItem()).toMatchObject({ condition: 'engine_connected', conditionHolds: false });
+    await expect(checklist.put('AR', { ...(await engineItem()), state: 'done' })).rejects.toMatchObject({
+      code: 'checklist_condition_unmet',
+    });
+    registry.useProjectHolds(() => true);
+    expect(await engineItem()).toMatchObject({ conditionHolds: true });
+  });
 });

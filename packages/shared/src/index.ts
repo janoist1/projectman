@@ -1,6 +1,7 @@
 export * from './domain/member';
 export * from './domain/checklist';
 export * from './domain/email-channel';
+export * from './domain/host-request';
 export * from './domain/operator-knowledge';
 export * from './domain/pipeline';
 export * from './domain/label';

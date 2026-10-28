@@ -5,7 +5,6 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { isOperator } from '@projectman/shared';
 import type { ServerEvent } from '@projectman/shared';
 import type { AttachmentStorage } from '../src/contracts';
 import {
@@ -53,7 +52,6 @@ describe('session orchestrator', () => {
   it('recomputes tool audience from the current configuration without restarting the session', async () => {
     const ctx = { sessionId: 'ses_dev', projectKey: 'AR', member: 'dev-1', taskKey: 'AR-1' };
     expect(h.domain.sessions.audienceOf(ctx)).toMatchObject({
-      operator: false,
       projectManager: false,
       merger: true,
     });
@@ -69,7 +67,6 @@ describe('session orchestrator', () => {
     expect(h.domain.sessions.audienceOf(ctx).merger).toBe(false);
     expect(h.domain.sessions.audienceOf(ctx).duties.has('deployment')).toBe(true);
     expect(h.domain.sessions.audienceOf({ ...ctx, member: 'pm' }).projectManager).toBe(true);
-    expect(h.domain.sessions.audienceOf({ ...ctx, member: 'operator' }).operator).toBe(true);
     expect(h.domain.sessions.audienceOf({ ...ctx, member: 'unknown' }).duties.size).toBe(0);
   });
 
@@ -512,8 +509,7 @@ describe('session orchestrator', () => {
   it('runs readers in their own mode, Auto too, in the read-only sandbox, chats included (PM-167)', async () => {
     await h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (draft) => {
       for (const member of draft.team.members) {
-        // The Operator is fixed (PM-473): its permission mode is not for a test to change.
-        if (member.kind !== 'ai' || isOperator(member)) continue;
+        if (member.kind !== 'ai') continue;
         member.permissionMode = 'auto';
         member.approver = 'none';
       }

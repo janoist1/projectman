@@ -21,7 +21,6 @@ import { operatorSummaryFixture, operatorMessageApprovalFixture } from '../../mo
 import { TaskDrawer } from '../board/TaskDrawer';
 import { InboxPage } from '../inbox/InboxPage';
 import { HistorySection } from '../settings/sections/HistorySection';
-import { MemberProfilePage } from '../team/MemberProfilePage';
 import { TeamPage } from '../team/TeamPage';
 import { OperatorSignalCard } from './OperatorSignalCard';
 import { OperatorSignalList } from './OperatorSignalList';
@@ -78,7 +77,6 @@ function renderLayout(
 const button = () =>
   screen.findByRole('button', { name: new RegExp(`^${t('operator.button.aria', { status: '' })}`) });
 const operatorName = (project: Project) => project.backend.findMember('pm')!.displayName;
-const builtInOperatorName = (project: Project) => project.backend.findMember('operator')!.displayName;
 const posted = (project: Project, suffix: string) =>
   project.requests.filter((r) => r.method === 'POST' && r.path.endsWith(suffix));
 
@@ -416,10 +414,6 @@ describe('the Operator panel', () => {
     fireEvent.click(await button());
     const panel = await screen.findByRole('dialog');
     expect(await within(panel).findByText(t('operator.intro.title'))).toBeTruthy();
-    // The owner is told where the earlier conversation with the Operator stays.
-    expect(
-      within(panel).getByRole('link', { name: new RegExp(t('operator.intro.earlierLink')) }),
-    ).toBeTruthy();
 
     const composer = within(panel).getByRole<HTMLTextAreaElement>('textbox', {
       name: t('operator.composer.label'),
@@ -437,9 +431,6 @@ describe('the Operator panel', () => {
     const panel = await screen.findByRole('dialog');
     expect(await within(panel).findByText(t('operator.intro.other.readOnly'))).toBeTruthy();
     expect(within(panel).getByText(t('operator.panel.observers'))).toBeTruthy();
-    expect(
-      within(panel).queryByRole('link', { name: new RegExp(t('operator.intro.earlierLink')) }),
-    ).toBeNull();
     expect(within(panel).queryByRole('button', { name: t('operator.intro.examples.writer') })).toBeNull();
   });
 
@@ -1370,7 +1361,8 @@ describe('the Operator in the history of the settings', () => {
         ]}
       />,
     );
-    expect(await screen.findByText(new RegExp(`^${builtInOperatorName(project)} ·`))).toBeTruthy();
+    // The Operator is gone from the team (decision 66): the old entry still names the handle it carries.
+    expect(await screen.findByText(/^operator ·/)).toBeTruthy();
     expect(screen.getByText(t('settings.history.approvedBy', { name: t('common.you') }))).toBeTruthy();
     const request = screen.getByText(t('settings.history.request', { quote }));
     expect(request.getAttribute('title')).toBe(quote);
@@ -1393,52 +1385,9 @@ describe('the Operator on a card and on its profile', () => {
     fireEvent.click(await button());
     expect(openOperator).toHaveBeenCalledTimes(1);
   });
-
-  it('opens the panel from the profile instead of starting a second conversation', async () => {
-    const project = mockProject();
-    const openOperator = vi.fn();
-    project.render(
-      <Routes>
-        <Route path="/team/:handle" element={<MemberProfilePage />} />
-      </Routes>,
-      '/team/operator',
-      { openOperator },
-    );
-    fireEvent.click(await screen.findByRole('button', { name: t('profile.conversation') }));
-    expect(openOperator).toHaveBeenCalledTimes(1);
-    expect(project.requests.some((r) => r.path.endsWith('/conversation'))).toBe(false);
-  });
 });
 
-describe('the built-in Operator in the team', () => {
-  it('has a built-in chip, and a menu with no leave and no retire', async () => {
-    const project = mockProject();
-    project.render(<TeamPage />);
-    const name = builtInOperatorName(project);
-    const row = (await screen.findByRole('link', { name })).closest('tr')!;
-    expect(within(row).getByText(t('operator.builtIn.chip'))).toBeTruthy();
-    fireEvent.click(within(row).getByRole('button', { name: t('team.moreFor', { name }) }));
-    expect(within(row).getByRole('button', { name: t('operator.builtIn.editMember') })).toBeTruthy();
-    expect(within(row).queryByRole('button', { name: /Szabadság|Visszahív/ })).toBeNull();
-    expect(
-      within(row).queryByRole('button', { name: t('team.retireMember', { name, handle: 'operator' }) }),
-    ).toBeNull();
-  });
-
-  it('edits only the provider, the model and the effort', async () => {
-    const project = mockProject();
-    project.render(<TeamPage />);
-    const name = builtInOperatorName(project);
-    const row = (await screen.findByRole('link', { name })).closest('tr')!;
-    fireEvent.click(within(row).getByRole('button', { name: t('team.moreFor', { name }) }));
-    fireEvent.click(within(row).getByRole('button', { name: t('operator.builtIn.editMember') }));
-    const dialog = await screen.findByRole('dialog', { name: t('operator.builtIn.editTitle') });
-    expect(within(dialog).getByText(t('operator.builtIn.editLead'))).toBeTruthy();
-    expect(within(dialog).getByText(t('operator.builtIn.roleValue'))).toBeTruthy();
-    expect(within(dialog).queryByLabelText(t('hire.displayName'))).toBeNull();
-    expect(within(dialog).queryByLabelText(t('memberEdit.instructions'))).toBeNull();
-  });
-
+describe('the Operator is no member of the team (decision 66)', () => {
   it('is not offered when hiring', async () => {
     const project = mockProject();
     project.render(<TeamPage />);

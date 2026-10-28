@@ -4,6 +4,7 @@ import { Link } from 'react-router';
 import {
   canSeeAllTeamMessages,
   cardThreadRecipients,
+  hasConnectedOrigin,
   isUnreadBy,
   projectManagerAmong,
   SYSTEM_SENDER,
@@ -29,7 +30,7 @@ import { formatTime } from '../../i18n/format';
 import { joinNames, t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
 import { splitQuestion } from '../../lib/inbox';
-import { nameOf, namesOf } from '../../lib/members';
+import { actorLabel, nameOf, namesOf } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
 import { useDismiss, useIsMobile } from '../../lib/hooks';
 import { InboxCard } from '../inbox/InboxCard';
@@ -590,10 +591,16 @@ function RecipientGroup({
   );
 }
 
+/** Who wrote a message: a connected Claude's step names its holder (decision 66); the old integrator rows stay as they were. */
+function senderOf(message: TeamMessage, members: MemberIndex, myHandle: string | null): string {
+  if (hasConnectedOrigin(message.actor)) return actorLabel(message.actor, members, myHandle);
+  return message.via ? t('involvement.integratorFull') : nameOf(message.from, members, myHandle);
+}
+
 /** "Név → Név, Név": who wrote it and to whom. */
 function routeOf(message: TeamMessage, members: MemberIndex, myHandle: string | null): string {
   return t('messages.fromTo', {
-    from: message.via ? t('involvement.integratorFull') : nameOf(message.from, members, myHandle),
+    from: senderOf(message, members, myHandle),
     to: joinNames(namesOf(message.to, members, myHandle)),
   });
 }
@@ -724,7 +731,7 @@ function QuestionAndAnswer({
           : message.from === myHandle
             ? t('task.thread.youAnswered', { answer: answer.answer })
             : t('task.thread.answered', {
-                name: message.via ? t('involvement.integratorFull') : nameOf(message.from, members, myHandle),
+                name: senderOf(message, members, myHandle),
                 answer: answer.answer,
               })}
       </p>

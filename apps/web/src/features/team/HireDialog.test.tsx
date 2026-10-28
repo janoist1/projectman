@@ -1,6 +1,5 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
-import { OPERATOR_ROLE } from '@projectman/shared';
 import { t } from '../../i18n/t';
 import { setFetchImplementation } from '../../api/client';
 import { builtInRoles } from '../../mocks/fixtures';
@@ -102,10 +101,7 @@ describe('HireDialog', () => {
     project.render(<HireDialog open onClose={() => {}} config={project.backend.config} />);
     const select = (await screen.findByLabelText(t('hire.roles'))) as HTMLSelectElement;
     expect(Array.from(select.options).map((option) => option.value)).toEqual([
-      // The Operator is built in: it is never hired.
-      ...builtInRoles
-        .filter((role) => role.holders !== 'human' && role.id !== OPERATOR_ROLE)
-        .map((role) => role.id),
+      ...builtInRoles.filter((role) => role.holders !== 'human').map((role) => role.id),
       'data_steward',
     ]);
     fireEvent.change(select, { target: { value: 'data_steward' } });

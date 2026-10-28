@@ -1,14 +1,7 @@
 import type { ToolContext } from '../../contracts';
 import { TeamToolError } from '../../contracts';
 import type { ToolCaller } from '../caller';
-import {
-  coordinationMemberOf,
-  isOperator,
-  memberOf,
-  messageRoute,
-  sessionWorkItemOf,
-  UiPlace,
-} from '@projectman/shared';
+import { coordinationMemberOf, memberOf, messageRoute, sessionWorkItemOf, UiPlace } from '@projectman/shared';
 import type { ProjectConfig, WorkItemRef } from '@projectman/shared';
 import type { MessagePlaceArg, MessageToolsHandler } from '../../contracts';
 import type { SentMessageRecipient, WorkspaceFile } from '../../contracts';
@@ -79,7 +72,6 @@ export class MessageTools implements MessageToolsHandler {
     deliveredTo: string[];
     recipients: SentMessageRecipient[];
     routed?: { handle: string; workItem: WorkItemRef }[];
-    operator: boolean;
   }> {
     return this.calls.guard(async () => {
       const legacy = args.signalId !== undefined || args.signalActionable !== undefined;
@@ -103,9 +95,8 @@ export class MessageTools implements MessageToolsHandler {
         signal ? { ids, to: args.to } : undefined,
       );
       const { config, guest } = who;
-      const operator = isOperator(memberOf(config, ctx.member));
       const coordinator = coordinationMemberOf(config)?.handle === ctx.member;
-      // In a guest's conversation the Operator answers that person and nobody else; that is no step (PM-475).
+      // In a guest's conversation the PM answers that person and nobody else; that is no step (PM-475).
       if (guest) {
         const other = args.to.find((handle) => handle !== guest.handle);
         if (other !== undefined || args.to.length === 0) {
@@ -117,8 +108,7 @@ export class MessageTools implements MessageToolsHandler {
         }
         if (args.taskKey !== undefined) this.calls.validTaskKey(ctx, args.taskKey);
       }
-      this.calls.assertOperatorMessageRecipients(ctx.member, who, args.to);
-      // To the owner the Operator only reports; to anyone else it acts for the request: a step (PM-463).
+      // To the owner a message only reports; to anyone else it acts for the request: a step (PM-463).
       // A message has one step, so with several such recipients it names the first as its `member`.
       const elsewhere = guest ? undefined : args.to.find((handle) => !isOwner(config, handle));
       return this.calls.recorded(
@@ -168,15 +158,13 @@ export class MessageTools implements MessageToolsHandler {
                 // The report sits under the round of the own steps on signals when no request is open (PM-545).
                 operatorRequest:
                   who.request?.id ??
-                  (operator || coordinator ? this.operatorRequests.roundFor(ctx.sessionId)?.id : undefined),
+                  (coordinator ? this.operatorRequests.roundFor(ctx.sessionId)?.id : undefined),
                 operatorSignals: signal
                   ? ids.map((id) => ({
                       id,
                       actionable: batch ? actionable.includes(id) : (args.signalActionable ?? false),
                     }))
                   : undefined,
-                // The Operator is told what became of waking each recipient (PM-543); others' sends stay quick.
-                ...(operator ? { awaitWake: true } : {}),
               },
             )
             .catch(async (err: unknown) => {
@@ -190,7 +178,6 @@ export class MessageTools implements MessageToolsHandler {
             messageId: message.id,
             deliveredTo: message.to,
             recipients,
-            operator,
             ...(routed.length > 0 ? { routed } : {}),
           };
         },

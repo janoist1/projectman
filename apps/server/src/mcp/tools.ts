@@ -15,6 +15,7 @@ import { OPERATOR_TOOL_GROUP } from './operator';
 import { INBOX_TOOL_GROUP } from './inbox';
 import { MESSAGE_TOOL_GROUP } from './messages';
 import { EMAIL_CHANNEL_TOOL_GROUP } from './email-channel';
+import { HOST_REQUEST_TOOL_GROUP } from './host-requests';
 import { ADMISSION_TOOL_GROUP } from './admission';
 import { WATCHER_TOOL_GROUP } from './watchers';
 import { SESSION_TOOL_GROUP } from './sessions';
@@ -45,6 +46,7 @@ export const TEAM_TOOL_GROUPS: readonly TeamToolGroup[] = [
   INBOX_TOOL_GROUP,
   MESSAGE_TOOL_GROUP,
   EMAIL_CHANNEL_TOOL_GROUP,
+  HOST_REQUEST_TOOL_GROUP,
   ADMISSION_TOOL_GROUP,
   WATCHER_TOOL_GROUP,
   SESSION_TOOL_GROUP,

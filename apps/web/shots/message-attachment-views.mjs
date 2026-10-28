@@ -2,8 +2,8 @@
 export default async ({ instance, open, shoot, step }) => {
   const owner = (await instance.api('/api/me')).handles.AC;
   const members = await instance.api('/api/projects/AC/members');
-  const peer = members.find((m) => m.kind === 'ai' && m.role !== 'ai_operator');
-  const other = members.find((m) => m.handle !== peer.handle && m.kind === 'ai' && m.role !== 'ai_operator');
+  const peer = members.find((m) => m.kind === 'ai');
+  const other = members.find((m) => m.handle !== peer.handle && m.kind === 'ai');
   const board = await instance.api('/api/projects/AC/board');
   const task = board.tasks.find((t) => t.kind !== 'theme');
   let count = 0;

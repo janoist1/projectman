@@ -2,13 +2,12 @@ import {
   formatInjectedTeamMessage,
   formatTeamMessageBatch,
   messageTextWithAttachments,
-  isOperator,
   memberDuties,
   memberOf,
   REVIEW_DUTIES,
   stageOf,
 } from '@projectman/shared';
-import type { ProjectConfig, Session, Task, TeamMessage, WorkItemRef } from '@projectman/shared';
+import type { Session, Task, TeamMessage, WorkItemRef } from '@projectman/shared';
 import { Cause, Data, Effect, Exit, FiberMap, Scope } from 'effect';
 import { encodeWorkItem } from '../../db';
 import type { DomainContext } from '../../core/base';
@@ -48,7 +47,6 @@ export interface DeliveryDeps {
   readonly projects: Pick<ProjectService, 'cachedConfig' | 'config'>;
   readonly messages: Pick<MessageService, 'waiting' | 'get' | 'wakes' | 'markRecipientDelivered'>;
   /** Structural on purpose: the delivery must not import the project-docs service (layer rule). */
-  readonly decisionCandidates: { unseen(projectKey: string, config: ProjectConfig): number };
 }
 
 /** The session did not take the typed text (PM-571), or it ended. */
@@ -112,7 +110,7 @@ function recipientKey(projectKey: string, handle: string, workItem: WorkItemRef)
 /** Lives as long as its Scope; closing the Scope stops every retry and background delivery. */
 export const makeMessageDelivery = (deps: DeliveryDeps): Effect.Effect<DeliveryEffects, never, Scope.Scope> =>
   Effect.gen(function* () {
-    const { ctx, sessions, projects, messages, decisionCandidates } = deps;
+    const { ctx, sessions, projects, messages } = deps;
     const scope = yield* Effect.scope;
     /** The pending retry of each session (PM-571): a fiber asleep until the next attempt. */
     const retryTimers = yield* FiberMap.make<string>();
@@ -360,7 +358,6 @@ export const makeMessageDelivery = (deps: DeliveryDeps): Effect.Effect<DeliveryE
           : null;
         const batch: TeamMessage[] = [];
         let text = '';
-        const operator = isOperator(memberOf(config, handle));
         for (const message of waiting) {
           const next = [...batch, message];
           const candidate = formatTeamMessageBatch(
@@ -370,8 +367,6 @@ export const makeMessageDelivery = (deps: DeliveryDeps): Effect.Effect<DeliveryE
               from: m.from,
               via: m.via,
               actor: m.actor,
-              // What does not wake the Operator is information for it, not an instruction (PM-463).
-              ...(operator && !messages.wakes(config, m, handle) ? { info: true } : {}),
               taskKey: m.taskKey,
               body: m.body,
               attachments: m.attachments,
@@ -387,14 +382,6 @@ export const makeMessageDelivery = (deps: DeliveryDeps): Effect.Effect<DeliveryE
           if (candidate.length + MESSAGE_SEPARATOR.length > MAX_FIRST_INPUT_CHARS) break;
           batch.push(message);
           text = candidate;
-        }
-        // The Operator's own conversation with an owner also learns of answers that may be decisions (PM-496).
-        if (batch.length && operator && workItem.type === 'general' && workItem.with === undefined) {
-          const unseen = decisionCandidates.unseen(projectKey, config);
-          const line = `${unseen} owner answers on cards since you last looked may be decisions: list_decision_candidates.`;
-          const withLine = `${text}${MESSAGE_SEPARATOR}${line}`;
-          if (unseen > 0 && withLine.length + MESSAGE_SEPARATOR.length <= MAX_FIRST_INPUT_CHARS)
-            text = withLine;
         }
         return { text, messages: batch };
       });
@@ -430,10 +417,6 @@ export const makeMessageDelivery = (deps: DeliveryDeps): Effect.Effect<DeliveryE
         )
           return false;
         if (!waiting.length) return false;
-        // An idle Operator is typed into only for the owner's message; an AI member's waits to ride along (PM-463).
-        const operator = !!config && isOperator(memberOf(config, current.member));
-        const wakesOperator = (m: TeamMessage) => !!config && messages.wakes(config, m, current.member);
-        if (operator && !waiting.some(wakesOperator)) return false;
         flushing.add(current.id);
         for (const message of waiting) claims.add(`${message.id}:${current.member}`);
         return yield* Effect.gen(function* () {
@@ -453,7 +436,7 @@ export const makeMessageDelivery = (deps: DeliveryDeps): Effect.Effect<DeliveryE
               batch.messages.some((m) => messages.wakes(config, m, current.member)))
           )
             return false;
-          if (!batch.messages.length || (operator && !batch.messages.some(wakesOperator))) return false;
+          if (!batch.messages.length) return false;
           const heldNotices = held.get(fresh.id) ?? [];
           let text = batch.text;
           let taken = 0;
@@ -497,10 +480,8 @@ export const makeMessageDelivery = (deps: DeliveryDeps): Effect.Effect<DeliveryE
           !sessions.permissionRestartDue(current) &&
           !starting.has(recipientKey(current.projectKey, current.member, current.workItem))
         ) {
-          // The Operator's messages only go in as a batch with an owner's (PM-463), never one by one.
-          if (!isOperator(memberOf(config, current.member)))
-            for (const message of messages.waiting(current.projectKey, current.member, current.workItem))
-              if (memberOf(config, message.from)?.kind === 'human') yield* deliver(current, message);
+          for (const message of messages.waiting(current.projectKey, current.member, current.workItem))
+            if (memberOf(config, message.from)?.kind === 'human') yield* deliver(current, message);
         }
         const flush = flushWaiting(session).pipe(
           catchFailure((cause) =>

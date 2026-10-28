@@ -277,6 +277,12 @@ modules:
     summary: Az AI tagok nyitott lépéseinek felelőse és határideje, egy ébresztés, majd integrátori teendő.
     paths:
       - apps/server/src/services/obligations/
+  - id: services/host-requests
+    area: service
+    name: Kérés a gazdához
+    summary: A pm kérése a chopper gazdájához és a gazda válasza; a gazda csak a kérés szövegét látja.
+    paths:
+      - apps/server/src/services/host-requests/
   - id: services/email-login
     area: service
     name: E-mailes belépés
@@ -483,6 +489,12 @@ modules:
     summary: Az Operátor beszélgetése, jelzései és kérései.
     paths:
       - apps/web/src/features/operator/
+  - id: web/owner-onboarding
+    area: ui
+    name: Új tulajdonos indulása
+    summary: A tulajdonosi meghívó elfogadása, az első gép bekötése és az első projekt a saját gépen.
+    paths:
+      - apps/web/src/features/owner-onboarding/
   - id: web/pause
     area: ui
     name: Szüneteltetés

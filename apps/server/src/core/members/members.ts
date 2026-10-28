@@ -12,8 +12,6 @@ import {
   modelForProvider,
   canSeeOperatorSessions,
   holdersAllow,
-  isOperator,
-  isRequiredOperator,
   isRequiredProjectManager,
   isDeveloper,
   isComplexityPoints,
@@ -21,6 +19,7 @@ import {
   MemberHandle,
   memberStorageHandle,
   renameMemberInConfig,
+  RETIRED_OPERATOR_HANDLE,
   memberDuties,
   memberOf,
   memberRoles,
@@ -248,7 +247,8 @@ export class MemberService {
 
   /** Handles in use now or in the past (config, runtime state incl. retired, sessions). */
   takenHandles(projectKey: string, config: ProjectConfig): Set<string> {
-    const taken = new Set(config.team.members.map((m) => m.handle));
+    // The retired Operator's handle stays reserved: its old events and messages keep showing it (PM-1076).
+    const taken = new Set([RETIRED_OPERATOR_HANDLE, ...config.team.members.map((m) => m.handle)]);
     // A renamed member keeps its old handles (PM-1025); the events cover a rename whose configuration was reverted.
     for (const m of config.team.members)
       for (const former of m.kind === 'ai' ? (m.formerHandles ?? []) : []) taken.add(former);
@@ -606,9 +606,6 @@ export class MemberService {
         'the only AI project manager cannot be retired; hire another one first',
       );
     }
-    if (isRequiredOperator(config, handle)) {
-      throw conflict('operator_required', 'the Operator cannot be retired');
-    }
     const handoverTo = opts.handoverTo ?? null;
     if (handoverTo !== null) {
       if (handoverTo === handle) throw invalid('invalid_request', 'cannot hand over to the retiring member');
@@ -678,7 +675,6 @@ export class MemberService {
   /** Mutates only the draft; the commit rewrites the database and tells the listeners. */
   prepareRename(projectKey: string, draft: ProjectConfig, handle: string, to: string): void {
     const member = requireAiMember(draft, handle);
-    if (isOperator(member)) throw conflict('operator_fixed', 'the Operator cannot be renamed');
     if (!MemberHandle.safeParse(to).success) throw invalid('invalid_request', `invalid handle: ${to}`);
     if (to === handle || this.takenHandles(projectKey, draft).has(to))
       throw conflict('handle_taken', `handle already used: ${to}`);
@@ -717,16 +713,6 @@ export class MemberService {
       // Sponsors and explicit gate approvers must be reassigned before removal.
       for (const stage of draft.pipeline.stages) {
         if (stage.owners) stage.owners = stage.owners.filter((h) => h !== handle);
-      }
-      // The Operator is fixed (PM-473) and cannot be handed to anyone by the owner afterwards: its
-      // sponsor goes to the first owner left, in the same commit.
-      const sponsored = draft.team.members.filter(
-        (m): m is AiMemberConfig => isOperator(m) && m.kind === 'ai' && m.sponsor === handle,
-      );
-      const heir = draft.team.members.find((m) => m.kind === 'human' && m.access === 'owner');
-      if (sponsored.length && heir) {
-        for (const operator of sponsored) operator.sponsor = heir.handle;
-        return `Remove human member ${handle}; the Operator is now sponsored by ${heir.handle}`;
       }
       return `Remove human member ${handle}`;
     });

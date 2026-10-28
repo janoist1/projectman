@@ -337,6 +337,13 @@ const icons = {
       <path d="M4.5 17.5h.01" />
     </>
   ),
+  /** A plug: a step made through a connected Claude (decision 66). */
+  plug: (
+    <>
+      <path d="M12 22v-5M9 8V2M15 8V2" />
+      <path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8z" />
+    </>
+  ),
   sparkle: <path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9-1.9 5.1-1.9-5.1-5.1-1.9 5.1-1.9z" />,
   tool: <path d="M14.5 6.5a4 4 0 0 0 5 5L12 19a2.1 2.1 0 0 1-3-3l7.5-7.5a4 4 0 0 0-2-2z" />,
   commit: (

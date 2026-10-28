@@ -4,10 +4,10 @@ import type { BranchMerger, EngineDirectory, EngineHost } from '../src/contracts
 import { createHistoryDocumentReader } from '../src/assembly';
 import { HistoryDocumentReadSuperseded } from '../src/contracts';
 
-function harness(operator = true) {
+function harness(pm = true) {
   const config = {
     project: { key: 'AR', repos: [{ name: 'web', defaultBranch: 'main', path: '.' }] },
-    team: { members: operator ? [{ kind: 'ai', handle: 'operator', role: 'ai_operator' }] : [] },
+    team: { members: pm ? [{ kind: 'ai', handle: 'pm', role: 'project_manager' }] : [] },
   } as unknown as ProjectConfig;
   const merger = {
     readFile: vi.fn<BranchMerger['readFile']>(async (_ref, input) => ({
@@ -81,7 +81,7 @@ describe('history engine reader', () => {
       { base: 'main' },
       { commit: 'first' },
     ]);
-    expect(h.engines.engineFor).toHaveBeenCalledWith('AR', 'operator');
+    expect(h.engines.engineFor).toHaveBeenCalledWith('AR', 'pm');
   });
 
   it('reads a commit without a base read and retains a missing first file', async () => {

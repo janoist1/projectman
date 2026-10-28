@@ -22,8 +22,6 @@ export const routes = {
   projectManager: (key: string) => `/api/projects/${key}/project-manager`,
   /** GET the project manager's member queue (`MemberQueueView`, PM-894, PM-1042); `?closedSince=<iso>`. */
   projectManagerQueue: (key: string) => `/api/projects/${key}/project-manager/queue`,
-  /** GET the Operator's member queue (`MemberQueueView`, PM-894); `?closedSince=<iso>`. */
-  operatorQueue: (key: string) => `/api/projects/${key}/operator/queue`,
   operatorPreferences: (key: string) => `/api/projects/${key}/operator/preferences`,
   operatorKnowledge: (key: string) => `/api/projects/${key}/operator/knowledge`,
   projectChecklist: (key: string) => `/api/projects/${key}/checklist`,
@@ -252,6 +250,11 @@ export const routes = {
   feedbackWidgetApi: (rest = '') => `/feedback/api/v1${rest}`,
   /** GET: the widget script the customer's page embeds. */
   feedbackWidgetScript: () => '/feedback/widget.js',
+
+  /** GET `HostRequestListResponse` (`?state=`; the host only). */
+  hostRequests: () => '/api/host-requests',
+  /** POST (`AnswerHostRequestRequest` -> `HostRequestView`; the host only). */
+  answerHostRequest: (id: string) => `/api/host-requests/${id}/answer`,
 
   websocket: () => '/ws',
   mcp: (token: string) => `/mcp/${token}`,

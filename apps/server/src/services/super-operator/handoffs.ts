@@ -11,13 +11,11 @@ import {
   memberRequestCommandRefusal,
   projectManagerCommandRefusal,
   memberOf,
-  operatorOf,
   ownerHandles,
   ownerReservedEffect,
   questionPayloadOf,
   superCommandEffects,
   superCommandMutations,
-  operatorFixedChange,
   superOperationName,
   hasConnectedOrigin,
   withApprovedBy,
@@ -297,8 +295,6 @@ export class SuperHandoffService {
     requester: Actor,
     input: RequestSuperOperationRequest,
   ): Promise<SuperHandoff> {
-    const { config } = await this.projects.load(projectKey);
-    if (!operatorOf(config)) throw invalid('invalid_request', 'the project has no Operator');
     if (input.taskKey && this.ctx.repos.tasks.get(input.taskKey)?.projectKey !== projectKey)
       throw notFound('task', input.taskKey);
     const content = superCommandHash(projectKey, input.command);
@@ -797,8 +793,6 @@ export class SuperHandoffService {
         next = structuredClone(config);
         this.members.prepareRetire(next, operation.handle);
       }
-      const fixed = next && operatorFixedChange(config, next);
-      if (fixed) throw conflict('operator_fixed', 'the fixed Operator fields cannot change', fixed);
       const effects = superCommandEffects(command, context);
       // A member's request cannot reshape who approves without the owner's yes (PM-1010).
       if (
@@ -865,8 +859,8 @@ export class SuperHandoffService {
     effects: readonly OwnerReservedEffect[],
     actor: BoundActor,
   ): InboxItem {
-    // The asker is the connected Claude's actor (decision 66), or the project's Operator for an old super step.
-    const asker = hasConnectedOrigin(actor) ? actor.handle : operatorOf(config)?.handle;
+    // The asker is the connected Claude's actor (decision 66), or the selected PM for an in-app super step.
+    const asker = hasConnectedOrigin(actor) ? actor.handle : coordinationMemberOf(config)?.handle;
     const assignees = ownerHandles(config);
     if (!asker || assignees.length === 0)
       throw invalid('invalid_request', 'the project has no one to ask or no owner to ask');

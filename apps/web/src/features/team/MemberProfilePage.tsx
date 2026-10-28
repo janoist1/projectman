@@ -8,7 +8,6 @@ import {
   DEFAULT_AGENT_PROVIDER,
   effortForProvider,
   hasPlanUsage,
-  isOperator,
   mergeTokenUsage,
   PROJECT_MANAGER_ROLE,
   roleBundle,
@@ -118,7 +117,7 @@ function MemberSchedule({
 
 export function MemberProfilePage() {
   const { handle = '' } = useParams();
-  const { key, myHandle, can, me, isOwner, openOperator } = useProject();
+  const { key, myHandle, can, me, isOwner } = useProject();
   const navigate = useNavigate();
   const requiredPm = useIsRequiredPm(handle);
   const board = useBoard(key);
@@ -162,7 +161,6 @@ export function MemberProfilePage() {
   const providerStatus = providers.data?.providers.find((entry) => entry.provider === provider);
   const effort = effortForProvider(provider, member.effort);
   const ai = member.kind === 'ai';
-  const builtInOperator = isOperator(member);
   const isPm = ai && member.role === PROJECT_MANAGER_ROLE;
   const cheapSubagent = cheapSubagentOf(member);
   const ownConfig = config.data?.config.team.members.find((entry) => entry.handle === handle);
@@ -248,14 +246,6 @@ export function MemberProfilePage() {
                 <Chip>{t('team.contactChip')}</Chip> ·{' '}
               </>
             ) : null}
-            {builtInOperator ? (
-              <>
-                <Chip tone="operator" title={t('operator.builtIn.title')}>
-                  {t('operator.builtIn.chip')}
-                </Chip>{' '}
-                ·{' '}
-              </>
-            ) : null}
             <span>
               {status.reason
                 ? t('memberStatus.cannotWorkWithReason', { reason: status.reason })
@@ -268,12 +258,7 @@ export function MemberProfilePage() {
           {ai && member.onLeave && can.manageTeam ? <LeaveButton member={member} variant="primary" /> : null}
           {ai && !member.onLeave && can.workInSessions ? (
             <span className={styles.heldStart}>
-              {builtInOperator ? (
-                // The Operator has its one conversation, in the corner panel (PM-447).
-                <Button variant="primary" onClick={(event) => openOperator(event.currentTarget)}>
-                  {t('profile.conversation')}
-                </Button>
-              ) : isPm ? (
+              {isPm ? (
                 // The project manager is a member of the Messages page like any other (PM-447).
                 <ButtonLink to={`/p/${key}/messages/with/${handle}`} variant="primary">
                   {t('profile.conversation')}
@@ -471,7 +456,7 @@ export function MemberProfilePage() {
             ) : null}
             <p>{t('profile.capacity', { used: data.capacityUsed, max: data.capacity ?? 0 })}</p>
             {member.machineAccess ? <p>{t('profile.machineAccess')}</p> : null}
-            {builtInOperator ? null : <PermissionLevelControl member={member} />}
+            <PermissionLevelControl member={member} />
             {hasPlanUsage(member.provider ?? DEFAULT_AGENT_PROVIDER) ? (
               <PlanUsageMeter
                 provider={member.provider ?? DEFAULT_AGENT_PROVIDER}

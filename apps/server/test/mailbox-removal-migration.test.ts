@@ -9,8 +9,8 @@ describe('removal of the mailbox name from stored commands (PM-1039)', () => {
   it('drops email.mailbox from stored super commands and approvals and leaves the rest as it was', () => {
     const db = new Database(':memory:');
     try {
-      for (const migration of migrations.filter((item) => item.version <= 121)) db.exec(migration.sql);
-      db.pragma('user_version = 121');
+      for (const migration of migrations.filter((item) => item.version <= 122)) db.exec(migration.sql);
+      db.pragma('user_version = 122');
       db.exec(
         `INSERT INTO projects (key, name, config_version, created_at, updated_at)
          VALUES ('AR', 'Example', 'v1', '2026-01-01', '2026-01-01');`,

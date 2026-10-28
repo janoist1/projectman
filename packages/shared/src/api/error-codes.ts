@@ -105,8 +105,6 @@ export const ERROR_CODES = [
   'duplicate_role',
   'role_in_use',
   'project_manager_required',
-  'operator_required',
-  'operator_fixed',
   // 409; `details.reason`: session | workspace | queue | deferred_start (PM-1025)
   'member_session_live',
   // 409: a start while the member is being renamed
@@ -223,6 +221,11 @@ export const ERROR_CODES = [
   'engine_not_host',
   'nanogpt_key_not_for_engine',
   'host_only',
+  // A request to the host (PM-1064): the project's owners include the host (409), five are open already (409),
+  // or it was answered or withdrawn already (409).
+  'host_request_not_needed',
+  'host_request_limit',
+  'host_request_closed',
   'ai_disabled',
   'ai_limit_reached',
   'plan_usage_paused',
@@ -289,8 +292,6 @@ export const ERROR_CODES = [
   // The Operator (PM-463): a message to it only from an owner's own login; a write without an open
   // request of the owner; a tool it never calls.
   'operator_owner_only',
-  // The Operator exists only when the owner's client connects (PM-1045, 409): no session, no message to it.
-  'operator_connected_only',
   // A connected Claude's step on a queue item (decision 66): the item is not open for the key's holder (403),
   // or its issuer has no machine access (409).
   'queue_item_not_yours',

@@ -8,7 +8,6 @@ import {
   planUsagePause,
   isHandleOnLeave,
   isOpenTask,
-  isOperator,
   isSessionAtWork,
   isTheme,
   isWorkingOnTask,
@@ -180,14 +179,11 @@ export class Admission {
   holders(config: ProjectConfig, handle: string, excludeTaskKey?: string): CapacityHolder[] {
     const holders: CapacityHolder[] = [];
     const ofTask = new Map<string, CapacityHolder>();
-    // The Operator's capacity is for the people who are not owners: the owners' conversation never counts (PM-475).
-    const operator = isOperator(memberOf(config, handle));
     for (const s of this.sessions.list(config.project.key, { member: handle })) {
       if (!this.sessions.isRunning(s.id)) continue;
       const awaitsFirstTurn = this.sessions.awaitsFirstTurn(s.id);
       const working = isSessionAtWork(s, { awaitsFirstTurn, pendingInput: false, messageOnItsWay: false });
       if (s.workItem.type !== 'task') {
-        if (operator && !(s.workItem.type === 'general' && s.workItem.with)) continue;
         holders.push({
           kind: s.workItem.type,
           sessionId: s.id,

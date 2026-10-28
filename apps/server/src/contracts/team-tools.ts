@@ -71,6 +71,10 @@ import type {
   AdministrationTarget,
   InboxItem,
   ListSuperHandoffsQuery,
+  HostRequestState,
+  HostRequestListResponse,
+  HostRequestView,
+  AnswerHostRequestRequest,
   SuperDiagnosticsRequest,
   SuperDiagnosticsResponse,
   SuperOperateRequest,
@@ -194,13 +198,14 @@ export interface SentMessageRecipient {
 }
 
 export interface MemberAudience {
-  operator: boolean;
   projectManager: boolean;
   merger: boolean;
   /** The project's e-mail channel is on and this member may send e-mail (the e-mail tools' handler check). */
   email: boolean;
   /** The member may put machine work in the owners' queue (`hasMachineAccess`, decision 66). */
   machineAccess: boolean;
+  /** The member may open a request to the instance's host (`hostRequestRefusal` is null; PM-1064). */
+  hostRequests: boolean;
   duties: ReadonlySet<DutyId>;
 }
 
@@ -680,6 +685,30 @@ export interface EmailToolsHandler {
   ): Promise<Array<{ handle: string; displayName: string; wants: boolean; hasAddress: boolean }>>;
 }
 
+/** The tools of services/host-requests (PM-1064): the project manager's requests to the instance's host. */
+export interface HostRequestToolsHandler {
+  askHost(
+    ctx: ToolContext,
+    args: { title: string; body: string; taskKey: string | null },
+  ): Promise<{ id: string; state: 'open' }>;
+  listHostRequests(
+    ctx: ToolContext,
+    args: { state?: HostRequestState },
+  ): Promise<
+    Array<{
+      id: string;
+      taskKey: string | null;
+      title: string;
+      body: string;
+      state: HostRequestState;
+      answer: string | null;
+      createdAt: string;
+      updatedAt: string;
+    }>
+  >;
+  withdrawHostRequest(ctx: ToolContext, args: { id: string }): Promise<{ id: string; state: 'withdrawn' }>;
+}
+
 export interface TeamToolsHandler
   extends
     MemberToolsHandler,
@@ -691,6 +720,7 @@ export interface TeamToolsHandler
     ScreenshotToolsHandler,
     ReleaseToolsHandler,
     EmailToolsHandler,
+    HostRequestToolsHandler,
     OperatorToolsHandler,
     ProjectDocToolsHandler,
     SystemFeedbackToolsHandler,
@@ -824,8 +854,6 @@ export interface MessageToolsHandler {
     recipients: SentMessageRecipient[];
     /** Only the recipients that get the message somewhere else than on its own card (PM-182). */
     routed?: { handle: MemberHandle; workItem: WorkItemRef }[];
-    /** The sender is the Operator (PM-543): the text then never sends it to a person. */
-    operator: boolean;
   }>;
 }
 
@@ -1252,6 +1280,17 @@ export interface ExternalToolsHandler {
       principles?: (Omit<OperatorPrincipleData, 'id'> & { id?: string })[];
     },
   ): Promise<OperatorKnowledgeDocument>;
+  /** The requests the pm of another owner's project opened to the instance host (PM-1064); the host's key only. */
+  listHostInbox(
+    principal: IntegratorPrincipal,
+    requestId: string,
+    args: { state?: HostRequestState },
+  ): Promise<HostRequestListResponse>;
+  answerHostRequest(
+    principal: IntegratorPrincipal,
+    requestId: string,
+    args: AnswerHostRequestRequest & { id: string },
+  ): Promise<HostRequestView>;
   relayOwnerAnswer(
     ctx: ExternalToolContext,
     args: { itemId: string; answer: string },

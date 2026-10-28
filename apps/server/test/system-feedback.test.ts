@@ -27,6 +27,8 @@ let now: Date;
 const feedback = () => h.domain.systemFeedback;
 
 function withDana(config: ProjectConfig): void {
+  const pm = config.team.members.find((member) => member.handle === 'pm');
+  if (pm?.kind === 'ai') pm.onLeave = false;
   config.team.members.push({
     kind: 'human',
     handle: 'dana',
@@ -47,7 +49,7 @@ afterEach(async () => {
 });
 
 /** A conversation of the member with a person (none: the owner), with an open request from them. */
-function conversation(handle?: string, member = 'operator', request = true): ToolContext {
+function conversation(handle?: string, member = 'pm', request = true): ToolContext {
   const at = new Date().toISOString();
   const id = `ses_${member}_${handle ?? 'owner'}`;
   const session: Session = {
@@ -81,7 +83,7 @@ function conversation(handle?: string, member = 'operator', request = true): Too
 }
 
 const record = (overrides: Partial<typeof INPUT> & { sameAs?: string } = {}) =>
-  feedback().record('AR', 'operator', 'ses_1', { ...INPUT, ...overrides });
+  feedback().record('AR', 'pm', 'ses_1', { ...INPUT, ...overrides });
 const setCardMode = async () => {
   await h.domain.projects.create(
     { key: 'BR', name: 'Target', workspacePath: h.workspace, templateId: 'test' },
@@ -348,9 +350,9 @@ describe('nothing leaves the installation (PM-479)', () => {
   });
 });
 
-describe('the Operator tools (PM-479)', () => {
+describe('the project manager tools (PM-479)', () => {
   it('records a gap without an open request, and lists the project’s items', async () => {
-    const ctx = conversation(undefined, 'operator', false);
+    const ctx = conversation(undefined, 'pm', false);
     const made = await h.domain.teamTools.recordSystemFeedback(ctx, INPUT);
     expect(made).toMatchObject({ state: 'new', created: true, occurrences: 1 });
     const again = await h.domain.teamTools.recordSystemFeedback(ctx, { ...INPUT, sameAs: made.id });
@@ -359,7 +361,7 @@ describe('the Operator tools (PM-479)', () => {
     expect(list.items).toEqual([
       expect.objectContaining({ id: made.id, state: 'new', title: INPUT.title, occurrences: 2 }),
     ]);
-    // What the owner decided is not told to the Operator.
+    // What the owner decided is not told to the project manager.
     expect(Object.keys(list.items[0]!).sort()).toEqual([
       'id',
       'last_seen_at',
@@ -369,20 +371,14 @@ describe('the Operator tools (PM-479)', () => {
     ]);
   });
 
-  it('logs a step with the item under an open request, and none without one', async () => {
+  it('logs no request step: the gap is the project manager’s own bookkeeping', async () => {
     const ctx = conversation();
-    const made = await h.domain.teamTools.recordSystemFeedback(ctx, INPUT);
+    await h.domain.teamTools.recordSystemFeedback(ctx, INPUT);
     const [open] = h.repos.operatorRequests.openOfSession(ctx.sessionId);
-    const steps = h.repos.operatorRequests.steps(open!.id);
-    expect(steps).toHaveLength(1);
-    expect(steps[0]).toMatchObject({
-      action: 'system_feedback',
-      status: 'done',
-      systemFeedback: { id: made.id, title: INPUT.title, occurrence: 1 },
-    });
+    expect(h.repos.operatorRequests.steps(open!.id)).toEqual([]);
   });
 
-  it('is for the Operator only and refused in a guest conversation', async () => {
+  it('is for the project manager only and refused in a guest conversation', async () => {
     const dev = conversation(undefined, 'dev-1', false);
     for (const call of [
       () => h.domain.teamTools.recordSystemFeedback(dev, INPUT),

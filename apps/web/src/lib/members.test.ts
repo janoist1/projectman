@@ -1,8 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import type { MemberView } from '@projectman/shared';
+import { connectedActorOf } from '@projectman/shared';
+import type { Actor, MemberView } from '@projectman/shared';
 import { members as fixtureMembers } from '../mocks/fixtures';
 import { t } from '../i18n/t';
-import { indexMembers, memberStatusView, nameOf, renamedTo } from './members';
+import {
+  actorLabel,
+  actorParts,
+  indexMembers,
+  isOwnActor,
+  memberStatusView,
+  nameOf,
+  renamedTo,
+} from './members';
 
 const member = (handle: string): MemberView => fixtureMembers.find((entry) => entry.handle === handle)!;
 
@@ -69,9 +78,83 @@ describe('indexMembers with former handles (PM-1026)', () => {
   });
 });
 
+describe('actorParts and actorLabel for a connected Claude (decision 66)', () => {
+  const credential = { id: 'cred_secretly_internal', prefix: 'pmk_7Hq2' };
+  const index = indexMembers(fixtureMembers);
+  const legacySuper: Actor = {
+    kind: 'ai',
+    handle: 'devops',
+    via: 'integrator',
+    operatorMode: 'super',
+    credential,
+  };
+
+  it.each([
+    {
+      name: 'a direct instruction',
+      actor: connectedActorOf('kata', credential),
+      parts: { name: 'Kata', chipHolder: null, holder: 'Kata', approver: null, approverInline: false },
+      label: t('connected.label', { name: 'Kata' }),
+    },
+    {
+      name: 'external work (MCP) names the holder',
+      actor: connectedActorOf('kata', credential, { issuer: 'devops' }),
+      parts: { name: 'Devops', chipHolder: 'Kata', holder: 'Kata', approver: null, approverInline: false },
+      label: t('connected.labelHolder', { name: 'Devops', holder: 'Kata' }),
+    },
+    {
+      name: 'an approval by someone else shows inline',
+      actor: connectedActorOf('kata', credential, { issuer: 'devops', approvedBy: 'bence' }),
+      parts: { name: 'Devops', chipHolder: 'Kata', holder: 'Kata', approver: 'Bence', approverInline: true },
+      label: t('connected.labelHolder', { name: 'Devops', holder: 'Kata' }),
+    },
+    {
+      name: 'a self-approval stays in the detail line',
+      actor: connectedActorOf('kata', credential, { approvedBy: 'kata' }),
+      parts: { name: 'Kata', chipHolder: null, holder: 'Kata', approver: 'Kata', approverInline: false },
+      label: t('connected.label', { name: 'Kata' }),
+    },
+  ])('describes $name', ({ actor, parts, label }) => {
+    const { connected, ...rest } = actorParts(actor, index, 'owner');
+    expect(rest).toEqual({ name: parts.name, legacySuper: false });
+    expect(connected).toMatchObject({
+      chipHolder: parts.chipHolder,
+      holder: parts.holder,
+      approver: parts.approver,
+      approverInline: parts.approverInline,
+      prefix: credential.prefix,
+    });
+    expect(actorLabel(actor, index, 'owner')).toBe(label);
+  });
+
+  it('names the viewer as "Te" for the holder', () => {
+    const actor = connectedActorOf('owner', credential, { issuer: 'devops' });
+    expect(actorParts(actor, index, 'owner').connected?.chipHolder).toBe(t('common.you'));
+  });
+
+  it('leaves an old super row and an old integrator row as they were', () => {
+    expect(actorParts(legacySuper, index, 'owner')).toMatchObject({ connected: null, legacySuper: true });
+    expect(actorLabel(legacySuper, index, 'owner')).toBe(t('superMode.actor'));
+    const integrator: Actor = { kind: 'human', handle: 'kata', via: 'integrator' };
+    expect(actorParts(integrator, index, 'owner')).toMatchObject({ connected: null, legacySuper: false });
+    expect(actorLabel(integrator, index, 'owner')).toBe(t('involvement.integrator'));
+  });
+
+  it('counts only the own connected Claude of the viewer as the viewer acting', () => {
+    expect(isOwnActor({ kind: 'human', handle: 'owner' }, 'owner')).toBe(true);
+    expect(isOwnActor(connectedActorOf('owner', credential), 'owner')).toBe(true);
+    expect(isOwnActor(connectedActorOf('kata', credential, { issuer: 'owner' }), 'owner')).toBe(false);
+    expect(isOwnActor({ kind: 'human', handle: 'owner', via: 'integrator' }, 'owner')).toBe(false);
+  });
+});
+
 describe('nameOf', () => {
   it('names the sender of the messages projectman writes itself as the system (PM-421)', () => {
     expect(nameOf('system', indexMembers([]), 'owner')).toBe(t('common.system'));
     expect(nameOf(null, indexMembers([]), 'owner')).toBe(t('common.system'));
+  });
+
+  it('names a handle that left the team by the handle itself, like the retired Operator (decision 66)', () => {
+    expect(nameOf('operator', indexMembers(fixtureMembers), 'owner')).toBe('operator');
   });
 });

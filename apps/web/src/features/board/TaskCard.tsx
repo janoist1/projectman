@@ -21,6 +21,7 @@ import { cardWorkerRows, prerequisiteLabel } from '../../lib/taskState';
 import type { TaskState } from '../../lib/taskState';
 import { prChip, stageRows } from './cardModel';
 import { LabelChip } from '../../components/LabelChip';
+import { FocusMark } from '../focus/FocusMark';
 import styles from './TaskCard.module.css';
 
 interface TaskCardProps {
@@ -159,6 +160,7 @@ export function TaskCard({
       {coverSrc ? <CardCover key={coverSrc} src={coverSrc} thumbnail={compact} /> : null}
       <span className={styles.head}>
         <span className={styles.key}>{task.key}</span>
+        <FocusMark taskKey={task.key} />
         {task.priority && task.status !== 'done' && task.status !== 'cancelled' ? (
           <span title={t('priority.markLabel', { level: t(`priority.levels.${task.priority}`) })}>
             <PriorityMark priority={task.priority} />

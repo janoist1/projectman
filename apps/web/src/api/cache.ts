@@ -7,6 +7,7 @@ import type {
   Me,
   MemberProfile,
   MemberView,
+  ProjectFocusView,
   ServerEvent,
   Session,
   SessionDetail,
@@ -278,8 +279,15 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
     case 'error':
       console.warn('[ws] server error:', event.message);
       return;
-    // The focus panel (PM-427 4/4) reads it; nothing in the cache holds the focus yet.
-    case 'project_focus_changed':
+    case 'project_focus_changed': {
+      // The event carries the list, not the viewer's right to change it: that stays as the view had it.
+      const { projectKey: key, focus } = event;
+      client.setQueryData<ProjectFocusView>(queryKeys.focus(key), (view) =>
+        view ? { ...view, items: focus.items } : view,
+      );
+      void client.invalidateQueries({ queryKey: queryKeys.focusChanges(key) });
+      return;
+    }
     case 'hello':
     case 'terminal_data':
     case 'terminal_snapshot':

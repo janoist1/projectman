@@ -7,6 +7,8 @@ import { useNow } from '../../lib/useNow';
 import { assigneeOptions, matchesAssignee } from '../board/boardFilters';
 import type { FilterOption } from '../board/boardFilters';
 import { useBoardModel } from '../board/useBoardModel';
+import { useFocus } from '../focus/FocusContext';
+import { useFocusFilter } from '../focus/useFocusFilter';
 import type { MapShow } from './mapFilters';
 
 export interface MapTotals {
@@ -27,6 +29,8 @@ export function useWorkMap(show: MapShow, requestedMember: string) {
   const now = useNow(true, 60_000);
   const { board, model, pipeline } = useBoardModel();
   const { myHandle } = useProject();
+  const focusOnly = useFocusFilter().active;
+  const { places } = useFocus();
   const tasks = board.data?.tasks;
   const team = board.data?.members;
 
@@ -48,13 +52,16 @@ export function useWorkMap(show: MapShow, requestedMember: string) {
       if (stale) staleKeys.add(task.key);
     }
     const unfiltered = workMap({ tasks, states });
+    // "Csak a fókusz" narrows the cards the same way the member does: a group without a card of the focus drops out.
     const scoped: MapGroup[] =
-      member === ''
+      member === '' && !focusOnly
         ? unfiltered
         : workMap({
             tasks,
             states,
             counts: (key) => {
+              if (focusOnly && !places.has(key)) return false;
+              if (member === '') return true;
               const entry = model.byKey.get(key);
               return entry ? matchesAssignee(entry.task, member) : false;
             },
@@ -91,9 +98,9 @@ export function useWorkMap(show: MapShow, requestedMember: string) {
       /** Only the "Egyéb" group: no open theme or collecting card yet. */
       firstUse: unfiltered.length > 0 && unfiltered.every((group) => group.kind === 'other'),
     };
-  }, [tasks, model, pipeline, now, show, member]);
+  }, [tasks, model, pipeline, now, show, member, focusOnly, places]);
 
-  return { board, pipeline, model, data, assignees, member };
+  return { board, pipeline, model, data, assignees, member, focusOnly };
 }
 
 /** A group's title: the card's own for a theme or collecting card, "Egyéb" for the rest. */

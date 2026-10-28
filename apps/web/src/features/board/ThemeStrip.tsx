@@ -7,6 +7,7 @@ import { ColumnBar } from '../../components/ColumnBar';
 import { Icon } from '../../components/Icon';
 import { t } from '../../i18n/t';
 import type { PipelineIndex } from '../../lib/pipeline';
+import { FocusMark } from '../focus/FocusMark';
 import { columnProgressOf, progressOf, sortedThemes } from './themeModel';
 import styles from './ThemeStrip.module.css';
 
@@ -68,6 +69,7 @@ export function ThemeStrip({
               >
                 <span className={styles.name}>
                   {!isOpenTask(theme) ? <Icon name="lock" size={12} /> : null}
+                  <FocusMark taskKey={theme.key} />
                   <span className={styles.nameText}>{theme.title}</span>
                 </span>
                 <span className={styles.progress}>

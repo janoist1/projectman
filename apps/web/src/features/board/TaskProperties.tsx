@@ -7,6 +7,7 @@ import type { MemberIndex } from '../../lib/members';
 import { shortCommit } from '../../lib/timeline';
 import type { PipelineIndex } from '../../lib/pipeline';
 import type { TaskPhase } from '../../lib/taskState';
+import { FocusRow } from '../focus/FocusRow';
 import { TaskAssigneeSelect } from './TaskLifecycle';
 import { TaskPrioritySelect } from './TaskPriority';
 import { TaskLabels } from './TaskLabels';
@@ -74,6 +75,7 @@ export function TaskProperties({
       ) : null}
       <TaskLabels task={task} />
       <TaskTheme task={task} tasks={tasks} />
+      <FocusRow key={`focus:${task.key}`} task={task} />
       <TaskRelations
         key={`relations:${task.key}`}
         task={task}

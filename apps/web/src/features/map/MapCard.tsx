@@ -7,6 +7,7 @@ import { Chip } from '../../components/Chip';
 import { StateMark } from '../../components/StateMark';
 import { formatAge } from '../../i18n/format';
 import { t } from '../../i18n/t';
+import { FocusMark } from '../focus/FocusMark';
 import type { ZoomCard, Waiting } from './groupModel';
 import styles from './MapCard.module.css';
 
@@ -113,6 +114,7 @@ export function MapCard({
       <Link to={to} className={styles.open}>
         <span className={styles.head}>
           <span className={styles.key}>{task.key}</span>
+          <FocusMark taskKey={task.key} />
           {column ? (
             <Chip tone="column" data-column-color={column.color} className={styles.column}>
               {column.name}

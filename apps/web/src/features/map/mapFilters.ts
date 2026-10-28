@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
 import { useSearchParams } from 'react-router';
+import { FOCUS_FILTER_PARAM } from '../focus/useFocusFilter';
 
 export type MapShow = 'all' | 'needsYou' | 'blocked';
 
@@ -9,10 +10,11 @@ export function parseShow(value: string | null): MapShow {
 }
 
 /** The map's own query (`?show=…&member=…`, or nothing): what a link inside the map carries along. */
-export function mapQuery(show: MapShow, member: string): string {
+export function mapQuery(show: MapShow, member: string, focus = false): string {
   const params = new URLSearchParams();
   if (show !== 'all') params.set('show', show);
   if (member !== '') params.set('member', member);
+  if (focus) params.set(FOCUS_FILTER_PARAM, '1');
   const text = params.toString();
   return text ? `?${text}` : '';
 }
@@ -28,10 +30,11 @@ export function useMapFilters() {
   const member = params.get('member') ?? '';
 
   const update = useCallback(
-    (changes: { show?: MapShow; member?: string }) => {
+    (changes: { show?: MapShow; member?: string; focus?: boolean }) => {
       setParams(
         (current) => {
           const next = new URLSearchParams(current);
+          if (changes.focus === false) next.delete(FOCUS_FILTER_PARAM);
           if (changes.show !== undefined) {
             if (changes.show === 'all') next.delete('show');
             else next.set('show', changes.show);
@@ -53,6 +56,6 @@ export function useMapFilters() {
     member,
     setShow: (value: MapShow) => update({ show: value }),
     setMember: (value: string) => update({ member: value }),
-    clear: () => update({ show: 'all', member: '' }),
+    clear: () => update({ show: 'all', member: '', focus: false }),
   };
 }

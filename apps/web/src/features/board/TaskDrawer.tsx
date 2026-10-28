@@ -62,6 +62,7 @@ import { TaskAttachments } from './TaskAttachments';
 import { TaskTimeline } from './TimelineAttachment';
 import { TaskCommentComposer } from './TaskCommentComposer';
 import { TaskDescription } from './TaskEdit';
+import { FocusRow } from '../focus/FocusRow';
 import { TaskProperties } from './TaskProperties';
 import { TaskThread } from './TaskThread';
 import { TaskRounds, TaskUsage } from './TaskUsage';
@@ -487,6 +488,7 @@ export function TaskDrawer() {
                 <span className={drawer.propLabel}>{t('newTask.fields.visibility')}</span>
                 <span>{t(`visibility.${task.visibility}`)}</span>
               </div>
+              <FocusRow key={`focus:${task.key}`} task={task} />
             </section>
           </>
         ) : (

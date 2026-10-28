@@ -26,6 +26,8 @@ import type { Waiting, ZoomCard, ZoomLane } from './groupModel';
 import { mapQuery, useMapFilters } from './mapFilters';
 import { rememberZoomed } from './returnFocus';
 import type { ReturnState } from './returnFocus';
+import { FocusMark } from '../focus/FocusMark';
+import { useFocusFilter } from '../focus/useFocusFilter';
 import { useLiveMotion } from './useGroupMotion';
 import { groupTitle, useWorkMap } from './useWorkMap';
 import styles from './MapGroupView.module.css';
@@ -71,7 +73,11 @@ export function MapGroupView() {
   const backRef = useRef<HTMLAnchorElement>(null);
 
   // The map's own query only: the drawer adds its own parameters (the card size, a message).
-  const query = useMemo(() => mapQuery(filters.show, filters.member), [filters.show, filters.member]);
+  const focusRequested = useFocusFilter().requested;
+  const query = useMemo(
+    () => mapQuery(filters.show, filters.member, focusRequested),
+    [filters.show, filters.member, focusRequested],
+  );
 
   const base = useMemo<DrawerBase>(
     () => ({
@@ -376,6 +382,7 @@ function GroupBody({
         <div className={styles.kind}>
           <span className={styles.kindName}>{kind}</span>
           {group.kind !== 'other' ? <span className={styles.key}>{group.key}</span> : null}
+          {group.kind !== 'other' ? <FocusMark taskKey={group.key} /> : null}
         </div>
         <div className={styles.titleRow}>
           <h1 className={styles.title}>{title}</h1>

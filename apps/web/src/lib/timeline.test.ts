@@ -647,3 +647,53 @@ describe('the handoff rows (PM-342)', () => {
     );
   });
 });
+
+describe('the project focus on the timeline (PM-427)', () => {
+  const focus = (data: Record<string, unknown>): TimelineEvent => ({
+    ...creation,
+    type: 'focus_changed',
+    data: { key: 'AC-5', title: 'Hybrid mode', ...data },
+  });
+
+  it('says what was put in, taken out and moved', () => {
+    expect(describeEvent(focus({ action: 'added', position: 2, previous: null }), context).text).toBe(
+      t('timeline.events.focus_added', { title: 'Hybrid mode', position: '2' }),
+    );
+    expect(describeEvent(focus({ action: 'removed', position: null, previous: 3 }), context).text).toBe(
+      t('timeline.events.focus_removed', { title: 'Hybrid mode' }),
+    );
+    expect(describeEvent(focus({ action: 'moved', position: 1, previous: 4 }), context).text).toBe(
+      t('timeline.events.focus_moved', { title: 'Hybrid mode', previous: '4', position: '1' }),
+    );
+  });
+
+  const pulled = (pulled: unknown): TimelineEvent => ({
+    ...creation,
+    type: 'task_stage_changed',
+    data: { from: 'ready', to: 'dev', pulled },
+  });
+
+  it('says why the system pulled a card ahead of its turn', () => {
+    expect(describeEvent(pulled({ reason: 'urgent' }), context).text).toBe(
+      t('timeline.events.task_stage_changed_pulled_urgent', { from: 'ready', to: 'dev' }),
+    );
+    expect(
+      describeEvent(pulled({ reason: 'focus', position: 2, key: 'AC-9', title: 'Hybrid mode' }), context)
+        .text,
+    ).toBe(
+      t('timeline.events.task_stage_changed_pulled_focus', {
+        from: 'ready',
+        to: 'dev',
+        position: '2',
+        title: 'Hybrid mode',
+        key: 'AC-9',
+      }),
+    );
+  });
+
+  it('keeps a plain move plain', () => {
+    expect(describeEvent(pulled(undefined), context).text).toBe(
+      t('timeline.events.task_stage_changed', { from: 'ready', to: 'dev' }),
+    );
+  });
+});

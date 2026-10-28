@@ -4,6 +4,8 @@ import { Button } from '../../components/Button';
 import { PageHeader } from '../../components/PageHeader';
 import { EmptyState, ErrorState } from '../../components/States';
 import { t } from '../../i18n/t';
+import { FocusStrip } from '../focus/FocusStrip';
+import { useFocusFilter } from '../focus/useFocusFilter';
 import { GroupTile } from './GroupTile';
 import { MapToolbar } from './MapToolbar';
 import { useGroupMotion } from './useGroupMotion';
@@ -21,7 +23,8 @@ const SKELETON_TILES = 8;
 export function MapOverview() {
   const { key, can, openNewTask } = useProject();
   const filters = useMapFilters();
-  const { board, pipeline, data, assignees, member } = useWorkMap(filters.show, filters.member);
+  const { board, pipeline, data, assignees, member, focusOnly } = useWorkMap(filters.show, filters.member);
+  const focusRequested = useFocusFilter().requested;
   const listRef = useRef<HTMLUListElement>(null);
   const items = useRef(new Map<string, HTMLElement>());
   const flashing = useGroupMotion(listRef, items, data?.groups ?? [], `${filters.show}|${member}`);
@@ -90,13 +93,14 @@ export function MapOverview() {
     );
   }
 
-  const filtered = filters.show !== 'all' || member !== '';
-  const good = filters.show !== 'all' && member === '';
+  const filtered = filters.show !== 'all' || member !== '' || focusRequested;
+  const good = filters.show !== 'all' && member === '' && !focusOnly;
   const base = `/p/${key}/map`;
 
   return (
     <div className={styles.page}>
       {header(summary)}
+      <FocusStrip />
       <MapToolbar
         show={filters.show}
         member={member}
@@ -123,13 +127,17 @@ export function MapOverview() {
           // Good news only when nothing waits or is stuck; a filter that merely hides the cards is neutral.
           icon={good ? 'check' : 'filter'}
           tone={good ? 'ok' : 'neutral'}
-          title={t(
-            filters.show === 'needsYou'
-              ? 'map.emptyFilter.needsYou'
-              : filters.show === 'blocked'
-                ? 'map.emptyFilter.blocked'
-                : 'map.emptyFilter.all',
-          )}
+          title={
+            focusOnly && filters.show === 'all'
+              ? t('focus.onlyEmpty')
+              : t(
+                  filters.show === 'needsYou'
+                    ? 'map.emptyFilter.needsYou'
+                    : filters.show === 'blocked'
+                      ? 'map.emptyFilter.blocked'
+                      : 'map.emptyFilter.all',
+                )
+          }
           body={t('map.emptyFilter.body')}
           action={
             <Button variant="secondary" onClick={filters.clear}>
@@ -145,7 +153,7 @@ export function MapOverview() {
               group={group}
               title={groupTitle(group, data.titles)}
               base={base}
-              query={mapQuery(filters.show, filters.member)}
+              query={mapQuery(filters.show, filters.member, focusRequested)}
               pipeline={pipeline}
               flash={flashing.has(group.key)}
               itemRef={(element) => {

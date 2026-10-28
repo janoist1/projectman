@@ -309,7 +309,7 @@ function ViewerRecipientsStatus({ config }: { config: ProjectConfig }) {
   if (mode === 'contacts' && manager && !handles.includes(manager.handle))
     return (
       <p role="status" className={shared.help}>
-        {t('settings.team.viewerRecipients.managerNotContact', { name: manager.displayName })}
+        {t('settings.team.viewerRecipients.managerNotContact')}
       </p>
     );
   return null;
@@ -319,7 +319,7 @@ function ViewerRecipientsStatus({ config }: { config: ProjectConfig }) {
 function ViewerRecipientsControls({ config }: { config: ProjectConfig }) {
   const { shown, saving, commit, error, locked } = useInstantLimits(config);
   return (
-    <fieldset className={shared.controls} disabled={locked} aria-busy={saving}>
+    <fieldset className={clsx(shared.controls, shared.controlsBelow)} disabled={locked} aria-busy={saving}>
       <SelectField
         label={t('settings.team.viewerRecipients.label')}
         hint={t('settings.team.viewerRecipients.help')}

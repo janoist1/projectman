@@ -358,13 +358,16 @@ export function ConversationThread({
             {entries.length === 0 ? (
               <div className={styles.empty}>
                 <h2 className={styles.emptyTitle}>{t('messages.thread.emptyTitle')}</h2>
-                <p className={styles.emptyBody}>
-                  {member?.kind === 'human'
-                    ? t('messages.thread.emptyHuman')
-                    : marksOnly
-                      ? t('pm.emptyThread')
-                      : t('messages.thread.emptyBody')}
-                </p>
+                {/* "Write below" is no use where there is no box below: the note under the thread says why. */}
+                {member?.kind === 'human' || marksOnly || canSend ? (
+                  <p className={styles.emptyBody}>
+                    {member?.kind === 'human'
+                      ? t('messages.thread.emptyHuman')
+                      : marksOnly
+                        ? t('pm.emptyThread')
+                        : t('messages.thread.emptyBody')}
+                  </p>
+                ) : null}
               </div>
             ) : (
               entries.map(renderEntry)

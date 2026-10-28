@@ -6524,10 +6524,10 @@ export const hu = {
         label: 'Kinek írhat a betekintő?',
         help: 'A betekintő a projektet csak nézi, de üzenni tud. Kapcsolattartós beállításnál a projektmenedzsernek csak akkor írhat, ha ő is kapcsolattartó.',
         project_manager: 'Csak a projektmenedzsernek',
-        contacts: 'A kapcsolattartóknak, mint a megrendelő',
+        contacts: 'A kapcsolattartóknak',
         noManager: 'A projektnek nincs projektmenedzsere, ezért a betekintő most senkinek sem írhat.',
         noContacts: 'Nincs kapcsolattartó, ezért a betekintő most senkinek sem írhat.',
-        managerNotContact: '{name} projektmenedzser nem kapcsolattartó, ezért a betekintő nem írhat neki.',
+        managerNotContact: 'A projektmenedzser nem kapcsolattartó, ezért a betekintő nem írhat neki.',
       },
       /** Who moves the cards on (PM-439): the choice of the wizard and the settings. */
       mover: {

@@ -361,6 +361,16 @@ describe('a conversation', () => {
     const dialog = within(await screen.findByRole('dialog'));
     await waitFor(() => expect(dialog.getAllByRole('checkbox')).toHaveLength(1));
   });
+
+  it('does not tell a viewer to write below in an empty thread that has no box (PM-1102)', async () => {
+    const p = mockProject();
+    p.backend.messages = [];
+    const me = { ...p.context.me, projects: [{ ...p.context.me.projects[0]!, access: 'viewer' as const }] };
+    p.render(<Pages />, '/p/AC/messages/with/fe-1', { me });
+    await screen.findByRole('heading', { name: t('messages.thread.emptyTitle') });
+    await screen.findByRole('note');
+    expect(screen.queryByText(t('messages.thread.emptyBody'))).toBeNull();
+  });
 });
 
 /** Kata, a client, with the given contacts: she writes to them alone (PM-985). */

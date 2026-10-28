@@ -9,6 +9,8 @@ export interface InvitationAccounts {
   preparePasswordlessUser(input: { name: string; email: string }): UserRecord;
   /** The initial host owner, whom no e-mail login may touch. */
   isHostOwner(userId: string): boolean;
+  /** The host owner's account, or null before the first-run setup (PM-1064). */
+  hostOwner(): { id: string; email: string; name: string } | null;
 }
 
 export interface MemberProfileSessions {

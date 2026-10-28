@@ -97,6 +97,16 @@ describe('tool audience', () => {
     },
   );
 
+  it.each([false, true])(
+    'lists the requests-to-the-host tools only for a project manager who may ask (%s)',
+    async (hostRequests) => {
+      const result = await listToolsFor({ ...developerAudience, hostRequests });
+      const names = result.tools.map((tool) => tool.name);
+      for (const name of ['ask_host', 'list_host_requests', 'withdraw_host_request'])
+        expect(names.includes(name)).toBe(hostRequests);
+    },
+  );
+
   it.each([false, true])('lists deployment tools only for their duty holder (%s)', async (holdsDuty) => {
     const result = await listToolsFor({
       ...developerAudience,
@@ -213,6 +223,7 @@ describe('team tool registration', () => {
     ).toEqual({
       'services/email-channel': ['send_email', 'set_email_contact', 'list_email_contacts'],
       'services/github': ['link_pull_request'],
+      'services/host-requests': ['ask_host', 'list_host_requests', 'withdraw_host_request'],
       'services/operator': [
         'get_role_configuration',
         'request_structural_review',

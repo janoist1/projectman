@@ -135,6 +135,9 @@ export const TimelineEventType = z.enum([
   'member_queue_item_closed',
   'obligation_handed_over',
   'workspace_released',
+  'host_request_opened',
+  'host_request_answered',
+  'host_request_withdrawn',
 ]);
 export type TimelineEventType = z.infer<typeof TimelineEventType>;
 
@@ -156,6 +159,12 @@ export type TimelineEvent = z.infer<typeof TimelineEvent>;
 
 /** Known payload shapes per event type (documentation for producers and renderers). */
 export interface TimelineEventData {
+  /** The project manager opened a request to the instance's host (PM-1064); on the card when it names one. */
+  host_request_opened: { requestId: string; title: string };
+  /** The host answered or declined a request (PM-1064); the actor is the system, the answer text stays out. */
+  host_request_answered: { requestId: string; title: string; outcome: 'answered' | 'declined' };
+  /** The project manager withdrew an open request (PM-1064). */
+  host_request_withdrawn: { requestId: string; title: string };
   super_handoff_changed: { handoffId: string; state: string };
   super_operation_changed: { operationId: string; state: string; resultKind: string | null };
   /** The owner's override freed the workspaces a failed process-scope cleanup kept reserved (PM-935). */

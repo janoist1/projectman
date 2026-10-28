@@ -1244,6 +1244,9 @@ export const hu = {
       engine_not_host: 'Ez a művelet csak a gazda gépén fut.',
       nanogpt_key_not_for_engine: 'A gazda NanoGPT-kulcsa nem használható ezen a motoron.',
       host_only: 'Ezt csak a gazda kulcsa teheti.',
+      host_request_not_needed: 'A gazda ebben a projektben tulajdonos, ezért nem kell hozzá kérés.',
+      host_request_limit: 'Egyszerre legfeljebb öt nyitott kérés lehet a gazdához.',
+      host_request_closed: 'Ez a kérés már le van zárva.',
       subtask_self_parent: 'A feladat nem lehet saját maga alfeladata.',
       subtask_parent_not_found: 'A szülőfeladat nem található.',
       subtask_parent_project: 'A szülőfeladatnak ugyanebben a projektben kell lennie.',
@@ -4225,6 +4228,11 @@ export const hu = {
         body: '{author} jelölését a feldolgozó továbbította neked: „{excerpt}” Indok: {reason}',
         open: 'Megnyitom a jelölést',
       },
+      host_request_answered: {
+        heading: 'A gazda válaszolt a kérésre',
+        answered: 'A gazda válaszolt a „{title}” kérésre: {answer}',
+        declined: 'A gazda elutasította a „{title}” kérést: {answer}',
+      },
       session_input: {
         heading: 'Egy munkamenet bevitelre vár, és nincs hozzá kérdés',
         body: '{member} munkamenete ({work}) {since} óta, {minutes} perce vár bevitelre a terminálján ({activity}), de nincs hozzá látható kérdés. Amíg így áll, a neki szóló üzenetek nem érnek oda. Érdemes megnyitni a munkamenetet, vagy leállítani és újraindítani.',
@@ -5058,6 +5066,13 @@ export const hu = {
       merge_failed_check: 'elbukott az ellenőrzés ({check})',
       merge_failed_check_unnamed: 'elbukott az ellenőrzés',
       task_merge_blocked: 'A beolvasztás elakadt: {reason}',
+      /** The project manager's requests to the instance host (PM-1064). */
+      host_request_opened: 'Kérést nyitott a gazdához: „{title}”',
+      host_request_answered: {
+        answered: 'A gazda válaszolt a kérésre: „{title}”',
+        declined: 'A gazda elutasította a kérést: „{title}”',
+      },
+      host_request_withdrawn: 'Visszavonta a gazdának szóló kérést: „{title}”',
       /** The release of the instance (PM-387, PM-492): one row per state, on the release card. */
       release_changed: {
         proposed: 'Kiadást javasolt élesítésre: {commit}.',

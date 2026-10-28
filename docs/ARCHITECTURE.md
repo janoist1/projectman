@@ -2041,7 +2041,9 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   to the allowlisted browser push providers (Google, Mozilla, Apple and Windows); redirects are
   not followed. Visibility is held per authenticated WebSocket connection in hub memory.
   Standby copies never create keys or send; cloud restore rehearsals additionally set
-  `PROJECTMAN_WEB_PUSH_ENABLED=0`. **Remote engine:** fully supported; nothing runs on the
+  `PROJECTMAN_WEB_PUSH_ENABLED=0`. A request to the instance host (PM-1064, `notifyHost`) is pushed
+  to the host directly, not through an inbox item: the payload carries only the request title and a
+  link to the host's own first project. **Remote engine:** fully supported; nothing runs on the
   engine and no new data crosses the server/engine boundary.
 
 - **Administration adapter and supervisor (PM-763, Super mode 7/10)** — `apps/server/src/administration/**`

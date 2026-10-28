@@ -7,6 +7,7 @@ import type {
   WatcherToolsHandler,
   SessionToolsHandler,
   EmailToolsHandler,
+  HostRequestToolsHandler,
   MemberToolsHandler,
   TaskToolsHandler,
   AttachmentToolsHandler,
@@ -116,6 +117,7 @@ export class TeamToolsService implements TeamToolsHandler {
     watchers: WatcherToolsHandler;
     sessions: SessionToolsHandler;
     email: EmailToolsHandler;
+    hostRequests: HostRequestToolsHandler;
   };
 
   async searchHistory(ctx: ToolContext, args: Parameters<HistoryToolsHandler['searchHistory']>[1]) {
@@ -185,6 +187,7 @@ export class TeamToolsService implements TeamToolsHandler {
       watchers: WatcherToolsHandler;
       sessions: SessionToolsHandler;
       email: EmailToolsHandler;
+      hostRequests: HostRequestToolsHandler;
     };
   }) {
     this.tools = deps.tools;
@@ -231,6 +234,24 @@ export class TeamToolsService implements TeamToolsHandler {
     ctx: ToolContext,
   ): Promise<Awaited<ReturnType<EmailToolsHandler['listEmailContacts']>>> {
     return this.tools.email.listEmailContacts(ctx);
+  }
+  async askHost(
+    ctx: ToolContext,
+    args: Parameters<HostRequestToolsHandler['askHost']>[1],
+  ): Promise<{ id: string; state: 'open' }> {
+    return this.tools.hostRequests.askHost(ctx, args);
+  }
+  async listHostRequests(
+    ctx: ToolContext,
+    args: Parameters<HostRequestToolsHandler['listHostRequests']>[1],
+  ): Promise<Awaited<ReturnType<HostRequestToolsHandler['listHostRequests']>>> {
+    return this.tools.hostRequests.listHostRequests(ctx, args);
+  }
+  async withdrawHostRequest(
+    ctx: ToolContext,
+    args: { id: string },
+  ): Promise<{ id: string; state: 'withdrawn' }> {
+    return this.tools.hostRequests.withdrawHostRequest(ctx, args);
   }
   async listMembers(ctx: ToolContext): Promise<MemberView[]> {
     return this.tools.members.listMembers(ctx);

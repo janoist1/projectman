@@ -540,6 +540,16 @@ export const FeedbackForwardedAlert = z.object({
 });
 export type FeedbackForwardedAlert = z.infer<typeof FeedbackForwardedAlert>;
 
+/** `host_request_answered` (PM-1064): the host answered or declined the project manager's request to them. */
+export const HostRequestAnsweredAlert = z.object({
+  alert: z.literal('host_request_answered'),
+  requestId: z.string(),
+  title: z.string(),
+  outcome: z.enum(['answered', 'declined']),
+  answer: z.string(),
+});
+export type HostRequestAnsweredAlert = z.infer<typeof HostRequestAnsweredAlert>;
+
 /** A provider quota stopped a session; the owners are told once per hold (PM-377). */
 export const ProviderRateLimitAlert = z.object({
   alert: z.literal('provider_rate_limited'),
@@ -612,6 +622,7 @@ export const AlertPayload = z.discriminatedUnion('alert', [
   PartsLeftAlert,
   FeedbackForwardedAlert,
   WorkStalledAlert,
+  HostRequestAnsweredAlert,
 ]);
 export type AlertPayload = z.infer<typeof AlertPayload>;
 

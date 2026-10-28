@@ -67,6 +67,7 @@ export const REWRITTEN_HANDLE_COLUMNS: readonly HandleTable[] = [
   { table: 'inbox_items', columns: ['source'] },
   { table: 'pauses', columns: ['requested_by', 'resumed_by'] },
   { table: 'team_messages', columns: ['from_handle'] },
+  { table: 'host_requests', columns: ['opened_by'] },
 ];
 
 /** Handle lists kept as a JSON array of strings, or (`receipts`) of receipts naming a handle and where it was handed on. */
@@ -104,6 +105,7 @@ export const UNREWRITTEN_HANDLE_COLUMNS: Readonly<Record<string, string>> = {
   'owner_accounts.granted_by': 'a user id, not a handle',
   'owner_accounts.revoked_by': 'a user id, not a handle',
   'owner_invitations.created_by': 'a user id, not a handle',
+  'host_requests.answered_by': 'a user id, not a handle',
   'deferred_starts.spec': 'a start naming the member makes the rename refuse (member_session_live)',
 };
 

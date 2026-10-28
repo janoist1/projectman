@@ -312,7 +312,13 @@ export class AuthService {
    * with host operations such as choosing a workspace directory for a new project.
    */
   isHostOwner(userId: string): boolean {
-    return this.repos.users.list()[0]?.id === userId;
+    return this.hostOwner()?.id === userId;
+  }
+
+  /** The host owner's account (the one `isHostOwner` recognises), or null before the first-run setup. */
+  hostOwner(): { id: string; email: string; name: string } | null {
+    const user = this.repos.users.list()[0];
+    return user ? { id: user.id, email: user.email, name: user.name } : null;
   }
 
   /**

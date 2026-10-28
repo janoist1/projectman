@@ -71,6 +71,10 @@ import type {
   AdministrationTarget,
   InboxItem,
   ListSuperHandoffsQuery,
+  HostRequestState,
+  HostRequestListResponse,
+  HostRequestView,
+  AnswerHostRequestRequest,
   SuperDiagnosticsRequest,
   SuperDiagnosticsResponse,
   SuperOperateRequest,
@@ -201,6 +205,8 @@ export interface MemberAudience {
   email: boolean;
   /** The member may put machine work in the owners' queue (`hasMachineAccess`, decision 66). */
   machineAccess: boolean;
+  /** The member may open a request to the instance's host (`hostRequestRefusal` is null; PM-1064). */
+  hostRequests: boolean;
   duties: ReadonlySet<DutyId>;
 }
 
@@ -680,6 +686,30 @@ export interface EmailToolsHandler {
   ): Promise<Array<{ handle: string; displayName: string; wants: boolean; hasAddress: boolean }>>;
 }
 
+/** The tools of services/host-requests (PM-1064): the project manager's requests to the instance's host. */
+export interface HostRequestToolsHandler {
+  askHost(
+    ctx: ToolContext,
+    args: { title: string; body: string; taskKey: string | null },
+  ): Promise<{ id: string; state: 'open' }>;
+  listHostRequests(
+    ctx: ToolContext,
+    args: { state?: HostRequestState },
+  ): Promise<
+    Array<{
+      id: string;
+      taskKey: string | null;
+      title: string;
+      body: string;
+      state: HostRequestState;
+      answer: string | null;
+      createdAt: string;
+      updatedAt: string;
+    }>
+  >;
+  withdrawHostRequest(ctx: ToolContext, args: { id: string }): Promise<{ id: string; state: 'withdrawn' }>;
+}
+
 export interface TeamToolsHandler
   extends
     MemberToolsHandler,
@@ -691,6 +721,7 @@ export interface TeamToolsHandler
     ScreenshotToolsHandler,
     ReleaseToolsHandler,
     EmailToolsHandler,
+    HostRequestToolsHandler,
     OperatorToolsHandler,
     ProjectDocToolsHandler,
     SystemFeedbackToolsHandler,
@@ -1252,6 +1283,17 @@ export interface ExternalToolsHandler {
       principles?: (Omit<OperatorPrincipleData, 'id'> & { id?: string })[];
     },
   ): Promise<OperatorKnowledgeDocument>;
+  /** The requests the pm of another owner's project opened to the instance host (PM-1064); the host's key only. */
+  listHostInbox(
+    principal: IntegratorPrincipal,
+    requestId: string,
+    args: { state?: HostRequestState },
+  ): Promise<HostRequestListResponse>;
+  answerHostRequest(
+    principal: IntegratorPrincipal,
+    requestId: string,
+    args: AnswerHostRequestRequest & { id: string },
+  ): Promise<HostRequestView>;
   relayOwnerAnswer(
     ctx: ExternalToolContext,
     args: { itemId: string; answer: string },

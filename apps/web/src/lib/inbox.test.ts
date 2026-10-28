@@ -390,6 +390,28 @@ describe('splitQuestion', () => {
     expect(text).toContain('dev-1');
     expect(text).not.toContain('{');
   });
+  it.each(['answered', 'declined'] as const)(
+    'renders the host’s %s reply to a request (PM-1064)',
+    (outcome) => {
+      const alert: InboxItem = {
+        ...item,
+        kind: 'alert',
+        source: 'system',
+        payload: {
+          alert: 'host_request_answered',
+          requestId: 'hreq_1',
+          title: 'Need a right',
+          outcome,
+          answer: 'Fine.',
+        },
+      };
+      expect(inboxHeading(alert)).toBe(t('inbox.alerts.host_request_answered.heading'));
+      const text = alertText(alert, new Map(), null);
+      expect(text).toContain('Need a right');
+      expect(text).toContain('Fine.');
+      expect(text).not.toContain('{');
+    },
+  );
   it('renders the alert that startable cards wait with no developer started (PM-1082)', () => {
     const alert: InboxItem = {
       ...item,

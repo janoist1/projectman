@@ -34,7 +34,7 @@ export const hu = {
     done: 'Kész',
     link: 'Meghívólink',
     linkHint:
-      'Küldd el neki a linket. Egyszer használható, lejárata: {expires}. Az alkalmazás nem küld e-mailt, és a linket később nem mutatjuk újra.',
+      'Küldd el neki a linket. Egyszer használható (lejárat: {expires}). Az alkalmazás nem küld e-mailt, és a linket később nem mutatjuk újra.',
     copyFailed: 'A másolás nem sikerült. Jelöld ki és másold a hivatkozást.',
     pending: 'Függő meghívók',
     expires: 'Lejárat: {date}',

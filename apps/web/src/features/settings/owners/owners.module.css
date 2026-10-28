@@ -70,6 +70,12 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+.quote {
+  margin: 8px 0 0;
+  padding-left: 12px;
+  border-left: 3px solid var(--c-line);
+  color: var(--c-ink-2);
+}
 .clamped {
   display: -webkit-box;
   -webkit-line-clamp: 3;

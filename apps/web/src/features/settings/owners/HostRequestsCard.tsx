@@ -165,7 +165,9 @@ export function HostRequestsCard({ requests }: { requests: HostRequestView[] }) 
             >
               {t(`hostRequests.${request.state}`)}
             </Chip>
-            {request.answer && <blockquote className={styles.text}>{request.answer}</blockquote>}
+            {request.answer && (
+              <blockquote className={`${styles.text} ${styles.quote}`}>{request.answer}</blockquote>
+            )}
           </>
         )}
       </div>

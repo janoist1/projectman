@@ -2,7 +2,7 @@ import {
   duplicateMarkRefusal,
   isCardLink,
   isOpenTask,
-  memberOf,
+  lifecycleAllowed,
   planRelations,
   RELATION_LINK_KINDS,
   reverseRelationKind,
@@ -19,7 +19,6 @@ import type {
   Task,
   TaskRelation,
 } from '@projectman/shared';
-import { hasAccess } from '@projectman/shared';
 import { isoNow } from '../base';
 import { forbidden, invalid } from '../../kernel';
 import type { AddedRelation } from '../base';
@@ -255,12 +254,11 @@ export class TaskRelations {
 
   /** The duplicate mark closes the card: a card that has started needs whoever may cancel it. */
   private duplicateRefusal(config: ProjectConfig, task: Task, actor: Actor): 'duplicate_not_allowed' | null {
-    const member = actor.kind === 'human' ? memberOf(config, actor.handle) : undefined;
     return duplicateMarkRefusal({
       task,
       stageKind: stageOf(config, task.stageId)?.kind,
       hasLiveSession: this.deps.liveSession(task),
-      mayCancel: member?.kind === 'human' && hasAccess(member.access, 'admin'),
+      mayCancel: lifecycleAllowed(config, actor, 'cancel'),
     });
   }
 }
@@ -271,7 +269,7 @@ function planError(plan: Extract<SharedRelationPlan, { ok: false }>, taskKey: st
   if (refusal.code === 'duplicate_not_allowed')
     return forbidden(
       'duplicate_not_allowed',
-      `${taskKey} has started, and marking it as a duplicate closes it: only an admin or the owner can mark a card that has started`,
+      `${taskKey} has started, and marking it as a duplicate closes it: only whoever may cancel it (an admin, the owner, or the project manager when the project settings allow it) can mark a card that has started`,
     );
   if (refusal.code === 'relation_not_found')
     return invalid('relation_not_found', `${taskKey} has no ${refusal.kind} relation with ${key}`, {

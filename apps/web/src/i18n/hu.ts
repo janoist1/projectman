@@ -1649,6 +1649,8 @@ export const hu = {
       docs_write_failed: 'A dokumentumok írása nem ment fel; az üzenet megnevezi az okot.',
       project_manager_move_refused:
         'A Projektmenedzser csak egy induló kártyát tehet munkába; minden más áthelyezést a tulajdonos végez.',
+      project_manager_lifecycle_refused:
+        'A projekt beállításai ezt a kártyaműveletet nem engedik a Projektmenedzsernek.',
       builtin_role: 'A beépített szerep nem módosítható.',
       role_id_mismatch: 'A szerep azonosítója nem egyezik.',
       not_human_member: 'Ez nem emberi tag.',
@@ -5335,6 +5337,7 @@ export const hu = {
       task_cancelled_reason: 'Megszakította a feladatot: {reason}',
       task_cancelled_duplicate: 'Lezárta duplikátumként: {original}',
       task_reopened: 'Újranyitotta a feladatot.',
+      task_reopened_reason: 'Újranyitotta a feladatot: {reason}',
       parts_left_told: 'Emlékeztető ment ide: {name}. A bontás után a kezdő lépésben maradt részek: {parts}.',
       parts_left_alerted:
         'A tulajdonos értesítve: az emlékeztető ({name}) után is a kezdő lépésben maradt részek: {parts}.',
@@ -6585,6 +6588,21 @@ export const hu = {
         help: 'A szakaszkapuk mindig érvényesek. Munkát csak az első utáni várakozó sorból indíthat.',
         queues_and_start: 'Várakozó sorok között mozgathat és munkát indíthat',
         start_only: 'Csak munkát indíthat',
+      },
+      /** What the project manager may do to a card's life on its own (PM-1098). */
+      projectManagerLifecycle: {
+        label: 'Kiosztás, megszakítás, újranyitás',
+        help: 'Admin és tulajdonos mindig megteheti. Ha a tulajdonos kéri, a Projektmenedzser az ő jogán jár el, ezt a beállítás nem köti.',
+        question: 'Mit tehet még önállóan a Projektmenedzser?',
+        assign: 'Felelőst jelölhet ki vagy cserélhet',
+        assignNote: 'A munka indítását a mozgatási jog szabja meg.',
+        cancel: 'Megszakíthat kártyát',
+        cancelNote: 'Elindult kártyát duplikátumnak is jelölhet.',
+        reopen: 'Újranyithat megszakított kártyát',
+        reopenNote: 'Felelős nélkül kerül vissza a szakaszába.',
+        adminsOnly: 'Most mindhármat csak admin vagy tulajdonos teheti meg.',
+        noProjectManager: 'Most nincs Projektmenedzser a csapatban.',
+        none: 'Egyiket sem',
       },
       /** Who may start a card despite an open prerequisite (PM-1099). */
       prerequisiteOverride: {

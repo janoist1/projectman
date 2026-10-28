@@ -469,6 +469,17 @@ describe('the wired operate executor in super mode (PM-831)', () => {
     expect(event?.actor).toMatchObject(operator);
   });
 
+  it('cancels a card for the owner’s request even when the PM lifecycle setting is empty (PM-1098)', async () => {
+    await edit((draft) => {
+      draft.team.projectManagerLifecycle = [];
+    });
+    const created = await submit({ kind: 'task_create', request: { title: 'A card' } });
+    expect(await submit({ kind: 'task_cancel', taskKey: created.taskKey!, request: {} })).toMatchObject({
+      state: 'succeeded',
+    });
+    expect(app.app.projectman.domain.tasks.get('AR', created.taskKey!).status).toBe('cancelled');
+  });
+
   it('patches routine configuration immediately with super commit provenance', async () => {
     expect(
       await operate({

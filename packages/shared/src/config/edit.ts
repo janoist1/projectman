@@ -69,6 +69,8 @@ export const PatchConfigRequest = z
     operatorWatch: OperatorWatch.nullable().optional(),
     cardMover: ProjectConfig.shape.team.shape.cardMover,
     projectManagerMoves: ProjectConfig.shape.team.shape.projectManagerMoves,
+    /** The lifecycle actions the PM may take on its own (PM-1098): the whole list replaces the saved one, [] too. */
+    projectManagerLifecycle: ProjectConfig.shape.team.shape.projectManagerLifecycle,
     /** Who may override an open prerequisite (PM-1099). */
     prerequisiteOverride: ProjectConfig.shape.team.shape.prerequisiteOverride,
     /** Who besides people may set a card's priority (PM-1096): the whole list replaces the saved one, [] too. */
@@ -276,6 +278,9 @@ export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigReques
       ...team,
       ...(patch.cardMover !== undefined ? { cardMover: patch.cardMover } : {}),
       ...(patch.projectManagerMoves !== undefined ? { projectManagerMoves: patch.projectManagerMoves } : {}),
+      ...(patch.projectManagerLifecycle !== undefined
+        ? { projectManagerLifecycle: patch.projectManagerLifecycle }
+        : {}),
       ...(patch.prerequisiteOverride !== undefined
         ? { prerequisiteOverride: patch.prerequisiteOverride }
         : {}),

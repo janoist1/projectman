@@ -1,6 +1,12 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { complexitySettersOf, PrioritySetter, prioritySettersOf } from '@projectman/shared';
+import {
+  complexitySettersOf,
+  PrioritySetter,
+  prioritySettersOf,
+  ProjectManagerLifecycleAction,
+  projectManagerLifecycleOf,
+} from '@projectman/shared';
 import type { ProjectConfig, PatchConfigRequest, Pipeline } from '@projectman/shared';
 import { usePatchConfig } from '../../api/queries';
 import { isApiError } from '../../api/client';
@@ -94,6 +100,13 @@ function limitsBody(draft: ProjectConfig, saved: ProjectConfig, baseVersion: str
     draft.team.projectManagerMoves !== saved.team.projectManagerMoves
       ? draft.team.projectManagerMoves
       : undefined;
+  // The lifecycle actions go as the whole list when it differs from the saved one (PM-1098); [] is a value.
+  const lifecycleOf = (config: ProjectConfig) => {
+    const chosen = projectManagerLifecycleOf(config);
+    return ProjectManagerLifecycleAction.options.filter((action) => chosen.includes(action));
+  };
+  const projectManagerLifecycle = lifecycleOf(draft);
+  const lifecycleChanged = JSON.stringify(projectManagerLifecycle) !== JSON.stringify(lifecycleOf(saved));
   const prerequisiteOverride =
     draft.team.prerequisiteOverride !== saved.team.prerequisiteOverride
       ? draft.team.prerequisiteOverride
@@ -119,6 +132,7 @@ function limitsBody(draft: ProjectConfig, saved: ProjectConfig, baseVersion: str
     ...(merger ? { merger } : {}),
     ...(cardMover ? { cardMover } : {}),
     ...(projectManagerMoves ? { projectManagerMoves } : {}),
+    ...(lifecycleChanged ? { projectManagerLifecycle } : {}),
     ...(prerequisiteOverride ? { prerequisiteOverride } : {}),
     ...(prioritySettersChanged ? { prioritySetters } : {}),
     ...(complexityChanged ? { complexitySetters: [...complexitySetters] } : {}),

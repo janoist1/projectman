@@ -411,7 +411,6 @@ describe('duplicates', () => {
       await expect(relate('AR-1', [{ kind: 'duplicate_of', key: 'AR-2' }], [], actor)).rejects.toMatchObject({
         code: 'duplicate_not_allowed',
         status: 403,
-        message: expect.stringContaining('only an admin or the owner can mark a card that has started'),
       });
     }
     expect(snapshot()).toEqual(before);

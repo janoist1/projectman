@@ -1,4 +1,4 @@
-import type { ErrorCode, IntegratorRefusal } from '@projectman/shared';
+import type { ErrorCode, IntegratorRefusal, ProjectManagerLifecycleAction } from '@projectman/shared';
 
 /**
  * Errors raised by domain services. `code` is a stable machine code from the shared
@@ -51,6 +51,19 @@ export const projectManagerMoveRefused = () =>
   forbidden(
     'project_manager_move_refused',
     'the project manager move is not permitted by the project settings',
+  );
+
+const LIFECYCLE_ACTION_WORDS: Record<ProjectManagerLifecycleAction, string> = {
+  assign: 'reassign',
+  cancel: 'cancel',
+  reopen: 'reopen',
+};
+
+/** The project manager took a card lifecycle action the project settings do not list (PM-1098). */
+export const projectManagerLifecycleRefused = (action: ProjectManagerLifecycleAction) =>
+  forbidden(
+    'project_manager_lifecycle_refused',
+    `the project settings do not let the project manager ${LIFECYCLE_ACTION_WORDS[action]} cards (team.projectManagerLifecycle)`,
   );
 
 export const invalid = (code: ErrorCode, message: string, details?: unknown) =>

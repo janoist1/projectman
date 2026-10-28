@@ -52,6 +52,7 @@ export const TEAM_TOOL_NAMES = [
   'start_member',
   'reassign_task',
   'cancel_task',
+  'reopen_task',
   'decide_permission_request',
   'decide_fix_limit',
   'hand_off',

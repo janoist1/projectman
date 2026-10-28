@@ -487,6 +487,9 @@ export class TeamToolsService implements TeamToolsHandler {
   async cancelTask(ctx: ToolContext, args: Parameters<OperatorToolsHandler['cancelTask']>[1]) {
     return this.tools.operator.cancelTask(ctx, args);
   }
+  async reopenTask(ctx: ToolContext, args: Parameters<OperatorToolsHandler['reopenTask']>[1]) {
+    return this.tools.operator.reopenTask(ctx, args);
+  }
   async openIntegratorTodo(
     ctx: ToolContext,
     args: Parameters<OperatorToolsHandler['openIntegratorTodo']>[1],

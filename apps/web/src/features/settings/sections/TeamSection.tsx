@@ -20,6 +20,8 @@ import {
   prioritySetterCandidates,
   prioritySetterMembers,
   prioritySettersOf,
+  ProjectManagerLifecycleAction,
+  projectManagerLifecycleOf,
   projectManagerMovesOf,
   projectManagerOf,
   projectManagersOf,
@@ -192,6 +194,58 @@ function ProjectManagerMovesControls({ config }: { config: ProjectConfig }) {
         <option value="queues_and_start">{t('settings.team.projectManagerMoves.queues_and_start')}</option>
         <option value="start_only">{t('settings.team.projectManagerMoves.start_only')}</option>
       </SelectField>
+      {error ? <ErrorBanner>{errorMessage(error)}</ErrorBanner> : null}
+    </fieldset>
+  );
+}
+
+/** The lifecycle actions the project manager may take on its own as lines, for those who may not change them. */
+function lifecycleValue(config: ProjectConfig): string[] {
+  const chosen = projectManagerLifecycleOf(config);
+  return ProjectManagerLifecycleAction.options
+    .filter((action) => chosen.includes(action))
+    .map((action) => t(`settings.team.projectManagerLifecycle.${action}`));
+}
+
+/** What the project manager may do to a card's life on its own (PM-1098): a tick per action. Saves as it changes. */
+function ProjectManagerLifecycleControls({ config, helpId }: { config: ProjectConfig; helpId: string }) {
+  const { shown, saving, commit, error, locked } = useInstantLimits(config);
+  const chosen = projectManagerLifecycleOf(shown);
+  return (
+    <fieldset
+      className={shared.controls}
+      disabled={locked || saving}
+      aria-busy={saving}
+      aria-describedby={helpId}
+    >
+      <legend className={shared.setterLegend}>{t('settings.team.projectManagerLifecycle.question')}</legend>
+      {ProjectManagerLifecycleAction.options.map((action) => (
+        <label key={action} className={shared.contactRow}>
+          <input
+            type="checkbox"
+            checked={chosen.includes(action)}
+            onChange={(event) =>
+              commit((draft) => {
+                const on = projectManagerLifecycleOf(draft);
+                draft.team.projectManagerLifecycle = ProjectManagerLifecycleAction.options.filter((id) =>
+                  id === action ? event.target.checked : on.includes(id),
+                );
+              })
+            }
+          />
+          <span className={shared.dutyText}>
+            <span>{t(`settings.team.projectManagerLifecycle.${action}`)}</span>
+            <span className={shared.dutyHolders}>
+              {t(`settings.team.projectManagerLifecycle.${action}Note`)}
+            </span>
+          </span>
+        </label>
+      ))}
+      {projectManagerOf(shown) === null ? (
+        <p className={shared.muted}>{t('settings.team.projectManagerLifecycle.noProjectManager')}</p>
+      ) : chosen.length === 0 ? (
+        <p className={shared.muted}>{t('settings.team.projectManagerLifecycle.adminsOnly')}</p>
+      ) : null}
       {error ? <ErrorBanner>{errorMessage(error)}</ErrorBanner> : null}
     </fieldset>
   );
@@ -645,6 +699,7 @@ export function TeamSection({ config }: { config: ProjectConfig }) {
   const { key, can } = useProject();
   const roles = useRoles(key);
   const priorityHelpId = useId();
+  const lifecycleHelpId = useId();
   const prerequisiteHelpId = useId();
   return (
     <SettingsSection id="settings-team" title={t('settings.sections.team')}>
@@ -721,6 +776,33 @@ export function TeamSection({ config }: { config: ProjectConfig }) {
               <div>
                 <dt>{t('settings.team.prerequisiteOverride.readOnlyLabel')}</dt>
                 <dd>{t(`settings.team.prerequisiteOverride.value.${prerequisiteOverrideOf(config)}`)}</dd>
+              </div>
+            </dl>
+          )}
+        </div>
+      </section>
+      <section aria-labelledby="settings-pm-lifecycle-title">
+        <h3 id="settings-pm-lifecycle-title" className={shared.groupTitle}>
+          {t('settings.team.projectManagerLifecycle.label')}
+        </h3>
+        <div className={shared.controls}>
+          <p id={lifecycleHelpId} className={shared.help}>
+            {t('settings.team.projectManagerLifecycle.help')}
+          </p>
+          {can.manageTeam ? (
+            <ProjectManagerLifecycleControls config={config} helpId={lifecycleHelpId} />
+          ) : (
+            <dl className={shared.facts}>
+              <div>
+                <dt>{t('settings.team.projectManagerLifecycle.question')}</dt>
+                <dd className={shared.summaryBlock}>
+                  {lifecycleValue(config).map((line) => (
+                    <p key={line}>{line}</p>
+                  ))}
+                  {projectManagerLifecycleOf(config).length === 0 ? (
+                    <p>{t('settings.team.projectManagerLifecycle.none')}</p>
+                  ) : null}
+                </dd>
               </div>
             </dl>
           )}

@@ -99,6 +99,73 @@ describe('the project manager’s rights on the server', () => {
     });
   });
 
+  describe('lifecycle (PM-1098)', () => {
+    const allow = (actions: ProjectConfig['team']['projectManagerLifecycle']) =>
+      h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (config) => {
+        config.team.projectManagerLifecycle = actions;
+        return 'Set the project manager lifecycle';
+      });
+
+    it.each([
+      ['reassign_task', 'assign'],
+      ['cancel_task', 'cancel'],
+    ] as const)('refuses %s when the setting leaves %s out', async (tool, action) => {
+      await allow(['assign', 'cancel', 'reopen'].filter((id) => id !== action) as never);
+      const before = timelineLength();
+      const refused = await toolError(
+        tool === 'reassign_task'
+          ? h.domain.teamTools.reassignTask(pm, { taskKey: 'AR-1', assignee: 'dev-1', reason: 'Free' })
+          : h.domain.teamTools.cancelTask(pm, { taskKey: 'AR-1', reason: 'Obsolete' }),
+      );
+      expect(refused.message).toContain('project_manager_lifecycle_refused');
+      expect(card()).toMatchObject({ assignee: null, status: 'active' });
+      expect(timelineLength()).toBe(before);
+    });
+
+    it('reopens a cancelled card for the PM only when the setting lists reopen, with the reason on the timeline', async () => {
+      await h.domain.teamTools.cancelTask(pm, { taskKey: 'AR-1', reason: 'Obsolete' });
+      const refused = await toolError(
+        h.domain.teamTools.reopenTask(pm, { taskKey: 'AR-1', reason: 'Still needed' }),
+      );
+      expect(refused.message).toContain('project_manager_lifecycle_refused');
+      await allow(['reopen']);
+      await expect(
+        h.domain.teamTools.reopenTask(pm, { taskKey: 'AR-1', reason: 'Still needed' }),
+      ).resolves.toEqual({
+        task_key: 'AR-1',
+        status: 'active',
+      });
+      expect(
+        h.domain.tasks
+          .detail('AR', 'AR-1')
+          .timeline.filter((e) => e.type === 'task_updated')
+          .at(-1),
+      ).toMatchObject({
+        actor: { kind: 'ai', handle: 'pm' },
+        data: { action: 'reopened', reason: 'Still needed' },
+      });
+    });
+
+    it('lets the PM mark a started card as a duplicate exactly when it may cancel', async () => {
+      await h.domain.tasks.create('AR', { title: 'Original' }, OWNER_ACTOR);
+      await h.domain.tasks.update('AR', 'AR-1', { stageId: 'ready' }, OWNER_ACTOR);
+      await h.domain.tasks.update(
+        'AR',
+        'AR-1',
+        { addLabels: ['ready-ok'], stageId: 'development' },
+        OWNER_ACTOR,
+      );
+      const duplicate = { relations: { add: [{ kind: 'duplicate_of' as const, key: 'AR-2' }] } };
+      await allow(['assign']);
+      await expect(h.domain.tasks.update('AR', 'AR-1', duplicate, aiActor('pm'))).rejects.toMatchObject({
+        code: 'duplicate_not_allowed',
+      });
+      await allow(['cancel']);
+      await h.domain.tasks.update('AR', 'AR-1', duplicate, aiActor('pm'));
+      expect(card().status).toBe('cancelled');
+    });
+  });
+
   describe('starting a card', () => {
     beforeEach(async () => {
       await h.domain.tasks.update('AR', 'AR-1', { stageId: 'ready' }, OWNER_ACTOR);

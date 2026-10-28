@@ -79,7 +79,7 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   and a `member_renamed {from, to, version}` event is appended. The timeline's earlier events keep
   the old handle; viewers and the agents' text resolve it through `formerHandles` (the **alias**: a
   message to the old handle reaches the member, the context pack lists "formerly `x`"). The e-mail
-  mailbox follows the new handle (see "E-mail"). Humans have an **access level** (`owner`, `admin`, `developer`, `client`,
+  address is always `<handle>@<domain>` and follows the new handle (see "E-mail"). Humans have an **access level** (`owner`, `admin`, `developer`, `client`,
   `viewer`) that governs what they may do in the app, and may hold several roles. An AI
   member holds exactly one role and has a provider (`claude` or `codex`), a model and effort,
   an optional **cheap subagent** (PM-179: a Claude Code member's sessions get a `reader-<model>`
@@ -2554,17 +2554,20 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   `cloud.env` (read in `index.ts` only); the CLI runs on the owner's POSIX administration machine with AWS CLI
   v2 profiles and the Cloudflare DNS token, like the SES provisioning entry. **Does this work on a remote
   engine?** Yes: the reader runs on the hub only; an engine gets no queue, no key and no protocol change.
-  **Member addresses (PM-989):** the same receipt rule also takes mail to `<mailbox>@<reply domain>`, the
-  permanent address of an AI member (`services/email-channel/inbound.ts`, `receiveDirect`; the mailbox name
-  is the handle or `ai.email.mailbox`, unique server-wide). The mail lands in the member's conversation as a
+  **Member addresses (PM-989, PM-1039):** the same receipt rule also takes mail to `<handle>@<reply domain>`, the
+  address of an AI member (`services/email-channel/inbound.ts`, `receiveDirect`; the local part is always the
+  handle, there is no separate mailbox name: `ai.email.mailbox` was removed, the config migration
+  `dropEmailMailbox` and DB migration 122 delete it from old data, and a differing old name simply ceases,
+  with no alias; the handle is not globally unique, so two projects with the same handle and e-mail on
+  leave both without an address, `addressConflict`). The mail lands in the member's conversation as a
   reply linked by MIME headers when answering a member's mail (PM-1018), otherwise as a direct
   team message, and its attachments go through the message-attachments storage on the hub, so nothing new
-  crosses to an engine. **Rename (PM-1025):** a rename deletes `ai.email.mailbox`, so the address becomes
+  crosses to an engine. **Rename (PM-1025):** the address changes only by renaming the member, and becomes
   `<new handle>@<reply domain>` (it is refused with `email_mailbox_taken` when that mailbox is another
   member's). Mail to the old address still arrives: `emailMailboxOwners` also matches the `formerHandles`
   of an AI member, so the old name resolves to the same member; a live holder of the same name does not
   win over it but shares it, and the existing shared-name branch parks the mail. The old name stays reserved
-  in every project (`emailMailboxReserved`): no chosen mailbox, e-mail switch-on or rename may take it.
+  in every project (`emailMailboxReserved`): no e-mail switch-on or rename may take it.
   No new boundary: it is the same hub-only rule.
 
 - **Feedback widget public entrance and screenshot store (PM-506, PM-508)** —

@@ -7,6 +7,7 @@ import { addHumanAndLogin, createAppHarness, createProject, inject, setupOwner }
 import type { AppHarness } from './helpers/app-harness';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
+import { withoutOnboarding } from './helpers/onboarding';
 
 /** Renaming an AI member's handle (PM-1025): the references follow, the history and the storage keys stay. */
 
@@ -110,28 +111,39 @@ describe('member rename', () => {
     expect((await members()).some((m) => m.handle === handle)).toBe(true);
   });
 
-  it('refuses a new handle whose mailbox name is another member’s', async () => {
+  it('refuses a new handle that is the address of a member of another project', async () => {
     h = await createDomainHarness();
+    await withoutOnboarding(h.domain, () =>
+      h.domain.projects.create(
+        { key: 'BR', name: 'Fictional second project', workspacePath: h.workspace, templateId: 'test' },
+        OWNER,
+      ),
+    );
+    await h.domain.members.rename('BR', 'dev-2', 'builder', by());
     await h.domain.members.update('AR', 'dev-1', { email: { enabled: true } }, by());
-    await h.domain.members.update('AR', 'dev-2', { email: { mailbox: 'builder' } }, by());
     await expect(rename('dev-1', 'builder')).rejects.toMatchObject({ code: 'email_mailbox_taken' });
   });
 
-  it('keeps the old handle as a mailbox name of the renamed member', async () => {
+  it('keeps the old handle reserved for the renamed member, so another project’s member cannot switch it on', async () => {
     h = await createDomainHarness();
+    await withoutOnboarding(h.domain, () =>
+      h.domain.projects.create(
+        { key: 'BR', name: 'Fictional second project', workspacePath: h.workspace, templateId: 'test' },
+        OWNER,
+      ),
+    );
     await rename('dev-1', 'builder');
     await expect(
-      h.domain.members.update('AR', 'dev-2', { email: { enabled: true, mailbox: 'dev-1' } }, by()),
+      h.domain.members.update('BR', 'dev-1', { email: { enabled: true } }, by()),
     ).rejects.toMatchObject({ code: 'email_mailbox_taken' });
   });
 
   it('moves the e-mail address with the handle', async () => {
     h = await createDomainHarness();
-    await h.domain.members.update('AR', 'dev-1', { email: { enabled: true, mailbox: 'custom' } }, by());
+    await h.domain.members.update('AR', 'dev-1', { email: { enabled: true } }, by());
     await rename('dev-1', 'builder');
     const member = (await members()).find((m) => m.handle === 'builder');
-    expect(member).toMatchObject({ email: { enabled: true } });
-    expect(member).not.toHaveProperty('email.mailbox');
+    expect(member).toMatchObject({ email: { enabled: true }, formerHandles: ['dev-1'] });
   });
 
   it('never reissues a handle once used, not even to the member itself', async () => {

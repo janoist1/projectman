@@ -79,11 +79,9 @@ export const EmailSenderView = z.object({
   handle: MemberHandle,
   displayName: z.string(),
   sendWithoutApproval: z.boolean(),
-  /** The member's mailbox name: the chosen one, or the handle. */
-  mailbox: z.string(),
   /** The member's own address; null without a channel on the server, with the channel off, or on a conflict. */
   address: z.string().nullable(),
-  /** Another member's mailbox is the same, so neither has an address until one is renamed. */
+  /** Another member's handle is the same, so neither has an address until one is renamed. */
   addressConflict: z.boolean(),
 });
 export type EmailSenderView = z.infer<typeof EmailSenderView>;
@@ -162,15 +160,15 @@ export function emailSenderOf(
     : null;
 }
 
-/** The local part of an AI member's own address (PM-989): the chosen mailbox, or the handle. */
-export function emailMailboxOf(member: AiMemberConfig): string {
-  return member.email?.mailbox ?? member.handle;
+/** The local part of an AI member's own address (PM-989): its handle (PM-1039), there is no separate name. */
+export function emailMailboxOf(member: Pick<AiMemberConfig, 'handle'>): string {
+  return member.handle;
 }
 
 /**
- * The AI members whose own address is live (channel on, member allowed to send) under this mailbox name.
- * The members that were once renamed from the name answer for it too (PM-1025), so a reply to a letter
- * sent from the old address still arrives; with more than one owner the name is shared and its mail parks,
+ * The AI members whose own address is live (channel on, member allowed to send) under this local part.
+ * The members that were once renamed from it answer for it too (PM-1025), so a reply to a letter
+ * sent from the old address still arrives; with more than one owner the handle is shared and its mail parks,
  * as it would had nobody been renamed.
  */
 export function emailMailboxOwners(
@@ -196,8 +194,8 @@ export function emailMailboxOwners(
 }
 
 /**
- * Whether another AI member, in any project and switches aside, was once renamed from this mailbox name
- * (PM-1025): the name stays that member's, so a reply to its old address never lands with someone else.
+ * Whether another AI member, in any project and switches aside, was once renamed from this handle
+ * (PM-1025): the handle stays that member's, so a reply to its old address never lands with someone else.
  */
 export function emailMailboxReserved(
   configs: readonly ProjectConfig[],
@@ -215,7 +213,7 @@ export function emailMailboxReserved(
   );
 }
 
-/** Whether another AI member, in any project and switches aside, already has this mailbox name, live or reserved. */
+/** Whether another AI member, in any project and switches aside, already has this handle, live or reserved. */
 export function emailMailboxTaken(
   configs: readonly ProjectConfig[],
   projectKey: string,
@@ -239,16 +237,15 @@ export function emailMemberAddress(mailbox: string, domain: string): string {
   return `${mailbox}@${domain}`;
 }
 
-/** What the settings show of a member's mailbox: its name, its address (null: none yet) and whether the name is shared. */
+/** What the settings show of a member's address: the address (null: none yet) and whether the handle is shared. */
 export function emailMailboxState(
   configs: readonly ProjectConfig[],
   projectKey: string,
   member: AiMemberConfig,
   domain: string | null,
-): { mailbox: string; address: string | null; addressConflict: boolean } {
+): { address: string | null; addressConflict: boolean } {
   const mailbox = emailMailboxOf(member);
   return {
-    mailbox,
     address: domain ? emailOwnAddress(configs, projectKey, member, domain) : null,
     addressConflict: emailMailboxOwners(configs, mailbox).some(
       (owner) => owner.projectKey !== projectKey || owner.handle !== member.handle,
@@ -256,7 +253,7 @@ export function emailMailboxState(
   };
 }
 
-/** The member's own address, or null while it has none: the channel or its switch is off, or the name is shared. */
+/** The member's own address, or null while it has none: the channel or its switch is off, or the handle is shared. */
 export function emailOwnAddress(
   configs: readonly ProjectConfig[],
   projectKey: string,
@@ -280,21 +277,18 @@ export function parseEmailMemberAddress(address: string, domain: string): string
 /**
  * An AI member's email settings after a change (PM-956). Omitted fields stay, except that sending
  * without approval never outlives the permission to send: switching sending off clears it, and
- * switching it on starts from "needs approval" unless the same change says otherwise. The mailbox name
- * (PM-989) stays too; a name equal to the member's `handle`, its default, stores nothing.
+ * switching it on starts from "needs approval" unless the same change says otherwise.
  */
 export function applyMemberEmailChange(
-  current: { enabled: boolean; sendWithoutApproval?: boolean; mailbox?: string } | undefined,
-  change: { enabled?: boolean; sendWithoutApproval?: boolean; mailbox?: string },
-  handle?: string,
-): { enabled: boolean; sendWithoutApproval?: boolean; mailbox?: string } {
+  current: { enabled: boolean; sendWithoutApproval?: boolean } | undefined,
+  change: { enabled?: boolean; sendWithoutApproval?: boolean },
+): { enabled: boolean; sendWithoutApproval?: boolean } {
   const wasEnabled = current?.enabled === true;
   const enabled = change.enabled ?? wasEnabled;
-  const { mailbox, ...rest } = { ...current, ...change, enabled };
-  const named = mailbox === undefined || mailbox === handle ? rest : { ...rest, mailbox };
-  if (!enabled) return { ...named, sendWithoutApproval: false };
-  if (!wasEnabled) return { ...named, sendWithoutApproval: change.sendWithoutApproval ?? false };
-  return named;
+  const next = { ...current, ...change, enabled };
+  if (!enabled) return { ...next, sendWithoutApproval: false };
+  if (!wasEnabled) return { ...next, sendWithoutApproval: change.sendWithoutApproval ?? false };
+  return next;
 }
 
 export function emailRecipientRefusal(

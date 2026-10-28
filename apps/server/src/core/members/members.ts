@@ -399,9 +399,9 @@ export class MemberService {
   }
 
   /**
-   * 409 `email_mailbox_taken` when another AI member, in this or any other project, has this mailbox name
-   * (PM-989). `reserved` checks only the names other members were renamed from (PM-1025): a mailbox that
-   * becomes live under its default name (the handle) may share a live name, as before, but never a former one.
+   * 409 `email_mailbox_taken` when another AI member, in this or any other project, has this handle as its
+   * address (PM-989, PM-1039). `reserved` checks only the handles other members were renamed from (PM-1025):
+   * a member that switches its address on may share a live handle, as before, but never a former one.
    */
   private assertMailboxFree(
     draft: ProjectConfig,
@@ -415,7 +415,7 @@ export class MemberService {
       .flatMap((project) => this.projects.cachedConfig(project.key) ?? []);
     const taken = scope === 'any' ? emailMailboxTaken : emailMailboxReserved;
     if (taken([draft, ...others], draft.project.key, handle, mailbox))
-      throw conflict('email_mailbox_taken', `the mailbox name ${mailbox} is taken`, { mailbox });
+      throw conflict('email_mailbox_taken', `the address ${mailbox} is taken`, { mailbox });
   }
 
   /** Mutates only the in-memory draft; shared by execution and Operator previews. */
@@ -546,10 +546,9 @@ export class MemberService {
         fields.push('outbound network');
       }
       if (req.email !== undefined) {
-        if (req.email.mailbox !== undefined) this.assertMailboxFree(draft, handle, req.email.mailbox);
         const wasEnabled = member.email?.enabled === true;
-        member.email = applyMemberEmailChange(member.email, req.email, handle);
-        if (req.email.mailbox === undefined && !wasEnabled && member.email.enabled)
+        member.email = applyMemberEmailChange(member.email, req.email);
+        if (!wasEnabled && member.email.enabled)
           this.assertMailboxFree(draft, handle, emailMailboxOf(member), 'reserved');
         fields.push('email');
       }

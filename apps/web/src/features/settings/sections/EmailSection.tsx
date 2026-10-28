@@ -1,8 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { useEffect, useId, useRef, useState } from 'react';
-import type { RefObject } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { Link } from 'react-router';
-import { EmailMailbox } from '@projectman/shared';
 import type {
   EmailChannelView,
   EmailContact,
@@ -11,7 +9,6 @@ import type {
   MemberView,
   ProjectConfig,
 } from '@projectman/shared';
-import { isApiError } from '../../../api/client';
 import {
   useEmailChannel,
   useEmailLog,
@@ -20,7 +17,6 @@ import {
   usePatchConfig,
   useRoles,
   useSetEmailContact,
-  useUpdateMember,
 } from '../../../api/queries';
 import { queryKeys } from '../../../api/queryKeys';
 import { useProject } from '../../../app/contexts';
@@ -30,7 +26,6 @@ import { Chip } from '../../../components/Chip';
 import type { ChipTone } from '../../../components/Chip';
 import { Dialog, DialogActions } from '../../../components/Dialog';
 import { ErrorBanner } from '../../../components/ErrorBanner';
-import { TextField } from '../../../components/Field';
 import { ErrorState } from '../../../components/States';
 import { useToast } from '../../../components/toastContext';
 import { formatAgo, formatStamp } from '../../../i18n/format';
@@ -180,107 +175,9 @@ function ChannelCard({ view, version }: { view: EmailChannelView; version: strin
 
 type Sender = EmailChannelView['senders'][number];
 
-/** The rename form of one member's mailbox (PM-989): an empty name goes back to the handle. */
-function MailboxForm({
-  sender,
-  domain,
-  onClose,
-  onSaved,
-}: {
-  sender: Sender;
-  domain: string;
-  onClose: () => void;
-  onSaved: () => void;
-}) {
+/** The address line of one sender: the address with copy, or why it has none. */
+function AddressLine({ sender, domain }: { sender: Sender; domain: string | null }) {
   const { key } = useProject();
-  const update = useUpdateMember(key);
-  const input = useRef<HTMLInputElement>(null);
-  const [value, setValue] = useState(sender.mailbox);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    input.current?.focus();
-    input.current?.select();
-  }, []);
-
-  const fail = (message: string): void => {
-    setError(message);
-    input.current?.focus();
-  };
-  const save = (): void => {
-    const mailbox = value.trim().toLowerCase() || sender.handle;
-    if (!EmailMailbox.safeParse(mailbox).success) return fail(t('settings.email.senders.mailboxInvalid'));
-    if (mailbox === sender.mailbox) return onClose();
-    update.mutate(
-      { handle: sender.handle, body: { email: { mailbox } } },
-      {
-        onSuccess: () => {
-          onSaved();
-          onClose();
-        },
-        onError: (cause) =>
-          fail(
-            isApiError(cause) && cause.code === 'email_mailbox_taken'
-              ? t('settings.email.senders.mailboxTaken', { mailbox })
-              : errorMessage(cause),
-          ),
-      },
-    );
-  };
-
-  return (
-    <form
-      className={styles.mailboxForm}
-      onSubmit={(event) => {
-        event.preventDefault();
-        save();
-      }}
-      onKeyDown={(event) => {
-        if (event.key === 'Escape' && !update.isPending) onClose();
-      }}
-    >
-      <TextField
-        ref={input}
-        label={t('settings.email.senders.mailboxLabel')}
-        hint={t('settings.email.senders.mailboxHint', { handle: sender.handle })}
-        error={error ?? undefined}
-        value={value}
-        readOnly={update.isPending}
-        maxLength={64}
-        autoCapitalize="none"
-        autoCorrect="off"
-        spellCheck={false}
-        onChange={(event) => {
-          setValue(event.target.value);
-          setError(null);
-        }}
-      />
-      <span className={styles.mailboxDomain} aria-hidden="true">
-        @{domain}
-      </span>
-      <div className={styles.mailboxActions}>
-        <Button type="submit" variant="primary" size="md" loading={update.isPending}>
-          {update.isPending ? t('settings.email.senders.saving') : t('settings.email.senders.save')}
-        </Button>
-        <Button type="button" variant="ghost" size="md" disabled={update.isPending} onClick={onClose}>
-          {t('common.cancel')}
-        </Button>
-      </div>
-    </form>
-  );
-}
-
-/** The address line of one sender: the address with copy and rename, or why it has none. */
-function AddressLine({
-  sender,
-  domain,
-  renameRef,
-  onRename,
-}: {
-  sender: Sender;
-  domain: string | null;
-  renameRef: RefObject<HTMLButtonElement | null>;
-  onRename: () => void;
-}) {
   const [copied, setCopied] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
   // "Másolva" goes back to "Másolás" after a moment.
@@ -289,34 +186,22 @@ function AddressLine({
     const timer = setTimeout(() => setCopied(false), 2000);
     return () => clearTimeout(timer);
   }, [copied]);
-  const rename = (
-    <Button
-      ref={renameRef}
-      variant="ghost"
-      size="md"
-      aria-label={t('settings.email.senders.renameOf', { name: sender.displayName })}
-      onClick={onRename}
-    >
-      {t('settings.email.senders.rename')}
-    </Button>
-  );
   if (domain === null) return null;
   if (sender.addressConflict)
     return (
       <span className={styles.addressLine}>
         <span className={styles.conflict}>
-          {t('settings.email.senders.addressConflict', { mailbox: sender.mailbox })}
+          {t('settings.email.senders.addressConflict', { handle: sender.handle })}{' '}
+          <Link to={`/p/${key}/team`}>{t('settings.email.senders.teamLink')}</Link>
         </span>
-        {rename}
       </span>
     );
   if (sender.address === null)
     return (
       <span className={styles.addressLine}>
         <span className={`${shared.muted} ${styles.addressNote}`}>
-          {t('settings.email.senders.addressWhenOn', { mailbox: sender.mailbox, domain })}
+          {t('settings.email.senders.addressWhenOn', { handle: sender.handle, domain })}
         </span>
-        {rename}
       </span>
     );
   const address = sender.address;
@@ -340,7 +225,6 @@ function AddressLine({
         >
           {t(copied ? 'settings.email.senders.copied' : 'settings.email.senders.copy')}
         </Button>
-        {rename}
       </span>
       {copyFailed ? (
         <span role="alert" className={shared.validation}>
@@ -355,33 +239,13 @@ function SenderRow({
   sender,
   member,
   domain,
-  renaming,
-  onRename,
-  onRenameClose,
   onEdit,
 }: {
   sender: Sender;
   member: MemberView | null;
   domain: string | null;
-  renaming: boolean;
-  onRename: () => void;
-  onRenameClose: () => void;
   onEdit: () => void;
 }) {
-  const renameRef = useRef<HTMLButtonElement>(null);
-  const wasRenaming = useRef(false);
-  const [saved, setSaved] = useState(false);
-  // The form's button is gone when it closes; focus goes back to the one that opened it.
-  useEffect(() => {
-    if (wasRenaming.current && !renaming) renameRef.current?.focus();
-    wasRenaming.current = renaming;
-  }, [renaming]);
-  useEffect(() => {
-    if (!saved) return;
-    const timer = setTimeout(() => setSaved(false), 2000);
-    return () => clearTimeout(timer);
-  }, [saved]);
-
   return (
     <li className={styles.sender}>
       <Avatar member={member} handle={sender.handle} size="md" />
@@ -394,23 +258,7 @@ function SenderRow({
               : 'settings.email.senders.approval',
           )}
         </span>
-        {renaming && domain !== null ? (
-          <MailboxForm
-            sender={sender}
-            domain={domain}
-            onClose={onRenameClose}
-            onSaved={() => setSaved(true)}
-          />
-        ) : (
-          <>
-            <AddressLine sender={sender} domain={domain} renameRef={renameRef} onRename={onRename} />
-            {saved ? (
-              <span role="status" className={shared.muted}>
-                {t('settings.email.senders.saved')}
-              </span>
-            ) : null}
-          </>
-        )}
+        <AddressLine sender={sender} domain={domain} />
       </span>
       <Button
         variant="ghost"
@@ -434,8 +282,6 @@ function SendersBlock({
   onEdit: (handle: string) => void;
 }) {
   const { key } = useProject();
-  // One rename form at a time.
-  const [renaming, setRenaming] = useState<string | null>(null);
   return (
     <>
       {view.senders.length === 0 ? (
@@ -455,9 +301,6 @@ function SendersBlock({
                 sender={sender}
                 member={memberOf(members, sender.handle)}
                 domain={view.memberDomain}
-                renaming={renaming === sender.handle}
-                onRename={() => setRenaming(sender.handle)}
-                onRenameClose={() => setRenaming(null)}
                 onEdit={() => onEdit(sender.handle)}
               />
             ))}

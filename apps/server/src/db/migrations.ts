@@ -2457,4 +2457,33 @@ migrations.push({
     WHERE state IN ('queued', 'processing')
       AND (member = 'operator' OR member GLOB 'operator-[0-9]*');`,
 });
+const V122_MAILBOX_PATHS = {
+  // super_handoffs.command / super_operations.command: `member_update` and `operate`.
+  command: ['$.request.email.mailbox', '$.operation.changes.email.mailbox'],
+  // inbox_items.payload of an approval: a pending Operator operation, and up to 10 knowledge operations.
+  payload: [
+    '$.operator.operation.changes.email.mailbox',
+    ...Array.from({ length: 10 }, (_, i) => `$.operatorKnowledge.operations[${i}].changes.email.mailbox`),
+  ],
+};
+/** Drops the removed mailbox key from one JSON column; only the rows that still hold it are touched. */
+function v122DropMailbox(table: string, column: keyof typeof V122_MAILBOX_PATHS, where = '1'): string {
+  const paths = V122_MAILBOX_PATHS[column];
+  const present = paths.map((path) => `json_type(${column}, '${path}') IS NOT NULL`).join(' OR ');
+  return `UPDATE ${table} SET ${column} = json_remove(${column}, ${paths.map((path) => `'${path}'`).join(', ')})
+    WHERE ${where} AND CASE WHEN json_valid(${column}) THEN ${present} ELSE 0 END;`;
+}
+migrations.push({
+  version: 122,
+  name: 'drop the removed mailbox name from stored commands',
+  // PM-1039: an AI member's address is its handle, and `email.mailbox` left the member update. A stored
+  // command or approval still holding the key would fail the strict schema and break reading its list.
+  // The fixed paths only; a missing path is a no-op. `command_hash` stays (an open Operator approval whose
+  // changes differ is stale; a super continuation stops at the recomputed hash). No column is added.
+  sql: [
+    v122DropMailbox('super_handoffs', 'command'),
+    v122DropMailbox('super_operations', 'command'),
+    v122DropMailbox('inbox_items', 'payload', `kind = 'approval'`),
+  ].join('\n'),
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

@@ -79,14 +79,15 @@ export const AutoCompactWindowTokens = z.number().int().min(100_000).max(1_000_0
 
 export const ProjectEmailConfig = z.object({ enabled: z.boolean() });
 export type ProjectEmailConfig = z.infer<typeof ProjectEmailConfig>;
-/** The local part of an AI member's own e-mail address (PM-989); the `r-` prefix belongs to the reply addresses. */
+/**
+ * The local part of an AI member's own e-mail address: its handle (PM-1039); the `r-` prefix belongs
+ * to the reply addresses.
+ */
 export const EmailMailbox = z.string().regex(/^(?!r-)[a-z0-9][a-z0-9-]{0,31}$/);
 export type EmailMailbox = z.infer<typeof EmailMailbox>;
 export const AiMemberEmail = z.object({
   enabled: z.boolean(),
   sendWithoutApproval: z.boolean().optional(),
-  /** Missing: the member's handle. */
-  mailbox: EmailMailbox.optional(),
 });
 export type AiMemberEmail = z.infer<typeof AiMemberEmail>;
 

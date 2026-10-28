@@ -7,7 +7,6 @@ import { EngineId } from '../domain/engine';
 import { ChatItem } from '../chat/chat';
 import {
   AutoCompactWindowTokens,
-  EmailMailbox,
   MemberSchedule,
   ProjectConfig,
   RepoConfig,
@@ -700,18 +699,27 @@ export const HireMemberRequest = z.object({
 });
 export type HireMemberRequest = z.infer<typeof HireMemberRequest>;
 
+const EMAIL_MAILBOX_REMOVED =
+  "the separate mailbox name is gone (PM-1039): an AI member's address is <handle>@<domain>; rename the member to change it";
+
 /** PATCH of a member; omitted fields stay as they are. */
 export const UpdateMemberRequest = z.object({
   complexityLimit: ComplexityPoints.nullable().optional(),
   specialtyLabels: z.array(LabelId).max(10).nullable().optional(),
   /** AI only; omitted values retain their settings. */
   email: z
-    .strictObject({
-      enabled: z.boolean().optional(),
-      sendWithoutApproval: z.boolean().optional(),
-      /** The member's own mailbox name (PM-989); the handle's own value clears the choice. */
-      mailbox: EmailMailbox.optional(),
-    })
+    .strictObject(
+      {
+        enabled: z.boolean().optional(),
+        sendWithoutApproval: z.boolean().optional(),
+      },
+      {
+        error: (issue) =>
+          issue.code === 'unrecognized_keys' && issue.keys.includes('mailbox')
+            ? EMAIL_MAILBOX_REMOVED
+            : undefined,
+      },
+    )
     .optional(),
   access: HumanAccess.optional(),
   provider: AgentProvider.optional(),

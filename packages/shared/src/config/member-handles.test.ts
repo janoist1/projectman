@@ -54,7 +54,7 @@ const ai = (handle: string, extra: object = {}) => ({
 
 describe('renameMemberInConfig', () => {
   const config = configWith([
-    ai('dev', { email: { enabled: true, sendWithoutApproval: true, mailbox: 'coder' } }),
+    ai('dev', { email: { enabled: true, sendWithoutApproval: true } }),
     ai('other', { formerHandles: ['old'] }),
   ]);
   const renamed = renameMemberInConfig(config, 'dev', 'haini');
@@ -69,7 +69,7 @@ describe('renameMemberInConfig', () => {
     expect(renamed.project.feedback?.blockedMarkers).toEqual(['haini', 'other']);
   });
 
-  it('keeps the old handle as a former one and drops the mailbox name', () => {
+  it('keeps the old handle as a former one and the e-mail settings as they are', () => {
     const member = renamed.team.members[1] as AiMemberConfig;
     expect(member.formerHandles).toEqual(['dev']);
     expect(member.email).toEqual({ enabled: true, sendWithoutApproval: true });

@@ -88,6 +88,25 @@ function migrateSeniorLimit(raw: unknown, { projectKey, logger }: MigrationConte
   return raw;
 }
 
+/**
+ * The removed separate mailbox name (PM-1039): an AI member's address is `<handle>@<domain>`. A name
+ * that differed from the handle is gone with its address (the owner's decision); the log names the member.
+ */
+function dropEmailMailbox(raw: unknown, { projectKey, logger }: MigrationContext): unknown {
+  for (const member of rawAiMembers(raw)) {
+    const email = member.email;
+    if (!email || typeof email !== 'object' || !('mailbox' in email)) continue;
+    const mailbox = email.mailbox;
+    delete (email as Record<string, unknown>).mailbox;
+    if (mailbox !== member.handle)
+      logger.warn(
+        { projectKey, member: member.handle, mailbox },
+        'Dropped the removed mailbox name; the address is the handle',
+      );
+  }
+  return raw;
+}
+
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -362,6 +381,7 @@ function addFeedbackProcessing(raw: unknown, { projectKey, logger }: MigrationCo
  *     conditions with the labels they need (`migrateLegacyConfig`, @projectman/templates);
  *   - a label a release gate requires that more than the release approval duty's holders may set
  *     is narrowed to that duty (above), after the conversion of legacy gates;
+ *   - the removed separate mailbox name (`email.mailbox`, PM-1039) is dropped from every AI member (above);
  *   - the removed message storm threshold (`messageBurst`) is dropped (above);
  *   - a project without an AI project manager gets one, on leave (above);
  *   - a missing card mover becomes worker (above);
@@ -386,7 +406,10 @@ export function migrateProjectConfig(raw: unknown, context: MigrationContext): u
                   migrateCodexBypass(
                     migrateScheduledRole(
                       dropMessageBurst(
-                        migrateSeniorLimit(migrateShadowingRoles(raw, context), context),
+                        migrateSeniorLimit(
+                          dropEmailMailbox(migrateShadowingRoles(raw, context), context),
+                          context,
+                        ),
                         context,
                       ),
                       context,

@@ -47,7 +47,6 @@ export default async ({ instance, open, shoot, step, log }) => {
           handle: member.handle,
           displayName: member.displayName,
           sendWithoutApproval: false,
-          mailbox: member.handle,
           address: `${member.handle}@mail.example.com`,
           addressConflict: false,
         })),

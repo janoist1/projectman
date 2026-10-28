@@ -76,7 +76,7 @@ describe('countFixRounds (PM-262)', () => {
   ];
 
   it('counts the change requests of both reviews and the send-backs together', () => {
-    expect(countFixRounds(events, config(), null)).toEqual({
+    expect(countFixRounds([...events, move(7, 'dev', 'cr'), move(8, 'cr', 'dev')], config(), null)).toEqual({
       rounds: 3,
       changeRequests: 1,
       designChangeRequests: 1,
@@ -141,7 +141,7 @@ describe('round sources (PM-800)', () => {
     });
   });
 
-  it('counts failed tests once, both review labels individually and manual send-backs', () => {
+  it('counts failed tests once and both review labels individually', () => {
     const events = [
       technical,
       event('test', 'task_stage_changed', {
@@ -149,14 +149,15 @@ describe('round sources (PM-800)', () => {
         to: 'dev',
         testsFailed: { runId: 'r', commit: 'c', branch: 'b' },
       }),
+      move(1, 'dev', 'cr'),
       labelled(1, 'code-review-changes', 'design-review-changes'),
       move(1, 'cr', 'dev'),
     ];
     expect(countFixRounds(events, config(), null)).toEqual({
-      rounds: 4,
+      rounds: 3,
       changeRequests: 1,
       designChangeRequests: 1,
-      sendBacks: 2,
+      sendBacks: 1,
       testsFailed: 1,
     });
     expect(countFixRounds(events, config(), at(1)).rounds).toBe(0);
@@ -174,6 +175,7 @@ describe('round sources (PM-800)', () => {
         added: ['code-review-changes', 'design-review-changes'],
         noteExcerpt: '  \n First reason\nSecond reason',
       }),
+      event('forward', 'task_stage_changed', { from: 'dev', to: 'cr' }),
       event('failure', 'task_stage_changed', {
         from: 'cr',
         to: 'dev',
@@ -235,6 +237,84 @@ describe('round sources (PM-800)', () => {
     expect(history[0]).not.toHaveProperty('command');
     expect(history[0]).not.toHaveProperty('failedFiles');
     expect(history[1]?.extraRound).toBe(1);
+  });
+});
+
+describe('a review send-back is one round (PM-1103)', () => {
+  const failedTest = (minutes: number): Event => ({
+    type: 'task_stage_changed',
+    data: { from: 'cr', to: 'dev', testsFailed: { runId: 'r', commit: 'c', branch: 'b' } },
+    createdAt: at(minutes),
+  });
+  /** A handover to the review: the next failure is a new one. */
+  const handover = (minutes: number) => move(minutes, 'dev', 'cr');
+  const rounds = (events: Event[]) => countFixRounds(events, config(), null).rounds;
+
+  it.each([
+    ['label, then the move', [labelled(1, 'code-review-changes'), move(1, 'cr', 'dev')]],
+    ['move, then the label', [move(1, 'cr', 'dev'), labelled(1, 'code-review-changes')]],
+    ['label, then the failed test move', [labelled(1, 'code-review-changes'), failedTest(1)]],
+    ['design label, then the move', [labelled(1, 'design-review-changes'), move(1, 'cr', 'dev')]],
+  ])('counts a change request and its stage change once (%s)', (_name, events) => {
+    expect(rounds(events)).toBe(1);
+  });
+
+  it('counts a send-back without a label and a second move after a pair as rounds of their own', () => {
+    expect(rounds([move(1, 'cr', 'dev')])).toBe(1);
+    expect(rounds([labelled(1, 'code-review-changes'), move(1, 'cr', 'dev'), move(2, 'cr', 'dev')])).toBe(2);
+    expect(rounds([labelled(1, 'code-review-changes'), handover(2), move(3, 'cr', 'dev')])).toBe(2);
+  });
+
+  it('does not reach the limit again after the extra round until the next handover fails too', () => {
+    const limit = 3;
+    const afterTwo = [
+      labelled(1, 'code-review-changes'),
+      move(1, 'cr', 'dev'),
+      handover(2),
+      labelled(3, 'code-review-changes'),
+      move(3, 'cr', 'dev'),
+      handover(4),
+    ];
+    // The third failure: the label reaches the limit; the send-back that follows adds nothing.
+    const third = [...afterTwo, labelled(5, 'code-review-changes')];
+    expect(fixLimitReached(rounds(third), limit, 0)).toBe(true);
+    const withMove = [...third, move(5, 'cr', 'dev')];
+    expect(fixLimitReached(rounds(withMove), limit, 1)).toBe(false);
+    // The developer hands over again and the review fails again: that is the next limit.
+    const fourth = [...withMove, handover(6), labelled(7, 'code-review-changes'), move(7, 'cr', 'dev')];
+    expect(fixLimitReached(rounds(fourth), limit, 1)).toBe(true);
+  });
+
+  it('keeps the pair as one entry of the round list', () => {
+    const history = fixRoundHistory(
+      [
+        {
+          id: 'label',
+          type: 'task_labels_changed',
+          data: { added: ['code-review-changes'] },
+          createdAt: at(1),
+          projectKey: 'EX',
+          taskKey: 'EX-1',
+          sessionId: null,
+          actor: { kind: 'ai', handle: 'lead' },
+        },
+        {
+          id: 'move',
+          type: 'task_stage_changed',
+          data: { from: 'cr', to: 'dev' },
+          createdAt: at(1),
+          projectKey: 'EX',
+          taskKey: 'EX-1',
+          sessionId: null,
+          actor: { kind: 'ai', handle: 'lead' },
+        },
+      ],
+      config(),
+      null,
+    );
+    expect(history.map((entry) => [entry.eventId, entry.kind, entry.round])).toEqual([
+      ['label', 'code_review', 1],
+    ]);
   });
 });
 

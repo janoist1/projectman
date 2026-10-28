@@ -3,7 +3,7 @@ import { isOnLeave } from '../config/leave';
 import { DEFAULT_MAX_FIX_ROUNDS } from '../config/schema';
 import type { ProjectConfig, TeamLimits } from '../config/schema';
 import { z } from 'zod';
-import { CardRoundKind, classifyCardRoundEvent, countCardRounds } from './card-measure';
+import { CardRoundKind, absorbedSendBacks, classifyCardRoundEvent, countCardRounds } from './card-measure';
 import type { DutyId } from './duty';
 import { Actor, timelineNoteExcerpt } from './event';
 import type { TimelineEvent, TimelineEventData } from './event';
@@ -113,6 +113,10 @@ export function fixRoundHistory(
       results.set(result.runId, result);
     }
   }
+  const absorbed = absorbedSendBacks(
+    since === null ? events : events.filter((event) => event.createdAt > since),
+    config,
+  );
   const history: FixRoundHistoryEntry[] = [];
   let round = 0;
   let extraRound = 0;
@@ -133,6 +137,7 @@ export function fixRoundHistory(
         extraRound,
       });
     }
+    if (absorbed.has(event)) continue;
     for (const kind of classifyCardRoundEvent(event, config)) {
       const entry: FixRoundHistoryEntry = {
         ...base,

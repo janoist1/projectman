@@ -72,12 +72,48 @@ export function classifyCardRoundEvent(
   return [event.data.branchMoved ? 'branch_moved' : event.data.testsFailed ? 'tests_failed' : 'send_back'];
 }
 
+/**
+ * The send-backs that belong to a review's change request (PM-1103): a review that asks for changes with
+ * `code-review-changes` or `design-review-changes` and sends the card back is one round, so the stage change
+ * next to the label is not a round of its own. A label and a send-back into a work stage pair up when they
+ * follow each other with no other stage change between them, in either order; each pairs with at most one.
+ * Returns the stage change events (the same objects as in `events`) that are absorbed.
+ */
+export function absorbedSendBacks<E extends Pick<TimelineEvent, 'type' | 'data'>>(
+  events: readonly E[],
+  config: Pick<ProjectConfig, 'team' | 'pipeline'>,
+): Set<E> {
+  const absorbed = new Set<E>();
+  let labelWaits = false;
+  let sendBackWaits: E | null = null;
+  for (const event of events) {
+    const kinds = classifyCardRoundEvent(event, config);
+    if (event.type === 'task_labels_changed') {
+      if (kinds.length === 0) continue;
+      if (sendBackWaits) absorbed.add(sendBackWaits);
+      else labelWaits = true;
+      sendBackWaits = null;
+    } else if (event.type === 'task_stage_changed') {
+      if (kinds[0] === 'send_back' || kinds[0] === 'tests_failed') {
+        if (labelWaits) absorbed.add(event);
+        else sendBackWaits = event;
+        labelWaits = false;
+      } else {
+        labelWaits = false;
+        sendBackWaits = null;
+      }
+    }
+  }
+  return absorbed;
+}
+
 /** Counts one card's rounds from its timeline events (any order of other event types, old ones too). */
 export function countCardRounds(
   events: readonly Pick<TimelineEvent, 'type' | 'data'>[],
   config: Pick<ProjectConfig, 'team' | 'pipeline'>,
 ): CardRounds {
   const stages = config.pipeline.stages;
+  const absorbed = absorbedSendBacks(events, config);
   const indexOf = (id: unknown) => (typeof id === 'string' ? stages.findIndex((s) => s.id === id) : -1);
   const rounds: CardRounds = {
     reviewRounds: 0,
@@ -93,6 +129,7 @@ export function countCardRounds(
       if (!target) continue;
       if (isCodeReviewStage(config, target)) rounds.reviewRounds += 1;
     }
+    if (absorbed.has(event)) continue;
     for (const kind of classifyCardRoundEvent(event, config)) {
       if (kind === 'code_review') rounds.changeRequests += 1;
       if (kind === 'design_review') rounds.designChangeRequests += 1;

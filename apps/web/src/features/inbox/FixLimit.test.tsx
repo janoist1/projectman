@@ -53,6 +53,7 @@ describe('the fix round limit in the fake backend', () => {
       to: 'dev',
       testsFailed: { runId: 'run-test', commit: 'bbbbbbbb' },
     });
+    backend.addTimeline('AC-21', null, 'task_stage_changed', { from: 'dev', to: 'code_review' });
     changeRequests(backend, 1);
     expect(backend.findTask('AC-21')?.fixLimit).toMatchObject({ rounds: 2, sendBacks: 1, testsFailed: 1 });
     expect(fixLimitDecisionOf(fixItems(backend)[0]!)?.history).toEqual(

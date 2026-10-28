@@ -37,7 +37,7 @@ afterEach(() => h.close());
 
 const domain = () => h.app.projectman.domain;
 
-/** A card that goes through two reviews (the first asks for changes) and one send-back, then closes. */
+/** A card that goes through two reviews (the first asks for changes and sends it back, one round), then closes. */
 async function closedCard(title: string, closedAt: string, assignee: string | null = 'dev-1') {
   const { tasks } = domain();
   now = new Date('2026-09-30T08:00:00.000Z');
@@ -88,7 +88,7 @@ describe('closed cards comparison', () => {
     const view = ClosedCardsMeasure.parse(res.json());
     expect(view).toMatchObject({ days: 14, since: '2026-09-18T08:00:00.000Z' });
     expect(view.cards.map((card) => card.taskKey)).toEqual([second, first]);
-    const rounds = { reviewRounds: 2, changeRequests: 1, sendBacks: 1 };
+    const rounds = { reviewRounds: 2, changeRequests: 1, sendBacks: 0 };
     expect(view.cards[1]).toMatchObject({
       title: 'Login page',
       closedAt: '2026-10-01T10:00:00.000Z',
@@ -146,7 +146,7 @@ describe('rounds on the card detail', () => {
       reviewRounds: 2,
       changeRequests: 1,
       designChangeRequests: 0,
-      sendBacks: 1,
+      sendBacks: 0,
       testsFailed: 0,
     };
     const detail = TaskDetail.parse((await get('owner', routes.task('AR', key))).json());

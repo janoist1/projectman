@@ -297,12 +297,37 @@ export class RefinementSteps {
         const working = owners.find((m) => this.sessions.findRunning(projectKey, m.handle, workItem));
         if (working) {
           // A stored message from the system (PM-82); the turn is recorded after it, so it is not held for the turn.
-          await this.messaging!.send(
-            projectKey,
-            SYSTEM_SENDER,
-            { to: [working.handle], taskKey, text },
-            { kind: 'action', actor: SYSTEM_ACTOR, ownCard: true, duringRefinement: true },
-          );
+          // The send reads the commit first (a git call): the step may be gone by the time it records, and then
+          // nothing is stored (a notice about a stage the card has left would only mislead the member).
+          let gone = false;
+          try {
+            await this.messaging!.send(
+              projectKey,
+              SYSTEM_SENDER,
+              { to: [working.handle], taskKey, text },
+              {
+                kind: 'action',
+                actor: SYSTEM_ACTOR,
+                ownCard: true,
+                duringRefinement: true,
+                beforeRecord: () => {
+                  const current = this.tasks.find(projectKey, taskKey);
+                  if (
+                    current &&
+                    isOpenTask(current) &&
+                    current.stageId === spec.stageId &&
+                    !current.labels.includes(label)
+                  )
+                    return;
+                  gone = true;
+                  throw new Error('the refinement step is gone');
+                },
+              },
+            );
+          } catch (err) {
+            if (gone) return;
+            throw err;
+          }
           this.record(task, label, working.handle);
           this.handOverWaiting(projectKey, working.handle, workItem);
           return;

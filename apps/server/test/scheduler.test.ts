@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { LOCAL_ENGINE_ID, ServerEvent } from '@projectman/shared';
 import type { ProjectConfig, Task } from '@projectman/shared';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
@@ -347,6 +347,31 @@ describe('scheduler', () => {
       h.runner.setState(review.id, 'idle');
       await waitFor(() => typedCount(review.id) === 1, { what: 'the notice at the end of the round' });
       expect(typedCount(review.id)).toBe(1);
+    });
+
+    it('stores no notice when the card has left the stage by the time the notice is recorded', async () => {
+      const { review } = await withLiveReviewer();
+      h.runner.setState(review.id, 'idle');
+      await h.domain.tasks.moveToStage('AR', 'AR-1', 'development', OWNER_ACTOR);
+      await settle();
+      const send = h.domain.messaging.send.bind(h.domain.messaging);
+      let left = false;
+      vi.spyOn(h.domain.messaging, 'send').mockImplementation(async (...args: Parameters<typeof send>) => {
+        // The send reads the commit before it records: the card moves on in that gap.
+        if (!left && args[2].to.includes('cr')) {
+          left = true;
+          await h.domain.tasks.moveToStage('AR', 'AR-1', 'development', OWNER_ACTOR);
+        }
+        return send(...args);
+      });
+      await h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', OWNER_ACTOR);
+      await waitFor(() => left, { what: 'the notice send' });
+      await settle();
+
+      expect(h.domain.tasks.get('AR', 'AR-1').stageId).toBe('development');
+      expect(noticesTo('cr')).toEqual([]);
+      expect(typedCount(review.id)).toBe(0);
+      expect(h.log.errors).toEqual([]);
     });
 
     it('stores no notice for a member who moved the card itself or has no live session', async () => {

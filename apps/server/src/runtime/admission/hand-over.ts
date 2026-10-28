@@ -246,17 +246,35 @@ export class StageHandOver {
     const session = this.sessions.findRunning(task.projectKey, handle, { type: 'task', taskKey: task.key });
     if (!session) return;
     const movedBy = change.actor.handle ? `, moved by ${change.actor.handle}` : '';
-    await this.messaging.send(
-      task.projectKey,
-      SYSTEM_SENDER,
-      {
-        to: [handle],
-        taskKey: task.key,
-        text:
-          `Task ${task.key} is now in stage ${stage.name} (\`${stage.id}\`)${movedBy}. ` +
-          'You own this stage: do your part by its rules; get_task shows the latest state.',
-      },
-      { kind: 'action', actor: SYSTEM_ACTOR, ownCard: true },
-    );
+    // The send reads the commit first (a git call), so the card may have moved on by the time it records:
+    // the check runs in the message's own transaction, and a notice about a stage the card has left is
+    // not stored.
+    let moved = false;
+    try {
+      await this.messaging.send(
+        task.projectKey,
+        SYSTEM_SENDER,
+        {
+          to: [handle],
+          taskKey: task.key,
+          text:
+            `Task ${task.key} is now in stage ${stage.name} (\`${stage.id}\`)${movedBy}. ` +
+            'You own this stage: do your part by its rules; get_task shows the latest state.',
+        },
+        {
+          kind: 'action',
+          actor: SYSTEM_ACTOR,
+          ownCard: true,
+          beforeRecord: () => {
+            const current = this.tasks.find(task.projectKey, task.key);
+            if (current && current.stageId === change.to && current.status === 'active') return;
+            moved = true;
+            throw new Error('the card has left the stage');
+          },
+        },
+      );
+    } catch (err) {
+      if (!moved) throw err;
+    }
   }
 }

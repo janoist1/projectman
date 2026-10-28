@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import {
   SessionStartCause,
   isHumanOnlyLabel,
+  isRefinementStage,
   labelDefinition,
   labelSetters,
   roleBundle,
@@ -27,7 +28,6 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { ToolContext } from '../../src/contracts';
 import { waitFor } from '../../src/runner/test-helpers';
 import { createAppHarness, setupOwner } from './app-harness';
-import { settle } from './fakes';
 import { withoutOnboarding } from './onboarding';
 
 /**
@@ -431,8 +431,34 @@ async function handedOverTo(h: Harness, j: Journey, mover: string | null, from: 
     to: target,
     by: mover ? ai(mover) : system,
   });
-  // The hand-over finds the session running and tells it with a stored message (PM-82): let it finish.
-  await settle();
+  // A refinement step has its own line: the hand-over tells nobody there.
+  if (isRefinementStage(stage)) return;
+  // The hand-over finds the session running and tells it with a stored message (PM-82). It runs in the
+  // background, so wait for the message, or for the card to be gone from the stage (then the hand-over
+  // stores nothing: it checks the card as it records), or for the hand-over to be deferred. Nothing after
+  // this point can add the notice to the timeline later.
+  const noticed = () => {
+    // Only the events after the latest entry into the stage count: the card may have been here before.
+    const events = h.domain.timeline.list(projectKey, { taskKey: j.task.key });
+    const entered = events.findLastIndex(
+      (event) => event.type === 'task_stage_changed' && event.data.to === target,
+    );
+    return events
+      .slice(entered + 1)
+      .some(
+        (event) =>
+          event.type === 'team_message' &&
+          event.data.from === 'system' &&
+          (event.data.to as string[]).includes(owner.handle),
+      );
+  };
+  await waitFor(
+    () => {
+      const task = h.domain.tasks.get(projectKey, j.task.key);
+      return task.stageId !== target || task.status !== 'active' || !!task.startWaiting || noticed();
+    },
+    { what: `the stage notice to ${owner.handle} for ${target}` },
+  );
 }
 
 async function approve(h: Harness, j: Journey, member: string, target: string, cookie = h.cookie) {

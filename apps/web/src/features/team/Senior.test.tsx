@@ -69,7 +69,7 @@ describe('developer complexity limits', () => {
     const project = mockProject();
     dialog(project, 'be-1', true);
     expect(screen.queryByLabelText(t('memberEdit.limit'))).toBeNull();
-    expect(screen.getByText(t('memberEdit.tempLimit'))).toBeTruthy();
+    expect(screen.getByText(t('memberEdit.tempLimit', { points: 5 }))).toBeTruthy();
   });
   it('keeps the dialog and choice on a server refusal', async () => {
     const project = mockProject();

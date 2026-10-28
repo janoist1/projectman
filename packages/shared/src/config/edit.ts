@@ -54,6 +54,7 @@ export const PatchConfigRequest = z
           enabled: tempWorkersSchema.shape.enabled.removeDefault(),
           max: tempWorkersSchema.shape.max.removeDefault(),
           role: tempWorkersSchema.shape.role.removeDefault(),
+          maxPoints: tempWorkersSchema.shape.maxPoints,
         })
         .partial()
         .strict()

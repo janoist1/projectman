@@ -455,7 +455,7 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   route) starts setters.
   **The complexity limit** (PM-1007, replaces the Senior mark of PM-348): the automatic developer
   choice is `chooseDeveloper` in `packages/shared`. A card's points (`Task.complexity`, PM-1006) are
-  compared with each developer's `complexityLimit` (a temp worker's is always 5). Among the free
+  compared with each developer's `complexityLimit` (a temp worker's is the project's `team.limits.tempWorkers.maxPoints`, default 5, `tempMaxPointsOf`). Among the free
   developers, optional `specialtyLabels` first restricts automatic assignment to cards carrying at
   least one matching label; explicit assignees remain unrestricted (PM-1038). Among matching free
   developers whose limit reaches the points the one with the smallest limit wins (then the least
@@ -463,8 +463,8 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   card goes the same way among all free developers. While every developer who reaches the points is
   busy or away, `startLocked` leaves the card in the work stage unassigned and the start waits as a
   `work_start` deferral (`startWaiting.reason` `senior_busy`, with `seniors`: the handles whose limit
-  reaches the points); a person's Start gets a normal response with that wait. A card of up to 5
-  points may go to a temp worker instead of waiting. `SeniorWaits` (`admission/senior-waits.ts`, table
+  reaches the points); a person's Start gets a normal response with that wait. A card of up to the
+  temp worker limit (`tempMaxPointsOf`, PM-1101) may go to a temp worker instead of waiting. `SeniorWaits` (`admission/senior-waits.ts`, table
   `senior_waits`, one open row per card) keeps when the wait began, the question and the answer over a
   restart. After `seniorWaitMinutes` (30) the 60 s sweep asks the owners once (an inbox decision,
   `wait_for_senior` or `any_developer`); "any" lets the free non-temp developer with the largest limit

@@ -12,6 +12,7 @@ import {
   stageDevelopers,
   stageOwners,
   startableCards,
+  tempMaxPointsOf,
 } from '@projectman/shared';
 import type {
   FocusPlace,
@@ -327,6 +328,7 @@ export class StartRound implements StartRounding {
       free,
       developers,
       anyDecided,
+      tempMaxPoints: tempMaxPointsOf(config),
       offered: new Set(live.map((row) => row.taskKey)),
       reassignableTaskKeys,
     });

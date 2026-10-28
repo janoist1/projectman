@@ -206,7 +206,7 @@ describe('every template', () => {
       expect(template.build(input('en')).team.limits).toEqual({
         aiEnabled: true,
         pauseAbovePlanUsagePercent: 80,
-        tempWorkers: { enabled: false, max: 1, role: 'developer' },
+        tempWorkers: { enabled: false, max: 1, role: 'developer', maxPoints: 5 },
         minFreeDiskGb: 10,
       });
     });

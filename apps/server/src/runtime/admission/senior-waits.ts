@@ -275,7 +275,8 @@ function endReasonOf(task: Task, config: ProjectConfig): SeniorWaitEndReason | n
   const points = complexityOf(task);
   if (task.assignee) {
     const assignee = memberOf(config, task.assignee);
-    const reaches = points !== null && assignee?.kind === 'ai' && complexityLimitOf(assignee) >= points;
+    const reaches =
+      points !== null && assignee?.kind === 'ai' && complexityLimitOf(config, assignee) >= points;
     return reaches ? 'senior' : 'assigned';
   }
   if (points === null) return 'level_changed';

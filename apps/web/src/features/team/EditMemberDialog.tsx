@@ -12,6 +12,7 @@ import {
   isDeveloper,
   COMPLEXITY_POINTS,
   ComplexityPoints,
+  DEFAULT_TEMP_MAX_POINTS,
 } from '@projectman/shared';
 import type {
   AgentProvider,
@@ -227,7 +228,9 @@ function EditMemberForm({
             />
             {canSetLimit ? (
               member.temp ? (
-                <p className={styles.toggleHint}>{t('memberEdit.tempLimit')}</p>
+                <p className={styles.toggleHint}>
+                  {t('memberEdit.tempLimit', { points: member.complexityLimit ?? DEFAULT_TEMP_MAX_POINTS })}
+                </p>
               ) : (
                 <SelectField
                   label={t('memberEdit.limit')}

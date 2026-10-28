@@ -318,6 +318,21 @@ export const hu = {
     activity: 'Mit tett ezzel a kulccsal?',
     forwarded: 'A tulajdonos válasza, az Operátor rögzítette',
   },
+  /** A step made through a connected Claude (decision 66, PM-1075). */
+  connected: {
+    chip: 'Claude',
+    chipHolder: 'Claude · {holder}',
+    approvedBy: 'jóváhagyta: {name}',
+    label: '{name} (Claude)',
+    labelHolder: '{name} (Claude · {holder})',
+    title: 'Csatlakozott Claude',
+    chipAria: 'Csatlakozott Claude, gazdája: {holder}. Részletek',
+    avatar: '{name}, csatlakozott Claude-on át',
+    detail: 'Csatlakozott Claude',
+    holder: 'gazdája: {name}',
+    key: 'kulcs:',
+    activity: 'Mit tett ez a kulcs?',
+  },
   superMode: {
     detailError: 'Nem sikerült betölteni a művelet részleteit.',
     commands: {

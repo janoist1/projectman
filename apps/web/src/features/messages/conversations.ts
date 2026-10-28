@@ -1,3 +1,4 @@
+import { connectedOriginOf } from '@projectman/shared';
 import type { InboxItem, TeamMessage, TeamThread } from '@projectman/shared';
 import { formatDayHeading } from '../../i18n/format';
 import type { MemberIndex } from '../../lib/members';
@@ -183,8 +184,9 @@ export function layoutThread(
       !previous ||
       previous.from !== message.from ||
       previous.via !== message.via ||
-      previous.actor?.operatorMode !== message.actor?.operatorMode ||
-      previous.actor?.credential?.id !== message.actor?.credential?.id ||
+      connectedOriginOf(previous.actor)?.credential.id !== connectedOriginOf(message.actor)?.credential.id ||
+      connectedOriginOf(previous.actor)?.holder !== connectedOriginOf(message.actor)?.holder ||
+      previous.actor?.approvedBy !== message.actor?.approvedBy ||
       new Date(message.createdAt).getTime() - new Date(previous.createdAt).getTime() > RUN_GAP_MS ||
       breaksRun?.(previous, message) === true;
     const showTask = message.taskKey !== null && message.taskKey !== lastTask;

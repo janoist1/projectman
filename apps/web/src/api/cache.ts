@@ -13,7 +13,12 @@ import type {
   Task,
   TaskDetail,
 } from '@projectman/shared';
-import { operatorApprovalOf, operatorKnowledgeApprovalOf, withSessionWork } from '@projectman/shared';
+import {
+  hasBoundOrigin,
+  operatorApprovalOf,
+  operatorKnowledgeApprovalOf,
+  withSessionWork,
+} from '@projectman/shared';
 import { openItemsFor } from '../lib/inbox';
 import { ApiError } from './client';
 import { queryKeys } from './queryKeys';
@@ -154,8 +159,7 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
     case 'timeline_appended': {
       const { projectKey: key, event: entry } = event;
       if (
-        entry.actor.operatorMode === 'super' ||
-        entry.actor.through !== undefined ||
+        hasBoundOrigin(entry.actor) ||
         entry.type === 'super_handoff_changed' ||
         entry.type === 'super_operation_changed'
       ) {

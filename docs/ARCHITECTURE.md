@@ -1941,7 +1941,8 @@ workers follow the machine's size.
 ## Machine-dependent parts (PM-341)
 
 - **Interrupted card continuation (PM-1092)** — `runtime/sessions/sessions.ts` closes lost live
-  sessions with `server_restart` during startup or engine reconciliation; `runtime/admission/hand-over.ts`
+  sessions with `server_restart` during startup or engine reconciliation; the internal `session_ended`
+  event carries the previous state so completed idle turns stay stopped. `runtime/admission/hand-over.ts`
   resumes their current work-stage assignee or review-stage owner through normal admission. The
   persisted `hand_over.resumeMember` keeps the same member while capacity, pauses or an offline engine
   hold the continuation; a changed stage or assignment invalidates it. **Machine assumptions:** the

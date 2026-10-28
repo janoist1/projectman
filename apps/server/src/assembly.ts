@@ -1020,7 +1020,7 @@ export function createDomain(opts: DomainOptions) {
   const handOver = new StageHandOver({ projects, tasks, sessions, admission, delivery });
   events.on('session_ended', (session) => {
     background.run(
-      () => handOver.resumeInterrupted(session),
+      () => handOver.resumeInterrupted(session, session.previousState),
       (err) => opts.logger.warn({ err, sessionId: session.id }, 'interrupted stage resume failed'),
     );
   });

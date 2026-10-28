@@ -5,6 +5,7 @@ import type {
   Release,
   Session,
   SessionStartCause,
+  SessionState,
   Task,
   TaskRelationKind,
   TimelineEvent,
@@ -76,8 +77,8 @@ export interface DomainEventMap {
   session_started: Session;
   /** A task session started or resumed with `announce` (PM-249, not a restart): the card's other workers are told. */
   task_session_joined: { session: Session; resumed: boolean; cause: SessionStartCause | null };
-  /** A session ended: it exited, was stopped, or failed (also to start). */
-  session_ended: Session;
+  /** A session ended; its previous state distinguishes interrupted turns from completed idle ones. */
+  session_ended: Session & { previousState?: SessionState };
   /** A running session's turn ended: it idles, and its member may have capacity again (PM-119). */
   session_idle: Session;
   /**

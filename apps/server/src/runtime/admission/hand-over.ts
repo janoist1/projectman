@@ -1,5 +1,5 @@
 import { isOnLeave, isRefinementStage, memberOf, stageIndex, stageOf, stageOwners } from '@projectman/shared';
-import type { AiMemberConfig, ProjectConfig, Session, Stage, Task } from '@projectman/shared';
+import type { AiMemberConfig, ProjectConfig, Session, SessionState, Stage, Task } from '@projectman/shared';
 import { conflict, SYSTEM_ACTOR } from '../../kernel';
 import type { MessageDelivery } from '../delivery';
 import type { ProjectService } from '../../core/projects';
@@ -58,8 +58,9 @@ export class StageHandOver {
   }
 
   /** An interrupted card keeps its member and conversation, under normal stage admission. */
-  async resumeInterrupted(session: Session): Promise<void> {
+  async resumeInterrupted(session: Session, previousState?: SessionState): Promise<void> {
     if (session.lastStop?.kind !== 'server_restart' || session.workItem.type !== 'task') return;
+    if (!previousState || previousState === 'idle') return;
     const task = this.tasks.find(session.projectKey, session.workItem.taskKey);
     if (!task || task.status !== 'active') return;
     await this.admission.attempt(

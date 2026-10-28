@@ -419,6 +419,36 @@ describe('sessions on engines', () => {
   });
 
   describe('an engine that connects (PM-315)', () => {
+    it.each(['startup', 'reconnect'])(
+      'keeps a completed idle turn stopped after %s reconciliation',
+      async (reconciliation) => {
+        engines.placement.set('dev-1', REMOTE);
+        await h.domain.taskStarts.start('AR', 'AR-1', {
+          assignee: 'dev-1',
+          actor: OWNER_ACTOR,
+          author: OWNER,
+        });
+        const session = h.domain.sessions.findRunning('AR', 'dev-1', task)!;
+        h.runner.setState(session.id, 'idle');
+        await h.runner.stop(session.id);
+        h.repos.sessions.update(session.id, { state: 'idle', endedAt: null });
+        engines.setOnline(REMOTE, false);
+        if (reconciliation === 'startup') await h.domain.sessions.reconcileAfterRestart();
+        else await h.domain.sessions.reconcileEngine(REMOTE, new Set(), () => false);
+        await settle();
+        engines.setOnline(REMOTE, true);
+        await h.domain.admission.retryDeferred();
+        await settle();
+
+        expect(h.runner.started).toHaveLength(1);
+        expect(h.domain.sessions.get('AR', session.id)).toMatchObject({
+          state: 'exited',
+          lastStop: { kind: 'server_restart' },
+        });
+        expect(h.domain.tasks.get('AR', 'AR-1').startWaiting).toBeUndefined();
+      },
+    );
+
     async function interrupt(session: Session, reported: ReadonlySet<string> = new Set()): Promise<void> {
       // The engine lost its process without delivering an exit event to the server.
       h.runner.emit({ type: 'transcript_path', sessionId: session.id, path: `/tmp/${session.id}.jsonl` });

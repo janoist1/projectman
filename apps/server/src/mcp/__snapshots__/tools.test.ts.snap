@@ -2512,6 +2512,13 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                         },
                         "type": "object",
                       },
+                      "projectManagerMoves": {
+                        "enum": [
+                          "queues_and_start",
+                          "start_only",
+                        ],
+                        "type": "string",
+                      },
                       "releaseFourEyes": {
                         "type": "boolean",
                       },

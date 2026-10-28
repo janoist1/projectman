@@ -6536,6 +6536,13 @@ export const hu = {
           human: '{name}',
         },
       },
+      projectManagerMoves: {
+        title: 'A Projektmenedzser mozgatási joga',
+        label: 'Mit mozgathat önállóan?',
+        help: 'A szakaszkapuk mindig érvényesek. Munkát csak az első utáni várakozó sorból indíthat.',
+        queues_and_start: 'Várakozó sorok között mozgathat és munkát indíthat',
+        start_only: 'Csak munkát indíthat',
+      },
       merger: {
         label: 'Beolvasztó',
         help: 'Ő olvasztja be a jóváhagyott munkát a fő ágba. A rendszer magától nem olvaszt be.',

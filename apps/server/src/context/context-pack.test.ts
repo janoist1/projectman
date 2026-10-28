@@ -2645,7 +2645,11 @@ describe('expected steps', () => {
       'in the order it gives (urgent, focus place, priority high, normal, low, none, then board order)',
     );
     expect(pm).toContain('the system picks the developer, and you need no owner request');
-    expect(pm).toContain('open an integrator todo to move it back to the first stage');
+    expect(pm).toContain('move it back to the first queue stage yourself');
+    project.team.projectManagerMoves = 'start_only';
+    expect(builder.build(input({ project, handle: 'pm' })).guide.role!).toContain(
+      'open an integrator todo to move it back to the first stage',
+    );
     const developer = builder.build(input({ project, handle: 'fe-1' })).appendSystemPrompt;
     expect(developer).not.toContain('names cards that can start now');
   });

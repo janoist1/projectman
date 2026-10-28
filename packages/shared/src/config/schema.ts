@@ -33,6 +33,9 @@ export const CardMover = z.discriminatedUnion('kind', [
 ]);
 export type CardMover = z.infer<typeof CardMover>;
 
+export const ProjectManagerMoves = z.enum(['queues_and_start', 'start_only']);
+export type ProjectManagerMoves = z.infer<typeof ProjectManagerMoves>;
+
 /** Who merges a card's approved work into the repository's default branch (PM-448, decision 48). */
 export const Merger = z.discriminatedUnion('kind', [
   /** The owner of the card's code review stage who reviewed it. */
@@ -393,6 +396,8 @@ export const ProjectConfig = z.object({
     /** Owner-controlled approval waiver; absent means every approval still needs a click. */
     operatorApprovalWaiver: z.boolean().optional(),
     cardMover: CardMover.optional(),
+    /** Independent PM moves (PM-1094); absent: DEFAULT_PROJECT_MANAGER_MOVES applies. */
+    projectManagerMoves: ProjectManagerMoves.optional(),
     /** Who merges approved work into the default branch. Absent: `defaultMerger` decides. */
     merger: Merger.optional(),
     members: z.array(MemberConfig).min(1),

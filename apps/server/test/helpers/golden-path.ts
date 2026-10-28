@@ -4,7 +4,6 @@ import { join } from 'node:path';
 import {
   SessionStartCause,
   isHumanOnlyLabel,
-  isRefinementStage,
   labelDefinition,
   labelSetters,
   roleBundle,
@@ -24,7 +23,7 @@ import {
   type TimelineEvent,
 } from '@projectman/shared';
 import { templates } from '@projectman/templates';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ToolContext } from '../../src/contracts';
 import { waitFor } from '../../src/runner/test-helpers';
 import { createAppHarness, setupOwner } from './app-harness';
@@ -91,6 +90,16 @@ async function setup(templateId: string) {
   );
   expect(created.statusCode, created.body).toBe(201);
   const domain = server.projectman.domain;
+  // The stage hand-overs run in the background after a move. The journey needs to know when each one is
+  // over (it stores the notice to a running session, or starts a session, or does nothing), so it tracks
+  // them here and waits for them instead of guessing from the timeline what the hand-over decided.
+  const handOvers = new Set<Promise<void>>();
+  const handOff = domain.handOver.handOff.bind(domain.handOver);
+  vi.spyOn(domain.handOver, 'handOff').mockImplementation((change) => {
+    const running: Promise<void> = handOff(change).finally(() => handOvers.delete(running));
+    handOvers.add(running);
+    return running;
+  });
   const configView = async (): Promise<ConfigView> =>
     (await server.inject({ method: 'GET', url: routes.config(projectKey), headers })).json();
   const board = async (): Promise<BoardView> =>
@@ -113,7 +122,18 @@ async function setup(templateId: string) {
     });
     return next.config;
   };
-  return { server, domain, cookie, headers, workspace, configView, board, patchConfig, close: harness.close };
+  return {
+    server,
+    domain,
+    cookie,
+    headers,
+    workspace,
+    handOvers,
+    configView,
+    board,
+    patchConfig,
+    close: harness.close,
+  };
 }
 
 type Harness = Awaited<ReturnType<typeof setup>>;
@@ -334,6 +354,8 @@ async function awaitSystem(h: Harness, j: Journey) {
       what: `the system moves the card on from ${task.stageId}`,
     });
   }
+  // A hand-over that is still running may store its notice: let it finish before the timeline is read.
+  await settledHandOvers(h);
   const business = h.domain.timeline
     .list(projectKey, { taskKey: j.task.key })
     .filter((event) => !event.type.startsWith('session_'));
@@ -431,34 +453,15 @@ async function handedOverTo(h: Harness, j: Journey, mover: string | null, from: 
     to: target,
     by: mover ? ai(mover) : system,
   });
-  // A refinement step has its own line: the hand-over tells nobody there.
-  if (isRefinementStage(stage)) return;
-  // The hand-over finds the session running and tells it with a stored message (PM-82). It runs in the
-  // background, so wait for the message, or for the card to be gone from the stage (then the hand-over
-  // stores nothing: it checks the card as it records), or for the hand-over to be deferred. Nothing after
-  // this point can add the notice to the timeline later.
-  const noticed = () => {
-    // Only the events after the latest entry into the stage count: the card may have been here before.
-    const events = h.domain.timeline.list(projectKey, { taskKey: j.task.key });
-    const entered = events.findLastIndex(
-      (event) => event.type === 'task_stage_changed' && event.data.to === target,
-    );
-    return events
-      .slice(entered + 1)
-      .some(
-        (event) =>
-          event.type === 'team_message' &&
-          event.data.from === 'system' &&
-          (event.data.to as string[]).includes(owner.handle),
-      );
-  };
-  await waitFor(
-    () => {
-      const task = h.domain.tasks.get(projectKey, j.task.key);
-      return task.stageId !== target || task.status !== 'active' || !!task.startWaiting || noticed();
-    },
-    { what: `the stage notice to ${owner.handle} for ${target}` },
-  );
+  // The hand-over runs in the background and decides by itself, depending on timing, whether it finds the
+  // session running (it stores a notice for it, PM-82) or starts the session (no notice). Either way it is
+  // over when its promise settles, so nothing after this point can add a notice to the timeline later.
+  await settledHandOvers(h);
+}
+
+/** Waits for every stage hand-over that is running, and for those they start in turn. */
+async function settledHandOvers(h: Harness) {
+  while (h.handOvers.size > 0) await Promise.allSettled([...h.handOvers]);
 }
 
 async function approve(h: Harness, j: Journey, member: string, target: string, cookie = h.cookie) {

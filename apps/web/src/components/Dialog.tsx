@@ -47,6 +47,7 @@ export function DialogActions({ error, children }: { error?: ReactNode; children
 }
 
 interface DialogProps {
+  role?: 'dialog' | 'alertdialog';
   open: boolean;
   onClose: () => void;
   /** A nested confirmation may consume Escape while the close button still closes the dialog. */
@@ -78,6 +79,7 @@ interface DialogProps {
  * mounted only while open, so forms start fresh every time.
  */
 export function Dialog({
+  role,
   open,
   onClose,
   onEscape,
@@ -100,6 +102,7 @@ export function Dialog({
   if (!open) return null;
   return (
     <DialogInner
+      role={role}
       onClose={onClose}
       onEscape={onEscape}
       title={title}
@@ -123,6 +126,7 @@ export function Dialog({
 }
 
 function DialogInner({
+  role,
   onClose,
   onEscape,
   title,
@@ -197,6 +201,7 @@ function DialogInner({
 
   return (
     <dialog
+      role={role}
       ref={ref}
       className={clsx(styles.dialog, styles[size], className)}
       aria-labelledby={titleId}

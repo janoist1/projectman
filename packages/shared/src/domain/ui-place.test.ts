@@ -56,6 +56,7 @@ describe('who may be offered a place', () => {
     expect(uiPlaceRefusal({ page: 'settings', section: 'email' }, 'developer')).toBe('place_not_visible');
     expect(uiPlaceRefusal({ page: 'settings', section: 'email' }, 'owner')).toBeNull();
     expect(uiPlaceRefusal({ page: 'settings', section: 'engines' }, 'owner')).toBe('place_not_target');
+    expect(uiPlaceRefusal({ page: 'settings', section: 'owners' }, 'owner')).toBe('place_not_target');
     expect(uiPlaceRefusal({ page: 'settings', section: 'integrator' }, 'admin')).toBe('place_not_target');
     expect(uiPlaceRefusal({ page: 'board' }, 'client')).toBeNull();
   });

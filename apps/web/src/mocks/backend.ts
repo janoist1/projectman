@@ -332,6 +332,7 @@ import { MockEmail } from './email';
 import { MockFeedback } from './feedback';
 import { MockPauses } from './pauses';
 import { MockPush } from './push';
+import { MockOwners } from './owners';
 import { mockId, mockUuid, nowIso } from './time';
 
 export type MockAuthState = 'ready' | 'setup' | 'login';
@@ -594,6 +595,7 @@ export class MockBackend {
   });
   /** The viewer's web push devices and settings (PM-815); a test fills the device list. */
   readonly push = new MockPush();
+  readonly owners = new MockOwners();
   /** What the owner asked the Operator for, with its steps (PM-447); a test or a scenario fills it. */
   operatorRequests: OperatorRequestView[] = [];
   checklist: ProjectChecklist | null = null;
@@ -1971,6 +1973,11 @@ export class MockBackend {
   /* ---------- REST ---------- */
 
   handle(method: string, path: string, body: unknown, query = new URLSearchParams()): MockResponse {
+    const ownerResponse = this.owners.handle(method, path, body, query, {
+      hostOwner: this.me().hostOwner === true,
+      ownLogin: !this.integratorMode,
+    });
+    if (ownerResponse) return ownerResponse;
     const publicInvite = /^\/api\/invites\/([^/]+)(\/accept)?$/.exec(path);
     if (publicInvite) return this.handlePublicInvite(method, publicInvite[1]!, !!publicInvite[2], body);
     if (path === '/api/setup') {

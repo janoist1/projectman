@@ -1,4 +1,5 @@
 import type { PushCategories, PushSettings } from '@projectman/shared';
+import { useMe } from '../../api/queries';
 import { useToast } from '../../components/toastContext';
 import { t } from '../../i18n/t';
 import type { PlainMessageKey } from '../../i18n/t';
@@ -11,6 +12,11 @@ const KINDS: ReadonlyArray<{
   title: PlainMessageKey;
   hint: PlainMessageKey;
 }> = [
+  {
+    id: 'host_request',
+    title: 'notifications.kinds.hostRequest',
+    hint: 'notifications.kinds.hostRequestHint',
+  },
   { id: 'question', title: 'notifications.kinds.question', hint: 'notifications.kinds.questionHint' },
   { id: 'decision', title: 'notifications.kinds.decision', hint: 'notifications.kinds.decisionHint' },
   { id: 'approval', title: 'notifications.kinds.approval', hint: 'notifications.kinds.approvalHint' },
@@ -18,9 +24,10 @@ const KINDS: ReadonlyArray<{
   { id: 'release', title: 'notifications.kinds.release', hint: 'notifications.kinds.releaseHint' },
 ];
 
-/** The five kinds of items worth a notification, each with its switch; saved at once (PM-815). */
+/** Notification categories available to the person; saved at once. */
 export function KindsCard({ settings }: { settings: PushSettings }) {
   const toast = useToast();
+  const me = useMe();
   const save = useSavePushSettings();
 
   function change(id: keyof PushCategories, enabled: boolean) {
@@ -36,7 +43,7 @@ export function KindsCard({ settings }: { settings: PushSettings }) {
   return (
     <div className={styles.card}>
       <ul className={styles.rows}>
-        {KINDS.map((kind) => (
+        {KINDS.filter((kind) => kind.id !== 'host_request' || me.data?.hostOwner).map((kind) => (
           <li key={kind.id} className={styles.row}>
             <label className={styles.rowLabel} htmlFor={`push-kind-${kind.id}`}>
               <span className={styles.rowTitle}>{t(kind.title)}</span>

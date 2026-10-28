@@ -5,6 +5,7 @@ import type { CreateEngineResponse, EngineView } from '@projectman/shared';
 import { useCreateEngine, useEngines, useRevokeEngine, useSetDefaultEngine } from '../../../api/queries';
 import { useProject } from '../../../app/contexts';
 import { Button } from '../../../components/Button';
+import { CopyRow } from '../../../components/CopyRow';
 import { Chip } from '../../../components/Chip';
 import { Dialog } from '../../../components/Dialog';
 import { ErrorBanner } from '../../../components/ErrorBanner';
@@ -27,7 +28,6 @@ type Dialogs =
 
 /** How long a row that has just connected stays tinted. */
 const FLASH_MS = 600;
-const COPIED_MS = 1600;
 
 /**
  * Settings → Motorok (PM-316): the machines the AI work runs on, their machine keys, the default
@@ -280,37 +280,6 @@ function machineParts(engine: EngineView): { text: string; mono?: boolean }[] {
   if (engine.platform) parts.push({ text: t(`engines.platform.${engine.platform}`) });
   if (engine.version) parts.push({ text: `v${engine.version}`, mono: true });
   return parts;
-}
-
-function CopyRow({ text, label }: { text: string; label: string }) {
-  const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle');
-  // "Másolva" is a confirmation, not a state: it goes back to "Másolás" after a moment.
-  useEffect(() => {
-    if (state !== 'copied') return;
-    const timer = window.setTimeout(() => setState('idle'), COPIED_MS);
-    return () => window.clearTimeout(timer);
-  }, [state]);
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setState('copied');
-    } catch {
-      setState('failed');
-    }
-  };
-  return (
-    <>
-      <div className={styles.copyRow}>
-        <code className={styles.code} aria-label={label}>
-          {text}
-        </code>
-        <Button variant="secondary" size="md" onClick={() => void copy()}>
-          {t(state === 'copied' ? 'engines.copied' : 'engines.copy')}
-        </Button>
-      </div>
-      {state === 'failed' && <ErrorBanner>{t('engines.copyFailed')}</ErrorBanner>}
-    </>
-  );
 }
 
 /** Step 1 asks the name; step 2 shows the machine key once, kept only in this component's state. */

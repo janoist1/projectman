@@ -1,4 +1,10 @@
 import {
+  OwnerInvitationsView,
+  CreatedOwnerInvitation,
+  OwnerAccountsView,
+  OwnerAccountView,
+  HostRequestListResponse,
+  HostRequestView,
   ProjectChecklistView,
   ServerVersionView,
   EmailChannelView,
@@ -72,6 +78,8 @@ import {
   InvolvementsResponse,
 } from '@projectman/shared';
 import type {
+  CreateOwnerInviteRequest,
+  AnswerHostRequestRequest,
   SetChecklistItemStateRequest,
   CreateIntegratorAccessKeyRequest,
   OperatorGrantDuration,
@@ -456,6 +464,19 @@ export const api = {
   setEmailContact: (key: string, handle: string, body: SetEmailContactRequest) =>
     apiRequest(routes.emailContact(key, handle), { method: 'PUT', body, schema: EmailContact }),
 
+  ownerInvitations: () => apiRequest(routes.ownerInvitations(), { schema: OwnerInvitationsView }),
+  createOwnerInvitation: (body: CreateOwnerInviteRequest) =>
+    apiRequest(routes.ownerInvitations(), { method: 'POST', body, schema: CreatedOwnerInvitation }),
+  revokeOwnerInvitation: (id: string) => apiRequest<void>(routes.ownerInvitation(id), { method: 'DELETE' }),
+  ownerAccounts: () => apiRequest(routes.ownerAccounts(), { schema: OwnerAccountsView }),
+  revokeOwnerAccount: (id: string) =>
+    apiRequest(routes.revokeOwnerAccount(id), { method: 'POST', schema: OwnerAccountView }),
+  hostRequests: (state: 'open' | 'all') =>
+    apiRequest(`${routes.hostRequests()}${state === 'open' ? '?state=open' : ''}`, {
+      schema: HostRequestListResponse,
+    }),
+  answerHostRequest: (id: string, body: AnswerHostRequestRequest) =>
+    apiRequest(routes.answerHostRequest(id), { method: 'POST', body, schema: HostRequestView }),
   config: (key: string) => apiRequest(routes.config(key), { schema: ConfigView }),
   patchConfig: (key: string, body: PatchConfigRequest) =>
     apiRequest(routes.patchConfig(key), { method: 'PATCH', body, schema: ConfigView }),

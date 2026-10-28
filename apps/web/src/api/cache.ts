@@ -199,6 +199,7 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       invalidateAttachments(client, event.projectKey, event.taskKey);
       return;
     case 'engine_changed': {
+      void client.invalidateQueries({ queryKey: queryKeys.ownerAccounts });
       // The status list of every internal member, then the owner's list (counts, hello data) where it is on screen.
       client.setQueryData<EngineStatusResponse>(queryKeys.engineStatus, (status) =>
         status ? { ...status, engines: upsertBy(status.engines, event.engine, (entry) => entry.id) } : status,

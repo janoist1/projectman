@@ -53,10 +53,11 @@ describe('complexity rules', () => {
   });
 
   it.each([
-    [{}, 5],
-    [{ complexityLimit: 13 }, 13],
-    [{ complexityLimit: 13, temp: true }, 5],
-  ])('resolves the effective limit for %j', (fields, expected) => {
+    [{}, undefined, 5],
+    [{ complexityLimit: 13 }, undefined, 13],
+    [{ complexityLimit: 13, temp: true }, undefined, 5],
+    [{ complexityLimit: 13, temp: true }, 8, 8],
+  ])('resolves the effective limit for %j with the temp limit %s', (fields, maxPoints, expected) => {
     const member = AiMemberConfig.parse({
       kind: 'ai',
       handle: 'dev',
@@ -65,7 +66,11 @@ describe('complexity rules', () => {
       sponsor: 'owner',
       ...fields,
     });
-    expect(complexityLimitOf(member)).toBe(expected);
+    const limited = ProjectConfig.parse({
+      ...config,
+      team: { ...config.team, limits: { tempWorkers: { maxPoints } } },
+    });
+    expect(complexityLimitOf(limited, member)).toBe(expected);
   });
 
   it('accepts only scale values', () => {

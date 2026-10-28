@@ -223,7 +223,7 @@ export class MemberService {
         ...permissionView(config, m),
         machineAccess: machineAccessOf(m),
         ...(m.onLeave ? { onLeave: true } : {}),
-        ...(isDeveloper(config, m) ? { complexityLimit: complexityLimitOf(m) } : {}),
+        ...(isDeveloper(config, m) ? { complexityLimit: complexityLimitOf(config, m) } : {}),
         ...(isDeveloper(config, m) && m.specialtyLabels ? { specialtyLabels: m.specialtyLabels } : {}),
       };
     });

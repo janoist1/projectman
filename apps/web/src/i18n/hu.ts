@@ -3905,7 +3905,7 @@ export const hu = {
     limitHint: 'Automatikusan ennél nagyobb pontú kártyát nem kap. Pontozatlan kártyát bármikor kaphat.',
     limitDefault: '5 pont (alap)',
     limitUnlimited: '13 pont – bármekkora',
-    tempLimit: 'Helyettesként legfeljebb 5 pontos kártyát kaphat.',
+    tempLimit: 'Beugróként legfeljebb {points} pontos kártyát kaphat; ezt a projekt Korlátok része állítja.',
     emailEnabled: 'E-mail levelezés engedélyezése',
     emailEnabledHint:
       'Írhat azoknak, akik a Beállítások › E-mail alatt e-mailt kérnek, és megkapja a válaszukat.',
@@ -6648,7 +6648,7 @@ export const hu = {
       loopWatchTo: 'Jelzést kap: {name} (Ütemezés).',
       loopWatchDuties: 'Feladatkörök',
       tempWorkers: 'Beugrók',
-      tempWorkersOn: 'be · legfeljebb {max} · {role}',
+      tempWorkersOn: 'be · legfeljebb {max} · {role} · {points} pontig',
       tempWorkersOff: 'ki',
       seniorWait: 'Várakozás alkalmas fejlesztőre (perc)',
       seniorWaitSummary: 'Várakozás alkalmas fejlesztőre',
@@ -6718,6 +6718,7 @@ export const hu = {
       addCondition: 'Feltétel hozzáadása',
       removeCondition: 'Feltétel eltávolítása',
       tempMax: 'Beugrók legfeljebb',
+      tempMaxPoints: 'Legnagyobb kártya',
       conflict:
         'A beállítások közben megváltoztak. Töltsd újra a legfrissebb verziót; a szerkesztésed elvész.',
       reload: 'Legfrissebb beállítások betöltése',

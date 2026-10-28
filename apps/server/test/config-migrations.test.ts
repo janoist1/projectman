@@ -729,6 +729,20 @@ describe('Senior mark migration (PM-1007)', () => {
   });
 });
 
+describe('temp worker card limit migration (PM-1101)', () => {
+  const tempWorkers = (config: ReturnType<typeof raw>) =>
+    (config.team as unknown as { limits: { tempWorkers: Record<string, unknown> } }).limits.tempWorkers;
+
+  it('writes the default into a section without it and keeps a set value', () => {
+    const legacy = raw();
+    tempWorkers(legacy).maxPoints = undefined;
+    expect(migrate(legacy).config.team.limits.tempWorkers.maxPoints).toBe(5);
+    const set = raw();
+    tempWorkers(set).maxPoints = 8;
+    expect(migrate(set).config.team.limits.tempWorkers.maxPoints).toBe(8);
+  });
+});
+
 describe('separate mailbox name migration (PM-1039)', () => {
   const member = (config: ReturnType<typeof raw>, handle: string) =>
     config.team.members.find((m) => m.handle === handle)!;

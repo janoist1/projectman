@@ -525,17 +525,18 @@ describe('settings section editors', () => {
     fireEvent.change(section.getByLabelText(t('settings.edit.tempMax')), { target: { value: '3' } });
     fireEvent.blur(section.getByLabelText(t('settings.edit.tempMax')));
     fireEvent.change(role, { target: { value: 'qa' } });
+    fireEvent.change(section.getByLabelText(t('settings.edit.tempMaxPoints')), { target: { value: '8' } });
     await waitFor(() =>
       expect(project.backend.config.team.limits).toMatchObject({
         maxConcurrentAi: 2,
         pauseAbovePlanUsagePercent: 60,
-        tempWorkers: { enabled: true, max: 3, role: 'qa' },
+        tempWorkers: { enabled: true, max: 3, role: 'qa', maxPoints: 8 },
       }),
     );
     expect(lastConfigPatch(project.requests).limits).toMatchObject({
       maxConcurrentAi: 2,
       pauseAbovePlanUsagePercent: 60,
-      tempWorkers: { enabled: true, max: 3, role: 'qa' },
+      tempWorkers: { enabled: true, max: 3, role: 'qa', maxPoints: 8 },
     });
   });
 

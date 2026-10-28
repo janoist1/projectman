@@ -7,12 +7,15 @@ import {
   DEFAULT_MAX_FIX_ROUNDS,
   DEFAULT_MIN_FREE_DISK_GB,
   DEFAULT_SENIOR_WAIT_MINUTES,
+  COMPLEXITY_POINTS,
+  ComplexityPoints,
   boundaryOwners,
   loopDeciders,
   loopWatchOf,
   loopWatchers,
   maxFixRoundsOf,
   seniorWaitMinutesOf,
+  tempMaxPointsOf,
 } from '@projectman/shared';
 import type { ProjectConfig } from '@projectman/shared';
 import clsx from 'clsx';
@@ -185,6 +188,25 @@ function LimitsControls({ config }: { config: ProjectConfig }) {
                   {role.name}
                 </option>
               ))}
+          </SelectField>
+          <SelectField
+            label={t('settings.edit.tempMaxPoints')}
+            value={tempMaxPointsOf(shown)}
+            onChange={(event) =>
+              commit((draft) => {
+                draft.team.limits.tempWorkers.maxPoints = ComplexityPoints.parse(Number(event.target.value));
+              })
+            }
+          >
+            {COMPLEXITY_POINTS.map((points) => (
+              <option key={points} value={points}>
+                {points === 5
+                  ? t('memberEdit.limitDefault')
+                  : points === 13
+                    ? t('memberEdit.limitUnlimited')
+                    : t('task.complexity.points', { points })}
+              </option>
+            ))}
           </SelectField>
         </div>
       ) : null}
@@ -436,6 +458,7 @@ export function LimitsSection({ config }: { config: ProjectConfig }) {
                 ? t('settings.limits.tempWorkersOn', {
                     max: limits.tempWorkers.max,
                     role: aiRoleView(limits.tempWorkers.role, undefined, roles.data?.roles).name,
+                    points: tempMaxPointsOf(config),
                   })
                 : t('settings.limits.tempWorkersOff')}
             </dd>

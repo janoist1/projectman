@@ -7,6 +7,7 @@ import {
   DEFAULT_PROJECT_LANGUAGE,
   DEFAULT_PRIORITY_SETTERS,
   DEFAULT_PROJECT_MANAGER_MOVES,
+  DEFAULT_TEMP_MAX_POINTS,
   DEFAULT_VIEWER_RECIPIENTS,
   defaultMerger,
   FALLBACK_PERMISSION_MODE,
@@ -388,6 +389,17 @@ function addFeedbackProcessing(raw: unknown, { projectKey, logger }: MigrationCo
 }
 
 /**
+ * A project that has temp workers settings (PM-1101) gets the explicit default card limit, so choosing
+ * the default later is no change in the canonical comparison. A set value stays; a project without the
+ * section gets the schema default. Idempotent.
+ */
+function addTempMaxPoints(raw: unknown): unknown {
+  const tempWorkers = asRecord(asRecord(asRecord(asRecord(raw)?.team)?.limits)?.tempWorkers);
+  if (tempWorkers && tempWorkers.maxPoints === undefined) tempWorkers.maxPoints = DEFAULT_TEMP_MAX_POINTS;
+  return raw;
+}
+
+/**
  * Upgrades a merged, not yet validated project configuration of an older shape, in memory: the
  * customization files keep their content until the next save. Used wherever the store reads
  * a configuration (the working tree and earlier versions alike).
@@ -409,46 +421,49 @@ function addFeedbackProcessing(raw: unknown, { projectKey, logger }: MigrationCo
  *     references (above), and is never put back;
  *   - a missing merger becomes the code reviewer or the developer, by the pipeline (above), judged on
  *     the configuration without the Operator;
- *   - an override of the project manager role gets the feedback processing duty (above), last.
+ *   - an override of the project manager role gets the feedback processing duty (above);
+ *   - a temp workers section without a card limit gets `DEFAULT_TEMP_MAX_POINTS` (above), last.
  * Stage kinds from before decision 18 (review, deploy, …) are read by the pipeline schema
  * itself (packages/shared/src/domain/pipeline.ts).
  */
 export function migrateProjectConfig(raw: unknown, context: MigrationContext): unknown {
-  return addFeedbackProcessing(
-    addMerger(
-      removeOperator(
-        addViewerRecipients(
-          addPrioritySetters(
-            addProjectManagerMoves(
-              addCardMover(
-                addProjectManager(
-                  migrateReleaseApproval(
-                    migrateLegacyConfig(
-                      migrateCodexBypass(
-                        migrateScheduledRole(
-                          dropMessageBurst(
-                            migrateSeniorLimit(
-                              dropEmailMailbox(migrateShadowingRoles(raw, context), context),
+  return addTempMaxPoints(
+    addFeedbackProcessing(
+      addMerger(
+        removeOperator(
+          addViewerRecipients(
+            addPrioritySetters(
+              addProjectManagerMoves(
+                addCardMover(
+                  addProjectManager(
+                    migrateReleaseApproval(
+                      migrateLegacyConfig(
+                        migrateCodexBypass(
+                          migrateScheduledRole(
+                            dropMessageBurst(
+                              migrateSeniorLimit(
+                                dropEmailMailbox(migrateShadowingRoles(raw, context), context),
+                                context,
+                              ),
                               context,
                             ),
                             context,
                           ),
                           context,
                         ),
-                        context,
                       ),
+                      context,
                     ),
                     context,
                   ),
-                  context,
                 ),
               ),
             ),
           ),
+          context,
         ),
-        context,
       ),
+      context,
     ),
-    context,
   );
 }

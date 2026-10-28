@@ -10,6 +10,7 @@ import {
   coordinationActorRefusal,
   chooseDeveloper,
   complexityLimitOf,
+  tempMaxPointsOf,
   complexityOf,
   DEFAULT_AGENT_PROVIDER,
   evaluateStart,
@@ -676,7 +677,7 @@ export class TaskStarts implements WorkEntryCheck {
       )
       .map((c) => ({
         handle: c.m.handle,
-        limit: complexityLimitOf(c.m),
+        limit: complexityLimitOf(config, c.m),
         specialtyLabels: c.m.specialtyLabels,
         temp: !!c.m.temp,
         load: c.load,
@@ -694,6 +695,7 @@ export class TaskStarts implements WorkEntryCheck {
       anyDecided: this.seniorWaits.decisionFor(projectKey, task.key)?.decision === 'any',
       reaching,
       free,
+      tempMaxPoints: tempMaxPointsOf(config),
     });
     // A replaced assignee stays with the card when nobody fitting is free: nothing is assigned, waited for or
     // written, and the refusal is the one a card without an assignee gets (PM-1051).

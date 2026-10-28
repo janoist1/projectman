@@ -7,6 +7,9 @@ import {
 } from '@tanstack/react-query';
 import type { QueryClient } from '@tanstack/react-query';
 import type {
+  CreateOwnerInviteRequest,
+  CreatedOwnerInvitation,
+  AnswerHostRequestRequest,
   SetChecklistItemStateRequest,
   CloseFeedbackRequest,
   CreateTaskFromFeedbackRequest,
@@ -61,6 +64,74 @@ import { queryKeys } from './queryKeys';
 import type { AllMessagesFilter } from './queryKeys';
 
 /* ---------- auth ---------- */
+
+export function useOwnerInvitations(enabled: boolean) {
+  return useQuery({ queryKey: queryKeys.ownerInvitations, queryFn: api.ownerInvitations, enabled });
+}
+export function useCreateOwnerInvitation() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      body,
+      onCreated,
+    }: {
+      body: CreateOwnerInviteRequest;
+      onCreated: (created: CreatedOwnerInvitation) => void;
+    }) => {
+      const created = await api.createOwnerInvitation(body);
+      onCreated(created);
+      const { path: _path, ...invitation } = created;
+      return invitation;
+    },
+    onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.ownerInvitations }),
+  });
+}
+export function useRevokeOwnerInvitation() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: api.revokeOwnerInvitation,
+    onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.ownerInvitations }),
+  });
+}
+export function useOwnerAccounts(enabled: boolean) {
+  return useQuery({ queryKey: queryKeys.ownerAccounts, queryFn: api.ownerAccounts, enabled });
+}
+export function useRevokeOwnerAccount() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: api.revokeOwnerAccount,
+    onSuccess: async () => {
+      await Promise.all(
+        [queryKeys.ownerAccounts, queryKeys.engines, queryKeys.engineStatus].map((queryKey) =>
+          client.invalidateQueries({ queryKey }),
+        ),
+      );
+    },
+  });
+}
+export function useHostRequests(state: 'open' | 'all', enabled: boolean) {
+  const client = useQueryClient();
+  return useQuery({
+    queryKey: queryKeys.hostRequests(state),
+    queryFn: async () => {
+      const data = await api.hostRequests(state);
+      // The navigation polls open requests; refresh the visible history along with its badge.
+      if (state === 'open') void client.invalidateQueries({ queryKey: queryKeys.hostRequests('all') });
+      return data;
+    },
+    enabled,
+    refetchInterval: state === 'open' ? 60_000 : false,
+    refetchIntervalInBackground: false,
+  });
+}
+export function useAnswerHostRequest() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: AnswerHostRequestRequest }) =>
+      api.answerHostRequest(id, body),
+    onSettled: () => client.invalidateQueries({ queryKey: queryKeys.hostRequestsAll }),
+  });
+}
 
 export function useChecklist(key: string, enabled: boolean) {
   return useQuery({ queryKey: queryKeys.checklist(key), queryFn: () => api.checklist(key), enabled });

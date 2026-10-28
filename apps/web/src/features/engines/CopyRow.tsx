@@ -16,12 +16,14 @@ export function CopyRow({
   label,
   scroll = false,
   copyLabel = t('engines.copy'),
+  failedText = t('engines.copyFailed'),
 }: {
   text: string;
   label: string;
   scroll?: boolean;
   /** The button's text before the copy; a long text says what it copies ("Utasítás másolása"). */
   copyLabel?: string;
+  failedText?: string;
 }) {
   const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle');
   // "Másolva" is a confirmation, not a state: it goes back to "Másolás" after a moment.
@@ -52,7 +54,7 @@ export function CopyRow({
           {state === 'copied' ? t('engines.copied') : copyLabel}
         </Button>
       </div>
-      {state === 'failed' && <ErrorBanner>{t('engines.copyFailed')}</ErrorBanner>}
+      {state === 'failed' && <ErrorBanner>{failedText}</ErrorBanner>}
     </>
   );
 }

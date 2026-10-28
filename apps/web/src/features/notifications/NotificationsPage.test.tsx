@@ -45,6 +45,18 @@ function subscribedHere(project: ReturnType<typeof mockProject>, patch = {}) {
 }
 
 describe('this device', () => {
+  it.each([true, false])('shows host request preferences only for the host (%s)', async (host) => {
+    const project = mockProject();
+    if (!host) project.backend.user.userId = 'usr_other';
+    project.render(<NotificationsPage />);
+    await screen.findByText(t('notifications.kinds.question'));
+    await waitFor(() => expect(project.requests.some((r) => r.path === '/api/me')).toBe(true));
+    await waitFor(() =>
+      expect(
+        Boolean(screen.queryByRole('switch', { name: new RegExp(t('notifications.kinds.hostRequest')) })),
+      ).toBe(host),
+    );
+  });
   it('asks for the permission on the press, subscribes and shows the device as this one', async () => {
     const project = renderPage();
     fireEvent.click(await screen.findByRole('button', { name: t('notifications.off.action') }));

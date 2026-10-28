@@ -4076,6 +4076,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                   "history",
                   "engines",
                   "providers",
+                  "owners",
                   "integrator",
                   "account",
                 ],

@@ -153,3 +153,14 @@
     padding: 4px 14px 16px;
   }
 }
+.count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  padding: 1px 6px;
+  border-radius: 12px;
+  background: var(--c-accent);
+  color: var(--c-on-accent);
+  font-size: 12px;
+}

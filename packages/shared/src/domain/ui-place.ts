@@ -18,6 +18,7 @@ export const SETTINGS_SECTIONS = [
   'history',
   'engines',
   'providers',
+  'owners',
   'integrator',
   'account',
 ] as const;
@@ -145,7 +146,8 @@ export function settingsSectionVisible(section: SettingsSection, access: HumanAc
  */
 export function uiPlaceRefusal(place: UiPlace, access: HumanAccess): UiPlaceRefusal | null {
   if (place.page !== 'settings' || place.section === undefined) return null;
-  if (place.section === 'integrator' || place.section === 'engines') return 'place_not_target';
+  if (place.section === 'integrator' || place.section === 'engines' || place.section === 'owners')
+    return 'place_not_target';
   return settingsSectionVisible(place.section, access) ? null : 'place_not_visible';
 }
 

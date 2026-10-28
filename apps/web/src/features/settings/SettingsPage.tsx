@@ -7,7 +7,14 @@ import {
   validateProjectConfig,
 } from '@projectman/shared';
 import type { ConfigView, EngineStatusView } from '@projectman/shared';
-import { useConfig, useEmailChannel, useEngineStatus } from '../../api/queries';
+import {
+  useConfig,
+  useEmailChannel,
+  useEngineStatus,
+  useHostRequests,
+  useOwnerAccounts,
+} from '../../api/queries';
+import { OwnersSection } from './owners/OwnersSection';
 import { useProject, useProjectIndexes } from '../../app/contexts';
 import { Chip } from '../../components/Chip';
 import { Icon } from '../../components/Icon';
@@ -45,9 +52,14 @@ function summary(
   name: string,
   engines: readonly EngineStatusView[] = [],
   emailHumans = 0,
+  owners = { owners: 0, open: 0 },
   members: MemberIndex = new Map(),
   myHandle: string | null = null,
 ): string {
+  if (section === 'owners')
+    return owners.owners || owners.open
+      ? t('settings.summary.owners', owners)
+      : t('settings.summary.ownersEmpty');
   if (section === 'account') return t('settings.summary.account', { name });
   if (section === 'engines')
     return engines.length
@@ -136,6 +148,13 @@ export function SettingsPage() {
   const wide = useMediaQuery(SETTINGS_WIDE_QUERY);
   const { section: routeSection } = useParams();
   const section = isSettingsSection(routeSection) ? routeSection : undefined;
+  const ownersShown = me.hostOwner === true && !me.via;
+  const hostRequests = useHostRequests('open', ownersShown);
+  const ownerAccounts = useOwnerAccounts(ownersShown && !wide && !section);
+  const ownersSummary = {
+    owners: ownerAccounts.data?.accounts.filter((a) => a.revokedAt === null).length ?? 0,
+    open: hostRequests.data?.requests.length ?? 0,
+  };
   const location = useLocation();
   const main = useRef<HTMLDivElement>(null);
   const previousSection = useRef(section);
@@ -156,7 +175,9 @@ export function SettingsPage() {
       main.current?.querySelector<HTMLElement>(`#settings-${section}`)?.focus();
     } else if (!wide) {
       if (section) {
-        const heading = main.current?.querySelector<HTMLElement>(`#settings-${section}`);
+        const heading = main.current?.querySelector<HTMLElement>(
+          section === 'owners' ? '#settings-host-requests, #settings-owners' : `#settings-${section}`,
+        );
         if (heading) {
           heading.tabIndex = -1;
           heading.focus();
@@ -178,6 +199,7 @@ export function SettingsPage() {
   if (isSettingsSection(legacy))
     return <Navigate replace to={{ pathname: `${base}/${legacy}`, search: location.search }} />;
   if (routeSection && !section) return <Navigate replace to={base} />;
+  if (section === 'owners' && !ownersShown) return <Navigate replace to={base} />;
   // The engines section is not there for a member who cannot manage them, or on a one-machine installation.
   if (section === 'engines' && !enginesShown && !(machineOwner && engineStatus.isPending))
     return <Navigate replace to={base} />;
@@ -194,7 +216,11 @@ export function SettingsPage() {
       if (target) counts[target.section] = (counts[target.section] ?? 0) + 1;
     }
   const shownSections = SETTINGS_SECTIONS.filter(
-    (id) => (id !== 'integrator' || machineOwner) && (id !== 'engines' || enginesShown) && sectionVisible(id),
+    (id) =>
+      (id !== 'owners' || ownersShown) &&
+      (id !== 'integrator' || machineOwner) &&
+      (id !== 'engines' || enginesShown) &&
+      sectionVisible(id),
   );
   // The divider before the sections that are not the project's: the first of engines and providers.
   const accountStart = shownSections.find((id) => id === 'engines' || id === 'providers');
@@ -216,6 +242,14 @@ export function SettingsPage() {
           <span className={styles.linkText}>
             <span className={styles.linkTitle}>
               {sectionLabel(id)}{' '}
+              {id === 'owners' && ownersSummary.open > 0 && (
+                <span
+                  className={styles.count}
+                  aria-label={t('settings.ownersOpenMark', { n: ownersSummary.open })}
+                >
+                  {ownersSummary.open}
+                </span>
+              )}
               {counts[id] ? (
                 <span
                   className={styles.mark}
@@ -236,6 +270,7 @@ export function SettingsPage() {
                   me.name,
                   engineStatus.data?.engines,
                   emailHumans,
+                  ownersSummary,
                   members,
                   myHandle,
                 )}
@@ -249,6 +284,7 @@ export function SettingsPage() {
   );
   let content;
   if (section === 'account') content = <AccountSection />;
+  else if (section === 'owners') content = <OwnersSection />;
   else if (section === 'integrator') content = <IntegratorSection />;
   else if (section === 'engines') content = enginesShown ? <EnginesSection /> : <LoadingState />;
   else if (config.data && section) {
@@ -325,7 +361,7 @@ export function SettingsPage() {
       <div className={styles.grid}>
         {wide ? navigation : null}
         <div ref={main} className={styles.mainCol} data-settings-content>
-          {section !== 'account' && section !== 'engines' ? (
+          {section !== 'account' && section !== 'engines' && section !== 'owners' ? (
             <>
               {config.isPending && section ? <LoadingState /> : null}
               {config.isError ? (

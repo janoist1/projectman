@@ -2,8 +2,11 @@ import {
   EXTERNAL_ATTACHMENT_DEFAULT_CHUNK_BYTES,
   EXTERNAL_ATTACHMENT_MAX_FILE_BYTES,
   effectiveRepo,
+  isIntegratorInboxItem,
   isOpenTask,
   isTheme,
+  machineTodoIssuerAllowed,
+  memberOf,
   needsRepoChoice,
   operatorOf,
   roleBundle,
@@ -146,16 +149,49 @@ export class ExternalTools implements ExternalToolsHandler {
     return access;
   }
 
+  /**
+   * The member a step on an open queue item is made as (decision 66): the issuer of an integrator queue item
+   * that is open for the key's holder and was issued by a member with machine access. An item the system
+   * issued has no member behind it: null, and the holder acts in person.
+   */
+  async queueIssuer(
+    input: { principal: IntegratorPrincipal; projectKey: string },
+    queueItemId: string,
+  ): Promise<string | null> {
+    const holder = await this.owned(input.principal, input.projectKey);
+    const item = (() => {
+      try {
+        return this.deps.inbox.get(input.projectKey, queueItemId);
+      } catch {
+        return null;
+      }
+    })();
+    if (
+      !item ||
+      item.state !== 'open' ||
+      !isIntegratorInboxItem(item) ||
+      !item.assignees.includes(holder.handle)
+    )
+      throw forbidden('queue_item_not_yours', 'the queue item is not open for the key’s holder');
+    const config = await this.deps.projects.config(input.projectKey);
+    if (!machineTodoIssuerAllowed(config, item.source))
+      throw conflict(
+        'issuer_without_machine_access',
+        'the member who issued the queue item has no machine access',
+      );
+    return memberOf(config, item.source) ? item.source : null;
+  }
+
   async bind(
-    input: { principal: IntegratorPrincipal; projectKey: string; requestId: string },
+    input: { principal: IntegratorPrincipal; projectKey: string; requestId: string; issuer?: string },
     operation: 'read' | 'write',
   ): Promise<ExternalToolContext> {
-    const { principal, projectKey, requestId } = input;
+    const { principal, projectKey, requestId, issuer } = input;
     if (operation === 'write' && principal.mode === 'read')
       throw forbidden('integrator_read_only', 'a read-only credential cannot change anything');
     const owner = await this.owned(principal, projectKey);
     const access = await this.deps.superOperator.access(
-      { principal, email: this.holder(principal), requestId },
+      { principal, email: this.holder(principal), requestId, ...(issuer ? { issuer } : {}) },
       owner,
       operation,
     );
@@ -170,11 +206,17 @@ export class ExternalTools implements ExternalToolsHandler {
       handler: this,
       isHost: (principal) => this.deps.credentials.isHostOwner?.(principal.userId) ?? false,
       bind: (input, operation) => this.bind(input, operation),
+      queueIssuer: (input, queueItemId) => this.queueIssuer(input, queueItemId),
       execute: async (context, target, run) => {
         const { principal } = context;
         await this.owned(principal, target.projectKey);
         return this.deps.superOperator.execute(
-          { principal, email: this.holder(principal), requestId: context.requestId },
+          {
+            principal,
+            email: this.holder(principal),
+            requestId: context.requestId,
+            ...(context.issuer ? { issuer: context.issuer } : {}),
+          },
           target,
           run,
         );

@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID } from 'node:crypto';
-import type { Actor, SuperActor } from '@projectman/shared';
+import type { Actor, BoundActor } from '@projectman/shared';
 
 /** Sortable-ish unique id with a type prefix, e.g. "ses_lx2k9a1b2c3d4e5". */
 export function newId(prefix: string): string {
@@ -36,7 +36,7 @@ export function aiActor(handle: string): Actor {
 export function attributedActor(by: {
   handle: string;
   via?: 'integrator' | null | undefined;
-  superActor?: SuperActor | undefined;
+  superActor?: BoundActor | undefined;
 }): Actor {
   if (by.superActor) return { ...by.superActor };
   return { ...humanActor(by.handle), ...(by.via ? { via: by.via } : {}) };

@@ -3,7 +3,7 @@ import type {
   ExternalToolOrigin,
   HumanMemberConfig,
   ProjectConfig,
-  SuperActor,
+  BoundActor,
   SuperMutationInput,
 } from '@projectman/shared';
 
@@ -52,7 +52,7 @@ export interface OperatorAppSessions {
  */
 export interface SuperExecutionContext {
   readonly projectKey: string;
-  readonly actor: SuperActor;
+  readonly actor: BoundActor;
   readonly requestId: string;
   readonly handoffId?: string | null;
 }
@@ -63,6 +63,12 @@ export interface IntegratorExecutionContext {
   readonly email: string;
   readonly requestId: string;
   readonly projectKey?: string | null;
+  /**
+   * The issuer of the queue item this call works on (decision 66): the step is then recorded under that AI
+   * member, through the holder's Claude. Set only by the server after it checked the item; no argument of a
+   * tool call carries it.
+   */
+  readonly issuer?: string;
 }
 
 export interface AuthenticatedIntegratorExecutionContext {

@@ -155,6 +155,7 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       const { projectKey: key, event: entry } = event;
       if (
         entry.actor.operatorMode === 'super' ||
+        entry.actor.through !== undefined ||
         entry.type === 'super_handoff_changed' ||
         entry.type === 'super_operation_changed'
       ) {

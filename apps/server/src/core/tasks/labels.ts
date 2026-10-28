@@ -1,6 +1,7 @@
 import {
   expiredLabels,
   hasSuperOrigin,
+  isConnectedOwnerActor,
   labelDefinition,
   planLabelChange,
   timelineNoteExcerpt,
@@ -44,9 +45,12 @@ export function planLabelsOrThrow(
 ): PlannedLabels {
   const owner = assertIntegratorAccess(config, 'write', actor);
   // The key owner's authority comes only from the authenticated scope, and only for a super-mode step (PM-831).
-  // A step on a member's request (a queue item) does not lend it (PM-1010).
+  // A step on a member's request (a queue item) does not lend it (PM-1010). The connected Claude lends it
+  // only for its holder's own instruction, when the holder is an owner (decision 66).
   const authority =
-    hasSuperOrigin(actor) && owner && delegatesOwnerAuthority() ? { authorizedBy: owner.handle } : undefined;
+    (hasSuperOrigin(actor) || isConnectedOwnerActor(config, actor)) && owner && delegatesOwnerAuthority()
+      ? { authorizedBy: owner.handle }
+      : undefined;
   const plan = planLabelChange(config, task, change, actor, comment, authority);
   if (plan.ok) return plan;
   const refusal = plan.refusal;

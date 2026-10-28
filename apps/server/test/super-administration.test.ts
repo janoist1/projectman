@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
 import { SUPER_DIAGNOSTIC_COLUMNS, SuperDiagnosticsRequest, SuperOperationDetail } from '@projectman/shared';
-import type { AdministrationCommand, EngineId, Release, SuperActor, SuperCommand } from '@projectman/shared';
+import type { AdministrationCommand, EngineId, Release, SuperCommand } from '@projectman/shared';
 import { createDomainHarness, OWNER } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { bindSuperPrincipal } from '../src/core/members';
@@ -266,8 +266,8 @@ describe('super mode: diagnostics, test, build and release preparation (PM-764)'
         },
       ]);
       expect(timeline('super_operation_changed').at(-1)?.actor).toMatchObject({
-        kind: 'ai',
-        operatorMode: 'super',
+        kind: 'human',
+        through: { holder: 'owner' },
       });
       const result = {
         kind: 'owner_command',
@@ -927,7 +927,7 @@ describe('super mode: diagnostics, test, build and release preparation (PM-764)'
     const actor = h.domain.superHandoffs.operation('AR', operation.id);
     expect(actor.state).toBe('running');
     const event = timeline('super_operation_changed')[0]!;
-    expect((event.actor as SuperActor).kind).toBe('ai');
-    expect((event.actor as SuperActor).operatorMode).toBe('super');
+    expect(event.actor.kind).toBe('human');
+    expect(event.actor.through?.holder).toBe('owner');
   });
 });

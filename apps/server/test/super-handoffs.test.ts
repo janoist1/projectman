@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
-import { TODO_CANNOT_OPTION, TODO_DONE_OPTION } from '@projectman/shared';
-import type { InboxOption, SuperActor, SuperCommand, SuperOperation } from '@projectman/shared';
+import { connectedActorOf, TODO_CANNOT_OPTION, TODO_DONE_OPTION } from '@projectman/shared';
+import type { ConnectedActor, InboxOption, SuperCommand, SuperOperation } from '@projectman/shared';
 import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
@@ -16,13 +16,7 @@ const KEY = { id: 'ikey_handoff_1', prefix: 'pmi_handoff1' };
 const SECOND_SECRET = 'pmi_handoff_second';
 const SECOND_KEY = { id: 'ikey_handoff_2', prefix: 'pmi_handoff2' };
 const HOUR = 60 * 60 * 1000;
-const SUPER_ACTOR: SuperActor = {
-  kind: 'ai',
-  handle: 'operator',
-  via: 'integrator',
-  operatorMode: 'super',
-  credential: { id: KEY.id, prefix: KEY.prefix },
-};
+const SUPER_ACTOR: ConnectedActor = connectedActorOf('owner', { id: KEY.id, prefix: KEY.prefix });
 
 // The Operator asks (no token); the integrator executes (with the owner's token). Fictional commands only.
 const PAUSE: SuperCommand = { kind: 'operate', operation: { op: 'project_pause' } };
@@ -448,6 +442,24 @@ describe('durable super-mode handoff (PM-762)', () => {
       // Repeating the request is the same result and no second run.
       expect((await execute(handoff.id, requestId)).id).toBe(operation.id);
       expect(calls).toHaveLength(1);
+    });
+
+    it('carries the approver on the step that runs after the owner`s yes, and only then', async () => {
+      await boot();
+      const { handoff, requestId, operation } = await waiting();
+      await answerAsOwner(operation.ownerQuestionId!, 'yes');
+      await execute(handoff.id, requestId);
+      expect(calls).toHaveLength(1);
+      expect(calls[0]!.access.superActor).toMatchObject({
+        through: { holder: 'owner' },
+        approvedBy: 'owner',
+      });
+
+      const direct = await request(PAUSE);
+      await execute(direct.id, randomUUID());
+      expect(calls).toHaveLength(2);
+      expect(calls[1]!.access.superActor?.through?.holder).toBe('owner');
+      expect(calls[1]!.access.superActor?.approvedBy).toBeUndefined();
     });
 
     it('is not answered by the token, a relay or anyone but an owner`s own login', async () => {

@@ -1,4 +1,4 @@
-import type { ConfigVersionEntry, ProjectConfig, SuperActor } from '@projectman/shared';
+import type { BoundActor, ConfigVersionEntry, ProjectConfig } from '@projectman/shared';
 
 /**
  * The customization repository: a separate git repo (independent from the app source)
@@ -48,7 +48,7 @@ export interface ConfigAuthor {
   email: string;
   via?: 'integrator';
   /** The super-mode origin of the change (PM-757), written as commit trailers; never the secret. */
-  superActor?: SuperActor;
+  superActor?: BoundActor;
   /** The `started` audit entry of the super-mode commit, written as a trailer for the recovery. */
   superAuditId?: string;
   operator?: string;

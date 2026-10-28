@@ -1,7 +1,7 @@
 import {
   coordinationMemberOf,
   hasGuestConversations,
-  hasSuperOrigin,
+  hasBoundOrigin,
   structuralReviewOf,
   structuralReviewContinuation,
   isOperator,
@@ -109,8 +109,9 @@ export class MessageService {
   }
 
   record(input: RecordMessageInput): TeamMessage {
-    // A super-mode origin names the Operator: a message from anyone else cannot carry it (PM-757).
-    if (hasSuperOrigin(input.actor) && input.actor.handle !== input.from)
+    // A bound origin names its actor (the Operator, the holder or the queue item issuer): a message from
+    // anyone else cannot carry it (PM-757).
+    if (hasBoundOrigin(input.actor) && input.actor.handle !== input.from)
       throw new Error('a super-mode message must be sent from its actor');
     const at = isoNow(this.ctx);
     const message: TeamMessage = {
@@ -136,7 +137,7 @@ export class MessageService {
       ...(input.relayed ? { relayed: input.relayed } : {}),
       ...(input.email ? { email: input.email } : {}),
       ...(input.actor.via ? { via: input.actor.via } : {}),
-      ...(hasSuperOrigin(input.actor) ? { actor: input.actor } : {}),
+      ...(hasBoundOrigin(input.actor) ? { actor: input.actor } : {}),
       ...(input.origin ? { origin: input.origin } : {}),
       ...(input.operatorRequest ? { operatorRequest: input.operatorRequest } : {}),
       ...(input.operatorSignal ? { operatorSignal: input.operatorSignal } : {}),

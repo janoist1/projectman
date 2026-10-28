@@ -1,8 +1,9 @@
 import type { Actor, TeamMessage } from '@projectman/shared';
 import {
+  ActorOriginMeta,
   actorWithOriginMeta,
   CardVersion,
-  hasSuperOrigin,
+  hasBoundOrigin,
   MessageAttachmentRef,
   MessageKind,
   MessageSubject,
@@ -61,13 +62,17 @@ const attachmentsOf = (json: string | null): MessageAttachmentRef[] | undefined 
  * The full origin of a message sent in the super mode (PM-757), from the stored meta and the old columns
  * (`from_handle`, `via`); undefined for every other message, and for a row whose meta disagrees with them.
  */
-const superActorOf = (r: MessageRow): Actor | undefined => {
+const boundActorOf = (r: MessageRow): Actor | undefined => {
   if (!r.actor_meta) return undefined;
-  const actor = actorWithOriginMeta(
-    { kind: 'ai', handle: r.from_handle, ...(r.via ? { via: r.via } : {}) },
-    parseJson(r.actor_meta, null),
-  );
-  return hasSuperOrigin(actor) ? actor : undefined;
+  const meta = parseJson(r.actor_meta, null);
+  // A message has no actor kind column: the holder sending in person is a person, anyone else an AI member.
+  const parsed = ActorOriginMeta.safeParse(meta);
+  const kind =
+    parsed.success && 'through' in parsed.data && parsed.data.through.holder === r.from_handle
+      ? 'human'
+      : 'ai';
+  const actor = actorWithOriginMeta({ kind, handle: r.from_handle, ...(r.via ? { via: r.via } : {}) }, meta);
+  return hasBoundOrigin(actor) ? actor : undefined;
 };
 
 const toMessage = (r: MessageRow): TeamMessage => {
@@ -75,7 +80,7 @@ const toMessage = (r: MessageRow): TeamMessage => {
   const version = CardVersion.safeParse(parseJson(r.version, null));
   const subject = MessageSubject.safeParse(parseJson(r.subject, null));
   const attachments = attachmentsOf(r.attachments);
-  const actor = superActorOf(r);
+  const actor = boundActorOf(r);
   const email = r.email ? TeamMessageSchema.shape.email.safeParse(parseJson(r.email, null)) : null;
   const location = r.location ? UiLocation.safeParse(parseJson(r.location, null)) : null;
   const places = r.places ? TeamMessageSchema.shape.places.safeParse(parseJson(r.places, null)) : null;

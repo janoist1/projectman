@@ -161,6 +161,8 @@ export function superOperationName(command: SuperCommand): string {
  * the same fields as the routes, in the tools' snake_case. No tool is registered by this card.
  */
 const ProjectKeyArg = z.string().regex(/^[A-Z][A-Z0-9]{0,9}$/);
+/** The id of the queue item a connected Claude's step works on. */
+export const QueueItemIdArg = z.string().min(1).max(100);
 
 export const GetAdministrationStatusArgs = z.strictObject({
   project_key: ProjectKeyArg,
@@ -184,6 +186,8 @@ export const SuperOperateArgs = z.strictObject({
   request_id: z.uuid(),
   task_key: TaskKey.optional(),
   command: SuperCommand,
+  /** The open queue item this command works on: the step is then recorded under the item issuer's name (decision 66). */
+  queue_item_id: QueueItemIdArg.optional(),
 });
 export const GetSuperOperationArgs = z.strictObject({
   project_key: ProjectKeyArg,

@@ -4,7 +4,10 @@ import { makeDocWriteQueue, type DocWriteQueueEffects } from './write-queue';
 import type { DocWriteSlotPeer } from './ports';
 import {
   DocWriteFailure as DocWriteFailureSchema,
+  connectedOriginOf,
   coordinationMemberOf,
+  externalOriginActor,
+  hasConnectedOrigin,
   LOCAL_ENGINE_ID,
   isLessonsOnly,
   isOperator,
@@ -120,12 +123,16 @@ const pending = () =>
 
 /** The commit trailers of a write made through the bearer MCP: the Operator, the key (id and prefix) and the call. */
 function externalTrailers(origin: ExternalToolOrigin): string {
+  const actor = externalOriginActor(origin);
+  const credential = connectedOriginOf(actor)?.credential;
+  if (!credential) throw new Error('the write has no connected origin');
   return [
-    `Projectman-Operator: ${origin.actor.handle}`,
-    'Projectman-Operator-Mode: super',
+    ...(hasConnectedOrigin(actor)
+      ? [`Projectman-Connected-Kind: ${actor.kind}`, `Projectman-Connected-Handle: ${actor.handle}`]
+      : [`Projectman-Operator: ${actor.handle}`, 'Projectman-Operator-Mode: super']),
     'Projectman-Via: integrator',
-    `Projectman-Credential-Id: ${origin.actor.credential.id}`,
-    `Projectman-Credential-Prefix: ${origin.actor.credential.prefix}`,
+    `Projectman-Credential-Id: ${credential.id}`,
+    `Projectman-Credential-Prefix: ${credential.prefix}`,
     `Projectman-External-Request: ${origin.requestId}`,
   ].join('\n');
 }

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { FIX_ANOTHER_ROUND_OPTION, routes } from '@projectman/shared';
@@ -820,6 +821,147 @@ describe('the bearer MCP endpoint (PM-760)', () => {
     });
     expect(relay.isError).toBe(true);
     expect(relay.structuredContent?.errorCode).toBe('not_found');
+  });
+
+  describe('a step on a queue item (decision 66)', () => {
+    const createItem = (source: string, assignees: string[]) =>
+      h.app.projectman.domain.inbox.create({
+        projectKey: 'AR',
+        kind: 'question',
+        source,
+        assignees,
+        title: 'Fictional queue item',
+        payload: {
+          question: 'Fictional',
+          recipient: 'integrator',
+          integratorOpenedAt: now.toISOString(),
+          screening: {
+            until: now.toISOString(),
+            outcome: 'todo',
+            todo: { what: 'Fictional', where: 'Hub', expected: 'Result', recipient: 'integrator' },
+          },
+        },
+        options: [
+          { id: 'todo_done', label: 'Done', style: 'primary' },
+          { id: 'todo_cannot', label: 'Cannot', style: 'secondary' },
+        ],
+      });
+    const operate = (secret: string, queueItemId: string) =>
+      call(secret, 'super_operate', {
+        project_key: 'AR',
+        request_id: randomUUID(),
+        queue_item_id: queueItemId,
+        command: { kind: 'operate', operation: { op: 'message_send', to: ['dev-2'], text: 'Fictional' } },
+      });
+
+    it('refuses an item that is not open for the key’s holder', async () => {
+      const item = createItem('dev-1', ['dev-1']);
+      const result = await operate(key('super').secret, item.id);
+      expect(result.isError).toBe(true);
+      expect(result.structuredContent?.errorCode).toBe('queue_item_not_yours');
+    });
+
+    it('refuses an item whose issuer has no machine access', async () => {
+      const item = createItem('ghost', ['owner']);
+      const result = await operate(key('super').secret, item.id);
+      expect(result.isError).toBe(true);
+      expect(result.structuredContent?.errorCode).toBe('issuer_without_machine_access');
+    });
+
+    describe('with an issuer that has machine access', () => {
+      const grantMachineAccess = () =>
+        h.app.projectman.domain.projects.update(
+          'AR',
+          { actor: humanActor('owner'), author: { name: 'Owner', email: 'owner@example.com' } },
+          (draft) => {
+            const issuer = draft.team.members.find((m) => m.handle === 'dev-1');
+            if (issuer?.kind === 'ai') issuer.machineAccess = true;
+            draft.pipeline.labels.push({
+              id: 'owner-tag',
+              name: 'Owner tag',
+              setBy: { members: ['owner'] },
+            });
+            return 'Grant machine access and add an owner label';
+          },
+        );
+      const runCommand = (secret: string, queueItemId: string | undefined, command: unknown) =>
+        call(secret, 'super_operate', {
+          project_key: 'AR',
+          request_id: randomUUID(),
+          ...(queueItemId ? { queue_item_id: queueItemId } : {}),
+          command,
+        });
+
+      it('records the step under the issuer’s name with the holder behind it', async () => {
+        await grantMachineAccess();
+        const { secret, keyId, prefix } = key('super');
+        const item = createItem('dev-1', ['owner']);
+        const result = await operate(secret, item.id);
+        expect(result.structuredContent?.operation.state).toBe('succeeded');
+        const sent = h.app.projectman.repos.messages
+          .list('AR')
+          .find((m) => m.to.includes('dev-2') && m.body.includes('Fictional'));
+        expect(sent?.from).toBe('dev-1');
+        expect(sent?.actor).toEqual({
+          kind: 'ai',
+          handle: 'dev-1',
+          via: 'integrator',
+          through: { holder: 'owner', credential: { id: keyId, prefix } },
+        });
+      });
+
+      it.each([
+        [
+          'inbox_resolve',
+          (itemId: string) => ({ kind: 'inbox_resolve', itemId, request: { optionId: 'todo_done' } }),
+        ],
+        ['merge', () => ({ kind: 'merge', taskKey: 'AR-1', request: {} })],
+        [
+          'workspace_release',
+          () => ({ kind: 'workspace_release', scopeId: 'fictional', reason: 'Fictional' }),
+        ],
+      ])('refuses %s, which needs the owner’s own request', async (_kind, command) => {
+        await grantMachineAccess();
+        const item = createItem('dev-1', ['owner']);
+        const result = await runCommand(key('super').secret, item.id, command(item.id));
+        expect(result.isError).toBe(true);
+        expect(result.structuredContent?.errorCode).toBe('operator_owner_only');
+      });
+
+      it.each([
+        ['owner-tag', 'label_not_allowed'],
+        ['merge-ok', 'owner_approval_required'],
+      ])(
+        'lends no owner authority to the label %s, which a direct instruction does hold',
+        async (labelId, refusal) => {
+          await grantMachineAccess();
+          const { secret } = key('super');
+          await call(secret, 'create_task', { project_key: 'AR', title: 'Fictional card' });
+          const taskKey = h.app.projectman.domain.tasks
+            .list('AR')
+            .find((entry) => entry.title === 'Fictional card')!.key;
+          const item = createItem('dev-1', ['owner']);
+          const labelsOf = () => h.app.projectman.domain.tasks.get('AR', taskKey).labels;
+          const label = (queueItemId?: string) =>
+            runCommand(secret, queueItemId, {
+              kind: 'task_labels',
+              taskKey,
+              request: { add: [labelId], remove: [] },
+            });
+
+          const onQueueItem = await label(item.id);
+          expect(onQueueItem.structuredContent?.operation).toMatchObject({
+            state: 'failed',
+            errorCode: refusal,
+          });
+          expect(labelsOf()).not.toContain(labelId);
+
+          const direct = await label();
+          expect(direct.structuredContent?.operation.state).toBe('succeeded');
+          expect(labelsOf()).toContain(labelId);
+        },
+      );
+    });
   });
 
   describe('behind the Cloudflare Access front and the tunnel', () => {

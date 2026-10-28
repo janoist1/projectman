@@ -1,4 +1,4 @@
-import { hasSuperOrigin } from '../domain/actor-origin';
+import { hasConnectedOrigin, hasSuperOrigin } from '../domain/actor-origin';
 import type { ActorCredential, SuperActor } from '../domain/actor-origin';
 import type { Actor } from '../domain/event';
 import type { MemberHandle } from '../domain/member';
@@ -97,4 +97,18 @@ export function isSuperOperatorActor(config: Pick<ProjectConfig, 'team'>, actor:
     hasSuperOrigin(actor) &&
     (operatorOf(config)?.handle === actor.handle || coordinationMemberOf(config)?.handle === actor.handle)
   );
+}
+
+/**
+ * Whether the actor is a connected Claude's direct instruction (decision 66) whose holder is an owner of the
+ * project now: the owner's own authority stands behind it. A step on a queue item (named for its issuer, an AI
+ * member) runs with the issuer's rights, as a request of a member did before (PM-1010), so it never counts. An
+ * old super step keeps the rule it had (`isSuperOperatorActor`). It tells the origin apart; it grants nothing:
+ * only the authenticated principal is authority.
+ */
+export function isConnectedOwnerActor(config: Pick<ProjectConfig, 'team'>, actor: Actor): boolean {
+  if (!hasConnectedOrigin(actor)) return isSuperOperatorActor(config, actor);
+  if (actor.kind !== 'human') return false;
+  const holder = memberOf(config, actor.through.holder);
+  return holder?.kind === 'human' && holder.access === 'owner';
 }

@@ -5,7 +5,6 @@ import { isOwnerApprovalLabel, labelHolders } from './labels';
 import { ownerOnlyChanges } from './owner-only';
 import { DEFAULT_MAX_FIX_ROUNDS } from './schema';
 import type { ProjectConfig } from './schema';
-import { operatorOf } from './operator-member';
 
 export type SuperAccessVerdict =
   | { allowed: true }
@@ -17,7 +16,7 @@ export type SuperAccessVerdict =
 
 /** Credential policy, independent of HTTP verbs. Domain operations classify reads and decisions (PM-759). */
 export function superAccessVerdict(
-  config: ProjectConfig,
+  _config: ProjectConfig,
   facts: {
     mode: 'super' | 'read';
     operation: 'read' | 'write' | 'approval' | 'key_management';
@@ -30,9 +29,8 @@ export function superAccessVerdict(
   // The super key decides approvals in the Operator's own name (PM-870).
   if (facts.operation === 'approval' && facts.mode !== 'super')
     return { allowed: false, code: 'owner_approval_required' };
+  // The connected Claude acts as its holder or the queue item's issuer, so the project needs no Operator (decision 66).
   if (!facts.ownerMembership) return { allowed: false, code: 'insufficient_access' };
-  if (facts.mode === 'super' && !operatorOf(config))
-    return { allowed: false, code: 'integrator_not_allowed' };
   return { allowed: true };
 }
 

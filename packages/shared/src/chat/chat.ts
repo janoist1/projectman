@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { MemberHandle } from '../domain/member';
 import { Actor } from '../domain/event';
-import { hasSuperOrigin } from '../domain/actor-origin';
+import { hasBoundOrigin } from '../domain/actor-origin';
 import { EMAIL_SUBJECT_MAX } from '../domain/email-channel';
 import type { CardVersion, MessageKind, StaleReason } from '../domain/message';
 import type { MessageAttachmentRef } from '../domain/message-attachment';
@@ -165,7 +165,7 @@ export function formatInjectedTeamMessage(
 }
 
 function actorLine(from: string, actor?: Actor, via?: 'integrator'): string {
-  return hasSuperOrigin(actor) && actor.handle === from && actor.via === via
+  return hasBoundOrigin(actor) && actor.handle === from && actor.via === via
     ? `[team message actor ${JSON.stringify(actor)}]\n`
     : '';
 }
@@ -188,7 +188,7 @@ export function parseInjectedTeamMessage(
       const parsed = Actor.safeParse(JSON.parse(metadata[1]!));
       if (
         parsed.success &&
-        hasSuperOrigin(parsed.data) &&
+        hasBoundOrigin(parsed.data) &&
         parsed.data.handle === from &&
         (!team || parsed.data.via === via)
       )

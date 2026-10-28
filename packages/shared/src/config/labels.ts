@@ -3,7 +3,7 @@ import { isHumanOnlyLabel, RELEASE_APPROVAL_DUTY } from '../domain/label';
 import type { LabelClearTrigger, LabelDefinition, LabelRefusal } from '../domain/label';
 import type { Stage } from '../domain/pipeline';
 import type { Task } from '../domain/task';
-import { hasSuperOrigin } from '../domain/actor-origin';
+import { hasBoundOrigin } from '../domain/actor-origin';
 import { dutyMembers, REVIEW_DUTIES, taskAuthors } from './duties';
 import { ownerHandles } from './lookup';
 import type { ProjectConfig } from './schema';
@@ -145,7 +145,7 @@ export function labelRefusal(
   const delegated = authorityHolds(config, label, authority);
   // A super-mode step acts in the Operator's own name on the key owner's holding (PM-870): the approval
   // labels and the human-only labels are open to it, as long as that owner holds the label.
-  const superDelegated = delegated && hasSuperOrigin(actor);
+  const superDelegated = delegated && hasBoundOrigin(actor);
   if (actor.via === 'integrator' && isOwnerApprovalLabel(config, label) && !superDelegated)
     return 'owner_approval';
   if (label.setBy === 'system') return 'system_only';
@@ -221,7 +221,7 @@ export function planLabelChange(
   authority?: LabelAuthority,
 ): LabelChangePlan {
   // Only a super-mode step carries the key owner's authority; the removal below drops the origin.
-  const delegated = hasSuperOrigin(actor) ? authority : undefined;
+  const delegated = hasBoundOrigin(actor) ? authority : undefined;
   const add = [...new Set((change.add ?? []).map((label) => label.trim()).filter(Boolean))].filter(
     (label) => !task.labels.includes(label),
   );

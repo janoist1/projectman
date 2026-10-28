@@ -3181,6 +3181,9 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   PM-1045: `AuthService.hasActiveSuperKey(ownerEmail)` (repository `hasActiveSuper`) tells whether an owner has
   a live (not revoked, not expired) super key; `integratorSideAvailable` reads it to decide where a machine todo
   waits. It reads only the hub database; no machine assumption is added.
+  PM-1074 (decision 66): a step made with the key is the connected Claude's: it is recorded under the key holder's
+  name (or the queue item issuer's), with `through` naming the holder and the key; the project needs no Operator for
+  a key to bind. The key still carries no authority beyond the authenticated scope and the holder's rights.
   PM-1063: a further owner (an active owner account, PM-1062) with a password holds `super`/`read` keys of
   their own beside the host owner; the pure rule is `canHoldIntegratorKey` (`packages/shared/src/config/integrator.ts`),
   applied by `AuthService.keyHolderAllowed` at issuing, authentication, `assertActive` and `hasActiveSuperKey`.
@@ -3243,8 +3246,14 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   engine. Machine assumptions: a local or HTTPS connection (`requestProtocol` trusts `X-Forwarded-Proto` only from a
   loopback peer, so the proxy or tunnel must run on the server's machine and keep Host and the protocol header) and a
   tunnel/proxy that refuses `/mcp/` and `/hooks` but passes `/mcp`. Remote engine: not affected; nothing of the endpoint
-  runs on or crosses to an engine. Since PM-1045 this endpoint is the Operator's only door: the `operator` member
-  stays as a transitional identity (`superActorOf` maps a super-key step to it), the app starts no session for it.
+  runs on or crosses to an engine. Since PM-1045 this endpoint is the Operator's only door: the app starts no
+  session for it. **The connected Claude as an actor (PM-1074, decision 66):** a super-key step is recorded as the
+  key holder in person (`kind: human`, `via: integrator`, `through: {holder, credential}`), or, with
+  `queue_item_id` on `super_operate` / `execute_super_handoff`, as the member who issued that open integrator queue
+  item (`kind: ai`, the same `through`; `queue_item_not_yours` / `issuer_without_machine_access` refuse it). After the
+  owner's own yes on a K3 question the step also carries `approvedBy`, set by the server only. The `operator`
+  member and the old `operatorMode: super` events stay readable; `superActorOf` serves only the in-app Operator
+  principal. The actor is created and stored on the hub (`actor_meta`); no machine-dependent part is added.
   **Two kinds of key holder (PM-1063):** a tool with `hostOnly: true` (`mcp/kit.ts`: `get_administration_status`,
   `get_administration_logs`, `get_machine_snapshot` and the two instance-knowledge tools; the host-request tools of
   PM-1064 take the same flag) is absent from `tools/list` of a further owner's key and answers `host_only` if called

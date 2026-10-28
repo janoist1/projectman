@@ -48,6 +48,8 @@ import { createMemberService } from './core/members';
 import { createTaskService } from './core/tasks';
 import { createProjectService, ChecklistService } from './core/projects';
 import {
+  connectedOriginOf,
+  externalOriginActor,
   HISTORY_DOC_PATHS,
   isOnLeave,
   isOpenTask,
@@ -1245,10 +1247,11 @@ export function createDomain(opts: DomainOptions) {
             // owner or Operator ends the write as failed (authorization_revoked).
             run: async (projectKey, origin, action) => {
               const credentials = opts.integratorCredentials!;
+              const credential = connectedOriginOf(externalOriginActor(origin))!.credential;
               const principal = credentials.reactivate!({
                 userId: origin.ownerUserId,
-                keyId: origin.actor.credential.id,
-                prefix: origin.actor.credential.prefix,
+                keyId: credential.id,
+                prefix: credential.prefix,
               });
               const email = principal ? credentials.user(principal.userId)?.email : undefined;
               if (!principal || principal.mode !== 'super' || !email)

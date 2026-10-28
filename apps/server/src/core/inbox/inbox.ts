@@ -34,7 +34,8 @@ import {
   superDecisionRefusal,
   gateRequestOf,
   handOnRequestOf,
-  hasSuperOrigin,
+  hasBoundOrigin,
+  hasConnectedOrigin,
   isPendingQuestion,
   isLinkedQuestion,
   isRelayableQuestionItem,
@@ -42,6 +43,7 @@ import {
   memberOf,
   operatorApprovalOf,
   operatorKnowledgeApprovalOf,
+  operatorOf,
   structuralReviewOf,
   OPERATOR_DISMISS_OPTION,
   permissionDelegationOf,
@@ -80,7 +82,7 @@ import type {
   ResolveIntegratorTodoRequest,
   ScreeningTodo,
   ScreenedQuestionsResponse,
-  SuperActor,
+  BoundActor,
   TimelineEventData,
   TaskStartWaiting,
   WorkItemRef,
@@ -183,7 +185,7 @@ type SuperOperationAnswer = (item: InboxItem, optionId: string, at: string, hand
 export interface Resolver {
   via?: 'integrator';
   /** The Operator's super origin of a step the owner's token made (PM-757); `handle` stays the owner. */
-  superActor?: SuperActor;
+  superActor?: BoundActor;
   handle: string;
   access: HumanAccess;
 }
@@ -538,12 +540,11 @@ export class InboxService {
     const config = this.projects.cachedConfig(item.projectKey)!;
     const owner = assertIntegratorAccess(config, 'write', scope.actor);
     if (!owner) throw forbidden('insufficient_access', 'a current project owner is required');
-    if (!hasSuperOrigin(scope.actor))
-      throw forbidden('owner_approval_required', 'an Operator origin is required');
-    const refusal = superDecisionRefusal(item, {
-      operatorHandle: scope.actor.handle,
-      sessionMember: item.sessionId ? this.ctx.repos.sessions.get(item.sessionId)?.member : null,
-    });
+    // The connected Claude answers for its holder only on a direct instruction; a step on a member's
+    // queue item does not lend the owner's authority (PM-1010, decision 66).
+    if (!hasBoundOrigin(scope.actor) || (hasConnectedOrigin(scope.actor) && scope.actor.kind !== 'human'))
+      throw forbidden('owner_approval_required', 'an Operator or connected-Claude origin is required');
+    const refusal = this.reservedDecisionRefusal(item, scope.actor, config);
     if (refusal) throw forbidden(refusal, 'this item requires a person using their own login');
     return this.resolution(
       optionId,
@@ -551,6 +552,28 @@ export class InboxService {
       at,
       note,
     );
+  }
+
+  /**
+   * Whether a decision stays reserved to the owner's own login. A connected step is the holder's in person, yet what
+   * the Operator asked or runs, and what the connected Claude asked itself (the holder's name is its source), stays
+   * reserved, as it was for the old super step.
+   */
+  private reservedDecisionRefusal(
+    item: InboxItem,
+    actor: Actor,
+    config: ProjectConfig,
+  ): 'owner_approval_required' | null {
+    const sessionMember = item.sessionId ? this.ctx.repos.sessions.get(item.sessionId)?.member : null;
+    const handles = new Set([
+      actor.handle,
+      ...(hasConnectedOrigin(actor) ? [operatorOf(config)?.handle ?? actor.handle] : []),
+    ]);
+    for (const operatorHandle of handles) {
+      const refusal = superDecisionRefusal(item, { operatorHandle, sessionMember });
+      if (refusal) return refusal;
+    }
+    return null;
   }
 
   private resolution(
@@ -1038,6 +1061,9 @@ export class InboxService {
     // Every pending group member must be decidable; only an entirely relayable group is an information relay.
     let relayed = false;
     if (superScope) {
+      // A connected step on a member's queue item is named for the issuer, so it relays nothing for the holder.
+      if (hasConnectedOrigin(by.superActor) && by.superActor!.kind !== 'human')
+        throw forbidden('owner_approval_required', 'this item requires a person using their own login');
       const group = this.ctx.repos.inbox.groupOf(id);
       const members = [
         item,
@@ -1047,10 +1073,7 @@ export class InboxService {
         }),
       ];
       for (const member of members) {
-        const refusal = superDecisionRefusal(member, {
-          operatorHandle: by.superActor!.handle,
-          sessionMember: member.sessionId ? this.ctx.repos.sessions.get(member.sessionId)?.member : null,
-        });
+        const refusal = this.reservedDecisionRefusal(member, by.superActor!, initialConfig);
         const question = member.kind === 'question' ? member.payload : null;
         if (refusal || (question && externalQuestionAnswerRefusal(question, by)))
           throw forbidden('owner_approval_required', 'this item requires a person using their own login');
@@ -1545,7 +1568,7 @@ export class InboxService {
           note: close.note,
           rule: close.rule,
           ...(close.actor?.via ? { via: close.actor.via } : {}),
-          ...(close.actor && hasSuperOrigin(close.actor) ? { actor: close.actor } : {}),
+          ...(close.actor && hasBoundOrigin(close.actor) ? { actor: close.actor } : {}),
         };
         if (primaryWithdrawal)
           this.ctx.repos.inbox.updatePayload(id, { ...current.payload, groupWithdrawn: true }, at);

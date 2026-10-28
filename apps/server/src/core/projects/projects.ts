@@ -17,8 +17,8 @@ import {
   operatorFixedChange,
   operatorConfigIssues,
   isOperatorActor,
-  isSuperOperatorActor,
-  hasSuperOrigin,
+  isConnectedOwnerActor,
+  hasBoundOrigin,
   operatorConfigVerdict,
   operatorApprovalOf,
   renameMemberInConfig,
@@ -38,7 +38,7 @@ import type {
   OwnerOnlyChange,
   PatchConfigRequest,
   ProjectSummary,
-  SuperActor,
+  BoundActor,
   OperatorOperation,
   OperatorApprovalWaiverRequest,
 } from '@projectman/shared';
@@ -92,7 +92,7 @@ export interface Author {
   operatorApprovalId?: string;
   via?: 'integrator';
   /** Set only from a bound super principal (PM-757); the commit records it. */
-  superActor?: SuperActor;
+  superActor?: BoundActor;
   /** The owner whose current access authorizes a super-mode step (the token's owner). */
   authorizedBy?: string;
   /** The request a super-mode step belongs to (the audit's request id); a commit needs it. */
@@ -540,7 +540,7 @@ export class ProjectService {
         .catch(fromConfigError)
         .catch(asConfigEditError);
       // The Operator's commits, and the super mode's (PM-757, audited), restore the version as a plain commit.
-      if (isOperatorActor(current.config, meta.actor) || hasSuperOrigin(meta.actor))
+      if (isOperatorActor(current.config, meta.actor) || hasBoundOrigin(meta.actor))
         return this.commitLocked(key, current, target, { ...meta, message: `Revert to ${version}` }).catch(
           asConfigEditError,
         );
@@ -634,9 +634,9 @@ export class ProjectService {
         'the waiver can only change through its dedicated owner endpoint',
       );
     const member = memberOf(previous, meta.actor.handle);
-    if (hasSuperOrigin(meta.actor)) {
-      // A step in the Operator's super mode (PM-757): recorded as the Operator, authorized as the owner who
-      // made the token. Only the author built from a bound principal can say so; an actor alone grants nothing.
+    if (hasBoundOrigin(meta.actor)) {
+      // A step in the Operator's super mode (PM-757), or the connected Claude's direct instruction (decision 66):
+      // recorded as the Operator or the holder, authorized as the owner who made the token. Only the author built from a bound principal can say so; an actor alone grants nothing.
       const owner = memberOf(previous, meta.author.authorizedBy);
       const bound = meta.author.superActor;
       if (
@@ -644,7 +644,7 @@ export class ProjectService {
         canonical(bound) !== canonical(meta.actor) ||
         meta.author.via !== 'integrator' ||
         meta.author.superRequestId !== integratorExecution()?.requestId ||
-        !isSuperOperatorActor(previous, meta.actor) ||
+        !isConnectedOwnerActor(previous, meta.actor) ||
         owner?.kind !== 'human' ||
         owner.access !== 'owner' ||
         owner.handle !== executingOwner?.handle ||
@@ -728,7 +728,7 @@ export class ProjectService {
       ProjectService.assertChangeAllowed(previous, next, 'admin');
     }
     assertOperatorFixed(previous, next);
-    if (meta.actor.via === 'integrator' && !hasSuperOrigin(meta.actor))
+    if (meta.actor.via === 'integrator' && !hasBoundOrigin(meta.actor))
       throw forbidden('insufficient_access', 'integrator configuration changes require super origin');
     const stageIds = new Set(next.pipeline.stages.map((stage) => stage.id));
     const removed = previous.pipeline.stages.filter((stage) => !stageIds.has(stage.id));
@@ -754,7 +754,7 @@ export class ProjectService {
     meta: ConfigChangeMeta,
   ): Promise<LoadedProject> {
     // A super-mode step is checked inside its audited step (a refusal is audited); every other one first.
-    const superStep = hasSuperOrigin(meta.actor);
+    const superStep = hasBoundOrigin(meta.actor);
     if (!superStep) await this.assertCommitAllowed(key, current.config, next, meta);
     if (meta.author.operatorApprovalMode === 'click') {
       const version = await this.agreementVersion?.(key);

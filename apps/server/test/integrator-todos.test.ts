@@ -4,7 +4,7 @@ import {
   TODO_CANNOT_OPTION,
   questionPayloadOf,
   routes,
-  superActorOf,
+  connectedActorOf,
 } from '@projectman/shared';
 import type { InboxItem, ResolveIntegratorTodoRequest } from '@projectman/shared';
 import { projectAccessFor } from '../src/core/members';
@@ -178,14 +178,14 @@ describe('integrator todo REST and durable lifecycle', () => {
         integratorTodo: true,
         via: 'integrator',
         by: 'owner',
-        actor: { kind: 'ai', handle: 'operator', operatorMode: 'super' },
+        actor: { kind: 'human', handle: 'owner', through: { holder: 'owner' } },
         optionId,
         note: 'Measured',
       });
       expect(resolved.resolution?.ownerAnswerRelayed).toBeUndefined();
       expect(events('question_answered')).toHaveLength(1);
       expect(events('question_answered')[0]).toMatchObject({
-        actor: { handle: 'operator', operatorMode: 'super' },
+        actor: { handle: 'owner', through: { holder: 'owner' } },
         data: { integratorTodo: { optionId, note: 'Measured' } },
       });
       const answer = h.app.projectman.repos.messages
@@ -466,10 +466,10 @@ describe('integrator todo REST and durable lifecycle', () => {
           handle: 'owner',
           access: 'owner',
           via: 'integrator',
-          superActor: superActorOf(await domain.projects.config('AR'), {
+          superActor: connectedActorOf('owner', {
             id: superKey.key.id,
             prefix: superKey.key.prefix,
-          })!,
+          }),
         },
       ),
     ).rejects.toMatchObject({ code: 'insufficient_access' });

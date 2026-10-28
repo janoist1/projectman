@@ -36,6 +36,19 @@ export function superAccessVerdict(
   return { allowed: true };
 }
 
+/**
+ * Who may hold an integrator key (PM-1063): the host owner and an active owner account, each with a password
+ * (a passwordless, e-mail-login account never does, PM-670). The scope of a key is its holder's own projects.
+ * Extend the circle here and nowhere else.
+ */
+export function canHoldIntegratorKey(input: {
+  hostOwner: boolean;
+  ownerAccount: boolean;
+  hasPassword: boolean;
+}): boolean {
+  return input.hasPassword && (input.hostOwner || input.ownerAccount);
+}
+
 /** What the integrator key may not change (PM-418), in the order integratorConfigRefusal checks them. */
 export const IntegratorRefusal = z.enum([
   'approval_rules',

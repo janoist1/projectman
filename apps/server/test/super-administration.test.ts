@@ -12,6 +12,7 @@ import { createAdministrationExecutor, createSuperRights } from '../src/services
 import type { SuperAdministrationDeps, SuperCommandExecutor } from '../src/services/super-operator';
 
 const SECRET = 'pmi_admin_fixture';
+const TENANT_SECRET = 'pmi_tenant_fixture';
 const KEY = { id: 'ikey_admin_1', prefix: 'pmi_admin_1' };
 const CARD_COMMIT = 'a'.repeat(40);
 const OTHER_COMMIT = 'b'.repeat(40);
@@ -161,23 +162,61 @@ describe('super mode: diagnostics, test, build and release preparation (PM-764)'
     }
   };
 
-  const asIntegrator = async <T>(body: (access: ProjectAccess) => Promise<T>): Promise<T> => {
+  /** A further owner (PM-1063): an owner account with a password and a super key, who is not the host owner. */
+  const ensureTenantKey = () => {
     ensureKey();
-    const principal = h.auth.resolveIntegratorCredential(SECRET, 'rest')!;
+    if (h.repos.users.get('user-2')) return;
+    h.repos.users.insert({
+      id: 'user-2',
+      name: 'Tenant',
+      email: 'tenant@example.com',
+      passwordHash: 'unused-test-hash',
+      createdAt: NOW,
+    });
+    h.repos.ownerAccounts.grant('user-2', 'user-1', NOW);
+    h.repos.integratorKeys.create({
+      id: 'ikey_tenant_1',
+      userId: 'user-2',
+      prefix: 'pmi_tenant_1',
+      hash: createHash('sha256').update(TENANT_SECRET).digest('hex'),
+      mode: 'super',
+      at: NOW,
+      expiresAt: null,
+    });
+  };
+
+  const runAs = async <T>(
+    secret: string,
+    email: string,
+    body: (access: ProjectAccess) => Promise<T>,
+  ): Promise<T> => {
+    const principal = h.auth.resolveIntegratorCredential(secret, 'rest')!;
     const config = await h.domain.projects.config('AR');
     const access = bindSuperPrincipal(
       config,
       { projectKey: 'AR', handle: 'owner', access: 'owner', member: {} } as ProjectAccess,
       principal,
     );
-    return h.domain.superOperator.run(
-      { principal, email: OWNER.email, requestId: randomUUID(), projectKey: 'AR' },
-      () => body(access),
+    return h.domain.superOperator.run({ principal, email, requestId: randomUUID(), projectKey: 'AR' }, () =>
+      body(access),
     );
   };
+  const asIntegrator = async <T>(body: (access: ProjectAccess) => Promise<T>): Promise<T> => {
+    ensureKey();
+    return runAs(SECRET, OWNER.email, body);
+  };
+  const asTenant = async <T>(body: (access: ProjectAccess) => Promise<T>): Promise<T> => {
+    ensureTenantKey();
+    return runAs(TENANT_SECRET, 'tenant@example.com', body);
+  };
 
-  const operate = (command: SuperCommand, requestId = randomUUID(), taskKey: string | undefined = 'AR-1') =>
-    asIntegrator((access) =>
+  const operate = (
+    command: SuperCommand,
+    requestId = randomUUID(),
+    taskKey: string | undefined = 'AR-1',
+    as = asIntegrator,
+  ) =>
+    as((access) =>
       h.domain.superAdministration.operate(
         'AR',
         { requestId, ...(taskKey ? { taskKey } : {}), command },
@@ -323,7 +362,6 @@ describe('super mode: diagnostics, test, build and release preparation (PM-764)'
       rights: createSuperRights({
         credentials: h.auth,
         config: (key) => h.domain.projects.config(key),
-        projectKeys: () => h.domain.projects.summaries().map((project) => project.key),
       }),
       projects: h.domain.projects,
       timeline: h.domain.timeline,
@@ -541,7 +579,7 @@ describe('super mode: diagnostics, test, build and release preparation (PM-764)'
   });
 
   describe('restart', () => {
-    it('restarts the hub only with the owner right in every project', async () => {
+    it('restarts the hub for the host owner’s key, also beside a project of another owner', async () => {
       await boot();
       const restart = admin({ kind: 'restart', target: { kind: 'hub' }, expectedBootId: 'boot-1' });
       const operation = await operate(restart, randomUUID(), undefined);
@@ -553,13 +591,34 @@ describe('super mode: diagnostics, test, build and release preparation (PM-764)'
         { name: 'Other', email: 'other@example.com' },
       );
       submitted.length = 0;
-      const refused = await operate(
+      const again = await operate(
         admin({ kind: 'restart', target: { kind: 'hub' }, expectedBootId: 'boot-2' }),
         randomUUID(),
         undefined,
       );
-      expect(refused).toMatchObject({ state: 'failed', errorCode: 'insufficient_access' });
+      expect(again.state).toBe('running');
+      expect(submitted).toMatchObject([{ port: 'hub' }]);
+    });
+
+    it('refuses another owner’s key every administration command and read, as host_only (PM-1063)', async () => {
+      await boot();
+      const restart = admin({ kind: 'restart', target: { kind: 'hub' }, expectedBootId: 'boot-1' });
+      expect(await operate(restart, randomUUID(), undefined, asTenant)).toMatchObject({
+        state: 'failed',
+        errorCode: 'host_only',
+      });
       expect(submitted).toEqual([]);
+      const reads: ((target: { kind: 'hub' }) => Promise<unknown>)[] = [
+        (target: { kind: 'hub' }) => h.domain.superAdministration.status('AR', target),
+        (target: { kind: 'hub' }) => h.domain.superAdministration.logs('AR', target, { limit: 5 }),
+        (target: { kind: 'hub' }) => h.domain.superAdministration.machine('AR', target),
+      ];
+      for (const read of reads)
+        await expect(asTenant(() => read({ kind: 'hub' }))).rejects.toMatchObject({ code: 'host_only' });
+      // The host's own key reads it, and so does not get refused by the same gate.
+      await expect(
+        asIntegrator(() => h.domain.superAdministration.machine('AR', { kind: 'hub' })),
+      ).resolves.toBeTruthy();
     });
 
     it('refuses an engine that is not linked to the project', async () => {
@@ -604,7 +663,9 @@ describe('super mode: diagnostics, test, build and release preparation (PM-764)'
         state: 'failed',
         errorCode: 'operator_grant_inactive',
       });
-      await expect(h.domain.superAdministration.machine('AR', { kind: 'hub' })).rejects.toMatchObject({
+      await expect(
+        asIntegrator(() => h.domain.superAdministration.machine('AR', { kind: 'hub' })),
+      ).rejects.toMatchObject({
         code: 'operator_grant_inactive',
       });
       expect(submitted).toEqual([]);
@@ -644,10 +705,20 @@ describe('super mode: diagnostics, test, build and release preparation (PM-764)'
   });
 
   describe('reads', () => {
+    // The reads are the host key's (PM-1063): each runs in the host's integrator scope.
+    const hostFacade = () => {
+      const facade = h.domain.superAdministration;
+      return {
+        status: (...args: Parameters<typeof facade.status>) => asIntegrator(() => facade.status(...args)),
+        logs: (...args: Parameters<typeof facade.logs>) => asIntegrator(() => facade.logs(...args)),
+        machine: (...args: Parameters<typeof facade.machine>) => asIntegrator(() => facade.machine(...args)),
+      };
+    };
+
     it('answers the status and the log of the hub and of a linked engine, only from the project’s side', async () => {
       await boot();
       ensureKey();
-      const facade = h.domain.superAdministration;
+      const facade = hostFacade();
       expect(await facade.status('AR', { kind: 'hub' })).toMatchObject({ online: true, bootId: 'boot-1' });
       expect(await facade.status('AR', { kind: 'engine', id: LOCAL })).toMatchObject({ online: true });
       expect((await facade.logs('AR', { kind: 'hub' }, { limit: 2 })).entries).toHaveLength(2);
@@ -664,7 +735,7 @@ describe('super mode: diagnostics, test, build and release preparation (PM-764)'
       await boot();
       ensureKey();
       logOptions.length = 0;
-      const facade = h.domain.superAdministration;
+      const facade = hostFacade();
       expect(await facade.machine('AR', { kind: 'hub' })).toMatchObject({ loadAvg: [0.5, 0.4, 0.3] });
       expect(await facade.machine('AR', { kind: 'engine', id: LOCAL })).toMatchObject({
         loadAvg: [0.5, 0.4, 0.3],
@@ -678,7 +749,7 @@ describe('super mode: diagnostics, test, build and release preparation (PM-764)'
 
     it('is administration_unavailable (503) for the machine state where the instance has no adapter', async () => {
       await boot(false);
-      await expect(h.domain.superAdministration.machine('AR', { kind: 'hub' })).rejects.toMatchObject({
+      await expect(hostFacade().machine('AR', { kind: 'hub' })).rejects.toMatchObject({
         code: 'administration_unavailable',
         status: 503,
       });
@@ -686,7 +757,7 @@ describe('super mode: diagnostics, test, build and release preparation (PM-764)'
 
     it('is administration_unavailable (503) where the instance has no adapter', async () => {
       await boot(false);
-      const facade = h.domain.superAdministration;
+      const facade = hostFacade();
       await expect(facade.status('AR', { kind: 'hub' })).rejects.toMatchObject({
         code: 'administration_unavailable',
         status: 503,
@@ -772,11 +843,13 @@ describe('super mode: diagnostics, test, build and release preparation (PM-764)'
       });
       expect(submitted).toEqual([]);
       const facade = h.domain.superAdministration;
-      await expect(facade.status('AR', { kind: 'hub' })).rejects.toMatchObject({
+      await expect(asIntegrator(() => facade.status('AR', { kind: 'hub' }))).rejects.toMatchObject({
         code: 'operator_grant_inactive',
         status: 403,
       });
-      await expect(facade.logs('AR', { kind: 'hub' }, { limit: 5 })).rejects.toMatchObject({
+      await expect(
+        asIntegrator(() => facade.logs('AR', { kind: 'hub' }, { limit: 5 })),
+      ).rejects.toMatchObject({
         code: 'operator_grant_inactive',
       });
       expect(await operate(pause, randomUUID(), undefined)).toMatchObject({ state: 'succeeded' });
@@ -790,7 +863,7 @@ describe('super mode: diagnostics, test, build and release preparation (PM-764)'
       expect(await operate(fullTest())).toMatchObject({ state: 'running' });
       expect(grantRow()!.lastUsedAt).toBe(clock);
       clock = '2026-10-17T10:06:00.000Z';
-      await h.domain.superAdministration.status('AR', { kind: 'hub' });
+      await asIntegrator(() => h.domain.superAdministration.status('AR', { kind: 'hub' }));
       expect(grantRow()!.lastUsedAt).toBe(clock);
     });
 

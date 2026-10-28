@@ -7,7 +7,13 @@ import type { CloudConfig } from '../../../scripts/cloud/config';
 import { DomainError, humanActor } from '../src/kernel';
 import { EXTERNAL_DENIED, EXTERNAL_TOOLS } from '../src/mcp/super-operator/registry';
 import { TEAM_TOOL_NAMES } from '../src/mcp';
-import { addHumanAndLogin, createAppHarness, createProject, setupOwner } from './helpers/app-harness';
+import {
+  addHumanAndLogin,
+  createAppHarness,
+  createOwnerAccountWithProject,
+  createProject,
+  setupOwner,
+} from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 
 type Mode = 'super' | 'read';
@@ -352,6 +358,86 @@ describe('the bearer MCP endpoint (PM-760)', () => {
     ]);
     const only = await call(secret, 'list_integrator_inbox', { project_key: 'AR' });
     expect(only.structuredContent?.items.map((entry: { id: string }) => entry.id)).toEqual([inAr.id]);
+  });
+
+  it('shows a further owner’s key no host-only tool, and the host’s key all of them (PM-1063)', async () => {
+    const tenant = await createOwnerAccountWithProject(h, cookie, 'BR');
+    const tenantKey = h.app.projectman.auth.createIntegratorAccessKey(tenant.userId, {
+      mode: 'super',
+      expiresInDays: 7,
+    });
+    const hostOnly = EXTERNAL_TOOLS.filter((tool) => tool.hostOnly).map((tool) => tool.name);
+    expect(hostOnly.length).toBeGreaterThan(0);
+    const tenantTools = (await listTools(tenantKey.secret)).map((tool) => tool.name);
+    const hostTools = (await listTools(key('super').secret)).map((tool) => tool.name);
+    for (const name of hostOnly) {
+      expect(tenantTools).not.toContain(name);
+      expect(hostTools).toContain(name);
+    }
+    expect(tenantTools).toContain('list_integrator_inbox');
+    const instructionsOf = async (secret: string) =>
+      (
+        await post(
+          secret,
+          rpc('initialize', {
+            protocolVersion: '2025-06-18',
+            capabilities: {},
+            clientInfo: { name: 'fake-integrator', version: '1' },
+          }),
+        )
+      ).json().result.instructions as string;
+    expect(await instructionsOf(key('super').secret)).toContain('get_operator_instance_knowledge');
+    expect(await instructionsOf(tenantKey.secret)).not.toContain('get_operator_instance_knowledge');
+  });
+
+  it('keeps a further owner’s queue to their own projects, and the host’s to theirs (PM-1063)', async () => {
+    const tenant = await createOwnerAccountWithProject(h, cookie, 'BR');
+    const tenantSecret = h.app.projectman.auth.createIntegratorAccessKey(tenant.userId, {
+      mode: 'super',
+      expiresInDays: 7,
+    }).secret;
+    const todo = (projectKey: string, title: string) =>
+      h.app.projectman.domain.inbox.create({
+        projectKey,
+        kind: 'question',
+        source: 'dev-1',
+        assignees: ['owner'],
+        title,
+        payload: {
+          question: title,
+          recipient: 'integrator',
+          integratorOpenedAt: now.toISOString(),
+          screening: {
+            until: now.toISOString(),
+            outcome: 'todo',
+            todo: { what: title, where: 'Machine', expected: 'Result', recipient: 'integrator' },
+          },
+        },
+        options: [
+          { id: 'todo_done', label: 'Done', style: 'primary' },
+          { id: 'todo_cannot', label: 'Cannot', style: 'secondary' },
+        ],
+      });
+    const hostTodo = todo('AR', 'Host todo');
+    const tenantTodo = todo('BR', 'Tenant todo');
+    const idsOf = async (secret: string) =>
+      (await call(secret, 'list_integrator_inbox')).structuredContent?.items.map(
+        (entry: { id: string }) => entry.id,
+      );
+    expect(await idsOf(tenantSecret)).toEqual([tenantTodo.id]);
+    expect(await idsOf(key('super').secret)).toEqual([hostTodo.id]);
+    const foreign = await call(tenantSecret, 'resolve_integrator_todo', {
+      project_key: 'AR',
+      item_id: hostTodo.id,
+      option_id: 'todo_done',
+    });
+    expect(foreign.structuredContent?.errorCode).toBe('insufficient_access');
+    const own = await call(tenantSecret, 'resolve_integrator_todo', {
+      project_key: 'BR',
+      item_id: tenantTodo.id,
+      option_id: 'todo_done',
+    });
+    expect(own.isError).not.toBe(true);
   });
 
   it('initializes, lists, reads and writes with no session and no engine', async () => {

@@ -323,7 +323,12 @@ export async function createProject(h: HarnessBase, cookie: string, key = 'AR'):
  * A project of another owner: the host owner creates it, then its owner member's e-mail becomes a stranger's, so
  * the host owner holds no membership in it (the multi-owner case, PM-1058). Its key may sort before the first project's.
  */
-export async function createForeignProject(h: HarnessBase, cookie: string, key = 'BR'): Promise<void> {
+export async function createForeignProject(
+  h: HarnessBase,
+  cookie: string,
+  key = 'BR',
+  ownerEmail = 'stranger@example.test',
+): Promise<void> {
   const workspace = join(h.home, `workspace-${key.toLowerCase()}`);
   mkdirSync(workspace);
   const res = await withoutOnboarding(h.app.projectman.domain, () =>
@@ -346,11 +351,28 @@ export async function createForeignProject(h: HarnessBase, cookie: string, key =
     { actor: humanActor('owner'), author: OWNER_LOGIN },
     (draft) => {
       for (const member of draft.team.members)
-        if (member.kind === 'human' && member.email === OWNER_LOGIN.email)
-          member.email = 'stranger@example.test';
+        if (member.kind === 'human' && member.email === OWNER_LOGIN.email) member.email = ownerEmail;
       return 'Hand the project to another owner';
     },
   );
+}
+
+/**
+ * An owner account with a password (PM-1062) who owns the project `key` (made by the host owner, then handed over):
+ * the further owner whose own client connects with their own key (PM-1063). Returns their user id and e-mail.
+ */
+export async function createOwnerAccountWithProject(
+  h: HarnessBase,
+  hostCookie: string,
+  key = 'BR',
+  handle = 'tenant',
+): Promise<{ userId: string; email: string; cookie: string }> {
+  const cookie = await addHumanAndLogin(h.app, { handle, projectKey: null });
+  const { repos } = h.app.projectman;
+  const user = repos.users.findByEmail(`${handle}@example.test`)!;
+  repos.ownerAccounts.grant(user.id, repos.users.list()[0]!.id, new Date().toISOString());
+  await createForeignProject(h, hostCookie, key, user.email);
+  return { userId: user.id, email: user.email, cookie };
 }
 
 /**

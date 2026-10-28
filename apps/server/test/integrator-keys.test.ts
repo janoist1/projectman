@@ -211,7 +211,7 @@ describe('integrator key modes and lifecycle', () => {
     expect(() => auth.assertActive(principal)).toThrow(/invalid/);
   });
 
-  it('rejects keys whose owner is no longer a password account or is not the host owner', () => {
+  it('rejects keys whose owner is no longer a password account or an owner, and issues none to a non-owner', () => {
     const created = create('super');
     const principal = auth.resolveIntegratorCredential(created.secret, 'cli')!;
     const before = list();
@@ -220,7 +220,12 @@ describe('integrator key modes and lifecycle', () => {
     expect(() => auth.assertActive(principal)).toThrow(/invalid/);
     expect(list()).toEqual(before);
     repos.users.insert(user('other'));
+    expect(() => auth.createIntegratorAccessKey('other', { mode: 'read', expiresInDays: 1 })).toThrow(
+      /owner with a password/,
+    );
+    repos.ownerAccounts.grant('other', 'owner', START);
     const foreign = auth.createIntegratorAccessKey('other', { mode: 'read', expiresInDays: 1 });
+    repos.ownerAccounts.revoke('other', 'owner', START);
     expect(auth.resolveIntegratorCredential(foreign.secret, 'rest')).toBeNull();
     expect(auth.integratorAccessKeys('other')[0]!.lastUsedAt).toBeNull();
   });

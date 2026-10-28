@@ -12,6 +12,7 @@ import type { ProjectAccess } from '../src/core/members';
 import { resolveIntegratorTodo } from '../src/services/super-operator';
 import {
   createAppHarness,
+  createOwnerAccountWithProject,
   createProject,
   setupOwner,
   addHumanAndLogin,
@@ -48,9 +49,13 @@ describe('integrator todo REST and durable lifecycle', () => {
   });
   const headers = () => ({ authorization: `Bearer ${superKey.secret}` });
   const current = (id: string) => h.app.projectman.domain.inbox.get('AR', id);
-  function asked(payload: Record<string, unknown> = {}, kind: InboxItem['kind'] = 'question') {
+  function asked(
+    payload: Record<string, unknown> = {},
+    kind: InboxItem['kind'] = 'question',
+    projectKey = 'AR',
+  ) {
     return h.app.projectman.domain.inbox.create({
-      projectKey: 'AR',
+      projectKey,
       kind,
       // The project manager has machine access by role (decision 66); a developer does not.
       source: 'pm',
@@ -67,8 +72,8 @@ describe('integrator todo REST and durable lifecycle', () => {
       options: [{ id: 'answer', label: 'Answer', style: 'primary' }],
     });
   }
-  async function opened(payload: Record<string, unknown> = {}) {
-    const item = asked(payload);
+  async function opened(payload: Record<string, unknown> = {}, projectKey = 'AR') {
+    const item = asked(payload, 'question', projectKey);
     return (await h.app.projectman.domain.inbox.releaseScreened(item.id, {
       outcome: 'todo',
       by: 'pm',
@@ -338,6 +343,25 @@ describe('integrator todo REST and durable lifecycle', () => {
     const item = await opened();
     expect(item.payload).toMatchObject({ recipient: 'integrator' });
     expect(item.payload.screening).not.toHaveProperty('recipientRefusal');
+  });
+
+  it('counts the integrator side by the project’s own owners’ keys, and falls back when their account is revoked (PM-1063)', async () => {
+    const { auth, repos, domain } = h.app.projectman;
+    const tenant = await createOwnerAccountWithProject(h, cookie, 'BR');
+    // The host's live key does not make the other owner's project available, and theirs does not make the host's.
+    expect((await opened({}, 'BR')).payload).toMatchObject({
+      recipient: 'owner',
+      screening: { recipientRefusal: 'integrator_unavailable' },
+    });
+    auth.createIntegratorAccessKey(tenant.userId, { mode: 'super', expiresInDays: 7 });
+    const own = await opened({}, 'BR');
+    expect(own.payload).toMatchObject({ recipient: 'integrator' });
+    expect((await opened()).payload).toMatchObject({ recipient: 'integrator' });
+
+    // Revoking the account ends its key; the sweep sends the todo to the project's owners.
+    repos.ownerAccounts.revoke(tenant.userId, repos.users.list()[0]!.id, now.toISOString());
+    await domain.inbox.sweepIntegratorTodos();
+    expect(domain.inbox.get('BR', own.id).payload).toMatchObject({ recipient: 'owner' });
   });
 
   it('never delivers an integrator-origin item to other humans in REST or websocket projection', async () => {

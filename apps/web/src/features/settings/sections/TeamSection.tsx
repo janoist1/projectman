@@ -15,12 +15,14 @@ import {
   hasAccess,
   isDeveloper,
   mergerOf,
+  prerequisiteOverrideOf,
   PrioritySetter,
   prioritySetterCandidates,
   prioritySetterMembers,
   prioritySettersOf,
   projectManagerMovesOf,
   projectManagerOf,
+  projectManagersOf,
   TaskCreateAccess,
   taskCreateAccessOf,
   viewerRecipientsOf,
@@ -192,6 +194,51 @@ function ProjectManagerMovesControls({ config }: { config: ProjectConfig }) {
         <option value="queues_and_start">{t('settings.team.projectManagerMoves.queues_and_start')}</option>
         <option value="start_only">{t('settings.team.projectManagerMoves.start_only')}</option>
       </SelectField>
+      {error ? <ErrorBanner>{errorMessage(error)}</ErrorBanner> : null}
+    </fieldset>
+  );
+}
+
+/**
+ * Whether the project manager may start a card despite an open prerequisite (PM-1099): one tick, with the
+ * member it reaches now. Saves as it changes.
+ */
+function PrerequisiteOverrideControls({ config, helpId }: { config: ProjectConfig; helpId: string }) {
+  const { shown, saving, commit, error, locked } = useInstantLimits(config);
+  const noteId = useId();
+  const allowed = prerequisiteOverrideOf(shown) === 'people_and_project_manager';
+  const names = projectManagersOf(shown).map((member) => member.displayName);
+  return (
+    <fieldset
+      className={shared.controls}
+      disabled={locked || saving}
+      aria-busy={saving}
+      aria-describedby={helpId}
+    >
+      <legend className={shared.setterLegend}>{t('settings.team.prerequisiteOverride.question')}</legend>
+      <div>
+        <label className={shared.contactRow}>
+          <input
+            type="checkbox"
+            checked={allowed}
+            aria-describedby={noteId}
+            onChange={(event) =>
+              commit((draft) => {
+                draft.team.prerequisiteOverride = event.target.checked
+                  ? 'people_and_project_manager'
+                  : 'people';
+              })
+            }
+          />
+          <span>{t('settings.team.prerequisiteOverride.project_manager')}</span>
+        </label>
+        <p id={noteId} className={`${shared.muted} ${shared.setterNote}`}>
+          {names.length
+            ? t('settings.team.prerequisiteOverride.covers', { names: names.join(', ') })
+            : t('settings.team.prerequisiteOverride.noProjectManager')}
+        </p>
+      </div>
+      {allowed ? null : <p className={shared.muted}>{t('settings.team.prerequisiteOverride.humansOnly')}</p>}
       {error ? <ErrorBanner>{errorMessage(error)}</ErrorBanner> : null}
     </fieldset>
   );
@@ -644,6 +691,7 @@ export function TeamSection({ config }: { config: ProjectConfig }) {
   const { key, can, isOwner } = useProject();
   const roles = useRoles(key);
   const priorityHelpId = useId();
+  const prerequisiteHelpId = useId();
   return (
     <SettingsSection id="settings-team" title={t('settings.sections.team')}>
       <ul className={shared.members}>
@@ -731,6 +779,26 @@ export function TeamSection({ config }: { config: ProjectConfig }) {
             </div>
           </dl>
         )}
+      </section>
+      <section aria-labelledby="settings-prerequisite-override-title">
+        <h3 id="settings-prerequisite-override-title" className={shared.groupTitle}>
+          {t('settings.team.prerequisiteOverride.title')}
+        </h3>
+        <div className={shared.controls}>
+          <p id={prerequisiteHelpId} className={shared.help}>
+            {t('settings.team.prerequisiteOverride.help')}
+          </p>
+          {can.manageTeam ? (
+            <PrerequisiteOverrideControls config={config} helpId={prerequisiteHelpId} />
+          ) : (
+            <dl className={shared.facts}>
+              <div>
+                <dt>{t('settings.team.prerequisiteOverride.readOnlyLabel')}</dt>
+                <dd>{t(`settings.team.prerequisiteOverride.value.${prerequisiteOverrideOf(config)}`)}</dd>
+              </div>
+            </dl>
+          )}
+        </div>
       </section>
       <section aria-labelledby="settings-priority-title">
         <h3 id="settings-priority-title" className={shared.groupTitle}>

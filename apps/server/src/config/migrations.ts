@@ -7,6 +7,7 @@ import {
   DEFAULT_COMPLEXITY_SETTERS,
   DEFAULT_PROJECT_LANGUAGE,
   DEFAULT_PRIORITY_SETTERS,
+  DEFAULT_PREREQUISITE_OVERRIDE,
   DEFAULT_PROJECT_MANAGER_MOVES,
   DEFAULT_TASK_CREATE_ACCESS,
   DEFAULT_TEMP_MAX_POINTS,
@@ -279,6 +280,14 @@ function addProjectManagerMoves(raw: unknown): unknown {
   return raw;
 }
 
+/** Existing projects keep today's rule: only people override an open prerequisite (PM-1099). */
+function addPrerequisiteOverride(raw: unknown): unknown {
+  const team = asRecord(asRecord(raw)?.team);
+  if (team && team.prerequisiteOverride === undefined)
+    team.prerequisiteOverride = DEFAULT_PREREQUISITE_OVERRIDE;
+  return raw;
+}
+
 /** Existing projects keep today's circle: only the project managers may set a priority (PM-1096). */
 function addPrioritySetters(raw: unknown): unknown {
   const team = asRecord(asRecord(raw)?.team);
@@ -408,6 +417,13 @@ function addTempMaxPoints(raw: unknown): unknown {
   return raw;
 }
 
+/** Existing projects keep today's rule: a developer or above opens new cards (PM-1100). */
+function addTaskCreateAccess(raw: unknown): unknown {
+  const team = asRecord(asRecord(raw)?.team);
+  if (team && team.taskCreateAccess === undefined) team.taskCreateAccess = DEFAULT_TASK_CREATE_ACCESS;
+  return raw;
+}
+
 /**
  * Upgrades a merged, not yet validated project configuration of an older shape, in memory: the
  * customization files keep their content until the next save. Used wherever the store reads
@@ -424,6 +440,7 @@ function addTempMaxPoints(raw: unknown): unknown {
  *   - a project without an AI project manager gets one, on leave (above);
  *   - a missing card mover becomes worker (above);
  *   - missing project manager moves allow queue moves and starting work (above);
+ *   - a missing prerequisite override becomes people only (above);
  *   - a missing priority setting becomes the project managers (above);
  *   - missing complexity setters become requirements analysis and task breakdown (above);
  *   - a missing viewer recipients setting becomes the project manager only (above);
@@ -446,28 +463,30 @@ export function migrateProjectConfig(raw: unknown, context: MigrationContext): u
             addViewerRecipients(
               addComplexitySetters(
                 addPrioritySetters(
-                  addProjectManagerMoves(
-                    addCardMover(
-                      addProjectManager(
-                        migrateReleaseApproval(
-                          migrateLegacyConfig(
-                            migrateCodexBypass(
-                              migrateScheduledRole(
-                                dropMessageBurst(
-                                  migrateSeniorLimit(
-                                    dropEmailMailbox(migrateShadowingRoles(raw, context), context),
+                  addPrerequisiteOverride(
+                    addProjectManagerMoves(
+                      addCardMover(
+                        addProjectManager(
+                          migrateReleaseApproval(
+                            migrateLegacyConfig(
+                              migrateCodexBypass(
+                                migrateScheduledRole(
+                                  dropMessageBurst(
+                                    migrateSeniorLimit(
+                                      dropEmailMailbox(migrateShadowingRoles(raw, context), context),
+                                      context,
+                                    ),
                                     context,
                                   ),
                                   context,
                                 ),
                                 context,
                               ),
-                              context,
                             ),
+                            context,
                           ),
                           context,
                         ),
-                        context,
                       ),
                     ),
                   ),
@@ -481,11 +500,4 @@ export function migrateProjectConfig(raw: unknown, context: MigrationContext): u
       context,
     ),
   );
-}
-
-/** Existing projects keep today's rule: a developer or above opens new cards (PM-1100). */
-function addTaskCreateAccess(raw: unknown): unknown {
-  const team = asRecord(asRecord(raw)?.team);
-  if (team && team.taskCreateAccess === undefined) team.taskCreateAccess = DEFAULT_TASK_CREATE_ACCESS;
-  return raw;
 }

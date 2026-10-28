@@ -180,6 +180,70 @@ describe('the project manager’s rights on the server', () => {
       expect(card().stageId).toBe('development');
     });
 
+    describe('despite an open prerequisite (PM-1099)', () => {
+      beforeEach(async () => {
+        await h.domain.tasks.create('AR', { title: 'Prerequisite' }, OWNER_ACTOR);
+        await h.domain.tasks.update(
+          'AR',
+          'AR-1',
+          {
+            relations: { add: [{ kind: 'prerequisite', key: 'AR-2' }] },
+            addLabels: ['ready-ok'],
+            assignee: 'dev-2',
+          },
+          OWNER_ACTOR,
+        );
+      });
+      const allow = () =>
+        h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (config) => {
+          config.team.prerequisiteOverride = 'people_and_project_manager';
+          return 'Let the project manager override prerequisites';
+        });
+
+      it('moves the card into the work stage on the explicit flag when the project allows it, and the work start does not wait', async () => {
+        await allow();
+        await h.domain.teamTools.updateTask(pm, {
+          taskKey: 'AR-1',
+          stageId: 'development',
+          despitePrerequisites: true,
+        });
+        await flush();
+        expect(card().stageId).toBe('development');
+        expect(h.domain.tasks.startWaitingOf(card())?.reason).not.toBe('prerequisite_open');
+      });
+
+      it('still refuses the move without the flag, whatever the setting', async () => {
+        await allow();
+        await expect(
+          h.domain.tasks.update('AR', 'AR-1', { stageId: 'development' }, aiActor('pm')),
+        ).rejects.toMatchObject({ status: 409, code: 'prerequisite_open' });
+        expect(card().stageId).toBe('ready');
+      });
+
+      it('ignores the flag while the project lets people only override', async () => {
+        await expect(
+          h.domain.tasks.update(
+            'AR',
+            'AR-1',
+            { stageId: 'development', despitePrerequisites: true },
+            aiActor('pm'),
+          ),
+        ).rejects.toMatchObject({ status: 409, code: 'prerequisite_open' });
+        expect(card().stageId).toBe('ready');
+      });
+
+      it('starts the card on start_task with the flag when the project allows it', async () => {
+        await allow();
+        const result = await h.domain.taskStarts.start('AR', 'AR-1', {
+          actor: aiActor('pm'),
+          author: OWNER,
+          despitePrerequisites: true,
+        });
+        expect(result.session).not.toBeNull();
+        expect(card().stageId).toBe('development');
+      });
+    });
+
     it('refuses every other move and records nothing of the same call', async () => {
       // Other stage kinds, and back from the work stage afterwards.
       for (const stageId of ['code_review', 'merge', 'done']) {

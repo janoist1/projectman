@@ -437,7 +437,11 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   removed (`task_prerequisite_removed`); the retry skips a start whose open prerequisites did not
   change. A person starts despite them with `despitePrerequisites` (`StartTaskRequest`, or
   `UpdateTaskRequest` on the move, carried as `StageChange.despitePrerequisites` into the
-  `work_start` spec): honored for human actors only, so a card an AI member moves waits. Cards in a
+  `work_start` spec): honored as `mayOverridePrerequisites` allows (PM-1099): a person, the
+  coordinator acting on the owner's request, or the project manager acting directly when
+  `team.prerequisiteOverride` is `people_and_project_manager` (default `people`); the project
+  manager's work-entry gate (`assertProjectManagerWorkEntry`) still stops without the flag, and a
+  card another AI member moves waits. Cards in a
   queue stage have no start, so a closing prerequisite starts nothing there. (A move that needs an
   approval first does not carry the flag past the approval: the card then waits.) Each closing writes
   `task_prerequisite_closed` on the timeline of every open dependent (`PrerequisiteClosures`). The
@@ -1952,6 +1956,16 @@ workers follow the machine's size.
   markers have the same candidate-code trust boundary as the script and its exit code.
 
 ## Machine-dependent parts (PM-341)
+
+- **Shared repository git settings (PM-413)** — `worktree/worktree-manager.ts`
+  (`ensureSharedRepoSettings`, called from `ensureWorktree` and `ensureMergeFix` under the
+  repository lock). The worktree manager writes `core.useReplaceRefs=false`, `gc.packRefs=false`
+  and `maintenance.pack-refs.enabled=false` into the managed repository's local git config, a
+  lasting change to that repository (member workspaces, which are independent clones, are not
+  touched). **Machine assumptions:** the repository lives on this machine and is writable by the
+  engine's user. **Remote engine:** the worktree manager runs on the engine that holds the
+  repository, so the write happens there and nothing crosses the server/engine boundary.
+  Related: the Codex `packed-refs.lock` grant of PM-411.
 
 - **Engine menu bar app (PM-1088)** — `deploy/mac/menubar/` (Swift 5.9 package, AppKit
   `NSStatusItem` / `NSMenu` and a SwiftUI details window), `scripts/engine/menubar.ts`,

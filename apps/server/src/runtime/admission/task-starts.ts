@@ -19,6 +19,7 @@ import {
   isOpenTask,
   isTheme,
   isCoordinatorSuperActor,
+  mayOverridePrerequisites,
   memberOf,
   projectRefines,
   reachingDevelopers,
@@ -170,6 +171,11 @@ function startsAsPerson(config: ProjectConfig, actor: Actor): boolean {
   return actor.kind === 'human' || isCoordinatorSuperActor(config, actor);
 }
 
+/** The start's `despitePrerequisites` flag as the move honors it (PM-1099): one value for every move it makes. */
+function despiteOf(config: ProjectConfig, opts: StartTaskOptions): boolean {
+  return opts.despitePrerequisites === true && mayOverridePrerequisites(config, opts.actor);
+}
+
 /**
  * Starts work on tasks: picks the developer (the explicit one, the current assignee, else the
  * least loaded free owner of the work stage), hires a temp worker when nobody is free and the
@@ -270,8 +276,8 @@ export class TaskStarts implements WorkEntryCheck {
       if (block) throw gateBlockedError(evaluateStart(task, config, workStage.id), block);
     }
     // Before the developer is chosen: nobody is picked, hired or assigned for a card that waits.
-    if (!(opts.despitePrerequisites && startsAsPerson(config, opts.actor)))
-      assertPrerequisitesClosed(task, prerequisiteCards(this.tasks, projectKey, task));
+    const despite = despiteOf(config, opts);
+    if (!despite) assertPrerequisitesClosed(task, prerequisiteCards(this.tasks, projectKey, task));
     // PM-248: the gate of the stage the card is in holds the Start too; a label only a person
     // sets there is no approval this Start can ask for, so it is refused before anyone is started.
     if (needsMove) refuseOwnStageApproval(task, evaluateStart(task, config, workStage.id));
@@ -390,13 +396,10 @@ export class TaskStarts implements WorkEntryCheck {
       const key = `${projectKey}:${taskKey}`;
       this.moving.add(key);
       try {
-        const result = await this.tasks.moveToStage(
-          projectKey,
-          taskKey,
-          workStage.id,
-          opts.actor,
-          opts.pulled ? { pulled: opts.pulled } : {},
-        );
+        const result = await this.tasks.moveToStage(projectKey, taskKey, workStage.id, opts.actor, {
+          ...(opts.pulled ? { pulled: opts.pulled } : {}),
+          ...(despite ? { despitePrerequisites: true } : {}),
+        });
         if (!result.moved) throw approvalRequestedError(result.pendingApproval);
       } finally {
         this.moving.delete(key);
@@ -442,6 +445,7 @@ export class TaskStarts implements WorkEntryCheck {
     if (evaluation.approvals.length > 0) {
       const result = await this.tasks.moveToStage(task.projectKey, task.key, workStage.id, opts.actor, {
         viaStart: true,
+        ...(despiteOf(config, opts) ? { despitePrerequisites: true } : {}),
       });
       throw approvalRequestedError(result.pendingApproval);
     }
@@ -470,6 +474,7 @@ export class TaskStarts implements WorkEntryCheck {
     if (needsMove) {
       const result = await this.tasks.moveToStage(projectKey, task.key, workStage.id, opts.actor, {
         viaStart: true,
+        ...(despiteOf(config, opts) ? { despitePrerequisites: true } : {}),
       });
       if (!result.moved) throw approvalRequestedError(result.pendingApproval);
     }

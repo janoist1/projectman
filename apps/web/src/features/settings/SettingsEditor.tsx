@@ -99,6 +99,10 @@ function limitsBody(draft: ProjectConfig, saved: ProjectConfig, baseVersion: str
     draft.team.projectManagerMoves !== saved.team.projectManagerMoves
       ? draft.team.projectManagerMoves
       : undefined;
+  const prerequisiteOverride =
+    draft.team.prerequisiteOverride !== saved.team.prerequisiteOverride
+      ? draft.team.prerequisiteOverride
+      : undefined;
   // The priority setters go as the whole list when it changed, [] too; compared in the options' order.
   const settersOf = (config: ProjectConfig) => {
     const chosen = prioritySettersOf(config);
@@ -124,6 +128,7 @@ function limitsBody(draft: ProjectConfig, saved: ProjectConfig, baseVersion: str
     ...(cardMover ? { cardMover } : {}),
     ...(taskCreateAccess ? { taskCreateAccess } : {}),
     ...(projectManagerMoves ? { projectManagerMoves } : {}),
+    ...(prerequisiteOverride ? { prerequisiteOverride } : {}),
     ...(prioritySettersChanged ? { prioritySetters } : {}),
     ...(complexityChanged ? { complexitySetters: [...complexitySetters] } : {}),
     ...(contactsChanged ? { contacts } : {}),

@@ -71,6 +71,8 @@ export const PatchConfigRequest = z
     /** The lowest human access that may open a new card (PM-1100). Owner-only (`task_create_access`). */
     taskCreateAccess: ProjectConfig.shape.team.shape.taskCreateAccess,
     projectManagerMoves: ProjectConfig.shape.team.shape.projectManagerMoves,
+    /** Who may override an open prerequisite (PM-1099). */
+    prerequisiteOverride: ProjectConfig.shape.team.shape.prerequisiteOverride,
     /** Who besides people may set a card's priority (PM-1096): the whole list replaces the saved one, [] too. */
     prioritySetters: ProjectConfig.shape.team.shape.prioritySetters,
     /** The duties whose holders may set complexity points (PM-1097): the whole list replaces the saved one, [] leaves the owners. */
@@ -277,6 +279,9 @@ export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigReques
       ...(patch.cardMover !== undefined ? { cardMover: patch.cardMover } : {}),
       ...(patch.taskCreateAccess !== undefined ? { taskCreateAccess: patch.taskCreateAccess } : {}),
       ...(patch.projectManagerMoves !== undefined ? { projectManagerMoves: patch.projectManagerMoves } : {}),
+      ...(patch.prerequisiteOverride !== undefined
+        ? { prerequisiteOverride: patch.prerequisiteOverride }
+        : {}),
       ...(patch.prioritySetters !== undefined ? { prioritySetters: patch.prioritySetters } : {}),
       ...(patch.complexitySetters !== undefined ? { complexitySetters: patch.complexitySetters } : {}),
       ...(patch.merger !== undefined ? { merger: patch.merger } : {}),

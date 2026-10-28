@@ -13,6 +13,7 @@ import {
   writeSecretFile,
 } from '../../apps/server/src/engine-link/engine-config';
 import { readEngineStatus } from '../../apps/server/src/engine-link/engine-status';
+import type { EngineStatus } from '../../apps/server/src/engine-link/engine-status';
 import { assertHomeMayStart } from '../../apps/server/src/instance';
 import { defaultExec, moveWorkRoot } from './move-work-root';
 import type { Exec } from './move-work-root';
@@ -59,6 +60,7 @@ const USAGE = `usage:
   npm run engine -- repo add <KEY> <repo> <path> [--full-test "<command>"]
   npm run engine -- repo remove <KEY> <repo>
   npm run engine -- status
+  npm run engine -- keep-awake on|off   (keep the Mac awake while work runs; takes effect when the engine restarts)
   npm run engine -- start
   npm run engine -- service install|uninstall|status   (macOS LaunchAgent: the engine starts at login and restarts)
   npm run engine -- move-work-root <absolute path>   (the engine is stopped; copies worktrees/ and workspaces/ to the work volume)
@@ -126,6 +128,22 @@ function age(from: string, now: number): string {
   if (seconds < 90) return `${seconds}s`;
   if (seconds < 5400) return `${Math.round(seconds / 60)}m`;
   return `${Math.round(seconds / 3600)}h`;
+}
+
+/** PM-1086: the keep-awake state and the running work in one line; an older engine's file has neither. */
+function keepAwakeLine(status: EngineStatus, alive: boolean, now: number): string {
+  const { keepAwake, work } = status;
+  if (!keepAwake) return 'keep awake: not reported by this engine version';
+  let state: string;
+  if (keepAwake.mode === 'off') state = 'off';
+  else if (keepAwake.unsupported) state = 'not supported on this system';
+  else if (!alive) state = 'not held (the engine is not running)';
+  else if (keepAwake.holding) state = `holding${keepAwake.since ? ` for ${age(keepAwake.since, now)}` : ''}`;
+  else state = 'not needed (nothing is running)';
+  const counts = work
+    ? `; work: ${work.sessions} sessions, ${work.fullTests} merge checks, ${work.screenshots} screenshot runs`
+    : '';
+  return `keep awake: ${state}${counts}`;
 }
 
 export async function runEngineCli(argv: string[], io: EngineCliIo): Promise<number> {
@@ -259,7 +277,18 @@ export async function runEngineCli(argv: string[], io: EngineCliIo): Promise<num
         io.out(
           `sessions: ${status.running.length}${status.running.map((s) => `\n  ${s.sessionId} ${s.state}`).join('')}`,
         );
+        io.out(keepAwakeLine(status, alive, now));
         return alive && status.connection === 'connected' ? 0 : 1;
+      }
+      case 'keep-awake': {
+        if ((sub !== 'on' && sub !== 'off') || rest.length > 0) throw new UsageError('keep-awake on|off');
+        const config = loadEngineConfig(home);
+        saveEngineConfig(
+          home,
+          EngineConfig.parse({ ...config, keepAwake: sub === 'on' ? 'while_working' : 'off' }),
+        );
+        io.out(`keep awake while working: ${sub}. It takes effect when the engine is restarted.`);
+        return 0;
       }
       case 'start': {
         if (sub !== undefined) throw new UsageError('start takes no arguments');
@@ -320,7 +349,7 @@ export async function runEngineCli(argv: string[], io: EngineCliIo): Promise<num
       }
       default:
         throw new UsageError(
-          'commands: init, project set, repo add, repo remove, status, start, service, move-work-root',
+          'commands: init, project set, repo add, repo remove, status, keep-awake, start, service, move-work-root',
         );
     }
   } catch (error) {

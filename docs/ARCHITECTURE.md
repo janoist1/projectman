@@ -1940,6 +1940,17 @@ workers follow the machine's size.
 
 ## Machine-dependent parts (PM-341)
 
+- **Keep awake while working (PM-1086)** — `engine-host/keep-awake.ts` (`createKeepAwake`,
+  `spawnKeepAwakeProcess`), wired in `engine-app.ts` to its 1 s poll; `engine-handlers.ts` `activeRuns()`
+  counts the merge-check and screenshot runs; `engine.json` `keepAwake` and `npm run engine -- keep-awake
+on|off`. While a session, a merge check or a screenshot run is active the engine holds
+  `/usr/bin/caffeinate -i -s -w <engine pid>` and lets go two minutes after the last one ended (a crashed
+  `caffeinate` is started again at most once a minute). **Machine assumptions:** macOS only (other
+  platforms report `unsupported`; a Linux `systemd-inhibit` is not built); `-i`/`-s` keep the system awake
+  on mains power, the display may sleep, and a Mac on battery with the lid closed sleeps anyway; `-w` ends
+  `caffeinate` with the engine even after a SIGKILL. **Remote engine:** everything runs on the engine's own
+  machine and nothing crosses the server/engine boundary; `hello` and the RPC are unchanged.
+
 - **Link-headers file and the working-folder check (PM-1077)** — `scripts/engine/commands.ts` (`init
 --link-headers-file <path>`), `EngineHost.workspaceState(path)` (`contracts/engine.ts`; local:
   `engine-host/local-host.ts`, remote: `engine-link/remote/host.ts`), `NewProjectEngines.workspaceState`
@@ -2882,7 +2893,9 @@ workers follow the machine's size.
   is refused with `merge_not_allowed`), the highest permission mode, whether the cloud may type into a terminal), `engine.key` (the machine key,
   mode 0600; a looser mode, another owner or a link is refused at start-up), an optional link-headers
   file (0600; `authorization` is never taken from it), `engine-status.json` (what `status` shows: no
-  secret), `logs/engine-audit.jsonl` (one line per request: method, session id, outcome and refusal
+  secret; PM-1086 adds the optional `work` counts (sessions, merge checks, screenshot runs) and `keepAwake`
+  (`mode`, `holding`, `since`, `unsupported`), and `engine.json` the optional `keepAwake` mode,
+  `while_working` when absent), `logs/engine-audit.jsonl` (one line per request: method, session id, outcome and refusal
   code, never a prompt, message, terminal input, file content, token or key; rotated at 10 MB, five
   files kept) and `attachments-cache/` (downloaded attachments, checked against size and sha256; a task
   session may read its card's folder there, which `engine-limit.ts` allows as a read-only sandbox root

@@ -434,8 +434,22 @@ describe('release approval migration (decision 19)', () => {
       const setBy = (id: string) => config.pipeline.labels.find((l) => l.id === id)!.setBy;
       expect(setBy('with-others')).toEqual({ members: ['owner'] });
       expect(setBy('with-duty')).toEqual({ duties: ['code_review'] });
-      expect(setBy('only-operator')).toBe('humans');
+      // No wider than before: the owners in person, not every human with access.
+      expect(setBy('only-operator')).toEqual({ members: ['owner'], humansOnly: true });
       expect(validateProjectConfig(config).filter((i) => i.severity !== 'warning')).toEqual([]);
+    });
+
+    it('leaves a label only the Operator could set to the system when the project has no owner', () => {
+      const legacy = withOperator();
+      for (const member of legacy.team.members) if (member.kind === 'human') member.access = 'admin';
+      legacy.pipeline.labels.push({
+        id: 'only-operator',
+        name: 'Fictional',
+        color: 'gray',
+        setBy: { members: ['operator'] },
+      } as never);
+      const { config } = migrate(legacy);
+      expect(config.pipeline.labels.find((l) => l.id === 'only-operator')!.setBy).toBe('system');
     });
 
     it('derives a default merger when the stored one named the removed Operator', () => {

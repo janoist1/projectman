@@ -1127,7 +1127,7 @@ describe('write_project_docs through the bearer MCP (PM-784)', () => {
   /** A live scope of a key, as the authenticated facade makes it; the checks of membership are the facade's own. */
   async function scope(mode: 'super' | 'read' = 'super', userId = OWNER_USER) {
     const config = await h.domain.projects.config('AR');
-    const actor = coordinatorSuperActorOf(config, KEY)!;
+    const actor = coordinatorSuperActorOf(config, KEY, 'pm')!;
     return {
       active: true,
       context: {

@@ -562,7 +562,7 @@ describe('the integrator in super mode requests a review (PM-784)', () => {
   };
   /** A live scope of a key, as the authenticated facade makes it; `revoked` turns true when the key goes. */
   function scope(mode: 'super' | 'read' = 'super', revoked: () => boolean = () => false) {
-    const actor = coordinatorSuperActorOf(config(), KEY)!;
+    const actor = coordinatorSuperActorOf(config(), KEY, 'pm')!;
     return {
       active: true,
       context: {

@@ -351,10 +351,11 @@ describe('credential REST and domain access (PM-759)', () => {
       { onLeave: false },
       { actor: humanActor('owner'), author: { name: 'Owner', email: 'owner@example.com' } },
     );
-    const actor = coordinatorSuperActorOf(await domain.projects.config('AR'), {
-      id: context!.principal.keyId,
-      prefix: context!.principal.prefix,
-    })!;
+    const actor = coordinatorSuperActorOf(
+      await domain.projects.config('AR'),
+      { id: context!.principal.keyId, prefix: context!.principal.prefix },
+      'pm',
+    )!;
     const item = domain.inbox.create({
       projectKey: 'AR',
       kind: 'question',

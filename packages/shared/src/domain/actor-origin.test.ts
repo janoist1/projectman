@@ -163,13 +163,16 @@ describe('super-mode actor origin (PM-757)', () => {
   });
 
   it('computes the super actor from the configuration, with the selected coordinator as handle', () => {
-    expect(coordinatorSuperActorOf(config, credential)).toEqual(pmSuperActor);
-    expect(coordinatorSuperActorOf({ team: { members: [], roles: [] } } as never, credential)).toBeNull();
+    expect(coordinatorSuperActorOf(config, credential, 'pm')).toEqual(pmSuperActor);
+    expect(
+      coordinatorSuperActorOf({ team: { members: [], roles: [] } } as never, credential, 'pm'),
+    ).toBeNull();
   });
 
   it('binds the app super actor to the selected coordinator only', () => {
     expect(coordinatorSuperActorOf(config, credential, 'pm')).toEqual(pmSuperActor);
     expect(coordinatorSuperActorOf(config, credential, 'other')).toBeNull();
+    expect(coordinatorSuperActorOf(config, credential, undefined)).toBeNull();
     expect(coordinatorSuperActorOf(config, credential, 'operator')).toBeNull();
     expect(isCoordinatorSuperActor(config, pmSuperActor)).toBe(true);
   });

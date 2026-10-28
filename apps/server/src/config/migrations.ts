@@ -263,9 +263,10 @@ function removeOperator(raw: unknown, { projectKey, logger }: MigrationContext):
     if (member.role === RETIRED_OPERATOR_ROLE && typeof member.handle === 'string') gone.add(member.handle);
   }
   if (gone.size) {
-    team.members = team.members.filter(
+    const remaining = team.members.filter(
       (m) => !(asRecord(m)?.kind === 'ai' && gone.has(String(asRecord(m)?.handle))),
     );
+    team.members = remaining;
     if (Array.isArray(team.contacts)) team.contacts = team.contacts.filter((h) => !gone.has(String(h)));
     const pipeline = asRecord(config.pipeline);
     if (Array.isArray(pipeline?.stages)) {
@@ -275,7 +276,14 @@ function removeOperator(raw: unknown, { projectKey, logger }: MigrationContext):
       }
     }
     // A label the Operator could set by name: the other setters stay. A label nobody else could set falls to
-    // the humans (an empty `setBy` does not parse), the narrowest rule that still loads.
+    // the owners in person (an empty `setBy` does not parse), or to the system when there is no owner: no
+    // narrower rule loads, and no one gains the right.
+    const owners = remaining.flatMap((m) => {
+      const member = asRecord(m);
+      return member?.kind === 'human' && member.access === 'owner' && typeof member.handle === 'string'
+        ? [member.handle]
+        : [];
+    });
     if (Array.isArray(pipeline?.labels)) {
       for (const label of pipeline.labels.map(asRecord)) {
         const setBy = asRecord(label?.setBy);
@@ -284,7 +292,7 @@ function removeOperator(raw: unknown, { projectKey, logger }: MigrationContext):
         if (members.length === setBy.members.length) continue;
         if (members.length) setBy.members = members;
         else if (Array.isArray(setBy.duties) && setBy.duties.length) delete setBy.members;
-        else label.setBy = 'humans';
+        else label.setBy = owners.length ? { members: owners, humansOnly: true } : 'system';
       }
     }
     // A merger naming the Operator was never valid; dropped, `addMerger` (next in the chain) derives the default.

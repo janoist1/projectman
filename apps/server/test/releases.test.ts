@@ -909,7 +909,7 @@ describe('the release flow', () => {
 
     /** A live scope of a key, as the authenticated facade makes it; `revoked` turns true when the key goes. */
     async function scope(mode: 'super' | 'read' = 'super', revoked: () => boolean = () => false) {
-      const actor = coordinatorSuperActorOf(await h.domain.projects.config('AR'), KEY)!;
+      const actor = coordinatorSuperActorOf(await h.domain.projects.config('AR'), KEY, 'pm')!;
       return {
         active: true,
         context: {

@@ -34,7 +34,8 @@ import {
   superDecisionRefusal,
   gateRequestOf,
   handOnRequestOf,
-  hasSuperOrigin,
+  hasBoundOrigin,
+  hasConnectedOrigin,
   isPendingQuestion,
   isLinkedQuestion,
   isRelayableQuestionItem,
@@ -42,6 +43,7 @@ import {
   memberOf,
   operatorApprovalOf,
   operatorKnowledgeApprovalOf,
+  operatorOf,
   structuralReviewOf,
   OPERATOR_DISMISS_OPTION,
   permissionDelegationOf,
@@ -80,7 +82,7 @@ import type {
   ResolveIntegratorTodoRequest,
   ScreeningTodo,
   ScreenedQuestionsResponse,
-  SuperActor,
+  BoundActor,
   TimelineEventData,
   TaskStartWaiting,
   WorkItemRef,
@@ -183,7 +185,7 @@ type SuperOperationAnswer = (item: InboxItem, optionId: string, at: string, hand
 export interface Resolver {
   via?: 'integrator';
   /** The Operator's super origin of a step the owner's token made (PM-757); `handle` stays the owner. */
-  superActor?: SuperActor;
+  superActor?: BoundActor;
   handle: string;
   access: HumanAccess;
 }
@@ -538,8 +540,10 @@ export class InboxService {
     const config = this.projects.cachedConfig(item.projectKey)!;
     const owner = assertIntegratorAccess(config, 'write', scope.actor);
     if (!owner) throw forbidden('insufficient_access', 'a current project owner is required');
-    if (!hasSuperOrigin(scope.actor))
-      throw forbidden('owner_approval_required', 'an Operator origin is required');
+    // The connected Claude answers for its holder only on a direct instruction; a step on a member's
+    // queue item does not lend the owner's authority (PM-1010, decision 66).
+    if (!hasBoundOrigin(scope.actor) || (hasConnectedOrigin(scope.actor) && scope.actor.kind !== 'human'))
+      throw forbidden('owner_approval_required', 'an Operator or connected-Claude origin is required');
     const refusal = superDecisionRefusal(item, {
       operatorHandle: scope.actor.handle,
       sessionMember: item.sessionId ? this.ctx.repos.sessions.get(item.sessionId)?.member : null,
@@ -1046,9 +1050,14 @@ export class InboxService {
           return row && row.id !== id && isPendingQuestion(row) ? [row] : [];
         }),
       ];
+      // A connected step is the holder's in person, yet what the Operator asked or runs stays reserved to the
+      // owner's own login, as it was for the old super step.
+      const protectedHandle = hasConnectedOrigin(by.superActor)
+        ? (operatorOf(initialConfig)?.handle ?? by.superActor!.handle)
+        : by.superActor!.handle;
       for (const member of members) {
         const refusal = superDecisionRefusal(member, {
-          operatorHandle: by.superActor!.handle,
+          operatorHandle: protectedHandle,
           sessionMember: member.sessionId ? this.ctx.repos.sessions.get(member.sessionId)?.member : null,
         });
         const question = member.kind === 'question' ? member.payload : null;
@@ -1545,7 +1554,7 @@ export class InboxService {
           note: close.note,
           rule: close.rule,
           ...(close.actor?.via ? { via: close.actor.via } : {}),
-          ...(close.actor && hasSuperOrigin(close.actor) ? { actor: close.actor } : {}),
+          ...(close.actor && hasBoundOrigin(close.actor) ? { actor: close.actor } : {}),
         };
         if (primaryWithdrawal)
           this.ctx.repos.inbox.updatePayload(id, { ...current.payload, groupWithdrawn: true }, at);

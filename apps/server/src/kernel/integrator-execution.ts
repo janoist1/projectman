@@ -1,11 +1,11 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { hasSuperOrigin } from '@projectman/shared';
+import { hasBoundOrigin, hasConnectedOrigin } from '@projectman/shared';
 import type {
   Actor,
+  BoundActor,
   ExternalToolOrigin,
   HumanMemberConfig,
   ProjectConfig,
-  SuperActor,
   SuperMutationCommand,
   SuperMutationInput,
 } from '@projectman/shared';
@@ -38,11 +38,15 @@ export function integratorExecution() {
 
 /**
  * Whether the scope may lend the owner's own authority to a step (PM-1010). False only for an app session
- * working on a member's request (a queue item): that step runs with the session member's own rights.
+ * working on a member's request (a queue item): that step runs with the session member's own rights. The same
+ * for a connected Claude working on a queue item (decision 66): its step is named for the issuer, so it lends
+ * nothing of the holder's.
  */
 export function delegatesOwnerAuthority(): boolean {
-  const principal = execution.getStore()?.context.principal;
-  return !(principal?.source === 'app' && principal.requestOrigin === 'member');
+  const context = execution.getStore()?.context;
+  const principal = context?.principal;
+  if (principal?.source === 'app' && principal.requestOrigin === 'member') return false;
+  return !(hasConnectedOrigin(context?.actor) && context?.actor.kind === 'ai');
 }
 
 /** Existing autonomous system work receives no delegated request authority. */
@@ -58,7 +62,7 @@ export function assertIntegratorAccess(
 ): HumanMemberConfig | undefined {
   const scope = execution.getStore();
   if (!scope) {
-    if (hasSuperOrigin(actor))
+    if (hasBoundOrigin(actor))
       throw forbidden('insufficient_access', 'a super actor needs authenticated execution');
     return undefined;
   }
@@ -74,7 +78,7 @@ export function assertSuperMutation(
 ): void {
   const scope = execution.getStore();
   if (!scope) {
-    if (hasSuperOrigin(actor))
+    if (hasBoundOrigin(actor))
       throw forbidden('insufficient_access', 'a super actor needs authenticated execution');
     return;
   }
@@ -90,7 +94,7 @@ export function assertSuperMutation(
 export async function authorizeSuperMutation(input: SuperMutationInput): Promise<void> {
   const scope = execution.getStore();
   if (!scope) {
-    if (hasSuperOrigin(input.actor))
+    if (hasBoundOrigin(input.actor))
       throw forbidden('insufficient_access', 'a super actor needs authenticated execution');
     return;
   }
@@ -114,12 +118,22 @@ export function externalToolOrigin(config: ProjectConfig): ExternalToolOrigin {
   if (principal.mode !== 'super')
     throw forbidden('integrator_not_allowed', 'only a super credential does this');
   const actor = scope.actorFor(config);
-  if (!hasSuperOrigin(actor))
-    throw forbidden('integrator_not_allowed', 'the project has no Operator to act as');
+  if (!hasBoundOrigin(actor))
+    throw forbidden('integrator_not_allowed', 'the key has no member to act as in the project');
   return { ownerUserId: principal.userId, actor: externalActorOf(actor), requestId };
 }
 
-function externalActorOf(actor: SuperActor): ExternalToolOrigin['actor'] {
+function externalActorOf(actor: BoundActor): ExternalToolOrigin['actor'] {
+  if (hasConnectedOrigin(actor))
+    return {
+      kind: actor.kind,
+      handle: actor.handle,
+      via: 'integrator',
+      through: {
+        holder: actor.through.holder,
+        credential: { id: actor.through.credential.id, prefix: actor.through.credential.prefix },
+      },
+    };
   return {
     kind: 'ai',
     handle: actor.handle,
@@ -142,7 +156,7 @@ export function assertOwnApproval(by?: { via?: 'integrator' | null; superActor?:
   const context = execution.getStore();
   if (context?.context.principal.mode === 'read')
     throw forbidden('integrator_read_only', 'a read credential cannot decide');
-  if (context || by?.via || hasSuperOrigin(by?.superActor))
+  if (context || by?.via || hasBoundOrigin(by?.superActor))
     throw forbidden('owner_approval_required', 'a decision requires a person using their own login');
 }
 
@@ -154,8 +168,8 @@ export function assertOwnOrSuperApproval(by?: { via?: 'integrator' | null; super
   if (
     scope?.active &&
     scope.context.principal.mode === 'super' &&
-    hasSuperOrigin(scope.context.actor) &&
-    (!by || hasSuperOrigin(by.superActor))
+    hasBoundOrigin(scope.context.actor) &&
+    (!by || hasBoundOrigin(by.superActor))
   )
     return;
   assertOwnApproval(by);

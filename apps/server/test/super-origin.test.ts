@@ -1,8 +1,8 @@
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
-import { isSuperOperatorActor, operatorOf, routes, SuperAuditPage, superActorOf } from '@projectman/shared';
-import type { Actor, SuperActor } from '@projectman/shared';
+import { connectedActorOf, routes, SuperAuditPage } from '@projectman/shared';
+import type { ConnectedActor, SuperActor } from '@projectman/shared';
 import type { FastifyRequest } from 'fastify';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
@@ -21,7 +21,10 @@ const OTHER_CREDENTIAL = { id: 'ikey_test_2', prefix: 'pmi_bbbbbbbb' };
 // A marker that must never reach the audit: it stands for free-form request data.
 const MARKER = 'FREE-FORM-MARKER-7431';
 
-const SUPER: SuperActor = {
+// The connected Claude of the owner holding the key (decision 66): the holder in person, with the key behind.
+const SUPER: ConnectedActor = connectedActorOf('owner', CREDENTIAL);
+// The step the old model recorded under the Operator, still readable.
+const LEGACY_SUPER: SuperActor = {
   kind: 'ai',
   handle: 'operator',
   via: 'integrator',
@@ -51,7 +54,7 @@ describe('super-mode origin and audit (PM-757)', () => {
     h.repos.superAudit.list('AR', { limit: 100, ...(prefix ? { prefix } : {}) }).entries;
 
   // These origin/audit fixtures simulate the authenticated execution PM-759 now requires at domain entry.
-  const authenticated = <T>(run: () => T, requestId = 'req-fixture'): T => {
+  const authenticated = <T>(run: () => T, requestId = 'req-fixture', issuer?: string): T => {
     let user = h.repos.users.list()[0];
     if (!user) {
       user = {
@@ -80,12 +83,13 @@ describe('super-mode origin and audit (PM-757)', () => {
         email: OWNER.email,
         requestId,
         projectKey: 'AR',
+        ...(issuer ? { issuer } : {}),
       },
       run,
     );
   };
   const patch = (...args: Parameters<typeof h.domain.projects.patch>) =>
-    args[2].actor.operatorMode === 'super'
+    args[2].actor.operatorMode === 'super' || args[2].actor.through
       ? authenticated(() => h.domain.projects.patch(...args), args[2].author.superRequestId)
       : h.domain.projects.patch(...args);
 
@@ -96,12 +100,7 @@ describe('super-mode origin and audit (PM-757)', () => {
       text: 'Fictional old note',
     });
     const sent = await authenticated(() =>
-      h.domain.messaging.send(
-        'AR',
-        'operator',
-        { to: ['owner'], text: 'Fictional super note' },
-        { actor: SUPER },
-      ),
+      h.domain.messaging.send('AR', 'owner', { to: ['pm'], text: 'Fictional super note' }, { actor: SUPER }),
     );
     expect(sent.actor).toEqual(SUPER);
     expect(plain.actor).toBeUndefined();
@@ -120,40 +119,37 @@ describe('super-mode origin and audit (PM-757)', () => {
       actor_meta: string | null;
     }[];
     const superRow = rows.find((r) => r.id === sent.id)!;
-    expect(superRow).toMatchObject({ from_handle: 'operator', via: 'integrator' });
-    expect(JSON.parse(superRow.actor_meta!)).toEqual({ operatorMode: 'super', credential: CREDENTIAL });
+    expect(superRow).toMatchObject({ from_handle: 'owner', via: 'integrator' });
+    expect(JSON.parse(superRow.actor_meta!)).toEqual({
+      through: { holder: 'owner', credential: CREDENTIAL },
+    });
     expect(rows.find((r) => r.id === plain.id)).toMatchObject({ via: null, actor_meta: null });
 
     // The timeline event of the same step reads back with the origin; an older event has none.
     const events = h.repos.timeline.list('AR');
-    const sentEvent = events.find((e) => e.actor.operatorMode === 'super');
+    const sentEvent = events.find((e) => e.actor.through !== undefined);
     expect(sentEvent?.actor).toEqual(SUPER);
-    const oldEvent = events.find((e) => e.actor.handle === 'owner');
-    expect(oldEvent?.actor.operatorMode).toBeUndefined();
+    const oldEvent = events.find((e) => e.actor.handle === 'owner' && e.actor.through === undefined);
+    expect(oldEvent?.actor.through).toBeUndefined();
     const raw = h.repos.db
       .prepare(
         'SELECT actor_kind, actor_handle, actor_via, actor_meta FROM timeline_events WHERE actor_meta IS NOT NULL',
       )
       .all() as { actor_kind: string; actor_handle: string; actor_via: string; actor_meta: string }[];
     expect(raw.length).toBeGreaterThan(0);
-    expect(raw[0]).toMatchObject({ actor_kind: 'ai', actor_handle: 'operator', actor_via: 'integrator' });
+    expect(raw[0]).toMatchObject({ actor_kind: 'human', actor_handle: 'owner', actor_via: 'integrator' });
   });
 
   it('reads an unreadable or disagreeing meta column as the old actor', async () => {
     h = await createDomainHarness();
     const message = await authenticated(() =>
-      h.domain.messaging.send(
-        'AR',
-        'operator',
-        { to: ['owner'], text: 'Fictional super note' },
-        { actor: SUPER },
-      ),
+      h.domain.messaging.send('AR', 'owner', { to: ['pm'], text: 'Fictional super note' }, { actor: SUPER }),
     );
     h.repos.db.prepare('UPDATE team_messages SET actor_meta = ? WHERE id = ?').run('{not json', message.id);
     expect(h.repos.messages.list('AR').find((m) => m.id === message.id)?.actor).toBeUndefined();
     h.repos.db
       .prepare('UPDATE team_messages SET actor_meta = ?, via = NULL WHERE id = ?')
-      .run(JSON.stringify({ operatorMode: 'super', credential: CREDENTIAL }), message.id);
+      .run(JSON.stringify({ through: SUPER.through }), message.id);
     expect(h.repos.messages.list('AR').find((m) => m.id === message.id)?.actor).toBeUndefined();
   });
 
@@ -248,7 +244,7 @@ describe('super-mode origin and audit (PM-757)', () => {
       { actor: SUPER, author: superAuthor() },
     );
     const { stdout } = await runGit(join(h.dir, 'customization'), ['log', '-1', '--format=%B']);
-    expect(stdout).toContain('Projectman-Operator-Mode: super');
+    expect(stdout).toContain('Projectman-Connected-Holder: owner');
     expect(stdout).toContain(`Projectman-Credential-Id: ${CREDENTIAL.id}`);
     expect(stdout).toContain(`Projectman-Credential-Prefix: ${CREDENTIAL.prefix}`);
     // Only the credential's id and prefix: the audit's request data and any secret stay out of the commit.
@@ -280,7 +276,7 @@ describe('super-mode origin and audit (PM-757)', () => {
       authenticated(() =>
         h.domain.projects.patch('AR', patch, {
           actor: SUPER,
-          author: { ...superAuthor('req-other'), superActor: { ...SUPER, credential: OTHER_CREDENTIAL } },
+          author: { ...superAuthor('req-other'), superActor: connectedActorOf('owner', OTHER_CREDENTIAL) },
         }),
       ),
     ).rejects.toMatchObject({ status: 403 });
@@ -587,7 +583,7 @@ describe('super-mode origin and audit (PM-757)', () => {
         () => i,
       );
     }
-    const second = { ...SUPER, credential: OTHER_CREDENTIAL };
+    const second = connectedActorOf('owner', OTHER_CREDENTIAL);
     h.domain.superAudit.run({ projectKey: 'AR', actor: second, requestId: 'req-b0' }, 'note_card', () => 0);
 
     const all = h.domain.superAudit.list('AR', { limit: 50 });
@@ -617,7 +613,7 @@ describe('super-mode origin and audit (PM-757)', () => {
     expect(h.domain.superAudit.list('ZZ', { limit: 5 }).entries).toEqual([]);
   });
 
-  it('records a pause and a resume made in the super mode as the Operator with the credential', async () => {
+  it('records a pause and a resume made with a super key as the holder`s connected Claude', async () => {
     h = await createDomainHarness();
     h.repos.users.insert({
       id: 'usr_owner',
@@ -645,7 +641,7 @@ describe('super-mode origin and audit (PM-757)', () => {
     await authenticated(() => h.domain.sessions.stop('AR', session.id, { kind: 'manual', by: SUPER }));
     const ended = h.repos.timeline.list('AR').find((e) => e.type === 'session_ended');
     expect(ended).toBeDefined();
-    expect(JSON.stringify(ended?.data)).toContain('operatorMode');
+    expect(JSON.stringify(ended?.data)).toContain('through');
     expect(JSON.stringify(ended?.data)).toContain(CREDENTIAL.prefix);
   });
 
@@ -659,9 +655,9 @@ describe('super-mode origin and audit (PM-757)', () => {
         author: superAuthor('req-start'),
       }),
     );
-    const withOrigin = h.repos.timeline.list('AR').filter((e) => e.actor.operatorMode === 'super');
+    const withOrigin = h.repos.timeline.list('AR').filter((e) => e.actor.through !== undefined);
     expect(withOrigin.length).toBeGreaterThan(0);
-    expect(withOrigin.every((e) => e.actor.credential?.prefix === CREDENTIAL.prefix)).toBe(true);
+    expect(withOrigin.every((e) => e.actor.through?.credential.prefix === CREDENTIAL.prefix)).toBe(true);
   });
 
   describe('binding a principal', () => {
@@ -669,23 +665,23 @@ describe('super-mode origin and audit (PM-757)', () => {
     const access = (overrides: Partial<ProjectAccess> = {}): ProjectAccess =>
       ({ projectKey: 'AR', handle: 'owner', access: 'owner', member: {}, ...overrides }) as ProjectAccess;
 
-    it('builds the super actor from the authenticated credential and the server-side Operator', async () => {
+    it('builds the holder in person with the credential behind, from the authenticated principal', async () => {
       h = await createDomainHarness();
       const bound = bindSuperPrincipal(await config(), access(), principal('super'));
-      expect(bound.superActor).toEqual(superActorOf(await config(), CREDENTIAL));
-      expect(bound.superActor?.handle).toBe(operatorOf(await config())?.handle);
+      expect(bound.superActor).toEqual(connectedActorOf('owner', CREDENTIAL));
       expect(bound.via).toBe('integrator');
-      expect(isSuperOperatorActor(await config(), bound.superActor as Actor)).toBe(true);
       expect(actorOf(bound)).toEqual(bound.superActor);
+    });
+
+    it('builds the queue item issuer with the holder behind it', async () => {
+      h = await createDomainHarness();
+      const bound = bindSuperPrincipal(await config(), access(), principal('super'), 'pm');
+      expect(bound.superActor).toEqual(connectedActorOf('owner', CREDENTIAL, { issuer: 'pm' }));
+      expect(senderOf(bound)).toBe('pm');
     });
 
     it.each([
       ['a read key', () => principal('read'), () => access()],
-      [
-        'a token owner who is no longer an owner',
-        () => principal('super'),
-        () => access({ access: 'admin' }),
-      ],
       ['another project', () => principal('super'), () => access({ projectKey: 'ZZ' })],
     ])('refuses %s', async (_name, makePrincipal, makeAccess) => {
       h = await createDomainHarness();
@@ -695,16 +691,14 @@ describe('super-mode origin and audit (PM-757)', () => {
       );
     });
 
-    it('refuses a project without an Operator', async () => {
+    it('binds in a project without an Operator', async () => {
       h = await createDomainHarness();
       const loaded = await config();
       const noOperator = {
         ...loaded,
         team: { ...loaded.team, members: loaded.team.members.filter((m) => m.handle !== 'operator') },
       };
-      expect(() => bindSuperPrincipal(noOperator, access(), principal('super'))).toThrow(
-        expect.objectContaining({ status: 403 }),
-      );
+      expect(bindSuperPrincipal(noOperator, access(), principal('super')).superActor).toEqual(SUPER);
     });
   });
 
@@ -743,12 +737,11 @@ describe('super-mode origin and audit (PM-757)', () => {
       });
     });
 
-    it('sends a bound request`s message from the Operator, so the sender and the stored actor agree', async () => {
+    it('sends a bound request`s message under the holder`s name, so the sender and the stored actor agree', async () => {
       h = await createDomainHarness();
       const bare = { projectKey: 'AR', handle: 'owner', access: 'owner', member: {} } as ProjectAccess;
       const bound = bindSuperPrincipal(await h.domain.projects.config('AR'), bare, principal('super'));
-      expect(senderOf(bound)).toBe('operator');
-      expect(senderOf(bare)).toBe('owner');
+      expect(senderOf(bound)).toBe('owner');
 
       const sent = await authenticated(() =>
         h.domain.messaging.send(
@@ -758,16 +751,16 @@ describe('super-mode origin and audit (PM-757)', () => {
           { actor: actorOf(bound) },
         ),
       );
-      expect(sent).toMatchObject({ from: 'operator', via: 'integrator', actor: SUPER });
+      expect(sent).toMatchObject({ from: 'owner', via: 'integrator', actor: SUPER });
       const stored = h.repos.messages.list('AR').find((m) => m.id === sent.id)!;
-      expect(stored).toMatchObject({ from: 'operator', actor: SUPER });
+      expect(stored).toMatchObject({ from: 'owner', actor: SUPER });
       expect(stored.actor?.handle).toBe(stored.from);
-      // A super origin cannot ride on a message from someone else (the owner whose token it is).
+      // A connected origin cannot ride on a message from someone else than the actor.
       await expect(
         authenticated(() =>
           h.domain.messaging.send(
             'AR',
-            'owner',
+            'pm',
             { to: ['dev-1'], text: 'Fictional mismatch' },
             { actor: actorOf(bound) },
           ),
@@ -775,7 +768,26 @@ describe('super-mode origin and audit (PM-757)', () => {
       ).rejects.toThrow(/super-mode message/);
     });
 
-    it('delivers the answer to an agent`s question from the Operator when the resolver is a super step', async () => {
+    it('stores a queue item step under the issuer`s name with the holder behind it', async () => {
+      h = await createDomainHarness();
+      const issuerStep = connectedActorOf('owner', CREDENTIAL, { issuer: 'pm' });
+      const sent = await authenticated(
+        () =>
+          h.domain.messaging.send(
+            'AR',
+            'pm',
+            { to: ['dev-1'], text: 'Fictional queue item step' },
+            { actor: issuerStep },
+          ),
+        'req-issuer',
+        'pm',
+      );
+      expect(sent).toMatchObject({ from: 'pm', actor: issuerStep });
+      const stored = h.repos.messages.list('AR').find((m) => m.id === sent.id)!;
+      expect(stored.actor).toEqual(issuerStep);
+    });
+
+    it('delivers the answer to an agent`s question under the holder`s name when the resolver is a connected step', async () => {
       h = await createDomainHarness();
       const question = h.domain.inbox.create({
         projectKey: 'AR',
@@ -801,7 +813,7 @@ describe('super-mode origin and audit (PM-757)', () => {
         .list('AR')
         .filter((m) => m.to.includes('dev-1') && m.body.includes('The first fictional option.'));
       expect(answers).toHaveLength(1);
-      expect(answers[0]).toMatchObject({ from: 'operator', actor: SUPER });
+      expect(answers[0]).toMatchObject({ from: 'owner', actor: SUPER });
     });
 
     it.each([
@@ -852,7 +864,7 @@ describe('super-mode audit route (PM-757)', () => {
     for (let i = 0; i < 3; i += 1)
       domain.superAudit.run({ projectKey: 'AR', actor: SUPER, requestId: `req-r${i}` }, 'note_card', () => i);
     domain.superAudit.run(
-      { projectKey: 'AR', actor: { ...SUPER, credential: OTHER_CREDENTIAL }, requestId: 'req-other' },
+      { projectKey: 'AR', actor: connectedActorOf('owner', OTHER_CREDENTIAL), requestId: 'req-other' },
       'note_card',
       () => 0,
     );

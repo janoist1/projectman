@@ -75,7 +75,7 @@ describe('labels in super mode on the key owner’s authority (PM-831)', () => {
       .list('AR', { taskKey })
       .filter((event) => event.type === 'task_labels_changed');
 
-  it('adds and removes a label the owner holds; the actor is the Operator with the key’s origin', async () => {
+  it('adds and removes a label the owner holds; the actor is the holder with the key’s origin', async () => {
     const added = await change({ add: ['owner-tag'] });
     expect(added.statusCode, added.body).toBe(200);
     expect(labelsOf()).toContain('owner-tag');
@@ -87,15 +87,14 @@ describe('labels in super mode on the key owner’s authority (PM-831)', () => {
     expect(events).toHaveLength(2);
     for (const event of events)
       expect(event.actor).toMatchObject({
-        kind: 'ai',
-        handle: 'operator',
+        kind: 'human',
+        handle: 'owner',
         via: 'integrator',
-        operatorMode: 'super',
-        credential: { prefix: keyPrefix },
+        through: { holder: 'owner', credential: { prefix: keyPrefix } },
       });
   });
 
-  it('lets the Operator give and take off an approval label the key owner holds (PM-870)', async () => {
+  it('lets the connected holder give and take off an approval label the key owner holds (PM-870)', async () => {
     expect((await change({ add: ['merge-ok'] })).statusCode).toBe(200);
     expect(labelsOf()).toEqual(['merge-ok']);
     expect((await change({ remove: ['merge-ok'] })).statusCode).toBe(200);

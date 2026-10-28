@@ -1329,13 +1329,25 @@ export interface ExternalMcpBackend {
   handler: ExternalToolsHandler;
   /** Runs one project-bound tool call inside the key's execution scope and audit (`SuperOperator.execute`). */
   execute<T>(
-    context: { principal: IntegratorPrincipal; requestId: string },
+    context: { principal: IntegratorPrincipal; requestId: string; issuer?: string },
     target: { projectKey: string; taskKey?: string; operation: string },
     run: () => Promise<T>,
   ): Promise<T>;
-  /** Resolves the call's context: re-checks the key, the holder's ownership and the mode, and binds the actor. */
+  /**
+   * Resolves the call's context: re-checks the key, the holder's ownership and the mode, and binds the actor.
+   * `issuer` (from `queueIssuer`) makes the actor that member, with the holder behind it (decision 66).
+   */
   bind(
-    input: { principal: IntegratorPrincipal; projectKey: string; requestId: string },
+    input: { principal: IntegratorPrincipal; projectKey: string; requestId: string; issuer?: string },
     operation: 'read' | 'write',
   ): Promise<ExternalToolContext>;
+  /**
+   * The member a step on an open queue item is made as (decision 66): the item's issuer, or null when the
+   * system issued it (the holder then acts in person). Refuses an item not open for the key's holder
+   * (`queue_item_not_yours`) and an issuer without machine access (`issuer_without_machine_access`).
+   */
+  queueIssuer(
+    input: { principal: IntegratorPrincipal; projectKey: string },
+    queueItemId: string,
+  ): Promise<string | null>;
 }

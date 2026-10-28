@@ -9,6 +9,7 @@ export {
   findHumanByEmail,
   projectAccessFor,
   bindSuperPrincipal,
+  principalActorOf,
 } from './access';
 export type { ProjectAccess } from './access';
 export type { InvitationUser, InvitationAccounts } from './ports';

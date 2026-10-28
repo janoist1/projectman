@@ -29,6 +29,7 @@ export {
   isOperator,
   isOperatorActor,
   isRequiredOperator,
+  isConnectedOwnerActor,
   isSuperOperatorActor,
   superActorOf,
   operatorOf,

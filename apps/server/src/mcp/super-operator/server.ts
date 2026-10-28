@@ -159,11 +159,19 @@ async function runExternalTool(
       typeof args.task_key === 'string' && TaskKey.safeParse(args.task_key).success
         ? args.task_key
         : undefined;
+    // Work on a queue item is made as the member who issued it, with the key's holder behind it (decision 66).
+    const queueItemId = typeof args.queue_item_id === 'string' ? args.queue_item_id : undefined;
+    const issuer = queueItemId
+      ? ((await deps.backend.queueIssuer({ principal, projectKey }, queueItemId)) ?? undefined)
+      : undefined;
     return deps.backend.execute(
-      { principal, requestId },
+      { principal, requestId, ...(issuer ? { issuer } : {}) },
       { projectKey, ...(taskKey ? { taskKey } : {}), operation: `mcp_${name}` },
       async () => {
-        const ctx = await deps.backend.bind({ principal, projectKey, requestId }, tool.access);
+        const ctx = await deps.backend.bind(
+          { principal, projectKey, requestId, ...(issuer ? { issuer } : {}) },
+          tool.access,
+        );
         return tool.run({ ctx, args, handler: deps.backend.handler });
       },
     );

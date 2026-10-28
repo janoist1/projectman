@@ -50,7 +50,7 @@ it('serves checklist state changes and computes conditions and progress in the f
 });
 
 describe('integrator credential policy in the fake (PM-759)', () => {
-  it('records a super inbox decision with the principal and Operator attribution', () => {
+  it('records a super inbox decision with the principal and the holder behind it', () => {
     const backend = new MockBackend();
     backend.integratorMode = 'super';
     const item = {
@@ -72,7 +72,7 @@ describe('integrator credential policy in the fake (PM-759)', () => {
       by: backend.viewerHandle,
       via: 'integrator',
       superDecision: true,
-      actor: { handle: operatorOf(backend.config)?.handle, operatorMode: 'super' },
+      actor: { kind: 'human', handle: backend.viewerHandle, through: { holder: backend.viewerHandle } },
     });
   });
 

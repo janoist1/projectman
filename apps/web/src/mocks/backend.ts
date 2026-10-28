@@ -17,7 +17,7 @@ import {
   planIntegratorInboxEscalation,
   integratorSideAvailable,
   ownerHandles,
-  superActorOf,
+  connectedActorOf,
   ownerReservedEffect,
   canonical,
   canReadOperatorKnowledge,
@@ -3787,10 +3787,9 @@ export class MockBackend {
   }
 
   private viewerActor(): Actor {
-    if (this.integratorMode === 'super') {
-      const actor = superActorOf(this.config, { id: 'mock_integrator', prefix: 'pmi_mock' });
-      if (actor) return actor;
-    }
+    // The connected Claude acts as its holder in person (decision 66), the same shape the server binds.
+    if (this.integratorMode === 'super')
+      return connectedActorOf(this.viewerHandle, { id: 'mock_integrator', prefix: 'pmi_mock' });
     if (this.integratorMode) return { kind: 'human', handle: this.viewerHandle, via: 'integrator' };
     return { kind: 'human', handle: this.viewerHandle };
   }

@@ -19,6 +19,8 @@ import {
   superCommandMutations,
   operatorFixedChange,
   superOperationName,
+  hasConnectedOrigin,
+  withApprovedBy,
 } from '@projectman/shared';
 import type {
   Actor,
@@ -27,7 +29,7 @@ import type {
   OwnerReservedEffect,
   ProjectConfig,
   RequestSuperOperationRequest,
-  SuperActor,
+  BoundActor,
   SuperCommand,
   SuperHandoff,
   SuperOperation,
@@ -456,7 +458,14 @@ export class SuperHandoffService {
   }
 
   private async assertAppCommand(projectKey: string, command: SuperCommand): Promise<void> {
-    const principal = integratorExecution()?.principal;
+    const scope = integratorExecution();
+    const principal = scope?.principal;
+    // The connected Claude on a queue item acts as its issuer; like a member's request it lends no owner authority.
+    if (hasConnectedOrigin(scope?.actor) && scope.actor.kind === 'ai' && memberRequestCommandRefusal(command))
+      throw forbidden(
+        'operator_owner_only',
+        "this command needs an owner's own message or answer; ask the owners with ask_human",
+      );
     if (principal?.source !== 'app') return;
     // An approval, merge or invitation takes an owner's own request; a member's message (a queue item) does not (PM-1010).
     if (principal.requestOrigin === 'member' && memberRequestCommandRefusal(command))
@@ -512,7 +521,7 @@ export class SuperHandoffService {
     keyId: string,
     requestId: string,
     access: ProjectAccess,
-    actor: SuperActor,
+    actor: BoundActor,
   ): Promise<SuperOperation> {
     const { handoff } = subject;
     const loaded = await this.projects.load(subject.projectKey);
@@ -552,7 +561,7 @@ export class SuperHandoffService {
         };
         if (waiting) {
           stored.expiresAt = new Date(this.ctx.now().getTime() + SUPER_OWNER_QUESTION_TTL_MS).toISOString();
-          stored.ownerQuestionId = this.openOwnerQuestion(subject, stored, loaded.config, effects).id;
+          stored.ownerQuestionId = this.openOwnerQuestion(subject, stored, loaded.config, effects, actor).id;
         }
         repo.insertOperation(stored);
         if (
@@ -585,11 +594,13 @@ export class SuperHandoffService {
     operation: StoredSuperOperation,
     subject: Subject,
     access: ProjectAccess,
-    actor: SuperActor,
+    actor: BoundActor,
   ): Promise<SuperOperation> {
     const loaded = await this.projects.load(operation.projectKey);
-    if (!this.approved(operation, loaded.config))
-      return this.refuseStale(operation, actor, 'the owner has not approved this operation');
+    const approver = this.approverOf(operation, loaded.config);
+    if (!approver) return this.refuseStale(operation, actor, 'the owner has not approved this operation');
+    // The step carries the owner whose yes it runs on (decision 66); the server read it from the closed question.
+    const approvedAccess: ProjectAccess = { ...access, superActor: withApprovedBy(actor, approver) };
     if (operation.expectedConfigVersion !== loaded.version)
       return this.refuseStale(operation, actor, 'the configuration changed since the owner answered');
     const executor = this.executorFor(operation.command);
@@ -606,19 +617,19 @@ export class SuperHandoffService {
           fresh,
           'running',
           { handoff: 'running', keepOperation: true },
-          attributedActor(access),
+          attributedActor(approvedAccess),
         );
       },
       { taskKey: operation.taskKey },
     );
-    return this.run(running, executor, access, actor, loaded, new Set(effects));
+    return this.run(running, executor, approvedAccess, actor, loaded, new Set(effects));
   }
 
   private async run(
     operation: StoredSuperOperation,
     executor: SuperCommandExecutor,
     access: ProjectAccess,
-    actor: SuperActor,
+    actor: BoundActor,
     loaded: { config: ProjectConfig; version: string },
     effects: ReadonlySet<OwnerReservedEffect>,
   ): Promise<SuperOperation> {
@@ -810,24 +821,32 @@ export class SuperHandoffService {
    * (no token, no relay), and it was asked for exactly this operation and command.
    */
   private approved(operation: StoredSuperOperation, config: ProjectConfig): boolean {
+    return this.approverOf(operation, config) !== null;
+  }
+
+  /**
+   * The owner whose yes stands (`approved`), or null. It is the one source of `approvedBy` on a step: the
+   * server's own reading of the closed question, never a client's claim (decision 66).
+   */
+  private approverOf(operation: StoredSuperOperation, config: ProjectConfig): string | null {
     const item = operation.ownerQuestionId ? this.ctx.repos.inbox.get(operation.ownerQuestionId) : null;
     const bound = item && questionPayloadOf(item)?.superOperation;
     const resolution = item?.resolution;
-    if (!item || !bound || item.state !== 'resolved' || !resolution) return false;
-    if (resolution.optionId !== SUPER_OWNER_YES) return false;
-    if (resolution.via || resolution.actor || resolution.ownerAnswerRelayed) return false;
+    if (!item || !bound || item.state !== 'resolved' || !resolution) return null;
+    if (resolution.optionId !== SUPER_OWNER_YES) return null;
+    if (resolution.via || resolution.actor || resolution.ownerAnswerRelayed) return null;
     const owner = memberOf(config, resolution.by);
-    return (
-      owner?.kind === 'human' &&
+    return owner?.kind === 'human' &&
       owner.access === 'owner' &&
       bound.operationId === operation.id &&
       bound.commandHash === operation.commandHash &&
       bound.expectedConfigVersion === operation.expectedConfigVersion
-    );
+      ? owner.handle
+      : null;
   }
 
   /** The operation can no longer be run as agreed: it is cancelled, the handoff is free to start again. */
-  private refuseStale(operation: StoredSuperOperation, actor: SuperActor, why: string): never {
+  private refuseStale(operation: StoredSuperOperation, actor: BoundActor, why: string): never {
     this.ctx.unitOfWork(() => {
       const fresh = this.ctx.repos.superHandoffs.operation(operation.projectKey, operation.id);
       if (fresh && !isTerminal(fresh.state) && fresh.state !== 'running')
@@ -844,16 +863,18 @@ export class SuperHandoffService {
     operation: StoredSuperOperation,
     config: ProjectConfig,
     effects: readonly OwnerReservedEffect[],
+    actor: BoundActor,
   ): InboxItem {
-    const operator = operatorOf(config);
+    // The asker is the connected Claude's actor (decision 66), or the project's Operator for an old super step.
+    const asker = hasConnectedOrigin(actor) ? actor.handle : operatorOf(config)?.handle;
     const assignees = ownerHandles(config);
-    if (!operator || assignees.length === 0)
-      throw invalid('invalid_request', 'the project has no Operator or no owner to ask');
+    if (!asker || assignees.length === 0)
+      throw invalid('invalid_request', 'the project has no one to ask or no owner to ask');
     return this.inbox.create({
       projectKey: subject.projectKey,
       kind: 'question',
       assignees,
-      source: operator.handle,
+      source: asker,
       taskKey: subject.taskKey,
       title: subject.reason,
       payload: {
@@ -1013,7 +1034,7 @@ export class SuperHandoffService {
 
   private execContext(
     projectKey: string,
-    actor: SuperActor,
+    actor: BoundActor,
     requestId: string,
     handoffId: string | null,
   ): SuperExecutionContext {

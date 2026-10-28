@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { isOperatorActor, isSuperOperatorActor } from '../config/operator-member';
+import { isConnectedOwnerActor, isOperatorActor } from '../config/operator-member';
 import { isProjectManagerActor } from '../config/project-manager';
 import type { ProjectConfig } from '../config/schema';
 import { TaskComplexity } from './complexity';
@@ -36,7 +36,7 @@ export function priorityRefusal(
   return actor.kind === 'human' ||
     isProjectManagerActor(config, actor) ||
     isOperatorActor(config, actor) ||
-    isSuperOperatorActor(config, actor)
+    isConnectedOwnerActor(config, actor)
     ? null
     : 'priority_humans_only';
 }

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { FIX_ANOTHER_ROUND_OPTION, routes } from '@projectman/shared';
@@ -693,6 +694,52 @@ describe('the bearer MCP endpoint (PM-760)', () => {
     });
     expect(relay.isError).toBe(true);
     expect(relay.structuredContent?.errorCode).toBe('not_found');
+  });
+
+  describe('a step on a queue item (decision 66)', () => {
+    const createItem = (source: string, assignees: string[]) =>
+      h.app.projectman.domain.inbox.create({
+        projectKey: 'AR',
+        kind: 'question',
+        source,
+        assignees,
+        title: 'Fictional queue item',
+        payload: {
+          question: 'Fictional',
+          recipient: 'integrator',
+          integratorOpenedAt: now.toISOString(),
+          screening: {
+            until: now.toISOString(),
+            outcome: 'todo',
+            todo: { what: 'Fictional', where: 'Hub', expected: 'Result', recipient: 'integrator' },
+          },
+        },
+        options: [
+          { id: 'todo_done', label: 'Done', style: 'primary' },
+          { id: 'todo_cannot', label: 'Cannot', style: 'secondary' },
+        ],
+      });
+    const operate = (secret: string, queueItemId: string) =>
+      call(secret, 'super_operate', {
+        project_key: 'AR',
+        request_id: randomUUID(),
+        queue_item_id: queueItemId,
+        command: { kind: 'operate', operation: { op: 'message_send', to: ['dev-1'], text: 'Fictional' } },
+      });
+
+    it('refuses an item that is not open for the key’s holder', async () => {
+      const item = createItem('dev-1', ['dev-1']);
+      const result = await operate(key('super').secret, item.id);
+      expect(result.isError).toBe(true);
+      expect(result.structuredContent?.errorCode).toBe('queue_item_not_yours');
+    });
+
+    it('refuses an item whose issuer has no machine access', async () => {
+      const item = createItem('ghost', ['owner']);
+      const result = await operate(key('super').secret, item.id);
+      expect(result.isError).toBe(true);
+      expect(result.structuredContent?.errorCode).toBe('issuer_without_machine_access');
+    });
   });
 
   describe('behind the Cloudflare Access front and the tunnel', () => {

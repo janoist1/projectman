@@ -3178,6 +3178,9 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   PM-1045: `AuthService.hasActiveSuperKey(ownerEmail)` (repository `hasActiveSuper`) tells whether an owner has
   a live (not revoked, not expired) super key; `integratorSideAvailable` reads it to decide where a machine todo
   waits. It reads only the hub database; no machine assumption is added.
+  PM-1074 (decision 66): a step made with the key is the connected Claude's: it is recorded under the key holder's
+  name (or the queue item issuer's), with `through` naming the holder and the key; the project needs no Operator for
+  a key to bind. The key still carries no authority beyond the authenticated scope and the holder's rights.
   Legacy keys are revoked with a lifecycle audit by migration 114 (PM-1037); the singular API is removed.
   Authentication rejects legacy rows, which remain readable in key lists and audit history. Before release,
   the owner must replace any active legacy credential on the integrator's machine with a super or read key.
@@ -3227,8 +3230,14 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   engine. Machine assumptions: a local or HTTPS connection (`requestProtocol` trusts `X-Forwarded-Proto` only from a
   loopback peer, so the proxy or tunnel must run on the server's machine and keep Host and the protocol header) and a
   tunnel/proxy that refuses `/mcp/` and `/hooks` but passes `/mcp`. Remote engine: not affected; nothing of the endpoint
-  runs on or crosses to an engine. Since PM-1045 this endpoint is the Operator's only door: the `operator` member
-  stays as a transitional identity (`superActorOf` maps a super-key step to it), the app starts no session for it.
+  runs on or crosses to an engine. Since PM-1045 this endpoint is the Operator's only door: the app starts no
+  session for it. **The connected Claude as an actor (PM-1074, decision 66):** a super-key step is recorded as the
+  key holder in person (`kind: human`, `via: integrator`, `through: {holder, credential}`), or, with
+  `queue_item_id` on `super_operate` / `execute_super_handoff`, as the member who issued that open integrator queue
+  item (`kind: ai`, the same `through`; `queue_item_not_yours` / `issuer_without_machine_access` refuse it). After the
+  owner's own yes on a K3 question the step also carries `approvedBy`, set by the server only. The `operator`
+  member and the old `operatorMode: super` events stay readable; `superActorOf` serves only the in-app Operator
+  principal. The actor is created and stored on the hub (`actor_meta`); no machine-dependent part is added.
   **The global Operator on the endpoint (PM-1046, PM-1023 K7):** in the super mode `get_operator_instance_knowledge`
   and `update_operator_instance_knowledge` (`expected_revision`, `agreement?`, `principles?`) read and write the
   Operator's own knowledge with no `project_key` (`services/super-operator/instance-knowledge.ts`); the write is

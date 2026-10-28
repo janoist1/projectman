@@ -4,13 +4,15 @@ import { join } from 'node:path';
 import type { FastifyBaseLogger } from 'fastify';
 import {
   ActorCredential,
-  hasSuperOrigin,
+  connectedOriginOf,
+  hasBoundOrigin,
+  hasConnectedOrigin,
   introducedErrors,
   isToleratedOnLoad,
   ProjectConfig,
   validateProjectConfig,
 } from '@projectman/shared';
-import type { Actor, ConfigIssue, ConfigVersionEntry, SuperActor } from '@projectman/shared';
+import type { Actor, BoundActor, ConfigIssue, ConfigVersionEntry } from '@projectman/shared';
 import type { ConfigStore, ConfigAuthor } from '../contracts';
 import { ConfigStoreError } from './errors';
 import { runGit } from './git';
@@ -50,10 +52,22 @@ function attributedMessage(message: string, author: ConfigAuthor): string {
     // prefix, never its secret. `history()` rebuilds the actor from these.
     ...(author.superActor
       ? [
-          'Projectman-Operator-Mode: super',
-          `Projectman-Operator-Handle: ${line(author.superActor.handle)}`,
-          `Projectman-Credential-Id: ${line(author.superActor.credential.id)}`,
-          `Projectman-Credential-Prefix: ${line(author.superActor.credential.prefix)}`,
+          ...(hasConnectedOrigin(author.superActor)
+            ? [
+                // The connected Claude (decision 66): who acted, whose Claude it was and who approved.
+                `Projectman-Connected-Kind: ${author.superActor.kind}`,
+                `Projectman-Connected-Handle: ${line(author.superActor.handle)}`,
+                `Projectman-Connected-Holder: ${line(author.superActor.through.holder)}`,
+                ...(author.superActor.approvedBy
+                  ? [`Projectman-Connected-Approved-By: ${line(author.superActor.approvedBy)}`]
+                  : []),
+              ]
+            : [
+                'Projectman-Operator-Mode: super',
+                `Projectman-Operator-Handle: ${line(author.superActor.handle)}`,
+              ]),
+          `Projectman-Credential-Id: ${line(connectedOriginOf(author.superActor)!.credential.id)}`,
+          `Projectman-Credential-Prefix: ${line(connectedOriginOf(author.superActor)!.credential.prefix)}`,
           ...(author.superAuditId ? [`Projectman-Audit-Id: ${line(author.superAuditId)}`] : []),
         ]
       : []),
@@ -78,24 +92,44 @@ function attributedMessage(message: string, author: ConfigAuthor): string {
   return body + (trailers.length ? `\n\n${trailers.join('\n')}` : '');
 }
 
-/** The super actor the trailers of a commit describe, or undefined unless all four agree (PM-757). */
+/**
+ * The actor the trailers of a commit describe, or undefined unless they agree: the old super mode (PM-757:
+ * mode, handle, credential) or the connected Claude (decision 66: kind, handle, holder, credential).
+ */
 function superActorFromTrailers(trailers: {
   mode: string | undefined;
   handle: string | undefined;
   id: string | undefined;
   prefix: string | undefined;
-}): SuperActor | undefined {
-  if (trailers.mode !== 'super' || !trailers.handle) return undefined;
+  connected: {
+    kind: string | undefined;
+    handle: string | undefined;
+    holder: string | undefined;
+    approvedBy: string | undefined;
+  };
+}): BoundActor | undefined {
   const credential = ActorCredential.safeParse({ id: trailers.id, prefix: trailers.prefix });
   if (!credential.success) return undefined;
-  const actor: Actor = {
-    kind: 'ai',
-    handle: trailers.handle,
-    via: 'integrator',
-    operatorMode: 'super',
-    credential: credential.data,
-  };
-  return hasSuperOrigin(actor) ? actor : undefined;
+  const { connected } = trailers;
+  const actor: Actor | null =
+    trailers.mode === 'super' && trailers.handle
+      ? {
+          kind: 'ai',
+          handle: trailers.handle,
+          via: 'integrator',
+          operatorMode: 'super',
+          credential: credential.data,
+        }
+      : (connected.kind === 'human' || connected.kind === 'ai') && connected.handle && connected.holder
+        ? {
+            kind: connected.kind,
+            handle: connected.handle,
+            via: 'integrator',
+            through: { holder: connected.holder, credential: credential.data },
+            ...(connected.approvedBy ? { approvedBy: connected.approvedBy } : {}),
+          }
+        : null;
+  return actor && hasBoundOrigin(actor) ? actor : undefined;
 }
 
 const README = `# projectman customization repository
@@ -374,7 +408,7 @@ export function createConfigStore(opts: ConfigStoreOptions): GitConfigStore {
             ending
               .split('\n')
               .every((line) =>
-                /^Projectman-(?:Via|Operator|Operator-Mode|Operator-Handle|Credential-Id|Credential-Prefix|Audit-Id|Request|Approved-By|Step|Request-Id|Agreement-Version|Approval-Mode): ?[^\r\n]*$/.test(
+                /^Projectman-(?:Via|Operator|Operator-Mode|Operator-Handle|Connected-Kind|Connected-Handle|Connected-Holder|Connected-Approved-By|Credential-Id|Credential-Prefix|Audit-Id|Request|Approved-By|Step|Request-Id|Agreement-Version|Approval-Mode): ?[^\r\n]*$/.test(
                   line,
                 ),
               );
@@ -391,6 +425,12 @@ export function createConfigStore(opts: ConfigStoreOptions): GitConfigStore {
             handle: trailer('Operator-Handle'),
             id: trailer('Credential-Id'),
             prefix: trailer('Credential-Prefix'),
+            connected: {
+              kind: trailer('Connected-Kind'),
+              handle: trailer('Connected-Handle'),
+              holder: trailer('Connected-Holder'),
+              approvedBy: trailer('Connected-Approved-By'),
+            },
           });
           return {
             version,
@@ -428,10 +468,14 @@ export function createConfigStore(opts: ConfigStoreOptions): GitConfigStore {
         '--',
         projectPath(projectKey),
       ]);
-      // The trailer is a whole line of the last paragraph, next to the super-mode marker, not text in a message.
+      // The trailer is a whole line of the last paragraph, next to the super-mode or connected marker, not text in a message.
       return log.stdout.split('\x1e').some((record) => {
         const ending = record.trim().split('\n\n').at(-1)?.split('\n') ?? [];
-        return ending.includes(line) && ending.includes('Projectman-Operator-Mode: super');
+        return (
+          ending.includes(line) &&
+          (ending.includes('Projectman-Operator-Mode: super') ||
+            ending.some((entry) => entry.startsWith('Projectman-Connected-Holder: ')))
+        );
       });
     },
 

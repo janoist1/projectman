@@ -1,6 +1,6 @@
 import type { ProjectConfig, TaskStartWaiting, TeamMessage, WorkItemRef } from '@projectman/shared';
 import {
-  hasSuperOrigin,
+  hasBoundOrigin,
   isOpenTask,
   isTheme,
   memberOf,
@@ -62,7 +62,7 @@ export function messageLane(deps: MessageLaneDeps): MemberQueueLane {
               ? 'answer'
               : 'message',
       by:
-        hasSuperOrigin(first.actor) && first.actor.handle === first.from
+        hasBoundOrigin(first.actor) && first.actor.handle === first.from
           ? first.actor
           : {
               kind: memberOf(config, first.from)?.kind ?? 'system',

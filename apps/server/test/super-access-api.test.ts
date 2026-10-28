@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import {
+  connectedActorOf,
   prepareOperatorConfigPatch,
   roleBundle,
   routes,
@@ -132,22 +133,22 @@ describe('credential REST and domain access (PM-759)', () => {
       by: 'owner',
       via: 'integrator',
       superDecision: true,
-      actor: { kind: 'ai', handle: 'operator', operatorMode: 'super' },
+      actor: { kind: 'human', handle: 'owner', through: { holder: 'owner' } },
     });
     expect(resolved.resolution?.ownerAnswerRelayed).toBeUndefined();
     expect(
       repos.timeline.list('AR').find((event) => event.type === 'question_answered')?.actor,
     ).toMatchObject({
-      kind: 'ai',
-      handle: 'operator',
-      operatorMode: 'super',
+      kind: 'human',
+      handle: 'owner',
+      through: { holder: 'owner' },
     });
     expect(domain.decisionCandidates.list('AR', await domain.projects.config('AR')).candidates).toEqual([
       expect.objectContaining({ item_id: item.id, answered_by: 'owner', via_integrator: true }),
     ]);
   });
 
-  it('executes a release approval with the Operator as the timeline actor', async () => {
+  it('executes a release approval with the holder as the timeline actor', async () => {
     const { headers } = await credential('super');
     const { domain, repos } = h.app.projectman;
     const task = await domain.tasks.create(
@@ -215,15 +216,15 @@ describe('credential REST and domain access (PM-759)', () => {
     expect(domain.inbox.get('AR', item.id).resolution).toMatchObject({
       by: 'owner',
       superDecision: true,
-      actor: { handle: 'operator', operatorMode: 'super' },
+      actor: { handle: 'owner', through: { holder: 'owner' } },
     });
     expect(
       repos.timeline.list('AR', { taskKey: task.key }).find((event) => event.type === 'release_changed')
         ?.actor,
-    ).toMatchObject({ handle: 'operator', operatorMode: 'super' });
+    ).toMatchObject({ handle: 'owner', through: { holder: 'owner' } });
   });
 
-  it('executes a hand-on approval and records the move as the Operator', async () => {
+  it('executes a hand-on approval and records the move under the holder`s name', async () => {
     const { headers } = await credential('super');
     const { domain, repos } = h.app.projectman;
     const task = await domain.tasks.create(
@@ -273,12 +274,12 @@ describe('credential REST and domain access (PM-759)', () => {
     expect(domain.inbox.get('AR', item.id).resolution).toMatchObject({
       by: 'owner',
       superDecision: true,
-      actor: { handle: 'operator', operatorMode: 'super' },
+      actor: { handle: 'owner', through: { holder: 'owner' } },
     });
     expect(
       repos.timeline.list('AR', { taskKey: task.key }).find((event) => event.type === 'task_stage_changed')
         ?.actor,
-    ).toMatchObject({ handle: 'operator', operatorMode: 'super' });
+    ).toMatchObject({ handle: 'owner', through: { holder: 'owner' } });
   });
 
   it.each([
@@ -520,9 +521,9 @@ describe('credential REST and domain access (PM-759)', () => {
           h.app.projectman.repos.timeline
             .list('AR', { taskKey: task.key })
             .find((e) => e.type === 'task_created')?.actor,
-        ).toMatchObject({ kind: 'ai', handle: 'operator', operatorMode: 'super' });
+        ).toMatchObject({ kind: 'human', handle: 'owner', through: { holder: 'owner' } });
         const sent = h.app.projectman.repos.messages.list('AR').find((m) => m.body === 'Administrative note');
-        expect(sent).toMatchObject({ from: 'operator', actor: { kind: 'ai', operatorMode: 'super' } });
+        expect(sent).toMatchObject({ from: 'owner', actor: { kind: 'human', through: { holder: 'owner' } } });
       }
     },
   );
@@ -598,7 +599,11 @@ describe('credential REST and domain access (PM-759)', () => {
             .filter((event) => event.type === 'task_merge_prioritized');
           expect(events).not.toHaveLength(0);
           for (const event of events)
-            expect(event.actor).toMatchObject({ kind: 'ai', handle: 'operator', operatorMode: 'super' });
+            expect(event.actor).toMatchObject({
+              kind: 'human',
+              handle: 'owner',
+              through: { holder: 'owner' },
+            });
         } else expect(response.json()).toEqual({ revision: before.revision + 1, taskKeys });
         expect(repos.taskMerges.queueOrder('AR', 'web')).toEqual({ revision: before.revision + 1, taskKeys });
       }
@@ -624,12 +629,12 @@ describe('credential REST and domain access (PM-759)', () => {
       { title: 'Approval target' },
       { kind: 'human', handle: 'owner' },
     );
-    const actor = superActorOf(await domain.projects.config('AR'), {
+    const actor = connectedActorOf('owner', {
       id: context!.principal.keyId,
       prefix: context!.principal.prefix,
-    })!;
-    // An approval label the key owner holds is the Operator's own in super mode (PM-870); one the owner
-    // does not hold stays refused.
+    });
+    // An approval label the key owner holds is the holder's own through their connected Claude (PM-870); one the
+    // owner does not hold stays refused.
     const refused = await h.app.inject({
       method: 'PATCH',
       url: routes.task('AR', task.key),
@@ -894,7 +899,7 @@ describe('credential REST and domain access (PM-759)', () => {
           resolution: {
             by: 'owner',
             superDecision: true,
-            actor: { handle: 'operator' },
+            actor: { handle: 'owner', through: { holder: 'owner' } },
           },
         });
       } else {
@@ -986,13 +991,13 @@ describe('credential REST and domain access (PM-759)', () => {
     expect(() =>
       domain.superOperator.run({ ...context!, principal: { ...context!.principal } }, () => true),
     ).toThrow(expect.objectContaining({ code: 'integrator_key_invalid' }));
-    const actor = superActorOf(await domain.projects.config('AR'), {
+    const actor = connectedActorOf('owner', {
       id: context!.principal.keyId,
       prefix: context!.principal.prefix,
-    })!;
+    });
     for (const forged of [
       { kind: 'system', handle: null },
-      { ...actor, credential: { id: 'wrong', prefix: 'pmi_wrong' } },
+      connectedActorOf('owner', { id: 'wrong', prefix: 'pmi_wrong' }),
     ] as Actor[])
       await expect(
         domain.superOperator.run(context!, () =>
@@ -1016,7 +1021,7 @@ describe('credential REST and domain access (PM-759)', () => {
               name: 'Owner',
               email: context!.email,
               via: 'integrator',
-              superActor: { ...actor, kind: 'human' } as unknown as typeof actor,
+              superActor: { ...actor, kind: 'ai' } as unknown as typeof actor,
               authorizedBy: 'owner',
               superRequestId: context!.requestId,
             },
@@ -1076,7 +1081,7 @@ describe('credential REST and domain access (PM-759)', () => {
       return 'done';
     });
     expect(result).toBe('done');
-    expect(actors).toEqual([expect.objectContaining({ handle: 'operator', operatorMode: 'super' })]);
+    expect(actors).toEqual([expect.objectContaining({ handle: 'owner', through: expect.anything() })]);
     expect(repos.superAudit.ofRequest('AR', context!.requestId)).not.toEqual([]);
     expect(repos.superAudit.ofRequest('AA', context!.requestId)).toEqual([]);
   });
@@ -1124,10 +1129,10 @@ describe('credential REST and domain access (PM-759)', () => {
     expect(created.statusCode, created.body).toBe(201);
     const { context, headers } = await credential('super');
     const { domain } = h.app.projectman;
-    const actor = superActorOf(await domain.projects.config('AR'), {
+    const actor = connectedActorOf('owner', {
       id: context!.principal.keyId,
       prefix: context!.principal.prefix,
-    })!;
+    });
     const results = await Promise.all(
       ['AR', 'BR'].map((projectKey) =>
         domain.superOperator.run({ ...context!, projectKey }, () =>

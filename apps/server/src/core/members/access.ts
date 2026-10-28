@@ -1,13 +1,13 @@
-import { hasAccess, memberOf, superActorOf } from '@projectman/shared';
+import { connectedActorOf, hasAccess, memberOf, superActorOf } from '@projectman/shared';
 import type {
   Actor,
   AiMemberConfig,
+  BoundActor,
   ErrorCode,
   HumanAccess,
   HumanMemberConfig,
   MemberConfig,
   ProjectConfig,
-  SuperActor,
 } from '@projectman/shared';
 import type { IntegratorPrincipal } from '../../contracts';
 import { assertIntegratorAccess, forbidden, invalid, notFound } from '../../kernel';
@@ -20,7 +20,7 @@ export interface ProjectAccess {
    * `bindSuperPrincipal`, from an authenticated principal. The step's authority is still the owner's access
    * above.
    */
-  superActor?: SuperActor;
+  superActor?: BoundActor;
   projectKey: string;
   handle: string;
   access: HumanAccess;
@@ -82,25 +82,41 @@ export function projectAccessFor(config: ProjectConfig, email: string): ProjectA
 }
 
 /**
- * Binds a super principal to a project (PM-757): the token owner's membership now is the access basis (it
- * must be an owner's, checked again here, not at the time the key was made), and the actor is the project's
- * Operator, computed from the configuration. `handle` and `access` stay the owner's, because the authority
- * of a step is the token owner's; what a step is recorded as is `superActor`. Refuses a principal that is
- * not in the super mode, an owner who is no longer one, and a project without an Operator.
+ * The actor of a step made with a super principal in a project (decision 66): the key's holder in person
+ * (`holder`, a member now), or the AI member `issuer` of the queue item the step works on, in both cases
+ * through the holder's connected Claude and the key. An in-app session (`source: 'app'`) keeps the old actor,
+ * the project's Operator or selected coordinator. Null when there is no such member to act as.
+ */
+export function principalActorOf(
+  config: Pick<ProjectConfig, 'team'>,
+  principal: IntegratorPrincipal,
+  holder: string | undefined,
+  issuer?: string,
+): BoundActor | null {
+  const credential = { id: principal.keyId, prefix: principal.prefix };
+  if (principal.source === 'app') return superActorOf(config, credential, principal.member);
+  if (!holder || memberOf(config, holder)?.kind !== 'human') return null;
+  return connectedActorOf(holder, credential, issuer === undefined ? {} : { issuer });
+}
+
+/**
+ * Binds a super principal to a project (PM-757, decision 66): the key holder's membership now is the access
+ * basis (checked again here, not at the time the key was made), and the actor is the holder in person, or the
+ * issuer of the queue item worked on, through the holder's connected Claude. `handle` and `access` stay the
+ * holder's, because the authority of a step is the holder's; what a step is recorded as is `superActor`. The
+ * project needs no Operator. Refuses a principal that is not in the super mode and a holder who is no longer
+ * a member of the project.
  */
 export function bindSuperPrincipal(
   config: ProjectConfig,
   access: ProjectAccess,
   principal: IntegratorPrincipal,
+  issuer?: string,
 ): ProjectAccess {
   if (principal.mode !== 'super') throw forbidden('insufficient_access', 'not a super-mode credential');
-  if (access.access !== 'owner' || access.projectKey !== config.project.key)
-    throw forbidden('insufficient_access', 'the credential owner is no longer an owner of the project');
-  const superActor = superActorOf(
-    config,
-    { id: principal.keyId, prefix: principal.prefix },
-    principal.source === 'app' ? principal.member : undefined,
-  );
-  if (!superActor) throw forbidden('insufficient_access', 'the project has no Operator');
+  if (access.projectKey !== config.project.key)
+    throw forbidden('insufficient_access', 'the credential holder is no longer a member of the project');
+  const superActor = principalActorOf(config, principal, access.handle, issuer);
+  if (!superActor) throw forbidden('insufficient_access', 'the credential has no member to act as');
   return { ...access, via: 'integrator', superActor };
 }

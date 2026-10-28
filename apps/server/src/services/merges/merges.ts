@@ -7,7 +7,7 @@ import {
   isCodeReviewStage,
   isOpenTask,
   isOperatorActor,
-  isSuperOperatorActor,
+  isConnectedOwnerActor,
 } from '@projectman/shared';
 import type {
   Actor,
@@ -255,7 +255,7 @@ export class Merges {
           reason: 'not_conflict',
         });
       const merger = row?.merger ?? cardMerger(config, task, this.reviewer(config, task));
-      if (!merger || (actorHandle(actor) !== merger && !isSuperOperatorActor(config, actor)))
+      if (!merger || (actorHandle(actor) !== merger && !isConnectedOwnerActor(config, actor)))
         throw forbidden('merge_not_merger', 'only the card merger may start the merge');
       if (row?.trainId) {
         const train = ctx.repos.mergeTrains.get(row.trainId);
@@ -345,7 +345,7 @@ export class Merges {
         row.merger !== handle &&
         !(actor.kind === 'human' && ownerHandles(config).includes(handle)) &&
         !isOperatorActor(config, actor) &&
-        !isSuperOperatorActor(config, actor)
+        !isConnectedOwnerActor(config, actor)
       )
         throw forbidden(
           'merge_not_merger',
@@ -403,7 +403,7 @@ export class Merges {
     if (
       !(actor.kind === 'human' && ownerHandles(config).includes(actor.handle ?? '')) &&
       !isOperatorActor(config, actor) &&
-      !isSuperOperatorActor(config, actor)
+      !isConnectedOwnerActor(config, actor)
     )
       throw forbidden('insufficient_access', 'only an owner or the Operator may order the merge queue');
     if (!config.project.repos.some((repo) => repo.name === input.repo))

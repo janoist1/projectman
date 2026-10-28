@@ -7,16 +7,10 @@ import type {
 } from '../../contracts';
 import { assertIntegratorAccess, runIntegratorExecution, forbidden } from '../../kernel';
 import type { ProjectAccess } from '../../core/members';
-import { bindSuperPrincipal } from '../../core/members';
+import { bindSuperPrincipal, findHumanByEmail, principalActorOf } from '../../core/members';
 import type { ProjectService } from '../../core/projects';
 import type { SuperAuditService } from '../../core/timeline';
-import {
-  canonical,
-  hasSuperOrigin,
-  ownerReservedEffect,
-  superAccessVerdict,
-  superActorOf,
-} from '@projectman/shared';
+import { canonical, hasBoundOrigin, ownerReservedEffect, superAccessVerdict } from '@projectman/shared';
 import type { Actor, HumanMemberConfig, ProjectConfig, SuperMutationInput } from '@projectman/shared';
 
 export { SUPER_OWNER_YES, SuperHandoffService, createSuperHandoffService } from './handoffs';
@@ -41,11 +35,18 @@ export { INTEGRATOR_INBOX_LIMIT, listIntegratorInbox, resolveIntegratorFixLimit 
 export { updateInstanceKnowledge } from './instance-knowledge';
 export { createSuperRights } from './rights';
 
-const principalActor = (config: ProjectConfig, principal: IntegratorPrincipal) =>
-  superActorOf(
+/** The actor a step made with the principal is recorded as: the holder's, or the queue item issuer's (decision 66). */
+const principalActor = (
+  config: ProjectConfig,
+  principal: IntegratorPrincipal,
+  email: string | undefined,
+  issuer?: string,
+) =>
+  principalActorOf(
     config,
-    { id: principal.keyId, prefix: principal.prefix },
-    principal.source === 'app' ? principal.member : undefined,
+    principal,
+    email === undefined ? undefined : findHumanByEmail(config, email)?.handle,
+    issuer,
   );
 
 /** Whether the person with this e-mail is an owner member of the project, as of its current configuration. */
@@ -104,7 +105,9 @@ export function createSuperOperator(deps: {
                 }).allowed,
             );
     const actor =
-      initial && input.principal.mode === 'super' ? principalActor(initial, input.principal) : null;
+      initial && input.principal.mode === 'super'
+        ? principalActor(initial, input.principal, user.email, input.issuer)
+        : null;
     const authorized = new Set<string>();
     const check = (
       config: ProjectConfig,
@@ -124,11 +127,13 @@ export function createSuperOperator(deps: {
         ownerMembership: owner?.access === 'owner',
       });
       if (!verdict.allowed) throw forbidden(verdict.code, 'the credential cannot perform this operation');
-      const expected = principalActor(config, input.principal);
+      const expected = principalActor(config, input.principal, user.email, input.issuer);
+      // The approver on the step is the server's own record of a checked yes; it is no part of who acted.
+      const { approvedBy: _approvedBy, ...acted } = by ?? {};
       if (
         by &&
         input.principal.mode === 'super' &&
-        (!hasSuperOrigin(by) || !expected || canonical(by) !== canonical(expected))
+        (!hasBoundOrigin(by) || !expected || canonical(acted) !== canonical(expected))
       )
         throw forbidden('insufficient_access', 'the actor does not match the authenticated credential');
       return owner;
@@ -177,7 +182,9 @@ export function createSuperOperator(deps: {
       actorFor(config) {
         if (config) check(config, 'write');
         const bound =
-          config && input.principal.mode === 'super' ? principalActor(config, input.principal) : actor;
+          config && input.principal.mode === 'super'
+            ? principalActor(config, input.principal, user.email, input.issuer)
+            : actor;
         if (!bound) throw forbidden('insufficient_access', 'the mutation has no bound actor');
         return bound;
       },
@@ -211,7 +218,7 @@ export function createSuperOperator(deps: {
         assertIntegratorAccess(config, 'read');
         // A read key's call is audited too (PM-784): the entry carries the project's Operator and the key's
         // id and prefix, while the principal's mode stays `read`.
-        const actor = principalActor(config, context.principal);
+        const actor = principalActor(config, context.principal, context.email, context.issuer);
         if (!actor) return run();
         return deps.audit.runExternal(
           { projectKey: target.projectKey, actor, requestId: context.requestId },
@@ -241,7 +248,7 @@ export function createSuperOperator(deps: {
         let work = run;
         for (const config of projects) {
           assertIntegratorAccess(config, 'read');
-          const actor = principalActor(config, context.principal);
+          const actor = principalActor(config, context.principal, context.email);
           if (context.principal.mode !== 'super' || !actor) continue;
           const next = work;
           work = () =>
@@ -284,7 +291,7 @@ export function createSuperOperator(deps: {
         let work = () => run(owned.map((config) => ({ key: config.project.key, name: config.project.name })));
         if (context.principal.mode === 'super') {
           for (const config of owned) {
-            const actor = principalActor(config, context.principal);
+            const actor = principalActor(config, context.principal, context.email);
             if (!actor) continue;
             const next = work;
             work = () =>
@@ -312,7 +319,7 @@ export function createSuperOperator(deps: {
       return runIntegratorExecution(scopeFor({ ...context, projectKey: access.projectKey }), () => {
         assertIntegratorAccess(config, operation);
         return context.principal.mode === 'super'
-          ? bindSuperPrincipal(config, access, context.principal)
+          ? bindSuperPrincipal(config, access, context.principal, context.issuer)
           : { ...access, via: 'integrator' };
       });
     },

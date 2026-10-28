@@ -1370,6 +1370,10 @@ export const hu = {
       operator_owner_only: 'Ezt csak a projekt tulajdonosa kérheti az Operátortól.',
       operator_connected_only:
         'Az Operátor csak akkor létezik, ha a tulajdonos kliense csatlakozik, ezért neki nem lehet üzenni. Gépi munkához nyiss integrátor-teendőt, minden máshoz kérdezz embert.',
+      queue_item_not_yours:
+        'Ez a sorelem nem nyitott a kulcs tulajdonosának: nem hozzá tartozik, vagy már lezárult, vagy másik projekté.',
+      issuer_without_machine_access:
+        'A sorelemet kiadónak nincs gépi hozzáférése, ezért a csatlakozott Claude nem végezhet el helyette gépi lépést.',
       operator_no_request:
         'Az Operátor csak a tulajdonos nyitott kérésére írhat; most nincs ilyen (a köre véget ért, vagy lejárt).',
       operator_never:

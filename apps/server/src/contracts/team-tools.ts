@@ -1327,6 +1327,8 @@ export type ExternalCredentialMode = IntegratorPrincipal['mode'];
 /** What the bearer MCP endpoint needs from the composition: the handler and the execution scope around it. */
 export interface ExternalMcpBackend {
   handler: ExternalToolsHandler;
+  /** Whether the key's holder is the chopper's host owner (PM-1063): the tools of `hostOnly` are theirs alone. */
+  isHost(principal: IntegratorPrincipal): boolean;
   /** Runs one project-bound tool call inside the key's execution scope and audit (`SuperOperator.execute`). */
   execute<T>(
     context: { principal: IntegratorPrincipal; requestId: string },

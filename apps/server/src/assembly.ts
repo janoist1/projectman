@@ -2004,16 +2004,16 @@ export function createDomain(opts: DomainOptions) {
       throw forbidden('operator_grant_inactive', 'the Operator has no active grant for machine operations');
     },
   };
+  const superRights = createSuperRights({
+    credentials: appCredentials.authority,
+    config: (key) => projects.config(key),
+  });
   if (administration) {
     const administrationDeps = {
       ctx,
       grants: operatorGrants,
       administration,
-      rights: createSuperRights({
-        credentials: appCredentials.authority,
-        config: (key) => projects.config(key),
-        projectKeys: () => projects.summaries().map((project) => project.key),
-      }),
+      rights: superRights,
       projects,
       timeline,
       engineLinked,
@@ -2027,6 +2027,7 @@ export function createDomain(opts: DomainOptions) {
     handoffs: superHandoffs,
     administration,
     grants: operatorGrants,
+    rights: superRights,
     diagnostics: createSuperDiagnostics({ ctx }),
     engineLinked,
   });

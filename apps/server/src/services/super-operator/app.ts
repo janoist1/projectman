@@ -145,6 +145,7 @@ export function createOperatorAppCredentials(deps: {
       },
       user: (id) => deps.base?.user(id) ?? deps.user(id),
       isHostOwner: (userId) => deps.base?.isHostOwner?.(userId) ?? false,
+      keyCoversProject: (userId, projectKey) => deps.base?.keyCoversProject?.(userId, projectKey) ?? false,
       ...(deps.base?.reactivate ? { reactivate: (stored) => deps.base!.reactivate!(stored) } : {}),
     },
     issue(config, sessionId, member) {

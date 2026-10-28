@@ -8,7 +8,13 @@ import {
 } from '@projectman/shared';
 import type { CreateIntegratorAccessKeyRequest } from '@projectman/shared';
 import { integratorChannel } from '../src/auth';
-import { addHumanAndLogin, createAppHarness, createProject, setupOwner } from './helpers/app-harness';
+import {
+  addHumanAndLogin,
+  createAppHarness,
+  createOwnerAccountWithProject,
+  createProject,
+  setupOwner,
+} from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 
 describe('explicit integrator access key API', () => {
@@ -218,9 +224,8 @@ describe('explicit integrator access key API', () => {
     expect((await revoke(created.key.id)).json()).toEqual(first.json());
     expect((await revoke('unknown')).json().error.code).toBe('not_found');
     const auth = h.app.projectman.auth;
-    const other = auth.preparePasswordlessUser({ name: 'Other', email: 'other@example.com' });
-    h.app.projectman.repos.users.insert(other);
-    const foreign = auth.createIntegratorAccessKey(other.id, { mode: 'read', expiresInDays: 1 });
+    const other = await createOwnerAccountWithProject(h, cookie, 'BR', 'other');
+    const foreign = auth.createIntegratorAccessKey(other.userId, { mode: 'read', expiresInDays: 1 });
     const refused = await revoke(foreign.key.id);
     expect(refused.statusCode).toBe(404);
     expect(refused.json().error.code).toBe('not_found');
@@ -281,6 +286,63 @@ describe('explicit integrator access key API', () => {
         expect(response.json().error.code).toBe('integrator_not_allowed');
       }
     }
+  });
+
+  describe('an owner account (PM-1063)', () => {
+    const hostId = () => h.app.projectman.repos.users.list()[0]!.id;
+    const grantOwnerAccount = (userId: string) =>
+      h.app.projectman.repos.ownerAccounts.grant(userId, hostId(), now.toISOString());
+
+    it('manages its own keys with its own login, and the key stops with the account', async () => {
+      const guest = await addHumanAndLogin(h.app, { handle: 'guest', projectKey: null });
+      grantOwnerAccount('usr_guest');
+      const hostKey = await create();
+      const response = await h.app.inject({
+        method: 'POST',
+        url: routes.integratorKeys(),
+        headers: { cookie: guest },
+        payload: { mode: 'super', expiresInDays: 7 },
+      });
+      expect(response.statusCode, response.body).toBe(201);
+      const own = CreatedIntegratorAccessKey.parse(response.json());
+      const listed = await h.app.inject({ url: routes.integratorKeys(), headers: { cookie: guest } });
+      expect(IntegratorAccessKeysResponse.parse(listed.json()).keys.map((key) => key.id)).toEqual([
+        own.key.id,
+      ]);
+      const { auth } = h.app.projectman;
+      const principal = auth.resolveIntegratorCredential(own.secret, 'mcp')!;
+      expect(principal).toMatchObject({ userId: 'usr_guest', mode: 'super' });
+      // The host's key stays the host's: the guest cannot revoke it.
+      const foreign = await h.app.inject({
+        method: 'DELETE',
+        url: routes.integratorAccessKey(hostKey.key.id),
+        headers: { cookie: guest },
+      });
+      expect(foreign.statusCode).toBe(404);
+      h.app.projectman.repos.ownerAccounts.revoke('usr_guest', hostId(), now.toISOString());
+      expect(auth.resolveIntegratorCredential(own.secret, 'mcp')).toBeNull();
+      expect(() => auth.assertActive(principal)).toThrow(
+        expect.objectContaining({ code: 'integrator_key_invalid' }),
+      );
+      const refused = await h.app.inject({
+        method: 'POST',
+        url: routes.integratorKeys(),
+        headers: { cookie: guest },
+        payload: { mode: 'read', expiresInDays: 7 },
+      });
+      expect(refused.statusCode).toBe(403);
+      expect(refused.json().error.code).toBe('owner_only');
+    });
+
+    it('does not give a key to an owner account without a password', async () => {
+      const { auth, repos } = h.app.projectman;
+      const passwordless = auth.preparePasswordlessUser({ name: 'Mail', email: 'mail@example.test' });
+      repos.users.insert(passwordless);
+      grantOwnerAccount(passwordless.id);
+      expect(() =>
+        auth.createIntegratorAccessKey(passwordless.id, { mode: 'super', expiresInDays: 7 }),
+      ).toThrow(expect.objectContaining({ code: 'owner_only' }));
+    });
   });
 
   it.each(['super', 'read'] as const)(

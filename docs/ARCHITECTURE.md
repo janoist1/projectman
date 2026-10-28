@@ -3181,6 +3181,19 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   PM-1045: `AuthService.hasActiveSuperKey(ownerEmail)` (repository `hasActiveSuper`) tells whether an owner has
   a live (not revoked, not expired) super key; `integratorSideAvailable` reads it to decide where a machine todo
   waits. It reads only the hub database; no machine assumption is added.
+  PM-1063: a further owner (an active owner account, PM-1062) with a password holds `super`/`read` keys of
+  their own beside the host owner; the pure rule is `canHoldIntegratorKey` (`packages/shared/src/config/integrator.ts`),
+  applied by `AuthService.keyHolderAllowed` at issuing, authentication, `assertActive` and `hasActiveSuperKey`.
+  A key's scope is its holder's own projects (the existing owner-membership checks); revoking the owner account
+  makes the key `integrator_key_invalid` (401). The team of a project is editable by its owners, so the reach
+  also rests on a fact the team cannot write (`integratorKeyCoversProject`, `AuthService.keyCoversProject`):
+  in a project an owner account created (`projects.created_by`, PM-1062) only the creator's key counts, even if
+  the team lists the host owner; a project the host registered stays with its owner members' keys. The check
+  sits in the scope's access check, `executeOwned`/`executeInstance`, `SuperRights.assertNow` and
+  `hasActiveSuperKey(email, projectKey)` (the queue). Administration is the host's alone: `SuperRights.assertHost`
+  refuses every non-host key with `host_only` (403) for the status, log and machine reads of the facade, for
+  every `super_operate` administration command (hub or engine restart, deploy, process cleanup) and for the
+  operator grant gate, which stays the host's. Instance-level REST routes are not `host_only` (PM-1058).
   Legacy keys are revoked with a lifecycle audit by migration 114 (PM-1037); the singular API is removed.
   Authentication rejects legacy rows, which remain readable in key lists and audit history. Before release,
   the owner must replace any active legacy credential on the integrator's machine with a super or read key.
@@ -3232,6 +3245,12 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   tunnel/proxy that refuses `/mcp/` and `/hooks` but passes `/mcp`. Remote engine: not affected; nothing of the endpoint
   runs on or crosses to an engine. Since PM-1045 this endpoint is the Operator's only door: the `operator` member
   stays as a transitional identity (`superActorOf` maps a super-key step to it), the app starts no session for it.
+  **Two kinds of key holder (PM-1063):** a tool with `hostOnly: true` (`mcp/kit.ts`: `get_administration_status`,
+  `get_administration_logs`, `get_machine_snapshot` and the two instance-knowledge tools; the host-request tools of
+  PM-1064 take the same flag) is absent from `tools/list` of a further owner's key and answers `host_only` if called
+  (`ExternalMcpBackend.isHost`). The server's `instructions` come in two kinds: the host's (the global Operator,
+  unchanged) and a short one for a further owner (own projects, own machine with their approval, no secrets).
+  Remote engine: not affected; the filter reads the hub's user and owner-account rows.
   **The global Operator on the endpoint (PM-1046, PM-1023 K7):** in the super mode `get_operator_instance_knowledge`
   and `update_operator_instance_knowledge` (`expected_revision`, `agreement?`, `principles?`) read and write the
   Operator's own knowledge with no `project_key` (`services/super-operator/instance-knowledge.ts`); the write is

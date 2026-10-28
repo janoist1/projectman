@@ -563,3 +563,11 @@ output carries protocol lines and nothing else, standard error redacted status l
 serve gets a JSON-RPC error (`-32000`) so the client does not wait, and the proxy ends with `3` after a refused
 key or `1` after another failure. For a client that can send its own headers, the direct configuration above
 is the same thing without the proxy.
+
+A further owner's client (PM-1063, Claude Desktop with `mcp-proxy`) is set up the same way on that owner's own
+machine: their own `super` or `read` key (made in their own login; an owner account with a password may hold
+one, and revoking the account revokes the key), their own Access header file (`accessHeadersFile`, see above)
+and a `client.json` that names both by path. No secret goes into the MCP client's configuration. The key reaches
+only the projects that owner holds; the administration, the machine state and the instance knowledge of the
+host are refused with `host_only`, and the machine work in the owner's queue is theirs to do on their own
+machine, with their approval.

@@ -25,7 +25,7 @@ export interface ExternalCallState {
   unauthorized: boolean;
 }
 
-const EXTERNAL_INSTRUCTIONS =
+const HOST_INSTRUCTIONS =
   'Integrator tools of projectman. Authenticate every request with the integrator key. There is no session and no ' +
   'current project: list_projects names the projects of this key, and every other tool takes project_key. ' +
   'A refused call answers {errorCode, message}; the code is the domain’s own. ' +
@@ -36,6 +36,22 @@ const EXTERNAL_INSTRUCTIONS =
   'When a function is missing or broken, bridge the gap for the owner and record it as feedback ' +
   '(record_system_feedback; if this connection does not offer it, tell the owner). ' +
   'Project work is the project’s pm: do it only when the owner explicitly asks you to.';
+
+/** What a key of another owner (not the host) is told (PM-1063): its own projects and machine, never a secret. */
+const OWNER_INSTRUCTIONS =
+  'Integrator tools of projectman. Authenticate every request with the integrator key. There is no session and no ' +
+  'current project: list_projects names the projects of this key, and every other tool takes project_key. ' +
+  'A refused call answers {errorCode, message}; the code is the domain’s own. ' +
+  'You are the connected Claude of the key’s owner, and you work only on the owner’s own projects (list_projects). ' +
+  'Work your queue with list_integrator_inbox (without project_key: every project of yours) and ' +
+  'resolve_integrator_todo. Machine work (installing the engine, Node, git, preparing the GitHub login, updates) ' +
+  'runs on the owner’s own machine, with the owner’s approval and your client’s own permission prompt; the ' +
+  'server runs nothing there. Never ask for, store or pass on a password, token or key: the owner types them ' +
+  'in themselves. Project work is the project’s pm: do it only when the owner explicitly asks you to.';
+
+function externalInstructions(host: boolean): string {
+  return host ? HOST_INSTRUCTIONS : OWNER_INSTRUCTIONS;
+}
 
 /** The JSON Schema of a tool does not change: it is built once per tool, not once per request. */
 const listed = new Map<string, Tool>();
@@ -59,8 +75,8 @@ function toolListing(tool: ExternalRegisteredTool): Tool {
 }
 
 /** The tools a credential mode is offered, as `tools/list` shows them. */
-function externalToolListing(mode: ExternalCredentialMode): Tool[] {
-  return externalToolsFor(mode).map(toolListing);
+function externalToolListing(mode: ExternalCredentialMode, host: boolean): Tool[] {
+  return externalToolsFor(mode, host).map(toolListing);
 }
 
 /** A refused or failed call: text for a reader, and the structured error code for the integrator. */
@@ -109,14 +125,15 @@ export function createExternalMcpServer(
   state: ExternalCallState,
   deps: ExternalServerDeps,
 ): Server {
+  const host = deps.backend.isHost(call.principal);
   const server = new Server(SERVER_INFO, {
     capabilities: { tools: {} },
-    instructions: EXTERNAL_INSTRUCTIONS,
+    instructions: externalInstructions(host),
     jsonSchemaValidator,
   });
   server.onerror = (err) => deps.logger.debug({ err }, 'external MCP protocol error');
   server.setRequestHandler(ListToolsRequestSchema, () => ({
-    tools: externalToolListing(call.principal.mode),
+    tools: externalToolListing(call.principal.mode, host),
   }));
   server.setRequestHandler(CallToolRequestSchema, async (request) =>
     runExternalTool(call, state, deps, request.params.name, request.params.arguments ?? {}),
@@ -146,6 +163,8 @@ async function runExternalTool(
     return principal.mode === 'read' && tool.access === 'write'
       ? externalError('integrator_read_only', `${name} changes data, and a read-only key cannot.`)
       : externalError('integrator_not_allowed', `${name} is not available to a ${principal.mode} key.`);
+  if (tool.hostOnly && !deps.backend.isHost(principal))
+    return externalError('host_only', `${name} is available only to the host owner’s key.`);
   const parsed = await safeParseAsync(tool.inputSchema, rawArgs);
   if (!parsed.success)
     return externalError('invalid_request', `Invalid arguments for ${name}: ${issuesOf(parsed.error)}`);

@@ -60,7 +60,9 @@ export class StageHandOver {
   /** An interrupted card keeps its member and conversation, under normal stage admission. */
   async resumeInterrupted(session: Session, previousState?: SessionState): Promise<void> {
     if (session.lastStop?.kind !== 'server_restart' || session.workItem.type !== 'task') return;
-    if (!previousState || previousState === 'idle') return;
+    // Input waits need an answer, not an unsolicited continuation after the process disappeared.
+    if (previousState !== 'starting' && previousState !== 'working' && previousState !== 'waiting_permission')
+      return;
     const task = this.tasks.find(session.projectKey, session.workItem.taskKey);
     if (!task || task.status !== 'active') return;
     await this.admission.attempt(

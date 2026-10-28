@@ -419,9 +419,20 @@ describe('sessions on engines', () => {
   });
 
   describe('an engine that connects (PM-315)', () => {
-    it.each(['startup', 'reconnect'])(
-      'keeps a completed idle turn stopped after %s reconciliation',
-      async (reconciliation) => {
+    async function loseProcess(session: Session, state: Session['state'] = 'working'): Promise<void> {
+      // The engine lost its process without delivering an exit event to the server.
+      h.runner.emit({ type: 'transcript_path', sessionId: session.id, path: `/tmp/${session.id}.jsonl` });
+      await h.runner.stop(session.id);
+      h.repos.sessions.update(session.id, { state, endedAt: null });
+    }
+
+    it.each([
+      { state: 'idle', reconciliation: 'startup' },
+      { state: 'idle', reconciliation: 'reconnect' },
+      { state: 'waiting_input', reconciliation: 'reconnect' },
+    ] as const)(
+      'keeps a $state turn stopped after $reconciliation reconciliation',
+      async ({ state, reconciliation }) => {
         engines.placement.set('dev-1', REMOTE);
         await h.domain.taskStarts.start('AR', 'AR-1', {
           assignee: 'dev-1',
@@ -429,9 +440,7 @@ describe('sessions on engines', () => {
           author: OWNER,
         });
         const session = h.domain.sessions.findRunning('AR', 'dev-1', task)!;
-        h.runner.setState(session.id, 'idle');
-        await h.runner.stop(session.id);
-        h.repos.sessions.update(session.id, { state: 'idle', endedAt: null });
+        await loseProcess(session, state);
         engines.setOnline(REMOTE, false);
         if (reconciliation === 'startup') await h.domain.sessions.reconcileAfterRestart();
         else await h.domain.sessions.reconcileEngine(REMOTE, new Set(), () => false);
@@ -450,10 +459,7 @@ describe('sessions on engines', () => {
     );
 
     async function interrupt(session: Session, reported: ReadonlySet<string> = new Set()): Promise<void> {
-      // The engine lost its process without delivering an exit event to the server.
-      h.runner.emit({ type: 'transcript_path', sessionId: session.id, path: `/tmp/${session.id}.jsonl` });
-      await h.runner.stop(session.id);
-      h.repos.sessions.update(session.id, { state: 'working', endedAt: null });
+      await loseProcess(session);
       engines.setOnline(REMOTE, false);
       await h.domain.sessions.reconcileEngine(REMOTE, reported, () => false);
       await settle();
@@ -466,9 +472,7 @@ describe('sessions on engines', () => {
         author: OWNER,
       });
       const session = h.domain.sessions.findRunning('AR', 'dev-1', task)!;
-      h.runner.emit({ type: 'transcript_path', sessionId: session.id, path: `/tmp/${session.id}.jsonl` });
-      await h.runner.stop(session.id);
-      h.repos.sessions.update(session.id, { state: 'working', endedAt: null });
+      await loseProcess(session);
       await h.domain.sessions.reconcileAfterRestart();
       await waitFor(() => (h.runner.started.length === 2 ? true : undefined));
       expect(h.runner.lastStarted()).toMatchObject({ sessionId: session.id, resume: true });

@@ -90,7 +90,8 @@
   padding: 0 6px;
   border-radius: 999px;
 }
-.superBadge {
+.superBadge,
+.connectedBadge {
   position: absolute;
   right: -3px;
   bottom: -3px;

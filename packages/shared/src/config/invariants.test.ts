@@ -1,11 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { AI_BUILT_IN_ROLE_IDS, BUILT_IN_ROLE_IDS, holdersAllow, roleHolders, RoleId } from '../domain/role';
-import {
-  introducedErrors,
-  isToleratedOnLoad,
-  operatorConfigIssues,
-  validateProjectConfig,
-} from './invariants';
+import { introducedErrors, isToleratedOnLoad, validateProjectConfig } from './invariants';
 import { AiMemberConfig, ProjectConfig, type Merger, type ProjectConfigInput } from './schema';
 
 function configInput(): ProjectConfigInput {
@@ -56,75 +51,6 @@ function build(change: (input: ProjectConfigInput) => void = () => {}): ProjectC
 function members(input: ProjectConfigInput) {
   return input.team.members as Array<Record<string, unknown>>;
 }
-
-describe('fixed Operator permission limits (PM-691)', () => {
-  const withOperator = () =>
-    build((input) => {
-      input.team.members.push({
-        kind: 'ai',
-        handle: 'operator',
-        displayName: 'Operator',
-        role: 'ai_operator',
-        sponsor: 'owner',
-        approver: 'human',
-      });
-    });
-  it.each(['none', 'ai'] as const)(
-    'refuses the approver %s, including a historical unchanged value',
-    (approver) => {
-      const config = withOperator();
-      const operator = config.team.members.at(-1)! as AiMemberConfig;
-      operator.approver = approver;
-      const issue = { code: 'operator_approver_fixed', path: 'team.members[4].approver' };
-      expect(operatorConfigIssues(config)).toEqual([issue]);
-      expect(validateProjectConfig(config)).toContainEqual(issue);
-      expect(introducedErrors(config, structuredClone(config))).toContainEqual(issue);
-      expect(isToleratedOnLoad(issue as Parameters<typeof isToleratedOnLoad>[0])).toBe(false);
-    },
-  );
-  it('accepts an explicit human and the legacy missing value', () => {
-    const config = withOperator();
-    expect(operatorConfigIssues(config)).toEqual([]);
-    delete (config.team.members.at(-1)! as AiMemberConfig).approver;
-    expect(operatorConfigIssues(config)).toEqual([]);
-  });
-  it('refuses an Operator merger even without a repository that requires merging', () => {
-    const config = withOperator();
-    config.team.merger = { kind: 'member', handle: 'operator' };
-    expect(operatorConfigIssues(config)).toEqual([
-      { code: 'operator_merger_forbidden', path: 'team.merger', detail: 'operator' },
-    ]);
-    expect(introducedErrors(config, config)).toContainEqual({
-      code: 'operator_merger_forbidden',
-      path: 'team.merger',
-      detail: 'operator',
-    });
-    expect(isToleratedOnLoad({ code: 'operator_merger_forbidden' })).toBe(false);
-  });
-  it('refuses a boundary authorization duty in the Operator role, alongside technical direction', () => {
-    const config = withOperator();
-    config.team.roleOverrides = {
-      ai_operator: {
-        duties: ['project_operation', 'technical_direction', 'boundary_authorization'],
-        instructions: '',
-      },
-    };
-    const issue = {
-      code: 'operator_boundary_duty_forbidden' as const,
-      path: 'team.roleOverrides.ai_operator.duties',
-    };
-    expect(operatorConfigIssues(config)).toEqual([issue]);
-    expect(introducedErrors(config, config)).toContainEqual(issue);
-    expect(isToleratedOnLoad(issue)).toBe(false);
-  });
-  it('technical direction alone never derives boundary authorization for the Operator', () => {
-    const config = withOperator();
-    config.team.roleOverrides = {
-      ai_operator: { duties: ['project_operation', 'technical_direction'], instructions: '' },
-    };
-    expect(operatorConfigIssues(config)).toEqual([]);
-  });
-});
 
 describe('introduced configuration errors', () => {
   it('preserves an unapproved release error when the stage moves', () => {
@@ -215,7 +141,7 @@ describe('introduced configuration errors', () => {
 
 describe('role catalogue', () => {
   it('lets AI members hold every built-in role except the human-only ones', () => {
-    expect(BUILT_IN_ROLE_IDS).toHaveLength(22);
+    expect(BUILT_IN_ROLE_IDS).toHaveLength(21);
     const aiRoles: readonly string[] = AI_BUILT_IN_ROLE_IDS;
     expect(BUILT_IN_ROLE_IDS.filter((id) => !aiRoles.includes(id))).toEqual(['operator', 'product_owner']);
     expect(roleHolders('watchdog')).toBe('both');

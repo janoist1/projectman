@@ -1,21 +1,28 @@
 import type {
   Attachment,
+  DutyId,
   FeedbackMarkDetail,
   MemberView,
   TaskDetail,
   TimelineEvent,
   TimelineEventType,
 } from '@projectman/shared';
-import { BUILT_IN_ROLE_DUTIES, DEFAULT_OPERATOR_PREFERENCE, TaskComplexity } from '@projectman/shared';
+import {
+  BUILT_IN_ROLE_DUTIES,
+  DEFAULT_OPERATOR_PREFERENCE,
+  DUTIES,
+  TaskComplexity,
+} from '@projectman/shared';
 import { TeamToolError, type TeamToolsHandler, type ToolContext, type MemberAudience } from '../contracts';
 
-export const operatorAudience: MemberAudience = {
-  operator: true,
-  projectManager: false,
-  merger: false,
-  email: false,
-  machineAccess: false,
-  duties: new Set(),
+/** A member who holds every role, channel, capability and duty that opens a tool (not the retired Operator-only ones). */
+export const fullAudience: MemberAudience = {
+  projectManager: true,
+  merger: true,
+  email: true,
+  machineAccess: true,
+  hostRequests: true,
+  duties: new Set(Object.keys(DUTIES) as DutyId[]),
 };
 
 /**
@@ -233,6 +240,18 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
     async listEmailContacts(ctx) {
       await enter('listEmailContacts', ctx, {});
       return [];
+    },
+    async askHost(ctx, args) {
+      await enter('askHost', ctx, args);
+      return { id: 'hreq_fake', state: 'open' };
+    },
+    async listHostRequests(ctx, args) {
+      await enter('listHostRequests', ctx, args);
+      return [];
+    },
+    async withdrawHostRequest(ctx, args) {
+      await enter('withdrawHostRequest', ctx, args);
+      return { id: args.id, state: 'withdrawn' };
     },
     async mergeTask(ctx, args) {
       await enter('mergeTask', ctx, args);
@@ -541,7 +560,6 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
         messageId,
         deliveredTo: args.to,
         recipients: args.to.map((handle) => ({ handle, delivery: 'typed_now' as const })),
-        operator: false,
       };
     },
 

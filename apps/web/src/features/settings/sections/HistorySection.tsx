@@ -68,7 +68,7 @@ export function HistorySection({
                       history
                       after={
                         <>
-                          <span aria-hidden="true"> · </span>
+                          <span aria-hidden="true"> ·&nbsp;</span>
                           <time dateTime={entry.at}>{formatStamp(entry.at)}</time>
                         </>
                       }

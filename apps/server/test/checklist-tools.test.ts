@@ -18,15 +18,15 @@ async function setup() {
       (config.team.members.find((m) => m.handle === 'pm') as AiMemberConfig).onLeave = false;
     },
   });
-  const { session } = seedOperatorRequest(h, 'AR', { text: 'Set up the checklist' });
-  ctx = { projectKey: 'AR', member: 'operator', sessionId: session.id, taskKey: null };
+  const { session } = seedOperatorRequest(h, 'AR', { member: 'pm', text: 'Set up the checklist' });
+  ctx = { projectKey: 'AR', member: 'pm', sessionId: session.id, taskKey: null };
 }
 
 const update = (args: UpdateChecklistInput, caller = ctx) => h.domain.teamTools.updateChecklist(caller, args);
 const items = async () => (await h.domain.checklist.get('AR'))!.items;
 const itemOf = async (id: string) => (await items()).find((item) => item.id === id)!;
 
-/** A session of another member or another kind of conversation, cloned from the Operator's own. */
+/** A session of another member or another kind of conversation, cloned from the PM's own. */
 function sessionAs(member: string, workItem: Session['workItem']): ToolContext {
   const session = {
     ...h.repos.sessions.get(ctx.sessionId)!,
@@ -38,7 +38,7 @@ function sessionAs(member: string, workItem: Session['workItem']): ToolContext {
   return { ...ctx, member, sessionId: session.id };
 }
 
-describe('the Operator’s checklist tools', () => {
+describe('the project manager’s checklist tools', () => {
   it('creates the base list for a project that has none, and refuses a second one', async () => {
     await setup();
     await expect(update({ op: 'init' })).rejects.toThrow('checklist_exists');
@@ -46,17 +46,20 @@ describe('the Operator’s checklist tools', () => {
     h.repos.db.prepare('DELETE FROM project_checklists WHERE project_key = ?').run('AR');
     expect(await h.domain.teamTools.getChecklist(ctx)).toMatchObject({ checklist: null });
     await update({ op: 'init' });
-    expect((await items()).filter((item) => item.state === 'done').map((item) => item.id)).toEqual(['code']);
+    expect((await items()).filter((item) => item.state === 'done').map((item) => item.id)).toEqual([
+      'code',
+      'engine',
+    ]);
   });
 
-  it('adds, edits, binds a condition to and settles an item as the Operator', async () => {
+  it('adds, edits, binds a condition to and settles an item as the project manager', async () => {
     await setup();
     const added = await update({ op: 'add', title: 'Legal review', hint: 'Ask the lawyer' });
     expect(added.itemId).toBe('custom_1');
     expect(await itemOf('custom_1')).toMatchObject({
       source: 'operator',
       state: 'open',
-      updatedBy: 'operator',
+      updatedBy: 'pm',
     });
     await update({ op: 'edit', itemId: 'custom_1', title: 'Legal sign-off', hint: null });
     expect(await itemOf('custom_1')).toMatchObject({ title: 'Legal sign-off', hint: null });
@@ -132,9 +135,8 @@ describe('the Operator’s checklist tools', () => {
   describe('permissions', () => {
     it('lets the PM read and change the list in its own conversation, and no developer', async () => {
       await setup();
-      const pm = sessionAs('pm', { type: 'general' });
-      expect((await h.domain.teamTools.getChecklist(pm)).checklist?.items.length).toBeGreaterThan(0);
-      await expect(update({ op: 'add', title: 'x' }, pm)).resolves.toMatchObject({
+      expect((await h.domain.teamTools.getChecklist(ctx)).checklist?.items.length).toBeGreaterThan(0);
+      await expect(update({ op: 'add', title: 'x' })).resolves.toMatchObject({
         itemId: expect.stringMatching(/^custom_/),
       });
       const dev = sessionAs('dev-1', { type: 'general' });
@@ -144,10 +146,10 @@ describe('the Operator’s checklist tools', () => {
 
     it('refuses both tools in a conversation with a guest and in a card session', async () => {
       await setup();
-      const guest = sessionAs('operator', { type: 'general', with: 'ada' });
+      const guest = sessionAs('pm', { type: 'general', with: 'ada' });
       await expect(h.domain.teamTools.getChecklist(guest)).rejects.toThrow('operator_owner_only');
       await expect(update({ op: 'add', title: 'x' }, guest)).rejects.toThrow('operator_owner_only');
-      expect(await items()).toHaveLength(10);
+      expect(await items()).toHaveLength(11);
     });
   });
 

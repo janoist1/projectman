@@ -31,6 +31,7 @@ import {
   canBindEngine,
   canUnbindEngine,
   CreateEngineRequest,
+  RenameEngineRequest,
   projectEngineOf,
   StopOrphansRequest,
   StopSessionRequest,
@@ -126,11 +127,10 @@ import {
   holdersAllow,
   isBuiltInRole,
   isOnLeave,
-  isRequiredOperator,
   isRequiredProjectManager,
   isOpenTask,
-  isOperator,
   isProjectManager,
+  RETIRED_OPERATOR_HANDLE,
   cardBusyGroups,
   cardWorkerSessions,
   openPrerequisites,
@@ -148,7 +148,6 @@ import {
   nextCronRun,
   OPERATOR_DISMISS_OPTION,
   operatorApprovalOf,
-  operatorOf,
   projectManagerOf,
   noApproverReason,
   approverBlocker,
@@ -156,7 +155,6 @@ import {
   permissionView,
   machineAccessOf,
   effectiveSessionPermissions,
-  sessionApproverChangeRefusal,
   duplicateMarkRefusal,
   planLabelChange,
   planRelations,
@@ -640,6 +638,14 @@ export class MockBackend {
   lastEngineKey: string | null = null;
   /** While set, POST /api/engines (and the other changes) answer `owner_login_required` for `engines`. */
   engineLoginRequired = false;
+  /** The provider logins each engine's machine reports (PM-1077), by engine id; absent: nobody is logged in. */
+  engineProviderLogins = new Map<string, Partial<Record<AgentProvider, boolean>>>();
+  /** The users with an owner account (PM-1062); they own projects and engines of their own and see no one else's. */
+  ownerAccountIds = new Set<string>();
+  /** The owner invitations the host handed out (PM-1062): the token is the path's last segment. */
+  ownerInvites: Array<{ token: string; email: string; inviterName: string; used: boolean }> = [];
+  /** Folders the engine says do not exist (`workspace_not_found`); anything else is accepted, as `not_held` is. */
+  missingWorkspaces = new Set<string>();
   codexPlanUsage = { ...clone(fixtures.planUsage), fiveHourPercent: 24, weeklyPercent: 36 };
   extraProjects: { key: string; name: string; templateId: string }[] = [];
   invitations: Array<Invitation & { token: string }> = [];
@@ -1973,6 +1979,8 @@ export class MockBackend {
   handle(method: string, path: string, body: unknown, query = new URLSearchParams()): MockResponse {
     const publicInvite = /^\/api\/invites\/([^/]+)(\/accept)?$/.exec(path);
     if (publicInvite) return this.handlePublicInvite(method, publicInvite[1]!, !!publicInvite[2], body);
+    const ownerInvite = /^\/api\/owner-invites\/([^/]+)(\/accept)?$/.exec(path);
+    if (ownerInvite) return this.handleOwnerInvite(method, ownerInvite[1]!, !!ownerInvite[2], body);
     if (path === '/api/setup') {
       if (method === 'GET') {
         const needsSetup = this.auth === 'setup';
@@ -2088,7 +2096,9 @@ export class MockBackend {
         });
         if (!verdict.allowed) return error(403, verdict.code, 'Credential management refused');
       }
-      if (!this.me().hostOwner) return error(403, 'owner_only', 'Own host-owner login required');
+      // The host owner and an owner account hold a key (PM-1063).
+      if (!this.me().hostOwner && !this.me().ownerAccount)
+        return error(403, 'owner_only', 'Own owner login required');
       this.integratorKeys = this.integratorKeys.map((key) =>
         key.state === 'active' && key.expiresAt && key.expiresAt <= nowIso()
           ? { ...key, state: 'expired' }
@@ -2243,6 +2253,18 @@ export class MockBackend {
         if (input.key === fixtures.PROJECT_KEY || this.extraProjects.some((p) => p.key === input.key)) {
           return error(409, 'project_exists', 'Project key already exists');
         }
+        const ownerAccount = this.ownerAccountIds.has(this.user.userId);
+        // An owner account creates its project on an engine of its own; the folder is checked on that engine.
+        if (ownerAccount && !input.engineId) return error(400, 'invalid_request', 'An engine is required');
+        const engine = input.engineId ? this.engines.find((entry) => entry.id === input.engineId) : undefined;
+        if (input.engineId) {
+          if (!engine || (!this.isHostOwner() && engine.createdBy !== this.user.userId))
+            return error(404, 'engine_not_found', 'Engine not found');
+          if (engine.revokedAt) return error(409, 'engine_revoked', 'The engine is revoked');
+          if (!engine.online) return error(409, 'engine_offline', 'The engine is not connected');
+          if (this.missingWorkspaces.has(input.workspacePath))
+            return error(422, 'workspace_not_found', 'workspace directory not found');
+        }
         // Like the server: a configuration that does not work is refused, with the issues.
         const draft = this.projectDraft(input);
         if ('status' in draft) return draft;
@@ -2256,6 +2278,9 @@ export class MockBackend {
           name: input.name,
           templateId: input.templateId ?? 'starter',
         });
+        if (engine) this.projectEngineBindings.set(input.key, [{ engineId: engine.id, isDefault: true }]);
+        if (ownerAccount)
+          this.extraMeProjects.push({ key: input.key, name: input.name, access: 'owner', roles: [] });
         return ok({
           key: input.key,
           name: input.name,
@@ -2264,7 +2289,16 @@ export class MockBackend {
         });
       }
       return ok([
-        { ...fixtures.projectSummary, name: this.config.project.name, configVersion: this.configVersion },
+        // An owner account sees the projects it created, never the seeded one of the host.
+        ...(this.ownerAccountIds.has(this.user.userId)
+          ? []
+          : [
+              {
+                ...fixtures.projectSummary,
+                name: this.config.project.name,
+                configVersion: this.configVersion,
+              },
+            ]),
         ...this.extraProjects.map((p) => ({ ...p, configVersion: '0000000' })),
       ]);
     }
@@ -2287,10 +2321,11 @@ export class MockBackend {
     return {
       ...this.user,
       hostOwner: this.isHostOwner(),
+      ...(this.ownerAccountIds.has(this.user.userId) ? { ownerAccount: true } : {}),
       instanceOwner: this.isHostOwner(),
       handles: this.viewerHandle ? { [fixtures.PROJECT_KEY]: this.owner } : {},
-      projects:
-        member?.kind === 'human'
+      projects: [
+        ...(member?.kind === 'human'
           ? [
               {
                 key: fixtures.PROJECT_KEY,
@@ -2298,9 +2333,13 @@ export class MockBackend {
                 access: member.access,
                 roles: member.roles,
               },
-              ...this.extraMeProjects,
             ]
-          : [],
+          : []),
+        // A client of several projects, or an owner account with the projects it created.
+        ...(member?.kind === 'human' || this.ownerAccountIds.has(this.user.userId)
+          ? this.extraMeProjects
+          : []),
+      ],
     };
   }
 
@@ -2359,24 +2398,71 @@ export class MockBackend {
         engines: this.engines.filter((engine) => !engine.revokedAt).map((e) => this.engineStatus(e)),
       });
     }
-    if (!me.hostOwner) return error(403, 'owner_only', 'Only the host owner may manage engines');
+    // The host owner manages every engine, an owner account (PM-1062) their own.
+    if (!me.hostOwner && !me.ownerAccount)
+      return error(403, 'owner_only', 'Only the host owner may manage engines');
     if (this.engineMode === 'single') return error(404, 'not_found', 'Engines are not available');
-    if (path === '/api/engines' && method === 'GET') return ok(clone(this.engines));
+    const userId = this.user.userId;
+    const asSeen = (engine: EngineView): EngineView => ({
+      ...clone(engine),
+      ownedByMe: engine.createdBy === userId,
+    });
+    if (path === '/api/engines' && method === 'GET')
+      return ok(this.engines.filter((engine) => me.hostOwner || engine.createdBy === userId).map(asSeen));
     if (this.engineLoginRequired)
       return error(403, 'owner_login_required', 'Log in again to manage engines', { category: 'engines' });
     if (path === '/api/engines' && method === 'POST') {
       const input = parseBody(CreateEngineRequest, body);
       if (!input) return error(400, 'invalid_request', 'Invalid engine name');
-      const engine = this.addEngine({ name: input.name });
+      // The machine-wide default is the host's alone: an owner account's engine is never it.
+      const engine = this.addEngine({
+        name: input.name,
+        createdBy: userId,
+        ...(me.hostOwner ? {} : { isDefault: false }),
+      });
       this.lastEngineKey = `pme_mock_${engine.id}_for_ui_tests_only`;
       this.emit({ type: 'engine_changed', engine: this.engineStatus(engine) });
-      return { status: 201, body: { engine: clone(engine), key: this.lastEngineKey } };
+      return { status: 201, body: { engine: asSeen(engine), key: this.lastEngineKey } };
+    }
+    const providers = /^\/api\/engines\/(eng_[a-z0-9]{12})\/providers$/.exec(path);
+    if (providers && method === 'GET') {
+      const engine = this.engines.find((entry) => entry.id === providers[1]);
+      if (!engine || (!me.hostOwner && engine.createdBy !== userId))
+        return error(404, 'engine_not_found', 'Engine not found');
+      if (engine.revokedAt) return error(409, 'engine_revoked', 'Engine revoked');
+      const logins = this.engineProviderLogins.get(engine.id) ?? {};
+      return ok({
+        providers: AgentProvider.options
+          .filter((provider) => provider !== 'nanogpt')
+          .map((provider) => ({
+            provider,
+            loggedIn: engine.online ? (logins[provider] ?? false) : null,
+            method: logins[provider] ? 'subscription' : null,
+            checkedAt: nowIso(),
+            ...(engine.online && !logins[provider] ? { problem: 'not_logged_in' as const } : {}),
+          })),
+      });
+    }
+    const renamed = /^\/api\/engines\/(eng_[a-z0-9]{12})$/.exec(path);
+    if (renamed && method === 'PATCH') {
+      const engine = this.engines.find((entry) => entry.id === renamed[1]);
+      // Another owner's engine is not there for the caller (404, like the lists).
+      if (!engine || (!me.hostOwner && engine.createdBy !== userId))
+        return error(404, 'engine_not_found', 'Engine not found');
+      const input = parseBody(RenameEngineRequest, body);
+      if (!input) return error(400, 'invalid_request', 'Invalid engine name');
+      if (engine.revokedAt) return error(409, 'engine_revoked', 'The engine is revoked');
+      engine.name = input.name;
+      this.emit({ type: 'engine_changed', engine: this.engineStatus(engine) });
+      return ok(asSeen(engine));
     }
     const m = /^\/api\/engines\/(local|eng_[a-z0-9]{12})\/(revoke|default)$/.exec(path);
     if (m && method === 'POST') {
       const engine = this.engines.find((entry) => entry.id === m[1]);
       if (!engine) return error(404, 'engine_not_found', 'Unknown engine');
       if (engine.revokedAt) return error(409, 'engine_revoked', 'The engine is revoked');
+      if (m[2] === 'default' && !me.hostOwner)
+        return error(403, 'owner_only', 'Only the host owner may choose the default engine');
       if (m[2] === 'revoke') {
         engine.revokedAt = nowIso();
         engine.isDefault = false;
@@ -2396,6 +2482,13 @@ export class MockBackend {
     return error(404, 'not_found', `No route for ${method} ${path}`);
   }
 
+  /** The checklist's `engine_connected` fact (PM-1069): the single-machine engine holds all; in a cloud, the default binding's engine must list the project. */
+  private projectEngineHolds(projectKey: string): boolean {
+    if (this.engineMode === 'single') return true;
+    const bound = (this.projectEngineBindings.get(projectKey) ?? []).find((binding) => binding.isDefault);
+    return bound !== undefined && this.engineHolds.has(`${projectKey}/${bound.engineId}`);
+  }
+
   /** The server's project engine endpoints (PM-1060), with the shared rules; the fake has one viewer. */
   private projectEngineRoutes(
     method: string,
@@ -2403,9 +2496,12 @@ export class MockBackend {
     engineId: string | undefined,
     body: unknown,
   ): MockResponse {
-    if (projectKey !== fixtures.PROJECT_KEY) return error(404, 'not_found', 'Unknown project');
+    // An owner account's own project (created through the wizard) has its engines here too; it is its owner.
+    const ownProject =
+      this.ownerAccountIds.has(this.user.userId) && this.extraProjects.some((p) => p.key === projectKey);
+    if (projectKey !== fixtures.PROJECT_KEY && !ownProject) return error(404, 'not_found', 'Unknown project');
     const userId = this.user.userId;
-    const access = this.viewerAccess();
+    const access = ownProject ? 'owner' : this.viewerAccess();
     const bindings = this.projectEngineBindings.get(projectKey) ?? [];
     const engineOf = (id: string) => this.engines.find((entry) => entry.id === id);
     const viewOf = (engine: EngineView, isDefault: boolean): ProjectEngineView => ({
@@ -2675,6 +2771,7 @@ export class MockBackend {
             ? checklistConditionHolds(item.condition, this.config, {
                 agreementApproved: this.operatorKnowledge.agreement !== null,
                 taskCount: this.tasks.filter((task) => task.status !== 'cancelled').length,
+                engineConnected: this.projectEngineHolds(this.config.project.key),
               })
             : null;
         this.checklist.progress = checklistProgress(this.checklist.items);
@@ -2683,8 +2780,6 @@ export class MockBackend {
     }
     if (rest === '/project-manager/queue' && method === 'GET')
       return this.memberQueue(projectManagerOf(this.config)?.handle ?? 'pm', query);
-    if (rest === '/operator/queue' && method === 'GET')
-      return this.memberQueue(operatorOf(this.config)?.handle ?? 'operator', query);
     if (rest === '/operator/preferences/me' && method === 'GET')
       return ok(
         clone(
@@ -3211,6 +3306,7 @@ export class MockBackend {
   /** Handles in use now or in the past (the configuration, retired members, sessions): never reused. */
   private takenHandles(config: ProjectConfig = this.config): Set<string> {
     return new Set([
+      RETIRED_OPERATOR_HANDLE,
       ...config.team.members.map((member) => member.handle),
       ...this.members.map((member) => member.handle),
       ...this.sessions.map((session) => session.member),
@@ -3378,6 +3474,39 @@ export class MockBackend {
     if (!account && !input)
       return error(400, 'invalid_request', 'Name and eight-character password required');
     return this.acceptInvite(invite, account ?? { name: input!.name, password: input!.password });
+  }
+
+  /** The owner invitation (PM-1062): the same account rules as a project invitation, then an owner account. */
+  private handleOwnerInvite(method: string, token: string, accepting: boolean, body: unknown): MockResponse {
+    if (!(method === 'GET' && !accepting) && !(method === 'POST' && accepting))
+      return error(404, 'not_found', 'Unknown invitation route');
+    const invite = this.ownerInvites.find((entry) => entry.token === token);
+    if (!invite || invite.used) return error(404, 'invite_invalid', 'Invalid invitation');
+    const account = this.accounts.get(invite.email);
+    if (!accepting)
+      return ok({
+        inviterName: invite.inviterName,
+        expiresAt: new Date(Date.now() + 7 * 86_400_000).toISOString(),
+        requiresLogin: !!account,
+      });
+    if (account && (this.auth !== 'ready' || this.user.userId !== account.userId))
+      return error(409, 'login_required', 'Log in as the invited account');
+    const input = account ? null : parseBody(AcceptInviteRequest.required(), body);
+    if (!account && !input)
+      return error(400, 'invalid_request', 'Name and eight-character password required');
+    const user = account ?? {
+      userId: `usr_${this.accounts.size + 1}`,
+      name: input!.name,
+      email: invite.email,
+      password: input!.password,
+    };
+    this.accounts.set(invite.email, user);
+    this.ownerAccountIds.add(user.userId);
+    invite.used = true;
+    this.user = { userId: user.userId, name: user.name, email: user.email };
+    this.viewerHandle = '';
+    this.auth = 'ready';
+    return ok(this.me());
   }
 
   /** The open invitation behind a token, whatever its access. */
@@ -5706,7 +5835,6 @@ export class MockBackend {
     const config = memberOf(this.config, handle);
     if (!member || !config || member.status === 'retired') return error(404, 'not_found', 'Unknown member');
     if (config.kind !== 'ai') return error(400, 'not_ai_member', 'Only AI members can be renamed');
-    if (isOperator(config)) return error(409, 'operator_fixed', 'The Operator cannot be renamed');
     const to = input.handle;
     const former = this.members.flatMap((entry) => entry.formerHandles ?? []);
     if (to === handle || this.takenHandles().has(to) || former.includes(to))
@@ -5744,8 +5872,6 @@ export class MockBackend {
         'project_manager_required',
         'the only AI project manager cannot be retired; hire another one first',
       );
-    if (isRequiredOperator(this.config, handle))
-      return error(409, 'operator_required', 'the Operator cannot be retired');
     const target = input.handoverTo ? this.findMember(input.handoverTo) : undefined;
     const next = clone(this.config);
     next.team.members = next.team.members.filter((m) => m.handle !== handle);
@@ -5999,7 +6125,7 @@ export class MockBackend {
       const member = memberOf(this.config, handle);
       if (member?.kind !== 'ai') return null;
       const { role } = member;
-      return isOperator(member) || isProjectManager(member) ? null : { handle, role };
+      return isProjectManager(member) ? null : { handle, role };
     };
     const working = workers.flatMap((session) => {
       const member = aiOf(session.member);
@@ -6019,29 +6145,24 @@ export class MockBackend {
       return error(403, 'insufficient_access', 'Developer or client required');
     const input = parseBody(SendTeamMessageRequest, body);
     if (!input) return error(400, 'invalid_request', 'Invalid message');
-    // The same rule as the server's: nobody writes to the Operator (it exists only when the owner connects a
-    // client, PM-1045), a viewer writes to the project manager alone, a client to the contacts alone (PM-985).
-    // A fixture can also mark a viewer by the member's role.
+    // The same rule as the server's: a viewer writes to the project manager alone, a client to the contacts
+    // alone (PM-985). A fixture can also mark a viewer by the member's role.
     const managerHandle = projectManagerOf(this.config)?.handle;
     const notManager = input.to.filter((handle) => handle !== managerHandle);
-    const operatorRefusal = teamMessageRecipientRefusal(this.config, this.viewerHandle, input.to);
+    const sharedRefusal = teamMessageRecipientRefusal(this.config, this.viewerHandle, input.to);
     const recipientRefusal =
-      operatorRefusal?.code === 'operator_connected_only'
-        ? operatorRefusal
-        : viewer.role === 'viewer'
-          ? notManager.length > 0
-            ? { code: 'insufficient_access' as const, recipients: notManager }
-            : null
-          : operatorRefusal;
+      viewer.role === 'viewer'
+        ? notManager.length > 0
+          ? { code: 'insufficient_access' as const, recipients: notManager }
+          : null
+        : sharedRefusal;
     if (recipientRefusal)
       return error(
-        recipientRefusal.code === 'operator_connected_only' ? 409 : 403,
+        403,
         recipientRefusal.code,
         recipientRefusal.code === 'recipient_not_contact'
           ? 'the message goes only to the contacts of the project'
-          : recipientRefusal.code === 'operator_connected_only'
-            ? 'the recipient exists only when the owner connects a client'
-            : 'Developer or client access required',
+          : 'Developer or client access required',
         { recipients: recipientRefusal.recipients },
       );
     if (input.taskKey) {
@@ -6395,8 +6516,6 @@ export class MockBackend {
     if (!session) return error(404, 'not_found', 'Unknown session');
     const member = memberOf(this.config, session.member);
     if (member?.kind !== 'ai') return error(404, 'not_found', 'Unknown member');
-    const refusal = sessionApproverChangeRefusal(member, input.approver);
-    if (refusal) return error(403, refusal, 'The Operator approver is fixed to human');
     if (input.approver) {
       const blocker = approverBlocker(this.config, member.handle, input.approver);
       if (blocker) return error(422, 'approver_unavailable', 'This approver is not available', { blocker });
@@ -6408,7 +6527,7 @@ export class MockBackend {
       else next.permissionModeOverride = input.permissionMode;
     }
     if (input.approver !== undefined) {
-      if (isOperator(member) || input.approver === null) delete next.approverOverride;
+      if (input.approver === null) delete next.approverOverride;
       else next.approverOverride = input.approver;
     }
     const to = effectiveSessionPermissions(member, next);
@@ -6574,7 +6693,7 @@ export class MockBackend {
       ];
       for (const member of members) {
         const refusal = superDecisionRefusal(member, {
-          operatorHandle: operatorOf(this.config)?.handle ?? null,
+          operatorHandle: RETIRED_OPERATOR_HANDLE,
           sessionMember: this.sessions.find((session) => session.id === member.sessionId)?.member,
         });
         const question = member.kind === 'question' ? member.payload : null;

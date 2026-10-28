@@ -1,5 +1,5 @@
 import type { OperatorSessions } from './ports';
-import { isOperator, isProjectManager, memberOf, SYSTEM_SENDER } from '@projectman/shared';
+import { isProjectManager, memberOf, SYSTEM_SENDER } from '@projectman/shared';
 import type { Session, TeamMessage } from '@projectman/shared';
 import type { DomainContext } from '../../core/base';
 import type { BackgroundTasks } from '../../kernel';
@@ -30,7 +30,7 @@ export class PmReplyRelay {
     const config = projects.cachedConfig(session.projectKey);
     if (!config || session.workItem.type !== 'general') return;
     const manager = memberOf(config, session.member);
-    if (!isProjectManager(manager) && !isOperator(manager)) return;
+    if (!isProjectManager(manager)) return;
     const cutoff = ctx.now().getTime() - RELAY_WINDOW_MS;
     const all = () =>
       ctx.repos.messages.list(session.projectKey, {

@@ -21,7 +21,7 @@ function withWaitingLabel(config: ProjectConfig): void {
  * reader that must see a pending question does, and that the closing and release write only where they
  * may.
  */
-describe('a question the Operator screens: the foundations', () => {
+describe('a question the project manager screens: the foundations', () => {
   let h: DomainHarness;
   let dev: ToolContext;
   let sessionId: string;

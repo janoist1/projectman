@@ -3,12 +3,21 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import Fastify from 'fastify';
 import { describe, expect, it } from 'vitest';
 import { createTeamMcpServer, DEFAULT_TOOL_TIMEOUT_MS, visibleTeamTools } from './server';
-import { createFakeTeamToolsHandler, devContext, operatorAudience } from './testing';
+import { createFakeTeamToolsHandler, devContext, fullAudience } from './testing';
 import type { MemberAudience } from '../contracts';
 import { toolVisible, type ToolAudience } from './kit';
 import { TEAM_TOOL_GROUPS, TEAM_TOOL_NAMES, TEAM_TOOLS } from './tools';
 
-const developerAudience: MemberAudience = { ...operatorAudience, operator: false };
+const developerAudience: MemberAudience = {
+  projectManager: false,
+  merger: false,
+  email: false,
+  machineAccess: false,
+  hostRequests: false,
+  duties: new Set(),
+};
+/** Tools nobody sees any more: they were the retired Operator's alone (decision 66). */
+const hiddenTools = TEAM_TOOLS.filter((tool) => tool.audience?.roles?.length === 0).map((tool) => tool.name);
 
 async function listToolsFor(audience: MemberAudience) {
   const app = Fastify();
@@ -32,7 +41,7 @@ async function listToolsFor(audience: MemberAudience) {
 }
 
 describe('tool audience', () => {
-  it.each([operatorAudience, developerAudience, { ...developerAudience, projectManager: true }])(
+  it.each([fullAudience, developerAudience, { ...developerAudience, projectManager: true }])(
     'registers exactly the tools listed by the context preview for %o',
     async (audience) => {
       const result = await listToolsFor(audience);
@@ -43,9 +52,8 @@ describe('tool audience', () => {
   );
   it.each<{ audience: ToolAudience | undefined; member: MemberAudience; visible: boolean }>([
     { audience: undefined, member: developerAudience, visible: true },
-    { audience: {}, member: operatorAudience, visible: true },
     { audience: {}, member: developerAudience, visible: false },
-    { audience: { roles: ['operator'] }, member: developerAudience, visible: false },
+    { audience: { roles: [] }, member: fullAudience, visible: false },
     {
       audience: { roles: ['project_manager'] },
       member: { ...developerAudience, projectManager: true },
@@ -74,10 +82,13 @@ describe('tool audience', () => {
     expect(toolVisible(audience, member)).toBe(visible);
   });
 
-  it('lists all tools for the Operator and hides restricted tools from a developer', async () => {
-    const before = await listToolsFor(operatorAudience);
+  it('lists every tool but the retired Operator ones for a full audience and hides restricted tools from a developer', async () => {
+    const before = await listToolsFor(fullAudience);
     const after = await listToolsFor(developerAudience);
-    expect(before.tools.map((tool) => tool.name).sort()).toEqual([...TEAM_TOOL_NAMES].sort());
+    expect(hiddenTools.length).toBeGreaterThan(0);
+    expect(before.tools.map((tool) => tool.name).sort()).toEqual(
+      TEAM_TOOL_NAMES.filter((name) => !hiddenTools.includes(name)).sort(),
+    );
     expect(after.tools.map((tool) => tool.name)).not.toContain('check_release');
     expect(after.tools.map((tool) => tool.name)).toContain('get_guide');
     console.info('tools/list JSON bytes', {
@@ -94,6 +105,16 @@ describe('tool audience', () => {
     async (machineAccess) => {
       const result = await listToolsFor({ ...developerAudience, machineAccess });
       expect(result.tools.some((tool) => tool.name === 'open_integrator_todo')).toBe(machineAccess);
+    },
+  );
+
+  it.each([false, true])(
+    'lists the requests-to-the-host tools only for a project manager who may ask (%s)',
+    async (hostRequests) => {
+      const result = await listToolsFor({ ...developerAudience, hostRequests });
+      const names = result.tools.map((tool) => tool.name);
+      for (const name of ['ask_host', 'list_host_requests', 'withdraw_host_request'])
+        expect(names.includes(name)).toBe(hostRequests);
     },
   );
 
@@ -175,7 +196,7 @@ describe('tool audience', () => {
 
 describe('team tool definitions', () => {
   it('preserves the public tool definitions across module moves', async () => {
-    const { tools } = await listToolsFor(operatorAudience);
+    const { tools } = await listToolsFor(fullAudience);
     expect(
       tools
         .map(({ name, title, description, inputSchema, annotations }) => ({
@@ -213,6 +234,7 @@ describe('team tool registration', () => {
     ).toEqual({
       'services/email-channel': ['send_email', 'set_email_contact', 'list_email_contacts'],
       'services/github': ['link_pull_request'],
+      'services/host-requests': ['ask_host', 'list_host_requests', 'withdraw_host_request'],
       'services/operator': [
         'get_role_configuration',
         'request_structural_review',

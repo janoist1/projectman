@@ -184,6 +184,8 @@ export type Session = z.infer<typeof Session>;
 
 /** Minutes of silence (since `Session.lastActivityAt`) after which an idle session closes by itself (PM-288). */
 export const SESSION_IDLE_CLOSE_MINUTES = 15;
+/** How long a PM's conversation with a person who is not an owner stands idle before it closes (PM-475). */
+export const GUEST_IDLE_CLOSE_MINUTES = 5;
 /** Maximum minutes of silence protected by a queued or running heavy command (PM-569). */
 export const SESSION_HEAVY_RUN_IDLE_MAX_MINUTES = 120;
 

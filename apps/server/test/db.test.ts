@@ -28,6 +28,8 @@ describe('legacy task check migration', () => {
     db.exec('ALTER TABLE team_messages ADD COLUMN places TEXT');
     // The same for migration 119 (PM-1062).
     db.exec('ALTER TABLE projects ADD COLUMN created_by TEXT');
+    // And for migration 122 (PM-1064): the handle rename prepares an update of its table.
+    db.exec('CREATE TABLE host_requests (opened_by TEXT, project_key TEXT)');
     const repos = createRepositories(db);
     repos.projects.insert({
       key: 'AR',
@@ -39,6 +41,7 @@ describe('legacy task check migration', () => {
     });
     repos.tasks.insert(sampleTask({ labels }));
     db.prepare('UPDATE tasks SET checks = ? WHERE key = ?').run(checks, 'AR-1');
+    db.exec('DROP TABLE host_requests');
     db.exec('ALTER TABLE team_messages DROP COLUMN location');
     db.exec('ALTER TABLE team_messages DROP COLUMN places');
     db.exec('ALTER TABLE projects DROP COLUMN created_by');

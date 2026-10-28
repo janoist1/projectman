@@ -51,9 +51,6 @@ export const CONFIG_ISSUE_MESSAGES: Record<ConfigIssue['code'], PlainMessageKey>
   mover_not_member: 'settings.issues.mover_not_member',
   mover_cannot_move: 'settings.issues.mover_cannot_move',
   mover_on_leave: 'settings.issues.mover_on_leave',
-  operator_approver_fixed: 'settings.issues.operator_approver_fixed',
-  operator_merger_forbidden: 'settings.issues.operator_merger_forbidden',
-  operator_boundary_duty_forbidden: 'settings.issues.operator_boundary_duty_forbidden',
 };
 
 function isInvariantCode(code: string): code is ConfigIssue['code'] {

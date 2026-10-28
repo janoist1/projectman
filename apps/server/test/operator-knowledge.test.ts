@@ -1,15 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import {
-  DEFAULT_OPERATOR_PREFERENCE,
-  memberOf,
-  operatorKnowledgeApprovalOf,
-  operatorKnowledgeContinuationMessageId,
-  ProposeOperatorKnowledgeRequest,
-  roleBundle,
-} from '@projectman/shared';
-import type { AiMemberConfig, OperatorKnowledgeChange, OperatorOperation, Session } from '@projectman/shared';
+import { operatorKnowledgeApprovalOf, ProposeOperatorKnowledgeRequest } from '@projectman/shared';
+import type { OperatorKnowledgeChange, OperatorOperation, Session } from '@projectman/shared';
 import type { ToolContext } from '../src/contracts';
 import { createContextPackBuilder } from '../src/context';
 import { humanActor } from '../src/kernel';
@@ -22,7 +15,7 @@ import {
   waitForSession,
 } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
-import { flush, settle } from './helpers/fakes';
+import { flush } from './helpers/fakes';
 import { seedOperatorRequest } from './helpers/operator-session';
 
 let h: DomainHarness;
@@ -44,11 +37,6 @@ const principle: OperatorKnowledgeChange = {
     principle: 'PRIVATE_PRINCIPLE',
     effect: 'Explain partial results',
   },
-};
-const network: OperatorOperation = {
-  op: 'member_update',
-  handle: 'dev-1',
-  changes: { outboundNetwork: false },
 };
 const immediate: OperatorOperation = { op: 'member_update', handle: 'dev-1', changes: { model: 'sonnet' } };
 afterEach(async () => {
@@ -78,10 +66,12 @@ async function setup(persistent = false) {
       });
       // A client may message only the contacts.
       config.team.contacts = ['pm'];
+      const pm = config.team.members.find((m) => m.handle === 'pm')!;
+      if (pm.kind === 'ai') pm.onLeave = false;
     },
   });
-  const { session } = seedOperatorRequest(h, 'AR', { text: 'Propose an agreement' });
-  ctx = { projectKey: 'AR', member: 'operator', sessionId: session.id, taskKey: null };
+  const { session } = seedOperatorRequest(h, 'AR', { text: 'Propose an agreement', member: 'pm' });
+  ctx = { projectKey: 'AR', member: 'pm', sessionId: session.id, taskKey: null };
 }
 function propose(change = agreement, operations: OperatorOperation[] = [], revision = 0) {
   return h.domain.teamTools.proposeOperatorKnowledge(ctx, {
@@ -97,59 +87,6 @@ const document = () => h.domain.operatorKnowledge.readKnowledge('AR');
 const payload = (id: string) => operatorKnowledgeApprovalOf(h.domain.inbox.get('AR', id))!;
 
 describe('owner-approved Operator knowledge', () => {
-  it('stores targeted agreement operations and replays them against fresh unrelated role overrides', async () => {
-    await setup();
-    const before = await h.domain.projects.load('AR');
-    await h.domain.projects.patch(
-      'AR',
-      {
-        baseVersion: before.version,
-        roleOverrides: {
-          developer: { ...roleBundle(before.config, 'developer'), instructions: 'Original instructions.' },
-          architect: { ...roleBundle(before.config, 'architect'), instructions: 'Original architect.' },
-        },
-      },
-      { actor: OWNER_ACTOR, author: OWNER },
-    );
-    const read = await h.domain.teamTools.getRoleConfiguration(ctx, { role: 'developer' });
-    const operation: OperatorOperation = {
-      op: 'config_patch',
-      patch: {
-        roleOverrides: {
-          developer: { ...read.effective, instructions: read.effective.instructions + '\nAdded rule.' },
-        },
-      },
-    };
-    const proposal = await propose(agreement, [operation]);
-    expect(payload(proposal.inbox_item_id).operations).toEqual([operation]);
-    await resolve(proposal.inbox_item_id);
-    const approved = payload(proposal.inbox_item_id);
-    const loaded = await h.domain.projects.load('AR');
-    await h.domain.projects.patch(
-      'AR',
-      {
-        baseVersion: loaded.version,
-        roleOverrides: {
-          ...loaded.config.team.roleOverrides,
-          architect: {
-            ...roleBundle(loaded.config, 'architect'),
-            instructions: 'Changed after agreement approval.',
-          },
-        },
-      },
-      { actor: OWNER_ACTOR, author: OWNER },
-    );
-    const requests = new OperatorRequests({ ctx: h.domain.ctx });
-    requests.closeForSession(ctx.sessionId);
-    h.domain.messages.markRecipientDelivered(operatorKnowledgeContinuationMessageId(approved.id), 'operator');
-    expect(
-      await h.domain.teamTools.operate(ctx, { title: 'Extend developer instructions', operation }),
-    ).toMatchObject({ status: 'done' });
-    const saved = (await h.domain.projects.config('AR')).team.roleOverrides!;
-    expect(saved.developer?.instructions).toBe('Original instructions.\nAdded rule.');
-    expect(saved.architect?.instructions).toBe('Changed after agreement approval.');
-    expect(payload(proposal.inbox_item_id).operations).toEqual([operation]);
-  });
   it('does not load or lock projects without pending knowledge approvals during recovery', async () => {
     await setup();
     const lock = vi.spyOn(h.domain.projects, 'withConfigurationLock');
@@ -214,14 +151,16 @@ describe('owner-approved Operator knowledge', () => {
       [{ err: expect.any(Error), projectKey: 'AR' }, 'could not load project configuration'],
     ]);
     h.log.errors.length = 0;
-    for (const message of ['could not recover operator knowledge', 'operator continuation wake failed'])
-      expect(h.log.warnings).toContainEqual([{ err: expect.any(Error), projectKey: 'AR' }, message]);
+    expect(h.log.warnings).toContainEqual([
+      { err: expect.any(Error), projectKey: 'AR' },
+      'could not recover operator knowledge',
+    ]);
   });
 
-  it('persists nothing before approval and blocks even immediate operations of its pending request', async () => {
+  it('persists nothing before approval', async () => {
     await setup();
     const before = await h.domain.projects.load('AR');
-    const proposal = await propose(agreement, [immediate, network]);
+    const proposal = await propose(agreement);
     expect(await document()).toMatchObject({ revision: 0, agreement: null, principles: [] });
     await expect(access(join(h.dir, 'operator-data/AR/knowledge.json'))).rejects.toMatchObject({
       code: 'ENOENT',
@@ -230,15 +169,8 @@ describe('owner-approved Operator knowledge', () => {
     expect(payload(proposal.inbox_item_id)).toMatchObject({
       applying: null,
       baseRevision: 0,
-      baseConfigVersion: before.version,
-      changes: [
-        expect.objectContaining({ field: 'model', after: 'sonnet', level: 'now' }),
-        expect.objectContaining({ field: 'outboundNetwork', after: 'false', level: 'approval' }),
-      ],
+      baseConfigVersion: null,
     });
-    await expect(h.domain.teamTools.operate(ctx, { title: 'Model', operation: immediate })).rejects.toThrow(
-      'operator_agreement_pending',
-    );
     await resolve(proposal.inbox_item_id);
     expect(await document()).toMatchObject({
       revision: 1,
@@ -300,46 +232,10 @@ describe('owner-approved Operator knowledge', () => {
     ).toHaveLength(1);
   });
 
-  it('detects configuration changes under the common commit lock and writes no knowledge', async () => {
-    await setup();
-    const proposal = await propose(agreement, [network]);
-    let unlock!: () => void;
-    const held = new Promise<void>((done) => {
-      unlock = done;
-    });
-    let entered!: () => void;
-    const inside = new Promise<void>((done) => {
-      entered = done;
-    });
-    const locked = h.domain.projects.withConfigurationLock('AR', async () => {
-      entered();
-      await held;
-    });
-    await inside;
-    let committed = false;
-    const patch = h.domain.projects
-      .patch(
-        'AR',
-        { baseVersion: (await h.domain.projects.load('AR')).version, limits: { maxConcurrentAi: 6 } },
-        { actor: OWNER_ACTOR, author: OWNER },
-      )
-      .then(() => {
-        committed = true;
-      });
-    await settle();
-    expect(committed).toBe(false);
-    unlock();
-    await locked;
-    await patch;
-    await expect(resolve(proposal.inbox_item_id)).rejects.toMatchObject({ code: 'operator_knowledge_stale' });
-    expect(payload(proposal.inbox_item_id).stale?.reason).toBe('config_changed');
-    expect((await document()).revision).toBe(0);
-  });
-
   it('generates principle ids, preserves agreement versions and removes a principle from the next context', async () => {
     await setup();
     await resolve((await propose()).inbox_item_id);
-    const put = await propose(principle, [], 1);
+    const put = await propose(principle, undefined, 1);
     expect(payload(put.inbox_item_id).change).toMatchObject({
       principle: { id: expect.stringMatching(/^olp_/) },
     });
@@ -351,19 +247,19 @@ describe('owner-approved Operator knowledge', () => {
       principles: [{ approvedBy: 'owner' }],
     });
     await resolve(
-      (await propose({ kind: 'principle_remove', id: data.principles[0]!.id }, [], 2)).inbox_item_id,
+      (await propose({ kind: 'principle_remove', id: data.principles[0]!.id }, undefined, 2)).inbox_item_id,
     );
     data = await document();
     expect(data).toMatchObject({ revision: 3, agreement: { version: 1 }, principles: [] });
     const next = await h.domain.sharedOperatorKnowledge.forConversation(
       'AR',
-      'operator',
+      'pm',
       { type: 'general' },
-      null,
+      { kind: 'message', by: humanActor('owner') },
     );
     expect(next).toMatchObject({ revision: 3, principles: [] });
     expect(JSON.stringify(next)).not.toContain('PRIVATE_PRINCIPLE');
-    await resolve((await propose(agreement, [], 3)).inbox_item_id);
+    await resolve((await propose(agreement, undefined, 3)).inbox_item_id);
     expect((await document()).agreement?.version).toBe(2);
   });
 
@@ -371,7 +267,7 @@ describe('owner-approved Operator knowledge', () => {
     'recovers a crash %s the private file write without granting a new approval',
     async (phase) => {
       await setup(true);
-      const proposal = await propose(agreement, [immediate]);
+      const proposal = await propose();
       const apply = h.domain.operatorKnowledge.compareAndSwapKnowledge.bind(h.domain.operatorKnowledge);
       const spy = vi
         .spyOn(h.domain.operatorKnowledge, 'compareAndSwapKnowledge')
@@ -411,11 +307,9 @@ describe('owner-approved Operator knowledge', () => {
     },
   );
 
-  it('refuses forbidden operations, nonagreement operations, stale CAS and nonexistent removals before creating an inbox item', async () => {
+  it('refuses operations, stale CAS and nonexistent removals before creating an inbox item', async () => {
     await setup();
-    await expect(
-      propose(agreement, [{ op: 'member_update', handle: 'owner', changes: { model: 'sonnet' } }]),
-    ).rejects.toThrow('operator_never');
+    await expect(propose(agreement, [immediate])).rejects.toThrow('invalid_request');
     await expect(propose(principle, [immediate])).rejects.toThrow('invalid_request');
     await expect(propose(agreement, [], 9)).rejects.toThrow('operator_knowledge_stale');
     await expect(propose({ kind: 'principle_remove', id: 'unknown' })).rejects.toThrow('invalid_request');
@@ -432,8 +326,8 @@ describe('owner-approved Operator knowledge', () => {
 
   it('rolls back inbox closure and its audit together when post-CAS result recording crashes', async () => {
     await setup(true);
-    const proposal = await propose(agreement, [immediate]);
-    const spy = vi.spyOn(h.domain.messages, 'record').mockImplementationOnce(() => {
+    const proposal = await propose();
+    const spy = vi.spyOn(h.repos.inbox, 'close').mockImplementationOnce(() => {
       throw new Error('crash while closing approved inbox');
     });
     await expect(resolve(proposal.inbox_item_id)).rejects.toThrow('crash while closing approved inbox');
@@ -483,60 +377,6 @@ describe('owner-approved Operator knowledge', () => {
 });
 
 describe('shared knowledge session boundaries', () => {
-  it('keeps critical continuation operations behind a plan and a separate owner approval', async () => {
-    await setup();
-    const operation: OperatorOperation = { op: 'message_send', to: ['ada'], text: 'Approved exact message' };
-    const plan = { why: 'Inform the admin', impact: 'Sends this exact message to Ada', reversible: false };
-    const proposal = await propose(agreement, [operation]);
-    await expect(
-      h.domain.teamTools.operate(ctx, { title: 'Before agreement approval', operation, plan }),
-    ).rejects.toThrow('operator_agreement_pending');
-    const sent = () => h.domain.messages.list('AR', {}).filter((message) => message.body === operation.text);
-    expect(sent()).toHaveLength(0);
-    await resolve(proposal.inbox_item_id);
-    const messageId = operatorKnowledgeContinuationMessageId(payload(proposal.inbox_item_id).id);
-    const requests = new OperatorRequests({ ctx: h.domain.ctx });
-    requests.closeForSession(ctx.sessionId);
-    h.domain.messages.markRecipientDelivered(messageId, 'operator');
-    const request = requests.openFor(ctx.sessionId)!;
-    expect(request.source).toBe('approval');
-    await expect(
-      h.domain.operatorActions.run('AR', request.id, 'Missing plan', operation),
-    ).rejects.toMatchObject({ code: 'operator_plan_required' });
-    await expect(
-      h.domain.operatorActions.run(
-        'AR',
-        request.id,
-        'Unstored message',
-        {
-          ...operation,
-          text: 'Changed message',
-        },
-        plan,
-      ),
-    ).rejects.toMatchObject({ code: 'operator_no_request' });
-    const critical = await h.domain.teamTools.operate(ctx, {
-      title: 'Stored critical message',
-      operation,
-      plan,
-    });
-    expect(critical.status).toBe('awaiting_approval');
-    expect(sent()).toHaveLength(0);
-    await expect(
-      h.domain.inbox.resolve(
-        'AR',
-        critical.inbox_item_id!,
-        { optionId: 'approve' },
-        { handle: 'ada', access: 'admin' },
-      ),
-    ).rejects.toThrow();
-    expect(sent()).toHaveLength(0);
-    await resolve(critical.inbox_item_id!);
-    expect(sent()).toHaveLength(1);
-    await expect(resolve(critical.inbox_item_id!)).rejects.toMatchObject({ code: 'inbox_item_closed' });
-    expect(sent()).toHaveLength(1);
-  });
-
   it.each(['pm'])('launches %s without shared knowledge when its file is corrupt', async (handle) => {
     h = await createDomainHarness({
       adjust(config) {
@@ -568,106 +408,6 @@ describe('shared knowledge session boundaries', () => {
     expect(await readFile(file, 'utf8')).toBe('{partial');
   });
 
-  it('opens one scoped approval continuation and keeps protected operations behind a separate owner decision', async () => {
-    await setup(true);
-    const proposal = await propose(agreement, [immediate, network]);
-    await resolve(proposal.inbox_item_id);
-    const approved = payload(proposal.inbox_item_id);
-    const messageId = operatorKnowledgeContinuationMessageId(approved.id);
-    const message = h.domain.messages.get(messageId)!;
-    expect(message).toMatchObject({
-      from: 'owner',
-      origin: {
-        kind: 'operator_knowledge_approval',
-        inboxItemId: proposal.inbox_item_id,
-      },
-    });
-    const requests = new OperatorRequests({ ctx: h.domain.ctx });
-    requests.closeForSession(ctx.sessionId);
-    h.domain.messages.markRecipientDelivered(messageId, 'operator');
-    const request = requests.openFor(ctx.sessionId)!;
-    expect(request).toMatchObject({
-      source: 'approval',
-      fromHandle: 'owner',
-      inboxItemId: proposal.inbox_item_id,
-    });
-    for (const write of [
-      () => propose(principle, [], 1),
-      () =>
-        h.domain.teamTools.setOperatorPreference(ctx, {
-          expectedRevision: 0,
-          preference: { ...DEFAULT_OPERATOR_PREFERENCE },
-        }),
-      () => h.domain.teamTools.saveMemory(ctx, { note: 'Expand authority' }),
-      () =>
-        h.domain.teamTools.sendMessage(ctx, {
-          to: ['owner'],
-          text: 'Unstored signal',
-          kind: 'info',
-          signalId: 'sig_forged',
-        }),
-      () =>
-        h.domain.teamTools.operate(ctx, {
-          title: 'Unstored operation',
-          operation: { ...network, changes: { outboundNetwork: true } },
-        }),
-    ])
-      await expect(write()).rejects.toThrow('operator_no_request');
-    await expect(
-      h.domain.teamTools.startMember(ctx, { member: 'dev-1', text: 'Unstored work', signalId: 'sig_forged' }),
-    ).rejects.toThrow('project_manager_only');
-    await expect(
-      h.domain.operatorActions.run('AR', request.id, 'Direct unstored operation', {
-        ...immediate,
-        changes: { model: 'opus' },
-      }),
-    ).rejects.toMatchObject({ code: 'operator_no_request', status: 403 });
-    expect(await h.domain.teamTools.getOperatorKnowledge(ctx)).toMatchObject({ revision: 1 });
-    expect(
-      await h.domain.teamTools.operate(ctx, { title: 'Stored model change', operation: immediate }),
-    ).toMatchObject({
-      status: 'done',
-      changes: [expect.objectContaining({ field: 'model', after: 'sonnet' })],
-    });
-    const protectedOperation = await h.domain.teamTools.operate(ctx, {
-      title: 'Stored network change',
-      operation: network,
-    });
-    expect(protectedOperation.status).toBe('awaiting_approval');
-    expect(
-      (memberOf(await h.domain.projects.config('AR'), 'dev-1') as AiMemberConfig).outboundNetwork,
-    ).toBeUndefined();
-    await resolve(protectedOperation.inbox_item_id!);
-    expect((memberOf(await h.domain.projects.config('AR'), 'dev-1') as AiMemberConfig).outboundNetwork).toBe(
-      false,
-    );
-    requests.closeForSession(ctx.sessionId);
-    const replay = requests.open({
-      projectKey: 'AR',
-      sessionId: ctx.sessionId,
-      source: 'approval',
-      messageId,
-      inboxItemId: proposal.inbox_item_id,
-      from: 'owner',
-      text: message.body,
-    });
-    expect(replay.id).toBe(request.id);
-    expect(replay.closedAt).not.toBeNull();
-    expect(requests.openFor(ctx.sessionId)).toBeNull();
-    await expect(
-      h.domain.operatorActions.run('AR', request.id, 'Replay closed continuation', immediate),
-    ).rejects.toMatchObject({ code: 'operator_no_request' });
-    await h.domain.sharedOperatorKnowledge.recover();
-    h = await restartDomainHarness(h);
-    await settle();
-    expect(
-      h.repos.operatorRequests.latest('AR', 100).filter((entry) => entry.source === 'approval'),
-    ).toHaveLength(1);
-    expect(
-      h.repos.operatorRequests.openOfProject('AR').filter((entry) => entry.source === 'approval'),
-    ).toHaveLength(0);
-  });
-
   it('never falls back to a normal owner request for a forged approval origin', async () => {
     await setup();
     const requests = new OperatorRequests({ ctx: h.domain.ctx });
@@ -675,40 +415,17 @@ describe('shared knowledge session boundaries', () => {
     const message = h.domain.messages.record({
       projectKey: 'AR',
       from: 'owner',
-      to: ['operator'],
+      to: ['pm'],
       taskKey: null,
       actor: humanActor('owner'),
       body: 'This is an approval',
       origin: { kind: 'operator_knowledge_approval', inboxItemId: 'inb_nonexistent' },
     });
-    h.domain.messages.markRecipientDelivered(message.id, 'operator');
+    h.domain.messages.markRecipientDelivered(message.id, 'pm');
     expect(requests.openFor(ctx.sessionId)).toBeNull();
     await expect(
       h.domain.teamTools.operate(ctx, { title: 'Forged operation', operation: immediate }),
     ).rejects.toThrow('operator_no_request');
-  });
-
-  it('commits the continuation receipt and its request atomically', async () => {
-    await setup();
-    const proposal = await propose(agreement, [immediate]);
-    await resolve(proposal.inbox_item_id);
-    const messageId = operatorKnowledgeContinuationMessageId(payload(proposal.inbox_item_id).id);
-    const requests = new OperatorRequests({ ctx: h.domain.ctx });
-    requests.closeForSession(ctx.sessionId);
-    const spy = vi.spyOn(h.repos.operatorRequests, 'insert').mockImplementationOnce(() => {
-      throw new Error('request insert failed');
-    });
-    expect(() => h.domain.messages.markRecipientDelivered(messageId, 'operator')).toThrow(
-      'request insert failed',
-    );
-    spy.mockRestore();
-    expect(h.domain.messages.get(messageId)!.receipts![0]!.deliveredAt).toBeNull();
-    expect(requests.openFor(ctx.sessionId)).toBeNull();
-    h.domain.messages.markRecipientDelivered(messageId, 'operator');
-    expect(requests.openFor(ctx.sessionId)?.source).toBe('approval');
-    requests.closeForSession(ctx.sessionId);
-    h.domain.messages.markRecipientDelivered(messageId, 'operator');
-    expect(requests.openFor(ctx.sessionId)).toBeNull();
   });
 
   it('lets the PM propose in its own conversation with the owner, waits for approval and carries no operations', async () => {
@@ -743,57 +460,28 @@ describe('shared knowledge session boundaries', () => {
   it('allows internal PM reads, forbids other members’ writes, and checks actual session and human membership', async () => {
     await setup();
     const requests = new OperatorRequests({ ctx: h.domain.ctx });
-    for (const [handle, workItem, projectKey] of [
-      ['pm', { type: 'general' as const }, 'AR'],
-      ['dev-1', { type: 'general' as const }, 'AR'],
-      ['operator', { type: 'general' as const, with: 'ada' }, 'AR'],
-      ['operator', { type: 'general' as const }, 'OTHER'],
-    ] as const) {
-      const session = {
-        ...h.repos.sessions.get(ctx.sessionId)!,
-        id: `ses_test_${handle}_${projectKey}`,
-        member: handle,
-        workItem,
-        projectKey,
-      } as Session;
-      h.repos.sessions.insert(session);
-      const caller = { ...ctx, member: handle, sessionId: session.id };
-      if (handle === 'pm') {
-        expect(await h.domain.teamTools.getOperatorKnowledge(caller)).toMatchObject({ revision: 0 });
-        await expect(
-          h.domain.teamTools.proposeOperatorKnowledge(caller, {
-            expected_revision: 0,
-            title: 'Wrong caller',
-            change: agreement,
-            operations: [],
-          }),
-        ).rejects.toThrow('project_manager_only');
-      } else if (handle === 'dev-1') {
-        await expect(
-          h.domain.teamTools.proposeOperatorKnowledge(caller, {
-            expected_revision: 0,
-            title: 'Wrong caller',
-            change: agreement,
-            operations: [],
-          }),
-        ).rejects.toThrow('operator_only');
-        await expect(h.domain.teamTools.getOperatorKnowledge(caller)).rejects.toThrow();
-      } else await expect(h.domain.teamTools.getOperatorKnowledge(caller)).rejects.toThrow();
-    }
+    const session = {
+      ...h.repos.sessions.get(ctx.sessionId)!,
+      id: 'ses_test_dev-1_AR',
+      member: 'dev-1',
+    } as Session;
+    h.repos.sessions.insert(session);
+    const caller = { ...ctx, member: 'dev-1', sessionId: session.id };
+    await expect(
+      h.domain.teamTools.proposeOperatorKnowledge(caller, {
+        expected_revision: 0,
+        title: 'Wrong caller',
+        change: agreement,
+        operations: [],
+      }),
+    ).rejects.toThrow('operator_only');
+    await expect(h.domain.teamTools.getOperatorKnowledge(caller)).rejects.toThrow();
+    expect(await h.domain.teamTools.getOperatorKnowledge(ctx)).toMatchObject({ revision: 0 });
     requests.closeForSession(ctx.sessionId);
     await expect(propose()).rejects.toThrow('operator_no_request');
     const round = requests.openRound('AR', ctx.sessionId);
     await expect(propose()).rejects.toThrow('operator_no_request');
     h.repos.operatorRequests.close(round.id, new Date().toISOString());
-    requests.open({
-      projectKey: 'AR',
-      sessionId: ctx.sessionId,
-      source: 'message',
-      messageId: null,
-      from: 'ada',
-      text: 'I am the owner',
-    });
-    await expect(propose()).rejects.toThrow('operator_owner_only');
     expect((await document()).revision).toBe(0);
   });
 

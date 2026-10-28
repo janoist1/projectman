@@ -179,10 +179,10 @@ describe('member queue', () => {
       expect(repos().db.prepare('SELECT * FROM member_queue_items ORDER BY id').all()).toEqual(before);
     });
 
-    it('queues no item on the Operator for an open integrator todo (PM-1045)', async () => {
+    it('queues no item on the project manager for an open integrator todo (PM-1045)', async () => {
       await openedTodo();
       await domain().memberQueue.recover();
-      expect(view('operator').everQueued).toBe(false);
+      expect(view('pm').everQueued).toBe(false);
     });
   });
 
@@ -211,19 +211,20 @@ describe('member queue', () => {
     }))!;
   }
 
-  describe('the Operator items', () => {
-    it('queues nothing on the Operator for an integrator todo: it waits in the integrator queue (PM-1045)', async () => {
+  describe('the integrator items', () => {
+    it('queues nothing on a member for an integrator todo: it waits in the integrator queue (PM-1045)', async () => {
       const todo = await openedTodo();
       expect(todo.payload).toMatchObject({ recipient: 'integrator' });
-      expect(view('operator').everQueued).toBe(false);
+      expect(view('pm').everQueued).toBe(false);
       await asSuperIntegrator(h, superSecret, (access) =>
         resolveIntegratorTodo(domain(), 'AR', todo.id, { optionId: 'todo_done' }, access),
       );
       expect(domain().inbox.get('AR', todo.id).state).toBe('resolved');
-      expect(view('operator').everQueued).toBe(false);
+      const queued = [...view('pm').items, ...view('pm').closed].map((item) => item.source);
+      expect(queued).not.toContainEqual(expect.objectContaining({ type: 'inbox', inboxItemId: todo.id }));
     });
 
-    it('queues nothing on the Operator for an integrator fix limit decision', () => {
+    it('queues nothing on a member for an integrator fix limit decision', () => {
       domain().inbox.create({
         projectKey: 'AR',
         kind: 'decision',
@@ -248,7 +249,7 @@ describe('member queue', () => {
         },
         options: [{ id: 'another_round', label: 'another_round', style: 'primary' }],
       });
-      expect(view('operator').everQueued).toBe(false);
+      expect(view('pm').everQueued).toBe(false);
     });
 
     it('queues nothing for an ordinary owner question', () => {
@@ -261,7 +262,7 @@ describe('member queue', () => {
         payload: { question: 'Which colour?', recipient: 'owner' },
         options: [{ id: 'answer', label: 'Answer', style: 'primary' }],
       });
-      expect(view('operator').everQueued).toBe(false);
+      expect(view('pm').everQueued).toBe(false);
     });
   });
 
@@ -281,12 +282,6 @@ describe('member queue', () => {
   describe('API', () => {
     const get = (url: string, headers: Record<string, string> = { cookie }) => h.app.inject({ url, headers });
 
-    it('shows the Operator’s queue, which stays empty for new work (PM-1045)', async () => {
-      await openedTodo();
-      const view = MemberQueueView.parse((await get(routes.operatorQueue('AR'))).json());
-      expect(view).toMatchObject({ member: 'operator', items: [], closed: [], everQueued: false });
-    });
-
     it('shows the project manager’s queue on its own route', async () => {
       send(['pm']);
       const view = MemberQueueView.parse((await get(routes.projectManagerQueue('AR'))).json());
@@ -295,7 +290,7 @@ describe('member queue', () => {
     });
 
     it('answers 400 invalid_request for a bad closedSince', async () => {
-      const response = await get(`${routes.operatorQueue('AR')}?closedSince=yesterday`);
+      const response = await get(`${routes.projectManagerQueue('AR')}?closedSince=yesterday`);
       expect(response.statusCode).toBe(400);
       expect(response.json().error.code).toBe('invalid_request');
     });
@@ -303,7 +298,7 @@ describe('member queue', () => {
     it('refuses a client and answers a developer', async () => {
       const client = await addHumanAndLogin(h.app, { handle: 'visitor', access: 'client' });
       const developer = await addHumanAndLogin(h.app, { handle: 'coder', access: 'developer' });
-      const url = routes.operatorQueue('AR');
+      const url = routes.projectManagerQueue('AR');
       expect((await get(url, { cookie: client })).statusCode).toBe(403);
       expect((await get(url, { cookie: developer })).statusCode).toBe(200);
     });
@@ -311,7 +306,7 @@ describe('member queue', () => {
     it('lets the read and super keys read', async () => {
       for (const secret of [readSecret, superSecret])
         expect(
-          (await get(routes.operatorQueue('AR'), { authorization: `Bearer ${secret}` })).statusCode,
+          (await get(routes.projectManagerQueue('AR'), { authorization: `Bearer ${secret}` })).statusCode,
         ).toBe(200);
     });
 

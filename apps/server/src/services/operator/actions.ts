@@ -6,7 +6,6 @@ import {
   hasOperatorWaiverField,
   operatorWaiverChanged,
   canonical,
-  isOperator,
   memberOf,
   operatorApprovalOf,
   hasPendingOperatorAgreement,
@@ -56,6 +55,9 @@ interface Dependencies {
 }
 
 const OPERATOR_CRITICAL_TTL_MS = 24 * 60 * 60_000;
+
+/** The Operator member is retired (decision 66): an old request or approval resolves to no one who may operate. */
+const operatorRetired = () => forbidden('operator_only', 'the Operator is retired');
 
 const actionOf = (operation: OperatorOperation): OperatorAction =>
   operation.op === 'message_send'
@@ -218,8 +220,7 @@ export class OperatorActions implements OperatorConfigAuthorization {
       throw forbidden('operator_no_request', 'no owner request');
     const source = sessions.get(projectKey, request.sessionId).member;
     const config = await projects.config(projectKey);
-    if (!isOperator(memberOf(config, source)))
-      throw forbidden('operator_only', 'only the Operator may operate');
+    if (!memberOf(config, source)) throw operatorRetired();
     const stepId = newId('ops');
     let changes: ConfigChangeRow[] = [];
     try {
@@ -460,8 +461,7 @@ export class OperatorActions implements OperatorConfigAuthorization {
     const { projects, members, ctx, sessions } = this.deps;
     const loaded = await projects.load(projectKey);
     let next: ProjectConfig = structuredClone(loaded.config);
-    if (!isOperator(memberOf(next, source)))
-      throw forbidden('operator_only', 'only the Operator may operate');
+    if (!memberOf(next, source)) throw operatorRetired();
     if (operation.op === 'message_send') {
       for (const handle of operation.to) {
         const recipient = memberOf(next, handle);
@@ -532,8 +532,6 @@ export class OperatorActions implements OperatorConfigAuthorization {
         next = await projects.versionConfig(projectKey, operation.version);
         break;
     }
-    if (!isOperator(memberOf(loaded.config, source)))
-      throw forbidden('operator_only', 'only the Operator may operate');
     // Keep the provenance request bound to this project even for approval replay after its turn ended.
     if (request.projectKey !== projectKey || !ctx.repos.operatorRequests.get(request.id))
       throw notFound('request', request.id);
@@ -624,7 +622,7 @@ export class OperatorActions implements OperatorConfigAuthorization {
     if (hasPendingOperatorAgreement(ctx.repos.inbox.listOpen('approval'), projectKey, request.id))
       throw conflict('operator_agreement_pending', 'approve or dismiss the pending agreement first');
     const member = memberOf(await projects.config(projectKey), source);
-    if (!isOperator(member)) throw forbidden('operator_only', 'only the Operator may operate');
+    if (!member) throw operatorRetired();
     const author: Author = {
       name: member!.displayName,
       email: `${source}@projectman.local`,

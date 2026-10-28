@@ -5,7 +5,6 @@ import { AiMemberConfig, ProjectConfig } from './schema';
 import { SuperCommandUnclassifiable, superCommandEffects, superCommandMutations } from './super-command';
 import type { SuperCommandContext } from './super-command';
 import { coordinationMemberOf } from './project-manager';
-import { operatorOf } from './operator-member';
 import {
   appRequestOrigin,
   approvalStructureChanged,
@@ -347,9 +346,6 @@ describe('super command classification (PM-762)', () => {
   });
 
   it.each([
-    ['operator', 'ai_operator', 'model'],
-    ['operator', 'ai_operator', 'instructions'],
-    ['operator', 'ai_operator', 'roleOverride'],
     ['pm', 'project_manager', 'model'],
     ['pm', 'project_manager', 'instructions'],
     ['pm', 'project_manager', 'roleOverride'],
@@ -385,8 +381,6 @@ describe('super command classification (PM-762)', () => {
   it.each([
     ['project_manager', 'role'],
     ['project_manager', 'onLeave'],
-    ['ai_operator', 'role'],
-    ['ai_operator', 'onLeave'],
   ] as const)('reserves %s selection changes through %s', (role, field) => {
     const ctx = context();
     ctx.config.team.members.push(
@@ -409,9 +403,8 @@ describe('super command classification (PM-762)', () => {
     if (replacement.kind !== 'ai') throw new Error('expected AI fixture');
     if (field === 'role') replacement.role = role;
     else replacement.onLeave = false;
-    const select = role === 'project_manager' ? coordinationMemberOf : operatorOf;
-    expect(select(ctx.config)?.handle).toBe('current');
-    expect(select(next)?.handle).toBe(candidate.handle);
+    expect(coordinationMemberOf(ctx.config)?.handle).toBe('current');
+    expect(coordinationMemberOf(next)?.handle).toBe(candidate.handle);
     expect(superConfigMutations(ctx.config, next)).toContainEqual({
       kind: 'permission_change',
       handle: candidate.handle,

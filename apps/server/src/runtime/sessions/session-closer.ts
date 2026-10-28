@@ -6,7 +6,7 @@ import {
   isReturnedWorkLabel,
   isSessionAtWork,
   labelDefinition,
-  OPERATOR_GUEST_IDLE_CLOSE_MINUTES,
+  GUEST_IDLE_CLOSE_MINUTES,
   reviewReturnedWork,
   SESSION_IDLE_CLOSE_MINUTES,
   SESSION_HEAVY_RUN_IDLE_MAX_MINUTES,
@@ -162,10 +162,10 @@ export class SessionCloser {
           continue;
         }
         const silent = Math.floor((now - Date.parse(session.lastActivityAt)) / MINUTE_MS);
-        // A guest's conversation with the Operator frees the one place sooner (PM-475).
+        // A guest's conversation with the PM frees the one place sooner (PM-475).
         const limit =
           session.workItem.type === 'general' && session.workItem.with
-            ? OPERATOR_GUEST_IDLE_CLOSE_MINUTES
+            ? GUEST_IDLE_CLOSE_MINUTES
             : SESSION_IDLE_CLOSE_MINUTES;
         if (silent < limit) continue;
         if (

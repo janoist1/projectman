@@ -2,12 +2,12 @@ import clsx from 'clsx';
 import type { ReactNode } from 'react';
 import { useEffect, useRef } from 'react';
 import { Link, useLocation } from 'react-router';
-import { mentionTokens } from '@projectman/shared';
+import { hasBoundOrigin, mentionTokens } from '@projectman/shared';
 import { Chip } from './Chip';
 import type { TimelineEvent } from '@projectman/shared';
 import { formatStamp } from '../i18n/format';
 import { t } from '../i18n/t';
-import { actorLabel } from '../lib/members';
+import { actorLabel, isOwnActor } from '../lib/members';
 import { describeStart, describeStop } from '../lib/involvement';
 import { describeEvent } from '../lib/timeline';
 import type { TimelineContext } from '../lib/timeline';
@@ -106,7 +106,7 @@ export function Timeline({
               : actorLabel(event.actor, ctx.members, ctx.myHandle);
           const handle = event.actor.handle;
           const member = handle ? ctx.members.get(handle) : undefined;
-          const isMe = Boolean(handle && handle === ctx.myHandle && !event.actor.via);
+          const isMe = isOwnActor(event.actor, ctx.myHandle);
           const involvement =
             event.type === 'session_started'
               ? describeStart(event, ctx)
@@ -220,7 +220,7 @@ export function Timeline({
                       ) : (
                         ref.text
                       )}
-                      {involvement.byActor?.operatorMode === 'super' ? (
+                      {hasBoundOrigin(involvement.byActor) ? (
                         <>
                           {' '}
                           ·{' '}

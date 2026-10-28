@@ -845,6 +845,31 @@ describe('super-mode origin and audit (PM-757)', () => {
       expect(h.domain.inbox.get('AR', question.id).state).toBe('open');
     });
 
+    it('keeps a question the retired Operator asked reserved to the owner (decision 66)', async () => {
+      h = await createDomainHarness();
+      const question = h.domain.inbox.create({
+        projectKey: 'AR',
+        kind: 'question',
+        assignees: ['owner'],
+        source: 'operator',
+        sessionId: null,
+        title: 'Fictional question',
+        payload: { question: 'Which fictional option?', responsePurpose: 'information' },
+        options: [{ id: 'answer', label: 'answer', style: 'primary' }],
+      });
+      await expect(
+        authenticated(() =>
+          h.domain.inbox.resolve(
+            'AR',
+            question.id,
+            { optionId: 'answer', note: 'The first fictional option.' },
+            { handle: 'owner', access: 'owner', via: 'integrator', superActor: SUPER },
+          ),
+        ),
+      ).rejects.toMatchObject({ code: 'owner_approval_required' });
+      expect(h.domain.inbox.get('AR', question.id).state).toBe('open');
+    });
+
     it('refuses to close a merge request in the holder’s name from a step on a queue item', async () => {
       h = await createDomainHarness();
       const request = h.domain.inbox.create({

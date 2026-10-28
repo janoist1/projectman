@@ -1,4 +1,4 @@
-import { OPERATOR_ROLE, holdersAllow, isBuiltInRole } from '@projectman/shared';
+import { holdersAllow, isBuiltInRole } from '@projectman/shared';
 import type { BuiltInRoleId, RoleView as CatalogueRole } from '@projectman/shared';
 import type { IconName } from '../components/Icon';
 import { tDynamic } from '../i18n/t';
@@ -37,7 +37,6 @@ const visuals: Record<BuiltInRoleId, { tone: RoleTone; icon: IconName }> = {
   project_manager: { tone: 'pm', icon: 'calendar' },
   docs: { tone: 'docs', icon: 'doc' },
   operator: { tone: 'human', icon: 'user' },
-  ai_operator: { tone: 'operator', icon: 'sparkle' },
   product_owner: { tone: 'human', icon: 'team' },
   business_analyst: { tone: 'pm', icon: 'doc' },
   architect: { tone: 'developer', icon: 'branch' },
@@ -103,9 +102,7 @@ export function humanRoleName(access: string): string {
   return tDynamic(`roles.human.${access}`, access);
 }
 
-/** Built-in and custom roles whose holders allow AI; the Operator's role is the built-in one, never hired. */
+/** Built-in and custom roles whose holders allow AI. */
 export function hireableRoles(catalogue: readonly CatalogueRole[]): StyledRole[] {
-  return catalogue
-    .filter((role) => role.id !== OPERATOR_ROLE && holdersAllow(role.holders, 'ai'))
-    .map((role) => roleView(role));
+  return catalogue.filter((role) => holdersAllow(role.holders, 'ai')).map((role) => roleView(role));
 }

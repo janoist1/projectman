@@ -8,8 +8,6 @@ import { ownerHandles } from './lookup';
 import { boundaryDelegationChanged, ownerOnlyChanges, permissionsChanged } from './owner-only';
 import { dutyMembers, memberDuties, roleBundle } from './duties';
 import { labelHolders } from './labels';
-import { operatorFixedChange } from './operator';
-import { operatorOf } from './operator-member';
 import { coordinationMemberOf } from './project-manager';
 
 /** App project managers may execute only these command kinds; new kinds are refused by default. */
@@ -229,29 +227,21 @@ function securityChanged(previous: ProjectConfig, next: ProjectConfig): boolean 
   });
 }
 
-/** Neither delegated super member may rewrite its own member or role without the owner's yes. */
+/** The delegated super member (the selected coordinator) may not rewrite its own member or role without the owner's yes. */
 function superMemberChanges(previous: ProjectConfig, next: ProjectConfig): string[] {
   const changed = new Set<string>();
-  for (const select of [operatorOf, coordinationMemberOf]) {
-    const before = select(previous);
-    const after = select(next);
-    if (before?.handle !== after?.handle) {
-      if (before) changed.add(before.handle);
-      if (after) changed.add(after.handle);
-    }
+  const before = coordinationMemberOf(previous);
+  const after = coordinationMemberOf(next);
+  if (before?.handle !== after?.handle) {
+    if (before) changed.add(before.handle);
+    if (after) changed.add(after.handle);
   }
-  if (operatorFixedChange(previous, next)) {
-    const operator = operatorOf(previous) ?? operatorOf(next);
-    if (operator) changed.add(operator.handle);
-  }
-  for (const member of [operatorOf(previous), coordinationMemberOf(previous)]) {
-    if (
-      member &&
-      (canonical(member) !== canonical(next.team.members.find((m) => m.handle === member.handle)) ||
-        canonical(roleBundle(previous, member.role)) !== canonical(roleBundle(next, member.role)))
-    )
-      changed.add(member.handle);
-  }
+  if (
+    before &&
+    (canonical(before) !== canonical(next.team.members.find((m) => m.handle === before.handle)) ||
+      canonical(roleBundle(previous, before.role)) !== canonical(roleBundle(next, before.role)))
+  )
+    changed.add(before.handle);
   return [...changed];
 }
 

@@ -1,4 +1,3 @@
-import { isOperator, memberOf } from '@projectman/shared';
 import type { Task } from '@projectman/shared';
 import type { ListMergeChecksInput, MergeCheckList, MergeToolsHandler, ToolContext } from '../../contracts';
 import { aiActor } from '../../kernel';
@@ -60,8 +59,7 @@ export class MergeTools implements MergeToolsHandler {
     return this.calls.guard(async () => {
       const caller = await this.calls.callerWithRequest(ctx, 'prioritize_merge');
       const taskKey = this.calls.validTaskKey(ctx, args.taskKey);
-      const operator = isOperator(memberOf(caller.config, ctx.member));
-      return this.calls.recorded(caller, operator ? { action: 'task_update', taskKey } : null, () =>
+      return this.calls.recorded(caller, null, () =>
         this.merges.prioritize(ctx.projectKey, taskKey, aiActor(ctx.member), args.reason),
       );
     });

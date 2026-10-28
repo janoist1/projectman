@@ -100,7 +100,6 @@ describe('member rename', () => {
 
   it.each([
     ['a human', 'owner', 'builder', 'not_ai_member'],
-    ['the Operator', 'operator', 'builder', 'operator_fixed'],
     ['a handle in use', 'dev-1', 'dev-2', 'handle_taken'],
     ['the same handle', 'dev-1', 'dev-1', 'handle_taken'],
     ['a malformed handle', 'dev-1', 'Not A Handle', 'invalid_request'],

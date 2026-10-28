@@ -17,6 +17,7 @@ import { formatDayHeading, formatStamp } from '../../i18n/format';
 import { t } from '../../i18n/t';
 import { describeStart, describeStop, involvementText } from '../../lib/involvement';
 import { useDocumentTitle } from '../../lib/hooks';
+import { hasBoundOrigin } from '@projectman/shared';
 import type { InvolvementItem } from '@projectman/shared';
 import styles from './InvolvementsPage.module.css';
 import { SuperActivity } from './SuperActivity';
@@ -45,7 +46,7 @@ export function InvolvementRows({
             ? involvementText({
                 ...description,
                 verb: '',
-                ...(description.byActor?.operatorMode === 'super' ? { by: '' } : {}),
+                ...(hasBoundOrigin(description.byActor) ? { by: '' } : {}),
               })
             : t('involvement.unknown');
         const day = formatDayHeading(event.createdAt);
@@ -82,7 +83,7 @@ export function InvolvementRows({
                   )}
                 </div>
                 {detail ? <p>{detail}</p> : null}
-                {description.byActor?.operatorMode === 'super' ? (
+                {hasBoundOrigin(description.byActor) ? (
                   <ActorName
                     actor={description.byActor}
                     members={indexes.members}

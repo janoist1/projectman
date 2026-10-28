@@ -7,11 +7,11 @@ export const PROJECT_DOC_TOOL_GROUP: TeamToolGroup = {
   tools: [
     defineTool({
       name: 'read_project_doc',
-      audience: { roles: ['project_manager', 'operator'] },
+      audience: { roles: ['project_manager'] },
       title: 'Read a project document',
       readOnly: true,
       description:
-        "Only the selected project manager in its internal general conversation, or the transitional app Operator; never in guest conversations. Needs no open owner request. Read the decision log (decisions), roadmap (roadmap) or lessons (lessons) as it is on the head of the project's default branch, fresh from the remote. Lessons may also be read from the Operator's own processing queue item. The answer names the commit it was read at: pass it as base_commit to write_project_docs. A long file is read in parts with from_line and line_count; total_lines says how long it is. exists false: the file is not in the repository yet (the first write creates it).",
+        "Only the selected project manager in its internal general conversation; never in guest conversations. Needs no open owner request. Read the decision log (decisions), roadmap (roadmap) or lessons (lessons) as it is on the head of the project's default branch, fresh from the remote. Lessons may also be read from the project manager's own processing queue item. The answer names the commit it was read at: pass it as base_commit to write_project_docs. A long file is read in parts with from_line and line_count; total_lines says how long it is. exists false: the file is not in the repository yet (the first write creates it).",
       input: {
         doc: ProjectDoc,
         from_line: z.number().int().min(1).optional().describe('First line to return, from 1 (default 1).'),
@@ -48,11 +48,11 @@ export const PROJECT_DOC_TOOL_GROUP: TeamToolGroup = {
     }),
     defineTool({
       name: 'write_project_docs',
-      audience: { roles: ['project_manager', 'operator'] },
+      audience: { roles: ['project_manager'] },
       title: 'Write the project documents',
       readOnly: false,
       description:
-        "Only the selected project manager in its internal general conversation, or the transitional app Operator. Lessons-only edits need no owner request or approval in your own internal conversation, including the Operator's own processing queue item; never in a guest conversation or approval continuation. Any decisions, roadmap or mixed edits require an open owner request in the owner's own conversation: show the owner the text first. Replace text in at most TWO document files as ONE commit on the default branch, pushed to its remote; use separate calls for three files. base_commit is the commit read_project_doc returned; edits are applied in order. Each edit replaces old_text, which must occur exactly once in the file, with new_text; an empty old_text appends new_text at the end of the file. The decision log is append-only: no existing line may change or go. Lessons and roadmap may be rewritten. Refused when a file changed since base_commit (docs_stale: read it again and retry lessons; show the owner changes to other documents), when an old_text is not found or is ambiguous, or when nothing changes. The write runs in the repository's merge slot: it may answer queued or running (not finished within 60 seconds); a system message reports its eventual result. message is the commit subject: one line, English.",
+        "Only the selected project manager in its internal general conversation. Lessons-only edits need no owner request or approval in your own internal conversation, including the project manager's own processing queue item; never in a guest conversation or approval continuation. Any decisions, roadmap or mixed edits require an open owner request in the owner's own conversation: show the owner the text first. Replace text in at most TWO document files as ONE commit on the default branch, pushed to its remote; use separate calls for three files. base_commit is the commit read_project_doc returned; edits are applied in order. Each edit replaces old_text, which must occur exactly once in the file, with new_text; an empty old_text appends new_text at the end of the file. The decision log is append-only: no existing line may change or go. Lessons and roadmap may be rewritten. Refused when a file changed since base_commit (docs_stale: read it again and retry lessons; show the owner changes to other documents), when an old_text is not found or is ambiguous, or when nothing changes. The write runs in the repository's merge slot: it may answer queued or running (not finished within 60 seconds); a system message reports its eventual result. message is the commit subject: one line, English.",
       input: {
         base_commit: z
           .string()
@@ -105,11 +105,11 @@ export const PROJECT_DOC_TOOL_GROUP: TeamToolGroup = {
     }),
     defineTool({
       name: 'list_decision_candidates',
-      audience: { roles: ['project_manager', 'operator'] },
+      audience: { roles: ['project_manager'] },
       title: 'List the owners’ answers that may be decisions',
       readOnly: true,
       description:
-        'Only the selected project manager in its internal general conversation, or the transitional app Operator; never in guest conversations. Needs no open owner request. The questions an owner answered on cards since you last looked, which they have not given a verdict on yet, the earliest answer first. Offer them to the owner in your answer to their message; the call counts as a look, so the same answers come back only if you did not mark them. Refused with docs_not_configured when the project has no decision log. more true: there are further candidates, call again after marking these.',
+        'Only the selected project manager in its internal general conversation; never in guest conversations. Needs no open owner request. The questions an owner answered on cards since you last looked, which they have not given a verdict on yet, the earliest answer first. Offer them to the owner in your answer to their message; the call counts as a look, so the same answers come back only if you did not mark them. Refused with docs_not_configured when the project has no decision log. more true: there are further candidates, call again after marking these.',
       input: {
         limit: z.number().int().min(1).max(50).optional().describe('How many to return, 1–50 (default 20).'),
       },
@@ -119,11 +119,11 @@ export const PROJECT_DOC_TOOL_GROUP: TeamToolGroup = {
     }),
     defineTool({
       name: 'mark_decision_candidates',
-      audience: { roles: ['project_manager', 'operator'] },
+      audience: { roles: ['project_manager'] },
       title: 'Mark the offered decision candidates',
       readOnly: false,
       description:
-        "Only the selected project manager in its internal general conversation, or the transitional app Operator, in the owner's own conversation, during an open owner request. Record what the owner said about the candidates you offered: recorded (they said yes and the entry is in the decision log; decision is its number, 1–10 characters), declined (they said no: never offer it again) or skipped (not a decision). All or nothing: one unknown item_id refuses the whole call with not_found. An item already marked can be marked again when the owner asks.",
+        "Only the selected project manager in its internal general conversation, in the owner's own conversation, during an open owner request. Record what the owner said about the candidates you offered: recorded (they said yes and the entry is in the decision log; decision is its number, 1–10 characters), declined (they said no: never offer it again) or skipped (not a decision). All or nothing: one unknown item_id refuses the whole call with not_found. An item already marked can be marked again when the owner asks.",
       input: {
         items: z
           .array(

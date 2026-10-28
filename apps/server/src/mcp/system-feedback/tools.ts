@@ -7,7 +7,7 @@ export const SYSTEM_FEEDBACK_TOOL_GROUP: TeamToolGroup = {
   tools: [
     defineTool({
       name: 'list_system_feedback',
-      audience: { roles: ['operator', 'project_manager'] },
+      audience: { roles: ['project_manager'] },
       title: 'List the recorded system feedback',
       readOnly: true,
       description:
@@ -22,7 +22,7 @@ export const SYSTEM_FEEDBACK_TOOL_GROUP: TeamToolGroup = {
     }),
     defineTool({
       name: 'record_system_feedback',
-      audience: { roles: ['operator', 'project_manager'] },
+      audience: { roles: ['project_manager'] },
       title: 'Record a gap in projectman',
       readOnly: false,
       description:

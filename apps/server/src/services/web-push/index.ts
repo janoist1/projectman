@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import {
   canSeeInboxItem,
   deviceLabelOf,
+  holdsOwnershipByEmail,
   isAllowedPushEndpoint,
   isPushableItem,
   pushCategoryOf,
@@ -314,6 +315,37 @@ export function createWebPushService(opts: WebPushOptions) {
           item.createdAt,
         );
       }
+    },
+    /**
+     * Tells the host a request came in (PM-1064). It is no inbox item, so it has no claim; it is left out when
+     * the category is off, the host is looking at the app or the quiet hours run (no digest: the request stays
+     * in the host's list).
+     */
+    async notifyHost(
+      host: { userId: string },
+      request: { requestId: string; projectKey: string; title: string },
+    ): Promise<void> {
+      const user = opts.repos.users.get(host.userId);
+      if (!key || !user || !active(user.id).length) return;
+      const settings = repo.settings(user.id);
+      if (!settings.categories.host_request || opts.presence.isViewing(user.email)) return;
+      if (quietWindowAt(settings.quietHours, now()).quiet) return;
+      let home: string | null = null;
+      for (const project of [...opts.repos.projects.list()].sort((a, b) => a.key.localeCompare(b.key))) {
+        const config = await opts.config(project.key).catch(() => null);
+        if (config && holdsOwnershipByEmail(config, user.email)) {
+          home = project.key;
+          break;
+        }
+      }
+      await sendAll(user.id, {
+        v: 1,
+        kind: 'item',
+        title: hu.webPush.title.host_request,
+        body: request.title,
+        tag: `host-request-${request.requestId}`,
+        url: home ? `/p/${encodeURIComponent(home)}/settings/owners` : '/',
+      });
     },
     sweep(): Promise<void> {
       return (sweeping ??= sweepRound().finally(() => {

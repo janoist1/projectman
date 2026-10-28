@@ -1,7 +1,6 @@
 import type { AdministrationCommand } from '../api/administration';
 import type { SuperCommand } from '../api/super-handoff';
 import type { AgentProvider, HumanAccess } from '../domain/member';
-import { operatorOf } from './operator-member';
 import { coordinationMemberOf } from './project-manager';
 import { applyConfigPatch, prepareOperatorConfigPatch } from './edit';
 import type { ProjectConfig } from './schema';
@@ -59,8 +58,7 @@ function memberUpdate(
   if (
     PERMISSION_KEYS.some((key) => changes[key] !== undefined) ||
     superConfigMutations(context.config, next).some((mutation) => mutation.kind === 'permission_change') ||
-    ((operatorOf(context.config)?.handle === handle ||
-      coordinationMemberOf(context.config)?.handle === handle) &&
+    (coordinationMemberOf(context.config)?.handle === handle &&
       Object.values(changes).some((value) => value !== undefined))
   )
     mutations.push({ kind: 'permission_change', handle });

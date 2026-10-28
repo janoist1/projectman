@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import type { MemberContextPreview } from '@projectman/shared';
-import { OPERATOR_ROLE } from '@projectman/shared';
 import { useBoard, useMemberContext, useMembers, useRoles } from '../../api/queries';
 import { isApiError } from '../../api/client';
 import { useProject } from '../../app/contexts';
@@ -242,9 +241,7 @@ export function MemberContextPage() {
             <>
               <section className={styles.panel}>
                 <div className={styles.chips}>
-                  <Chip tone={data.member.role === OPERATOR_ROLE ? 'operator' : 'neutral'}>
-                    {aiRoleView(data.member.role, null, roles.data?.roles).name}
-                  </Chip>
+                  <Chip tone="neutral">{aiRoleView(data.member.role, null, roles.data?.roles).name}</Chip>
                   {data.member.duties.length ? (
                     data.member.duties.map((duty) => <Chip key={duty}>{t(`dutyNames.${duty}`)}</Chip>)
                   ) : (

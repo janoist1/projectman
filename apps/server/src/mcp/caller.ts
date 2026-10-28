@@ -6,7 +6,6 @@ import {
   ERROR_CODES,
   guestOfConversation,
   ownerHandles,
-  isOperator,
   isProjectManager,
   isLessonsOnly,
   MAX_ATTACHMENT_BYTES,
@@ -14,7 +13,6 @@ import {
   OPERATOR_SIGNAL_STEP_GAP_MINUTES,
   operatorSignalStepRefusal,
   operatorWatchOf,
-  operatorKnowledgeOperationIncluded,
   TaskKey,
 } from '@projectman/shared';
 import type {
@@ -24,6 +22,7 @@ import type {
   ProjectConfig,
   ProjectDoc,
   Session,
+  WorkItemRef,
 } from '@projectman/shared';
 import { TeamToolError, WorkspaceFileRefusal } from '../contracts';
 import type { EngineHost, WorkspaceFile, ToolContext } from '../contracts';
@@ -33,8 +32,6 @@ import { DomainError, isWithin } from '../kernel';
 import type { ApprovalRequirement, UnmetCondition } from '@projectman/shared';
 import {
   OPERATOR_GUEST_TOOLS,
-  OPERATOR_NEVER_TOOLS,
-  OPERATOR_NO_REQUEST_WRITE_TOOLS,
   OPERATOR_READ_TOOLS,
   OPERATOR_SCREENING_TOOLS,
   OPERATOR_TOOL_ACTIONS,
@@ -214,7 +211,7 @@ export class ToolCaller {
     if (!isLessonsOnly(edits)) return this.callerWithRequest(ctx, tool);
     const config = await this.projects.config(ctx.projectKey);
     await this.assertNotManagerGuest(ctx, tool);
-    if (!isOperator(memberOf(config, ctx.member))) this.assertCoordinationSession(ctx, config);
+    this.assertCoordinationSession(ctx, config);
     const session = this.ctx.repos.sessions.get(ctx.sessionId);
     const request = this.operatorRequests.openFor(ctx.sessionId);
     if (
@@ -272,10 +269,7 @@ export class ToolCaller {
         );
       return { config, request: null, guest: managerGuest };
     }
-    if (
-      ['operate', 'execute_operation', 'get_operation', 'get_role_configuration'].includes(tool) &&
-      !isOperator(memberOf(config, ctx.member))
-    ) {
+    if (['operate', 'execute_operation', 'get_operation', 'get_role_configuration'].includes(tool)) {
       this.assertCoordinationSession(ctx, config);
       const request = this.coordinationRequests.openFor(ctx.sessionId);
       if (
@@ -295,8 +289,7 @@ export class ToolCaller {
         'write_project_docs',
         'list_decision_candidates',
         'mark_decision_candidates',
-      ].includes(tool) &&
-      !isOperator(memberOf(config, ctx.member))
+      ].includes(tool)
     ) {
       this.assertCoordinationSession(ctx, config);
       const request = this.coordinationRequests.openFor(ctx.sessionId);
@@ -312,10 +305,7 @@ export class ToolCaller {
         );
       return { config, request, guest: null };
     }
-    if (
-      (tool === 'list_system_feedback' || tool === 'record_system_feedback') &&
-      !isOperator(memberOf(config, ctx.member))
-    ) {
+    if (tool === 'list_system_feedback' || tool === 'record_system_feedback') {
       this.assertCoordinationSession(ctx, config);
       if (this.operatorRequests.openFor(ctx.sessionId)?.source === 'approval')
         throw new TeamToolError(
@@ -378,8 +368,7 @@ export class ToolCaller {
         'forbidden',
         `${ctx.member} is not an active AI member of this team, so the team tools are not available.`,
       );
-    const operator = isOperator(member);
-    if (!operator && (tool === 'get_operator_preference' || tool === 'set_operator_preference')) {
+    if (tool === 'get_operator_preference' || tool === 'set_operator_preference') {
       if (!isProjectManager(member))
         throw new TeamToolError('forbidden', 'operator_only: preferences require the Operator or PM.');
       if (coordinationMemberOf(config)?.handle !== ctx.member)
@@ -399,41 +388,11 @@ export class ToolCaller {
       // This grants only entry to OperatorPreferences, which rechecks the current person and request.
       return { config, request: null, guest: null };
     }
-    if (operator && (tool === 'get_operator_preference' || tool === 'set_operator_preference')) {
-      const session = this.ctx.repos.sessions.get(ctx.sessionId);
-      if (
-        !session ||
-        session.projectKey !== ctx.projectKey ||
-        session.member !== ctx.member ||
-        session.workItem.type !== 'general'
-      )
-        throw new TeamToolError(
-          'forbidden',
-          `${OWNER_ONLY}: preferences require your own general conversation.`,
-        );
-    }
-    const request = operator ? this.operatorRequests.openFor(ctx.sessionId) : null;
-    const guest = operator ? this.guestOf(ctx, config, request) : null;
-    if (
-      request?.source === 'approval' &&
-      !OPERATOR_READ_TOOLS.has(tool) &&
-      !OPERATOR_SCREENING_TOOLS.has(tool)
-    ) {
-      const proposal = this.operatorRequests.approvalFor(config, request, ctx.member);
-      if (tool !== 'operate' || !proposal || !operatorKnowledgeOperationIncluded(proposal, operation))
-        throw new TeamToolError(
-          'forbidden',
-          'operator_no_request: an approval continuation permits only its stored operate operations; a new owner message or answer is required.',
-        );
-    }
     if (signal) {
-      if (tool === 'send_message')
-        this.assertOperatorMessageRecipients(ctx.member, { config, request, guest }, signal.to);
-      // Signals are the owners' business: never from a guest conversation, never to anyone else.
+      // Signals are the owners' business: never to anyone else.
       if (
         tool !== 'send_message' ||
         coordinationActorRefusal(config, { kind: 'ai', handle: ctx.member }) !== null ||
-        guest ||
         signal.ids.length === 0 ||
         signal.to.some((handle) => !isOwner(config, handle))
       )
@@ -444,57 +403,14 @@ export class ToolCaller {
       this.assertCoordinationSession(ctx, config);
       for (const id of signal.ids) this.operatorSignals.presentation(ctx.projectKey, id, ctx.member);
     }
-    if (!operator) return { config, request: null, guest: null };
-    if (guest) {
-      // A guest only reads, answers and changes their own conversational preference (PM-475, PM-688).
-      if (!OPERATOR_GUEST_TOOLS.has(tool)) {
-        this.recordRefusedWrite({ config, request, guest }, tool);
-        throw new TeamToolError(
-          'forbidden',
-          `${OWNER_ONLY}: ${tool} is not for a conversation with ${guest.handle}.`,
-        );
-      }
-      return { config, request, guest };
-    }
-    if (OPERATOR_NEVER_TOOLS.has(tool))
-      throw new TeamToolError(
-        'forbidden',
-        `operator_never: ${tool} is not for the Operator. Decisions of other members, hand-overs and publishing outside are not its to do; tell the owner what you found.`,
-      );
-    if (!request && !OPERATOR_READ_TOOLS.has(tool) && !OPERATOR_NO_REQUEST_WRITE_TOOLS.has(tool) && !signal) {
-      throw new TeamToolError(
-        'forbidden',
-        `operator_no_request: ${tool} writes, and the Operator writes only for an open request of an owner. ` +
-          "There is none (its round is over or it timed out); wait for the owner's next message.",
-      );
-    }
-    return { config, request, guest: null };
+    return { config, request: null, guest: null };
   }
 
   /**
-   * The caller must still be an AI member of the project. The Operator (PM-463) also needs an open
-   * owner request for every tool but the reading ones, and never calls the tools of other members'
-   * decisions; `tool` is the MCP name of the tool being called.
+   * The caller must still be an AI member of the project; `tool` is the MCP name of the tool being called.
    */
   async caller(ctx: ToolContext, tool: string): Promise<ProjectConfig> {
     return (await this.callerWithRequest(ctx, tool)).config;
-  }
-
-  /** The same recipient guard applies to ordinary sends and signal presentations. */
-  assertOperatorMessageRecipients(source: string, who: CallerWithRequest, to: string[]): void {
-    if (who.guest || !isOperator(memberOf(who.config, source))) return;
-    const recipient = to.find((handle) => {
-      const member = memberOf(who.config, handle);
-      return member?.kind === 'human' && member.access !== 'owner';
-    });
-    if (recipient === undefined) return;
-    const refusal: { code: ErrorCode; message: string } = {
-      code: 'operator_owner_approval',
-      message:
-        'use operate with message_send and a plan; the owner must approve the exact message before it is sent',
-    };
-    this.recordRefusedWrite(who, 'send_message', recipient, refusal);
-    throw new TeamToolError('forbidden', `${refusal.code}: ${refusal.message}.`);
   }
 
   /** Logs a write the Operator was refused as a refused step of its request. */
@@ -797,31 +713,25 @@ export class ToolCaller {
 
   /**
    * The person a project manager's session talks with in its conversation with someone who is not an owner
-   * (PM-1080), as their view of the project; null in any other session of a PM and for the Operator, whose
-   * guest `guestOf` finds. The session decides, not the selection: a `with` conversation stays restricted.
+   * (PM-1080), as their view of the project; null in any other session of a PM. The session decides, not
+   * the selection: a `with` conversation stays restricted.
    */
   private managerGuestOf(ctx: ToolContext, config: ProjectConfig): GuestView | null {
     const member = memberOf(config, ctx.member);
-    if (isOperator(member) || !isProjectManager(member)) return null;
+    if (!isProjectManager(member)) return null;
     const session = this.ctx.repos.sessions.get(ctx.sessionId);
     const workItem = session?.workItem;
     if (!workItem || guestOfConversation(config, member, workItem) === undefined) return null;
-    return this.guestOf(ctx, config, null);
+    return this.guestOf(ctx, config, workItem);
   }
 
-  /**
-   * The person the Operator's session talks with when they are not an owner (a `with` conversation, or a
-   * request of someone who is no owner), as their view of the project; null in the owner's conversation.
-   */
+  /** The person a conversation is with when they are not an owner (a `with` conversation), as their view of the project. */
   private guestOf(
     ctx: ToolContext,
     config: ProjectConfig,
-    request: ReturnType<OperatorRequests['openFor']>,
+    workItem: WorkItemRef | undefined,
   ): GuestView | null {
-    const workItem = this.ctx.repos.sessions.get(ctx.sessionId)?.workItem;
-    const handle =
-      (workItem?.type === 'general' ? workItem.with : undefined) ??
-      (request && !isOwner(config, request.fromHandle) ? request.fromHandle : undefined);
+    const handle = workItem?.type === 'general' ? workItem.with : undefined;
     if (handle === undefined) return null;
     const person = memberOf(config, handle);
     // Someone no longer in the team sees nothing: the narrowest access there is.

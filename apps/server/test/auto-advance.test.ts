@@ -81,7 +81,10 @@ describe('automatic stage advance', () => {
       await settle();
       const item = openDecisions(key)[0]!;
       const businessEvents = () =>
-        h.domain.timeline.list('AR', { taskKey: key }).filter((e) => !e.type.startsWith('session_'));
+        // The stage notice to a live session is a stored system message (PM-82), not a business event here.
+        h.domain.timeline
+          .list('AR', { taskKey: key })
+          .filter((e) => !e.type.startsWith('session_') && e.type !== 'team_message');
       const before = businessEvents();
       const waiting = h.domain.tasks.get('AR', key);
       const handler = h.domain.tasks.handleDecisionResolved.bind(h.domain.tasks);

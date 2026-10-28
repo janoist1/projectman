@@ -197,10 +197,16 @@ describe('structured pattern evidence', () => {
     for (const task of [a, b])
       for (let i = 0; i < 2; i++)
         evidence(task.key, 'task_labels_changed', { added: ['code-review-changes'] });
-    evidence(a.key, 'task_stage_changed', { from: 'code_review', to: 'development' });
+    // A send-back right after a change request is the same round (PM-1103): still two rounds.
+    const absorbed = evidence(a.key, 'task_stage_changed', { from: 'code_review', to: 'development' });
     expect(report().patterns).toEqual([]);
+    evidence(a.key, 'task_stage_changed', { from: 'development', to: 'code_review' });
+    evidence(a.key, 'task_stage_changed', { from: 'code_review', to: 'development' });
     evidence(b.key, 'task_labels_changed', { added: ['design-review-changes'] });
-    expect(report().patterns).toMatchObject([{ kind: 'fix_rounds', taskKeys: [a.key, b.key] }]);
+    const [pattern] = report().patterns;
+    expect(pattern).toMatchObject({ kind: 'fix_rounds', taskKeys: [a.key, b.key] });
+    // The send-back that went with the change request is no evidence of its own.
+    expect(pattern!.eventIds).not.toContain(absorbed.id);
     now = new Date(now.getTime() + 7 * 24 * 60 * 60_000 + 1);
     expect(report().patterns).toEqual([]);
   });

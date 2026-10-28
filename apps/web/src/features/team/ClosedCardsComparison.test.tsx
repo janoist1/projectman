@@ -104,7 +104,8 @@ describe('closed cards comparison (PM-222)', () => {
     const cells = within(row).getAllByRole('cell');
     expect(cells[3]!.textContent).toContain('2');
     expect(cells[3]!.textContent).toContain(t('cardMeasure.changeRequestsOf', { count: 1 }));
-    expect(cells[4]!.textContent).toBe('1');
+    // The send-back that goes with the change request is not a round of its own (PM-1103).
+    expect(cells[4]!.textContent).toBe('0');
     // Weighted: 200 + a tenth of 1000 cache reads.
     const sonnet = within(table).getByText('AC-13').closest('tr')!;
     expect(within(sonnet).getAllByText(formatTokens(300))).toHaveLength(2);
@@ -207,7 +208,7 @@ describe("rounds in a card's drawer (PM-222)", () => {
     const count = (label: string) => within(section).getByText(label).nextElementSibling!.textContent;
     expect(count(t('tokenUsage.reviewRounds'))).toBe('2');
     expect(count(t('tokenUsage.changeRequests'))).toBe('1');
-    expect(count(t('tokenUsage.sendBacks'))).toBe('1');
+    expect(count(t('tokenUsage.sendBacks'))).toBe('0');
     expect(within(section).getByText('claude-opus-5-5')).toBeTruthy();
     expect(within(section).getByText(formatTokens(1000))).toBeTruthy();
   });

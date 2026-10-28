@@ -52,7 +52,7 @@ const NO_ROUNDS = {
 };
 
 describe('countCardRounds (PM-222)', () => {
-  it('counts two reviews, one change request and one send-back of a card', () => {
+  it('counts two reviews and one change request with its send-back (PM-1103) of a card', () => {
     const events: Pick<TimelineEvent, 'type' | 'data'>[] = [
       { type: 'task_created', data: { title: 'x' } },
       move('queue', 'dev'),
@@ -67,7 +67,7 @@ describe('countCardRounds (PM-222)', () => {
       reviewRounds: 2,
       changeRequests: 1,
       designChangeRequests: 0,
-      sendBacks: 1,
+      sendBacks: 0,
       testsFailed: 0,
     });
   });

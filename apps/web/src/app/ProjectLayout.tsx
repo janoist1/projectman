@@ -6,6 +6,7 @@ import { isApiError } from '../api/client';
 import { useBoard, useConfig, useInbox } from '../api/queries';
 import { useProjectSubscription } from '../api/socketHooks';
 import { AttachmentUploadsProvider } from '../features/board/attachmentUploads';
+import { FocusProvider } from '../features/focus/FocusContext';
 import { noBoardFilters } from '../features/board/boardFilters';
 import type { BoardFilters } from '../features/board/boardFilters';
 import { NewTaskDialog } from '../features/board/NewTaskDialog';
@@ -165,44 +166,46 @@ export function ProjectLayout() {
     <ProjectContext.Provider value={value}>
       {/* Above the board and the open card: a file dropped on a card goes on when the card is opened. */}
       <AttachmentUploadsProvider key={projectKey}>
-        <div className={clsx(styles.shell, fixedBoard && styles.boardShell)}>
-          <a href="#main" className={styles.skip}>
-            {t('app.skipToContent')}
-          </a>
-          {isMobile ? null : <NavRail inboxCount={inboxCount} />}
-          <div className={clsx(styles.column, isMobile && !phoneSession && styles.withTabbar)}>
-            {phoneSession ? null : isMobile ? (
-              <MobileHeader
-                board={board.data}
-                pauseAbove={config.data?.config.team.limits.pauseAbovePlanUsagePercent}
-              />
-            ) : (
-              <TopBar
-                board={board.data}
-                members={members}
-                inboxCount={inboxCount}
-                pauseAbove={config.data?.config.team.limits.pauseAbovePlanUsagePercent}
-              />
-            )}
-            <ConnectionBanner />
-            <ProjectPauseBar requestedPauseId={requestedPauseId} openSignal={pauseDetailsSignal} />
-            <main id="main" tabIndex={-1} className={clsx(styles.main, fixedBoard && styles.boardMain)}>
-              <Outlet />
-            </main>
+        <FocusProvider>
+          <div className={clsx(styles.shell, fixedBoard && styles.boardShell)}>
+            <a href="#main" className={styles.skip}>
+              {t('app.skipToContent')}
+            </a>
+            {isMobile ? null : <NavRail inboxCount={inboxCount} />}
+            <div className={clsx(styles.column, isMobile && !phoneSession && styles.withTabbar)}>
+              {phoneSession ? null : isMobile ? (
+                <MobileHeader
+                  board={board.data}
+                  pauseAbove={config.data?.config.team.limits.pauseAbovePlanUsagePercent}
+                />
+              ) : (
+                <TopBar
+                  board={board.data}
+                  members={members}
+                  inboxCount={inboxCount}
+                  pauseAbove={config.data?.config.team.limits.pauseAbovePlanUsagePercent}
+                />
+              )}
+              <ConnectionBanner />
+              <ProjectPauseBar requestedPauseId={requestedPauseId} openSignal={pauseDetailsSignal} />
+              <main id="main" tabIndex={-1} className={clsx(styles.main, fixedBoard && styles.boardMain)}>
+                <Outlet />
+              </main>
+            </div>
+            {isMobile && !phoneSession ? <TabBar inboxCount={inboxCount} /> : null}
           </div>
-          {isMobile && !phoneSession ? <TabBar inboxCount={inboxCount} /> : null}
-        </div>
-        {myHandle && operatorOpen ? <OperatorPanel returnFocusTo={operatorTrigger} /> : null}
-        <NewTaskDialog
-          open={newTask !== null}
-          initialKind={newTask?.kind ?? 'task'}
-          onClose={() => setNewTask(null)}
-        />
-        <PauseConfirmDialog
-          open={pauseOpen}
-          onClose={() => setPauseOpen(false)}
-          onRequested={setRequestedPauseId}
-        />
+          {myHandle && operatorOpen ? <OperatorPanel returnFocusTo={operatorTrigger} /> : null}
+          <NewTaskDialog
+            open={newTask !== null}
+            initialKind={newTask?.kind ?? 'task'}
+            onClose={() => setNewTask(null)}
+          />
+          <PauseConfirmDialog
+            open={pauseOpen}
+            onClose={() => setPauseOpen(false)}
+            onRequested={setRequestedPauseId}
+          />
+        </FocusProvider>
       </AttachmentUploadsProvider>
     </ProjectContext.Provider>
   );

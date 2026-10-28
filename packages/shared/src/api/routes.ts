@@ -146,6 +146,14 @@ export const routes = {
   ownerInvite: (token: string) => `/api/owner-invites/${token}`,
   acceptOwnerInvite: (token: string) => `/api/owner-invites/${token}/accept`,
 
+  /** GET the project's focus (`ProjectFocusView`, PM-427); every member reads it, a client read-only. */
+  projectFocus: (key: string) => `/api/projects/${key}/focus`,
+  /** POST (`ProjectFocusAddRequest`): puts a theme or card into the focus. */
+  projectFocusItems: (key: string) => `/api/projects/${key}/focus/items`,
+  /** PATCH (`ProjectFocusMoveRequest`) moves an item; DELETE takes it out. */
+  projectFocusItem: (key: string, taskKey: string) => `/api/projects/${key}/focus/items/${taskKey}`,
+  /** GET (`?limit=`, 1 to 200, default 50): the project's `focus_changed` events (`ProjectFocusChanges`). */
+  projectFocusChanges: (key: string) => `/api/projects/${key}/focus/changes`,
   /** GET the project's pauses (`ProjectPauseView`); POST pauses it (`PauseRequest`), admin at least. */
   projectPause: (key: string) => `/api/projects/${key}/pause`,
   projectPauseResume: (key: string) => `/api/projects/${key}/pause/resume`,

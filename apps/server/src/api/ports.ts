@@ -8,7 +8,14 @@ import type { StructureService } from '../services/structure';
 import type { RunnerModule } from '../contracts';
 import type { ChangeJournal } from '../core/base';
 import type { AttachmentService, MessageAttachmentService } from '../core/attachments';
-import type { BoardService, CardMeasure, InvolvementService, TaskService, TaskWaits } from '../core/tasks';
+import type {
+  BoardService,
+  CardMeasure,
+  InvolvementService,
+  ProjectFocusService,
+  TaskService,
+  TaskWaits,
+} from '../core/tasks';
 import type { ProjectService, RoleService, ChecklistService } from '../core/projects';
 import type {
   InvitationService,
@@ -71,6 +78,7 @@ export interface ApiDomain extends AuthDomain {
   readonly outages: WorkOutages;
   readonly pauses: PauseService;
   readonly profiles: MemberProfiles;
+  readonly projectFocus: ProjectFocusService;
   readonly projectManagerChannels: ProjectManagerChannels;
   readonly projects: ProjectService;
   readonly providerKeys: ProviderKeys | null;

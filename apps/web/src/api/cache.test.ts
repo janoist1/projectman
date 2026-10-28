@@ -377,4 +377,24 @@ describe('contract follow-up events', () => {
     applyServerEvent(client, { type: 'task_upserted', projectKey: KEY, task });
     expect(client.getQueryState(queryKeys.task(KEY, task.key))!.isInvalidated).toBe(true);
   });
+
+  it('puts the focus list of a project_focus_changed event into the view, keeping the right to edit', () => {
+    const client = seed();
+    const item = {
+      key: 'AC-24',
+      addedAt: '2026-10-01T10:00:00.000Z',
+      addedBy: { kind: 'human' as const, handle: 'owner' },
+    };
+    client.setQueryData(queryKeys.focus(KEY), { items: [], canEdit: false });
+    client.setQueryData(queryKeys.focusChanges(KEY), { events: [] });
+    applyServerEvent(client, { type: 'project_focus_changed', projectKey: KEY, focus: { items: [item] } });
+    expect(client.getQueryData(queryKeys.focus(KEY))).toEqual({ items: [item], canEdit: false });
+    expect(client.getQueryState(queryKeys.focusChanges(KEY))!.isInvalidated).toBe(true);
+  });
+
+  it('leaves a focus that was never read alone', () => {
+    const client = seed();
+    applyServerEvent(client, { type: 'project_focus_changed', projectKey: KEY, focus: { items: [] } });
+    expect(client.getQueryData(queryKeys.focus(KEY))).toBeUndefined();
+  });
 });

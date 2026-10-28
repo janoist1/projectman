@@ -580,6 +580,19 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
         return normal(
           t('timeline.events.task_stage_changed_pinned', { ...names, commit: shortCommit(str(pin.commit)) }),
         );
+      // A card the system pulled ahead of its turn says why (PM-427): it is urgent, or the focus covers it.
+      const pulled = record(d.pulled);
+      if (pulled?.reason === 'urgent')
+        return normal(t('timeline.events.task_stage_changed_pulled_urgent', names));
+      if (pulled?.reason === 'focus')
+        return normal(
+          t('timeline.events.task_stage_changed_pulled_focus', {
+            ...names,
+            position: str(pulled.position),
+            title: str(pulled.title),
+            key: str(pulled.key),
+          }),
+        );
       return normal(t('timeline.events.task_stage_changed', names));
     }
     case 'task_full_test': {
@@ -1101,11 +1114,14 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
       );
     case 'workspace_released':
       return normal(t('timeline.events.workspace_released', { reason: str(d.reason) }));
-    case 'focus_changed':
+    case 'focus_changed': {
+      const title = str(d.title);
+      if (d.action === 'added')
+        return normal(t('timeline.events.focus_added', { title, position: str(d.position) }));
+      if (d.action === 'removed') return normal(t('timeline.events.focus_removed', { title }));
       return normal(
-        t(`timeline.events.focus_${d.action === 'added' || d.action === 'removed' ? d.action : 'moved'}`, {
-          title: str(d.title),
-        }),
+        t('timeline.events.focus_moved', { title, previous: str(d.previous), position: str(d.position) }),
       );
+    }
   }
 }

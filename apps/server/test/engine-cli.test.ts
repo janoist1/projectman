@@ -210,6 +210,56 @@ describe('engine commands', () => {
     });
   });
 
+  describe('nanogpt-key (PM-1068)', () => {
+    const OWN_KEY = 'nano-key-0123456789abcdef';
+    beforeEach(async () => {
+      await init();
+      out = [];
+    });
+
+    it('writes the key from standard input to a 0600 file and sets the field, never printing the key', async () => {
+      stdin = `${OWN_KEY}\n`;
+      expect(await run('nanogpt-key', 'set')).toBe(0);
+      const file = path.join(home, 'nanogpt.key');
+      expect(loadEngineConfig(home).nanogptKeyFile).toBe(file);
+      expect(readFileSync(file, 'utf8').trim()).toBe(OWN_KEY);
+      expect(mode(file)).toBe(0o600);
+      expect([...out, ...err].join('\n')).not.toContain(OWN_KEY);
+    });
+
+    it('keeps the file named in the configuration and survives init --force', async () => {
+      stdin = `${OWN_KEY}\n`;
+      await run('nanogpt-key', 'set');
+      stdin = `${KEY}\n`;
+      expect(await init('--force')).toBe(0);
+      expect(loadEngineConfig(home).nanogptKeyFile).toBe(path.join(home, 'nanogpt.key'));
+    });
+
+    it('refuses a missing key and a key file inside a session root, and writes nothing', async () => {
+      stdin = null;
+      expect(await run('nanogpt-key', 'set')).toBe(2);
+      stdin = `${OWN_KEY}\n`;
+      await run('project', 'set', 'PM', workspace);
+      const config = loadEngineConfig(home);
+      writeFileSync(
+        path.join(home, 'engine.json'),
+        JSON.stringify({ ...config, nanogptKeyFile: path.join(workspace, 'k') }),
+      );
+      expect(await run('nanogpt-key', 'set')).toBe(1);
+      expect(err.join('\n')).toContain('secret_in_root');
+      expect(existsSync(path.join(workspace, 'k'))).toBe(false);
+    });
+
+    it('clear removes the file and the field, and is quiet when there is none', async () => {
+      stdin = `${OWN_KEY}\n`;
+      await run('nanogpt-key', 'set');
+      expect(await run('nanogpt-key', 'clear')).toBe(0);
+      expect(existsSync(path.join(home, 'nanogpt.key'))).toBe(false);
+      expect(loadEngineConfig(home).nanogptKeyFile).toBeUndefined();
+      expect(await run('nanogpt-key', 'clear')).toBe(0);
+    });
+  });
+
   describe('status', () => {
     const writeStatus = (overrides: Record<string, unknown> = {}) =>
       writeFileSync(

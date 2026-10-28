@@ -20,6 +20,7 @@ import { readInstanceMarker } from '../instance';
 
 export const ENGINE_CONFIG_FILE = 'engine.json';
 export const ENGINE_KEY_FILE = 'engine.key';
+const ENGINE_NANOGPT_KEY_FILE = 'nanogpt.key';
 export const ENGINE_STATUS_FILE = 'engine-status.json';
 const ENGINE_AUDIT_FILE = 'engine-audit.jsonl';
 
@@ -34,6 +35,11 @@ export const EngineConfig = z.strictObject({
   name: z.string().min(1).max(64).optional(),
   /** Absolute path of the machine key file; default `<home>/engine.key`. */
   keyFile: z.string().optional(),
+  /**
+   * PM-1068: absolute path of this engine's own NanoGPT key file (0600, outside every session root).
+   * Set: NanoGPT sessions here use it and the key never comes from, or goes to, the cloud.
+   */
+  nanogptKeyFile: z.string().min(1).optional(),
   /** A JSON object of extra link headers (e.g. Cloudflare Access service token); must be 0600. */
   linkHeadersFile: z.string().optional(),
   /** PM-846: a work volume's root inside the engine home; worktrees/, workspaces/ and tmp/ live below it. Absent: today's paths. */
@@ -81,6 +87,8 @@ export class EngineConfigError extends Error {
 interface EngineFiles {
   config: string;
   key: string;
+  /** Default place of the engine's own NanoGPT key (PM-1068); used when `nanogptKeyFile` is not set. */
+  nanogptKey: string;
   status: string;
   auditDir: string;
   audit: string;
@@ -92,6 +100,7 @@ export function engineFiles(home: string, config?: Pick<EngineConfig, 'keyFile'>
   return {
     config: path.join(home, ENGINE_CONFIG_FILE),
     key: config?.keyFile ?? path.join(home, ENGINE_KEY_FILE),
+    nanogptKey: path.join(home, ENGINE_NANOGPT_KEY_FILE),
     status: path.join(home, ENGINE_STATUS_FILE),
     auditDir,
     audit: path.join(auditDir, ENGINE_AUDIT_FILE),
@@ -230,6 +239,7 @@ export function httpUrl(cloudUrl: string, urlPath: string): string {
 export interface ResolvedEngineConfig extends Omit<EngineConfig, 'repos'> {
   name: string;
   keyFile: string;
+  nanogptKeyFile?: string;
   /** Real (symlink-free) absolute paths. */
   projects: Array<{ project: string; workspacePath: string }>;
   repos: Array<{
@@ -319,6 +329,9 @@ export function resolveEngineConfig(
   const linkHeadersFile = config.linkHeadersFile
     ? realOrAbsolute(config.linkHeadersFile, 'The link headers file')
     : undefined;
+  const nanogptKeyFile = config.nanogptKeyFile
+    ? realOrAbsolute(config.nanogptKeyFile, 'The NanoGPT key file')
+    : undefined;
   const realHome = realOrAbsolute(home, 'The engine home');
   const sessionRoots = [
     ...projects.map((entry) => entry.workspacePath),
@@ -336,6 +349,7 @@ export function resolveEngineConfig(
   for (const [what, target] of [
     ['The engine key file', keyFile],
     ['The link headers file', linkHeadersFile],
+    ['The NanoGPT key file', nanogptKeyFile],
     ['The engine home', realHome],
   ] as const) {
     const root = target === undefined ? undefined : sessionRoots.find((entry) => isWithin(entry, target));
@@ -350,6 +364,7 @@ export function resolveEngineConfig(
     name: config.name ?? os.hostname(),
     keyFile,
     ...(linkHeadersFile ? { linkHeadersFile } : {}),
+    ...(nanogptKeyFile ? { nanogptKeyFile } : {}),
     projects,
     repos,
   };

@@ -150,9 +150,14 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
   const memberCaches = path.join(home, 'member-caches');
   const attachmentsCache = path.join(home, 'attachments-cache');
   const files = engineFiles(home, config);
-  // The engine's own secrets: the machine key and the link headers (the service token) are neither read
-  // nor changed by a session; its configuration and status file are read but never changed.
-  const engineSecrets = [config.keyFile, ...(config.linkHeadersFile ? [config.linkHeadersFile] : [])];
+  // The engine's own secrets: the machine key, the link headers (the service token) and the NanoGPT key
+  // (PM-1068) are neither read nor changed by a session; its configuration and status file are read but
+  // never changed.
+  const engineSecrets = [
+    config.keyFile,
+    ...(config.linkHeadersFile ? [config.linkHeadersFile] : []),
+    ...(config.nanogptKeyFile ? [config.nanogptKeyFile] : []),
+  ];
   const sensitive = [...sensitivePaths({ userHome, appHome: home }), ...engineSecrets];
   const sensitiveWrite = [...namedDatabaseFiles(sensitive), files.config, files.status];
   const sessions = new Map<string, { cwd: string; folder?: string }>();

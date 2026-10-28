@@ -174,6 +174,27 @@ describe('the engines of a project', () => {
       });
     });
 
+    it('remembers from the hello whether an engine holds its own NanoGPT key (PM-1068)', () => {
+      expect(registry.ownNanogptKey(patEngine)).toBe(false);
+      registry.seen(patEngine, '203.0.113.7', { ...machine, nanogptKey: 'engine' });
+      expect(registry.ownNanogptKey(patEngine)).toBe(true);
+      expect(registry.ownNanogptKey(engA)).toBe(false);
+      registry.seen(patEngine, '203.0.113.7', machine);
+      expect(registry.ownNanogptKey(patEngine)).toBe(false);
+    });
+
+    it('shows the NanoGPT login of an engine to the host owner, and of their own engine to another owner', async () => {
+      const providers = async (engine: string, who: string) =>
+        (await inject(h.app, 'GET', routes.engineProviders(engine), who)).json() as {
+          providers: Array<{ provider: string }>;
+        };
+      const names = (view: { providers: Array<{ provider: string }> }) =>
+        view.providers.map((p) => p.provider);
+      expect(names(await providers(patEngine, patCookie))).toContain('nanogpt');
+      expect(names(await providers(engA, cookie))).toContain('nanogpt');
+      expect(names(await providers(patEngine, cookie))).toContain('nanogpt');
+    });
+
     it('shows the status of an engine only to whom a project or ownership ties to it', async () => {
       // The developer's project falls back to the host's default engine: Pat's machine is not theirs to see.
       expect(await status(devCookie)).toEqual([engA]);

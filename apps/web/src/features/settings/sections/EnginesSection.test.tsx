@@ -392,6 +392,22 @@ describe('engines in the settings page', () => {
     expect(await screen.findByRole('button', { name: t('engines.rename') })).toBeTruthy();
     expect(screen.queryByRole('button', { name: t('engines.makeDefault') })).toBeNull();
   });
+
+  it('names the integrator entry by the client for an owner account, not by the host-only grant', async () => {
+    const backend = new MockBackend();
+    backend.engineMode = 'cloud';
+    backend.user = { userId: 'usr_owner2', name: 'Eszter', email: 'eszter@owner.test' };
+    backend.ownerAccountIds.add('usr_owner2');
+    const project = mockProject(backend);
+    project.context.me.ownerAccount = true;
+    project.context.me.hostOwner = false;
+    project.render(<SettingsTestRoutes />, '/p/AC/settings');
+    const nav = await screen.findByRole('navigation', { name: t('settings.nav.label') });
+    expect(
+      await within(nav).findByRole('link', { name: new RegExp(t('operatorGrant.clientTitle')) }),
+    ).toBeTruthy();
+    expect(within(nav).queryByRole('link', { name: new RegExp(t('settings.nav.integrator')) })).toBeNull();
+  });
 });
 
 describe('own machines', () => {

@@ -304,6 +304,9 @@ describe('integrator key settings', () => {
     expect(screen.queryByText(t('operatorGrant.intro'))).toBeNull();
     expect(screen.queryByRole('button', { name: t('operatorGrant.grant') })).toBeNull();
     expect(project.requests.some((request) => request.path.includes('/operator-grant'))).toBe(false);
+    // The operator grant is the host's: the owner account's section is titled by its own client.
+    expect(screen.getByRole('heading', { name: t('operatorGrant.clientTitle') })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: t('operatorGrant.title') })).toBeNull();
   });
   it('shows the assistant instruction under the new key, with the MCP address and without the key', async () => {
     const project = mockProject();

@@ -199,7 +199,10 @@ export function IntegratorSection() {
     })),
   ].sort((a, b) => b.at.localeCompare(a.at));
   return (
-    <SettingsSection id="settings-integrator" title={t('operatorGrant.title')}>
+    <SettingsSection
+      id="settings-integrator"
+      title={t(host ? 'operatorGrant.title' : 'operatorGrant.clientTitle')}
+    >
       <div ref={root} className={styles.content}>
         {host ? (
           <>
@@ -208,7 +211,7 @@ export function IntegratorSection() {
           </>
         ) : null}
         <div className={styles.keyRow}>
-          <h3>{t('operatorGrant.clientTitle')}</h3>
+          {host ? <h3>{t('operatorGrant.clientTitle')}</h3> : null}
           <p>{t('integratorKey.intro')}</p>
           {grant.data?.active === false && active.some((info) => info.mode === 'super') ? (
             <p className={styles.info}>{t('operatorGrant.clientInactive')}</p>

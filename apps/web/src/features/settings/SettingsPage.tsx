@@ -142,8 +142,11 @@ export function SettingsPage() {
   const base = `/p/${key}/settings`;
   const legacy =
     location.hash === '#settings-problems' ? 'pipeline' : location.hash.replace(/^#settings-/, '');
+  // An owner account holds no operator grant (that is the host's): its integrator section is its own client's key.
+  const sectionLabel = (id: SettingsSectionId) =>
+    id === 'integrator' && me.hostOwner !== true ? t('operatorGrant.clientTitle') : t(`settings.nav.${id}`);
   useDocumentTitle(
-    section ? t(`settings.nav.${section}`) : null,
+    section ? sectionLabel(section) : null,
     t('settings.title'),
     config.data?.config.project.name ?? me.projects.find((p) => p.key === key)?.name,
   );
@@ -212,7 +215,7 @@ export function SettingsPage() {
         >
           <span className={styles.linkText}>
             <span className={styles.linkTitle}>
-              {t(`settings.nav.${id}`)}{' '}
+              {sectionLabel(id)}{' '}
               {counts[id] ? (
                 <span
                   className={styles.mark}

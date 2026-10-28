@@ -25,6 +25,8 @@ const TEXT = {
   projectMachine: 'Ezen a gépen fut a projekt',
   bindMore: 'Másik gép hozzákötése',
   bindFirst: 'Gép hozzákötése',
+  unbind: 'Leoldás…',
+  unbindConfirm: 'Leoldás',
   renameTitle: 'Gép átnevezése',
   createKey: 'Kulcs létrehozása',
   submit: 'Létrehozás',
@@ -64,6 +66,8 @@ export default async ({ open, shoot, step }) => {
     // The machines bound to AC: [engineId, isDefault, holdsProject]
     bound: [],
     keys: [],
+    // The unbind answers "the project has a session on this engine" while it is set.
+    unbindRefused: false,
   };
   const json = (route, body, status = 200) =>
     route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
@@ -104,6 +108,12 @@ export default async ({ open, shoot, step }) => {
           return entry ? [projectView(entry, isDefault, holds)] : [];
         }),
       });
+    if (method === 'DELETE' && pathname.startsWith('/api/projects/AC/engines/') && state.unbindRefused)
+      return json(
+        route,
+        { error: { code: 'engine_in_use', message: 'The project has a session on this engine' } },
+        409,
+      );
     if (method === 'GET' && pathname === '/api/auth/integrator-keys')
       return json(route, { keys: state.keys });
     if (method === 'POST' && pathname === '/api/auth/integrator-keys') {
@@ -159,6 +169,27 @@ export default async ({ open, shoot, step }) => {
     await page.getByRole('button', { name: TEXT.bindMore }).click();
     await page.getByRole('dialog').waitFor();
     await shoot(page, 'k-bind', { widths: WIDTHS });
+  });
+
+  await step('k2. the unbind confirmation refused: the project has a session on the machine', async () => {
+    state.unbindRefused = true;
+    const page = await open({ path: '/p/AC/settings/engines' });
+    await page.getByRole('heading', { name: TEXT.projectMachines }).waitFor();
+    await page.getByRole('button', { name: 'Irodai Mac mini műveletei' }).first().click();
+    await page.getByRole('button', { name: TEXT.unbind }).click();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByRole('button', { name: TEXT.unbindConfirm }).click();
+    await dialog.getByRole('alert').waitFor();
+    await shoot(page, 'k2-unbind-refused', { widths: WIDTHS });
+    state.unbindRefused = false;
+  });
+
+  await step('k3. the base machine menu: the unbind is disabled, with its reason', async () => {
+    const page = await open({ path: '/p/AC/settings/engines' });
+    await page.getByRole('heading', { name: TEXT.projectMachines }).waitFor();
+    await page.getByRole('button', { name: 'Eszter MacBookja műveletei' }).first().click();
+    await page.getByRole('button', { name: TEXT.unbind }).waitFor();
+    await shoot(page, 'k3-base-menu', { widths: [1512] });
   });
 
   await step('l. the rename dialog', async () => {

@@ -419,6 +419,16 @@ unblock/drive, subject to the existing task/member mute, gates, prerequisites, p
 fix-limit and admission checks. Report permits no autonomous start. This signal never grants
 task movement, label/configuration changes, prerequisite override, stop or critical authority.
 
+A `start_blocked` signal (PM-455) permits only `start_member` at unblock/drive, with the same budget, gap and
+mute: for `workspace_dirty` the waiting member on the card that holds the workspace's branch, for
+`workspace_fetch_failed` the deployment-duty AI members on the waiting card, and for `repo_required` nothing. The
+project manager's prompt lets it set the card's repository on a `repo_required` signal; that is no signal authority:
+the server does not restrict it, because `update_task` with `repo` is allowed for every member and refused only for
+an unknown repository or a live session. The facts carry no git error text (a remote URL in it may hold
+credentials). `ask_human` takes `signal_id` only from the coordinator the signal was delivered to, for an open
+signal of the same project; it grants nothing and only ties the question to the case, which closes it
+(`signal_resolved`) when the case ends.
+
 The PM may present delivered, unpresented `pending` or `open` signals once through `send_message`
 with `signal_id` or `signal_ids`, addressed only to owners from its internal general session.
 The server revalidates signal and recipient bindings transactionally. `dismiss_signal` may close

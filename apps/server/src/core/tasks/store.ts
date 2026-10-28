@@ -42,6 +42,8 @@ import type { TimelineService } from '../timeline';
 /** Why the start of AI work on a task waits (the admission's deferred starts). */
 export interface StartWaitingReader {
   waitingFor(task: Task): TaskStartWaiting | undefined;
+  /** Whether a deferred start of the task is under a new attempt (its wait is silent meanwhile). */
+  attempting(task: Task): boolean;
 }
 
 /** Work that follows a committed unit of work: notifications and listeners. */
@@ -279,6 +281,11 @@ export class TaskStore {
   /** Why the start of AI work on a raw card waits: a deferred start, else the missing repository choice (PM-455). */
   startWaitingOf(task: Task): TaskStartWaiting | undefined {
     return this.startWaiting.waitingFor(task) ?? this.repoWaiting(task);
+  }
+
+  /** Whether the system is trying a deferred start of the card right now: its wait reads empty meanwhile. */
+  startAttempting(task: Task): boolean {
+    return this.startWaiting.attempting(task);
   }
 
   list(projectKey: string): Task[] {

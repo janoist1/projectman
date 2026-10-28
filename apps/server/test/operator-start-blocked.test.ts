@@ -37,6 +37,23 @@ const twoRepos = (config: ProjectConfig): void => {
 
 let problem: { code: StartBlockedReason; branch: string } | null = null;
 
+/** The question the project manager asks about a delivered signal. */
+async function askAbout(signalId: string): Promise<string> {
+  h.repos.operatorSignals.delivered([signalId], now.toISOString(), 'pm');
+  const pm: ToolContext = {
+    projectKey: 'AR',
+    member: 'pm',
+    sessionId: h.domain.sessions.list('AR', { member: 'pm' })[0]!.id,
+    taskKey: null,
+  };
+  const { inboxItemId } = await h.domain.teamTools.askHuman(pm, {
+    question: 'What now?',
+    options: ['Yes', 'No'],
+    signalId,
+  });
+  return inboxItemId;
+}
+
 /**
  * A development card with an AI assignee whose start waits for `reason`. The two workspace reasons come from the
  * session start, as in production; `repo_required` from a project with two repositories and a card without one.
@@ -123,6 +140,32 @@ describe('start_blocked signal', () => {
       state: 'cancelled',
       resolution: { rule: 'signal_resolved' },
     });
+  });
+
+  it('keeps the signal and its question open while a retry of the start is under attempt', async () => {
+    await blocked('workspace_dirty');
+    await sweep();
+    const [signal] = signals();
+    const asked = await askAbout(signal!.id);
+    // A deferral kept in the legacy store is taken by the attempt: the card reads as not waiting until it settles.
+    const waiting = vi.spyOn(h.domain.tasks, 'startWaitingOf').mockReturnValue(undefined);
+    const attempting = vi.spyOn(h.domain.tasks, 'startAttempting').mockReturnValue(true);
+    await sweep();
+    expect(signals()).toMatchObject([{ id: signal!.id }]);
+    expect(h.domain.inbox.get('AR', asked).state).not.toBe('cancelled');
+    waiting.mockRestore();
+    attempting.mockReturnValue(false);
+    await sweep();
+    expect(signals('all')).toMatchObject([{ id: signal!.id, resolvedAt: null }]);
+  });
+
+  it('closes the signal when the wait is gone and no attempt is under way', async () => {
+    await blocked('workspace_dirty');
+    await sweep();
+    vi.spyOn(h.domain.tasks, 'startWaitingOf').mockReturnValue(undefined);
+    vi.spyOn(h.domain.tasks, 'startAttempting').mockReturnValue(false);
+    await sweep();
+    expect(signals()).toEqual([]);
   });
 
   it('closes the old signal and opens a new one when the reason changes', async () => {

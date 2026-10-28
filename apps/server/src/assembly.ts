@@ -1492,6 +1492,7 @@ export function createDomain(opts: DomainOptions) {
     releases,
     inbox,
     startWaitingOf: (task) => tasks.startWaitingOf(task),
+    startAttempting: (task) => tasks.startAttempting(task),
     startHandled: (task) => !!startRound.holdOf(task) || !!startRound.startOfferOf(task),
   });
   messaging.registerSignals(operatorSignals);

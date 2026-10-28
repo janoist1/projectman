@@ -209,6 +209,8 @@ export class OperatorSignals {
     releases: Pick<OperatorReleases, 'unreleased'>;
     inbox: Pick<InboxService, 'create' | 'cancel' | 'list' | 'closeQuestionsOfSignal'>;
     startWaitingOf: (task: Task) => TaskStartWaiting | undefined;
+    /** Whether a deferred start of the card is under a new attempt: its wait reads empty meanwhile. */
+    startAttempting: (task: Task) => boolean;
     startHandled?: (task: Task) => boolean;
   }) {
     this.deps = privateDeps;
@@ -236,6 +238,8 @@ export class OperatorSignals {
     inbox: Pick<InboxService, 'create' | 'cancel' | 'list' | 'closeQuestionsOfSignal'>;
     /** Why the start of AI work on a stored card waits (PM-455): the scheduling reads carry no `startWaiting`. */
     startWaitingOf: (task: Task) => TaskStartWaiting | undefined;
+    /** Whether a deferred start of the card is under a new attempt: its wait reads empty meanwhile. */
+    startAttempting: (task: Task) => boolean;
     /** The start round already acts on the ready card: it holds it on purpose or asked a member to start it (PM-804). */
     startHandled?: (task: Task) => boolean;
   };
@@ -547,6 +551,19 @@ export class OperatorSignals {
   }
 
   /**
+   * Whether the system is trying the card's deferred start right now. The wait reads empty for the length of the
+   * attempt (a fetch may take a minute), which says nothing about the cause: the signal stays as it is (PM-455).
+   */
+  private startAttemptRunning(task: Task): boolean {
+    return (
+      isOpenTask(task) &&
+      !isTheme(task) &&
+      this.deps.startWaitingOf(task) === undefined &&
+      this.deps.startAttempting(task)
+    );
+  }
+
+  /**
    * The facts of a `start_blocked` signal while its case stands, else null. The git error text is not among
    * them: a remote URL in it may carry credentials, and the server log has it.
    */
@@ -683,7 +700,13 @@ export class OperatorSignals {
       }
       for (const task of cards) {
         const reason = this.startBlockedReason(task);
-        if (!reason) continue;
+        if (!reason) {
+          if (this.startAttemptRunning(task))
+            for (const signal of this.deps.ctx.repos.operatorSignals.list(key))
+              if (signal.kind === 'start_blocked' && signal.taskKey === task.key && !signal.resolvedAt)
+                active.add(signal.caseKey);
+          continue;
+        }
         const caseKey = startBlockedCaseKey(task.key, reason);
         active.add(caseKey);
         this.raise({ projectKey: key, kind: 'start_blocked', caseKey, taskKey: task.key, subject: reason });
@@ -962,6 +985,11 @@ export class OperatorSignals {
         this.resolve(projectKey, s.caseKey);
         return false;
       }
+      // The facts of a start under a new attempt cannot be read; the signal is told after the attempt (PM-455).
+      if (s.kind === 'start_blocked') {
+        const card = s.taskKey ? ctx.repos.tasks.get(s.taskKey) : null;
+        if (card && this.startAttemptRunning(card)) return false;
+      }
       // Free capacity is raised at once but wakes the coordinator only if the stall lasts without a break (PM-547, PM-1082).
       // A failed fetch may be a network blip the system's own retries mend: told only if it outlasts them (PM-455).
       if (
@@ -1010,7 +1038,7 @@ export class OperatorSignals {
     }
     if (s.kind === 'start_blocked') {
       const task = s.taskKey ? ctx.repos.tasks.get(s.taskKey) : null;
-      return !!task && this.startBlockedReason(task) === s.subject;
+      return !!task && (this.startBlockedReason(task) === s.subject || this.startAttemptRunning(task));
     }
     if (s.kind === 'refinement_stalled') {
       const stall = refinementStallOf(s.projectKey, s.caseKey);

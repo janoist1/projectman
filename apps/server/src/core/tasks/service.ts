@@ -256,6 +256,11 @@ export class TaskService implements TaskSchedulingReader {
     return this.store.startWaitingOf(task);
   }
 
+  /** Whether the system is trying a deferred start of the card right now (its wait reads empty meanwhile). */
+  startAttempting(task: Task): boolean {
+    return this.store.startAttempting(task);
+  }
+
   get(projectKey: string, taskKey: string): Task {
     return this.store.get(projectKey, taskKey);
   }

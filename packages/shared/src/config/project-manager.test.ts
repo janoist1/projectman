@@ -260,10 +260,10 @@ describe('guest conversations', () => {
     { kind: 'human', handle: 'cleo', displayName: 'Cleo', access: 'client' },
   ]);
 
-  it('belong to the Operator and the selected PM alone', () => {
+  it('belong to the selected PM alone', () => {
     const has = (handle: string) => hasGuestConversations(config, memberOf(config, handle));
     expect(has('pm')).toBe(true);
-    expect(has('operator')).toBe(true);
+    expect(has('operator')).toBe(false);
     expect(has('away')).toBe(false);
     expect(has('dev-1')).toBe(false);
     expect(has('cleo')).toBe(false);

@@ -1085,6 +1085,7 @@ export class SessionOrchestrator {
   private mayWorkNow(config: ProjectConfig, member: MemberConfig | undefined): member is AiMemberConfig {
     return (
       member?.kind === 'ai' &&
+      runsInApp(member) &&
       !isOnLeave(member) &&
       config.team.limits.aiEnabled &&
       !this.workPaused(config.project.key)

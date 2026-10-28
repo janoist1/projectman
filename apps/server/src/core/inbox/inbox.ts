@@ -544,10 +544,7 @@ export class InboxService {
     // queue item does not lend the owner's authority (PM-1010, decision 66).
     if (!hasBoundOrigin(scope.actor) || (hasConnectedOrigin(scope.actor) && scope.actor.kind !== 'human'))
       throw forbidden('owner_approval_required', 'an Operator or connected-Claude origin is required');
-    const refusal = superDecisionRefusal(item, {
-      operatorHandle: scope.actor.handle,
-      sessionMember: item.sessionId ? this.ctx.repos.sessions.get(item.sessionId)?.member : null,
-    });
+    const refusal = this.reservedDecisionRefusal(item, scope.actor, config);
     if (refusal) throw forbidden(refusal, 'this item requires a person using their own login');
     return this.resolution(
       optionId,
@@ -555,6 +552,28 @@ export class InboxService {
       at,
       note,
     );
+  }
+
+  /**
+   * Whether a decision stays reserved to the owner's own login. A connected step is the holder's in person, yet what
+   * the Operator asked or runs, and what the connected Claude asked itself (the holder's name is its source), stays
+   * reserved, as it was for the old super step.
+   */
+  private reservedDecisionRefusal(
+    item: InboxItem,
+    actor: Actor,
+    config: ProjectConfig,
+  ): 'owner_approval_required' | null {
+    const sessionMember = item.sessionId ? this.ctx.repos.sessions.get(item.sessionId)?.member : null;
+    const handles = new Set([
+      actor.handle,
+      ...(hasConnectedOrigin(actor) ? [operatorOf(config)?.handle ?? actor.handle] : []),
+    ]);
+    for (const operatorHandle of handles) {
+      const refusal = superDecisionRefusal(item, { operatorHandle, sessionMember });
+      if (refusal) return refusal;
+    }
+    return null;
   }
 
   private resolution(
@@ -1053,24 +1072,8 @@ export class InboxService {
           return row && row.id !== id && isPendingQuestion(row) ? [row] : [];
         }),
       ];
-      // A connected step is the holder's in person, yet what the Operator asked or runs stays reserved to the
-      // owner's own login, as it was for the old super step.
-      // The questions the connected Claude asked itself carry the holder's name as source.
-      const protectedHandles = new Set([
-        by.superActor!.handle,
-        ...(hasConnectedOrigin(by.superActor)
-          ? [operatorOf(initialConfig)?.handle ?? by.superActor!.handle]
-          : []),
-      ]);
       for (const member of members) {
-        const refusal = [...protectedHandles]
-          .map((operatorHandle) =>
-            superDecisionRefusal(member, {
-              operatorHandle,
-              sessionMember: member.sessionId ? this.ctx.repos.sessions.get(member.sessionId)?.member : null,
-            }),
-          )
-          .find((found) => found !== null);
+        const refusal = this.reservedDecisionRefusal(member, by.superActor!, initialConfig);
         const question = member.kind === 'question' ? member.payload : null;
         if (refusal || (question && externalQuestionAnswerRefusal(question, by)))
           throw forbidden('owner_approval_required', 'this item requires a person using their own login');

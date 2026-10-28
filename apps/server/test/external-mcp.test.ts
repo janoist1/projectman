@@ -783,45 +783,57 @@ describe('the bearer MCP endpoint (PM-760)', () => {
         });
       });
 
-      it('refuses a command that needs the owner’s own request', async () => {
+      it.each([
+        [
+          'inbox_resolve',
+          (itemId: string) => ({ kind: 'inbox_resolve', itemId, request: { optionId: 'todo_done' } }),
+        ],
+        ['merge', () => ({ kind: 'merge', taskKey: 'AR-1', request: {} })],
+        [
+          'workspace_release',
+          () => ({ kind: 'workspace_release', scopeId: 'fictional', reason: 'Fictional' }),
+        ],
+      ])('refuses %s, which needs the owner’s own request', async (_kind, command) => {
         await grantMachineAccess();
         const item = createItem('dev-1', ['owner']);
-        const result = await runCommand(key('super').secret, item.id, {
-          kind: 'inbox_resolve',
-          itemId: item.id,
-          request: { optionId: 'todo_done' },
-        });
+        const result = await runCommand(key('super').secret, item.id, command(item.id));
         expect(result.isError).toBe(true);
         expect(result.structuredContent?.errorCode).toBe('operator_owner_only');
       });
 
-      it('lends no owner authority to a label, which a direct instruction does hold', async () => {
-        await grantMachineAccess();
-        const { secret } = key('super');
-        await call(secret, 'create_task', { project_key: 'AR', title: 'Fictional card' });
-        const taskKey = h.app.projectman.domain.tasks
-          .list('AR')
-          .find((entry) => entry.title === 'Fictional card')!.key;
-        const item = createItem('dev-1', ['owner']);
-        const labelsOf = () => h.app.projectman.domain.tasks.get('AR', taskKey).labels;
-        const label = (queueItemId?: string) =>
-          runCommand(secret, queueItemId, {
-            kind: 'task_labels',
-            taskKey,
-            request: { add: ['owner-tag'], remove: [] },
+      it.each([
+        ['owner-tag', 'label_not_allowed'],
+        ['merge-ok', 'owner_approval_required'],
+      ])(
+        'lends no owner authority to the label %s, which a direct instruction does hold',
+        async (labelId, refusal) => {
+          await grantMachineAccess();
+          const { secret } = key('super');
+          await call(secret, 'create_task', { project_key: 'AR', title: 'Fictional card' });
+          const taskKey = h.app.projectman.domain.tasks
+            .list('AR')
+            .find((entry) => entry.title === 'Fictional card')!.key;
+          const item = createItem('dev-1', ['owner']);
+          const labelsOf = () => h.app.projectman.domain.tasks.get('AR', taskKey).labels;
+          const label = (queueItemId?: string) =>
+            runCommand(secret, queueItemId, {
+              kind: 'task_labels',
+              taskKey,
+              request: { add: [labelId], remove: [] },
+            });
+
+          const onQueueItem = await label(item.id);
+          expect(onQueueItem.structuredContent?.operation).toMatchObject({
+            state: 'failed',
+            errorCode: refusal,
           });
+          expect(labelsOf()).not.toContain(labelId);
 
-        const onQueueItem = await label(item.id);
-        expect(onQueueItem.structuredContent?.operation).toMatchObject({
-          state: 'failed',
-          errorCode: 'label_not_allowed',
-        });
-        expect(labelsOf()).not.toContain('owner-tag');
-
-        const direct = await label();
-        expect(direct.structuredContent?.operation.state).toBe('succeeded');
-        expect(labelsOf()).toContain('owner-tag');
-      });
+          const direct = await label();
+          expect(direct.structuredContent?.operation.state).toBe('succeeded');
+          expect(labelsOf()).toContain(labelId);
+        },
+      );
     });
   });
 

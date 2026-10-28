@@ -772,7 +772,7 @@ export const hu = {
       recheck: 'Újraellenőrzés',
       rechecking: 'Ellenőrzés…',
       providersFailed: 'A gép most nem válaszolt. Próbáld újra az Újraellenőrzéssel.',
-      allReady: 'Minden kész. A projekt a {name} gépen fut, és a pm ott köszön.',
+      allReady: 'Minden kész. Az első projekted a(z) {name} gépen fut majd, és a pm ott köszön.',
       createProject: 'Projekt létrehozása',
     },
     guide: {
@@ -815,8 +815,9 @@ export const hu = {
       stuckService: 'Fut-e: {command}.',
     },
     project: {
-      title: 'Kész a {name} projekt',
-      subtitle: 'Még egy parancs a gépeden: ezzel engedi a {machine}, hogy a projekt munkája rajta fusson.',
+      title: 'Kész a projekt: {name}',
+      subtitle: 'Még egy parancs a gépeden ({machine}): ezzel futhat rajta a projekt munkája.',
+      subtitleNoMachine: 'Még egy parancs a gépeden: ezzel futhat rajta a projekt munkája.',
       commandAria: 'A projektet engedélyező parancs',
       reposIntro: 'A repóidat is jelezd a gépnek:',
       repoAria: 'A repót jelző parancs: {name}',

@@ -36,7 +36,11 @@ export function ProjectSetupPage() {
     <AuthLayout
       wide
       title={t('ownerOnboarding.project.title', { name })}
-      subtitle={t('ownerOnboarding.project.subtitle', { machine: base?.name ?? '' })}
+      subtitle={
+        base
+          ? t('ownerOnboarding.project.subtitle', { machine: base.name })
+          : t('ownerOnboarding.project.subtitleNoMachine')
+      }
     >
       {engines.isPending ? (
         <LoadingState />

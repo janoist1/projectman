@@ -59,7 +59,10 @@ export function ActorName({
             {chip}
           </button>
         )}
-        {connected.approverInline && showApproval ? ` · ${approval}` : null}
+        {connected.approverInline && showApproval ? (
+          // A no-break space after the dot keeps it with the approver on a narrow line.
+          <span className={styles.muted}> ·&nbsp;{approval}</span>
+        ) : null}
         {after}
         {history || expanded ? (
           <span id={id} className={styles.detail}>

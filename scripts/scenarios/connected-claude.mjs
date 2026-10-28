@@ -5,6 +5,9 @@
  *   a. the card timeline: a direct instruction, external work (MCP), an approved step and an old super row
  *   b. a. with the chip opened
  *   c. the message list (all messages)
+ *   d. the conversation list, the last message of a connected Claude
+ *   e. "Rád vár", the recently closed rows decided through a connected Claude
+ *   h. a conversation thread with the viewer's own connected Claude message
  *   f. Settings → history
  *   g. a. in the dark theme
  */
@@ -122,6 +125,65 @@ export default async ({ instance, open, shoot, step }) => {
     await visit('/p/AC/messages/all');
     await page.getByText('Message 3.').waitFor();
     await shot('c-messages');
+  });
+  await step('d. the conversation list', async () => {
+    const other = config.team.members.find(
+      (m) => m.kind === 'ai' && m.handle !== developer.handle && m.handle !== owner.handle,
+    );
+    await page.route('**/api/projects/AC/messages/threads', (route) =>
+      route.fulfill({
+        json: {
+          threads: [
+            { peer: developer.handle, lastMessage: message(2, external, owner.handle), unreadCount: 1 },
+            { peer: other.handle, lastMessage: message(1, direct, other.handle), unreadCount: 0 },
+          ],
+          unreadCount: 1,
+        },
+      }),
+    );
+    // A wide screen opens the latest conversation beside the list; a narrow one shows the list alone.
+    await visit('/p/AC/messages');
+    await page.getByText('Message 2.', { exact: false }).first().waitFor();
+    await shoot(page, 'd-conversation-list', { widths: [1512] });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await visit('/p/AC/messages');
+    await page.getByText('Message 2.', { exact: false }).first().waitFor();
+    await shoot(page, 'd-conversation-list', { widths: [390] });
+    await page.setViewportSize({ width: 1512, height: 982 });
+  });
+  await step('e. the recently closed row in "Rád vár"', async () => {
+    const resolved = (n, actor) => ({
+      id: `inb_shot_${n}`,
+      projectKey: 'AC',
+      kind: 'question',
+      assignees: [owner.handle],
+      source: developer.handle,
+      sessionId: null,
+      taskKey: 'AC-1',
+      title: `Should the basket button turn green? (${n})`,
+      body: null,
+      payload: {},
+      options: [{ id: 'yes', label: 'Yes', style: 'primary' }],
+      state: 'resolved',
+      resolution: { via: 'integrator', actor, optionId: 'yes', by: actor.handle, at: at(10 + n), note: null },
+      createdAt: at(5 + n),
+    });
+    await page.route('**/api/projects/AC/inbox**', async (route) => {
+      const response = await route.fetch();
+      const body = await response.json();
+      if (!body.items) return route.fulfill({ response });
+      return route.fulfill({
+        json: { ...body, items: [resolved(1, direct), resolved(2, approved)] },
+      });
+    });
+    await visit('/p/AC/inbox');
+    await page.getByText('(2)', { exact: false }).first().waitFor();
+    await shot('e-inbox-recent');
+  });
+  await step('h. a thread with the own connected message', async () => {
+    await visit(`/p/AC/messages/with/${developer.handle}`);
+    await page.getByText('Message 1.').waitFor();
+    await shot('h-thread');
   });
   await step('f. settings history', async () => {
     await visit('/p/AC/settings/history');

@@ -63,11 +63,28 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(m.rows.first { $0.title?.key == .more }?.title?.args, ["3"])
     }
     func testActionsDisableControlsAndClearCounter() throws {
+        let value = try snapshot()
+        let original = model(value)
         for action in [EngineAction.start, .stop, .restart] {
-            let m = model(try snapshot(), action: action)
+            let m = model(value, action: action)
             XCTAssertEqual(m.icon, .busy); XCTAssertEqual(m.count, 0); XCTAssertEqual(m.header.key, action.progress)
-            XCTAssertEqual(m.rows.filter { ($0.command == .start || $0.command == .stop || $0.command == .restart) && !$0.enabled }.count, 3)
+            XCTAssertEqual(m.rows.map(\.command), original.rows.map(\.command))
+            XCTAssertEqual(m.rows.map(\.isSeparator), original.rows.map(\.isSeparator))
+            XCTAssertEqual(m.rows.filter { ($0.command == .stop || $0.command == .restart) && !$0.enabled }.count, 2)
         }
+    }
+    func testStartingPreservesStoppedMenuWithoutAddingControlsOrSeparators() throws {
+        let value = try snapshot("stopped")
+        let original = model(value)
+        let starting = model(value, action: .start)
+        XCTAssertEqual(starting.rows.map(\.command), original.rows.map(\.command))
+        XCTAssertEqual(starting.rows.map(\.isSeparator), original.rows.map(\.isSeparator))
+        XCTAssertEqual(starting.rows.first { $0.command == .start }?.enabled, false)
+    }
+    func testStopPauseSubtitleRequiresWork() throws {
+        XCTAssertEqual(model(try snapshot(), action: .stop).subtitle?.key, .pausing)
+        let idle = try snapshot { $0["work"] = ["sessions": 0, "fullTests": 0, "screenshots": 0]; $0["sessions"] = [] }
+        XCTAssertNil(model(idle, action: .stop).subtitle)
     }
     func testUnreachableOffersRetryAndDetails() {
         let m = MenuModel.make(fetch: .unavailable("error"), action: nil, now: Date())

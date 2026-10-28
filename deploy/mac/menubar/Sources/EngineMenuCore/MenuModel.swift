@@ -87,9 +87,11 @@ public struct MenuModel {
         }
         if let action {
             model.icon = .busy; model.count = 0; model.header = Localized(action.progress)
-            model.subtitle = action == .stop ? Localized(.pausing) : nil
-            model.rows.removeAll { $0.command == .start || $0.command == .stop || $0.command == .restart }
-            model.rows.insert(contentsOf: [item(.start, .start, enabled: false), item(.restart, .restart, enabled: false), item(.stop, .stop, enabled: false)], at: 0)
+            model.subtitle = action == .stop && (fetch.snapshot?.work.total ?? 0) > 0 ? Localized(.pausing) : nil
+            model.rows = model.rows.map { row in
+                guard row.command == .start || row.command == .stop || row.command == .restart else { return row }
+                return MenuRow(row.title, literal: row.literal, secondary: row.secondary, command: row.command, enabled: false, section: row.section)
+            }
         }
         return model
     }

@@ -27,7 +27,10 @@ enum StatusIcon {
                 }
             }
             if kind == .noCloud || kind == .warning {
-                NSBezierPath(ovalIn: NSRect(x: 34, y: 34, width: 5, height: 5)).fill()
+                context.setBlendMode(.destinationOut)
+                NSBezierPath(ovalIn: NSRect(x: 28, y: 28, width: 22, height: 22)).fill()
+                context.setBlendMode(.normal)
+                NSBezierPath(ovalIn: NSRect(x: 32.5, y: 32.5, width: 13, height: 13)).fill()
             }
             return true
         }

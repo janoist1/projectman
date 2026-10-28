@@ -187,6 +187,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
             alert.window.defaultButtonCell = cancel.cell as? NSButtonCell
             let destructive = alert.addButton(withTitle: L10n.text(action == .stop ? .stop : .restart))
             destructive.hasDestructiveAction = true; destructive.keyEquivalent = ""
+            NSApp.activate(ignoringOtherApps: true)
             guard alert.runModal() == .alertSecondButtonReturn else { return }
         }
         targetPid = state.fetch.snapshot?.process.pid
@@ -209,7 +210,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     private func showError(_ action: EngineAction, _ message: String) {
         let alert = NSAlert(); alert.alertStyle = .warning
         alert.messageText = L10n.text(action.failure); alert.informativeText = message
-        alert.addButton(withTitle: L10n.text(.ok)); alert.runModal()
+        alert.addButton(withTitle: L10n.text(.ok))
+        NSApp.activate(ignoringOtherApps: true)
+        alert.runModal()
     }
     private func openWindow() {
         if window == nil {

@@ -34,8 +34,13 @@ export const queryKeys = {
   /** Hybrid mode (PM-316): what every internal member sees, kept live by `engine_changed`, and the owner's list. */
   engineStatus: ['engines', 'status'] as const,
   engines: ['engines', 'list'] as const,
+  /** One engine's provider logins (PM-1077) and a project's engines (PM-1060); `engine_changed` reloads them. */
+  engineProviders: (id: string) => ['engines', 'providers', id] as const,
+  projectEnginesAll: ['engines', 'project'] as const,
+  projectEngines: (key: string) => ['engines', 'project', key] as const,
   invitations: (key: string) => ['project', key, 'invitations'] as const,
   invite: (token: string) => ['invite', token] as const,
+  ownerInvite: (token: string) => ['owner-invite', token] as const,
   setupStatus: ['setupStatus'] as const,
   me: ['me'] as const,
   /** The person's own web push devices and settings (PM-815): not tied to a project. */

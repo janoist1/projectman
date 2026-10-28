@@ -210,6 +210,8 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       // The event does not say that an engine was revoked: the reload drops it from the status list.
       void client.invalidateQueries({ queryKey: queryKeys.engineStatus });
       void client.invalidateQueries({ queryKey: queryKeys.engines });
+      // A project's engines carry `holdsProject`, which changes when the engine connects with a new hello.
+      void client.invalidateQueries({ queryKey: queryKeys.projectEnginesAll });
       // What failed because the engine was away (a machine view, a session's chat) loads again at connect.
       if (event.engine.online)
         void client.invalidateQueries({

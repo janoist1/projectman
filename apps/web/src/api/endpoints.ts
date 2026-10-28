@@ -24,8 +24,11 @@ import {
   MemberQueueView,
   EmailLoginCodeRequested,
   CreateEngineResponse,
+  EngineProvidersView,
   EngineStatusResponse,
   EngineView,
+  ProjectEnginesResponse,
+  PublicOwnerInviteView,
   MachineView,
   StopOrphansResult,
   AttachmentListResponse,
@@ -195,6 +198,12 @@ export const api = {
     apiRequest(routes.revokeEngine(id), { method: 'POST', body: {}, schema: EngineView }),
   defaultEngine: (id: string) =>
     apiRequest(routes.defaultEngine(id), { method: 'POST', body: {}, schema: EngineView.array() }),
+  /** The provider logins on one engine's machine (PM-1077); `refresh` asks the machine again. */
+  engineProviders: (id: string, refresh = false) =>
+    apiRequest(`${routes.engineProviders(id)}${refresh ? '?refresh=1' : ''}`, {
+      schema: EngineProvidersView,
+    }),
+  projectEngines: (key: string) => apiRequest(routes.projectEngines(key), { schema: ProjectEnginesResponse }),
   stopOrphans: (body: StopOrphansRequest) =>
     apiRequest(routes.machineOrphansStop(), { method: 'POST', body, schema: StopOrphansResult }),
   addHumanMember: (key: string, body: AddHumanMemberRequest) =>
@@ -221,6 +230,9 @@ export const api = {
   invite: (token: string) => apiRequest(routes.invite(token), { schema: PublicInviteView }),
   acceptInvite: (token: string, body: AcceptInviteRequest) =>
     apiRequest(routes.acceptInvite(token), { method: 'POST', body, schema: Me }),
+  ownerInvite: (token: string) => apiRequest(routes.ownerInvite(token), { schema: PublicOwnerInviteView }),
+  acceptOwnerInvite: (token: string, body: AcceptInviteRequest) =>
+    apiRequest(routes.acceptOwnerInvite(token), { method: 'POST', body, schema: Me }),
 
   projects: () => apiRequest(routes.projects(), { schema: ProjectSummary.array() }),
   createProject: (body: CreateProjectRequest) =>

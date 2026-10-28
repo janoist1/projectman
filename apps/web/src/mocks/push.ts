@@ -37,6 +37,8 @@ export class MockPush {
   publicKey = 'BAWjAnEvcwXtkUv3Xo1ZEY7rSJbVNn0H7i1eC4xK3UNIkVbtQ6hTrX0gYkz9nEgqsd0Z9p3jX2qk8yq1Lw5YJ0E';
   settings: PushSettings = structuredClone(DEFAULT_PUSH_SETTINGS);
   devices: PushDeviceView[] = [];
+  /** Endpoint hashes that belong to another person's device: subscribing with one is refused with a 409. */
+  readonly foreignHashes = new Set<string>();
   /** What the next test send reports for the device. */
   nextResult: { result: PushResult; failure?: PushFailure } = { result: 'ok' };
   /** Every call, in order, as method and path after `/api/me/push`: `GET`, `PATCH /devices/<id>` and so on. */
@@ -112,6 +114,8 @@ export class MockPush {
     const parsed = SubscribePushRequest.safeParse(body);
     if (!parsed.success) return error(400, 'web_push_endpoint_invalid', 'Push endpoint is not allowed');
     const hash = mockEndpointHash(parsed.data.endpoint);
+    if (this.foreignHashes.has(hash))
+      return error(409, 'web_push_endpoint_taken', 'Push endpoint belongs to another user');
     const own = this.devices.find((d) => d.endpointHash === hash);
     if (!own && this.devices.length >= DEVICE_LIMIT)
       return error(409, 'web_push_device_limit', 'Push device limit reached');

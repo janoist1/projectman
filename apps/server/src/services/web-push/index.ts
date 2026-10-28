@@ -212,11 +212,13 @@ export function createWebPushService(opts: WebPushOptions) {
       const hash = endpointHash(input.endpoint);
       return opts.repos.transaction(() => {
         const previous = repo.byEndpoint(hash);
-        const own = previous?.user_id === userId ? previous : undefined;
+        // Another person's endpoint is never taken over: their device row stays as it is (PM-1013).
+        if (previous && previous.user_id !== userId)
+          throw conflict('web_push_endpoint_taken', 'Push endpoint belongs to another user');
+        const own = previous;
         if (!own && repo.devices(userId).length >= 20)
           throw conflict('web_push_device_limit', 'Push device limit reached');
         const time = now().toISOString();
-        if (previous && !own) repo.remove(previous.user_id, previous.id);
         const row: PushDeviceRecord = {
           id: own?.id ?? randomUUID(),
           user_id: userId,

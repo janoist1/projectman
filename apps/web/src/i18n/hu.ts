@@ -1227,6 +1227,8 @@ export const hu = {
       web_push_endpoint_invalid:
         'Ez az értesítési eszköz nem használható. Kapcsold be újra az értesítéseket.',
       web_push_device_limit: 'Legfeljebb 20 eszközön kérhetsz értesítést. Előbb törölj egy eszközt.',
+      web_push_endpoint_taken:
+        'Ez a böngésző már egy másik felhasználó értesítési eszköze. Töröld a böngésző értesítési beállítását, és próbáld újra.',
       web_push_quiet_hours_invalid: 'Ellenőrizd a csendes órák kezdetét, végét és időzónáját.',
       web_push_integrator_refused: 'Az értesítéseket a saját bejelentkezéseddel kezelheted.',
       web_push_test_too_soon: 'Várj öt másodpercet az újabb próba előtt.',

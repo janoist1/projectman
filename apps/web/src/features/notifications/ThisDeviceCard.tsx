@@ -207,9 +207,7 @@ export function ThisDeviceCard({
         >
           <p className={styles.heroText}>{t('notifications.off.text')}</p>
           <p className={styles.heroSmall}>{t('notifications.off.hint')}</p>
-          {state.failed ? (
-            <ErrorBanner className={styles.enableFailed}>{t('notifications.enableFailed')}</ErrorBanner>
-          ) : null}
+          {state.failure ? <ErrorBanner className={styles.enableFailed}>{state.failure}</ErrorBanner> : null}
         </Hero>
       );
   }

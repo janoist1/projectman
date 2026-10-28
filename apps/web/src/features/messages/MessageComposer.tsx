@@ -59,7 +59,7 @@ export function MessageComposer({
   const [chosen, setChosen] = useState<string[] | null>(initialTo.length ? initialTo : null);
   const [text, setText] = useState('');
   const [taskKey, setTaskKey] = useState(initialTask);
-  // A member who writes only to the contacts sees only them (PM-985).
+  // A member who writes only to some members sees only them (PM-985, PM-1102).
   const recipients = (board.data?.members ?? []).filter(
     (m) => m.handle !== myHandle && m.status !== 'retired' && contacts.canWriteTo(m.handle),
   );
@@ -67,7 +67,7 @@ export function MessageComposer({
   const to = chosen ?? (contacts.restricted && recipients.length === 1 ? [recipients[0]!.handle] : []);
   const selected = to.filter((handle) => recipients.some((m) => m.handle === handle));
   const access = me.projects.find((p) => p.key === key)?.access;
-  if (!access || !['owner', 'admin', 'developer', 'client'].includes(access)) return null;
+  if (!access || !['owner', 'admin', 'developer', 'client', 'viewer'].includes(access)) return null;
   // Nobody to write to: the page says so instead of offering a form that cannot send.
   if (contacts.restricted && contacts.ready && recipients.length === 0) return null;
   return (
@@ -113,7 +113,13 @@ export function MessageComposer({
       ) : null}
       <fieldset className={styles.recipients} disabled={send.isPending}>
         <legend>{t('messages.recipients')}</legend>
-        {contacts.restricted ? <small>{t('messages.contactsOnlyHint')}</small> : null}
+        {contacts.restricted ? (
+          <small>
+            {t(
+              contacts.limit === 'project_manager' ? 'messages.managerOnlyHint' : 'messages.contactsOnlyHint',
+            )}
+          </small>
+        ) : null}
         {recipients.map((member) => {
           const ask = whenToAsk(member.roles, roles.data?.roles);
           return (

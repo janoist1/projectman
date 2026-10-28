@@ -2889,6 +2889,13 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                         },
                         "type": "array",
                       },
+                      "viewerRecipients": {
+                        "enum": [
+                          "project_manager",
+                          "contacts",
+                        ],
+                        "type": "string",
+                      },
                     },
                     "type": "object",
                   },

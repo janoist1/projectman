@@ -6,21 +6,22 @@ import { nameOf } from '../../lib/members';
 import { useContacts } from './useContacts';
 
 /**
- * What a member who writes only to the contacts sees where a reply box would be for someone who is
- * not a contact (PM-985): why, and links to the people they can write to.
+ * What a member who writes only to some members sees where a reply box would be for someone they may not
+ * write to (PM-985, PM-1102): why, and links to the people they can write to.
  */
 export function ContactNote({ className }: { className?: string }) {
   const { key, myHandle } = useProject();
   const { members } = useProjectIndexes(key);
-  const { contacts } = useContacts();
-  const reachable = contacts.filter((handle) => handle !== myHandle && members.has(handle));
+  const { recipients, limit } = useContacts();
+  const managerOnly = limit === 'project_manager';
+  const reachable = recipients.filter((handle) => handle !== myHandle && members.has(handle));
   return (
     <p className={className} role="note">
       {reachable.length === 0 ? (
-        t('messages.thread.notContactNoContacts')
+        t(managerOnly ? 'messages.thread.notManagerNoManager' : 'messages.thread.notContactNoContacts')
       ) : (
         <>
-          {t('messages.thread.notContact')}{' '}
+          {t(managerOnly ? 'messages.thread.notManager' : 'messages.thread.notContact')}{' '}
           {reachable.map((handle, index) => (
             <Fragment key={handle}>
               {index === 0 ? '' : index === reachable.length - 1 ? ` ${t('messages.thread.or')} ` : ', '}

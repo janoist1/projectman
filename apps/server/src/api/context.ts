@@ -32,22 +32,19 @@ export function authenticatedUser(request: FastifyRequest): AuthUser {
 
 /**
  * The user's membership in the project, with at least `minimum` access. Clients see only
- * what is shared with them, so `internal` rejects them; viewers only read, so `messaging`
- * (talking to the team, which clients may do) rejects them.
+ * what is shared with them, so `internal` rejects them. Whom a client or viewer may write to is one
+ * shared rule (`teamMessageRecipientRefusal`), not an access level here.
  */
 export async function requireAccess(
   domain: ApiDomain,
   request: FastifyRequest,
   projectKey: string,
-  opts: { minimum?: HumanAccess; messaging?: boolean } = {},
+  opts: { minimum?: HumanAccess } = {},
 ): Promise<ProjectAccess> {
   const user = authenticatedUser(request);
   if (!domain.projects.has(projectKey)) throw notFound('project', projectKey);
   const access = await domain.accessFor(projectKey, user.email);
   if (!access) throw forbidden('not_a_member', 'you are not a member of this project');
-  if (opts.messaging && access.access === 'viewer') {
-    throw forbidden('insufficient_access', 'Developer or client access required');
-  }
   if (opts.minimum && !hasAccess(access.access, opts.minimum)) {
     throw forbidden('insufficient_access', `requires ${opts.minimum} access`);
   }

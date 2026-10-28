@@ -6588,13 +6588,11 @@ export class MockBackend {
   }
 
   /**
-   * The project's focus routes (PM-427): internal members read it, whoever the shared rule allows sets it.
-   * A write replaces the list, records `focus_changed` (a move has no card) and tells the open pages.
+   * The project's focus routes (PM-427): every member reads it (a client too, PM-79), whoever the shared rule
+   * allows sets it. A write replaces the list, records `focus_changed` (a move has no card) and tells the open pages.
    */
   private projectFocus(method: string, rest: string, body: unknown, query: URLSearchParams): MockResponse {
-    const viewer = this.findMember(this.viewerHandle);
-    if (!viewer || viewer.role === 'client')
-      return error(403, 'insufficient_access', 'Internal access required');
+    if (!this.findMember(this.viewerHandle)) return error(403, 'insufficient_access', 'Members only');
     const view = () => ({ items: clone(this.focusItems), canEdit: this.mayEditFocus() });
     if (rest === '/focus' && method === 'GET') {
       if (this.focusLoadFails) return error(500, 'internal_error', 'The focus could not be read');

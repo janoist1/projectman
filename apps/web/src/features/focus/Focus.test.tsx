@@ -42,8 +42,10 @@ const inFocus = (ui: ReactElement) => <FocusProvider>{ui}</FocusProvider>;
 const renderBoard = (project: Project, route = '/', overrides: Overrides = {}) =>
   project.render(inFocus(<BoardPage />), route, overrides);
 
-/** The same project seen by a client: nothing of the focus may reach the page. */
-function asClient(project: Project): NonNullable<Overrides> {
+/** Viewers who may read the focus and not set it: a member without the right, and a client (PM-79). */
+function readOnlyViewer(project: Project, who: 'qa' | 'kata'): NonNullable<Overrides> {
+  project.backend.viewerHandle = who;
+  if (who === 'qa') return {};
   return {
     me: {
       ...project.context.me,
@@ -51,6 +53,7 @@ function asClient(project: Project): NonNullable<Overrides> {
     },
   };
 }
+const READ_ONLY_VIEWERS = ['qa', 'kata'] as const;
 
 const keyOf = (link: HTMLElement) => /(AC-\d+)/.exec(link.getAttribute('href') ?? '')?.[1] ?? '';
 const strip = () => screen.queryByRole('region', { name: t('focus.title') });
@@ -135,14 +138,17 @@ describe('the focus strip', () => {
     expect(strip()).toBeNull();
   });
 
-  it('lets a viewer without the right read the list: "Részletek", no editing', async () => {
-    const project = focused('AC-24');
-    project.backend.viewerHandle = 'qa';
-    renderBoard(project);
-    await waitFor(() => expect(chips()).toHaveLength(1));
-    expect(screen.getByRole('button', { name: t('focus.details') })).toBeTruthy();
-    expect(screen.queryByRole('button', { name: t('focus.edit') })).toBeNull();
-  });
+  it.each(READ_ONLY_VIEWERS)(
+    'lets %s read the list and filter by it: "Részletek", no editing',
+    async (who) => {
+      const project = focused('AC-24');
+      renderBoard(project, '/?focus=1', readOnlyViewer(project, who));
+      await waitFor(() => expect(chips()).toHaveLength(1));
+      await waitFor(() => expect(boardKeys()).toEqual(['AC-24']));
+      expect(screen.getByRole('button', { name: t('focus.details') })).toBeTruthy();
+      expect(screen.queryByRole('button', { name: t('focus.edit') })).toBeNull();
+    },
+  );
 
   it('is one row on a phone: the title with the count and the filter, no chips', async () => {
     vi.spyOn(window, 'matchMedia').mockImplementation((query) => ({
@@ -174,18 +180,6 @@ describe('the focus strip', () => {
     await waitFor(() => expect(chips()).toHaveLength(1));
     expect(chips()[0]!.textContent).toContain('AC-999');
     expect(chips()[0]!.getAttribute('href')).toContain('AC-999');
-  });
-});
-
-describe('a client', () => {
-  it('asks for no focus, sees no strip, and a ?focus=1 in the address does not empty the board', async () => {
-    const project = focused('AC-24');
-    renderBoard(project, '/?focus=1', asClient(project));
-    await waitFor(() => expect(boardKeys().length).toBeGreaterThan(1));
-    expect(strip()).toBeNull();
-    expect(focusReads(project)).toHaveLength(0);
-    expect(screen.queryByRole('button', { name: t('focus.only') })).toBeNull();
-    expect(screen.queryByRole('img', { name: /^Fókusz, / })).toBeNull();
   });
 });
 
@@ -463,28 +457,21 @@ describe('the "Fókusz" row of a card', () => {
     expect(button.title).toBe(t('errors.codes.focus_full'));
   });
 
-  it('shows the place only to a viewer who may not change it, and nothing for a card outside', async () => {
+  it.each(READ_ONLY_VIEWERS)('shows the place only to %s, who may not change it', async (who) => {
     const project = focused('AC-24');
-    project.backend.viewerHandle = 'qa';
-    project.render(routes, '/p/AC/tasks/AC-24');
+    project.render(routes, '/p/AC/tasks/AC-24', readOnlyViewer(project, who));
     expect(await screen.findByText(t('focus.row.place', { position: 1 }))).toBeTruthy();
     expect(screen.queryByRole('button', { name: t('focus.row.remove') })).toBeNull();
   });
 
-  it('has no row for a card outside the focus when the viewer may not change it', async () => {
-    const project = focused('AC-24');
-    project.backend.viewerHandle = 'qa';
-    project.render(routes, '/p/AC/tasks/AC-23');
-    await waitFor(() => expect(focusReads(project)).toHaveLength(1));
-    await screen.findAllByText(titleOf(project.backend, 'AC-23'));
-    expect(screen.queryByText(t('focus.row.label'))).toBeNull();
-  });
-
-  it('has no row for a client', async () => {
-    const project = focused('AC-24');
-    project.render(routes, '/p/AC/tasks/AC-24', asClient(project));
-    await screen.findAllByText(titleOf(project.backend, 'AC-24'));
-    expect(screen.queryByText(t('focus.row.label'))).toBeNull();
-    expect(focusReads(project)).toHaveLength(0);
-  });
+  it.each(READ_ONLY_VIEWERS)(
+    'has no row for a card outside the focus when %s may not change it',
+    async (who) => {
+      const project = focused('AC-24');
+      project.render(routes, '/p/AC/tasks/AC-23', readOnlyViewer(project, who));
+      await waitFor(() => expect(focusReads(project)).toHaveLength(1));
+      await screen.findAllByText(titleOf(project.backend, 'AC-23'));
+      expect(screen.queryByText(t('focus.row.label'))).toBeNull();
+    },
+  );
 });

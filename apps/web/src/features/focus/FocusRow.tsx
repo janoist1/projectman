@@ -10,8 +10,8 @@ import { FocusMark, focusPlaceText } from './FocusMark';
 
 /**
  * The "Fókusz" row of the open card or theme (PM-438): the place it has and what put it there, and the
- * button that puts it in the focus or takes it off. A viewer who may not see the focus gets no row; one who
- * may not change it reads the place only. A refusal shows under the row, in the drawer's error style.
+ * button that puts it in the focus or takes it off. A viewer who may not change it (a client, say) reads the
+ * place only, and has no row for a card outside the focus. A refusal shows under the row, in the drawer's error style.
  */
 export function FocusRow({ task }: { task: Task }) {
   const { visible, canEdit, full, items, add, remove } = useFocus();

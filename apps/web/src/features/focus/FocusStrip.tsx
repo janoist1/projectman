@@ -17,8 +17,8 @@ const VISIBLE_CHIPS = 5;
 
 /**
  * The project's focus above the board (PM-438): what the team works on now, in order, with
- * the way into the panel and the "Csak a fókusz" filter. Nothing is drawn for a viewer who may not see
- * the focus, and nothing for an empty focus that the viewer cannot set up either.
+ * the way into the panel and the "Csak a fókusz" filter. Nothing is drawn for an empty focus that the viewer
+ * cannot set up either.
  */
 export function FocusStrip() {
   const { visible, loading, loadFailed, reload, items, canEdit, tasksByKey } = useFocus();

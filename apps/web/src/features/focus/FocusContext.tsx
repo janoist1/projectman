@@ -50,7 +50,7 @@ export function useFocus(): FocusContextValue {
 }
 
 /** What puts a card in the focus: the item that covers it, when it is not the card itself. */
-export type FocusVia = { kind: 'theme'; key: string; title: string } | { kind: 'card'; key: string };
+type FocusVia = { kind: 'theme'; key: string; title: string } | { kind: 'card'; key: string };
 
 export interface FocusPlaceView {
   position: number;

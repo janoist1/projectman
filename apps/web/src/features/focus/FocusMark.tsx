@@ -6,7 +6,7 @@ import type { FocusPlaceView } from './FocusContext';
 import styles from './FocusMark.module.css';
 
 /** What the mark says: the place, and what put the card there when it is not an item itself. */
-export function focusMarkLabel(place: FocusPlaceView): string {
+function focusMarkLabel(place: FocusPlaceView): string {
   const { position, via } = place;
   if (!via) return t('focus.mark', { position });
   return via.kind === 'theme'
@@ -25,7 +25,7 @@ export function focusPlaceText(place: FocusPlaceView): string {
 
 /**
  * "◎ 2": the card or theme is in the project's focus, at this place. Nothing is drawn for a card outside
- * the focus, and nothing at all for a viewer who may not see the focus (a client).
+ * the focus. A client sees it as every member does (PM-79).
  */
 export function FocusMark({ taskKey, className }: { taskKey: string; className?: string }) {
   const place = useFocusPlace(taskKey);

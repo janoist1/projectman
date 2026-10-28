@@ -42,16 +42,16 @@ function moved(items: readonly ProjectFocusItem[], key: string, position: number
 }
 
 /**
- * The project's focus (PM-427 4/4). A client (an external member) never gets it: nothing is asked,
- * and `visible` is false, so no screen shows any part of it. For the others the list is the server's,
- * with the saves that are on their way applied on top, so a change shows at once and goes back by itself
+ * The project's focus (PM-427 4/4). Every member sees it (the client sees everything, decision 59, PM-79);
+ * `canEdit` is the server's word on who sets it, so a client reads it and changes nothing. The list is the
+ * server's, with the saves that are on their way applied on top, so a change shows at once and goes back by itself
  * when the server refuses it (the save then rejects; the caller shows the error).
  */
 export function useProjectFocus() {
   const { key, me, myHandle } = useProject();
   const client = useQueryClient();
   const access = me.projects.find((project) => project.key === key)?.access;
-  const visible = access !== undefined && access !== 'client';
+  const visible = access !== undefined;
   const query = useQuery({
     queryKey: queryKeys.focus(key),
     queryFn: () => api.projectFocus(key),
@@ -108,7 +108,7 @@ export function useProjectFocus() {
   );
 
   return {
-    /** Whether the viewer may see the focus at all: false for a client. */
+    /** Whether the viewer is a member of the project, so the focus is theirs to see. */
     visible,
     /** The list is not known yet. */
     loading: visible && query.isPending,

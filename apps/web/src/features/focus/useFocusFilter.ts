@@ -3,11 +3,11 @@ import { useSearchParams } from 'react-router';
 import { useFocus } from './FocusContext';
 
 /** The query parameter of the "Csak a fókusz" filter on the board. */
-export const FOCUS_FILTER_PARAM = 'focus';
+const FOCUS_FILTER_PARAM = 'focus';
 
 /**
  * "Csak a fókusz" (PM-438): `?focus=1` narrows the board to the cards and themes the focus
- * covers. A viewer who may not see the focus (a client) has the parameter ignored: the whole board shows.
+ * covers, for every member (a client too, PM-79).
  */
 export function useFocusFilter() {
   const { visible, loading, loadFailed, places } = useFocus();

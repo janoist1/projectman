@@ -90,19 +90,14 @@ describe('mock backend focus (the server contract of PM-435)', () => {
     });
   });
 
-  it('lets a member without the right read the list but not change it', () => {
+  // A client sees everything a member sees (PM-79), and sets nothing.
+  it.each(['qa', 'kata'])('lets %s read the list and the changes but not change it', (handle) => {
     const backend = new MockBackend();
     add(backend, 'AC-24');
-    backend.viewerHandle = 'qa';
-    expect(view(backend)).toMatchObject({ canEdit: false });
+    backend.viewerHandle = handle;
+    expect(view(backend)).toMatchObject({ canEdit: false, items: [{ key: 'AC-24' }] });
+    expect(backend.handle('GET', `${base}/changes`, undefined, new URLSearchParams()).status).toBe(200);
     expect(codeOf(add(backend, 'AC-23'))).toBe('focus_not_allowed');
     expect(codeOf(backend.handle('DELETE', `${base}/items/AC-24`, undefined))).toBe('focus_not_allowed');
-  });
-
-  it('shows a client nothing', () => {
-    const backend = new MockBackend();
-    backend.viewerHandle = 'kata';
-    expect(backend.handle('GET', base, undefined).status).toBe(403);
-    expect(backend.handle('GET', `${base}/changes`, undefined, new URLSearchParams()).status).toBe(403);
   });
 });

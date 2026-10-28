@@ -761,6 +761,26 @@ export function TeamSection({ config }: { config: ProjectConfig }) {
           </dl>
         )}
       </section>
+      <section aria-labelledby="settings-prerequisite-override-title">
+        <h3 id="settings-prerequisite-override-title" className={shared.groupTitle}>
+          {t('settings.team.prerequisiteOverride.title')}
+        </h3>
+        <div className={shared.controls}>
+          <p id={prerequisiteHelpId} className={shared.help}>
+            {t('settings.team.prerequisiteOverride.help')}
+          </p>
+          {can.manageTeam ? (
+            <PrerequisiteOverrideControls config={config} helpId={prerequisiteHelpId} />
+          ) : (
+            <dl className={shared.facts}>
+              <div>
+                <dt>{t('settings.team.prerequisiteOverride.readOnlyLabel')}</dt>
+                <dd>{t(`settings.team.prerequisiteOverride.value.${prerequisiteOverrideOf(config)}`)}</dd>
+              </div>
+            </dl>
+          )}
+        </div>
+      </section>
       <section aria-labelledby="settings-pm-lifecycle-title">
         <h3 id="settings-pm-lifecycle-title" className={shared.groupTitle}>
           {t('settings.team.projectManagerLifecycle.label')}
@@ -783,26 +803,6 @@ export function TeamSection({ config }: { config: ProjectConfig }) {
                     <p>{t('settings.team.projectManagerLifecycle.none')}</p>
                   ) : null}
                 </dd>
-              </div>
-            </dl>
-          )}
-        </div>
-      </section>
-      <section aria-labelledby="settings-prerequisite-override-title">
-        <h3 id="settings-prerequisite-override-title" className={shared.groupTitle}>
-          {t('settings.team.prerequisiteOverride.title')}
-        </h3>
-        <div className={shared.controls}>
-          <p id={prerequisiteHelpId} className={shared.help}>
-            {t('settings.team.prerequisiteOverride.help')}
-          </p>
-          {can.manageTeam ? (
-            <PrerequisiteOverrideControls config={config} helpId={prerequisiteHelpId} />
-          ) : (
-            <dl className={shared.facts}>
-              <div>
-                <dt>{t('settings.team.prerequisiteOverride.readOnlyLabel')}</dt>
-                <dd>{t(`settings.team.prerequisiteOverride.value.${prerequisiteOverrideOf(config)}`)}</dd>
               </div>
             </dl>
           )}

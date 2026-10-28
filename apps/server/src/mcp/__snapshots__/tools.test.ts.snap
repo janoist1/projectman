@@ -2495,6 +2495,16 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                         ],
                         "type": "object",
                       },
+                      "prioritySetters": {
+                        "items": {
+                          "enum": [
+                            "project_manager",
+                            "prioritization_duty",
+                          ],
+                          "type": "string",
+                        },
+                        "type": "array",
+                      },
                       "project": {
                         "additionalProperties": false,
                         "properties": {
@@ -4703,7 +4713,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
               "type": "null",
             },
           ],
-          "description": "The card priority; null clears it. Only people and the project manager may set it.",
+          "description": "The card priority; null clears it. People may set it; an AI member only when the project's priority setting allows it.",
         },
         "remove_labels": {
           "description": "Label ids to remove.",

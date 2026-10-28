@@ -5268,7 +5268,8 @@ retired, `operator_required` 409; it cannot go on leave), `isOperatorActor` (an 
   on the server; no new engine data or machine-dependent operation is introduced.
 - **Moves and priority.** The Operator is bound by no stage-move limit (`actorMoveRefusal` binds the project manager
   only), so it may also move a card out of the first stage, through the gates; `priorityRefusal` lets it set the
-  priority. `labelRefusal` is unchanged: no AI member sets a label only a person may set.
+  priority (people and the connected owner always may; an AI member only when `team.prioritySetters`, PM-1096, covers
+  it: the project managers by default, and the AI members holding the `prioritization` duty when chosen). `labelRefusal` is unchanged: no AI member sets a label only a person may set.
 - **Creation.** A new project gets an Operator next to the project manager (`operatorMember`, `draft.finish`); the
   configuration migration `addOperator` adds one to a project without it, at work (not on leave), sponsored by the first
   human owner.

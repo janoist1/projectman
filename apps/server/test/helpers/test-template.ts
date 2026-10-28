@@ -1,4 +1,4 @@
-import { DEFAULT_PROJECT_MANAGER_MOVES, ProjectConfig } from '@projectman/shared';
+import { DEFAULT_PRIORITY_SETTERS, DEFAULT_PROJECT_MANAGER_MOVES, ProjectConfig } from '@projectman/shared';
 import type { ProjectConfigInput } from '@projectman/shared';
 import type { BuildTemplateInput, ProjectTemplate } from '@projectman/templates';
 
@@ -22,6 +22,7 @@ function testConfigInput(input: BuildTemplateInput): ProjectConfigInput {
     team: {
       cardMover: input.cardMover ?? { kind: 'worker' },
       projectManagerMoves: DEFAULT_PROJECT_MANAGER_MOVES,
+      prioritySetters: [...DEFAULT_PRIORITY_SETTERS],
       // Stored explicitly, as the migration writes it; the developer, so that tests may drop the review stage.
       merger: input.merger ?? { kind: 'developer' },
       members: [

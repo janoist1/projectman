@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
+import { PrioritySetter, prioritySettersOf } from '@projectman/shared';
 import type { ProjectConfig, PatchConfigRequest, Pipeline } from '@projectman/shared';
 import { usePatchConfig } from '../../api/queries';
 import { isApiError } from '../../api/client';
@@ -93,6 +94,13 @@ function limitsBody(draft: ProjectConfig, saved: ProjectConfig, baseVersion: str
     draft.team.projectManagerMoves !== saved.team.projectManagerMoves
       ? draft.team.projectManagerMoves
       : undefined;
+  // The priority setters go as the whole list when it changed, [] too; compared in the options' order.
+  const settersOf = (config: ProjectConfig) => {
+    const chosen = prioritySettersOf(config);
+    return PrioritySetter.options.filter((setter) => chosen.includes(setter));
+  };
+  const prioritySetters = settersOf(draft);
+  const prioritySettersChanged = JSON.stringify(prioritySetters) !== JSON.stringify(settersOf(saved));
   // The contacts go as the whole list when it changed, an empty one too: a missing field keeps the stored list.
   const contacts = draft.team.contacts ?? [];
   const contactsChanged = JSON.stringify(contacts) !== JSON.stringify(saved.team.contacts ?? []);
@@ -102,6 +110,7 @@ function limitsBody(draft: ProjectConfig, saved: ProjectConfig, baseVersion: str
     ...(merger ? { merger } : {}),
     ...(cardMover ? { cardMover } : {}),
     ...(projectManagerMoves ? { projectManagerMoves } : {}),
+    ...(prioritySettersChanged ? { prioritySetters } : {}),
     ...(contactsChanged ? { contacts } : {}),
     ...(repoMerge.length ? { repoMerge } : {}),
     limits: {

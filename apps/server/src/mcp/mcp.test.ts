@@ -767,7 +767,7 @@ describe('team tools', () => {
     const session = await startTools();
     const priority = await call(session.client, 'create_task', { title: 'New card', priority: null });
     expect(priority.isError).toBe(true);
-    expect(text(priority)).toContain('priority is set by people only');
+    expect(text(priority)).toContain('update_task priority');
 
     await expectRefused(session, 'create_task', [
       { title: 'Card', kind: 'epic' },

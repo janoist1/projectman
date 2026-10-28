@@ -2653,6 +2653,29 @@ describe('expected steps', () => {
     const developer = builder.build(input({ project, handle: 'fe-1' })).appendSystemPrompt;
     expect(developer).not.toContain('names cards that can start now');
   });
+
+  it('leaves the priority out of the project manager prompt when the setting excludes it (PM-1096)', () => {
+    const project = buildProject();
+    addMember(project, 'pm', 'project_manager');
+    expect(builder.build(input({ project, handle: 'pm' })).guide.role!).toContain('update_task priority');
+    project.team.prioritySetters = [];
+    const pack = builder.build(input({ project, handle: 'pm' }));
+    expect(pack.guide.role!).not.toContain('update_task priority');
+    expect(pack.appendSystemPrompt).not.toContain('and priorities');
+  });
+
+  it('tells a member holding the prioritization duty that it may set a priority, when the setting allows it (PM-1096)', () => {
+    const project = buildProject();
+    addMember(project, 'pm', 'project_manager');
+    addMember(project, 'planner', 'developer');
+    project.team.roleOverrides = {
+      developer: { duties: ['implementation', 'prioritization'], instructions: '' },
+    };
+    const prompt = () => builder.build(input({ project, handle: 'planner' })).appendSystemPrompt;
+    expect(prompt()).not.toContain('update_task priority');
+    project.team.prioritySetters = ['project_manager', 'prioritization_duty'];
+    expect(prompt()).toContain('update_task priority');
+  });
 });
 
 describe('steps by duty', () => {

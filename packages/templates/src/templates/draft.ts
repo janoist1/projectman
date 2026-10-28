@@ -2,6 +2,7 @@ import {
   ProjectConfig,
   BUILT_IN_ROLE_DUTIES,
   defaultMerger,
+  DEFAULT_PRIORITY_SETTERS,
   DEFAULT_PROJECT_MANAGER_MOVES,
   isProjectManager,
   type AiBuiltInRoleId,
@@ -187,6 +188,7 @@ function draftProject(templateId: TemplateId, input: BuildTemplateInput): Templa
           limits,
           cardMover: input.cardMover ?? { kind: 'worker' },
           projectManagerMoves: DEFAULT_PROJECT_MANAGER_MOVES,
+          prioritySetters: [...DEFAULT_PRIORITY_SETTERS],
         },
         pipeline: {
           ...pipeline,

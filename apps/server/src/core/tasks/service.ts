@@ -648,7 +648,7 @@ export class TaskService implements TaskSchedulingReader {
     if (change.priority !== undefined) {
       const refusal = priorityRefusal(actor, config);
       if (refusal)
-        throw forbidden(refusal, 'the priority of a card is set by people and the project manager only');
+        throw forbidden(refusal, 'this member may not set the priority of a card (team.prioritySetters)');
       if (change.priority !== task.priority) {
         patch.priority = change.priority;
         fields.push('priority');

@@ -68,6 +68,8 @@ export const PatchConfigRequest = z
     operatorWatch: OperatorWatch.nullable().optional(),
     cardMover: ProjectConfig.shape.team.shape.cardMover,
     projectManagerMoves: ProjectConfig.shape.team.shape.projectManagerMoves,
+    /** Who besides people may set a card's priority (PM-1096): the whole list replaces the saved one, [] too. */
+    prioritySetters: ProjectConfig.shape.team.shape.prioritySetters,
     merger: ProjectConfig.shape.team.shape.merger,
     /** The project's contacts (PM-985): the whole list replaces the saved one, [] clears it. */
     contacts: ContactHandles.optional(),
@@ -267,6 +269,7 @@ export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigReques
       ...team,
       ...(patch.cardMover !== undefined ? { cardMover: patch.cardMover } : {}),
       ...(patch.projectManagerMoves !== undefined ? { projectManagerMoves: patch.projectManagerMoves } : {}),
+      ...(patch.prioritySetters !== undefined ? { prioritySetters: patch.prioritySetters } : {}),
       ...(patch.merger !== undefined ? { merger: patch.merger } : {}),
       ...(patch.contacts !== undefined ? { contacts: patch.contacts } : {}),
       ...(patch.roleOverrides !== undefined ? { roleOverrides: patch.roleOverrides } : {}),

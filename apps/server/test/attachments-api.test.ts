@@ -9,8 +9,9 @@ import {
   UploadAttachmentResponse,
 } from '@projectman/shared';
 import type { Attachment } from '@projectman/shared';
-import { aiActor } from '../src/domain';
-import { addHumanAndLogin, createAppHarness, createProject, inject, setupOwner } from './helpers/app-harness';
+import { aiActor } from '../src/kernel';
+import { createAppHarness, createProject, inject, setupOwner } from './helpers/app-harness';
+import { createHumanSessions } from './helpers/human-sessions';
 import type { AppHarness } from './helpers/app-harness';
 import { OWNER_ACTOR } from './helpers/domain-harness';
 import { fileBody, htmlBytes, pdfBytes, pngBytes, svgBytes, uploadFile } from './helpers/attachments';
@@ -19,21 +20,23 @@ import { Readable } from 'node:stream';
 describe('task attachments API', () => {
   let h: AppHarness;
   let owner: string;
-  const cookies: Record<string, string> = {};
+  let cookies: Record<string, string>;
 
   beforeEach(async () => {
     h = await createAppHarness();
     owner = await setupOwner(h.app);
     await createProject(h, owner);
-    cookies.admin = await addHumanAndLogin(h.app, { handle: 'ada', access: 'admin' });
-    cookies.developer = await addHumanAndLogin(h.app, { handle: 'robin', access: 'developer' });
-    cookies.other = await addHumanAndLogin(h.app, { handle: 'olga', access: 'developer' });
-    cookies.client = await addHumanAndLogin(h.app, { handle: 'cleo', access: 'client' });
-    cookies.viewer = await addHumanAndLogin(h.app, { handle: 'vic', access: 'viewer' });
-    cookies.stranger = await addHumanAndLogin(h.app, { handle: 'sam', projectKey: null });
+    cookies = await createHumanSessions(h.app, {
+      admin: { handle: 'ada', access: 'admin' },
+      developer: { handle: 'robin', access: 'developer' },
+      other: { handle: 'olga', access: 'developer' },
+      client: { handle: 'cleo', access: 'client' },
+      viewer: { handle: 'vic', access: 'viewer' },
+      stranger: { handle: 'sam', projectKey: null },
+    });
     const { tasks } = h.app.projectman.domain;
     await tasks.create('AR', { title: 'Internal task' }, OWNER_ACTOR);
-    await tasks.create('AR', { title: 'Shared task', visibility: 'shared' }, OWNER_ACTOR);
+    await tasks.create('AR', { title: 'Shared task' }, OWNER_ACTOR);
   });
   afterEach(async () => h.close());
 
@@ -184,7 +187,7 @@ describe('task attachments API', () => {
       );
       expect(
         (await inject(h.app, 'HEAD', urlOf('attachmentContent', attachment.id), cookies.client)).statusCode,
-      ).toBe(404);
+      ).toBe(200);
       expect(
         (await inject(h.app, 'HEAD', urlOf('attachmentContent', attachment.id), cookies.stranger)).statusCode,
       ).toBe(403);
@@ -375,49 +378,31 @@ describe('task attachments API', () => {
   });
 
   describe('who may do what', () => {
-    it('lets every project member who sees the task read; clients only on shared tasks', async () => {
+    it('lets every project member read, whatever the card’s visibility (PM-79)', async () => {
       const internal = await upload(owner, pngBytes(), { taskKey: 'AR-1' });
       const shared = await upload(owner, pngBytes(), { taskKey: 'AR-2' });
-      for (const who of ['admin', 'developer', 'viewer'] as const) {
+      for (const who of ['admin', 'developer', 'viewer', 'client'] as const) {
         const list = await inject(h.app, 'GET', routes.taskAttachments('AR', 'AR-1'), cookies[who]!);
         expect(list.statusCode, who).toBe(200);
         const content = await inject(h.app, 'GET', urlOf('attachmentContent', internal.id), cookies[who]!);
         expect(content.statusCode, who).toBe(200);
       }
-      // A client does not even learn that the internal task exists.
-      for (const url of [
-        routes.taskAttachments('AR', 'AR-1'),
-        urlOf('attachmentContent', internal.id),
-        urlOf('attachmentDownload', internal.id),
-      ]) {
-        const response = await inject(h.app, 'GET', url, cookies.client!);
-        expect(response.statusCode, url).toBe(404);
-        expect(errorCode(response)).toBe('not_found');
-      }
       const sharedList = await inject(h.app, 'GET', routes.taskAttachments('AR', 'AR-2'), cookies.client!);
       expect(AttachmentListResponse.parse(sharedList.json()).attachments.map((a) => a.id)).toEqual([
         shared.id,
       ]);
-      expect(
-        (await inject(h.app, 'GET', urlOf('attachmentContent', shared.id, 'AR-2'), cookies.client!))
-          .statusCode,
-      ).toBe(200);
     });
 
-    it('lets everyone but viewers upload; a client only to a shared task', async () => {
+    it('lets everyone but viewers and clients upload (PM-985)', async () => {
       for (const who of ['admin', 'developer', 'other'] as const) {
         expect((await uploadFile(h.app, cookies[who]!, pngBytes())).statusCode, who).toBe(201);
       }
-      const viewer = await uploadFile(h.app, cookies.viewer!, pngBytes());
-      expect(viewer.statusCode).toBe(403);
-      expect(errorCode(viewer)).toBe('insufficient_access');
-      const clientInternal = await uploadFile(h.app, cookies.client!, pngBytes());
-      expect(clientInternal.statusCode).toBe(404);
-      expect((await uploadFile(h.app, cookies.client!, pngBytes(), { taskKey: 'AR-2' })).statusCode).toBe(
-        201,
-      );
+      for (const who of ['viewer', 'client'] as const) {
+        const refused = await uploadFile(h.app, cookies[who]!, pngBytes());
+        expect(refused.statusCode, who).toBe(403);
+        expect(errorCode(refused), who).toBe('insufficient_access');
+      }
       expect(storedFiles()).toHaveLength(3);
-      expect(storedFiles('AR-2')).toHaveLength(1);
     });
 
     it('lets an AI member upload and delete its own file', async () => {
@@ -465,31 +450,28 @@ describe('task attachments API', () => {
       expect(storedFiles()).toEqual([]);
     });
 
-    it('does not let a viewer delete an older upload of their own', async () => {
-      const mine = await upload(cookies.developer!);
-      await h.app.projectman.domain.projects.update(
-        'AR',
-        { actor: OWNER_ACTOR, author: { name: 'Owner', email: 'owner@example.com' } },
-        (draft) => {
-          const member = draft.team.members.find((m) => m.handle === 'robin');
-          if (member?.kind === 'human') member.access = 'viewer';
-          return 'Make robin a viewer';
-        },
-      );
-      const response = await inject(h.app, 'DELETE', urlOf('taskAttachment', mine.id), cookies.developer);
-      expect(response.statusCode).toBe(403);
-      expect(storedFiles()).toEqual([mine.id]);
-      // ... but can still read it.
-      expect(
-        (await inject(h.app, 'GET', urlOf('attachmentContent', mine.id), cookies.developer)).statusCode,
-      ).toBe(200);
-    });
-
-    it('lets a client delete their own upload on a shared task', async () => {
-      const own = await upload(cookies.client!, pngBytes(), { taskKey: 'AR-2' });
-      const response = await inject(h.app, 'DELETE', urlOf('taskAttachment', own.id, 'AR-2'), cookies.client);
-      expect(response.statusCode).toBe(200);
-    });
+    it.each(['viewer', 'client'] as const)(
+      'does not let a %s delete an older upload of their own',
+      async (access) => {
+        const mine = await upload(cookies.developer!);
+        await h.app.projectman.domain.projects.update(
+          'AR',
+          { actor: OWNER_ACTOR, author: { name: 'Owner', email: 'owner@example.com' } },
+          (draft) => {
+            const member = draft.team.members.find((m) => m.handle === 'robin');
+            if (member?.kind === 'human') member.access = access;
+            return `Make robin a ${access}`;
+          },
+        );
+        const response = await inject(h.app, 'DELETE', urlOf('taskAttachment', mine.id), cookies.developer);
+        expect(response.statusCode).toBe(403);
+        expect(storedFiles()).toEqual([mine.id]);
+        // ... but can still read it.
+        expect(
+          (await inject(h.app, 'GET', urlOf('attachmentContent', mine.id), cookies.developer)).statusCode,
+        ).toBe(200);
+      },
+    );
 
     it('turns away anonymous users and people outside the project', async () => {
       const attachment = await upload(owner);
@@ -537,33 +519,6 @@ describe('task attachments API', () => {
         ).toBe(404);
       }
       expect(storedFiles()).toEqual([attachment.id]);
-    });
-
-    it('checks the current visibility: a client loses a task that turns internal', async () => {
-      const shared = await upload(owner, pngBytes(), { taskKey: 'AR-2' });
-      expect(
-        (await inject(h.app, 'GET', urlOf('attachmentContent', shared.id, 'AR-2'), cookies.client!))
-          .statusCode,
-      ).toBe(200);
-      await h.app.projectman.domain.tasks.update('AR', 'AR-2', { visibility: 'internal' }, OWNER_ACTOR);
-      for (const route of ['attachmentContent', 'attachmentDownload'] as const) {
-        expect(
-          (await inject(h.app, 'GET', urlOf(route, shared.id, 'AR-2'), cookies.client!)).statusCode,
-        ).toBe(404);
-      }
-      expect(
-        (await inject(h.app, 'GET', routes.taskAttachments('AR', 'AR-2'), cookies.client!)).statusCode,
-      ).toBe(404);
-      expect(
-        (await inject(h.app, 'DELETE', urlOf('taskAttachment', shared.id, 'AR-2'), cookies.client!))
-          .statusCode,
-      ).toBe(404);
-      expect((await uploadFile(h.app, cookies.client!, pngBytes(), { taskKey: 'AR-2' })).statusCode).toBe(
-        404,
-      );
-      expect(
-        (await inject(h.app, 'GET', urlOf('attachmentContent', shared.id, 'AR-2'), owner)).statusCode,
-      ).toBe(200);
     });
 
     it('stops serving a member who left the project', async () => {

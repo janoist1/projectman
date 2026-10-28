@@ -1,7 +1,10 @@
 import { execFile } from 'node:child_process';
+import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { describe, expect, it } from 'vitest';
+import os from 'node:os';
+import path from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
 import {
   FAST_HOOK_TIMEOUT_S,
   forwarderCommand,
@@ -9,6 +12,21 @@ import {
   permissionHookTimeoutS,
   shellQuote,
 } from './hook-forwarder';
+import { writeHookConfig } from './session-config';
+
+const folders: string[] = [];
+
+afterEach(async () => {
+  for (const folder of folders.splice(0)) await rm(folder, { recursive: true, force: true });
+});
+
+/** A private folder like a session's, with the forwarder's target file for `url`. */
+async function targetFor(url: string): Promise<string> {
+  const folder = await mkdtemp(path.join(os.tmpdir(), 'fwd-'));
+  folders.push(folder);
+  await chmod(folder, 0o700);
+  return writeHookConfig(folder, url);
+}
 
 /** The forwarder variant of command hooks that decide (Codex's PermissionRequest). */
 async function forward(
@@ -16,7 +34,7 @@ async function forward(
   body: string,
   pathEnv: string,
   fallbackOutput?: string,
-): Promise<{ received: string; stdout: string; code: number }> {
+): Promise<{ received: string; stdout: string; code: number; command: string }> {
   let received = '';
   const server = createServer((req, res) => {
     req.setEncoding('utf8');
@@ -28,7 +46,7 @@ async function forward(
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const { port } = server.address() as AddressInfo;
-  const command = forwarderCommand(`http://127.0.0.1:${port}/hooks/tok`, process.execPath, {
+  const command = forwarderCommand(await targetFor(`http://127.0.0.1:${port}/hooks/tok`), process.execPath, {
     printResponse: true,
     maxTimeS: 5,
     fallbackOutput,
@@ -40,7 +58,7 @@ async function forward(
     child.stdin!.end('{"hook_event_name":"PermissionRequest","tool_name":"Bash"}');
   });
   await new Promise<void>((resolve) => server.close(() => resolve()));
-  return { received, ...result };
+  return { received, ...result, command };
 }
 
 const DECISION =
@@ -61,7 +79,7 @@ describe('forwarderCommand with printResponse', () => {
         stdout: '{"decision":"allow"}',
         code: 0,
       });
-      const command = forwarderCommand('http://127.0.0.1:9/hooks/token', process.execPath, {
+      const command = forwarderCommand(await targetFor('http://127.0.0.1:9/hooks/token'), process.execPath, {
         printResponse: true,
         maxTimeS: 1,
         fallbackOutput: fallback,
@@ -77,7 +95,7 @@ describe('forwarderCommand with printResponse', () => {
   );
   it('prints the answer with curl', async () => {
     const result = await forward(200, DECISION, process.env.PATH ?? '/usr/bin:/bin');
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       received: '{"hook_event_name":"PermissionRequest","tool_name":"Bash"}',
       stdout: DECISION,
       code: 0,
@@ -96,7 +114,7 @@ describe('forwarderCommand with printResponse', () => {
       code: 0,
     });
     expect(await forward(404, '{"not":"a decision"}', '/nonexistent')).toMatchObject({ stdout: '', code: 0 });
-    const command = forwarderCommand('http://127.0.0.1:9/hooks/tok', process.execPath, {
+    const command = forwarderCommand(await targetFor('http://127.0.0.1:9/hooks/tok'), process.execPath, {
       printResponse: true,
       maxTimeS: 2,
     });
@@ -108,10 +126,8 @@ describe('forwarderCommand with printResponse', () => {
   });
 
   it('keeps the default forwarder unchanged', () => {
-    expect(forwarderCommand('http://127.0.0.1:1/hooks/t', '/node')).toContain('-m 10 -o /dev/null');
-    expect(forwarderCommand('http://127.0.0.1:1/hooks/t', '/node', { maxTimeS: 30 })).toContain(
-      '-m 30 -o /dev/null',
-    );
+    expect(forwarderCommand('/run/s/hook.curl', '/node')).toContain('-m 10 -o /dev/null');
+    expect(forwarderCommand('/run/s/hook.curl', '/node', { maxTimeS: 30 })).toContain('-m 30 -o /dev/null');
   });
 });
 
@@ -128,7 +144,7 @@ describe('forwarderCommand without printResponse', () => {
     });
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
     const { port } = server.address() as AddressInfo;
-    const command = forwarderCommand(`http://127.0.0.1:${port}/hooks/tok`);
+    const command = forwarderCommand(await targetFor(`http://127.0.0.1:${port}/hooks/tok`));
     const stdout = await new Promise<string>((resolve, reject) => {
       const child = execFile('/bin/sh', ['-c', command], { env: { PATH: pathEnv } }, (err, out) =>
         err ? reject(err) : resolve(out),
@@ -150,6 +166,82 @@ describe('forwarderCommand without printResponse', () => {
     const result = await forward('/bin');
     expect(JSON.parse(result.body)).toEqual({ hook_event_name: 'SessionStart', session_id: 's1' });
     expect(result.stdout).toBe('');
+  });
+});
+
+describe('the target file (PM-156)', () => {
+  const CANARY = 'CANARY-hook-token-0123456789';
+
+  it.each(['curl', 'node'])(
+    'keeps the token out of the command and the process list (%s)',
+    async (branch) => {
+      // The command text, which is also the argument list of the shell and of the forwarder.
+      const command = forwarderCommand('/run/ses.1/hook.curl', process.execPath, {
+        printResponse: true,
+        fallbackOutput: '{}',
+      });
+      expect(command).not.toContain(CANARY);
+      expect(command).not.toContain('http://');
+      expect(command).toContain(shellQuote('/run/ses.1/hook.curl'));
+      const result = await forward(
+        200,
+        DECISION,
+        branch === 'curl' ? (process.env.PATH ?? '/usr/bin:/bin') : '/nonexistent',
+      );
+      expect(result.command).not.toContain('/hooks/tok');
+      expect(result.command).not.toContain('127.0.0.1');
+      expect(result.stdout).toBe(DECISION);
+    },
+  );
+
+  it.each([
+    ['curl', process.env.PATH ?? '/usr/bin:/bin'],
+    ['node', '/nonexistent'],
+  ])('sends nothing and exits 0 for a missing file (%s)', async (_branch, pathEnv) => {
+    const folder = await mkdtemp(path.join(os.tmpdir(), 'fwd-'));
+    folders.push(folder);
+    const missing = path.join(folder, 'hook.curl');
+    for (const opts of [
+      {},
+      { printResponse: true },
+      { printResponse: true, fallbackOutput: '{"d":"deny"}' },
+    ]) {
+      const command = forwarderCommand(missing, process.execPath, { maxTimeS: 2, ...opts });
+      const stdout = await new Promise<string>((resolve, reject) => {
+        const child = execFile('/bin/sh', ['-c', command], { env: { PATH: pathEnv } }, (err, out) =>
+          err ? reject(err) : resolve(out),
+        );
+        child.stdin!.end('{}');
+      });
+      expect(stdout).toBe('fallbackOutput' in opts ? '{"d":"deny"}' : '');
+    }
+  });
+
+  it('never posts to a malformed file in the Node fallback', async () => {
+    let requests = 0;
+    const server = createServer((_req, res) => {
+      requests += 1;
+      res.end('x');
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const { port } = server.address() as AddressInfo;
+    const folder = await mkdtemp(path.join(os.tmpdir(), 'fwd-'));
+    folders.push(folder);
+    const file = path.join(folder, 'hook.curl');
+    await writeFile(file, `# comment\nurl = http://127.0.0.1:${port}/hooks/tok\n`);
+    const command = forwarderCommand(file, process.execPath, { maxTimeS: 2 });
+    await new Promise<void>((resolve, reject) => {
+      const child = execFile('/bin/sh', ['-c', command], { env: { PATH: '/nonexistent' } }, (err) =>
+        err ? reject(err) : resolve(),
+      );
+      child.stdin!.end('{}');
+    });
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    expect(requests).toBe(0);
+  });
+
+  it('refuses a relative target path', () => {
+    expect(() => forwarderCommand('hook.curl')).toThrow(/absolute/);
   });
 });
 

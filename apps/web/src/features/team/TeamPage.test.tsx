@@ -377,8 +377,9 @@ describe('TeamPage role catalogue', () => {
     const project = mockProject();
     project.render(<TeamPage />);
     const owner = (await screen.findByText(t('common.you'))).closest('tr')!;
-    expect(within(owner).getByText(t('roles.human.owner'))).toBeTruthy();
-    await waitFor(() => expect(within(owner).getByText(roleNames.operator.name)).toBeTruthy());
+    // The access level and the human operator role are both called "Tulajdonos" (PM-447): one of each.
+    expect(t('roles.human.owner')).toBe(roleNames.operator.name);
+    await waitFor(() => expect(within(owner).getAllByText(roleNames.operator.name)).toHaveLength(2));
     expect(within(owner).getByText(roleNames.product_owner.name)).toBeTruthy();
     const roster = within(screen.getByRole('region', { name: t('team.roster') }));
     const frontend = roster.getByText(project.backend.findMember('fe-1')!.displayName).closest('tr')!;
@@ -401,7 +402,18 @@ describe('TeamPage role catalogue', () => {
     expect(screen.queryByRole('button', { name: /Tag szerkesztése/ })).toBeNull();
     expect(screen.queryByRole('button', { name: t('addHuman.title') })).toBeNull();
     expect(screen.queryByRole('button', { name: t('invites.create') })).toBeNull();
-    expect(project.requests.some((request) => request.path.endsWith('/config'))).toBe(false);
+    // The configuration is read (the contact chips need it) but never written.
+    expect(
+      project.requests.some((request) => request.path.endsWith('/config') && request.method !== 'GET'),
+    ).toBe(false);
+  });
+  it('marks the contacts in the roster for a member who cannot manage the team', async () => {
+    const project = mockProject();
+    project.backend.config.team.contacts = ['fe-1'];
+    project.render(<TeamPage />, '/', {
+      can: { createTasks: true, manageTeam: false, workInSessions: false },
+    });
+    expect((await screen.findAllByText(t('team.contactChip'))).length).toBeGreaterThan(0);
   });
   it.each([false, true])('shows provider badges in roster rows and cards (mobile: %s)', async (mobile) => {
     vi.spyOn(window, 'matchMedia').mockImplementation((query) => ({

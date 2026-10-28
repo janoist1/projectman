@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ProjectConfig } from '@projectman/shared';
-import { aiActor } from '../src/domain';
+import { aiActor } from '../src/kernel';
 import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
+import { deferredStartRecords } from './helpers/deferred-starts';
 
 /**
  * PM-236: the Start button on a card whose gate before the work stage lacks a label an AI member
@@ -37,7 +38,7 @@ describe('Start of a card that waits for a label an AI member sets', () => {
   };
   const task = () => h.domain.tasks.get('AR', 'AR-1');
   const waiting = () => task().startWaiting;
-  const storedKeys = () => h.repos.deferredStarts.list().map((record) => record.key);
+  const storedKeys = () => deferredStartRecords(h.repos).map((record) => record.key);
   const members = () => h.domain.sessions.list('AR', { taskKey: 'AR-1' }).map((s) => s.member);
   const start = (opts: { startSetters?: boolean; assignee?: string } = { startSetters: true }) =>
     h.domain.taskStarts.start('AR', 'AR-1', { actor: OWNER_ACTOR, author: OWNER, ...opts });

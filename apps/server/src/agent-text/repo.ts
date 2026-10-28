@@ -2,7 +2,7 @@ import type { TextStyle } from './text';
 import { PLAIN_STYLE } from './text';
 
 /** Where a task's work happens, as the shared `effectiveRepo` and `needsRepoChoice` rules give it. */
-export interface TaskRepoInfo {
+interface TaskRepoInfo {
   /** The repository the work happens in; null when there is none. */
   name: string | null;
   /** The project has several repositories and the task names none: a person has to choose. */

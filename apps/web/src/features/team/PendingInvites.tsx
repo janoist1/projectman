@@ -6,6 +6,7 @@ import { useToast } from '../../components/toastContext';
 import { t } from '../../i18n/t';
 import { humanRoleName } from '../../lib/roles';
 import styles from '../invites/Invites.module.css';
+import { isPendingInvite } from '../invites/pendingInvites';
 
 export function PendingInvites() {
   const { key, can } = useProject();
@@ -13,10 +14,7 @@ export function PendingInvites() {
   const revoke = useRevokeInvite(key);
   const toast = useToast();
   if (!can.manageTeam) return null;
-  const pending =
-    invites.data?.invitations.filter(
-      (invite) => !invite.acceptedAt && !invite.revokedAt && Date.parse(invite.expiresAt) > Date.now(),
-    ) ?? [];
+  const pending = invites.data?.invitations.filter(isPendingInvite) ?? [];
   // Nothing pending (or still loading): the page has no box for it.
   if (invites.isPending || (!invites.isError && pending.length === 0)) return null;
   return (

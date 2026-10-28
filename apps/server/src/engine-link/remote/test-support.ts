@@ -1,13 +1,14 @@
 import type { FastifyBaseLogger, FastifyRequest } from 'fastify';
 import { vi } from 'vitest';
 import type { EngineId } from '@projectman/shared';
-import { DomainError } from '../../domain/errors';
+import { DomainError } from '../../kernel';
 import type { EngineLink, EngineLinks } from '../index';
 import { decodeFrame } from '../protocol';
 import type { EngineEvent, Hello } from '../protocol';
 import { createEngineRpc } from '../rpc';
 import type { EngineRpc } from '../rpc';
 import type { EngineMethod, MethodParams, MethodResult } from '../methods';
+import type { HubRegistry } from './hub';
 
 /**
  * A cloud and its engines in one process for the unit tests of the remote parts (PM-315): each fake
@@ -80,14 +81,16 @@ export interface FakeEngine {
 
 export interface FakeCloud {
   links: EngineLinks;
-  registry: {
-    isOnline(id: EngineId): boolean;
-    defaultId(): EngineId | null;
-    ids(): EngineId[];
-    onOnlineChange(listener: (id: EngineId, online: boolean) => void): () => void;
+  registry: HubRegistry & {
     setOnline(id: EngineId, online: boolean): void;
     setDefault(id: EngineId | null): void;
     add(id: EngineId): void;
+    /** Sets the project's engine (null: none) and tells the listeners; without it a project uses the default. */
+    bindProject(projectKey: string, id: EngineId | null): void;
+    /** Makes the engine one of another owner's (PM-1061): not the host's, and without the host's secrets. */
+    setForeign(id: EngineId): void;
+    /** Binds the project to one more engine, which stays no base engine. */
+    bindAlso(projectKey: string, id: EngineId): void;
   };
   /** Connects an engine; its `hello` is what the cloud mirrors. */
   connect(
@@ -104,10 +107,36 @@ export function createFakeCloud(): FakeCloud {
   const online = new Set<EngineId>();
   const known: EngineId[] = [];
   let defaultId: EngineId | null = null;
+  const foreign = new Set<EngineId>();
+  /** Engines whose latest hello said `nanogptKey: 'engine'` (PM-1068). */
+  const ownKey = new Set<EngineId>();
+  /** Bindings of a project that are not its base engine. */
+  const alsoBound = new Map<string, Set<EngineId>>();
+  const projectEngines = new Map<string, EngineId | null>();
+  const projectListeners = new Set<(projectKey: string) => void>();
 
   const registry: FakeCloud['registry'] = {
     isOnline: (id) => online.has(id),
     defaultId: () => defaultId,
+    hostEngine: () => (defaultId && !foreign.has(defaultId) ? defaultId : null),
+    ownedByHost: (id) => !foreign.has(id),
+    ownNanogptKey: (id) => ownKey.has(id),
+    isBound: (id, projectKey) =>
+      registry.projectEngine(projectKey) === id || (alsoBound.get(projectKey)?.has(id) ?? false),
+    bindAlso(projectKey, id) {
+      alsoBound.set(projectKey, (alsoBound.get(projectKey) ?? new Set()).add(id));
+    },
+    setForeign: (id) => void foreign.add(id),
+    projectEngine: (projectKey) =>
+      projectEngines.has(projectKey) ? projectEngines.get(projectKey)! : defaultId,
+    onProjectEngineChange(listener) {
+      projectListeners.add(listener);
+      return () => projectListeners.delete(listener);
+    },
+    bindProject(projectKey, id) {
+      projectEngines.set(projectKey, id);
+      for (const listener of [...projectListeners]) listener(projectKey);
+    },
     ids: () => [...known],
     onOnlineChange(listener) {
       onlineListeners.add(listener);
@@ -150,6 +179,8 @@ export function createFakeCloud(): FakeCloud {
       registry.add(id);
       online.add(id);
       const hello = helloOf(options.hello);
+      if (hello.nanogptKey === 'engine') ownKey.add(id);
+      else ownKey.delete(id);
       const requests: FakeEngine['requests'] = [];
       let engineRpc: EngineRpc;
       const cloudRpc: EngineRpc = createEngineRpc({

@@ -38,6 +38,8 @@ export const EngineView = EngineStatusView.extend({
   runningSessions: z.number().int(),
   waitingStarts: z.number().int(),
   waitingMessages: z.number().int(),
+  /** Whether the engine's owner is the caller (PM-1077); `createdBy` is only a display name. Absent where no caller is known. */
+  ownedByMe: z.boolean().optional(),
 });
 export type EngineView = z.infer<typeof EngineView>;
 export const EngineStatusResponse = z.object({
@@ -46,5 +48,98 @@ export const EngineStatusResponse = z.object({
 });
 export type EngineStatusResponse = z.infer<typeof EngineStatusResponse>;
 export const CreateEngineRequest = z.strictObject({ name: z.string().trim().min(1).max(64) });
+export const RenameEngineRequest = z.strictObject({ name: z.string().trim().min(1).max(64) });
+export type RenameEngineRequest = z.infer<typeof RenameEngineRequest>;
 export const CreateEngineResponse = z.object({ engine: EngineView, key: z.string() });
 export type CreateEngineResponse = z.infer<typeof CreateEngineResponse>;
+
+/** One engine of a project as a member sees it (PM-1060): no hostname, no address. */
+export const ProjectEngineView = z.object({
+  id: EngineId,
+  name: z.string(),
+  online: z.boolean(),
+  isDefault: z.boolean(),
+  /** The engine's hello lists the project: the machine has a folder for it (its own consent stays the second line). */
+  holdsProject: z.boolean(),
+  ownedByMe: z.boolean(),
+});
+export type ProjectEngineView = z.infer<typeof ProjectEngineView>;
+export const ProjectEnginesResponse = z.object({ engines: z.array(ProjectEngineView) });
+export type ProjectEnginesResponse = z.infer<typeof ProjectEnginesResponse>;
+/** `default: true` makes the engine the project's base engine; absent or `false` changes nothing about it. */
+export const BindProjectEngineRequest = z.object({ default: z.boolean().optional() }).strict();
+export type BindProjectEngineRequest = z.infer<typeof BindProjectEngineRequest>;
+
+/** A project's binding to an engine (PM-1060); `revoked` is `engines.revoked_at != null`. */
+export const ProjectEngineBinding = z.object({
+  engineId: EngineId,
+  isDefault: z.boolean(),
+  revoked: z.boolean(),
+});
+export type ProjectEngineBinding = z.infer<typeof ProjectEngineBinding>;
+
+/**
+ * Where the project's new session goes; null: nothing to choose (the start waits with `engine_offline`).
+ * 1. A default binding whose engine is not revoked: that engine.
+ * 2. A default binding whose engine is revoked: null. It does not move to another machine silently; the
+ *    project owner picks a new default.
+ * 3. No binding: the global default, while its owner is one of the project's owners and no other user
+ *    created the project; otherwise null. The owners come from the project's configuration, which a project
+ *    owner edits freely, so the fallback also rests on a fact the server alone writes: an owner account's
+ *    project never lands on the host's machine unless the host binds it (PM-1062).
+ */
+export function projectEngineOf(input: {
+  bindings: readonly ProjectEngineBinding[];
+  /** The global default engine that is not revoked; in the local mode `local`, owned by the host owner. */
+  globalDefault: { id: EngineId; ownerUserId: string } | null;
+  /** The user ids of the members with `owner` access to the project. */
+  projectOwnerUserIds: readonly string[];
+  /** `projects.created_by`; null: registered by the host owner (before PM-1062, or from the customization store). */
+  projectCreatedBy: string | null;
+}): EngineId | null {
+  const base = input.bindings.find((binding) => binding.isDefault);
+  if (base) return base.revoked ? null : base.engineId;
+  if (input.bindings.length > 0) return null;
+  const fallback = input.globalDefault;
+  if (!fallback || !input.projectOwnerUserIds.includes(fallback.ownerUserId)) return null;
+  return input.projectCreatedBy === null || input.projectCreatedBy === fallback.ownerUserId
+    ? fallback.id
+    : null;
+}
+
+interface EngineBindingActor {
+  actorUserId: string;
+  /** The engine record's `created_by` (a user id, not the display name of `EngineView.createdBy`). */
+  engineOwnerUserId: string;
+  actorIsProjectOwner: boolean;
+}
+
+interface EngineViewer {
+  viewerUserId: string;
+  viewerIsHostOwner: boolean;
+  /** The engine record's `created_by` (a user id). */
+  engineOwnerUserId: string;
+}
+
+/**
+ * Who sees an engine in the status list and in its change events (PM-1061): the host owner sees every one,
+ * an engine's owner their own, and a member the engines of their projects (`usedByViewerProject`).
+ */
+export function canSeeEngine(a: EngineViewer & { usedByViewerProject: boolean }): boolean {
+  return a.viewerIsHostOwner || a.engineOwnerUserId === a.viewerUserId || a.usedByViewerProject;
+}
+
+/** The machine's name and address are for the engine's owner and the host owner only. */
+export function canSeeEngineMachine(a: EngineViewer): boolean {
+  return a.viewerIsHostOwner || a.engineOwnerUserId === a.viewerUserId;
+}
+
+/** Binding an engine to a project takes both: the machine's owner lets it, the project's owner wants it. */
+export function canBindEngine(a: EngineBindingActor): boolean {
+  return a.actorUserId === a.engineOwnerUserId && a.actorIsProjectOwner;
+}
+
+/** Either side may end it: the machine's owner takes it back, the project's owner lets it go. */
+export function canUnbindEngine(a: EngineBindingActor): boolean {
+  return a.actorUserId === a.engineOwnerUserId || a.actorIsProjectOwner;
+}

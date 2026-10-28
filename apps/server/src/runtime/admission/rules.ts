@@ -1,0 +1,204 @@
+import { isOnLeave, isWorkPaused, openPrerequisites, repoRequired } from '@projectman/shared';
+import type {
+  AgentProvider,
+  EngineId,
+  ErrorCode,
+  MemberConfig,
+  OpenPause,
+  ProjectConfig,
+  Task,
+  TaskStartWaiting,
+} from '@projectman/shared';
+import { conflict, DomainError } from '../../kernel';
+
+/** The project's AI master switch: while it is off, no AI session starts or resumes. */
+export function assertAiEnabled(config: ProjectConfig): void {
+  if (!config.team.limits.aiEnabled) throw conflict('ai_disabled', 'AI work is switched off in this project');
+}
+
+/**
+ * While the project's work is paused (its own pause or the instance's, PM-219) no session starts or
+ * resumes: a start that no person asked for waits (`DEFERRABLE`), a person's is refused. `pauses` is
+ * the repository, read directly so that no service depends on the pause service.
+ */
+export function assertNotPaused(pauses: { open(): readonly OpenPause[] }, projectKey: string): void {
+  if (isWorkPaused(pauses.open(), projectKey))
+    throw conflict('team_paused', 'the team is paused: no work starts until it is resumed', { projectKey });
+}
+
+/**
+ * A member on leave gets no session (decision 23). Whatever started it waits (`DEFERRABLE`): the
+ * messages for the member stay, and the starts retry once the member is called back.
+ */
+export function assertNotOnLeave(member: MemberConfig | undefined): void {
+  if (member && isOnLeave(member))
+    throw conflict('member_on_leave', `${member.handle} is on leave`, { member: member.handle });
+}
+
+/**
+ * A session of a role that changes files works in a worktree of the task's repository. When the
+ * project has several repositories and the task names none, nobody has chosen which one, and the
+ * session would end up in the workspace root, where it could edit a checkout somebody uses: the
+ * start is refused (`repo_required`) until a person chooses the repository. Roles that only read
+ * may run in the workspace root. Only a person's choice clears this refusal, so it is not one of
+ * the refusals a retry waits for (`DEFERRABLE`).
+ */
+export function assertRepoChosen(config: ProjectConfig, role: string, task: Task | null): void {
+  if (!task || !repoRequired(config, role, task)) return;
+  const names = config.project.repos.map((repo) => repo.name).join(', ');
+  throw conflict(
+    'repo_required',
+    `task ${task.key} has no repository and the project has several (${names}): ` +
+      `choose one before a ${role} session starts on it`,
+    { taskKey: task.key },
+  );
+}
+
+/**
+ * A card whose prerequisite (PM-192) is not closed does not start by itself (`prerequisite_open`,
+ * with the open keys in the details): the automatic work start waits for the last one to close
+ * (`AutomaticStart.defers`), and a person's start is refused until they start despite the warning.
+ */
+export function assertPrerequisitesClosed(task: Task, tasks: readonly Task[]): void {
+  const open = openPrerequisites(task, tasks).map((card) => card.key);
+  if (open.length > 0)
+    throw conflict('prerequisite_open', `task ${task.key} waits for ${open.join(', ')}`, {
+      prerequisites: open,
+    });
+}
+
+/** Why a start waits, as a task shows it. */
+type WaitingReason = TaskStartWaiting['reason'];
+
+/**
+ * The reasons every automatic start waits for that a later retry can overcome. Every reason the
+ * board shows but `repo_required`: only a person's choice clears that one, so the start fails
+ * instead of waiting (the task shows why, see `TaskStore`). `no_free_member` and
+ * `prerequisite_open` are ones only for the start that picks its developer itself and moves a
+ * card into work (`AutomaticStart.defers`). `label_missing` is no refusal at all: the start of a
+ * person's Start button that waits for a label (PM-236) is kept with it directly. `waiting_answer`
+ * likewise records a question hold without a refusal (PM-927). `full_test_pending`
+ * is one only for the stage hand-over (`AutomaticStart.defers`), which waits for the server's full test
+ * of the pinned commit (PM-217). `senior_busy` is one only for the start that picks its developer
+ * itself (`AutomaticStart.defers`): a card whose points only some developers' limit reaches waits for one (PM-348, PM-1001).
+ */
+type DeferrableReason = Exclude<
+  WaitingReason,
+  | 'repo_required'
+  | 'no_free_member'
+  | 'prerequisite_open'
+  | 'label_missing'
+  | 'waiting_answer'
+  | 'full_test_pending'
+  | 'senior_busy'
+  // The refusal is `task_handoff_open`; the task shows it as `handoff_open` (`waitingOf`).
+  | 'handoff_open'
+>;
+
+/** The refusals a retry waits for, as error codes: the waiting reasons that are codes, and `task_handoff_open`. */
+type DeferrableCode = WaitingReason | 'task_handoff_open';
+
+/** Admission refusals that a later retry can overcome; an automatic start waits for them. */
+const DEFERRABLE = new Set<ErrorCode>([
+  'ai_limit_reached',
+  'plan_usage_paused',
+  'provider_rate_limited',
+  'disk_low',
+  'ai_disabled',
+  'team_paused',
+  'member_at_capacity',
+  'member_on_leave',
+  // The member's workspace (PM-138): held by another task's session, holding unfinished work, or
+  // its default branch could not be fetched fresh. The task shows which.
+  'workspace_busy',
+  'workspace_dirty',
+  'workspace_fetch_failed',
+  'workspace_dependencies_pending',
+  'workspace_dependencies_failed',
+  // The member's provider is not logged in (PM-324): the retry loop starts it once it is.
+  'provider_not_logged_in',
+  'nanogpt_key_missing',
+  'nanogpt_setup_incomplete',
+  'codex_setup_incomplete',
+  'workspace_codex_config',
+  // The card is being handed over to the member (PM-342): the start retries once the old assignee has handed over.
+  'task_handoff_open',
+  // The session's engine is not connected (PM-311): the start continues once it is.
+  'engine_offline',
+] satisfies (DeferrableReason | 'task_handoff_open')[]);
+
+/** Whether `code` (an error code, or the wait code of a deferred start) is one an automatic start waits for. */
+export function isDeferrableCode(code: string): boolean {
+  return DEFERRABLE.has(code as ErrorCode) || code === 'handoff_open';
+}
+
+/** `also`: the further refusals the start in question waits for. */
+export function isDeferrable(
+  err: unknown,
+  also: readonly WaitingReason[] = [],
+): err is DomainError & { code: DeferrableCode } {
+  return err instanceof DomainError && (DEFERRABLE.has(err.code) || (also as ErrorCode[]).includes(err.code));
+}
+
+/**
+ * Why a refused automatic start waits, as its task shows it: the refusal, the member it waits
+ * for, and since when (kept from the previous refusal of the same start).
+ */
+export function waitingOf(
+  err: DomainError & { code: DeferrableCode },
+  opts: { member?: string; previous?: TaskStartWaiting; at: string },
+): TaskStartWaiting {
+  const details = err.details as
+    | {
+        /** `task_handoff_open`: the old assignee the card is handed over from. */
+        from?: string;
+        provider?: AgentProvider;
+        until?: string | null;
+        threshold?: number;
+        prerequisites?: string[];
+        seniors?: string[];
+        waitDecidedBy?: string;
+        /** `engine_offline`: the engine the start waits for; absent when there is no default engine. */
+        engine?: EngineId;
+        /** `workspace_dirty` / `workspace_fetch_failed`: the checked-out branch, or the base branch. */
+        branch?: string | null;
+      }
+    | undefined;
+  if (err.code === 'task_handoff_open')
+    return {
+      reason: 'handoff_open',
+      member: details?.from ?? opts.member,
+      since: opts.previous?.since ?? opts.at,
+    };
+  return {
+    reason: err.code,
+    member: opts.member,
+    ...(err.code === 'provider_rate_limited'
+      ? { provider: details?.provider, ...(details?.until ? { until: details.until } : {}) }
+      : {}),
+    ...(err.code === 'plan_usage_paused'
+      ? { provider: details?.provider, threshold: details?.threshold }
+      : {}),
+    ...([
+      'provider_not_logged_in',
+      'nanogpt_key_missing',
+      'nanogpt_setup_incomplete',
+      'codex_setup_incomplete',
+      'workspace_codex_config',
+    ].includes(err.code)
+      ? { provider: details?.provider }
+      : {}),
+    ...(err.code === 'engine_offline' && details?.engine ? { engine: details.engine } : {}),
+    ...((err.code === 'workspace_dirty' || err.code === 'workspace_fetch_failed') && details?.branch
+      ? { branch: details.branch }
+      : {}),
+    ...(err.code === 'prerequisite_open' ? { prerequisites: details?.prerequisites } : {}),
+    ...(err.code === 'senior_busy'
+      ? {
+          seniors: details?.seniors,
+          ...(details?.waitDecidedBy ? { waitDecidedBy: details.waitDecidedBy } : {}),
+        }
+      : {}),
+    since: opts.previous?.since ?? opts.at,
+  };
+}

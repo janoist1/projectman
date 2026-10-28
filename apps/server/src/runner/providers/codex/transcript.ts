@@ -60,7 +60,7 @@ function tokenFields(usage: Json | null): CodexTokens | null {
   };
 }
 
-export interface CodexParseResult extends TranscriptParseResult {
+interface CodexParseResult extends TranscriptParseResult {
   /** The newest plan rate limits in these lines. */
   rateLimits: CodexRateLimits | null;
   /** The conversation id, when these lines include the session header. */
@@ -69,7 +69,7 @@ export interface CodexParseResult extends TranscriptParseResult {
 }
 
 /** "mcp__team__" + "send_message" -> "mcp__team__send_message" (as Codex names it in hooks). */
-export function codexToolName(name: string, namespace?: string | null): string {
+function codexToolName(name: string, namespace?: string | null): string {
   if (!namespace) return name;
   return `${namespace.replace(/_+$/, '')}__${name.replace(/^_+/, '')}`;
 }
@@ -78,7 +78,7 @@ export function codexToolName(name: string, namespace?: string | null): string {
 const CONTEXT_FRAGMENT = /^(?:<([a-z_]+)>[\s\S]*<\/\1>|# AGENTS\.md instructions[\s\S]*)$/;
 
 /** Signs of a lost ChatGPT login in an error Codex recorded. */
-export const CODEX_AUTH_ERROR =
+const CODEX_AUTH_ERROR =
   /sign in again|log in again|log out and sign in|not logged in|refresh token|401 Unauthorized/i;
 
 function isAuthError(error: Json): boolean {

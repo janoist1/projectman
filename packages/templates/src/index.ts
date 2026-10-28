@@ -1,7 +1,9 @@
 import type { TemplateSummary } from '@projectman/shared';
+export { BASE_CHECKLIST } from './checklist';
 import { dailyRoutine } from './templates/daily-routine';
 import { internalTool } from './templates/internal-tool';
 import { smallTeam } from './templates/small-team';
+import { starter } from './templates/starter';
 import { webClientProject } from './templates/web-client-project';
 import type { ProjectTemplate } from './types';
 
@@ -20,14 +22,15 @@ export {
   roleName,
   uniqueHandle,
 } from './members';
-export { projectManagerMember } from './project-manager';
+export { projectManagerMember, PROJECT_MANAGER_STYLE_INSTRUCTIONS } from './project-manager';
 export { roleViews } from './role-views';
 export { DAILY_WORKER_SCHEDULE } from './templates/daily-routine';
-export { legacyCheckLabels, migrateLegacyConfig, standardLabel, standardLabelsFor } from './labels';
+export { migrateLegacyConfig, standardLabel, standardLabelsFor } from './labels';
 export {
   en,
   getLocale,
   hu,
+  type ChecklistItemKey,
   type ColumnKey,
   type RoleText,
   type SpecialtyKey,
@@ -37,7 +40,13 @@ export {
   type TemplateMemberKey,
 } from './locales';
 
-export const templates: ProjectTemplate[] = [webClientProject, smallTeam, internalTool, dailyRoutine];
+export const templates: ProjectTemplate[] = [
+  starter,
+  webClientProject,
+  smallTeam,
+  internalTool,
+  dailyRoutine,
+];
 
 export function getTemplate(id: string): ProjectTemplate | undefined {
   return templates.find((t) => t.id === id);
@@ -60,5 +69,6 @@ export function summarizeTemplate(template: ProjectTemplate): TemplateSummary {
       ai: sample.team.members.filter((m) => m.kind === 'ai').length,
     },
     stageCount: sample.pipeline.stages.length,
+    checklist: template.checklist.map((item) => item.id),
   };
 }

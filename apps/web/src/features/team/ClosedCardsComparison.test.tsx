@@ -180,15 +180,17 @@ describe('closed cards comparison (PM-222)', () => {
     expect(await screen.findByText(t('cardMeasure.unmeasured', { cards: 1, sessions: 1 }))).toBeTruthy();
   });
 
-  it('is not shown to a client member, who sees no usage', async () => {
+  it('is shown to a client member like to any other member', async () => {
     const project = measuredProject();
     const me = {
       ...project.context.me,
       projects: project.context.me.projects.map((p) => ({ ...p, access: 'client' as const })),
     };
     project.render(<ClosedCardsComparison />, '/', { me });
-    expect(screen.queryByRole('heading', { name: t('cardMeasure.title') })).toBeNull();
-    expect(project.requests.some((request) => request.path.includes('/measure/'))).toBe(false);
+    expect(await screen.findByRole('heading', { name: t('cardMeasure.title') })).toBeTruthy();
+    await waitFor(() =>
+      expect(project.requests.some((request) => request.path.includes('/measure/'))).toBe(true),
+    );
   });
 });
 

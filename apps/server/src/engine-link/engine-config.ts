@@ -1,7 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import {
   chmodSync,
-  existsSync,
   lstatSync,
   mkdirSync,
   readdirSync,
@@ -14,15 +13,16 @@ import os from 'node:os';
 import path from 'node:path';
 import { z } from 'zod';
 import { SelectablePermissionMode } from '@projectman/shared';
-import { isWithin } from '../engine-host/within';
-import { isLoopbackHostname } from '../http/local-guard';
+import { isLoopbackHostname, isWithin } from '../kernel';
+import { readInstanceMarker } from '../instance';
 
 /** `<PROJECTMAN_HOME>/engine.json`: what the engine process may serve and where the cloud is (PM-314). */
 
 export const ENGINE_CONFIG_FILE = 'engine.json';
 export const ENGINE_KEY_FILE = 'engine.key';
+const ENGINE_NANOGPT_KEY_FILE = 'nanogpt.key';
 export const ENGINE_STATUS_FILE = 'engine-status.json';
-export const ENGINE_AUDIT_FILE = 'engine-audit.jsonl';
+const ENGINE_AUDIT_FILE = 'engine-audit.jsonl';
 
 const ProjectKey = z.string().regex(/^[A-Z][A-Z0-9]{0,9}$/);
 const RepoName = z.string().regex(/^[a-z0-9][a-z0-9._-]*$/);
@@ -35,8 +35,15 @@ export const EngineConfig = z.strictObject({
   name: z.string().min(1).max(64).optional(),
   /** Absolute path of the machine key file; default `<home>/engine.key`. */
   keyFile: z.string().optional(),
+  /**
+   * PM-1068: absolute path of this engine's own NanoGPT key file (0600, outside every session root).
+   * Set: NanoGPT sessions here use it and the key never comes from, or goes to, the cloud.
+   */
+  nanogptKeyFile: z.string().min(1).optional(),
   /** A JSON object of extra link headers (e.g. Cloudflare Access service token); must be 0600. */
   linkHeadersFile: z.string().optional(),
+  /** PM-846: a work volume's root inside the engine home; worktrees/, workspaces/ and tmp/ live below it. Absent: today's paths. */
+  workRoot: z.string().min(1).optional(),
   projects: z.array(z.strictObject({ project: ProjectKey, workspacePath: z.string().min(1) })),
   repos: z.array(
     z.strictObject({
@@ -44,10 +51,28 @@ export const EngineConfig = z.strictObject({
       repo: RepoName,
       path: z.string().min(1),
       fullTestCommand: z.string().min(1).max(500).optional(),
+      /** PM-1050: the one command that may make generated files again in a merge check checkout, with write access to the directories of its patterns. */
+      regenerateCommand: z.string().min(1).max(500).optional(),
+      workspaceSetup: z
+        .discriminatedUnion('kind', [
+          z.strictObject({
+            kind: z.literal('npm_ci'),
+            timeoutMs: z.number().int().min(1_000).max(1_800_000).optional(),
+          }),
+          z.strictObject({ kind: z.literal('none') }),
+        ])
+        .optional(),
+      /**
+       * The one branch the cloud may merge into and push to with this machine's git login (PM-451).
+       * Absent: every `merge.*` call for the repo is refused.
+       */
+      mergeBranch: z.string().min(1).max(200).optional(),
     }),
   ),
   maxPermissionMode: SelectablePermissionMode.default('auto'),
   allowRemoteTerminalInput: z.boolean().default(true),
+  /** PM-1086: keep the machine awake while work runs (macOS); absent: `while_working`. */
+  keepAwake: z.enum(['while_working', 'off']).optional(),
 });
 export type EngineConfig = z.infer<typeof EngineConfig>;
 
@@ -61,9 +86,11 @@ export class EngineConfigError extends Error {
   }
 }
 
-export interface EngineFiles {
+interface EngineFiles {
   config: string;
   key: string;
+  /** Default place of the engine's own NanoGPT key (PM-1068); used when `nanogptKeyFile` is not set. */
+  nanogptKey: string;
   status: string;
   auditDir: string;
   audit: string;
@@ -75,6 +102,7 @@ export function engineFiles(home: string, config?: Pick<EngineConfig, 'keyFile'>
   return {
     config: path.join(home, ENGINE_CONFIG_FILE),
     key: config?.keyFile ?? path.join(home, ENGINE_KEY_FILE),
+    nanogptKey: path.join(home, ENGINE_NANOGPT_KEY_FILE),
     status: path.join(home, ENGINE_STATUS_FILE),
     auditDir,
     audit: path.join(auditDir, ENGINE_AUDIT_FILE),
@@ -210,12 +238,21 @@ export function httpUrl(cloudUrl: string, urlPath: string): string {
   return new URL(urlPath, cloudOrigin(cloudUrl)).toString();
 }
 
-export interface ResolvedEngineConfig extends EngineConfig {
+export interface ResolvedEngineConfig extends Omit<EngineConfig, 'repos'> {
   name: string;
   keyFile: string;
+  nanogptKeyFile?: string;
   /** Real (symlink-free) absolute paths. */
   projects: Array<{ project: string; workspacePath: string }>;
-  repos: Array<{ project: string; repo: string; path: string; fullTestCommand?: string }>;
+  repos: Array<{
+    project: string;
+    repo: string;
+    path: string;
+    fullTestCommand?: string;
+    regenerateCommand?: string;
+    workspaceSetup: { kind: 'npm_ci'; timeoutMs: number } | null;
+    mergeBranch?: string;
+  }>;
 }
 
 function realAbsolute(value: string, what: string): string {
@@ -260,6 +297,8 @@ export function resolveEngineConfig(
   options: { tmpdir?: string } = {},
 ): ResolvedEngineConfig {
   cloudOrigin(config.cloudUrl);
+  if (config.workRoot !== undefined && !path.isAbsolute(config.workRoot))
+    throw new EngineConfigError('config_invalid', 'invalid engine.json: workRoot must be an absolute path');
   assertHomeNotInUse(home);
   const projects = config.projects.map((entry) => ({
     project: entry.project,
@@ -279,11 +318,21 @@ export function resolveEngineConfig(
         'repo_outside_workspace',
         `The repo ${entry.project}/${entry.repo} is not inside the workspace of ${entry.project}.`,
       );
-    return { ...entry, path: real };
+    return {
+      ...entry,
+      path: real,
+      workspaceSetup:
+        entry.workspaceSetup?.kind === 'npm_ci'
+          ? { kind: 'npm_ci' as const, timeoutMs: entry.workspaceSetup.timeoutMs ?? 600_000 }
+          : null,
+    };
   });
   const keyFile = realOrAbsolute(config.keyFile ?? engineFiles(home).key, 'The engine key file');
   const linkHeadersFile = config.linkHeadersFile
     ? realOrAbsolute(config.linkHeadersFile, 'The link headers file')
+    : undefined;
+  const nanogptKeyFile = config.nanogptKeyFile
+    ? realOrAbsolute(config.nanogptKeyFile, 'The NanoGPT key file')
     : undefined;
   const realHome = realOrAbsolute(home, 'The engine home');
   const sessionRoots = [
@@ -292,10 +341,17 @@ export function resolveEngineConfig(
     path.join(realHome, 'worktrees'),
     path.join(realHome, 'workspaces'),
     path.join(realHome, 'member-caches'),
+    ...(config.workRoot
+      ? [
+          path.join(realOrAbsolute(config.workRoot, 'The work root'), 'worktrees'),
+          path.join(realOrAbsolute(config.workRoot, 'The work root'), 'workspaces'),
+        ]
+      : []),
   ];
   for (const [what, target] of [
     ['The engine key file', keyFile],
     ['The link headers file', linkHeadersFile],
+    ['The NanoGPT key file', nanogptKeyFile],
     ['The engine home', realHome],
   ] as const) {
     const root = target === undefined ? undefined : sessionRoots.find((entry) => isWithin(entry, target));
@@ -310,6 +366,7 @@ export function resolveEngineConfig(
     name: config.name ?? os.hostname(),
     keyFile,
     ...(linkHeadersFile ? { linkHeadersFile } : {}),
+    ...(nanogptKeyFile ? { nanogptKeyFile } : {}),
     projects,
     repos,
   };
@@ -317,7 +374,10 @@ export function resolveEngineConfig(
 
 /**
  * The engine never shares a home with a projectman server: that home holds the database, the secrets and the
- * other members' work, and the engine's roots would reach them. A home with `db.sqlite*` is refused.
+ * other members' work, and the engine's roots would reach them. A home with `db.sqlite*` is refused,
+ * except the home of a person's move to the hybrid mode (PM-318): `instance engine` marks it, and its
+ * database is then a leftover. The sandboxes keep denying it (`sensitivePaths`), as they do for the
+ * secrets in it.
  */
 export function assertHomeNotInUse(home: string): void {
   let names: string[];
@@ -326,13 +386,9 @@ export function assertHomeNotInUse(home: string): void {
   } catch {
     return; // no such directory yet
   }
-  if (names.some((name) => name.startsWith('db.sqlite')))
+  if (names.some((name) => name.startsWith('db.sqlite')) && readInstanceMarker(home)?.role !== 'engine')
     throw new EngineConfigError(
       'home_in_use',
       `${home} holds a projectman server database. Give the engine its own home, for example PROJECTMAN_HOME=~/.projectman-engine.`,
     );
-}
-
-export function configExists(home: string): boolean {
-  return existsSync(engineFiles(home).config);
 }

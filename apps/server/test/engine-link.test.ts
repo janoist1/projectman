@@ -5,7 +5,7 @@ import { createAppHarness, setupOwner, createProject, addHumanAndLogin, inject }
 import type { AppHarness } from './helpers/app-harness';
 import type { IncomingHttpHeaders } from 'node:http';
 import type { Socket as NetSocket } from 'node:net';
-import { machineKeyHash } from '../src/domain';
+import { machineKeyHash } from '../src/runtime/sessions';
 import { decodeFrame, encodeFrame, ENGINE_MAX_FRAME_BYTES } from '../src/engine-link';
 import type { EngineFrame, Hello } from '../src/engine-link';
 
@@ -143,15 +143,15 @@ describe('cloud engine registry and link', () => {
     expect((await inject(h.app, 'POST', routes.revokeEngine('eng_missing'), cookie)).statusCode).toBe(404);
   });
 
-  it('restricts mutation to host owner login and status to internal users', async () => {
+  it('restricts mutation to host owner login and shows the status to every member', async () => {
     await createProjectThroughEngine();
     const developer = await addHumanAndLogin(h.app, { handle: 'human' });
     const client = await addHumanAndLogin(h.app, { handle: 'client', access: 'client' });
     expect((await inject(h.app, 'GET', routes.engines(), developer)).statusCode).toBe(403);
     expect((await inject(h.app, 'POST', routes.engines(), developer, { name: 'x' })).statusCode).toBe(403);
     expect((await inject(h.app, 'GET', routes.engineStatus(), developer)).statusCode).toBe(200);
-    expect((await inject(h.app, 'GET', routes.engineStatus(), client)).statusCode).toBe(403);
-    const keyResponse = await inject(h.app, 'POST', routes.integratorKey(), cookie, {});
+    expect((await inject(h.app, 'GET', routes.engineStatus(), client)).statusCode).toBe(200);
+    const keyResponse = await inject(h.app, 'POST', routes.integratorKeys(), cookie, { mode: 'read' });
     const headers = { authorization: `Bearer ${keyResponse.json().secret}` };
     const engine = await create();
     for (const url of [
@@ -162,8 +162,7 @@ describe('cloud engine registry and link', () => {
       const response = await h.app.inject({ method: 'POST', url, headers, payload: { name: 'x' } });
       expect(response.statusCode).toBe(403);
       expect(response.json().error).toMatchObject({
-        code: 'owner_login_required',
-        details: { category: 'engines' },
+        code: 'integrator_read_only',
       });
     }
     expect((await h.app.inject({ method: 'GET', url: routes.engines(), headers })).statusCode).toBe(200);
@@ -302,13 +301,15 @@ describe('cloud engine registry and link', () => {
     await expect(request).resolves.toBe(123);
   });
 
-  it('broadcasts status to internal sockets without disclosing keys to clients', async () => {
+  it('broadcasts the status of an engine only to whom it concerns', async () => {
     await createProjectThroughEngine();
     const developer = await addHumanAndLogin(h.app, { handle: 'human' });
     const client = await addHumanAndLogin(h.app, { handle: 'client', access: 'client' });
     const internalEvents: ServerEvent[] = [];
     const clientEvents: ServerEvent[] = [];
+    const hostEvents: ServerEvent[] = [];
     for (const [login, events] of [
+      [cookie, hostEvents],
       [developer, internalEvents],
       [client, clientEvents],
     ] as const) {
@@ -323,11 +324,18 @@ describe('cloud engine registry and link', () => {
       )) as unknown as Socket;
       sockets.push(ws);
     }
-    await create();
+    // An engine no project of theirs uses stays unknown to them (PM-1061); the host owner hears of it.
+    const unused = await create();
+    await vi.waitFor(() => expect(hostEvents.some((event) => event.type === 'engine_changed')).toBe(true));
+    expect([...internalEvents, ...clientEvents].filter((event) => event.type === 'engine_changed')).toEqual(
+      [],
+    );
+    // Once it is the engine their project falls back to, the members hear of it too.
+    await inject(h.app, 'POST', routes.defaultEngine(unused.engine.id), cookie);
     await vi.waitFor(() =>
       expect(internalEvents.some((event) => event.type === 'engine_changed')).toBe(true),
     );
-    expect(clientEvents.some((event) => event.type === 'engine_changed')).toBe(false);
+    await vi.waitFor(() => expect(clientEvents.some((event) => event.type === 'engine_changed')).toBe(true));
   });
 
   it('does not log secret requests or responses and reexecutes the same secret request id', async () => {
@@ -391,9 +399,9 @@ describe('cloud engine registry and link', () => {
     expect(h.app.projectman.engineRegistry!.status()[0]!.online).toBe(false);
   });
 
-  it('throttles last-seen writes and terminates engines without a pong for 45 seconds', async () => {
+  it('throttles last-seen writes on pongs', async () => {
     const engine = await create();
-    const connected = await handshake(engine.key);
+    await handshake(engine.key);
     const at = Date.now();
     const seen = vi.spyOn(h.app.projectman.repos.engines, 'seen');
     vi.useFakeTimers({ toFake: ['Date'] });
@@ -404,12 +412,131 @@ describe('cloud engine registry and link', () => {
     vi.setSystemTime(at + 61_000);
     server.emit('pong');
     expect(seen).toHaveBeenCalledTimes(1);
-    const heartbeat = intervals.mock.calls.find((args) => args[1] === 20_000)?.[0];
-    expect(typeof heartbeat).toBe('function');
-    vi.setSystemTime(at + 106_001);
-    if (typeof heartbeat === 'function') heartbeat();
-    expect(h.app.projectman.engineLinks!.get(engine.engine.id)).toBeNull();
+  });
+
+  describe('heartbeat', () => {
+    type ServerSocket = {
+      emit(event: 'pong'): void;
+      emit(event: 'message', data: Buffer, binary: boolean): void;
+      ping: () => void;
+    };
+    /** A connected engine, a faked clock and the cloud's heartbeat pulse; time is `at + offset`. */
+    const arrange = async () => {
+      const engine = await create();
+      await handshake(engine.key);
+      const at = Date.now();
+      vi.useFakeTimers({ toFake: ['Date'] });
+      const server = [...h.app.websocketServer.clients][0] as unknown as ServerSocket;
+      const ping = vi.spyOn(server, 'ping');
+      const beat = intervals.mock.calls.find((args) => args[1] === 20_000)?.[0];
+      if (typeof beat !== 'function') throw new Error('The heartbeat interval was not registered');
+      return {
+        server,
+        ping,
+        online: () => h.app.projectman.engineLinks!.get(engine.engine.id) !== null,
+        pulse: (offset: number) => {
+          vi.setSystemTime(at + offset);
+          beat();
+        },
+        hear: (offset: number) => {
+          vi.setSystemTime(at + offset);
+          server.emit(
+            'message',
+            Buffer.from(encodeFrame({ t: 'term', sessionId: 'ses_x', data: 'x' })),
+            false,
+          );
+        },
+      };
+    };
+
+    it('keeps a link that sends frames but no pongs beyond 90 seconds', async () => {
+      const link = await arrange();
+      for (let offset = 20_000; offset <= 400_000; offset += 20_000) {
+        link.hear(offset - 1);
+        link.pulse(offset);
+        expect(link.online(), `at ${offset}`).toBe(true);
+      }
+    });
+
+    it('drops a link with neither pong nor frame after 90 seconds and three unanswered pings', async () => {
+      const link = await arrange();
+      for (const offset of [20_000, 40_000, 60_000, 80_000]) {
+        link.pulse(offset);
+        expect(link.online(), `at ${offset}`).toBe(true);
+      }
+      expect(link.ping).toHaveBeenCalledTimes(4);
+      link.pulse(100_000);
+      expect(link.online()).toBe(false);
+      expect(link.ping).toHaveBeenCalledTimes(4);
+    });
+
+    it('does not drop a live link after a pong or frame resets the count', async () => {
+      const link = await arrange();
+      link.pulse(20_000);
+      link.pulse(40_000);
+      link.pulse(60_000);
+      link.server.emit('pong');
+      link.pulse(120_000);
+      link.pulse(140_000);
+      expect(link.online()).toBe(true);
+    });
+
+    it('does not drop on a late pulse before three pings went out', async () => {
+      const link = await arrange();
+      link.pulse(300_000);
+      link.pulse(320_000);
+      link.pulse(340_000);
+      expect(link.online()).toBe(true);
+      expect(link.ping).toHaveBeenCalledTimes(3);
+      link.pulse(360_000);
+      expect(link.online()).toBe(false);
+    });
+  });
+
+  it('logs the link coming up and going down at info level with code and cause', async () => {
+    await h.close();
+    h = await createAppHarness({
+      now: () => new Date(),
+      app: {
+        engineMode: 'cloud',
+        appVersion: 'test-version',
+        claudeTmpRoots: [],
+        logger: { level: 'info', stream: { write: (line: string) => logs.push(line) } },
+      },
+    });
+    cookie = await setupOwner(h.app);
+    const engine = await create();
+    const connected = await handshake(engine.key);
+    const entries = () => logs.map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(entries().find((entry) => entry.msg === 'engine link: connected')).toMatchObject({
+      level: 30,
+      engineId: engine.engine.id,
+      resumed: false,
+      version: 'test-version',
+    });
     connected.ws.terminate();
+    await vi.waitFor(() =>
+      expect(entries().find((entry) => entry.msg === 'engine link: disconnected')).toMatchObject({
+        level: 30,
+        engineId: engine.engine.id,
+        cause: 'closed',
+      }),
+    );
+    expect(logs.join('')).not.toContain(engine.key);
+    const second = await handshake(engine.key);
+    const at = Date.now();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    // The newest heartbeat interval belongs to the harness rebuilt above.
+    const beat = intervals.mock.calls.filter((args) => args[1] === 20_000).at(-1)?.[0];
+    if (typeof beat !== 'function') throw new Error('The heartbeat interval was not registered');
+    for (const offset of [20_000, 40_000, 60_000, 80_000, 100_000]) {
+      vi.setSystemTime(at + offset);
+      beat();
+    }
+    const dropped = entries().filter((entry) => entry.msg === 'engine link: disconnected');
+    expect(dropped.at(-1)).toMatchObject({ code: 4400, cause: 'heartbeat' });
+    expect(dropped.at(-1)!.sinceHeardMs as number).toBeGreaterThanOrEqual(100_000);
+    second.ws.terminate();
   });
 
   it('uses boot identity for resumption while retaining engine-scoped RPC results', async () => {

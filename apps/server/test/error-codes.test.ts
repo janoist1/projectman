@@ -48,7 +48,7 @@ async function serverErrorCodes(): Promise<Set<string>> {
       codes.add(match[1]!);
     }
     // Framework mappings and status fallbacks.
-    if (filename.endsWith('/api/errors.ts')) {
+    if (filename.endsWith('/http/errors.ts')) {
       for (const match of source.matchAll(/['"]([a-z]+(?:_[a-z]+)+)['"]/g)) codes.add(match[1]!);
     }
   }

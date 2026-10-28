@@ -1,5 +1,5 @@
 import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
-import { nonLocalReason } from '../http/local-guard';
+import { nonLocalReason } from '../kernel';
 import type { HookPayload } from './hook-payload';
 import type { AgentSession } from './session';
 
@@ -16,7 +16,7 @@ import type { AgentSession } from './session';
  * needs, up to the permission timeout).
  */
 
-export interface HookRouteDeps {
+interface HookRouteDeps {
   sessionForToken(token: string): AgentSession | undefined;
   /** Validates a hook body for the session's CLI; null when malformed. */
   parse(session: AgentSession, body: unknown, event?: string): HookPayload | null;

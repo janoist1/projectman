@@ -4,7 +4,12 @@ import type { StaleFacts, WakeFacts } from './message-wake';
 import type { TeamMessage } from './message';
 
 /** A system or unknown sender: the role never matters. */
-const wake: WakeFacts = { fromHuman: false, fromAi: false, recipientHasRole: true };
+const wake: WakeFacts = {
+  fromHuman: false,
+  fromAi: false,
+  recipientHasRole: true,
+  answersQuestion: false,
+};
 
 const facts: StaleFacts = {
   fromHuman: false,
@@ -67,6 +72,15 @@ describe('message validity and wake-up', () => {
     ).toBe('permission_closed');
   });
 
+  it('marks the reminder of a closed obligation stale (PM-813)', () => {
+    const reminder = {
+      kind: 'action' as const,
+      subject: { type: 'obligation' as const, obligationId: 'obl_1' },
+    };
+    expect(messageStaleReason(reminder, { ...facts, subjectClosed: true })).toBe('obligation_closed');
+    expect(messageStaleReason(reminder, { ...facts, subjectClosed: false })).toBeNull();
+  });
+
   it('an info message starts nothing and needs no stale marker', () => {
     expect(messageStaleReason({ ...action, kind: 'info' }, { ...facts, superseded: true })).toBeNull();
     expect(messageWakes({ kind: 'info' }, wake, null)).toBe(false);
@@ -74,7 +88,7 @@ describe('message validity and wake-up', () => {
   });
 
   describe('card role (PM-426)', () => {
-    const aiNoRole: WakeFacts = { fromHuman: false, fromAi: true, recipientHasRole: false };
+    const aiNoRole: WakeFacts = { ...wake, fromAi: true, recipientHasRole: false };
 
     it('an AI member starts only recipients with a role on the card', () => {
       expect(messageWakes(action, aiNoRole, null)).toBe(false);
@@ -92,6 +106,21 @@ describe('message validity and wake-up', () => {
       expect(messageWakeBlock({ kind: 'info' }, aiNoRole, null)).toBeNull();
       expect(messageWakeBlock(action, aiNoRole, 'stage_moved')).toBeNull();
       expect(messageWakes(action, aiNoRole, 'stage_moved')).toBe(false);
+    });
+  });
+
+  describe('an answer or a forwarded question wakes like a person’s message (PM-556)', () => {
+    const aiNoRole: WakeFacts = { ...wake, fromAi: true, recipientHasRole: false };
+    const answering: WakeFacts = { ...aiNoRole, answersQuestion: true };
+
+    it('wakes a recipient without a role on the card, and is not blocked', () => {
+      expect(messageWakes(action, aiNoRole, null)).toBe(false);
+      expect(messageWakes(action, answering, null)).toBe(true);
+      expect(messageWakeBlock(action, answering, null)).toBeNull();
+    });
+
+    it('wakes even when the action message is stale', () => {
+      expect(messageWakes(action, answering, 'stage_moved')).toBe(true);
     });
   });
 });

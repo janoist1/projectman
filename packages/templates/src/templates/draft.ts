@@ -1,6 +1,7 @@
 import {
   ProjectConfig,
   BUILT_IN_ROLE_DUTIES,
+  defaultMerger,
   isProjectManager,
   type AiBuiltInRoleId,
   type BoardColumn,
@@ -25,14 +26,14 @@ import { defaultMemberHandle, defaultMemberName, uniqueHandle } from '../members
 import { standardLabelsFor } from '../labels';
 import { projectManagerMember } from '../project-manager';
 import { newAiMember } from '../roles';
-import type { BuildTemplateInput, ProjectTemplate } from '../types';
+import type { BuildTemplateInput, ProjectTemplate, TemplateChecklistItem } from '../types';
 
 /** Limits every factory template starts with: the schema defaults. */
 export const DEFAULT_LIMITS: TeamLimits = TeamLimits.parse({});
 
 export { hasLabel } from '../labels';
 
-export interface HireOptions {
+interface HireOptions {
   specialty?: SpecialtyKey;
   /** A display name of its own instead of the role's name, e.g. the "daily worker". */
   name?: TemplateMemberKey;
@@ -42,7 +43,7 @@ export interface HireOptions {
 }
 
 /** Helpers a template uses to assemble a project configuration in the project's language. */
-export interface TemplateDraft {
+interface TemplateDraft {
   /** Handle of the human owner (the sponsor of every AI member). */
   owner: string;
   /** Adds an AI member with the role's defaults; returns its handle. */
@@ -116,6 +117,7 @@ function draftProject(templateId: TemplateId, input: BuildTemplateInput): Templa
         : defaultMemberName(role, input.language, index, { specialty: specialtyName });
       members.push(
         newAiMember({
+          provider: input.provider,
           role,
           handle,
           displayName,
@@ -159,10 +161,15 @@ function draftProject(templateId: TemplateId, input: BuildTemplateInput): Templa
       // Every project has a project manager (PM-429), whether or not the template hired one.
       if (!members.some(isProjectManager)) {
         members.push(
-          projectManagerMember({ language: input.language, sponsor: input.owner.handle, taken: [...taken] }),
+          projectManagerMember({
+            provider: input.provider,
+            language: input.language,
+            sponsor: input.owner.handle,
+            taken: [...taken],
+          }),
         );
       }
-      return ProjectConfig.parse({
+      const config = ProjectConfig.parse({
         schemaVersion: 1,
         project: {
           key: input.key,
@@ -173,7 +180,12 @@ function draftProject(templateId: TemplateId, input: BuildTemplateInput): Templa
           timezone: locale.timezone,
           templateId,
         },
-        team: { members, roles: [], limits },
+        team: {
+          members,
+          roles: [],
+          limits,
+          cardMover: input.cardMover ?? { kind: 'worker' },
+        },
         pipeline: {
           ...pipeline,
           // The standard labels the gates use, whole groups included.
@@ -183,6 +195,8 @@ function draftProject(templateId: TemplateId, input: BuildTemplateInput): Templa
           ),
         },
       });
+      // The merger the pipeline implies is written out, so that the setting is visible and editable.
+      return { ...config, team: { ...config.team, merger: input.merger ?? defaultMerger(config) } };
     },
   };
 }
@@ -190,11 +204,13 @@ function draftProject(templateId: TemplateId, input: BuildTemplateInput): Templa
 export function defineTemplate(
   id: TemplateId,
   build: (draft: TemplateDraft) => ProjectConfig,
+  checklist: readonly TemplateChecklistItem[] = [],
 ): ProjectTemplate {
   return {
     id,
     nameKey: `templates.${id}.name`,
     descriptionKey: `templates.${id}.description`,
+    checklist,
     build: (input) => build(draftProject(id, input)),
   };
 }

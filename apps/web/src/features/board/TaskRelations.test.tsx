@@ -6,6 +6,8 @@ import type { AddableRelationKind, TaskRelationKind } from '@projectman/shared';
 import { setFetchImplementation } from '../../api/client';
 import { t } from '../../i18n/t';
 import { mockProject } from '../../test/mockProject';
+import { onTaskUpdate } from '../../test/msw/tasks';
+import { apiFailure } from '../../test/msw/contract';
 import { indexPipeline } from '../../lib/pipeline';
 import { RelationDialog } from './RelationDialog';
 import { TaskDrawer } from './TaskDrawer';
@@ -43,16 +45,21 @@ const submit = (dialog: HTMLElement, name: string = t('relationDialog.submit')) 
 const patches = (project: ReturnType<typeof mockProject>, key: string) =>
   project.requests.filter((r) => r.method === 'PATCH' && r.path === `/api/projects/AC/tasks/${key}`);
 
-/** Adds a relation through the mock backend, as the server's PATCH would. */
+/** Stored links for the views under test; no server rules run here. */
 const relate = (
   project: ReturnType<typeof mockProject>,
   key: string,
   kind: AddableRelationKind,
   to: string,
 ) =>
-  project.backend.handle('PATCH', `/api/projects/AC/tasks/${key}`, {
-    relations: { add: [{ kind, key: to }] },
-  });
+  project.backend.updateTask(
+    key,
+    kind === 'part_of'
+      ? { parentKey: to }
+      : {
+          links: [...project.backend.findTask(key)!.links, { kind, ref: to }],
+        },
+  );
 
 describe('relations in the drawer (PM-203)', () => {
   it('shows each kind in its group, from both sides of a relation, and a card opens on click', async () => {
@@ -113,6 +120,10 @@ describe('relations in the drawer (PM-203)', () => {
       '$kind: one PATCH with the kind and the card, and the other card shows it from its side',
       async ({ kind, target, other, preview }) => {
         const project = mockProject();
+        onTaskUpdate('AC-24', () => {
+          relate(project, 'AC-24', kind, target);
+          return project.backend.findTask('AC-24')!;
+        });
         project.render(drawer, '/p/AC/tasks/AC-24');
         const dialog = await openDialog();
 
@@ -161,6 +172,12 @@ describe('relations in the drawer (PM-203)', () => {
       expect(within(dialog).getByText(t('relationDialog.preview.duplicate', { key: 'AC-20' }))).toBeTruthy();
       expect(within(dialog).queryByRole('button', { name: t('relationDialog.submit') })).toBeNull();
       expect(patches(project, 'AC-24')).toEqual([]);
+      onTaskUpdate('AC-24', () =>
+        project.backend.updateTask('AC-24', {
+          status: 'cancelled',
+          links: [{ kind: 'duplicate_of', ref: 'AC-20' }],
+        })!,
+      );
       submit(dialog, t('relationDialog.submitDuplicate'));
 
       await waitFor(() => expect(project.backend.findTask('AC-24')!.status).toBe('cancelled'));
@@ -187,6 +204,11 @@ describe('relations in the drawer (PM-203)', () => {
       chooseCard(dialog, 'AC-20');
       expect(within(dialog).getByText(t('relationDialog.preview.duplicateClosed'))).toBeTruthy();
       expect(within(dialog).queryByRole('button', { name: t('relationDialog.submitDuplicate') })).toBeNull();
+      onTaskUpdate('AC-16', () =>
+        project.backend.updateTask('AC-16', {
+          links: [{ kind: 'duplicate_of', ref: 'AC-20' }],
+        })!,
+      );
       submit(dialog);
       await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
       expect(project.backend.findTask('AC-16')).toMatchObject({
@@ -204,6 +226,7 @@ describe('relations in the drawer (PM-203)', () => {
       expect(dialog.textContent).toContain(t('relationDialog.hintMove', { key: 'AC-20' }));
       chooseCard(dialog, 'AC-25');
       expect(dialog.textContent).toContain(t('relationDialog.preview.leaveParent', { key: 'AC-20' }));
+      onTaskUpdate('AC-22', () => project.backend.updateTask('AC-22', { parentKey: 'AC-25' })!);
       submit(dialog);
       await waitFor(() => expect(project.backend.findTask('AC-22')!.parentKey).toBe('AC-25'));
       expect(patches(project, 'AC-22').map((r) => r.body)).toEqual([
@@ -352,6 +375,11 @@ describe('relations in the drawer (PM-203)', () => {
       fireEvent.keyDown(search, { key: 'ArrowDown' });
       fireEvent.keyDown(search, { key: 'Enter' });
       expect(patches(project, 'AC-24')).toEqual([]);
+      onTaskUpdate('AC-24', () =>
+        project.backend.updateTask('AC-24', {
+          links: [{ kind: 'related', ref: 'AC-17' }],
+        })!,
+      );
       fireEvent.keyDown(search, { key: 'Enter' });
       await waitFor(() => expect(patches(project, 'AC-24')).toHaveLength(1));
     });
@@ -363,7 +391,12 @@ describe('relations in the drawer (PM-203)', () => {
       chooseKind(dialog, 'prerequisite');
       chooseCard(dialog, 'AC-24');
       // Someone else made AC-24 wait for AC-17 after the board was loaded.
-      relate(project, 'AC-24', 'prerequisite', 'AC-17');
+      onTaskUpdate(
+        'AC-17',
+        apiFailure(400, 'relation_cycle', undefined, {
+          path: ['AC-17', 'AC-24', 'AC-17'],
+        }),
+      );
       submit(dialog);
       const alert = await within(dialog).findByRole('alert');
       expect(alert.textContent).toContain(t('errors.codes.relation_cycle'));
@@ -387,7 +420,9 @@ describe('relations in the drawer (PM-203)', () => {
       const dialog = await openDialog();
       chooseKind(dialog, 'duplicate_of');
       chooseCard(dialog, 'AC-22');
+      onTaskUpdate('AC-20', apiFailure(403, 'duplicate_not_allowed'));
       submit(dialog, t('relationDialog.submitDuplicate'));
+      await waitFor(() => expect(patches(project, 'AC-20')).toHaveLength(1));
       const alert = await within(dialog).findByRole('alert');
       expect(alert.textContent).toContain(t('errors.codes.duplicate_not_allowed'));
       expect(project.backend.findTask('AC-20')!.status).not.toBe('cancelled');
@@ -406,6 +441,7 @@ describe('relations in the drawer (PM-203)', () => {
       async ({ kind, view, target }) => {
         const project = mockProject();
         relate(project, 'AC-24', kind, target);
+        onTaskUpdate('AC-24', () => project.backend.updateTask('AC-24', { links: [], parentKey: null })!);
         project.render(drawer, '/p/AC/tasks/AC-24');
         const list = await group(view);
         fireEvent.click(
@@ -434,6 +470,10 @@ describe('relations in the drawer (PM-203)', () => {
     it('deletes from the other card too, with the kind as that card sees it', async () => {
       const project = mockProject();
       relate(project, 'AC-24', 'prerequisite', 'AC-17');
+      onTaskUpdate('AC-17', () => {
+        project.backend.updateTask('AC-24', { links: [] });
+        return project.backend.findTask('AC-17')!;
+      });
       project.render(drawer, '/p/AC/tasks/AC-17');
       const list = await group('prerequisite_of');
       fireEvent.click(
@@ -481,7 +521,7 @@ describe('relations in the drawer (PM-203)', () => {
         }),
       );
       // The relation went away on its own meanwhile: the server refuses the removal.
-      project.backend.updateTask('AC-23', { links: [] });
+      onTaskUpdate('AC-23', apiFailure(400, 'relation_not_found'));
       fireEvent.click(within(list).getByRole('button', { name: t('task.relations.removeAction') }));
       expect((await within(list).findByRole('alert')).textContent).toBe(t('task.relations.removeFailed'));
       expect(within(list).getByRole('link', { name: /AC-17/ })).toBeTruthy();
@@ -500,9 +540,8 @@ describe('relations in the drawer (PM-203)', () => {
     expect(within(list).getAllByRole('listitem')).toHaveLength(7);
   });
 
-  it('lets a client see only the cards it may see, and change nothing', async () => {
+  it('lets a client see every related card (PM-79), and change nothing', async () => {
     const project = mockProject();
-    // AC-21 is shared with the client; AC-20 is internal; AC-17 is shared.
     relate(project, 'AC-21', 'prerequisite', 'AC-20');
     relate(project, 'AC-21', 'prerequisite', 'AC-17');
     relate(project, 'AC-21', 'related', 'AC-24');
@@ -516,10 +555,9 @@ describe('relations in the drawer (PM-203)', () => {
       within(list)
         .getAllByRole('link')
         .map((link) => link.getAttribute('href')),
-    ).toEqual(['/p/AC/tasks/AC-17']);
+    ).toEqual(['/p/AC/tasks/AC-17', '/p/AC/tasks/AC-20']);
     const all = await section();
-    expect(within(all).queryByRole('group', { name: kindName('related') })).toBeNull();
-    expect(all.textContent).not.toMatch(/AC-20|AC-24/);
+    expect(within(all).getByRole('group', { name: kindName('related') })).toBeTruthy();
     expect(within(all).queryByRole('button', { name: t('task.relations.add') })).toBeNull();
     expect(within(all).queryByRole('button', { name: /×|törlése/i })).toBeNull();
   });

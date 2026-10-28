@@ -1,0 +1,296 @@
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { runCloud } from '../../../scripts/cloud/commands';
+import { CloudflareWorld } from './helpers/fake-cloudflare';
+
+/** `npm run cloud -- check --login-json <file>` (PM-536). */
+
+let world: CloudflareWorld;
+let loginFile: string;
+
+const ENGINE_SECRET = 'engine-secret-value-0123456789abcdef';
+const INTEGRATOR_SECRET = 'integrator-secret-value-0123456789abcdef';
+const DOORS = ['/engine/link', '/engine/files/downloads/smoke-test', '/engine/files/uploads/smoke-test'];
+
+function writeTokenFile(name: string, id: string, secret: string): void {
+  writeFileSync(
+    path.join(world.secretsDir, name),
+    `${JSON.stringify({ 'CF-Access-Client-Id': id, 'CF-Access-Client-Secret': secret }, null, 2)}\n`,
+    { mode: 0o600 },
+  );
+}
+
+const check = (...extra: string[]) => runCloud(['check', '--login-json', loginFile, ...extra], world.deps());
+
+/** The doors as they should be: Access login without a token, the board's own refusal with the engine token. */
+function goodDoors(): void {
+  world.doors = (url, init) => {
+    const headers = new Headers(init.headers);
+    // The encoded spelling never reaches the engine's handler (which answers 401): the board's own 404.
+    if (headers.has('cf-access-client-id') && String(url).includes('%65'))
+      return new Response('', { status: 404 });
+    return headers.has('cf-access-client-id')
+      ? new Response('', { status: 401 })
+      : new Response('', {
+          status: 302,
+          headers: {
+            location: 'https://janoist1.cloudflareaccess.com/cdn-cgi/access/login/board.example.com',
+          },
+        });
+  };
+}
+
+beforeEach(() => {
+  world = CloudflareWorld.ready();
+  world.writeToken();
+  writeTokenFile('engine-access-token.json', 'engine-id.access', ENGINE_SECRET);
+  loginFile = path.join(world.home, 'login.json');
+  writeFileSync(loginFile, '{"email":"a@example.com","password":"correct horse battery"}', { mode: 0o600 });
+  goodDoors();
+});
+afterEach(() => world.cleanup());
+
+describe('check', () => {
+  it('runs check.sh with the login file in its environment and the three doors of the engine', async () => {
+    expect(await check()).toBe(0);
+    const script = world.scriptCalls.find((call) => call.script === 'check.sh')!;
+    expect(script.args.slice(1)).toEqual(['https://board.example.com']);
+    expect(script.env).toEqual({ LOGIN_JSON: loginFile, BOARD_MODE: 'private' });
+    expect(world.output).toContain('ok access-checks: https://board.example.com');
+    expect(world.output).toContain('ok engine-doors');
+    expect(world.doorCalls.map((call) => new URL(call.url).pathname)).toEqual([
+      ...DOORS.flatMap((door) => [door, door]),
+      '/%65ngine/link',
+      '/%65ngine/link',
+    ]);
+    expect(world.doorCalls.every((call) => call.redirect === 'manual')).toBe(true);
+    expect(world.output).not.toContain(ENGINE_SECRET);
+    expect(world.output).toContain('skipped integrator-smoke');
+  });
+
+  it('passes the feedback origin to check.sh when there is a feedback hostname', async () => {
+    world.writeConfig({
+      cloudflare: {
+        zone: 'example.com',
+        hostname: 'board.example.com',
+        feedbackHostname: 'mark.example.com',
+      },
+    });
+    expect(await check()).toBe(0);
+    expect(world.scriptCalls.find((call) => call.script === 'check.sh')!.env).toEqual({
+      LOGIN_JSON: loginFile,
+      BOARD_MODE: 'private',
+      FEEDBACK_ORIGIN: 'https://mark.example.com',
+    });
+  });
+
+  it('prints what check.sh found and fails when it exits 1', async () => {
+    world.scripts.set('check.sh', {
+      code: 1,
+      stdout: 'ok    one\nFAIL  /: cf-cache-status is HIT\n',
+      stderr: '',
+    });
+    expect(await check()).toBe(1);
+    expect(world.output).toContain('FAIL  /: cf-cache-status is HIT');
+    expect(world.output).toContain('FAIL access-checks');
+  });
+
+  it('is refused (2) when check.sh cannot start, for example without a cloudflared login', async () => {
+    world.scripts.set('check.sh', {
+      code: 2,
+      stdout: '',
+      stderr: 'no Access token: run cloudflared access login\n',
+    });
+    expect(await check()).toBe(2);
+    expect(world.output).toContain('no Access token');
+  });
+
+  it('refuses a login file that anyone else can read', async () => {
+    writeFileSync(loginFile, '{}', { mode: 0o644 });
+    const { chmodSync } = await import('node:fs');
+    chmodSync(loginFile, 0o644);
+    expect(await check()).toBe(2);
+    expect(world.output).toContain('must be 600');
+    expect(world.scriptCalls).toEqual([]);
+  });
+
+  it('needs --login-json', async () => {
+    expect(await runCloud(['check'], world.deps())).toBe(64);
+  });
+});
+
+describe('the engine doors', () => {
+  it('fails when the engine token gets through to a success', async () => {
+    world.doors = (_url, init) =>
+      new Headers(init.headers).has('cf-access-client-id')
+        ? new Response('{}', { status: 200 })
+        : new Response('', { status: 403 });
+    expect(await check()).toBe(1);
+    expect(world.output).toContain('with the engine token answered 200: the door is open');
+    expect(world.output).not.toContain(ENGINE_SECRET);
+  });
+
+  it('fails when the engine token is sent to the Access login (not accepted)', async () => {
+    world.doors = (_url, init) => {
+      void init;
+      return new Response('', {
+        status: 302,
+        headers: { location: 'https://janoist1.cloudflareaccess.com/cdn-cgi/access/login/x' },
+      });
+    };
+    expect(await check()).toBe(1);
+    expect(world.output).toContain('went to the Access login');
+  });
+
+  it('fails when the encoded spelling of a door reaches the engine’s handler', async () => {
+    world.doors = (url, init) =>
+      new Headers(init.headers).has('cf-access-client-id') || String(url).includes('%65')
+        ? new Response('', { status: 401 })
+        : new Response('', { status: 403 });
+    expect(await check()).toBe(1);
+    expect(world.output).toContain('/%65ngine/link with the engine token answered 401');
+    expect(world.output).toContain('/%65ngine/link without a token answered 401');
+  });
+
+  it('fails when a door does not answer at all', async () => {
+    world.doors = (_url, init) => {
+      if (new Headers(init.headers).has('cf-access-client-id')) throw new Error('connection reset');
+      return new Response('', { status: 403 });
+    };
+    expect(await check()).toBe(1);
+    expect(world.output).toContain('no answer (000)');
+  });
+
+  it('fails when a door is open without any token', async () => {
+    world.doors = () => new Response('{}', { status: 200 });
+    expect(await check()).toBe(1);
+    expect(world.output).toContain('without a token answered 200');
+  });
+
+  it('is refused when the engine token file is missing', async () => {
+    const { rmSync } = await import('node:fs');
+    rmSync(path.join(world.secretsDir, 'engine-access-token.json'));
+    expect(await check()).toBe(2);
+    expect(world.output).toContain('run "npm run cloud -- edge"');
+  });
+});
+
+/** PM-1065: each further owner's two tokens are tried at the two hostnames from the host's copy of the files. */
+describe('the doors of the further owners', () => {
+  const MACHINE = 'machine.example.com';
+  const ownerFile = (kind: 'engine' | 'integrator') => `owners/alpha/${kind}-access-token.json`;
+
+  /** Every door as it should be, by the kind of token in the `ids` (`<who>-<kind>.access`). */
+  function properDoors(): void {
+    const login = () =>
+      new Response('', {
+        status: 302,
+        headers: { location: 'https://janoist1.cloudflareaccess.com/cdn-cgi/access/login/x' },
+      });
+    world.doors = (url, init) => {
+      const id = new Headers(init.headers).get('cf-access-client-id');
+      if (id === null) return login();
+      const integrator = id.includes('integrator');
+      if (url.hostname === MACHINE) {
+        if (!integrator) return login();
+        return /^\/(api\/projects|mcp)$/.test(url.pathname)
+          ? new Response('', { status: 401 })
+          : new Response('', { status: 404 });
+      }
+      if (integrator) return login();
+      return String(url).includes('%65')
+        ? new Response('', { status: 404 })
+        : new Response('', { status: 401 });
+    };
+  }
+
+  function writeOwnerFile(name: string, id: string): void {
+    mkdirSync(path.join(world.secretsDir, 'owners', 'alpha'), { recursive: true, mode: 0o700 });
+    writeTokenFile(name, id, `secret-of-${id}-0123456789abcdef`);
+  }
+
+  beforeEach(() => {
+    world.writeConfig({
+      cloudflare: { zone: 'example.com', hostname: 'board.example.com', integratorHostname: MACHINE },
+      access: {
+        emails: ['owner@example.com'],
+        integratorServiceToken: true,
+        owners: [{ id: 'alpha', name: 'Alpha Ltd', email: 'alpha@example.com' }],
+      },
+    });
+    writeTokenFile('engine-access-token.json', 'host-engine.access', ENGINE_SECRET);
+    writeTokenFile('integrator-access-token.json', 'host-integrator.access', INTEGRATOR_SECRET);
+    writeOwnerFile(ownerFile('engine'), 'alpha-engine.access');
+    writeOwnerFile(ownerFile('integrator'), 'alpha-integrator.access');
+    properDoors();
+  });
+
+  it('passes when each token opens its own door only', async () => {
+    expect(await check()).toBe(0);
+    expect(world.output).toContain('ok owner-doors alpha');
+    expect(world.output).not.toContain('secret-of-alpha');
+    const used = new Set(world.doorCalls.map((call) => call.headers.get('cf-access-client-id')));
+    expect(used).toContain('alpha-engine.access');
+    expect(used).toContain('alpha-integrator.access');
+  });
+
+  it('fails when the owner’s engine token is let in at the integrator host', async () => {
+    const proper = world.doors;
+    world.doors = (url, init) =>
+      url.hostname === MACHINE &&
+      new Headers(init.headers).get('cf-access-client-id') === 'alpha-engine.access'
+        ? new Response('', { status: 401 })
+        : proper(url, init);
+    expect(await check()).toBe(1);
+    expect(world.output).toContain('the doors of owner alpha');
+    expect(world.output).toContain('accepts a missing or wrong service token');
+  });
+
+  it('fails when the owner’s integrator token opens the engine application', async () => {
+    const proper = world.doors;
+    world.doors = (url, init) =>
+      url.hostname !== MACHINE &&
+      new Headers(init.headers).get('cf-access-client-id') === 'alpha-integrator.access'
+        ? new Response('', { status: 401 })
+        : proper(url, init);
+    expect(await check()).toBe(1);
+    expect(world.output).toContain('the integrator service token opens the engine application');
+  });
+
+  it('skips the owner without failing when the host has no copy of a file', async () => {
+    rmSync(path.join(world.secretsDir, ownerFile('integrator')));
+    expect(await check()).toBe(0);
+    expect(world.output).toContain('skipped owner-doors alpha');
+    expect(world.output).toContain('integrator-access-token.json');
+  });
+});
+
+describe('the integrator smoke test', () => {
+  beforeEach(() => {
+    world.writeConfig({
+      cloudflare: { zone: 'example.com', hostname: 'board.example.com' },
+      access: { emails: ['owner@example.com'], integratorServiceToken: true },
+    });
+    writeTokenFile('integrator-access-token.json', 'integrator-id.access', INTEGRATOR_SECRET);
+  });
+
+  it('runs smoke.sh with the token in the environment and never in the arguments', async () => {
+    expect(await check()).toBe(0);
+    const smoke = world.scriptCalls.find((call) => call.script === 'smoke.sh')!;
+    expect(smoke.args.slice(1)).toEqual(['https://board.example.com']);
+    expect(smoke.env).toEqual({
+      CF_ACCESS_CLIENT_ID: 'integrator-id.access',
+      CF_ACCESS_CLIENT_SECRET: INTEGRATOR_SECRET,
+    });
+    expect(smoke.args.join(' ')).not.toContain(INTEGRATOR_SECRET);
+    expect(world.output).toContain('ok integrator-smoke');
+  });
+
+  it('masks the secret if the script echoes it, and fails when the script fails', async () => {
+    world.scripts.set('smoke.sh', { code: 1, stdout: '', stderr: `FAIL: sent ${INTEGRATOR_SECRET}\n` });
+    expect(await check()).toBe(1);
+    expect(world.output).not.toContain(INTEGRATOR_SECRET);
+    expect(world.output).toContain('FAIL integrator-smoke');
+  });
+});

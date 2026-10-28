@@ -28,6 +28,8 @@ export const DUTY_IDS = [
   'process_improvement',
   'research',
   'final_decision',
+  'project_operation',
+  'feedback_processing',
 ] as const;
 export const DutyId = z.enum(DUTY_IDS);
 export type DutyId = z.infer<typeof DutyId>;
@@ -50,7 +52,7 @@ export const DUTIES: Record<DutyId, DutyDefinition> = {
     group: 'direction',
     holders: 'both',
     prompt:
-      'Decide delegated external operations with decide_boundary_request after checking the exact target and scope. Never decide your own request. Cost, production or release or main publication, new accounts or secrets, and permanent host boundary expansion belong to the owner. Gates and release approvals remain human-only. Use get_boundary_request to inspect requests; late decisions are refused. A team message may also hand you a permission request of another member (a tool call its CLI asks about): read its exact content and answer it with decide_permission_request, always with a reason. Allow only a routine step that plainly belongs to the task, deny what plainly does not, and escalate the rest to a person. Always escalate: spending money; new accounts, tokens or secrets; a lasting widening of what the host reaches; the live system, a release, publishing or main; a request you cannot read completely or fully understand; your own requests. A request that is cut off or unclear is never allowed.',
+      'Gates and release approvals remain human-only. A team message may hand you a permission request of another member (a tool call its CLI asks about): read its exact content and answer it with decide_permission_request, always with a reason. Never decide your own request; late decisions are refused. Allow only a routine step that plainly belongs to the task, deny what plainly does not, and escalate the rest to a person. Always escalate: spending money; new accounts, tokens or secrets; a lasting widening of what the host reaches; the live system, a release, publishing or main; a request you cannot read completely or fully understand; your own requests. A request that is cut off or unclear is never allowed.',
     toolPolicy: 'read_only',
     meetings: [],
     events: [],
@@ -82,7 +84,7 @@ export const DUTIES: Record<DutyId, DutyDefinition> = {
     group: 'direction',
     holders: 'both',
     prompt:
-      'Split work into independently testable tasks with create_task and record dependencies. Set the recommended developer of every developer card you plan or create with update_task or create_task: developer_level senior, with developer_level_reason, for the runner, the sandbox, security, delicate concurrency and debugging; any for UI and well-bounded parts with an exact contract.',
+      'Split work into independently testable tasks with create_task and record dependencies. Give a developer card complexity points (1, 2, 3, 5, 8, 13) with complexity_reason when that helps or the team agreed on it; a card that would be above 13 must be split.',
     toolPolicy: 'read_only',
     meetings: [],
     events: [],
@@ -255,7 +257,18 @@ export const DUTIES: Record<DutyId, DutyDefinition> = {
     group: 'communication',
     holders: 'both',
     prompt:
-      'Draft concise client updates and test requests; obtain a human decision before sending anything outside the team.',
+      'Draft concise client updates and test requests; obtain a human decision before sending anything outside the team, except e-mail sent with send_email, whose approval the system enforces.',
+    toolPolicy: 'read_only',
+    meetings: [],
+    events: [],
+    recommended: false,
+  },
+  feedback_processing: {
+    id: 'feedback_processing',
+    group: 'communication',
+    holders: 'both',
+    prompt:
+      "Process the project's feedback marks (get_feedback): one decision per mark — answer, open a card or link one — and close what needs nothing more. Never promise a deadline, a price or scope: answer that the owner decides and forward the mark (forward_feedback).",
     toolPolicy: 'read_only',
     meetings: [],
     events: [],
@@ -331,6 +344,17 @@ export const DUTIES: Record<DutyId, DutyDefinition> = {
     group: 'team',
     holders: 'human',
     prompt: '',
+    toolPolicy: 'read_only',
+    meetings: [],
+    events: [],
+    recommended: false,
+  },
+  project_operation: {
+    id: 'project_operation',
+    group: 'direction',
+    holders: 'ai',
+    prompt:
+      "Carry out the owner's requests as the owner's right hand inside the app; the Operator's own rule says how.",
     toolPolicy: 'read_only',
     meetings: [],
     events: [],

@@ -5,9 +5,11 @@ import {
   BuiltInRoleId,
   DEFAULT_AGENT_PROVIDER,
   DEFAULT_PROJECT_LANGUAGE,
+  defaultMerger,
   FALLBACK_PERMISSION_MODE,
   isProjectManager,
   LabelDefinition,
+  MAX_COMPLEXITY,
   type MemberConfig,
   PermissionMode,
   permissionModeFitsProvider,
@@ -15,10 +17,11 @@ import {
   releaseApprovalSetBy,
   releaseApprovers,
   releaseGateAccepts,
+  RETIRED_OPERATOR_ROLE,
 } from '@projectman/shared';
 import { DAILY_WORKER_SCHEDULE, migrateLegacyConfig, projectManagerMember } from '@projectman/templates';
 
-export interface MigrationContext {
+interface MigrationContext {
   projectKey: string;
   logger: Pick<FastifyBaseLogger, 'warn'>;
 }
@@ -60,6 +63,41 @@ function migrateCodexBypass(raw: unknown, { projectKey, logger }: MigrationConte
       { projectKey, member: member.handle },
       `Migrated ${provider.data} member from ${mode.data} to ${FALLBACK_PERMISSION_MODE}`,
     );
+  }
+  return raw;
+}
+
+/**
+ * The removed Senior mark (PM-347, PM-1001): a permanent AI member marked `senior` gets the complexity
+ * limit 13 unless it has one already, a temp worker none (its limit is always 5). The `senior` field is
+ * dropped from every member, so the migration runs once.
+ */
+function migrateSeniorLimit(raw: unknown, { projectKey, logger }: MigrationContext): unknown {
+  for (const member of rawAiMembers(raw)) {
+    if (!('senior' in member)) continue;
+    if (member.senior === true && !member.temp && member.complexityLimit === undefined)
+      member.complexityLimit = MAX_COMPLEXITY;
+    delete member.senior;
+    logger.warn({ projectKey, member: member.handle }, 'Migrated the Senior mark to a complexity limit');
+  }
+  return raw;
+}
+
+/**
+ * The removed separate mailbox name (PM-1039): an AI member's address is `<handle>@<domain>`. A name
+ * that differed from the handle is gone with its address (the owner's decision); the log names the member.
+ */
+function dropEmailMailbox(raw: unknown, { projectKey, logger }: MigrationContext): unknown {
+  for (const member of rawAiMembers(raw)) {
+    const email = member.email;
+    if (!email || typeof email !== 'object' || !('mailbox' in email)) continue;
+    const mailbox = email.mailbox;
+    delete (email as Record<string, unknown>).mailbox;
+    if (mailbox !== member.handle)
+      logger.warn(
+        { projectKey, member: member.handle, mailbox },
+        'Dropped the removed mailbox name; the address is the handle',
+      );
   }
   return raw;
 }
@@ -220,6 +258,110 @@ function addProjectManager(raw: unknown, { projectKey, logger }: MigrationContex
   return raw;
 }
 
+/** Existing projects retain worker-driven handovers (PM-457). */
+function addCardMover(raw: unknown): unknown {
+  const team = asRecord(asRecord(raw)?.team);
+  if (team && team.cardMover === undefined) team.cardMover = { kind: 'worker' };
+  return raw;
+}
+
+/**
+ * The Operator member is gone (decision 66, PM-1076): a connected Claude replaces it. A member of the
+ * retired `ai_operator` role leaves the team like any retired member (the `reconcile` listener records it
+ * as retired, its handle is never reused and its old events keep showing the handle), together with the
+ * references to it: the contacts, the stage owners, the role override and the temp workers' role. Runs on
+ * every read, so an earlier version restored from history loses it as well and the removed `addOperator`
+ * and `fixOperator` cannot bring it back; a second run changes nothing.
+ */
+function removeOperator(raw: unknown, { projectKey, logger }: MigrationContext): unknown {
+  const config = asRecord(raw);
+  const team = asRecord(config?.team);
+  if (!config || !team || !Array.isArray(team.members)) return raw;
+  const gone = new Set<string>();
+  for (const member of rawAiMembers(raw)) {
+    if (member.role === RETIRED_OPERATOR_ROLE && typeof member.handle === 'string') gone.add(member.handle);
+  }
+  if (gone.size) {
+    const remaining = team.members.filter(
+      (m) => !(asRecord(m)?.kind === 'ai' && gone.has(String(asRecord(m)?.handle))),
+    );
+    team.members = remaining;
+    if (Array.isArray(team.contacts)) team.contacts = team.contacts.filter((h) => !gone.has(String(h)));
+    const pipeline = asRecord(config.pipeline);
+    if (Array.isArray(pipeline?.stages)) {
+      for (const stage of pipeline.stages.map(asRecord)) {
+        if (stage && Array.isArray(stage.owners))
+          stage.owners = stage.owners.filter((h) => !gone.has(String(h)));
+      }
+    }
+    // A label the Operator could set by name: the other setters stay. A label nobody else could set falls to
+    // the owners in person (an empty `setBy` does not parse), or to the system when there is no owner: no
+    // narrower rule loads, and no one gains the right.
+    const owners = remaining.flatMap((m) => {
+      const member = asRecord(m);
+      return member?.kind === 'human' && member.access === 'owner' && typeof member.handle === 'string'
+        ? [member.handle]
+        : [];
+    });
+    if (Array.isArray(pipeline?.labels)) {
+      for (const label of pipeline.labels.map(asRecord)) {
+        const setBy = asRecord(label?.setBy);
+        if (!label || !setBy || !Array.isArray(setBy.members)) continue;
+        const members = setBy.members.filter((h) => !gone.has(String(h)));
+        if (members.length === setBy.members.length) continue;
+        if (members.length) setBy.members = members;
+        else if (Array.isArray(setBy.duties) && setBy.duties.length) delete setBy.members;
+        else label.setBy = owners.length ? { members: owners, humansOnly: true } : 'system';
+      }
+    }
+    // A merger naming the Operator was never valid; dropped, `addMerger` (next in the chain) derives the default.
+    const merger = asRecord(team.merger);
+    if (merger?.kind === 'member' && gone.has(String(merger.handle))) delete team.merger;
+    logger.warn({ projectKey, members: [...gone] }, 'Removed the retired Operator member');
+  }
+  const overrides = asRecord(team.roleOverrides);
+  if (overrides && overrides[RETIRED_OPERATOR_ROLE] !== undefined) {
+    delete overrides[RETIRED_OPERATOR_ROLE];
+    logger.warn({ projectKey, fields: ['roleOverrides.ai_operator'] }, 'Removed the retired Operator role');
+  }
+  const tempWorkers = asRecord(asRecord(team.limits)?.tempWorkers);
+  if (tempWorkers && tempWorkers.role === RETIRED_OPERATOR_ROLE) {
+    tempWorkers.role = 'developer';
+    logger.warn({ projectKey, fields: ['limits.tempWorkers.role'] }, 'Removed the retired Operator role');
+  }
+  return raw;
+}
+
+/**
+ * A project without a merger (PM-470) gets the one its pipeline implies: the code reviewer when a code
+ * review stage comes before the merge target, else the developer. A configuration that does not parse is
+ * left alone: at run time the same rule (`mergerOf`) applies to the missing value.
+ */
+function addMerger(raw: unknown): unknown {
+  const team = asRecord(asRecord(raw)?.team);
+  if (!team || team.merger !== undefined) return raw;
+  const parsed = ProjectConfig.safeParse(raw);
+  if (parsed.success) team.merger = defaultMerger(parsed.data);
+  return raw;
+}
+
+/**
+ * The project manager role (PM-506) carries the feedback processing duty. A built-in role without an
+ * override gets it from the defaults; an override replaces the whole bundle, so the duty is appended
+ * to the override's list when it is missing. Idempotent.
+ */
+function addFeedbackProcessing(raw: unknown, { projectKey, logger }: MigrationContext): unknown {
+  const override = asRecord(asRecord(asRecord(asRecord(raw)?.team)?.roleOverrides)?.project_manager);
+  if (!override || !Array.isArray(override.duties) || override.duties.includes('feedback_processing'))
+    return raw;
+  override.duties.push('feedback_processing');
+  logger.warn(
+    { projectKey, fields: ['roleOverrides.project_manager.duties'] },
+    'Added the feedback processing duty to the project manager role override',
+  );
+  return raw;
+}
+
 /**
  * Upgrades a merged, not yet validated project configuration of an older shape, in memory: the
  * customization files keep their content until the next save. Used wherever the store reads
@@ -231,21 +373,47 @@ function addProjectManager(raw: unknown, { projectKey, logger }: MigrationContex
  *     conditions with the labels they need (`migrateLegacyConfig`, @projectman/templates);
  *   - a label a release gate requires that more than the release approval duty's holders may set
  *     is narrowed to that duty (above), after the conversion of legacy gates;
+ *   - the removed separate mailbox name (`email.mailbox`, PM-1039) is dropped from every AI member (above);
  *   - the removed message storm threshold (`messageBurst`) is dropped (above);
- *   - a project without an AI project manager gets one, on leave (above).
+ *   - a project without an AI project manager gets one, on leave (above);
+ *   - a missing card mover becomes worker (above);
+ *   - the retired Operator member (`ai_operator`) leaves the team, with its role override and its
+ *     references (above), and is never put back;
+ *   - a missing merger becomes the code reviewer or the developer, by the pipeline (above), judged on
+ *     the configuration without the Operator;
+ *   - an override of the project manager role gets the feedback processing duty (above), last.
  * Stage kinds from before decision 18 (review, deploy, …) are read by the pipeline schema
  * itself (packages/shared/src/domain/pipeline.ts).
  */
 export function migrateProjectConfig(raw: unknown, context: MigrationContext): unknown {
-  return addProjectManager(
-    migrateReleaseApproval(
-      migrateLegacyConfig(
-        migrateCodexBypass(
-          migrateScheduledRole(dropMessageBurst(migrateShadowingRoles(raw, context), context), context),
-          context,
+  return addFeedbackProcessing(
+    addMerger(
+      removeOperator(
+        addCardMover(
+          addProjectManager(
+            migrateReleaseApproval(
+              migrateLegacyConfig(
+                migrateCodexBypass(
+                  migrateScheduledRole(
+                    dropMessageBurst(
+                      migrateSeniorLimit(
+                        dropEmailMailbox(migrateShadowingRoles(raw, context), context),
+                        context,
+                      ),
+                      context,
+                    ),
+                    context,
+                  ),
+                  context,
+                ),
+              ),
+              context,
+            ),
+            context,
+          ),
         ),
+        context,
       ),
-      context,
     ),
     context,
   );

@@ -1,13 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ServerEvent, TaskDetail } from '@projectman/shared';
+import { routes } from '@projectman/shared';
+import type { ServerEvent, Task, TaskDetail } from '@projectman/shared';
 import {
   addHumanAndLogin,
   createAppHarness,
+  createForeignProject,
   createProject,
   OWNER_LOGIN,
   setupOwner,
 } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
+import { waitFor as waitForCondition } from './helpers/wait';
 
 interface TestSocket {
   send(data: string): void;
@@ -19,19 +22,13 @@ function collectInto(ws: TestSocket, events: ServerEvent[]): void {
   ws.on('message', (data) => events.push(JSON.parse(data.toString()) as ServerEvent));
 }
 
-async function waitFor<T extends ServerEvent>(
-  events: ServerEvent[],
-  predicate: (e: ServerEvent) => e is T,
-  timeoutMs = 2000,
-): Promise<T> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const found = events.find(predicate);
-    if (found) return found;
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
-  throw new Error(`event not received; got ${events.map((e) => e.type).join(', ')}`);
-}
+/** The first collected event the predicate accepts; the failure lists what did arrive. */
+const waitFor = <T extends ServerEvent>(events: ServerEvent[], predicate: (e: ServerEvent) => e is T) =>
+  waitForCondition(() => events.find(predicate), {
+    timeoutMs: 2000,
+    intervalMs: 5,
+    what: () => `an event; got ${events.map((e) => e.type).join(', ')}`,
+  });
 
 const ofType =
   <K extends ServerEvent['type']>(type: K) =>
@@ -69,6 +66,21 @@ describe('websocket', () => {
 
   it('rejects connections without a login cookie', async () => {
     await expect(h.app.injectWS('/ws', { headers: {} })).rejects.toThrow('401');
+  });
+
+  it('tracks visible connections and removes them on disconnect', async () => {
+    const first = await connect();
+    const second = await connect();
+    first.ws.send(JSON.stringify({ type: 'visibility', visible: true }));
+    second.ws.send(JSON.stringify({ type: 'visibility', visible: true }));
+    await vi.waitFor(() => expect(h.app.projectman.domain.presence.isViewing(OWNER_LOGIN.email)).toBe(true));
+    first.ws.terminate();
+    second.ws.send(JSON.stringify({ type: 'visibility', visible: false }));
+    await vi.waitFor(() => expect(h.app.projectman.domain.presence.isViewing(OWNER_LOGIN.email)).toBe(false));
+    second.ws.send(JSON.stringify({ type: 'visibility', visible: true }));
+    await vi.waitFor(() => expect(h.app.projectman.domain.presence.isViewing(OWNER_LOGIN.email)).toBe(true));
+    second.ws.terminate();
+    await vi.waitFor(() => expect(h.app.projectman.domain.presence.isViewing(OWNER_LOGIN.email)).toBe(false));
   });
 
   it('streams project events to subscribers and terminal data to attached clients', async () => {
@@ -189,6 +201,55 @@ describe('websocket', () => {
     expect(h.runner.input).toEqual([]);
   });
 
+  it('tells a project–engine binding only to the members of its project and the host owner (PM-1060)', async () => {
+    await createForeignProject(h, cookie, 'BR');
+    const viewerCookie = await addHumanAndLogin(h.app, {
+      handle: 'viewer',
+      name: 'Viewer',
+      access: 'viewer',
+    });
+    const viewer = await connect({ cookie: viewerCookie });
+    const owner = await connect();
+    await waitFor(viewer.events, ofType('hello'));
+    await waitFor(owner.events, ofType('hello'));
+
+    const engine = { id: 'e1', name: 'Engine', isDefault: false, online: true, lastSeenAt: null };
+    const bus = h.app.projectman.domain.bus;
+    bus.publish({ type: 'engine_changed', engine, projectKey: 'BR' });
+    bus.publish({ type: 'engine_changed', engine, projectKey: 'AR' });
+
+    const heard = (events: ServerEvent[]) =>
+      events.filter(ofType('engine_changed')).map((event) => event.projectKey);
+    await vi.waitFor(() => expect(heard(owner.events)).toEqual(['BR', 'AR']));
+    await vi.waitFor(() => expect(heard(viewer.events)).toEqual(['AR']));
+  });
+
+  it('lets a client watch a terminal like a viewer, but not type into it (PM-79)', async () => {
+    await h.app.inject({
+      method: 'POST',
+      url: '/api/projects/AR/tasks',
+      headers: { cookie },
+      payload: { title: 'Example' },
+    });
+    const started = await h.app.inject({
+      method: 'POST',
+      url: '/api/projects/AR/tasks/AR-1/start',
+      headers: { cookie },
+      payload: {},
+    });
+    const sessionId = started.json<TaskDetail>().sessions[0]!.id;
+    const clientCookie = await addHumanAndLogin(h.app, { handle: 'cecil', name: 'Cecil', access: 'client' });
+    const { ws, events } = await connect({ cookie: clientCookie });
+    await waitFor(events, ofType('hello'));
+    ws.send(JSON.stringify({ type: 'terminal_attach', sessionId }));
+    await waitFor(events, ofType('terminal_snapshot'));
+    h.runner.emit({ type: 'terminal_data', sessionId, data: 'visible output' });
+    await waitFor(events, ofType('terminal_data'));
+    ws.send(JSON.stringify({ type: 'terminal_input', sessionId, data: 'x' }));
+    await waitFor(events, ofType('error'));
+    expect(h.runner.input).toEqual([]);
+  });
+
   it('tells the runner a terminal has no viewer left only when the last viewer leaves (PM-312)', async () => {
     await h.app.inject({
       method: 'POST',
@@ -285,6 +346,55 @@ describe('websocket', () => {
         expect.objectContaining({ projectKey: 'AR', provider: 'codex', usage: null }),
       ]),
     );
+  });
+
+  it('sends a client the same task events as any member, without a read per connection', async () => {
+    const clientCookie = await addHumanAndLogin(h.app, {
+      handle: 'client',
+      name: 'Client',
+      access: 'client',
+    });
+    const created = await h.app.inject({
+      method: 'POST',
+      url: routes.tasks('AR'),
+      headers: { cookie },
+      payload: { title: 'Shared' },
+    });
+    const task = created.json<Task>();
+    const connections = await Promise.all([
+      connect({ cookie: clientCookie }),
+      connect({ cookie: clientCookie }),
+      connect(),
+    ]);
+    for (const { ws, events } of connections) {
+      ws.send(JSON.stringify({ type: 'subscribe_project', projectKey: 'AR' }));
+      ws.send('not json');
+      await waitFor(events, ofType('error'));
+    }
+    const find = vi.spyOn(h.app.projectman.domain.tasks, 'find');
+    const event = {
+      type: 'task_upserted' as const,
+      projectKey: 'AR',
+      task: {
+        ...task,
+        links: [
+          { kind: 'prerequisite' as const, ref: task.key },
+          { kind: 'prerequisite' as const, ref: 'AR-999' },
+        ],
+      },
+    };
+    h.app.projectman.domain.bus.publish(event);
+    for (const { events } of connections) await waitFor(events, ofType('task_upserted'));
+    // A client gets the event as the owner does: nothing is read or cut per connection (PM-79).
+    expect(find).not.toHaveBeenCalled();
+    for (const { events } of connections) expect(events.find(ofType('task_upserted'))).toEqual(event);
+    h.app.projectman.domain.bus.publish({
+      type: 'task_attachments_changed',
+      projectKey: 'AR',
+      taskKey: task.key,
+    });
+    for (const { events } of connections) await waitFor(events, ofType('task_attachments_changed'));
+    expect(find).not.toHaveBeenCalled();
   });
 
   it.each(['https://evil.example', 'http://localhost:5173', 'https://localhost:4700'])(

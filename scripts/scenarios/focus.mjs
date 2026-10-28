@@ -1,6 +1,6 @@
 /**
- * PM-438: the project's focus (PM-427 4/4): the strip, the panel, the marks, the "Csak a fókusz" filter on the board
- * and the map, the card's row, and the timeline of a card the system pulled ahead of its turn.
+ * PM-438: the project's focus (PM-427 4/4): the strip, the panel, the marks, the "Csak a fókusz" filter on the board,
+ * the card's row, and the timeline of a card the system pulled ahead of its turn.
  *
  * `npm run shots -- scripts/scenarios/focus.mjs --widths 1512,390`
  *
@@ -27,9 +27,7 @@ export default async ({ instance, open, shoot, step, log }) => {
   const ui = await page.evaluate(async () => (await import('/src/i18n/hu.ts')).hu);
   const board = async (path = '/p/AC', as) => {
     page = await open({ path, ...(as ? { as } : {}) });
-    // The map has a heading of its own; its strip is awaited by the step.
-    if (!path.includes('/map'))
-      await page.getByRole('heading', { name: ui.board.title, exact: true }).waitFor();
+    await page.getByRole('heading', { name: ui.board.title, exact: true }).waitFor();
     return page;
   };
   const openPanel = async (name) => {
@@ -108,17 +106,10 @@ export default async ({ instance, open, shoot, step, log }) => {
     await page.unroute('**/api/projects/AC/focus');
   });
 
-  await step('the filter on the board and on the map', async () => {
+  await step('the filter on the board', async () => {
     await board('/p/AC?focus=1');
     await page.getByRole('button', { name: ui.focus.only }).first().waitFor();
     await shoot(page, 'focus-board-filter', { widths });
-    await board('/p/AC/map?focus=1');
-    await page.getByRole('button', { name: ui.focus.only }).first().waitFor();
-    await shoot(page, 'focus-map-filter', { widths });
-    // The overview without the filter: the strip, and the focus mark on the theme's tile.
-    await board('/p/AC/map');
-    await page.getByRole('button', { name: openButton() }).waitFor();
-    await shoot(page, 'focus-map-overview', { widths });
   });
 
   await step('the row of a card in the focus through its theme, and one outside', async () => {

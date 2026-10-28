@@ -122,42 +122,15 @@ export function standardLabelsFor(ids: Iterable<string>, locale: TemplateLocale)
 /** A gate condition templates use: the label must be on the task. */
 export const hasLabel = (label: StandardLabelId): GateCondition => ({ type: 'has_label', label });
 
-/* ---------- configurations and tasks from before labels ---------- */
+/* ---------- configurations from before labels ---------- */
 
 type LegacyCheck = 'code_review' | 'security_review' | 'qa' | 'client_test';
-type LegacyCheckState = 'pending' | 'passed' | 'blocked' | 'failed' | 'retest_needed';
-
-const LEGACY_CHECK_LABELS: Record<LegacyCheck, Partial<Record<LegacyCheckState, StandardLabelId>>> = {
-  code_review: {
-    passed: 'code-review-ok',
-    failed: 'code-review-changes',
-    retest_needed: 'code-review-changes',
-    blocked: 'code-review-blocked',
-  },
-  security_review: {
-    passed: 'security-ok',
-    failed: 'security-changes',
-    retest_needed: 'security-changes',
-    blocked: 'security-changes',
-  },
-  qa: { passed: 'qa-ok', failed: 'qa-failed', blocked: 'qa-failed', retest_needed: 'qa-retest' },
-  client_test: {
-    passed: 'client-accepted',
-    failed: 'client-changes',
-    blocked: 'client-changes',
-    retest_needed: 'client-changes',
-  },
+const LEGACY_PASSED_CHECK_LABELS: Record<LegacyCheck, StandardLabelId> = {
+  code_review: 'code-review-ok',
+  security_review: 'security-ok',
+  qa: 'qa-ok',
+  client_test: 'client-accepted',
 };
-
-/** Labels standing for a task's recorded checks from before labels (pending ones have none). */
-export function legacyCheckLabels(checks: Record<string, string | undefined> | null | undefined): string[] {
-  const labels: string[] = [];
-  for (const [check, state] of Object.entries(checks ?? {})) {
-    const label = LEGACY_CHECK_LABELS[check as LegacyCheck]?.[state as LegacyCheckState];
-    if (label) labels.push(label);
-  }
-  return labels;
-}
 
 interface LegacyStage {
   id: string;
@@ -192,7 +165,7 @@ export function migrateLegacyConfig<T>(raw: T): T {
     if (!stage.gate?.conditions?.some(legacy)) return stage;
     const conditions = stage.gate.conditions.map((c) => {
       if (c.type === 'check_passed') {
-        const label = LEGACY_CHECK_LABELS[c.check as LegacyCheck]?.passed ?? String(c.check);
+        const label = LEGACY_PASSED_CHECK_LABELS[c.check as LegacyCheck] ?? String(c.check);
         standard.add(label);
         return { type: 'has_label', label };
       }

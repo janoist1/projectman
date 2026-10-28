@@ -74,6 +74,13 @@ export function tDynamic(key: string, fallback: string, params?: Record<string, 
   return template === undefined ? fallback : interpolate(template, params);
 }
 
+/** Joins alternatives the Hungarian way: "a, b vagy c" (whoever of them may do it). */
+export function joinAlternatives(names: readonly string[]): string {
+  if (names.length <= 1) return names[0] ?? '';
+  const head = names.slice(0, -1).join(t('common.listSeparator'));
+  return `${head}${t('common.or')}${names[names.length - 1]}`;
+}
+
 /** Joins names the Hungarian way: "a, b és c". */
 export function joinNames(names: readonly string[]): string {
   if (names.length <= 1) return names[0] ?? '';

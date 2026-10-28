@@ -13,19 +13,24 @@ import { request as httpRequest } from 'node:http';
 import { createServer } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { assertEngineProfile, buildEngineApp } from '../src/engine-app';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import * as fullTest from '../src/full-test';
+import { buildEngineApp } from '../src/engine-app';
+import type { SessionRunner } from '../src/contracts';
 import type { EngineApp, EngineAppOptions } from '../src/engine-app';
 import {
   EngineConfig,
   EngineConfigError,
+  loadEngineConfig,
   saveEngineConfig,
   writeSecretFile,
 } from '../src/engine-link/engine-config';
 import type { MethodParams } from '../src/engine-link';
+import { InstanceMarkerError, writeInstanceMarker } from '../src/instance';
 import { createFakeRunnerModule } from './helpers/fakes';
+import { waitFor } from './helpers/wait';
 import type { FakeRunnerModule } from './helpers/fakes';
-import { FakeGithub } from './helpers/fakes';
+import { FakeMachineGithub } from './helpers/fakes';
 import { startFakeCloud } from './helpers/fake-cloud';
 import type { FakeCloud } from './helpers/fake-cloud';
 
@@ -44,14 +49,6 @@ async function freePort(): Promise<number> {
       server.close(() => resolve(port));
     });
   });
-}
-
-async function waitFor(check: () => boolean, what: string, ms = 10_000): Promise<void> {
-  const until = Date.now() + ms;
-  while (!check()) {
-    if (Date.now() > until) throw new Error(`timed out waiting for ${what}`);
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
 }
 
 /** A request with chosen headers (fetch cannot set `Host`). */
@@ -122,6 +119,24 @@ describe('engine process', () => {
     );
   };
 
+  const modulesOf = (): NonNullable<EngineAppOptions['modules']> => ({
+    createRunnerModule: (opts) => fake.create(opts),
+    github: new FakeMachineGithub(),
+    createFullTestExecutor: () => ({ available: async () => ({ ok: true }), run: async () => ({}) }) as never,
+    createScreenshotExecutor: () => ({ run: async () => ({}) }) as never,
+    createMachineProbe: () =>
+      ({
+        machine: async () => ({}),
+        processes: async () => [],
+        envValues: async () => new Map(),
+        signal: () => 'gone',
+      }) as never,
+    statusDelayMs: 5,
+    random: () => 0,
+    // PM-1086: a test never starts the real caffeinate.
+    keepAwake: { platform: 'linux' },
+  });
+
   const build = async (overrides: Partial<EngineAppOptions> = {}): Promise<EngineApp> => {
     const built = await buildEngineApp({
       home,
@@ -136,22 +151,7 @@ describe('engine process', () => {
       relayWaitMs: 200,
       shutdownPauseMs: 5000,
       logger: { level: 'debug', stream: { write: (line: string) => void logLines.push(line) } },
-      modules: {
-        createRunnerModule: (opts) => fake.create(opts),
-        github: new FakeGithub(),
-        createFullTestExecutor: () =>
-          ({ available: async () => ({ ok: true }), run: async () => ({}) }) as never,
-        createScreenshotExecutor: () => ({ run: async () => ({}) }) as never,
-        createMachineProbe: () =>
-          ({
-            machine: async () => ({}),
-            processes: async () => [],
-            envValues: async () => new Map(),
-            signal: () => 'gone',
-          }) as never,
-        statusDelayMs: 5,
-        random: () => 0,
-      },
+      modules: modulesOf(),
       ...overrides,
     });
     engine = built;
@@ -214,6 +214,108 @@ describe('engine process', () => {
   });
 
   describe('start-up', () => {
+    it('wires engine-local workspace setup and read denials into the installer, and closes it on shutdown', async () => {
+      const config = loadEngineConfig(home);
+      config.repos[0]!.workspaceSetup = { kind: 'npm_ci' };
+      saveEngineConfig(home, config);
+      const close = vi.fn(async () => undefined);
+      const factory = vi.spyOn(fullTest, 'createWorkspaceDependencyInstaller').mockReturnValue({
+        prepare: async () => ({ status: 'ready', key: 'a'.repeat(64), changed: true }),
+        busy: () => false,
+        refreshCheckout: () => undefined,
+        close,
+      });
+      try {
+        const sessionFoldersDir = path.join(base, 'session-folders', 'instance');
+        const sessionTmpDir = path.join(base, 'session-tmp', 'instance');
+        const claudeTmpBase = path.join(base, 'claude-tmp');
+        const heavyLockDir = path.join(base, 'heavy', 'lock');
+        const built = await build({ sessionFoldersDir, sessionTmpDir, claudeTmpBase, heavyLockDir });
+        const options = factory.mock.calls[0]![0];
+        expect(options.setupOf('PM', 'projectman')).toEqual({ kind: 'npm_ci', timeoutMs: 600_000 });
+        expect(options.setupOf('PM', 'other')).toBeNull();
+        expect(options.heavyLockDir).toBe(heavyLockDir);
+        expect(options.worktreesRoot).toBe(path.join(home, 'worktrees'));
+        for (const entry of ['engine.key', 'providers', 'workspaces', 'worktrees', 'workspace-deps'])
+          expect(options.denyRead).toContain(path.join(home, entry));
+        expect(options.denyRead).toContain(path.join(userHome, '.ssh'));
+        expect(options.denyRead).toContain(userHome);
+        expect(options.denyRead).toContain(home);
+        expect(options.denyRead).toContain(path.dirname(sessionTmpDir));
+        expect(options.denyRead).toContain(path.dirname(sessionFoldersDir));
+        expect(options.denyRead).toContain('/tmp/claude');
+        expect(options.denyRead).toContain(
+          path.join(claudeTmpBase, `claude-${process.getuid?.() ?? 'user'}`),
+        );
+        expect(options).not.toHaveProperty('execute');
+        await built.close();
+        expect(close).toHaveBeenCalledOnce();
+      } finally {
+        factory.mockRestore();
+      }
+    });
+
+    describe('work root (PM-846)', () => {
+      const setWorkRoot = (root: string) => {
+        saveEngineConfig(home, { ...loadEngineConfig(home), workRoot: root });
+      };
+      const mountWorkRoot = (marker = true) => {
+        const root = path.join(home, 'work');
+        mkdirSync(root, { recursive: true });
+        if (marker) writeFileSync(path.join(root, '.projectman-work-root'), '');
+        return root;
+      };
+
+      it('keeps today’s paths without a work root', async () => {
+        const full = vi.fn(() => ({ available: async () => ({ ok: true }), run: async () => ({}) }) as never);
+        await startEngine({ modules: { ...modulesOf(), createFullTestExecutor: full } });
+        await cloud.connected();
+        expect(cloud.hellos[0]!.paths).toMatchObject({
+          worktreesRoot: path.join(home, 'worktrees'),
+          workspacesRoot: path.join(home, 'workspaces'),
+        });
+        expect(full).toHaveBeenCalledWith({
+          heavyLockDir: path.join(base, 'heavy'),
+          worktreesRoot: path.join(home, 'worktrees'),
+          stepCacheFile: path.join(home, 'cache', 'merge-test-steps.json'),
+        });
+      });
+
+      it('puts the worktrees and the workspaces below the work root, the full test’s run directories stay out of it', async () => {
+        const root = mountWorkRoot();
+        setWorkRoot(root);
+        const full = vi.fn(() => ({ available: async () => ({ ok: true }), run: async () => ({}) }) as never);
+        await startEngine({ modules: { ...modulesOf(), createFullTestExecutor: full } });
+        await cloud.connected();
+        expect(cloud.hellos[0]!.paths).toMatchObject({
+          worktreesRoot: path.join(root, 'worktrees'),
+          workspacesRoot: path.join(root, 'workspaces'),
+        });
+        expect(full).toHaveBeenCalledWith({
+          heavyLockDir: path.join(base, 'heavy'),
+          worktreesRoot: path.join(root, 'worktrees'),
+          stepCacheFile: path.join(home, 'cache', 'merge-test-steps.json'),
+        });
+        expect(existsSync(path.join(root, 'tmp'))).toBe(false);
+      });
+
+      it('does not start when the volume is not mounted (no marker), and creates nothing', async () => {
+        const root = mountWorkRoot(false);
+        setWorkRoot(root);
+        await expect(build()).rejects.toMatchObject({ code: 'work_root_invalid', reason: 'marker_missing' });
+        expect(existsSync(path.join(root, 'worktrees'))).toBe(false);
+        expect(existsSync(path.join(home, 'worktrees'))).toBe(false);
+      });
+
+      it('does not start with a work root outside the home', async () => {
+        const root = path.join(base, 'volume');
+        mkdirSync(root);
+        writeFileSync(path.join(root, '.projectman-work-root'), '');
+        setWorkRoot(root);
+        await expect(build()).rejects.toMatchObject({ code: 'work_root_invalid', reason: 'outside_home' });
+      });
+    });
+
     it('connects with the machine key and tells the cloud what it serves', async () => {
       await startEngine();
       await cloud.connected();
@@ -258,22 +360,25 @@ describe('engine process', () => {
       expect((error as EngineConfigError).message).toContain('PROJECTMAN_HOME=~/.projectman-engine');
     });
 
+    it('starts in the home of a move to the hybrid mode: the marker says the old database is a leftover (PM-318)', async () => {
+      writeFileSync(path.join(home, 'db.sqlite'), '');
+      writeInstanceMarker(home, 'engine', 'hybrid engine of the cloud');
+      await startEngine();
+      await cloud.connected();
+      expect(statSync(path.join(home, 'db.sqlite')).size).toBe(0); // never opened, never changed
+    });
+
+    it('refuses a home with a damaged marker, before it listens (PM-318)', async () => {
+      writeFileSync(path.join(home, 'instance.json'), '{nope');
+      await expect(build()).rejects.toBeInstanceOf(InstanceMarkerError);
+    });
+
     it('refuses a missing configuration with the way to fix it', async () => {
       rmSync(path.join(home, 'engine.json'));
       const error = await build().catch((e: unknown) => e);
       expect(error).toBeInstanceOf(EngineConfigError);
       expect((error as EngineConfigError).code).toBe('config_missing');
       expect((error as EngineConfigError).message).toContain('init');
-    });
-
-    it('stops with a clear error for the managed VM profile', async () => {
-      await expect(build({ executionProfile: 'managed_vm' })).rejects.toMatchObject({
-        code: 'managed_vm_unsupported',
-      });
-      await expect(build({ boundaryConfig: '/etc/boundary.json' })).rejects.toMatchObject({
-        code: 'managed_vm_unsupported',
-      });
-      expect(() => assertEngineProfile({ executionProfile: 'legacy' })).not.toThrow();
     });
 
     it('keeps the key file and the status file private', async () => {
@@ -412,6 +517,30 @@ describe('engine process', () => {
       expect(requests).toEqual(['s-nano']);
     });
 
+    it('is not asked for by a provider status request, which leaves the key to the cloud (PM-736)', async () => {
+      const requests: string[] = [];
+      cloud.handle('secret.nanogpt_key', ({ sessionId }) => {
+        requests.push(sessionId);
+        return { key: NANOGPT_KEY };
+      });
+      await startEngine();
+      expect(fake.options()?.nanogptKeyInCloud).toBe(true);
+      // The status check reads the key the way the adapter does, outside any start.
+      const statusRunner = fake.runner as typeof fake.runner & Pick<SessionRunner, 'providerStatus'>;
+      statusRunner.providerStatus = async (provider) => {
+        const key = await nanogptKeyOf()();
+        return { provider, loggedIn: key !== null, method: 'api_key', checkedAt: new Date().toISOString() };
+      };
+      const { call } = await cloud.connected();
+      const status = await call('provider.status', { provider: 'nanogpt', refresh: true });
+      expect(requests).toEqual([]);
+      expect(JSON.stringify(status)).not.toContain(NANOGPT_KEY);
+      await engine!.close();
+      expect(readFileSync(path.join(home, 'logs', 'engine-audit.jsonl'), 'utf8')).not.toContain(
+        'secret.nanogpt_key',
+      );
+    });
+
     it('never reaches the log, the status file, the audit log or the hello', async () => {
       cloud.handle('secret.nanogpt_key', () => ({ key: NANOGPT_KEY }));
       readsKeyOnStart();
@@ -462,6 +591,60 @@ describe('engine process', () => {
       const { call } = await cloud.connected();
       await call('session.start', startSpec({ provider: 'nanogpt' }));
       expect(seen).toEqual([null, null]);
+    });
+
+    it('is not announced in the hello without an own key file', async () => {
+      await startEngine();
+      await cloud.connected();
+      expect(cloud.hellos[0]).not.toHaveProperty('nanogptKey');
+    });
+
+    describe('own key file (PM-1068)', () => {
+      const keyFile = () => path.join(base, 'keys', 'nanogpt.key');
+      const useKeyFile = (content = `${NANOGPT_KEY}\n`) => {
+        writeSecretFile(keyFile(), content);
+        saveEngineConfig(home, { ...loadEngineConfig(home), nanogptKeyFile: keyFile() });
+      };
+
+      it('is read from the file at every use, never from the cloud, and announced in the hello', async () => {
+        const requests: string[] = [];
+        cloud.handle('secret.nanogpt_key', ({ sessionId }) => {
+          requests.push(sessionId);
+          return { key: 'cloud-key-must-not-be-used' };
+        });
+        useKeyFile();
+        const seen = readsKeyOnStart();
+        await startEngine();
+        const { call } = await cloud.connected();
+        expect(fake.options()?.nanogptKeyInCloud).toBe(false);
+        await call('session.start', startSpec({ sessionId: 's-nano', provider: 'nanogpt' }));
+        expect(seen).toEqual([NANOGPT_KEY, NANOGPT_KEY]);
+        // Outside a start (the plan usage, the login check) the key is there too, and a changed file counts at once.
+        await expect(nanogptKeyOf()()).resolves.toBe(NANOGPT_KEY);
+        writeSecretFile(keyFile(), 'ng-replaced-1234567890\n');
+        await expect(nanogptKeyOf()()).resolves.toBe('ng-replaced-1234567890');
+        expect(requests).toEqual([]);
+        expect(cloud.hellos[0]).toMatchObject({ nanogptKey: 'engine' });
+        expect(JSON.stringify(cloud.hellos)).not.toContain(NANOGPT_KEY);
+      });
+
+      it('gives no key for a file that became unreadable, and logs the error code only', async () => {
+        useKeyFile();
+        await startEngine();
+        await cloud.connected();
+        chmodSync(keyFile(), 0o644);
+        await expect(nanogptKeyOf()()).resolves.toBeNull();
+        expect(logLines.join('\n')).toContain('secret_permissions');
+        expect(logLines.join('\n')).not.toContain(NANOGPT_KEY);
+      });
+
+      it('stops the start when the file is missing or readable by others', async () => {
+        saveEngineConfig(home, { ...loadEngineConfig(home), nanogptKeyFile: keyFile() });
+        await expect(build()).rejects.toMatchObject({ code: 'secret_missing' });
+        useKeyFile();
+        chmodSync(keyFile(), 0o644);
+        await expect(build()).rejects.toMatchObject({ code: 'secret_permissions' });
+      });
     });
   });
 
@@ -514,6 +697,21 @@ describe('engine process', () => {
       expect((await post()).status).toBe(404);
       status = 99;
       expect((await post()).status).toBe(502);
+    });
+
+    it('logs where a handshake stops: the method and status, never the token or the body', async () => {
+      let status = 200;
+      cloud.handle('mcp.relay', () => ({ status, contentType: 'application/json', body: '{}' }));
+      await startEngine();
+      await cloud.connected();
+      await post();
+      status = 404;
+      await post();
+      const lines = logLines.filter((line) => line.includes('team MCP relay'));
+      expect(lines).toHaveLength(2);
+      expect(JSON.parse(lines[0]!)).toMatchObject({ level: 30, rpc: 'tools/list', status: 200 });
+      expect(JSON.parse(lines[1]!)).toMatchObject({ level: 40, rpc: 'tools/list', status: 404 });
+      expect(lines.join('\n')).not.toMatch(new RegExp(`${TOKEN}|SECRET-BODY-TEXT`));
     });
 
     it('answers GET and DELETE with 405 and allow: POST', async () => {
@@ -749,6 +947,64 @@ describe('engine process', () => {
       expect(JSON.parse(readFileSync(path.join(home, 'engine-status.json'), 'utf8'))).toMatchObject({
         connection: 'stopped',
       });
+    });
+
+    it('keeps the machine awake while a session runs, reports it in the status file and lets go on close', async () => {
+      const spawns: Array<{ command: string; args: string[]; kills: string[] }> = [];
+      const built = await startEngine({
+        modules: {
+          ...modulesOf(),
+          keepAwake: {
+            platform: 'darwin',
+            spawn: (command, args) => {
+              const entry = { command, args, kills: [] as string[] };
+              spawns.push(entry);
+              return {
+                kill: (signal) => void entry.kills.push(signal ?? 'SIGTERM'),
+                onExit: () => undefined,
+              };
+            },
+          },
+        },
+      });
+      const { call } = await cloud.connected();
+      await call('session.start', startSpec());
+      const statusFile = path.join(home, 'engine-status.json');
+      await waitFor(
+        () => JSON.parse(readFileSync(statusFile, 'utf8')).keepAwake?.holding === true,
+        'the hold in the status file',
+      );
+      expect(spawns).toHaveLength(1);
+      expect(spawns[0]!.args).toContain(String(process.pid));
+      expect(JSON.parse(readFileSync(statusFile, 'utf8')).work).toEqual({
+        sessions: 1,
+        fullTests: 0,
+        screenshots: 0,
+      });
+      await built.close();
+      engine = null;
+      expect(spawns[0]!.kills).toEqual(['SIGTERM']);
+      expect(JSON.parse(readFileSync(statusFile, 'utf8')).keepAwake.holding).toBe(false);
+    });
+
+    it('reports the version and who runs each session in the status file, without the prompt', async () => {
+      await startEngine();
+      const { call } = await cloud.connected();
+      await call(
+        'session.start',
+        startSpec({ member: 'dev', provider: 'claude', displayName: 'Dev · PM-1' }),
+      );
+      const statusFile = path.join(home, 'engine-status.json');
+      await waitFor(
+        () => JSON.parse(readFileSync(statusFile, 'utf8')).running?.[0]?.member === 'dev',
+        'the session details in the status file',
+      );
+      const text = readFileSync(statusFile, 'utf8');
+      expect(JSON.parse(text)).toMatchObject({
+        version: '0.0.0-test',
+        running: [{ sessionId: 's1', provider: 'claude', label: 'Dev · PM-1' }],
+      });
+      expect(text).not.toContain('system');
     });
 
     it('does not pause anything when the pause time is zero', async () => {

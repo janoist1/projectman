@@ -1,11 +1,14 @@
-import { useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useRef, useState } from 'react';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { CreateIntegratorAccessKeyRequest, IntegratorAccessKeyInfo } from '@projectman/shared';
 import { Link } from 'react-router';
 import { api } from '../../../api/endpoints';
+import { useOperatorGrant } from '../../../api/queries';
+import { queryKeys } from '../../../api/queryKeys';
+import { isApiError } from '../../../api/client';
 import { useProject } from '../../../app/contexts';
 import { Button } from '../../../components/Button';
 import { Chip } from '../../../components/Chip';
-import { Icon } from '../../../components/Icon';
 import { ErrorBanner } from '../../../components/ErrorBanner';
 import { useToast } from '../../../components/toastContext';
 import { Dialog } from '../../../components/Dialog';
@@ -15,165 +18,317 @@ import { ErrorState, LoadingState } from '../../../components/States';
 import { formatStamp } from '../../../i18n/format';
 import { t } from '../../../i18n/t';
 import { errorMessage } from '../../../lib/errors';
+import { AssistantInstruction, mcpUrl } from './AssistantInstruction';
 import { SettingsSection } from './SettingsSection';
 import styles from './IntegratorSection.module.css';
+import { OperatorGrantCard } from './OperatorGrantCard';
 
 export function IntegratorSection() {
   const { key, me } = useProject();
   const client = useQueryClient();
   const toast = useToast();
-  const queryKey = ['integrator-key', me.userId];
-  const query = useQuery({ queryKey, queryFn: api.integratorKey, enabled: me.hostOwner === true });
+  const root = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLElement | null>(null);
+  // The host owner and an owner account hold a key (PM-1063); the machine grant and the log are the host's.
+  const host = me.hostOwner === true;
+  const holder = host || me.ownerAccount === true;
+  const ownLogin = holder && !me.via;
+  const queryKey = ['integrator-keys', me.userId];
+  const query = useQuery({ queryKey, queryFn: api.integratorKeys, enabled: ownLogin });
+  const grant = useOperatorGrant(host);
+  const grantAudit = useQuery({
+    queryKey: queryKeys.operatorGrantAudit,
+    queryFn: api.operatorGrantAudit,
+    enabled: host,
+    retry: false,
+  });
   const [dialog, setDialog] = useState<'create' | 'revoke' | null>(null);
-  const [days, setDays] = useState<30 | 90 | 365 | null>(90);
+  const [mode, setMode] = useState<'super' | 'read'>('super');
+  const [days, setDays] = useState<CreateIntegratorAccessKeyRequest['expiresInDays']>(7);
+  const [target, setTarget] = useState<IntegratorAccessKeyInfo | null>(null);
   const [secret, setSecret] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
+  const [addressCopied, setAddressCopied] = useState(false);
+  const audit = useInfiniteQuery({
+    queryKey: ['integrator-key-audit', me.userId],
+    enabled: ownLogin,
+    initialPageParam: undefined as number | undefined,
+    queryFn: ({ pageParam }) => api.integratorKeyAudit(pageParam),
+    getNextPageParam: (page) => page.nextBefore ?? undefined,
+  });
   const create = useMutation({
+    // Only metadata reaches the mutation cache; the secret stays in component state.
     mutationFn: async () => {
-      const result = await api.createIntegratorKey(days);
+      const result = await api.createIntegratorAccessKey(mode, days);
       setSecret(result.secret);
       return result.key;
     },
-    onSuccess: (result) => {
-      client.setQueryData(queryKey, { key: result });
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey });
+      void client.invalidateQueries({ queryKey: ['integrator-key-audit'] });
       setCopied(false);
       setCopyFailed(false);
       setDialog(null);
     },
   });
   const revoke = useMutation({
-    mutationFn: api.revokeIntegratorKey,
-    onSuccess: (result) => {
-      client.setQueryData(queryKey, result);
+    mutationFn: () => api.revokeIntegratorAccessKey(target!.id),
+    onSuccess: async () => {
+      await client.invalidateQueries({ queryKey });
       setDialog(null);
+      void client.invalidateQueries({ queryKey: ['integrator-key-audit'] });
       toast.show(t('integratorKey.revoked'));
     },
   });
-  if (!me.hostOwner) return null;
-  const info = query.data?.key;
-  const expires = info?.expiresAt ? Math.ceil((Date.parse(info.expiresAt) - Date.now()) / 86_400_000) : null;
+  if (!holder) return null;
   const pending = create.isPending || revoke.isPending;
-  return (
-    <SettingsSection id="settings-integrator" title={t('integratorKey.title')}>
-      <p>{t('integratorKey.intro')}</p>
-      <div className={styles.rights}>
-        <strong>{t('integratorKey.rights')}</strong>
-        <p>{t('integratorKey.rightsBody')}</p>
-      </div>
-      {query.isPending ? <LoadingState /> : null}
-      {query.isError ? (
-        <ErrorState
-          error={query.error}
-          message={t('integratorKey.error')}
-          onRetry={() => void query.refetch()}
-        />
-      ) : null}
-      {query.data ? (
-        <>
-          {info ? (
+  const keys = query.data?.keys ?? [];
+  const active = keys.filter((info) => info.state === 'active');
+  const past = keys.filter((info) => info.state !== 'active');
+  const replacing = active.find((info) => info.mode === mode);
+  const activity = (prefix = '') =>
+    `/p/${key}/sessions?by=super${prefix ? `&prefix=${encodeURIComponent(prefix)}` : ''}`;
+  const openCreate = () => {
+    create.reset();
+    revoke.reset();
+    setMode('super');
+    setDays(7);
+    setDialog('create');
+  };
+  const rememberTrigger = () => {
+    trigger.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  };
+  const fallbackFocus = () => root.current?.querySelector<HTMLElement>('button, a') ?? null;
+  const row = (info: IntegratorAccessKeyInfo) => {
+    const remaining = info.expiresAt ? Date.parse(info.expiresAt) - Date.now() : Infinity;
+    return (
+      <li key={info.id} className={styles.keyRow} data-past={info.state !== 'active'}>
+        <div className={styles.status}>
+          <Chip tone={info.state === 'active' ? 'ok' : info.state === 'expired' ? 'needs' : 'neutral'}>
+            {t(`integratorKey.states.${info.state}`)}
+          </Chip>
+          <Chip tone="outline">{t(`integratorKey.modes.${info.mode}`)}</Chip>
+          <code>{info.prefix}…</code>
+        </div>
+        {info.state === 'active' ? (
+          <dl className={styles.facts}>
+            <div>
+              <dt>{t('integratorKey.created')}</dt>
+              <dd>{formatStamp(info.createdAt)}</dd>
+            </div>
+            <div>
+              <dt>{t('integratorKey.used')}</dt>
+              <dd>
+                {info.lastUsedAt ? formatStamp(info.lastUsedAt) : '—'}
+                {info.lastUsedChannel ? (
+                  <span className={styles.muted}>
+                    {' '}
+                    · {t(`integratorKey.channels.${info.lastUsedChannel}`)}
+                  </span>
+                ) : null}
+              </dd>
+            </div>
+            <div>
+              <dt>{t('integratorKey.expires')}</dt>
+              <dd>{info.expiresAt ? formatStamp(info.expiresAt) : t('integratorKey.never')}</dd>
+            </div>
+          </dl>
+        ) : null}
+        {info.state !== 'active' ? (
+          <p className={styles.muted}>
+            {t(`integratorKey.states.${info.state}`)}:{' '}
+            {formatStamp(info.revokedAt ?? info.expiresAt ?? info.createdAt)}
+          </p>
+        ) : null}
+        {info.state === 'active' && info.mode === 'super' && remaining <= 86_400_000 ? (
+          <p className={styles.warning} role="status">
+            {t(remaining < 86_400_000 ? 'integratorKey.today' : 'integratorKey.soon', { n: 1 })}
+          </p>
+        ) : null}
+        <div className={styles.actions}>
+          {ownLogin && info.state === 'active' ? (
             <>
-              <p className={styles.status}>
-                <Chip tone={info.state === 'active' ? 'ok' : info.state === 'expired' ? 'needs' : 'neutral'}>
-                  {t(`integratorKey.states.${info.state}`)}
-                </Chip>
-                {info.state !== 'active' ? (
-                  <time dateTime={info.revokedAt ?? info.expiresAt ?? info.createdAt}>
-                    {formatStamp(
-                      info.state === 'revoked'
-                        ? (info.revokedAt ?? info.createdAt)
-                        : info.state === 'expired'
-                          ? (info.expiresAt ?? info.createdAt)
-                          : info.createdAt,
-                    )}
-                  </time>
-                ) : null}
-              </p>
-              <dl className={styles.facts}>
-                <div>
-                  <dt>{t('integratorKey.prefix')}</dt>
-                  <dd>
-                    <code>{info.prefix}…</code>
-                  </dd>
-                </div>
-                <div>
-                  <dt>{t('integratorKey.created')}</dt>
-                  <dd>{formatStamp(info.createdAt)}</dd>
-                </div>
-                <div>
-                  <dt>{t('integratorKey.used')}</dt>
-                  <dd>{info.lastUsedAt ? formatStamp(info.lastUsedAt) : '—'}</dd>
-                </div>
-                {info.state !== 'revoked' ? (
-                  <div>
-                    <dt>{t('integratorKey.expires')}</dt>
-                    <dd>{info.expiresAt ? formatStamp(info.expiresAt) : t('integratorKey.never')}</dd>
-                  </div>
-                ) : null}
-              </dl>
-              {info.state === 'active' && expires !== null && expires <= 7 ? (
-                <p className={styles.warning} role="status">
-                  {t('integratorKey.soon', { n: expires })}
-                </p>
-              ) : null}
-            </>
-          ) : (
-            <p>{t('integratorKey.none')}</p>
-          )}
-          <div className={styles.actions}>
-            <Button
-              onClick={() => {
-                create.reset();
-                setDialog('create');
-              }}
-            >
-              {t(
-                info?.state === 'active'
-                  ? 'integratorKey.new'
-                  : info
-                    ? 'integratorKey.recreate'
-                    : 'integratorKey.create',
-              )}
-            </Button>
-            {info?.state === 'active' ? (
               <Button
                 variant="danger"
                 onClick={() => {
+                  rememberTrigger();
                   revoke.reset();
+                  create.reset();
+                  setTarget(info);
                   setDialog('revoke');
                 }}
               >
                 {t('integratorKey.revoke')}
               </Button>
+            </>
+          ) : null}
+          <Link to={activity(info.prefix)}>{t('integratorKey.activity')}</Link>
+        </div>
+      </li>
+    );
+  };
+  const grantEntries = grantAudit.data?.entries ?? [];
+  const log = [
+    ...grantEntries
+      .filter((entry) => entry.action !== 'replaced')
+      .map((entry) => ({
+        id: `${entry.grantId}-${entry.action}`,
+        at: entry.at,
+        text:
+          entry.action === 'expired'
+            ? t('operatorGrant.auditExpired')
+            : entry.action === 'revoked'
+              ? t('operatorGrant.auditRevoked', { by: entry.by })
+              : t(
+                  grantEntries.some((other) => other.action === 'replaced' && other.at === entry.at)
+                    ? 'operatorGrant.auditExtended'
+                    : 'operatorGrant.auditGranted',
+                  {
+                    by: entry.by,
+                    expiry: entry.expiresAt
+                      ? t('operatorGrant.until', { time: formatStamp(entry.expiresAt) })
+                      : t('operatorGrant.untilRevoked'),
+                  },
+                ),
+      })),
+    ...(audit.data?.pages.flatMap((page) => page.entries) ?? []).map((entry) => ({
+      id: `key-${entry.seq}`,
+      at: entry.at,
+      text: `${entry.prefix}… · ${t(`integratorKey.auditActions.${entry.action}`)}`,
+    })),
+  ].sort((a, b) => b.at.localeCompare(a.at));
+  return (
+    <SettingsSection
+      id="settings-integrator"
+      title={t(host ? 'operatorGrant.title' : 'operatorGrant.clientTitle')}
+    >
+      <div ref={root} className={styles.content}>
+        {host ? (
+          <>
+            <p>{t('operatorGrant.intro')}</p>
+            <OperatorGrantCard />
+          </>
+        ) : null}
+        <div className={styles.keyRow}>
+          {host ? <h3>{t('operatorGrant.clientTitle')}</h3> : null}
+          <p>{t('integratorKey.intro')}</p>
+          {grant.data?.active === false && active.some((info) => info.mode === 'super') ? (
+            <p className={styles.info}>{t('operatorGrant.clientInactive')}</p>
+          ) : null}
+          {!ownLogin ? <p role="status">{t('integratorKey.ownerOnly')}</p> : null}
+          {ownLogin && query.isPending ? <LoadingState /> : null}
+          {query.isError ? (
+            <ErrorState
+              error={query.error}
+              message={t('integratorKey.error')}
+              onRetry={() => void query.refetch()}
+            />
+          ) : null}
+          {query.data ? (
+            <>
+              {!active.length ? (
+                <div className={styles.empty}>
+                  <strong>{t(keys.length ? 'integratorKey.noValid' : 'integratorKey.none')}</strong>
+                  <p>{t('integratorKey.emptyHint')}</p>
+                </div>
+              ) : null}
+              {active.length ? <ul className={styles.keys}>{active.map(row)}</ul> : null}
+              <Button
+                variant="primary"
+                onClick={() => {
+                  rememberTrigger();
+                  openCreate();
+                }}
+              >
+                {t(keys.length ? 'integratorKey.new' : 'integratorKey.create')}
+              </Button>
+              {past.length ? (
+                <Fold summary={t('integratorKey.past', { n: past.length })}>
+                  <ul className={styles.keys}>{past.map(row)}</ul>
+                </Fold>
+              ) : null}
+            </>
+          ) : null}
+          <Fold summary={t('integratorKey.connection')}>
+            <p>{t('integratorKey.connectionBody')}</p>
+            <p>
+              {t('integratorKey.mcpAddress')}: <code>{mcpUrl(window.location.origin)}</code>
+            </p>
+            <Button
+              variant="secondary"
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(mcpUrl(window.location.origin));
+                  setAddressCopied(true);
+                } catch {
+                  toast.show(t('integratorKey.copyFailed'), 'error');
+                }
+              }}
+            >
+              {t(addressCopied ? 'integratorKey.copied' : 'integratorKey.copy')}
+            </Button>
+            <AssistantInstruction foldable={false} ownerAccount={!host} />
+          </Fold>
+        </div>
+        {host ? (
+          <div className={styles.keyRow}>
+            <h3>{t('operatorGrant.audit')}</h3>
+            {grantAudit.isError && !(isApiError(grantAudit.error) && grantAudit.error.status === 403) ? (
+              <ErrorState error={grantAudit.error} onRetry={() => void grantAudit.refetch()} />
             ) : null}
+            {!log.length && !audit.isLoading && !grantAudit.isLoading ? (
+              <p>{t('operatorGrant.auditEmpty')}</p>
+            ) : null}
+            {log.length ? (
+              <ul className={styles.audit}>
+                {log.map((entry) => (
+                  <li key={entry.id}>
+                    <time dateTime={entry.at}>{formatStamp(entry.at)}</time> · {entry.text}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {ownLogin ? (
+              <div>
+                {audit.isLoading ? <LoadingState /> : null}
+                {audit.isError ? (
+                  <ErrorState error={audit.error} onRetry={() => void audit.refetch()} />
+                ) : null}
+                {audit.hasNextPage ? (
+                  <Button
+                    variant="secondary"
+                    loading={audit.isFetchingNextPage}
+                    onClick={() => void audit.fetchNextPage()}
+                  >
+                    {t('superMode.more')}
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
+            <Fold summary={t('superMode.activity')}>
+              <Link to={activity()}>{t('superMode.activity')}</Link>
+            </Fold>
           </div>
-        </>
-      ) : null}
-      <p>
-        <Link className={styles.activity} to={`/p/${key}/sessions?by=integrator`}>
-          <span>{t('integratorKey.activity')}</span>
-          <Icon name="arrowRight" size={14} />
-        </Link>
-      </p>
+        ) : null}
+      </div>
       <Dialog
         open={dialog !== null}
         onClose={() => {
           if (!pending) setDialog(null);
         }}
         size="sm"
-        title={t(
+        returnFocusRef={trigger}
+        returnFocusFallback={fallbackFocus}
+        title={
           dialog === 'revoke'
-            ? 'integratorKey.revokeTitle'
-            : info?.state === 'active'
-              ? 'integratorKey.replaceTitle'
-              : 'integratorKey.create',
-        )}
+            ? t('integratorKey.revokeTitle', { prefix: target?.prefix ?? '' })
+            : t('integratorKey.new')
+        }
         description={
           dialog === 'revoke'
-            ? t('integratorKey.revokeBody')
-            : info?.state === 'active'
-              ? t('integratorKey.replaceBody')
-              : undefined
+            ? t(target?.mode === 'read' ? 'integratorKey.revokeReadBody' : 'integratorKey.revokeBody')
+            : undefined
         }
         footer={
           <>
@@ -185,7 +340,7 @@ export function IntegratorSection() {
               loading={pending}
               onClick={() => (dialog === 'revoke' ? revoke.mutate() : create.mutate())}
             >
-              {t(dialog === 'revoke' ? 'integratorKey.revoke' : 'integratorKey.create')}
+              {t(dialog === 'revoke' ? 'integratorKey.revoke' : 'integratorKey.submit')}
             </Button>
           </>
         }
@@ -194,26 +349,64 @@ export function IntegratorSection() {
           <ErrorBanner>{errorMessage(create.error ?? revoke.error)}</ErrorBanner>
         ) : null}
         {dialog === 'create' ? (
-          <SelectField
-            label={t('integratorKey.expiry')}
-            value={days ?? 'never'}
-            disabled={pending}
-            onChange={(event) =>
-              setDays(event.target.value === 'never' ? null : (Number(event.target.value) as 30 | 90 | 365))
-            }
-          >
-            <option value="30">{t('integratorKey.days30')}</option>
-            <option value="90">{t('integratorKey.days90')}</option>
-            <option value="365">{t('integratorKey.year')}</option>
-            <option value="never">{t('integratorKey.never')}</option>
-          </SelectField>
+          <>
+            <fieldset className={styles.modes}>
+              <legend>{t('integratorKey.purpose')}</legend>
+              {(['super', 'read'] as const).map((value) => (
+                <label key={value}>
+                  <input
+                    type="radio"
+                    name="integrator-mode"
+                    value={value}
+                    checked={mode === value}
+                    disabled={pending}
+                    onChange={() => setMode(value)}
+                  />
+                  <span>
+                    <strong>{t(`integratorKey.modes.${value}`)}</strong>
+                    <span className={styles.muted}>{t(`integratorKey.${value}Hint`)}</span>
+                  </span>
+                </label>
+              ))}
+            </fieldset>
+            <SelectField
+              label={t('integratorKey.expiry')}
+              value={days ?? 'never'}
+              hint={days === null ? t('integratorKey.noExpiryHint') : undefined}
+              disabled={pending}
+              onChange={(event) =>
+                setDays(
+                  event.target.value === 'never'
+                    ? null
+                    : (Number(event.target.value) as CreateIntegratorAccessKeyRequest['expiresInDays']),
+                )
+              }
+            >
+              {([1, 7, 30, 365] as const).map((value) => (
+                <option key={value} value={value}>
+                  {t(`integratorKey.days${value}`)}
+                </option>
+              ))}
+              <option value="never">{t('integratorKey.never')}</option>
+            </SelectField>
+            {replacing ? (
+              <p className={styles.warning} role="status">
+                {t(mode === 'read' ? 'integratorKey.replaceReadBody' : 'integratorKey.replaceBody', {
+                  prefix: replacing.prefix,
+                })}
+              </p>
+            ) : null}
+          </>
         ) : null}
       </Dialog>
       <Dialog
         open={secret !== null}
+        closeOnBackdrop={false}
         onClose={() => setSecret(null)}
-        title={t('integratorKey.secretTitle')}
+        title={t(mode === 'read' ? 'integratorKey.readSecretTitle' : 'integratorKey.superSecretTitle')}
         size="sm"
+        returnFocusRef={trigger}
+        returnFocusFallback={fallbackFocus}
         footer={
           <Button variant="primary" onClick={() => setSecret(null)}>
             {t('integratorKey.done')}
@@ -241,9 +434,12 @@ export function IntegratorSection() {
             {t(copied ? 'integratorKey.copied' : 'integratorKey.copy')}
           </Button>
         </div>
-        <Fold summary={t('integratorKey.how')}>
-          <p>{t('integratorKey.instructions')}</p>
-        </Fold>
+        {copied ? (
+          <p role="status" className={styles.srOnly}>
+            {t('integratorKey.copied')}
+          </p>
+        ) : null}
+        <AssistantInstruction foldable ownerAccount={!host} />
       </Dialog>
     </SettingsSection>
   );

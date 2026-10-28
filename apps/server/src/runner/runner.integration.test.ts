@@ -8,7 +8,7 @@ import {
   type ChatItem,
   type SessionState,
 } from '@projectman/shared';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   PermissionBroker,
   PermissionDecision,
@@ -19,7 +19,15 @@ import type {
   StartSessionSpec,
 } from '../contracts';
 import { createRunnerModule } from './index';
-import { FAKE_CLAUDE, freePort, silentLogger, tempDirs, waitFor } from './test-helpers';
+import {
+  FAKE_CLAUDE,
+  claudeLoadedFile,
+  fixtureScopeProcesses,
+  freePort,
+  silentLogger,
+  tempDirs,
+  waitFor,
+} from './test-helpers';
 
 /**
  * End to end: a real Fastify server with the hook routes, the runner, and the fake Claude
@@ -67,12 +75,14 @@ async function setup(
   runner = createRunnerModule({
     claudeBin: FAKE_CLAUDE,
     publicBaseUrl: `http://127.0.0.1:${port}`,
+    sessionConfigRoot: path.join(await dirs.make('run-'), 'run'),
     broker,
     permissionTimeoutMs: options.permissionTimeoutMs ?? 10_000,
     logger: silentLogger(),
     claudeConfigPath: configFile,
     trustWorkspaces: options.trustWorkspaces,
     instanceTag: 'tag-of-this-test',
+    scopeProcesses: fixtureScopeProcesses(process.env.FAKE_SCOPE_RECORDS_DIR!),
   });
   runner.registerHookRoutes(app);
   await app.listen({ host: '127.0.0.1', port });
@@ -91,9 +101,11 @@ beforeEach(async () => {
   configFile = path.join(home, '.claude.json');
   await writeFile(configFile, JSON.stringify({ numStartups: 1, projects: {} }, null, 2));
   argsFile = path.join(home, 'args.json');
+  process.env.FAKE_SCOPE_RECORDS_DIR = await dirs.make('scope-records-');
   process.env.FAKE_CLAUDE_TRANSCRIPT_DIR = transcriptDir;
   process.env.FAKE_CLAUDE_CONFIG_FILE = configFile;
   process.env.FAKE_CLAUDE_ARGS_FILE = argsFile;
+  process.env.FAKE_CLAUDE_LOADED_FILE = claudeLoadedFile(argsFile);
   process.env.ANTHROPIC_API_KEY = 'sk-ant-must-not-leak';
   process.env.NANOGPT_API_KEY = 'inherited-nanogpt-must-not-leak';
   // A dead proxy: the SessionStart forwarder (curl honours http_proxy) only reaches the
@@ -109,6 +121,14 @@ afterEach(async () => {
   for (const key of Object.keys(process.env)) if (!(key in savedEnv)) delete process.env[key];
   Object.assign(process.env, savedEnv);
 });
+
+/**
+ * What the fake claude loaded from `--settings` and `--mcp-config`: the runner passes them as private
+ * files that are gone once the session ends (PM-156).
+ */
+async function loadedConfig(): Promise<{ settings: any; mcpConfig: any[] }> {
+  return JSON.parse(await readFile(claudeLoadedFile(argsFile), 'utf8'));
+}
 
 function spec(extra: Partial<StartSessionSpec> = {}): StartSessionSpec {
   return {
@@ -154,6 +174,39 @@ const waitSnapshot = (id: string, text: string) =>
   );
 
 describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
+  it('closes a marked, detached TERM-resistant grandchild before PTY exit', async () => {
+    const file = path.join(cwd, 'grandchild.json');
+    process.env.FAKE_SCOPE_CHILD_FILE = file;
+    await setup();
+    const session = await runner.runner.start(spec());
+    let child: { pid: number; scopeId: string } | undefined;
+    try {
+      await vi.waitFor(
+        async () => {
+          child = await readFile(file, 'utf8').then(
+            (text) => JSON.parse(text),
+            () => undefined,
+          );
+          expect(child).toBeDefined();
+        },
+        { timeout: 5000 },
+      );
+      expect(child!.scopeId).toBe(session.scopeId);
+      await runner.runner.stop(session.sessionId);
+      expect(() => process.kill(child!.pid, 0)).toThrow();
+      expect(
+        events.find((event) => event.type === 'exit' && event.sessionId === session.sessionId),
+      ).toMatchObject({ cleanup: { outcome: 'clean', killed: true } });
+    } finally {
+      if (child) {
+        try {
+          process.kill(child.pid, 'SIGKILL');
+        } catch {
+          /* already gone */
+        }
+      }
+    }
+  });
   it('starts the session with the cheap subagent on its model (PM-179)', async () => {
     await setup();
     const reader = {
@@ -182,8 +235,7 @@ describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
     await setup();
     const started = await runner.runner.start(spec());
     await waitFor(() => stateOf(started.sessionId) === 'idle', { what: 'fake session ready' });
-    const { argv: args } = JSON.parse(await readFile(argsFile, 'utf8')) as { argv: string[] };
-    const settings = JSON.parse(args[args.indexOf('--settings') + 1]!);
+    const { settings } = await loadedConfig();
     const hook = new URL(settings.hooks.Stop[0].hooks[0].url);
     await runner.runner.stop(started.sessionId, { force: true });
     await waitFor(() => !runner.runner.isRunning(started.sessionId), { what: 'fake session stopped' });
@@ -270,10 +322,12 @@ describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
     expect(childCwd).toBe(cwd);
     expect(flag('--session-id')).toBe(s.claudeSessionId);
     expect(flag('--append-system-prompt')).toBe('You are fe-1, a developer.');
-    expect(JSON.parse(flag('--mcp-config'))).toEqual({
-      mcpServers: { team: { type: 'http', url: s.mcpUrl } },
-    });
-    const settings = JSON.parse(flag('--settings'));
+    // Files, not JSON on the command line (PM-156): the team token is not in the argv.
+    expect(flag('--mcp-config')).toMatch(/\/claude-mcp\.json$/);
+    expect(flag('--settings')).toMatch(/\/claude-settings\.json$/);
+    expect(argv.join(' ')).not.toContain(s.mcpUrl);
+    const { settings, mcpConfig } = await loadedConfig();
+    expect(mcpConfig).toEqual([{ mcpServers: { team: { type: 'http', url: s.mcpUrl } } }]);
     expect(settings.permissions.allow).toEqual(['mcp__team']);
     expect(settings.hooks.Stop[0].hooks[0].url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/hooks\/[\w-]{20,}$/);
     expect(flag('--model')).toBe('opus');
@@ -301,7 +355,7 @@ describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
     await waitState(s.sessionId, 'idle');
     const settingsOf = async () => {
       const { argv } = JSON.parse(await readFile(argsFile, 'utf8')) as { argv: string[] };
-      return { argv, settings: JSON.parse(argv[argv.indexOf('--settings') + 1]!) };
+      return { argv, settings: (await loadedConfig()).settings };
     };
     const fresh = await settingsOf();
     expect(fresh.argv).toContain('--session-id');
@@ -921,10 +975,15 @@ describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
     const missingCli = createRunnerModule({
       claudeBin: '/nonexistent/claude',
       publicBaseUrl: 'http://127.0.0.1:1',
+      sessionConfigRoot: path.join(await dirs.make('run-'), 'run'),
       broker,
       permissionTimeoutMs: 1000,
       logger: silentLogger(),
       trustWorkspaces: false,
+    });
+    expect(await missingCli.runner.providerStatus!('claude')).toMatchObject({
+      loggedIn: false,
+      problem: 'cli_missing',
     });
     await expect(missingCli.runner.start(spec())).rejects.toThrow(/CLI not found/);
     await expect(runner.runner.start(spec({ cwd: path.join(cwd, 'missing') }))).rejects.toThrow(
@@ -961,6 +1020,7 @@ describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
 
     runner.runner.writeTerminal(s.sessionId, '\r');
     await assistantSaid(s.sessionId, 'Echo: brief after dialog');
+    await waitState(s.sessionId, 'idle');
     expect(statesOf(s.sessionId)).toEqual(['starting', 'idle', 'waiting_input', 'idle', 'working', 'idle']);
   });
 

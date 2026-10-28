@@ -1,24 +1,45 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { CreateIntegratorKeyRequest, LoginRequest, routes, SetupRequest } from '@projectman/shared';
-import type { Me, SetupStatus } from '@projectman/shared';
-import { apiError } from '../api/errors';
-import { parseBody } from '../api/validation';
-import type { Domain } from '../domain';
-import { DomainError, forbidden } from '../domain/errors';
-import { createAttemptLimiter, MAX_FAILED_ATTEMPTS_ALL_CLIENTS } from './attempt-limiter';
+import {
+  CreateIntegratorAccessKeyRequest,
+  CreateOperatorGrantRequest,
+  IntegratorKeyAuditQuery,
+  LoginRequest,
+  routes,
+  SetupRequest,
+} from '@projectman/shared';
+import type { IntegratorChannel, Me, SetupStatus } from '@projectman/shared';
+import type { IntegratorPrincipal } from '../contracts';
+import { apiError, parseBody } from '../http';
+import { DomainError, forbidden } from '../kernel';
+import { createAttemptLimiter, MAX_FAILED_ATTEMPTS_ALL_CLIENTS } from '../kernel';
 import { AuthService } from './auth-service';
 import type { AuthUser } from './auth-service';
-import { clientAddress, isLocalRequest, requestProtocol, sameOrigin } from './local-request';
+import { clientAddress, isLocalRequest, requestProtocol, sameOrigin } from '../kernel';
 import type { SetupCode } from './setup-code';
+import type { EmailLoginService } from '../services/email-login';
+import { registerEmailLoginRoutes } from './email-login-routes';
 
-export { createAttemptLimiter, MAX_FAILED_ATTEMPTS_ALL_CLIENTS } from './attempt-limiter';
-export type { AttemptLimiter } from './attempt-limiter';
+export { createAttemptLimiter, MAX_FAILED_ATTEMPTS_ALL_CLIENTS } from '../kernel';
 export { AuthService, SESSION_TTL_MS } from './auth-service';
 export type { AuthUser } from './auth-service';
-export { clientAddress, isLocalRequest, requestProtocol } from './local-request';
-export { createSetupCode, generateSetupCode, MAX_SETUP_CODE_FAILURES } from './setup-code';
-export type { SetupCode } from './setup-code';
-export { loadOrCreateSecret } from './secret';
+export { OwnerAccountService } from './owner-accounts';
+export { clientAddress, isLocalRequest, requestProtocol } from '../kernel';
+export { createSetupCode, MAX_SETUP_CODE_FAILURES } from './setup-code';
+export { deriveEmailLoginKey, deriveEmailReplyKey, loadOrCreateSecret } from './secret';
+export {
+  assertPublicBoardReady,
+  parsePublicBoardEnv,
+  PUBLIC_BOARD_REQUIRES_CLOUD,
+  PUBLIC_BOARD_REQUIRES_EMAIL_LOGIN,
+  PUBLIC_BOARD_REQUIRES_SETUP,
+  PublicBoardNotReadyError,
+} from './public-board';
+
+export interface AuthDomain {
+  handlesFor(email: string): Promise<Record<string, string>>;
+  projectsFor(email: string): Promise<Me['projects']>;
+  instanceOwner(email: string): Promise<boolean>;
+}
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -27,24 +48,51 @@ declare module 'fastify' {
     /** Token of the login session (from the signed cookie), or null. */
     authToken: string | null;
     via: 'integrator' | null;
+    /** The authenticated integrator key (PM-757), set only by the key check below; null for a login. */
+    principal: IntegratorPrincipal | null;
   }
 }
 
 export const SESSION_COOKIE = 'pm_session';
 
+/** The CLI header is self-reported telemetry, never authority or evidence of a human caller. */
+export function integratorChannel(request: Pick<FastifyRequest, 'url' | 'headers'>): IntegratorChannel {
+  const path = request.url.split('?')[0] ?? '';
+  if (path === '/mcp') return 'mcp';
+  return path.startsWith('/api/') && request.headers['x-projectman-client'] === 'cli' ? 'cli' : 'rest';
+}
+
 /** /api routes reachable without a login. /hooks and /mcp authenticate with their own tokens. */
 const PUBLIC_ROUTES = new Set([
   `GET ${routes.invite(':token')}`,
   `POST ${routes.acceptInvite(':token')}`,
+  `GET ${routes.ownerInvite(':token')}`,
+  `POST ${routes.acceptOwnerInvite(':token')}`,
   `GET ${routes.setupStatus()}`,
   `POST ${routes.setup()}`,
   `POST ${routes.login()}`,
+  `POST ${routes.emailLoginRequest()}`,
+  `POST ${routes.emailLoginVerify()}`,
   `POST ${routes.logout()}`,
 ]);
 
 /** Failed logins per client address and window (and all clients together: attempt-limiter). */
 const MAX_FAILED_LOGINS = 10;
 const FAILED_LOGIN_WINDOW_MS = 15 * 60 * 1000;
+
+/**
+ * The prefixes whose routes the edge sets apart by the raw path: the API (origin check), the engine's doors and the
+ * internal doors of the agents (`/hooks/`, the member MCP `/mcp/<token>`), which the tunnel answers 404 by the raw
+ * path; the bare `/mcp` of the integrator (PM-760) is no prefix of them.
+ */
+const LITERAL_PREFIXES = ['/api/', '/engine/', '/hooks/', '/mcp/'];
+
+/** True when the matched route sits under one of the literal prefixes but the request did not spell it that way. */
+function spelledDifferently(request: FastifyRequest): boolean {
+  const route = request.routeOptions.url;
+  if (!route) return false;
+  return LITERAL_PREFIXES.some((prefix) => route.startsWith(prefix) && !request.url.startsWith(prefix));
+}
 
 /** Checks both the raw path and the matched route pattern, so neither encoding tricks nor catch-all routes slip through. */
 function needsLogin(request: FastifyRequest): boolean {
@@ -56,7 +104,7 @@ function needsLogin(request: FastifyRequest): boolean {
 }
 
 /** The user and their memberships, as every login answers and GET /api/auth/me returns. */
-export async function meOf(domain: Domain, user: AuthUser, auth?: AuthService): Promise<Me> {
+export async function meOf(domain: AuthDomain, user: AuthUser, auth?: AuthService): Promise<Me> {
   return {
     userId: user.id,
     name: user.name,
@@ -64,7 +112,7 @@ export async function meOf(domain: Domain, user: AuthUser, auth?: AuthService): 
     handles: await domain.handlesFor(user.email),
     projects: await domain.projectsFor(user.email),
     instanceOwner: await domain.instanceOwner(user.email),
-    ...(auth ? { hostOwner: auth.isHostOwner(user.id) } : {}),
+    ...(auth ? { hostOwner: auth.isHostOwner(user.id), ownerAccount: auth.isOwnerAccount(user.id) } : {}),
   };
 }
 
@@ -98,14 +146,29 @@ export function registerAuth(
   app: FastifyInstance,
   deps: {
     auth: AuthService;
-    domain: Domain;
+    domain: AuthDomain;
     clientIpHeader?: string;
     /** `cloud` mode: a non-local first setup is possible, with the setup code (PM-317). */
     cloud?: boolean;
+    /** The board runs publicly (PM-672): the setup status says so, so a check can read the running server. */
+    publicBoard?: boolean;
     setupCode?: SetupCode;
+    /** The e-mail login of invited clients (PM-670); null or absent: it is unavailable. */
+    emailLogin?: EmailLoginService | null;
+    /** Tells every logged-in client that the Operator's grant changed (PM-881). */
+    onOperatorGrantChanged?: () => void;
   },
 ): void {
-  const { auth, domain, clientIpHeader, cloud = false, setupCode } = deps;
+  const {
+    auth,
+    domain,
+    clientIpHeader,
+    cloud = false,
+    publicBoard = false,
+    setupCode,
+    emailLogin = null,
+    onOperatorGrantChanged = () => undefined,
+  } = deps;
   const loginAttempts = createAttemptLimiter({
     max: MAX_FAILED_LOGINS,
     sharedMax: MAX_FAILED_ATTEMPTS_ALL_CLIENTS,
@@ -116,6 +179,7 @@ export function registerAuth(
   app.decorateRequest('user', null);
   app.decorateRequest('authToken', null);
   app.decorateRequest('via', null);
+  app.decorateRequest('principal', null);
 
   app.addHook('onRequest', async (request, reply) => {
     reply.header('referrer-policy', 'no-referrer');
@@ -124,6 +188,10 @@ export function registerAuth(
     // old header for the rest. The attachment routes set their own CSP and repeat the directive.
     reply.header('content-security-policy', "frame-ancestors 'none'");
     reply.header('x-frame-options', 'DENY');
+    // The router decodes a path (`/%65ngine/link` is `/engine/link`), but the tunnel rules, the origin check
+    // below and the guards on the host match the raw one: a route under these prefixes answers only a request
+    // that spells the prefix out (PM-672).
+    if (spelledDifferently(request)) return reply.code(404).send(apiError('not_found', 'route not found'));
     if (request.url.startsWith('/api/')) reply.header('cache-control', 'no-store');
     if (
       request.url.startsWith('/api/') &&
@@ -133,19 +201,34 @@ export function registerAuth(
       return reply.code(403).send(apiError('invalid_origin', 'same-origin request required'));
     }
     const bearer = request.headers.authorization;
-    if (request.url.startsWith('/api/') && bearer && /^Bearer(?:\s|$)/i.test(bearer)) {
+    const path = request.routeOptions.url ?? request.url.split('?')[0]!;
+    if ((request.url.startsWith('/api/') || path === '/mcp') && bearer && /^Bearer(?:\s|$)/i.test(bearer)) {
       if (!(isLocalRequest(request) || requestProtocol(request) === 'https'))
         return reply
           .code(401)
           .send(apiError('integrator_https_required', 'Integrator key requires HTTPS or a local connection'));
       const secret = bearer.match(/^Bearer (pmi_[A-Za-z0-9_-]+)$/i)?.[1];
-      const user = secret ? auth.resolveIntegratorKey(secret) : null;
-      if (!user)
+      const principal = secret ? auth.resolveIntegratorCredential(secret, integratorChannel(request)) : null;
+      if (!principal)
         return reply
           .code(401)
           .send(apiError('integrator_key_invalid', 'Integrator key is invalid, revoked or expired'));
-      request.user = user;
+      // The bearer MCP endpoint (`/mcp`) filters its tools by the key's mode itself (PM-760).
+      // The grant's state is readable with any key; its routes refuse a key themselves (`operator_grant_owner_only`).
+      if (
+        path !== routes.operatorGrant() &&
+        path !== routes.operatorGrantAudit() &&
+        (path.startsWith('/api/auth/') ||
+          path === routes.me() ||
+          path === routes.logout() ||
+          path === '/api/setup')
+      )
+        return reply
+          .code(403)
+          .send(apiError('integrator_not_allowed', 'Integrator execution policy is not available'));
+      request.user = auth.user(principal.userId);
       request.via = 'integrator';
+      request.principal = principal;
     }
     const raw = request.via ? null : request.cookies[SESSION_COOKIE];
     if (raw) {
@@ -163,7 +246,22 @@ export function registerAuth(
 
   app.get(routes.setupStatus(), async (): Promise<SetupStatus> => {
     const needsSetup = auth.needsSetup();
-    return { needsSetup, ...(cloud && needsSetup ? { needsSetupCode: true } : {}) };
+    return {
+      needsSetup,
+      ...(cloud && needsSetup ? { needsSetupCode: true } : {}),
+      ...(emailLogin && !needsSetup ? { emailLoginEnabled: true } : {}),
+      ...(publicBoard ? { publicBoard: true } : {}),
+    };
+  });
+
+  registerEmailLoginRoutes(app, {
+    auth,
+    emailLogin,
+    clientIpHeader,
+    startSessionFor: async (request, reply, user) => {
+      startSession(auth, request, reply, user.id);
+      return meOf(domain, user, auth);
+    },
   });
 
   app.post(routes.setup(), async (request, reply) => {
@@ -216,31 +314,80 @@ export function registerAuth(
   });
 
   app.get(routes.me(), async (request) => ({
-    ...(await meOf(domain, request.user!)),
-    hostOwner: auth.isHostOwner(request.user!.id),
+    ...(await meOf(domain, request.user!, auth)),
     ...(request.via ? { via: request.via } : {}),
   }));
 
   const keyOwner = (request: FastifyRequest): string => {
     if (request.via)
       throw forbidden('integrator_not_allowed', 'Only the owner may manage this key using their own login');
-    if (!request.user || !auth.isHostOwner(request.user.id))
-      throw forbidden('owner_only', 'Only the host owner may manage this key');
+    // A passwordless (e-mail login) account never holds an integrator key (PM-670); an owner account may (PM-1063).
+    if (!request.user || !auth.keyHolderAllowed(request.user.id))
+      throw forbidden('owner_only', 'Only an owner may manage this key');
     return request.user.id;
   };
-  app.get(routes.integratorKey(), async (request) => ({ key: auth.integratorKey(keyOwner(request)) }));
-  app.post(routes.integratorKey(), async (request, reply) => {
+  app.get(routes.integratorKeys(), async (request) => ({
+    keys: auth.integratorAccessKeys(keyOwner(request)),
+  }));
+  app.post(routes.integratorKeys(), async (request, reply) => {
     const userId = keyOwner(request);
-    const body = parseBody(CreateIntegratorKeyRequest, request.body ?? {});
-    const created = auth.createIntegratorKey(userId, body.expiresInDays);
-    app.log.info({ prefix: created.key.prefix, userId }, 'Integrator key created');
+    const body = parseBody(CreateIntegratorAccessKeyRequest, request.body);
+    const created = auth.createIntegratorAccessKey(userId, body);
+    app.log.info({ prefix: created.key.prefix, mode: created.key.mode, userId }, 'Integrator key created');
     return reply.code(201).send(created);
   });
-  app.delete(routes.integratorKey(), async (request) => {
+  app.delete<{ Params: { id: string } }>(routes.integratorAccessKey(':id'), async (request) => {
     const userId = keyOwner(request);
-    const key = auth.revokeIntegratorKey(userId);
-    if (!key) throw new DomainError('not_found', 'No active integrator key', { status: 404 });
-    app.log.info({ prefix: key.prefix, userId }, 'Integrator key revoked');
+    const key = auth.revokeIntegratorAccessKey(userId, request.params.id);
+    if (!key) throw new DomainError('not_found', 'Integrator key not found', { status: 404 });
+    app.log.info({ prefix: key.prefix, mode: key.mode, userId }, 'Integrator key revoked');
     return { key };
   });
+  app.get(routes.integratorKeyAudit(), async (request) => {
+    const userId = keyOwner(request);
+    return auth.integratorKeyAudit(userId, parseBody(IntegratorKeyAuditQuery, request.query));
+  });
+
+  // The Operator's grant for machine operations (PM-881): the host owner gives and takes it with their own login.
+  const grantOwner = (request: FastifyRequest): string => {
+    if (
+      request.via ||
+      !request.user ||
+      !auth.isHostOwner(request.user.id) ||
+      !auth.hasPassword(request.user.id)
+    )
+      throw forbidden(
+        'operator_grant_owner_only',
+        'Only the host owner may manage the Operator’s grant, with their own login',
+      );
+    return request.user.id;
+  };
+  const canManageGrant = (request: FastifyRequest): boolean => {
+    try {
+      grantOwner(request);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  app.get(routes.operatorGrant(), async (request) => ({
+    grant: auth.operatorGrantState(canManageGrant(request)),
+  }));
+  app.post(routes.operatorGrant(), async (request, reply) => {
+    const userId = grantOwner(request);
+    const body = parseBody(CreateOperatorGrantRequest, request.body ?? {});
+    const grant = auth.grantOperator(userId, body.duration);
+    app.log.info({ grantId: grant.id, expiresAt: grant.expiresAt, userId }, 'Operator grant created');
+    onOperatorGrantChanged();
+    return reply.code(201).send({ grant: auth.operatorGrantState(true) });
+  });
+  app.delete(routes.operatorGrant(), async (request) => {
+    const userId = grantOwner(request);
+    const grant = auth.revokeOperatorGrant(userId);
+    if (!grant) throw new DomainError('not_found', 'No active Operator grant', { status: 404 });
+    app.log.info({ grantId: grant.id, userId }, 'Operator grant revoked');
+    onOperatorGrantChanged();
+    return { grant: auth.operatorGrantState(true) };
+  });
+  app.get(routes.operatorGrantAudit(), async (request) => auth.operatorGrantAudit(grantOwner(request)));
 }

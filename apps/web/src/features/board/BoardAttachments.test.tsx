@@ -52,7 +52,7 @@ function renderBoard(project: Project, route: string, overrides: Partial<Project
           <LiveEvents backend={project.backend} />
           <Routes>
             <Route path="/p/:key" element={<BoardPage />}>
-              <Route path="tasks/:taskKey" element={<TaskDrawer />} />
+              <Route path="tasks/:taskKey/*" element={<TaskDrawer />} />
             </Route>
             <Route path="/" element={<BoardPage />} />
           </Routes>
@@ -234,7 +234,7 @@ describe('the open card takes files too', () => {
     const project = mockProject();
     renderBoard(project, '/p/AC/tasks/AC-20');
     const drawer = await screen.findByRole('complementary', { name: t('task.drawerLabel') });
-    await within(drawer).findByRole('region', { name: t('attachments.title') });
+    await within(drawer).findByRole('group', { name: t('task.view.label') });
     const title = project.backend.findTask('AC-20')!.title;
     const drag = dragOf(makeFile('shot.png'));
     // On the title, far from the attachments section.
@@ -248,13 +248,21 @@ describe('the open card takes files too', () => {
     await findAddedRow('shot.png', within(drawer));
     expect(screen.queryByText(t('attachments.dropActive'))).toBeNull();
     expect(uploads(project, 'AC-20')).toHaveLength(1);
+    // The drawer shows the Attachments view, so the upload is in sight (PM-487).
+    expect(
+      within(drawer).getByRole('button', {
+        name: new RegExp(`^${t('task.view.attachments')}`),
+        pressed: true,
+      }),
+    ).toBeTruthy();
+    expect(within(drawer).getByRole('region', { name: t('attachments.title') })).toBeTruthy();
   });
 
   it('says so when the person may not attach, and sends nothing', async () => {
     const project = mockProject();
     renderBoard(project, '/p/AC/tasks/AC-20', asAccess(project, 'viewer'));
     const drawer = await screen.findByRole('complementary', { name: t('task.drawerLabel') });
-    await within(drawer).findByRole('region', { name: t('attachments.title') });
+    await within(drawer).findByRole('group', { name: t('task.view.label') });
     const drag = dragOf(makeFile('shot.png'));
     const heading = within(drawer).getAllByText(project.backend.findTask('AC-20')!.title)[0]!;
     fireEvent.dragEnter(heading, { dataTransfer: drag });
@@ -340,7 +348,7 @@ describe('the cover of a card', () => {
     project.backend.addAttachment('AC-20', { name: 'plan.pdf', size: 10, type: 'application/pdf' });
     const first = project.backend.addAttachment('AC-20', { name: 'a.png', size: 10, type: 'image/png' });
     project.backend.addAttachment('AC-20', { name: 'b.png', size: 10, type: 'image/png' });
-    renderBoard(project, '/p/AC/tasks/AC-20');
+    renderBoard(project, '/p/AC/tasks/AC-20/attachments');
     const list = await screen.findByRole('list', { name: t('attachments.listLabel') });
     const rows = within(list).getAllByRole('listitem');
     expect(rows).toHaveLength(3);
@@ -352,7 +360,7 @@ describe('the cover of a card', () => {
     expect(first.id).toBeTruthy();
   });
 
-  it('is a small thumbnail on the phone', async () => {
+  it('shows the cover strip on the phone column card as on the desktop', async () => {
     vi.spyOn(window, 'matchMedia').mockImplementation((query) => ({
       matches: true,
       media: query,
@@ -369,6 +377,7 @@ describe('the cover of a card', () => {
     await cardLink(project, 'AC-20');
     const image = thumbnailOf(view.container, 'AC-20', first.id)!;
     expect(image).toBeTruthy();
-    expect(image.parentElement!.className).toMatch(/thumbnail/);
+    expect(image.parentElement!.className).toMatch(/cover/);
+    expect(image.parentElement!.className).not.toMatch(/thumbnail/);
   });
 });

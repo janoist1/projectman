@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { routes } from '@projectman/shared';
 import type { ConfigView, InboxItem, Task } from '@projectman/shared';
-import { SYSTEM_ACTOR } from '../src/domain';
+import { SYSTEM_ACTOR } from '../src/kernel';
 import { addHumanAndLogin, createAppHarness, createProject, inject, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 import { OWNER_ACTOR } from './helpers/domain-harness';

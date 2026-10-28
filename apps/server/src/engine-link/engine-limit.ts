@@ -1,16 +1,33 @@
-import { realpathSync } from 'node:fs';
+import { readlinkSync, realpathSync, statSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { ProjectConfig } from '@projectman/shared';
+import {
+  isRegeneratedPath,
+  isRegeneratedPathPattern,
+  isReleaseTagName,
+  SessionReadBoundary,
+  type ProjectConfig,
+} from '@projectman/shared';
 import type { AgentSandbox, EnginePaths, MachineProbe, ProcessRecord } from '../contracts';
 import {
   OPEN_OUTBOUND_DOMAINS,
   READER_UNSANDBOXED_COMMANDS,
   SANDBOX_DENIED_ENV_VARS,
+  SANDBOX_HOME_READS,
   sensitivePaths,
-} from '../domain/session-policy';
-import { isWithin } from '../engine-host/within';
-import { BILLING_ENV_VARS } from '../runner';
+} from '../contracts';
+import {
+  isBranchName,
+  isCommitFileSet,
+  isCommitId,
+  isMergeId,
+  isMergeMessage,
+  isRepoFilePath,
+} from '../engine-host';
+import { userExcludesFile } from '../engine-host';
+import { isWithin } from '../kernel';
+import { BILLING_ENV_VARS, pathPatternMatcher, isReadBoundaryPath } from '../runner';
+import { assertNpmCiCheckout, assertRegenerateCheckout } from '../full-test';
 import { engineFiles } from './engine-config';
 import type { ResolvedEngineConfig } from './engine-config';
 import type { EngineMethod, MethodParams } from './methods';
@@ -24,7 +41,7 @@ import type { EngineErrorCode } from './protocol';
  * the engine was configured with. The checks run after `realpath`, so a symbolic link cannot widen a root.
  */
 
-export interface EngineLimitOptions {
+interface EngineLimitOptions {
   config: ResolvedEngineConfig;
   home: string;
   userHome: string;
@@ -59,12 +76,28 @@ const FORBIDDEN_ENV = [
   /^DYLD_/i,
 ];
 
+const DATABASE_PATTERN = /[\\/]db\.sqlite\*$/;
+const DATABASE_SUFFIXES = ['', '-wal', '-shm', '-journal'];
+/**
+ * A file tool's deny rule names a path, not a pattern (Claude refuses `db.sqlite*`): the app database's
+ * pattern becomes its four file names. Any other entry stays as it is.
+ */
+function namedDatabaseFiles(entries: readonly string[]): string[] {
+  return entries.flatMap((entry) =>
+    DATABASE_PATTERN.test(entry) ? DATABASE_SUFFIXES.map((end) => entry.slice(0, -1) + end) : [entry],
+  );
+}
+
 function refuse(code: EngineErrorCode, message: string): never {
   throw new EngineRpcError(code, message);
 }
 
 /** The real path of the nearest existing ancestor, plus the not yet existing rest (a path to be made). */
-export function resolveReal(target: string): string {
+function resolveReal(target: string): string {
+  return resolveRealPath(target, 0);
+}
+
+function resolveRealPath(target: string, depth: number): string {
   const absolute = path.resolve(target);
   let head = absolute;
   const rest: string[] = [];
@@ -72,6 +105,19 @@ export function resolveReal(target: string): string {
     try {
       return path.join(realpathSync(head), ...rest.reverse());
     } catch {
+      // realpath cannot resolve a dangling link. Follow its target before appending the
+      // missing tail, rather than treating a link into a denied root as a new safe path.
+      if (depth < 40) {
+        try {
+          const link = readlinkSync(head);
+          return path.join(
+            resolveRealPath(path.resolve(path.dirname(head), link), depth + 1),
+            ...rest.reverse(),
+          );
+        } catch {
+          // Not a symbolic link; continue with the nearest existing ancestor.
+        }
+      }
       const parent = path.dirname(head);
       if (parent === head) return absolute;
       rest.push(path.basename(head));
@@ -81,6 +127,8 @@ export function resolveReal(target: string): string {
 }
 
 export interface EngineLimit {
+  /** Engine-owned read denials, including key and link headers. */
+  sensitiveRead(): string[];
   /** Throws an `EngineRpcError` for a refused request; returns the parameters to use (some are rewritten from `engine.json`). */
   check<M extends EngineMethod>(method: M, params: MethodParams<M>): Promise<MethodParams<M>>;
   /** The paths the cloud may export files from for a session: its working directory and its folder. */
@@ -102,11 +150,16 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
   const memberCaches = path.join(home, 'member-caches');
   const attachmentsCache = path.join(home, 'attachments-cache');
   const files = engineFiles(home, config);
-  // The engine's own secrets: the machine key and the link headers (the service token) are neither read
-  // nor changed by a session; its configuration and status file are read but never changed.
-  const engineSecrets = [config.keyFile, ...(config.linkHeadersFile ? [config.linkHeadersFile] : [])];
+  // The engine's own secrets: the machine key, the link headers (the service token) and the NanoGPT key
+  // (PM-1068) are neither read nor changed by a session; its configuration and status file are read but
+  // never changed.
+  const engineSecrets = [
+    config.keyFile,
+    ...(config.linkHeadersFile ? [config.linkHeadersFile] : []),
+    ...(config.nanogptKeyFile ? [config.nanogptKeyFile] : []),
+  ];
   const sensitive = [...sensitivePaths({ userHome, appHome: home }), ...engineSecrets];
-  const sensitiveWrite = [...sensitive, files.config, files.status];
+  const sensitiveWrite = [...namedDatabaseFiles(sensitive), files.config, files.status];
   const sessions = new Map<string, { cwd: string; folder?: string }>();
   const present = (values: ReadonlyArray<string | null | undefined>): string[] =>
     values.filter((value): value is string => typeof value === 'string' && value.length > 0);
@@ -128,20 +181,40 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
   /**
    * What a session's sandbox may also name: the heavy-run queue's folder and the browsers. Not the CLIs'
    * shared temp roots (`/tmp/claude-<uid>`): they are off limits to a session (PM-353) and the cloud never asks.
+   * The attachments cache is here, not among the roots: a task session reads its card's attachments there
+   * (the cloud names `<cache>/<project>/<task>` among its read-only paths), but never works in it (PM-667).
    */
   const sandboxRoots = (): string[] => [
     ...roots(),
-    ...present([paths.heavyLockDir ? path.dirname(paths.heavyLockDir) : null, paths.browsersDir]).map(
-      resolveReal,
-    ),
+    ...present([
+      paths.heavyLockDir ? path.dirname(paths.heavyLockDir) : null,
+      paths.browsersDir,
+      attachmentsCache,
+    ]).map(resolveReal),
   ];
+  /**
+   * The user's own files a session's sandbox may read (git identity, the global excludes file, the shell
+   * snapshots): read exceptions only, so they join the read candidates and never the write ones. One whose
+   * real path is, or holds, a sensitive place (a symlink, a `core.excludesfile` aimed at a key) is dropped.
+   */
+  const homeReads = (): string[] => {
+    const blocked = sensitive.map(resolveReal);
+    return present([
+      ...SANDBOX_HOME_READS.map((name) => path.join(userHome, name)),
+      userExcludesFile(userHome),
+    ])
+      .map(resolveReal)
+      .filter((real) => !blocked.some((place) => isWithin(place, real) || isWithin(real, place)));
+  };
+  const readRoots = (): string[] => [...sandboxRoots(), ...homeReads()];
   const within = (candidates: readonly string[], target: string): boolean => {
     if (!path.isAbsolute(target) || target.includes('\0')) return false;
     const real = resolveReal(target);
     return candidates.some((root) => isWithin(root, real));
   };
   const inside = (target: string, what: string, candidates: readonly string[] = roots()): string => {
-    if (!within(candidates, target)) refuse('path_outside_roots', `${what} is outside the engine's roots`);
+    if (!within(candidates, target))
+      refuse('path_outside_roots', `${what} is outside the engine's roots: ${target}`);
     return target;
   };
   const insideAll = (
@@ -188,12 +261,45 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
       refuse('repo_not_registered', `${projectKey} is not registered on this engine`);
   };
 
+  /**
+   * A merge call's repository (PM-451): registered, and with a `mergeBranch`. The merge and the push run
+   * with this machine's git login, so the cloud can reach only the one branch the owner named here.
+   */
+  const mergeRepo = (ref: { projectKey: string; repo: string }) => {
+    const entry = config.repos.find((repo) => repo.project === ref.projectKey && repo.repo === ref.repo);
+    if (!entry)
+      return refuse('repo_not_registered', `${ref.projectKey}/${ref.repo} is not registered on this engine`);
+    if (!entry.mergeBranch)
+      return refuse(
+        'merge_not_allowed',
+        `${ref.projectKey}/${ref.repo} may not be merged into from the cloud`,
+      );
+    return { ...entry, mergeBranch: entry.mergeBranch };
+  };
+  const mergeBase = async (ref: { projectKey: string; repo: string }, base: string) => {
+    const entry = mergeRepo(ref);
+    if (!(await isBranchName(base))) refuse('invalid_params', 'The base is not a branch name');
+    if (base !== entry.mergeBranch)
+      refuse('merge_not_allowed', `Only ${entry.mergeBranch} may be merged into from the cloud`);
+    return entry;
+  };
+  const commitIds = (...ids: string[]) => {
+    for (const id of ids) if (!isCommitId(id)) refuse('invalid_params', 'Not a commit id');
+  };
+  const mergeIdOf = (id: string) => {
+    if (!isMergeId(id)) refuse('invalid_params', 'Not a merge id');
+  };
+  const regeneratePatterns = (patterns: readonly string[]) => {
+    if (!patterns.every(isRegeneratedPathPattern))
+      refuse('invalid_params', 'Not a pattern of generated files');
+  };
+
   const withDenials = <T extends { denyRead?: string[]; denyWrite?: string[]; deniedEnvVars?: string[] }>(
     sandbox: T,
   ): T => ({
     ...sandbox,
     denyRead: [...new Set([...(sandbox.denyRead ?? []), ...sensitive])],
-    denyWrite: [...new Set([...(sandbox.denyWrite ?? []), ...sensitiveWrite])],
+    denyWrite: [...new Set([...namedDatabaseFiles(sandbox.denyWrite ?? []), ...sensitiveWrite])],
     deniedEnvVars: [...new Set([...(sandbox.deniedEnvVars ?? []), ...SANDBOX_DENIED_ENV_VARS])],
   });
 
@@ -202,6 +308,7 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
   }> = {
     'session.start': (spec) => {
       const extra = sandboxRoots();
+      const readable = readRoots();
       inside(spec.cwd, 'The working directory');
       insideAll(spec.additionalDirectories, 'An additional directory', extra);
       insideAll(spec.writableRoots, 'A writable root', extra);
@@ -215,9 +322,9 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
         refuse('permission_mode_too_high', 'A full-access sandbox is not allowed on this engine');
       const { placement, filesystem } = policy;
       inside(placement.path, 'The placement', extra);
-      insideAll(filesystem.readableRoots, 'A readable root', extra);
+      insideAll(filesystem.readableRoots, 'A readable root', readable);
       insideAll(filesystem.writableRoots, 'A writable root', extra);
-      insideAll(filesystem.readOnlyPaths, 'A read-only path', extra);
+      insideAll(filesystem.readOnlyPaths, 'A read-only path', readable);
       if (filesystem.sessionFolder) inside(filesystem.sessionFolder, 'The session folder', extra);
       if (filesystem.sessionFoldersRoot)
         inside(filesystem.sessionFoldersRoot, 'The session folders root', extra);
@@ -247,9 +354,134 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
         }
       }
       let sandbox = spec.sandbox;
+      // A reading session's boundary (PM-425) is checked for every provider: the sandbox's list is the
+      // one the policy's copy is replaced with, and no transcript of any session is ever readable.
+      let readerDenied: string[] = [];
+      if (sandbox?.portable?.readBoundary !== undefined) {
+        const boundary = SessionReadBoundary.safeParse(sandbox?.portable?.readBoundary);
+        if (!boundary.success) refuse('invalid_params', 'The explicit read boundary is invalid');
+        readerDenied = [path.join(userHome, '.claude', 'projects')];
+        const portable = sandbox!.portable!;
+        if (
+          ![...boundary.data.deniedRoots, ...boundary.data.allowedPaths.map((entry) => entry.path)].every(
+            isReadBoundaryPath,
+          )
+        )
+          refuse('invalid_params', 'The read boundary needs absolute normalized paths');
+        const blocked = [...sensitive, ...readerDenied, ...(filesystem.deniedPaths ?? [])].map(resolveReal);
+        const matchesDenied = pathPatternMatcher(blocked, process.platform === 'darwin');
+        const hardDenied = (target: string) => matchesDenied(resolveReal(target));
+        const required = [
+          spec.cwd,
+          ...(placement.kind === 'task_worktree' && placement.gitDir ? [placement.gitDir] : []),
+        ];
+        if (policy.permissions.sandbox === 'workspace-write') {
+          if (!portable.tmpDir || !portable.env.PROJECTMAN_SESSION_DIR)
+            refuse('invalid_params', 'A writing worktree session needs private directories');
+          for (const [target, root] of [
+            [portable.tmpDir, paths.sessionTmpRoot],
+            [portable.env.PROJECTMAN_SESSION_DIR, paths.sessionFoldersRoot],
+          ]) {
+            if (
+              !root ||
+              !target ||
+              resolveReal(target) === resolveReal(root) ||
+              !isWithin(resolveReal(root), resolveReal(target))
+            )
+              refuse('path_outside_roots', 'A private directory must be below its engine-owned root');
+          }
+          required.push(portable.tmpDir, portable.env.PROJECTMAN_SESSION_DIR);
+        }
+        if (required.some(hardDenied)) refuse('path_outside_roots', 'A required path is denied');
+        const ownCandidates = [
+          spec.cwd,
+          ...filesystem.readableRoots,
+          ...(filesystem.readOnlyPaths ?? []),
+          ...(placement.kind === 'task_worktree' && placement.gitDir ? [placement.gitDir] : []),
+          ...(sandbox?.allowRead ?? []),
+          ...portable.allowWrite,
+          ...(portable.tmpDir ? [portable.tmpDir] : []),
+          ...homeReads(),
+          ...present([paths.sessionFoldersRoot, paths.browsersDir]),
+        ];
+        // Never reopen homes or collectors of other members' checkouts/caches. A permitted
+        // root is still checked against the engine's read roots after resolving symlinks.
+        const collectors = present([
+          home,
+          userHome,
+          paths.worktreesRoot,
+          paths.workspacesRoot,
+          memberCaches,
+          attachmentsCache,
+        ]);
+        const allowedPaths = boundary.data.allowedPaths.filter((entry) => {
+          const real = resolveReal(entry.path);
+          if (hardDenied(entry.path)) return false;
+          let kindMatches = true;
+          try {
+            const stat = statSync(entry.path);
+            kindMatches = entry.kind === 'file' ? stat.isFile() : stat.isDirectory();
+          } catch {
+            // Optional technical files and newly allocated directories may not exist yet.
+          }
+          if (!kindMatches) refuse('path_outside_roots', 'A read exception has the wrong path kind');
+          if (collectors.some((root) => isWithin(real, resolveReal(root))))
+            refuse('path_outside_roots', 'A read exception would reopen a shared parent');
+          if (isWithin(resolveReal(memberCaches), real)) {
+            const parts = path.relative(resolveReal(memberCaches), real).split(path.sep);
+            if (parts.length < 3 || (spec.member && parts[1] !== spec.member))
+              refuse('path_outside_roots', 'A cache exception must name the member’s own directory or file');
+          }
+          inside(entry.path, 'A read boundary exception', readable);
+          if (!ownCandidates.some((candidate) => resolveReal(candidate) === real))
+            refuse('path_outside_roots', 'A read exception is not a session path');
+          // Technical files stay exact-file grants, even if the hub sends a directory kind.
+          if (
+            entry.kind === 'directory' &&
+            [path.join(userHome, '.gitconfig'), userExcludesFile(userHome)].some(
+              (file) => file && resolveReal(file) === real,
+            )
+          )
+            refuse('path_outside_roots', 'A technical file cannot grant directory access');
+          return true;
+        });
+        if (
+          required.some(
+            (target) =>
+              !allowedPaths.some(
+                (entry) =>
+                  entry.kind === 'directory' && isWithin(resolveReal(entry.path), resolveReal(target)),
+              ),
+          )
+        )
+          refuse('path_outside_roots', 'A required path is outside the read boundary');
+        const shared = portable.tmpDir
+          ? [...paths.claudeTmpRoots, ...(paths.sessionTmpRoot ? [path.dirname(paths.sessionTmpRoot)] : [])]
+          : [];
+        sandbox = {
+          ...sandbox!,
+          allowRead: sandbox!.allowRead?.filter((target) => !hardDenied(target)),
+          allowWrite: sandbox!.allowWrite.filter((target) => !hardDenied(target)),
+          portable: {
+            ...portable,
+            allowWrite: portable.allowWrite.filter((target) => !hardDenied(target)),
+            readBoundary: {
+              deniedRoots: [
+                ...new Set(
+                  [...boundary.data.deniedRoots, userHome, home, ...shared].flatMap((root) => [
+                    root,
+                    resolveReal(root),
+                  ]),
+                ),
+              ],
+              allowedPaths,
+            },
+          },
+        };
+      }
       if (sandbox) {
         insideAll(sandbox.allowWrite, 'A writable sandbox path', extra);
-        insideAll(sandbox.allowRead, 'A readable sandbox path', extra);
+        insideAll(sandbox.allowRead, 'A readable sandbox path', readable);
         insideAll(sandbox.portable?.allowWrite, 'A portable path', extra);
         if (sandbox.portable?.tmpDir) inside(sandbox.portable.tmpDir, 'The temporary directory', extra);
         for (const command of sandbox.excludedCommands ?? [])
@@ -263,6 +495,8 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
           )
             refuse('invalid_params', `The environment variable ${name} is not allowed`);
         sandbox = withDenials(sandbox);
+        if (readerDenied.length > 0)
+          sandbox = { ...sandbox, denyRead: [...new Set([...(sandbox.denyRead ?? []), ...readerDenied])] };
       } else if (!spec.provider || spec.provider === 'claude') {
         // Never a session without a sandbox because the cloud left it out.
         const baseline: AgentSandbox = {
@@ -272,12 +506,17 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
         };
         sandbox = withDenials(baseline);
       }
+      const { readBoundary: _hubBoundary, ...engineFilesystem } = filesystem;
       const protectedPolicy = policy
         ? {
             ...policy,
             filesystem: {
-              ...policy.filesystem,
-              deniedPaths: [...new Set([...(policy.filesystem.deniedPaths ?? []), ...sensitive])],
+              ...engineFilesystem,
+              deniedPaths: [
+                ...new Set([...(policy.filesystem.deniedPaths ?? []), ...sensitive, ...readerDenied]),
+              ],
+              // The policy's copy of the boundary is the engine's own canonical one, never the hub's.
+              ...(sandbox?.portable?.readBoundary ? { readBoundary: sandbox.portable.readBoundary } : {}),
             },
           }
         : undefined;
@@ -326,6 +565,13 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
       return params;
     },
     'worktree.ensureForTask': ([arg]) => [{ ...arg, project: bind(arg.project, arg.repoName) }],
+    'worktree.ensureMergeFix': ([arg]) => {
+      commitIds(arg.commit);
+      return [{ ...arg, project: bind(arg.project, arg.repoName) }];
+    },
+    'worktree.findMergeFix': ([arg]) => [{ ...arg, project: bind(arg.project, arg.repoName) }],
+    'worktree.removeMergeFix': ([arg]) => [{ ...arg, project: bind(arg.project, arg.repoName) }],
+    'worktree.listMergeFixes': ([arg]) => [{ ...arg, project: bind(arg.project, arg.repoName) }],
     'worktree.find': ([arg]) => [{ ...arg, project: bind(arg.project, arg.repoName) }],
     'worktree.status': (params) => {
       inside(params[0], 'The worktree');
@@ -347,6 +593,7 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
     'workspace.status': ([key]) => [{ ...key, project: bind(key.project, key.repoName) }],
     'workspace.sourceHead': ([key, branch]) => [{ ...key, project: bind(key.project, key.repoName) }, branch],
     'workspace.fetchBase': ([key]) => [{ ...key, project: bind(key.project, key.repoName) }],
+    'workspace.prepareDependencies': ([key]) => [{ ...key, project: bind(key.project, key.repoName) }],
     'workspace.findTaskBranch': ([key, taskKey, ref]) => [
       { ...key, project: bind(key.project, key.repoName) },
       taskKey,
@@ -364,20 +611,64 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
       inside(source.path, 'The source repository');
       return [{ ...key, project: bind(key.project, key.repoName) }, source, ref];
     },
-    'workspace.export_branch': (params) => {
-      limit.token(params.uploadToken);
-      return { ...params, key: { ...params.key, project: bind(params.key.project, params.key.repoName) } };
+    // The target is always the registered repository the key names: the cloud sends no path or ref.
+    'workspace.publishTaskBranch': ([key, taskKey, branch, commit]) => {
+      commitIds(commit);
+      return [{ ...key, project: bind(key.project, key.repoName) }, taskKey, branch, commit];
     },
-    'full_test.run': (params) => {
+    'full_test.run': async (params) => {
       const { spec } = params;
-      if (
+      // The run that makes generated files again (PM-1050) is the only one with writable directories (the
+      // engine derives them from the patterns), and it runs the registered repo's own `regenerateCommand`,
+      // never its `fullTestCommand`; every other run runs the `fullTestCommand` and writes nothing.
+      if (spec.regenerate) {
+        const entry = mergeRepo(spec.regenerate.ref);
+        mergeIdOf(spec.regenerate.mergeId);
+        regeneratePatterns(spec.regenerate.patterns);
+        if (entry.regenerateCommand === undefined || entry.regenerateCommand !== spec.command)
+          refuse('command_not_allowed', 'The regeneration command is not configured for this repository');
+        if (spec.githubActions || (spec.npmCi && spec.npmCi.mergeId !== spec.regenerate.mergeId))
+          refuse('invalid_params', 'The regeneration runs in its own checkout, on this engine');
+        try {
+          await assertRegenerateCheckout(paths.worktreesRoot, spec);
+        } catch {
+          refuse('invalid_params', 'The regeneration needs the canonical merge checkout of its merge id');
+        }
+      } else if (
         !config.repos.some(
           (repo) => repo.fullTestCommand !== undefined && repo.fullTestCommand === spec.command,
         )
       )
         refuse('command_not_allowed', 'The test command is not the one configured on this engine');
+      if (spec.githubActions) {
+        // The merge check as a GitHub Actions workflow (PM-900) runs no command here: `cwd` is a label, not a
+        // path, and the engine pushes the one commit to the one branch the owner named for this repository.
+        const check = spec.githubActions;
+        const entry = await mergeBase(check.ref, check.base);
+        mergeIdOf(check.mergeId);
+        commitIds(check.commit);
+        if (entry.fullTestCommand !== spec.command)
+          refuse('command_not_allowed', 'The test command is not configured for this repository');
+        if (spec.cwd !== `github-actions:${check.repo}` || spec.npmCi || spec.requireHeavyLock)
+          refuse('invalid_params', 'A GitHub Actions merge check carries no checkout, installation or lock');
+        return params;
+      }
       inside(spec.cwd, 'The test directory');
-      insideAll(spec.sandbox.allowRead, 'A readable test path', sandboxRoots());
+      if (spec.npmCi) {
+        const entry = mergeRepo(spec.npmCi.ref);
+        mergeIdOf(spec.npmCi.mergeId);
+        if (!spec.regenerate && entry.fullTestCommand !== spec.command)
+          refuse('command_not_allowed', 'The test command is not configured for this repository');
+        try {
+          await assertNpmCiCheckout(paths.worktreesRoot, spec);
+        } catch {
+          refuse(
+            'invalid_params',
+            'Dependency preparation needs the canonical merge checkout and required heavy lock',
+          );
+        }
+      }
+      insideAll(spec.sandbox.allowRead, 'A readable test path', readRoots());
       return {
         ...params,
         spec: {
@@ -398,7 +689,7 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
       )
         refuse('path_outside_roots', 'The browsers directory is not the engine’s');
       insideAll(spec.sandbox.allowWrite, 'A writable screenshot path', extra);
-      insideAll(spec.sandbox.allowRead, 'A readable screenshot path', extra);
+      insideAll(spec.sandbox.allowRead, 'A readable screenshot path', readRoots());
       // The engine assembles the command (`npm run shots -- <scenario> <flags>`): the scenario is a path
       // inside the roots, the flags are the few `screenshotArgs` builds, never `--out` or `--machine`.
       const [scenario, ...flags] = spec.args;
@@ -424,13 +715,13 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
           sandbox: {
             ...spec.sandbox,
             denyRead: [...new Set([...spec.sandbox.denyRead, ...sensitive])],
-            denyWrite: [...new Set([...spec.sandbox.denyWrite, ...sensitiveWrite])],
+            denyWrite: [...new Set([...namedDatabaseFiles(spec.sandbox.denyWrite), ...sensitiveWrite])],
           },
         },
       };
     },
     'host.is_directory': (params) => {
-      inside(params.path, 'The path', sandboxRoots());
+      inside(params.path, 'The path', readRoots());
       return params;
     },
     'host.resolve_git_dir': (params) => {
@@ -438,11 +729,11 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
       return params;
     },
     'host.realpath': (params) => {
-      inside(params.path, 'The path', sandboxRoots());
+      inside(params.path, 'The path', readRoots());
       return params;
     },
     'host.is_real_directory': (params) => {
-      inside(params.dir, 'The directory', sandboxRoots());
+      inside(params.dir, 'The directory', readRoots());
       return params;
     },
     'host.prepare_member_sandbox_dir': (params) => {
@@ -474,11 +765,131 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
       inside(params.dir, 'The image directory');
       return params;
     },
+    'merge.prepare': async (params) => {
+      await mergeBase(params.ref, params.base);
+      commitIds(params.commit);
+      return params;
+    },
+    'merge.is_ancestor': (params) => {
+      mergeRepo(params.ref);
+      commitIds(params.ancestor, params.commit);
+      return params;
+    },
+    'merge.build': (params) => {
+      mergeRepo(params.ref);
+      commitIds(params.onto, params.commit);
+      if (!isMergeMessage(params.message) || params.message.trim().length === 0)
+        refuse('invalid_params', 'Not a commit message');
+      regeneratePatterns(params.regenerate ?? []);
+      return params;
+    },
+    'merge.commit_regenerated': (params) => {
+      mergeRepo(params.ref);
+      mergeIdOf(params.mergeId);
+      commitIds(params.onto, params.commit);
+      if (!isMergeMessage(params.message) || params.message.trim().length === 0)
+        refuse('invalid_params', 'Not a commit message');
+      regeneratePatterns(params.patterns);
+      if (params.paths.length > 50 || !params.paths.every(isRegeneratedPath))
+        refuse('invalid_params', 'Not a set of paths');
+      return params;
+    },
+    'merge.checkout_conflicts': async (params) => {
+      await mergeBase(params.ref, params.base);
+      if (params.changed.some((entry) => entry.includes('\0') || entry.length > 4096))
+        refuse('invalid_params', 'Not a path');
+      return params;
+    },
+    'merge.checkout_for_check': (params) => {
+      const entry = mergeRepo(params.ref);
+      mergeIdOf(params.mergeId);
+      commitIds(params.mergeCommit);
+      if (params.depsFrom !== null)
+        inside(params.depsFrom, 'The dependencies path', [
+          ...present([paths.worktreesRoot]).map(resolveReal),
+          resolveReal(entry.path),
+        ]);
+      return params;
+    },
+    'merge.release_check': (params) => {
+      mergeRepo(params.ref);
+      mergeIdOf(params.mergeId);
+      return params;
+    },
+    'merge.push': async (params) => {
+      await mergeBase(params.ref, params.base);
+      commitIds(params.mergeCommit);
+      return params;
+    },
+    'merge.remote_tags': async (params) => {
+      await mergeBase(params.ref, params.base);
+      return params;
+    },
+    'merge.push_tag': async (params) => {
+      await mergeBase(params.ref, params.base);
+      commitIds(params.commit);
+      if (!isReleaseTagName(params.tag)) refuse('invalid_params', 'Not a release tag name');
+      return params;
+    },
+    'merge.advance': async (params) => {
+      await mergeBase(params.ref, params.base);
+      commitIds(params.from, params.to);
+      return params;
+    },
+    'merge.read_file': async (params) => {
+      if ('base' in params.at) await mergeBase(params.ref, params.at.base);
+      else {
+        mergeRepo(params.ref);
+        commitIds(params.at.commit);
+      }
+      if (!isRepoFilePath(params.path)) refuse('invalid_params', 'Not a path inside the repository');
+      return params;
+    },
+    'merge.commit_files': (params) => {
+      mergeRepo(params.ref);
+      commitIds(params.onto);
+      if (!isCommitFileSet(params.files))
+        refuse(
+          'invalid_params',
+          'Not a set of 1 to 2 different files inside the repository, each text under 1 MiB',
+        );
+      if (!isMergeMessage(params.message) || params.message.trim().length === 0)
+        refuse('invalid_params', 'Not a commit message');
+      return params;
+    },
+    'merge.list_paths': async (params) => {
+      await mergeBase(params.ref, params.base);
+      return params;
+    },
+    'merge.changed_paths': async (params) => {
+      await mergeBase(params.ref, params.base);
+      for (const item of params.items) {
+        if ('branch' in item.at) {
+          if (!(await isBranchName(item.at.branch))) refuse('invalid_params', 'Not a branch name');
+        } else commitIds('commit' in item.at ? item.at.commit : item.at.merge);
+      }
+      return params;
+    },
     'files.export': (params) => {
       const allowed = limit.exportRoots(params.sessionId);
       if (!path.isAbsolute(params.root) || !allowed.includes(resolveReal(params.root)))
         refuse('path_outside_roots', 'Files can be exported from a running session’s own directories only');
       limit.token(params.uploadToken);
+      return params;
+    },
+    'files.materialize_into_session': (params) => {
+      limit.token(params.downloadToken);
+      // The session's own folder is the only place: the engine knows it from `folders.make`.
+      if (!sessions.get(params.sessionId)?.folder)
+        refuse('invalid_params', 'The session has no folder on this engine');
+      if (
+        !params.name ||
+        params.name.length > 255 ||
+        params.name === '.' ||
+        params.name === '..' ||
+        /[/\\\0]/.test(params.name)
+      )
+        refuse('invalid_params', 'Invalid file name');
       return params;
     },
     'files.materialize': (params) => {
@@ -489,6 +900,7 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
   };
 
   const limit: EngineLimit = {
+    sensitiveRead: () => [...sensitive],
     async check(method, params) {
       const rule = rules[method];
       return rule ? ((await rule(params as never)) as MethodParams<typeof method>) : params;

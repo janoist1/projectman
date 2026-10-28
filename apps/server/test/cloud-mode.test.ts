@@ -7,7 +7,7 @@ import { decodeFrame, encodeFrame } from '../src/engine-link';
 import type { EngineFrame, Hello } from '../src/engine-link';
 import { createAppHarness, createProject, inject, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
-import { OWNER, OWNER_ACTOR } from './helpers/domain-harness';
+import { OWNER, OWNER_ACTOR, waitForSession } from './helpers/domain-harness';
 
 /**
  * The whole cloud composition (PM-315, `PROJECTMAN_MODE=cloud`) over a fake engine on the real link
@@ -252,7 +252,7 @@ describe('the cloud composition with a fake engine', () => {
     expect(spec.mcpToken).toMatch(/\S+/);
     expect(spec).not.toHaveProperty('mcpUrl');
     expect(spec.cwd.startsWith('/fictional/engine/')).toBe(true);
-    const session = h.app.projectman.domain.sessions.list('AR')[0]!;
+    const session = await waitForSession(h.app.projectman.domain, {});
     expect(session).toMatchObject({ member: 'dev-1', engineId: expect.stringMatching(/^eng_/) });
     expect(h.app.projectman.domain.engineCounters(session.engineId!).runningSessions).toBe(1);
   });
@@ -282,7 +282,7 @@ describe('the cloud composition with a fake engine', () => {
     const engine = await createProjectThroughEngine();
     await startCard();
     const { domain } = h.app.projectman;
-    const session = domain.sessions.list('AR')[0]!;
+    const session = await waitForSession(domain, {});
     engine.ws.terminate();
     await vi.waitFor(() => expect(engine.closed()).toBeDefined());
 
@@ -348,7 +348,7 @@ describe('the cloud composition with a fake engine', () => {
     const engine = await createProjectThroughEngine();
     await startCard();
     const { domain } = h.app.projectman;
-    const session = domain.sessions.list('AR')[0]!;
+    const session = await waitForSession(domain, {});
     engine.ws.terminate();
     await vi.waitFor(() => expect(engine.closed()).toBeDefined());
 

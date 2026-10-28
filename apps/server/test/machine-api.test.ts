@@ -1,11 +1,17 @@
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, realpathSync } from 'node:fs';
-import { join } from 'node:path';
+import { readFileSync, realpathSync } from 'node:fs';
 import { afterEach, describe, expect, it } from 'vitest';
 import { MachineView, Me, routes, StopOrphansResult } from '@projectman/shared';
 import type { HumanAccess } from '@projectman/shared';
 import { createFixtureProbe, parseMachineFixture } from '../src/machine';
-import { addHumanAndLogin, createAppHarness, createProject, inject, setupOwner } from './helpers/app-harness';
+import {
+  addHumanAndLogin,
+  createAppHarness,
+  createForeignProject,
+  createProject,
+  inject,
+  setupOwner,
+} from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 
 const BUSY = readFileSync(new URL('../../../scripts/fixtures/machine/busy.json', import.meta.url), 'utf8');
@@ -42,20 +48,6 @@ describe('machine routes', () => {
     await createProject(h, owner);
   }
 
-  /** A second project, in which the owner's account is the owner but the fictional members are not. */
-  async function addSecondProject() {
-    const workspace = join(h.home, 'workspace-br');
-    mkdirSync(workspace);
-    const res = await inject(h.app, 'POST', routes.projects(), owner, {
-      key: 'BR',
-      name: 'brick',
-      workspacePath: workspace,
-      templateId: 'test',
-      repos: [{ name: 'web', path: '.', github: 'acme/web' }],
-    });
-    expect(res.statusCode).toBe(201);
-  }
-
   it('tags the instance with the first 16 hex digits of the hash of its real home', async () => {
     await setup();
     expect(tags).toEqual([createHash('sha256').update(realpathSync(h.home)).digest('hex').slice(0, 16)]);
@@ -70,7 +62,7 @@ describe('machine routes', () => {
     );
   });
 
-  it('shows the machine to the owner of every project', async () => {
+  it('shows the machine to the host owner', async () => {
     await setup();
     const res = await inject(h.app, 'GET', routes.machine(), owner);
     expect(res.statusCode).toBe(200);
@@ -86,7 +78,7 @@ describe('machine routes', () => {
   });
 
   it.each(['admin', 'developer', 'client', 'viewer'] as HumanAccess[])(
-    'refuses a project %s: only an owner of every project may see the machine',
+    'refuses a project %s: only the host owner may see the machine',
     async (access) => {
       await setup();
       const cookie = await addHumanAndLogin(h.app, { handle: `fictional-${access}`, access });
@@ -101,24 +93,33 @@ describe('machine routes', () => {
     },
   );
 
-  it('refuses the owner of only one of two projects', async () => {
+  it('refuses a user who owns every project but is not the host owner', async () => {
     await setup();
-    await addSecondProject();
     const cookie = await addHumanAndLogin(h.app, { handle: 'fictional-owner', access: 'owner' });
     const res = await inject(h.app, 'GET', routes.machine(), cookie);
     expect(res.statusCode).toBe(403);
     expect(res.json().error.code).toBe('insufficient_access');
+    const stop = await inject(h.app, 'POST', routes.machineOrphansStop(), cookie, {
+      orphans: [{ pid: 50000, startedAt: new Date().toISOString() }],
+    });
+    expect(stop.statusCode).toBe(403);
+    expect(signals).toEqual([]);
+  });
+
+  it('keeps the machine of the host owner who is no member of another owner’s project', async () => {
+    await setup();
+    await createForeignProject(h, owner, 'AA');
     expect((await inject(h.app, 'GET', routes.machine(), owner)).statusCode).toBe(200);
+    expect(Me.parse((await inject(h.app, 'GET', routes.me(), owner)).json()).instanceOwner).toBe(true);
   });
 
   it('says in /api/me whether the user is an instance owner', async () => {
     await setup();
-    await addSecondProject();
-    const partial = await addHumanAndLogin(h.app, { handle: 'fictional-owner', access: 'owner' });
+    const sole = await addHumanAndLogin(h.app, { handle: 'fictional-owner', access: 'owner' });
     const viewer = await addHumanAndLogin(h.app, { handle: 'fictional-viewer', access: 'viewer' });
     const me = async (cookie: string) => Me.parse((await inject(h.app, 'GET', routes.me(), cookie)).json());
     expect((await me(owner)).instanceOwner).toBe(true);
-    expect((await me(partial)).instanceOwner).toBe(false);
+    expect((await me(sole)).instanceOwner).toBe(false);
     expect((await me(viewer)).instanceOwner).toBe(false);
   });
 

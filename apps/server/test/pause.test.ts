@@ -4,7 +4,7 @@ import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
 import { waitFor } from '../src/runner/test-helpers';
-import type { ScheduleTimer } from '../src/domain/schedules';
+import type { ScheduleTimer } from '../src/services/schedules';
 
 const paused = { code: 'team_paused', status: 409 };
 const BY = { userId: null, source: 'system' } as const;
@@ -70,7 +70,7 @@ describe('pause of the team', () => {
     ).rejects.toMatchObject(paused);
     await expect(h.domain.sessions.ensureSession('AR', 'dev-2', general)).rejects.toMatchObject(paused);
     await expect(
-      h.domain.messaging.sendToSession('AR', session.id, 'Fictional follow-up', 'owner'),
+      h.domain.sessionMessages.sendToSession('AR', session.id, 'Fictional follow-up', 'owner'),
     ).rejects.toMatchObject(paused);
     expect(h.repos.messages.list('AR')).toHaveLength(messages);
     expect(h.runner.started).toHaveLength(1);
@@ -81,7 +81,7 @@ describe('pause of the team', () => {
     const { session } = await h.domain.sessions.ensureSession('AR', 'dev-1', general);
     await h.domain.pauses.pause(PROJECT, BY);
     const message = await h.domain.messaging.send('AR', 'owner', { to: ['dev-1'], text: 'Fictional note.' });
-    await h.domain.messaging.sendToSession('AR', session.id, 'Fictional follow-up', 'owner');
+    await h.domain.sessionMessages.sendToSession('AR', session.id, 'Fictional follow-up', 'owner');
     expect(h.runner.messages).toEqual([]);
     expect(h.repos.messages.get(message.id)?.deliveredAt).toBeNull();
     await h.domain.pauses.resume(PROJECT, BY);
@@ -102,6 +102,43 @@ describe('pause of the team', () => {
     expect(h.domain.sessions.get('AR', session.id).pause).toBeUndefined();
     expect(h.domain.pauses.isPaused('AR')).toBe(false);
     expect(h.domain.pauses.projectView('AR')).toEqual({ project: null, instance: null });
+  });
+
+  it('counts the sessions that have not stopped, and owns an instance pause for a release', async () => {
+    h = await createDomainHarness();
+    const { session } = await h.domain.sessions.ensureSession('AR', 'dev-1', general);
+    // A running session with no pause row is unstopped.
+    expect(h.domain.pauses.unstoppedSessions()).toBe(1);
+    h.runner.pauseOutcomes.set(session.id, { point: 'after_tool', tool: 'Bash' });
+    const recorded: string[] = [];
+    const pauseId = await h.domain.pauses.acquireOwnedInstancePause('release rel_1', (id) =>
+      recorded.push(id),
+    );
+    expect(recorded).toEqual([pauseId]);
+    expect(h.repos.pauses.findOpen('instance', null)).toMatchObject({ id: pauseId, source: 'system' });
+    await waitFor(() => h.domain.pauses.unstoppedSessions() === 0);
+
+    // Nobody else's pause is the release's: a second instance pause is refused, and the callback never runs.
+    await expect(
+      h.domain.pauses.acquireOwnedInstancePause('again', (id) => recorded.push(id)),
+    ).rejects.toMatchObject({ code: 'release_pause_conflict' });
+    expect(recorded).toEqual([pauseId]);
+
+    const done: string[] = [];
+    await h.domain.pauses.resumeOwnedInstancePause(pauseId, () => done.push('resumed'));
+    expect(done).toEqual(['resumed']);
+    expect(h.repos.pauses.findOpen('instance', null)).toBeNull();
+    expect(h.runner.releases.map((r) => r.sessionId)).toEqual([session.id]);
+  });
+
+  it('refuses to end an instance pause a release does not own, and a person’s pause is not the release’s', async () => {
+    h = await createDomainHarness();
+    await h.domain.pauses.pause(INSTANCE, BY, { reason: 'Fictional freeze' });
+    const open = h.repos.pauses.findOpen('instance', null)!;
+    await expect(h.domain.pauses.resumeOwnedInstancePause('pau_other', () => {})).rejects.toMatchObject({
+      code: 'release_pause_conflict',
+    });
+    expect(h.repos.pauses.findOpen('instance', null)?.id).toBe(open.id);
   });
 
   it('lets a session cut at a tool go on with a nudge, and one stopped between turns without', async () => {
@@ -269,7 +306,13 @@ describe('pause of the team', () => {
   });
 
   it('defers a message wake-up and a work start while paused, and goes on once the team is resumed', async () => {
-    h = await createDomainHarness();
+    // Allow both deferred starts to pick the same member after resuming.
+    h = await createDomainHarness({
+      adjust: (config) => {
+        const member = config.team.members.find((member) => member.handle === 'dev-1');
+        if (member?.kind === 'ai') member.capacity = 2;
+      },
+    });
     const woken = await h.domain.tasks.create('AR', { title: 'Fictional wake-up' }, OWNER_ACTOR);
     const moved = await h.domain.tasks.create('AR', { title: 'Fictional work' }, OWNER_ACTOR);
     await h.domain.pauses.pause(PROJECT, BY);
@@ -343,7 +386,7 @@ describe('pause of the team', () => {
     it('stores the nudge and starts nothing when the card holds the member’s messages back', async () => {
       const session = await cutAndGone('before_tool');
       exit(session.id);
-      vi.spyOn(h.domain.messaging, 'holdsMessagesOf').mockResolvedValue(true);
+      vi.spyOn(h.domain.messageRouter, 'holdsMessagesOf').mockResolvedValue(true);
       vi.spyOn(h.domain.messaging, 'send');
       await h.domain.pauses.resume(PROJECT, BY);
       expect(h.runner.started).toHaveLength(1);

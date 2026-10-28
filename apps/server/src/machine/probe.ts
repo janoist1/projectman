@@ -1,7 +1,7 @@
-import { execFile } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import os from 'node:os';
 import type { MachineProbe, MachineSnapshot, ProcessRecord } from '../contracts';
+import { execCommand } from '../exec';
 import {
   diffPsEnvironment,
   parseEnvironFile,
@@ -9,6 +9,7 @@ import {
   parseMemoryPressure,
   parsePsCommands,
   parsePsList,
+  parseProcPgid,
   parseSwapUsage,
   parseVmStat,
 } from './parse';
@@ -32,23 +33,14 @@ const ENV_CHUNK = 100;
 function realSystem(): ProbeSystem {
   return {
     platform: process.platform,
-    exec: (file, args) =>
-      new Promise((resolve, reject) => {
-        execFile(
-          file,
-          args,
-          {
-            timeout: COMMAND_TIMEOUT_MS,
-            maxBuffer: 64 * 1024 * 1024,
-            encoding: 'utf8',
-            env: { ...process.env, LC_ALL: 'C' },
-          },
-          (error, stdout) => {
-            if (error) reject(Object.assign(error, { stdout }));
-            else resolve(stdout);
-          },
-        );
-      }),
+    exec: async (file, args) =>
+      (
+        await execCommand(file, args, {
+          env: { ...process.env, LC_ALL: 'C' },
+          timeoutMs: COMMAND_TIMEOUT_MS,
+          maxOutputBytes: 64 * 1024 * 1024,
+        })
+      ).stdout,
     readFile: (path) => readFile(path, 'utf8'),
     cpus: () => os.cpus(),
     totalmem: () => os.totalmem(),
@@ -75,7 +67,7 @@ async function outputOf(system: ProbeSystem, file: string, args: string[]): Prom
   }
 }
 
-const PS_COLUMNS = 'pid=,ppid=,uid=,rss=,%cpu=,time=,lstart=,args=';
+const PS_COLUMNS = 'pid=,ppid=,pgid=,uid=,rss=,%cpu=,time=,lstart=,args=';
 
 /**
  * The real probe: Node's `os` for the processor and the memory total, `vm_stat` and `sysctl` on
@@ -187,7 +179,14 @@ export function createMachineProbe(system: ProbeSystem = realSystem()): MachineP
       if (system.platform !== 'darwin' && system.platform !== 'linux') return null;
       const output = await attempt(() => system.exec('ps', ['-axww', '-o', PS_COLUMNS]));
       if (output === null) return null;
-      const records = parsePsList(output);
+      const records = parsePsList(output, true);
+      if (system.platform === 'linux')
+        await Promise.all(
+          records.map(async (record) => {
+            const stat = await attempt(() => system.readFile(`/proc/${record.pid}/stat`));
+            if (stat !== null) record.pgid = parseProcPgid(stat);
+          }),
+        );
       return records.length > 0 ? records : null;
     },
 

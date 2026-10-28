@@ -1,19 +1,27 @@
 import { describe, expect, it, vi } from 'vitest';
+import { SESSION_IDLE_CLOSE_MINUTES } from '@projectman/shared';
 import type {
   AgentProvider,
   AiMemberConfig,
+  CapacityHolder,
+  EngineId,
   PlanUsage,
   ProjectConfig,
   Session,
   Task,
+  TaskStartWaiting,
   WorkItemRef,
 } from '@projectman/shared';
 import { createRepositories, openDatabase } from '../src/db';
-import { Admission, conflict, DeferredStarts, DomainError } from '../src/domain';
-import { isDeferrable } from '../src/domain/admission';
-import type { AutomaticStart, DomainContext, SessionOrchestrator, TaskService } from '../src/domain';
+import { Admission, DeferredStarts } from '../src/runtime/admission';
+import { conflict, DomainError } from '../src/kernel';
+import { isDeferrable } from '../src/runtime/admission';
+import type { AutomaticStart } from '../src/runtime/admission';
+import type { SessionOrchestrator } from '../src/runtime/sessions';
+import type { DomainContext } from '../src/core/base';
+import type { TaskService } from '../src/core/tasks';
 import { capturingLogger, planUsage } from './helpers/fakes';
-import { testConfig } from './helpers/test-template';
+import { makeRepoless, testConfig } from './helpers/test-template';
 
 const AT = '2026-09-30T10:00:00.000Z';
 
@@ -32,7 +40,6 @@ function task(key: string, overrides: Partial<Task> = {}): Task {
     priority: null,
     labels: [],
     links: [],
-    visibility: 'internal',
     createdBy: 'owner',
     createdAt: AT,
     updatedAt: AT,
@@ -75,7 +82,18 @@ interface World {
   configFails?: boolean;
   /** The providers whose CLI is not logged in. */
   loggedOut?: AgentProvider[];
+  /** Members on different engines: each engine has its own plan usage (the rest are on `ENGINE_A`). */
+  engines?: {
+    of: Record<string, EngineId>;
+    usage: Record<string, PlanUsage | null>;
+    /** The engines whose sessions' provider key is on hold (PM-1091), and the ones that are not connected. */
+    held?: EngineId[];
+    offline?: EngineId[];
+  };
 }
+
+const ENGINE_A = 'eng_aaaaaaaaaaaa' as EngineId;
+const ENGINE_B = 'eng_bbbbbbbbbbbb' as EngineId;
 
 /** Admission over an in-memory world: tasks, sessions, running processes and plan usage. */
 function admissionFor(world: World = {}) {
@@ -109,9 +127,12 @@ function admissionFor(world: World = {}) {
       if (world.loggedOut?.includes(provider))
         throw conflict('provider_not_logged_in', `${provider} is not logged in`, { provider });
     },
-    assertProviderCooldown: () => undefined,
+    assertProviderCooldown: vi.fn((provider: AgentProvider, engineId?: EngineId | null) => {
+      if (engineId && world.engines?.held?.includes(engineId))
+        throw conflict('provider_rate_limited', 'Provider request limit reached', { provider });
+    }),
     refreshProviderQuota: async () => undefined,
-    restoreProviderQuota: () => undefined,
+    restoreProviderQuota: vi.fn(),
     findRunning: (_projectKey: string, member: string, workItem: WorkItemRef) =>
       sessions.find(
         (s) =>
@@ -134,11 +155,24 @@ function admissionFor(world: World = {}) {
     ctx,
     sessions: sessionFake as unknown as SessionOrchestrator,
     planUsage: {
-      get: async (provider: AgentProvider = 'claude') => {
+      get: async (provider: AgentProvider = 'claude', engineId: EngineId | null = null) => {
         usageRequests.push(provider);
-        return world.usage?.[provider] ?? null;
+        return world.engines
+          ? (world.engines.usage[engineId ?? ''] ?? null)
+          : (world.usage?.[provider] ?? null);
       },
+      peek: (provider: AgentProvider = 'claude', engineId: EngineId | null = null) =>
+        world.engines ? (world.engines.usage[engineId ?? ''] ?? null) : (world.usage?.[provider] ?? null),
     },
+    ...(world.engines
+      ? {
+          engines: {
+            engineFor: (_projectKey: string, handle: string) => world.engines!.of[handle] ?? ENGINE_A,
+            projectEngine: () => ENGINE_A,
+            get: (id: EngineId) => (world.engines!.offline?.includes(id) ? null : ({} as never)),
+          },
+        }
+      : {}),
     tasks: { publish: (t: Task) => published.push(t.key) } as unknown as TaskService,
     projects: {
       config: async () => {
@@ -457,7 +491,7 @@ describe('admission checks', () => {
     ],
     [
       'admits a developer on a task without a repository when the project has none',
-      { adjust: (config) => void (config.project.repos = []), tasks: [task('AR-1')] },
+      { adjust: makeRepoless, tasks: [task('AR-1')] },
       { handle: 'dev-1', workItem: onTask('AR-1') },
       null,
     ],
@@ -521,6 +555,49 @@ describe('admission checks', () => {
     expect(code).toBe(expected);
   });
 
+  it('measures a member on its own engine only: a full engine pauses its members, not the others', async () => {
+    const world: World = {
+      engines: {
+        of: { 'dev-1': ENGINE_A, 'dev-2': ENGINE_B },
+        usage: { [ENGINE_A]: planUsage(99), [ENGINE_B]: planUsage(10) },
+      },
+    };
+    const { admission, config, member } = admissionFor(world);
+    expect(await refusal(admission.check({ config, member: member('dev-1'), workItem: general }))).toBe(
+      'plan_usage_paused',
+    );
+    expect(await refusal(admission.check({ config, member: member('dev-2'), workItem: general }))).toBeNull();
+    // The assignment guard reads the same last known value of the member's engine.
+    expect(() => admission.assertProviderAvailable(config, 'claude', 'dev-1')).toThrow(
+      expect.objectContaining({ code: 'plan_usage_paused' }),
+    );
+    expect(() => admission.assertProviderAvailable(config, 'claude', 'dev-2')).not.toThrow();
+    expect(admission.providerAvailable(config, 'claude', 'dev-2')).toBe(true);
+  });
+
+  it("holds a member only for the provider key of the member's own engine (PM-1091)", async () => {
+    const { admission, config, member } = admissionFor({
+      engines: { of: { 'dev-1': ENGINE_A, 'dev-2': ENGINE_B }, usage: {}, held: [ENGINE_A] },
+    });
+    expect(await refusal(admission.check({ config, member: member('dev-1'), workItem: general }))).toBe(
+      'provider_rate_limited',
+    );
+    expect(await refusal(admission.check({ config, member: member('dev-2'), workItem: general }))).toBeNull();
+    expect(() => admission.assertProviderAvailable(config, 'claude', 'dev-1')).toThrow(
+      expect.objectContaining({ code: 'provider_rate_limited' }),
+    );
+    expect(() => admission.assertProviderAvailable(config, 'claude', 'dev-2')).not.toThrow();
+  });
+
+  it('waits for an offline engine before its provider hold', async () => {
+    const { admission, config, member } = admissionFor({
+      engines: { of: { 'dev-1': ENGINE_A }, usage: {}, held: [ENGINE_A], offline: [ENGINE_A] },
+    });
+    expect(await refusal(admission.check({ config, member: member('dev-1'), workItem: general }))).toBe(
+      'engine_offline',
+    );
+  });
+
   it('asks for no plan usage when an earlier check refuses', async () => {
     const { admission, config, usageRequests } = admissionFor({
       adjust: (c) => void (c.team.limits.aiEnabled = false),
@@ -541,6 +618,157 @@ describe('admission checks', () => {
       'ai_limit_reached',
     );
     expect(sessionFake.ensureSession).not.toHaveBeenCalled();
+  });
+});
+
+describe('what holds the places of a member (PM-297)', () => {
+  const EARLY = '2026-09-30T09:00:00.000Z';
+  const LATE = '2026-09-30T09:50:00.000Z';
+  const meeting: WorkItemRef = { type: 'meeting', meetingId: 'M-1' };
+  const live = (s: Session, over: Partial<Session> = {}): Session => ({ ...s, ...over });
+  const sorted = (holders: CapacityHolder[]) => holders.map((h) => h.taskKey ?? h.kind).sort();
+
+  /** Everything that can hold a place of dev-1 at once. */
+  const everything = {
+    tasks: [
+      task('AR-1', { assignee: 'dev-1' }),
+      task('AR-2', { assignee: 'dev-1' }),
+      task('AR-3', { assignee: 'dev-1', stageId: 'code_review' }),
+    ],
+    sessions: [
+      live(session('dev-1', onTask('AR-1'), 'ses_1'), {
+        state: 'working',
+        startedAt: EARLY,
+        lastActivityAt: LATE,
+      }),
+      live(session('dev-1', onTask('AR-2'), 'ses_2'), {
+        state: 'idle',
+        startedAt: EARLY,
+        lastActivityAt: EARLY,
+      }),
+      // Idle in a stage it does not work in: no place, unless its first turn has not begun.
+      live(session('dev-1', onTask('AR-3'), 'ses_3'), { state: 'idle' }),
+      live(session('dev-1', general), { state: 'idle', lastActivityAt: EARLY }),
+      live(session('dev-1', scheduled), { state: 'working' }),
+      live(session('dev-1', meeting), { state: 'idle' }),
+    ],
+    running: ['ses_1', 'ses_2', 'ses_3', 'ses_dev-1_general', 'ses_dev-1_schedule', 'ses_dev-1_meeting'],
+  } satisfies World;
+
+  it('lists one element per task and one per other running session, the set memberLoad counts', () => {
+    const { admission, config } = admissionFor({
+      ...everything,
+      // Closed: held no place.
+      sessions: [...everything.sessions, live(session('dev-1', general, 'ses_closed'), { state: 'exited' })],
+      awaitingFirstTurn: ['ses_3'],
+    });
+    const holders = admission.holders(config, 'dev-1');
+    expect(holders).toEqual([
+      {
+        kind: 'task',
+        taskKey: 'AR-1',
+        sessionId: 'ses_1',
+        working: true,
+        startedAt: EARLY,
+        lastActivityAt: LATE,
+      },
+      {
+        kind: 'task',
+        taskKey: 'AR-2',
+        sessionId: 'ses_2',
+        working: false,
+        startedAt: EARLY,
+        lastActivityAt: EARLY,
+      },
+      { kind: 'task', taskKey: 'AR-3', sessionId: 'ses_3', working: true, startedAt: AT, lastActivityAt: AT },
+      {
+        kind: 'general',
+        sessionId: 'ses_dev-1_general',
+        working: false,
+        startedAt: AT,
+        lastActivityAt: EARLY,
+      },
+      { kind: 'schedule', sessionId: 'ses_dev-1_schedule', working: true, startedAt: AT, lastActivityAt: AT },
+      { kind: 'meeting', sessionId: 'ses_dev-1_meeting', working: false, startedAt: AT, lastActivityAt: AT },
+    ]);
+    expect(admission.memberLoad(config, 'dev-1')).toBe(holders.length);
+    expect(admission.holders(config, 'dev-2')).toEqual([]);
+  });
+
+  it('counts the same as memberLoad whatever the world holds', () => {
+    const worlds: World[] = [
+      {},
+      { ...everything },
+      { ...everything, awaitingFirstTurn: ['ses_3'] },
+      // The session of a task that moved on, idle, is no place.
+      {
+        tasks: [task('AR-3', { assignee: 'dev-1', stageId: 'code_review' })],
+        sessions: [session('dev-1', onTask('AR-3'))],
+        running: ['ses_dev-1_task'],
+      },
+      // A task that is done holds none.
+      {
+        tasks: [task('AR-1', { assignee: 'dev-1', status: 'done' })],
+        sessions: [session('dev-1', onTask('AR-1'))],
+        running: ['ses_dev-1_task'],
+      },
+      // A session whose process does not run holds none.
+      { tasks: everything.tasks, sessions: everything.sessions, running: [] },
+    ];
+    for (const world of worlds) {
+      const { admission, config } = admissionFor(world);
+      for (const exclude of [undefined, 'AR-1']) {
+        const holders = admission.holders(config, 'dev-1', exclude);
+        expect(admission.memberLoad(config, 'dev-1', exclude)).toBe(holders.length);
+      }
+    }
+  });
+
+  it('puts the sessions of one task together: earliest start, latest activity, the latest session', () => {
+    const { admission, config } = admissionFor({
+      tasks: [task('AR-1', { assignee: 'dev-1' })],
+      sessions: [
+        live(session('dev-1', onTask('AR-1'), 'ses_old'), {
+          state: 'idle',
+          startedAt: EARLY,
+          lastActivityAt: EARLY,
+        }),
+        live(session('dev-1', onTask('AR-1'), 'ses_new'), {
+          state: 'working',
+          startedAt: LATE,
+          lastActivityAt: LATE,
+        }),
+      ],
+      running: ['ses_old', 'ses_new'],
+    });
+    expect(admission.holders(config, 'dev-1')).toEqual([
+      {
+        kind: 'task',
+        taskKey: 'AR-1',
+        sessionId: 'ses_new',
+        working: true,
+        startedAt: EARLY,
+        lastActivityAt: LATE,
+      },
+    ]);
+    expect(admission.memberLoad(config, 'dev-1')).toBe(1);
+  });
+
+  it('leaves out the task the work is for, as memberLoad does', () => {
+    const { admission, config } = admissionFor(everything);
+    expect(sorted(admission.holders(config, 'dev-1'))).toEqual([
+      'AR-1',
+      'AR-2',
+      'general',
+      'meeting',
+      'schedule',
+    ]);
+    expect(sorted(admission.holders(config, 'dev-1', 'AR-1'))).toEqual([
+      'AR-2',
+      'general',
+      'meeting',
+      'schedule',
+    ]);
   });
 });
 
@@ -605,6 +833,22 @@ describe('deferred starts', () => {
     return { automatic, run, retry };
   }
 
+  it('restores the quota hold on the engine of each deferred start that waits for it (PM-1091)', () => {
+    const { admission, deferred, sessionFake } = admissionFor({
+      engines: { of: { 'dev-1': ENGINE_A, 'dev-2': ENGINE_B }, usage: {} },
+    });
+    deferred.keep({
+      start: start('hand-over:AR-1', { taskKey: 'AR-1', member: 'dev-2' }).automatic,
+      waiting: { reason: 'provider_rate_limited', provider: 'nanogpt', member: 'dev-2', since: AT },
+    });
+    deferred.keep({
+      start: start('hand-over:AR-2', { taskKey: 'AR-2', member: 'dev-1' }).automatic,
+      waiting: { reason: 'ai_disabled', member: 'dev-1', since: AT },
+    });
+    admission.restoreDeferred(() => null);
+    expect(sessionFake.restoreProviderQuota).toHaveBeenCalledWith([ENGINE_B]);
+  });
+
   it('keeps a start refused for a reason that can clear, with why it waits', async () => {
     const reviewing = task('AR-1', { stageId: 'code_review' });
     const { admission, deferred, published } = admissionFor({ tasks: [reviewing] });
@@ -664,6 +908,26 @@ describe('deferred starts', () => {
     });
   });
 
+  it.each(['workspace_dependencies_pending', 'workspace_dependencies_failed'] as const)(
+    'defers %s and retries when preparation is ready',
+    async (code) => {
+      const { admission, deferred } = admissionFor({ tasks: [task('AR-1', { stageId: 'code_review' })] });
+      let pending = true;
+      const { automatic, run, retry } = start('hand-over:AR-1', {
+        taskKey: 'AR-1',
+        refuse: () => (pending ? code : null),
+      });
+      await admission.attempt(automatic);
+      expect(deferred.waitingFor(task('AR-1', { stageId: 'code_review' }))).toMatchObject({ reason: code });
+      pending = false;
+      await admission.retryDeferred();
+      expect(retry).toHaveBeenCalledOnce();
+      await admission.attempt(automatic);
+      expect(run).toHaveBeenCalledTimes(2);
+      expect(deferred.list()).toEqual([]);
+    },
+  );
+
   it.each(['no_free_member', 'session_start_failed', 'previous_run_live', 'repo_required'])(
     'lets the refusal %s through without keeping the start',
     async (code) => {
@@ -697,6 +961,89 @@ describe('deferred starts', () => {
     expect(deferred.waitingFor(reviewing)).toMatchObject({ reason: 'member_at_capacity' });
     deferred.discardStale(reviewing);
     expect(deferred.list().map((entry) => entry.start.key)).toEqual(['hand-over:AR-1']);
+  });
+
+  it('reads a taken deferral as no wait but as an attempt under way, until it is kept again (PM-455)', () => {
+    const deferred = new DeferredStarts();
+    const reviewing = task('AR-1', { stageId: 'code_review' });
+    const automatic = start('hand-over:AR-1', { taskKey: 'AR-1' }).automatic;
+    const entry = { start: automatic, waiting: { reason: 'ai_disabled', since: AT } } as const;
+    deferred.keep(entry);
+    expect(deferred.attempting(reviewing)).toBe(false);
+    deferred.take(automatic.key);
+    expect(deferred.waitingFor(reviewing)).toBeUndefined();
+    expect(deferred.attempting(reviewing)).toBe(true);
+    expect(deferred.attempting(task('AR-2', { stageId: 'code_review' }))).toBe(false);
+    deferred.keep(entry);
+    expect(deferred.attempting(reviewing)).toBe(false);
+    expect(deferred.waitingFor(reviewing)).toMatchObject({ reason: 'ai_disabled' });
+  });
+
+  describe('what holds the places of the member a card waits for (PM-297)', () => {
+    const holder = { kind: 'general', working: false, startedAt: AT, lastActivityAt: AT } as const;
+    const keepWaiting = (deferred: DeferredStarts, waiting: Omit<TaskStartWaiting, 'since'>) =>
+      deferred.keep({
+        start: start('hand-over:AR-1', { taskKey: 'AR-1', member: 'cr' }).automatic,
+        waiting: { ...waiting, since: AT },
+      });
+    const reviewing = task('AR-1', { stageId: 'code_review' });
+
+    it('reads the holders, the capacity and the close time when the card is read, and stores none of them', () => {
+      const store = createRepositories(openDatabase(':memory:')).deferredStarts;
+      const deferred = new DeferredStarts(store);
+      let holders: CapacityHolder[] = [holder];
+      const reader = vi.fn((_projectKey: string, _handle: string) => ({ holders, capacity: 2 }));
+      deferred.useCapacity(reader);
+      keepWaiting(deferred, { reason: 'member_at_capacity', member: 'cr' });
+      expect(deferred.waitingFor(reviewing)).toEqual({
+        reason: 'member_at_capacity',
+        member: 'cr',
+        since: AT,
+        holders: [holder],
+        capacity: 2,
+        closeAfterMinutes: SESSION_IDLE_CLOSE_MINUTES,
+      });
+      expect(reader).toHaveBeenCalledWith('AR', 'cr');
+      // The present situation each time it is read.
+      holders = [];
+      expect(deferred.waitingFor(reviewing)?.holders).toEqual([]);
+      expect(store.list()[0]!.waiting).toEqual({ reason: 'member_at_capacity', member: 'cr', since: AT });
+    });
+
+    it('leaves every other waiting alone, and a capacity wait that names no member or has no reader', () => {
+      const deferred = new DeferredStarts();
+      const reader = vi.fn(() => ({ holders: [holder], capacity: 1 }));
+      keepWaiting(deferred, { reason: 'member_at_capacity', member: 'cr' });
+      // No reader bound yet: the waiting is the stored one.
+      expect(deferred.waitingFor(reviewing)).toEqual({
+        reason: 'member_at_capacity',
+        member: 'cr',
+        since: AT,
+      });
+      deferred.useCapacity(reader);
+      deferred.drop('hand-over:AR-1');
+      keepWaiting(deferred, { reason: 'member_at_capacity' });
+      expect(deferred.waitingFor(reviewing)).toEqual({ reason: 'member_at_capacity', since: AT });
+      deferred.drop('hand-over:AR-1');
+      keepWaiting(deferred, { reason: 'plan_usage_paused', member: 'cr' });
+      expect(deferred.waitingFor(reviewing)).toEqual({
+        reason: 'plan_usage_paused',
+        member: 'cr',
+        since: AT,
+      });
+      expect(reader).not.toHaveBeenCalled();
+    });
+
+    it('shows no holders for a member the reader does not know', () => {
+      const deferred = new DeferredStarts();
+      deferred.useCapacity(() => undefined);
+      keepWaiting(deferred, { reason: 'member_at_capacity', member: 'owner' });
+      expect(deferred.waitingFor(reviewing)).toEqual({
+        reason: 'member_at_capacity',
+        member: 'owner',
+        since: AT,
+      });
+    });
   });
 
   it('retries the starts that still apply and drops the others', async () => {

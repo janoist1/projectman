@@ -1,0 +1,91 @@
+.groups {
+  display: grid;
+  gap: 12px;
+}
+
+.group {
+  border: 1px solid var(--c-line-soft);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--c-subtle);
+}
+
+.groupName {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--c-ink-3);
+}
+
+.sub {
+  margin: 6px 0 2px;
+  font-size: 12px;
+  color: var(--c-ink-4);
+}
+
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 3px 0;
+  font-size: 13px;
+  color: var(--c-ink);
+}
+
+.who {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.who small {
+  color: var(--c-ink-4);
+}
+
+.state {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--c-ink-3);
+  white-space: nowrap;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.dotWorking {
+  background: var(--c-ok);
+}
+
+.dotWaiting {
+  background: var(--c-needs);
+}
+
+.dotIdle {
+  background: var(--c-mark-idle);
+}
+
+.joiningMark {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--c-needs-text);
+  white-space: nowrap;
+}
+
+/* On a phone the way forward has a row of its own above the other. */
+@media (max-width: 767px) {
+  .confirm {
+    order: -1;
+    flex-basis: 100%;
+  }
+}

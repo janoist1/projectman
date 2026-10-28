@@ -9,10 +9,33 @@ import type {
   PlanUsage,
   ProviderProblem,
   SessionState,
+  SessionReadBoundary,
   TokenUsage,
 } from '@projectman/shared';
-import type { SessionLauncher, WorkerLayout } from './runtime-boundary';
 import type { SessionPolicy } from './session-policy';
+import type { MachineProbe } from './machine';
+
+export type ProcessScopeKind = 'cgroup' | 'process_group';
+export type ProcessScopeGuarantee = 'contained' | 'best_effort';
+export const PROCESS_SCOPE_GUARANTEE: Readonly<Record<ProcessScopeKind, ProcessScopeGuarantee>> = {
+  cgroup: 'contained',
+  process_group: 'best_effort',
+};
+export type ProcessScopeConfig = { kind: 'process_group' };
+export type ScopeCloseReason = 'stop' | 'kill' | 'exit' | 'shutdown' | 'start_failed' | 'recovery';
+export const SCOPE_TERM_GRACE_MS = 5_000;
+export const SCOPE_SINCE_MARGIN_MS = 60_000;
+export const SCOPE_KILL_WAIT_MS = 2_000;
+export interface SessionCleanup {
+  scopeId: string;
+  kind: ProcessScopeKind;
+  outcome: 'clean' | 'failed' | 'unverified';
+  reason: ScopeCloseReason;
+  killed: boolean;
+  survivors: number;
+  durationMs: number;
+}
+export type ScopeProcessSource = Pick<MachineProbe, 'processes' | 'envValues'>;
 
 /**
  * Runs real, interactive agent CLI sessions (Claude Code or OpenAI Codex CLI) in
@@ -74,6 +97,7 @@ export interface AgentSandbox {
      * ones (`/tmp`, the CLI's own TMPDIR) are no longer writable. Absent: the CLI's default.
      */
     tmpDir?: string;
+    readBoundary?: SessionReadBoundary;
   };
 }
 
@@ -103,6 +127,11 @@ export interface StartSessionSpec {
    * router of the hybrid mode (PM-315) sends the start to that engine.
    */
   engineId?: EngineId;
+  /**
+   * The project the session belongs to. The cloud's remote runner chooses the project's engine by it when
+   * `engineId` is absent; it is not sent to the engine. The local runner ignores it.
+   */
+  projectKey?: string;
   /**
    * Conversation id of the agent CLI. Claude Code: the session UUID (`--session-id` for new
    * sessions, `--resume` for resumed ones). Codex: ignored for new sessions (Codex picks its
@@ -169,21 +198,29 @@ export interface StartSessionSpec {
   member?: string;
   /** The agent CLI to run (default "claude"). */
   provider?: AgentProvider;
-  /**
-   * The session's egress proxy credentials (managed VM, PM-140): the launcher puts them in the
-   * proxy settings of the worker, and the proxy maps them back to this session. Required when the
-   * runner starts sessions through the launcher.
-   */
-  egressToken?: string;
 }
 
 export type RunnerEvent =
-  | { type: 'rate_limited'; sessionId: string; provider: AgentProvider; message: string; at: string }
+  | {
+      type: 'rate_limited';
+      sessionId: string;
+      provider: AgentProvider;
+      message: string;
+      at: string;
+      resetsAt?: string;
+    }
   | { type: 'state'; sessionId: string; state: SessionState; activity: string | null }
   | { type: 'terminal_data'; sessionId: string; data: string }
   | { type: 'transcript_path'; sessionId: string; path: string }
   | { type: 'chat'; sessionId: string; items: ChatItem[] }
-  | { type: 'exit'; sessionId: string; exitCode: number | null; signal: number | null }
+  | {
+      type: 'exit';
+      sessionId: string;
+      exitCode: number | null;
+      signal: number | null;
+      cleanup?: SessionCleanup;
+    }
+  | { type: 'scope_recovered'; sessionId: string; cleanup: SessionCleanup }
   /**
    * The process got its first input (`StartSessionSpec.initialMessage`): Codex has it on its command
    * line as soon as it is started; Claude Code has it typed into the prompt once it reports
@@ -191,6 +228,12 @@ export type RunnerEvent =
    * did not reach the agent.
    */
   | { type: 'first_input_sent'; sessionId: string }
+  /**
+   * The first input was typed but the CLI never took it (no prompt report in time, PM-571): the
+   * process lives on, the text may still sit in its prompt box, and the messages in that input did
+   * not reach the agent.
+   */
+  | { type: 'first_input_failed'; sessionId: string }
   /**
    * The agent CLI's own conversation id, when the runner learns it instead of choosing it
    * (Codex: from the first hook). Store it as the session's `claudeSessionId` to resume later.
@@ -266,25 +309,11 @@ export interface ProviderStatus {
 export const PROVIDER_NOT_LOGGED_IN = 'provider_not_logged_in';
 
 /**
- * Error code of a managed VM session start (PM-141) refused because the boundary is not proven
- * now, the installed CLI is not a version the question-free settings are proven for, or the VM's
- * own configuration would override the protected start. Its `reason` says which.
- */
-export const MANAGED_VM_UNAVAILABLE = 'managed_vm_unavailable';
-
-/**
  * Codex start refused because a project `.codex/` layer contains more than a `config.toml`
  * of allowed roots (PM-357). Details: `{ provider: 'codex', issues: Array<{ file: string;
  * keys: string[] }> }`; names only, never values.
  */
 export const WORKSPACE_CODEX_CONFIG = 'workspace_codex_config';
-
-/**
- * The answer to a permission request that reaches a managed VM session anyway (read by the agent,
- * so English): the profile has no local approvals, and nothing is queued for a human.
- */
-export const MANAGED_VM_NO_LOCAL_APPROVAL =
-  'This installation runs without local approvals: the work you do in your workspace needs none, so this request is refused, not queued for a human. A step that leaves the machine is decided at the network gate; for a registered operation use submit_boundary_request. Continue with what you can do here.';
 
 /**
  * The answer to a permission request of a member whose approver is nobody (PM-165): read by the
@@ -293,27 +322,8 @@ export const MANAGED_VM_NO_LOCAL_APPROVAL =
 export const APPROVER_NONE_REFUSAL =
   'Not allowed: nobody approves questions for this session. Do not retry it in another form. If you really need it, ask a human with ask_human and say why.';
 
-/** What a verified managed VM boundary says about itself, at the moment it was asked. */
-export interface ManagedVmAttestation {
-  /** The readiness profile the boundary was verified for. */
-  profile: { name: string; version: number };
-  /** When the proof was made (ISO time). */
-  verifiedAt: string;
-  /** The CLI versions the question-free settings are proven for, per provider. */
-  providerVersions: Partial<Record<AgentProvider, readonly string[]>>;
-}
-
-/**
- * The proof that this installation is the owner's verified managed VM. It is asked at every start,
- * never answered from a flag: a repository file, the environment or a member's setting is not an
- * input. Implementations read the measured readiness report (`createReadinessBoundary`) or, later,
- * the protected launcher (PM-140). It rejects with an error whose `code` is `managed_vm_unavailable`.
- */
-export interface ManagedVmBoundary {
-  verify(): Promise<ManagedVmAttestation>;
-}
-
 export interface RunningSessionInfo {
+  scopeId?: string;
   sessionId: string;
   pid: number;
   state: SessionState;
@@ -334,6 +344,9 @@ export interface PauseOptions {
 }
 
 export interface SessionRunner {
+  closeScopes?(
+    scopes: Array<{ sessionId: string; scopeId: string; sinceAgeMs?: number }>,
+  ): Promise<Array<{ sessionId: string; cleanup: SessionCleanup }>>;
   /**
    * Reads only, spawns nothing. Rejects with code `workspace_codex_config` when the session's
    * own project configuration could run or allow commands outside the sandbox; resolves for
@@ -341,7 +354,12 @@ export interface SessionRunner {
    */
   assertWorkspaceConfig?(input: { provider: AgentProvider; cwd: string; engineId?: EngineId }): Promise<void>;
   start(spec: StartSessionSpec): Promise<RunningSessionInfo>;
-  /** Types a user message into the session once it is idle (queued otherwise); resolves when typed. */
+  /**
+   * Types a user message into the session once it is idle (queued otherwise); resolves once the CLI
+   * took it (reported the prompt). Rejects when the process ended first, or when the message was
+   * typed but the CLI did not take it in time (PM-571): it did not reach the agent, so the caller
+   * must not count it as delivered. A slash command reports no prompt, so it resolves once typed.
+   */
   sendUserMessage(sessionId: string, text: string): Promise<void>;
   /**
    * Compacts the session's conversation (PM-213): types the CLI's compaction command with
@@ -407,8 +425,6 @@ export interface SessionRunner {
   /**
    * Login state of a provider's CLI (cached briefly). `start` refuses to spawn a session of a
    * provider that is not logged in, with an error whose `code` is `provider_not_logged_in`.
-   * With the launcher (managed VM) every member's worker has its own login: `member` names whose
-   * login to check (without it, the server's own login is checked).
    */
   providerStatus?(
     provider: AgentProvider,
@@ -430,8 +446,8 @@ export type PermissionDecision =
   | { behavior: 'deny'; message?: string };
 
 /**
- * Decides tool permission requests. Implemented by the domain (it creates a "Rád vár"
- * inbox item and waits for a human). The runner answers the hook with the decision.
+ * Decides tool permission requests. Implemented by runtime/sessions (it creates a "Rád vár"
+ * inbox item through core/inbox and waits for a decision). The runner answers the hook with it.
  * When `signal` aborts (timeout or session exit) the broker must stop waiting.
  */
 export interface PermissionBroker {
@@ -466,7 +482,7 @@ export interface TranscriptReader {
   /**
    * Whether the transcript exists and is not empty (PM-340): only such a conversation can be
    * resumed, the CLI writes the file after its first message. `confineTo` as in `read`. Rejects
-   * when the file cannot be checked (not a regular file in the worker home, no access).
+   * when the file cannot be checked (not a regular file in the conversation root, no access).
    */
   hasContent(path: string, opts?: { confineTo?: string; engineId?: EngineId }): Promise<boolean>;
   /**
@@ -485,7 +501,7 @@ export interface TranscriptReader {
       firstUserOrigin?: 'brief' | 'human';
       cwd?: string | null;
       /**
-       * A worker home (PM-140): the transcript is read only as a regular file whose real path lies
+       * A conversation root: the transcript is read only as a regular file whose real path lies
        * in it, without following a final symlink or blocking on a FIFO.
        */
       confineTo?: string;
@@ -506,23 +522,38 @@ export interface TranscriptReader {
   ): Promise<HandoffSummary | null>;
 }
 
+/** PM-743: the tool call must not run now; `refuse` is the English message for the agent. */
+export interface DependencyGate {
+  refuse: string;
+}
+
 export interface PlanUsageProvider {
   /** Current plan usage of the logged-in account (Claude, or ChatGPT for Codex), or null if unavailable. */
-  get(): Promise<PlanUsage | null>;
+  get(engineId?: EngineId): Promise<PlanUsage | null>;
 }
 
 /** How the runner starts the agent CLI's process: in a pseudo-terminal, or with plain pipes. */
 export type TerminalMode = 'pty' | 'pipe';
 
 export interface RunnerModuleOptions {
-  /** Awaited before every provider's PreToolUse answer, including subagents; failures only log. */
-  refreshDependencies?: (cwd: string) => Promise<void>;
+  processScope?: ProcessScopeConfig;
+  scopeProcesses?: ScopeProcessSource;
+  /**
+   * Awaited before the PreToolUse answer of every tool that runs code, including subagents; failures
+   * only log. A `DependencyGate` result holds the tool call back (PM-743).
+   */
+  refreshDependencies?: (cwd: string) => Promise<void | DependencyGate>;
   /**
    * `pipe` starts the CLI with pipes instead of a pseudo-terminal (PM-267): for the fake CLIs in a
-   * development instance that has no PTY (a member's sandbox). Default `pty`. It has no effect on
-   * sessions that start through the launcher.
+   * development instance that has no PTY (a member's sandbox). Default `pty`.
    */
   terminal?: TerminalMode;
+  /**
+   * Where the runner keeps each session's private launch files (PM-156): an absolute path on the
+   * machine the CLIs run on (the app home's `run` folder; tests pass a temporary root). The runner
+   * creates it with mode 0700 and refuses to start a session when it cannot keep it private.
+   */
+  sessionConfigRoot: string;
   /** Path or name of the Claude Code CLI (default "claude"). Tests pass a fake CLI. */
   claudeBin: string;
   /** Base URL the CLI calls for HTTP hooks, e.g. http://127.0.0.1:4700 (the runner adds /hooks/<token>). */
@@ -552,6 +583,11 @@ export interface RunnerModuleOptions {
   nanogptCodexHome?: string;
   nanogptKey?: () => Promise<string | null>;
   /**
+   * On a remote engine the cloud holds the key and adds its presence to the status (PM-736): the
+   * login check never asks for it. Default: false.
+   */
+  nanogptKeyInCloud?: boolean;
+  /**
    * The environment the runner reads its defaults from ($CODEX_BIN, $CODEX_HOME,
    * $CLAUDE_CONFIG_DIR, PATH) and starts the CLIs with, after removing billing and host-session
    * variables. Explicit options above take precedence. Default: `process.env`.
@@ -560,32 +596,17 @@ export interface RunnerModuleOptions {
   /**
    * The tag of this instance (PM-320): set as `PROJECTMAN_INSTANCE` in the environment of every
    * local session, so a process that outlives its session can be recognised as this instance's.
-   * The launcher's sessions run as another user and do not get it.
    */
   instanceTag?: string;
   /**
-   * The protected launcher of the managed VM (PM-140). When set, every session starts through it
-   * as its member's worker account, in a sandboxed unit, with the provider's pinned CLI; nothing
-   * is spawned locally, and a session without a member or egress token is refused. Workspace
-   * trust and login checks run as the worker too.
-   */
-  launcher?: SessionLauncher;
-  /** Worker paths (with `launcher`): a session's transcript must lie in its worker's home. */
-  workerLayout?: WorkerLayout;
-  /**
-   * The managed VM boundary (PM-141). Without it the runner refuses every session whose policy
-   * asks for the managed VM profile; with it, each such start is verified first.
-   */
-  managedVm?: ManagedVmBoundary;
-  /**
-   * Where the VM's own configuration is looked at for settings that would override the protected
+   * Where the provider's configuration is looked at for settings that would override the protected
    * start (managed policy, the provider's user configuration): defaults are the providers' real
    * locations. Tests pass temporary directories.
    */
   ambientConfig?: AmbientConfigLocations;
 }
 
-/** Locations of the provider configuration a managed VM start inspects (see `inspectAmbientConfig`). */
+/** Locations of the provider configuration a start inspects (see `inspectAmbientConfig`). */
 export interface AmbientConfigLocations {
   /** Claude Code's managed policy files, in precedence order (default: the Linux and macOS paths). */
   claudeManaged?: string[];
@@ -596,6 +617,26 @@ export interface AmbientConfigLocations {
   /** Codex's user configuration (default: `$CODEX_HOME/config.toml`, else `~/.codex/config.toml`). */
   codexUser?: string;
 }
+
+/**
+ * Whether a provider's CLI hands an MCP tool result's `image` content to the model (PM-518); the
+ * provider adapters' `capabilities.mcpImageResults` come from here, and so does the server when it
+ * decides whether `read_message_attachment` sends an image or puts the file in the session folder.
+ *
+ * - claude: Claude Code passes MCP image blocks on (the point of PM-516).
+ * - codex: openai/codex renders MCP tool result images to the model (PR #5600, October 2025).
+ * - gemini: not established. The Gemini CLI documents image blocks in MCP results, but its feature
+ *   request for passing them to the model as `inlineData` was open when this was checked.
+ * - nanogpt: Codex against a custom provider; whether a result image reaches the model depends on
+ *   the chosen model's input modalities, which projectman does not know.
+ * A provider not known to pass images on gets `false`: the image then comes as a file.
+ */
+export const PROVIDER_MCP_IMAGE_RESULTS: Readonly<Record<AgentProvider, boolean>> = {
+  claude: true,
+  codex: true,
+  gemini: false,
+  nanogpt: false,
+};
 
 export interface RunnerModule {
   runner: SessionRunner;

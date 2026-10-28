@@ -8,18 +8,21 @@ import type { BuildTemplateInput, ProjectTemplate } from '@projectman/templates'
  *   -> merge (gate: labels code-review-ok + merge-ok, an owner approval)
  *   -> release (gate: labels pr-merged + release-ok, a release approval the owner may give) -> done
  */
-export function testConfigInput(input: BuildTemplateInput): ProjectConfigInput {
+function testConfigInput(input: BuildTemplateInput): ProjectConfigInput {
   return {
     schemaVersion: 1,
     project: {
       key: input.key,
       name: input.name,
       workspacePath: input.workspacePath,
-      repos: [{ name: 'web', path: '.', github: 'acme/web' }],
+      repos: [{ name: 'web', path: '.', github: 'acme/web', requireMerge: false }],
       language: input.language,
       templateId: 'test',
     },
     team: {
+      cardMover: input.cardMover ?? { kind: 'worker' },
+      // Stored explicitly, as the migration writes it; the developer, so that tests may drop the review stage.
+      merger: input.merger ?? { kind: 'developer' },
       members: [
         {
           kind: 'human',
@@ -158,9 +161,46 @@ export function testConfig(overrides: Partial<BuildTemplateInput> = {}): Project
   );
 }
 
+/**
+ * A project whose gates do not wait for a system label (`pr-merged`): without a GitHub
+ * repository nothing sets it, and a gate nothing can pass does not save (`gate_unreachable`).
+ */
+export function dropSystemLabelGates(config: ProjectConfig): void {
+  const system = new Set(config.pipeline.labels.filter((label) => label.setBy === 'system').map((l) => l.id));
+  for (const stage of config.pipeline.stages)
+    if (stage.gate)
+      stage.gate.conditions = stage.gate.conditions.filter(
+        (condition) => !(condition.type === 'has_label' && system.has(condition.label)),
+      );
+}
+
+/** The first repository is local-only: no GitHub, and so no pull request gate. */
+export function makeLocalOnly(config: ProjectConfig): void {
+  delete config.project.repos[0]!.github;
+  dropSystemLabelGates(config);
+}
+
+/** A project without any repository, and so without a pull request gate. */
+export function makeRepoless(config: ProjectConfig): void {
+  config.project.repos = [];
+  dropSystemLabelGates(config);
+}
+
 export const testTemplate: ProjectTemplate = {
   id: 'test',
   nameKey: 'templates.test.name',
   descriptionKey: 'templates.test.description',
+  checklist: [],
   build: (input) => ProjectConfig.parse(testConfigInput(input)),
+};
+
+/** The test template with its project manager on duty from creation (the checklist notice goes to it). */
+export const testTemplateWithActivePm: ProjectTemplate = {
+  ...testTemplate,
+  build: (input) => {
+    const config = ProjectConfig.parse(testConfigInput(input));
+    for (const member of config.team.members)
+      if (member.handle === 'pm' && member.kind === 'ai') member.onLeave = false;
+    return config;
+  },
 };

@@ -7,6 +7,8 @@ import type { EngineEvent, Hello } from '../protocol';
 import { EngineRpcError } from '../rpc';
 import type { CallOptions, HandlerContext } from '../rpc';
 import type { EngineMethod, MethodParams, MethodResult } from '../methods';
+import { createEngineGuard } from './guard';
+import type { GuardRegistry } from './guard';
 
 /**
  * What the cloud knows about one engine's sessions and folders without asking (PM-315). The sync
@@ -43,6 +45,20 @@ export interface RemoteHub {
   /** Connected, or gone for less than `ENGINE_OFFLINE_AFTER_MS`. */
   available(id: EngineId): boolean;
   defaultId(): EngineId | null;
+  /** The engine of the host machine: the default one, while its owner is the host owner (PM-1061). */
+  hostEngine(): EngineId | null;
+  /** The engine's owner is the host owner, so the host's secrets may go to it (PM-1061). */
+  ownedByHost(id: EngineId): boolean;
+  /** The engine holds its own NanoGPT key (its hello says so); the cloud's key never goes to it (PM-1068). */
+  ownNanogptKey(id: EngineId): boolean;
+  /** The engine is the project's: its fallback engine, or a binding that is not revoked (PM-1061). */
+  isBound(id: EngineId, projectKey: string): boolean;
+  /** Throws `engine_not_bound` unless the engine is the project's (PM-1061); `call` does this for project methods. */
+  assertBound(id: EngineId, projectKey: string): void;
+  /** The engine the project's new session goes to (its binding, else the global default of its owners). */
+  projectEngine(projectKey: string): EngineId | null;
+  /** Called after the project's engine choice may have changed. */
+  onProjectEngineChange(listener: (projectKey: string) => void): () => void;
   ids(): EngineId[];
   /**
    * Calls the engine. A link that is down is waited for up to `ENGINE_RELAY_WAIT_MS` while the engine
@@ -73,30 +89,46 @@ export interface RemoteHub {
    * counting as available (`ENGINE_OFFLINE_AFTER_MS` after the link dropped, or revoked).
    */
   onChange(listener: (id: EngineId, online: boolean) => void): () => void;
+  /**
+   * Waits for the link and its connect steps, even after the registry marks the engine offline.
+   * `stopWaiting` leaves this wait to the caller's signal; `close` aborts any remaining waits.
+   */
+  awaitLink(id: EngineId, waitMs: number, signal?: AbortSignal): Promise<'connected' | 'timeout' | 'aborted'>;
   /** The server is stopping: a call that waits for a missing link fails at once instead of after a minute. */
   stopWaiting(): void;
   close(): void;
 }
 
-export interface RemoteHubOptions {
+/** What the hub and its guard read from the engine registry. */
+export interface HubRegistry extends GuardRegistry {
+  isOnline(id: EngineId): boolean;
+  defaultId(): EngineId | null;
+  projectEngine(projectKey: string): EngineId | null;
+  onProjectEngineChange(listener: (projectKey: string) => void): () => void;
+  ids(): EngineId[];
+  onOnlineChange(listener: (id: EngineId, online: boolean) => void): () => void;
+  /** The engine's owner is the host owner (the host's secrets may go to it). */
+  ownedByHost(id: EngineId): boolean;
+  /** The engine's latest hello said it holds its own NanoGPT key (PM-1068). */
+  ownNanogptKey(id: EngineId): boolean;
+}
+
+interface RemoteHubOptions {
   links: EngineLinks;
-  registry: {
-    isOnline(id: EngineId): boolean;
-    defaultId(): EngineId | null;
-    ids(): EngineId[];
-    onOnlineChange(listener: (id: EngineId, online: boolean) => void): () => void;
-  };
+  registry: HubRegistry;
   logger: FastifyBaseLogger;
 }
 
 export function createRemoteHub(options: RemoteHubOptions): RemoteHub {
   const { links, registry, logger } = options;
+  const guard = createEngineGuard(registry, logger);
   const mirrors = new Map<EngineId, EngineMirror>();
   const handlers = new Map<string, CloudHandler>();
   const connectHooks: Array<(context: ConnectContext) => void | Promise<void>> = [];
   const eventListeners: Array<(id: EngineId, event: EngineEvent) => void | Promise<void>> = [];
   const terminalListeners: Array<(id: EngineId, sessionId: string, data: string) => void> = [];
   const changeListeners = new Set<(id: EngineId, online: boolean) => void>();
+  const ready = new Set<EngineId>();
 
   const mirror = (id: EngineId): EngineMirror => {
     let found = mirrors.get(id);
@@ -142,6 +174,7 @@ export function createRemoteHub(options: RemoteHubOptions): RemoteHub {
   };
 
   const connect = (id: EngineId) => {
+    ready.delete(id);
     const link = links.get(id);
     if (!link) return;
     const hello = link.hello();
@@ -175,20 +208,28 @@ export function createRemoteHub(options: RemoteHubOptions): RemoteHub {
           logger.warn({ err, engineId: id }, 'a connect step of the engine failed');
         }
       }
-      if (links.get(id) === link) notify(id, true);
+      if (links.get(id) === link) {
+        ready.add(id);
+        notify(id, true);
+      }
     })();
   };
 
   const offChange = links.onChange((id, online) => {
     if (online) connect(id);
-    else mirror(id).connected = false;
+    else {
+      ready.delete(id);
+      mirror(id).connected = false;
+    }
   });
   const offRegistry = registry.onOnlineChange((id, online) => {
     if (!online) notify(id, false);
   });
 
   let stoppedWaiting = false;
+  let closed = false;
   const waiting = new Set<() => void>();
+  const awaitingReady = new Set<() => void>();
   const waitLink = (id: EngineId, signal?: AbortSignal): Promise<EngineLink> => {
     const now = links.get(id);
     if (now) return Promise.resolve(now);
@@ -228,11 +269,43 @@ export function createRemoteHub(options: RemoteHubOptions): RemoteHub {
 
   return {
     mirror,
+    awaitLink(id, waitMs, signal) {
+      if (closed || signal?.aborted) return Promise.resolve('aborted');
+      if (ready.has(id) && links.get(id)) return Promise.resolve('connected');
+      if (waitMs <= 0) return Promise.resolve('timeout');
+      return new Promise((resolve) => {
+        const finish = (result: 'connected' | 'timeout' | 'aborted') => {
+          clearTimeout(timer);
+          changeListeners.delete(onChange);
+          awaitingReady.delete(onAbort);
+          signal?.removeEventListener('abort', onAbort);
+          resolve(result);
+        };
+        const onAbort = () => finish('aborted');
+        const onChange = (changed: EngineId, online: boolean) => {
+          if (changed === id && online) finish('connected');
+        };
+        const timer = setTimeout(() => finish('timeout'), waitMs);
+        timer.unref();
+        changeListeners.add(onChange);
+        awaitingReady.add(onAbort);
+        signal?.addEventListener('abort', onAbort, { once: true });
+      });
+    },
     link: (id) => links.get(id),
     available: (id) => registry.isOnline(id),
     defaultId: () => registry.defaultId(),
+    hostEngine: () => registry.hostEngine(),
+    ownedByHost: (id) => registry.ownedByHost(id),
+    ownNanogptKey: (id) => registry.ownNanogptKey(id),
+    isBound: (id, projectKey) => registry.isBound(id, projectKey),
+    assertBound: (id, projectKey) => guard.assertBound(id, projectKey),
+    projectEngine: (projectKey) => registry.projectEngine(projectKey),
+    onProjectEngineChange: (listener) => registry.onProjectEngineChange(listener),
     ids: () => registry.ids(),
     async call(id, method, params, callOptions) {
+      // A call for a project goes only to an engine bound to it, a machine call only to the host's (PM-1061).
+      guard.check(id, method, params);
       const link = await waitLink(id, callOptions?.signal);
       return link.call(method, params, callOptions);
     },
@@ -259,6 +332,8 @@ export function createRemoteHub(options: RemoteHubOptions): RemoteHub {
       for (const giveUp of [...waiting]) giveUp();
     },
     close() {
+      closed = true;
+      for (const giveUp of [...awaitingReady]) giveUp();
       offChange();
       offRegistry();
       changeListeners.clear();

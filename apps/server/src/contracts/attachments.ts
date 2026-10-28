@@ -1,10 +1,10 @@
 import type { Readable, Writable } from 'node:stream';
-import type { Actor, Attachment } from '@projectman/shared';
+import type { Actor, Attachment, MessageAttachment } from '@projectman/shared';
 
 /**
  * The boundary between whoever receives a file (the REST route, the team tool `attach_file`) and the
  * attachments service: it takes a stream and applies one size, storage and access check, whoever
- * asks. Access is judged for the acting member against the current roster and task visibility.
+ * asks. Access is judged for the acting member against the current roster.
  */
 export interface AttachmentUploadInput {
   projectKey: string;
@@ -90,6 +90,73 @@ export interface StoredFile {
   taskKey: string;
   /** The file name in the task's directory: an id, or an id with the temporary suffix. */
   name: string;
+}
+
+/** A file for a team message, as the REST route hands it to the service (PM-515). */
+export interface MessageAttachmentUploadInput {
+  projectKey: string;
+  actor: Actor;
+  /** The name the client gave; stored sanitised, only as metadata, never as a path. */
+  fileName: string;
+  /** The file's bytes; read once, never buffered whole. */
+  content: Readable;
+  /** Checked after the content is fully stored and before it is published; throws to refuse. */
+  beforeCommit?: () => void | Promise<void>;
+}
+
+export interface MessageAttachmentContent {
+  attachment: MessageAttachment;
+  /** The stored bytes; `attachment.size` long. */
+  stream: Readable;
+}
+
+export interface MessageAttachmentOperations {
+  /** Refuses (as `upload` would at its start) unless the actor may upload for a message. */
+  assertCanUpload(projectKey: string, actor: Actor): Promise<void>;
+  upload(input: MessageAttachmentUploadInput): Promise<MessageAttachment>;
+  /** Opens a ready file the actor may see; the caller must close the stream. */
+  open(projectKey: string, id: string, actor: Actor): Promise<MessageAttachmentContent>;
+  /** The small WebP preview of a ready image, made on the first request and kept; the same access as `open`. */
+  thumbnail(projectKey: string, id: string, actor: Actor): Promise<AttachmentThumbnail>;
+  /** Deletes a file the actor may see and may delete; resolves when it is all done. */
+  delete(projectKey: string, id: string, actor: Actor): Promise<void>;
+}
+
+/** Where the file of a team message lives in storage; the id names the file (PM-515). */
+export interface MessageAttachmentFileRef {
+  projectKey: string;
+  id: string;
+}
+
+/** A regular file found in the message attachment storage by `scan`. */
+export interface StoredMessageFile {
+  projectKey: string;
+  /** The file name in the project's directory: an id, or an id with a suffix (`.thumb`, `.part`). */
+  name: string;
+}
+
+/**
+ * The files of team messages, `<root>/<projectKey>/<id>`: private (mode 0700 directories, 0600
+ * files), regular files only, no symlink followed. Knows nothing of the database.
+ */
+export interface MessageAttachmentStorage {
+  create(ref: MessageAttachmentFileRef): Promise<AttachmentWriter>;
+  /** Opens the published file for reading; throws unless it is a regular file of `size` bytes. */
+  openRead(ref: MessageAttachmentFileRef, size: number): Promise<Readable>;
+  createThumbnail(ref: MessageAttachmentFileRef): Promise<AttachmentWriter>;
+  /**
+   * The published file's absolute path, for handing it to a session's engine (PM-518); throws unless
+   * it is a regular file of `size` bytes (no link followed).
+   */
+  locate(ref: MessageAttachmentFileRef, size: number): Promise<string>;
+  /** Opens the thumbnail; null when there is none (yet). */
+  openThumbnail(ref: MessageAttachmentFileRef): Promise<AttachmentThumbnail | null>;
+  /** Removes the published file, its thumbnail and any temporary one; a missing file is fine. */
+  remove(ref: MessageAttachmentFileRef): Promise<void>;
+  /** Removes only the temporary files (of the file and of its thumbnail); a missing file is fine. */
+  removeTemporary(ref: MessageAttachmentFileRef): Promise<void>;
+  /** Every regular file under the storage root (what recovery compares with the database). */
+  scan(): Promise<StoredMessageFile[]>;
 }
 
 /**

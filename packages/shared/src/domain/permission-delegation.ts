@@ -1,8 +1,10 @@
 import { z } from 'zod';
+import { memberDuties } from '../config/duties';
+import { isOnLeave } from '../config/leave';
 import { memberOf } from '../config/lookup';
 import { approverOf } from '../config/permission-level';
+import { isProjectManager } from '../config/project-manager';
 import type { ProjectConfig } from '../config/schema';
-import { boundaryLeads } from './boundary';
 import type { InboxItem } from './inbox';
 import { MemberHandle } from './member';
 import type { Approver } from './member';
@@ -19,11 +21,18 @@ export const PermissionDelegation = z.object({
   state: z.enum(['pending_lead', 'pending_owner']),
   /** The AI members who may decide it, as chosen when the question came in. */
   leads: z.array(MemberHandle).min(1),
+  /** Until the first delivery: `DELEGATION_DELIVERY_TIMEOUT_MS` after the question; then `deliveredLeadDeadline`. */
   leadDeadline: z.string().datetime(),
-  /** Why it came to a person: the decider passed it on (`lead`, with its reason) or the time ran out. */
+  /** When the question first reached a decider's session (PM-926); absent: no decider has seen it yet. */
+  deliveredAt: z.string().datetime().optional(),
+  /**
+   * Why it came to a person: the decider passed it on (`lead`, with its reason), did not answer in time
+   * (`timeout`), was never started within the delivery time (`undelivered`) or cannot be started at all
+   * (`unavailable`).
+   */
   escalation: z
     .object({
-      cause: z.enum(['lead', 'timeout']),
+      cause: z.enum(['lead', 'timeout', 'undelivered', 'unavailable']),
       /** The decider's handle, or `system`. */
       by: z.string(),
       reason: z.string().optional(),
@@ -31,6 +40,29 @@ export const PermissionDelegation = z.object({
     .optional(),
 });
 export type PermissionDelegation = z.infer<typeof PermissionDelegation>;
+
+/**
+ * How long a decision waits for its decider's session to start (PM-926): a decider that is not running, or
+ * whose workspace is busy, is started at its desk, but a team that is paused or a provider that is down must
+ * not hold the question for ever. The decider's own time (`leadTimeoutSeconds`) counts from the delivery.
+ */
+export const DELEGATION_DELIVERY_TIMEOUT_MS = 5 * 60_000;
+
+/**
+ * The latest a delegated permission question may wait for its decider: two minutes under the requester's
+ * ten-minute hook wait (`permissionTimeoutMs`), so a person still has time to answer it.
+ */
+export const PERMISSION_LEAD_CAP_MS = 8 * 60_000;
+
+/** `min(deliveredAt + leadTimeoutSeconds, capAt)` as an ISO string: the decider's deadline once it has the question. */
+export function deliveredLeadDeadline(input: {
+  deliveredAt: string;
+  leadTimeoutSeconds: number;
+  capAt: string;
+}): string {
+  const own = Date.parse(input.deliveredAt) + input.leadTimeoutSeconds * 1000;
+  return new Date(Math.min(own, Date.parse(input.capAt))).toISOString();
+}
 
 /** The decision of an AI decider about a delegated question: `escalate` hands it to a person. */
 export const DelegatedPermissionDecision = z.enum(['allow', 'deny', 'escalate']);
@@ -40,6 +72,27 @@ export type DelegatedPermissionDecision = z.infer<typeof DelegatedPermissionDeci
 export function permissionDelegationOf(item: Pick<InboxItem, 'payload'>): PermissionDelegation | null {
   const parsed = PermissionDelegation.safeParse(item.payload.delegation);
   return parsed.success ? parsed.data : null;
+}
+
+export function boundaryOwners(config: ProjectConfig): string[] {
+  return config.team.members.filter((m) => m.kind === 'human' && m.access === 'owner').map((m) => m.handle);
+}
+/**
+ * The members that may decide a delegated question of `requester`. The project manager never does,
+ * even with the duty (PM-433): it dispatches, it does not decide, and `permissionDeciders` builds on this.
+ */
+export function boundaryLeads(config: ProjectConfig, requester: string): string[] {
+  return config.team.members
+    .filter(
+      (m) =>
+        m.handle !== requester &&
+        !isOnLeave(m) &&
+        (m.kind === 'ai'
+          ? !isProjectManager(m) && config.team.limits.aiEnabled
+          : m.access !== 'viewer' && m.access !== 'client') &&
+        memberDuties(config, m).includes('boundary_authorization'),
+    )
+    .map((m) => m.handle);
 }
 
 /** The AI members that may decide a question of `requester` now: live, independent, holding the duty. */
@@ -100,7 +153,7 @@ export function routePermissionRequest(
 /**
  * Whether a delegated question still waits for its AI decider at `now`: the deadline has not passed,
  * delegation is still on and one of its deciders is still at work (not removed, not on leave, the AI
- * team not switched off). Otherwise it belongs to a person, the same rule as for external operations.
+ * team not switched off). Otherwise it belongs to a person.
  */
 export function permissionDelegationState(
   config: ProjectConfig,

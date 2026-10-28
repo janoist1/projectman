@@ -1,4 +1,4 @@
-import type { ConfigVersionEntry, ProjectConfig } from '@projectman/shared';
+import type { BoundActor, ConfigVersionEntry, ProjectConfig } from '@projectman/shared';
 
 /**
  * The customization repository: a separate git repo (independent from the app source)
@@ -22,18 +22,36 @@ export interface ConfigStore {
     projectKey: string,
     config: ProjectConfig,
     meta: {
-      author: { name: string; email: string; via?: 'integrator' };
+      author: ConfigAuthor;
       message: string;
       previous?: ProjectConfig;
     },
   ): Promise<{ version: string }>;
-  history(projectKey: string, limit?: number): Promise<ConfigVersionEntry[]>;
+  history(projectKey: string, limit?: number, offset?: number): Promise<ConfigVersionEntry[]>;
+  /**
+   * Whether a commit of the project carries the super-mode audit entry `auditId` as its trailer (PM-757), found
+   * in the whole history, not in its latest page.
+   */
+  hasSuperAuditCommit(projectKey: string, auditId: string): Promise<boolean>;
   /** The configuration as of `version` (migrated and validated), without changing anything. */
   loadVersion(projectKey: string, version: string): Promise<ProjectConfig>;
   /** Restores the project's files as of `version` in a new commit. */
-  revertTo(
-    projectKey: string,
-    version: string,
-    meta: { author: { name: string; email: string; via?: 'integrator' } },
-  ): Promise<{ version: string }>;
+  revertTo(projectKey: string, version: string, meta: { author: ConfigAuthor }): Promise<{ version: string }>;
+}
+
+export interface ConfigAuthor {
+  operatorStepId?: string;
+  operatorRequestId?: string;
+  operatorAgreementVersion?: number;
+  operatorApprovalMode?: 'click' | 'waived';
+  name: string;
+  email: string;
+  via?: 'integrator';
+  /** The super-mode origin of the change (PM-757), written as commit trailers; never the secret. */
+  superActor?: BoundActor;
+  /** The `started` audit entry of the super-mode commit, written as a trailer for the recovery. */
+  superAuditId?: string;
+  operator?: string;
+  request?: string;
+  approvedBy?: string;
 }

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { routes } from '@projectman/shared';
 import type { Task, TaskDetail } from '@projectman/shared';
-import { humanActor } from '../src/domain';
+import { humanActor } from '../src/kernel';
 import {
   addHumanAndLogin,
   createAppHarness,

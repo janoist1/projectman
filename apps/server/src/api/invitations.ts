@@ -9,9 +9,9 @@ import {
   startSession,
 } from '../auth';
 import type { AuthService } from '../auth';
-import type { Domain } from '../domain';
-import { currentUser, requireAccess, requireOwnLogin } from './context';
-import { parseBody } from './validation';
+import type { ApiDomain } from './ports';
+import { authenticatedUser, requireAccess, requireOwnLogin } from './context';
+import { parseBody } from '../http';
 
 type ProjectParams = { Params: { key: string } };
 type TokenParams = { Params: { token: string } };
@@ -19,7 +19,7 @@ type TokenParams = { Params: { token: string } };
 /** Admins manage a project's invitations; the invite link itself is public (and rate-limited). */
 export function registerInvitationRoutes(
   app: FastifyInstance,
-  deps: { domain: Domain; auth: AuthService; clientIpHeader?: string },
+  deps: { domain: ApiDomain; auth: AuthService; clientIpHeader?: string },
 ): void {
   const { domain, auth, clientIpHeader } = deps;
   const { invitations } = domain;
@@ -35,7 +35,7 @@ export function registerInvitationRoutes(
     const access = await requireAccess(domain, request, request.params.key, { minimum: 'admin' });
     requireOwnLogin(access, 'invitations');
     const body = parseBody(CreateInviteRequest, request.body);
-    const invite = await invitations.create(request.params.key, body, currentUser(request));
+    const invite = await invitations.create(request.params.key, body, authenticatedUser(request));
     return reply.code(201).send(invite);
   });
   app.get<ProjectParams>(routes.invitations(':key'), async (request) => {

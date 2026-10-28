@@ -1,6 +1,7 @@
 import type { FastifyBaseLogger } from 'fastify';
 import type { AgentProvider, EngineId } from '@projectman/shared';
 import type {
+  EngineDirectory,
   PauseOptions,
   PauseOutcome,
   PermissionBroker,
@@ -8,9 +9,10 @@ import type {
   RunnerEvent,
   RunningSessionInfo,
   SessionRunner,
+  SessionCleanup,
   StartSessionSpec,
 } from '../../contracts';
-import { conflict } from '../../domain/errors';
+import { conflict } from '../../kernel';
 import { EngineCallError, EngineRpcError } from '../rpc';
 import type { EngineStartSpec } from '../session-schemas';
 import type { RemoteHub } from './hub';
@@ -29,11 +31,15 @@ const PAUSE_TIMEOUT_MS = 10 * 60_000;
 const SHUTDOWN_STOP_MS = 10_000;
 const FIRE_AND_FORGET_MS = 10_000;
 
-export interface RemoteRunnerOptions {
+interface RemoteRunnerOptions {
   hub: RemoteHub;
+  /** Which engine a project's start goes to when the spec names none, and the host's for a status asked of none. */
+  directory: Pick<EngineDirectory, 'projectEngine' | 'hostEngine'>;
   /** Where the database says a session ran, for a session the engine does not report any more. */
   recordedEngine: (sessionId: string) => EngineId | null;
   logger: FastifyBaseLogger;
+  /** Whether the cloud holds a NanoGPT key; only this fact enters an engine's NanoGPT status, never the key (PM-736). */
+  nanogptKeySet?: () => Promise<boolean>;
   now?: () => number;
 }
 
@@ -54,20 +60,43 @@ export interface RemoteRunner extends SessionRunner {
 }
 
 /** The last segment of `/mcp/<token>`: the engine builds its own address around it. */
-export function mcpTokenOf(mcpUrl: string): string {
+function mcpTokenOf(mcpUrl: string): string {
   const segments = new URL(mcpUrl).pathname.split('/').filter((part) => part.length > 0);
   const token = segments[segments.length - 1];
   if (!token) throw new Error('The team tools address has no token');
   return token;
 }
 
-export function toEngineSpec(spec: StartSessionSpec): EngineStartSpec {
-  const { mcpUrl, ...rest } = spec;
+function toEngineSpec(spec: StartSessionSpec): EngineStartSpec {
+  // `projectKey` only chooses the engine in the cloud; the engine's own start does not take it.
+  const { mcpUrl, projectKey: _projectKey, ...rest } = spec;
   return { ...rest, mcpToken: mcpTokenOf(mcpUrl) };
+}
+
+/**
+ * The NanoGPT key lives in the cloud's store, so the cloud decides whether the key is there: an engine
+ * only checks its own machine (CLI version, `auth.json`). A CLI problem comes before a missing key, as it
+ * does on one machine; every other provider and state stays as the engine reported it (PM-736).
+ */
+export function withNanogptKeyFact(status: ProviderStatus, keySet: boolean): ProviderStatus {
+  if (status.provider !== 'nanogpt') return status;
+  if (keySet && status.loggedIn === false && status.problem === 'no_key') {
+    const { problem: _problem, ...ready } = status;
+    return { ...ready, loggedIn: true };
+  }
+  if (!keySet && status.loggedIn === true) return { ...status, loggedIn: false, problem: 'no_key' };
+  return status;
 }
 
 export function createRemoteRunner(options: RemoteRunnerOptions): RemoteRunner {
   const { hub, logger } = options;
+  const keySet = async (): Promise<boolean> => {
+    try {
+      return (await options.nanogptKeySet?.()) ?? false;
+    } catch {
+      return false;
+    }
+  };
   const now = options.now ?? Date.now;
   const owners = new Map<string, EngineId>();
   const listeners = new Set<(event: RunnerEvent) => void>();
@@ -95,8 +124,9 @@ export function createRemoteRunner(options: RemoteRunnerOptions): RemoteRunner {
     if (!id) throw new EngineRpcError('not_running', `Session ${sessionId} is not running`);
     return id;
   };
-  const defaultEngine = (): EngineId => {
-    const id = hub.defaultId();
+  /** The engine a start goes to: the spec's own, else the project's choice. */
+  const startEngine = (spec: Pick<StartSessionSpec, 'engineId' | 'projectKey'>): EngineId => {
+    const id = spec.engineId ?? (spec.projectKey ? options.directory.projectEngine(spec.projectKey) : null);
     if (!id) throw conflict('engine_offline', 'there is no engine to run the session on');
     return id;
   };
@@ -172,18 +202,29 @@ export function createRemoteRunner(options: RemoteRunnerOptions): RemoteRunner {
       return true;
     },
     async assertWorkspaceConfig({ provider, cwd, engineId }) {
-      await hub.call(engineId ?? defaultEngine(), 'session.assert_workspace_config', { provider, cwd });
+      // The launch names the engine it checks the workspace on; no path says which machine it is on.
+      if (!engineId) throw conflict('engine_offline', 'there is no engine to check the workspace on');
+      await hub.call(engineId, 'session.assert_workspace_config', { provider, cwd });
     },
     async start(spec) {
-      const engineId = spec.engineId ?? defaultEngine();
+      const engineId = startEngine(spec);
+      // A session of a project goes only to an engine bound to it, whoever named the engine (PM-1061).
+      if (spec.projectKey) hub.assertBound(engineId, spec.projectKey);
       if (!hub.available(engineId))
         throw conflict('engine_offline', `engine ${engineId} is not connected`, { engine: engineId });
+      // PM-1068: an engine with its own key file never asks the cloud for one. Without it only the host's
+      // engine may be given the cloud's key; any other engine's NanoGPT start waits until it has a key.
+      const ownKey = spec.provider === 'nanogpt' && hub.ownNanogptKey(engineId);
+      if (spec.provider === 'nanogpt' && !ownKey && !hub.ownedByHost(engineId))
+        throw conflict('nanogpt_key_missing', `engine ${engineId} has no NanoGPT key`, {
+          provider: 'nanogpt',
+        });
       owners.set(spec.sessionId, engineId);
       startingSessions.add(spec.sessionId);
-      // Only a NanoGPT start may fetch the key, and only until the engine answers the start.
+      // Only a NanoGPT start without an own key may fetch the cloud's, and only until the engine answers the start.
       const grants = keyGrants.get(engineId) ?? new Map<string, boolean>();
       keyGrants.set(engineId, grants);
-      if (spec.provider === 'nanogpt') grants.set(spec.sessionId, false);
+      if (spec.provider === 'nanogpt' && !ownKey) grants.set(spec.sessionId, false);
       try {
         const info = await hub.call(engineId, 'session.start', toEngineSpec(spec), {
           timeoutMs: START_TIMEOUT_MS,
@@ -250,6 +291,25 @@ export function createRemoteRunner(options: RemoteRunnerOptions): RemoteRunner {
         sessionId,
         ...(opts?.force === undefined ? {} : { force: opts.force }),
       });
+    },
+    async closeScopes(scopes) {
+      const groups = new Map<EngineId, typeof scopes>();
+      for (const scope of scopes) {
+        const engineId = needEngine(scope.sessionId);
+        const group = groups.get(engineId) ?? [];
+        group.push(scope);
+        groups.set(engineId, group);
+      }
+      const results: Array<{ sessionId: string; cleanup: SessionCleanup }> = [];
+      await Promise.all(
+        [...groups].map(async ([id, group]) => {
+          for (let offset = 0; offset < group.length; offset += 50)
+            results.push(
+              ...(await hub.call(id, 'session.close_scopes', { scopes: group.slice(offset, offset + 50) })),
+            );
+        }),
+      );
+      return results;
     },
     isRunning(sessionId) {
       const id = owners.get(sessionId);
@@ -318,7 +378,8 @@ export function createRemoteRunner(options: RemoteRunnerOptions): RemoteRunner {
       return true;
     },
     async providerStatus(provider, opts) {
-      const engineId = opts?.engineId ?? hub.defaultId();
+      // Asked of no engine, it is the instance-level question of the host's machine.
+      const engineId = opts?.engineId ?? options.directory.hostEngine();
       if (!engineId || !hub.available(engineId))
         return {
           provider,
@@ -329,14 +390,23 @@ export function createRemoteRunner(options: RemoteRunnerOptions): RemoteRunner {
         };
       const key = statusKey(engineId, provider, opts?.member);
       const cached = statuses.get(key);
-      if (cached && !opts?.refresh && now() - cached.at < PROVIDER_STATUS_TTL_MS) return cached.status;
+      // The cache keeps the engine's own answer: the key fact is added on every read, so saving or
+      // deleting the key shows at the next read.
+      // An engine with its own key file reports its own state (PM-1068). Otherwise the key is the host's: an
+      // engine of another owner has none, so a NanoGPT start there waits (PM-1061).
+      const answer = async (status: ProviderStatus) =>
+        provider === 'nanogpt' && !hub.ownNanogptKey(engineId)
+          ? withNanogptKeyFact(status, hub.ownedByHost(engineId) && (await keySet()))
+          : status;
+      if (cached && !opts?.refresh && now() - cached.at < PROVIDER_STATUS_TTL_MS)
+        return answer(cached.status);
       const status = await hub.call(engineId, 'provider.status', {
         provider,
         ...(opts?.refresh ? { refresh: true } : {}),
         ...(opts?.member ? { member: opts.member } : {}),
       });
       statuses.set(key, { at: now(), status });
-      return status;
+      return answer(status);
     },
     async refreshProviderStatus(provider) {
       for (const id of hub.ids()) {

@@ -5,7 +5,7 @@ import { ConfigStoreError } from './errors';
 /**
  * File layout of one project in the customization repository:
  *   projects/<KEY>/project.yaml   schemaVersion, project, team.limits
- *   projects/<KEY>/team.yaml      members, custom roles
+ *   projects/<KEY>/team.yaml      members, custom roles, team policies (including operatorWatch)
  *   projects/<KEY>/pipeline.yaml  columns, stages, labels
  */
 export const PROJECT_FILES = ['project.yaml', 'team.yaml', 'pipeline.yaml'] as const;
@@ -26,6 +26,11 @@ export function splitProjectConfig(config: ProjectConfig): Record<ProjectFileNam
       roles: config.team.roles,
       roleOverrides: config.team.roleOverrides,
       releaseFourEyes: config.team.releaseFourEyes,
+      cardMover: config.team.cardMover,
+      merger: config.team.merger,
+      contacts: config.team.contacts?.length ? config.team.contacts : undefined,
+      operatorWatch: config.team.operatorWatch,
+      operatorApprovalWaiver: config.team.operatorApprovalWaiver,
       boundary: config.team.boundary,
     }),
     'pipeline.yaml': yaml({
@@ -69,6 +74,13 @@ export function mergeProjectFiles(files: Record<ProjectFileName, unknown>): unkn
       roles: team.roles,
       roleOverrides: team.roleOverrides,
       releaseFourEyes: team.releaseFourEyes,
+      cardMover: team.cardMover,
+      merger: team.merger,
+      contacts: team.contacts,
+      ...(team.operatorWatch !== undefined ? { operatorWatch: team.operatorWatch } : {}),
+      ...(team.operatorApprovalWaiver !== undefined
+        ? { operatorApprovalWaiver: team.operatorApprovalWaiver }
+        : {}),
       boundary: team.boundary,
       limits: asRecord(project.team).limits ?? {},
     },

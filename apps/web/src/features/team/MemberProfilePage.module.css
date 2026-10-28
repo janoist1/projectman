@@ -5,6 +5,9 @@
   max-width: 1200px;
   margin: auto;
 }
+.contextHint {
+  color: var(--c-ink-3);
+}
 .involvement {
   margin: 4px 0;
   color: var(--c-ink-3);
@@ -21,7 +24,14 @@
   align-items: center;
   gap: 16px;
 }
+/* The handles the member had before (PM-1026): the old messages and branches still use them. */
+.former {
+  color: var(--c-ink-4);
+  overflow-wrap: anywhere;
+}
 .actions {
+  /* The member menu's panel lines up with this row, so it stays inside the page on a phone. */
+  position: relative;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -44,6 +54,31 @@
   color: var(--c-needs-text);
   font-size: var(--text-sm);
 }
+/* A card waits for this member's place (PM-297): quiet, the way the leave note is, in the neutral tone. */
+.capacityNote {
+  display: grid;
+  gap: 4px;
+  padding: 10px 14px;
+  border-radius: var(--radius-lg);
+  background: var(--c-muted);
+  color: var(--c-ink-2);
+  font-size: var(--text-sm);
+}
+
+.capacityNote p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.capacityNote strong {
+  color: var(--c-ink);
+}
+
+.capacityKey {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
 /* Everything inside a panel is spaced by the one gap; the parts carry no margins of their own. */
 .panel {
   display: grid;
@@ -165,6 +200,14 @@
   .actions {
     margin-left: 0;
   }
+}
+
+/* Why there is no reply box under a thread with someone who is not a contact (PM-985). */
+.contactNote {
+  margin: 12px 0 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--c-ink-4);
 }
 
 /* The reason a past session rests, after its start (PM-296). */

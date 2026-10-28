@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, expect, it } from 'vitest';
 import { routes } from '@projectman/shared';
 import type { InboxItem, InboxView, TaskDetail } from '@projectman/shared';
-import { TEAM_TOOLS } from '../src/mcp';
-import { humanActor } from '../src/domain';
+import { TEAM_TOOLS, toolOutputText } from '../src/mcp';
+import { humanActor } from '../src/kernel';
 import { createAppHarness, createProject, inject, OWNER_LOGIN, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 import { flush } from './helpers/fakes';
@@ -46,12 +46,14 @@ const ask = (command: string, signal = new AbortController().signal) =>
 const inboxOf = async (query = '?state=all') =>
   (await inject(h.app, 'GET', `${routes.inbox('AR')}${query}`, owner)).json<InboxView>().items;
 const decideTool = TEAM_TOOLS.find((t) => t.name === 'decide_permission_request')!;
-const run = (member: string, args: Record<string, unknown>) =>
-  decideTool.run({
-    ctx: { projectKey: 'AR', member, sessionId, taskKey: 'AR-1' },
-    args,
-    handler: h.app.projectman.domain.teamTools,
-  });
+const run = async (member: string, args: Record<string, unknown>) =>
+  toolOutputText(
+    await decideTool.run({
+      ctx: { projectKey: 'AR', member, sessionId, taskKey: 'AR-1' },
+      args,
+      handler: h.app.projectman.domain.teamTools,
+    }),
+  );
 
 it('shows the owner the question as the decider’s, and then who decided it and why', async () => {
   const pending = ask('curl https://example.com/data.json');

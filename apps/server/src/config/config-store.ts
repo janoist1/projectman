@@ -3,13 +3,17 @@ import { lstat, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises
 import { join } from 'node:path';
 import type { FastifyBaseLogger } from 'fastify';
 import {
+  ActorCredential,
+  connectedOriginOf,
+  hasBoundOrigin,
+  hasConnectedOrigin,
   introducedErrors,
   isToleratedOnLoad,
   ProjectConfig,
   validateProjectConfig,
 } from '@projectman/shared';
-import type { ConfigIssue, ConfigVersionEntry } from '@projectman/shared';
-import type { ConfigStore } from '../contracts';
+import type { Actor, BoundActor, ConfigIssue, ConfigVersionEntry } from '@projectman/shared';
+import type { ConfigStore, ConfigAuthor } from '../contracts';
 import { ConfigStoreError } from './errors';
 import { runGit } from './git';
 import type { GitResult } from './git';
@@ -17,12 +21,12 @@ import { mergeProjectFiles, parseYamlFile, PROJECT_FILES, splitProjectConfig } f
 import type { ProjectFileName } from './layout';
 import { migrateProjectConfig } from './migrations';
 
-export interface GitIdentity {
+interface GitIdentity {
   name: string;
   email: string;
 }
 
-export interface ConfigStoreOptions {
+interface ConfigStoreOptions {
   /** Directory of the customization repository, e.g. ~/.projectman/customization. */
   rootDir: string;
   logger?: Pick<FastifyBaseLogger, 'warn'>;
@@ -39,6 +43,94 @@ export interface GitConfigStore extends ConfigStore {
 const PROJECT_KEY_RE = /^[A-Z][A-Z0-9]{0,9}$/;
 const VERSION_RE = /^[0-9a-f]{4,64}$/i;
 const DEFAULT_COMMITTER: GitIdentity = { name: 'projectman', email: 'projectman@localhost' };
+
+function attributedMessage(message: string, author: ConfigAuthor): string {
+  const line = (text: string) => text.replace(/[\r\n]+/g, ' ').trim();
+  const trailers = [
+    ...(author.via || author.superActor ? ['Projectman-Via: integrator'] : []),
+    // The super origin (PM-757): the mode, the Operator's handle and the credential's id and visible
+    // prefix, never its secret. `history()` rebuilds the actor from these.
+    ...(author.superActor
+      ? [
+          ...(hasConnectedOrigin(author.superActor)
+            ? [
+                // The connected Claude (decision 66): who acted, whose Claude it was and who approved.
+                `Projectman-Connected-Kind: ${author.superActor.kind}`,
+                `Projectman-Connected-Handle: ${line(author.superActor.handle)}`,
+                `Projectman-Connected-Holder: ${line(author.superActor.through.holder)}`,
+                ...(author.superActor.approvedBy
+                  ? [`Projectman-Connected-Approved-By: ${line(author.superActor.approvedBy)}`]
+                  : []),
+              ]
+            : [
+                'Projectman-Operator-Mode: super',
+                `Projectman-Operator-Handle: ${line(author.superActor.handle)}`,
+              ]),
+          `Projectman-Credential-Id: ${line(connectedOriginOf(author.superActor)!.credential.id)}`,
+          `Projectman-Credential-Prefix: ${line(connectedOriginOf(author.superActor)!.credential.prefix)}`,
+          ...(author.superAuditId ? [`Projectman-Audit-Id: ${line(author.superAuditId)}`] : []),
+        ]
+      : []),
+    ...(author.operator
+      ? [
+          `Projectman-Operator: ${line(author.operator)}`,
+          `Projectman-Request: ${Array.from(line(author.request ?? ''))
+            .slice(0, 280)
+            .join('')}`,
+        ]
+      : []),
+    ...(author.approvedBy ? [`Projectman-Approved-By: ${line(author.approvedBy)}`] : []),
+    ...(author.operatorStepId ? [`Projectman-Step: ${line(author.operatorStepId)}`] : []),
+    ...(author.operatorRequestId ? [`Projectman-Request-Id: ${line(author.operatorRequestId)}`] : []),
+    ...(author.operatorAgreementVersion
+      ? [`Projectman-Agreement-Version: ${author.operatorAgreementVersion}`]
+      : []),
+    ...(author.operatorApprovalMode ? [`Projectman-Approval-Mode: ${author.operatorApprovalMode}`] : []),
+  ];
+  // User messages cannot introduce attribution, even without server-generated trailers.
+  const body = message.replace(/\r\n?/g, '\n').replace(/^[\t ]*Projectman-/gim, '> Projectman-');
+  return body + (trailers.length ? `\n\n${trailers.join('\n')}` : '');
+}
+
+/**
+ * The actor the trailers of a commit describe, or undefined unless they agree: the old super mode (PM-757:
+ * mode, handle, credential) or the connected Claude (decision 66: kind, handle, holder, credential).
+ */
+function superActorFromTrailers(trailers: {
+  mode: string | undefined;
+  handle: string | undefined;
+  id: string | undefined;
+  prefix: string | undefined;
+  connected: {
+    kind: string | undefined;
+    handle: string | undefined;
+    holder: string | undefined;
+    approvedBy: string | undefined;
+  };
+}): BoundActor | undefined {
+  const credential = ActorCredential.safeParse({ id: trailers.id, prefix: trailers.prefix });
+  if (!credential.success) return undefined;
+  const { connected } = trailers;
+  const actor: Actor | null =
+    trailers.mode === 'super' && trailers.handle
+      ? {
+          kind: 'ai',
+          handle: trailers.handle,
+          via: 'integrator',
+          operatorMode: 'super',
+          credential: credential.data,
+        }
+      : (connected.kind === 'human' || connected.kind === 'ai') && connected.handle && connected.holder
+        ? {
+            kind: connected.kind,
+            handle: connected.handle,
+            via: 'integrator',
+            through: { holder: connected.holder, credential: credential.data },
+            ...(connected.approvedBy ? { approvedBy: connected.approvedBy } : {}),
+          }
+        : null;
+  return actor && hasBoundOrigin(actor) ? actor : undefined;
+}
 
 const README = `# projectman customization repository
 
@@ -285,22 +377,19 @@ export function createConfigStore(opts: ConfigStoreOptions): GitConfigStore {
         await git(['add', '-A', '--', path]);
         if (!(await hasStagedChanges(path))) return { version: await projectVersion(projectKey) };
         return {
-          version: await commit(
-            meta.message + (meta.author.via ? '\n\nProjectman-Via: integrator' : ''),
-            meta.author,
-            [path],
-          ),
+          version: await commit(attributedMessage(meta.message, meta.author), meta.author, [path]),
         };
       });
     },
 
-    async history(projectKey, limit = 50) {
+    async history(projectKey, limit = 50, offset = 0) {
       assertKey(projectKey);
       await ensureInit();
       const n = Math.max(1, Math.min(500, Math.floor(limit)));
       const log = await git([
         'log',
         `-n${n}`,
+        `--skip=${Math.max(0, Math.floor(offset))}`,
         '--format=%H%x1f%an%x1f%aI%x1f%B%x1e',
         '--',
         projectPath(projectKey),
@@ -311,15 +400,83 @@ export function createConfigStore(opts: ConfigStoreOptions): GitConfigStore {
         .filter(Boolean)
         .map((record): ConfigVersionEntry => {
           const [version = '', author = '', at = '', message = ''] = record.split('\x1f');
-          const via = /(?:^|\n)Projectman-Via: integrator\s*$/.test(message);
+          const body = message.trim();
+          const separator = body.lastIndexOf('\n\n');
+          const ending = separator >= 0 ? body.slice(separator + 2) : '';
+          const hasTrailers =
+            ending.length > 0 &&
+            ending
+              .split('\n')
+              .every((line) =>
+                /^Projectman-(?:Via|Operator|Operator-Mode|Operator-Handle|Connected-Kind|Connected-Handle|Connected-Holder|Connected-Approved-By|Credential-Id|Credential-Prefix|Audit-Id|Request|Approved-By|Step|Request-Id|Agreement-Version|Approval-Mode): ?[^\r\n]*$/.test(
+                  line,
+                ),
+              );
+          const trailer = (name: string) =>
+            hasTrailers
+              ? ending.match(new RegExp(`(?:^|\\n)Projectman-${name}: ?([^\\r\\n]*)`))?.[1]?.trim()
+              : undefined;
+          const via = trailer('Via') === 'integrator';
+          const operator = trailer('Operator');
+          const request = trailer('Request');
+          const approvedBy = trailer('Approved-By');
+          const superActor = superActorFromTrailers({
+            mode: trailer('Operator-Mode'),
+            handle: trailer('Operator-Handle'),
+            id: trailer('Credential-Id'),
+            prefix: trailer('Credential-Prefix'),
+            connected: {
+              kind: trailer('Connected-Kind'),
+              handle: trailer('Connected-Handle'),
+              holder: trailer('Connected-Holder'),
+              approvedBy: trailer('Connected-Approved-By'),
+            },
+          });
           return {
             version,
             author,
             at,
-            message: message.replace(/\n\nProjectman-Via: integrator\s*$/, '').trim(),
+            message: hasTrailers ? body.slice(0, separator).trim() : body,
             ...(via ? { via: 'integrator' } : {}),
+            ...(superActor ? { actor: superActor } : {}),
+            ...(superActor && trailer('Audit-Id') ? { superAuditId: trailer('Audit-Id') } : {}),
+            ...(operator ? { operator } : {}),
+            ...(request !== undefined ? { request } : {}),
+            ...(approvedBy ? { approvedBy } : {}),
+            ...(trailer('Step') ? { operatorStepId: trailer('Step') } : {}),
+            ...(trailer('Request-Id') ? { operatorRequestId: trailer('Request-Id') } : {}),
+            ...(trailer('Agreement-Version')
+              ? { operatorAgreementVersion: Number(trailer('Agreement-Version')) }
+              : {}),
+            ...(trailer('Approval-Mode') === 'waived' || trailer('Approval-Mode') === 'click'
+              ? { operatorApprovalMode: trailer('Approval-Mode') as 'click' | 'waived' }
+              : {}),
           };
         });
+    },
+
+    async hasSuperAuditCommit(projectKey, auditId) {
+      assertKey(projectKey);
+      if (!/^[A-Za-z0-9_-]{1,80}$/.test(auditId)) return false;
+      await ensureInit();
+      const line = `Projectman-Audit-Id: ${auditId}`;
+      const log = await git([
+        'log',
+        '--fixed-strings',
+        `--grep=${line}`,
+        '--format=%B%x1e',
+        '--',
+        projectPath(projectKey),
+      ]);
+      // The trailer is a whole line of the last paragraph, next to the super-mode or connected marker, not text in a message.
+      return log.stdout.split('\x1e').some((record) => {
+        const ending = record.trim().split('\n\n').at(-1)?.split('\n') ?? [];
+        return (
+          ending.includes(line) &&
+          (ending.includes('Projectman-Operator-Mode: super') ||
+            ending.some((entry) => entry.startsWith('Projectman-Connected-Holder: ')))
+        );
+      });
     },
 
     async loadVersion(projectKey, version) {
@@ -340,11 +497,7 @@ export function createConfigStore(opts: ConfigStoreOptions): GitConfigStore {
         if (!(await hasStagedChanges(path))) return { version: await projectVersion(projectKey) };
         const message = `Revert ${projectKey} configuration to ${commitId.slice(0, 12)}`;
         return {
-          version: await commit(
-            message + (meta.author.via ? '\n\nProjectman-Via: integrator' : ''),
-            meta.author,
-            [path],
-          ),
+          version: await commit(attributedMessage(message, meta.author), meta.author, [path]),
         };
       });
     },

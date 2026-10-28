@@ -1,24 +1,70 @@
-import type { Session, Task } from '@projectman/shared';
+import type { Session, Task, TaskMerged } from '@projectman/shared';
 import { HandoffNoteButton } from './HandoffNote';
 import { useProject } from '../../app/contexts';
 import { MemberNames } from '../../components/LeaveChip';
+import { formatAgo } from '../../i18n/format';
 import { t } from '../../i18n/t';
+import { nameOf } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
 import { shortCommit } from '../../lib/timeline';
 import type { PipelineIndex } from '../../lib/pipeline';
 import type { TaskPhase } from '../../lib/taskState';
 import { FocusRow } from '../focus/FocusRow';
+import { TaskFeedbackRow } from '../feedback/TaskFeedbackRow';
 import { TaskAssigneeSelect } from './TaskLifecycle';
 import { TaskPrioritySelect } from './TaskPriority';
 import { TaskLabels } from './TaskLabels';
-import { TaskLevel } from './TaskLevel';
+import { TaskComplexity } from './TaskComplexity';
 import { TaskRepo } from './TaskRepo';
 import { TaskRelations } from './TaskRelations';
 import { TaskTheme } from './TaskTheme';
 import styles from './drawer.module.css';
 
+/** Where the approved work went (PM-453): the merge commit, the branch, who merged it and when. */
+function MergedValue({
+  merged,
+  members,
+  myHandle,
+}: {
+  merged: TaskMerged;
+  members: MemberIndex;
+  myHandle: string | null;
+}) {
+  if (merged.via === 'found' || !merged.mergeCommit)
+    return (
+      <span>
+        {t('task.merge.merged.found', {
+          commit: shortCommit(merged.commit),
+          base: merged.base,
+        })}
+      </span>
+    );
+  const commit = shortCommit(merged.mergeCommit);
+  const link = merged.pushed?.commitUrl;
+  const tip = merged.check
+    ? t('task.merge.merged.checked', { check: merged.check.command })
+    : t('task.merge.merged.unchecked');
+  const ago = formatAgo(merged.at);
+  const base = merged.base;
+  return (
+    <span title={tip}>
+      {link ? (
+        <a href={link} target="_blank" rel="noreferrer">
+          <code>{commit}</code>
+        </a>
+      ) : (
+        <code>{commit}</code>
+      )}
+      {' · '}
+      {merged.by
+        ? t('task.merge.merged.value', { base, by: nameOf(merged.by, members, myHandle), ago })
+        : t('task.merge.merged.valueNoBy', { base, ago })}
+    </span>
+  );
+}
+
 /**
- * The task's properties as tight rows: assignee, repository, visibility, labels, relations. Each row
+ * The task's properties as tight rows: assignee, repository, labels, relations. Each row
  * is one line of label and value, with a small "+" where something can be added.
  */
 export function TaskProperties({
@@ -56,16 +102,17 @@ export function TaskProperties({
         )}
         <HandoffNoteButton task={task} members={members} className={styles.propNote} />
       </div>
-      <TaskLevel key={`level:${task.key}`} task={task} />
+      <TaskComplexity key={`complexity:${task.key}`} task={task} />
       <TaskPrioritySelect key={`priority:${task.key}`} task={task} />
       <div className={styles.prop}>
         <TaskRepo key={task.key} task={task} />
       </div>
-      <div className={styles.prop}>
-        <span className={styles.propLabel}>{t('newTask.fields.visibility')}</span>
-        <span>{t(`visibility.${task.visibility}`)}</span>
-      </div>
-      {task.reviewPin ? (
+      {task.merged ? (
+        <div className={styles.prop}>
+          <span className={styles.propLabel}>{t('task.merge.merged.label')}</span>
+          <MergedValue merged={task.merged} members={members} myHandle={myHandle} />
+        </div>
+      ) : task.reviewPin ? (
         <div className={styles.prop}>
           <span className={styles.propLabel}>{t('task.reviewPin.label')}</span>
           <span title={t('task.reviewPin.hint', { commit: task.reviewPin.commit })}>
@@ -83,6 +130,7 @@ export function TaskProperties({
         phases={phases}
         pipeline={pipeline}
       />
+      <TaskFeedbackRow key={`feedback:${task.key}`} taskKey={task.key} />
     </section>
   );
 }

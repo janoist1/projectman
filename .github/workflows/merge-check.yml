@@ -1,0 +1,66 @@
+name: merge-check
+run-name: merge-check ${{ inputs.check_id }}
+on:
+  workflow_dispatch:
+    inputs:
+      check_id:
+        description: projectman merge check run id
+        required: true
+        type: string
+      files:
+        description: JSON array of repository test files (lone diagnosis); empty for the full check
+        required: false
+        default: ''
+        type: string
+      all:
+        description: run the whole tree's tests (a review pin), not the merge diff's scope
+        required: false
+        default: false
+        type: boolean
+permissions:
+  contents: read
+jobs:
+  merge-test:
+    name: merge-test (${{ matrix.shard }}/4)
+    if: startsWith(github.ref, 'refs/heads/pm-check/')
+    runs-on: macos-15
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install Bash 5
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: '1'
+        run: |
+          brew install bash
+          echo "$(brew --prefix bash)/bin" >> "$GITHUB_PATH"
+      - name: npm ci
+        run: npm ci
+      - name: merge-test
+        env:
+          MERGE_TEST_FILES: ${{ inputs.files }}
+          MERGE_TEST_ALL: ${{ inputs.all }}
+          SHARD: ${{ matrix.shard }}/4
+          VITEST_MAX_FORKS: '3'
+          VITEST_MAX_THREADS: '3'
+          PROJECTMAN_HEAVY_LOCK_HELD: '1'
+        run: |
+          bash -c 'test "${BASH_VERSINFO[0]}" -ge 5'
+          bash --version
+          node --version
+          mkdir -p "$RUNNER_TEMP/h" "$RUNNER_TEMP/t"
+          if [ "$MERGE_TEST_ALL" = "true" ]; then
+            HOME="$RUNNER_TEMP/h" TMPDIR="$RUNNER_TEMP/t" npm run merge-test -- --no-cache --shard "$SHARD" --all
+          else
+            HOME="$RUNNER_TEMP/h" TMPDIR="$RUNNER_TEMP/t" npm run merge-test -- --no-cache --shard "$SHARD" --files-from-env
+          fi

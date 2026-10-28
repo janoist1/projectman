@@ -1,18 +1,8 @@
-export const SETTINGS_SECTIONS = [
-  'pipeline',
-  'labels',
-  'duties',
-  'team',
-  'limits',
-  'project',
-  'repos',
-  'history',
-  'engines',
-  'providers',
-  'integrator',
-  'account',
-] as const;
-export type SettingsSectionId = (typeof SETTINGS_SECTIONS)[number];
+import { SETTINGS_SECTIONS } from '@projectman/shared';
+import type { SettingsSection } from '@projectman/shared';
+
+export { SETTINGS_SECTIONS };
+export type SettingsSectionId = SettingsSection;
 export const SETTINGS_WIDE_QUERY = '(min-width: 1280px)';
 
 export function isSettingsSection(value: string | undefined): value is SettingsSectionId {

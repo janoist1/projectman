@@ -52,6 +52,30 @@ describe('child environment', () => {
     });
   });
 
+  it('removes every PROJECTMAN_ variable, the e-mail login keys among them, and brings no AWS_ variable (PM-669)', () => {
+    const env = buildChildEnv({
+      PATH: '/usr/bin',
+      PROJECTMAN_EMAIL_LOGIN_ENABLED: '1',
+      PROJECTMAN_SES_REGION: 'eu-central-1',
+      PROJECTMAN_SES_FROM: 'belepes@istvan.io',
+      PROJECTMAN_SES_ACCESS_KEY_ID: 'AKIAEXAMPLE',
+      PROJECTMAN_SES_SECRET_ACCESS_KEY: 'secret-example',
+      PROJECTMAN_SES_SESSION_TOKEN: 'token-example',
+    });
+    expect(env).toEqual({ PATH: '/usr/bin' });
+    const session = buildSessionEnv({ PROJECTMAN_SES_SECRET_ACCESS_KEY: 'secret-example' }, 'ses_1');
+    expect(Object.keys(session).filter((name) => name.startsWith('PROJECTMAN_SES_'))).toEqual([]);
+    expect(Object.keys(session).filter((name) => name.startsWith('AWS_'))).toEqual([]);
+  });
+
+  it('keeps the administration supervisor socket out of every session (PM-763)', () => {
+    const source = { PATH: '/usr/bin', PROJECTMAN_ADMIN_SOCKET: '/var/lib/projectman-admin/supervisor.sock' };
+    expect(buildChildEnv(source)).toEqual({ PATH: '/usr/bin' });
+    expect(Object.keys(buildSessionEnv(source, 'ses_1')).filter((name) => name.includes('ADMIN'))).toEqual(
+      [],
+    );
+  });
+
   it('removes the Gemini and NanoGPT variables and the Antigravity markers, whatever the server has (PM-324)', () => {
     const names = [
       'GEMINI_API_KEY',
@@ -85,6 +109,25 @@ describe('child environment', () => {
     expect(buildChildEnv(leaking)).toMatchObject({ PATH: '/usr/bin' });
   });
 
+  it('removes the integrator key and the Cloudflare Access service-token variables (PM-765)', () => {
+    const names = [
+      'PROJECTMAN_INTEGRATOR_KEY',
+      'PROJECTMAN_CLIENT_CONFIG',
+      'CF_ACCESS_CLIENT_ID',
+      'CF_ACCESS_CLIENT_SECRET',
+      'cf_access_client_secret',
+      'CF-Access-Client-Id',
+      'CF_Access_Client_Secret',
+      'CLOUDFLARE_ACCESS_CLIENT_SECRET',
+    ];
+    const leaking = { PATH: '/usr/bin', ...Object.fromEntries(names.map((name) => [name, 'canary'])) };
+    for (const env of [buildChildEnv(leaking), buildSessionEnv(leaking, 'ses_1')]) {
+      for (const name of names) expect(env).not.toHaveProperty(name);
+      expect(env).toMatchObject({ PATH: '/usr/bin' });
+      expect(JSON.stringify(env)).not.toContain('canary');
+    }
+  });
+
   it('sets the terminal and session variables for a member session', () => {
     const env = buildSessionEnv(base, 'ses_42');
     expect(env).toMatchObject({
@@ -100,7 +143,6 @@ describe('child environment', () => {
     for (const name of ['GIT_EDITOR', 'GIT_SEQUENCE_EDITOR', 'EDITOR', 'VISUAL']) {
       expect(env[name], name).toBe('true');
     }
-    expect(buildSessionEnv(base, 'ses_1', { managedVm: true }).GIT_EDITOR).toBe('true');
   });
 
   it("marks a session with the instance's tag, and drops the tag a parent instance passed on (PM-320)", () => {
@@ -124,26 +166,6 @@ describe('child environment', () => {
     expect(buildSessionEnv({ HTTPS_PROXY: 'http://proxy:8080' }, 's').NO_PROXY).toBe(
       '127.0.0.1,localhost,::1',
     );
-  });
-
-  it('keeps the service identity out of a managed VM worker, and the billing filter as it is (PM-141)', () => {
-    const service = {
-      PATH: '/usr/bin',
-      ANTHROPIC_API_KEY: 'sk-ant-secret',
-      SSH_AUTH_SOCK: '/tmp/agent.sock',
-      SSH_AGENT_PID: '1',
-      GH_TOKEN: 'gh-secret',
-      GITHUB_TOKEN: 'gh-secret',
-      GIT_ASKPASS: '/bin/askpass',
-    };
-    const legacy = buildSessionEnv(service, 'ses_1');
-    expect(legacy.SSH_AUTH_SOCK).toBe('/tmp/agent.sock');
-    const managed = buildSessionEnv(service, 'ses_1', { managedVm: true });
-    for (const name of ['SSH_AUTH_SOCK', 'SSH_AGENT_PID', 'GH_TOKEN', 'GITHUB_TOKEN', 'GIT_ASKPASS']) {
-      expect(managed[name], name).toBeUndefined();
-    }
-    expect(managed.ANTHROPIC_API_KEY).toBeUndefined();
-    expect(managed).toMatchObject({ PATH: '/usr/bin', PROJECTMAN_SESSION_ID: 'ses_1' });
   });
 
   it('removes Codex billing variables and parent Codex session markers for every provider', () => {

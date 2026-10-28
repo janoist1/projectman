@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { EngineId as EngineIdSchema, LOCAL_ENGINE_ID } from '@projectman/shared';
-import type { EngineId, MemberHandle, Session } from '@projectman/shared';
+import type { EngineId, MemberHandle, ProjectConfig, Session } from '@projectman/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { migrate } from '../src/db';
 import { MEMBER_SANDBOX_DIRS, SANDBOX_GIT_CONFIG, SANDBOX_GIT_CONFIG_FILE } from '../src/contracts';
@@ -24,9 +24,10 @@ import type {
   ScreenshotExecutor,
   ScreenshotRunSpec,
 } from '../src/contracts';
-import { DomainError } from '../src/domain/errors';
-import { createLocalEngine, engineIdOf, engineOption, LocalEngineDirectory } from '../src/domain/engines';
-import { memberSandboxDir } from '../src/domain/session-policy';
+import { DomainError } from '../src/kernel';
+import { createLocalEngine } from '../src/engine-host';
+import { engineIdOf, engineOption, LocalEngineDirectory } from '../src/runtime/sessions';
+import { memberSandboxDir } from '../src/runtime/sessions';
 import { waitFor } from '../src/runner/test-helpers';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
@@ -63,7 +64,10 @@ describe('the local engine', () => {
   const worktrees = new FakeWorktreeManager('/tmp/fictional-worktrees');
 
   it('is the one engine of a single-machine installation, always connected', () => {
-    const engine = createLocalEngine({ worktrees, workspacePath: (key) => `/work/${key}` }, logger);
+    const engine = createLocalEngine(
+      { worktrees, workspacePath: (key) => `/work/${key}`, claudeTmpRoots: [] },
+      logger,
+    );
     const directory = new LocalEngineDirectory(engine);
 
     expect(directory.get(LOCAL_ENGINE_ID)).toBe(engine);
@@ -76,7 +80,7 @@ describe('the local engine', () => {
 
   it('answers with the places it was given, and none for what it was not', () => {
     const bare = createLocalEngine(
-      { worktrees, workspacePath: () => null, userHome: '/home/u' },
+      { worktrees, workspacePath: () => null, userHome: '/home/u', claudeTmpRoots: [] },
       logger,
     ).paths();
     expect(bare).toMatchObject({
@@ -115,7 +119,7 @@ describe('the local engine', () => {
   });
 
   it('has no session folders without a root, and no executors or member workspaces it was not given', async () => {
-    const engine = createLocalEngine({ worktrees, workspacePath: () => null }, logger);
+    const engine = createLocalEngine({ worktrees, workspacePath: () => null, claudeTmpRoots: [] }, logger);
     expect(engine.sessionFolders).toBeUndefined();
     expect(engine.memberWorkspaces).toBeUndefined();
     expect(engine.fullTestExecutor).toBeUndefined();
@@ -170,6 +174,12 @@ class TestEngines implements EngineDirectory {
   engineFor(_projectKey: string, member: MemberHandle): EngineId | null {
     return this.placement.has(member) ? this.placement.get(member)! : this.fallback;
   }
+  projectEngine(_projectKey: string): EngineId | null {
+    return this.fallback;
+  }
+  hostEngine(): EngineId | null {
+    return this.fallback;
+  }
   onChange(listener: (id: EngineId, online: boolean) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
@@ -196,6 +206,7 @@ describe('sessions on engines', () => {
         workspacePath: () => (without.has(id) ? null : workspace),
         freeDiskBytes: async () => free[id] ?? null,
         worktreesRootDir: join(root, id, 'worktrees'),
+        claudeTmpRoots: [],
       },
       logger,
     );
@@ -306,6 +317,24 @@ describe('sessions on engines', () => {
   });
 
   describe('when the engine is not there', () => {
+    it('reports engine availability without throwing and omits offline developers from the start plan', async () => {
+      expect(h.domain.admission.engineOffline('AR', 'dev-1')).toBeNull();
+      engines.placement.set('dev-1', null);
+      expect(h.domain.admission.engineOffline('AR', 'dev-1')).toEqual({});
+      engines.placement.set('dev-1', REMOTE);
+      engines.placement.set('dev-2', REMOTE);
+      engines.setOnline(REMOTE, false);
+      expect(h.domain.admission.engineOffline('AR', 'dev-1')).toEqual({ engine: REMOTE });
+      await h.domain.admission.retryDeferred();
+      expect(h.domain.tasks.get('AR', 'AR-1').readyHold).toMatchObject({
+        reason: 'engine_offline',
+        engine: REMOTE,
+      });
+      engines.setOnline(REMOTE, true);
+      await h.domain.admission.retryDeferred();
+      expect(h.domain.tasks.get('AR', 'AR-1').readyHold).toBeUndefined();
+    });
+
     const startCard = () =>
       h.domain.taskStarts.start('AR', 'AR-1', { assignee: 'dev-1', actor: OWNER_ACTOR, author: OWNER });
 
@@ -390,6 +419,163 @@ describe('sessions on engines', () => {
   });
 
   describe('an engine that connects (PM-315)', () => {
+    async function loseProcess(session: Session, state: Session['state'] = 'working'): Promise<void> {
+      // The engine lost its process without delivering an exit event to the server.
+      h.runner.emit({ type: 'transcript_path', sessionId: session.id, path: `/tmp/${session.id}.jsonl` });
+      await h.runner.stop(session.id);
+      h.repos.sessions.update(session.id, { state, endedAt: null });
+    }
+
+    it.each([
+      { state: 'idle', reconciliation: 'startup' },
+      { state: 'idle', reconciliation: 'reconnect' },
+      { state: 'waiting_input', reconciliation: 'reconnect' },
+    ] as const)(
+      'keeps a $state turn stopped after $reconciliation reconciliation',
+      async ({ state, reconciliation }) => {
+        engines.placement.set('dev-1', REMOTE);
+        await h.domain.taskStarts.start('AR', 'AR-1', {
+          assignee: 'dev-1',
+          actor: OWNER_ACTOR,
+          author: OWNER,
+        });
+        const session = h.domain.sessions.findRunning('AR', 'dev-1', task)!;
+        await loseProcess(session, state);
+        engines.setOnline(REMOTE, false);
+        if (reconciliation === 'startup') await h.domain.sessions.reconcileAfterRestart();
+        else await h.domain.sessions.reconcileEngine(REMOTE, new Set(), () => false);
+        await settle();
+        engines.setOnline(REMOTE, true);
+        await h.domain.admission.retryDeferred();
+        await settle();
+
+        expect(h.runner.started).toHaveLength(1);
+        expect(h.domain.sessions.get('AR', session.id)).toMatchObject({
+          state: 'exited',
+          lastStop: { kind: 'server_restart' },
+        });
+        expect(h.domain.tasks.get('AR', 'AR-1').startWaiting).toBeUndefined();
+      },
+    );
+
+    async function interrupt(session: Session, reported: ReadonlySet<string> = new Set()): Promise<void> {
+      await loseProcess(session);
+      engines.setOnline(REMOTE, false);
+      await h.domain.sessions.reconcileEngine(REMOTE, reported, () => false);
+      await settle();
+    }
+
+    it('resumes interrupted local work during startup reconciliation', async () => {
+      await h.domain.taskStarts.start('AR', 'AR-1', {
+        assignee: 'dev-1',
+        actor: OWNER_ACTOR,
+        author: OWNER,
+      });
+      const session = h.domain.sessions.findRunning('AR', 'dev-1', task)!;
+      await loseProcess(session);
+      await h.domain.sessions.reconcileAfterRestart();
+      await waitFor(() => (h.runner.started.length === 2 ? true : undefined));
+      expect(h.runner.lastStarted()).toMatchObject({ sessionId: session.id, resume: true });
+    });
+
+    it.each(['dev', 'code_review', 'fix'])(
+      'resumes interrupted %s work after reconnecting',
+      async (stage) => {
+        engines.placement.set('dev-1', REMOTE);
+        engines.placement.set('cr', REMOTE);
+        await h.domain.taskStarts.start('AR', 'AR-1', {
+          assignee: 'dev-1',
+          actor: OWNER_ACTOR,
+          author: OWNER,
+        });
+        if (stage !== 'dev') {
+          await h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', OWNER_ACTOR);
+          await waitFor(() => h.domain.sessions.findRunning('AR', 'cr', task));
+          if (stage === 'fix') {
+            await h.domain.tasks.moveToStage('AR', 'AR-1', 'development', OWNER_ACTOR);
+            await settle();
+          }
+        }
+        const member = stage === 'code_review' ? 'cr' : 'dev-1';
+        const session = h.domain.sessions.findRunning('AR', member, task)!;
+        const starts = h.runner.started.length;
+        await interrupt(session);
+        expect(h.runner.started).toHaveLength(starts);
+        expect(h.domain.tasks.get('AR', 'AR-1').startWaiting).toMatchObject({
+          reason: 'engine_offline',
+          member,
+        });
+
+        engines.setOnline(REMOTE, true);
+        await waitFor(() => (h.runner.started.length > starts ? true : undefined));
+        expect(h.runner.lastStarted()).toMatchObject({
+          sessionId: session.id,
+          resume: true,
+          engineId: REMOTE,
+        });
+        await h.domain.sessions.reconcileEngine(REMOTE, new Set([session.id]), () => false);
+        await settle();
+        expect(h.runner.started).toHaveLength(starts + 1);
+      },
+    );
+
+    it('keeps an interrupted continuation waiting during a team pause', async () => {
+      engines.placement.set('dev-1', REMOTE);
+      await h.domain.taskStarts.start('AR', 'AR-1', {
+        assignee: 'dev-1',
+        actor: OWNER_ACTOR,
+        author: OWNER,
+      });
+      const session = h.domain.sessions.findRunning('AR', 'dev-1', task)!;
+      await interrupt(session);
+      const scope = { scope: 'project', projectKey: 'AR' } as const;
+      const by = { userId: null, source: 'system' } as const;
+      await h.domain.pauses.pause(scope, by);
+      engines.setOnline(REMOTE, true);
+      await h.domain.admission.retryDeferred();
+      expect(h.runner.started).toHaveLength(1);
+      expect(h.domain.tasks.get('AR', 'AR-1').startWaiting).toMatchObject({ reason: 'team_paused' });
+      await h.domain.pauses.resume(scope, by);
+      await waitFor(() => (h.runner.started.length === 2 ? true : undefined));
+      expect(h.runner.lastStarted()).toMatchObject({ sessionId: session.id, resume: true });
+    });
+
+    it('waits for member capacity before resuming interrupted work', async () => {
+      engines.placement.set('dev-1', REMOTE);
+      await h.domain.taskStarts.start('AR', 'AR-1', {
+        assignee: 'dev-1',
+        actor: OWNER_ACTOR,
+        author: OWNER,
+      });
+      const session = h.domain.sessions.findRunning('AR', 'dev-1', task)!;
+      await h.domain.tasks.create('AR', { title: 'Other work' }, OWNER_ACTOR);
+      const other = (await h.domain.sessions.ensureSession('AR', 'dev-1', { type: 'task', taskKey: 'AR-2' }))
+        .session;
+      await interrupt(session, new Set([other.id]));
+      engines.setOnline(REMOTE, true);
+      await h.domain.admission.retryDeferred();
+      expect(h.runner.started).toHaveLength(2);
+      expect(h.domain.tasks.get('AR', 'AR-1').startWaiting).toMatchObject({ reason: 'member_at_capacity' });
+      await h.domain.sessions.stop('AR', other.id);
+      await waitFor(() => (h.runner.started.length === 3 ? true : undefined));
+      expect(h.runner.lastStarted()).toMatchObject({ sessionId: session.id, resume: true });
+    });
+
+    it('discards a restart continuation when the card changes assignee', async () => {
+      engines.placement.set('dev-1', REMOTE);
+      await h.domain.taskStarts.start('AR', 'AR-1', {
+        assignee: 'dev-1',
+        actor: OWNER_ACTOR,
+        author: OWNER,
+      });
+      await interrupt(h.domain.sessions.findRunning('AR', 'dev-1', task)!);
+      h.domain.tasks.assign('AR', 'AR-1', 'dev-2', OWNER_ACTOR);
+      engines.setOnline(REMOTE, true);
+      await h.domain.admission.retryDeferred();
+      await settle();
+      expect(h.runner.started.filter((start) => start.member === 'dev-1')).toHaveLength(1);
+    });
+
     it('ends the sessions it does not report, keeps those it does and those still starting', async () => {
       engines.placement.set('dev-1', REMOTE);
       engines.placement.set('dev-2', REMOTE);
@@ -420,6 +606,30 @@ describe('sessions on engines', () => {
       const { session } = await stoppedOnRemote();
       await h.domain.sessions.reconcileEngine(REMOTE, new Set(['unknown-session', session.id]), () => false);
       expect(h.runner.stopped).toEqual(expect.arrayContaining(['unknown-session', session.id]));
+    });
+
+    it('keeps a session ended by the restart ended when its engine reports a state later (PM-792)', async () => {
+      engines.placement.set('dev-1', REMOTE);
+      const { session } = await h.domain.sessions.ensureSession('AR', 'dev-1', task);
+
+      // The cloud restarted: no engine link yet, so the row is closed while the process goes on.
+      await h.domain.sessions.reconcileEngine(REMOTE, new Set(), () => false);
+      const ended = h.domain.sessions.get('AR', session.id);
+      expect(ended.state).toBe('exited');
+      expect(ended.endedAt).toBeTruthy();
+      expect(h.runner.isRunning(session.id)).toBe(true);
+
+      // The engine reports the process (still running) before the connect hook ran.
+      h.runner.setState(session.id, 'idle');
+      const after = h.domain.sessions.get('AR', session.id);
+      expect(after.state).toBe('exited');
+      expect(after.endedAt).toBe(ended.endedAt);
+
+      // The connect hook then stops the process, and the row stays ended.
+      await h.domain.sessions.reconcileEngine(REMOTE, new Set([session.id]), () => false);
+      expect(h.runner.stopped).toContain(session.id);
+      expect(h.domain.sessions.get('AR', session.id).state).toBe('exited');
+      expect(h.domain.engineCounters(REMOTE).runningSessions).toBe(0);
     });
 
     it('sweeps the session folders of the engine for the sessions it reports', async () => {
@@ -513,6 +723,60 @@ describe('sessions on engines', () => {
       await h.domain.sessions.stop('AR', session.id);
       return { session };
     }
+  });
+
+  describe('permission working directories on the session engine', () => {
+    it('uses the remote canonical paths before automatically approving a routine command', async () => {
+      engines.placement.set('dev-1', REMOTE);
+      const { session } = await h.domain.sessions.ensureSession('AR', 'dev-1', task);
+      const remote = engines.get(REMOTE)!;
+      const canonical = vi.spyOn(remote, 'realpath').mockImplementation(async (path) => path);
+      const local = vi.spyOn(engines.get(LOCAL_ENGINE_ID)!, 'realpath');
+      const cwd = join(session.cwd!, 'src');
+
+      const decision = await h.runnerModule
+        .broker()
+        .decide(
+          { sessionId: session.id, toolName: 'Bash', toolInput: { command: 'npm ci', cwd }, raw: {} },
+          new AbortController().signal,
+        );
+
+      expect(decision).toEqual({ behavior: 'allow' });
+      expect(canonical.mock.calls).toEqual([[cwd], [session.cwd]]);
+      expect(local).not.toHaveBeenCalled();
+      expect(h.domain.inbox.list('AR', { state: 'open', kind: 'permission' })).toEqual([]);
+    });
+
+    it.each(['offline', 'missing', 'failure', 'outside'] as const)(
+      'leaves the request for a human when the remote canonical check is %s',
+      async (reason) => {
+        engines.placement.set('dev-1', REMOTE);
+        const { session } = await h.domain.sessions.ensureSession('AR', 'dev-1', task);
+        const remote = engines.get(REMOTE)!;
+        const cwd = join(session.cwd!, 'src');
+        const canonical = vi.spyOn(remote, 'realpath').mockImplementation(async (path) => {
+          if (reason === 'failure') throw new Error('engine realpath failed');
+          if (reason === 'missing') return null;
+          return path === cwd ? join(root, 'another-worktree') : session.cwd!;
+        });
+        if (reason === 'offline') engines.setOnline(REMOTE, false);
+        const controller = new AbortController();
+        const pending = h.runnerModule
+          .broker()
+          .decide(
+            { sessionId: session.id, toolName: 'Bash', toolInput: { command: 'npm ci', cwd }, raw: {} },
+            controller.signal,
+          );
+
+        await vi.waitFor(() =>
+          expect(h.domain.inbox.list('AR', { state: 'open', kind: 'permission' })).toHaveLength(1),
+        );
+        if (reason === 'offline') expect(canonical).not.toHaveBeenCalled();
+        else expect(canonical.mock.calls).toEqual([[cwd], [session.cwd]]);
+        controller.abort();
+        await expect(pending).resolves.toMatchObject({ behavior: 'deny' });
+      },
+    );
   });
 
   describe('free disk space of the engine', () => {
@@ -672,18 +936,20 @@ describe("the disk work of the session's engine (PM-312)", () => {
   async function open(
     places: Partial<Parameters<typeof createLocalEngine>[0]>,
     adjust: (host: EngineHost) => EngineHost = (host) => host,
+    configure?: (config: ProjectConfig) => void,
   ) {
     const engines = new TestEngines();
     const host = createLocalEngine(
       {
         worktrees: new FakeWorktreeManager(join(root, 'worktrees')),
         workspacePath: () => join(root, 'workspace'),
+        claudeTmpRoots: [],
         ...places,
       },
       capturingLogger().logger,
     );
     engines.add(adjust({ ...host, id: LOCAL_ENGINE_ID }));
-    h = await createDomainHarness({ engines });
+    h = await createDomainHarness({ engines, ...(configure ? { adjust: configure } : {}) });
     await h.domain.tasks.create('AR', { title: 'Login page', repo: 'web' }, OWNER_ACTOR);
   }
 
@@ -731,10 +997,10 @@ describe("the disk work of the session's engine (PM-312)", () => {
     // The harness makes its own project through the real check first; the engine's answer follows.
     await open({}, (host) => ({
       ...host,
-      isDirectory: async (path) => {
-        if (!watching) return host.isDirectory(path);
+      workspaceState: async (path) => {
+        if (!watching) return host.workspaceState(path);
         asked.push(path);
-        return there.has(path);
+        return there.has(path) ? 'directory' : 'missing';
       },
     }));
     watching = true;
@@ -752,6 +1018,81 @@ describe("the disk work of the session's engine (PM-312)", () => {
     await expect(create('BZ', 'relative/dir')).rejects.toMatchObject({ code: 'workspace_not_found' });
     expect(asked).toHaveLength(2);
   });
+
+  it('creates a project whose working directory the engine does not hold yet (PM-1077)', async () => {
+    const notHeld = new Set<string>(['/owner/machine/not-yet']);
+    let watching = false;
+    await open({}, (host) => ({
+      ...host,
+      workspaceState: async (path) => {
+        if (!watching) return host.workspaceState(path);
+        return notHeld.has(path) ? 'not_held' : 'missing';
+      },
+    }));
+    watching = true;
+    const create = (key: string, workspacePath: string) =>
+      h.domain.projects.create({ key, name: key, workspacePath, templateId: 'test' }, OWNER);
+
+    await expect(create('BN', '/owner/machine/not-yet')).resolves.toBeDefined();
+    await expect(create('BM', '/owner/machine/typo')).rejects.toMatchObject({ code: 'workspace_not_found' });
+  });
+
+  it.each([
+    ['Gemini', 'gemini', undefined],
+    ['NanoGPT with a writing sandbox', 'nanogpt', 'acceptEdits'],
+    ['NanoGPT with a read-only sandbox', 'nanogpt', undefined],
+    ['Codex with a read-only sandbox', 'codex', undefined],
+  ] as const)(
+    'makes the folder of a %s session on the engine (PM-522)',
+    async (_name, provider, permissionMode) => {
+      const made: string[] = [];
+      await open(
+        {
+          userHome: join(root, 'user'),
+          sessionFoldersDir: join(root, 'folders'),
+          sessionTmpDir: join(root, 'tmp'),
+        },
+        (host) => {
+          const real = host.sessionFolders!;
+          return {
+            ...host,
+            sessionFolders: {
+              ...real,
+              root: real.root,
+              tmpRoot: real.tmpRoot,
+              allocate: (id) => real.allocate(id),
+              allocateTmp: (id) => real.allocateTmp(id),
+              of: (id) => real.of(id),
+              make: async (id, dir, tmpDir) => {
+                if (dir) made.push(dir);
+                await real.make(id, dir, tmpDir);
+              },
+              remove: (id) => real.remove(id),
+              sweep: (keep) => real.sweep(keep),
+              releaseTmpRoot: () => real.releaseTmpRoot(),
+              materializeFile: (id, input) => real.materializeFile(id, input),
+            },
+          };
+        },
+        (config) => {
+          const dev = config.team.members.find((m) => m.handle === 'dev-1');
+          if (dev?.kind !== 'ai') return;
+          dev.provider = provider;
+          if (permissionMode) dev.permissionMode = permissionMode;
+        },
+      );
+
+      const { session } = await h.domain.sessions.ensureSession('AR', 'dev-1', task);
+
+      const folder = h.runner.lastStarted().policy!.filesystem.sessionFolder!;
+      expect(folder.startsWith(`${join(root, 'folders')}/`)).toBe(true);
+      expect(made).toEqual([folder]);
+      expect(existsSync(folder)).toBe(true);
+      await h.runner.stop(session.id);
+      await h.domain.sessions.settleFolderRemovals();
+      expect(existsSync(folder)).toBe(false);
+    },
+  );
 
   it("removes a session's old folder on the engine before it makes the new one at a restart", async () => {
     const order: string[] = [];
@@ -777,6 +1118,7 @@ describe("the disk work of the session's engine (PM-312)", () => {
         },
         sweep: (keep) => real.sweep(keep),
         releaseTmpRoot: () => real.releaseTmpRoot(),
+        materializeFile: (id, input) => real.materializeFile(id, input),
       };
       return { ...host, sessionFolders: folders };
     });

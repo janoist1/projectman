@@ -1,6 +1,19 @@
-import { randomBytes } from 'node:crypto';
+import { hkdfSync, randomBytes } from 'node:crypto';
 import { chmodSync, existsSync, linkSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+
+/**
+ * The HMAC key of the e-mail login (PM-670), derived from the installation's secret with its own label,
+ * so the stored hashes of addresses, IPs and codes are not made with the cookie signing key itself.
+ */
+export function deriveEmailLoginKey(secret: string): Buffer {
+  return Buffer.from(hkdfSync('sha256', secret, '', 'projectman email-login v1', 32));
+}
+
+/** The HMAC key of outgoing e-mail reply tokens (PM-941), separated from the login key. */
+export function deriveEmailReplyKey(secret: string): Buffer {
+  return Buffer.from(hkdfSync('sha256', secret, '', 'projectman email-channel reply v1', 32));
+}
 
 /**
  * Secret used to sign the login cookie, generated into `${PROJECTMAN_HOME}/secret` on the

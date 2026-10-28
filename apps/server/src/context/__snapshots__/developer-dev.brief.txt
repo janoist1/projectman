@@ -6,7 +6,7 @@ You are picking up this task at stage Development (`dev`).
 - Repo: `app`
 - Priority: high
 - Labels: `bug`, `email`
-- Visibility: shared
+- Your complexity limit: 5 points (automatic assignment gives you cards up to this)
 
 ## Description
 The confirmation email shows the wrong room name.

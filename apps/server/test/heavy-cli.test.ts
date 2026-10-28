@@ -1,15 +1,19 @@
 import { spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import type { ChildProcess } from 'node:child_process';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EXIT_QUEUE_UNAVAILABLE, parseHeavyArgs } from '../../../scripts/heavy/run';
+import { guardWorkerParent } from '../../../scripts/lib/worker-parent-guard.mjs';
 import { acquireHeavyLock, readHeavyQueue } from '../src/full-test/heavy-lock';
 import type { HeavyLock } from '../src/full-test/heavy-lock';
+import { waitFor } from './helpers/wait';
 
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 const CLI = path.join(ROOT, 'scripts/heavy/cli.ts');
+const GUARD = path.join(ROOT, 'scripts/lib/worker-parent-guard.mjs');
 const LOCK_MODULE = path.join(ROOT, 'apps/server/src/full-test/heavy-lock.ts');
 
 let root: string;
@@ -37,6 +41,7 @@ function heavy(
   args: string[],
   env: Record<string, string | undefined> = {},
   onStderr?: (text: string) => void,
+  onStart?: (child: ChildProcess) => void,
 ): Promise<Ran> {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, ['--import', 'tsx', CLI, ...args], {
@@ -49,6 +54,7 @@ function heavy(
         ...env,
       },
     });
+    onStart?.(child);
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (chunk) => (stdout += String(chunk)));
@@ -107,7 +113,7 @@ describe('the heavy CLI', () => {
   it('exits with 127 for a command that does not exist, and 2 for a bad call', async () => {
     const missing = await heavy(['pm-no-such-command']);
     expect(missing.code).toBe(127);
-    expect(missing.stderr).toContain('cannot run pm-no-such-command');
+    expect(missing.stderr).toContain('cannot start pm-no-such-command');
     const usage = await heavy([]);
     expect(usage.code).toBe(2);
     expect(usage.stderr).toContain('usage: npm run heavy');
@@ -180,6 +186,99 @@ describe('the heavy CLI', () => {
     expect(lines[0]).toMatch(/^heavy: the machine's heavy-run queue cannot be used, so this did not run: /);
     expect(lines[1]).toMatch(/^heavy: .+/);
     expect(lines[2]).toContain('would overload the machine');
-    expect(lines[3]).toContain('ask for the command to run outside your sandbox');
+    expect(lines[3]).toContain('do not ask for it to run outside your sandbox');
+  });
+});
+
+/** True while the process lives. */
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+/** Starting and stopping a real worker process: slower than the default wait. */
+const WORKER_WAIT_MS = 20_000;
+
+describe('an interrupted heavy run (PM-863)', () => {
+  /**
+   * The command is a leader that starts a worker which ignores SIGTERM, like a vitest worker that
+   * outlives its npm. Returns the worker's pid once it is ready.
+   */
+  async function startWithWorker(): Promise<{ heavy: ChildProcess; closed: Promise<void>; worker: number }> {
+    const pidFile = path.join(root, 'worker.pid');
+    const leader = `
+      const { spawn } = require('node:child_process');
+      const { writeFileSync } = require('node:fs');
+      const worker = spawn(process.execPath, ['-e', "process.on('SIGTERM', () => {}); console.log('ready'); setInterval(() => {}, 1000)"], { stdio: ['ignore', 'pipe', 'inherit'] });
+      worker.stdout.once('data', () => writeFileSync(${JSON.stringify(pidFile)}, String(worker.pid)));
+      setInterval(() => {}, 1000);`;
+    let started: ChildProcess | undefined;
+    const closed = heavy(node(leader), {}, undefined, (child) => (started = child)).then(() => undefined);
+    await waitFor(() => existsSync(pidFile) && readFileSync(pidFile, 'utf8') !== '', {
+      what: 'the worker to start',
+      timeoutMs: WORKER_WAIT_MS,
+    });
+    return { heavy: started!, closed, worker: Number(readFileSync(pidFile, 'utf8')) };
+  }
+
+  it.each(['SIGTERM', 'SIGINT', 'SIGHUP'] as const)(
+    'stops the command, its workers and the queue entry after %s',
+    async (signal) => {
+      const run = await startWithWorker();
+      expect(alive(run.worker)).toBe(true);
+      expect((await readHeavyQueue(dir)).holder).not.toBeNull();
+      run.heavy.kill(signal);
+      await run.closed;
+      // The lock is let go only after the group is gone.
+      expect(alive(run.worker)).toBe(false);
+      expect((await readHeavyQueue(dir)).holder).toBeNull();
+    },
+  );
+
+  it('stops the command and its workers when the heavy CLI is killed with SIGKILL', async () => {
+    const run = await startWithWorker();
+    run.heavy.kill('SIGKILL');
+    await run.closed;
+    await waitFor(() => !alive(run.worker), { what: 'the worker to stop', timeoutMs: WORKER_WAIT_MS });
+  });
+});
+
+describe('a worker of a run that did not go through the heavy CLI (PM-869)', () => {
+  it('leaves when its parent is killed with SIGKILL, even if it ignores SIGTERM', async () => {
+    const pidFile = path.join(root, 'worker.pid');
+    const worker = `
+      import { guardWorkerParent } from ${JSON.stringify(pathToFileURL(GUARD).href)};
+      process.on('SIGTERM', () => {});
+      process.exit = () => { throw new Error('process.exit is replaced, as in a vitest worker'); };
+      guardWorkerParent({ intervalMs: 100 });
+      process.send('ready');
+      setInterval(() => {}, 1000);`;
+    const parent = `
+      const { spawn } = require('node:child_process');
+      const { writeFileSync } = require('node:fs');
+      const worker = spawn(process.execPath, ['--input-type=module', '-e', ${JSON.stringify(worker)}], { stdio: ['ignore', 'ignore', 'inherit', 'ipc'] });
+      worker.once('message', () => writeFileSync(${JSON.stringify(pidFile)}, String(worker.pid)));
+      setInterval(() => {}, 1000);`;
+    const child = spawn(process.execPath, ['-e', parent], { stdio: 'ignore' });
+    await waitFor(() => existsSync(pidFile) && readFileSync(pidFile, 'utf8') !== '', {
+      what: 'the worker to start',
+      timeoutMs: WORKER_WAIT_MS,
+    });
+    const pid = Number(readFileSync(pidFile, 'utf8'));
+    expect(alive(pid)).toBe(true);
+    child.kill('SIGKILL');
+    await waitFor(() => !alive(pid), { what: 'the worker to leave', timeoutMs: WORKER_WAIT_MS });
+  });
+
+  it('does nothing in a process that was not forked with a channel to its parent', () => {
+    const exit = vi.fn();
+    expect(guardWorkerParent({ target: { ppid: 1, on: vi.fn() } as unknown as NodeJS.Process, exit })).toBe(
+      false,
+    );
+    expect(exit).not.toHaveBeenCalled();
   });
 });

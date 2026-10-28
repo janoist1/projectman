@@ -40,7 +40,13 @@ export const HANDOFF_CLOSE_GRACE_MS = 2 * 60_000;
 export const HANDOFF_NOTE_MAX = 10_000;
 
 /** What set a handoff off: a person's change, the fix round limit, a removed member, or an automatic assignment. */
-export const HandoffReason = z.enum(['manual', 'fix_limit_reassign', 'member_removed', 'auto_assign']);
+export const HandoffReason = z.enum([
+  'manual',
+  'fix_limit_reassign',
+  'member_removed',
+  'auto_assign',
+  'provider_quota',
+]);
 export type HandoffReason = z.infer<typeof HandoffReason>;
 
 /**
@@ -51,7 +57,7 @@ export type HandoffReason = z.infer<typeof HandoffReason>;
 export const HandoffStep = z.enum(['waiting_point', 'writing', 'paused', 'closing']);
 export type HandoffStep = z.infer<typeof HandoffStep>;
 
-/** The open handoff of a card (PM-342). Hidden from clients. */
+/** The open handoff of a card (PM-342). */
 export const TaskHandoff = z.object({
   id: z.string(),
   from: MemberHandle,
@@ -68,7 +74,7 @@ export const TaskHandoff = z.object({
 });
 export type TaskHandoff = z.infer<typeof TaskHandoff>;
 
-/** The latest closed handoff of a card (PM-342), while the card is still with its receiver. Hidden from clients. */
+/** The latest closed handoff of a card (PM-342), while the card is still with its receiver. */
 export const TaskHandoffRef = z.object({
   id: z.string(),
   from: MemberHandle,

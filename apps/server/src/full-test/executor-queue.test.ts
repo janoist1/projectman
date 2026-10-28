@@ -57,7 +57,8 @@ describe('the full test executor in the heavy-run queue', () => {
     expect(Date.now() - waitStarted).toBeGreaterThanOrEqual(600);
     // `started` (the duration, and with it the timeout, 100 ms here) begins when the lock is held.
     expect(result).toMatchObject({ outcome: 'error', reason: 'sandbox_unavailable' });
-    expect(result.durationMs).toBeLessThan(400);
+    // Independent of the load: the time spent leaves out at least 600 ms of waiting.
+    expect(result.durationMs).toBeLessThanOrEqual(Date.now() - waitStarted - 600);
     expect((await readHeavyQueue(dir)).holder).toBeNull();
   });
 
@@ -98,6 +99,184 @@ describe('the full test executor in the heavy-run queue', () => {
       expect.objectContaining({ runId: 'ftr_queue' }),
       expect.stringContaining('heavy-run queue is unavailable'),
     );
+  });
+
+  it('reports the start only once it holds the lock', async () => {
+    const other = await hold('a member run');
+    const executor = createFullTestExecutor({ logger, tmpDir: NO_TMP, heavyLockDir: dir });
+    const onStarted = vi.fn(async () => (await readHeavyQueue(dir)).holder?.label);
+    const seen: Promise<string | undefined>[] = [];
+    const running = executor.run(spec, new AbortController().signal, () => seen.push(onStarted()));
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(onStarted).not.toHaveBeenCalled();
+    await other.release();
+    await running;
+    expect(onStarted).toHaveBeenCalledTimes(1);
+    expect(await seen[0]).toBe('server full test PM-1-checkout');
+  });
+
+  it('reports the start at once without a queue, or when the queue is unavailable', async () => {
+    const without = vi.fn();
+    await createFullTestExecutor({ logger, tmpDir: NO_TMP }).run(spec, new AbortController().signal, without);
+    expect(without).toHaveBeenCalledTimes(1);
+    const unavailable = vi.fn();
+    await createFullTestExecutor({ logger, tmpDir: NO_TMP, heavyLockDir: '/tmp/heavy' }).run(
+      spec,
+      new AbortController().signal,
+      unavailable,
+    );
+    expect(unavailable).toHaveBeenCalledTimes(1);
+  });
+
+  it('never reports the start of a run stopped while it waited', async () => {
+    const other = await hold('a member run');
+    const executor = createFullTestExecutor({ logger, tmpDir: NO_TMP, heavyLockDir: dir });
+    const controller = new AbortController();
+    const onStarted = vi.fn();
+    setTimeout(() => controller.abort(), 100);
+    await executor.run(spec, controller.signal, onStarted);
+    expect(onStarted).not.toHaveBeenCalled();
+    await other.release();
+  });
+
+  it('refuses a GitHub Actions descriptor without starting, taking the lock or making a run directory (PM-900)', async () => {
+    const onStarted = vi.fn();
+    const github: FullTestSpec = {
+      ...spec,
+      cwd: 'github-actions:acme/web',
+      githubActions: {
+        ref: { projectKey: 'PM', repo: 'projectman' },
+        mergeId: 'merge_1',
+        repo: 'acme/web',
+        base: 'main',
+        commit: 'a'.repeat(40),
+        workflow: 'merge-check.yml',
+      },
+    };
+    const result = await createFullTestExecutor({ logger, tmpDir: NO_TMP, heavyLockDir: dir }).run(
+      github,
+      new AbortController().signal,
+      onStarted,
+    );
+    expect(result).toMatchObject({ outcome: 'error', reason: 'github_unavailable', durationMs: 0 });
+    expect(onStarted).not.toHaveBeenCalled();
+    expect(await readHeavyQueue(dir)).toEqual({ holder: null, waiting: [] });
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  describe('when the run requires the queue (PM-658)', () => {
+    const required: FullTestSpec = { ...spec, requireHeavyLock: true };
+
+    it.each([
+      ['no folder', undefined],
+      // /tmp is not ours and not 0700.
+      ['an unusable folder', '/tmp/heavy'],
+    ])('ends as heavy_lock_unavailable with %s, and starts nothing', async (_name, heavyLockDir) => {
+      const onStarted = vi.fn();
+      const executor = createFullTestExecutor({ logger, tmpDir: NO_TMP, heavyLockDir });
+      const result = await executor.run(required, new AbortController().signal, onStarted);
+      expect(result).toEqual({
+        outcome: 'error',
+        reason: 'heavy_lock_unavailable',
+        exitCode: null,
+        durationMs: 0,
+        failedFiles: [],
+        outputTail: expect.stringContaining('heavy-run queue is unavailable'),
+      });
+      expect(onStarted).not.toHaveBeenCalled();
+      // The run directory is never even tried (it could not be made at NO_TMP: that would warn).
+      expect(warn).not.toHaveBeenCalledWith(expect.anything(), expect.stringContaining('run directory'));
+    });
+
+    it.each([undefined, false])('keeps the earlier behaviour when requireHeavyLock is %s', async (flag) => {
+      const onStarted = vi.fn();
+      const optional: FullTestSpec = flag === undefined ? spec : { ...spec, requireHeavyLock: flag };
+      for (const heavyLockDir of [undefined, '/tmp/heavy']) {
+        const result = await createFullTestExecutor({ logger, tmpDir: NO_TMP, heavyLockDir }).run(
+          optional,
+          new AbortController().signal,
+          onStarted,
+        );
+        expect(result).toMatchObject({ outcome: 'error', reason: 'sandbox_unavailable' });
+      }
+      expect(onStarted).toHaveBeenCalledTimes(2);
+    });
+
+    it('waits for its turn, runs with the lock and gives it back', async () => {
+      const other = await hold('a member run');
+      setTimeout(() => void other.release(), 300);
+      const holders: (string | undefined)[] = [];
+      const executor = createFullTestExecutor({ logger, tmpDir: NO_TMP, heavyLockDir: dir });
+      const result = await executor.run(required, new AbortController().signal, () => {
+        void readHeavyQueue(dir).then((queue) => holders.push(queue.holder?.label));
+      });
+      expect(result).toMatchObject({ outcome: 'error', reason: 'sandbox_unavailable' });
+      await vi.waitFor(() => expect(holders).toEqual(['server full test PM-1-checkout']));
+      expect((await readHeavyQueue(dir)).holder).toBeNull();
+    });
+
+    it('is killed, not unavailable, when it is stopped while it waits', async () => {
+      const other = await hold('a member run');
+      const onStarted = vi.fn();
+      const controller = new AbortController();
+      setTimeout(() => controller.abort(), 150);
+      const result = await createFullTestExecutor({ logger, tmpDir: NO_TMP, heavyLockDir: dir }).run(
+        required,
+        controller.signal,
+        onStarted,
+      );
+      expect(result).toMatchObject({ outcome: 'error', reason: 'killed' });
+      expect(onStarted).not.toHaveBeenCalled();
+      expect((await readHeavyQueue(dir)).waiting).toEqual([]);
+      await other.release();
+    });
+  });
+
+  describe('when the run asks for the dependency preparation (PM-681)', () => {
+    const prepared: FullTestSpec = {
+      ...spec,
+      npmCi: { ref: { projectKey: 'PM', repo: 'projectman' }, mergeId: 'mrg_1' },
+    };
+
+    it.each([
+      ['no queue folder', false],
+      ['a queue folder', true],
+    ])('ends as dependency_install_failed with %s, and starts nothing', async (_name, withQueue) => {
+      const onStarted = vi.fn();
+      const executor = createFullTestExecutor({
+        logger,
+        tmpDir: NO_TMP,
+        heavyLockDir: withQueue ? dir : undefined,
+      });
+      const result = await executor.run(
+        { ...prepared, requireHeavyLock: true },
+        new AbortController().signal,
+        onStarted,
+      );
+      expect(result).toEqual({
+        outcome: 'error',
+        reason: 'dependency_install_failed',
+        exitCode: null,
+        durationMs: 0,
+        failedFiles: [],
+        outputTail: expect.stringContaining('worktrees root'),
+      });
+      expect(onStarted).not.toHaveBeenCalled();
+      // Neither the queue nor the run directory is tried.
+      expect(warn).not.toHaveBeenCalled();
+      if (withQueue) expect((await readHeavyQueue(dir)).waiting).toEqual([]);
+    });
+
+    it('keeps the earlier behaviour when npmCi is missing', async () => {
+      const onStarted = vi.fn();
+      const result = await createFullTestExecutor({ logger, tmpDir: NO_TMP }).run(
+        spec,
+        new AbortController().signal,
+        onStarted,
+      );
+      expect(result).toMatchObject({ outcome: 'error', reason: 'sandbox_unavailable' });
+      expect(onStarted).toHaveBeenCalledTimes(1);
+    });
   });
 
   it('does not queue at all without a folder', async () => {

@@ -21,6 +21,7 @@ import { promisify } from 'node:util';
 import type { FastifyBaseLogger } from 'fastify';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cloneDependencies } from './dependencies';
+import { hasApfsTemporaryFilesystem } from '../../test/helpers/apfs';
 
 /*
  * Temp repositories only. The tests inject `platform`, `probe` and `copyTree` so they run
@@ -344,12 +345,59 @@ describe('cloneDependencies', { timeout: 30_000 }, () => {
     await install(reference);
     await staleTarget();
 
-    expect(await clone({ copyTree: () => new Promise(() => undefined), copyTimeoutMs: 10 }).result).toEqual({
+    expect(
+      await clone({
+        copyTree: (_src, _dest, signal) =>
+          new Promise((_resolve, reject) => {
+            signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+          }),
+        copyTimeoutMs: 10,
+      }).result,
+    ).toEqual({
       status: 'skipped',
       reason: 'failed',
     });
     expect(await exists(path.join(target, 'node_modules/obsolete'))).toBe(true);
     expect(await readFile(path.join(target, 'apps/web/node_modules/vite/index.js'), 'utf8')).toBe('old');
+    expect(await leftovers(target)).toEqual([]);
+  });
+
+  it('removes the temporary only after an aborted copy stopped', async () => {
+    await install(reference);
+    await staleTarget();
+    let lateWriteFinished = false;
+    const copyTree = async (_src: string, dest: string, signal: AbortSignal) => {
+      await new Promise<void>((resolve) => signal.addEventListener('abort', () => resolve(), { once: true }));
+      await mkdir(dest, { recursive: true });
+      await writeFile(path.join(dest, 'late-write'), 'copier still running');
+      lateWriteFinished = true;
+      throw new Error('aborted');
+    };
+
+    expect(await clone({ copyTree, copyTimeoutMs: 10 }).result).toEqual({
+      status: 'skipped',
+      reason: 'failed',
+    });
+    expect(lateWriteFinished).toBe(true);
+    expect(await leftovers(target)).toEqual([]);
+    expect(await exists(path.join(target, 'node_modules/obsolete'))).toBe(true);
+    expect(await readFile(path.join(target, 'apps/web/node_modules/vite/index.js'), 'utf8')).toBe('old');
+  });
+
+  it('does not start the next directory once the budget ran out', async () => {
+    await install(reference);
+    const copyTree = vi.fn(
+      (_src: string, _dest: string, signal: AbortSignal) =>
+        new Promise<void>((_resolve, reject) => {
+          signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+        }),
+    );
+
+    expect(await clone({ copyTree, copyTimeoutMs: 10 }).result).toEqual({
+      status: 'skipped',
+      reason: 'failed',
+    });
+    expect(copyTree).toHaveBeenCalledTimes(1);
     expect(await leftovers(target)).toEqual([]);
   });
 
@@ -512,6 +560,48 @@ describe('cloneDependencies', { timeout: 30_000 }, () => {
     expect(await exists(path.join(target, 'node_modules'))).toBe(false);
   });
 
+  it('passes over a reference on another volume and takes the next one on the target volume', async () => {
+    const second = path.join(base, 'second');
+    await git('-C', reference, 'worktree', 'add', '--quiet', '-b', 'second', second);
+    await install(reference);
+    await install(second);
+    await put(second, 'node_modules/marker', 'second');
+    const probe = vi.fn(async (candidate: string) => {
+      if (candidate === reference) throw new Error('the checkouts are on different volumes');
+    });
+
+    const done = await clone({ candidates: [reference, second], probe }).result;
+
+    expect(done).toMatchObject({ status: 'cloned', reference: second });
+    expect(probe.mock.calls.map((call) => call[0])).toEqual([reference, second]);
+    expect(await readFile(path.join(target, 'node_modules/marker'), 'utf8')).toBe('second');
+  });
+
+  it('skips as unsupported when every matching reference is on another volume', async () => {
+    const second = path.join(base, 'second');
+    await git('-C', reference, 'worktree', 'add', '--quiet', '-b', 'second', second);
+    await install(reference);
+    await install(second);
+    const probe = vi.fn(async () => {
+      throw new Error('the checkouts are on different volumes');
+    });
+
+    expect(await clone({ candidates: [reference, second], probe }).result).toEqual({
+      status: 'skipped',
+      reason: 'unsupported',
+    });
+    expect(probe).toHaveBeenCalledTimes(2);
+  });
+
+  it('skips as no_reference, without probing, when no candidate has the lockfile', async () => {
+    await install(reference);
+    await put(reference, 'package-lock.json', '{"name":"app","lockfileVersion":3,"changed":1}\n');
+    const probe = vi.fn(async () => undefined);
+
+    expect(await clone({ probe }).result).toEqual({ status: 'skipped', reason: 'no_reference' });
+    expect(probe).not.toHaveBeenCalled();
+  });
+
   it('removes everything when the reference was installed again during the clone', async () => {
     await install(reference);
     const copyTree = async (src: string, dest: string) => {
@@ -579,7 +669,7 @@ describe('cloneDependencies', { timeout: 30_000 }, () => {
     expect(warnings).toHaveLength(1);
   });
 
-  it.skipIf(process.platform !== 'darwin')(
+  it.skipIf(!hasApfsTemporaryFilesystem)(
     'clones with the real cp -c and keeps workspace links relative, pointing at the target',
     async () => {
       await install(reference);

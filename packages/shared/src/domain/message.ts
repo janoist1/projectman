@@ -1,10 +1,13 @@
 import { z } from 'zod';
+import { Actor } from './event';
 import { MessageOrigin } from './involvement';
 import { MemberHandle } from './member';
+import { MessageAttachmentRef } from './message-attachment';
 import { StageId } from './pipeline';
 import { WorkItemRef } from './session';
 import { TaskKey } from './task';
 import type { TaskViewer } from './task';
+import { MAX_MESSAGE_PLACES, UiLocation, UiPlace } from './ui-place';
 
 /** The sender of the messages projectman writes itself (a send-back, a relation notice). It is no member. */
 export const SYSTEM_SENDER = 'system';
@@ -36,6 +39,14 @@ export const TeamMessageAnswer = z.object({
 });
 export type TeamMessageAnswer = z.infer<typeof TeamMessageAnswer>;
 
+export const RelayedReply = z.object({
+  /** The project manager's session the text was read from. */
+  sessionId: z.string(),
+  /** The person's message it answers. */
+  inReplyTo: z.string(),
+});
+export type RelayedReply = z.infer<typeof RelayedReply>;
+
 export const MessageKind = z.enum(['action', 'info']);
 export type MessageKind = z.infer<typeof MessageKind>;
 export const CardVersion = z.object({
@@ -44,7 +55,14 @@ export const CardVersion = z.object({
   reviewCommit: z.string().nullable(),
 });
 export type CardVersion = z.infer<typeof CardVersion>;
-export const MessageSubject = z.object({ type: z.literal('permission'), inboxItemId: z.string() });
+/**
+ * What a message is about besides its card: a permission request (the message is stale once it is decided),
+ * or an obligation (PM-813: the reminder is stale once the step is not open any more).
+ */
+export const MessageSubject = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('permission'), inboxItemId: z.string() }),
+  z.object({ type: z.literal('obligation'), obligationId: z.string() }),
+]);
 export type MessageSubject = z.infer<typeof MessageSubject>;
 export const StaleReason = z.enum([
   'card_closed',
@@ -53,19 +71,30 @@ export const StaleReason = z.enum([
   'sender_result',
   'result_recorded',
   'permission_closed',
+  'obligation_closed',
 ]);
 export type StaleReason = z.infer<typeof StaleReason>;
 
 /** A message between team members (human or AI), optionally about a task. */
 export const TeamMessage = z.object({
+  /** Arrived by e-mail; `direct`: written to the member's own address (PM-989), missing: a reply to the member's mail. */
+  email: z.object({ emailId: z.string(), subject: z.string(), direct: z.boolean().optional() }).optional(),
   via: z.literal('integrator').optional(),
+  /**
+   * The full origin of a message sent in the Operator's super mode (PM-757); absent on every other message.
+   * `from` stays the Operator's handle and `via` stays `integrator`.
+   */
+  actor: Actor.optional(),
   origin: MessageOrigin.optional(),
   id: z.string(),
   projectKey: z.string(),
   from: MemberHandle,
   to: z.array(MemberHandle).min(1),
   taskKey: TaskKey.nullable(),
-  body: z.string().min(1),
+  /** The text; empty only for a message that carries files alone. */
+  body: z.string(),
+  /** Files the message carries (PM-515); absent: none. */
+  attachments: z.array(MessageAttachmentRef).optional(),
   createdAt: z.string(),
   deliveredAt: z.string().nullable(),
   kind: MessageKind.optional(),
@@ -74,12 +103,29 @@ export const TeamMessage = z.object({
   receipts: z.array(MessageReceipt).optional(),
   /** Set on the message that carries a person's answer to an AI member's question (PM-249); older answers have none. The asker is `to[0]`, the one who answered is `from`. */
   answer: TeamMessageAnswer.optional(),
+  relayed: RelayedReply.optional(),
+  /** Set on a message the Operator sent during an owner's request (PM-463): the request's id. */
+  operatorRequest: z.string().optional(),
+  operatorSignal: z.string().optional(),
+  /** Where the sender was in the app when they wrote it (PM-1071); the project manager gets it as background. */
+  location: UiLocation.optional(),
+  /** The places the project manager offers under the message as "go there" buttons (PM-1071). */
+  places: z.array(UiPlace).max(MAX_MESSAGE_PLACES).optional(),
 });
 export type TeamMessage = z.infer<typeof TeamMessage>;
 
 /** Whether the viewer sees every team message of the project: an owner or an admin. */
 export function canSeeAllTeamMessages(viewer: Pick<TaskViewer, 'access'>): boolean {
   return viewer.access === 'owner' || viewer.access === 'admin';
+}
+
+/**
+ * Whether the viewer sees the Operator's sessions (their list, detail, terminal and live events, PM-475): the
+ * same people who see every team message, so the owner and the admin keep sight of what the Operator tells
+ * the project's other people.
+ */
+export function canSeeOperatorSessions(viewer: Pick<TaskViewer, 'access'>): boolean {
+  return canSeeAllTeamMessages(viewer);
 }
 
 /** An owner and an admin see every team message; everyone else only what they sent or what was sent to them. */
@@ -89,11 +135,12 @@ export function canSeeTeamMessage(viewer: TaskViewer, message: Pick<TeamMessage,
   );
 }
 
-export type CardThreadRecipientBasis = 'workers' | 'assignee' | 'stage_owners' | 'none';
+export type CardThreadRecipientBasis = 'workers' | 'assignee' | 'stage_owners' | 'project_manager' | 'none';
 
 /**
  * Who a message written on a card's thread goes to by default (PM-249): the members working on the card,
- * else its assignee, else its stage's owners; never the writer, only members who may get messages.
+ * else its assignee, else its stage's owners, else the project manager (PM-488), who passes it on; never
+ * the writer, only members who may get messages.
  */
 export function cardThreadRecipients(input: {
   /** Members of `cardWorkerSessions(...)`, in its order. */
@@ -101,6 +148,8 @@ export function cardThreadRecipients(input: {
   assignee: string | null;
   /** The resolved owners of the card's stage (`BoardView.stages`). */
   stageOwners: readonly string[];
+  /** The project manager (`projectManagerAmong`), the last fallback (PM-488); null: there is none. */
+  projectManager: string | null;
   writer: string;
   /** An active member of the project (not retired) other than a client. */
   canReceive: (handle: string) => boolean;
@@ -114,6 +163,8 @@ export function cardThreadRecipients(input: {
   if (assignee.length > 0) return { basis: 'assignee', to: assignee };
   const owners = usable(input.stageOwners);
   if (owners.length > 0) return { basis: 'stage_owners', to: owners };
+  const projectManager = usable(input.projectManager ? [input.projectManager] : []);
+  if (projectManager.length > 0) return { basis: 'project_manager', to: projectManager };
   return { basis: 'none', to: [] };
 }
 
@@ -146,6 +197,22 @@ export function messageRoute(
   return message.receipts?.find((r) => r.handle === handle)?.route ?? routeFor(message.taskKey);
 }
 
+/**
+ * The AI handles a message is still to be delivered to (PM-925). A message with receipts: each addressed
+ * handle whose AI receipt has no `deliveredAt`. A legacy message without receipts: every addressed handle,
+ * while the message itself has no `deliveredAt`. Whether the handle is an AI member is the caller's to check
+ * for the legacy ones; the member queue only creates items for AI members.
+ */
+export function pendingRecipientsOf(message: Pick<TeamMessage, 'to' | 'receipts' | 'deliveredAt'>): string[] {
+  const addressed = [...new Set(message.to)].sort();
+  if (!message.receipts) return message.deliveredAt ? [] : addressed;
+  return addressed
+    .filter((handle) =>
+      message.receipts!.some((r) => r.handle === handle && r.kind === 'ai' && !r.deliveredAt),
+    )
+    .sort();
+}
+
 export function sameWorkItem(a: WorkItemRef, b: WorkItemRef): boolean {
   if (a.type !== b.type) return false;
   switch (a.type) {
@@ -156,6 +223,6 @@ export function sameWorkItem(a: WorkItemRef, b: WorkItemRef): boolean {
     case 'schedule':
       return a.runId === (b as typeof a).runId;
     case 'general':
-      return true;
+      return a.with === (b as typeof a).with;
   }
 }

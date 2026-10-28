@@ -2,10 +2,10 @@ import { EngineEvent, encodeFrame } from './protocol';
 import type { EngineFrame } from './protocol';
 
 /** The most events, and encoded bytes, the engine keeps for the cloud while it is not connected (PM-314). */
-export const ENGINE_BUFFER_MAX_EVENTS = 10_000;
-export const ENGINE_BUFFER_MAX_BYTES = 50 * 1024 * 1024;
+const ENGINE_BUFFER_MAX_EVENTS = 10_000;
+const ENGINE_BUFFER_MAX_BYTES = 50 * 1024 * 1024;
 
-export interface EngineEventBufferOptions {
+interface EngineEventBufferOptions {
   maxEvents?: number;
   maxBytes?: number;
 }

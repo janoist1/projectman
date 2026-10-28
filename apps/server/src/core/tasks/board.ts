@@ -1,0 +1,67 @@
+import { DEFAULT_AGENT_PROVIDER, hasPlanUsage, labelHolders, resolvedStages } from '@projectman/shared';
+import type { BoardView } from '@projectman/shared';
+import type { InboxService } from '../inbox';
+import type { MemberService } from '../members';
+import type { BoardPauses, BoardPlanUsage } from './ports';
+import type { ProjectService } from '../projects';
+import type { TaskService } from './service';
+import type { Viewer } from '../projects';
+
+/** A project's board as one member sees it. */
+export class BoardService {
+  private readonly projects: ProjectService;
+  private readonly tasks: TaskService;
+  private readonly members: MemberService;
+  private readonly inbox: InboxService;
+  private readonly planUsage: BoardPlanUsage;
+  private readonly pauses: BoardPauses;
+
+  constructor(deps: {
+    projects: ProjectService;
+    tasks: TaskService;
+    members: MemberService;
+    inbox: InboxService;
+    planUsage: BoardPlanUsage;
+    pauses: BoardPauses;
+  }) {
+    this.pauses = deps.pauses;
+    this.projects = deps.projects;
+    this.tasks = deps.tasks;
+    this.members = deps.members;
+    this.inbox = deps.inbox;
+    this.planUsage = deps.planUsage;
+  }
+
+  /**
+   * Columns with their stages, labels with who may set them, the tasks, the
+   * roster, the viewer's open inbox count and the plan usage of every provider the team's AI
+   * members run on that has a measurable one (`hasPlanUsage`; known from earlier probes).
+   */
+  async view(projectKey: string, viewer: Viewer): Promise<BoardView> {
+    const { config } = await this.projects.load(projectKey);
+    const providers = [
+      ...new Set(
+        config.team.members.flatMap((m) => (m.kind === 'ai' ? [m.provider ?? DEFAULT_AGENT_PROVIDER] : [])),
+      ),
+    ].filter(hasPlanUsage);
+    const planUsageByProvider = Object.fromEntries(
+      providers.map((provider) => [provider, this.planUsage.peek(projectKey, provider)]),
+    );
+    return {
+      aiEnabled: config.team.limits.aiEnabled,
+      project: this.projects.summary(projectKey),
+      columns: config.pipeline.columns.map((column) => ({
+        ...column,
+        stageIds: config.pipeline.stages.filter((s) => s.columnId === column.id).map((s) => s.id),
+      })),
+      stages: resolvedStages(config),
+      labels: config.pipeline.labels.map((label) => ({ ...label, holders: labelHolders(config, label) })),
+      tasks: this.tasks.list(projectKey),
+      members: this.members.rosterFor(config),
+      openInboxCount: this.inbox.countOpenFor(projectKey, viewer.handle, viewer),
+      planUsage: planUsageByProvider.claude ?? null,
+      planUsageByProvider,
+      pause: this.pauses.projectView(projectKey),
+    };
+  }
+}

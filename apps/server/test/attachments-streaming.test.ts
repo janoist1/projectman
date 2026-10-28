@@ -10,22 +10,14 @@ import { addHumanAndLogin, createAppHarness, createProject, setupOwner } from '.
 import type { AppHarness } from './helpers/app-harness';
 import { OWNER_ACTOR } from './helpers/domain-harness';
 import { chunkedPost, fileBody, pngBytes } from './helpers/attachments';
+import { waitFor } from './helpers/wait';
 
 const OWNER_AUTHOR = { name: 'Owner', email: 'owner@example.com' };
-
-async function waitUntil(condition: () => boolean, what: string, timeoutMs = 3000): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (!condition()) {
-    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
-}
 
 describe('attachment uploads over a real connection', () => {
   let h: AppHarness;
   let clock: Date;
   let owner: string;
-  let client: string;
   let developer: string;
   let url: string;
 
@@ -35,10 +27,9 @@ describe('attachment uploads over a real connection', () => {
     owner = await setupOwner(h.app);
     await createProject(h, owner);
     developer = await addHumanAndLogin(h.app, { handle: 'robin', access: 'developer' });
-    client = await addHumanAndLogin(h.app, { handle: 'cleo', access: 'client' });
     const { tasks } = h.app.projectman.domain;
     await tasks.create('AR', { title: 'Internal task' }, OWNER_ACTOR);
-    await tasks.create('AR', { title: 'Shared task', visibility: 'shared' }, OWNER_ACTOR);
+    await tasks.create('AR', { title: 'Shared task' }, OWNER_ACTOR);
     await h.app.listen({ host: '127.0.0.1', port: 0 });
     url = `http://127.0.0.1:${(h.app.server.address() as AddressInfo).port}`;
   });
@@ -54,8 +45,9 @@ describe('attachment uploads over a real connection', () => {
     }
   };
   /** Mid-upload: the server holds the pending row and the temporary file. */
-  const midUpload = () =>
-    waitUntil(() => pending().length === 1 && stored().length === 1, 'the upload to start');
+  const midUpload = async () => {
+    await waitFor(() => pending().length === 1 && stored().length === 1, 'the upload to start');
+  };
   const nothingLeft = (taskKey = 'AR-1') => {
     expect(pending()).toEqual([]);
     expect(stored(taskKey)).toEqual([]);
@@ -82,7 +74,7 @@ describe('attachment uploads over a real connection', () => {
     expect(response.status).toBe(413);
     expect(JSON.parse(response.body)).toMatchObject({ error: { code: 'attachment_too_large' } });
     expect(response.headers.connection).toBe('close');
-    await waitUntil(() => stored().length === 0 && pending().length === 0, 'the cleanup');
+    await waitFor(() => stored().length === 0 && pending().length === 0, 'the cleanup');
     nothingLeft();
   }, 30_000);
 
@@ -92,7 +84,7 @@ describe('attachment uploads over a real connection', () => {
       abort: true,
     });
     expect(result.status).toBe(0);
-    await waitUntil(() => stored().length === 0 && pending().length === 0, 'the cleanup');
+    await waitFor(() => stored().length === 0 && pending().length === 0, 'the cleanup');
     nothingLeft();
   });
 
@@ -104,20 +96,8 @@ describe('attachment uploads over a real connection', () => {
       },
     });
     expect(result.status).toBe(401);
-    await waitUntil(() => stored().length === 0 && pending().length === 0, 'the cleanup');
+    await waitFor(() => stored().length === 0 && pending().length === 0, 'the cleanup');
     nothingLeft();
-  });
-
-  it('checks the access again at the end: a task that turned internal', async () => {
-    const result = await chunkedPost(endpoint('AR-2'), client, fileBody(pngBytes(400_000)), {
-      between: async () => {
-        await waitUntil(() => pending().length === 1, 'the upload to start');
-        await h.app.projectman.domain.tasks.update('AR', 'AR-2', { visibility: 'internal' }, OWNER_ACTOR);
-      },
-    });
-    expect(result.status).toBe(404);
-    await waitUntil(() => stored('AR-2').length === 0 && pending().length === 0, 'the cleanup');
-    nothingLeft('AR-2');
   });
 
   it.each([
@@ -144,7 +124,7 @@ describe('attachment uploads over a real connection', () => {
     });
     expect(result.status).toBe(status);
     expect(JSON.parse(result.body)).toMatchObject({ error: { code } });
-    await waitUntil(() => stored().length === 0 && pending().length === 0, 'the cleanup');
+    await waitFor(() => stored().length === 0 && pending().length === 0, 'the cleanup');
     nothingLeft();
   });
 });
@@ -167,7 +147,7 @@ describe('attachment websocket notifications', () => {
     client = await addHumanAndLogin(h.app, { handle: 'cleo', access: 'client' });
     const { tasks } = h.app.projectman.domain;
     await tasks.create('AR', { title: 'Internal task' }, OWNER_ACTOR);
-    await tasks.create('AR', { title: 'Shared task', visibility: 'shared' }, OWNER_ACTOR);
+    await tasks.create('AR', { title: 'Shared task' }, OWNER_ACTOR);
   });
   afterEach(async () => {
     for (const ws of sockets.splice(0)) ws.terminate();
@@ -193,7 +173,7 @@ describe('attachment websocket notifications', () => {
     const deadline = Date.now() + 3000;
     while (!events.some((e) => e.type === 'task_upserted')) {
       if (Date.now() > deadline) throw new Error('timed out waiting for the subscription');
-      await tasks.create('AR', { title: `Marker ${sockets.length}`, visibility: 'shared' }, OWNER_ACTOR);
+      await tasks.create('AR', { title: `Marker ${sockets.length}` }, OWNER_ACTOR);
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
     return events;
@@ -202,7 +182,7 @@ describe('attachment websocket notifications', () => {
   const attachmentEvents = (events: ServerEvent[]) =>
     events.filter((e) => e.type === 'task_attachments_changed');
 
-  it('tells members after the commit, with nothing but the task key, and clients only for tasks shared with them', async () => {
+  it('tells members, clients included, after the commit, with nothing but the task key', async () => {
     const ownerEvents = await connect(owner);
     const clientEvents = await connect(client);
     const { attachments } = h.app.projectman.domain;
@@ -217,24 +197,16 @@ describe('attachment websocket notifications', () => {
 
     const internal = await add('AR-1');
     const shared = await add('AR-2');
-    await waitUntil(() => attachmentEvents(ownerEvents).length === 2, 'the owner events');
+    await waitFor(() => attachmentEvents(ownerEvents).length === 2, 'the owner events');
     expect(attachmentEvents(ownerEvents)).toEqual([
       { type: 'task_attachments_changed', projectKey: 'AR', taskKey: 'AR-1' },
       { type: 'task_attachments_changed', projectKey: 'AR', taskKey: 'AR-2' },
     ]);
-    await waitUntil(() => attachmentEvents(clientEvents).length === 1, 'the client event');
-    expect(attachmentEvents(clientEvents)).toEqual([
-      { type: 'task_attachments_changed', projectKey: 'AR', taskKey: 'AR-2' },
-    ]);
+    await waitFor(() => attachmentEvents(clientEvents).length === 2, 'the client events');
+    expect(attachmentEvents(clientEvents)).toEqual(attachmentEvents(ownerEvents));
 
-    // A client no longer hears about a task that turned internal; the live timeline never reaches them.
-    await h.app.projectman.domain.tasks.update('AR', 'AR-2', { visibility: 'internal' }, OWNER_ACTOR);
     await attachments.delete('AR', 'AR-2', shared.id, OWNER_ACTOR);
     await attachments.delete('AR', 'AR-1', internal.id, OWNER_ACTOR);
-    await waitUntil(() => attachmentEvents(ownerEvents).length === 4, 'the delete events');
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(attachmentEvents(clientEvents)).toHaveLength(1);
-    expect(clientEvents.filter((e) => e.type === 'timeline_appended')).toEqual([]);
-    expect(JSON.stringify(clientEvents)).not.toContain('a.png');
+    await waitFor(() => attachmentEvents(clientEvents).length === 4, 'the delete events');
   });
 });

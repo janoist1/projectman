@@ -2,6 +2,13 @@ import { describe, expect, it } from 'vitest';
 import type { StartSessionSpec } from '../../../contracts';
 import { HTTP_HOOK_EVENTS, buildClaudeArgs, buildMcpConfig, buildSettings, denyWriteRules } from './args';
 
+/** The forwarder's target file and the CLI's configuration files of a session's private folder. */
+const HOOK_CONFIG = '/run/ses_1.0123456789abcdef/hook.curl';
+const FILES = {
+  settingsPath: '/run/ses_1.0123456789abcdef/claude-settings.json',
+  mcpConfigPath: '/run/ses_1.0123456789abcdef/claude-mcp.json',
+};
+
 const spec: StartSessionSpec = {
   sessionId: 'ses_1',
   claudeSessionId: '0b8a3c2e-1f5d-4c4e-9a7b-2d6e8f1a3b5c',
@@ -19,6 +26,7 @@ const spec: StartSessionSpec = {
 describe('buildSettings', () => {
   const settings = buildSettings({
     hookUrl: 'http://127.0.0.1:4700/hooks/abc',
+    hookConfigPath: HOOK_CONFIG,
     allowedTools: spec.allowedTools,
     permissionTimeoutMs: 15 * 60_000,
   });
@@ -31,6 +39,7 @@ describe('buildSettings', () => {
     expect(settings.hooks.PreToolUse![0]!.hooks[0]!.timeout).toBe(120);
     const sandboxed = buildSettings({
       hookUrl: 'http://h/hooks/t',
+      hookConfigPath: HOOK_CONFIG,
       allowedTools: [],
       permissionTimeoutMs: 1000,
       sandbox: { allowWrite: ['/work'], allowedDomains: [], allowLocalBinding: false },
@@ -39,7 +48,12 @@ describe('buildSettings', () => {
   });
 
   it('passes non-empty deny rules and omits empty ones', () => {
-    const input = { hookUrl: 'http://h/hooks/t', allowedTools: [], permissionTimeoutMs: 1000 };
+    const input = {
+      hookUrl: 'http://h/hooks/t',
+      hookConfigPath: HOOK_CONFIG,
+      allowedTools: [],
+      permissionTimeoutMs: 1000,
+    };
     expect(buildSettings(input).permissions).not.toHaveProperty('deny');
     expect(buildSettings({ ...input, deniedTools: [] }).permissions).not.toHaveProperty('deny');
     expect(
@@ -55,7 +69,9 @@ describe('buildSettings', () => {
     }
     const start = settings.hooks.SessionStart![0]!.hooks[0]!;
     expect(start.type).toBe('command');
-    expect(start.command).toContain("'http://127.0.0.1:4700/hooks/abc'");
+    // The forwarder names the private file; the token stays out of the command (PM-156).
+    expect(start.command).toContain(`--config '${HOOK_CONFIG}'`);
+    expect(start.command).not.toContain('/hooks/abc');
   });
 
   it("listens to Claude Code's auto mode refusals (PermissionDenied)", () => {
@@ -72,7 +88,7 @@ describe('buildSettings', () => {
 
   it('hands the mode of the member to the CLI as it is, whatever it is', () => {
     for (const mode of ['default', 'acceptEdits', 'auto', 'plan'] as const) {
-      const args = buildClaudeArgs({ ...spec, permissionMode: mode }, settings);
+      const args = buildClaudeArgs({ ...spec, permissionMode: mode }, FILES);
       expect(args[args.indexOf('--permission-mode') + 1]).toBe(mode);
     }
   });
@@ -87,6 +103,7 @@ describe('buildSettings', () => {
     expect(settings).not.toHaveProperty('sandbox');
     const sandboxed = buildSettings({
       hookUrl: 'http://h/hooks/t',
+      hookConfigPath: HOOK_CONFIG,
       allowedTools: [],
       permissionTimeoutMs: 1000,
       sandbox: { allowWrite: ['~/.npm'], allowedDomains: ['registry.npmjs.org'], allowLocalBinding: true },
@@ -105,6 +122,7 @@ describe('buildSettings', () => {
   it("renders a reader's sandbox and denies the file tools' edits of its read-only directories (PM-167)", () => {
     const sandboxed = buildSettings({
       hookUrl: 'http://h/hooks/t',
+      hookConfigPath: HOOK_CONFIG,
       allowedTools: [],
       deniedTools: ['Bash(git push:*)'],
       permissionTimeoutMs: 1000,
@@ -151,6 +169,7 @@ describe('buildSettings', () => {
     };
     const sandboxed = buildSettings({
       hookUrl: 'http://h/hooks/t',
+      hookConfigPath: HOOK_CONFIG,
       allowedTools: [],
       permissionTimeoutMs: 1000,
       sandbox: {
@@ -205,6 +224,7 @@ describe('buildSettings', () => {
     it('sets strictAllowlist and allowedDomains based on the policy', () => {
       const off = buildSettings({
         hookUrl: 'http://h/hooks/t',
+        hookConfigPath: HOOK_CONFIG,
         allowedTools: [],
         permissionTimeoutMs: 1000,
         sandbox: { allowWrite: [], allowedDomains: ['registry.npmjs.org'], allowLocalBinding: true },
@@ -217,6 +237,7 @@ describe('buildSettings', () => {
 
       const on = buildSettings({
         hookUrl: 'http://h/hooks/t',
+        hookConfigPath: HOOK_CONFIG,
         allowedTools: [],
         permissionTimeoutMs: 1000,
         sandbox: { allowWrite: [], allowedDomains: ['*'], deniedDomains: ['h'], allowLocalBinding: true },
@@ -234,6 +255,7 @@ describe('buildSettings', () => {
     expect(() =>
       buildSettings({
         hookUrl: 'http://h/hooks/t',
+        hookConfigPath: HOOK_CONFIG,
         allowedTools: [],
         permissionTimeoutMs: 1000,
         sandbox: { allowWrite: [], denyWrite: ['/work(1)'], allowedDomains: [], allowLocalBinding: true },
@@ -246,6 +268,7 @@ describe('buildSettings', () => {
     const decomposed = composed.normalize('NFD');
     const sandboxed = buildSettings({
       hookUrl: 'http://h/hooks/t',
+      hookConfigPath: HOOK_CONFIG,
       allowedTools: [],
       permissionTimeoutMs: 1000,
       sandbox: { allowWrite: [], denyWrite: [composed], allowedDomains: [], allowLocalBinding: true },
@@ -265,6 +288,7 @@ describe('buildSettings', () => {
   it('forwards every hook of a sandboxed session with the forwarder, past the sandbox proxy', () => {
     const sandboxed = buildSettings({
       hookUrl: 'http://127.0.0.1:4700/hooks/abc',
+      hookConfigPath: HOOK_CONFIG,
       allowedTools: [],
       permissionTimeoutMs: 15 * 60_000,
       sandbox: { allowWrite: [], allowedDomains: [], allowLocalBinding: true },
@@ -274,7 +298,8 @@ describe('buildSettings', () => {
       expect(hook.type).toBe('command');
       expect(hook.url).toBeUndefined();
       expect(hook.command).toContain("--noproxy '*'");
-      expect(hook.command).toContain("'http://127.0.0.1:4700/hooks/abc'");
+      expect(hook.command).toContain(`--config '${HOOK_CONFIG}'`);
+      expect(hook.command).not.toContain('/hooks/abc');
       expect(hook.timeout).toBe(settings.hooks[event]![0]!.hooks[0]!.timeout);
     }
     // Only the permission decision and the tool hooks' answers (a question tool's refusal, PM-199, and
@@ -296,27 +321,30 @@ describe('buildSettings', () => {
 describe('buildClaudeArgs', () => {
   const settings = buildSettings({
     hookUrl: 'http://h/hooks/t',
+    hookConfigPath: HOOK_CONFIG,
     allowedTools: [],
     permissionTimeoutMs: 1000,
   });
 
   it.each([false, true])('passes effort on sessions with resume=%s', (resume) => {
     for (const effort of ['low', 'medium', 'high', 'xhigh', 'max'] as const) {
-      const args = buildClaudeArgs({ ...spec, resume, effort }, settings);
+      const args = buildClaudeArgs({ ...spec, resume, effort }, FILES);
       expect(args[args.indexOf('--effort') + 1]).toBe(effort);
     }
   });
 
   it('starts a new conversation with a fixed session id and every flag', () => {
-    const args = buildClaudeArgs(spec, settings);
+    const args = buildClaudeArgs(spec, FILES);
     const flag = (name: string) => args[args.indexOf(name) + 1];
     expect(flag('--session-id')).toBe(spec.claudeSessionId);
     expect(args).not.toContain('--resume');
     expect(flag('--append-system-prompt')).toBe(spec.appendSystemPrompt);
-    expect(JSON.parse(flag('--mcp-config')!)).toEqual({
+    // Files of the private folder, never their content (PM-156).
+    expect(flag('--mcp-config')).toBe(FILES.mcpConfigPath);
+    expect(flag('--settings')).toBe(FILES.settingsPath);
+    expect(buildMcpConfig(spec.mcpUrl)).toEqual({
       mcpServers: { team: { type: 'http', url: 'http://127.0.0.1:4700/mcp/tok' } },
     });
-    expect(JSON.parse(flag('--settings')!)).toEqual(settings);
     expect(flag('--model')).toBe('opus');
     expect(args).not.toContain('--effort');
     expect(flag('--permission-mode')).toBe('acceptEdits');
@@ -328,10 +356,10 @@ describe('buildClaudeArgs', () => {
   it('passes every additional directory on both new and resumed sessions', () => {
     for (const resume of [false, true]) {
       const dirs = ['/worktrees/AR/AR-1-web', '/worktrees/AR/AR-2 with spaces'];
-      const args = buildClaudeArgs({ ...spec, resume, additionalDirectories: dirs }, settings);
+      const args = buildClaudeArgs({ ...spec, resume, additionalDirectories: dirs }, FILES);
       expect(args.filter((arg, index) => args[index - 1] === '--add-dir')).toEqual(dirs);
     }
-    expect(buildClaudeArgs(spec, settings)).not.toContain('--add-dir');
+    expect(buildClaudeArgs(spec, FILES)).not.toContain('--add-dir');
   });
 
   it.each([false, true])('defines the subagents with --agents with resume=%s (PM-179)', (resume) => {
@@ -344,7 +372,7 @@ describe('buildClaudeArgs', () => {
         model: 'haiku',
       },
     ];
-    const args = buildClaudeArgs({ ...spec, resume, subagents }, settings);
+    const args = buildClaudeArgs({ ...spec, resume, subagents }, FILES);
     const agents = JSON.parse(args[args.indexOf('--agents') + 1]!);
     expect(agents).toEqual({
       'reader-haiku': {
@@ -360,14 +388,14 @@ describe('buildClaudeArgs', () => {
   });
 
   it('passes no --agents without subagents', () => {
-    expect(buildClaudeArgs(spec, settings)).not.toContain('--agents');
-    expect(buildClaudeArgs({ ...spec, subagents: [] }, settings)).not.toContain('--agents');
+    expect(buildClaudeArgs(spec, FILES)).not.toContain('--agents');
+    expect(buildClaudeArgs({ ...spec, subagents: [] }, FILES)).not.toContain('--agents');
   });
 
   it('resumes an existing conversation and leaves out unset options', () => {
     const args = buildClaudeArgs(
       { ...spec, resume: true, model: undefined, permissionMode: undefined, appendSystemPrompt: '' },
-      settings,
+      FILES,
     );
     expect(args.slice(0, 2)).toEqual(['--resume', spec.claudeSessionId]);
     expect(args).not.toContain('--session-id');
@@ -378,183 +406,12 @@ describe('buildClaudeArgs', () => {
   });
 });
 
-describe('the managed VM profile (PM-141)', () => {
-  const policy = (
-    mode: 'bypassPermissions' | 'plan' = 'bypassPermissions',
-    patch: Partial<NonNullable<StartSessionSpec['policy']>> = {},
-  ): NonNullable<StartSessionSpec['policy']> => ({
-    version: 1,
-    enforcement: 'legacy',
-    execution: { profile: 'managed_vm', boundary: { name: 'managed-vm', version: 1 } },
-    access: 'member_workspace',
-    placement: { kind: 'member_workspace', path: '/work', use: 'work' },
-    tools: {
-      team: { all: true, names: [] },
-      files: ['read'],
-      shell: [{ command: 'git diff', arguments: 'prefix' }],
-    },
-    filesystem: { readableRoots: ['/work'], writableRoots: ['/work'], protectedPaths: [] },
-    deniedOperations: ['git_push'],
-    network: { allowedDomains: [], allowLocalBinding: false },
-    outsideSandbox: 'deny',
-    permissions: {
-      claude: mode,
-      sandbox: mode === 'plan' ? 'read-only' : 'danger-full-access',
-      approval: 'never',
-    },
-    ...patch,
-  });
-  const input = {
-    hookUrl: 'http://127.0.0.1:4700/hooks/abc',
-    allowedTools: ['Bash(git status:*)'],
-    deniedTools: ['Bash(git push:*)'],
-    permissionTimeoutMs: 60_000,
-    sandbox: { allowWrite: ['~/.npm'], allowedDomains: ['registry.npmjs.org'], allowLocalBinding: true },
-  };
-
-  it('asks nothing: no tool rules but the team tools, no denied tools, no sandbox, no first-use dialog', () => {
-    const settings = buildSettings({ ...input, policy: policy() });
-    expect(settings.permissions).toEqual({ allow: ['mcp__team__*'] });
-    expect(settings).not.toHaveProperty('sandbox');
-    expect(settings.skipDangerousModePermissionPrompt).toBe(true);
-    // Not the sandbox's command hooks either: an unsandboxed session uses the HTTP hooks.
-    expect(settings.hooks.Stop![0]!.hooks[0]!.type).toBe('http');
-  });
-
-  it('renders no reader sandbox and no read-only rules either (PM-167)', () => {
-    const settings = buildSettings({
-      ...input,
-      policy: policy(),
-      sandbox: { ...input.sandbox, allowWrite: [], denyWrite: ['/work'], denyRead: ['/Users/anna/.ssh'] },
-    });
-    expect(settings.permissions).toEqual({ allow: ['mcp__team__*'] });
-    expect(settings).not.toHaveProperty('sandbox');
-  });
-
-  it('keeps every hook, so the state of the session is still followed', () => {
-    const settings = buildSettings({ ...input, policy: policy() });
-    for (const event of HTTP_HOOK_EVENTS) expect(settings.hooks[event]).toBeDefined();
-    expect(settings.hooks.SessionStart![0]!.hooks[0]!.type).toBe('command');
-  });
-
-  it('starts in bypassPermissions, or plan for a research-only member, and protects the start', () => {
-    const bypass = buildClaudeArgs(
-      { ...spec, permissionMode: 'default', policy: policy() },
-      buildSettings({ ...input, policy: policy() }),
-    );
-    expect(bypass[bypass.indexOf('--permission-mode') + 1]).toBe('bypassPermissions');
-    // Only this session's team server, and none of the project's own settings (PM-49).
-    expect(bypass).toContain('--strict-mcp-config');
-    expect(bypass[bypass.indexOf('--setting-sources') + 1]).toBe('user');
-    const plan = buildClaudeArgs(
-      { ...spec, policy: policy('plan') },
-      buildSettings({ ...input, policy: policy('plan') }),
-    );
-    expect(plan[plan.indexOf('--permission-mode') + 1]).toBe('plan');
-    // Plan mode needs no bypass confirmation to skip.
-    expect(buildSettings({ ...input, policy: policy('plan') })).not.toHaveProperty(
-      'skipDangerousModePermissionPrompt',
-    );
-  });
-
-  it('keeps no hard denials and no classifier guidance: its limits are outside the CLI (PM-165)', () => {
-    const settings = buildSettings({
-      ...input,
-      policy: policy('bypassPermissions', {
-        filesystem: {
-          readableRoots: ['/work'],
-          writableRoots: ['/work'],
-          protectedPaths: [],
-          deniedPaths: ['/Users/anna/.ssh'],
-        },
-        network: { allowedDomains: [], allowLocalBinding: false, deniedHosts: ['localhost'] },
-      }),
-    });
-    expect(settings.permissions).toEqual({ allow: ['mcp__team__*'] });
-    expect(settings).not.toHaveProperty('autoMode');
-  });
-
-  it('does not touch a legacy start: no protected flags, the old rules and the sandbox stay', () => {
-    const legacy = buildSettings({ ...input, policy: undefined });
-    expect(legacy.permissions).toEqual({ allow: ['Bash(git status:*)'], deny: ['Bash(git push:*)'] });
-    expect(legacy.sandbox).toBeDefined();
-    expect(legacy).not.toHaveProperty('skipDangerousModePermissionPrompt');
-    const args = buildClaudeArgs(spec, legacy);
-    expect(args).not.toContain('--setting-sources');
-  });
-
-  it('turns Claude Code prompt suggestions off on every profile (PM-345)', () => {
-    expect(buildSettings({ ...input, policy: undefined }).promptSuggestionEnabled).toBe(false);
-    expect(buildSettings({ ...input, policy: policy() }).promptSuggestionEnabled).toBe(false);
-    const args = buildClaudeArgs(spec, buildSettings({ ...input, policy: policy() }));
-    expect(JSON.parse(args[args.indexOf('--settings') + 1]!)).toMatchObject({
-      promptSuggestionEnabled: false,
-    });
-  });
-
-  it('turns Claude Code auto memory off on every profile (PM-208)', () => {
-    expect(buildSettings({ ...input, policy: undefined }).autoMemoryEnabled).toBe(false);
-    expect(buildSettings({ ...input, policy: policy() }).autoMemoryEnabled).toBe(false);
-  });
-
-  it.each([false, true])(
-    'hands the compaction window to Claude Code in --settings as a number, resume=%s (PM-212)',
-    (resume) => {
-      const withWindow = buildSettings({ ...input, policy: policy(), autoCompactWindowTokens: 200_000 });
-      expect(withWindow.autoCompactWindow).toBe(200_000);
-      const args = buildClaudeArgs({ ...spec, resume }, withWindow);
-      expect(JSON.parse(args[args.indexOf('--settings') + 1]!)).toMatchObject({ autoCompactWindow: 200_000 });
-      // Never the environment variable: the setting is the one place.
-      expect(args.join(' ')).not.toContain('CLAUDE_CODE_AUTO_COMPACT_WINDOW');
-    },
-  );
-
-  it('leaves the compaction window out when none is given', () => {
-    expect(buildSettings({ ...input, policy: policy() })).not.toHaveProperty('autoCompactWindow');
-  });
-
-  it.each([false, true])(
-    'reaches only the team server and no browser, with and without a policy, resume=%s (PM-208)',
-    (resume) => {
-      for (const withPolicy of [false, true]) {
-        const args = buildClaudeArgs(
-          { ...spec, resume, ...(withPolicy ? { policy: policy() } : {}) },
-          buildSettings({ ...input, policy: withPolicy ? policy() : undefined }),
-        );
-        expect(args).toContain('--strict-mcp-config');
-        expect(args).toContain('--no-chrome');
-        // The only MCP source is the team server; the variadic --mcp-config ends at the next flag.
-        expect(args.filter((arg) => arg === '--mcp-config')).toHaveLength(1);
-        expect(args[args.indexOf('--mcp-config') + 2]).toBe('--strict-mcp-config');
-        expect(args).not.toContain('--chrome');
-        // The settings the session starts with turn Claude Code's own auto memory off.
-        expect(JSON.parse(args[args.indexOf('--settings') + 1]!)).toMatchObject({ autoMemoryEnabled: false });
-      }
-    },
-  );
-
-  it('refuses a managed VM policy that asks, or runs in a mode that does', () => {
-    const asking = policy('bypassPermissions', {
-      permissions: { claude: 'bypassPermissions', sandbox: 'danger-full-access', approval: 'on-request' },
-    });
-    expect(() => buildSettings({ ...input, policy: asking })).toThrow(/asks nothing locally/);
-    const acceptEdits = policy('bypassPermissions', {
-      permissions: { claude: 'acceptEdits', sandbox: 'workspace-write', approval: 'never' },
-    });
-    expect(() => buildSettings({ ...input, policy: acceptEdits })).toThrow(/asks nothing locally/);
-  });
-});
-
 describe('the built-in tools and skills of a member session (PM-221)', () => {
   const policyFor = (
     access: NonNullable<StartSessionSpec['policy']>['access'],
-    managed = false,
   ): NonNullable<StartSessionSpec['policy']> => ({
     version: 1,
     enforcement: 'legacy',
-    ...(managed
-      ? { execution: { profile: 'managed_vm' as const, boundary: { name: 'managed-vm', version: 1 } } }
-      : {}),
     access,
     placement: { kind: 'read_only', path: '/work' },
     tools: { team: { all: true, names: [] }, files: [], shell: [] },
@@ -562,9 +419,7 @@ describe('the built-in tools and skills of a member session (PM-221)', () => {
     deniedOperations: [],
     network: { allowedDomains: [], allowLocalBinding: false },
     outsideSandbox: 'deny',
-    permissions: managed
-      ? { claude: 'bypassPermissions', sandbox: 'danger-full-access', approval: 'never' }
-      : { claude: 'default', sandbox: 'workspace-write', approval: 'on-request' },
+    permissions: { claude: 'default', sandbox: 'workspace-write', approval: 'on-request' },
   });
   const toolsOf = (args: string[]) => args[args.indexOf('--tools') + 1]!.split(',');
   const core = [
@@ -580,19 +435,20 @@ describe('the built-in tools and skills of a member session (PM-221)', () => {
     'AskUserQuestion',
   ];
   const settingsFor = (policy: NonNullable<StartSessionSpec['policy']>) =>
-    buildSettings({ hookUrl: 'http://h/hooks/t', allowedTools: [], permissionTimeoutMs: 1000, policy });
+    buildSettings({
+      hookUrl: 'http://h/hooks/t',
+      hookConfigPath: HOOK_CONFIG,
+      allowedTools: [],
+      permissionTimeoutMs: 1000,
+      policy,
+    });
 
   // Every role gets Edit and Write, a reading one too: what it must not change is kept by the deny
   // rules and the sandbox, and its prompts name the file tools (architect's decision on PM-221).
   it.each([false, true])('passes the same --tools with Edit and Write to every role, resume=%s', (resume) => {
-    for (const [access, managed] of [
-      ['task_worktree', false],
-      ['member_workspace', true],
-      ['read_only', false],
-      ['review_copy', false],
-    ] as const) {
-      const policy = policyFor(access, managed);
-      const args = buildClaudeArgs({ ...spec, resume, policy }, settingsFor(policy));
+    for (const access of ['task_worktree', 'read_only', 'review_copy'] as const) {
+      const policy = policyFor(access);
+      const args = buildClaudeArgs({ ...spec, resume, policy }, FILES);
       expect(toolsOf(args)).toEqual(core);
       expect(toolsOf(args)).toEqual(expect.arrayContaining(['Edit', 'Write']));
     }
@@ -600,7 +456,7 @@ describe('the built-in tools and skills of a member session (PM-221)', () => {
 
   it('leaves out the tools a member never uses, and ends the variadic flag', () => {
     const policy = policyFor('task_worktree');
-    const args = buildClaudeArgs({ ...spec, policy }, settingsFor(policy));
+    const args = buildClaudeArgs({ ...spec, policy }, FILES);
     const tools = toolsOf(args);
     for (const left of [
       'Artifact',
@@ -621,22 +477,23 @@ describe('the built-in tools and skills of a member session (PM-221)', () => {
   });
 
   it('passes the same list to a start without a policy', () => {
-    const args = buildClaudeArgs(spec, settingsFor(policyFor('task_worktree')));
+    const args = buildClaudeArgs(spec, FILES);
     expect(toolsOf(args)).toEqual(core);
   });
 
   it('turns the bundled skills off on every profile', () => {
-    for (const policy of [undefined, policyFor('task_worktree'), policyFor('member_workspace', true)]) {
+    for (const policy of [undefined, policyFor('task_worktree')]) {
       const settings = buildSettings({
         hookUrl: 'http://h/hooks/t',
+        hookConfigPath: HOOK_CONFIG,
         allowedTools: [],
         permissionTimeoutMs: 1000,
         policy,
       });
       expect(settings.disableBundledSkills).toBe(true);
       expect(settings.skillOverrides['anthropic-skills:docx']).toBe('off');
-      const args = buildClaudeArgs({ ...spec, policy }, settings);
-      expect(JSON.parse(args[args.indexOf('--settings') + 1]!)).toMatchObject({ disableBundledSkills: true });
+      const args = buildClaudeArgs({ ...spec, policy }, FILES);
+      expect(args[args.indexOf('--settings') + 1]).toBe(FILES.settingsPath);
       // Slash commands stay: PM-213 types /compact.
       expect(args).not.toContain('--disable-slash-commands');
     }
@@ -663,6 +520,7 @@ describe('the session folder rules (PM-333)', () => {
   const rulesOf = (filesystem: Parameters<typeof policyWith>[0]) =>
     buildSettings({
       hookUrl: 'http://h/hooks/t',
+      hookConfigPath: HOOK_CONFIG,
       allowedTools: [],
       permissionTimeoutMs: 1000,
       policy: policyWith(filesystem),
@@ -705,11 +563,45 @@ describe('the session folder rules (PM-333)', () => {
   it('forbids writing another session’s folder in the Auto mode classifier', () => {
     const settings = buildSettings({
       hookUrl: 'http://h/hooks/t',
+      hookConfigPath: HOOK_CONFIG,
       allowedTools: [],
       permissionTimeoutMs: 1000,
       policy: policyWith({ sessionFolder: dir, sessionFoldersRoot: root }),
     });
     expect(settings.autoMode?.hard_deny.join('\n')).toContain("another session's folder");
+  });
+
+  it('opens no folder, directory or command to a team-tools-only session, whatever the policy carries (PM-475)', () => {
+    const policy = {
+      ...policyWith({
+        sessionFolder: dir,
+        sessionFoldersRoot: root,
+        readOnlyPaths: ['/attachments'],
+        readableRoots: ['/work', '/elsewhere'],
+      }),
+      tools: {
+        team: { all: true, names: [] },
+        files: ['read', 'grep', 'glob'] as Array<'read' | 'grep' | 'glob'>,
+        shell: [{ command: 'git status', arguments: 'prefix' as const }],
+      },
+      teamToolsOnly: true,
+    };
+    const settings = buildSettings({
+      hookUrl: 'http://h/hooks/t',
+      hookConfigPath: HOOK_CONFIG,
+      allowedTools: ['Read', 'Bash'],
+      permissionTimeoutMs: 1000,
+      policy,
+      sandbox: { allowWrite: ['/work'], allowedDomains: [], allowLocalBinding: false },
+    });
+    expect(settings.permissions.allow).toEqual(['mcp__team__*']);
+    expect(settings.permissions.deny).toEqual(
+      expect.arrayContaining(['Bash', 'Read', 'Edit', 'Write', 'WebFetch', 'WebSearch', 'Agent']),
+    );
+    expect(settings.sandbox?.autoAllowBashIfSandboxed).toBe(false);
+    const args = buildClaudeArgs({ ...spec, policy, cwd: '/work' }, FILES);
+    expect(args[args.indexOf('--tools') + 1]).toBe('ToolSearch');
+    expect(args).not.toContain('--add-dir');
   });
 });
 

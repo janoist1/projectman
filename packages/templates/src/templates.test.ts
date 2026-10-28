@@ -1,6 +1,7 @@
 import { TEMPLATE_COLUMN_COLORS } from './templates/draft';
 import { describe, expect, it } from 'vitest';
 import {
+  ChecklistCondition,
   isHumanOnlyLabel,
   isReleaseApprovalLabel,
   labelDefinition,
@@ -13,9 +14,12 @@ import {
   stageOwners,
   validateProjectConfig,
   type Stage,
+  AgentProvider,
+  DEFAULT_PROVIDER_MODELS,
 } from '@projectman/shared';
 import {
   aiMemberDefaults,
+  BASE_CHECKLIST,
   DAILY_WORKER_SCHEDULE,
   en,
   getLocale,
@@ -49,14 +53,48 @@ function build(id: string, language = 'hu', ownerHandle = 'owner') {
   return template.build(input(language, ownerHandle));
 }
 
+describe.each([{ kind: 'worker' }, { kind: 'project_manager' }, { kind: 'human', handle: 'owner' }] as const)(
+  'every template with the card mover %o',
+  (cardMover) => {
+    it.each(templates.map((t) => [t.id, t] as const))(
+      '%s works: no error, no mover warning',
+      (_id, template) => {
+        const config = template.build({ ...input('hu'), cardMover });
+        expect(validateProjectConfig(config).filter((i) => i.severity !== 'warning')).toEqual([]);
+        expect(validateProjectConfig(config).filter((i) => i.code.startsWith('mover_'))).toEqual([]);
+      },
+    );
+  },
+);
+
+it('all templates default to worker and preserve an explicitly selected mover', () => {
+  for (const template of templates) {
+    expect(template.build(input('en')).team.cardMover).toEqual({ kind: 'worker' });
+    expect(
+      template.build({ ...input('en'), cardMover: { kind: 'human', handle: 'owner' } }).team.cardMover,
+    ).toEqual({ kind: 'human', handle: 'owner' });
+  }
+});
+
 /** [id, kind, owners, gate conditions, column] per stage. */
 function shape(stages: Stage[]) {
   return stages.map((s) => [s.id, s.kind, s.owners, s.gate?.conditions ?? [], s.columnId]);
 }
 
 describe('every template', () => {
-  it('lists the four factory templates', () => {
+  it.each(AgentProvider.options)('builds a valid starter team on %s', (provider) => {
+    const config = getTemplate('starter')!.build({ ...input('en'), provider });
+    const members = config.team.members.filter((member) => member.kind === 'ai');
+    expect(members).toHaveLength(2);
+    for (const member of members)
+      expect(member).toMatchObject({ provider, model: DEFAULT_PROVIDER_MODELS[provider] });
+    expect(validateProjectConfig(config).filter((issue) => issue.severity !== 'warning')).toEqual([]);
+    expect(config.pipeline.stages.map((stage) => stage.id)).toEqual(['ready', 'dev', 'done']);
+    expect(stageOwners(config, config.pipeline.stages[1]!)).toEqual([members[0]!.handle]);
+  });
+  it('lists the starter before the existing factory templates', () => {
     expect(templates.map((t) => t.id)).toEqual([
+      'starter',
       'web-client-project',
       'small-team',
       'internal-tool',
@@ -84,6 +122,12 @@ describe('every template', () => {
         temp: false,
       });
       expect(managers[0]!.onLeave).toBeUndefined();
+    });
+
+    it.each(['hu', 'en'])('has no Operator member (decision 66, language %s)', (language) => {
+      const config = template.build(input(language));
+      expect(config.team.members.some((m) => m.handle === 'operator')).toBe(false);
+      expect(config.team.members.some((m) => m.kind === 'ai' && m.role === 'ai_operator')).toBe(false);
     });
 
     it('makes the owner the operator and the product owner', () => {
@@ -196,8 +240,36 @@ describe('every template', () => {
           ai: config.team.members.filter((m) => m.kind === 'ai').length,
         },
         stageCount: config.pipeline.stages.length,
+        checklist: template.checklist.map((item) => item.id),
       });
     });
+  });
+});
+
+describe('template checklists', () => {
+  it.each(templates.map((t) => [t.id, t] as const))(
+    '%s items have a title in every locale and a known condition',
+    (_id, template) => {
+      for (const item of template.checklist) {
+        for (const locale of [hu, en])
+          expect(locale.checklist.items[item.id as keyof typeof en.checklist.items]?.title).toBeTruthy();
+        if (item.condition) expect(ChecklistCondition.safeParse(item.condition).success).toBe(true);
+      }
+      expect(new Set(template.checklist.map((item) => item.id)).size).toBe(template.checklist.length);
+      const baseIds = BASE_CHECKLIST.map((item) => item.id);
+      for (const item of template.checklist) expect(baseIds).not.toContain(item.id);
+    },
+  );
+
+  it('gives the web client project its client items and the starter none', () => {
+    expect(getTemplate('web-client-project')?.checklist.map((item) => item.id)).toEqual([
+      'guests',
+      'feedback_marks',
+      'qa',
+      'client_test',
+      'code_review',
+    ]);
+    expect(getTemplate('starter')?.checklist).toEqual([]);
   });
 });
 

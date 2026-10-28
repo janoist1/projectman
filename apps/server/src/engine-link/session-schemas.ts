@@ -1,5 +1,11 @@
 import { z } from 'zod';
-import { AgentEffort, AgentProvider, EngineId, LOCAL_PUBLISHING_OPERATIONS } from '@projectman/shared';
+import {
+  AgentEffort,
+  AgentProvider,
+  EngineId,
+  LOCAL_PUBLISHING_OPERATIONS,
+  SessionReadBoundary,
+} from '@projectman/shared';
 import type { AgentSandbox, SessionPolicy, StartSessionSpec } from '../contracts';
 
 const text = z.string();
@@ -12,20 +18,15 @@ const review = {
   baseBranch: text.optional(),
   baseCommit: text.optional(),
 };
-export const Policy: z.ZodType<SessionPolicy> = z.strictObject({
+const Policy: z.ZodType<SessionPolicy> = z.strictObject({
   version: z.literal(1),
   enforcement: z.enum(['legacy', 'strict']),
-  execution: z
-    .strictObject({
-      profile: z.literal('managed_vm'),
-      boundary: z.strictObject({ name: text, version: z.number() }),
-    })
-    .optional(),
-  access: z.enum(['task_worktree', 'review_copy', 'read_only', 'member_workspace']),
+  access: z.enum(['task_worktree', 'review_copy', 'read_only']),
   reviewCopyMode: z.enum(['inherit', 'read_only', 'test']).optional(),
   placement: z.discriminatedUnion('kind', [
     z.strictObject({
       kind: z.literal('task_worktree'),
+      mergeFix: z.strictObject({ branch: text }).optional(),
       path: text,
       gitDir: text.optional(),
       worktreeGitDir: text.optional(),
@@ -40,13 +41,6 @@ export const Policy: z.ZodType<SessionPolicy> = z.strictObject({
       tempDir: text.optional(),
     }),
     z.strictObject({ kind: z.literal('read_only'), path: text }),
-    z.strictObject({
-      kind: z.literal('member_workspace'),
-      path: text,
-      use: z.enum(['work', 'review', 'home']),
-      workspace: workspace.optional(),
-      review: z.strictObject(review).optional(),
-    }),
   ]),
   tools: z.strictObject({
     team: z.strictObject({ all: z.boolean(), names: texts }),
@@ -61,6 +55,7 @@ export const Policy: z.ZodType<SessionPolicy> = z.strictObject({
     deniedPaths: texts.optional(),
     sessionFolder: text.optional(),
     sessionFoldersRoot: text.optional(),
+    readBoundary: SessionReadBoundary.optional(),
   }),
   deniedOperations: z.array(z.enum(LOCAL_PUBLISHING_OPERATIONS)),
   network: z.strictObject({
@@ -76,7 +71,7 @@ export const Policy: z.ZodType<SessionPolicy> = z.strictObject({
     approval: z.enum(['never', 'on-request']),
   }),
 });
-export const Sandbox: z.ZodType<AgentSandbox> = z.strictObject({
+const Sandbox: z.ZodType<AgentSandbox> = z.strictObject({
   allowWrite: texts,
   allowedDomains: texts,
   deniedDomains: texts.optional(),
@@ -88,7 +83,12 @@ export const Sandbox: z.ZodType<AgentSandbox> = z.strictObject({
   env: z.record(text, text).optional(),
   excludedCommands: texts.optional(),
   portable: z
-    .strictObject({ allowWrite: texts, env: z.record(text, text), tmpDir: text.optional() })
+    .strictObject({
+      allowWrite: texts,
+      env: z.record(text, text),
+      tmpDir: text.optional(),
+      readBoundary: SessionReadBoundary.optional(),
+    })
     .optional(),
 });
 export type EngineStartSpec = Omit<StartSessionSpec, 'mcpUrl'> & { mcpToken: string };
@@ -121,5 +121,4 @@ export const EngineStartSpec: z.ZodType<EngineStartSpec> = z.strictObject({
   rows: z.number().optional(),
   member: text.optional(),
   provider: AgentProvider.optional(),
-  egressToken: text.optional(),
 });

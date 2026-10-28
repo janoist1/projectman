@@ -1,0 +1,32 @@
+/* The merge items of the inbox (PM-453) use the card's frame; these are the parts only they have. */
+.output {
+  margin: 0;
+  padding: 8px 10px;
+  max-height: 220px;
+  overflow: auto;
+  border-radius: var(--radius-sm);
+  background: var(--c-surface-2, var(--c-surface));
+  color: var(--c-ink-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* On a phone the buttons are touch targets and take the width. */
+@media (max-width: 767px) {
+  .actions {
+    flex-direction: column;
+  }
+
+  .actions > * {
+    width: 100%;
+    min-height: 44px;
+  }
+}

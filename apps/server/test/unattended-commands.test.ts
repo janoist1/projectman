@@ -1,16 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentSandbox } from '../src/contracts';
 import { testTemplate } from './helpers/test-template';
+import { allowedToolsFor, commandVerdict, readableRootsFor } from '../src/runtime/sessions';
 import {
-  allowedToolsFor,
-  commandVerdict,
   describeSandbox,
   describeUnattendedCommands,
   preApprovedPrefixes,
   PROJECT_CHECK_COMMANDS,
-  readableRootsFor,
-} from '../src/domain';
-import { READ_ONLY_GIT, READ_ONLY_PROGRAMS } from '../src/domain/read-only-commands';
+} from '../src/runtime/permissions';
+import { READ_ONLY_GIT, READ_ONLY_PROGRAMS } from '../src/runtime/permissions';
 
 /**
  * The "Commands that run without asking" section of the system prompt is generated from the
@@ -89,6 +87,9 @@ describe('commands that run without asking: the rules the section lists', () => 
     'git commit -m "Subject" -m "A second paragraph"',
     'git commit -m "Subject\n\nBody line one\nBody line two"',
     "git commit -m 'Subject with a `backtick`'",
+    'git checkout -- src/a.ts',
+    'git checkout HEAD -- src/a.ts',
+    'git restore src/a.ts',
     'git merge --ff-only main',
     'git merge --ff-only -q main',
     'git status && git add -A && git commit -m "Done" && git log -1',
@@ -185,6 +186,8 @@ describe('commands that run without asking: the section', () => {
   it('names the routine steps and the default branch for a role in a worktree only', () => {
     expect(section().join('\n')).toContain('`git merge --ff-only main`');
     expect(section().join('\n')).toContain('`git commit -m "message"`');
+    expect(section().join('\n')).toContain('`git checkout -- <path>`');
+    expect(section().join('\n')).toContain('`git restore <path>`');
     const reviewer = section({ worktree: false }).join('\n');
     expect(reviewer).not.toContain('git commit');
     expect(reviewer).toContain("your working directory and the task's own worktree");
@@ -293,7 +296,7 @@ describe('describeSandbox: the session folder and the browsers', () => {
     allowLocalBinding: true,
   };
   const text = (sandbox: AgentSandbox) =>
-    describeSandbox({ sandbox, cwd: '/fictional/work', localOnly: false }).join('\n');
+    describeSandbox({ sandbox, cwd: '/fictional/work', localOnly: false, details: true }).join('\n');
 
   it('tells a reader it writes its folder too, where it is, that it goes away and where the browsers are', () => {
     const out = text({

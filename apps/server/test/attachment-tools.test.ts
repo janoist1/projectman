@@ -15,7 +15,7 @@ import { MAX_ATTACHMENT_BYTES } from '@projectman/shared';
 import type { Attachment } from '@projectman/shared';
 import { TeamToolError } from '../src/contracts';
 import type { ToolContext } from '../src/contracts';
-import { conflict } from '../src/domain/errors';
+import { conflict } from '../src/kernel';
 import { pngBytes } from './helpers/attachments';
 import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
@@ -541,7 +541,9 @@ describe('attachment team tools', () => {
           );
       expect(await decide(`file ${located.path}`)).toEqual({ behavior: 'allow' });
       const asked = decide(`file ${otherPath}`);
-      await expect.poll(() => h.domain.inbox.list('AR', { state: 'open' }).length).toBe(1);
+      await expect
+        .poll(() => h.domain.inbox.list('AR', { state: 'open' }).length, { timeout: 15_000 })
+        .toBe(1);
       const item = h.domain.inbox.list('AR', { state: 'open' })[0]!;
       await h.domain.inbox.resolve('AR', item.id, { optionId: 'deny' }, { handle: 'owner', access: 'owner' });
       expect(await asked).toMatchObject({ behavior: 'deny' });

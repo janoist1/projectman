@@ -1,21 +1,19 @@
 // Bundles the server (including the workspace packages, which ship TypeScript source)
 // into dist/index.js. Third-party dependencies stay external, native modules included.
 import { build } from 'esbuild';
-import { readFileSync } from 'node:fs';
+import { cpSync, existsSync, readFileSync, rmSync } from 'node:fs';
 
 const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 const external = Object.keys(pkg.dependencies ?? {}).filter((name) => !name.startsWith('@projectman/'));
 
-// The server, and the programs of the managed VM boundary (PM-140): the root launcher, the
-// claude-trust helper and the boundary probe it runs as a worker, and verify.sh's measurement that
-// drives that probe. Each is its own bundle.
 const entries = {
   'dist/index.js': 'src/index.ts',
-  'dist/launcher.js': 'src/runtime-boundary/launcher/main.ts',
-  'dist/claude-trust.js': 'src/runtime-boundary/claude-trust.ts',
-  'dist/worker-bridge.js': 'src/runtime-boundary/bridge/worker-bridge.ts',
-  'dist/boundary-probe.js': 'src/runtime-boundary/probe/boundary-probe.ts',
-  'dist/boundary-worker-probe.js': 'src/runtime-boundary/probe/worker-probe.ts',
+  // The embedding worker of the history search (PM-767): a Worker thread entry beside the server bundle.
+  'dist/history-semantic-worker.js': 'src/history-semantic/worker.ts',
+  // The relay of the cloud's admin channel (PM-749): the container image carries all of apps/server/dist.
+  'dist/control/cli.js': 'src/control/cli.ts',
+  // The release measurement's server (PM-910): the same server plus a loopback search listener; dist/index.js never loads it.
+  'dist/history-semantic-profile.js': 'src/history-semantic-profile.ts',
 };
 for (const [outfile, entry] of Object.entries(entries)) {
   await build({
@@ -32,4 +30,15 @@ for (const [outfile, entry] of Object.entries(entries)) {
     },
   });
   console.log(`built ${outfile}`);
+}
+
+// The embedding model of the history search (PM-767) is a release asset, fetched by
+// `npm run prepare:history-model`; a build without it ships a server that searches by text only.
+const modelSource = new URL('../models/history', import.meta.url);
+rmSync('dist/models/history', { recursive: true, force: true });
+if (existsSync(new URL('manifest.json', `${modelSource.href}/`))) {
+  cpSync(modelSource, 'dist/models/history', { recursive: true });
+  console.log('copied the history model to dist/models/history');
+} else {
+  console.log('no history model prepared: the build searches the history by text only');
 }

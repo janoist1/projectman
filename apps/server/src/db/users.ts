@@ -4,11 +4,12 @@ export interface UserRecord {
   id: string;
   name: string;
   email: string;
-  passwordHash: string;
+  /** `null`: a passwordless account (PM-670); stored as the empty string, the column stays NOT NULL. */
+  passwordHash: string | null;
   createdAt: string;
 }
 
-export interface AuthSessionRecord {
+interface AuthSessionRecord {
   /** SHA-256 of the cookie token. */
   id: string;
   userId: string;
@@ -37,7 +38,7 @@ const toUser = (r: UserRow): UserRecord => ({
   id: r.id,
   name: r.name,
   email: r.email,
-  passwordHash: r.password_hash,
+  passwordHash: r.password_hash === '' ? null : r.password_hash,
   createdAt: r.created_at,
 });
 
@@ -59,7 +60,7 @@ export function createUserRepository(db: Db) {
         user.id,
         user.name,
         user.email,
-        user.passwordHash,
+        user.passwordHash ?? '',
         user.createdAt,
       );
     },

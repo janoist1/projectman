@@ -1,13 +1,18 @@
+import { z } from 'zod';
 import { DUTIES } from '../domain/duty';
 import type { PermissionMode } from '../domain/member';
 import { REVIEW_DUTIES, roleBundle, roleUsesWorktree } from './duties';
 import type { ProjectConfig } from './schema';
 
-/**
- * Where a session works. `member_workspace` is the managed VM's placement (PM-141): the member's
- * own durable workspace (or its home, without a repository), whatever the member does in it.
- */
-export type SessionAccess = 'task_worktree' | 'review_copy' | 'read_only' | 'member_workspace';
+/** Read denials that may be reopened by exact files or directory subtrees. */
+export const SessionReadBoundary = z.strictObject({
+  deniedRoots: z.array(z.string().min(1)),
+  allowedPaths: z.array(z.strictObject({ path: z.string().min(1), kind: z.enum(['directory', 'file']) })),
+});
+export type SessionReadBoundary = z.infer<typeof SessionReadBoundary>;
+
+/** Where a session works. */
+export type SessionAccess = 'task_worktree' | 'review_copy' | 'read_only';
 export type ReviewCopyMode = 'inherit' | 'read_only' | 'test';
 export interface ShellToolRule {
   command: string;
@@ -71,7 +76,9 @@ export function roleSessionAccess(config: Pick<ProjectConfig, 'team'>, role: str
   const duties = roleBundle(config, role).duties;
   const worktree = roleUsesWorktree(config, role);
   const readOnlyTools = duties.some((id) => DUTIES[id].toolPolicy === 'read_only');
-  const reviewCopy = duties.some((id) => REVIEW_DUTIES.includes(id));
+  const reviewCopy =
+    duties.some((id) => REVIEW_DUTIES.includes(id)) ||
+    (duties.includes('ux_design') && !duties.includes('implementation'));
   return { worktree, readOnlyTools, reviewCopy };
 }
 

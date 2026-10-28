@@ -11,9 +11,6 @@ import { withoutTeamStrip } from '../../test/boardCards';
 import { mockProject } from '../../test/mockProject';
 import { BoardPage } from '../board/BoardPage';
 import { TaskDrawer } from '../board/TaskDrawer';
-import { MapGroupView } from '../map/MapGroupView';
-import { MapOverview } from '../map/MapOverview';
-import { MapPage } from '../map/MapPage';
 import { FocusProvider } from './FocusContext';
 
 afterEach(() => {
@@ -488,101 +485,6 @@ describe('the "Fókusz" row of a card', () => {
     project.render(routes, '/p/AC/tasks/AC-24', asClient(project));
     await screen.findAllByText(titleOf(project.backend, 'AC-24'));
     expect(screen.queryByText(t('focus.row.label'))).toBeNull();
-    expect(focusReads(project)).toHaveLength(0);
-  });
-});
-
-describe('the focus on the map', () => {
-  const routes = inFocus(
-    <Routes>
-      <Route path="/p/:projectKey/map" element={<MapPage />}>
-        <Route index element={<MapOverview />} />
-        <Route path=":groupKey" element={<MapGroupView />} />
-      </Route>
-    </Routes>,
-  );
-  const tiles = () => screen.queryAllByRole('link', { name: /^[^:]+: .*\./ });
-
-  function themedMap() {
-    const project = mockProject();
-    const { backend } = project;
-    const webshop = create(backend, 'Webshop epic', { kind: 'theme' });
-    const hosting = create(backend, 'Hosting epic', { kind: 'theme' });
-    backend.updateTask('AC-21', { themeKey: webshop.key });
-    backend.updateTask('AC-18', { themeKey: hosting.key });
-    backend.focusItems = [entry(webshop.key)];
-    return { project, webshop, hosting };
-  }
-
-  it('shows the strip and narrows the groups to the focus on ?focus=1', async () => {
-    const { project } = themedMap();
-    project.render(routes, '/p/AC/map?focus=1');
-    await findStrip();
-    await waitFor(() => expect(tiles().length).toBeGreaterThan(0));
-    const names = tiles().map((tile) => tile.getAttribute('aria-label') ?? '');
-    expect(names.some((name) => name.includes('Webshop epic'))).toBe(true);
-    expect(names.some((name) => name.includes('Hosting epic'))).toBe(false);
-  });
-
-  it('shows every group without the filter', async () => {
-    const { project } = themedMap();
-    project.render(routes, '/p/AC/map');
-    await findStrip();
-    await waitFor(() => {
-      const names = tiles().map((tile) => tile.getAttribute('aria-label') ?? '');
-      expect(names.some((name) => name.includes('Webshop epic'))).toBe(true);
-      expect(names.some((name) => name.includes('Hosting epic'))).toBe(true);
-    });
-  });
-
-  it('marks the theme on its tile in the overview', async () => {
-    const { project } = themedMap();
-    project.render(routes, '/p/AC/map');
-    await waitFor(() =>
-      expect(screen.getAllByRole('img', { name: t('focus.mark', { position: 1 }) }).length).toBeGreaterThan(
-        0,
-      ),
-    );
-    const tile = tiles().find((link) => (link.getAttribute('aria-label') ?? '').includes('Webshop epic'));
-    expect(within(tile!).getByRole('img', { name: t('focus.mark', { position: 1 }) })).toBeTruthy();
-    const hosting = tiles().find((link) => (link.getAttribute('aria-label') ?? '').includes('Hosting epic'));
-    expect(within(hosting!).queryByRole('img')).toBeNull();
-  });
-
-  it('marks the theme in a group and the cards it covers', async () => {
-    const { project, webshop } = themedMap();
-    project.render(routes, `/p/AC/map/${webshop.key}`);
-    await waitFor(() =>
-      expect(screen.getAllByRole('img', { name: t('focus.mark', { position: 1 }) }).length).toBeGreaterThan(
-        0,
-      ),
-    );
-    const viaTheme = t('focus.markViaTheme', { position: 1, title: 'Webshop epic' });
-    await waitFor(() => expect(screen.getAllByRole('img', { name: viaTheme }).length).toBeGreaterThan(0));
-  });
-
-  it('turns the filter on and off from the strip and writes it to the address', async () => {
-    const { project } = themedMap();
-    project.render(routes, '/p/AC/map');
-    const toggle = await screen.findByRole('button', { name: t('focus.only') });
-    fireEvent.click(toggle);
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: t('focus.only') }).getAttribute('aria-pressed')).toBe('true'),
-    );
-    await waitFor(() => {
-      const names = tiles().map((tile) => tile.getAttribute('aria-label') ?? '');
-      expect(names.some((name) => name.includes('Hosting epic'))).toBe(false);
-    });
-  });
-
-  it('shows a client every group, whatever the address says', async () => {
-    const { project } = themedMap();
-    project.render(routes, '/p/AC/map?focus=1', asClient(project));
-    await waitFor(() => {
-      const names = tiles().map((tile) => tile.getAttribute('aria-label') ?? '');
-      expect(names.some((name) => name.includes('Hosting epic'))).toBe(true);
-    });
-    expect(strip()).toBeNull();
     expect(focusReads(project)).toHaveLength(0);
   });
 });

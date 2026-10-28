@@ -7,8 +7,6 @@ export interface RelationNoticeRelation {
   other: Pick<TaskRelation, 'key' | 'title' | 'stageId' | 'status'> & {
     /** The start of the other card's description (empty when it has none). */
     summary: string;
-    /** Whether the recipient may read the other card: when not, only its key and title are told. */
-    visible: boolean;
   };
 }
 
@@ -27,12 +25,8 @@ export function relationNoticeText(input: {
   const phrases = input.relations.map(({ kind, other }) => `${relationPhrase(kind)} ${other.key}`).join(', ');
   const lines = [`${heading} (${input.cardKey}): this card ${phrases} (added by ${input.actor}).`];
   for (const { kind, other } of input.relations) {
-    lines.push(
-      `- This card ${relationPhrase(kind)}: ${
-        other.visible ? describeRelatedCard(other) : `${other.key} "${other.title}"`
-      }`,
-    );
-    if (other.visible && other.summary) lines.push(`  Summary: ${other.summary}`);
+    lines.push(`- This card ${relationPhrase(kind)}: ${describeRelatedCard(other)}`);
+    if (other.summary) lines.push(`  Summary: ${other.summary}`);
   }
   lines.push(
     'If this affects your work, read the card with get_task; ask the analyst or the owner with your question.',

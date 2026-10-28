@@ -1,5 +1,6 @@
 import { screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
+import { connectedActorOf } from '@projectman/shared';
 import { mockProject } from '../../test/mockProject';
 import { t } from '../../i18n/t';
 import { MessageList } from './MessageList';
@@ -58,11 +59,70 @@ describe('MessageList', () => {
     expect(screen.getByRole('img', { name: t('involvement.integratorFull') })).toBeTruthy();
     expect(screen.queryByText(t('common.you'))).toBeNull();
   });
+  it('draws a connected Claude message with the chip, without the integrator label', async () => {
+    const p = mockProject();
+    const actor = connectedActorOf('owner', { id: 'key', prefix: 'pmk_test' }, { issuer: 'fe-1' });
+    p.render(
+      <MessageList
+        messages={[
+          {
+            id: 'm-connected',
+            projectKey: 'AC',
+            from: 'fe-1',
+            via: 'integrator',
+            actor,
+            to: ['qa'],
+            taskKey: null,
+            body: 'Take a look.',
+            createdAt: '2026-10-01T12:00:00.000Z',
+            deliveredAt: null,
+          },
+        ]}
+        members={new Map()}
+        myHandle="owner"
+        projectKey="AC"
+        taskTitles={new Map()}
+      />,
+    );
+    expect(
+      await screen.findByRole('button', { name: t('connected.chipAria', { holder: t('common.you') }) }),
+    ).toBeTruthy();
+    expect(screen.queryByText(t('involvement.integratorFull'), { exact: false })).toBeNull();
+  });
+
   it('marks the narrow list, whose CSS cuts a long text to a few lines, and keeps the text whole', async () => {
     list(true);
     const body = await screen.findByText(/Line 1 of/);
     expect(body.textContent).toBe(long);
     expect(body.closest('ol')?.className).toMatch(/compact/);
+  });
+
+  it('marks a message that came by e-mail and shows its subject before the text', async () => {
+    const p = mockProject();
+    p.render(
+      <MessageList
+        messages={[
+          {
+            id: 'm-mail',
+            projectKey: 'AC',
+            from: 'owner',
+            to: ['fe-1'],
+            taskKey: null,
+            body: 'Please look at the offer.',
+            email: { emailId: 'eml-1', subject: 'The offer', direct: true },
+            createdAt: '2026-10-01T12:00:00.000Z',
+            deliveredAt: null,
+          },
+        ]}
+        members={new Map()}
+        myHandle="owner"
+        projectKey="AC"
+        taskTitles={new Map()}
+      />,
+    );
+    expect(await screen.findByTitle(t('messages.email.received'))).toBeTruthy();
+    expect(screen.getByText('The offer').tagName).toBe('STRONG');
+    expect(screen.getByText(/Please look at the offer/)).toBeTruthy();
   });
 
   it('does not mark the full list, which shows the whole text', async () => {

@@ -40,7 +40,12 @@ describe('card kind and theme migration', () => {
         { key: 'AR-3', kind: 'task', theme_key: null },
       ]);
       expect(events()).toEqual(
-        eventsBefore.map((event) => ({ ...(event as Record<string, unknown>), actor_via: null })),
+        // actor_meta (PM-757) is NULL on every old row.
+        eventsBefore.map((event) => ({
+          ...(event as Record<string, unknown>),
+          actor_via: null,
+          actor_meta: null,
+        })),
       );
       expect(links()).toEqual(linksBefore);
       expect(

@@ -1,6 +1,7 @@
 import os from 'node:os';
 import { defaultTestWorkers } from '@projectman/shared';
 import { defineConfig } from 'vitest/config';
+import { PARENT_GUARD_SETUP } from '../../scripts/lib/vitest-parent-guard.mjs';
 
 /**
  * Test config, separate from vite.config.ts: vitest 3 runs on vite 7, while the app build
@@ -11,7 +12,8 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     include: ['src/**/*.test.{ts,tsx}'],
-    setupFiles: ['src/test/setup.ts'],
+    // The second one makes a worker leave when its parent is gone (PM-869).
+    setupFiles: ['src/test/setup.ts', PARENT_GUARD_SETUP],
     restoreMocks: true,
     // Role queries (getByRole, findByRole) compute the accessible tree of a jsdom page, and a
     // settings page holds hundreds of controls: those tests take 1-1.5 s alone and several times

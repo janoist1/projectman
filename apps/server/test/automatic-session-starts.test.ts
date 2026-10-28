@@ -19,10 +19,15 @@ const humanMessage = (h: DomainHarness, taskKey = 'AR-1') =>
     taskKey,
   });
 
-/** The owner may also record code reviews, so the reviewer can be retired without orphaning the gate. */
+/**
+ * The owner also owns the code review step and may record code reviews, so the reviewer can be
+ * retired without orphaning the step or the gate.
+ */
 const reviewersBesidesCr = (c: ProjectConfig) => {
   for (const label of c.pipeline.labels)
     if (label.group === 'code-review') label.setBy = { duties: ['code_review'], members: ['owner'] };
+  const review = c.pipeline.stages.find((stage) => stage.id === 'code_review')!;
+  review.owners = [...(review.owners ?? []), 'owner'];
 };
 
 describe('automatic session admission and retries', () => {
@@ -49,13 +54,10 @@ describe('automatic session admission and retries', () => {
     });
     await flush();
     expect(h.runner.started).toHaveLength(0);
-    expect(h.domain.tasks.get('AR', 'AR-1').startWaiting).toMatchObject({
-      reason: 'plan_usage_paused',
-      member: 'cr',
-      provider: 'claude',
-      threshold: 80,
-      since: expect.any(String),
-    });
+    expect(h.repos.memberQueue.listOpen('AR', 'cr').map((item) => item.wait?.code)).toEqual([
+      'plan_usage_paused',
+      'plan_usage_paused',
+    ]);
     expect(h.repos.messages.pending('AR', 'cr').map((m) => m.id)).toEqual([
       first.messageId,
       second.messageId,
@@ -64,6 +66,7 @@ describe('automatic session admission and retries', () => {
     expect(h.runner.started).toHaveLength(0);
 
     h.runnerModule.planUsage.value = planUsage(30);
+    await h.domain.memberQueueDriver.sweep();
     await vi.waitFor(() => expect(h.runner.started).toHaveLength(1));
     // Both messages are in the first input, whole and in order; nothing is typed behind them.
     expect(h.runner.lastStarted().initialMessage).toMatch(
@@ -71,8 +74,8 @@ describe('automatic session admission and retries', () => {
     );
     expect(h.runner.messages).toEqual([]);
     expect(h.repos.messages.pending('AR', 'cr')).toEqual([]);
-    expect(h.domain.tasks.get('AR', 'AR-1').startWaiting).toBeUndefined();
-    await h.domain.admission.retryDeferred();
+    expect(h.repos.memberQueue.listOpen('AR', 'cr')).toEqual([]);
+    await h.domain.memberQueueDriver.sweep();
     expect(h.runner.started).toHaveLength(1);
 
     // A live recipient receives new messages even while new AI work is paused.
@@ -95,7 +98,7 @@ describe('automatic session admission and retries', () => {
     expect(h.runner.started).toHaveLength(1);
     expect(h.repos.messages.get(message.id)?.deliveredAt).toBeNull();
     h.runner.setState(busy.id, 'idle');
-    await h.domain.admission.retryDeferred();
+    await h.domain.memberQueueDriver.sweep();
     await flush();
     expect(h.runner.started).toHaveLength(2);
     expect(h.runner.lastStarted().initialMessage).toContain('Please review the fictional checkout.');
@@ -145,21 +148,28 @@ describe('automatic session admission and retries', () => {
       h.runnerModule.planUsage.value = planUsage(30);
       await h.domain.admission.retryDeferred();
       expect(h.runner.started.filter((spec) => spec.member === 'cr')).toHaveLength(0);
-      const retry = vi.spyOn(h.domain.messageStarts, 'wake');
-      await h.domain.admission.retryDeferred();
-      expect(retry).not.toHaveBeenCalled();
+      await h.domain.memberQueueDriver.sweep();
+      expect(h.runner.started.filter((spec) => spec.member === 'cr')).toHaveLength(0);
     },
   );
 
-  it('does not retry a session startup failure', async () => {
+  it('keeps a message queued with the code of a session startup failure and starts again with the sweep', async () => {
     h = await createDomainHarness();
     await h.domain.tasks.create('AR', { title: 'Fictional checkout' }, OWNER_ACTOR);
-    h.runner.failNextStart = new Error('Fictional runner failure');
+    const start = h.runner.start.bind(h.runner);
+    const failing = vi.spyOn(h.runner, 'start').mockRejectedValue(new Error('Fictional runner failure'));
     const message = await humanMessage(h);
     await flush();
     expect(h.repos.messages.get(message.id)?.deliveredAt).toBeNull();
-    await h.domain.admission.retryDeferred();
+    expect(h.repos.memberQueue.listOpen('AR', 'cr')[0]?.wait?.code).toEqual(expect.any(String));
+    await h.domain.memberQueueDriver.sweep();
     expect(h.runner.started).toHaveLength(0);
+    failing.mockImplementation(start);
+    await h.domain.memberQueueDriver.sweep();
+    await flush();
+    expect(h.runner.started).toHaveLength(1);
+    expect(h.repos.messages.get(message.id)?.deliveredAt).toBeTruthy();
+    expect(h.repos.memberQueue.listOpen('AR', 'cr')).toEqual([]);
   });
 
   it('retries a resumed hand-over with its notice and waiting messages', async () => {

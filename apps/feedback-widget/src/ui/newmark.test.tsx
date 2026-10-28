@@ -1,0 +1,332 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { render } from 'preact';
+import { act } from 'preact/test-utils';
+import { createController } from '../controller';
+import type { Controller, Deps, Target } from '../controller';
+import { API, PAGE, fakeServer, flush, pointAnchor, reply, session, setUrl } from '../test/helpers';
+import { ShareRefused } from '../display-capture';
+import { sessionKey } from '../storage';
+import { App } from './App';
+
+let container: HTMLElement;
+let controller: Controller;
+let posted: () => number;
+
+beforeEach(() => {
+  vi.spyOn(console, 'warn').mockImplementation(() => undefined); // the failed picture says why
+  window.localStorage.clear();
+  setUrl(PAGE);
+  container = document.createElement('div');
+  document.body.append(container);
+});
+afterEach(() => {
+  controller?.stop();
+  render(null, container);
+  container.remove();
+});
+
+const pointTarget = (): Target => ({
+  kind: 'point',
+  anchor: pointAnchor(120, 240),
+  label: 'Pont az oldalon',
+  viewportRect: null,
+  viewportPoint: { x: 120, y: 240 },
+});
+
+const areaTarget = (): Target => ({
+  kind: 'area',
+  anchor: {
+    kind: 'area',
+    selector: null,
+    textSnippet: null,
+    elementOffset: null,
+    pagePoint: null,
+    rect: { x: 50, y: 60, width: 200, height: 100 },
+  },
+  label: 'Terület az oldalon',
+  viewportRect: { x: 50, y: 60, width: 200, height: 100 },
+  viewportPoint: { x: 50, y: 60 },
+});
+
+const elementTarget = (): Target => ({
+  kind: 'element',
+  anchor: { ...pointAnchor(120, 240), kind: 'element', selector: '#nope', textSnippet: null },
+  label: 'button.btn-cart',
+  viewportRect: { x: 100, y: 220, width: 80, height: 40 },
+  viewportPoint: { x: 120, y: 240 },
+});
+
+async function openCardWith(target: Target, display?: Deps['display']) {
+  window.localStorage.setItem(sessionKey({ apiOrigin: API, projectKey: 'PM' }), JSON.stringify(session()));
+  const server = fakeServer({
+    'GET /marks': () => reply(200, { marks: [], markers: [], cursor: 'c', me: session().me }),
+    'POST /marks': () => reply(500, { error: { code: 'internal', message: 'x', details: null } }),
+  });
+  posted = () => server.calls.filter((call) => call.method === 'POST' && call.path === '/marks').length;
+  controller = createController({
+    win: window,
+    base: API,
+    projectKey: 'PM',
+    fetchImpl: server.fetchImpl,
+    capture: (async () => ({ ok: false, failure: { kind: 'timeout' } })) as never,
+    display,
+  });
+  await act(async () => {
+    render(<App controller={controller} />, container);
+    await controller.start();
+    await flush();
+    controller.finishWelcome();
+    controller.chooseTarget(target);
+    await flush();
+  });
+  return server;
+}
+
+describe('the new-mark card', () => {
+  it('draws the marked place on the page in the marker colour while the card is open', async () => {
+    await openCardWith(pointTarget());
+    const pin = container.querySelector('.pin.draft');
+    expect(pin).not.toBeNull();
+    expect(pin?.getAttribute('style')).toContain('--pc');
+    expect(pin?.textContent).toBe('KA');
+    expect(container.querySelector('.frame.draft')).toBeNull();
+    expect(posted()).toBe(0);
+  });
+
+  it('draws a dashed frame for an area and an outline is left to elements that are found', async () => {
+    await openCardWith(areaTarget());
+    expect(container.querySelector('.frame.draft')).not.toBeNull();
+    expect(container.querySelector('.pin.draft')).not.toBeNull();
+  });
+
+  it('removes the drawing when the card closes', async () => {
+    await openCardWith(pointTarget());
+    await act(async () => {
+      controller.cancelDraft();
+      await flush();
+    });
+    expect(container.querySelector('.pin.draft')).toBeNull();
+  });
+
+  it('names a point or an area once, and an element as "Elem:" plus its selector', async () => {
+    await openCardWith(pointTarget());
+    expect(container.querySelector('.what')?.textContent).toBe('Pont az oldalon');
+    expect(container.querySelector('.what .kind')).toBeNull();
+    await act(async () => {
+      controller.cancelDraft();
+      controller.chooseTarget(elementTarget());
+      await flush();
+    });
+    expect(container.querySelector('.what')?.textContent).toBe('Elem:button.btn-cart');
+    expect(container.querySelector('.what .what-label')?.textContent).toBe('button.btn-cart');
+  });
+
+  it('labels the text field with the question', async () => {
+    await openCardWith(pointTarget());
+    const field = container.querySelector('textarea');
+    expect(field?.getAttribute('aria-label')).toBe(field?.getAttribute('placeholder'));
+    expect(field?.getAttribute('aria-label')).not.toBe(container.querySelector('h2')?.textContent);
+  });
+
+  it('scrolls the page on a phone so the marked place shows above the sheet', async () => {
+    const width = window.innerWidth;
+    const scrollBy = vi.spyOn(window, 'scrollBy').mockImplementation(() => undefined);
+    window.innerWidth = 390;
+    try {
+      await openCardWith(pointTarget());
+      expect(scrollBy).toHaveBeenCalled();
+      expect(scrollBy.mock.calls[0]?.[0]).toMatchObject({ top: expect.any(Number) });
+    } finally {
+      window.innerWidth = width;
+      scrollBy.mockRestore();
+    }
+  });
+
+  it('does not scroll the page on a wide screen', async () => {
+    const scrollBy = vi.spyOn(window, 'scrollBy').mockImplementation(() => undefined);
+    await openCardWith(pointTarget());
+    expect(scrollBy).not.toHaveBeenCalled();
+    scrollBy.mockRestore();
+  });
+
+  it('forgets the element frame when the page scrolls or resizes', async () => {
+    window.localStorage.setItem(sessionKey({ apiOrigin: API, projectKey: 'PM' }), JSON.stringify(session()));
+    const server = fakeServer({
+      'GET /marks': () => reply(200, { marks: [], markers: [], cursor: 'c', me: session().me }),
+    });
+    controller = createController({
+      win: window,
+      base: API,
+      projectKey: 'PM',
+      fetchImpl: server.fetchImpl,
+      capture: (async () => ({ ok: false, failure: { kind: 'timeout' } })) as never,
+    });
+    const target = document.createElement('section');
+    target.getBoundingClientRect = () => new DOMRect(10, 20, 100, 50);
+    document.body.append(target);
+    const under = vi.spyOn(document, 'elementFromPoint').mockReturnValue(target);
+    await act(async () => {
+      render(<App controller={controller} />, container);
+      await controller.start();
+      await flush();
+      controller.finishWelcome();
+      controller.beginMode('element');
+      await flush();
+    });
+    const overlay = container.querySelector('.target');
+    await act(async () => {
+      overlay?.dispatchEvent(new MouseEvent('pointermove', { bubbles: true, clientX: 30, clientY: 40 }));
+      await flush();
+    });
+    expect(container.querySelector('.target-frame')).not.toBeNull();
+    await act(async () => {
+      window.dispatchEvent(new Event('resize'));
+      await flush();
+    });
+    expect(container.querySelector('.target-frame')).toBeNull();
+    under.mockRestore();
+    target.remove();
+  });
+
+  describe('the browser picture offer (PM-921)', () => {
+    const refusing = (can: boolean): Deps['display'] => ({
+      can: () => can,
+      start: vi.fn(async () => {
+        throw new ShareRefused('denied');
+      }),
+    });
+
+    it('offers the browser picture as a button when the automatic one failed and sharing is possible', async () => {
+      await openCardWith(pointTarget(), refusing(true));
+      const button = container.querySelector<HTMLButtonElement>('.shot-offer.strong button');
+      expect(button).not.toBeNull();
+      await act(async () => {
+        button?.click();
+        await flush();
+      });
+      expect(container.querySelector('.shot-note.warn')).not.toBeNull();
+    });
+
+    it('offers nothing when the browser cannot share the screen', async () => {
+      await openCardWith(pointTarget(), refusing(false));
+      expect(container.querySelector('.shot-offer')).toBeNull();
+    });
+  });
+
+  describe('the area drag', () => {
+    async function drag(from: [number, number], to: [number, number]) {
+      window.localStorage.setItem(
+        sessionKey({ apiOrigin: API, projectKey: 'PM' }),
+        JSON.stringify(session()),
+      );
+      const server = fakeServer({
+        'GET /marks': () => reply(200, { marks: [], markers: [], cursor: 'c', me: session().me }),
+      });
+      controller = createController({
+        win: window,
+        base: API,
+        projectKey: 'PM',
+        fetchImpl: server.fetchImpl,
+        capture: (async () => ({ ok: false, failure: { kind: 'timeout' } })) as never,
+      });
+      await act(async () => {
+        render(<App controller={controller} />, container);
+        await controller.start();
+        await flush();
+        controller.finishWelcome();
+        controller.beginMode('area');
+        await flush();
+      });
+      const overlay = container.querySelector('.target');
+      const fire = (type: string, at: [number, number]) =>
+        act(async () => {
+          overlay?.dispatchEvent(new MouseEvent(type, { bubbles: true, clientX: at[0], clientY: at[1] }));
+          await flush();
+        });
+      await fire('pointerdown', from);
+      await fire('pointermove', to);
+      await fire('pointerup', to);
+      return controller.getState().draft?.target;
+    }
+
+    it('widens a thin drag to the smallest area the server accepts', async () => {
+      const target = await drag([100, 100], [300, 102]);
+      expect(target?.kind).toBe('area');
+      expect(target?.anchor.rect).toMatchObject({ x: 100, y: 100, width: 200, height: 4 });
+    });
+
+    it('keeps the anchor inside the viewport when the pointer leaves the window', async () => {
+      const target = await drag([50, 60], [-80, -30]);
+      expect(target?.kind).toBe('area');
+      expect(target?.anchor.rect).toMatchObject({ x: 0, y: 0, width: 50, height: 60 });
+    });
+
+    it('marks a point when the drag is tiny on both sides', async () => {
+      const target = await drag([100, 100], [101, 101]);
+      expect(target?.kind).toBe('point');
+    });
+
+    describe('pinned to the element under it (PM-917)', () => {
+      let section: HTMLElement;
+      const place = (box: DOMRect): void => {
+        section = document.createElement('section');
+        section.id = 'card';
+        section.textContent = 'Product card';
+        section.getBoundingClientRect = () => box;
+        document.body.append(section);
+        vi.spyOn(document, 'elementFromPoint').mockReturnValue(section);
+      };
+      afterEach(() => {
+        vi.restoreAllMocks();
+        section.remove();
+      });
+
+      it('pins an area to the smallest element that holds it, as fractions of that element', async () => {
+        place(new DOMRect(100, 100, 400, 200));
+        const target = await drag([200, 150], [300, 250]);
+        expect(target?.anchor).toMatchObject({
+          kind: 'area',
+          selector: '#card',
+          textSnippet: 'Product card',
+          elementRect: { x: 0.25, y: 0.25, width: 0.25, height: 0.5 },
+        });
+      });
+
+      it('pins a point to the element under it with its place inside that element', async () => {
+        place(new DOMRect(100, 100, 400, 200));
+        const target = await drag([200, 150], [200, 150]);
+        expect(target?.anchor).toMatchObject({
+          kind: 'point',
+          selector: '#card',
+          elementOffset: { x: 0.25, y: 0.25 },
+          pagePoint: { x: 200, y: 150 },
+        });
+      });
+
+      it('keeps the coordinates only when the element covers most of the page', async () => {
+        place(new DOMRect(0, 0, window.innerWidth, window.innerHeight));
+        const target = await drag([200, 150], [300, 250]);
+        expect(target?.anchor).toMatchObject({ kind: 'area', selector: null, elementRect: null });
+      });
+
+      it('keeps the coordinates only when no element holds the whole area', async () => {
+        place(new DOMRect(100, 100, 150, 100));
+        const target = await drag([200, 150], [400, 250]);
+        expect(target?.anchor).toMatchObject({ kind: 'area', selector: null, elementRect: null });
+      });
+    });
+  });
+
+  it('does not disable send on an empty text: it moves to the field instead and requests nothing', async () => {
+    await openCardWith(pointTarget());
+    const send = container.querySelector<HTMLButtonElement>('.btn.primary');
+    expect(send?.disabled).toBe(false);
+    await act(async () => {
+      send?.click();
+      await flush();
+    });
+    expect(document.activeElement).toBe(container.querySelector('textarea'));
+    expect(posted()).toBe(0);
+    expect(controller.getState().draft?.sending).toBe(false);
+  });
+});

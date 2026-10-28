@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { routes } from '@projectman/shared';
 import type { AiMemberConfig, ProjectConfig, Session, TaskDetail } from '@projectman/shared';
 import { APPROVER_NONE_REFUSAL } from '../src/contracts';
-import { humanActor } from '../src/domain';
+import { humanActor } from '../src/kernel';
 import { addHumanAndLogin, createAppHarness, createProject, inject, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
@@ -161,7 +161,7 @@ describe('the permission settings of one session (PM-170)', () => {
     h.runner.setState(sessionId, 'working');
     await set(sessionId, { permissionMode: 'plan' });
     await h.domain.messaging.send('AR', 'owner', { to: ['dev-1'], text: 'Team note', taskKey: 'AR-1' });
-    await h.domain.messaging.sendToSession('AR', sessionId, 'Direct note', 'owner');
+    await h.domain.sessionMessages.sendToSession('AR', sessionId, 'Direct note', 'owner');
     await flush();
     expect(h.runner.messages).toEqual([]);
 
@@ -179,7 +179,7 @@ describe('the permission settings of one session (PM-170)', () => {
     const sessionId = await running();
     h.runner.setState(sessionId, 'working');
     await set(sessionId, { permissionMode: 'plan' });
-    await h.domain.messaging.sendToSession('AR', sessionId, 'Direct note', 'owner');
+    await h.domain.sessionMessages.sendToSession('AR', sessionId, 'Direct note', 'owner');
     await flush();
     expect(h.runner.messages).toEqual([]);
     const back = await set(sessionId, { permissionMode: null });

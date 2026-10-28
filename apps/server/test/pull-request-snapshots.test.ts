@@ -32,7 +32,7 @@ describe('pull request snapshots of a task', () => {
         deletions: null,
       },
     ]);
-    await domain.githubSync.handleChange(pullRequest({ checks, reviewDecision: 'approved' }));
+    await domain.githubSync.handleChange('AR', pullRequest({ checks, reviewDecision: 'approved' }));
     expect(domain.tasks.detail('AR', task.key).pullRequests).toEqual([
       {
         repo: 'acme/web',
@@ -49,6 +49,7 @@ describe('pull request snapshots of a task', () => {
     const published = vi.fn();
     domain.bus.subscribe(published);
     await domain.githubSync.handleChange(
+      'AR',
       pullRequest({ checks, reviewDecision: 'changes_requested', additions: 99 }),
     );
     expect(domain.tasks.detail('AR', task.key).pullRequests[0]).toMatchObject({

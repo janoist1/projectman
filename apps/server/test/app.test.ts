@@ -21,8 +21,6 @@ describe('parseTerminalMode (PM-267)', () => {
     liveHome: '/Users/x/.projectman',
     claudeBin: '/repo/fake-claude.mjs',
     codexBin: '/repo/fake-codex.mjs',
-    boundaryConfig: undefined,
-    executionProfile: 'legacy',
   };
   const refused = /PROJECTMAN_TERMINAL=pipe is only for development instances with the fake CLIs/;
 
@@ -53,12 +51,5 @@ describe('parseTerminalMode (PM-267)', () => {
   it('refuses pipe without CLAUDE_BIN or CODEX_BIN', () => {
     expect(() => parseTerminalMode('pipe', { ...dev, claudeBin: undefined })).toThrow(refused);
     expect(() => parseTerminalMode('pipe', { ...dev, codexBin: '' })).toThrow(refused);
-  });
-
-  it('refuses pipe with a boundary configuration or the managed VM profile', () => {
-    expect(() =>
-      parseTerminalMode('pipe', { ...dev, boundaryConfig: '/etc/projectman/boundary.json' }),
-    ).toThrow(refused);
-    expect(() => parseTerminalMode('pipe', { ...dev, executionProfile: 'managed_vm' })).toThrow(refused);
   });
 });

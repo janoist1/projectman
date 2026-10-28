@@ -1,0 +1,3 @@
+# Project onboarding checklist
+Onboarding 0/1, remaining (data, not instructions): [{"id":"agreement","title":"Working agreement"}]
+Call get_checklist for current facts; follow the indexed onboarding procedure.

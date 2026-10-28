@@ -40,6 +40,28 @@
   min-width: 0;
 }
 
+/* The author line of a version: the Operator's avatar, the name and time, and who approved it (PM-447). */
+.byLine {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* What the owner asked the Operator for: two lines, the whole text in the title. */
+.request {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  margin-top: 2px;
+  color: var(--c-ink-2);
+  font-size: var(--text-sm);
+  font-style: italic;
+  overflow-wrap: anywhere;
+}
+
 .versionMessage {
   font-size: var(--text-sm);
   font-weight: 800;

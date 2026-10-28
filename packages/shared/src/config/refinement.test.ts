@@ -1,8 +1,52 @@
 import { describe, expect, it } from 'vitest';
 import type { Task } from '../domain/task';
 import { validateProjectConfig } from './invariants';
-import { isRefining, projectRefines, refinementTurn, turnStalled } from './refinement';
+import {
+  isRefining,
+  projectRefines,
+  refinementStallRefusal,
+  refinementTurn,
+  turnStalled,
+} from './refinement';
 import { ProjectConfig } from './schema';
+
+describe('refinementStallRefusal', () => {
+  const live = {
+    taskOpen: true,
+    sameTurn: true,
+    labelMissing: true,
+    memberActive: false,
+    hasOpenQuestion: false,
+  };
+
+  it('lets a still-stalled turn through', () => {
+    expect(refinementStallRefusal(live)).toBeNull();
+  });
+
+  it('names the first reason the turn is no longer a stall', () => {
+    expect(refinementStallRefusal({ ...live, taskOpen: false })).toBe('closed');
+    expect(refinementStallRefusal({ ...live, sameTurn: false })).toBe('changed');
+    expect(refinementStallRefusal({ ...live, labelMissing: false })).toBe('label_done');
+    expect(refinementStallRefusal({ ...live, memberActive: true })).toBe('member_active');
+    expect(refinementStallRefusal({ ...live, hasOpenQuestion: true })).toBe('question_open');
+  });
+
+  it('checks in the order closed, changed, label_done, member_active, question_open', () => {
+    const all = {
+      taskOpen: false,
+      sameTurn: false,
+      labelMissing: false,
+      memberActive: true,
+      hasOpenQuestion: true,
+    };
+    expect(refinementStallRefusal(all)).toBe('closed');
+    expect(refinementStallRefusal({ ...all, taskOpen: true })).toBe('changed');
+    expect(refinementStallRefusal({ ...all, taskOpen: true, sameTurn: true })).toBe('label_done');
+    expect(refinementStallRefusal({ ...all, taskOpen: true, sameTurn: true, labelMissing: true })).toBe(
+      'member_active',
+    );
+  });
+});
 
 type Labels = Array<Record<string, unknown>>;
 
@@ -183,7 +227,7 @@ describe('refinementTurn', () => {
 describe('turnStalled', () => {
   const question = (
     source: string,
-    state: 'open' | 'resolved' = 'open',
+    state: 'open' | 'resolved' | 'screening' = 'open',
     kind: 'question' | 'alert' = 'question',
   ) => ({
     kind,
@@ -201,6 +245,10 @@ describe('turnStalled', () => {
 
   it('is no stall while an AI member has an open question', () => {
     expect(turnStalled([question('analyst')], config())).toBe(false);
+  });
+
+  it('is no stall while an AI member’s question is screened by the Operator (PM-556)', () => {
+    expect(turnStalled([question('analyst', 'screening')], config())).toBe(false);
   });
 });
 

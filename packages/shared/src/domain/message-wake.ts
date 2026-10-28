@@ -15,7 +15,8 @@ export function messageStaleReason(
   facts: StaleFacts,
 ): StaleReason | null {
   if (facts.fromHuman || message.kind === 'info') return null;
-  if (message.subject && facts.subjectClosed) return 'permission_closed';
+  if (message.subject && facts.subjectClosed)
+    return message.subject.type === 'obligation' ? 'obligation_closed' : 'permission_closed';
   if (!message.version) return null;
   if (facts.card && !facts.card.open) return 'card_closed';
   if (facts.card && facts.card.stageId !== message.version.stageId && !facts.recipientOwnsStage)
@@ -27,7 +28,7 @@ export function messageStaleReason(
   return null;
 }
 
-/** Why a valid action message starts no session for its recipient (PM-426). */
+/** Why a valid action message starts no session for its recipient: an AI member has no role on the card (PM-426). */
 export type WakeBlock = 'no_card_role';
 
 export interface WakeFacts {
@@ -36,6 +37,8 @@ export interface WakeFacts {
   fromAi: boolean;
   /** `hasCardRole` of the recipient on the message's card; true for a message about no card or about a theme. */
   recipientHasRole: boolean;
+  /** The message answers or passes on a question (origin `answer` or `question_forward`, PM-556): it wakes like a person's. */
+  answersQuestion: boolean;
 }
 
 /**
@@ -47,13 +50,9 @@ export function messageWakeBlock(
   facts: WakeFacts,
   stale: StaleReason | null,
 ): WakeBlock | null {
-  return !facts.fromHuman &&
-    facts.fromAi &&
-    !facts.recipientHasRole &&
-    (message.kind ?? 'action') === 'action' &&
-    stale === null
-    ? 'no_card_role'
-    : null;
+  if ((message.kind ?? 'action') !== 'action' || stale !== null) return null;
+  if (facts.answersQuestion) return null;
+  return !facts.fromHuman && facts.fromAi && !facts.recipientHasRole ? 'no_card_role' : null;
 }
 
 export function messageWakes(
@@ -63,6 +62,7 @@ export function messageWakes(
 ): boolean {
   return (
     facts.fromHuman ||
+    facts.answersQuestion ||
     ((message.kind ?? 'action') === 'action' &&
       stale === null &&
       messageWakeBlock(message, facts, stale) === null)

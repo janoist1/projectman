@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { EngineStatusView } from '../domain/engine';
-import { MemberView, PlanUsage } from '../api/dto';
+import { MemberView, PlanUsage, OperatorSignal } from '../api/dto';
 import { ChatItem } from '../chat/chat';
 import { TimelineEvent } from '../domain/event';
 import { InboxItem } from '../domain/inbox';
@@ -13,7 +13,18 @@ import { Task, TaskKey } from '../domain/task';
 
 /** Server -> browser events over the /ws websocket (JSON text frames). */
 export const ServerEvent = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('engine_changed'), engine: EngineStatusView }),
+  z.object({ type: z.literal('project_checklist_changed'), projectKey: z.string() }),
+  z.object({ type: z.literal('operator_signal'), projectKey: z.string(), signal: OperatorSignal }),
+  /** `projectKey`: the change is a project–engine binding of that project (PM-1060); absent: the engine itself changed. */
+  z.object({
+    type: z.literal('engine_changed'),
+    engine: EngineStatusView,
+    projectKey: z.string().optional(),
+  }),
+  /** The Operator's grant for machine operations was given, replaced or revoked (PM-881); not project-bound. */
+  z.object({ type: z.literal('operator_grant_changed') }),
+  /** A member's queue changed (PM-894): an item came, was taken or was closed; refetch the queue. */
+  z.object({ type: z.literal('member_queue_changed'), projectKey: z.string(), member: MemberHandle }),
   z.object({ type: z.literal('hello'), serverTime: z.string() }),
   z.object({ type: z.literal('task_upserted'), projectKey: z.string(), task: Task }),
   z.object({ type: z.literal('timeline_appended'), projectKey: z.string(), event: TimelineEvent }),
@@ -26,6 +37,7 @@ export const ServerEvent = z.discriminatedUnion('type', [
     handle: MemberHandle,
     status: MemberStatus,
     activity: z.string().nullable(),
+    activityTaskKey: TaskKey.nullable().optional(),
   }),
   z.object({
     type: z.literal('plan_usage'),
@@ -42,6 +54,8 @@ export const ServerEvent = z.discriminatedUnion('type', [
   }),
   z.object({ type: z.literal('inbox_upserted'), projectKey: z.string(), item: InboxItem }),
   z.object({ type: z.literal('team_message'), projectKey: z.string(), message: TeamMessage }),
+  /** A stored message changed without being a new one (a file of it was deleted, PM-515): no timeline entry goes with it. */
+  z.object({ type: z.literal('team_message_updated'), projectKey: z.string(), message: TeamMessage }),
   z.object({
     type: z.literal('chat_appended'),
     projectKey: z.string(),
@@ -63,12 +77,19 @@ export const ServerEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('task_attachments_changed'), projectKey: z.string(), taskKey: TaskKey }),
   /** The project's focus changed (PM-427); internal members only. */
   z.object({ type: z.literal('project_focus_changed'), projectKey: z.string(), focus: ProjectFocus }),
+  /** A feedback mark changed (PM-506): every human member, a client included, refetches. It names no card. */
+  z.object({ type: z.literal('feedback_changed'), projectKey: z.string(), markId: z.string() }),
+  /** System feedback changed (PM-472); `projectKey` null: the forwarding setting changed. Names no text. */
+  z.object({ type: z.literal('system_feedback_changed'), projectKey: z.string().nullable() }),
+  /** Owner/admin connections only; contains no email text. */
+  z.object({ type: z.literal('email_changed'), projectKey: z.string() }),
   z.object({ type: z.literal('error'), message: z.string() }),
 ]);
 export type ServerEvent = z.infer<typeof ServerEvent>;
 
 /** Browser -> server commands. */
 export const ClientCommand = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('visibility'), visible: z.boolean() }),
   z.object({ type: z.literal('subscribe_project'), projectKey: z.string() }),
   z.object({ type: z.literal('unsubscribe_project'), projectKey: z.string() }),
   z.object({ type: z.literal('terminal_attach'), sessionId: z.string() }),

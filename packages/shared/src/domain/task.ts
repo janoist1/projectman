@@ -1,15 +1,20 @@
 import { z } from 'zod';
+import { isConnectedOwnerActor } from '../config/operator-member';
 import { isProjectManagerActor } from '../config/project-manager';
 import type { ProjectConfig } from '../config/schema';
-import { TaskDeveloperLevel } from './developer-level';
+import { TaskComplexity } from './complexity';
 import { EngineId } from './engine';
 import type { Actor } from './event';
 import { FullTestErrorReason, FullTestStatus } from './full-test';
 import { TaskHandoff, TaskHandoffRef } from './handoff';
 import { LabelId } from './label';
+import { TaskMergeState, TaskMerged } from './merge';
+import { MergeCheckRunner } from './merge-test';
 import { AgentProvider, MemberHandle } from './member';
 import type { HumanAccess } from './member';
 import { StageId } from './pipeline';
+import { WorkOutage } from './outage';
+import { TaskReadyHold } from './ready-hold';
 
 /** Human-friendly task key: project key + sequence number, e.g. "AR-21". */
 export const TaskKey = z.string().regex(/^[A-Z][A-Z0-9]{0,9}-\d+$/);
@@ -18,17 +23,21 @@ export type TaskKey = z.infer<typeof TaskKey>;
 export const TaskStatus = z.enum(['active', 'waiting', 'blocked', 'done', 'cancelled']);
 export type TaskStatus = z.infer<typeof TaskStatus>;
 
-/** Informational only: priority never changes ordering or starts work. */
+/** Urgent starts first and is pulled into development (PM-427); the other levels only inform. */
 export const TaskPriority = z.enum(['urgent', 'high', 'normal', 'low']);
 export type TaskPriority = z.infer<typeof TaskPriority>;
 export const TASK_PRIORITIES: readonly TaskPriority[] = TaskPriority.options;
 
 /** People and the team's project manager (PM-433) may set or clear a card's priority; no other AI member. */
 export function priorityRefusal(
-  actor: Pick<Actor, 'kind' | 'handle'>,
+  actor: Actor,
   config: Pick<ProjectConfig, 'team'>,
 ): 'priority_humans_only' | null {
-  return actor.kind === 'human' || isProjectManagerActor(config, actor) ? null : 'priority_humans_only';
+  return actor.kind === 'human' ||
+    isProjectManagerActor(config, actor) ||
+    isConnectedOwnerActor(config, actor)
+    ? null
+    : 'priority_humans_only';
 }
 
 /**
@@ -60,13 +69,29 @@ export const TaskLink = z.object({
 });
 export type TaskLink = z.infer<typeof TaskLink>;
 
-/** Internal tasks are hidden from client members; shared ones appear in the client view. */
-export const Visibility = z.enum(['internal', 'shared']);
-export type Visibility = z.infer<typeof Visibility>;
+/**
+ * What takes one of an AI member's places (PM-297): one task (however many sessions work on it) or
+ * one other running session. The set is exactly what the server counts as the member's load.
+ */
+export const CapacityHolder = z.object({
+  /** The kind of work of the session. */
+  kind: z.enum(['task', 'general', 'schedule', 'meeting']),
+  /** `task` only. */
+  taskKey: TaskKey.optional(),
+  /** The latest active session; it points to the session's page. */
+  sessionId: z.string().optional(),
+  /** Works now: an engaged session state, or its first turn has not begun yet. */
+  working: z.boolean(),
+  /** ISO; for a task, the earliest start of its sessions. */
+  startedAt: z.string(),
+  /** ISO; the latest. When it does not work, this plus `closeAfterMinutes` is when it closes. */
+  lastActivityAt: z.string(),
+});
+export type CapacityHolder = z.infer<typeof CapacityHolder>;
 
 export const TaskStartWaiting = z.object({
   /**
-   * The admission refusals a retry can overcome (the start waits for them), and `repo_required`:
+   * The admission refusals a retry can overcome, a question hold, and `repo_required`:
    * the task's AI developer cannot start until a person chooses the task's repository, which no
    * retry does (see the deferrable refusals in the server's admission rules).
    */
@@ -87,6 +112,8 @@ export const TaskStartWaiting = z.object({
     'workspace_busy',
     'workspace_dirty',
     'workspace_fetch_failed',
+    'workspace_dependencies_pending',
+    'workspace_dependencies_failed',
     // A prerequisite of the card (PM-192) is not closed: the start continues when the last one is.
     'prerequisite_open',
     // A card moved into a work stage without an assignee (PM-119): no developer is free (or on
@@ -95,6 +122,8 @@ export const TaskStartWaiting = z.object({
     // The gate before the work stage asks for labels an AI member sets (PM-236): that member's session
     // started on the card, and the developer's start continues once the labels are on it.
     'label_missing',
+    // A hold, not an admission refusal: the card waits for an answer to an open question (PM-927).
+    'waiting_answer',
     // The server's full test of the pinned commit (PM-217) has not ended: the reviewer's start
     // continues once it has.
     'full_test_pending',
@@ -123,10 +152,18 @@ export const TaskStartWaiting = z.object({
   /** `label_missing`: the labels the start waits for; `member` is the one who sets them. */
   labels: z.array(LabelId).optional(),
   member: MemberHandle.optional(),
+  /** `workspace_dirty`: the branch checked out in the workspace; `workspace_fetch_failed`: the base branch (PM-455). */
+  branch: z.string().optional(),
   provider: AgentProvider.optional(),
   until: z.string().optional(),
   /** Admission threshold, rather than current usage. */
   threshold: z.number().optional(),
+  /** `member_at_capacity`, filled in when read (never stored): what holds the member's places. */
+  holders: z.array(CapacityHolder).optional(),
+  /** `member_at_capacity`: the member's capacity. */
+  capacity: z.number().int().positive().optional(),
+  /** `member_at_capacity`: `SESSION_IDLE_CLOSE_MINUTES`, after which a silent session closes. */
+  closeAfterMinutes: z.number().int().positive().optional(),
   since: z.string(),
 });
 export type TaskStartWaiting = z.infer<typeof TaskStartWaiting>;
@@ -147,6 +184,10 @@ export const TaskReviewPin = z.object({
       /** `finishedAt`, else `startedAt`, else `createdAt`. */
       at: z.string(),
       reason: FullTestErrorReason.optional(),
+      /** Where it ran (PM-909); absent on a result from before runners. */
+      runner: MergeCheckRunner.optional(),
+      /** The GitHub Actions run page of a `github_actions` result. */
+      externalUrl: z.string().url().max(500).optional(),
     })
     .optional(),
 });
@@ -178,7 +219,7 @@ export type TaskLoop = z.infer<typeof TaskLoop>;
  * round does not go to its implementer by itself. Present only while it is held; the board shows it. `phase`:
  * `lead` the lead developer `decider` decides, `replan` the planner `decider` is to make the plan more exact
  * and lets the card go, `owner` the people in `deciders` decide (`reason`: nobody could be asked, the lead
- * passed it on, or it reached the limit again after one more round). A client never sees it.
+ * passed it on, or it reached the limit again after one more round).
  */
 export const TaskFixLimit = z.object({
   phase: z.enum(['lead', 'replan', 'owner']),
@@ -187,11 +228,23 @@ export const TaskFixLimit = z.object({
   changeRequests: z.number().int().nonnegative(),
   designChangeRequests: z.number().int().nonnegative(),
   sendBacks: z.number().int().nonnegative(),
+  /** The failed full tests inside `sendBacks` (PM-714). */
+  testsFailed: z.number().int().nonnegative().optional(),
+  /** The extra rounds given since the count began, also above the limit people allowed (PM-714). */
+  extraRounds: z.number().int().nonnegative().optional(),
+  remainingExtraRounds: z.number().int().nonnegative().optional(),
+  /** `MAX_FIX_EXTRA_ROUNDS` of `domain/fix-limit`, which this file cannot import. */
+  extraRoundLimit: z.literal(3).optional(),
   /** `lead` and `replan`: the AI member who decides. */
   decider: MemberHandle.nullable(),
   /** `owner`: the people who decide. */
   deciders: z.array(MemberHandle),
-  reason: z.enum(['no_ai_decider', 'passed_on', 'again']).nullable(),
+  reason: z.enum(['no_ai_decider', 'passed_on', 'again', 'extra_exhausted', 'decider_timeout']).nullable(),
+  /**
+   * `owner`: who the decision item is addressed to now (PM-714): the integrator first, the owners after a
+   * hand-over or the 24 hour timeout, or when no integrator was available. Absent: the owners (older holds).
+   */
+  recipient: z.enum(['owner', 'integrator']).optional(),
   heldAt: z.string(),
 });
 export type TaskFixLimit = z.infer<typeof TaskFixLimit>;
@@ -204,7 +257,22 @@ export type TaskFixLimit = z.infer<typeof TaskFixLimit>;
 export const TaskKind = z.enum(['task', 'theme']);
 export type TaskKind = z.infer<typeof TaskKind>;
 
+export const TaskHandOn = z.object({
+  fromStageId: StageId,
+  toStageId: StageId,
+  mover: MemberHandle,
+  requestedBy: MemberHandle,
+  requestedAt: z.string(),
+  inboxItemId: z.string().nullable(),
+});
+export type TaskHandOn = z.infer<typeof TaskHandOn>;
+
+/** The system asked `to` to start the ready card (PM-804); read from the open `start` obligation. */
+export const TaskStartOffer = z.object({ to: MemberHandle, since: z.string() });
+export type TaskStartOffer = z.infer<typeof TaskStartOffer>;
+
 export const Task = z.object({
+  handOn: TaskHandOn.optional(),
   /** Absent: `task`. */
   kind: TaskKind.optional(),
   /**
@@ -215,17 +283,23 @@ export const Task = z.object({
   themeKey: TaskKey.nullable().optional(),
   /** One level of subtasks; omitted by older clients. */
   parentKey: TaskKey.nullable().optional(),
-  /** The developer the card is recommended for (PM-347); absent: no recommendation, which counts as `any`. */
-  developerLevel: TaskDeveloperLevel.optional(),
+  complexity: TaskComplexity.optional(),
   startWaiting: TaskStartWaiting.optional(),
+  /** Computed on reads; never stored. */
+  readyHold: TaskReadyHold.optional(),
+  /** Computed on reads; never stored. */
+  startOffer: TaskStartOffer.optional(),
+  outage: WorkOutage.optional(),
   reviewPin: TaskReviewPin.optional(),
-  /** The loop open on the card (PM-261); absent when there is none. Hidden from clients. */
+  merge: TaskMergeState.optional(),
+  merged: TaskMerged.optional(),
+  /** The loop open on the card (PM-261); absent when there is none. */
   loop: TaskLoop.optional(),
-  /** The fix round limit that holds the card back (PM-262); absent when it is not held. Hidden from clients. */
+  /** The fix round limit that holds the card back (PM-262); absent when it is not held. */
   fixLimit: TaskFixLimit.optional(),
-  /** The handoff open on the card (PM-342); absent when there is none. Hidden from clients. */
+  /** The handoff open on the card (PM-342); absent when there is none. */
   handoff: TaskHandoff.optional(),
-  /** The latest closed handoff, while the card is still with its receiver (PM-342). Hidden from clients. */
+  /** The latest closed handoff, while the card is still with its receiver (PM-342). */
   lastHandoff: TaskHandoffRef.optional(),
   /**
    * The attachment whose thumbnail is the card's cover (`coverAttachmentId` in `domain/attachment`):
@@ -261,7 +335,6 @@ export const Task = z.object({
   /** Label ids: defined in the pipeline's label vocabulary, or plain tags. */
   labels: z.array(z.string()),
   links: z.array(TaskLink),
-  visibility: Visibility,
   createdBy: MemberHandle,
   createdAt: z.string(),
   /** When the card entered its current stage (PM-379): set on create and by every stage move. Absent on a card read from an older server or fixture: read it as `createdAt`. */
@@ -277,11 +350,6 @@ export interface TaskViewer {
   handle: string;
 }
 
-/** Client members see only what is shared with them; every other member sees the whole project. */
-export function canSeeTask(viewer: Pick<TaskViewer, 'access'>, task: Pick<Task, 'visibility'>): boolean {
-  return viewer.access !== 'client' || task.visibility === 'shared';
-}
-
 /** A task is open until it is done or cancelled. */
 export function isOpenTask(task: Pick<Task, 'status'>): boolean {
   return task.status !== 'done' && task.status !== 'cancelled';
@@ -293,6 +361,14 @@ export function isOpenTask(task: Pick<Task, 'status'>): boolean {
  */
 export function isTheme(task: Pick<Task, 'kind'>): boolean {
   return task.kind === 'theme';
+}
+
+/** Automatic work starts skip themes and collecting cards, including those whose parts are closed (PM-818). */
+export function canAutomaticallyStartTask(
+  task: Pick<Task, 'key' | 'kind'>,
+  tasks: readonly Pick<Task, 'parentKey' | 'status'>[],
+): boolean {
+  return !isTheme(task) && !tasks.some((child) => child.parentKey === task.key);
 }
 
 /** Sequence number of a task key ("AR-21" -> 21). */

@@ -1,8 +1,7 @@
 import { z } from 'zod';
 import { Actor } from './event';
 import type { TaskViewer } from './task';
-import { canSeeTask, TaskKey } from './task';
-import type { Task } from './task';
+import { TaskKey } from './task';
 
 /** The one size limit of an attachment: 25 MB (decimal), enforced on every way in. */
 export const MAX_ATTACHMENT_BYTES = 25_000_000;
@@ -101,29 +100,26 @@ export function coverAttachmentId(
   return images[0]?.id ?? null;
 }
 
-/** Whoever acts on attachments: a project member (never a client or viewer who may not see the task). */
+/** Whoever acts on attachments: a project member. Reading needs nothing more than membership. */
 export type AttachmentViewer = TaskViewer;
 
-/** Reading: project membership is a precondition of every rule; clients see only shared tasks. */
-export function canReadAttachments(viewer: AttachmentViewer, task: Pick<Task, 'visibility'>): boolean {
-  return canSeeTask(viewer, task);
-}
-
-/** Uploading: whoever sees the task, except viewers, who only read (AI and the other workers may). */
-export function canUploadAttachment(viewer: AttachmentViewer, task: Pick<Task, 'visibility'>): boolean {
-  return canSeeTask(viewer, task) && viewer.access !== 'viewer';
+/**
+ * Uploading to a card: every member except those who only read and comment (AI and the other workers
+ * may). A message's own files go another way (PM-516).
+ */
+export function canUploadAttachment(viewer: AttachmentViewer): boolean {
+  return viewer.access !== 'viewer' && viewer.access !== 'client';
 }
 
 /**
- * Deleting: the uploader, or a human owner or admin. A viewer never deletes, not even an
- * older upload of their own.
+ * Deleting: the uploader, or a human owner or admin. A member who only reads and comments never
+ * deletes, not even an older upload of their own.
  */
 export function canDeleteAttachment(
   viewer: AttachmentViewer,
-  task: Pick<Task, 'visibility'>,
   attachment: Pick<Attachment, 'uploadedBy'>,
 ): boolean {
-  if (!canSeeTask(viewer, task) || viewer.access === 'viewer') return false;
+  if (viewer.access === 'viewer' || viewer.access === 'client') return false;
   if (viewer.access === 'owner' || viewer.access === 'admin') return true;
   const kind = viewer.access === 'ai' ? 'ai' : 'human';
   return attachment.uploadedBy.kind === kind && attachment.uploadedBy.handle === viewer.handle;

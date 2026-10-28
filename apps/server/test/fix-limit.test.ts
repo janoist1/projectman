@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { obligationReminders } from './helpers/deferred-starts';
 import type { InboxItem, ProjectConfig } from '@projectman/shared';
-import { SYSTEM_ACTOR, aiActor } from '../src/domain';
+import { SYSTEM_ACTOR, aiActor } from '../src/kernel';
+import { questionPayloadOf } from '@projectman/shared';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { planUsage, settle } from './helpers/fakes';
@@ -16,13 +18,14 @@ const TASK = { type: 'task', taskKey: 'AR-1' } as const;
 
 describe('fix round limit', () => {
   let h: DomainHarness;
+  let clock: Date | undefined;
   afterEach(() => h?.cleanup());
 
   const setup =
-    (opts: { lead?: boolean; planner?: boolean } = {}) =>
+    (opts: { lead?: boolean; planner?: boolean; limit?: number; integrator?: boolean } = {}) =>
     (config: ProjectConfig) => {
       config.team.limits.maxConcurrentAi = 10;
-      config.team.limits.maxFixRounds = 2;
+      config.team.limits.maxFixRounds = opts.limit ?? 2;
       if (opts.lead ?? true)
         config.team.members.push({
           kind: 'ai',
@@ -42,7 +45,11 @@ describe('fix round limit', () => {
     };
 
   async function prepare(opts: Parameters<typeof setup>[0] = {}) {
-    h = await createDomainHarness({ adjust: setup(opts) });
+    h = await createDomainHarness({
+      adjust: setup(opts),
+      now: () => clock ?? new Date(),
+      integratorTodoAccess: { available: () => opts.integrator ?? false },
+    });
     h.runner.idleOnStart = true;
     await h.domain.tasks.create('AR', { title: 'Login page' }, OWNER_ACTOR);
     await h.domain.taskStarts.start('AR', 'AR-1', { assignee: 'dev-1', actor: OWNER_ACTOR, author: OWNER });
@@ -90,8 +97,220 @@ describe('fix round limit', () => {
           event.actor.kind === 'system' &&
           (event.data.to as string[]).includes(member),
       );
-  const tool = (member: string, decision: 'continue' | 'replan' | 'to_owner', reason = 'Because.') =>
-    h.domain.fixLimit.decide(member, 'AR', 'AR-1', decision, reason);
+  const ASSESSMENT = {
+    recurrence: 'The same test fails again after each fix.',
+    currentState: 'The fix is half done and the test still fails.',
+    recommendation: { optionId: 'another_round', reason: 'One more try is cheap.' },
+  } as const;
+  const tool = (
+    member: string,
+    decision: 'continue' | 'replan' | 'to_owner',
+    reason = 'Because.',
+    assessment: unknown = ASSESSMENT,
+  ) => h.domain.fixLimit.decide(member, 'AR', 'AR-1', decision, reason, assessment);
+  /** The lead gives `count` extra rounds, each time the card reaches the limit again. */
+  async function giveExtraRounds(count: number) {
+    for (let given = 0; given < count; given += 1) {
+      await tool('lead', 'continue', `Extra ${given + 1}.`);
+      await round(`Fix after extra ${given + 1}`);
+    }
+  }
+
+  describe('obligation timeout', () => {
+    afterEach(() => {
+      clock = undefined;
+    });
+    const advance = (minutes: number) => {
+      clock = new Date(clock!.getTime() + minutes * 60_000);
+    };
+    const stop = async () => {
+      for (const session of h.domain.sessions.list('AR')) await h.domain.sessions.stop('AR', session.id);
+      await settle();
+    };
+    const sweep = async () => {
+      await h.domain.obligations.sweep();
+      await settle();
+    };
+    const reminders = () =>
+      obligationReminders(h.repos, 'AR', 'AR-1').filter(
+        (item) => h.repos.obligations.get(item.source.id)?.kind === 'fix_limit',
+      );
+    const todos = () =>
+      h.domain.inbox.list('AR', {}).filter((i) => questionPayloadOf(i)?.obligation?.kind === 'fix_limit');
+    const prepareHold = async (integrator = true) => {
+      clock = new Date('2026-10-19T10:00:00.000Z');
+      await prepare({ limit: 3, integrator });
+      await round('First fix');
+      await round('Second fix');
+      await round('Third fix');
+      await stop();
+      await sweep();
+    };
+
+    it('wakes once and transfers the decision to owners when no integrator is available', async () => {
+      await prepareHold(false);
+      const subject = `${record()!.heldAt}:lead`;
+      advance(30);
+      await sweep();
+      expect(reminders()).toHaveLength(1);
+      expect(reminders()[0]).toMatchObject({ member: 'lead', kind: 'start', wake: true });
+      expect(items()).toHaveLength(0);
+      await stop();
+      advance(30);
+      await sweep();
+      expect(items()).toHaveLength(1);
+      const decision = items()[0]!;
+      expect(decision).toMatchObject({
+        kind: 'decision',
+        assignees: ['owner'],
+        payload: { recipient: 'owner', fixLimit: { reason: 'decider_timeout', decider: 'lead' } },
+      });
+      expect(todos()).toHaveLength(0);
+      expect(
+        h.domain.timeline
+          .list('AR')
+          .find((e) => e.type === 'obligation_handed_over' && e.data.kind === 'fix_limit')?.data,
+      ).toMatchObject({ decisionItemId: decision.id, inboxItemId: decision.id, recipient: 'owner' });
+      advance(60);
+      await sweep();
+      await sweep();
+      expect(todos()).toHaveLength(0);
+      expect(h.repos.inbox.get(decision.id)?.state).toBe('open');
+      expect(reminders()).toHaveLength(1);
+      await h.domain.inbox.resolve('AR', decision.id, { optionId: 'another_round' }, OWNER_ACCESS);
+      await settle();
+      await sweep();
+      expect(h.repos.obligations.find('AR', 'AR-1', 'fix_limit', 'lead', subject)?.state).toBe('fulfilled');
+      expect(h.repos.inbox.get(decision.id)).toMatchObject({
+        state: 'resolved',
+        resolution: { optionId: 'another_round' },
+      });
+      await expect(h.domain.fixLimit.timeOut('AR', 'AR-1', 'lead')).resolves.toBeNull();
+    });
+
+    it('keeps the clock still while the lead deliberates at the desk, and closes its queue item with the decision', async () => {
+      await prepareHold();
+      const desk = h.domain.sessions.findRunning('AR', 'lead', { type: 'general' })!;
+      expect(h.repos.memberQueue.listOpen('AR', 'lead')).toMatchObject([
+        { kind: 'fix_limit', state: 'processing', place: { type: 'general' } },
+      ]);
+      h.runner.setState(desk.id, 'working');
+      advance(90);
+      await sweep();
+      expect(reminders()).toHaveLength(0);
+      expect(items()).toHaveLength(0);
+      await tool('lead', 'continue');
+      expect(h.repos.memberQueue.listOpen('AR', 'lead')).toEqual([]);
+    });
+
+    it('hands the decision to the owners at once when no lead can be reached any more', async () => {
+      await prepareHold();
+      await h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (config) => {
+        const lead = config.team.members.find((m) => m.handle === 'lead')!;
+        if (lead.kind === 'ai') lead.onLeave = true;
+        return 'Send the lead on leave';
+      });
+      await stop();
+      await settle();
+      expect(items()).toMatchObject([{ payload: { fixLimit: { reason: 'no_ai_decider' } } }]);
+      expect(h.repos.memberQueue.listOpen('AR', 'lead')).toEqual([]);
+    });
+
+    it.each([false, true])(
+      'does not hand over when the lead decides (after reminder: %s)',
+      async (wakeFirst) => {
+        await prepareHold();
+        if (wakeFirst) {
+          advance(30);
+          await sweep();
+          await stop();
+        }
+        await tool('lead', 'continue');
+        await expect(h.domain.fixLimit.timeOut('AR', 'AR-1', 'lead')).resolves.toBeNull();
+        advance(60);
+        await sweep();
+        expect(reminders()).toHaveLength(wakeFirst ? 1 : 0);
+        expect(todos()).toHaveLength(0);
+        expect(items()).toHaveLength(0);
+      },
+    );
+
+    it('ignores a different decider and also transfers a planner timeout', async () => {
+      await prepareHold();
+      await expect(h.domain.fixLimit.timeOut('AR', 'AR-1', 'arch')).resolves.toBeNull();
+      await tool('lead', 'replan');
+      await stop();
+      await expect(h.domain.fixLimit.timeOut('AR', 'AR-1', 'lead')).resolves.toBeNull();
+      await expect(h.domain.fixLimit.timeOut('AR', 'AR-1', 'arch')).resolves.toMatchObject({
+        decisionItemId: expect.any(String),
+      });
+      expect(record()).toMatchObject({ holdPhase: 'owner', reason: 'decider_timeout' });
+      await expect(h.domain.fixLimit.timeOut('AR', 'AR-1', 'arch')).resolves.toBeNull();
+      expect(items()).toHaveLength(1);
+    });
+
+    it('recovers the hand-over after the row update failed, without duplicating the decision', async () => {
+      await prepareHold();
+      advance(30);
+      await sweep();
+      await stop();
+      const update = vi.spyOn(h.repos.obligations, 'update').mockImplementationOnce(() => {
+        throw new Error('Interrupted');
+      });
+      advance(30);
+      await sweep();
+      expect(items()).toHaveLength(1);
+      expect(todos()).toHaveLength(0);
+      await sweep();
+      expect(items()).toHaveLength(1);
+      expect(todos()).toHaveLength(0);
+      expect(
+        h.repos.obligations.listLive('AR', 'AR-1').find((row) => row.kind === 'fix_limit'),
+      ).toMatchObject({ state: 'handed_over', inboxItemId: items()[0]!.id });
+      update.mockRestore();
+    });
+
+    it('fulfills without a todo if the decider wins the race with the timeout', async () => {
+      await prepareHold();
+      const subject = `${record()!.heldAt}:lead`;
+      advance(30);
+      await sweep();
+      await stop();
+      const timeout = vi.spyOn(h.domain.fixLimit, 'timeOut').mockImplementationOnce(async () => {
+        await tool('lead', 'continue');
+        return null;
+      });
+      advance(30);
+      await sweep();
+      expect(timeout).toHaveBeenCalledOnce();
+      expect(h.repos.obligations.find('AR', 'AR-1', 'fix_limit', 'lead', subject)?.state).toBe('fulfilled');
+      expect(todos()).toHaveLength(0);
+      expect(items()).toHaveLength(0);
+      timeout.mockRestore();
+    });
+
+    it('still pauses the decision clock for another human inbox item', async () => {
+      await prepareHold();
+      h.domain.inbox.create({
+        projectKey: 'AR',
+        kind: 'question',
+        source: 'dev-1',
+        taskKey: 'AR-1',
+        assignees: ['owner'],
+        title: 'Which way?',
+        payload: { question: 'Which way?', requestedRecipient: 'owner', recipient: 'owner' },
+        options: [{ id: 'answer', label: 'Answer', style: 'primary' }],
+      });
+      await sweep();
+      advance(90);
+      await sweep();
+      expect(
+        h.repos.obligations.listLive('AR', 'AR-1').find((r) => r.kind === 'fix_limit')?.pauseReason,
+      ).toBe('inbox');
+      expect(reminders()).toHaveLength(0);
+      expect(todos()).toHaveLength(0);
+    });
+  });
 
   describe('holding a card at the limit', () => {
     it('lets the first round through and holds the second: its notice waits, the lead is told', async () => {
@@ -234,7 +453,7 @@ describe('fix round limit', () => {
     it('logs a rejected message release after continuing without an unhandled rejection', async () => {
       await held();
       const error = new Error('Message release failed');
-      vi.spyOn(h.domain.messaging, 'releaseWaiting').mockRejectedValueOnce(error);
+      vi.spyOn(h.domain.messageRouter, 'releaseWaiting').mockRejectedValueOnce(error);
       await tool('lead', 'continue');
       await vi.waitFor(() =>
         expect(h.log.warnings).toContainEqual([
@@ -259,19 +478,152 @@ describe('fix round limit', () => {
       ]);
     });
 
-    it('reaching the limit again after one more round goes to the people', async () => {
+    it('decides again at the next reach while fewer than three extra rounds were given', async () => {
       await held();
       await tool('lead', 'continue');
       await round('Third fix');
-      expect(record()).toMatchObject({ holdPhase: 'owner', reason: 'again', extraRounds: 1 });
+      expect(record()).toMatchObject({ holdPhase: 'lead', decider: 'lead', extraRounds: 1 });
+      expect(items()).toEqual([]);
+      expect(task().fixLimit).toMatchObject({
+        phase: 'lead',
+        rounds: 3,
+        limit: 3,
+        extraRounds: 1,
+        remainingExtraRounds: 2,
+        extraRoundLimit: 3,
+      });
+      await tool('lead', 'continue');
+      await round('Fourth fix');
+      expect(record()).toMatchObject({ holdPhase: 'lead', extraRounds: 2 });
+      await vi.waitFor(() =>
+        expect(
+          told('lead').filter((text) => text.includes('Extra rounds given so far: 2 of 3')),
+        ).toHaveLength(1),
+      );
+    });
+
+    it('goes to the people at every reach once three extra rounds were given', async () => {
+      await held();
+      await giveExtraRounds(2);
+      await tool('lead', 'continue', 'Third extra.');
+      expect(record()).toMatchObject({ holdPhase: null, extraRounds: 3 });
+      await round('Fix after the third extra');
+      expect(record()).toMatchObject({ holdPhase: 'owner', reason: 'extra_exhausted', extraRounds: 3 });
+      expect(task().fixLimit).toMatchObject({
+        phase: 'owner',
+        reason: 'extra_exhausted',
+        extraRounds: 3,
+        remainingExtraRounds: 0,
+        deciders: ['owner'],
+      });
       expect(items()).toHaveLength(1);
       expect(items()[0]).toMatchObject({
         source: 'system',
         assignees: ['owner'],
         options: [{ id: 'replan' }, { id: 'reassign' }, { id: 'another_round' }],
-        payload: { fixLimit: { reason: 'again', rounds: 3, limit: 3 } },
+        payload: {
+          fixLimit: {
+            reason: 'extra_exhausted',
+            rounds: 5,
+            limit: 5,
+            extraRounds: 3,
+            remainingExtraRounds: 0,
+            extraRoundLimit: 3,
+          },
+        },
+      });
+      // The lead can no longer decide: the people do.
+      await expect(tool('lead', 'continue')).rejects.toMatchObject({ code: 'fix_limit_not_held' });
+      // A person's extra round is counted in the same counter and the people decide at the next reach again.
+      await h.domain.inbox.resolve('AR', items()[0]!.id, { optionId: 'another_round' }, OWNER_ACCESS);
+      await settle();
+      expect(record()).toMatchObject({ holdPhase: null, extraRounds: 4 });
+      await round('Fix after the fourth extra');
+      expect(record()).toMatchObject({ holdPhase: 'owner', reason: 'extra_exhausted', extraRounds: 4 });
+    });
+
+    it('counts the extra rounds of a person and the lead in one counter', async () => {
+      await held();
+      await h.domain.taskStarts.start('AR', 'AR-1', { actor: OWNER_ACTOR, author: OWNER });
+      expect(record()).toMatchObject({ holdPhase: null, extraRounds: 1 });
+      await round('Third fix');
+      await tool('lead', 'continue');
+      expect(record()).toMatchObject({ extraRounds: 2 });
+    });
+
+    it('begins the extra rounds anew after a replan release and after a reassign', async () => {
+      await held();
+      await giveExtraRounds(1);
+      await tool('lead', 'replan', 'Too loose.');
+      await tool('arch', 'continue', 'Plan written.');
+      expect(record()).toMatchObject({ holdPhase: null, extraRounds: 0 });
+      expect(h.domain.fixLimit.view(task())).toBeUndefined();
+      await round('Fix 1 of the new count');
+      await round('Fix 2 of the new count');
+      expect(record()).toMatchObject({ holdPhase: 'lead', extraRounds: 0 });
+      await tool('lead', 'to_owner', 'Your call.');
+      await h.domain.inbox.resolve('AR', items()[0]!.id, { optionId: 'reassign' }, OWNER_ACCESS);
+      await settle();
+      expect(record()).toMatchObject({ holdPhase: null, extraRounds: 0 });
+    });
+
+    it('keeps an older open hold of the people as it was: the owner decides it, the old reason shows', async () => {
+      await held();
+      // A hold and an item the earlier code made: English title, no history, the reason `again`.
+      const old = h.domain.inbox.create({
+        projectKey: 'AR',
+        kind: 'decision',
+        assignees: ['owner'],
+        source: 'system',
+        taskKey: 'AR-1',
+        title: 'Fix round limit on AR-1: 3 rounds',
+        payload: {
+          fixLimit: {
+            taskKey: 'AR-1',
+            rounds: 3,
+            limit: 3,
+            changeRequests: 3,
+            designChangeRequests: 0,
+            sendBacks: 0,
+            reason: 'again',
+            decider: null,
+            note: null,
+          },
+        },
+        options: [
+          { id: 'reassign', label: 'reassign', style: 'secondary' },
+          { id: 'another_round', label: 'another_round', style: 'primary' },
+        ],
+      });
+      h.repos.taskFixLimits.save({
+        ...record()!,
+        holdPhase: 'owner',
+        decider: null,
+        deciders: ['owner'],
+        reason: 'again',
+        extraRounds: 1,
+        inboxItemId: old.id,
       });
       expect(task().fixLimit).toMatchObject({ phase: 'owner', reason: 'again', deciders: ['owner'] });
+      expect(task().fixLimit?.recipient).toBe('owner');
+      await h.domain.inbox.resolve('AR', old.id, { optionId: 'another_round' }, OWNER_ACCESS);
+      await settle();
+      expect(record()).toMatchObject({ holdPhase: null, extraRounds: 2 });
+    });
+
+    it('does not open a new hold after a technical send-back and handover following an extra round', async () => {
+      await held();
+      await tool('lead', 'continue');
+      await h.domain.tasks.moveToStage('AR', 'AR-1', 'development', SYSTEM_ACTOR, {
+        branchMoved: { branch: 'task/AR-1', pinned: 'old', head: 'new' },
+      });
+      await h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', aiActor('dev-1'));
+      await settle();
+      const config = await h.domain.projects.config('AR');
+      expect(h.domain.fixLimit.fixRounds(task(), config)).toEqual({ rounds: 2, limit: 3 });
+      expect(record()).toMatchObject({ holdPhase: null, extraRounds: 1 });
+      expect(items()).toEqual([]);
+      expect(events().filter((event) => event.data.phase === 'reached')).toHaveLength(1);
     });
 
     it('replan asks another technical direction holder, who releases the card with a fresh count', async () => {
@@ -294,17 +646,106 @@ describe('fix round limit', () => {
       await vi.waitFor(() => expect(typed('Plan written.')).toBe(true));
     });
 
-    it('to_owner gives the decision to the people with its reason', async () => {
+    it('to_owner gives the decision to the people with its reason and its assessment', async () => {
       await held();
       await expect(tool('lead', 'to_owner', 'I cannot judge this.')).resolves.toEqual({ phase: 'owner' });
       expect(record()).toMatchObject({ holdPhase: 'owner', reason: 'passed_on' });
       expect(items()[0]).toMatchObject({
-        payload: { fixLimit: { reason: 'passed_on', decider: 'lead', note: 'I cannot judge this.' } },
+        payload: {
+          fixLimit: {
+            reason: 'passed_on',
+            decider: 'lead',
+            note: 'I cannot judge this.',
+            assessment: ASSESSMENT,
+            extraRounds: 0,
+            remainingExtraRounds: 3,
+            extraRoundLimit: 3,
+          },
+        },
       });
       expect(events().map((event) => event.data)).toMatchObject([
         { phase: 'reached' },
-        { phase: 'passed_on', decider: 'lead', note: 'I cannot judge this.' },
+        { phase: 'passed_on', decider: 'lead', note: 'I cannot judge this.', assessment: ASSESSMENT },
       ]);
+    });
+
+    it('writes the whole item in the project language: summary, assessment, every round and the options', async () => {
+      await held();
+      await tool('lead', 'to_owner', 'I cannot judge this.');
+      const item = items()[0]!;
+      const history = (item.payload.fixLimit as { history: unknown[] }).history;
+      expect(history).toHaveLength(2);
+      expect(item.title).toContain('AR-1');
+      expect(item.body).toContain(ASSESSMENT.recurrence);
+      expect(item.body).toContain(ASSESSMENT.currentState);
+      expect(item.body).toContain(ASSESSMENT.recommendation.reason);
+      expect(item.body).toContain('First fix');
+      expect(item.body).toContain('Second fix');
+      for (const id of ['replan', 'reassign', 'another_round']) expect(item.body).toContain(id);
+      expect(item.options.every((option) => option.consequence)).toBe(true);
+      expect(item.options.find((option) => option.id === 'another_round')?.style).toBe('primary');
+      expect(item.payload).toMatchObject({ recipient: 'owner', recipientRefusal: 'integrator_unavailable' });
+    });
+
+    it('refuses to_owner without a good assessment and changes nothing', async () => {
+      await held();
+      const before = events().length;
+      await expect(
+        h.domain.fixLimit.decide('lead', 'AR', 'AR-1', 'to_owner', 'Your call.'),
+      ).rejects.toMatchObject({
+        code: 'fix_limit_assessment_required',
+      });
+      await expect(tool('lead', 'to_owner', 'Your call.', { recurrence: 'x' })).rejects.toMatchObject({
+        code: 'invalid_request',
+      });
+      await expect(
+        tool('lead', 'to_owner', 'Your call.', {
+          ...ASSESSMENT,
+          currentState: '   ',
+        }),
+      ).rejects.toMatchObject({ code: 'invalid_request' });
+      await expect(
+        tool('lead', 'to_owner', 'Your call.', {
+          ...ASSESSMENT,
+          recommendation: { optionId: 'to_owner', reason: 'x' },
+        }),
+      ).rejects.toMatchObject({ code: 'invalid_request' });
+      expect(record()).toMatchObject({ holdPhase: 'lead', decider: 'lead', inboxItemId: null });
+      expect(items()).toEqual([]);
+      expect(events()).toHaveLength(before);
+    });
+
+    it('refuses a recommendation of an outcome that cannot be carried out now', async () => {
+      await prepare({ planner: false });
+      await round('First fix');
+      await round('Second fix');
+      await expect(
+        tool('lead', 'to_owner', 'Your call.', {
+          ...ASSESSMENT,
+          recommendation: { optionId: 'replan', reason: 'A plan first.' },
+        }),
+      ).rejects.toMatchObject({ code: 'fix_limit_invalid_recommendation' });
+      expect(record()?.holdPhase).toBe('lead');
+      expect(items()).toEqual([]);
+      await expect(
+        tool('lead', 'to_owner', 'Your call.', {
+          ...ASSESSMENT,
+          recommendation: { optionId: 'reassign', reason: 'Another developer.' },
+        }),
+      ).resolves.toEqual({ phase: 'owner' });
+    });
+
+    it('tells the lead every round, the extra rounds left and what the assessment needs', async () => {
+      await held();
+      await vi.waitFor(() =>
+        expect(told('lead').some((text) => text.includes('Every round so far'))).toBe(true),
+      );
+      const notice = told('lead').find((text) => text.includes('Every round so far'))!;
+      expect(notice).toContain('Extra rounds given so far: 0 of 3; you can give 3 more');
+      expect(notice).toContain('REQUIRES an assessment');
+      expect(notice).toContain('one of replan, reassign, another_round');
+      expect(notice).toContain('First fix');
+      expect(notice).toContain('Second fix');
     });
 
     it('refuses a decision when the card is not held, and one of a member who does not decide', async () => {
@@ -419,8 +860,8 @@ describe('fix round limit', () => {
       await settle();
       expect(startsOfDev()).toBe(before);
       expect(stored('dev-1')).toHaveLength(1);
-      expect(h.repos.deferredStarts.list().map((record) => record.spec)).toContainEqual(
-        expect.objectContaining({ kind: 'message_wake', handle: 'dev-1', workItem: TASK }),
+      expect(h.repos.memberQueue.listOpen('AR', 'dev-1')).toContainEqual(
+        expect.objectContaining({ wait: expect.objectContaining({ code: 'plan_usage_paused' }) }),
       );
 
       h.runnerModule.planUsage.value = planUsage(30);
@@ -454,6 +895,20 @@ describe('fix round limit', () => {
     }
     const resolve = (optionId: string) =>
       h.domain.inbox.resolve('AR', items()[0]!.id, { optionId }, OWNER_ACCESS);
+
+    it('stage change does not close the decision item and decision still works', async () => {
+      await owned();
+      await h.domain.tasks.moveToStage('AR', 'AR-1', 'development', aiActor('dev-1'));
+      await settle();
+      expect(task().stageId).toBe('development');
+      expect(items()).toHaveLength(1);
+      expect(items()[0]!.state).toBe('open');
+      await resolve('reassign');
+      await settle();
+      expect(record()).toMatchObject({ holdPhase: null, inboxItemId: null, extraRounds: 0 });
+      expect(task().fixLimit).toBeUndefined();
+      expect(task().assignee).not.toBe('dev-1');
+    });
 
     it('another_round lets the card go on with one more round', async () => {
       await owned();

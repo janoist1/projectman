@@ -1,11 +1,12 @@
 import type { MemberStatus } from '@projectman/shared';
 import type { Db } from './database';
 
-export interface MemberStateRecord {
+interface MemberStateRecord {
   projectKey: string;
   handle: string;
   status: MemberStatus;
   activity: string | null;
+  activityTaskKey: string | null;
   updatedAt: string;
 }
 
@@ -14,6 +15,7 @@ interface MemberStateRow {
   handle: string;
   status: string;
   activity: string | null;
+  activity_task_key: string | null;
   updated_at: string;
 }
 
@@ -22,6 +24,7 @@ const toRecord = (r: MemberStateRow): MemberStateRecord => ({
   handle: r.handle,
   status: r.status as MemberStatus,
   activity: r.activity,
+  activityTaskKey: r.activity_task_key,
   updatedAt: r.updated_at,
 });
 
@@ -31,9 +34,9 @@ export function createMemberStateRepository(db: Db) {
     get: db.prepare('SELECT * FROM member_state WHERE project_key = ? AND handle = ?'),
     list: db.prepare('SELECT * FROM member_state WHERE project_key = ? ORDER BY handle'),
     upsert: db.prepare(
-      `INSERT INTO member_state (project_key, handle, status, activity, updated_at) VALUES (?, ?, ?, ?, ?)
+      `INSERT INTO member_state (project_key, handle, status, activity, activity_task_key, updated_at) VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT (project_key, handle) DO UPDATE SET status = excluded.status, activity = excluded.activity,
-         updated_at = excluded.updated_at`,
+         activity_task_key = excluded.activity_task_key, updated_at = excluded.updated_at`,
     ),
   };
   return {
@@ -45,7 +48,7 @@ export function createMemberStateRepository(db: Db) {
       return (statements.list.all(projectKey) as MemberStateRow[]).map(toRecord);
     },
     upsert(r: MemberStateRecord): void {
-      statements.upsert.run(r.projectKey, r.handle, r.status, r.activity, r.updatedAt);
+      statements.upsert.run(r.projectKey, r.handle, r.status, r.activity, r.activityTaskKey, r.updatedAt);
     },
   };
 }

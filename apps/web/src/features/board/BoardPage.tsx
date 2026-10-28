@@ -12,6 +12,7 @@ import { EmptyState, ErrorState, LoadingState } from '../../components/States';
 import { t } from '../../i18n/t';
 import { useDocumentTitle, useIsMobile } from '../../lib/hooks';
 import type { MemberIndex } from '../../lib/members';
+import { columnHoldsStartable } from '../../lib/pipeline';
 import type { PipelineIndex } from '../../lib/pipeline';
 import type { TaskPhase } from '../../lib/taskState';
 import { dragHasFiles } from '../../lib/attachmentInput';
@@ -21,7 +22,6 @@ import { coverSrcOf } from './cardModel';
 import { useDoneFold } from './doneFold';
 import { useFileDrop } from './useFileDrop';
 import { useBoardFilters } from './useBoardFilters';
-import { MobileBoardList } from './MobileBoardList';
 import { TaskCard } from './TaskCard';
 import { FocusStrip } from '../focus/FocusStrip';
 import { TeamStrip } from './TeamStrip';
@@ -32,12 +32,14 @@ import { ApiError } from '../../api/client';
 import { useBoardMove, useLabels } from '../../api/queries';
 import { useToast } from '../../components/toastContext';
 import { isApprovalRequested } from '../../lib/errors';
+import { mergeRefusal, mergerHandleOf, refusalFactsOf } from '../../lib/merge';
+import { nameOf } from '../../lib/members';
 import { PrerequisiteWarning } from './PrerequisiteWarning';
 import { groupMoveToast, groupOutcome } from './groupMove';
 import { canMoveTask, dropStage, moveErrorText, prerequisitesToWarnAbout } from './moveTask';
 import styles from './BoardPage.module.css';
 
-const inProgress: ReadonlySet<TaskPhase> = new Set(['needs_you', 'working', 'waiting', 'blocked']);
+const inProgress: ReadonlySet<TaskPhase> = new Set(['needs_you', 'working', 'waiting', 'blocked', 'stuck']);
 
 /** How long a card that has just landed is marked. */
 const LANDED_MS = 900;
@@ -127,7 +129,10 @@ function Column({
   searching,
   members,
   myHandle,
+  rulesKnown,
 }: {
+  /** The configuration is loaded, so the cards' start state is known. */
+  rulesKnown: boolean;
   /** A filter or a search narrows the board: only then does an empty column say so. */
   filtered: boolean;
   /** A search shows every finished card; without one the finished column shows its newest few. */
@@ -158,6 +163,11 @@ function Column({
     ? [...entries.filter((entry) => entry.state.phase !== 'done'), ...done.shown]
     : entries;
   const chronological = isChronologicalColumn(pipeline.stages, column.id);
+  // Only where the start rule is known (not while the configuration loads) and an empty column says nothing new.
+  const startableCount =
+    rulesKnown && entries.length > 0 && columnHoldsStartable(pipeline, column)
+      ? entries.filter((entry) => entry.state.startable).length
+      : null;
   const hovered = drag.hover?.columnId === column.id;
   // Another column's card is held over this one: the column takes it by its first stage.
   const entering = hovered && drag.draggedColumn !== column.id;
@@ -188,6 +198,24 @@ function Column({
           <span className={styles.columnCount} aria-label={t('board.columnCount', { count: entries.length })}>
             {entries.length}
           </span>
+          {startableCount !== null ? (
+            <span
+              className={styles.startableChip}
+              data-none={startableCount === 0 ? '' : undefined}
+              aria-label={
+                startableCount > 0 ? t('board.startableLabel', { count: startableCount }) : undefined
+              }
+            >
+              {startableCount > 0 ? (
+                <>
+                  <Icon name="play" size={10} strokeWidth={2.6} />
+                  {t('board.startableCount', { count: startableCount })}
+                </>
+              ) : (
+                t('board.startableNone')
+              )}
+            </span>
+          ) : null}
           {chronological ? <span className={styles.columnOrder}>{t('board.doneChronological')}</span> : null}
         </div>
         {column.hint ? <span className={styles.columnHint}>{column.hint}</span> : null}
@@ -271,7 +299,7 @@ function BoardCard({
   const canAttach = useCanAttach();
   const queue = useUploadQueue();
   const fileDrop = useFileDrop({
-    allowed: canAttach(task),
+    allowed: canAttach,
     onFiles: (files) => queue.add(task.key, files, { announce: true }),
   });
   const movable = canMoveTask(task, drag.allowed);
@@ -446,6 +474,11 @@ export function BoardPage() {
               columnName: drop.columnName,
               projectKey: key,
               labels: board.data?.labels ?? [],
+              mergerOf: (taskKey) => {
+                const task = model?.byKey.get(taskKey)?.task;
+                const handle = task && mergerHandleOf(task, model?.ctx.config);
+                return handle ? nameOf(handle, model?.ctx.members ?? new Map(), myHandle) : null;
+              },
             });
             toast.show(summary.message, summary.tone, { items: summary.items, sticky: summary.sticky });
             return;
@@ -457,13 +490,21 @@ export function BoardPage() {
           if (result.outcome === 'moved') toast.show(t('task.move.success'));
         },
         // A stale board is no failure: the refetch after it already shows the new order.
-        onError: (error) =>
-          toast.show(
-            moveErrorText(error, board.data?.labels ?? []),
-            isApprovalRequested(error) || (error instanceof ApiError && error.code === 'board_stale')
-              ? 'info'
-              : 'error',
-          ),
+        onError: (error) => {
+          const facts = refusalFactsOf({
+            task: model?.byKey.get(drop.taskKey)?.task,
+            config: model?.ctx.config,
+            members: model?.ctx.members ?? new Map(),
+            myHandle,
+            target: pipeline?.stageById.get(drop.stageId)?.name ?? drop.columnName,
+          });
+          // A merge refusal is only news to a member who does not merge (PM-453); the merger gets the error.
+          const informs =
+            isApprovalRequested(error) ||
+            (error instanceof ApiError && error.code === 'board_stale') ||
+            mergeRefusal(error, facts)?.tone === 'info';
+          toast.show(moveErrorText(error, board.data?.labels ?? [], facts), informs ? 'info' : 'error');
+        },
         onSettled: () => setPending(null),
       },
     );
@@ -659,6 +700,7 @@ export function BoardPage() {
         <TeamStrip
           members={board.data.members}
           titles={new Map(board.data.tasks.map((task) => [task.key, task.title]))}
+          tasks={board.data.tasks}
         />
       )}
       <PageHeader
@@ -707,16 +749,6 @@ export function BoardPage() {
             }
           />
         </div>
-      ) : isMobile ? (
-        <MobileBoardList
-          subtasksByParent={model.subtasksByParent}
-          entries={visible}
-          pipeline={pipeline}
-          projectKey={key}
-          searching={search !== ''}
-          members={model.ctx.members}
-          myHandle={myHandle}
-        />
       ) : (
         <div className={styles.columns}>
           {pipeline.columns.map((column) => (
@@ -734,6 +766,7 @@ export function BoardPage() {
               searching={search !== ''}
               members={model.ctx.members}
               myHandle={myHandle}
+              rulesKnown={!!model.ctx.config}
             />
           ))}
         </div>

@@ -9,12 +9,12 @@ import { InboxPage } from './InboxPage';
 
 const REASON = 'Átfogó adatmigráció';
 
-/** AC-24 is a Senior card, its only Senior (be-1) is busy, so it waits; the wait limit has passed. */
+/** AC-24 has 8 points; its only suitable developer is busy and the wait limit has passed. */
 function waitingProject() {
   const backend = new MockBackend();
-  backend.handle('PATCH', '/api/projects/AC/members/be-1', { senior: true });
-  backend.findTask('AC-24')!.developerLevel = {
-    level: 'senior',
+  backend.handle('PATCH', '/api/projects/AC/members/be-1', { complexityLimit: 13 });
+  backend.findTask('AC-24')!.complexity = {
+    points: 8,
     reason: REASON,
     setBy: 'owner',
     setAt: new Date().toISOString(),
@@ -34,10 +34,11 @@ const render = (project: ReturnType<typeof mockProject>) =>
   );
 
 describe('the Senior-wait question in the inbox (PM-349)', () => {
-  it('asks once, names the card, the busy Senior and the reason, and says what each answer does', async () => {
+  it('asks once, includes points, the busy developer and the reason, and offers both choices', async () => {
     const project = waitingProject();
     project.backend.askSeniorWait('AC-24');
     expect(waitItems(project.backend)).toHaveLength(1);
+    expect(seniorWaitDecisionOf(waitItems(project.backend)[0]!)?.points).toBe(8);
     render(project);
 
     const card = (await screen.findByRole('heading', { name: t('inbox.seniorWait.heading') })).closest(
@@ -51,6 +52,19 @@ describe('the Senior-wait question in the inbox (PM-349)', () => {
     expect(within(card).getByText(t('inbox.seniorWait.footer'))).toBeTruthy();
     expect(within(card).getByRole('button', { name: t('inbox.options.wait_for_senior') })).toBeTruthy();
     expect(within(card).getByRole('button', { name: t('inbox.options.any_developer') })).toBeTruthy();
+  });
+
+  it('renders a historical question without a points payload', async () => {
+    const project = waitingProject();
+    const payload = waitItems(project.backend)[0]!.payload.seniorWait as Record<string, unknown>;
+    delete payload.points;
+    render(project);
+    const article = (await screen.findByRole('heading', { name: t('inbox.seniorWait.heading') })).closest(
+      'article',
+    )!;
+    expect(article.textContent).toContain('AC-24');
+    expect(article.textContent).not.toContain('{points}');
+    expect(article.textContent).toContain(REASON);
   });
 
   it('"Várjon tovább" keeps the card waiting, says who decided on it, and closes the question', async () => {
@@ -108,9 +122,7 @@ describe('the Senior-wait question in the inbox (PM-349)', () => {
 
   it('closes by itself when the card goes another way, with its own label', async () => {
     const project = waitingProject();
-    project.backend.handle('PATCH', '/api/projects/AC/tasks/AC-24', {
-      developerLevel: { level: 'any', reason: null },
-    });
+    project.backend.setTaskComplexity('AC-24', { points: null });
     render(project);
     await screen.findByText(t('inbox.recent'));
     expect(screen.queryByRole('heading', { name: t('inbox.seniorWait.heading') })).toBeNull();

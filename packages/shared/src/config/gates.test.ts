@@ -9,8 +9,10 @@ import {
   gateAcceptsCondition,
   gateAcceptsWhen,
   pullRequestsMerged,
+  stageAdvance,
   stageApprovers,
   stageIndex,
+  stepResult,
 } from './gates';
 import type { GateEvaluation } from './gates';
 import { ProjectConfig } from './schema';
@@ -414,5 +416,135 @@ describe('evaluateStart (PM-248)', () => {
     const c = gated();
     expect(evaluateStart(at('dev', ['wip']), c, 'dev')).toEqual({ unmet: [], approvals: [] });
     expect(evaluateStart(at('review', ['wip']), c, 'dev')).toEqual({ unmet: [], approvals: [] });
+  });
+});
+
+describe('stageAdvance (PM-445)', () => {
+  const at = (stageId: string, labels: string[]) => ({ ...task(labels), stageId });
+
+  it('moves a card of a step stage on when the gate of the next stage holds', () => {
+    expect(stageAdvance(at('review', ['review-ok']), config())).toMatchObject({
+      kind: 'move',
+      to: { id: 'merge' },
+    });
+  });
+
+  it('asks for the approval when only a human-only label is missing', () => {
+    expect(stageAdvance(at('merge', ['review-ok', 'merged']), config())).toMatchObject({
+      kind: 'approve',
+      to: { id: 'release' },
+      approvals: [{ stageId: 'release', label: 'release-ok', approvers: ['owner', 'ann'] }],
+    });
+  });
+
+  it('keeps the approval request when nobody may give it, for the caller to say so', () => {
+    const authored = { ...at('merge', ['review-ok', 'merged']), assignee: 'owner' };
+    const advance = stageAdvance(authored, config(true));
+    expect(advance).toMatchObject({ kind: 'approve', approvals: [{ approvers: ['ann'] }] });
+  });
+
+  it('does nothing while another condition is unmet or a blocking label holds the card', () => {
+    expect(stageAdvance(at('review', []), config())).toBeNull();
+    expect(stageAdvance(at('merge', ['review-ok', 'release-ok']), config())).toBeNull();
+    expect(stageAdvance(at('review', ['review-ok', 'waiting']), config())).toBeNull();
+  });
+
+  it('never moves a work stage, a queue, or the last stage on', () => {
+    expect(stageAdvance(at('dev', ['review-ok']), config())).toBeNull();
+    expect(stageAdvance(at('backlog', []), config())).toBeNull();
+    expect(stageAdvance(at('done', []), config())).toBeNull();
+  });
+
+  it('never moves a card into a work stage by itself', () => {
+    const c = config();
+    const merge = c.pipeline.stages.find((s) => s.id === 'merge')!;
+    merge.kind = 'work';
+    expect(stageAdvance(at('review', ['review-ok']), c)).toBeNull();
+  });
+
+  it('does nothing when the next stage has no gate to say the stage is done', () => {
+    const c = config();
+    c.pipeline.stages.find((s) => s.id === 'merge')!.gate = undefined;
+    expect(stageAdvance(at('review', []), c)).toBeNull();
+  });
+
+  it('does nothing when no condition of the next gate asks for a label this card is to get', () => {
+    const merge = (c: ReturnType<typeof config>) => c.pipeline.stages.find((s) => s.id === 'merge')!;
+    // Every condition is bound to a label the card lacks: the gate does not apply to it.
+    const bound = config();
+    merge(bound).gate = { conditions: [{ type: 'has_label', label: 'review-ok', when: 'wip' }] };
+    expect(stageAdvance(at('review', []), bound)).toBeNull();
+    // Only a forbidden label: nothing says the stage is done.
+    const forbidding = config();
+    merge(forbidding).gate = { conditions: [{ type: 'lacks_label', label: 'waiting' }] };
+    expect(stageAdvance(at('review', []), forbidding)).toBeNull();
+    // The same bound condition applies to a card that has the `when` label.
+    expect(stageAdvance(at('review', ['wip', 'review-ok']), bound)).toMatchObject({
+      kind: 'move',
+      to: { id: 'merge' },
+    });
+  });
+});
+
+describe('stepResult (PM-809)', () => {
+  const at = (stageId: string, labels: string[] = [], extra: Partial<Pick<Task, 'assignee'>> = {}) => ({
+    ...task(labels, extra),
+    stageId,
+  });
+  const grouped = () => {
+    const c = config();
+    c.pipeline.labels.find((l) => l.id === 'review-ok')!.group = 'review';
+    c.pipeline.labels.push(
+      { id: 'review-changes', name: 'Changes', setBy: { duties: ['code_review'] }, group: 'review' },
+      { id: 'review-blocked', name: 'Blocked', setBy: { duties: ['code_review'] }, group: 'review' },
+    );
+    return c;
+  };
+
+  it('names the gate label the member sets and the other labels of its group', () => {
+    expect(stepResult(grouped(), at('review'), 'rev')).toEqual({
+      gate: ['review-ok'],
+      results: ['review-ok', 'review-changes', 'review-blocked'],
+    });
+  });
+
+  it('has only the gate label for a label with no group', () => {
+    expect(stepResult(config(), at('review'), 'rev')).toEqual({
+      gate: ['review-ok'],
+      results: ['review-ok'],
+    });
+  });
+
+  it('leaves out a member that does not set the gate label, and the authors where the label is notByAuthor', () => {
+    expect(stepResult(config(), at('review'), 'dev-1')).toBeNull();
+    expect(stepResult(config(), at('review', [], { assignee: 'rev' }), 'rev')).toBeNull();
+  });
+
+  it('leaves out a label only a person sets', () => {
+    expect(stepResult(config(), at('merge'), 'rev')).toBeNull();
+    // The system's label is nobody's; the person's approval is the person's alone.
+    expect(stepResult(config(), at('merge'), 'owner')).toEqual({
+      gate: ['release-ok'],
+      results: ['release-ok'],
+    });
+  });
+
+  it('takes a condition bound to a label (when) only for a card that has that label', () => {
+    const c = config();
+    c.pipeline.stages.find((s) => s.id === 'merge')!.gate = {
+      conditions: [{ type: 'has_label', label: 'review-ok', when: 'wip' }],
+    };
+    expect(stepResult(c, at('review'), 'rev')).toBeNull();
+    expect(stepResult(c, at('review', ['wip']), 'rev')).toMatchObject({ gate: ['review-ok'] });
+  });
+
+  it('is null outside a step stage and where there is no next gate', () => {
+    expect(stepResult(config(), at('dev'), 'rev')).toBeNull();
+    expect(stepResult(config(), at('backlog'), 'rev')).toBeNull();
+    expect(stepResult(config(), at('done'), 'rev')).toBeNull();
+    expect(stepResult(config(), at('nowhere'), 'rev')).toBeNull();
+    const c = config();
+    c.pipeline.stages.find((s) => s.id === 'merge')!.gate = undefined;
+    expect(stepResult(c, at('review'), 'rev')).toBeNull();
   });
 });

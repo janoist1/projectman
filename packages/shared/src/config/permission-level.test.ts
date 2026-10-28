@@ -118,6 +118,20 @@ describe('the roster fields', () => {
 });
 
 describe('the settings of one session (PM-170)', () => {
+  it('keeps ordinary, temporary and missing members and permission-fields-only callers compatible', () => {
+    for (const member of [
+      { kind: 'ai' as const, role: 'developer' },
+      { kind: 'ai' as const, role: 'developer', temp: true },
+      { approver: 'human' as const },
+      undefined,
+      null,
+    ]) {
+      expect(effectiveSessionPermissions(member, { approverOverride: 'ai' })).toMatchObject({
+        approver: 'ai',
+        source: { approver: 'session' },
+      });
+    }
+  });
   it('are the session’s own where an owner set them, else the member’s', () => {
     const member = { permissionMode: 'auto' as const };
     expect(effectiveSessionPermissions(member, {})).toEqual({

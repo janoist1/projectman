@@ -4,11 +4,9 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { applyPackage } from '../../../scripts/migrate/apply';
-import { createPackage } from '../../../scripts/migrate/package';
-import { parsePathMapping } from '../../../scripts/migrate/paths';
+import { standbyHome } from '../../../scripts/migrate/instance';
 import { verifyHome } from '../../../scripts/migrate/verify';
-import { createSourceHome } from './helpers/migration-source';
+import { stoppedSourceHomes } from './helpers/migration-source';
 import type { SourceHome } from './helpers/migration-source';
 
 /**
@@ -16,22 +14,19 @@ import type { SourceHome } from './helpers/migration-source';
  * person runs the whole move: these tests break one thing at a time and expect it named.
  */
 
-// Each test builds a real home, repositories and a package: slow when the whole suite runs in parallel.
+// Each test uses a real home and repositories: slow when the whole suite runs in parallel.
 vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 let src: SourceHome;
 let home: string;
+// The stopped standby home is built once and put back for every test.
+const sourceHomes = stoppedSourceHomes(async (source) => {
+  standbyHome(source.home, 'verification copy');
+});
+
 beforeEach(async () => {
-  src = await createSourceHome();
-  await src.stop();
-  const pkg = join(src.root, 'pkg');
-  home = join(src.root, 'vm', 'data');
-  await createPackage({ home: src.home, out: pkg });
-  await applyPackage({
-    packageDir: pkg,
-    targetHome: home,
-    mappings: [parsePathMapping(`${src.workspace}=${src.workspace}`)],
-  });
+  ({ src } = await sourceHomes());
+  home = src.home;
 });
 afterEach(async () => {
   await src.cleanup();
@@ -118,7 +113,18 @@ describe('the command line', { timeout: 60_000 }, () => {
     expect(broken.status).toBe(1);
     expect(broken.stdout).toContain('secret_missing');
     expect(broken.stdout + broken.stderr).not.toContain(secret);
-    const refused = run('package', '--home', home, '--out', join(src.root, 'again'));
+    const refused = run(
+      'hybrid',
+      'package',
+      '--home',
+      home,
+      '--out',
+      join(src.root, 'again'),
+      '--engine-name',
+      'Mac',
+      '--cloud',
+      'https://example.com',
+    );
     expect(refused.status).toBe(1);
     expect(refused.stderr).toContain('REFUSED');
     expect(run('verify').status).toBe(2);

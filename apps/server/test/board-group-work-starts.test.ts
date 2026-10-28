@@ -3,11 +3,11 @@ import type { ProjectConfig } from '@projectman/shared';
 import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
+import { deferredStartRecords } from './helpers/deferred-starts';
 
 /**
  * PM-121 with PM-119: a collecting card dropped on the work column with its subtasks enters the work
- * stage card by card, and the admission starts each one on its own event: as many as there are free
- * developers, the rest wait durably, and nothing starts twice.
+ * stage card by card. Admission starts the subtasks, leaving the collecting card unassigned.
  */
 describe('a group move into the work column', () => {
   let h: DomainHarness;
@@ -16,7 +16,7 @@ describe('a group move into the work column', () => {
   const roomy = (c: ProjectConfig) => void (c.team.limits.maxConcurrentAi = 10);
   const task = (key: string) => h.domain.tasks.get('AR', key);
   const sessionsOf = (key: string) => h.domain.sessions.list('AR', { taskKey: key });
-  const storedKeys = () => h.repos.deferredStarts.list().map((r) => r.key);
+  const storedKeys = () => deferredStartRecords(h.repos).map((r) => r.key);
   const family = async () => {
     await h.domain.tasks.create('AR', { title: 'Collecting' }, OWNER_ACTOR);
     for (const title of ['One', 'Two'])
@@ -30,29 +30,20 @@ describe('a group move into the work column', () => {
       OWNER_ACTOR,
     );
 
-  it('starts one card per free developer and keeps the others waiting, with no double start', async () => {
+  it('starts the subtasks without assigning or starting the collecting card', async () => {
     h = await createDomainHarness({ persistent: true, adjust: roomy });
     await family();
     const result = await drop();
     expect(result.group?.map((item) => item.outcome)).toEqual(['moved', 'moved', 'moved']);
     await vi.waitFor(() => expect(h.runner.started).toHaveLength(2));
     await flush();
-    // The collecting card is told first and takes the first free developer, as a card of its own would.
-    expect(task('AR-1').assignee).toBe('dev-1');
-    const assignees = ['AR-1', 'AR-3', 'AR-2'].map((key) => task(key).assignee);
-    expect(assignees.filter(Boolean)).toHaveLength(2);
-    const waitingKey = ['AR-1', 'AR-3', 'AR-2'].find((key) => !task(key).assignee)!;
-    expect(task(waitingKey).startWaiting).toMatchObject({ reason: 'no_free_member' });
-    expect(storedKeys()).toEqual([`work-start:AR:${waitingKey}`]);
-    expect(['AR-1', 'AR-2', 'AR-3'].flatMap((key) => sessionsOf(key))).toHaveLength(2);
-
-    // Once a developer is free the waiting card starts, and the others do not start again.
-    const running = ['AR-1', 'AR-2', 'AR-3'].find((key) => task(key).assignee && key !== waitingKey)!;
-    await h.domain.tasks.cancel('AR', running, { reason: 'Fictional scope changed.' }, OWNER_ACTOR);
-    await vi.waitFor(() => expect(task(waitingKey).assignee).toBeTruthy());
-    await flush();
-    expect(h.runner.started).toHaveLength(3);
-    expect(['AR-1', 'AR-2', 'AR-3'].flatMap((key) => sessionsOf(key))).toHaveLength(3);
+    expect(task('AR-1').assignee).toBeNull();
+    expect(task('AR-1').startWaiting).toBeUndefined();
+    expect(sessionsOf('AR-1')).toEqual([]);
+    expect([task('AR-2').assignee, task('AR-3').assignee].sort()).toEqual(['dev-1', 'dev-2']);
     expect(storedKeys()).toEqual([]);
+    await h.domain.admission.retryDeferred();
+    await flush();
+    expect(h.runner.started).toHaveLength(2);
   });
 });

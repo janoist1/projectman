@@ -1,8 +1,26 @@
 import { describe, expect, it } from 'vitest';
-import { isOpenTask, subtaskParentRefusal, taskSeq } from './task';
+import { canAutomaticallyStartTask, isOpenTask, subtaskParentRefusal, taskSeq } from './task';
 import type { SubtaskParentRefusal, TaskStatus } from './task';
 
 describe('task helpers', () => {
+  it('never automatically starts a theme', () => {
+    expect(canAutomaticallyStartTask({ key: 'AR-1', kind: 'theme' }, [])).toBe(false);
+  });
+
+  it.each<[TaskStatus, boolean]>([
+    ['active', false],
+    ['waiting', false],
+    ['blocked', false],
+    ['done', false],
+    ['cancelled', false],
+  ])('automatically starts a card with a %s subtask: %s', (status, allowed) => {
+    expect(canAutomaticallyStartTask({ key: 'AR-1' }, [{ parentKey: 'AR-1', status }])).toBe(allowed);
+  });
+
+  it('automatically starts a leaf even when another card has open subtasks', () => {
+    expect(canAutomaticallyStartTask({ key: 'AR-1' }, [{ parentKey: 'AR-2', status: 'active' }])).toBe(true);
+  });
+
   it.each<[TaskStatus, boolean]>([
     ['active', true],
     ['waiting', true],

@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import type { Ref } from 'react';
+import clsx from 'clsx';
 import { Link, useNavigate } from 'react-router';
 import { isOpenTask } from '@projectman/shared';
 import type { Task, ThemeCard, ThemeCardView } from '@projectman/shared';
 import { useCloseTheme, useReopenTask } from '../../api/queries';
 import { useProject } from '../../app/contexts';
-import { Button, ButtonLink } from '../../components/Button';
+import { Button } from '../../components/Button';
 import { Chip, StatusDot } from '../../components/Chip';
 import { Icon } from '../../components/Icon';
 import { useToast } from '../../components/toastContext';
@@ -31,15 +32,18 @@ export function ThemeHeader({
   size,
   onToggleSize,
   onClose,
+  rule = true,
 }: {
   task: Task;
   headingRef: Ref<HTMLHeadingElement>;
   size: CardSize;
   onToggleSize: (() => void) | undefined;
   onClose: () => void;
+  /** The line under the head; the row of views under it has its own (PM-487). */
+  rule?: boolean;
 }) {
   return (
-    <div className={head.head}>
+    <div className={clsx(head.head, !rule && head.bare)}>
       <div className={head.chips}>
         <Chip tone="neutral" size="md" icon="layers">
           {t('theme.badge')}
@@ -102,9 +106,6 @@ export function ThemeSummary({ task, tasks }: { task: Task; tasks: readonly Task
         >
           {t('theme.filterBoard')}
         </Button>
-        <ButtonLink to={`/p/${key}/map/${task.key}`} variant="secondary">
-          {t('theme.openOnMap')}
-        </ButtonLink>
         {can.createTasks ? (
           <Button
             variant={open ? 'secondary' : 'primary'}

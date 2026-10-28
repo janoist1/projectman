@@ -10,7 +10,8 @@ import { t } from '../../i18n/t';
 import { aiSponsors, memberStatusView, nameOf } from '../../lib/members';
 import { aiRoleView, humanRoleName } from '../../lib/roles';
 import { usePausedRows } from '../pause/usePause';
-import { useIsRequiredPm } from '../pm/useRequiredPm';
+import { useContacts } from '../messages/useContacts';
+import { useIsRequiredPm } from '../operator/useRequiredMember';
 import { MemberScheduleControl } from './ScheduledRuns';
 import styles from './Roster.module.css';
 
@@ -81,6 +82,8 @@ function MemberIdentity({
   const { key, myHandle } = useProject();
   const { members } = useProjectIndexes(key);
   const required = useIsRequiredPm(member.handle);
+  // Everyone sees who the contacts are: a member who writes only to them learns whom to write to.
+  const isContact = useContacts().contacts.includes(member.handle);
   return (
     <div className={styles.memberCell}>
       <Avatar member={member} isMe={member.handle === myHandle} size="lg" status={status} />
@@ -96,14 +99,21 @@ function MemberIdentity({
                 provider={member.provider}
                 status={providers?.find((entry) => entry.provider === (member.provider ?? 'claude'))}
               />
-              {member.senior ? (
-                <Chip tone="accent" title={t('team.seniorTitle')}>
-                  {t('team.senior')}
+              {member.complexityLimit !== undefined ? (
+                <Chip
+                  title={
+                    member.complexityLimit === 13
+                      ? t('team.limitUnlimited')
+                      : t('team.limitTitle', { limit: member.complexityLimit })
+                  }
+                >
+                  {t('team.limit', { limit: member.complexityLimit })}
                 </Chip>
               ) : null}
             </>
           ) : null}
           {member.temp ? <Chip tone="needs">{t('team.temp')}</Chip> : null}
+          {isContact ? <Chip>{t('team.contactChip')}</Chip> : null}
           {required && !compact ? (
             <Chip tone="accent" title={t('pm.required.title')}>
               {t('pm.required.chip')}
@@ -224,6 +234,7 @@ export function RosterTable({ members, inbox, roles, titles, actions, providers 
                       <StatusDot status={view.status} pulse={view.status === 'working'} />
                       <span className={styles.statusText}>{view.label}</span>
                     </span>
+                    {view.reason ? <span className={styles.statusReason}>{view.reason}</span> : null}
                   </span>
                 </td>
                 <td className={styles.nowCell}>
@@ -270,7 +281,14 @@ export function RosterCards({ members, inbox, roles, titles, actions, providers 
             <div className={styles.cardState}>
               <span className={styles.statusLine} data-status={view.status}>
                 <StatusDot status={view.status} pulse={view.status === 'working'} />
-                <span className={styles.statusText}>{view.label}</span>
+                {view.reason ? (
+                  <span className={styles.statusTextWrap}>
+                    <strong className={styles.statusLead}>{t('memberStatus.cannotWorkLead')}</strong>{' '}
+                    {view.reason}
+                  </span>
+                ) : (
+                  <span className={styles.statusText}>{view.label}</span>
+                )}
               </span>
               <span aria-hidden="true" className={styles.muted}>
                 ·

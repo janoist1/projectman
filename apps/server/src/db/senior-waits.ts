@@ -1,6 +1,6 @@
 import type { Db } from './database';
 
-export type SeniorWaitDecision = 'wait' | 'any';
+type SeniorWaitDecision = 'wait' | 'any';
 export type SeniorWaitEndReason = 'senior' | 'assigned' | 'moved' | 'closed' | 'level_changed' | 'no_senior';
 
 /** The wait of a card recommended for the Senior (PM-348), with the question asked about it. */

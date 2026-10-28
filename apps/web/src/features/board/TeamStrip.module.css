@@ -72,6 +72,12 @@
   color: var(--c-ink-3);
 }
 
+/* What holds the member's places, when it is not a card: "általános beszélgetés" (PM-297). */
+.kind {
+  font-size: var(--text-sm);
+  color: var(--c-ink-3);
+}
+
 /* A member the team pause holds: "Szünetel" / "Megáll…" after the name (PM-220). */
 .pauseTag {
   display: inline-flex;

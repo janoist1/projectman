@@ -41,7 +41,7 @@ describe('attachment thumbnails and the card cover', () => {
     cookies.stranger = await addHumanAndLogin(h.app, { handle: 'sam', projectKey: null });
     const { tasks } = h.app.projectman.domain;
     await tasks.create('AR', { title: 'Internal task' }, OWNER_ACTOR);
-    await tasks.create('AR', { title: 'Shared task', visibility: 'shared' }, OWNER_ACTOR);
+    await tasks.create('AR', { title: 'Shared task' }, OWNER_ACTOR);
   });
   afterEach(async () => h.close());
 
@@ -174,19 +174,10 @@ describe('attachment thumbnails and the card cover', () => {
   });
 
   describe('who may see it', () => {
-    it('hides the preview of an internal card from a client, as the content', async () => {
+    it('gives a client the preview of any card, as the content (PM-79)', async () => {
       const attachment = await upload(await picture('png'));
       expect((await thumbnail(owner, attachment.id)).statusCode).toBe(200);
-      expect((await thumbnail(cookies.client!, attachment.id)).statusCode).toBe(404);
-      expect(
-        (
-          await call({
-            method: 'GET',
-            url: routes.attachmentContent('AR', 'AR-1', attachment.id),
-            cookie: cookies.client!,
-          })
-        ).statusCode,
-      ).toBe(404);
+      expect((await thumbnail(cookies.client!, attachment.id)).statusCode).toBe(200);
     });
 
     it('shows the preview of a shared card to a client and to a viewer', async () => {
@@ -207,18 +198,16 @@ describe('attachment thumbnails and the card cover', () => {
       expect((await thumbnail(owner, attachment.id, 'AR-2')).statusCode).toBe(404);
     });
 
-    it('never gives a client the cover of an internal card on the board or in a pushed task', async () => {
-      const events: Task[] = [];
-      h.app.projectman.domain.bus.subscribe((event) => {
-        if (event.type === 'task_upserted') events.push(event.task);
-      });
-      await upload(await picture('png'));
+    it('gives a client the cover of every card on the board', async () => {
+      const first = await upload(await picture('png'));
       const shared = await upload(await picture('png'), { taskKey: 'AR-2' });
       const board = BoardView.parse(
         (await call({ method: 'GET', url: routes.board('AR'), cookie: cookies.client! })).json(),
       );
-      expect(board.tasks.map((task) => [task.key, task.coverAttachmentId])).toEqual([['AR-2', shared.id]]);
-      expect(events.map((task) => task.key).sort()).toEqual(['AR-1', 'AR-2']);
+      expect(board.tasks.map((task) => [task.key, task.coverAttachmentId])).toEqual([
+        ['AR-1', first.id],
+        ['AR-2', shared.id],
+      ]);
     });
   });
 
@@ -380,24 +369,16 @@ describe('attachment thumbnails and the card cover', () => {
       expect(await coverOf()).toBeUndefined();
     });
 
-    it('refuses a viewer, and a client on an internal card, and lets a client choose on a shared one', async () => {
+    it('refuses a viewer and a client, and a stranger (PM-985)', async () => {
       const internal = await attach(await picture('png'), 'one.png');
-      const shared = await attach(await picture('png'), 'two.png', 'AR-2');
       const body = (id: string) => ({ mode: 'pinned', attachmentId: id });
-      expect((await choose(body(internal.id), { cookie: cookies.viewer })).statusCode).toBe(403);
-      expect((await choose({ mode: 'hidden' }, { cookie: cookies.viewer })).statusCode).toBe(403);
-      expect((await choose(body(internal.id), { cookie: cookies.client })).statusCode).toBe(404);
+      for (const cookie of [cookies.viewer, cookies.client]) {
+        expect((await choose(body(internal.id), { cookie })).statusCode).toBe(403);
+        expect((await choose({ mode: 'hidden' }, { cookie })).statusCode).toBe(403);
+      }
       expect(
         (await choose(body(internal.id), { cookie: cookies.stranger })).statusCode,
       ).toBeGreaterThanOrEqual(403);
-      expect((await choose({ mode: 'hidden' }, { taskKey: 'AR-2', cookie: cookies.client })).statusCode).toBe(
-        200,
-      );
-      expect(await coverOf('AR-2')).toBeUndefined();
-      expect((await choose(body(shared.id), { taskKey: 'AR-2', cookie: cookies.client })).statusCode).toBe(
-        200,
-      );
-      expect(await coverOf('AR-2', cookies.client)).toBe(shared.id);
       expect(covers().get('AR-1')).toBeNull();
     });
 

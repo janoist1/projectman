@@ -1,11 +1,31 @@
+import type { Me } from '@projectman/shared';
+import { randomUUID } from 'node:crypto';
+import type { RunnerModule, EventBus } from '../contracts';
+import type { TaskService } from '../core/tasks';
+import type { EngineRegistry, SessionOrchestrator } from '../runtime/sessions';
+import type { MessageService } from '../core/messages';
+import type { MemberService, PresenceService, ProjectAccess } from '../core/members';
+
 import type { FastifyInstance } from 'fastify';
-import { ClientCommand, routes } from '@projectman/shared';
+import { canSeeOperatorSessions, ClientCommand, routes, systemFeedbackAccess } from '@projectman/shared';
 import type { ErrorCode, HumanAccess, ServerEvent } from '@projectman/shared';
-import { sameOrigin } from '../auth/local-request';
-import type { AuthService, AuthUser } from '../auth/auth-service';
-import type { Domain } from '../domain';
-import { DomainError, forbidden, hasAccess, notFound } from '../domain';
-import { canSeeProjectEvent, visibleProjectEvent } from '../domain/visibility';
+import { sameOrigin } from '../kernel';
+import type { AuthService, AuthUser } from '../auth';
+import { DomainError, forbidden, notFound } from '../kernel';
+import { hasAccess } from '@projectman/shared';
+import { canSeeProjectEvent, visibleProjectEvent } from '../core/projects';
+
+interface WsDomain {
+  readonly runnerModule: RunnerModule;
+  readonly bus: EventBus;
+  readonly tasks: TaskService;
+  readonly sessions: SessionOrchestrator;
+  readonly messages: MessageService;
+  readonly members: MemberService;
+  readonly presence: PresenceService;
+  projectsFor(email: string): Promise<Me['projects']>;
+  accessFor(projectKey: string, email: string): Promise<ProjectAccess | null>;
+}
 
 /** The part of the `ws` WebSocket API this module uses. */
 interface WsSocket {
@@ -26,6 +46,7 @@ const POLICY_VIOLATION = 1008;
 const errorEvent = (code: ErrorCode): ServerEvent => ({ type: 'error', message: code });
 
 interface Client {
+  id: string;
   socket: WsSocket;
   user: AuthUser;
   token: string;
@@ -50,7 +71,7 @@ function messageText(data: unknown): string {
  */
 export function registerWebsocket(
   app: FastifyInstance,
-  deps: { domain: Domain; auth: AuthService; heartbeatMs?: number },
+  deps: { domain: WsDomain; auth: AuthService; engineRegistry?: EngineRegistry; heartbeatMs?: number },
 ): void {
   const { domain } = deps;
   const runner = domain.runnerModule.runner;
@@ -94,12 +115,39 @@ export function registerWebsocket(
       .then(async () => {
         if (event.type === 'hello' || event.type === 'error') return;
         for (const client of clients) {
+          // Not bound to a project: every logged-in client reads the grant's state again.
+          if (event.type === 'operator_grant_changed') {
+            send(client, event);
+            continue;
+          }
           if (event.type === 'engine_changed') {
-            const memberships = await domain.projectsFor(client.user.email);
-            if (
-              deps.auth.isHostOwner(client.user.id) ||
-              memberships.some((project) => project.access !== 'client')
-            )
+            // Only whom the engine concerns (PM-1061): the host owner, the engine's owner (a project or not),
+            // a member of a project that uses it. A project–engine binding names its project (PM-1060).
+            const engines = deps.engineRegistry;
+            if (deps.auth.isHostOwner(client.user.id) || engines?.ownerOf(event.engine.id) === client.user.id)
+              send(client, event);
+            else if (event.projectKey !== undefined) {
+              const access = await domain.accessFor(event.projectKey, client.user.email).catch(() => null);
+              if (access) send(client, event);
+            } else if (engines) {
+              const projects = await domain.projectsFor(client.user.email);
+              if (
+                engines.canSee(event.engine.id, {
+                  userId: client.user.id,
+                  projectKeys: projects.map((p) => p.key),
+                })
+              )
+                send(client, event);
+            }
+            continue;
+          }
+          // System feedback (PM-472) belongs to the installation: the instance owner, and an owner of the
+          // project the item is for. The event names no text; a client that may not read it is skipped.
+          if (event.type === 'system_feedback_changed') {
+            const access = event.projectKey
+              ? await domain.accessFor(event.projectKey, client.user.email).catch(() => null)
+              : null;
+            if (systemFeedbackAccess(deps.auth.isHostOwner(client.user.id), access?.access ?? null))
               send(client, event);
             continue;
           }
@@ -117,11 +165,10 @@ export function registerWebsocket(
             const access = await domain.accessFor(event.projectKey, client.user.email).catch(() => null);
             if (!access) client.projects.delete(event.projectKey);
             else {
-              const taskOf = (taskKey: string) => domain.tasks.find(event.projectKey, taskKey);
-              if (canSeeProjectEvent(access, event, taskOf))
+              if (canSeeProjectEvent(access, event, (id) => domain.sessions.isRestrictedSession(id)))
                 send(
                   client,
-                  visibleProjectEvent(access, event, taskOf, (id) => domain.messages.get(id)),
+                  visibleProjectEvent(access, event, (id) => domain.messages.get(id)),
                 );
             }
           }
@@ -130,17 +177,30 @@ export function registerWebsocket(
       .catch((err: unknown) => app.log.warn({ err }, 'websocket delivery failed'));
   });
 
-  /** Terminals are for internal members; typing and resizing need developer access. */
-  const requireTerminalAccess = async (client: Client, sessionId: string, minimum: HumanAccess) => {
+  /** Every member watches a terminal; typing and resizing need developer access. */
+  const requireTerminalAccess = async (
+    client: Client,
+    sessionId: string,
+    minimum: HumanAccess,
+    options: { operatorInput?: boolean } = {},
+  ) => {
     const session = domain.sessions.find(sessionId);
     if (!session) throw notFound('session', sessionId);
     const access = await domain.accessFor(session.projectKey, client.user.email);
-    if (!access || access.access === 'client' || !hasAccess(access.access, minimum)) {
+    if (!access || !hasAccess(access.access, minimum)) {
       throw forbidden('insufficient_access', 'no access to this terminal');
     }
+    // The Operator's terminals and the PM's conversations with others are the owner's and the admin's to see
+    // (PM-475, PM-1080).
+    if (!canSeeOperatorSessions(access) && domain.sessions.isRestrictedSession(sessionId))
+      throw forbidden('insufficient_access', 'no access to this terminal');
+    // Raw input to the Operator is a request of the owner's: an admin watches, but does not type (PM-475).
+    if (options.operatorInput && access.access !== 'owner' && domain.sessions.isRestrictedSession(sessionId))
+      throw forbidden('insufficient_access', 'only the owner types into the Operator’s terminal');
   };
 
   const handle = async (client: Client, data: unknown) => {
+    if (!clients.has(client)) return;
     if (!authenticated(client)) return;
     if (Buffer.byteLength(messageText(data)) > 1024 * 1024) {
       client.socket.close(1009);
@@ -155,6 +215,9 @@ export function registerWebsocket(
     }
     try {
       switch (command.type) {
+        case 'visibility':
+          domain.presence.setVisible(client.id, client.user.email, command.visible);
+          return;
         case 'subscribe_project': {
           const access = await domain.accessFor(command.projectKey, client.user.email);
           if (!access) send(client, errorEvent('not_a_member'));
@@ -191,7 +254,7 @@ export function registerWebsocket(
         case 'terminal_input':
           if (!client.terminals.has(command.sessionId))
             throw forbidden('not_attached', 'attach the terminal first');
-          await requireTerminalAccess(client, command.sessionId, 'developer');
+          await requireTerminalAccess(client, command.sessionId, 'developer', { operatorInput: true });
           if (authenticated(client)) runner.writeTerminal(command.sessionId, command.data);
           return;
         case 'terminal_resize':
@@ -221,6 +284,7 @@ export function registerWebsocket(
       return;
     }
     const client: Client = {
+      id: randomUUID(),
       socket,
       user,
       token: request.authToken!,
@@ -238,6 +302,7 @@ export function registerWebsocket(
     });
     socket.on('error', (err) => app.log.debug({ err }, 'websocket error'));
     socket.on('close', () => {
+      domain.presence.setVisible(client.id, user.email, false);
       clients.delete(client);
       for (const sessionId of client.terminals) if (!viewed(sessionId)) runner.detachTerminal?.(sessionId);
       client.terminals.clear();

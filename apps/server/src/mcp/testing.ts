@@ -1,11 +1,29 @@
 import type {
   Attachment,
+  DutyId,
+  FeedbackMarkDetail,
   MemberView,
   TaskDetail,
   TimelineEvent,
   TimelineEventType,
 } from '@projectman/shared';
-import { TeamToolError, type TeamToolsHandler, type ToolContext } from '../contracts';
+import {
+  BUILT_IN_ROLE_DUTIES,
+  DEFAULT_OPERATOR_PREFERENCE,
+  DUTIES,
+  TaskComplexity,
+} from '@projectman/shared';
+import { TeamToolError, type TeamToolsHandler, type ToolContext, type MemberAudience } from '../contracts';
+
+/** A member who holds every role, channel, capability and duty that opens a tool (not the retired Operator-only ones). */
+export const fullAudience: MemberAudience = {
+  projectManager: true,
+  merger: true,
+  email: true,
+  machineAccess: true,
+  hostRequests: true,
+  duties: new Set(Object.keys(DUTIES) as DutyId[]),
+};
 
 /**
  * Test support: an in-memory TeamToolsHandler with a small team and one task, recording
@@ -47,10 +65,18 @@ export const qaContext: ToolContext = {
   taskKey: null,
 };
 
+/** The project manager, who processes feedback marks (PM-512). */
+export const pmContext: ToolContext = {
+  sessionId: 'ses_pm',
+  projectKey: 'AR',
+  member: 'pm',
+  taskKey: null,
+};
+
 /** Stage ids as in the built-in templates (the internal-tool pipeline without its merge stage). */
 const STAGES = ['ready', 'dev', 'code_review', 'qa', 'done'];
 
-export function sampleMembers(): MemberView[] {
+function sampleMembers(): MemberView[] {
   const base = { specialty: null, activity: null, currentTaskKeys: [], sponsor: 'owner', temp: false };
   return [
     {
@@ -104,7 +130,6 @@ export function sampleTaskDetail(): TaskDetail {
       priority: 'high',
       labels: ['frontend'],
       links: [{ kind: 'branch', ref: 'ar-21-login-validation', repo: 'web' }],
-      visibility: 'internal',
       createdBy: 'owner',
       createdAt: '2026-09-29T08:00:00.000Z',
       updatedAt: '2026-09-29T09:00:00.000Z',
@@ -204,17 +229,296 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
   }
 
   return {
-    async submitBoundaryRequest(ctx, args) {
-      await enter('submitBoundaryRequest', ctx, args);
-      throw new TeamToolError('not_found', 'No protected operation adapter in this transport fake.');
+    async sendEmail(ctx, args) {
+      await enter('sendEmail', ctx, args);
+      return { emailId: 'ema_fake', status: 'pending_approval' };
     },
-    async getBoundaryRequest(ctx, args) {
-      await enter('getBoundaryRequest', ctx, args);
-      throw new TeamToolError('not_found', 'Unknown boundary request.');
+    async setEmailContact(ctx, args) {
+      await enter('setEmailContact', ctx, args);
+      return { handle: args.handle, wants: args.wants };
     },
-    async decideBoundaryRequest(ctx, args) {
-      await enter('decideBoundaryRequest', ctx, args);
-      throw new TeamToolError('not_found', 'Unknown boundary request.');
+    async listEmailContacts(ctx) {
+      await enter('listEmailContacts', ctx, {});
+      return [];
+    },
+    async askHost(ctx, args) {
+      await enter('askHost', ctx, args);
+      return { id: 'hreq_fake', state: 'open' };
+    },
+    async listHostRequests(ctx, args) {
+      await enter('listHostRequests', ctx, args);
+      return [];
+    },
+    async withdrawHostRequest(ctx, args) {
+      await enter('withdrawHostRequest', ctx, args);
+      return { id: args.id, state: 'withdrawn' };
+    },
+    async mergeTask(ctx, args) {
+      await enter('mergeTask', ctx, args);
+      return { task: findTask(args.taskKey).task };
+    },
+    async requestStructuralReview(ctx, args) {
+      await enter('requestStructuralReview', ctx, args);
+      return { status: 'awaiting_approval', member: null, message_id: null, inbox_item_id: 'inb_fake' };
+    },
+    async getChecklist(ctx) {
+      await enter('getChecklist', ctx, {});
+      return { checklist: null, templates: [{ id: 'small-team', checklist: ['code_review'] }] };
+    },
+    async updateChecklist(ctx, args) {
+      await enter('updateChecklist', ctx, args);
+      return {
+        checklist: {
+          baseTemplateId: null,
+          items: [],
+          progress: { settled: 0, total: 0, complete: true },
+        },
+      };
+    },
+    async getOperatorKnowledge(ctx) {
+      await enter('getOperatorKnowledge', ctx, {});
+      return { schemaVersion: 1, revision: 0, agreement: null, principles: [], appliedProposalIds: [] };
+    },
+    async proposeOperatorKnowledge(ctx, args) {
+      await enter('proposeOperatorKnowledge', ctx, args);
+      return {
+        status: 'awaiting_approval',
+        inbox_item_id: 'inb_fake',
+        step_id: 'ops_fake',
+        base_revision: args.expected_revision,
+      };
+    },
+    async prioritizeMerge(ctx, args) {
+      await enter('prioritizeMerge', ctx, args);
+      return { task: findTask(args.taskKey).task, moved: true };
+    },
+    async listMergeChecks(ctx, args) {
+      await enter('listMergeChecks', ctx, args);
+      return { runs: [], hasMore: false };
+    },
+    async proposeRelease(ctx, args) {
+      await enter('proposeRelease', ctx, args);
+      const commit = args.commit ?? '0'.repeat(40);
+      const tasks = [{ key: 'FAKE-1', title: 'A merged card' }];
+      return args.preview
+        ? { commit, baseCommit: null, tasks }
+        : { releaseId: 'rel_fake', taskKey: 'FAKE-2', commit, baseCommit: null, tasks };
+    },
+    async publishRelease(ctx, args) {
+      await enter('publishRelease', ctx, args);
+      const commit = args.commit ?? '0'.repeat(40);
+      const tag = args.tag ?? 'v2026.10.23';
+      return {
+        repo: args.repo ?? 'fake',
+        commit,
+        baseCommit: null,
+        tag,
+        url: args.preview ? null : `https://github.com/fake/fake/releases/tag/${tag}`,
+        tasks: [{ key: 'FAKE-1', title: 'A merged card' }],
+      };
+    },
+    async checkRelease(ctx, args) {
+      await enter('checkRelease', ctx, args);
+      return {
+        candidate: {
+          commit: args.commit ?? '0'.repeat(40),
+          baseCommit: null,
+          tasks: [{ key: 'FAKE-1', title: 'A merged card' }],
+        },
+        refusal: null,
+        proposers: ['devops'],
+      };
+    },
+    async getRoleConfiguration(ctx, args) {
+      await enter('getRoleConfiguration', ctx, args);
+      return {
+        version: 'v1',
+        role: args.role,
+        override: null,
+        effective: { duties: BUILT_IN_ROLE_DUTIES[args.role], instructions: '' },
+      };
+    },
+    async operate(ctx, args) {
+      await enter('operate', ctx, args);
+      return { status: 'done', step_id: 'ops_fake', changes: [] };
+    },
+    async executeOperation(ctx, args) {
+      await enter('executeOperation', ctx, args);
+      return {
+        operation: {
+          id: 'sop_fake',
+          projectKey: ctx.projectKey,
+          taskKey: args.taskKey ?? null,
+          handoffId: null,
+          state: 'succeeded',
+          requestId: '00000000-0000-8000-8000-000000000000',
+          command: args.command,
+          ownerQuestionId: null,
+          errorCode: null,
+          createdAt: '2026-10-17T00:00:00.000Z',
+          updatedAt: '2026-10-17T00:00:00.000Z',
+        },
+      };
+    },
+    async getOperation(ctx, args) {
+      await enter('getOperation', ctx, args);
+      return {
+        operation: {
+          id: args.operationId,
+          projectKey: ctx.projectKey,
+          taskKey: null,
+          handoffId: null,
+          state: 'succeeded',
+          requestId: '00000000-0000-8000-8000-000000000000',
+          command: { kind: 'credential_revoke', keyId: 'key_fake' },
+          ownerQuestionId: null,
+          errorCode: null,
+          createdAt: '2026-10-17T00:00:00.000Z',
+          updatedAt: '2026-10-17T00:00:00.000Z',
+        },
+        result: null,
+      };
+    },
+    async getMachineStatus(ctx, args) {
+      await enter('getMachineStatus', ctx, args);
+      return {
+        status: {
+          target: args.target,
+          online: true,
+          version: null,
+          bootId: null,
+          capabilities: ['status'],
+          activeOperationId: null,
+        },
+        machine: null,
+      };
+    },
+    async getMachineLogs(ctx, args) {
+      await enter('getMachineLogs', ctx, args);
+      return { entries: [] };
+    },
+    async startTask(ctx, args) {
+      await enter('startTask', ctx, args);
+      return { task_key: args.taskKey, session_id: null, hired: null, assignee: args.assignee ?? null };
+    },
+    async startMember(ctx, args) {
+      await enter('startMember', ctx, args);
+      return { messageId: 'msg_fake', recipient: { handle: args.member, delivery: 'typed_now' } };
+    },
+    async readProjectDoc(ctx, args) {
+      await enter('readProjectDoc', ctx, args);
+      return {
+        doc: args.doc,
+        repo: 'fake',
+        path: 'docs/DECISIONS.md',
+        commit: '0'.repeat(40),
+        exists: true,
+        total_lines: 0,
+        from_line: args.fromLine ?? 1,
+        text: '',
+      };
+    },
+    async listSystemFeedback(ctx) {
+      await enter('listSystemFeedback', ctx, {});
+      return { items: [] };
+    },
+    async recordSystemFeedback(ctx, args) {
+      await enter('recordSystemFeedback', ctx, args);
+      return { id: 'sf_fake', state: 'new' as const, created: args.sameAs === undefined, occurrences: 1 };
+    },
+    async searchHistory(ctx, args) {
+      await enter('searchHistory', ctx, args);
+      return { projectKey: args.projectKey ?? ctx.projectKey, matches: [], hasMore: false, documents: [] };
+    },
+    async readHistorySource(ctx, args) {
+      await enter('readHistorySource', ctx, args);
+      return {
+        projectKey: args.projectKey ?? ctx.projectKey,
+        sourceId: args.sourceId,
+        sourceType: 'message',
+        taskKey: null,
+        author: null,
+        at: '2026-10-01T00:00:00.000Z',
+        fromLine: args.fromLine ?? 1,
+        totalLines: 0,
+        text: '',
+      };
+    },
+    async getHistorySearchStats(ctx, args) {
+      await enter('getHistorySearchStats', ctx, args);
+      return {
+        since: args.since ?? '2026-09-01T00:00:00.000Z',
+        until: args.until ?? '2026-10-01T00:00:00.000Z',
+        retainedSince: '2026-07-03T00:00:00.000Z',
+        totalSearches: 0,
+        failedSearches: 0,
+        byMember: [],
+        zeroResultCount: 0,
+        zeroResultRate: 0,
+        zeroResults: [],
+        nextCursor: null,
+      };
+    },
+    async writeProjectDocs(ctx, args) {
+      await enter('writeProjectDocs', ctx, args);
+      return { write_id: 'dw_fake', state: 'running' };
+    },
+    async listDecisionCandidates(ctx, args) {
+      await enter('listDecisionCandidates', ctx, args);
+      return { candidates: [], more: false };
+    },
+    async markDecisionCandidates(ctx, args) {
+      await enter('markDecisionCandidates', ctx, args);
+      return { marked: args.items.length };
+    },
+    async combineQuestions(ctx, args) {
+      await enter('combineQuestions', ctx, args);
+      return { primaryItemId: args.itemIds[0]!, linkedItemIds: args.itemIds.slice(1) };
+    },
+    async screenQuestion(ctx, args) {
+      await enter('screenQuestion', ctx, args);
+      return {
+        inboxItemId: args.itemId,
+        outcome: args.outcome,
+        ...(args.todo ? { recipient: args.todo.recipient } : {}),
+      };
+    },
+    async triageLoop(ctx, args) {
+      await enter('triageLoop', ctx, args);
+      return {
+        state: args.outcome === 'loop' ? 'awaiting_owner' : 'observing',
+        loopId: 'loop_1',
+        inboxItemId: null,
+      };
+    },
+    async dismissSignal(ctx, args) {
+      await enter('dismissSignal', ctx, args);
+      return { signalId: args.signalId, state: 'dismissed' };
+    },
+    async reassignTask(ctx, args) {
+      await enter('reassignTask', ctx, args);
+      return { task_key: args.taskKey, assignee: args.assignee, previous: null };
+    },
+    async cancelTask(ctx, args) {
+      await enter('cancelTask', ctx, args);
+      return { task_key: args.taskKey, status: 'cancelled' };
+    },
+    async openIntegratorTodo(ctx, args) {
+      await enter('openIntegratorTodo', ctx, args);
+      return { itemId: 'inb_todo_1', recipient: 'integrator', recipientRefusal: null };
+    },
+    async getOperatorPreference(ctx) {
+      await enter('getOperatorPreference', ctx, {});
+      return { schemaVersion: 1, revision: 0, data: { ...DEFAULT_OPERATOR_PREFERENCE }, updatedAt: null };
+    },
+    async setOperatorPreference(ctx, args) {
+      await enter('setOperatorPreference', ctx, args);
+      return {
+        schemaVersion: 1,
+        revision: args.expectedRevision + 1,
+        data: args.preference,
+        updatedAt: '2026-10-15T00:00:00.000Z',
+      };
     },
     async decidePermissionRequest(ctx, args) {
       await enter('decidePermissionRequest', ctx, args);
@@ -227,10 +531,6 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
     async handOff(ctx, args) {
       await enter('handOff', ctx, args);
       return { recorded: true };
-    },
-    async listNetworkDenials(ctx) {
-      await enter('listNetworkDenials', ctx, {});
-      return [];
     },
     calls,
     members,
@@ -272,10 +572,59 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       await enter('listTasks', ctx, args);
       return [...tasks.values()].map(({ task }) => {
         const { key, title, stageId, status, assignee, labels, updatedAt } = task;
-        return { key, title, stageId, status, assignee, labels, updatedAt };
+        return {
+          key,
+          title,
+          stageId,
+          status,
+          assignee,
+          labels,
+          updatedAt,
+          ...(task.complexity ? { complexity: task.complexity.points } : {}),
+        };
       });
     },
 
+    async getOperatorDiagnostics(ctx, args) {
+      await enter('getOperatorDiagnostics', ctx, args);
+      return {
+        task: {
+          taskKey: args.taskKey,
+          title: 'Task',
+          stageId: 'dev',
+          stageKind: 'work',
+          assignee: null,
+          labels: [],
+          startWaiting: null,
+          startBlock: null,
+          missingGateLabels: [],
+          openQuestions: [],
+          session: null,
+          holds: [],
+          wait: null,
+          signals: [],
+        },
+        asOf: '2026-10-16T10:00:00.000Z',
+        sessions: [],
+        deliveries: [],
+        checks: [],
+        machine: null,
+      };
+    },
+    async getProjectState(ctx, args) {
+      await enter('getProjectState', ctx, args);
+      return {
+        paused: { project: false, instance: false },
+        operatorWatch: 'report',
+        stages: [],
+        sessions: [],
+        waitingStarts: [],
+        openOwnerItems: [],
+        signals: [],
+        release: null,
+        waitingMessages: [],
+      };
+    },
     async getTask(ctx, args) {
       await enter('getTask', ctx, args);
       // The repository the work happens in is the domain's to work out (`effectiveRepo`); the
@@ -334,21 +683,23 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       }
       detail.task = {
         ...detail.task,
+        ...(args.complexity
+          ? {
+              complexity:
+                args.complexity.points === null
+                  ? undefined
+                  : TaskComplexity.parse({
+                      ...args.complexity,
+                      setBy: ctx.member,
+                      setAt: '2026-09-28T08:00:00.000Z',
+                    }),
+            }
+          : {}),
         title: args.title ?? detail.task.title,
         description: args.description ?? detail.task.description,
         repo: args.repo !== undefined ? args.repo : detail.task.repo,
         labels,
         stageId: args.stageId ?? detail.task.stageId,
-        ...(args.developerLevel
-          ? {
-              developerLevel: {
-                level: args.developerLevel.level,
-                reason: args.developerLevel.reason || null,
-                setBy: ctx.member,
-                setAt: '2026-09-28T08:00:00.000Z',
-              },
-            }
-          : {}),
       };
       return { task: detail.task };
     },
@@ -360,6 +711,15 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
         pullRequests: [],
         task: {
           ...initial.task,
+          ...(args.complexity?.points != null
+            ? {
+                complexity: TaskComplexity.parse({
+                  ...args.complexity,
+                  setBy: ctx.member,
+                  setAt: '2026-09-28T08:00:00.000Z',
+                }),
+              }
+            : {}),
           id: `task_${key}`,
           key,
           title: args.title,
@@ -370,18 +730,7 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
           priority: null,
           labels: args.labels ?? [],
           links: [],
-          visibility: args.visibility ?? 'internal',
           createdBy: ctx.member,
-          ...(args.developerLevel
-            ? {
-                developerLevel: {
-                  level: args.developerLevel.level,
-                  reason: args.developerLevel.reason || null,
-                  setBy: ctx.member,
-                  setAt: '2026-09-28T08:00:00.000Z',
-                },
-              }
-            : {}),
         },
         timeline: [],
         sessions: [],
@@ -406,53 +755,6 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       return { task: detail.task };
     },
 
-    async publishTaskBranch(ctx, args) {
-      await enter('publishTaskBranch', ctx, args);
-      const detail = findTask(args.taskKey ?? ctx.taskKey ?? 'AR-21');
-      const pullRequest = {
-        repo: 'acme/web',
-        number: 7,
-        title: args.title ?? detail.task.title,
-        url: 'https://github.com/acme/web/pull/7',
-        state: 'open' as const,
-        draft: false,
-        headRef: `${detail.task.key}-work`,
-        baseRef: 'main',
-        checks: 'none' as const,
-        reviewDecision: null,
-        additions: 1,
-        deletions: 0,
-        changedFiles: 1,
-        updatedAt: '2026-10-01T10:00:00Z',
-      };
-      return {
-        repo: 'acme/web',
-        branch: `${detail.task.key}-work`,
-        commit: args.commit,
-        alreadyPublished: false,
-        pullRequest,
-        pullRequestCreated: true,
-        task: detail.task,
-      };
-    },
-
-    async getRemoteState(ctx, args) {
-      await enter('getRemoteState', ctx, args);
-      findTask(args.taskKey);
-      return {
-        taskKey: args.taskKey,
-        repo: 'acme/web',
-        baseBranch: 'main',
-        baseCommit: 'a'.repeat(40),
-        branch: `${args.taskKey}-work`,
-        branchCommit: 'b'.repeat(40),
-        ahead: 2,
-        behind: 0,
-        pullRequests: [],
-        publishedBy: null,
-      };
-    },
-
     async askHuman(ctx, args) {
       await enter('askHuman', ctx, args);
       const notHuman = (args.to ?? []).filter((h) => members.find((m) => m.handle === h)?.kind !== 'human');
@@ -469,11 +771,23 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       return { ok: true };
     },
 
+    async withdrawQuestion(ctx, args) {
+      await enter('withdrawQuestion', ctx, args);
+      return { itemId: args.itemId };
+    },
+
     async setCurrentWork(ctx, args) {
       await enter('setCurrentWork', ctx, args);
       if (ctx.taskKey === null)
         throw new TeamToolError('invalid', 'set_current_work is only for a session working on a task.');
       return { recorded: true };
+    },
+
+    async getGuide(ctx, args) {
+      await enter('getGuide', ctx, args);
+      if (args.topic === 'role') return '# Role guide\nSession role procedures';
+      if (args.topic !== 'rules') throw new TeamToolError('not_found', 'No guide topic.');
+      return '# Team rules\nSession rules';
     },
 
     async listAttachments(ctx, args) {
@@ -491,6 +805,21 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
         attachment,
         path: `/tmp/attachments/AR/${args.taskKey}/${attachment.id}${attachment.preview === 'image' ? '.png' : ''}`,
         readableWithoutAsking: ctx.taskKey === args.taskKey,
+      };
+    },
+
+    async readMessageAttachment(ctx, args) {
+      await enter('readMessageAttachment', ctx, args);
+      return {
+        attachment: {
+          id: args.attachmentId,
+          fileName: 'screenshot.png',
+          mediaType: 'image/png',
+          size: 2048,
+          preview: 'image',
+        },
+        message: { id: 'msg_fake00000001', from: 'owner', createdAt: '2026-10-11T08:00:00.000Z' },
+        content: { kind: 'image', data: Buffer.from('fake-webp'), mimeType: 'image/webp' },
       };
     },
 
@@ -529,6 +858,62 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       return { runId, status: 'running', startedAt: '2026-10-05T09:00:00.000Z', files: [] };
     },
 
+    async getFeedbackList(ctx, args) {
+      await enter('getFeedbackList', ctx, args);
+      requireFeedbackProcessor(ctx);
+      return {
+        status: args.status,
+        total: 1,
+        marks: [sampleFeedbackMark()],
+        authorAccess: { cleo: 'client' },
+      };
+    },
+
+    async getFeedbackMark(ctx, args) {
+      await enter('getFeedbackMark', ctx, args);
+      requireFeedbackProcessor(ctx);
+      return {
+        mark: sampleFeedbackMark(),
+        authorAccess: 'client',
+        screenshot: { kind: 'local', path: '/tmp/feedback/AR/fbm_fake0000000001.jpg' },
+      };
+    },
+
+    async replyFeedback(ctx, args) {
+      await enter('replyFeedback', ctx, args);
+      requireFeedbackProcessor(ctx);
+      return { markId: args.markId, status: 'handled', outcome: 'answered' };
+    },
+
+    async createTaskFromFeedback(ctx, args) {
+      await enter('createTaskFromFeedback', ctx, args);
+      requireFeedbackProcessor(ctx);
+      return {
+        markId: args.markId,
+        status: 'handled',
+        outcome: 'card_created',
+        task: { key: 'AR-77', title: args.title },
+      };
+    },
+
+    async linkFeedback(ctx, args) {
+      await enter('linkFeedback', ctx, args);
+      requireFeedbackProcessor(ctx);
+      return { markId: args.markId, status: 'handled', outcome: 'card_linked' };
+    },
+
+    async forwardFeedback(ctx, args) {
+      await enter('forwardFeedback', ctx, args);
+      requireFeedbackProcessor(ctx);
+      return { markId: args.markId, status: 'waiting_owner', outcome: null };
+    },
+
+    async closeFeedback(ctx, args) {
+      await enter('closeFeedback', ctx, args);
+      requireFeedbackProcessor(ctx);
+      return { markId: args.markId, status: 'closed', outcome: null };
+    },
+
     async deleteAttachment(ctx, args) {
       await enter('deleteAttachment', ctx, args);
       const attachment = findAttachment(args.taskKey, args.attachmentId);
@@ -543,8 +928,73 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
   };
 }
 
+/** The feedback tools are for the project manager `pm` only in the fake. */
+function requireFeedbackProcessor(ctx: ToolContext): void {
+  if (ctx.member !== 'pm')
+    throw new TeamToolError(
+      'forbidden',
+      'feedback_processor_only: only a member with the feedback processing duty may use the feedback tools.',
+    );
+}
+
+/** A mark a client made on the shop's cart page. */
+function sampleFeedbackMark(): FeedbackMarkDetail {
+  return {
+    id: 'fbm_fake0000000001',
+    projectKey: 'AR',
+    author: { handle: 'cleo', name: 'Cleo', kind: 'human', color: 2 },
+    surface: { id: 'shop', name: 'Shop', origin: 'https://shop.example.com' },
+    pageUrl: 'https://shop.example.com/cart?step=2',
+    pagePath: '/cart?step=2',
+    pageTitle: 'Cart',
+    kind: 'point',
+    body: 'The total is wrong',
+    anchor: {
+      kind: 'point',
+      selector: '.total',
+      textSnippet: '12 990 Ft',
+      elementOffset: null,
+      pagePoint: { x: 10, y: 20 },
+      rect: null,
+    },
+    status: 'new',
+    outcome: null,
+    card: null,
+    working: false,
+    commentCount: 1,
+    unread: false,
+    hasScreenshot: true,
+    createdAt: '2026-10-12T08:00:00.000Z',
+    updatedAt: '2026-10-12T08:00:00.000Z',
+    lastActivityAt: '2026-10-12T08:05:00.000Z',
+    closedAt: null,
+    thread: [
+      {
+        id: 'fbe_fake0000000001',
+        type: 'comment',
+        actor: { handle: 'cleo', name: 'Cleo', kind: 'human', color: 2 },
+        body: 'It also shows the old price',
+        card: null,
+        createdAt: '2026-10-12T08:05:00.000Z',
+      },
+    ],
+    environment: {
+      viewport: { width: 1280, height: 800 },
+      scroll: { x: 0, y: 0 },
+      devicePixelRatio: 2,
+      userAgent: 'Mozilla/5.0 (test)',
+      browser: 'Chrome 140',
+      os: 'macOS',
+      language: 'hu-HU',
+    },
+    screenshot: { mediaType: 'image/jpeg', size: 54_000, width: 1280, height: 800 },
+    canProcess: true,
+    canComment: true,
+  };
+}
+
 /** A screenshot the owner attached to AR-21. */
-export function sampleAttachment(): Attachment {
+function sampleAttachment(): Attachment {
   return {
     id: 'att_screenshot01',
     projectKey: 'AR',

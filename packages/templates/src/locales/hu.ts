@@ -2,6 +2,62 @@ import { lowerFirstWord, type TemplateLocale } from './types';
 
 /** Hungarian default display names and role texts (the only place for Hungarian text in this package). */
 export const hu: TemplateLocale = {
+  checklist: {
+    items: {
+      goal: { title: 'A projekt célja', hint: 'Egyeztessétek a célt és a siker feltételeit.' },
+      code: { title: 'Forráskód', hint: 'Kapcsold hozzá a projekt kódtárát.' },
+      engine: {
+        title: 'Motor',
+        hint: 'A projekt munkái a motoron futnak: legyen csatlakozva, és adja hozzá a projekt mappáját (`project set`).',
+      },
+      providers: { title: 'AI-szolgáltatók', hint: 'Ellenőrizd a csapat előfizetéseit.' },
+      team: { title: 'Csapat', hint: 'Válassz tagokat és felelősségeket.' },
+      process: { title: 'Munkafolyamat', hint: 'Egyeztessétek a szakaszokat és az átnézés feltételeit.' },
+      labels: { title: 'Címkék', hint: 'Válassz címkéket a munkához és a jóváhagyásokhoz.' },
+      clients: { title: 'Ügyfelek', hint: 'Döntsétek el, ki vesz részt az ügyfél oldaláról.' },
+      release: { title: 'Kiadás', hint: 'Egyeztessétek, hogyan jutnak el a változások a felhasználókhoz.' },
+      agreement: { title: 'Megállapodás', hint: 'Hagyd jóvá, hogyan dolgozzon veled az Operátor.' },
+      first_task: { title: 'Első feladat', hint: 'Hozd létre az első feladatot.' },
+      code_review: {
+        title: 'Kódátnézés',
+        hint: 'Legyen átnézési szakasz, amely a kódátnézés jóváhagyását kéri.',
+      },
+      guests: {
+        title: 'Ügyfél vendégek',
+        hint: 'Hívd meg az ügyfél oldaláról azokat, akik követik a munkát.',
+      },
+      feedback_marks: {
+        title: 'Visszajelzés-jelölők',
+        hint: 'Állíts be egy felületet, ahol az ügyfél jelölőkkel jelezhet.',
+      },
+      qa: { title: 'Minőségbiztosítás', hint: 'Legyen tag, aki az elfogadási feltételeket teszteli.' },
+      client_test: {
+        title: 'Ügyfélteszt',
+        hint: 'Egyeztessétek, hogyan próbálja ki az ügyfél a kész munkát.',
+      },
+      deploy: { title: 'Telepítés', hint: 'Egyeztessétek, hova és hogyan települ a kész változat.' },
+      schedule: { title: 'Ütemezés', hint: 'Állítsd be, mikor és milyen gyakran fusson a napi munka.' },
+    },
+  },
+  webPush: {
+    title: {
+      question: 'Új kérdés vár rád',
+      decision: 'Új döntés vár rád',
+      approval: 'Jóváhagyás vár rád',
+      permission: 'Engedélykérés vár rád',
+      release: 'Kiadás vár a jóváhagyásodra',
+      host_request: 'Kérés érkezett hozzád',
+    },
+    digest: { title: '{n} teendő vár rád', body: 'A csendes órák alatt érkeztek.' },
+    test: { title: 'Próbaértesítés', body: 'Ha ezt látod, működik.' },
+  },
+  structuralReview: {
+    details:
+      'A PM a jóváhagyás után friss bizonyíték és szabad kapacitás alapján választ műszaki felelőst. A szemle újraellenőrzi az érintett kártyákat és felelősséghatárokat, majd néhány javaslatot ad. Az is elfogadott eredmény, hogy nincs mit változtatni. Nem nyit automatikusan kártyát és nem indít refaktort.',
+    question: 'Induljon alkalmi architektúraszemle?',
+    approve: 'Szemle jóváhagyása',
+    reject: 'Most nem szükséges',
+  },
   language: 'hu',
   timezone: 'Europe/Budapest',
   columns: {
@@ -28,9 +84,9 @@ export const hu: TemplateLocale = {
   },
   duties: {
     boundary_authorization: {
-      name: 'Külső műveletek engedélyezése',
+      name: 'Engedélykérések eldöntése',
       description:
-        'A delegálható külső műveletekről dönt. Költség, éles rendszer, új hozzáférés és tartós határtágítás esetén a tulajdonos dönt.',
+        'A delegálható engedélykérésekről dönt. Költség, éles rendszer, új hozzáférés és tartós határtágítás esetén a tulajdonos dönt.',
     },
     prioritization: {
       name: 'Prioritáskezelés',
@@ -110,6 +166,11 @@ export const hu: TemplateLocale = {
       name: 'Ügyfélkommunikáció',
       description: 'Ügyféltájékoztatókat és tesztkéréseket készít. Küldés előtt jóváhagyást kér.',
     },
+    feedback_processing: {
+      name: 'Jelölések feldolgozása',
+      description:
+        'Minden jelölésről dönt: válaszol, kártyát nyit vagy meglévőhöz köti. Ami a tulajdonosra tartozik, továbbítja.',
+    },
     support: {
       name: 'Ügyféltámogatás',
       description: 'Reprodukálja a bejelentett problémákat. Egyértelmű támogatási feladatokat készít.',
@@ -138,10 +199,15 @@ export const hu: TemplateLocale = {
       name: 'Végső döntés',
       description: 'Dönt az eszkalált kérdésekben. Csak ember töltheti be.',
     },
+    project_operation: {
+      name: 'Projekt működtetése',
+      description:
+        'A tulajdonos kérésére átállítja, hogyan dolgozik a projekt. Csak AI töltheti be, és csak kérésre dolgozik.',
+    },
   },
   roles: {
     operator: {
-      name: 'Operátor',
+      name: 'Tulajdonos',
       summary: 'Futtatja és felügyeli a rendszert, visszaterel minden félrement munkát, és övé a végső szó.',
       notTheirJob: 'Nem végzi a napi feladatokat: irányítja a csapatot, nem helyettesíti.',
       whenToAsk:
@@ -155,7 +221,8 @@ export const hu: TemplateLocale = {
     },
     project_manager: {
       name: 'Projektmenedzser',
-      summary: 'Az ütemezést viszi: standup, tervezés, határidők, emlékeztetők, heti jelentés.',
+      summary:
+        'Az ütemezést viszi: standup, tervezés, határidők, emlékeztetők, heti jelentés. A tulajdonos kérésére vagy igenje után vezeti a döntésnaplót és a roadmapot, felajánlja a döntésjelölteket, és felveszi a leckéket.',
       notTheirJob: 'Nem rangsorol, és nem vezeti a retrót.',
       whenToAsk:
         'Ha tudni szeretnéd, hol tart a munka és mi mikorra készül, vagy emlékeztető, jelentés kell.',
@@ -258,7 +325,7 @@ export const hu: TemplateLocale = {
     watchdog: {
       name: 'Felügyelő',
       summary:
-        'Az Operátor segítője: jelez, ha egy tag elakadt, körbe-körbe jár, túl sokat fogyaszt vagy túllépi a hatáskörét.',
+        'A tulajdonos segítője: jelez, ha egy tag elakadt, körbe-körbe jár, túl sokat fogyaszt vagy túllépi a hatáskörét.',
       notTheirJob: 'Nem avatkozik be, csak jelez.',
       whenToAsk: 'Ha gyanús, hogy egy tag elakadt vagy túl sokat fogyaszt.',
     },
@@ -292,6 +359,13 @@ export const hu: TemplateLocale = {
     done: 'Megtettem',
     newCard: 'Új kártya',
     forwarded: 'Továbbadtam',
+    waiting: 'Rád vár',
+    nothing: 'Semmi.',
+  },
+  operatorReport: {
+    done: 'Megtettem',
+    decision: 'Döntés kell',
+    approval: 'Jóváhagyásra vár',
     waiting: 'Rád vár',
     nothing: 'Semmi.',
   },
@@ -348,6 +422,91 @@ export const hu: TemplateLocale = {
       meaning:
         'A kártyát a fejlesztés előtt kidolgozzák, lépésenként, egyszerre egy taggal; a címkét a rendszer leveszi, amikor kész.',
     },
+  },
+  emailLoginCode: {
+    subject: 'Belépési kódod',
+    text: ({ code, validUntil }) =>
+      `A belépési kódod: ${code}\n\nA kód egyszer használható, és eddig érvényes: ${validUntil}.\n\nHa nem te kérted, hagyd figyelmen kívül ezt a levelet.\n`,
+  },
+  email: {
+    quoteHeader: ({ date, name }) => `${date}, ${name} ezt írta:`,
+    firstNotice: ({ member, project }) =>
+      `${member} (AI-tag, ${project} projekt). Ha nem kérsz több levelet, írd meg válaszban.`,
+  },
+  fixLimitItem: {
+    title: 'Javítási körök határa: {key}',
+    summary: 'A(z) {key} kártya {rounds} javítási kör után sem ment át ({parts}). {reason}',
+    parts: {
+      changes: '{count} kódátnézés',
+      design: '{count} UI/UX átnézés',
+      testsFailed: '{count} bukott teljes teszt',
+      sendBacks: '{count} kézi visszaküldés',
+    },
+    reasons: {
+      no_ai_decider: 'Nincs AI-tag, aki dönthetne róla (Műszaki irányítás és Kódellenőrzés).',
+      passed_on: '{name} továbbadta.',
+      extra_exhausted: 'A 3 extra kör elfogyott, és újra elérte a határt.',
+      decider_timeout: 'Az AI döntő nem döntött határidőn belül.',
+      again: 'Még egy kör után újra elérte a határt.',
+    },
+    extras: {
+      left: 'Extra kör: {used} kiadva a 3-ból, {left} maradt.',
+      none: 'Extra kör: {used} kiadva a 3-ból, nem maradt több.',
+      over: 'Extra kör: {used} kiadva (a határ 3), nem maradt több.',
+    },
+    verdict: { title: '{name} véleménye', repeat: 'Ismétlődik?', now: 'Hol tart most?' },
+    rounds: {
+      heading: 'Körök ({count}):',
+      technicalCount: '{count} technikai újraátadás nem számít',
+      counted: '{n}.',
+      technicalMarker: '–',
+      grantMarker: '+{n}',
+      kind: {
+        code_review: 'Kódátnézés · {name}',
+        design_review: 'UI/UX átnézés · {name}',
+        tests_failed: 'Bukott teljes teszt',
+        tests_failed_command: 'Bukott teljes teszt: {command}',
+        tests_failed_commit: 'Bukott teljes teszt ({commit})',
+        send_back: 'Visszaküldte · {name}',
+        send_back_no_note: 'Visszaküldte · {name} (megjegyzés nélkül)',
+        branch_moved: 'Technikai újraátadás: az ág elmozdult',
+        branch_moved_moves: 'Technikai újraátadás: az ág elmozdult ({from} → {to})',
+        extra_round: 'Még egy kör ({index}/3) · {name}',
+        extra_round_over: 'Még egy kör ({index}, a 3 fölött) · {name}',
+      },
+      notCounted: ' (nem számít körnek)',
+      note: ': „{note}”',
+    },
+    options: {
+      heading: 'Döntési lehetőségek:',
+      recommended: 'javasolt: {reason}',
+      unavailable: {
+        replan: '(most nem választható: nincs elérhető tervező.)',
+        reassign: '(most nem választható: nincs másik elérhető fejlesztő.)',
+      },
+      label: { replan: 'Pontosabb terv', reassign: 'Más fejlesztő', another_round: 'Még egy kör' },
+      consequence: {
+        replan:
+          'A Műszaki irányítás egy másik AI-tagja pontosítja a tervet vagy bontja a kártyát; ha elengedi, a számlálás újraindul.',
+        reassign:
+          'A kártyát egy másik fejlesztő kapja, friss munkamenettel; a számlálás újrakezdődik. Az eddigi fejlesztő munkamenete leáll.',
+        another_round: 'A fejlesztő megkapja a várakozó üzeneteket, és eggyel több kört kap.',
+        another_round_over:
+          'A fejlesztő megkapja a várakozó üzeneteket, és eggyel több kört kap. Ha újra eléri a határt, megint emberi döntés kell.',
+      },
+    },
+    footer: {
+      integrator:
+        'Ez a tétel az integrátornak szól: a fenti lehetőségek egyikét választhatja, vagy indoklással továbbadhatja a tulajdonosnak.',
+      owner: 'Ez a tétel a tulajdonosnak szól.',
+    },
+  },
+  systemFeedback: {
+    what: 'Mi történt',
+    workaround: 'Hogyan hidalta át',
+    fix: 'Mi lenne a javítás',
+    version: 'projectman-változat',
+    occurrences: 'Előfordulások',
   },
   stageApproval: (stageName) => `${stageName}: jóváhagyva`,
   specialist: (specialty, roleName) => `${specialty} ${lowerFirstWord(roleName)}`,

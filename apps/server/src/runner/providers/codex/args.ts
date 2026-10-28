@@ -1,5 +1,8 @@
-import { modelForProvider, sessionPermissions } from '@projectman/shared';
+import { modelForProvider, sessionPermissions, SessionReadBoundary } from '@projectman/shared';
+import { homedir } from 'node:os';
+import { statSync } from 'node:fs';
 import path from 'node:path';
+import { toolPathForms, withoutFirmlink, pathPatternMatcher, isReadBoundaryPath } from '../../tool-decision';
 import type { StartSessionSpec } from '../../../contracts';
 import {
   FAST_HOOK_TIMEOUT_S,
@@ -23,7 +26,7 @@ import { sanitizeMessage } from '../../typing';
  *   at its dots), so the trust screen never shows;
  * - the project's CLAUDE.md as the fallback when a repository has no AGENTS.md;
  * - the local restricted-read permission profile and approval policy mapped from the member's
- *   permission mode; only managed VM sessions use legacy sandbox flags.
+ *   permission mode.
  * `--dangerously-bypass-hook-trust` lets our hooks run without the one-time review in /hooks.
  */
 
@@ -84,11 +87,11 @@ function tomlKey(key: string): string {
 }
 
 /** One `-c` override. */
-export function override(key: string, value: unknown): string {
+function override(key: string, value: unknown): string {
   return `${key}=${tomlValue(value)}`;
 }
 
-export interface CodexPermissions {
+interface CodexPermissions {
   sandbox: 'read-only' | 'workspace-write' | 'danger-full-access';
   approval: 'on-request' | 'never';
 }
@@ -116,20 +119,20 @@ export function codexPermissions(mode: string | undefined): CodexPermissions {
 }
 
 /** Default reasoning effort for Codex members (overrides the owner's interactive default). */
-export const DEFAULT_CODEX_EFFORT = 'medium';
+const DEFAULT_CODEX_EFFORT = 'medium';
 
 export function codexModel(model: string | undefined): string {
   return modelForProvider('codex', model?.trim());
 }
 
-export interface CodexArgsInput {
+interface CodexArgsInput {
   cliPath?: string;
   codexHome?: string;
   disabledMcpServers?: readonly string[];
   provider?: CodexModelProvider;
   spec: StartSessionSpec;
-  /** POST target of the hooks. */
-  hookUrl: string;
+  /** The private file holding the hooks' POST target (`writeHookConfig`, PM-156). */
+  hookConfigPath: string;
   permissionTimeoutMs: number;
   /** The session's directory, resolved (Codex looks its trust up by the resolved path). */
   realCwd: string;
@@ -137,7 +140,7 @@ export interface CodexArgsInput {
   nodePath?: string;
 }
 
-export interface CodexModelProvider {
+interface CodexModelProvider {
   id: 'nanogpt';
   name: string;
   baseUrl: string;
@@ -154,19 +157,19 @@ export const NANOGPT_CODEX_PROVIDER: CodexModelProvider = {
 };
 
 /** The `hooks` value of one event. */
-export function hookGroups(command: string, timeoutS: number): unknown {
+function hookGroups(command: string, timeoutS: number): unknown {
   return [{ hooks: [{ type: 'command', command, timeout: timeoutS }] }];
 }
 
-export interface CodexCommandLine {
+interface CodexCommandLine {
   args: string[];
   /** A non-empty kick-off brief went on the command line (new and resumed sessions). */
   initialMessageSent: boolean;
 }
 
-export const CODEX_PERMISSION_PROFILE = 'projectman';
-export type CodexAccess = 'read' | 'write' | 'deny';
-export interface CodexPermissionProfile {
+const CODEX_PERMISSION_PROFILE = 'projectman';
+type CodexAccess = 'read' | 'write' | 'deny';
+interface CodexPermissionProfile {
   extends: ':read-only' | ':workspace';
   filesystem: Record<string, CodexAccess | Record<string, CodexAccess>>;
 }
@@ -180,9 +183,9 @@ function insidePath(candidate: string, parent: string): boolean {
 }
 
 /** The official standalone installation is the only read exception beneath denied homes. */
-export type CodexCliReadRoot = { kind: 'none' } | { kind: 'root'; path: string } | { kind: 'misplaced' };
+type CodexCliReadRoot = { kind: 'none' } | { kind: 'root'; path: string } | { kind: 'misplaced' };
 
-export function codexDeniedPaths(input: Pick<CodexArgsInput, 'spec' | 'codexHome'>): string[] {
+function codexDeniedPaths(input: Pick<CodexArgsInput, 'spec' | 'codexHome'>): string[] {
   return [
     ...new Set([
       ...(input.spec.policy?.filesystem.deniedPaths ?? []),
@@ -191,7 +194,108 @@ export function codexDeniedPaths(input: Pick<CodexArgsInput, 'spec' | 'codexHome
   ];
 }
 
+/** CLI placement is checked against both hard denials and reopenable roots. */
+export function codexCliDenials(input: Pick<CodexArgsInput, 'spec' | 'codexHome'>): string[] {
+  return [
+    ...codexDeniedPaths(input),
+    ...(input.spec.sandbox?.portable?.readBoundary?.deniedRoots ?? []),
+  ].flatMap(pathForms);
+}
+
+function pathForms(target: string): string[] {
+  return [
+    ...new Set([path.normalize(target), ...toolPathForms('/', target, homedir())].map(withoutFirmlink)),
+  ];
+}
+
+/** Hard denials cover descendants, including globbed file names and symlink targets. */
+function pathDenials(denied: readonly string[]): (target: string) => boolean {
+  const matches = pathPatternMatcher(denied.flatMap(pathForms), process.platform === 'darwin');
+  return (target) => pathForms(target).some(matches);
+}
+
+export type ReadBoundaryProblem = 'missing' | 'invalid' | 'required_path_denied';
+
+/** Local starts must fail closed too; RPC validation is not a substitute for this check. */
+export function validateCodexReadBoundary(
+  input: Pick<CodexArgsInput, 'spec' | 'codexHome'>,
+): ReadBoundaryProblem | undefined {
+  const { spec } = input;
+  const raw = spec.sandbox?.portable?.readBoundary;
+  if (raw === undefined) return;
+  if (!spec.policy) return 'invalid';
+  const parsed = SessionReadBoundary.safeParse(raw);
+  if (!parsed.success) return 'invalid';
+  const boundary = parsed.data;
+  if (
+    ![...boundary.deniedRoots, ...boundary.allowedPaths.map((entry) => entry.path)].every(isReadBoundaryPath)
+  )
+    return 'invalid';
+  if (!boundary.deniedRoots.some((root) => pathForms(root).includes(pathForms(homedir()).at(-1)!)))
+    return 'invalid';
+  const hard = codexDeniedPaths(input);
+  const hardDenied = pathDenials(hard);
+  const required = [
+    spec.cwd,
+    ...(spec.policy.placement.kind === 'task_worktree' && spec.policy.placement.gitDir
+      ? [spec.policy.placement.gitDir]
+      : []),
+  ];
+  if (spec.policy.permissions.sandbox === 'workspace-write') {
+    const portable = spec.sandbox?.portable;
+    if (!portable?.tmpDir || !portable.env.PROJECTMAN_SESSION_DIR) return 'missing';
+    if (['/tmp', '/private/tmp'].includes(portable.tmpDir)) return 'invalid';
+    required.push(portable.tmpDir, portable.env.PROJECTMAN_SESSION_DIR);
+    required.push(...codexSharedGitAccess(spec.policy, spec.sandbox?.denyWrite).writable);
+  }
+  if (required.some(hardDenied)) return 'required_path_denied';
+  const homes = boundary.deniedRoots;
+  const candidates = [
+    spec.cwd,
+    ...spec.policy.filesystem.readableRoots,
+    ...(spec.policy.filesystem.readOnlyPaths ?? []),
+    ...(spec.sandbox?.allowRead ?? []),
+    ...(spec.sandbox?.portable?.allowWrite ?? []),
+    ...required,
+  ];
+  if (
+    boundary.allowedPaths.some((entry) => {
+      if (hardDenied(entry.path)) return false;
+      try {
+        const stat = statSync(entry.path);
+        if (entry.kind === 'file' ? !stat.isFile() : !stat.isDirectory()) return true;
+      } catch {
+        // Missing technical files and future directories retain their declared kind.
+      }
+      return (
+        homes.some((root) =>
+          pathForms(entry.path).some((candidate) =>
+            pathForms(root).some((home) => insidePath(home, candidate)),
+          ),
+        ) ||
+        /\/member-caches(?:\/[^/]+){0,2}$/.test(entry.path) ||
+        !candidates.some((candidate) =>
+          pathForms(entry.path).every((form) => pathForms(candidate).includes(form)),
+        )
+      );
+    })
+  )
+    return 'invalid';
+  if (
+    required.some(
+      (target) =>
+        !boundary.allowedPaths.some(
+          (entry) =>
+            entry.kind === 'directory' &&
+            pathForms(target).every((form) => pathForms(entry.path).some((root) => insidePath(form, root))),
+        ),
+    )
+  )
+    return 'required_path_denied';
+}
+
 export function codexCliReadRoot(cliPath: string, denied: readonly string[]): CodexCliReadRoot {
+  if (pathDenials(denied.filter((entry) => /[*?\[\]]/.test(entry)))(cliPath)) return { kind: 'misplaced' };
   const paths = denied.filter((entry) => !/[*?\[\]]/.test(entry));
   if (!paths.some((entry) => insidePath(cliPath, entry))) return { kind: 'none' };
   let root = path.dirname(cliPath);
@@ -221,13 +325,35 @@ export function codexCliReadRoot(cliPath: string, denied: readonly string[]): Co
  * `sharedGitDenials`), including `packed-refs` itself, except its lock above. Nothing without both directories
  * (an independent clone has its own `.git`).
  */
-export function codexSharedGitAccess(
+function codexSharedGitAccess(
   policy: CodexArgsInput['spec']['policy'],
   denyWrite: readonly string[] = [],
 ): { writable: string[]; readOnly: string[] } {
   const placement = policy?.placement;
   const gitDir = placement?.kind === 'task_worktree' ? placement.gitDir : undefined;
   const adminDir = placement?.kind === 'task_worktree' ? placement.worktreeGitDir : undefined;
+  // An independent clone (a member workspace, PM-138) keeps its git directory inside the checkout, where
+  // Codex makes `.git` read-only: open it the same way, with what the host's git would run or follow
+  // outside the sandbox (configuration, hooks, alternates, and the `commondir` / `gitdir` links that
+  // redirect git to a directory the session wrote, and the submodule directories under `modules` with
+  // their own configuration) still closed. Only a member workspace counts as a clone: a placement
+  // without a shared git directory and without that marker gets nothing.
+  if (placement?.kind === 'task_worktree' && placement.workspace && !gitDir) {
+    const ownGitDir = path.join(placement.path, '.git');
+    return {
+      writable: [ownGitDir],
+      readOnly: [
+        'config',
+        'config.lock',
+        'config.worktree',
+        'commondir',
+        'gitdir',
+        'hooks',
+        'modules',
+        path.join('objects', 'info'),
+      ].map((name) => path.join(ownGitDir, name)),
+    };
+  }
   if (!gitDir || !adminDir) return { writable: [], readOnly: [] };
   const packedRefsLock = path.join(gitDir, 'packed-refs.lock');
   return {
@@ -255,30 +381,43 @@ export function codexPermissionProfile(input: {
   readOnlyPaths?: readonly string[];
   tmpDir?: string;
   cliPath?: string;
+  readBoundary?: SessionReadBoundary;
 }): CodexPermissionProfile {
   const filesystem: CodexPermissionProfile['filesystem'] = { ':root': 'read' };
+  const hardDenied = pathDenials(input.deniedPaths);
+  const grant = (target: string, access: CodexAccess) => {
+    if (!hardDenied(target)) for (const form of pathForms(target)) filesystem[form] = access;
+  };
+  for (const root of input.readBoundary?.deniedRoots ?? [])
+    for (const form of pathForms(root)) filesystem[form] = 'deny';
+  for (const entry of input.readBoundary?.allowedPaths ?? []) grant(entry.path, 'read');
   const writes = input.sandbox === 'workspace-write';
   if (writes)
     filesystem[':workspace_roots'] = { '.': 'write', '.git': 'read', '.codex': 'read', '.agents': 'read' };
   if (writes) {
     for (const root of new Set([...input.writableRoots, ...(input.tmpDir ? [input.tmpDir] : [])]))
-      if (!input.deniedPaths.some((denied) => insidePath(root, denied))) filesystem[root] = 'write';
-    for (const readOnly of new Set(input.readOnlyPaths ?? []))
-      if (!input.deniedPaths.some((denied) => insidePath(readOnly, denied))) filesystem[readOnly] = 'read';
-    if (!input.tmpDir) {
+      grant(root, 'write');
+    for (const readOnly of new Set(input.readOnlyPaths ?? [])) grant(readOnly, 'read');
+    if (!input.tmpDir && !input.readBoundary) {
       filesystem[':tmpdir'] = 'write';
       filesystem[':slash_tmp'] = 'write';
     }
   }
-  for (const denied of new Set(input.deniedPaths)) filesystem[denied] = 'deny';
-  const cliReadRoot = input.cliPath ? codexCliReadRoot(input.cliPath, input.deniedPaths) : null;
+  for (const denied of new Set(input.deniedPaths))
+    for (const form of pathForms(denied)) filesystem[form] = 'deny';
+  const cliReadRoot = input.cliPath
+    ? codexCliReadRoot(
+        input.cliPath,
+        [...input.deniedPaths, ...(input.readBoundary?.deniedRoots ?? [])].flatMap(pathForms),
+      )
+    : null;
   if (cliReadRoot?.kind === 'root') filesystem[cliReadRoot.path] = 'read';
   return { extends: ':read-only', filesystem };
 }
 
 /** Full argument list for `codex` (interactive TUI). */
 export function buildCodexArgs(input: CodexArgsInput): CodexCommandLine {
-  const { spec, hookUrl } = input;
+  const { spec, hookConfigPath } = input;
   if (spec.policy?.enforcement === 'strict')
     throw new Error('Strict Codex sandbox enforcement is not available yet; refusing to start.');
   const permissionTimeoutS = permissionHookTimeoutS(input.permissionTimeoutMs);
@@ -327,6 +466,9 @@ export function buildCodexArgs(input: CodexArgsInput): CodexCommandLine {
 
   // Never infer a Codex grant from another provider's tool syntax.
   const approvals = spec.policy?.tools.team ?? { all: false, names: [] };
+  // The team server stays optional (PM-1070): `required = true` (PM-1055) made Codex exit at start
+  // ("agent CLI exited before it was ready") for every session, so a failing team MCP must only
+  // cost the tools, not the session.
   const team: Record<string, unknown> = { url: spec.mcpUrl };
   if (approvals.all) team.default_tools_approval_mode = 'approve';
   if (approvals.names.length > 0) {
@@ -341,25 +483,18 @@ export function buildCodexArgs(input: CodexArgsInput): CodexCommandLine {
       : event === 'PreToolUse'
         ? TOOL_PREPARE_HOOK_TIMEOUT_S
         : FAST_HOOK_TIMEOUT_S;
-    const command = forwarderCommand(hookUrl, input.nodePath, {
+    const command = forwarderCommand(hookConfigPath, input.nodePath, {
       printResponse: decides,
       maxTimeS: timeoutS,
     });
     c(`hooks.${event}`, hookGroups(command, timeoutS));
   }
 
-  const managed = spec.policy?.execution?.profile === 'managed_vm';
   const permissions = spec.policy?.permissions ?? codexPermissions(spec.permissionMode);
-  // The managed VM's boundary is outside the CLI: no local approval, no inner sandbox. `plan`
-  // stays research-only (`read-only`); nothing in this profile is ever the legacy `workspace-write`.
-  if (managed && permissions.approval !== 'never')
-    throw new Error('The managed VM profile asks nothing locally; refusing a policy that does.');
-  if (managed && permissions.sandbox === 'workspace-write')
-    throw new Error('The managed VM profile has no inner sandbox; refusing a workspace-write policy.');
-  if (!managed && permissions.sandbox === 'danger-full-access')
-    throw new Error('Codex runs without its sandbox only in the managed VM profile; refusing to start.');
-  // What our sandbox shares with Codex's own (the heavy-run queue folder, PM-346). Not in the managed VM.
-  const portable = managed ? undefined : spec.sandbox?.portable;
+  if (permissions.sandbox === 'danger-full-access')
+    throw new Error('Codex requires its sandbox; refusing to start.');
+  // What our sandbox shares with Codex's own (the heavy-run queue folder, PM-346).
+  const portable = spec.sandbox?.portable;
   const writes = permissions.sandbox === 'workspace-write';
   // The commands' own temporary directory (PM-339): their TMPDIR and a writable root, while the
   // shared ones (`/tmp`, the CLI's TMPDIR) are closed. Only where the sandbox writes.
@@ -367,39 +502,49 @@ export function buildCodexArgs(input: CodexArgsInput): CodexCommandLine {
   // A worktree's shared git directory (PM-399): without it `git add` / `git commit` fail with EPERM.
   const sharedGit = writes ? codexSharedGitAccess(spec.policy, spec.sandbox?.denyWrite) : undefined;
   const writableRoots = [
+    ...(portable?.readBoundary ? [input.realCwd] : []),
     ...(!spec.policy ? (spec.writableRoots ?? []) : []),
     ...(sharedGit?.writable ?? []),
     ...(portable?.allowWrite ?? []),
     ...(tmpDir ? [tmpDir] : []),
   ];
-  if (!managed) {
-    c('default_permissions', CODEX_PERMISSION_PROFILE);
-    c(
-      `permissions.${CODEX_PERMISSION_PROFILE}`,
-      codexPermissionProfile({
-        sandbox: writes ? 'workspace-write' : 'read-only',
-        deniedPaths: codexDeniedPaths(input),
-        writableRoots,
-        readOnlyPaths: sharedGit?.readOnly ?? [],
-        tmpDir,
-        cliPath: input.cliPath,
-      }),
-    );
-  }
+  c('default_permissions', CODEX_PERMISSION_PROFILE);
+  c(
+    `permissions.${CODEX_PERMISSION_PROFILE}`,
+    codexPermissionProfile({
+      sandbox: writes ? 'workspace-write' : 'read-only',
+      deniedPaths: codexDeniedPaths(input),
+      writableRoots,
+      readBoundary: portable?.readBoundary,
+      readOnlyPaths: [
+        ...(portable?.readBoundary
+          ? ['.git', '.codex', '.agents']
+              .map((name) => path.join(input.realCwd, name))
+              .filter((entry) => !sharedGit?.writable.includes(entry))
+          : []),
+        ...(sharedGit?.readOnly ?? []),
+        ...(portable?.readBoundary ? (spec.policy?.filesystem.readOnlyPaths ?? []) : []),
+      ],
+      tmpDir,
+      cliPath: input.cliPath,
+    }),
+  );
+
   // Every command sees them, also one run outside the sandbox after a question.
-  // The session folder and the browsers belong to a writing sandbox: a read-only one has no folder.
-  const folderVariables = ['PROJECTMAN_SESSION_DIR', 'PLAYWRIGHT_BROWSERS_PATH'];
+  // The browsers belong to a writing sandbox. A read-only one still names the session folder (PM-522):
+  // the server puts files there, and the sandbox reads it without writing it.
+  const writeOnlyVariables = ['PLAYWRIGHT_BROWSERS_PATH'];
   const shellEnv = {
     ...Object.fromEntries(
-      Object.entries(portable?.env ?? {}).filter(([name]) => writes || !folderVariables.includes(name)),
+      Object.entries(portable?.env ?? {}).filter(([name]) => writes || !writeOnlyVariables.includes(name)),
     ),
     ...(tmpDir ? { TMPDIR: tmpDir } : {}),
   };
   for (const [name, value] of Object.entries(shellEnv))
     if (TOML_BARE_KEY.test(name)) c(`shell_environment_policy.set.${name}`, value);
-  // The built-in image viewer (not a sandboxed command, so it asks nothing) opens the session folder's images.
-  if (writes && portable?.env['PROJECTMAN_SESSION_DIR']) c('tools.view_image', true);
-  if (managed) args.push('--sandbox', permissions.sandbox);
+  // The built-in image viewer (not a sandboxed command, so it asks nothing) opens the session folder's
+  // images; it respects the denied paths, and the read-only profile reads the folder (PM-522).
+  if (portable?.env['PROJECTMAN_SESSION_DIR']) c('tools.view_image', true);
   args.push('--ask-for-approval', permissions.approval);
   args.push('--model', modelForProvider(input.provider?.id ?? 'codex', spec.model));
   c('model_reasoning_effort', spec.effort === 'max' ? 'xhigh' : (spec.effort ?? DEFAULT_CODEX_EFFORT));

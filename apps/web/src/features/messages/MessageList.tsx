@@ -1,15 +1,18 @@
 import clsx from 'clsx';
 import { Fragment } from 'react';
 import { Link } from 'react-router';
+import { hasBoundOrigin } from '@projectman/shared';
 import type { MessageReceipt, TeamMessage } from '@projectman/shared';
 import { Button } from '../../components/Button';
 import { Avatar } from '../../components/Avatar';
+import { ActorName } from '../../components/ActorName';
 import { Icon } from '../../components/Icon';
 import { formatDayHeading, formatStamp } from '../../i18n/format';
 import { joinNames, t } from '../../i18n/t';
-import { nameOf, namesOf } from '../../lib/members';
+import { actorLabel, isOwnActor, recordActor, nameOf, namesOf } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
 import styles from './MessageList.module.css';
+import { attachmentPreview } from './conversations';
 
 interface MessageListProps {
   messages: readonly TeamMessage[];
@@ -51,7 +54,11 @@ export function MessageList({
         const day = dayKey(message.createdAt);
         const heading = groupByDay && day !== lastDay ? formatDayHeading(message.createdAt) : null;
         lastDay = day;
-        const from = message.via ? t('involvement.integratorFull') : nameOf(message.from, members, myHandle);
+        const actor = recordActor(message);
+        const from =
+          message.via && !message.actor
+            ? t('involvement.integratorFull')
+            : actorLabel(actor, members, myHandle);
         const to = joinNames(namesOf(message.to, members, myHandle));
         const toMe = myHandle !== null && message.to.includes(myHandle);
         return (
@@ -64,9 +71,10 @@ export function MessageList({
             <li className={clsx(styles.item, toMe && styles.toMe)}>
               <div className={styles.head}>
                 <Avatar
+                  actor={actor}
                   member={members.get(message.from)}
                   handle={message.from}
-                  isMe={message.from === myHandle && !message.via}
+                  isMe={isOwnActor(actor, myHandle)}
                   via={message.via}
                   size="sm"
                 />
@@ -84,12 +92,49 @@ export function MessageList({
                     />
                   ))}
                 </span>
-                <span className={styles.names}>{t('messages.fromTo', { from, to })}</span>
+                <span className={styles.names}>
+                  {hasBoundOrigin(message.actor) ? (
+                    <>
+                      <ActorName
+                        actor={message.actor}
+                        members={members}
+                        myHandle={myHandle}
+                        projectKey={projectKey}
+                        showApproval={false}
+                      />{' '}
+                      → {to}
+                    </>
+                  ) : (
+                    t('messages.fromTo', { from, to })
+                  )}
+                </span>
                 <time className={styles.time} dateTime={message.createdAt}>
                   {formatStamp(message.createdAt)}
                 </time>
               </div>
-              <p className={styles.body}>{message.body}</p>
+              {message.email || message.body.trim() ? (
+                <p className={styles.body}>
+                  {message.email ? (
+                    <>
+                      <span className={styles.emailMark} title={t('messages.email.received')}>
+                        <Icon name="mail" size={12} strokeWidth={2} /> {t('messages.email.short')}
+                      </span>{' '}
+                      {message.email.subject ? (
+                        <>
+                          <strong>{message.email.subject}</strong>
+                          {message.body.trim() ? ' · ' : null}
+                        </>
+                      ) : null}
+                    </>
+                  ) : null}
+                  {message.body}
+                </p>
+              ) : null}
+              {message.attachments?.length ? (
+                <p className={styles.body}>
+                  <Icon name="paperclip" size={12} /> {attachmentPreview(message)}
+                </p>
+              ) : null}
               <div className={styles.foot}>
                 {message.taskKey ? (
                   <Link to={`/p/${projectKey}/tasks/${message.taskKey}`} className={styles.task}>

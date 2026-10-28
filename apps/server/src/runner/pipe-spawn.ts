@@ -12,7 +12,12 @@ const START_FAILED_EXIT_CODE = 127;
  * run interactively this way: the server only allows it with the fake CLIs (`parseTerminalMode`).
  */
 export const pipeSpawn: SpawnPty = (file, args, options): PtyProcess => {
-  const child = spawn(file, args, { cwd: options.cwd, env: options.env, stdio: ['pipe', 'pipe', 'pipe'] });
+  const child = spawn(file, args, {
+    cwd: options.cwd,
+    env: options.env,
+    detached: true,
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
   const dataListeners: Array<(data: string) => void> = [];
   const exitListeners: Array<(event: { exitCode: number; signal?: number }) => void> = [];
   let exited = false;
@@ -36,8 +41,9 @@ export const pipeSpawn: SpawnPty = (file, args, options): PtyProcess => {
   child.on('error', () => {
     if (child.pid === undefined) finish({ exitCode: START_FAILED_EXIT_CODE });
   });
-  // `close`, not `exit`: the output the process wrote last arrives before it.
-  child.on('close', (code, signalName) => {
+  // A background child may keep stdout open after the CLI exits. Notify the scope immediately:
+  // waiting for `close` would prevent natural-exit cleanup from ever stopping that child.
+  child.on('exit', (code, signalName) => {
     if (child.pid === undefined) return finish({ exitCode: START_FAILED_EXIT_CODE });
     finish({
       exitCode: code ?? 0,

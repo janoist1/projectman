@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { humanApprovalChanged, approvalPolicyChanged, ownerOnlyChanges } from './owner-only';
+import { approvalPolicyChanged, ownerOnlyChanges } from './owner-only';
 import type { OwnerOnlyChange } from './owner-only';
 import { ProjectConfig } from './schema';
 
@@ -77,6 +77,49 @@ const ai = (config: ProjectConfig, handle: string) => {
 };
 
 describe('ownerOnlyChanges', () => {
+  it.each([
+    [undefined, true, ['email_send_policy']],
+    [true, false, ['email_send_policy']],
+    [false, undefined, []],
+    [false, false, []],
+  ] as const)('checks effective email approval policy %#', (before, after, expected) => {
+    const previous = config();
+    ai(previous, 'dev-1').email = { enabled: true, sendWithoutApproval: before };
+    const next = structuredClone(previous);
+    ai(next, 'dev-1').email = { enabled: true, sendWithoutApproval: after };
+    expect(ownerOnlyChanges(previous, next)).toEqual(expected);
+  });
+  it.each([
+    ['switching sending off', true, false],
+    ['switching sending on over a stale bypass', false, true],
+  ])('lets an admin clear the bypass by %s', (_name, wasEnabled, enabled) => {
+    const previous = config();
+    ai(previous, 'dev-1').email = { enabled: wasEnabled, sendWithoutApproval: true };
+    const next = structuredClone(previous);
+    ai(next, 'dev-1').email = { enabled, sendWithoutApproval: false };
+    expect(ownerOnlyChanges(previous, next)).toEqual([]);
+  });
+  it('requires an owner for a new sender starting without approval', () => {
+    expect(
+      changed((c) => {
+        c.team.members.push({
+          ...ai(c, 'dev-1'),
+          handle: 'dev-2',
+          permissionMode: 'auto',
+          approver: 'none',
+          email: { enabled: true, sendWithoutApproval: true },
+        });
+      }),
+    ).toEqual(['email_send_policy']);
+  });
+  it('allows admins to change project and sender enablement', () => {
+    expect(
+      changed((c) => {
+        c.project.email = { enabled: true };
+        ai(c, 'dev-1').email = { enabled: true };
+      }),
+    ).toEqual([]);
+  });
   it.each<[string, (next: ProjectConfig) => void, OwnerOnlyChange[]]>([
     ['no change', () => {}, []],
     ['a display name', (c) => void (human(c, 'ann').displayName = 'Anna'), []],
@@ -205,7 +248,57 @@ describe('ownerOnlyChanges', () => {
     ]);
   });
 
-  it('keeps the old name of the approval policy check', () => {
-    expect(humanApprovalChanged).toBe(approvalPolicyChanged);
+  it.each([
+    (c: ProjectConfig) => {
+      c.team.boundary = { enabled: true, leadTimeoutSeconds: 120 };
+    },
+    (c: ProjectConfig) => {
+      c.team.roleOverrides = {
+        developer: { duties: ['implementation', 'boundary_authorization'], instructions: '' },
+      };
+    },
+    (c: ProjectConfig) => {
+      ai(c, 'dev-1').role = 'lead_developer';
+    },
+    (c: ProjectConfig) => {
+      c.team.roles.push({
+        id: 'new_lead',
+        name: 'Lead',
+        summary: 'Decide',
+        holders: 'both',
+        duties: ['boundary_authorization'],
+        instructions: '',
+        notTheirJob: '',
+      });
+    },
+  ])('requires owner access for delegation configuration and duty assignments', (edit) => {
+    expect(changed(edit)).toContain('approval_policy');
+  });
+
+  it.each([
+    ['switching it on', (c: ProjectConfig) => void (ai(c, 'dev-1').machineAccess = true)],
+    [
+      'making the member a project manager',
+      (c: ProjectConfig) => void (ai(c, 'dev-1').role = 'project_manager'),
+    ],
+    [
+      'adding a member who has it',
+      (c: ProjectConfig) =>
+        void c.team.members.push({ ...ai(c, 'dev-1'), handle: 'dev-2', machineAccess: true }),
+    ],
+  ])('requires an owner for machine access by %s', (_name, edit) => {
+    expect(changed(edit)).toContain('machine_access');
+  });
+  it('leaves machine access to an admin when the effective value stays', () => {
+    const previous = config();
+    ai(previous, 'dev-1').role = 'project_manager';
+    const next = structuredClone(previous);
+    ai(next, 'dev-1').machineAccess = true;
+    expect(ownerOnlyChanges(previous, next)).toEqual([]);
+  });
+  it('leaves a new member without machine access to an admin', () => {
+    expect(changed((c) => void c.team.members.push({ ...ai(c, 'dev-1'), handle: 'dev-2' }))).not.toContain(
+      'machine_access',
+    );
   });
 });

@@ -17,9 +17,69 @@ export const EngineStatus = z.strictObject({
   lastError: z.strictObject({ at: z.string(), code: z.string(), message: z.string() }).optional(),
   pendingEvents: z.number().int().nonnegative(),
   droppedEvents: z.number().int().nonnegative(),
-  running: z.array(z.strictObject({ sessionId: z.string(), state: z.string() })),
+  /** PM-1087: the version and release the engine runs (as in the hello); optional like the fields below. */
+  version: z.string().optional(),
+  releaseTag: z.string().nullable().optional(),
+  running: z.array(
+    z.strictObject({
+      sessionId: z.string(),
+      state: z.string(),
+      member: z.string().optional(),
+      provider: z.string().optional(),
+      /** The session's display name ("{name} · {work}"); never a prompt, path or token. */
+      label: z.string().optional(),
+      startedAt: z.string().optional(),
+    }),
+  ),
+  /** PM-1086: optional, since a newer CLI also reads the file of an older engine. */
+  work: z
+    .strictObject({
+      sessions: z.number().int().nonnegative(),
+      fullTests: z.number().int().nonnegative(),
+      screenshots: z.number().int().nonnegative(),
+    })
+    .optional(),
+  keepAwake: z
+    .strictObject({
+      mode: z.enum(['while_working', 'off']),
+      holding: z.boolean(),
+      since: z.string().optional(),
+      unsupported: z.boolean().optional(),
+    })
+    .optional(),
 });
 export type EngineStatus = z.infer<typeof EngineStatus>;
+
+type RunningEntry = EngineStatus['running'][number];
+
+export interface RunningTracker {
+  /** Remembers what the cloud's `session.start` said about the session (no prompt, token or path). */
+  started(spec: { sessionId: string; member?: string; provider?: string; displayName: string }): void;
+  /** The runner reported the exit. */
+  exited(sessionId: string): void;
+  /** The runner's live list with the remembered details; a session the runner no longer lists is dropped. */
+  decorate(live: Array<{ sessionId: string; state: string }>): RunningEntry[];
+}
+
+export function createRunningTracker(now: () => Date = () => new Date()): RunningTracker {
+  const known = new Map<string, Omit<RunningEntry, 'sessionId' | 'state'>>();
+  return {
+    started(spec) {
+      known.set(spec.sessionId, {
+        ...(spec.member ? { member: spec.member } : {}),
+        ...(spec.provider ? { provider: spec.provider } : {}),
+        label: spec.displayName,
+        startedAt: now().toISOString(),
+      });
+    },
+    exited: (sessionId) => void known.delete(sessionId),
+    decorate(live) {
+      const ids = new Set(live.map((session) => session.sessionId));
+      for (const id of known.keys()) if (!ids.has(id)) known.delete(id);
+      return live.map(({ sessionId, state }) => ({ sessionId, state, ...known.get(sessionId) }));
+    },
+  };
+}
 
 export interface EngineStatusWriter {
   get(): EngineStatus;

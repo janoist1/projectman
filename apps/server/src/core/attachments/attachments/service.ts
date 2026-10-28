@@ -1,0 +1,452 @@
+import type { Readable, Writable } from 'node:stream';
+import { assertSuperMutation } from '../../../kernel';
+import {
+  attachmentPreviewOf,
+  canDeleteAttachment,
+  canUploadAttachment,
+  coverAttachmentId,
+  memberOf,
+} from '@projectman/shared';
+import type { Actor, Attachment, AttachmentViewer, Task, TaskCoverChoice } from '@projectman/shared';
+import type {
+  AttachmentContent,
+  AttachmentOperations,
+  AttachmentRef,
+  AttachmentStorage,
+  AttachmentThumbnail,
+  AttachmentUploadInput,
+  AttachmentWriter,
+  LocatedAttachment,
+} from '../../../contracts';
+import type { AttachmentRecord } from '../../../db';
+import { isoNow } from '../../base';
+import type { DomainContext } from '../../base';
+import { DomainError, forbidden, notFound } from '../../../kernel';
+import type { ProjectService } from '../../projects';
+import type { TaskService } from '../../tasks';
+import type { TimelineService } from '../../timeline';
+import { KeyedMutex, SYSTEM_ACTOR, newId } from '../../../kernel';
+import { sanitizeFileName } from './file-name';
+import { sniffMediaType } from './media-type';
+import { TEMPORARY_SUFFIX, thumbnailOwner, viewOwner } from './storage';
+import { ThumbnailMaker } from './thumbnail';
+import { receiveUpload, storageFailed } from './upload';
+
+const toDto = (r: AttachmentRecord): Attachment => ({
+  id: r.id,
+  projectKey: r.projectKey,
+  taskKey: r.taskKey,
+  fileName: r.fileName,
+  size: r.size,
+  mediaType: r.mediaType,
+  preview: r.preview,
+  uploadedBy: r.uploadedBy,
+  createdAt: r.createdAt,
+});
+
+/**
+ * Files attached to tasks. The file system and SQLite share no transaction, so the order of the
+ * steps and the durable state of the row (`pending`, `ready`, `deleting`) carry the guarantees:
+ *
+ * - an upload is a `pending` row and a temporary file; only after the whole stream was counted
+ *   against the limit and the access was checked again is the file published and the row made
+ *   `ready` together with the audit event; any failure removes both, and a crash leaves a row that
+ *   `recover` removes;
+ * - only a `ready` attachment can be read;
+ * - a deletion first records the intent (`deleting`, with who asked), then removes the file, and
+ *   only then removes the row and writes the audit event in one unit of work, so a failure or a
+ *   stop in between never reports a success nor writes the event twice: `recover` or a repeated
+ *   delete finishes it.
+ *
+ * Whoever calls (REST, the team tools) gets the same checks: the rules are those of `packages/shared`,
+ * judged for the acting member against the current roster.
+ */
+export class AttachmentService implements AttachmentOperations {
+  private readonly ctx: DomainContext;
+  private readonly projects: ProjectService;
+  private readonly tasks: TaskService;
+  private readonly timeline: TimelineService;
+  private readonly storage: AttachmentStorage;
+  private readonly onDeleted: ((attachment: { projectKey: string; id: string }) => void) | undefined;
+  private readonly deletions = new KeyedMutex();
+  private readonly thumbnails: ThumbnailMaker<AttachmentRef>;
+
+  constructor(deps: {
+    ctx: DomainContext;
+    projects: ProjectService;
+    tasks: TaskService;
+    timeline: TimelineService;
+    storage: AttachmentStorage;
+    /** Told inside the deletion's unit of work, once the row is gone (PM-498: questions naming the file). */
+    onDeleted?: (attachment: { projectKey: string; id: string }) => void;
+  }) {
+    this.onDeleted = deps.onDeleted;
+    this.ctx = deps.ctx;
+    this.projects = deps.projects;
+    this.tasks = deps.tasks;
+    this.timeline = deps.timeline;
+    this.storage = deps.storage;
+    this.thumbnails = new ThumbnailMaker(deps.storage, (err, attachment) =>
+      this.ctx.logger.warn({ err, attachment }, 'attachment thumbnail could not be made'),
+    );
+  }
+
+  async list(projectKey: string, taskKey: string, actor: Actor): Promise<Attachment[]> {
+    await this.authorize(projectKey, taskKey, actor);
+    return this.ctx.repos.attachments.listReady(projectKey, taskKey).map(toDto);
+  }
+
+  async assertCanUpload(projectKey: string, taskKey: string, actor: Actor): Promise<void> {
+    await this.authorize(projectKey, taskKey, actor, 'upload');
+  }
+
+  async upload(input: AttachmentUploadInput): Promise<Attachment> {
+    const { projectKey, taskKey, actor } = input;
+    await this.authorize(projectKey, taskKey, actor, 'upload');
+
+    const { repos } = this.ctx;
+    const ref: AttachmentRef = { projectKey, taskKey, id: newId('att') };
+    repos.attachments.insertPending({
+      id: ref.id,
+      projectKey,
+      taskKey,
+      fileName: sanitizeFileName(input.fileName),
+      uploadedBy: actor,
+      createdAt: isoNow(this.ctx),
+    });
+    let writer: AttachmentWriter | undefined;
+    let published = false;
+    try {
+      writer = await this.createWriter(ref);
+      const { size, head } = await this.receive(input.content, writer.stream);
+      // The access may have changed while the bytes arrived (membership).
+      await this.authorize(projectKey, taskKey, actor, 'upload');
+      await input.beforeCommit?.();
+      await writer.publish().catch((err: unknown) => {
+        this.ctx.logger.error({ err, attachment: ref.id }, 'attachment could not be published');
+        throw storageFailed('the file could not be stored');
+      });
+      published = true;
+      const mediaType = sniffMediaType(head);
+      return this.ctx.unitOfWork(() => {
+        const coverBefore = this.coverOf(projectKey, taskKey);
+        const stored = { size, mediaType, preview: attachmentPreviewOf(mediaType) };
+        if (!repos.attachments.markReady(ref.id, stored)) throw new Error('attachment row vanished');
+        const record = repos.attachments.get(ref.id)!;
+        this.timeline.append({
+          projectKey,
+          taskKey,
+          actor,
+          type: 'attachment_added',
+          data: { attachmentId: ref.id, fileName: record.fileName, size, mediaType },
+        });
+        this.ctx.bus.publish({ type: 'task_attachments_changed', projectKey, taskKey });
+        this.publishCoverChange(projectKey, taskKey, coverBefore);
+        return toDto(record);
+      });
+    } catch (err) {
+      await this.abandon(ref, writer, published);
+      throw err;
+    }
+  }
+
+  async open(projectKey: string, taskKey: string, id: string, actor: Actor): Promise<AttachmentContent> {
+    await this.authorize(projectKey, taskKey, actor);
+    const record = this.find(projectKey, taskKey, id, ['ready']);
+    let stream: Readable;
+    try {
+      stream = await this.storage.openRead({ projectKey, taskKey, id }, record.size);
+    } catch (err) {
+      this.ctx.logger.error({ err, attachment: id }, 'attachment file could not be opened');
+      throw storageFailed('the file could not be read');
+    }
+    return { attachment: toDto(record), stream };
+  }
+
+  async thumbnail(
+    projectKey: string,
+    taskKey: string,
+    id: string,
+    actor: Actor,
+  ): Promise<AttachmentThumbnail> {
+    await this.authorize(projectKey, taskKey, actor);
+    const record = this.find(projectKey, taskKey, id, ['ready']);
+    // Only an image proven from its content; never a PDF, never SVG.
+    if (record.preview !== 'image') throw notFound('attachment thumbnail', id);
+    const ref: AttachmentRef = { projectKey, taskKey, id };
+    try {
+      const existing = await this.storage.openThumbnail(ref);
+      if (existing) return existing;
+    } catch (err) {
+      this.ctx.logger.error({ err, attachment: id }, 'attachment thumbnail could not be opened');
+      throw storageFailed('the thumbnail could not be read');
+    }
+    if (!(await this.thumbnails.make(ref, record.size))) throw notFound('attachment thumbnail', id);
+    // A deletion that came meanwhile removed the files before the thumbnail was stored.
+    if (this.ctx.repos.attachments.get(id)?.state !== 'ready') {
+      await this.storage.remove(ref).catch(() => undefined);
+      throw notFound('attachment', id);
+    }
+    try {
+      const made = await this.storage.openThumbnail(ref);
+      if (made) return made;
+    } catch (err) {
+      this.ctx.logger.error({ err, attachment: id }, 'attachment thumbnail could not be opened');
+      throw storageFailed('the thumbnail could not be read');
+    }
+    throw notFound('attachment thumbnail', id);
+  }
+
+  async locate(projectKey: string, taskKey: string, id: string, actor: Actor): Promise<LocatedAttachment> {
+    await this.authorize(projectKey, taskKey, actor);
+    const record = this.find(projectKey, taskKey, id, ['ready']);
+    try {
+      const path = await this.storage.locate({ projectKey, taskKey, id }, record.size, record.mediaType);
+      return { attachment: toDto(record), path };
+    } catch (err) {
+      this.ctx.logger.error({ err, attachment: id }, 'attachment file could not be found');
+      throw storageFailed('the file could not be read');
+    }
+  }
+
+  /**
+   * A person's choice of the card's cover (PM-224): one of its ready images, or none. Boards hear of
+   * it as a changed task. The same access as an upload; no timeline event (a cosmetic setting).
+   */
+  async setCover(projectKey: string, taskKey: string, choice: TaskCoverChoice, actor: Actor): Promise<Task> {
+    await this.authorize(projectKey, taskKey, actor, 'upload');
+    if (choice.mode === 'pinned') {
+      const record = this.ctx.repos.attachments.get(choice.attachmentId);
+      if (
+        !record ||
+        record.projectKey !== projectKey ||
+        record.taskKey !== taskKey ||
+        record.state !== 'ready' ||
+        record.preview !== 'image'
+      ) {
+        throw new DomainError('cover_not_an_image', 'the cover must be a ready image attached to this card', {
+          status: 422,
+          details: { attachmentId: choice.attachmentId },
+        });
+      }
+    }
+    this.ctx.repos.taskCovers.save({ projectKey, taskKey, choice, setAt: isoNow(this.ctx), setBy: actor });
+    this.publishCover(projectKey, taskKey);
+    return this.tasks.get(projectKey, taskKey);
+  }
+
+  async delete(projectKey: string, taskKey: string, id: string, actor: Actor): Promise<void> {
+    assertSuperMutation(
+      await this.projects.config(projectKey),
+      { kind: 'remove', resource: 'attachment', id },
+      actor,
+    );
+    const { viewer, task } = await this.authorize(projectKey, taskKey, actor);
+    await this.deletions.run(id, async () => {
+      const record = this.find(projectKey, taskKey, id, ['ready', 'deleting']);
+      if (!canDeleteAttachment(viewer, record)) {
+        throw forbidden('insufficient_access', 'only the uploader, an owner or an admin may delete this');
+      }
+      if (record.state === 'ready') {
+        // Durable intent first. A deletion already under way (`deleting`) is finished as it was asked for.
+        if (!this.ctx.repos.attachments.markDeleting(id, actor, isoNow(this.ctx)))
+          throw notFound('attachment', id);
+        await this.finishDeletion({ ...record, state: 'deleting', deletedBy: actor });
+      } else {
+        await this.finishDeletion(record);
+      }
+    });
+  }
+
+  /**
+   * Startup: what the last run left half done. An upload that never completed is removed (file and
+   * row, no event); a deletion under way is finished; temporary files nobody owns are removed.
+   * Files that belong to no row are reported, not removed. Failures are logged and retried at the
+   * next start; they never stop the server.
+   */
+  async recover(): Promise<void> {
+    const { repos, logger } = this.ctx;
+    for (const record of repos.attachments.inState('pending')) {
+      try {
+        await this.storage.remove(record);
+        repos.attachments.remove(record.id);
+        logger.info({ attachment: record.id }, 'removed an attachment upload that never completed');
+      } catch (err) {
+        logger.warn({ err, attachment: record.id }, 'could not remove an incomplete attachment upload');
+      }
+    }
+    for (const record of repos.attachments.inState('deleting')) {
+      try {
+        await this.deletions.run(record.id, () => this.finishDeletion(record));
+        logger.info({ attachment: record.id }, 'finished an attachment deletion');
+      } catch (err) {
+        logger.warn({ err, attachment: record.id }, 'could not finish an attachment deletion');
+      }
+    }
+    try {
+      const known = repos.attachments.ids();
+      for (const file of await this.storage.scan()) {
+        const thumbnailOf = thumbnailOwner(file.name);
+        if (thumbnailOf !== null) {
+          // A thumbnail goes with its attachment; one half written (`.thumb.part`) is dropped at any rate.
+          const ref = { projectKey: file.projectKey, taskKey: file.taskKey, id: thumbnailOf };
+          const gone = file.name.endsWith(TEMPORARY_SUFFIX)
+            ? this.storage.removeTemporary(ref)
+            : known.has(thumbnailOf)
+              ? Promise.resolve()
+              : this.storage.remove(ref);
+          await gone.catch((err: unknown) =>
+            logger.warn({ err, file }, 'could not remove an attachment thumbnail'),
+          );
+        } else if (file.name.endsWith(TEMPORARY_SUFFIX)) {
+          const id = file.name.slice(0, -TEMPORARY_SUFFIX.length);
+          await this.storage
+            .removeTemporary({ projectKey: file.projectKey, taskKey: file.taskKey, id })
+            .catch((err: unknown) =>
+              logger.warn({ err, file }, 'could not remove a temporary attachment file'),
+            );
+        } else if (viewOwner(file.name) !== null) {
+          // A second name of a file: it goes when its attachment is gone.
+          const id = viewOwner(file.name)!;
+          if (!known.has(id))
+            await this.storage
+              .remove({ projectKey: file.projectKey, taskKey: file.taskKey, id })
+              .catch((err: unknown) => logger.warn({ err, file }, 'could not remove an attachment view'));
+        } else if (!known.has(file.name)) {
+          logger.warn({ file }, 'attachment storage holds a file that belongs to no attachment');
+        }
+      }
+    } catch (err) {
+      logger.warn({ err }, 'could not scan the attachment storage');
+    }
+  }
+
+  /** The acting member's current standing on the task; 404 for an unknown task. */
+  private async authorize(
+    projectKey: string,
+    taskKey: string,
+    actor: Actor,
+    need: 'read' | 'upload' = 'read',
+  ): Promise<{ viewer: AttachmentViewer; task: Task }> {
+    if (!this.projects.has(projectKey)) throw notFound('project', projectKey);
+    const member =
+      actor.kind === 'system' ? undefined : memberOf(await this.projects.config(projectKey), actor.handle);
+    if (!member || member.kind !== actor.kind) {
+      throw forbidden('not_a_member', 'only members of the project can use attachments');
+    }
+    const viewer: AttachmentViewer = {
+      access: member.kind === 'human' ? member.access : 'ai',
+      handle: member.handle,
+    };
+    const task = this.tasks.find(projectKey, taskKey);
+    if (!task) throw notFound('task', taskKey);
+    if (need === 'upload' && !canUploadAttachment(viewer)) {
+      throw forbidden('insufficient_access', 'read-only members cannot attach files');
+    }
+    return { viewer, task };
+  }
+
+  /** The row of this task's attachment in one of these states; 404 for any other. */
+  private find(
+    projectKey: string,
+    taskKey: string,
+    id: string,
+    states: AttachmentRecord['state'][],
+  ): AttachmentRecord {
+    const record = this.ctx.repos.attachments.get(id);
+    if (
+      !record ||
+      record.projectKey !== projectKey ||
+      record.taskKey !== taskKey ||
+      !states.includes(record.state)
+    ) {
+      throw notFound('attachment', id);
+    }
+    return record;
+  }
+
+  private async createWriter(ref: AttachmentRef): Promise<AttachmentWriter> {
+    try {
+      return await this.storage.create(ref);
+    } catch (err) {
+      this.ctx.logger.error({ err, attachment: ref.id }, 'attachment file could not be created');
+      throw storageFailed('the file could not be stored');
+    }
+  }
+
+  /** Streams the content into the writer, counting it against the limit. */
+  private receive(content: Readable, sink: Writable): Promise<{ size: number; head: Buffer }> {
+    return receiveUpload(content, sink, (err) =>
+      this.ctx.logger.error({ err }, 'attachment content could not be written'),
+    );
+  }
+
+  /** Takes back a failed upload: the file (temporary or published) and the row. A leftover is recovered at the next start. */
+  private async abandon(
+    ref: AttachmentRef,
+    writer: AttachmentWriter | undefined,
+    published: boolean,
+  ): Promise<void> {
+    try {
+      await writer?.discard();
+      if (published) await this.storage.remove(ref);
+      this.ctx.repos.attachments.remove(ref.id);
+    } catch (err) {
+      this.ctx.logger.warn({ err, attachment: ref.id }, 'could not clean up a failed attachment upload');
+    }
+  }
+
+  /** The rest of a deletion: the file, then the row and the audit event together. */
+  private async finishDeletion(record: AttachmentRecord): Promise<void> {
+    try {
+      await this.storage.remove(record);
+    } catch (err) {
+      this.ctx.logger.error({ err, attachment: record.id }, 'attachment file could not be removed');
+      throw storageFailed('the file could not be removed; try again');
+    }
+    this.thumbnails.forget(record.id);
+    this.ctx.unitOfWork(() => {
+      // Gone already: another call or a recovery finished it, with its own event.
+      if (!this.ctx.repos.attachments.remove(record.id)) return;
+      this.ctx.repos.taskCovers.clearPinned(record.taskKey, record.id);
+      this.onDeleted?.({ projectKey: record.projectKey, id: record.id });
+      this.timeline.append({
+        projectKey: record.projectKey,
+        taskKey: record.taskKey,
+        actor: record.deletedBy ?? SYSTEM_ACTOR,
+        type: 'attachment_deleted',
+        data: {
+          attachmentId: record.id,
+          fileName: record.fileName,
+          size: record.size,
+          mediaType: record.mediaType,
+        },
+      });
+      this.ctx.bus.publish({
+        type: 'task_attachments_changed',
+        projectKey: record.projectKey,
+        taskKey: record.taskKey,
+      });
+      // A `deleting` attachment was no longer readable, so the cover changed when the intent was
+      // recorded; boards hear of it now, whether or not it was the cover (a repeat is harmless).
+      if (record.preview === 'image') this.publishCover(record.projectKey, record.taskKey);
+    });
+  }
+
+  private coverOf(projectKey: string, taskKey: string): string | null {
+    return coverAttachmentId(
+      this.ctx.repos.attachments.listReady(projectKey, taskKey),
+      this.ctx.repos.taskCovers.get(taskKey)?.choice,
+    );
+  }
+
+  /** The card's cover is part of the task as boards show it: a changed cover is a changed task (`updatedAt` stays). */
+  private publishCoverChange(projectKey: string, taskKey: string, before: string | null): void {
+    if (this.coverOf(projectKey, taskKey) !== before) this.publishCover(projectKey, taskKey);
+  }
+
+  private publishCover(projectKey: string, taskKey: string): void {
+    const task = this.tasks.find(projectKey, taskKey);
+    if (task) this.tasks.publish(task);
+  }
+}

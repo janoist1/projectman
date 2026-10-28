@@ -6,8 +6,8 @@ import {
   SANDBOX_DENIED_ENV_VARS,
   sensitivePaths,
   sessionSandbox,
-} from '../src/domain/session-policy';
-import { describeSandbox } from '../src/domain/unattended-commands';
+} from '../src/runtime/sessions';
+import { describeSandbox } from '../src/runtime/permissions';
 import { buildSettings } from '../src/runner/providers/claude/args';
 import { buildSessionPolicy } from './helpers/session-policy';
 import { testConfig } from './helpers/test-template';
@@ -18,7 +18,6 @@ const sharedGit = '/fictional/repo/.git';
 const userHome = '/fictional/user';
 const appHome = '/fictional/app';
 const paths = { userHome, appHome, defaultBranch: 'main' };
-const boundary = { name: 'managed-vm', version: 1 };
 
 const placements = {
   developer: { role: 'developer', placement: { kind: 'task_worktree', path: source, gitDir: sharedGit } },
@@ -67,6 +66,7 @@ describe.each(kinds)('the sandbox of a %s', (kind) => {
       const sandbox = sessionSandbox(p, paths)!;
       const settings = buildSettings({
         hookUrl: 'http://fake/hooks',
+        hookConfigPath: '/run/ses_1.0123456789abcdef/hook.curl',
         permissionTimeoutMs: 1000,
         allowedTools: [],
         policy: p,
@@ -98,27 +98,12 @@ describe.each(kinds)('the sandbox of a %s', (kind) => {
         sandbox: sessionSandbox(policy(kind, network), paths)!,
         cwd: source,
         localOnly: false,
+        details: true,
       }).join('\n');
     expect(text(true)).toContain(
       `- Network: any outbound host except ${HARD_DENIED_HOSTS.map((host) => `\`${host}\``).join(', ')}; tests may listen on local ports.`,
     );
     expect(text(false)).toContain('- Network: only `registry.npmjs.org`; tests may listen on local ports.');
     expect(text(false)).not.toMatch(/ask for permission/);
-  });
-});
-
-describe('the managed VM profile', () => {
-  it.each([true, false])('is the same whatever the outbound network setting is (%s)', (outboundNetwork) => {
-    const vm = buildSessionPolicy({
-      config: testConfig(),
-      role: 'developer',
-      task: { repo: 'web' },
-      placement: { kind: 'member_workspace', path: '/vm/workspaces/AR/dev-1/web/repo', use: 'home' },
-      permissionMode: 'acceptEdits',
-      managedVm: { boundary },
-      outboundNetwork,
-    });
-    expect(vm.network).toEqual({ allowedDomains: [], allowLocalBinding: false });
-    expect(sessionSandbox(vm, paths)).toBeUndefined();
   });
 });

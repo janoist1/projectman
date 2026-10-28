@@ -137,16 +137,18 @@ describe('engine indicator', () => {
     expect(within(panel).getByRole('link', { name: t('engines.panelManage') })).toBeTruthy();
   });
 
-  it('keeps a client member out of the engine request', async () => {
+  it('shows the engine to a client member like to any other member (PM-79)', async () => {
     const backend = new MockBackend();
     backend.engineMode = 'cloud';
     backend.viewerHandle = 'kata';
     backend.user = { ...backend.user, userId: 'usr_client' };
+    const engine = backend.addEngine({ name: 'Mac Studio' });
+    backend.setEngineOnline(engine.id, true);
     const project = mockProject(backend);
     project.render(<EngineIndicator />);
-    await waitFor(() => expect(project.requests.some((r) => r.path === '/api/me')).toBe(true));
-    await new Promise((resolve) => setTimeout(resolve, 30));
-    expect(project.requests.some((r) => r.path.startsWith('/api/engines'))).toBe(false);
-    expect(screen.queryByRole('button', { name: /Motor/ })).toBeNull();
+    expect(
+      await screen.findByRole('button', { name: t('engines.labelOnline', { name: 'Mac Studio' }) }),
+    ).toBeTruthy();
+    expect(project.requests.some((r) => r.path.startsWith('/api/engines'))).toBe(true);
   });
 });

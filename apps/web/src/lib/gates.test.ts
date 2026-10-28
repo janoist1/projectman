@@ -35,4 +35,12 @@ describe('unmetGateTexts', () => {
     };
     expect(unmetGateTexts(details, labels)).toEqual(['Kell: Tervezői terv kész, ha Felületi']);
   });
+
+  it('names an approval a person still has to give, which the server lists apart from the conditions', () => {
+    const details = {
+      unmet: [],
+      approvals: [{ stageId: 'review', label: 'design-ok', approvers: ['own'] }],
+    };
+    expect(unmetGateTexts(details, labels)).toEqual(['Kell: Tervezői terv kész']);
+  });
 });

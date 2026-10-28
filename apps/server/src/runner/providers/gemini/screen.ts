@@ -5,6 +5,28 @@ const BLOCKING: Array<[RegExp, string]> = [
   [/Run this command\?/i, 'A Gemini approval prompt is waiting in the terminal.'],
   [/Your AI credits balance is too low to continue\./i, 'Gemini AI credits are exhausted.'],
 ];
+
+/** A quota error displayed by agy, including its relative reset time when supplied. */
+export function detectGeminiQuota(text: string): { message: string; resetsInMs: number | null } | null {
+  const error = [
+    ...text.matchAll(
+      /^[ \t│┃╎╏┆┊┇┋✕✖✗×⚠]*(?:Error:[ \t]*)?(?:RESOURCE_EXHAUSTED[ \t]*\(code[ \t]+429\)|429[ \t]+RESOURCE_EXHAUSTED)(?=[ \t:.,]|$)[^\n]*/gim,
+    ),
+  ].at(-1);
+  if (!error) return null;
+  const message = text.slice(error.index).trim();
+  const reset = /Resets\s+in\s+(?:(\d+)h\s*)?(?:(\d+)m\s*)?(?:(\d+)s)?/i.exec(message);
+  const seconds = reset
+    ? Number(reset[1] ?? 0) * 3600 + Number(reset[2] ?? 0) * 60 + Number(reset[3] ?? 0)
+    : 0;
+  // A transient request-level 429 may be retried by agy itself. Only a quota message
+  // or an explicit reset duration parks the provider and releases its cards.
+  if (!/Individual\s+quota/i.test(message) && seconds <= 0) return null;
+  return {
+    message,
+    resetsInMs: seconds > 0 && Number.isSafeInteger(seconds * 1000) ? seconds * 1000 : null,
+  };
+}
 export function detectGeminiBlockingScreen(text: string): string | null {
   // Captures may include older dialogs above the current composer.
   const composer =

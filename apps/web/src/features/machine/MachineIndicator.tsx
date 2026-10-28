@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { machineLevels } from '@projectman/shared';
-import { useMachine, useMe } from '../../api/queries';
+import { useEngineStatus, useMachine, useMe, useOperatorGrant } from '../../api/queries';
 import { Icon } from '../../components/Icon';
 import { MiniMeter } from '../../components/MiniMeter';
 import { formatMemory, formatPercent } from '../../i18n/format';
@@ -13,8 +13,14 @@ import styles from './Machine.module.css';
 
 export function MachineIndicator({ phone = false }: { phone?: boolean }) {
   const me = useMe();
+  const status = useEngineStatus();
   const isPhone = useMediaQuery('(max-width: 767px)');
-  return me.data?.instanceOwner === true && phone === isPhone ? <OwnerIndicator phone={phone} /> : null;
+  return me.data?.instanceOwner === true &&
+    status.data?.mode === 'single' &&
+    !status.isError &&
+    phone === isPhone ? (
+    <OwnerIndicator phone={phone} />
+  ) : null;
 }
 
 export function MachineBadge({ level }: { level: string | null }) {
@@ -71,8 +77,10 @@ function OwnerIndicator({ phone }: { phone: boolean }) {
       : levels.overall === 'critical'
         ? t('machine.critical')
         : '';
+  const granted = useOperatorGrant().data?.active === true;
   const label =
-    `${prefix} ${t('machine.label', { cpu: displayPercent(summary?.cpuPercent ?? null), mem: displayPercent(memory), swap: formatMemory(summary?.swapUsedBytes ?? null), running: summary?.sessionsRunning ?? t('planUsage.unknown'), working: summary?.sessionsWorking ?? t('planUsage.unknown') })}`.trim();
+    `${prefix} ${t('machine.label', { cpu: displayPercent(summary?.cpuPercent ?? null), mem: displayPercent(memory), swap: formatMemory(summary?.swapUsedBytes ?? null), running: summary?.sessionsRunning ?? t('planUsage.unknown'), working: summary?.sessionsWorking ?? t('planUsage.unknown') })}`.trim() +
+    (granted ? `, ${t('machine.grant.dot')}` : '');
   return (
     <span className={styles.anchor}>
       <button
@@ -136,6 +144,7 @@ function OwnerIndicator({ phone }: { phone: boolean }) {
             </span>
           </>
         )}
+        {granted && <span className={styles.superDot} aria-hidden="true" data-testid="machine-super-dot" />}
       </button>
       {open && <MachinePanel id={id} phone={phone} query={query} now={now} onClose={close} anchor={button} />}
     </span>

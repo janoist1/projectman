@@ -1,4 +1,14 @@
-import { developerLevelText, isCardLink, refinementSteps, refinementTurn } from '@projectman/shared';
+import {
+  isDeveloper,
+  complexityLimitOf,
+  effectiveRepo,
+  isMergeFixer,
+  repoOf,
+  requiresMerge,
+  isCardLink,
+  refinementSteps,
+  refinementTurn,
+} from '@projectman/shared';
 import type { Attachment, Task } from '@projectman/shared';
 import {
   describeAttachment,
@@ -13,6 +23,7 @@ import type { ContextPackInput, RelatedSession } from '../contracts';
 import { cardQuestionsBlock, cardWorkersBlock } from './card-thread';
 import { handoffBlock, previousConversationBlock } from './handoff';
 import {
+  cardBranchMergeRule,
   code,
   codeList,
   fullTestLine,
@@ -58,6 +69,7 @@ export function buildBrief(input: ContextPackInput, situation: Situation): strin
   const style = promptStyle(input.project);
   const sections: string[] = [];
   const testLine = fullTestLine(input.project, task);
+  const mergeRepo = repoOf(input.project, effectiveRepo(input.project, task));
 
   sections.push(
     [
@@ -77,12 +89,56 @@ export function buildBrief(input: ContextPackInput, situation: Situation): strin
         : []),
       ...(task.priority !== null ? [`- Priority: ${task.priority}`] : []),
       `- Labels: ${task.labels.length > 0 ? task.labels.map((label) => style.label(label)).join(', ') : 'none'}`,
-      `- Visibility: ${task.visibility}`,
-      ...(task.developerLevel ? [`- Recommended developer: ${developerLevelText(task.developerLevel)}`] : []),
+      ...(task.complexity
+        ? [
+            `- Complexity: ${task.complexity.points} points${task.complexity.reason ? ` (${task.complexity.reason.replace(/\s+/g, ' ')})` : ''}`,
+          ]
+        : []),
+      ...(isDeveloper(input.project, input.member)
+        ? [
+            `- Your complexity limit: ${complexityLimitOf(input.member)} points (automatic assignment gives you cards up to this)`,
+          ]
+        : []),
     ].join('\n'),
   );
 
   sections.push(['## Description', description(task.description)].join('\n'));
+  const fixing = isMergeFixer(task.merge, input.member.handle);
+  if (mergeRepo && requiresMerge(mergeRepo) && !fixing)
+    sections.push(
+      `Before the merge target, the card merger must use merge_task to merge its approved commit into ${code(mergeRepo.defaultBranch)} and push it when the branch has an upstream. ${cardBranchMergeRule(mergeRepo.defaultBranch)} The project manager must not request a manual git merge into ${code(mergeRepo.defaultBranch)}.`,
+    );
+
+  if (task.merge?.merger === input.member.handle) {
+    const merge = task.merge;
+    if (fixing && merge.fix)
+      sections.push(
+        [
+          '## Merge fix',
+          `Branch: ${merge.fix.branch}; base: ${merge.fix.base}; approved commit: ${merge.commit}.`,
+          `In your writable merge-fix worktree run git merge ${merge.fix.base}. Resolve only mechanical conflicts (adjacent lines, imports, text files), then commit. Call merge_task with resolution (1–2000 characters) describing what and where you fixed.`,
+          'For a conflict affecting behavior, do not resolve it: send the card back with update_task and explain why, counting a fix round. Never push manually.',
+        ].join('\n'),
+      );
+    sections.push(
+      [
+        '## Merge',
+        `Repository: ${merge.repo}; base: ${merge.base}; approved commit: ${merge.commit ?? task.reviewPin?.commit ?? 'read by merge_task'}.`,
+        fixing
+          ? 'State: fixing. Follow the Merge fix steps above.'
+          : merge.state === 'queued' || merge.state === 'running'
+            ? `State: ${merge.state}. The server runs the merge; do not wait for it: end your turn. Your session closes and the result arrives as a team message.`
+            : `State: ${merge.state}. Use merge_task to start or retry. For a conflict failure call merge_task with fix_conflict; otherwise send the card back with update_task and explain why.`,
+        ...(merge.state === 'queued'
+          ? [
+              'One merge runs at a time per repository, in the order of the requests. To merge this card before the other queued ones, call prioritize_merge with the reason; the running merge is not interrupted.',
+            ]
+          : []),
+        ...(merge.failure ? [JSON.stringify(merge.failure)] : []),
+        ...(merge.block ? [JSON.stringify(merge.block)] : []),
+      ].join('\n'),
+    );
+  }
 
   // A card handed over to the member, or a conversation that replaces one that could not go on (PM-342).
   for (const block of [previousConversationBlock(input), handoffBlock(input)])

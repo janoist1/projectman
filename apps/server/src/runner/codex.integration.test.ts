@@ -20,7 +20,15 @@ import type {
 import { createRunnerModule } from './index';
 import { buildSessionPolicy } from '../../test/helpers/session-policy';
 import { testConfig } from '../../test/helpers/test-template';
-import { FAKE_CLAUDE, FAKE_CODEX, freePort, silentLogger, tempDirs, waitFor } from './test-helpers';
+import {
+  FAKE_CLAUDE,
+  FAKE_CODEX,
+  fixtureScopeProcesses,
+  freePort,
+  silentLogger,
+  tempDirs,
+  waitFor,
+} from './test-helpers';
 
 /**
  * End to end with the fake Codex CLI (test/fixtures/fake-codex.mjs) in a real
@@ -69,10 +77,12 @@ async function setup(
     nanogptKey: options.nanogptKey,
     nanogptCodexHome: options.nanogptCodexHome,
     publicBaseUrl: `http://127.0.0.1:${port}`,
+    sessionConfigRoot: path.join(await dirs.make('run-'), 'run'),
     broker,
     permissionTimeoutMs: options.permissionTimeoutMs ?? 10_000,
     logger: silentLogger(),
     trustWorkspaces: false,
+    scopeProcesses: fixtureScopeProcesses(process.env.FAKE_SCOPE_RECORDS_DIR!),
   });
   runner.registerHookRoutes(app);
   await app.listen({ host: '127.0.0.1', port });
@@ -86,6 +96,7 @@ beforeEach(async () => {
   cwd = await dirs.make('ws-');
   codexHome = await dirs.make('codex-home-');
   argsFile = path.join(codexHome, 'args.json');
+  process.env.FAKE_SCOPE_RECORDS_DIR = await dirs.make('scope-records-');
   process.env.CODEX_HOME = codexHome;
   process.env.FAKE_CODEX_ARGS_FILE = argsFile;
   // Billing and parent-session variables that must never reach the child.

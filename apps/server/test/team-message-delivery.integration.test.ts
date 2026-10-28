@@ -97,7 +97,7 @@ it(
       for (const taskKey of [undefined, task.key]) {
         const domain = h.app.projectman.domain;
         if (phase === 'busy') {
-          await domain.messaging.sendToSession('AR', session.id, 'SLOW manager work', 'owner');
+          await domain.sessionMessages.sendToSession('AR', session.id, 'SLOW manager work', 'owner');
           await waitFor(() => domain.sessions.get('AR', session.id).state === 'working', {
             what: 'manager working',
           });
@@ -120,6 +120,23 @@ it(
           { timeout: 30_000 },
         );
         await idle();
+        await vi.waitFor(
+          () => {
+            const replies = domain.messages
+              .list('AR', { member: 'pm' })
+              .filter((m) => m.relayed?.inReplyTo === sent.id);
+            expect(replies).toHaveLength(1);
+            expect(replies[0]).toMatchObject({
+              from: 'pm',
+              to: ['owner'],
+              taskKey: taskKey ?? null,
+              kind: 'info',
+              body: echo,
+              relayed: { sessionId: session.id, inReplyTo: sent.id },
+            });
+          },
+          { timeout: 30_000 },
+        );
         expect(domain.sessions.list('AR', { member: 'pm' })).toHaveLength(1);
       }
     }

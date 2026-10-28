@@ -3,10 +3,54 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { APPROVER_NONE_REFUSAL } from '../src/contracts';
 import type { PermissionDecision } from '../src/contracts';
-import { DomainError } from '../src/domain';
+import { DomainError } from '../src/kernel';
 import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
+import { makeLocalOnly } from './helpers/test-template';
+
+describe('inbox: waiting for an item to close', () => {
+  let h: DomainHarness;
+  beforeEach(async () => {
+    h = await createDomainHarness();
+  });
+  afterEach(() => h.cleanup());
+
+  function createItem() {
+    return h.domain.inbox.create({
+      projectKey: 'AR',
+      kind: 'permission',
+      assignees: ['owner'],
+      source: 'dev-1',
+      title: 'Tool request',
+      payload: {},
+      options: [{ id: 'allow', label: 'allow', style: 'primary' }],
+    });
+  }
+
+  it('returns the closed item and stops listening for aborts', async () => {
+    const item = createItem();
+    const controller = new AbortController();
+    const pending = h.domain.inbox.waitForClose(item.id, controller.signal);
+    const closed = h.domain.inbox.resolveByRule(item.id, 'allow', 'command_policy');
+
+    expect(closed?.state).toBe('resolved');
+    expect(await pending).toEqual(closed);
+    const expire = vi.spyOn(h.domain.inbox, 'expire');
+    controller.abort();
+    expect(expire).not.toHaveBeenCalled();
+  });
+
+  it('returns null and expires the item when aborted', async () => {
+    const item = createItem();
+    const controller = new AbortController();
+    const pending = h.domain.inbox.waitForClose(item.id, controller.signal);
+    controller.abort();
+
+    expect(await pending).toBeNull();
+    expect(h.domain.inbox.get('AR', item.id).state).toBe('expired');
+  });
+});
 
 describe('inbox: permission requests', () => {
   let h: DomainHarness;
@@ -154,11 +198,7 @@ describe('inbox: automatic permission decisions', () => {
   let h: DomainHarness;
   let sessionId: string;
   beforeEach(async () => {
-    h = await createDomainHarness({
-      adjust: (config) => {
-        delete config.project.repos[0]!.github;
-      },
-    });
+    h = await createDomainHarness({ adjust: makeLocalOnly });
     const task = await h.domain.tasks.create('AR', { title: 'Example task', repo: 'web' }, OWNER_ACTOR);
     sessionId = (await h.domain.sessions.ensureSession('AR', 'dev-1', { type: 'task', taskKey: task.key }))
       .session.id;
@@ -305,7 +345,7 @@ describe('inbox: who decides when the CLI asks (the approver, PM-165)', () => {
   async function start(approver: 'human' | 'ai' | 'none' | undefined, provider?: 'nanogpt') {
     h = await createDomainHarness({
       adjust: (config) => {
-        delete config.project.repos[0]!.github;
+        makeLocalOnly(config);
         const dev = config.team.members.find((m) => m.handle === 'dev-1');
         if (dev?.kind === 'ai') {
           dev.permissionMode = 'auto';

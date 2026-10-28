@@ -4,16 +4,13 @@ import { createProviderAdapters } from './providers';
 import { SessionManager } from './runner';
 import { createTranscriptReader } from './transcript/reader';
 
-/** The managed VM profile's proof of its boundary and its refusal (PM-141). */
-export { createReadinessBoundary, ManagedVmUnavailableError } from './managed-vm';
-export type { ReadinessBoundaryOptions } from './managed-vm';
-
-/** Legacy callers may request rendered tool grants during the policy migration. */
-export { claudeShellRule, claudeToolRules, directoryRulePaths } from './providers/claude/policy';
-/** The variables that would move billing off the subscription (the launcher refuses them too). */
-export { BILLING_ENV_VARS, NON_INTERACTIVE_EDITOR_ENV } from './env';
-/** Records Claude Code's workspace trust (the launcher's claude-trust helper runs it as a worker). */
-export { ensureWorkspaceTrusted } from './providers/claude/trust';
+/** The variables that would move billing off the subscription. */
+export { BILLING_ENV_VARS } from './env';
+/** Shared literal/glob path matching and validation for native read boundaries. */
+export { pathPatternMatcher, isReadBoundaryPath } from './tool-decision';
+/** How long the PreToolUse dependency gate waits for the installer (PM-743). */
+export { DEPENDENCY_GATE_WAIT_S } from './hook-forwarder';
+/** Records Claude Code's workspace trust. */
 
 /**
  * Runs AI members as real, interactive agent CLI sessions in pseudo-terminals, on the

@@ -1,17 +1,26 @@
 # projectman — working rules
 
 Read `docs/ARCHITECTURE.md` first. Decisions and their reasons: `docs/DECISIONS.md`. What
-comes next and the owner's open questions: `docs/ROADMAP.md`.
-`docs/DECISIONS.md` records the owner's decisions: add an entry only for a decision the owner
-made. A choice of your own that the owner should confirm goes to them as a question.
+comes next and the owner's open questions: `docs/ROADMAP.md`. The lessons learned while
+building projectman are in `docs/LESSONS.md`, maintained by the project manager.
+`docs/DECISIONS.md` records the owner's decisions and `docs/ROADMAP.md` the plan. Only the
+project manager writes them, at the owner's request or after the owner's yes (decision 50, PM-1023); nobody
+changes them on a card branch. An owner decision made on a card is offered by the project manager
+(`list_decision_candidates`, `mark_decision_candidates`). A choice of your own that the owner
+should confirm still goes to them as a question.
 
 ## Language
 
 - **All source code is English**: identifiers, comments, file and folder names, commit
   messages, test names, log messages, error codes.
 - The UI language is Hungarian, but Hungarian text lives **only** in locale files:
-  `apps/web/src/i18n/hu.ts` (UI) and `packages/templates/src/locales/hu.ts` (default
-  display names in templates). Components use `t('some.key')`; never hardcode UI text.
+  `apps/web/src/i18n/hu.ts` (UI), `apps/feedback-widget/src/i18n/hu.ts` (the embeddable
+  feedback widget's own text), `packages/templates/src/locales/hu.ts` (default display
+  names in templates), and `deploy/mac/menubar/Resources/hu.lproj/Localizable.strings`
+  (native engine menu bar app). Components use `t('some.key')`; the native app uses `L10n`.
+  Never hardcode UI text.
+  Exception: the names, summaries and link labels in `projectman.structure.yaml` are UI text
+  in the project's language (Hungarian here); its ids stay English.
 - Prompt text for AI members (role instructions, context pack) is English; it tells the
   agent to communicate in the project's language.
 
@@ -27,7 +36,7 @@ made. A choice of your own that the owner should confirm goes to them as a quest
   `CODEX_REFRESH_TOKEN_URL_OVERRIDE` and `CODEX_REVOKE_TOKEN_URL_OVERRIDE`.
 - Never run the real `claude`, `codex` or `gh` CLI in automated tests. Use the fakes in
   `apps/server/test/fixtures/` (`fake-claude.mjs`, `fake-codex.mjs`, sharing
-  `fake-tui.mjs`) and `apps/server/src/github/test-fixtures/fake-gh.mjs`.
+  `fake-tui.mjs`) and `apps/server/src/services/github/test-fixtures/fake-gh.mjs`.
 
 ## Contracts
 
@@ -39,7 +48,8 @@ made. A choice of your own that the owner should confirm goes to them as a quest
   invariants, owner-only changes) belong in `packages/shared`, used by the server and by the
   web's test fake (`apps/web/src/mocks`); never re-implement one there or in a route handler.
 - Route handlers parse the request, check access and call a domain service; business logic
-  lives in `apps/server/src/domain`. Only `apps/server/src/index.ts` reads the environment.
+  lives behind the `apps/server/src/kernel`, `core`, `runtime` and `services` module facades.
+  `apps/server/src/assembly.ts` composes them. Only `apps/server/src/index.ts` reads the environment.
 - Older configuration shapes, database rows and timeline events exist in real installations.
   Configuration migrations live in `apps/server/src/config/migrations.ts`, database
   migrations in `apps/server/src/db/migrations.ts`; timeline events are append-only, so old
@@ -63,18 +73,29 @@ These rules apply to every member, including Codex:
 
 ## Module ownership (parallel workstreams)
 
-| Workstream | Owns                                                                                                                                      |
-| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| runner     | `apps/server/src/runner/**`, `apps/server/test/fixtures/fake-{claude,codex,tui}.mjs`                                                      |
-| mcp        | `apps/server/src/mcp/**`                                                                                                                  |
-| core       | `apps/server/src/{db,domain,api,auth,config,ws,http,full-test}/**`, `apps/server/src/{app,index}.ts`, `apps/server/test/**`, `scripts/**` |
-| web        | `apps/web/**`                                                                                                                             |
-| github     | `apps/server/src/github/**`                                                                                                               |
-| context    | `packages/templates/**`, `apps/server/src/{context,worktree,agent-text}/**`                                                               |
+| Workstream | Owns                                                                                                                                                                                         |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| runner     | `apps/server/src/runner/**`, `apps/server/test/fixtures/fake-{claude,codex,tui}.mjs`                                                                                                         |
+| mcp        | `apps/server/src/mcp/**`                                                                                                                                                                     |
+| core       | `apps/server/src/{db,kernel,core,runtime,api,auth,config,ws,http,full-test}/**`, `apps/server/src/{app,index,assembly}.ts`, `apps/server/test/**`, `scripts/**`, `projectman.structure.yaml` |
+| web        | `apps/web/**`                                                                                                                                                                                |
+| github     | `apps/server/src/services/github/**`                                                                                                                                                         |
+| context    | `packages/templates/**`, `apps/server/src/{context,worktree,agent-text}/**`                                                                                                                  |
+| widget     | `apps/feedback-widget/**`                                                                                                                                                                    |
 
 `packages/shared` is everyone's contract: change it additively, and name the change in your
 report. Stay inside your paths otherwise. Each module exposes the factory declared in its
 `index.ts`; import other modules through their `index.ts`, never their internals.
+
+Every file under `apps/server/src` belongs to a module in
+`apps/server/test/architecture/module-map.ts`; `dependencies.test.ts` enforces its
+layer rules. Do not add dependency exceptions: each refactor slice removes its own.
+
+A new file inside an already covered folder needs no map entry. Server paths live only in
+`projectman.structure.yaml`; `module-map.ts` reads them from there. Add a new folder or a file
+outside all covered folders to the YAML. A new server module needs both a YAML entry and a
+`module-map.ts` row with its `layer` and `target`. Add a new web feature folder or top-level
+folder to the YAML as well (`structure-map.test.ts` checks it).
 
 ## Code style
 
@@ -83,11 +104,29 @@ report. Stay inside your paths otherwise. Each module exposes the factory declar
 - `verbatimModuleSyntax`: use `import type` for type-only imports.
 - Validate data at boundaries with zod (HTTP bodies, hook payloads, MCP args, YAML).
 - Prettier config in `.prettierrc.json` (`npm run format`).
+- Effect (the `effect` package) is used only where `docs/EFFECT.md` allows it, behind a plain
+  TypeScript facade; read that file before writing or changing Effect code.
 - Tests: vitest, `*.test.ts` next to the code or under `test/`. Use temp directories;
   never touch real user repositories (e.g. client projects) or `~/.claude` in tests.
   Server test helpers live in `apps/server/test/helpers/` (domain harness, app harness with
   the fake CLIs, login and request helpers); reuse them instead of copying setup. Web UI
   tests run against the in-memory fake backend; assert on requests and rendered output.
+  - **One test per behavior.** One branch or edge case is one test. A variant gets its own
+    case (use `it.each` when needed) only if it reaches a different branch or boundary.
+  - **Do not test wording verbatim.** Do not assert prompt or UI sentences one by one. The
+    snapshots in `apps/server/src/context/__snapshots__` guard the full prompt; an individual
+    test only checks that a conditional part or a required key (label id, tool name, the
+    presence of one rule) appears or is absent for the given input. In UI tests, text may be
+    used to find an element.
+  - **Integration tests only at the boundary.** Real git, filesystem, process, port or
+    browser only where the boundary itself is the risk; logic is covered by unit tests and
+    is not covered a second time by an integration test.
+  - **A card's tests are the card's behavior.** Add tests only for new or changed behavior,
+    and one regression test for a bug fix. Prefer extending an existing test over a new file.
+  - **Review.** Code review checks this too: a substantial amount of per-variant duplication
+    and verbatim wording tests are changes to fix. So is logic added to `assembly.ts`
+    (it only wires modules; `test/architecture/assembly-wiring.test.ts` caps it) and a copy
+    of a helper that already exists: ask for the fix.
 
 ## Commands
 
@@ -98,7 +137,13 @@ npm test             # all workspaces; waits its turn in the machine's heavy-run
 npm run dev          # server (4700) + web (5173)
 npm run shots -- <scenario>  # screenshots of a disposable instance (docs/SCREENSHOTS.md); queues too
 npm run heavy -- <command>   # any other heavy command, at its turn (--label, --max-wait <s>)
+npm run merge-test          # merge checks selected from HEAD's first-parent diff (-- --all forces all)
+npm run dead-code           # before hand-over and in fix rounds: unused files/exports (fast, no queue)
+npm run full-test -- --workers 4 --timeout 60 -- npm run merge-test -- --all  # macOS, outside member sandboxes
 npx vitest related <files> --run   # while working: the tests of what you changed, in the workspace (no queue)
+npx vitest run src/i18n/i18n.test.ts --configLoader runner  # in apps/web: after changing locale keys or their usage
+npx vitest run test/architecture  # in apps/server after adding, moving or renaming files; before hand-over too (no queue)
+npx vitest run test/merge-test-watchdog.test.ts --configLoader runner  # in apps/server after changing merge-test execution or reporting
 npm run typecheck -w <workspace>  # type check only the workspaces you touched (no queue)
 ```
 
@@ -112,16 +157,34 @@ in the context pack. Gemini's native `command_status` follows a running command;
 `schedule` wakeups are an optional path described there. Do not finish the turn while the
 command is still running. Developers run only related tests (`npx vitest related <files> --run`
 inside the affected workspace) and the type check of the workspaces they touched, including
-before hand-over and in fix rounds. They never run the full suite. The integrating session
-checks each card once before it enters `main`; shared code, `packages/shared` or configuration
-changes require a full run. Workspace checks do not queue; the integrating session's full run
-uses the heavy-run queue above (decision 40, PM-380). If a heavy command says its queue cannot be used
-(exit status 78), it did not run: note this on your card and ask for the command to run outside
-your sandbox; never run it another way (PM-346).
+before hand-over and in fix rounds. When changing the shared `ErrorCode` union, update
+`errors.codes` in `apps/web/src/i18n/hu.ts`, run `npm run typecheck -w @projectman/web`, and
+run the web i18n test listed above. Also run `npm run dead-code` from the repository root
+before hand-over and in fix rounds; it is fast and does not queue. Fix new findings rather
+than extending the baseline. After adding a column to an existing table with `ALTER TABLE`, add it to the version-83
+rollback list in `apps/server/test/history-index.test.ts` and run that test in `apps/server`.
+After changing `apps/web/src/mocks`, run `npx vitest run src/mocks` in `apps/web`. After adding, moving or renaming files, also run
+`npx vitest run test/architecture` in `apps/server`, including before hand-over; it is fast
+and does not queue. They never run the full suite. The merger (`team.merger`,
+`claude` in PM) merges with `merge_task`. The server runs the card's single full check at merge,
+before `main` moves: `npm run merge-test` in the full test sandbox, in the machine's queue.
+Any card adding a merge check that can run quickly in the developer's worktree must update
+the developer hand-over checklist in the same change.
+When a merge fails a check the developer could have run locally, the merger names that
+command in the send-back note; if it was missing from the checklist, propose adding it
+and send the lesson to the project manager for `docs/LESSONS.md`.
+Shared code or configuration changes require the whole suite; workspace checks do not queue
+(decision 40, PM-380, PM-386). If a heavy command says its queue cannot be used
+(exit status 78), or the sandbox refuses a test (a local port, a pseudo-terminal), it did not
+run: note on your card what did not run and why, and hand over; the merge test runs it.
+Never run it another way, and do not ask anyone to run it outside your sandbox (PM-346, PM-656).
 
 `npm run dev` keeps its data in `~/.projectman-dev` unless `PROJECTMAN_HOME` is set. The
-owner's live instance is a separate checkout (`~/projectman-live`, `npm start` on port 4800,
-data in `~/.projectman`), updated only with the owner's approval. Never run a development
+owner's live instance is a separate checkout (`~/projectman-live`, port 4800, data in
+`~/.projectman`), updated only with the owner's approval. It runs under the `com.projectman.live`
+LaunchAgent (`npm run live -- install|status|uninstall`, `docs/DEPLOY.md`); after the owner approves
+a release in the app, the `com.projectman.live-watcher` agent builds, tests and switches it, with
+a rollback, then tags and publishes it. Never run a development
 build against `~/.projectman`: a database migrated by a newer build is refused by older ones.
 Open development instances at `http://127.0.0.1:5173`; the live instance's login cookie is on
 `localhost`.
@@ -129,5 +192,6 @@ Open development instances at `http://127.0.0.1:5173`; the live instance's login
 ## Git
 
 English, imperative commit messages ("Add session runner state machine"). Commit your
-work on your branch; do not push. The integrating session merges verified work into `main`
-and pushes `main` (decision 21); the repository is public.
+work on your branch; do not push. The merger member merges verified work and pushes `main`
+through `merge_task` (decision 21, PM-386); the repository is public. Nobody commits to `main`
+or switches branches in the default branch's checkout: `main` moves only through merging.

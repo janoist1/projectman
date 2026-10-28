@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ProjectConfig } from '@projectman/shared';
-import { aiActor } from '../src/domain';
+import { aiActor } from '../src/kernel';
 import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
+import { deferredStartRecords } from './helpers/deferred-starts';
 
 /**
  * PM-420: a card sent back into the work stage starts its AI assignee when it has no running session
@@ -53,7 +54,7 @@ describe('stage hand-over back into the work stage', () => {
     const before = devStarts().length;
     await move('development');
     await vi.waitFor(() =>
-      expect(h.repos.deferredStarts.list().map((record) => record.key)).toEqual(['hand-over:AR:AR-1']),
+      expect(deferredStartRecords(h.repos).map((record) => record.key)).toEqual(['hand-over:AR:AR-1']),
     );
     expect(devStarts()).toHaveLength(before);
 
@@ -71,8 +72,8 @@ describe('stage hand-over back into the work stage', () => {
     await h.domain.tasks.create('AR', { title: 'Other' }, OWNER_ACTOR);
     await h.domain.sessions.ensureSession('AR', 'dev-1', { type: 'task', taskKey: 'AR-2' });
     await move('development');
-    await vi.waitFor(() => expect(h.repos.deferredStarts.list()).toHaveLength(1));
-    expect(h.repos.deferredStarts.list()[0]?.spec).toMatchObject({
+    await vi.waitFor(() => expect(deferredStartRecords(h.repos)).toHaveLength(1));
+    expect(deferredStartRecords(h.repos)[0]?.spec).toMatchObject({
       kind: 'hand_over',
       taskKey: 'AR-1',
       from: 'code_review',
@@ -88,16 +89,39 @@ describe('stage hand-over back into the work stage', () => {
     expect(h.repos.deferredStarts.list()).toEqual([]);
   });
 
-  it('starts nobody on a move forward into the work stage: that is the Start button', async () => {
+  it('starts the AI assignee on a move forward into the work stage', async () => {
     h = await createDomainHarness({ adjust: roomy });
     await h.domain.tasks.create('AR', { title: 'Login page' }, OWNER_ACTOR);
     h.domain.tasks.assign('AR', 'AR-1', 'dev-1', OWNER_ACTOR);
     await move('development');
-    await flush();
+    await vi.waitFor(() => expect(devStarts()).toHaveLength(1));
     expect(task().stageId).toBe('development');
-    expect(devStarts()).toEqual([]);
+    expect(devSessions()[0]?.startCause).toMatchObject({ kind: 'hand_over', to: 'development' });
     expect(h.repos.deferredStarts.list()).toEqual([]);
   });
+
+  it.each(['own_move', 'on_leave'] as const)(
+    'does not start the assignee going forward for %s',
+    async (reason) => {
+      h = await createDomainHarness({
+        adjust: (config) => {
+          roomy(config);
+          if (reason === 'on_leave') {
+            const member = config.team.members.find((member) => member.handle === 'dev-1')!;
+            if (member.kind === 'ai') member.onLeave = true;
+          }
+        },
+      });
+      await h.domain.tasks.create('AR', { title: 'Login page' }, OWNER_ACTOR);
+      // Imports can already carry an assignee who is away.
+      const card = task();
+      h.repos.tasks.update(card.id, { assignee: 'dev-1' });
+      await move('development', reason === 'own_move' ? aiActor('dev-1') : OWNER_ACTOR);
+      await flush();
+      expect(devStarts()).toEqual([]);
+      expect(deferredStartRecords(h.repos)).toEqual([]);
+    },
+  );
 
   it('tells a running assignee instead of starting another session', async () => {
     await inReview();

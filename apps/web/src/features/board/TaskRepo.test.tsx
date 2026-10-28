@@ -4,6 +4,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { setFetchImplementation } from '../../api/client';
 import { t } from '../../i18n/t';
 import { mockProject } from '../../test/mockProject';
+import { onTaskUpdate } from '../../test/msw/tasks';
+import { apiFailure } from '../../test/msw/contract';
 import { TaskDrawer } from './TaskDrawer';
 
 afterEach(() => setFetchImplementation((input, init) => globalThis.fetch(input, init)));
@@ -89,6 +91,15 @@ describe('the repository of a task in the drawer', () => {
       const project = projectWith();
       project.backend.updateTask('AC-20', { repo: null });
       project.backend.sessions.length = 0;
+      onTaskUpdate('AC-20', () => {
+        const task = project.backend.updateTask('AC-20', { repo: 'admin' })!;
+        project.backend.addTimeline('AC-20', 'owner', 'task_updated', {
+          fields: ['repo'],
+          repo: 'admin',
+          previousRepo: null,
+        });
+        return task;
+      });
       project.render(drawer, '/p/AC/tasks/AC-20');
 
       const select = await repoSelect();
@@ -115,6 +126,15 @@ describe('the repository of a task in the drawer', () => {
       const project = projectWith();
       project.backend.sessions.length = 0;
       project.render(drawer, '/p/AC/tasks/AC-20');
+      onTaskUpdate('AC-20', () => {
+        const task = project.backend.updateTask('AC-20', { repo: null })!;
+        project.backend.addTimeline('AC-20', 'owner', 'task_updated', {
+          fields: ['repo'],
+          repo: null,
+          previousRepo: 'infra',
+        });
+        return task;
+      });
 
       fireEvent.change(await repoSelect(), { target: { value: '' } });
 
@@ -133,13 +153,18 @@ describe('the repository of a task in the drawer', () => {
 
     it('refuses the change while a session of the task is running, and shows the old repository again', async () => {
       const project = projectWith();
-      // AC-20 has a live session.
+      onTaskUpdate('AC-20', apiFailure(409, 'task_session_live'));
       project.render(drawer, '/p/AC/tasks/AC-20');
 
       fireEvent.change(await repoSelect(), { target: { value: 'admin' } });
 
       const alert = await screen.findByRole('alert');
       expect(alert.textContent).toBe(t('errors.codes.task_session_live'));
+      expect(project.requests).toContainEqual({
+        method: 'PATCH',
+        path: '/api/projects/AC/tasks/AC-20',
+        body: { repo: 'admin' },
+      });
       expect(project.backend.findTask('AC-20')!.repo).toBe('infra');
       await waitFor(() =>
         expect((screen.getByLabelText(t('task.repoLabel')) as HTMLSelectElement).value).toBe('infra'),
@@ -202,8 +227,14 @@ describe('the repository of a task in the drawer', () => {
   });
 
   describe('starting a task that names none', () => {
+    const startableProject = (repos?: string[]) => {
+      const project = projectWith(repos);
+      // These cases exercise repository selection and need a free AI developer.
+      project.backend.sessions = project.backend.sessions.filter((session) => session.member !== 'be-1');
+      return project;
+    };
     it('refuses in a project with several repositories, and starts once one is picked', async () => {
-      const project = projectWith();
+      const project = startableProject();
       project.backend.updateTask('AC-24', { repo: null });
       project.render(drawer, '/p/AC/tasks/AC-24');
 
@@ -221,7 +252,7 @@ describe('the repository of a task in the drawer', () => {
     });
 
     it('starts in a project with one repository, which the task works in', async () => {
-      const project = projectWith(['shop']);
+      const project = startableProject(['shop']);
       project.backend.updateTask('AC-24', { repo: null });
       project.render(drawer, '/p/AC/tasks/AC-24');
 

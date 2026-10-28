@@ -1,5 +1,6 @@
-# Template for the public entrance of the live projectman (PM-200, PM-210); guide: docs/DEPLOY.md,
-# section "Public entry through Cloudflare Tunnel and Access".
+# Legacy local-tunnel template (PM-200, PM-210). The cloud deployment generates its configuration:
+# docs/AWS.md "Cloudflare"; manual token-tunnel setup: docs/HYBRID.md "The Cloudflare tunnel and Access".
+# Security conditions: docs/SECURITY.md "Public entrance through Cloudflare".
 #
 # Copy it to ~/.cloudflared/config.yml (outside the repository, mode 600) and replace every
 # <PLACEHOLDER>. Nothing in this file is a secret, but the files it points to are: never commit,
@@ -8,7 +9,10 @@
 # Check it with:
 #   cloudflared tunnel --config ~/.cloudflared/config.yml ingress validate
 #   cloudflared tunnel --config ~/.cloudflared/config.yml ingress rule https://chopper.istvan.io/hooks/x
-# (the second command must print the http_status:404 rule; /api/setup must print the 4800 rule).
+#   cloudflared tunnel --config ~/.cloudflared/config.yml ingress rule https://<FEEDBACK-HOSTNAME>/api/setup
+#   cloudflared tunnel --config ~/.cloudflared/config.yml ingress rule https://<FEEDBACK-HOSTNAME>/feedback/widget.js
+# (the second command must print the http_status:404 rule; /api/setup must print the 4800 rule; on the
+# widget's hostname /api/setup must print the 404 rule and /feedback/widget.js the 4800 rule).
 
 # The tunnel's id, printed by `cloudflared tunnel create <name>`.
 tunnel: <TUNNEL-UUID>
@@ -18,13 +22,47 @@ credentials-file: /Users/<USER>/.cloudflared/<TUNNEL-UUID>.json
 
 # Rules are tried in order and the first match wins.
 ingress:
-  # The agents' internal endpoints (/hooks, /mcp) are for processes on this Mac only. They would
-  # refuse a remote request anyway; the entrance does not even pass it on.
+  # The marking widget's public entrance (PM-506, PM-513): a hostname of its own, only /feedback/, and
+  # no Access application, because the widget runs on a customer's page and cannot sign in to Access.
+  # Everything else on this hostname is refused here, and the server refuses it a second time (the host
+  # guard behind PROJECTMAN_FEEDBACK_PUBLIC_URL). Again NO `httpHostHeader`: the guard reads the Host.
+  - hostname: <FEEDBACK-HOSTNAME>
+    path: ^/feedback/
+    service: http://127.0.0.1:4800
+  - hostname: <FEEDBACK-HOSTNAME>
+    service: http_status:404
+
+  # Optional separate machine hostname (PM-675). Configure PROJECTMAN_INTEGRATOR_HOSTNAME
+  # on the server and create its own Service Auth application first. Its audience is never
+  # the human application's or the engine's. EC2 uses the generated config on port 4700.
+  - hostname: <INTEGRATOR-HOSTNAME>
+    path: ^/api/
+    service: http://127.0.0.1:4800
+    originRequest:
+      access:
+        required: true
+        teamName: <TEAM>
+        audTag: [<INTEGRATOR-AUD-TAG>]
+  - hostname: <INTEGRATOR-HOSTNAME>
+    path: ^/mcp$
+    service: http://127.0.0.1:4800
+    originRequest:
+      access:
+        required: true
+        teamName: <TEAM>
+        audTag: [<INTEGRATOR-AUD-TAG>]
+  - hostname: <INTEGRATOR-HOSTNAME>
+    service: http_status:404
+
+  # Internal member doors and the integrator's old board door stay closed.
   - hostname: chopper.istvan.io
     path: ^/hooks
     service: http_status:404
   - hostname: chopper.istvan.io
-    path: ^/mcp
+    path: ^/mcp/
+    service: http_status:404
+  - hostname: chopper.istvan.io
+    path: ^/mcp$
     service: http_status:404
 
   # The live instance, and only it (never the development ports, 4700 or 5173).

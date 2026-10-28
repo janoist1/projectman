@@ -1,12 +1,14 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { routes } from '@projectman/shared';
+import { copyTree } from '../../../../scripts/migrate/copy';
 import type { Task } from '@projectman/shared';
-import { createAppHarness, OWNER_LOGIN, setupOwner } from './app-harness';
+import { createAppHarness, setupOwner } from './app-harness';
 import type { AppHarness } from './app-harness';
 import { pngBytes, uploadFile } from './attachments';
+import { withoutOnboarding } from './onboarding';
 
 /**
  * The owner's Mac as the move sees it (PM-143): a stopped PROJECTMAN_HOME with a project, a task with
@@ -45,7 +47,7 @@ const GIT_ENV = {
   GIT_COMMITTER_EMAIL: 'test@example.test',
 };
 
-export function git(cwd: string, ...args: string[]): string {
+function git(cwd: string, ...args: string[]): string {
   const env: NodeJS.ProcessEnv = { ...process.env };
   for (const key of Object.keys(env)) if (key.startsWith('GIT_')) delete env[key];
   return execFileSync('git', ['-c', 'commit.gpgSign=false', '-c', 'protocol.file.allow=always', ...args], {
@@ -97,18 +99,20 @@ export async function createSourceHome(): Promise<SourceHome> {
 
   // The server's own data.
   const cookie = await setupOwner(harness.app);
-  const created = await harness.app.inject({
-    method: 'POST',
-    url: '/api/projects',
-    headers: { cookie },
-    payload: {
-      key: 'AR',
-      name: 'acme',
-      workspacePath: workspace,
-      templateId: 'test',
-      repos: [{ name: 'web', path: '.', github: 'acme/web' }],
-    },
-  });
+  const created = await withoutOnboarding(harness.app.projectman.domain, () =>
+    harness.app.inject({
+      method: 'POST',
+      url: '/api/projects',
+      headers: { cookie },
+      payload: {
+        key: 'AR',
+        name: 'acme',
+        workspacePath: workspace,
+        templateId: 'test',
+        repos: [{ name: 'web', path: '.', github: 'acme/web' }],
+      },
+    }),
+  );
   if (created.statusCode !== 201) throw new Error(`project creation failed: ${created.body}`);
   const task = await harness.app.inject({
     method: 'POST',
@@ -213,4 +217,48 @@ export async function createSourceHome(): Promise<SourceHome> {
   };
 }
 
-export { OWNER_LOGIN };
+/**
+ * Stopped source homes from a copy: the first call builds one (`createSourceHome`, stopped, then
+ * `prepare`: whatever every test of the file starts with, such as a package) and keeps a copy of its
+ * two directories; each further call puts the copy back at the same paths, which is what the
+ * absolute paths in the repositories and the database need, and returns the same `SourceHome`. A
+ * test cleans up before the next one restores, as `afterEach` does; a home still there (two at
+ * once) gets a source home of its own, built the slow way. Building one takes about 25 git
+ * processes and a started app; a restore is a copy of a few hundred small files.
+ */
+export function stoppedSourceHomes<T = undefined>(
+  prepare: (src: SourceHome) => Promise<T> = async () => undefined as T,
+): () => Promise<{ src: SourceHome; prepared: T }> {
+  interface Template {
+    src: SourceHome;
+    prepared: T;
+    store: string;
+  }
+  let template: Promise<Template> | undefined;
+  const build = async (): Promise<Template> => {
+    const src = await createSourceHome();
+    await src.stop();
+    const prepared = await prepare(src);
+    const store = realpathSync(mkdtempSync(join(tmpdir(), 'pm-move-store-')));
+    copyTree(src.root, join(store, 'root'));
+    copyTree(src.home, join(store, 'home'));
+    process.once('exit', () => rmSync(store, { recursive: true, force: true }));
+    return { src, prepared, store };
+  };
+  return async () => {
+    if (!template) {
+      template = build();
+      const { src, prepared } = await template;
+      return { src, prepared };
+    }
+    const { src, prepared, store } = await template;
+    if (existsSync(src.root) || existsSync(src.home)) {
+      const own = await createSourceHome();
+      await own.stop();
+      return { src: own, prepared: await prepare(own) };
+    }
+    copyTree(join(store, 'root'), src.root);
+    copyTree(join(store, 'home'), src.home);
+    return { src, prepared };
+  };
+}

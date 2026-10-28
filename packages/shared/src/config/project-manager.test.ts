@@ -2,9 +2,16 @@ import { describe, expect, it } from 'vitest';
 import { memberOf } from './lookup';
 import {
   actorMoveRefusal,
+  coordinationActorRefusal,
+  coordinationMemberOf,
+  guestOfConversation,
+  hasGuestConversations,
+  isCoordinationActor,
   isProjectManager,
   isRequiredProjectManager,
+  managerConversationOf,
   PROJECT_MANAGER_ROLE,
+  projectManagerAmong,
   projectManagerMoveRefusal,
   projectManagerOf,
   projectManagersOf,
@@ -14,6 +21,29 @@ import { ProjectConfig } from './schema';
 import type { MemberConfig } from './schema';
 
 type MemberInput = Record<string, unknown>;
+
+describe('coordination actors', () => {
+  it('selects the live PM and never substitutes the Operator or a member on leave', () => {
+    const config = configWith([
+      ai('away', { onLeave: true }),
+      ai('pm'),
+      ai('operator', { role: 'ai_operator' }),
+    ]);
+    expect(coordinationMemberOf(config)?.handle).toBe('pm');
+    expect(coordinationMemberOf(configWith([ai('away', { onLeave: true })]))).toBeNull();
+    expect(coordinationMemberOf(configWith([]))).toBeNull();
+    expect(coordinationActorRefusal(config, { kind: 'ai', handle: 'pm' })).toBeNull();
+    for (const actor of [
+      { kind: 'human', handle: 'pm' },
+      { kind: 'ai', handle: 'away' },
+      { kind: 'ai', handle: 'operator' },
+      { kind: 'ai', handle: 'pm', via: 'integrator' },
+    ] as const)
+      expect(coordinationActorRefusal(config, actor)).toBe('project_manager_only');
+    expect(isCoordinationActor(config, { kind: 'ai', handle: 'pm' })).toBe(true);
+    expect(isCoordinationActor(config, { kind: 'ai', handle: 'pm', via: 'integrator' })).toBe(false);
+  });
+});
 
 const OWNER: MemberInput = {
   kind: 'human',
@@ -204,5 +234,82 @@ describe('sessionWorkItemOf', () => {
       { type: 'general' },
     ] as const)
       expect(sessionWorkItemOf(pm, item)).toEqual(item);
+  });
+});
+
+describe('managerConversationOf', () => {
+  it('shares the general conversation with owners and gives every other person their own', () => {
+    const config = configWith([
+      ai('pm'),
+      { kind: 'human', handle: 'cleo', displayName: 'Cleo', access: 'client' },
+      { kind: 'human', handle: 'vic', displayName: 'Vic', access: 'viewer' },
+    ]);
+    expect(managerConversationOf(config, 'owner')).toEqual({ type: 'general' });
+    expect(managerConversationOf(config, 'pm')).toEqual({ type: 'general' });
+    expect(managerConversationOf(config, 'cleo')).toEqual({ type: 'general', with: 'cleo' });
+    expect(managerConversationOf(config, 'vic')).toEqual({ type: 'general', with: 'vic' });
+  });
+});
+
+describe('guest conversations', () => {
+  const config = configWith([
+    ai('away', { onLeave: true }),
+    ai('pm'),
+    ai('operator', { role: 'ai_operator' }),
+    ai('dev-1', { role: 'developer' }),
+    { kind: 'human', handle: 'cleo', displayName: 'Cleo', access: 'client' },
+  ]);
+
+  it('belong to the selected PM alone', () => {
+    const has = (handle: string) => hasGuestConversations(config, memberOf(config, handle));
+    expect(has('pm')).toBe(true);
+    expect(has('operator')).toBe(false);
+    expect(has('away')).toBe(false);
+    expect(has('dev-1')).toBe(false);
+    expect(has('cleo')).toBe(false);
+    expect(hasGuestConversations(config, undefined)).toBe(false);
+  });
+
+  it('name the person the conversation is with, and stay restricted when the PM is no longer selected', () => {
+    const guest = { type: 'general', with: 'cleo' } as const;
+    expect(guestOfConversation(config, memberOf(config, 'pm'), guest)).toBe('cleo');
+    expect(guestOfConversation(config, memberOf(config, 'pm'), { type: 'general' })).toBeUndefined();
+    expect(
+      guestOfConversation(config, memberOf(config, 'pm'), { type: 'task', taskKey: 'AC-1' }),
+    ).toBeUndefined();
+    expect(guestOfConversation(config, memberOf(config, 'away'), guest)).toBe('cleo');
+    expect(guestOfConversation(config, memberOf(config, 'dev-1'), guest)).toBeUndefined();
+  });
+});
+
+describe('projectManagerAmong', () => {
+  const view = (handle: string, extra: Record<string, unknown> = {}) => ({
+    handle,
+    kind: 'ai',
+    role: PROJECT_MANAGER_ROLE,
+    temp: false,
+    ...extra,
+  });
+
+  it('takes the first one not on leave, else the first', () => {
+    expect(projectManagerAmong([view('a', { onLeave: true }), view('b')])?.handle).toBe('b');
+    expect(projectManagerAmong([view('a', { onLeave: true }), view('b', { onLeave: true })])?.handle).toBe(
+      'a',
+    );
+  });
+
+  it('skips temp, retired, human and other-role members', () => {
+    const members = [
+      view('t', { temp: true }),
+      view('r', { status: 'retired' }),
+      view('h', { kind: 'human', role: 'owner' }),
+      view('d', { role: 'developer' }),
+    ];
+    expect(projectManagerAmong(members)).toBeNull();
+    expect(projectManagerAmong([...members, view('pm')])?.handle).toBe('pm');
+  });
+
+  it('is null for an empty list', () => {
+    expect(projectManagerAmong([])).toBeNull();
   });
 });

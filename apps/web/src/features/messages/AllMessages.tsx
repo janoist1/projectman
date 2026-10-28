@@ -1,7 +1,8 @@
 import clsx from 'clsx';
 import { Fragment, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router';
-import { isUnreadBy } from '@projectman/shared';
+import { hasBoundOrigin, isUnreadBy } from '@projectman/shared';
+import { ActorName } from '../../components/ActorName';
 import type { TeamMessage } from '@projectman/shared';
 import type { AllMessagesFilter } from '../../api/queryKeys';
 import { useAllMessages, useBoard, useReadTeamMessages, useTeamThreads } from '../../api/queries';
@@ -12,8 +13,10 @@ import { Markdown } from '../../components/Markdown';
 import { EmptyState, ErrorState, LoadingState } from '../../components/States';
 import { formatDayHeading, formatStamp } from '../../i18n/format';
 import { joinNames, t } from '../../i18n/t';
-import { nameOf, namesOf } from '../../lib/members';
-import { plainText } from './conversations';
+import { actorLabel, isOwnActor, recordActor, nameOf, namesOf } from '../../lib/members';
+import { attachmentPreview, plainText } from './conversations';
+import { Icon } from '../../components/Icon';
+import { MessageAttachments } from './MessageAttachments';
 import { deliveryState, receiptsOf } from './receipts';
 import { TaskChip } from './TaskChip';
 import type { ThreadComposeRequest } from './ConversationThread';
@@ -192,25 +195,37 @@ export function AllMessages({ onCompose }: { onCompose: (request: ThreadComposeR
                       onClick={() => toggle(message)}
                     >
                       <Avatar
+                        actor={recordActor(message)}
                         member={members.get(message.from)}
                         handle={message.from}
-                        isMe={message.from === myHandle && !message.via}
+                        isMe={isOwnActor(recordActor(message), myHandle)}
                         via={message.via}
                         size="md"
                         className={styles.avatar}
                       />
                       <span className={styles.names}>
                         {t('messages.fromTo', {
-                          from: message.via
-                            ? t('involvement.integratorFull')
-                            : nameOf(message.from, members, myHandle),
+                          from:
+                            message.via && !message.actor
+                              ? t('involvement.integratorFull')
+                              : actorLabel(recordActor(message), members, myHandle),
                           to: joinNames(namesOf(message.to, members, myHandle)),
                         })}
                       </span>
                       <time className={styles.time} dateTime={message.createdAt}>
                         {formatStamp(message.createdAt)}
                       </time>
-                      {expanded ? null : <span className={styles.preview}>{plainText(message.body)}</span>}
+                      {expanded ? null : (
+                        <span className={styles.preview}>
+                          {message.body.trim() ? (
+                            plainText(message.body)
+                          ) : (
+                            <>
+                              <Icon name="paperclip" size={12} /> {attachmentPreview(message)}
+                            </>
+                          )}
+                        </span>
+                      )}
                     </button>
                     <div className={styles.detail}>
                       {message.taskKey ? (
@@ -222,7 +237,19 @@ export function AllMessages({ onCompose }: { onCompose: (request: ThreadComposeR
                       ) : null}
                       {expanded ? (
                         <>
-                          <Markdown text={message.body} className={styles.body} />
+                          {hasBoundOrigin(message.actor) ? (
+                            <ActorName
+                              actor={message.actor}
+                              members={members}
+                              myHandle={myHandle}
+                              projectKey={key}
+                              showApproval={false}
+                            />
+                          ) : null}
+                          {message.body.trim() ? (
+                            <Markdown text={message.body} className={styles.body} />
+                          ) : null}
+                          <MessageAttachments files={message.attachments ?? []} from={message.from} />
                           <div className={styles.more}>
                             <span>
                               {receipts

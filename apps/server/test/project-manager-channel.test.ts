@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ProjectManagerChannel, routes } from '@projectman/shared';
+import { ProjectManagerChannel, ProjectManagerCorner, routes } from '@projectman/shared';
 import { createDomainHarness, OWNER_ACTOR, type DomainHarness } from './helpers/domain-harness';
 import {
   addHumanAndLogin,
@@ -28,11 +28,18 @@ async function harness(onLeave = false) {
         pm.onLeave = onLeave;
         pm.capacity = 1;
       }
+      config.team.members.push({
+        kind: 'human',
+        handle: 'kata',
+        displayName: 'Kata',
+        access: 'client',
+        roles: [],
+      });
     },
   });
   return h;
 }
-const view = () => h.domain.projectManagerChannels.view('AR');
+const view = () => h.domain.projectManagerChannels.view('AR', 'owner');
 
 describe('the permanent project manager channel', () => {
   it.each(['direct', 'admission'] as const)(
@@ -136,6 +143,10 @@ describe('the permanent project manager channel', () => {
   it('collects legacy task receipts in creation order and leaves other members routing intact', async () => {
     await harness();
     const task = await h.domain.tasks.create('AR', { title: 'Legacy card' }, OWNER_ACTOR);
+    // The queue wakes every recipient of a stored message: keep the other member's copy waiting.
+    vi.spyOn(h.domain.messageRouter, 'holdNameOf').mockImplementation((_config, _task, _from, member) =>
+      member === 'dev-1' ? 'handoff' : null,
+    );
     const legacy = h.domain.messages.record({
       projectKey: 'AR',
       from: 'owner',
@@ -147,7 +158,7 @@ describe('the permanent project manager channel', () => {
     });
     expect(h.domain.messages.waiting('AR', 'pm', { type: 'general' }).map((m) => m.id)).toEqual([legacy.id]);
     expect(h.domain.messages.waiting('AR', 'dev-1', { type: 'general' })).toEqual([]);
-    await h.domain.messaging.releaseWaiting('AR', task.key, 'pm');
+    await h.domain.messageRouter.releaseWaiting('AR', task.key, 'pm');
     await vi.waitFor(() => expect(h.runner.started).toHaveLength(1));
     await flush();
     expect(h.runner.lastStarted().initialMessage).toContain('Legacy pending request');
@@ -185,7 +196,7 @@ describe('the permanent project manager channel', () => {
     });
     h.repos.sessions.update(session.id, { state: 'idle' });
     expect(h.domain.sessions.messageWaiting(h.domain.sessions.find(session.id)!)).toBe(true);
-    await h.domain.messaging.releaseWaiting('AR', task.key, 'pm');
+    await h.domain.messageRouter.releaseWaiting('AR', task.key, 'pm');
     await flush();
     expect(h.runner.started).toHaveLength(1);
     expect(
@@ -232,9 +243,7 @@ describe('the permanent project manager channel', () => {
     await vi.waitFor(async () =>
       expect(await view()).toMatchObject({ state: 'waiting', waiting: { reason: 'ai_disabled' } }),
     );
-    expect(
-      h.repos.deferredStarts.list().filter((entry) => entry.key.startsWith('message:AR:pm:')),
-    ).toHaveLength(1);
+    expect(h.repos.deferredStarts.list()).toEqual([]);
     expect(h.repos.messages.pending('AR', 'pm')).toHaveLength(2);
   });
 
@@ -263,20 +272,40 @@ describe('the permanent project manager channel', () => {
     });
   });
 
-  it('returns the DTO to developers and refuses clients and viewers', async () => {
+  it('shows a person who is not an owner the session their message really goes to', async () => {
+    await harness();
+    const { session } = await h.domain.sessions.ensureSession('AR', 'pm', { type: 'general', with: 'kata' });
+    h.repos.sessions.update(session.id, { state: 'working' });
+    expect(await h.domain.projectManagerChannels.view('AR', 'kata')).toMatchObject({
+      readOnly: true,
+      state: 'working',
+      sessionId: session.id,
+    });
+  });
+
+  it('returns the corner to every person of the project, read only for those who are not owners', async () => {
     app = await createAppHarness({ app: { claudeTmpRoots: [] } });
     const owner = await setupOwner(app.app);
     await createProject(app, owner);
+    const corner = async (cookie: string) => {
+      const response = await app.app.inject({ url: routes.projectManager('AR'), headers: { cookie } });
+      expect(response.statusCode).toBe(200);
+      return ProjectManagerCorner.parse(response.json());
+    };
+    expect(await corner(owner)).toMatchObject({ member: { handle: 'pm' }, readOnly: false });
     for (const access of ['developer', 'client', 'viewer'] as const) {
       const cookie = await addHumanAndLogin(app.app, {
         handle: access,
         access,
         email: `${access}@example.com`,
       });
-      const response = await app.app.inject({ url: routes.projectManager('AR'), headers: { cookie } });
-      expect(response.statusCode).toBe(access === 'developer' ? 200 : 403);
-      if (access === 'developer')
-        expect(ProjectManagerChannel.parse(response.json()).member?.handle).toBe('pm');
+      expect(await corner(cookie)).toMatchObject({
+        member: { handle: 'pm' },
+        readOnly: true,
+        signals: [],
+        openSignals: 0,
+        queue: { open: 0, current: null },
+      });
     }
   });
 
@@ -287,7 +316,7 @@ describe('the permanent project manager channel', () => {
       ...config,
       team: { ...config.team, members: config.team.members.filter((m) => m.handle !== 'pm') },
     });
-    expect(await view()).toEqual({ member: null, state: 'missing', sessionId: null });
+    expect(await view()).toMatchObject({ member: null, state: 'missing', sessionId: null, requests: [] });
     vi.restoreAllMocks();
   });
 });

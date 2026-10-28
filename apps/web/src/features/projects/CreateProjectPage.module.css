@@ -1,62 +1,164 @@
-.fieldset {
-  border: 0;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.legend {
-  padding: 0;
-  margin-bottom: 6px;
-  font-size: 12.5px;
-  font-weight: 800;
-  color: var(--c-ink-2);
-}
-
-.templates {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.muted {
-  font-size: var(--text-sm);
-  color: var(--c-ink-4);
-}
-
-.form {
+.form,
+.section {
   display: flex;
   flex-direction: column;
   gap: 14px;
 }
-
-.error {
-  font-size: 12.5px;
-  font-weight: 700;
-  color: var(--c-blocked-text);
+.form {
+  gap: 26px;
 }
-
+.section h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 800;
+}
+.nameGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 150px;
+  gap: 14px;
+}
+.muted,
+.help,
+.starter {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--c-ink-3);
+}
+.muted {
+  color: var(--c-ink-4);
+}
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+.fieldset legend {
+  padding: 0;
+  margin-bottom: 10px;
+  font-size: var(--text-sm);
+  color: var(--c-ink-2);
+}
+.providerList {
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+.providerRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 5px 10px;
+  padding: 14px;
+  border-top: 1px solid var(--c-line-soft);
+  border-left: 3px solid transparent;
+}
+.providerRow:first-child {
+  border-top: 0;
+}
+.providerRow[data-selected] {
+  background: var(--c-subtle);
+  border-left-color: var(--c-ink);
+}
+.providerName {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.providerName input {
+  margin: 0;
+  accent-color: var(--c-ink);
+}
+.providerMeta {
+  grid-column: 1;
+  font-size: 12px;
+  color: var(--c-ink-4);
+  padding-left: 21px;
+}
+.providerState {
+  grid-column: 2;
+  grid-row: 1;
+}
+.todo {
+  grid-column: 1 / -1;
+  font-size: 12px;
+  color: var(--c-ink-3);
+  padding-left: 21px;
+}
+.todo:empty {
+  display: none;
+}
+.todo button {
+  display: block;
+  margin-top: 8px;
+}
+.todo code {
+  overflow-wrap: anywhere;
+}
+.state {
+  animation: state-in 150ms ease-out;
+}
+@keyframes state-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .state {
+    animation: none;
+  }
+}
+.warning,
+.queryError {
+  padding: 12px;
+  margin: 0;
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius-lg);
+  font-size: var(--text-sm);
+}
+.warning {
+  background: var(--c-needs-bg);
+  color: var(--c-needs-text);
+  border-color: var(--c-needs-border);
+}
+.repos > summary {
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 800;
+  color: var(--c-ink-2);
+}
+.repos[open] {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
 .repo {
   display: flex;
   align-items: flex-start;
   gap: 6px;
   padding: 10px;
+  border: 1px solid var(--c-line-soft);
   border-radius: var(--radius-lg);
   background: var(--c-subtle);
-  border: 1px solid var(--c-line-soft);
 }
-
 .repoGrid {
-  flex: 1 1 auto;
+  flex: 1;
   min-width: 0;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
 }
-
-/* The create button stays in reach however long the form grows: a bar pinned to the bottom edge. */
 .bar {
   position: sticky;
   bottom: 0;
@@ -64,28 +166,47 @@
   flex-direction: column;
   gap: 10px;
   margin: 0 -28px;
-  padding: 12px 28px calc(12px + env(safe-area-inset-bottom));
+  padding: 14px 28px calc(14px + env(safe-area-inset-bottom));
   background: var(--c-surface);
   border-top: 1px solid var(--c-line-soft);
 }
-
-.bar > button {
-  align-self: flex-end;
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
 }
-
+.starter {
+  flex: 1;
+  font-size: 12px;
+}
+.actions > button {
+  flex-shrink: 0;
+}
+.actions > button[aria-disabled='true'] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
 @media (max-width: 767px) {
   .bar {
-    margin: 0 -18px;
+    margin-inline: -18px;
     padding-inline: 18px;
   }
-  .bar > button {
-    align-self: stretch;
-    height: 44px;
+  .actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .actions > button {
+    width: 100%;
+    min-height: 44px;
   }
 }
-
 @media (max-width: 520px) {
+  .nameGrid,
   .repoGrid {
     grid-template-columns: minmax(0, 1fr);
+  }
+  .providerRow {
+    padding: 12px 9px;
+    column-gap: 5px;
   }
 }

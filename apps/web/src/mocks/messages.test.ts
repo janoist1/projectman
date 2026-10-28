@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { MemberProfile, Session, TeamMessage, TeamMessagesView, TeamThreadsView } from '@projectman/shared';
+import {
+  MemberProfile,
+  Session,
+  TeamMessage,
+  TeamMessagesView,
+  TeamThreadsView,
+  memberOf,
+} from '@projectman/shared';
 import type { ServerEvent } from '@projectman/shared';
 import { MockBackend } from './backend';
 
@@ -90,19 +97,6 @@ describe('mock team messaging and profiles', () => {
     b.findMember('kata')!.role = 'admin';
     expect(bodies()).toEqual(['fe-1 writes', 'qa writes', 'kata writes']);
   });
-  it('answers 404 for the messages of a card the viewer cannot see, and keeps an unknown card empty (PM-273)', () => {
-    const b = new MockBackend();
-    b.messages = [];
-    const hidden = b.tasks.find((task) => task.visibility === 'internal');
-    expect(hidden).toBeTruthy();
-    b.viewerHandle = 'kata';
-    const status = (key: string) =>
-      b.handle('GET', `${base}/messages`, {}, new URLSearchParams(`taskKey=${key}`)).status;
-    expect(status(hidden!.key)).toBe(404);
-    expect(status('AC-999')).toBe(200);
-    b.viewerHandle = 'owner';
-    expect(status(hidden!.key)).toBe(200);
-  });
   it('keeps the question with the message that answers it (PM-273)', () => {
     const b = new MockBackend();
     const item = b.inbox.find((candidate) => candidate.id === 'inb_q_ga4')!;
@@ -140,6 +134,7 @@ describe('mock team messaging and profiles', () => {
   it('allows clients to write, denies viewers and rejects invalid data atomically', () => {
     const b = backend();
     b.viewerHandle = 'kata';
+    b.config.team.contacts = ['fe-1'];
     expect(b.handle('POST', `${base}/messages`, { to: ['fe-1'], text: 'Acme request' }).status).toBe(202);
     expect(b.handle('POST', `${base}/members/fe-1/conversation`, {}).status).toBe(403);
     b.findMember('kata')!.role = 'viewer';
@@ -154,6 +149,31 @@ describe('mock team messaging and profiles', () => {
       expect(b.handle('POST', `${base}/messages`, body).status).toBeGreaterThanOrEqual(400);
     }
     expect(b.messages).toHaveLength(1);
+  });
+  it.each(['role', 'access'] as const)('restricts a viewer set through %s to the PM alone', (field) => {
+    const b = backend();
+    b.viewerHandle = 'kata';
+    if (field === 'role') b.findMember('kata')!.role = 'viewer';
+    else {
+      const member = memberOf(b.config, 'kata')!;
+      if (member.kind !== 'human') throw new Error('Expected a human fixture');
+      member.access = 'viewer';
+    }
+    for (const to of [['fe-1'], ['pm', 'fe-1']]) {
+      expect(b.handle('POST', `${base}/messages`, { to, text: 'Acme request' }).status).toBe(403);
+      expect(b.messages).toHaveLength(0);
+    }
+    expect(b.handle('POST', `${base}/messages`, { to: ['pm'], text: 'Acme request' }).status).toBe(202);
+    expect(b.messages).toHaveLength(1);
+    expect(b.messages[0]).toMatchObject({ from: 'kata', to: ['pm'] });
+  });
+  it('refuses a message to the retired Operator handle as an unknown member (decision 66)', () => {
+    const b = backend();
+    expect(b.handle('POST', `${base}/messages`, { to: ['operator'], text: 'Acme request' })).toMatchObject({
+      status: 404,
+      body: { error: { code: 'not_found' } },
+    });
+    expect(b.messages).toHaveLength(0);
   });
   it('trims messages and never sends one to its sender', () => {
     const b = backend();
@@ -213,7 +233,7 @@ describe('mock team messaging and profiles', () => {
     expect(resumed.id).toBe(first.id);
     expect(b.chats[first.id]?.filter((c) => c.kind === 'team_message')).toHaveLength(1);
   });
-  it('returns both member profiles, hides human email and AI private data from clients', () => {
+  it('returns both member profiles, and hides a human email from a client only', () => {
     const b = new MockBackend();
     const human = MemberProfile.parse(b.handle('GET', `${base}/members/bence/profile`, {}).body);
     expect(human.email).toBe('bence@acme.test');
@@ -230,10 +250,10 @@ describe('mock team messaging and profiles', () => {
     expect(
       MemberProfile.parse(b.handle('GET', `${base}/members/bence/profile`, {}).body).email,
     ).toBeUndefined();
-    expect(MemberProfile.parse(b.handle('GET', `${base}/members/fe-1/profile`, {}).body).sessions).toEqual(
-      [],
-    );
-    expect(b.handle('GET', `${base}/members/fe-1/memories`, {}).status).toBe(403);
+    expect(
+      MemberProfile.parse(b.handle('GET', `${base}/members/fe-1/profile`, {}).body).sessions.length,
+    ).toBeGreaterThan(0);
+    expect(b.handle('GET', `${base}/members/fe-1/memories`, {}).status).toBe(200);
   });
   it('updates human access and roles and removes a human as an admin', () => {
     const b = backend();

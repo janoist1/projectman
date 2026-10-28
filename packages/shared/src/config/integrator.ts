@@ -1,9 +1,67 @@
 import { z } from 'zod';
 import type { LabelDefinition } from '../domain/label';
+import { canonical } from './canonical';
 import { isOwnerApprovalLabel, labelHolders } from './labels';
 import { ownerOnlyChanges } from './owner-only';
 import { DEFAULT_MAX_FIX_ROUNDS } from './schema';
 import type { ProjectConfig } from './schema';
+
+export type SuperAccessVerdict =
+  | { allowed: true }
+  | {
+      allowed: false;
+      code:
+        'integrator_read_only' | 'owner_approval_required' | 'insufficient_access' | 'integrator_not_allowed';
+    };
+
+/** Credential policy, independent of HTTP verbs. Domain operations classify reads and decisions (PM-759). */
+export function superAccessVerdict(
+  _config: ProjectConfig,
+  facts: {
+    mode: 'super' | 'read';
+    operation: 'read' | 'write' | 'approval' | 'key_management';
+    ownerMembership: boolean;
+  },
+): SuperAccessVerdict {
+  if (facts.mode === 'read' && facts.operation !== 'read')
+    return { allowed: false, code: 'integrator_read_only' };
+  if (facts.operation === 'key_management') return { allowed: false, code: 'integrator_not_allowed' };
+  // The super key decides approvals in the Operator's own name (PM-870).
+  if (facts.operation === 'approval' && facts.mode !== 'super')
+    return { allowed: false, code: 'owner_approval_required' };
+  // The connected Claude acts as its holder or the queue item's issuer, so the project needs no Operator (decision 66).
+  if (!facts.ownerMembership) return { allowed: false, code: 'insufficient_access' };
+  return { allowed: true };
+}
+
+/**
+ * Who may hold an integrator key (PM-1063): the host owner and an active owner account, each with a password
+ * (a passwordless, e-mail-login account never does, PM-670). The scope of a key is its holder's own projects.
+ * Extend the circle here and nowhere else.
+ */
+export function canHoldIntegratorKey(input: {
+  hostOwner: boolean;
+  ownerAccount: boolean;
+  hasPassword: boolean;
+}): boolean {
+  return input.hasPassword && (input.hostOwner || input.ownerAccount);
+}
+
+/**
+ * Whether an integrator key of `holder` reaches a project at all (PM-1063). The project's team is editable by
+ * its owners, so the key's reach also rests on a fact the team cannot write: who created the project. A
+ * project an owner account created (`createdBy` is that account, not the host owner) is reached by the
+ * creator's key only, whoever else the team lists as an owner; any other project (registered by the host
+ * owner, `createdBy` null or the host) stays with the owner members' keys. The caller still checks the
+ * owner membership.
+ */
+export function integratorKeyCoversProject(input: {
+  createdBy: string | null;
+  creatorIsHost: boolean;
+  holder: string;
+}): boolean {
+  return input.createdBy === null || input.creatorIsHost || input.createdBy === input.holder;
+}
 
 /** What the integrator key may not change (PM-418), in the order integratorConfigRefusal checks them. */
 export const IntegratorRefusal = z.enum([
@@ -12,15 +70,15 @@ export const IntegratorRefusal = z.enum([
   'members',
   'invitations',
   'engines',
+  'system_feedback',
 ]);
 export type IntegratorRefusal = z.infer<typeof IntegratorRefusal>;
 
 /**
- * Why the integrator key may not commit `next` over `previous`, or null when it may. Compares the
+ * Why an integrator configuration change may not commit `next` over `previous`, or null when it may. Compares the
  * end result, so PUT, PATCH, roles, members and revert are decided alike. Never 'invitations'.
  *
- * The key is the owner's actor for everything but approvals and owner-only rules: a rule that
- * weakened an approval, or made a human account, would let the key approve through the back door.
+ * These restrictions also classify configuration effects for the Operator's mutation policy.
  */
 export function integratorConfigRefusal(
   previous: ProjectConfig,
@@ -113,22 +171,4 @@ function membersChanged(previous: ProjectConfig, next: ProjectConfig): boolean {
     );
   if (members(previous) !== members(next)) return true;
   return canonical(previous.team.limits.tempWorkers) !== canonical(next.team.limits.tempWorkers);
-}
-
-/** JSON with recursively sorted object keys and no `undefined` fields; array order stays. */
-function canonical(value: unknown): string {
-  return JSON.stringify(sortKeys(value)) ?? 'null';
-}
-
-function sortKeys(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(sortKeys);
-  if (value && typeof value === 'object') {
-    return Object.fromEntries(
-      Object.entries(value)
-        .filter(([, field]) => field !== undefined)
-        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-        .map(([key, field]) => [key, sortKeys(field)]),
-    );
-  }
-  return value;
 }

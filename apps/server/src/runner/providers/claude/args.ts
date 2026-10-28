@@ -5,10 +5,13 @@ import {
   forwarderCommand,
   permissionHookTimeoutS,
 } from '../../hook-forwarder';
-import { claudeBuiltinTools, claudeToolRules, directoryRulePaths } from './policy';
+import { claudeBuiltinTools } from './policy';
+import { claudeToolRules, directoryRulePaths } from '../../../contracts';
 
 /**
- * Command line and inline settings for an interactive Claude Code session.
+ * Command line and settings for an interactive Claude Code session. The settings and the MCP
+ * configuration are JSON files in the session's private folder (session-config.ts, PM-156): they
+ * hold the tokens, which therefore never reach the command line.
  *
  * Hooks: every event is an HTTP hook posting to /hooks/<token>, except SessionStart, which
  * Claude Code only supports as a command (or MCP tool) hook. For SessionStart the forwarder
@@ -58,8 +61,14 @@ const DECIDING_EVENTS: ReadonlySet<string> = new Set([
 /** SessionEnd hooks share a small budget; this raises it slightly (max 60s). */
 const SESSION_END_TIMEOUT_S = 3;
 
-export interface HookSettingsInput {
+interface HookSettingsInput {
+  /**
+   * POST target of the hooks. It holds the session's token: it goes into the settings file (a
+   * private file, PM-156) for the direct HTTP hooks, and never into a command's text.
+   */
   hookUrl: string;
+  /** The private file the forwarder commands read their target from (`writeHookConfig`). */
+  hookConfigPath: string;
   allowedTools: string[];
   deniedTools?: string[];
   policy?: StartSessionSpec['policy'];
@@ -73,10 +82,10 @@ export interface HookSettingsInput {
 }
 
 /** Claude Code's `sandbox` settings (Claude Code 2.1.219 or later, probed with 2.1.284). */
-export interface ClaudeSandboxSettings {
+interface ClaudeSandboxSettings {
   enabled: true;
-  /** Sandboxed commands run without a permission prompt. */
-  autoAllowBashIfSandboxed: true;
+  /** Sandboxed commands run without a permission prompt (not in a team-tools-only session, PM-475). */
+  autoAllowBashIfSandboxed: boolean;
   /** A command that fails in the sandbox is not retried outside it (strict mode). */
   allowUnsandboxedCommands: false;
   /** No sandbox, no session: never a silent fallback to unsandboxed commands. */
@@ -110,12 +119,12 @@ interface HookHandler {
  * "auto-mode-config"; `$defaults` keeps the built-in entries). It only steers the classifier: the
  * deny rules are what hold, in every mode (PM-165).
  */
-export interface ClaudeAutoModeSettings {
+interface ClaudeAutoModeSettings {
   environment: string[];
   hard_deny: string[];
 }
 
-export const AUTO_MODE_SETTINGS: ClaudeAutoModeSettings = {
+const AUTO_MODE_SETTINGS: ClaudeAutoModeSettings = {
   environment: [
     '$defaults',
     "This is a development machine of an AI team's member. The work is done in the task's own working directory; the repository is local-only and nothing is published from it.",
@@ -123,13 +132,13 @@ export const AUTO_MODE_SETTINGS: ClaudeAutoModeSettings = {
   hard_deny: [
     '$defaults',
     'Never publish: no git push, no gh pr create, no gh pr merge, whatever the target.',
-    "Never read or copy credential files (SSH keys, the GitHub CLI's configuration, the login and settings files of Claude Code and Codex, .npmrc) or the data of the live projectman instance (its database, secret, logs and customization).",
+    "Never read or copy credential files (SSH keys, the GitHub CLI's configuration, the login and settings files of Claude Code and Codex, .npmrc, AWS and Cloudflare credentials (~/.aws, ~/.cloudflared)) or the data of the live projectman instance (its database, secret, logs and customization).",
     'Never call the live projectman instance on localhost port 4800.',
     "Never create, change, move or delete files in another session's folder (a sibling of $PROJECTMAN_SESSION_DIR below projectman-sessions); reading them is fine.",
   ],
 };
 
-export interface ClaudeSettings {
+interface ClaudeSettings {
   permissions: { allow: string[]; deny?: string[] };
   autoMode?: ClaudeAutoModeSettings;
   hooks: Record<string, Array<{ hooks: HookHandler[] }>>;
@@ -157,25 +166,21 @@ export interface ClaudeSettings {
    * Set in the settings, not as `CLAUDE_CODE_AUTO_COMPACT_WINDOW`.
    */
   autoCompactWindow?: number;
-  /** Managed VM profile: no first-use confirmation of the bypass mode (it would wait in the terminal). */
-  skipDangerousModePermissionPrompt?: true;
-}
-
-/** Whether the policy asks for the managed VM profile (PM-141): the question-free start. */
-export function isManagedVm(policy: StartSessionSpec['policy']): boolean {
-  return policy?.execution?.profile === 'managed_vm';
 }
 
 /**
  * The sandbox settings for `sandbox`. The settings reference names `allowUnsandboxedCommands` a
  * string, but Claude Code 2.1.284 asks for every command given "deny"; the boolean works.
  */
-export function buildSandboxSettings(sandbox: AgentSandbox): ClaudeSandboxSettings {
+function buildSandboxSettings(
+  sandbox: AgentSandbox,
+  options: { autoAllowBash?: boolean } = {},
+): ClaudeSandboxSettings {
   const list = (key: 'denyWrite' | 'denyRead' | 'allowRead') =>
     sandbox[key]?.length ? { [key]: [...new Set(sandbox[key])] } : {};
   return {
     enabled: true,
-    autoAllowBashIfSandboxed: true,
+    autoAllowBashIfSandboxed: options.autoAllowBash ?? true,
     allowUnsandboxedCommands: false,
     failIfUnavailable: true,
     filesystem: {
@@ -228,7 +233,7 @@ export function denyWriteRules(sandbox: AgentSandbox | undefined): string[] {
  * a chain, a pipe, `$(...)` or `> file` around it stays inside (read in 2.1.284's code; the manual
  * run in docs/SANDBOX-PROBE.md checks it).
  */
-export function excludedCommandPattern(command: string): string {
+function excludedCommandPattern(command: string): string {
   return `${command}:*`;
 }
 
@@ -259,32 +264,17 @@ function accountSkillOverrides(): Record<string, 'off'> {
 export function buildSettings(input: HookSettingsInput): ClaudeSettings {
   if (input.policy?.enforcement === 'strict')
     throw new Error('Strict Claude sandbox enforcement is not available yet; refusing to start.');
-  const managed = isManagedVm(input.policy);
-  if (
-    managed &&
-    (input.policy!.permissions.approval !== 'never' ||
-      !['bypassPermissions', 'plan'].includes(input.policy!.permissions.claude))
-  )
-    throw new Error('The managed VM profile asks nothing locally; refusing a policy that does.');
-  // The managed VM profile keeps no inner limits: the legacy tool rules, the denied operations and
-  // the PM-134 sandbox stay out (the boundary is outside the CLI). Only the team tools are named,
-  // which a research-only (`plan`) member still needs to answer.
-  const rules = managed
-    ? claudeToolRules({
-        tools: { team: input.policy!.tools.team, files: [], shell: [] },
-        deniedOperations: [],
-      })
-    : input.policy
-      ? claudeToolRules(input.policy)
-      : { allow: input.allowedTools, deny: input.deniedTools ?? [] };
-  const sandbox = managed ? undefined : input.sandbox;
+  const rules = input.policy
+    ? claudeToolRules(input.policy)
+    : { allow: input.allowedTools, deny: input.deniedTools ?? [] };
+  const sandbox = input.sandbox;
   const deny = [...rules.deny, ...denyWriteRules(sandbox)];
   const permissionTimeoutS = permissionHookTimeoutS(input.permissionTimeoutMs);
   const handler = (timeout: number, decides: boolean): HookHandler =>
     sandbox
       ? {
           type: 'command',
-          command: forwarderCommand(input.hookUrl, input.nodePath, {
+          command: forwarderCommand(input.hookConfigPath, input.nodePath, {
             printResponse: decides,
             maxTimeS: timeout,
           }),
@@ -297,7 +287,7 @@ export function buildSettings(input: HookSettingsInput): ClaudeSettings {
         hooks: [
           {
             type: 'command',
-            command: forwarderCommand(input.hookUrl, input.nodePath),
+            command: forwarderCommand(input.hookConfigPath, input.nodePath),
             timeout: FAST_HOOK_TIMEOUT_S,
           },
         ],
@@ -324,8 +314,7 @@ export function buildSettings(input: HookSettingsInput): ClaudeSettings {
       allow: [...new Set(rules.allow)],
       ...(deny.length ? { deny: [...new Set(deny)] } : {}),
     },
-    // The managed VM profile keeps no inner limits, the classifier's guidance included.
-    ...(managed ? {} : { autoMode: AUTO_MODE_SETTINGS }),
+    autoMode: AUTO_MODE_SETTINGS,
     hooks,
     autoMemoryEnabled: false,
     promptSuggestionEnabled: false,
@@ -334,11 +323,12 @@ export function buildSettings(input: HookSettingsInput): ClaudeSettings {
     ...(input.autoCompactWindowTokens !== undefined
       ? { autoCompactWindow: input.autoCompactWindowTokens }
       : {}),
-    ...(sandbox ? { sandbox: buildSandboxSettings(sandbox) } : {}),
-    ...(sandbox?.env && Object.keys(sandbox.env).length > 0 ? { env: { ...sandbox.env } } : {}),
-    ...(managed && input.policy!.permissions.claude === 'bypassPermissions'
-      ? { skipDangerousModePermissionPrompt: true as const }
+    // A team-tools-only session has no shell tool; its sandbox stays as a second wall, but no command
+    // would run without asking (PM-475).
+    ...(sandbox
+      ? { sandbox: buildSandboxSettings(sandbox, { autoAllowBash: !input.policy?.teamToolsOnly }) }
       : {}),
+    ...(sandbox?.env && Object.keys(sandbox.env).length > 0 ? { env: { ...sandbox.env } } : {}),
   };
 }
 
@@ -348,7 +338,7 @@ export function buildMcpConfig(mcpUrl: string): { mcpServers: { team: { type: 'h
 }
 
 /** A subagent as Claude Code's `--agents` takes it. */
-export interface ClaudeAgentDefinition {
+interface ClaudeAgentDefinition {
   description: string;
   prompt: string;
   tools: string[];
@@ -360,7 +350,7 @@ export interface ClaudeAgentDefinition {
  * `mcpServers` and `hooks` (PM-179): the subagent works within the session's own rules, sandbox
  * and hooks, never with more.
  */
-export function buildAgents(subagents: StartSessionSpec['subagents']): Record<string, ClaudeAgentDefinition> {
+function buildAgents(subagents: StartSessionSpec['subagents']): Record<string, ClaudeAgentDefinition> {
   const agents: Record<string, ClaudeAgentDefinition> = {};
   for (const { name, description, prompt, tools, model } of subagents ?? []) {
     agents[name] = { description, prompt, tools: [...tools], model };
@@ -368,13 +358,22 @@ export function buildAgents(subagents: StartSessionSpec['subagents']): Record<st
   return agents;
 }
 
-/** Full argument list for `claude` (interactive). */
-export function buildClaudeArgs(spec: StartSessionSpec, settings: ClaudeSettings): string[] {
+/** The private files (PM-156) the command line names: the settings and the MCP configuration. */
+interface ClaudeConfigFiles {
+  settingsPath: string;
+  mcpConfigPath: string;
+}
+
+/**
+ * Full argument list for `claude` (interactive). The settings and the MCP configuration hold the
+ * session's tokens, so only the paths of their files go on the command line (PM-156).
+ */
+export function buildClaudeArgs(spec: StartSessionSpec, files: ClaudeConfigFiles): string[] {
   const args: string[] = [];
   if (spec.resume) args.push('--resume', spec.claudeSessionId);
   else args.push('--session-id', spec.claudeSessionId);
   if (spec.appendSystemPrompt) args.push('--append-system-prompt', spec.appendSystemPrompt);
-  args.push('--mcp-config', JSON.stringify(buildMcpConfig(spec.mcpUrl)));
+  args.push('--mcp-config', files.mcpConfigPath);
   // Every session reaches only the team server of its own `--mcp-config` (PM-208): the strict flag
   // leaves out the owner's claude.ai connectors (Gmail, Drive, Calendar, ClickUp...) and the
   // `.mcp.json` of user and project, and `--no-chrome` keeps Claude in Chrome (the owner's logged-in
@@ -382,15 +381,14 @@ export function buildClaudeArgs(spec: StartSessionSpec, settings: ClaudeSettings
   args.push('--strict-mcp-config', '--no-chrome');
   // Only the built-in tools the role needs (PM-221), the same on a new and on a resumed session. One
   // comma-separated value: the flag is variadic, so it must be followed by another flag, never a value.
-  args.push('--tools', claudeBuiltinTools().join(','));
-  // The managed VM's start is also protected from the project's own settings (PM-49); the user's
-  // file is inspected before the start.
-  if (isManagedVm(spec.policy)) args.push('--setting-sources', 'user');
-  args.push('--settings', JSON.stringify(settings));
+  args.push('--tools', claudeBuiltinTools(spec.policy).join(','));
+  args.push('--settings', files.settingsPath);
   if (spec.subagents?.length) args.push('--agents', JSON.stringify(buildAgents(spec.subagents)));
-  const directories = spec.policy
-    ? spec.policy.filesystem.readableRoots.filter((dir) => dir !== spec.cwd)
-    : (spec.additionalDirectories ?? []);
+  const directories = spec.policy?.teamToolsOnly
+    ? []
+    : spec.policy
+      ? spec.policy.filesystem.readableRoots.filter((dir) => dir !== spec.cwd)
+      : (spec.additionalDirectories ?? []);
   for (const dir of directories) args.push('--add-dir', dir);
   if (spec.model) args.push('--model', spec.model);
   if (spec.effort) args.push('--effort', spec.effort);

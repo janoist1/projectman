@@ -3,6 +3,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { waitFor } from '../src/runner/test-helpers';
 import { createAppHarness, OWNER_LOGIN, setupOwner } from './helpers/app-harness';
 import type { CliAppHarness } from './helpers/app-harness';
+import { withoutOnboarding } from './helpers/onboarding';
 
 let h: CliAppHarness | undefined;
 afterEach(async () => {
@@ -27,12 +28,14 @@ it(
     const headers = { cookie };
     expect(
       (
-        await app.inject({
-          method: 'POST',
-          url: routes.projects(),
-          headers,
-          payload: { key: 'AR', name: 'Fictional workshop', workspacePath: workspace, templateId: 'test' },
-        })
+        await withoutOnboarding(app.projectman.domain, () =>
+          app.inject({
+            method: 'POST',
+            url: routes.projects(),
+            headers,
+            payload: { key: 'AR', name: 'Fictional workshop', workspacePath: workspace, templateId: 'test' },
+          }),
+        )
       ).statusCode,
     ).toBe(201);
     const prompt = 'Inspect the fictional workspace and report maintenance opportunities.';

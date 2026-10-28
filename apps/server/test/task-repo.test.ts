@@ -4,11 +4,13 @@ import type { ProjectConfig, ServerEvent, WorkItemRef } from '@projectman/shared
 import { createContextPackBuilder } from '../src/context';
 import { TeamToolError } from '../src/contracts';
 import type { ToolContext } from '../src/contracts';
-import { aiActor, LOCAL_ONLY_DENIED_TOOLS } from '../src/domain';
-import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
+import { aiActor } from '../src/kernel';
+import { LOCAL_ONLY_DENIED_TOOLS } from '../src/runtime/sessions';
+import { createDomainHarness, OWNER, OWNER_ACTOR, waitForSession } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { rejection } from './helpers/errors';
 import { settle } from './helpers/fakes';
+import { makeLocalOnly, makeRepoless } from './helpers/test-template';
 
 /**
  * PM-68: where the work of a task without a repository of its own happens. The test project has one
@@ -17,8 +19,8 @@ import { settle } from './helpers/fakes';
 const twoRepos = (config: ProjectConfig): void => {
   config.project.repos.push({ name: 'api', path: 'api', github: 'acme/api', defaultBranch: 'main' });
 };
-const localOnly = (config: ProjectConfig): void => void delete config.project.repos[0]!.github;
-const noRepos = (config: ProjectConfig): void => void (config.project.repos = []);
+const localOnly = makeLocalOnly;
+const noRepos = makeRepoless;
 
 const onTask = (taskKey: string): WorkItemRef => ({ type: 'task', taskKey });
 const code = async (promise: Promise<unknown>): Promise<string> => (await rejection(promise)).code;
@@ -194,9 +196,9 @@ describe('a task without a repository', () => {
       const started = h.runner.started.length;
 
       // A person writing to the stopped session resumes it, past admission: it still needs a repository.
-      expect(await code(h.domain.messaging.sendToSession('AR', first.session.id, 'Carry on', 'owner'))).toBe(
-        'repo_required',
-      );
+      expect(
+        await code(h.domain.sessionMessages.sendToSession('AR', first.session.id, 'Carry on', 'owner')),
+      ).toBe('repo_required');
       expect(await code(h.domain.sessions.ensureSession('AR', 'dev-1', onTask(task.key)))).toBe(
         'repo_required',
       );
@@ -461,7 +463,7 @@ describe('a task without a repository', () => {
       await h.domain.tasks.create('AR', { title: 'Login page', repo: 'web' }, OWNER_ACTOR);
       h.runner.failNextStart = new Error('spawn failed');
       await rejection(h.domain.sessions.ensureSession('AR', 'dev-1', onTask('AR-1')));
-      expect(h.domain.sessions.list('AR')[0]!.state).toBe('failed');
+      expect((await waitForSession(h.domain, {})).state).toBe('failed');
 
       await h.domain.tasks.update('AR', 'AR-1', { repo: 'api' }, OWNER_ACTOR);
 

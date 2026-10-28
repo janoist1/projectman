@@ -116,6 +116,27 @@ export function refinementTurn(task: RefinementTask, config: RefinementConfig): 
 }
 
 /**
+ * Why an intermediate "the turn ended without the label" notice must not go out (PM-702), or null when it
+ * may: the card closed, the recorded turn or its label changed, the label is on now, the member works again
+ * (a starting, working or waiting session) or a person's or AI member's question is open. The one rule of the
+ * source guard, of the recheck of a pending signal and of the web fake.
+ */
+export function refinementStallRefusal(input: {
+  taskOpen: boolean;
+  sameTurn: boolean;
+  labelMissing: boolean;
+  memberActive: boolean;
+  hasOpenQuestion: boolean;
+}): 'closed' | 'changed' | 'label_done' | 'member_active' | 'question_open' | null {
+  if (!input.taskOpen) return 'closed';
+  if (!input.sameTurn) return 'changed';
+  if (!input.labelMissing) return 'label_done';
+  if (input.memberActive) return 'member_active';
+  if (input.hasOpenQuestion) return 'question_open';
+  return null;
+}
+
+/**
  * Whether a member's turn that ended without its label is a stall worth telling. It is not while an
  * AI member's question about the card is open: the member waits for the answer, with or without the
  * blocking label (PM-264). `items` are the inbox items of the card.
@@ -126,6 +147,10 @@ export function turnStalled(
 ): boolean {
   return !items.some(
     (item) =>
-      item.kind === 'question' && item.state === 'open' && memberOf(config, item.source)?.kind === 'ai',
+      // Pending: open, or with the Operator for screening (`isPendingQuestion`; a type-only import here
+      // keeps this module out of the domain import cycle).
+      item.kind === 'question' &&
+      (item.state === 'open' || item.state === 'screening') &&
+      memberOf(config, item.source)?.kind === 'ai',
   );
 }

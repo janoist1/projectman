@@ -4,10 +4,310 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { InboxItem, Session, Task } from '@projectman/shared';
 import Database from 'better-sqlite3';
-import { createRepositories, LATEST_SCHEMA_VERSION, migrate, openDatabase, schemaVersion } from '../src/db';
+import {
+  createRepositories,
+  decodeWorkItem,
+  encodeWorkItem,
+  LATEST_SCHEMA_VERSION,
+  migrate,
+  openDatabase,
+  schemaVersion,
+} from '../src/db';
 import { migrations } from '../src/db/migrations';
 
 const now = '2026-09-29T10:00:00.000Z';
+
+describe('legacy task check migration', () => {
+  function legacyTask(checks: string, labels: string[]) {
+    const db = new Database(':memory:');
+    for (const migration of migrations.filter((item) => item.version <= 114)) db.exec(migration.sql);
+    db.pragma('user_version = 114');
+    // The repositories prepare statements for the current schema: add the columns of migration 116
+    // (PM-1071) for that, and drop them again below so that migrating can add them.
+    db.exec('ALTER TABLE team_messages ADD COLUMN location TEXT');
+    db.exec('ALTER TABLE team_messages ADD COLUMN places TEXT');
+    // The same for migration 119 (PM-1062).
+    db.exec('ALTER TABLE projects ADD COLUMN created_by TEXT');
+    // And for migration 122 (PM-1064): the handle rename prepares an update of its table.
+    db.exec('CREATE TABLE host_requests (opened_by TEXT, project_key TEXT)');
+    const repos = createRepositories(db);
+    repos.projects.insert({
+      key: 'AR',
+      name: 'Acme',
+      templateId: null,
+      configVersion: 'v1',
+      createdAt: now,
+      updatedAt: now,
+    });
+    repos.tasks.insert(sampleTask({ labels }));
+    db.prepare('UPDATE tasks SET checks = ? WHERE key = ?').run(checks, 'AR-1');
+    db.exec('DROP TABLE host_requests');
+    db.exec('ALTER TABLE team_messages DROP COLUMN location');
+    db.exec('ALTER TABLE team_messages DROP COLUMN places');
+    db.exec('ALTER TABLE projects DROP COLUMN created_by');
+    return repos;
+  }
+
+  it.each([
+    ['passed', ['code-review-ok', 'security-ok', 'qa-ok', 'client-accepted']],
+    ['failed', ['code-review-changes', 'security-changes', 'qa-failed', 'client-changes']],
+    ['blocked', ['code-review-blocked', 'security-changes', 'qa-failed', 'client-changes']],
+    ['retest_needed', ['code-review-changes', 'security-changes', 'qa-retest', 'client-changes']],
+    ['pending', []],
+  ] as const)('folds %s checks into labels without losing or duplicating labels', (state, expected) => {
+    const checks = JSON.stringify({
+      code_review: state,
+      security_review: state,
+      qa: state,
+      client_test: state,
+    });
+    const repos = legacyTask(checks, ['frontend', 'frontend', ...expected.slice(0, 1)]);
+    try {
+      migrate(repos.db);
+      expect(repos.tasks.get('AR-1')!.labels).toEqual(['frontend', ...expected]);
+      expect(repos.db.prepare('SELECT checks FROM tasks WHERE key = ?').get('AR-1')).toEqual({
+        checks: '{}',
+      });
+    } finally {
+      repos.db.close();
+    }
+  });
+
+  it.each(['{"unknown":"passed","qa":"unknown"}', 'invalid json', '{}'])(
+    'preserves labels when checks have no known state: %s',
+    (checks) => {
+      const repos = legacyTask(checks, ['frontend']);
+      try {
+        migrate(repos.db);
+        expect(repos.tasks.get('AR-1')!.labels).toEqual(['frontend']);
+        expect(repos.db.prepare('SELECT checks FROM tasks WHERE key = ?').get('AR-1')).toEqual({
+          checks: '{}',
+        });
+      } finally {
+        repos.db.close();
+      }
+    },
+  );
+});
+
+it('keeps legacy member activity with a null source card', () => {
+  const db = new Database(':memory:');
+  try {
+    for (const migration of migrations.filter((item) => item.version < 108)) db.exec(migration.sql);
+    db.pragma('user_version = 107');
+    db.prepare(
+      `INSERT INTO member_state (project_key, handle, status, activity, updated_at)
+      VALUES ('AR', 'dev-1', 'working', 'Read file', ?)`,
+    ).run(now);
+    migrate(db);
+    expect(createRepositories(db).memberState.get('AR', 'dev-1')).toMatchObject({
+      activity: 'Read file',
+      activityTaskKey: null,
+    });
+  } finally {
+    db.close();
+  }
+});
+
+it('preserves queue rows and indexes while adding checklist notices', () => {
+  const db = new Database(':memory:');
+  try {
+    for (const migration of migrations.filter((item) => item.version <= 106)) db.exec(migration.sql);
+    db.pragma('user_version = 106');
+    db.prepare(
+      `INSERT INTO projects (key, name, template_id, config_version, created_at, updated_at)
+      VALUES ('AR', 'Acme', NULL, 'v1', ?, ?)`,
+    ).run(now, now);
+    db.prepare(
+      `INSERT INTO member_queue_items (id, project_key, member, kind, source_type, source_id, place, queued_at, payload, wait_details)
+      VALUES ('old', 'AR', 'dev-1', 'start', 'start', 'old-start', '{"type":"general"}', ?, '{"spec":1}', '{"provider":"claude"}')`,
+    ).run(now);
+    const before = db.prepare('SELECT * FROM member_queue_items').all();
+    migrate(db);
+    expect(db.prepare('SELECT * FROM member_queue_items').all()).toEqual(before);
+    db.prepare(
+      `INSERT INTO member_queue_items (id, project_key, member, kind, source_type, source_id, place, queued_at)
+      VALUES ('new', 'AR', 'dev-1', 'checklist', 'checklist', 'onboarding', '{"type":"general"}', ?)`,
+    ).run(now);
+    expect(
+      db
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name LIKE 'member_queue_items_%'")
+        .all(),
+    ).toHaveLength(3);
+  } finally {
+    db.close();
+  }
+});
+
+it('assigns a unique schema version to every migration', () => {
+  const versions = migrations.map(({ version }) => version);
+  expect(versions).toEqual([...new Set(versions)]);
+});
+
+it('adds question groups after the refinement stalled signals migration without changing existing questions', () => {
+  const db = new Database(':memory:');
+  try {
+    for (const migration of migrations.filter((item) => item.version <= 71)) db.exec(migration.sql);
+    db.pragma('user_version = 71');
+    const insert = db.prepare(`INSERT INTO inbox_items
+      (id, project_key, kind, assignees, source, title, payload, options, state, created_at, updated_at)
+      VALUES (?, 'AR', 'question', '["owner"]', 'dev-1', ?, '{}', '[]', 'screening', ?, ?)`);
+    insert.run('inb_first', 'First question?', now, now);
+    insert.run('inb_second', 'Second question?', now, now);
+    const before = db.prepare('SELECT * FROM inbox_items ORDER BY seq').all();
+    expect(
+      db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'question_groups'").get(),
+    ).toBeUndefined();
+
+    expect(migrate(db)).toBe(LATEST_SCHEMA_VERSION);
+    expect(db.prepare('SELECT * FROM inbox_items ORDER BY seq').all()).toEqual(before);
+    expect(db.prepare('SELECT * FROM operator_execution_intents').all()).toEqual([]);
+    const inbox = createRepositories(db).inbox;
+    inbox.createGroup({
+      primaryItemId: 'inb_first',
+      projectKey: 'AR',
+      question: 'Combined question?',
+      by: 'pm',
+      note: 'Both need the same decision.',
+      itemIds: ['inb_first', 'inb_second'],
+      at: now,
+    });
+    expect(inbox.groupOf('inb_second')).toMatchObject({
+      primaryItemId: 'inb_first',
+      itemIds: ['inb_first', 'inb_second'],
+    });
+    expect(migrate(db)).toBe(LATEST_SCHEMA_VERSION);
+    expect(inbox.groupOf('inb_first')?.question).toBe('Combined question?');
+  } finally {
+    db.close();
+  }
+});
+
+it('preserves existing merge rows and failure diagnostics through migration 49', () => {
+  const db = new Database(':memory:');
+  try {
+    for (const migration of migrations.filter((m) => m.version <= 48)) db.exec(migration.sql);
+    db.pragma('user_version = 48');
+    const failure = { reason: 'conflict', base: 'onto', at: now, files: ['a.ts'] };
+    db.prepare(
+      `INSERT INTO task_merges (id, project_key, task_key, repo, base, "commit", from_stage_id, to_stage_id, merger, requested_at, state, landed, failure_json, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      'm',
+      'AR',
+      'AR-1',
+      'web',
+      'main',
+      'approved',
+      'review',
+      'done',
+      'owner',
+      now,
+      'failed',
+      'nowhere',
+      JSON.stringify(failure),
+      now,
+      now,
+    );
+    migrate(db);
+    const repository = createRepositories(db).taskMerges;
+    const row = repository.get('m')!;
+    expect(row).toMatchObject({ state: 'failed', commit: 'approved', failure });
+    repository.save({
+      ...row,
+      state: 'fixing',
+      fix: { by: 'owner', base: 'onto', branch: 'merge-fix/AR-1', startedAt: now },
+    });
+    expect(repository.open('AR', 'AR-1')?.state).toBe('fixing');
+    repository.save({
+      ...row,
+      state: 'merged',
+      commit: 'resolved',
+      resolution: { note: 'Resolve imports in a.ts', commit: 'resolved' },
+    });
+    expect(repository.latestMerged('AR', 'AR-1')?.resolution).toEqual({
+      note: 'Resolve imports in a.ts',
+      commit: 'resolved',
+    });
+  } finally {
+    db.close();
+  }
+});
+
+describe('merge migration 48', () => {
+  it('backfills persistent handovers from review pins and allows only one open merge per card', () => {
+    const db = new Database(':memory:');
+    try {
+      const prior = migrations.filter((item) => item.version < 48);
+      for (const migration of prior) db.exec(migration.sql);
+      db.pragma(`user_version = ${Math.max(...prior.map((item) => item.version))}`);
+      // Seed the historical schema directly: current repositories require later migrations.
+      db.prepare('INSERT INTO projects VALUES (?, ?, ?, ?, ?, ?)').run('AR', 'acme', null, 'v1', now, now);
+      const task = sampleTask();
+      db.prepare(
+        `INSERT INTO tasks
+        (id, project_key, key, seq, title, stage_id, status, visibility, created_by, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        task.id,
+        task.projectKey,
+        task.key,
+        1,
+        task.title,
+        task.stageId,
+        task.status,
+        'internal',
+        task.createdBy,
+        task.createdAt,
+        task.updatedAt,
+      );
+      db.prepare('INSERT INTO task_review_pins VALUES (?, ?, ?, ?, ?, ?, ?)').run(
+        'AR',
+        'AR-1',
+        'review',
+        'approved',
+        'task/AR-1',
+        now,
+        'dev-1',
+      );
+      expect(migrate(db)).toBe(LATEST_SCHEMA_VERSION);
+      const repos = createRepositories(db);
+      expect(repos.taskHandovers.get('AR', 'AR-1')).toEqual({ commit: 'approved', branch: 'task/AR-1' });
+      repos.reviewPins.clear('AR-1');
+      expect(repos.taskHandovers.get('AR', 'AR-1')?.commit).toBe('approved');
+      const row = {
+        id: 'm1',
+        projectKey: 'AR',
+        taskKey: 'AR-1',
+        repo: 'web',
+        base: 'main',
+        commit: 'approved',
+        branch: 'task/AR-1',
+        fromStageId: 'review',
+        toStageId: 'done',
+        merger: 'owner',
+        requestedAt: now,
+        state: 'queued' as const,
+        step: 'queued' as const,
+        landed: 'nowhere' as const,
+        createdAt: now,
+        updatedAt: now,
+      };
+      repos.taskMerges.save(row);
+      expect(() => repos.taskMerges.save({ ...row, id: 'm2' })).toThrow();
+      repos.taskMerges.save({ ...row, state: 'blocked' });
+      expect(() => repos.taskMerges.save({ ...row, id: 'm2' })).toThrow();
+      const fix = { by: 'owner', branch: 'merge-fix/AR-1', base: 'onto', startedAt: now };
+      repos.taskMerges.save({ ...row, state: 'fixing', fix });
+      expect(repos.taskMerges.open('AR', 'AR-1')).toMatchObject({ state: 'fixing', fix });
+      expect(() => repos.taskMerges.save({ ...row, id: 'm2' })).toThrow();
+      repos.taskMerges.save({ ...row, state: 'cancelled' });
+      expect(() => repos.taskMerges.save({ ...row, id: 'm2' })).not.toThrow();
+    } finally {
+      db.close();
+    }
+  });
+});
 
 function sampleTask(overrides: Partial<Task> = {}): Task {
   return {
@@ -23,7 +323,6 @@ function sampleTask(overrides: Partial<Task> = {}): Task {
     priority: null,
     labels: ['frontend'],
     links: [{ kind: 'branch', ref: 'feature/login' }],
-    visibility: 'internal',
     createdBy: 'owner',
     createdAt: now,
     updatedAt: now,
@@ -33,6 +332,58 @@ function sampleTask(overrides: Partial<Task> = {}): Task {
 }
 
 describe('database', () => {
+  it('lists only unresolved signals of the project in raised time and insertion order', () => {
+    const db = openDatabase(':memory:');
+    try {
+      const repos = createRepositories(db);
+      for (const key of ['AR', 'XY'])
+        repos.projects.insert({
+          key,
+          name: key,
+          templateId: null,
+          configVersion: 'v1',
+          createdAt: now,
+          updatedAt: now,
+        });
+      const insert = (id: string, projectKey: string, raisedAt: string, resolvedAt: string | null = null) => {
+        repos.operatorSignals.insert({
+          id,
+          projectKey,
+          raisedAt,
+          resolvedAt,
+          caseKey: id,
+          kind: 'outage',
+          state: resolvedAt ? 'resolved' : 'pending',
+          actionable: false,
+          taskKey: null,
+          subject: null,
+          inboxItemId: null,
+          messageId: null,
+          decidedBy: null,
+          decidedAt: null,
+          deliveredAt: null,
+          deliveredTo: null,
+          followUpAt: null,
+          decisionNote: null,
+        });
+      };
+      insert('later', 'AR', '2026-09-30T10:00:00.000Z');
+      insert('tie-z', 'AR', now);
+      insert('closed', 'AR', now, now);
+      insert('other-project', 'XY', now);
+      insert('tie-a', 'AR', now);
+      expect(repos.operatorSignals.listOpen('AR').map((s) => s.id)).toEqual(['tie-z', 'tie-a', 'later']);
+      expect(repos.operatorSignals.list('AR').map((s) => s.id)).toEqual([
+        'tie-z',
+        'closed',
+        'tie-a',
+        'later',
+      ]);
+    } finally {
+      db.close();
+    }
+  });
+
   it('persists stable priority numbers and reads unknown stored levels as unset', () => {
     const db = openDatabase(':memory:');
     const repos = createRepositories(db);
@@ -112,11 +463,6 @@ describe('database', () => {
     repos.tasks.insert(sampleTask({ id: 'tsk_2', key: 'AR-2', title: 'Second', links: [] }));
     const task = repos.tasks.get('AR-1')!;
     expect(task.labels).toEqual(['frontend']);
-    // Checks recorded before labels read as their labels.
-    repos.db
-      .prepare(`UPDATE tasks SET checks = ? WHERE key = 'AR-2'`)
-      .run('{"code_review":"passed","qa":"pending"}');
-    expect(repos.tasks.get('AR-2')!.labels).toEqual(['frontend', 'code-review-ok']);
     expect(task.links).toEqual([{ kind: 'branch', ref: 'feature/login' }]);
 
     expect(
@@ -137,7 +483,7 @@ describe('database', () => {
       { projectKey: 'AR', taskKey: 'AR-1', repo: 'acme/web', number: 12, state: 'open' },
     ]);
     expect(
-      repos.tasks.updatePullRequestLinks('acme/web', 12, { state: 'merged', title: 'Login' }, now),
+      repos.tasks.updatePullRequestLinks('AR', 'acme/web', 12, { state: 'merged', title: 'Login' }, now),
     ).toEqual(['AR-1']);
     expect(repos.tasks.get('AR-1')!.links[1]).toEqual({
       kind: 'pull_request',
@@ -154,6 +500,38 @@ describe('database', () => {
 
     repos.tasks.update(task.id, { stageId: 'development', assignee: 'dev-1', updatedAt: now });
     expect(repos.tasks.listByAssignee('AR', 'dev-1').map((t) => t.key)).toEqual(['AR-1']);
+  });
+
+  it('keeps a pull request linked from two projects apart: a change in one never touches the other', () => {
+    const repos = createRepositories(openDatabase(':memory:'));
+    const link = { kind: 'pull_request' as const, ref: '12', repo: 'acme/web', state: 'open' as const };
+    for (const key of ['AR', 'XY'])
+      repos.projects.insert({
+        key,
+        name: key,
+        templateId: null,
+        configVersion: 'v1',
+        createdAt: now,
+        updatedAt: now,
+      });
+    repos.tasks.insert(sampleTask({ links: [] }));
+    repos.tasks.insert(sampleTask({ id: 'tsk_b', projectKey: 'XY', key: 'XY-1', links: [] }));
+    repos.tasks.upsertLink('tsk_1', link, now);
+    repos.tasks.upsertLink('tsk_b', link, now);
+    repos.tasks.recordPullRequestHead('AR', 'acme/web', 12, 'sha1', now);
+    repos.tasks.recordPullRequestHead('XY', 'acme/web', 12, 'sha1', now);
+
+    expect(repos.tasks.findByPullRequest('XY', 'acme/web', 12)).toEqual([
+      { projectKey: 'XY', taskKey: 'XY-1' },
+    ]);
+    expect(repos.tasks.updatePullRequestLinks('XY', 'acme/web', 12, { state: 'merged' }, now)).toEqual([
+      'XY-1',
+    ]);
+    expect(repos.tasks.recordPullRequestHead('XY', 'acme/web', 12, 'sha2', now)).toEqual([
+      { projectKey: 'XY', taskKey: 'XY-1' },
+    ]);
+    expect(repos.tasks.get('AR-1')!.links[0]).toMatchObject({ state: 'open' });
+    expect(repos.tasks.recordPullRequestHead('AR', 'acme/web', 12, 'sha1', now)).toEqual([]);
   });
 
   it('writes only the task fields a change names, and reads subtasks and assignments with their links', () => {
@@ -179,9 +557,6 @@ describe('database', () => {
       labels: ['frontend', 'waiting'],
       parentKey: null,
     });
-    // Writing labels replaces the legacy checks they were read with.
-    repos.db.prepare(`UPDATE tasks SET checks = ? WHERE key = 'AR-1'`).run('{"code_review":"passed"}');
-    expect(repos.tasks.get('AR-1')!.labels).toContain('code-review-ok');
     repos.tasks.update('tsk_1', { labels: ['frontend'] });
     expect(repos.tasks.get('AR-1')!.labels).toEqual(['frontend']);
 
@@ -327,6 +702,48 @@ describe('database', () => {
     expect(repos.sessions.countResumable()).toBe(3);
   });
 
+  it('finds only the latest source-bearing task session in the requested project (PM-818)', () => {
+    const db = openDatabase(':memory:');
+    const repos = createRepositories(db);
+    const add = (id: string, over: Partial<Session> = {}) =>
+      repos.sessions.insert({
+        id,
+        projectKey: 'AR',
+        member: id,
+        workItem: { type: 'task', taskKey: 'AR-1' },
+        claudeSessionId: id,
+        cwd: '/work',
+        branch: null,
+        transcriptPath: null,
+        state: 'exited',
+        activity: null,
+        startedAt: now,
+        lastActivityAt: now,
+        endedAt: now,
+        ...over,
+      });
+    try {
+      add('ses_without_source');
+      expect(repos.sessions.latestSourceOfTask('AR', 'AR-1')).toBeNull();
+      add('ses_branch', { branch: 'task/AR-1', engineId: 'eng_abcdefghijkl' });
+      expect(repos.sessions.latestSourceOfTask('AR', 'AR-1')?.id).toBe('ses_branch');
+      add('ses_review', { startedAt: '2026-09-30T10:00:00.000Z' });
+      repos.sessions.setReviewedCommit('ses_review', 'reviewed');
+      add('ses_newer_without_source', { startedAt: '2026-10-01T10:00:00.000Z' });
+      add('ses_other_project', {
+        projectKey: 'OTHER',
+        branch: 'other',
+        startedAt: '2026-10-01T10:00:00.000Z',
+      });
+      add('ses_other_task', { workItem: { type: 'task', taskKey: 'AR-2' }, branch: 'other' });
+      add('ses_chat', { workItem: { type: 'general' }, branch: 'other' });
+      expect(repos.sessions.latestSourceOfTask('AR', 'AR-1')?.id).toBe('ses_review');
+      expect(repos.sessions.latestSourceOfTask('AR', 'AR-3')).toBeNull();
+    } finally {
+      db.close();
+    }
+  });
+
   it('maps sessions, timeline, messages, inbox and member state', () => {
     const repos = createRepositories(openDatabase(':memory:'));
     const session: Session = {
@@ -458,6 +875,7 @@ describe('database', () => {
       handle: 'dev-1',
       status: 'idle',
       activity: null,
+      activityTaskKey: null,
       updatedAt: now,
     });
     repos.memberState.upsert({
@@ -465,9 +883,48 @@ describe('database', () => {
       handle: 'dev-1',
       status: 'working',
       activity: 'x',
+      activityTaskKey: 'AR-1',
       updatedAt: now,
     });
-    expect(repos.memberState.get('AR', 'dev-1')).toMatchObject({ status: 'working', activity: 'x' });
+    expect(repos.memberState.get('AR', 'dev-1')).toMatchObject({
+      status: 'working',
+      activity: 'x',
+      activityTaskKey: 'AR-1',
+    });
+  });
+
+  it('lists inbox items without a limit in full, oldest first, and with a limit the newest N', () => {
+    const repos = createRepositories(openDatabase(':memory:'));
+    const now = new Date().toISOString();
+    const total = 520;
+    for (let n = 1; n <= total; n++) {
+      repos.inbox.insert({
+        id: `inb_${String(n).padStart(4, '0')}`,
+        projectKey: 'AR',
+        kind: 'question',
+        assignees: ['owner'],
+        source: 'dev-1',
+        sessionId: null,
+        taskKey: 'AR-1',
+        title: `Question ${n}`,
+        body: null,
+        payload: {},
+        options: [],
+        state: 'open',
+        resolution: null,
+        createdAt: now,
+      });
+    }
+    const ids = (items: InboxItem[]) => items.map((i) => i.id);
+    const all = Array.from({ length: total }, (_, i) => `inb_${String(i + 1).padStart(4, '0')}`);
+
+    // The limited and the unlimited query of the same filter must not share a prepared statement.
+    const filter = { kind: 'question', state: 'open', taskKey: 'AR-1' } as const;
+    expect(ids(repos.inbox.list('AR', { ...filter, limit: 3 }))).toEqual(all.slice(-3));
+    expect(ids(repos.inbox.list('AR', filter))).toEqual(all);
+    expect(ids(repos.inbox.list('AR', { ...filter, limit: 3 }))).toEqual(all.slice(-3));
+    expect(ids(repos.inbox.list('AR'))).toEqual(all);
+    expect(ids(repos.inbox.list('AR', { limit: 500 }))).toEqual(all.slice(-500));
   });
 
   it('stores users and auth sessions with case-insensitive email lookup', () => {
@@ -491,5 +948,26 @@ describe('database', () => {
     expect(repos.authSessions.get('hash')?.userId).toBe('usr_1');
     expect(repos.authSessions.deleteExpired('2026-09-30T00:00:00.000Z')).toBe(1);
     expect(repos.authSessions.get('hash')).toBeNull();
+  });
+});
+
+describe('the work item column encoding (PM-475)', () => {
+  it('round-trips every work item, a general chat with a person too', () => {
+    for (const item of [
+      { type: 'task', taskKey: 'AR-1' },
+      { type: 'meeting', meetingId: 'mtg_1' },
+      { type: 'schedule', runId: 'run_1' },
+      { type: 'general' },
+      { type: 'general', with: 'cleo' },
+    ] as const) {
+      const { type, ref } = encodeWorkItem(item);
+      expect(decodeWorkItem(type, ref)).toEqual(item);
+    }
+  });
+
+  it('keeps the owners’ general chat as an empty ref, so no row needs a migration', () => {
+    expect(encodeWorkItem({ type: 'general' })).toEqual({ type: 'general', ref: '' });
+    expect(encodeWorkItem({ type: 'general', with: 'cleo' })).toEqual({ type: 'general', ref: 'cleo' });
+    expect(decodeWorkItem('general', '')).toEqual({ type: 'general' });
   });
 });

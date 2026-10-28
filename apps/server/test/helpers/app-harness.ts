@@ -1,17 +1,28 @@
+import { randomUUID } from 'node:crypto';
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { FastifyInstance, InjectOptions, LightMyRequestResponse } from 'fastify';
+import type { ProjectTemplate } from '@projectman/templates';
 import { vi } from 'vitest';
 import { routes } from '@projectman/shared';
 import type { HumanAccess, ProjectConfig } from '@projectman/shared';
 import { buildApp } from '../../src/app';
+import { withoutOnboarding } from './onboarding';
 import type { AppModules, BuildAppOptions } from '../../src/app';
-import type { BoundaryOperationAdapter, RuntimeBoundary } from '../../src/contracts';
-import { createTemplateRegistry, humanActor } from '../../src/domain';
-import type { ScheduleTimer } from '../../src/domain';
+import { createTemplateRegistry } from '../../src/core/base';
+import { bindSuperPrincipal, projectAccessFor } from '../../src/core/members';
+import type { ProjectAccess } from '../../src/core/members';
+import { humanActor } from '../../src/kernel';
+import type { ScheduleTimer } from '../../src/services/schedules';
 import { createRunnerModule } from '../../src/runner';
-import { FAKE_CLAUDE, FAKE_CODEX, FAKE_GEMINI, freePort } from '../../src/runner/test-helpers';
+import {
+  FAKE_CLAUDE,
+  FAKE_CODEX,
+  FAKE_GEMINI,
+  fixtureScopeProcesses,
+  freePort,
+} from '../../src/runner/test-helpers';
 import {
   createFakeMcp,
   createFakeRunnerModule,
@@ -21,36 +32,49 @@ import {
   FakeWorktreeManager,
 } from './fakes';
 import type { FakeMcp, FakeRunner, FakeRunnerModule } from './fakes';
+import { seedCustomizationRepository } from './customization-seed';
+import { seedDatabaseFile } from './database-seed';
 import { testTemplate } from './test-template';
 
 export const OWNER_LOGIN = { name: 'Owner', email: 'owner@example.com', password: 'correct horse battery' };
 
 export interface AppHarnessOptions {
   nanogptKeyCheck?: AppModules['nanogptKeyCheck'];
-  boundaryAdapter?: BoundaryOperationAdapter;
-  /** The VM boundary (PM-140); default: none. */
-  runtimeBoundary?: RuntimeBoundary;
   webDistDir?: string;
   now?: () => Date;
   scheduleTimer?: ScheduleTimer;
   /** What the machine display measures with (PM-320); default: the real probe of the operating system. */
   machineProbe?: AppModules['createMachineProbe'];
+  /** Templates registered next to the test template. */
+  extraTemplates?: ProjectTemplate[];
   /** Modules that stay real instead of being replaced by the fakes the harness returns. */
   real?: { context?: boolean; memory?: boolean; worktrees?: boolean; mcp?: boolean; templates?: boolean };
   /** Further buildApp options. */
   app?: Pick<
     BuildAppOptions,
+    | 'webPush'
+    | 'webPushTransport'
     | 'doneCleanupDelayMs'
+    | 'screenQuestions'
     | 'doneTurnLimitMs'
     | 'clientIpHeader'
+    | 'emailCodeMailer'
     | 'freeDiskBytes'
     | 'controlSocket'
     | 'shutdownPauseMs'
     | 'logger'
     | 'engineMode'
+    | 'publicBoard'
+    | 'integratorHostname'
     | 'setupCode'
+    | 'emailChannelSender'
+    | 'emailChannelEnv'
     | 'appVersion'
+    | 'appTag'
     | 'claudeTmpRoots'
+    | 'workRoot'
+    | 'feedbackPublicUrl'
+    | 'feedbackWidgetFile'
   >;
 }
 
@@ -59,7 +83,7 @@ export interface AppHarnessOptions {
  * free loopback port, which their hooks and MCP calls reach; HOME, CODEX_HOME and the fake
  * CLIs' config and transcript locations point into the temp directory.
  */
-export interface FakeCliOptions {
+interface FakeCliOptions {
   runner: 'fake-cli';
   /**
    * Pre-accepts Claude Code's trust dialog for the whole temp directory. Real worktrees need it:
@@ -79,6 +103,12 @@ interface HarnessBase {
   contextBuilder: FakeContextBuilder;
   memory: FakeMemoryStore;
   worktrees: FakeWorktreeManager;
+  /**
+   * Closes the app and builds it again over the same home and database with these further options (a start
+   * with other settings, for example a public board over an existing owner); returns the new app. A start that
+   * is refused rejects, and `close` then only removes the home.
+   */
+  relaunch(extra: NonNullable<AppHarnessOptions['app']>): Promise<FastifyInstance>;
   close(): Promise<void>;
 }
 
@@ -112,6 +142,8 @@ export async function createAppHarness(
   const home = realpathSync(mkdtempSync(join(tmpdir(), 'pm-app-')));
   const workspace = join(home, 'workspace');
   mkdirSync(workspace);
+  await seedCustomizationRepository(join(home, 'customization'));
+  seedDatabaseFile(join(home, 'db.sqlite'));
   const runnerModule = createFakeRunnerModule();
   const mcp = createFakeMcp();
   const github = new FakeGithub();
@@ -121,15 +153,15 @@ export async function createAppHarness(
   const real = opts.real ?? {};
   const modules: AppModules = {
     nanogptKeyCheck: opts.nanogptKeyCheck,
-    boundaryAdapter: opts.boundaryAdapter,
-    runtimeBoundary: opts.runtimeBoundary,
     createRunnerModule: (o) => runnerModule.create(o),
     createMcpModule: real.mcp ? undefined : (o) => mcp.create(o),
     github,
     contextPackBuilder: real.context ? undefined : contextBuilder,
     memberMemory: real.memory ? undefined : memory,
     worktrees: real.worktrees ? undefined : worktrees,
-    templates: real.templates ? undefined : createTemplateRegistry([testTemplate]),
+    templates: real.templates
+      ? undefined
+      : createTemplateRegistry([testTemplate, ...(opts.extraTemplates ?? [])]),
     createMachineProbe: opts.machineProbe,
   };
 
@@ -140,6 +172,8 @@ export async function createAppHarness(
   const port = cli ? await freePort() : 0;
   if (cli) {
     mkdirSync(userHome);
+    const scopeRecords = join(home, 'scope-records');
+    mkdirSync(scopeRecords);
     const projects = opts.trustAll ? { [home]: { hasTrustDialogAccepted: true } } : {};
     writeFileSync(claudeConfig, JSON.stringify({ numStartups: 1, projects }));
     // The fake CLIs read their locations from the environment they inherit.
@@ -147,8 +181,10 @@ export async function createAppHarness(
     vi.stubEnv('CODEX_HOME', codexHome);
     vi.stubEnv('FAKE_CLAUDE_CONFIG_FILE', claudeConfig);
     vi.stubEnv('FAKE_CLAUDE_TRANSCRIPT_DIR', join(userHome, 'transcripts'));
+    vi.stubEnv('FAKE_SCOPE_RECORDS_DIR', scopeRecords);
     modules.createRunnerModule = (options) => {
-      const module = createRunnerModule(options);
+      // Inspect only the disposable fake processes, independently of host-wide ps/env access.
+      const module = createRunnerModule({ ...options, scopeProcesses: fixtureScopeProcesses(scopeRecords) });
       // Fake CLI tests must not probe real subscription accounts or usage endpoints.
       return {
         ...module,
@@ -158,7 +194,7 @@ export async function createAppHarness(
     };
   }
 
-  const launch = async (): Promise<FastifyInstance> => {
+  const launch = async (extra: AppHarnessOptions['app'] = {}): Promise<FastifyInstance> => {
     const launched = await buildApp({
       home,
       now: opts.now,
@@ -167,11 +203,16 @@ export async function createAppHarness(
       webDistDir: opts.webDistDir ?? null,
       planUsageTtlMs: 0,
       doneCleanupDelayMs: 0,
+      // Questions go to the people at once, unless a test is about the Operator's screening (PM-558).
+      screenQuestions: false,
       // The tests must not depend on how full the disk they run on is.
       freeDiskBytes: async () => null,
       // Only the tests of the control command open the socket (PM-219).
       controlSocket: false,
+      // Fake sessions must not discover this machine's shared Claude directories.
+      claudeTmpRoots: [],
       ...opts.app,
+      ...extra,
       ...(cli
         ? {
             claudeBin: FAKE_CLAUDE,
@@ -200,6 +241,11 @@ export async function createAppHarness(
     contextBuilder,
     memory,
     worktrees,
+    async relaunch(extra) {
+      await app.close();
+      app = await launch(extra);
+      return app;
+    },
     async close() {
       try {
         await app.close();
@@ -255,20 +301,119 @@ export async function setupOwner(app: FastifyInstance): Promise<string> {
 }
 
 /** Creates project AR from the test template (workspace + one repo). */
-export async function createProject(h: HarnessBase, cookie: string): Promise<void> {
-  const res = await h.app.inject({
-    method: 'POST',
-    url: '/api/projects',
-    headers: { cookie },
-    payload: {
-      key: 'AR',
-      name: 'acme',
-      workspacePath: h.workspace,
-      templateId: 'test',
-      repos: [{ name: 'web', path: '.', github: 'acme/web' }],
-    },
-  });
+export async function createProject(h: HarnessBase, cookie: string, key = 'AR'): Promise<void> {
+  const res = await withoutOnboarding(h.app.projectman.domain, () =>
+    h.app.inject({
+      method: 'POST',
+      url: '/api/projects',
+      headers: { cookie },
+      payload: {
+        key,
+        name: key === 'AR' ? 'acme' : key.toLowerCase(),
+        workspacePath: h.workspace,
+        templateId: 'test',
+        repos: [{ name: 'web', path: '.', github: 'acme/web' }],
+      },
+    }),
+  );
   if (res.statusCode !== 201) throw new Error(`project creation failed: ${res.statusCode} ${res.body}`);
+}
+
+/**
+ * A project of another owner: the host owner creates it, then its owner member's e-mail becomes a stranger's, so
+ * the host owner holds no membership in it (the multi-owner case, PM-1058). Its key may sort before the first project's.
+ */
+export async function createForeignProject(
+  h: HarnessBase,
+  cookie: string,
+  key = 'BR',
+  ownerEmail = 'stranger@example.test',
+): Promise<void> {
+  const workspace = join(h.home, `workspace-${key.toLowerCase()}`);
+  mkdirSync(workspace);
+  const res = await withoutOnboarding(h.app.projectman.domain, () =>
+    h.app.inject({
+      method: 'POST',
+      url: '/api/projects',
+      headers: { cookie },
+      payload: {
+        key,
+        name: key.toLowerCase(),
+        workspacePath: workspace,
+        templateId: 'test',
+        repos: [{ name: 'web', path: '.', github: 'acme/web' }],
+      },
+    }),
+  );
+  if (res.statusCode !== 201) throw new Error(`project creation failed: ${res.statusCode} ${res.body}`);
+  await h.app.projectman.domain.projects.update(
+    key,
+    { actor: humanActor('owner'), author: OWNER_LOGIN },
+    (draft) => {
+      for (const member of draft.team.members)
+        if (member.kind === 'human' && member.email === OWNER_LOGIN.email) member.email = ownerEmail;
+      return 'Hand the project to another owner';
+    },
+  );
+}
+
+/**
+ * An owner account with a password (PM-1062) who owns the project `key` (made by the host owner, then handed over):
+ * the further owner whose own client connects with their own key (PM-1063). Returns their user id and e-mail.
+ */
+export async function createOwnerAccountWithProject(
+  h: HarnessBase,
+  hostCookie: string,
+  key = 'BR',
+  handle = 'tenant',
+): Promise<{ userId: string; email: string; cookie: string }> {
+  const cookie = await addHumanAndLogin(h.app, { handle, projectKey: null });
+  const { repos } = h.app.projectman;
+  const user = repos.users.findByEmail(`${handle}@example.test`)!;
+  repos.ownerAccounts.grant(user.id, repos.users.list()[0]!.id, new Date().toISOString());
+  await createForeignProject(h, hostCookie, key, user.email);
+  // The owner account created the project (the host made it only to skip the engine setup): the key's reach follows it.
+  repos.db.prepare('UPDATE projects SET created_by = ? WHERE key = ?').run(user.id, key);
+  return { userId: user.id, email: user.email, cookie };
+}
+
+/** What a project's creator can do to its editable team: list the host owner's e-mail as one more owner (PM-1063). */
+export async function addHostAsOwnerMember(h: HarnessBase, key: string): Promise<void> {
+  await h.app.projectman.domain.projects.update(
+    key,
+    { actor: humanActor('owner'), author: OWNER_LOGIN },
+    (draft) => {
+      for (const member of [...draft.team.members]) {
+        if (member.kind !== 'human' || member.access !== 'owner') continue;
+        draft.team.members.push({
+          ...structuredClone(member),
+          handle: 'host-copy',
+          email: OWNER_LOGIN.email,
+        });
+        break;
+      }
+      return 'List the host owner as an owner';
+    },
+  );
+}
+
+/**
+ * Runs `body` the way the external MCP does for a super key's secret in project AR: the credential is
+ * authenticated, the access bound to the owner's, and the call runs in the super operator's scope.
+ */
+export async function asSuperIntegrator<T>(
+  h: HarnessBase,
+  secret: string,
+  body: (access: ProjectAccess) => Promise<T>,
+): Promise<T> {
+  const { auth, domain } = h.app.projectman;
+  const principal = auth.resolveIntegratorCredential(secret, 'mcp')!;
+  const config = await domain.projects.config('AR');
+  const access = bindSuperPrincipal(config, projectAccessFor(config, OWNER_LOGIN.email)!, principal);
+  return domain.superOperator.run(
+    { principal, email: OWNER_LOGIN.email, requestId: randomUUID(), projectKey: 'AR' },
+    () => body(access),
+  );
 }
 
 export interface HumanLogin {

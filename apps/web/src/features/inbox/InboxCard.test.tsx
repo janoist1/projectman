@@ -1,12 +1,11 @@
 import { fireEvent, screen, within } from '@testing-library/react';
 import type { InboxItem } from '@projectman/shared';
-import { BoundaryRequest } from '@projectman/shared';
 import { describe, expect, it, vi } from 'vitest';
 import { t } from '../../i18n/t';
+import type { ApprovalHint } from '../../lib/inbox';
 import { inbox, plainLanguageQuestion } from '../../mocks/fixtures';
 import { mockIndexes, renderUi } from '../../test/render';
 import { InboxCard } from './InboxCard';
-import { boundaryInboxFixture } from '../../mocks/boundary-fixture';
 
 const { members, pipeline } = mockIndexes();
 
@@ -16,11 +15,15 @@ function item(id: string): InboxItem {
   return found;
 }
 
-function renderCard(entry: InboxItem, props: { mobile?: boolean; myHandle?: string } = {}) {
+function renderCard(
+  entry: InboxItem,
+  props: { mobile?: boolean; myHandle?: string; taskTitle?: string } = {},
+) {
   const onResolve = vi.fn();
   renderUi(
     <InboxCard
       item={entry}
+      taskTitle={props.taskTitle}
       members={members}
       myHandle={props.myHandle ?? 'owner'}
       pipeline={pipeline}
@@ -33,27 +36,6 @@ function renderCard(entry: InboxItem, props: { mobile?: boolean; myHandle?: stri
 }
 
 describe('InboxCard', () => {
-  it('shows the exact boundary target, scope, category, deadline and structured decision reason', () => {
-    const entry = boundaryInboxFixture();
-    const request = BoundaryRequest.parse(entry.payload.boundary);
-    request.target.branch = 'task-21';
-    entry.payload.boundary = request;
-    const { card, onResolve } = renderCard(entry);
-    expect(within(card).getByText('https://example.test/docs')).toBeTruthy();
-    expect(within(card).getByText(t('boundary.scope'))).toBeTruthy();
-    expect(within(card).getByText(t('boundary.branch', { branch: 'task-21' }))).toBeTruthy();
-    expect(
-      within(card).getByText(
-        t('boundary.environment', { environment: t('boundary.environments.development') }),
-      ),
-    ).toBeTruthy();
-    expect(within(card).getByText(new RegExp(t('boundary.categories.delegable')))).toBeTruthy();
-    fireEvent.change(within(card).getByLabelText(t('boundary.reason')), {
-      target: { value: 'insufficient_context' },
-    });
-    fireEvent.click(within(card).getByRole('button', { name: t('inbox.options.deny') }));
-    expect(onResolve).toHaveBeenCalledWith(entry, { optionId: 'deny', note: 'insufficient_context' });
-  });
   it('shows a permission request with the command and resolves it with the built-in options', () => {
     const entry = item('inb_perm_push');
     const { onResolve, card } = renderCard(entry);
@@ -143,6 +125,13 @@ describe('InboxCard', () => {
     });
   });
 
+  it('moves the focus into the field when the own answer button opens it', () => {
+    const { card } = renderCard(item('inb_q_ga4'));
+    expect(within(card).queryByLabelText(t('inbox.answerLabel'))).toBeNull();
+    fireEvent.click(within(card).getByRole('button', { name: t('inbox.options.answer') }));
+    expect(document.activeElement).toBe(within(card).getByLabelText(t('inbox.answerLabel')));
+  });
+
   it('names the stage move of a gate decision and approves or rejects it', () => {
     const entry = item('inb_dec_release');
     const { onResolve, card } = renderCard(entry);
@@ -152,6 +141,27 @@ describe('InboxCard', () => {
     expect(onResolve).toHaveBeenCalledWith(entry, { optionId: 'approve' });
     fireEvent.click(within(card).getByRole('button', { name: t('inbox.options.reject') }));
     expect(onResolve).toHaveBeenLastCalledWith(entry, { optionId: 'reject' });
+  });
+
+  it('names the approval a gate decision asks for when the request carries its label (PM-445)', () => {
+    const entry = item('inb_dec_release');
+    const labelled: InboxItem = {
+      ...entry,
+      payload: { gate: { ...(entry.payload.gate as object), label: 'release-approved' } },
+    };
+    renderUi(
+      <InboxCard
+        item={labelled}
+        members={members}
+        myHandle="owner"
+        pipeline={pipeline}
+        labels={[{ id: 'release-approved', name: 'Élesítés jóváhagyva', holders: [] } as never]}
+        onResolve={vi.fn()}
+      />,
+    );
+    expect(
+      screen.getByRole('heading', { name: 'Jóváhagyás: „Élesítés jóváhagyva” · Merge → Élesítés' }),
+    ).toBeTruthy();
   });
 
   it('shows items meant for someone else without actions', () => {
@@ -504,5 +514,215 @@ describe('InboxCard: a question that explains itself', () => {
     // One row, as before: the options sit beside each other, not in separate list entries.
     expect(new Set(buttons.map((button) => button.parentElement)).size).toBe(1);
     expect(buttons.every((button) => !button.hasAttribute('aria-describedby'))).toBe(true);
+  });
+});
+
+describe('InboxCard "Vidd tovább" (PM-461)', () => {
+  const handOn: InboxItem = {
+    id: 'inb_hand_on',
+    projectKey: 'AC',
+    kind: 'hand_on',
+    assignees: ['owner'],
+    source: 'be-1',
+    sessionId: null,
+    taskKey: 'AC-24',
+    title: 'Hibariasztás a fizetési hibákról',
+    body: null,
+    payload: {
+      handOn: { taskKey: 'AC-24', fromStageId: 'dev', toStageId: 'code_review', requestedBy: 'be-1' },
+    },
+    options: [{ id: 'move', label: 'move', style: 'primary' }],
+    state: 'open',
+    resolution: null,
+    createdAt: '2026-10-01T10:00:00.000Z',
+  };
+  const next = pipeline.stageById.get('code_review')!.name;
+  const from = pipeline.stageById.get('dev')!.name;
+
+  it('says who finished, which step and the next column, and offers "Tovább" and "Megnyitom"', () => {
+    const { card, onResolve } = renderCard(handOn);
+    expect(within(card).getByText(t('inbox.kinds.hand_on'))).toBeTruthy();
+    expect(card.textContent).toContain(`végzett ebben a lépésben: ${from}. A következő oszlop: ${next}.`);
+    expect(within(card).getByText(next).tagName).toBe('STRONG');
+    const buttons = within(card).getAllByRole('button');
+    expect(buttons.map((button) => button.textContent)).toEqual([t('inbox.handOn.move', { stage: next })]);
+    expect(within(card).getByRole('link', { name: t('inbox.handOn.open') })).toBeTruthy();
+    fireEvent.click(buttons[0]!);
+    expect(onResolve).toHaveBeenCalledWith(handOn, { optionId: 'move' });
+  });
+
+  it('leaves out the small card title line: the heading already names the card', () => {
+    const { card } = renderCard(handOn, { taskTitle: 'A kártya saját címe' });
+    expect(within(card).queryByText('A kártya saját címe')).toBeNull();
+  });
+
+  it('keeps that line on the other kinds of items', () => {
+    const { card } = renderCard(item('inb_q_ga4'), { taskTitle: 'A kártya saját címe' });
+    expect(within(card).getByText('A kártya saját címe')).toBeTruthy();
+  });
+
+  it('does not offer the details link twice on the phone', () => {
+    const { card } = renderCard(handOn, { mobile: true });
+    expect(within(card).getAllByRole('link')).toHaveLength(1);
+  });
+
+  it('shows why the move was refused on the card, as an alert', () => {
+    const onResolve = vi.fn();
+    renderUi(
+      <InboxCard
+        item={handOn}
+        members={members}
+        myHandle="owner"
+        pipeline={pipeline}
+        onResolve={onResolve}
+        error="A kártya még nem léphet tovább: hiányzik a Code review rendben."
+        detailsHref="/p/AC/tasks/AC-24"
+      />,
+    );
+    const alert = screen.getByRole('alert');
+    expect(alert.textContent).toBe('A kártya még nem léphet tovább: hiányzik a Code review rendben.');
+    // The item stays and the button works again.
+    expect(screen.getByRole('button', { name: t('inbox.handOn.move', { stage: next }) })).toHaveProperty(
+      'disabled',
+      false,
+    );
+  });
+});
+
+describe('InboxCard approval items (PM-484)', () => {
+  const labels = [{ id: 'merge-approved', name: 'Merge jóváhagyva', holders: [] } as never];
+  const quoted = t('taskStatus.quoted', { name: 'Merge jóváhagyva' });
+  const gateItem = (merge?: { merger: string; base: string }): InboxItem => ({
+    ...item('inb_dec_release'),
+    id: 'inb_gate_merge',
+    assignees: ['owner'],
+    payload: {
+      gate: {
+        requestId: 'gr_merge',
+        taskKey: 'AC-17',
+        fromStageId: 'merge',
+        toStageId: 'release',
+        stageId: 'release',
+        label: 'merge-approved',
+        requestedBy: { kind: 'ai', handle: 'devops' },
+        ...(merge ? { merge } : {}),
+      },
+    },
+  });
+  const question: InboxItem = {
+    ...item('inb_q_variant'),
+    id: 'inb_q_approval',
+    taskKey: 'AC-17',
+    assignees: ['owner'],
+    payload: { question: 'Jóváhagyod a beolvasztást?', approvalLabel: 'merge-approved' },
+  };
+
+  function renderQuestion(hint: ApprovalHint | null, props: { mobile?: boolean } = {}) {
+    return renderUi(
+      <>
+        <InboxCard
+          item={question}
+          members={members}
+          myHandle="owner"
+          pipeline={pipeline}
+          labels={labels}
+          approvalHint={hint}
+          cardHref="/p/AC/tasks/AC-17"
+          mobile={props.mobile}
+          onResolve={vi.fn()}
+        />
+        <InboxCard
+          item={gateItem()}
+          members={members}
+          myHandle="owner"
+          pipeline={pipeline}
+          labels={labels}
+          onResolve={vi.fn()}
+        />
+      </>,
+    );
+  }
+
+  it('says under the approval that a merge follows, and that you merge when you do', () => {
+    const merge = { merger: 'devops', base: 'main' };
+    const { unmount } = renderUi(
+      <InboxCard
+        item={gateItem(merge)}
+        members={members}
+        myHandle="owner"
+        pipeline={pipeline}
+        labels={labels}
+        onResolve={vi.fn()}
+      />,
+    );
+    const to = 'Élesítés';
+    expect(screen.getByText(new RegExp('^Jóváhagyás után .+ beolvasztja a main ágba')).textContent).toContain(
+      to,
+    );
+    unmount();
+    renderUi(
+      <InboxCard
+        item={gateItem({ merger: 'owner', base: 'main' })}
+        members={members}
+        myHandle="owner"
+        pipeline={pipeline}
+        labels={labels}
+        onResolve={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(t('inbox.gateThenMergeYou', { base: 'main', to }))).toBeTruthy();
+  });
+
+  it('has no merge line on an approval that names no merge', () => {
+    renderUi(
+      <InboxCard
+        item={gateItem()}
+        members={members}
+        myHandle="owner"
+        pipeline={pipeline}
+        labels={labels}
+        onResolve={vi.fn()}
+      />,
+    );
+    expect(screen.queryByText(/^Jóváhagyás után/)).toBeNull();
+  });
+
+  it('tells that the answer sets no label, and jumps to the approval item with the focus on its title', () => {
+    const scroll = vi.fn();
+    Element.prototype.scrollIntoView = scroll;
+    renderQuestion({ kind: 'jump', label: 'merge-approved', gateItemId: 'inb_gate_merge' });
+    expect(screen.getByText(t('inbox.question.notApproval.text', { label: quoted }))).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: t('inbox.question.notApproval.jump') }));
+    expect(scroll).toHaveBeenCalledTimes(1);
+    const target = document.getElementById('inbox-item-inb_gate_merge')!;
+    expect(target.getAttribute('data-flash')).toBe('on');
+    expect(document.activeElement).toBe(target.querySelector('[data-inbox-title]'));
+  });
+
+  it('names who can give the approval when it is for others, without a link', () => {
+    renderQuestion({ kind: 'others', label: 'merge-approved', approvers: ['kata'] });
+    expect(screen.getByText(t('inbox.question.notApproval.others', { names: 'Kata' }))).toBeTruthy();
+    expect(screen.queryByRole('button', { name: t('inbox.question.notApproval.jump') })).toBeNull();
+  });
+
+  it('leads to the card when no approval request is open', () => {
+    renderQuestion({ kind: 'none', label: 'merge-approved', taskKey: 'AC-17' });
+    expect(screen.getByText(t('inbox.question.notApproval.none'))).toBeTruthy();
+    expect(
+      screen
+        .getByRole('link', { name: new RegExp(t('inbox.question.notApproval.openCard')) })
+        .getAttribute('href'),
+    ).toBe('/p/AC/tasks/AC-17');
+  });
+
+  it('says the label is already on the card', () => {
+    renderQuestion({ kind: 'done', label: 'merge-approved' });
+    expect(screen.getByText(t('inbox.question.notApproval.done', { label: quoted }))).toBeTruthy();
+    expect(screen.queryByText(t('inbox.question.notApproval.text', { label: quoted }))).toBeNull();
+  });
+
+  it('shows no note on a question that asks for no approval', () => {
+    renderQuestion(null);
+    expect(document.querySelector('[data-approval-hint]')).toBeNull();
   });
 });

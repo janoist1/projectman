@@ -2,6 +2,53 @@ import { lowerFirstWord, type TemplateLocale } from './types';
 
 /** English default display names and role texts. */
 export const en: TemplateLocale = {
+  checklist: {
+    items: {
+      goal: { title: 'Project goal', hint: 'Agree on the goal and what success means.' },
+      code: { title: 'Source code', hint: 'Connect the project repository.' },
+      engine: {
+        title: 'Engine',
+        hint: "The project's work runs on its engine: it must be connected and hold the project's folder (`project set`).",
+      },
+      providers: { title: 'AI providers', hint: 'Check the subscriptions used by the team.' },
+      team: { title: 'Team', hint: 'Choose the members and their responsibilities.' },
+      process: { title: 'Workflow', hint: 'Agree on the stages and review requirements.' },
+      labels: { title: 'Labels', hint: 'Choose labels that describe work and approvals.' },
+      clients: { title: 'Clients', hint: 'Decide who participates from the client side.' },
+      release: { title: 'Release', hint: 'Agree on how changes reach users.' },
+      agreement: { title: 'Working agreement', hint: 'Approve how the Operator works with you.' },
+      first_task: { title: 'First task', hint: 'Create the first task.' },
+      code_review: {
+        title: 'Code review',
+        hint: 'Have a review stage that asks for the code review approval.',
+      },
+      guests: { title: 'Client guests', hint: 'Invite the people from the client side who follow the work.' },
+      feedback_marks: { title: 'Feedback marks', hint: 'Set up a surface where the client can leave marks.' },
+      qa: { title: 'Quality assurance', hint: 'Have a member who tests the acceptance criteria.' },
+      client_test: { title: 'Client test', hint: 'Agree on how the client tries out finished work.' },
+      deploy: { title: 'Deployment', hint: 'Agree on where and how a finished version is deployed.' },
+      schedule: { title: 'Schedule', hint: 'Set when and how often the daily work runs.' },
+    },
+  },
+  webPush: {
+    title: {
+      question: 'A new question awaits you',
+      decision: 'A new decision awaits you',
+      approval: 'An approval awaits you',
+      permission: 'A permission request awaits you',
+      release: 'A release awaits your approval',
+      host_request: 'A request has come to you',
+    },
+    digest: { title: '{n} items await you', body: 'They arrived during quiet hours.' },
+    test: { title: 'Test notification', body: 'If you see this, it works.' },
+  },
+  structuralReview: {
+    details:
+      'After approval the PM rechecks the evidence and selects a technical direction holder with free capacity. The review re-reads the affected cards and responsibility boundaries and reports a few suggestions, including no change when appropriate. It never creates cards or starts a refactor automatically.',
+    question: 'Start an occasional architecture review?',
+    approve: 'Approve review',
+    reject: 'No review needed now',
+  },
   language: 'en',
   timezone: 'UTC',
   columns: {
@@ -28,9 +75,9 @@ export const en: TemplateLocale = {
   },
   duties: {
     boundary_authorization: {
-      name: 'External operation authorization',
+      name: 'Permission request decisions',
       description:
-        'Decide delegated external operations. Cost, production, new credentials and permanent host expansion require an owner.',
+        'Decide delegated permission requests. Cost, production, new credentials and permanent host expansion require an owner.',
     },
     prioritization: {
       name: 'Prioritization',
@@ -106,6 +153,11 @@ export const en: TemplateLocale = {
       name: 'Client communication',
       description: 'Draft client updates and test requests. Obtain approval before sending.',
     },
+    feedback_processing: {
+      name: 'Feedback processing',
+      description:
+        'Decide each feedback mark: answer it, open a card or link one. Forward what needs the owner.',
+    },
     support: { name: 'Support', description: 'Reproduce reported problems. Prepare clear support tasks.' },
     standup_facilitation: {
       name: 'Standup facilitation',
@@ -131,10 +183,15 @@ export const en: TemplateLocale = {
       name: 'Final decision',
       description: 'Settle escalated decisions. Only humans may hold this duty.',
     },
+    project_operation: {
+      name: 'Project operation',
+      description:
+        "Change how the project works at the owner's request. Only AI may hold this duty, and only on request.",
+    },
   },
   roles: {
     operator: {
-      name: 'Operator',
+      name: 'Owner',
       summary:
         'Runs and oversees the system, brings any work that goes off track back on course, and has the final say.',
       notTheirJob: 'Does not do the day-to-day tasks: directs the team rather than replacing it.',
@@ -149,7 +206,8 @@ export const en: TemplateLocale = {
     },
     project_manager: {
       name: 'Project manager',
-      summary: 'Runs the schedule: standups, planning, deadlines, reminders and the weekly report.',
+      summary:
+        'Runs the schedule: standups, planning, deadlines, reminders and the weekly report. Maintains the decision log and roadmap on the owner’s request or yes, offers decision candidates, and records lessons.',
       notTheirJob: 'Does not set priorities or run the retro.',
       whenToAsk:
         'When you want to know where the work stands and what is due when, or need a reminder or a report.',
@@ -186,9 +244,9 @@ export const en: TemplateLocale = {
     },
     lead_developer: {
       name: 'Lead developer',
-      summary: 'Set technical direction, review completed work and decide delegated external operations.',
+      summary: 'Set technical direction, review completed work and decide delegated permission requests.',
       notTheirJob: 'Never decide your own requests or owner exceptions.',
-      whenToAsk: 'Technical direction, review or delegated external operation authorization.',
+      whenToAsk: 'Technical direction, review or delegated permission request decisions.',
     },
     code_review: {
       name: 'Code reviewer',
@@ -253,7 +311,7 @@ export const en: TemplateLocale = {
     watchdog: {
       name: 'Watchdog',
       summary:
-        "The operator's helper: flags when a member is stuck, goes in circles, uses too much or oversteps their role.",
+        "The owner's helper: flags when a member is stuck, goes in circles, uses too much or oversteps their role.",
       notTheirJob: 'Does not intervene, only flags.',
       whenToAsk: 'When you suspect that a member is stuck or uses too much.',
     },
@@ -287,6 +345,13 @@ export const en: TemplateLocale = {
     done: 'Done',
     newCard: 'New card',
     forwarded: 'Forwarded',
+    waiting: 'Waiting for you',
+    nothing: 'Nothing.',
+  },
+  operatorReport: {
+    done: 'Done',
+    decision: 'Decision needed',
+    approval: 'Needs your approval',
     waiting: 'Waiting for you',
     nothing: 'Nothing.',
   },
@@ -343,6 +408,91 @@ export const en: TemplateLocale = {
       meaning:
         'The card is worked out before development, one step at a time, by one member at a time; the system takes the label off when it is done.',
     },
+  },
+  emailLoginCode: {
+    subject: 'Your login code',
+    text: ({ code, validUntil }) =>
+      `Your login code: ${code}\n\nThe code works once and is valid until ${validUntil}.\n\nIf you did not ask for it, ignore this message.\n`,
+  },
+  email: {
+    quoteHeader: ({ date, name }) => `On ${date}, ${name} wrote:`,
+    firstNotice: ({ member, project }) =>
+      `${member} (AI member, ${project} project). If you'd rather not get more e-mail, just reply and say so.`,
+  },
+  fixLimitItem: {
+    title: 'Fix round limit: {key}',
+    summary: '{key} did not pass after {rounds} fix rounds ({parts}). {reason}',
+    parts: {
+      changes: '{count} code review',
+      design: '{count} UI/UX review',
+      testsFailed: '{count} failed full test',
+      sendBacks: '{count} manual send-back',
+    },
+    reasons: {
+      no_ai_decider: 'No AI member can decide it (technical direction and code review).',
+      passed_on: '{name} passed it on.',
+      extra_exhausted: 'The 3 extra rounds are used up and it reached the limit again.',
+      decider_timeout: 'The AI decider did not decide before the deadline.',
+      again: 'It reached the limit again after one more round.',
+    },
+    extras: {
+      left: 'Extra rounds: {used} of 3 given, {left} left.',
+      none: 'Extra rounds: {used} of 3 given, none left.',
+      over: 'Extra rounds: {used} given (the limit is 3), none left.',
+    },
+    verdict: { title: "{name}'s assessment", repeat: 'Does it recur?', now: 'Where is it now?' },
+    rounds: {
+      heading: 'Rounds ({count}):',
+      technicalCount: '{count} technical re-handover does not count',
+      counted: '{n}.',
+      technicalMarker: '-',
+      grantMarker: '+{n}',
+      kind: {
+        code_review: 'Code review · {name}',
+        design_review: 'UI/UX review · {name}',
+        tests_failed: 'Failed full test',
+        tests_failed_command: 'Failed full test: {command}',
+        tests_failed_commit: 'Failed full test ({commit})',
+        send_back: 'Sent back · {name}',
+        send_back_no_note: 'Sent back · {name} (no note)',
+        branch_moved: 'Technical re-handover: the branch moved',
+        branch_moved_moves: 'Technical re-handover: the branch moved ({from} -> {to})',
+        extra_round: 'One more round ({index}/3) · {name}',
+        extra_round_over: 'One more round ({index}, over the 3) · {name}',
+      },
+      notCounted: ' (does not count as a round)',
+      note: ': "{note}"',
+    },
+    options: {
+      heading: 'Options:',
+      recommended: 'recommended: {reason}',
+      unavailable: {
+        replan: 'not available now: no other AI member could make the plan more exact.',
+        reassign: 'not available now: no other AI developer could take the card.',
+      },
+      label: { replan: 'More exact plan', reassign: 'Another developer', another_round: 'One more round' },
+      consequence: {
+        replan:
+          'Another technical direction AI member makes the plan more exact or splits the card; when it lets go, the count begins again.',
+        reassign:
+          'Another developer takes the card with a fresh session; the count begins again. The current developer session stops.',
+        another_round: 'The developer gets the waiting messages and one more round.',
+        another_round_over:
+          'The developer gets the waiting messages and one more round. If it reaches the limit again, a person must decide again.',
+      },
+    },
+    footer: {
+      integrator:
+        'This item is for the integrator: it picks one of the options above, or passes it to the owner with a reason.',
+      owner: 'This item is for the owner.',
+    },
+  },
+  systemFeedback: {
+    what: 'What happened',
+    workaround: 'How it was worked around',
+    fix: 'What the fix would be',
+    version: 'projectman version',
+    occurrences: 'Occurrences',
   },
   stageApproval: (stageName) => `${stageName}: approved`,
   specialist: (specialty, roleName) => `${specialty} ${lowerFirstWord(roleName)}`,

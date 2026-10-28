@@ -8,10 +8,13 @@ import type {
   HandoffFallbackReason,
   HandoffSummary,
   MemberView,
+  OperatorPreferenceData,
+  OperatorKnowledgeDocument,
   PausePoint,
   PreviousConversationReason,
   FocusPlace,
   ProjectConfig,
+  ProjectChecklist,
   SessionState,
   Stage,
   Task,
@@ -27,6 +30,12 @@ import type {
  */
 
 export interface ContextPackInput {
+  /** Preview only: placement and its sandbox have not been allocated. */
+  placementDeferred?: true;
+  /** Current checklist data for the selected project manager; absent for other members or older projects. */
+  checklist?: Pick<ProjectChecklist, 'items'>;
+  /** The instance's host is not among the project's owners (PM-1069): the onboarding covers the owner's own machine. */
+  hostOutsideOwners?: true;
   /**
    * The server runs the full test before review on this task's handed-over commits (PM-217, PM-332): the
    * executor is available and the task's repository has a `reviewTest`. The developer's steps then ask
@@ -53,6 +62,10 @@ export interface ContextPackInput {
   team: MemberView[];
   /** The member's own durable memory (markdown). */
   memory: string;
+  /** Only the current human's enumerated conversational style; never authorization. */
+  operatorPreference?: OperatorPreferenceData;
+  /** Approved shared data only; application markers and preferences never cross this port. */
+  operatorKnowledge?: Pick<OperatorKnowledgeDocument, 'revision' | 'agreement' | 'principles'>;
   /**
    * The task's readable attachments (metadata only, oldest first), listed in the kick-off brief.
    * Omitted (or empty) when the task has none or the work item is not a task.
@@ -176,7 +189,45 @@ export interface RelatedSession {
   state: SessionState;
 }
 
+export const GUIDE_TOPICS = ['commands', 'rules', 'role', 'sandbox', 'operations'] as const;
+export type GuideTopic = (typeof GUIDE_TOPICS)[number];
+
+const PROMPT_SECTION_IDS = [
+  'identity',
+  'team',
+  'teamwork',
+  'token_economy',
+  'pipeline',
+  'labels',
+  'email_channel',
+  'team_rules',
+  'work_item',
+  'session_policy',
+  'workspace',
+  'commands',
+  'heavy_commands',
+  'untested_checks',
+  'session_folder',
+  'cheap_subagent',
+  'guardrails',
+  'role',
+  'checklist',
+  'operator_knowledge',
+  'operator_preference',
+  'memory',
+] as const;
+export type PromptSectionId = (typeof PROMPT_SECTION_IDS)[number];
+export interface PromptSection {
+  id: PromptSectionId;
+  title: string;
+  text: string;
+}
+
 export interface ContextPack {
+  /** Nonempty sections in prompt order; joining their text reconstructs appendSystemPrompt. */
+  sections: PromptSection[];
+  /** On-demand details for topics indexed in the prompt (get_guide). */
+  guide: Partial<Record<GuideTopic, string>>;
   /**
    * Identity, team, how the team works, pipeline and labels, the current work item and its
    * steps, guardrails, role instructions, memory. English prompt text, rebuilt on every start
@@ -294,6 +345,22 @@ export type DependencyRefreshResult =
   | { status: 'skipped'; reason: DependencySkip };
 
 export interface WorktreeManager {
+  ensureMergeFix(args: {
+    project: ProjectConfig;
+    repoName: string;
+    taskKey: string;
+    commit: string;
+  }): Promise<WorktreeInfo>;
+  findMergeFix(args: {
+    project: ProjectConfig;
+    repoName: string;
+    taskKey: string;
+  }): Promise<WorktreeInfo | null>;
+  removeMergeFix(args: { project: ProjectConfig; repoName: string; taskKey: string }): Promise<void>;
+  listMergeFixes(args: {
+    project: ProjectConfig;
+    repoName: string;
+  }): Promise<Array<{ taskKey: string; path: string }>>;
   /** Clones missing or stale task dependencies. Never rejects or installs packages. */
   refreshDependencies(path: string): Promise<DependencyRefreshResult>;
   /** The head and cleanliness of a task worktree; null when it is detached or has no commit. */
@@ -353,7 +420,10 @@ export interface WorkspaceCheckout {
 export interface WorkspaceSource {
   /** A repository the server may read: a member workspace or the project's repository. */
   path: string;
-  /** Full ref name, e.g. `refs/heads/AR-2-fix` or `refs/remotes/origin/AR-2-fix`. */
+  /**
+   * Full ref name, e.g. `refs/heads/AR-2-fix`, `refs/remotes/origin/AR-2-fix` or a handed-over
+   * snapshot `refs/projectman/workspaces/<member>/<TASK-KEY>/<commit>` (PM-739).
+   */
   ref: string;
 }
 
@@ -371,9 +441,49 @@ export interface WorkspaceSource {
 export type MemberWorkspaceErrorCode =
   | 'workspace_dirty'
   | 'workspace_fetch_failed'
+  | 'workspace_dependencies_pending'
+  | 'workspace_dependencies_failed'
   | 'workspace_branch_missing'
   | 'workspace_source_missing'
   | 'workspace_invalid';
+
+export type WorkspaceDependenciesResult =
+  { status: 'ready'; key: string; changed: boolean } | { status: 'skipped'; reason: 'not_configured' };
+
+export type WorkspaceDependencyFailure =
+  | 'invalid_inputs'
+  | 'install_failed'
+  | 'timeout'
+  | 'aborted'
+  | 'heavy_lock_timeout'
+  | 'heavy_lock_unavailable'
+  | 'sandbox_unavailable';
+
+export interface WorkspaceDependencyRequest {
+  project: string;
+  member: string;
+  repo: string;
+  /** The manager's independent clone, at its real path. */
+  repoPath: string;
+}
+
+export interface WorkspaceDependencyInstaller {
+  /** Starts or joins preparation; throws workspace_dependencies_pending after waitMs. */
+  prepare(
+    request: WorkspaceDependencyRequest,
+    opts: { waitMs: number },
+  ): Promise<WorkspaceDependenciesResult>;
+  busy(repoPath: string): boolean;
+  /**
+   * PM-1083: keeps the engine's own checkout of a repository (`repos[].path`) installed when its
+   * `workspaceSetup` is npm_ci. A fresh checkout (hidden npm lockfile not older than package-lock.json)
+   * is a no-op; otherwise the same sandboxed preparation as a member clone runs in the background,
+   * with its own marker sha256(JSON [project, repo]). Never throws: a failure is logged.
+   */
+  refreshCheckout(request: { project: string; repo: string; repoPath: string }): void;
+  /** Aborts all preparations and awaits their process groups. */
+  close(): Promise<void>;
+}
 
 export interface MemberWorkspaceManager {
   /** Where the workspace is (or would be), without creating anything. */
@@ -381,7 +491,6 @@ export interface MemberWorkspaceManager {
   /**
    * The member's own directory for sessions with no repository to work in (a general chat, a
    * schedule run, a task without a repository), made when missing: `<root>/<PROJECT>/<handle>/.home`
-   * (PM-141, the managed VM's `member_workspace` placement).
    */
   home(key: { projectKey: string; member: string }): Promise<string>;
   /**
@@ -406,6 +515,11 @@ export interface MemberWorkspaceManager {
    * and returns its commit; `workspace_fetch_failed` when a fetch fails.
    */
   fetchBase(key: MemberWorkspaceKey): Promise<{ branch: string; commit: string }>;
+  /** Prepares dependencies before launch, outside the member session. Default wait: 45 seconds. */
+  prepareDependencies(
+    key: MemberWorkspaceKey,
+    opts?: { waitMs?: number },
+  ): Promise<WorkspaceDependenciesResult>;
   /**
    * A branch of `taskKey` (`<KEY>` or `<KEY>-*`, `preferred` first): in the workspace (`source`
    * null), else in the project repository's branches or its `origin` tracking branches.
@@ -440,19 +554,24 @@ export interface MemberWorkspaceManager {
     commit: string,
   ): Promise<WorkspaceCheckout>;
   /**
-   * Where the server reads a committed branch of the workspace from (publishing, PM-142): the
-   * workspace itself when the server owns its files, else a bundle (`bundle: true`) the member's
-   * worker made of that branch, copied into the server's own spool, so the server never runs git
-   * in a worker's repository (PM-140). `done` removes what was made.
+   * Hands the developer's committed work over to the project repository (PM-739), where reviewers
+   * and the merge can read it: `commit` (a full object id on the developer's `branch` of `taskKey`)
+   * becomes the ref `refs/projectman/workspaces/<member>/<TASK-KEY>/<commit>` there. The ref is
+   * made once and never moved: an existing one at the same commit is reused, one at another commit
+   * is `workspace_source_missing`, as is a commit that is not on the branch (any more). A branch
+   * or ref of the project repository is never written. Returns the project repository and that ref.
    */
-  exportBranch(
+  publishTaskBranch(
     key: MemberWorkspaceKey,
+    taskKey: string,
     branch: string,
-  ): Promise<{ path: string; bundle: boolean; done(): Promise<void> }>;
+    commit: string,
+  ): Promise<WorkspaceSource>;
 }
 
 export interface MemberWorkspaceManagerOptions {
   /** Where member workspaces live, e.g. ~/.projectman/workspaces. */
   rootDir: string;
   logger: FastifyBaseLogger;
+  dependencies?: WorkspaceDependencyInstaller;
 }

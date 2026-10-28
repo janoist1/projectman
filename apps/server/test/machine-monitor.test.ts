@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { MachineView, Session } from '@projectman/shared';
 import type { FastifyBaseLogger } from 'fastify';
 import type { MachineProbe, MachineSnapshot, ProcessRecord, RunningSessionInfo } from '../src/contracts';
-import { MachineMonitor } from '../src/domain';
+import { MachineMonitor } from '../src/runtime/watchers';
 
 const MB = 1024 * 1024;
 const T0 = Date.parse('2026-10-04T10:00:00Z');
@@ -117,6 +117,7 @@ function makeProbe(): FakeProbe {
 
 function proc(pid: number, ppid: number, args: string, over: Partial<ProcessRecord> = {}): ProcessRecord {
   return {
+    pgid: null,
     pid,
     ppid,
     uid: MY_UID,

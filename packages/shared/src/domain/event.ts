@@ -1,6 +1,20 @@
 import { z } from 'zod';
-import type { DeveloperLevel } from './developer-level';
+import type { ConfigChangeRow } from '../config/operator';
+import type { OperatorKnowledgeChange } from './operator-knowledge';
+import type { ComplexityPoints } from './complexity';
+import type { FixLimitAssessment } from './fix-limit';
 import type { FullTestErrorReason } from './full-test';
+import type { MergeBlockReason, MergeFailure, TaskMerged } from './merge';
+import type { MergeCheckRunner } from './merge-test';
+import type {
+  QuestionCloseRule,
+  QuestionTodo,
+  ScreeningOutcome,
+  QuestionRecipient,
+  QuestionRecipientRefusal,
+} from './inbox';
+import type { ObligationKind } from './obligation';
+import type { MemberQueueCloseReason, MemberQueueItemKind } from './member-queue';
 import type { SessionStop } from './involvement';
 import type { LabelChangeReason } from './label';
 import type { HandoffFallbackReason, HandoffReason, PreviousConversationReason } from './handoff';
@@ -8,16 +22,46 @@ import type { CardVersion, MessageKind } from './message';
 import { MemberHandle, type AgentProvider } from './member';
 import type { PauseScopeKind, PauseSource } from './pause';
 import type { GateCondition } from './pipeline';
+import type { ReleaseFailure, ReleaseState } from './release';
+import { ActorCredential, ActorThrough, actorOriginIssue } from './actor-origin';
+// The origin helpers (`hasSuperOrigin`, `SuperActor`, ...) live in actor-origin.ts, a leaf of the domain.
 import { TaskKey } from './task';
-import type { TaskPriority } from './task';
+import type { TaskPriority, TaskStartWaiting } from './task';
 
-/** Who did something. Every step is attributed to a human, an AI member or the system. */
-export const Actor = z.object({
-  kind: z.enum(['human', 'ai', 'system']),
-  handle: MemberHandle.nullable(),
-  via: z.literal('integrator').optional(),
-});
+/**
+ * Who did something. Every step is attributed to a human, an AI member or the system.
+ * `operatorMode` and `credential` (PM-757) mark the Operator's super mode: the project's Operator
+ * (`handle`, computed by the server) acting through the integrator, with the credential's id and prefix.
+ * `through` and `approvedBy` (decision 66) mark a connected Claude's step: who acted (`handle`: the holder
+ * in person, or the issuer of the queue item worked on), through whose Claude and key, and who approved it.
+ * Older steps (a person through the integrator key: `via` alone) stay valid as they are.
+ */
+export const Actor = z
+  .object({
+    kind: z.enum(['human', 'ai', 'system']),
+    handle: MemberHandle.nullable(),
+    via: z.literal('integrator').optional(),
+    operatorMode: z.literal('super').optional(),
+    credential: ActorCredential.optional(),
+    through: ActorThrough.optional(),
+    approvedBy: MemberHandle.optional(),
+  })
+  .superRefine((actor, ctx) => {
+    const issue = actorOriginIssue(actor);
+    if (issue) ctx.addIssue({ code: 'custom', message: issue });
+  });
 export type Actor = z.infer<typeof Actor>;
+
+/** A note excerpt belongs only to the call that supplied it. */
+export function timelineNoteExcerpt(note: unknown): string | undefined {
+  return typeof note === 'string'
+    ? note
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .find(Boolean)
+        ?.slice(0, 500)
+    : undefined;
+}
 
 export const TimelineEventType = z.enum([
   'task_subtask_added',
@@ -25,8 +69,10 @@ export const TimelineEventType = z.enum([
   'task_created',
   'task_updated',
   'task_stage_changed',
+  'task_hand_on_requested',
   'task_assigned',
   'task_level_changed',
+  'task_complexity_changed',
   'task_senior_wait',
   'task_check_changed',
   'task_labels_changed',
@@ -35,9 +81,11 @@ export const TimelineEventType = z.enum([
   'task_relation_removed',
   'task_theme_changed',
   'task_prerequisite_closed',
+  'task_parts_left',
   'task_note',
   'attachment_added',
   'attachment_deleted',
+  'feedback_linked',
   'schedule_started',
   'schedule_skipped',
   'session_started',
@@ -52,17 +100,44 @@ export const TimelineEventType = z.enum([
   'permission_escalated',
   'question_asked',
   'question_answered',
+  'question_grouped',
+  'question_screened',
+  'question_recipient_escalated',
+  'fix_limit_recipient_escalated',
+  'question_screening_skipped',
+  'question_closed',
+  'question_answer_delivery',
   'refinement_turn',
   'task_loop',
+  'loop_triaged',
   'task_fix_limit',
   'task_handoff',
   'task_full_test',
+  'task_merge_requested',
+  'task_merge_prioritized',
+  'task_merge_failed',
+  'task_merged',
+  'task_merge_blocked',
+  'release_changed',
   'member_hired',
   'member_retired',
+  'member_renamed',
   'config_changed',
+  'team_contact_changed',
+  'operator_knowledge_changed',
+  'operator_approval_waived',
   'focus_changed',
   'team_paused',
   'team_resumed',
+  'super_handoff_changed',
+  'super_operation_changed',
+  'obligation_woken',
+  'member_queue_item_closed',
+  'obligation_handed_over',
+  'workspace_released',
+  'host_request_opened',
+  'host_request_answered',
+  'host_request_withdrawn',
 ]);
 export type TimelineEventType = z.infer<typeof TimelineEventType>;
 
@@ -84,6 +159,22 @@ export type TimelineEvent = z.infer<typeof TimelineEvent>;
 
 /** Known payload shapes per event type (documentation for producers and renderers). */
 export interface TimelineEventData {
+  /** The project manager opened a request to the instance's host (PM-1064); on the card when it names one. */
+  host_request_opened: { requestId: string; title: string };
+  /** The host answered or declined a request (PM-1064); the actor is the system, the answer text stays out. */
+  host_request_answered: { requestId: string; title: string; outcome: 'answered' | 'declined' };
+  /** The project manager withdrew an open request (PM-1064). */
+  host_request_withdrawn: { requestId: string; title: string };
+  super_handoff_changed: { handoffId: string; state: string };
+  super_operation_changed: { operationId: string; state: string; resultKind: string | null };
+  /** The owner's override freed the workspaces a failed process-scope cleanup kept reserved (PM-935). */
+  workspace_released: { scopeId: string; sessionId: string; workspaceIds: string[]; reason: string };
+  task_hand_on_requested: {
+    fromStageId: string;
+    toStageId: string;
+    mover: string;
+    requestedBy: string;
+  };
   boundary_changed: {
     requestId: string;
     operation: string;
@@ -141,6 +232,7 @@ export interface TimelineEventData {
    * failed (PM-217); `runId` is the run (its `task_full_test` event holds the output).
    */
   task_stage_changed: {
+    noteExcerpt?: string;
     from: string;
     to: string;
     approvedBy?: string[];
@@ -148,8 +240,10 @@ export interface TimelineEventData {
     reviewPin?: { commit: string; branch: string };
     branchMoved?: { branch: string; pinned: string; head: string };
     testsFailed?: { runId: string; branch: string; commit: string };
-    /** The card was pulled into this stage ahead of its turn (PM-427); hidden from clients. */
+    /** The card was pulled into this stage ahead of its turn (PM-427). */
     pulled?: StagePull;
+    /** The card went to the done stage without the gates because its subtasks are all closed (PM-647). */
+    partsClosed?: PartsClosed;
   };
   /** `reason`: the assignee left the team, or handed the task over (`from` is the one who left). */
   task_assigned: {
@@ -157,22 +251,58 @@ export interface TimelineEventData {
     previous?: string | null;
     reason?: 'member_removed' | 'handover';
     from?: string;
+    /** Why the project manager reassigned the card (PM-1040); free text, unlike `reason`. */
+    note?: string;
+  };
+  task_merge_requested: { mergeId: string; merger: string; repo: string; base: string; toStageId: string };
+  /** The card went to the front of the repository's merge queue; `before`: the card it went ahead of (null: none waited). */
+  task_merge_prioritized: { mergeId: string; repo: string; reason: string; ahead: string[] };
+  task_merge_failed: MergeFailure & { mergeId: string };
+  task_merged: TaskMerged & { mergeId?: string };
+  task_merge_blocked: {
+    mergeId: string;
+    repo: string;
+    base: string;
+    reason: MergeBlockReason;
+    message: string;
+    landed: 'nowhere' | 'remote';
+    mergeCommit?: string;
+  };
+  /** The release of the instance changed state (PM-491), on the release card; `previousState` null: it was proposed. */
+  release_changed: {
+    releaseId: string;
+    state: ReleaseState;
+    previousState: ReleaseState | null;
+    commit: string;
+    tag?: string;
+    url?: string;
+    failure?: ReleaseFailure;
+    publishError?: string;
+    /** The reason the person gave when they rejected the release (state `rejected` only); absent when none. */
+    note?: string;
   };
   /** The recommended developer of the card was set or changed (PM-347); `previous` null: there was none. */
   task_level_changed: {
-    level: DeveloperLevel;
+    level: 'senior' | 'any';
     reason: string | null;
-    previous: { level: DeveloperLevel; reason: string | null } | null;
+    previous: { level: 'senior' | 'any'; reason: string | null } | null;
+  };
+  task_complexity_changed: {
+    points: ComplexityPoints | null;
+    reason: string | null;
+    previous: { points: ComplexityPoints; reason: string | null } | null;
   };
   /**
-   * The wait of a Senior card for a Senior (PM-348, actor system unless `by`): `asked` the question went
-   * to the `deciders` after `minutes` minutes of waiting for the `seniors`; `decided` `by` answered it
-   * (`wait` on, or `any` free developer); `senior_took` the open question closed because a Senior got
-   * the card; `no_senior` the automatic start gave the card out as an "any" card because the team has no
-   * Senior (or the wait ended for that).
+   * The wait of a scored card for a developer whose limit reaches its points (PM-348, PM-1001, actor
+   * system unless `by`): `asked` the question went to the `deciders` after `minutes` minutes of waiting
+   * for the `seniors` (those developers); `decided` `by` answered it (`wait` on, or `any` free developer);
+   * `senior_took` the open question closed because such a developer got the card; `no_senior` the
+   * automatic start gave the card out by the "any" rule because no developer's limit reaches its
+   * `points` (or the wait ended for that).
    */
   task_senior_wait: {
     phase: 'asked' | 'decided' | 'senior_took' | 'no_senior';
+    points?: ComplexityPoints;
     minutes?: number;
     seniors?: string[];
     deciders?: string[];
@@ -183,6 +313,7 @@ export interface TimelineEventData {
   task_check_changed: { check: string; from: string | null; to: string };
   /** `reason` names an automatic change: the task moving back, a PR update or merge, an approval. */
   task_labels_changed: {
+    noteExcerpt?: string;
     added: string[];
     removed: string[];
     reason?: LabelChangeReason;
@@ -209,11 +340,25 @@ export interface TimelineEventData {
    * Recorded on every open card that needed it.
    */
   task_prerequisite_closed: { ref: string; status: string; remaining: string[] };
+  /**
+   * Parts of this card, created by `member` when they broke it down, were left in the first stage (PM-480).
+   * `told`: the system reminded the member once (`messageId`); `alerted`: the owners were told, because
+   * the parts were still left after the member's next turn (`inboxItemId`). The system actor writes both.
+   */
+  task_parts_left: {
+    phase: 'told' | 'alerted';
+    member: string;
+    parts: string[];
+    messageId?: string;
+    inboxItemId?: string;
+  };
   task_note: { text: string; mentions?: string[]; importedAuthor?: string; importedAt?: string };
   /** The file name is the sanitised metadata; the audit keeps it after the attachment is deleted. */
   attachment_added: { attachmentId: string; fileName: string; size: number; mediaType: string };
   /** The actor is who deleted it; the uploader is in the matching `attachment_added`. */
   attachment_deleted: { attachmentId: string; fileName: string; size: number; mediaType: string };
+  /** A feedback mark was tied to the card (PM-506): `created` the card was opened from it, else it was linked. */
+  feedback_linked: { markId: string; created: boolean };
   schedule_started: { runId: string; member: string; scheduledFor: string };
   schedule_skipped: { runId: string; member: string; scheduledFor: string; reason: string };
   /**
@@ -292,16 +437,108 @@ export interface TimelineEventData {
   };
   /**
    * An AI decider passed a request to a person (PM-169): it chose to (`cause: 'lead'`, with its
-   * `reason`) or it did not answer in time (`cause: 'timeout'`, by the system).
+   * `reason`) or it did not answer in time (`cause: 'timeout'`, by the system). A decider that was never
+   * started in time (`undelivered`) or cannot be started at all (`unavailable`) is the system's too (PM-926).
    */
   permission_escalated: {
     inboxItemId: string;
-    cause: 'lead' | 'timeout';
+    cause: 'lead' | 'timeout' | 'undelivered' | 'unavailable';
     assignees: string[];
     reason?: string;
   };
-  question_asked: { inboxItemId: string; question: string };
-  question_answered: { inboxItemId: string; answer: string };
+  /**
+   * `screening`: the Operator screens the question first (PM-556); `unscreened`: it was asked again
+   * without screening, replacing `previousItemId`, for `reason`.
+   */
+  question_asked: {
+    requestedRecipient?: QuestionRecipient;
+    inboxItemId: string;
+    question: string;
+    screening?: true;
+    unscreened?: { reason: string; previousItemId: string };
+  };
+  question_answered: {
+    inboxItemId: string;
+    answer: string;
+    groupPrimaryItemId?: string;
+    integratorTodo?: { optionId: 'todo_done' | 'todo_cannot'; note: string | null };
+  };
+  question_recipient_escalated: {
+    inboxItemId: string;
+    asker: string;
+    from: 'integrator';
+    to: 'owner';
+    openedAt: string;
+    reason: 'integrator_timeout' | 'integrator_passed_on' | 'integrator_unavailable';
+    /** The Operator's hand-off action (PM-885). */
+    note?: string;
+  };
+  /**
+   * A fix round limit decision item went from the integrator to the owners (PM-714): after 24 hours
+   * (`integrator_timeout`, actor system) or because the integrator passed it on (`integrator_passed_on`,
+   * actor: the authenticated integrator; `note` is its reason).
+   */
+  fix_limit_recipient_escalated: {
+    inboxItemId: string;
+    from: 'integrator';
+    to: 'owner';
+    openedAt: string;
+    reason: 'integrator_timeout' | 'integrator_passed_on' | 'integrator_unavailable';
+    note?: string;
+  };
+  question_grouped: { primaryItemId: string; itemIds: string[]; by: MemberHandle };
+  /** The Operator decided about a question of `asker` (PM-556); `note` is its reason or background. */
+  question_screened: {
+    recipient?: QuestionRecipient;
+    recipientRefusal?: QuestionRecipientRefusal;
+    inboxItemId: string;
+    asker: string;
+    outcome: ScreeningOutcome;
+    note: string;
+    forwardedTo?: string;
+    answer?: string;
+    todo?: QuestionTodo;
+    feedbackId?: string;
+  };
+  /** A question of `asker` went to the people with no Operator outcome (PM-556). */
+  question_screening_skipped: { inboxItemId: string; asker: string; reason: 'timeout' | 'unavailable' };
+  /** The system reminded `responsible` of an open step once (PM-806, actor system); `minutes` is the deadline length. */
+  obligation_woken: {
+    obligationId: string;
+    kind: ObligationKind;
+    responsible: MemberHandle;
+    subject: string;
+    openedAt: string;
+    minutes: number;
+  };
+  /** An automatic start no longer applies, or failed for a reason retrying cannot clear (PM-927). */
+  member_queue_item_closed: {
+    itemId: string;
+    kind: MemberQueueItemKind;
+    reason: MemberQueueCloseReason;
+  };
+  /** The step stayed open after the reminder, so the system gave it to `recipient` as a todo (PM-806, actor system). */
+  obligation_handed_over: {
+    obligationId: string;
+    kind: ObligationKind;
+    responsible: MemberHandle;
+    subject: string;
+    openedAt: string;
+    minutes: number;
+    inboxItemId: string;
+    recipient: QuestionRecipient;
+    decisionItemId?: string;
+    recipientRefusal?: QuestionRecipientRefusal;
+  };
+  /** A pending question of `asker` was closed without an answer by `rule` (PM-556). */
+  question_closed: { inboxItemId: string; asker: string; rule: QuestionCloseRule; note: string | null };
+  /** The answer of a question waits for the session of `asker`, or reached it (PM-556). */
+  question_answer_delivery: {
+    inboxItemId: string;
+    asker: string;
+    state: 'waiting' | 'delivered';
+    reason?: TaskStartWaiting['reason'];
+  };
   /**
    * The turn on a card that is being refined changed (PM-254): `label` is the label the step lacks
    * and `member` the AI member started for it (null: nobody, the people who may set it were told, or
@@ -315,6 +552,14 @@ export interface TimelineEventData {
     label: string | null;
     member: string | null;
     reason: 'started' | 'label_set' | 'label_removed' | 'done' | 'stopped';
+  };
+  /** A report-only PM assessment (PM-712); the private note is kept only in the loop record. */
+  loop_triaged: {
+    loopId: string;
+    generation: number;
+    outcome: 'progress' | 'loop';
+    evidenceIds: string[];
+    headCommit: string | null;
   };
   /**
    * A loop on the card (PM-261, actor system): `raised` it was found and `notified` was told (null when
@@ -351,9 +596,16 @@ export interface TimelineEventData {
     changeRequests: number;
     designChangeRequests: number;
     sendBacks: number;
+    /** The failed full tests inside `sendBacks` (PM-714). */
+    testsFailed?: number;
+    /** The extra rounds given: for `decided` with `another_round` already counting this one (PM-714). */
+    extraRounds?: number;
+    remainingExtraRounds?: number;
+    /** The lead's judgement, on `passed_on` (PM-714). */
+    assessment?: FixLimitAssessment;
     decider?: string | null;
     deciders?: string[];
-    reason?: 'no_ai_decider' | 'passed_on' | 'again';
+    reason?: 'no_ai_decider' | 'passed_on' | 'again' | 'extra_exhausted' | 'decider_timeout';
     decision?: 'continue' | 'replan' | 'another_round' | 'reassign';
     by?: string;
     note?: string;
@@ -389,6 +641,7 @@ export interface TimelineEventData {
    * 6000 characters (`failed`/`error`).
    */
   task_full_test: {
+    command?: string;
     outcome: 'passed' | 'failed' | 'error';
     runId: string;
     repo: string;
@@ -400,17 +653,37 @@ export interface TimelineEventData {
     failedFiles?: string[];
     /** `error` only. */
     reason?: FullTestErrorReason;
+    /** Where the run went (PM-909); absent on events from before runners (the engine). */
+    runner?: MergeCheckRunner;
+    /** The GitHub Actions run page of a `github_actions` run. */
+    externalUrl?: string;
     /** `failed`/`error`: vitest's "Failed Tests" section from its start if present, else the end of the output. */
     outputTail?: string;
   };
   member_hired: { handle: string; role: string; temp: boolean; sponsor: string };
   member_retired: { handle: string; handoverTo: string | null };
+  /** An AI member's handle changed (PM-1025); `version` is the configuration commit. */
+  member_renamed: { from: string; to: string; version: string };
   config_changed: { version: string; message: string };
+  /** A member was named a contact of the project (`contact` true) or taken off the list (PM-985); once per member. */
+  team_contact_changed: { handle: string; contact: boolean; version: string };
+  operator_knowledge_changed: {
+    proposalId: string;
+    kind: OperatorKnowledgeChange['kind'];
+    revision: number;
+    agreementVersion: number | null;
+  };
+  operator_approval_waived: {
+    requestId: string;
+    stepId: string;
+    agreementVersion: number;
+    changes: ConfigChangeRow[];
+  };
   /**
    * The project's focus changed (PM-427; the actor is the person who set it). Places are 1-based: a
    * removed item has `position` null, an added one `previous` null. `added` and `removed` are recorded on
    * the item's own card or theme (`taskKey`); `moved` has no card and shows in the project's changes only.
-   * `title` is the item's title when it was written. Never shown to clients.
+   * `title` is the item's title when it was written.
    */
   focus_changed: {
     action: 'added' | 'removed' | 'moved';
@@ -419,6 +692,14 @@ export interface TimelineEventData {
     position: number | null;
     previous: number | null;
   };
+}
+
+/** The subtasks of a collecting card that went to the done stage without the gates (PM-647), by outcome, sorted by key number. */
+export interface PartsClosed {
+  done: string[];
+  cancelled: string[];
+  /** The subtask whose close triggered the system's automatic close (PM-373); absent on older events, on a person's move and when the card lost its last blocking label. */
+  trigger?: string;
 }
 
 /**

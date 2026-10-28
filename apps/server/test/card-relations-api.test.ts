@@ -117,7 +117,7 @@ describe('card relations over REST', () => {
   });
 
   it('is for developers and up: a viewer and a client cannot set relations', async () => {
-    const one = await create('One', { visibility: 'shared' });
+    const one = await create('One');
     const two = await create('Two');
     for (const who of ['viewer', 'client']) {
       const res = await call(who, 'PATCH', routes.task('AR', one.key), {
@@ -128,9 +128,9 @@ describe('card relations over REST', () => {
     expect(Task.parse((await call('owner', 'GET', routes.tasks('AR'))).json()[0]).links).toEqual([]);
   });
 
-  it('shows a client only the links to the cards shared with them', async () => {
-    const shared = await create('Shared', { visibility: 'shared' });
-    const other = await create('Other shared', { visibility: 'shared' });
+  it('shows a client every link, like any member (PM-79)', async () => {
+    const shared = await create('Shared');
+    const other = await create('Other shared');
     const internal = await create('Internal');
     await call('owner', 'PATCH', routes.task('AR', shared.key), {
       relations: {
@@ -141,12 +141,12 @@ describe('card relations over REST', () => {
       },
     });
     const seen = z_tasks((await call('client', 'GET', routes.tasks('AR'))).json());
-    expect(seen.map((t) => t.key)).toEqual([shared.key, other.key]);
-    expect(seen[0]!.links).toEqual([{ kind: 'related', ref: other.key }]);
+    expect(seen.map((t) => t.key)).toEqual([shared.key, other.key, internal.key]);
+    expect(seen[0]!.links).toHaveLength(2);
     const detail = TaskDetail.parse((await call('client', 'GET', routes.task('AR', shared.key))).json());
-    expect(detail.task.links).toEqual([{ kind: 'related', ref: other.key }]);
+    expect(detail.task.links).toEqual(seen[0]!.links);
     const asDeveloper = z_tasks((await call('developer', 'GET', routes.tasks('AR'))).json());
-    expect(asDeveloper[0]!.links).toHaveLength(2);
+    expect(asDeveloper[0]!.links).toEqual(seen[0]!.links);
   });
 });
 

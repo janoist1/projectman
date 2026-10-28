@@ -1,9 +1,13 @@
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { homedir } from 'node:os';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildChildEnv } from '../../env';
 import { FAKE_CODEX, silentLogger, tempDirs } from '../../test-helpers';
 import { createNanogptAdapter } from './index';
+import type { StartSessionSpec } from '../../../contracts';
+import { buildSessionPolicy } from '../../../../test/helpers/session-policy';
+import { testConfig } from '../../../../test/helpers/test-template';
 
 describe('NanoGPT adapter', () => {
   const dirs = tempDirs();
@@ -34,13 +38,75 @@ describe('NanoGPT adapter', () => {
         initialMessage: 'TEAM',
       },
       hookUrl: 'http://localhost/hook',
+      sessionConfigDir: await dirs.make(),
       permissionTimeoutMs: 1000,
     };
     return { adapter, input, codexHome };
   }
+  it('takes the capabilities of Codex, except that an image in a tool result is not promised (PM-518)', async () => {
+    const { adapter } = await harness();
+    expect(adapter.capabilities).toMatchObject({ toolGate: 'permission_request', mcpImageResults: false });
+  });
+  it('refuses an explicitly invalid worktree boundary before using the key', async () => {
+    const h = await harness();
+    await expect(
+      h.adapter.launch({
+        ...h.input,
+        spec: {
+          ...h.input.spec,
+          policy: { access: 'task_worktree' },
+          sandbox: { portable: { readBoundary: { deniedRoots: [], allowedPaths: [{}] } } },
+        } as unknown as StartSessionSpec,
+      }),
+    ).rejects.toMatchObject({
+      code: 'nanogpt_setup_incomplete',
+      details: { problem: 'read_boundary', reason: 'invalid' },
+    });
+  });
+  it('rejects an unknown CLI below the soft home boundary before using the key', async () => {
+    const h = await harness();
+    const cwd = h.input.spec.cwd;
+    await expect(
+      h.adapter.launch({
+        ...h.input,
+        spec: {
+          ...h.input.spec,
+          policy: {
+            access: 'task_worktree',
+            placement: { kind: 'task_worktree', path: cwd },
+            permissions: { sandbox: 'read-only' },
+            filesystem: { readableRoots: [cwd] },
+          },
+          sandbox: {
+            portable: {
+              allowWrite: [],
+              env: {},
+              readBoundary: { deniedRoots: [homedir()], allowedPaths: [{ path: cwd, kind: 'directory' }] },
+            },
+          },
+        } as unknown as StartSessionSpec,
+        cliPath: path.join(homedir(), 'unknown-cli/bin/codex'),
+      }),
+    ).rejects.toMatchObject({ code: 'nanogpt_setup_incomplete', details: { problem: 'cli_location' } });
+  });
   it('uses custom provider arguments and private home and hides keys from shells', async () => {
     const h = await harness();
-    const launch = await h.adapter.launch(h.input);
+    const input = {
+      ...h.input,
+      spec: {
+        ...h.input.spec,
+        policy: buildSessionPolicy({
+          config: testConfig(),
+          role: 'developer',
+          task: { repo: 'web' },
+          placement: { kind: 'task_worktree', path: h.input.spec.cwd },
+          permissionMode: 'auto',
+        }),
+        sandbox: { allowWrite: [], allowedDomains: [], allowLocalBinding: false, denyRead: [homedir()] },
+      },
+    };
+    const launch = await h.adapter.launch(input);
+    expect(launch.cliArgs.join('\n')).not.toContain(`"${homedir()}"="deny"`);
     expect(launch.cliArgs).toContain('model_provider="nanogpt"');
     expect(launch.cliArgs).toContain(
       'model_providers.nanogpt={name="NanoGPT",base_url="https://nano-gpt.com/api/v1",env_key="NANOGPT_API_KEY",wire_api="responses"}',
@@ -49,10 +115,21 @@ describe('NanoGPT adapter', () => {
     expect(launch.cliArgs).toContain('z-ai/glm-5.3-flash-uncensored');
     expect(launch.cliArgs).not.toContain('--oss');
     expect(JSON.stringify(launch.cliArgs)).not.toContain('private-test-sentinel');
+    // The hooks name the private target file, not the hook URL (PM-156).
+    expect(JSON.stringify(launch.cliArgs)).not.toContain('http://localhost/hook');
+    expect(JSON.stringify(launch.cliArgs)).toContain(path.join(h.input.sessionConfigDir, 'hook.curl'));
+    expect(await readFile(path.join(h.input.sessionConfigDir, 'hook.curl'), 'utf8')).toBe(
+      'url = "http://localhost/hook"\n',
+    );
     expect(launch.env).toEqual({ CODEX_HOME: h.codexHome, NANOGPT_API_KEY: 'private-test-sentinel' });
     expect((await stat(h.codexHome)).mode & 0o777).toBe(0o700);
     expect(await h.adapter.planUsage.get()).toBeNull();
-    const resume = await h.adapter.launch({ ...h.input, spec: { ...h.input.spec, resume: true } });
+    // Every start has a private folder of its own.
+    const resume = await h.adapter.launch({
+      ...input,
+      sessionConfigDir: await dirs.make(),
+      spec: { ...input.spec, resume: true },
+    });
     expect(resume.cliArgs[0]).toBe('resume');
     expect(resume.env).toEqual(launch.env);
     await writeFile(path.join(h.codexHome, 'auth.json'), '{}');
@@ -103,6 +180,44 @@ describe('NanoGPT adapter', () => {
         spec: { ...ready.input.spec, permissionMode: 'bypassPermissions' },
       }),
     ).rejects.toMatchObject({ code: 'nanogpt_setup_incomplete' });
+  });
+  it('does not ask for the key in its login check when the cloud holds it (PM-736)', async () => {
+    const cwd = await dirs.make();
+    const nanogptKey = vi.fn(async () => null);
+    const adapter = createNanogptAdapter({
+      bin: FAKE_CODEX,
+      codexHome: path.join(cwd, 'nano-home'),
+      nanogptKey,
+      keyInCloud: true,
+      logger: silentLogger(),
+    });
+    expect(await adapter.checkLogin({ FAKE_CODEX_VERSION: '0.159.1' })).toMatchObject({
+      loggedIn: true,
+      method: 'api_key',
+    });
+    expect(await adapter.checkLogin({ FAKE_CODEX_VERSION: '0.125.0' })).toMatchObject({
+      loggedIn: false,
+      problem: 'cli_too_old',
+    });
+    await mkdir(path.join(cwd, 'nano-home'), { recursive: true });
+    await writeFile(path.join(cwd, 'nano-home', 'auth.json'), '{}');
+    expect(await adapter.checkLogin({ FAKE_CODEX_VERSION: '0.159.1' })).toMatchObject({
+      loggedIn: false,
+      problem: 'chatgpt_login',
+    });
+    expect(nanogptKey).not.toHaveBeenCalled();
+  });
+  it('still refuses to start without a key when the cloud holds it (PM-736)', async () => {
+    const h = await harness();
+    const adapter = createNanogptAdapter({
+      bin: FAKE_CODEX,
+      codexHome: h.codexHome,
+      nanogptKey: async () => null,
+      keyInCloud: true,
+      logger: silentLogger(),
+      ambientConfig: { codexManaged: [] },
+    });
+    await expect(adapter.launch(h.input)).rejects.toMatchObject({ code: 'nanogpt_key_missing' });
   });
   it('strips inherited billing keys and restores only the trusted NanoGPT key', () => {
     const clean = buildChildEnv({

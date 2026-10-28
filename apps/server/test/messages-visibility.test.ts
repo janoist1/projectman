@@ -93,8 +93,8 @@ describe('team message visibility over REST and websocket', () => {
     expect(await list('acme', '?unreadOnly=true')).toEqual(['owner-acme']);
   });
 
-  it('gives a card thread the same visibility, and a client a 404 for a card they cannot see', async () => {
-    await h.app.projectman.domain.tasks.create(key, { title: 'Shared work', visibility: 'shared' }, actor);
+  it('gives a card thread the same message visibility, and a client any card thread', async () => {
+    await h.app.projectman.domain.tasks.create(key, { title: 'Shared work' }, actor);
     record('owner', ['acme'], 'AR-2', 'owner-acme card');
     record('qa', ['dev'], 'AR-2', 'qa-dev card');
     record('dev', ['qa', 'reader'], 'AR-2', 'dev-qa-reader card');
@@ -112,8 +112,8 @@ describe('team message visibility over REST and websocket', () => {
     expect(await list('dev', '?taskKey=AR-2')).toEqual(['qa-dev card', 'dev-qa-reader card']);
     expect(await list('reader', '?taskKey=AR-2')).toEqual(['dev-qa-reader card']);
     expect(await list('acme', '?taskKey=AR-2')).toEqual(['owner-acme card']);
-    // The internal card does not exist for the client, whoever wrote on it; an unknown key is an empty list.
-    expect(await status('acme', '?taskKey=AR-1')).toBe(404);
+    // A client reads any card's thread like anyone (PM-79); an unknown key is an empty list.
+    expect(await status('acme', '?taskKey=AR-1')).toBe(200);
     expect(await status('dev', '?taskKey=AR-1')).toBe(200);
     expect(await list('acme', '?taskKey=AR-999')).toEqual([]);
   });

@@ -25,6 +25,55 @@ function Fixture() {
   );
 }
 describe('settings navigation', () => {
+  it.each([
+    { host: false, via: undefined },
+    { host: true, via: 'integrator' as const },
+  ])('hides owners and redirects without a personal host login (%j)', async ({ host, via }) => {
+    const project = mockProject();
+    project.context.me.hostOwner = host;
+    project.context.me.via = via;
+    project.render(<Fixture />, '/p/AC/settings/owners');
+    await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('/p/AC/settings'));
+    expect(screen.queryByRole('link', { name: /Tulajdonosok/ })).toBeNull();
+    expect(
+      project.requests.some(
+        (r) => r.path.startsWith('/api/host-requests') || r.path === '/api/owner-accounts',
+      ),
+    ).toBe(false);
+  });
+  it('shows the open request count and owner summary to the host', async () => {
+    const project = mockProject();
+    project.context.me.hostOwner = true;
+    project.backend.owners.accounts.push({
+      userId: 'usr_other',
+      name: 'Other',
+      email: 'other@example.test',
+      grantedAt: new Date().toISOString(),
+      revokedAt: null,
+      projectCount: 1,
+      pausedProjectCount: 0,
+      engines: { total: 0, online: 0 },
+    });
+    project.backend.owners.requests.push({
+      id: 'hr_1',
+      projectKey: 'OTHER',
+      projectName: 'Other',
+      openedBy: 'pm',
+      owners: ['Other'],
+      title: 'Request',
+      body: 'Body',
+      state: 'open',
+      answer: null,
+      answeredVia: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    project.render(<Fixture />, '/p/AC/settings');
+    expect(await screen.findByLabelText(t('settings.ownersOpenMark', { n: 1 }))).toBeTruthy();
+    expect(await screen.findByText(t('settings.summary.owners', { owners: 1, open: 1 }))).toBeTruthy();
+    fireEvent.click(screen.getByRole('link', { name: new RegExp(t('settings.nav.owners')) }));
+    expect(await screen.findByRole('heading', { name: t('owners.title') })).toBeTruthy();
+  });
   it('keeps providers in the server group and omits project problems on its page', async () => {
     const project = mockProject();
     project.backend.config.pipeline.labels.push({ ...project.backend.config.pipeline.labels[0]! });
@@ -69,7 +118,7 @@ describe('settings navigation', () => {
     expect(document.activeElement?.id).toBe('settings-nav-project');
   });
   // The engines section exists on a cloud installation only; it has its own test in the engines section.
-  it.each([...SETTINGS_SECTIONS.filter((id) => id !== 'engines'), 'problems'])(
+  it.each([...SETTINGS_SECTIONS.filter((id) => id !== 'engines' && id !== 'owners'), 'problems'])(
     'replaces legacy anchor %s',
     async (section) => {
       mockProject().render(<Fixture />, `/p/AC/settings#settings-${section}`);

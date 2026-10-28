@@ -16,7 +16,12 @@ import {
   stagesToJoin,
 } from './duties';
 import { labelHolders } from './labels';
-import { applyConfigPatch, PatchConfigRequest } from './edit';
+import {
+  applyConfigPatch,
+  OperatorConfigPatch,
+  PatchConfigRequest,
+  prepareOperatorConfigPatch,
+} from './edit';
 import { approvalPolicyChanged } from './owner-only';
 import { validateProjectConfig } from './invariants';
 
@@ -47,6 +52,7 @@ function config() {
           id: 'release',
           name: 'Release',
           kind: 'release',
+          owners: ['owner'],
           columnId: 'all',
           gate: { conditions: [{ type: 'has_label', label: 'release-ok' }] },
         },
@@ -63,9 +69,145 @@ function config() {
   });
 }
 
+describe('targeted Operator role patches', () => {
+  function existing() {
+    const c = config();
+    c.team.roleOverrides = {
+      developer: { duties: ['implementation'], instructions: 'Keep this.', summary: 'Writer' },
+      lead_developer: { duties: ['code_review'], instructions: 'Review.' },
+      business_analyst: { duties: ['requirements_analysis'], instructions: 'Analyze.' },
+      architect: { duties: ['technical_direction'], instructions: 'Plan.' },
+    };
+    return c;
+  }
+
+  it('replaces one complete bundle, preserves omitted roles and never mutates inputs', () => {
+    const c = existing();
+    const patch = OperatorConfigPatch.parse({
+      project: { name: 'New name' },
+      roleOverrides: { developer: { duties: ['docs'], instructions: 'Replacement.' } },
+    });
+    const before = structuredClone({ c, patch });
+    const prepared = prepareOperatorConfigPatch(c, 'v2', patch);
+    expect(prepared).toEqual({
+      baseVersion: 'v2',
+      project: { name: 'New name' },
+      roleOverrides: { ...c.team.roleOverrides, developer: patch.roleOverrides!.developer },
+    });
+    expect(prepared.roleOverrides).not.toBe(c.team.roleOverrides);
+    expect(prepared.roleOverrides?.developer).not.toHaveProperty('summary');
+    expect(PatchConfigRequest.parse(prepared)).toEqual(prepared);
+    expect({ c, patch }).toEqual(before);
+  });
+
+  it.each([{}, { roleOverrides: {} }])('omits an absent or empty role patch: %j', (patch) => {
+    const c = existing();
+    const prepared = prepareOperatorConfigPatch(c, 'v1', patch);
+    expect(prepared).toEqual({ baseVersion: 'v1' });
+    expect(applyConfigPatch(c, prepared).team.roleOverrides).toEqual(c.team.roleOverrides);
+  });
+
+  it('adds a role and explicitly removes one, including an already absent or last override', () => {
+    const c = existing();
+    const added = { duties: [], instructions: 'New role.' };
+    const prepared = prepareOperatorConfigPatch(c, 'v1', {
+      roleOverrides: { developer: null, qa: added, designer: null },
+    });
+    const { developer: _removed, ...others } = c.team.roleOverrides!;
+    expect(prepared.roleOverrides).toEqual({ ...others, qa: added });
+    c.team.roleOverrides = { developer: c.team.roleOverrides!.developer! };
+    expect(prepareOperatorConfigPatch(c, 'v1', { roleOverrides: { developer: null } })).toEqual({
+      baseVersion: 'v1',
+      roleOverrides: {},
+    });
+    delete c.team.roleOverrides;
+    expect(prepareOperatorConfigPatch(c, 'v1', { roleOverrides: { developer: null } })).toEqual({
+      baseVersion: 'v1',
+      roleOverrides: {},
+    });
+  });
+
+  it('validates targeted bundles and keeps the ordinary PATCH full-map replacement', () => {
+    expect(OperatorConfigPatch.parse({ roleOverrides: { developer: { duties: [] } } })).toEqual({
+      roleOverrides: { developer: { duties: [], instructions: '' } },
+    });
+    for (const patch of [
+      { roleOverrides: null },
+      { roleOverrides: { custom_writer: null } },
+      { roleOverrides: { developer: { instructions: 'Missing duties.' } } },
+      { roleOverrides: { developer: { duties: ['implementation', 'implementation'] } } },
+      { roleOverrides: { developer: { duties: ['unknown'] } } },
+      ...['summary', 'notTheirJob', 'whenToAsk'].map((field) => ({
+        roleOverrides: { developer: { duties: [], [field]: 'x'.repeat(281) } },
+      })),
+      { baseVersion: 'v1' },
+      { message: 'Not an operator field.' },
+      { unknown: true },
+    ])
+      expect(OperatorConfigPatch.safeParse(patch).success).toBe(false);
+    const replacement = { developer: { duties: [], instructions: 'Only this remains.' } };
+    expect(
+      applyConfigPatch(existing(), { baseVersion: 'v1', roleOverrides: replacement }).team.roleOverrides,
+    ).toEqual(replacement);
+    expect(
+      PatchConfigRequest.safeParse({ baseVersion: 'v1', roleOverrides: { developer: null } }).success,
+    ).toBe(false);
+  });
+});
+
+describe('targeted Operator label patches', () => {
+  it('changes one label field, keeps the rest of the pipeline and never mutates inputs', () => {
+    const c = config();
+    const patch = OperatorConfigPatch.parse({ labels: { 'release-ok': { color: 'red' } } });
+    const before = structuredClone({ c, patch });
+    const prepared = prepareOperatorConfigPatch(c, 'v2', patch);
+    expect(prepared.pipeline).toEqual({
+      ...c.pipeline,
+      labels: [{ ...c.pipeline.labels[0], color: 'red' }],
+    });
+    expect(PatchConfigRequest.parse(prepared)).toEqual(prepared);
+    expect(applyConfigPatch(c, prepared).pipeline.stages).toEqual(c.pipeline.stages);
+    expect({ c, patch }).toEqual(before);
+  });
+
+  it('adds a plain tag as a defined label, named by its id until a name is given', () => {
+    const c = config();
+    const added = prepareOperatorConfigPatch(c, 'v1', { labels: { bug: { color: 'red' } } });
+    expect(added.pipeline?.labels).toEqual([
+      ...c.pipeline.labels,
+      { id: 'bug', name: 'bug', color: 'red', setBy: 'anyone' },
+    ]);
+    expect(
+      validateProjectConfig(applyConfigPatch(c, added)).filter((issue) => issue.severity === 'error'),
+    ).toEqual([]);
+    const named = prepareOperatorConfigPatch(c, 'v1', {
+      labels: { bug: { name: 'Hiba', meaning: 'A defect.' } },
+    });
+    expect(named.pipeline?.labels.at(-1)).toMatchObject({ id: 'bug', name: 'Hiba', meaning: 'A defect.' });
+  });
+
+  it('removes a color or meaning with null and refuses fields beyond name, color and meaning', () => {
+    const c = config();
+    c.pipeline.labels[0] = { ...c.pipeline.labels[0]!, color: 'red', meaning: 'Approved.' };
+    const reset = prepareOperatorConfigPatch(c, 'v1', {
+      labels: { 'release-ok': { color: null, meaning: null } },
+    });
+    expect(reset.pipeline?.labels[0]).not.toHaveProperty('color');
+    expect(reset.pipeline?.labels[0]).not.toHaveProperty('meaning');
+    expect(reset.pipeline?.labels[0]?.setBy).toEqual(c.pipeline.labels[0]!.setBy);
+    for (const label of [{ setBy: 'anyone' }, { color: 'chartreuse' }, { name: '' }])
+      expect(OperatorConfigPatch.safeParse({ labels: { bug: label } }).success).toBe(false);
+  });
+
+  it('omits an absent or empty label patch', () => {
+    const c = config();
+    expect(prepareOperatorConfigPatch(c, 'v1', { labels: {} })).toEqual({ baseVersion: 'v1' });
+  });
+});
+
 describe('duty bundles', () => {
   it('has a fixed catalogue, English fragments, integration metadata and derived eligibility', () => {
-    expect(DUTY_IDS).toHaveLength(27);
+    expect(DUTY_IDS).toHaveLength(29);
     for (const id of DUTY_IDS) {
       expect(DUTIES[id].id).toBe(id);
       if (DUTIES[id].holders !== 'human') expect(DUTIES[id].prompt).not.toBe('');

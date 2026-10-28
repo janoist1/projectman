@@ -13,7 +13,6 @@ import {
   Task,
   TaskDetail,
   TeamMessage,
-  TemplateSummary,
   TimelineEvent,
   validateProjectConfig,
 } from '@projectman/shared';
@@ -23,6 +22,41 @@ import type { MockConnection } from './backend';
 import * as fixtures from './fixtures';
 
 describe('mock fixtures satisfy the shared contracts', () => {
+  it('keeps knowledge proposals out of unauthorized inbox lists, badges and events', () => {
+    const backend = new MockBackend();
+    const events: ServerEvent[] = [];
+    const connection = { deliver: (event: ServerEvent) => events.push(event) };
+    backend.connect(connection);
+    backend.handleCommand(connection, { type: 'subscribe_project', projectKey: 'AC' });
+    const item = {
+      ...fixtures.inbox[0]!,
+      kind: 'approval' as const,
+      state: 'open' as const,
+      title: 'PRIVATE_TITLE',
+      payload: { operatorKnowledge: { change: 'PRIVATE_CHANGE' } },
+    };
+    backend.inbox = [item];
+    for (const role of ['owner', 'admin', 'developer', 'viewer', 'client'] as const) {
+      const viewer = backend.members.find((member) => member.handle === backend.viewerHandle)!;
+      viewer.role = role;
+      item.assignees = [viewer.handle];
+      const allowed = ['owner', 'admin'].includes(role);
+      expect(
+        InboxView.parse(backend.handle('GET', '/api/projects/AC/inbox', undefined).body).items,
+      ).toHaveLength(allowed ? 1 : 0);
+      expect(
+        BoardView.parse(backend.handle('GET', '/api/projects/AC/board', undefined).body).openInboxCount,
+      ).toBe(allowed ? 1 : 0);
+      events.length = 0;
+      backend.emit({ type: 'inbox_upserted', projectKey: 'AC', item });
+      expect(events).toHaveLength(allowed ? 1 : 0);
+      if (!allowed)
+        expect(
+          backend.handle('POST', `/api/projects/AC/inbox/${item.id}/resolve`, { optionId: 'approve' }).status,
+        ).toBe(404);
+    }
+  });
+
   it('validates every fixture against its schema', () => {
     const check = (
       schema: { safeParse(data: unknown): { success: boolean } },
@@ -40,7 +74,6 @@ describe('mock fixtures satisfy the shared contracts', () => {
     check(TeamMessage, fixtures.teamMessages, 'messages');
     check(TimelineEvent, fixtures.timeline, 'timeline');
     check(ChatItem, Object.values(fixtures.chats).flat(), 'chat');
-    check(TemplateSummary, fixtures.templates, 'templates');
   });
 
   it('builds a configuration that holds every invariant', () => {
@@ -65,9 +98,7 @@ describe('MockBackend', () => {
     expect(BoardView.safeParse(backend.handle('GET', '/api/projects/AC/board', undefined).body).success).toBe(
       true,
     );
-    expect(
-      TaskDetail.safeParse(backend.handle('GET', '/api/projects/AC/tasks/AC-21', undefined).body).success,
-    ).toBe(true);
+    expect(TaskDetail.safeParse(backend.taskDetail(backend.findTask('AC-21')!)).success).toBe(true);
     expect(
       SessionDetail.safeParse(backend.handle('GET', '/api/projects/AC/sessions/ses_ac21_fe1', undefined).body)
         .success,
@@ -97,9 +128,12 @@ describe('MockBackend', () => {
       model: 'gpt-6.1-sol',
       permissionMode: 'acceptEdits',
     });
-    expect(
-      TaskDetail.parse(backend.handle('GET', '/api/projects/AC/tasks/AC-21', undefined).body).pullRequests[0],
-    ).toMatchObject({ checks: 'passing', reviewDecision: 'approved', additions: 42, deletions: 8 });
+    expect(TaskDetail.parse(backend.taskDetail(backend.findTask('AC-21')!)).pullRequests[0]).toMatchObject({
+      checks: 'passing',
+      reviewDecision: 'approved',
+      additions: 42,
+      deletions: 8,
+    });
     const hired = MemberView.parse(
       backend.handle('POST', '/api/projects/AC/members', {
         role: 'qa',

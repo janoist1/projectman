@@ -1,11 +1,17 @@
+import clsx from 'clsx';
 import { useEffect, useId, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
+import { Link } from 'react-router';
 import {
   DEFAULT_AGENT_PROVIDER,
   effortForProvider,
+  emailChannelOn,
   DEFAULT_PROVIDER_MODELS,
   holdersAllow,
   HumanAccess,
+  isDeveloper,
+  COMPLEXITY_POINTS,
+  ComplexityPoints,
 } from '@projectman/shared';
 import type {
   AgentProvider,
@@ -44,7 +50,7 @@ function EditMemberForm({
   roles: readonly RoleView[];
   onDone: () => void;
 }) {
-  const { key } = useProject();
+  const { key, isOwner } = useProject();
   const { members } = useProjectIndexes(key);
   const board = useBoard(key);
   const update = useUpdateMember(key);
@@ -68,9 +74,22 @@ function EditMemberForm({
   const [compactWindow, setCompactWindow] = useState(
     String(ai?.autoCompactWindowTokens ?? member.autoCompactWindowTokens ?? ''),
   );
-  // The Senior (PM-347) is an AI member that is no stand-in; the choice is the form's own, saved with it.
-  const canBeSenior = member.kind === 'ai' && !member.temp;
-  const [senior, setSenior] = useState(member.senior === true);
+  // Resolve eligibility from the draft roles, using the shared work-stage rule.
+  const canSetLimit = !!config && !!ai && isDeveloper(config, { ...ai, role: selected[0] ?? ai.role });
+  const [limit, setLimit] = useState(String(member.complexityLimit ?? 5));
+  // The e-mail channel (PM-942): whether the member may write, and whether its mail goes out unapproved
+  // (that one is the owner's alone).
+  const [emailEnabled, setEmailEnabled] = useState(member.email?.enabled === true);
+  const [emailAuto, setEmailAuto] = useState(member.email?.sendWithoutApproval === true);
+  const emailChange = {
+    ...(emailEnabled !== (member.email?.enabled === true) ? { enabled: emailEnabled } : {}),
+    ...(isOwner && emailAuto !== (member.email?.sendWithoutApproval === true)
+      ? { sendWithoutApproval: emailAuto }
+      : {}),
+  };
+  const channelOff = config !== undefined && !emailChannelOn(config);
+  // The machine queue (decision 66): the effective value from the roster; only an owner changes it.
+  const [machineAccess, setMachineAccess] = useState(member.machineAccess === true);
   const [model, setModel] = useState(ai?.model ?? member.model ?? DEFAULT_PROVIDER_MODELS[provider]);
   const [instructions, setInstructions] = useState(ai?.instructions ?? '');
   const [schedule, setSchedule] = useState<ScheduleDraft>({
@@ -111,8 +130,12 @@ function EditMemberForm({
             : {
                 displayName: displayName.trim(),
                 specialty: specialty.trim(),
-                // Sent only when it changes: a stand-in has none, and the server refuses it for one.
-                ...(canBeSenior && senior !== (member.senior === true) ? { senior } : {}),
+                // A stand-in's limit is fixed; 5 clears the explicit setting.
+                ...(canSetLimit && !member.temp
+                  ? { complexityLimit: limit === '5' ? null : ComplexityPoints.parse(Number(limit)) }
+                  : {}),
+                ...(Object.keys(emailChange).length > 0 ? { email: emailChange } : {}),
+                ...(isOwner && machineAccess !== (member.machineAccess === true) ? { machineAccess } : {}),
                 provider,
                 effort: effort ?? null,
                 autoCompactWindowTokens: compactWindow.trim() ? Number(compactWindow) : null,
@@ -202,22 +225,82 @@ function EditMemberForm({
               value={specialty}
               onChange={(event) => setSpecialty(event.target.value)}
             />
-            {canBeSenior ? (
+            {canSetLimit ? (
+              member.temp ? (
+                <p className={styles.toggleHint}>{t('memberEdit.tempLimit')}</p>
+              ) : (
+                <SelectField
+                  label={t('memberEdit.limit')}
+                  hint={t('memberEdit.limitHint')}
+                  value={limit}
+                  onChange={(event) => setLimit(event.target.value)}
+                >
+                  {COMPLEXITY_POINTS.map((points) => (
+                    <option key={points} value={points}>
+                      {points === 5
+                        ? t('memberEdit.limitDefault')
+                        : points === 13
+                          ? t('memberEdit.limitUnlimited')
+                          : t('task.complexity.points', { points })}
+                    </option>
+                  ))}
+                </SelectField>
+              )
+            ) : null}
+            <div>
+              <label className={styles.toggle}>
+                <input
+                  type="checkbox"
+                  checked={emailEnabled}
+                  aria-describedby={`${formId}-email`}
+                  onChange={(event) => setEmailEnabled(event.target.checked)}
+                />
+                {t('memberEdit.emailEnabled')}
+              </label>
+              <p id={`${formId}-email`} className={styles.toggleHint}>
+                {t('memberEdit.emailEnabledHint')}
+              </p>
+              {emailEnabled && channelOff ? (
+                <p role="status" className={styles.toggleHint}>
+                  {t('memberEdit.emailChannelOff')}{' '}
+                  <Link to={`/p/${key}/settings/email`}>{t('memberEdit.emailChannelOffLink')}</Link>
+                </p>
+              ) : null}
+              <label className={clsx(styles.toggle, styles.nested)}>
+                <input
+                  type="checkbox"
+                  checked={emailEnabled && emailAuto}
+                  disabled={!emailEnabled || !isOwner}
+                  aria-describedby={`${formId}-email-auto`}
+                  onChange={(event) => setEmailAuto(event.target.checked)}
+                />
+                {t('memberEdit.emailSendWithoutApproval')}
+              </label>
+              <p id={`${formId}-email-auto`} className={clsx(styles.toggleHint, styles.nestedHint)}>
+                {!isOwner
+                  ? t('memberEdit.ownerOnly')
+                  : emailEnabled && emailAuto
+                    ? t('memberEdit.emailAutoHint')
+                    : t('memberEdit.emailApprovalHint')}
+              </p>
+            </div>
+            {member.temp ? null : (
               <div>
                 <label className={styles.toggle}>
                   <input
                     type="checkbox"
-                    checked={senior}
-                    aria-describedby={`${formId}-senior`}
-                    onChange={(event) => setSenior(event.target.checked)}
+                    checked={machineAccess}
+                    disabled={!isOwner}
+                    aria-describedby={`${formId}-machine-access`}
+                    onChange={(event) => setMachineAccess(event.target.checked)}
                   />
-                  {t('memberEdit.senior')}
+                  {t('memberEdit.machineAccess')}
                 </label>
-                <p id={`${formId}-senior`} className={styles.toggleHint}>
-                  {t('memberEdit.seniorHint')}
+                <p id={`${formId}-machine-access`} className={styles.toggleHint}>
+                  {isOwner ? t('memberEdit.machineAccessHint') : t('memberEdit.ownerOnly')}
                 </p>
               </div>
-            ) : null}
+            )}
             <ProviderFields
               provider={provider}
               model={model}

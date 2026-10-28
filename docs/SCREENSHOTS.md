@@ -103,6 +103,11 @@ The output has one line per image, `shot <path> <width>x<height>` (the size of t
 
 ## The scenario
 
+`scripts/scenarios/` keeps the documented examples and test fixtures: `probe`, `why-waiting`,
+`complexity-points`, `priority`, `operator`, `work-outage`, `card-with-question` and
+`provider-not-logged-in`. It also retains `involvements` and `handoff` for the open PM-503
+follow-up. PM-1029 removed the unreferenced scenarios of completed cards; git preserves them.
+
 A scenario is an ES module whose default export is an async function:
 
 ```js
@@ -159,7 +164,9 @@ export default async ({ instance, open, shoot, snapshot, step, log }) => {
   );
   const sessionId = await instance.startSession('AC', 'AC-1', developer.handle);
   await instance.waitIdle('AC', sessionId);
-  await instance.setFakeCalls([{ tool: 'ask_human', arguments: { question: QUESTION } }]);
+  await instance.setFakeCalls([
+    { tool: 'ask_human', arguments: { question: QUESTION, options: ['Green', 'Blue'] } },
+  ]);
   await instance.say('AC', sessionId, 'CALLS please');
   await instance.waitIdle('AC', sessionId);
 
@@ -176,10 +183,11 @@ export default async ({ instance, open, shoot, snapshot, step, log }) => {
     log(
       `signed in as ${me.email}: ${JSON.stringify(me.projects.map(({ key, access }) => ({ key, access })))}`,
     );
-    const page = await open({ as: colleague, path: '/p/AC/tasks/AC-1' });
+    // The question is in the card's timeline, which has its own tab of the drawer.
+    const page = await open({ as: colleague, path: '/p/AC/tasks/AC-1/timeline' });
     await page.waitForFunction((text) => document.body.innerText.includes(text), QUESTION);
     log(await snapshot(page));
-    // The question is in the card's timeline, below the fold: the highlight scrolls it into view.
+    // The highlight scrolls the question into view.
     await shoot(page, 'card-question', {
       widths: [1512, 390],
       highlight: `text=${QUESTION} >> visible=true`,
@@ -191,6 +199,42 @@ export default async ({ instance, open, shoot, snapshot, step, log }) => {
 ```sh
 npm run shots -- scripts/scenarios/card-with-question.mjs
 ```
+
+### PM-468: the outage in the UI
+
+`npm run shots -- scripts/scenarios/work-outage.mjs --widths 1512,390`. The fake Claude CLI is logged
+out (`fakeEnv`) and a message wakes a developer; the scenario waits for the server's outage alert and
+shoots "Rád vár" (the outage card), the roster ("Nem tud dolgozni" with the reason), the board card
+("Áll: …", orange) and the card's drawer (the login box), each at 1512 and 390.
+
+### PM-447: the Operator in the corner
+
+`npm run shots -- scripts/scenarios/operator.mjs --widths 1512,390`. A real Operator turn needs a running
+Operator session, so the scenario adds the Operator's answers in the browser (`page.route`, as
+`work-outage.mjs` does): the channel (`/operator`: steps, signals), its thread, the inbox, the
+configuration history and the two 409 answers (`operator_approval_stale`, `operator_signal_closed`).
+Everything else is the real UI on the real demo project. It shoots the corner (closed, first use, steps
+with "Mi változik", the four signal kinds with the count on the button and the 409), Rád vár (the
+proposal, a stale one, the 409 after approving), Beállítások › Előzmények, the Team page (the built-in
+card, its menu and editor), Üzenetek (the pm as "elosztó"), the paused team, a failed send, and a
+non-owner (invited developer) in the corner.
+
+### PM-1026: renaming a member's handle
+
+`npm run shots -- scripts/scenarios/member-rename.mjs --widths 1512,390`. The rename itself is real
+(PM-1025); the browser's answers are varied for what the demo instance cannot show (the member's e-mail
+address, the `member_session_live` refusal, the task timeline rows of a renamed member). It shoots the
+⋯ menu, the dialog (with the e-mail line, a malformed handle, a taken handle, the refusal and a member
+that works), the profile after the rename (the "korábban:" line and the toast), the task timeline and
+the menu of an admin, who is not offered the rename.
+
+### PM-1079: the ready queue, startable and waiting cards
+
+`npm run shots -- scripts/scenarios/ready-startable.mjs --widths 1512,390`. The scenario makes real cards
+(prerequisite relations through the API): `a-ready-mixed` (startable cards beside waiting ones, the
+column head's "N indítható"), `b-drawer-several` (a card with three prerequisites), `d-working-chip` (a
+worked-on card with a prerequisite chip), `e-ready-dark` (a. in the dark theme) and `c-none-startable`
+(the grey "nincs indítható" head).
 
 ### PM-287: card priority
 
@@ -218,21 +262,28 @@ Inspect the two picker images before attaching them: Chromium may omit an operat
 popup from a page screenshot. If the options are missing, capture the open native picker manually
 at the same widths; keep the real select rather than replacing it with a simulated menu.
 
-### PM-349: the recommended developer (Senior)
+### PM-349 / PM-1008: complexity points and developer limits
 
-Run `npm run shots -- scripts/scenarios/senior-developer.mjs --timeout 600 --widths 1512,390`. The
-scenario makes one AI developer the Senior, keeps them busy on a card, recommends the Senior for two more
-cards and sets the wait limit to 5 minutes (the smallest the settings allow). The last scene waits for the
-server's question to the owners (a one-minute sweep after the limit), so the run takes about 7 minutes.
+Run `npm run shots -- scripts/scenarios/complexity-points.mjs --timeout 600 --widths 1512,390`.
+The scenario replaces the old Senior scenario with PM-1001's a–k review list. It uses real API data,
+with browser-only fixtures for a refused save, a temp member view and a historical recommendation event.
+The last scene waits for the real five-minute timeout and the server's minute sweep.
 
-| Images                                | What to inspect                                                                            |
-| ------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `a-board-mark`                        | The Senior chip on the Senior card only; none on cards without a recommendation.           |
-| `b-who-takes`, `b-confirm`            | "Ki vigye?" names the Senior and why; the confirm dialog for a developer who is no Senior. |
-| `c-level-row`, `c-level-editor`       | The "Ajánlott" row with the reason, and its inline editor.                                 |
-| `d-waiting-drawer`, `d-waiting-board` | A card started while the Senior is busy: "A Seniorra vár", no assignee, the hint text.     |
-| `e-team`, `e-member-form`, `e-limits` | The Senior chip, the "Senior fejlesztő" checkbox and the "Senior-várakozás (perc)" field.  |
-| `f-inbox-question`                    | The question after the wait limit, with its two answers and what each does.                |
+| Images                                  | What to inspect                                                                                                                               |
+| --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `a-board`, `a-compact-board`            | Scored and unscored cards, including compact cards behind the drawer.                                                                         |
+| `b-architect`, `b-developer`            | Editable and read-only complexity rows.                                                                                                       |
+| `c-editor-13`, `c-editor-error`         | Seven accessible choices, optional reason, retained error state.                                                                              |
+| `d-none-reach`, `d-none-reach-editor`   | Fallback explanation and Team link.                                                                                                           |
+| `e-start`, `e-confirm`                  | Start threshold, developer limits and manual override warning.                                                                                |
+| `f-assignment`                          | Nonblocking status warning below the assignee select.                                                                                         |
+| `g-team`, `g-team-lower`, `g-team-full` | Limits 13, 5, 3 and a temp developer. The full-page image expands the scroll container and hides the fixed phone tab bar to reveal every row. |
+| `h-developer`, `h-temp`, `h-qa`         | Editable limit, fixed temp limit, no field for QA.                                                                                            |
+| `i-inbox`                               | The real wait question with points, reason and both choices.                                                                                  |
+| `j-limits`                              | Suitable-developer timeout setting and explanation.                                                                                           |
+| `k-timeline`                            | New point changes alongside a historical recommendation event.                                                                                |
+
+Also run `scripts/scenarios/why-waiting.mjs` at 1512 and 390 px for the precise waiting explanation.
 
 ### Widths
 

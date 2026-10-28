@@ -1,7 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { MAX_ATTACHMENT_BYTES, canUploadAttachment } from '@projectman/shared';
-import type { Task } from '@projectman/shared';
 import { useUploadAttachment } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { useToast } from '../../components/toastContext';
@@ -216,13 +215,10 @@ export function useAttachmentUploads(taskKey: string) {
 }
 
 /** Whether the viewer may attach files to a task: the shared rule, as the server judges it. */
-export function useCanAttach(): (task: Task) => boolean {
+export function useCanAttach(): boolean {
   const { key, me, myHandle } = useProject();
   const access = me.projects.find((project) => project.key === key)?.access;
-  return useCallback(
-    (task) => (access && myHandle ? canUploadAttachment({ access, handle: myHandle }, task) : false),
-    [access, myHandle],
-  );
+  return access && myHandle ? canUploadAttachment({ access, handle: myHandle }) : false;
 }
 
 /** How many files of each task are on their way (waiting or sending), by task key. */

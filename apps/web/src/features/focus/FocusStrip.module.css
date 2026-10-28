@@ -168,8 +168,3 @@
     margin: 8px 12px 0;
   }
 }
-
-/* The map's page has its own side padding. */
-.flush {
-  margin: 0;
-}

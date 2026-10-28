@@ -1,6 +1,6 @@
 import {
   MemberHandle,
-  TEAM_MESSAGE_PREFIX_RE,
+  parseInjectedTeamMessage,
   splitTeamMessageBatch,
   userTextOrigin,
   type ChatItem,
@@ -18,7 +18,7 @@ import { rec, str, type Json } from './json';
 /** Sender used for outgoing team messages when the session's member is unknown. */
 export const UNKNOWN_MEMBER = 'unknown';
 
-export function isHandle(value: unknown): value is string {
+function isHandle(value: unknown): value is string {
   return MemberHandle.safeParse(value).success;
 }
 
@@ -61,8 +61,8 @@ export class UserTurns {
   item(text: string, id: string, ts: string): ChatItem {
     const origin = userTextOrigin(text, this.nextOrigin);
     this.nextOrigin = 'human';
-    const team = TEAM_MESSAGE_PREFIX_RE.exec(text);
-    const sender = team?.[1];
+    const team = parseInjectedTeamMessage(text);
+    const sender = team?.from;
     if (team && isHandle(sender)) {
       return {
         kind: 'team_message',
@@ -70,9 +70,10 @@ export class UserTurns {
         ts,
         direction: 'in',
         from: sender,
-        ...(team.groups?.via ? { via: 'integrator' as const } : {}),
+        ...(team.via ? { via: team.via } : {}),
+        ...(team.actor ? { actor: team.actor } : {}),
         to: this.self ? [this.self] : [],
-        text: text.slice(team[0].length).trim(),
+        text: team.body.trim(),
       };
     }
     return { kind: 'user_text', id, ts, text, origin };
@@ -91,6 +92,7 @@ export class UserTurns {
         direction: 'in',
         from: item.from,
         ...(item.via ? { via: item.via } : {}),
+        ...(item.actor ? { actor: item.actor } : {}),
         to: this.self ? [this.self] : [],
         text: item.body,
       })),

@@ -11,17 +11,23 @@ export const SessionStartCauseKind = z.enum([
   'refinement',
   'schedule',
   'message',
+  'merge',
   'mention',
   'answer',
   'conversation',
   'fix_limit',
   'loop',
+  'operator_signal',
   'permission_change',
   'description_changed',
   'provider_resume',
   'pause_resume',
   /** The card changed assignee (PM-342): the old session is asked for its note, or the new one takes over. */
   'handoff',
+  /** The Operator is asked to screen an AI member's question (PM-556). */
+  'question_screening',
+  /** The member's work queue woke it (PM-925): an item of a lane other than the messages. */
+  'member_queue',
 ]);
 export const SessionStartCause = z.object({
   kind: SessionStartCauseKind,
@@ -43,7 +49,17 @@ export type SessionStartCause = z.infer<typeof SessionStartCause>;
 export const MessageOrigin = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('note'), eventId: z.string() }),
   z.object({ kind: z.literal('label'), labels: z.array(LabelId).min(1), eventId: z.string().optional() }),
-  z.object({ kind: z.literal('answer'), inboxItemId: z.string() }),
+  z.object({
+    kind: z.literal('answer'),
+    inboxItemId: z.string(),
+    /** The integrator relayed the owner's words (PM-762); the answer is no decision made with their own login. */
+    ownerAnswerRelayed: z.literal(true).optional(),
+    integratorTodo: z.literal(true).optional(),
+  }),
+  /** The Operator passed a screened question to the recipient (PM-556). */
+  z.object({ kind: z.literal('question_forward'), inboxItemId: z.string() }),
+  /** A server-generated continuation after a human approved shared Operator knowledge. */
+  z.object({ kind: z.literal('operator_knowledge_approval'), inboxItemId: z.string() }),
 ]);
 export type MessageOrigin = z.infer<typeof MessageOrigin>;
 
@@ -94,6 +110,12 @@ export const SessionStopKind = z.enum([
   'handed_off',
   /** The member did not write a handoff note in time. */
   'handoff_timeout',
+  // PM-552
+  /** The member started the card's merge, which the server runs; its failure or block wakes the member with a message. */
+  'merge_running',
+  // PM-570
+  /** The member gave the card's work back with a review or test result ("changes needed", "failed", "blocked"); the developer's request for a new round wakes it. */
+  'awaiting_fix',
 ]);
 export type SessionStopKind = z.infer<typeof SessionStopKind>;
 
@@ -105,7 +127,7 @@ export const SessionStop = z.object({
   note: z.string().trim().min(1).max(200).optional(),
   /** PM-274: restart. */
   restartFor: z.enum(['permission', 'description', 'new_round']).optional(),
-  /** step_done, sent_back, card_done, task_cancelled. */
+  /** step_done, sent_back, card_done, task_cancelled, merge_running, awaiting_fix. */
   taskKey: TaskKey.optional(),
   /** step_done: the stage the card moved to (none for a refinement step); sent_back: where it went back to. */
   stageId: z.string().optional(),

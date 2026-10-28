@@ -3,12 +3,18 @@ import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import type { ProjectConfig } from '@projectman/shared';
+import { LOCAL_ENGINE_ID } from '@projectman/shared';
+import type { AiMemberConfig, ProjectConfig } from '@projectman/shared';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { aiActor } from '../src/domain';
+import { aiActor, newId } from '../src/kernel';
 import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
+import { createDomainContext, createEventBus } from '../src/core/base';
+import { createMemberMemoryStore } from '../src/context';
+import { MemberWorkspaces } from '../src/runtime/sessions/workspaces';
+import { createMemberWorkspaceManager } from '../src/worktree';
+import { createGitSeed } from './helpers/git-seed';
 
 /*
  * PM-138: durable member workspaces with the real git-backed manager and the fake runner. The
@@ -38,6 +44,7 @@ const exists = (p: string) =>
   );
 
 let configDir: string;
+let seed: ReturnType<typeof createGitSeed>;
 beforeAll(async () => {
   configDir = await mkdtemp(path.join(tmpdir(), 'pm-gitconfig-'));
   const file = path.join(configDir, 'gitconfig');
@@ -47,6 +54,10 @@ beforeAll(async () => {
   );
   vi.stubEnv('GIT_CONFIG_GLOBAL', file);
   vi.stubEnv('GIT_CONFIG_NOSYSTEM', '1');
+  seed = createGitSeed(path.join(configDir, 'seed'), {
+    '.gitignore': 'node_modules/\n',
+    'README.md': 'hello\n',
+  });
 });
 afterAll(async () => {
   vi.unstubAllEnvs();
@@ -65,10 +76,8 @@ describe('member workspaces (PM-138)', { timeout: 60_000 }, () => {
 
   async function setup(opts: Parameters<typeof createDomainHarness>[0] = {}) {
     h = await createDomainHarness({ memberWorkspaces: true, persistent: true, adjust: twoTasks, ...opts });
-    await git(h.workspace, 'init', '--quiet', '-b', 'main');
-    await writeFile(path.join(h.workspace, '.gitignore'), 'node_modules/\n');
-    await git(h.workspace, 'add', '.gitignore');
-    initial = await commitFile(h.workspace, 'README.md', 'hello\n');
+    seed.copyTo(h.workspace);
+    initial = seed.commit;
     await h.domain.tasks.create('AR', { title: 'Login page' }, OWNER_ACTOR);
     await h.domain.tasks.create('AR', { title: 'Signup page' }, OWNER_ACTOR);
   }
@@ -120,6 +129,56 @@ describe('member workspaces (PM-138)', { timeout: 60_000 }, () => {
     expect(await git(h.workspace, 'branch', '--list', 'AR-*')).toBe('');
   });
 
+  it('keeps a renamed member`s workspace, home, sandbox and memory under its storage handle (PM-1024)', async () => {
+    const appHome = await mkdtemp(path.join(tmpdir(), 'pm-app-home-'));
+    try {
+      await setup({
+        appHome,
+        adjust: (c) => {
+          const dev = c.team.members.find((m) => m.handle === 'dev-1');
+          if (dev?.kind === 'ai') dev.formerHandles = ['old'];
+        },
+      });
+      const memoryRoot = path.join(appHome, 'memory');
+      const memory = createMemberMemoryStore({ rootDir: memoryRoot });
+      vi.spyOn(h.memory, 'read').mockImplementation(memory.read);
+      vi.spyOn(h.memory, 'append').mockImplementation(memory.append);
+      await memory.append('AR', 'old', 'The build needs node 22.');
+      await startTask('AR-1', 'dev-1');
+      const stored = await workspaceOf('old');
+      expect(h.runner.lastStarted()).toMatchObject({ cwd: stored });
+      expect(await exists(await workspaceOf('dev-1'))).toBe(false);
+      expect(await exists(path.join(appHome, 'member-caches', 'AR', 'old'))).toBe(true);
+      expect(await exists(path.join(appHome, 'member-caches', 'AR', 'dev-1'))).toBe(false);
+      expect(await h.domain.sessions.memory('AR', 'dev-1')).toContain('The build needs node 22.');
+      expect(h.contextBuilder.inputs.at(-1)?.memory).toContain('The build needs node 22.');
+      await h.domain.teamTools.saveMemory(
+        { projectKey: 'AR', member: 'dev-1', sessionId: h.runner.lastStarted().sessionId, taskKey: 'AR-1' },
+        { note: 'Keep the existing build cache.' },
+      );
+      expect(await readFile(path.join(memoryRoot, 'AR', 'old.md'), 'utf8')).toContain(
+        'Keep the existing build cache.',
+      );
+      expect(await exists(path.join(memoryRoot, 'AR', 'dev-1.md'))).toBe(false);
+      // The task's binding belongs to the current handle: the assignee finds its work again.
+      expect(h.repos.memberWorkspaces.bindingsOfTask('AR', 'AR-1')).toMatchObject([
+        { member: 'dev-1', kind: 'work' },
+      ]);
+      const record = h.repos.memberWorkspaces.find('AR', 'old', 'web')!;
+      expect(record).toMatchObject({ path: stored });
+      expect(h.repos.memberWorkspaces.find('AR', 'dev-1', 'web')).toBeNull();
+      const manager = createMemberWorkspaceManager({ rootDir: h.workspacesDir, logger: h.log.logger });
+      expect(await manager.home({ projectKey: record.projectKey, member: record.member })).toBe(
+        path.join(await realpath(h.workspacesDir), 'AR', 'old', '.home'),
+      );
+      // A second start continues in the same workspace on the same branch.
+      await ensure('dev-1', 'AR-1');
+      expect(await branchOf(stored)).toBe('AR-1-login-page');
+    } finally {
+      await rm(appHome, { recursive: true, force: true });
+    }
+  });
+
   it('keeps a second task of the same repository waiting while the first one works there', async () => {
     await setup();
     await startTask('AR-1', 'dev-1');
@@ -147,6 +206,97 @@ describe('member workspaces (PM-138)', { timeout: 60_000 }, () => {
     expect(await branchOf(dev1)).toBe('AR-2-signup-page');
     expect(await git(dev1, 'rev-parse', 'AR-1-login-page')).toBe(work);
     expect(h.domain.tasks.get('AR', 'AR-2').startWaiting).toBeUndefined();
+  });
+
+  it.each([false, true])(
+    'yields an idle review workspace to its queue after two minutes (dirty: %s)',
+    async (dirty) => {
+      let clock = new Date('2026-10-21T12:00:00.000Z');
+      await setup({
+        now: () => clock,
+        adjust: (config) => {
+          twoTasks(config);
+          const reviewer = config.team.members.find((member) => member.handle === 'cr')!;
+          if (reviewer.kind === 'ai') reviewer.capacity = 2;
+        },
+      });
+      await h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', OWNER_ACTOR);
+      await startedCount(1);
+      const first = h.runner.lastStarted();
+      h.runner.emit({
+        type: 'transcript_path',
+        sessionId: first.sessionId,
+        path: '/tmp/fictional-review.jsonl',
+      });
+      h.runner.setState(first.sessionId, 'working');
+      h.runner.setState(first.sessionId, 'idle');
+      await commitFile(h.workspace, 'next.txt', 'next review base\n');
+      await h.domain.tasks.moveToStage('AR', 'AR-2', 'code_review', OWNER_ACTOR);
+      await vi.waitFor(() =>
+        expect(h.repos.memberQueue.listOpen('AR', 'cr')).toContainEqual(
+          expect.objectContaining({
+            kind: 'start',
+            taskKey: 'AR-2',
+            wait: expect.objectContaining({ code: 'workspace_busy' }),
+          }),
+        ),
+      );
+      clock = new Date(clock.getTime() + 119_999);
+      await h.domain.admission.retryDeferred();
+      expect(h.runner.stopped).not.toContain(first.sessionId);
+      if (dirty) await writeFile(path.join(await workspaceOf('cr'), 'draft.txt'), 'uncommitted review\n');
+      clock = new Date(clock.getTime() + 1);
+      await h.domain.admission.retryDeferred();
+      if (dirty) {
+        expect(h.repos.memberQueue.listOpen('AR', 'cr')).toContainEqual(
+          expect.objectContaining({
+            taskKey: 'AR-2',
+            wait: expect.objectContaining({ code: 'workspace_dirty' }),
+          }),
+        );
+        expect(await readFile(path.join(await workspaceOf('cr'), 'draft.txt'), 'utf8')).toBe(
+          'uncommitted review\n',
+        );
+        expect(h.runner.started).toHaveLength(1);
+      } else {
+        expect(h.runner.stopped).toContain(first.sessionId);
+        expect(h.runner.lastStarted().member).toBe('cr');
+        expect(h.domain.sessions.findRunning('AR', 'cr', { type: 'task', taskKey: 'AR-2' })).not.toBeNull();
+        expect(h.domain.sessions.get('AR', first.sessionId).transcriptPath).toBe(
+          '/tmp/fictional-review.jsonl',
+        );
+        expect(h.domain.tasks.get('AR', 'AR-1').stageId).toBe('code_review');
+      }
+    },
+  );
+
+  it('keeps an idle workspace while its member has an open queue item on its card', async () => {
+    let clock = new Date('2026-10-21T12:00:00.000Z');
+    await setup({ now: () => clock });
+    await startTask('AR-1', 'dev-1');
+    const first = h.runner.lastStarted();
+    h.runner.setState(first.sessionId, 'idle');
+    h.domain.messages.record({
+      projectKey: 'AR',
+      from: 'owner',
+      to: ['dev-1'],
+      taskKey: 'AR-1',
+      body: 'Pending work',
+      kind: 'info',
+      actor: OWNER_ACTOR,
+    });
+    h.domain.messages.record({
+      projectKey: 'AR',
+      from: 'owner',
+      to: ['dev-1'],
+      taskKey: 'AR-2',
+      body: 'Other work',
+      kind: 'action',
+      actor: OWNER_ACTOR,
+    });
+    clock = new Date(clock.getTime() + 2 * 60_000);
+    await expect(ensure('dev-1', 'AR-2')).rejects.toMatchObject({ code: 'workspace_busy' });
+    expect(h.runner.stopped).not.toContain(first.sessionId);
   });
 
   it('lets another repository of the same member run in parallel', async () => {
@@ -228,6 +378,140 @@ describe('member workspaces (PM-138)', { timeout: 60_000 }, () => {
     expect(h.runner.started).toHaveLength(0);
   });
 
+  it('waits for dependency readiness after checkout and before recording the binding or launching, including resume', async () => {
+    const preparationGate = () => {
+      let enter!: () => void;
+      let release!: () => void;
+      const entered = new Promise<void>((resolve) => {
+        enter = resolve;
+      });
+      const ready = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return { entered, ready, enter, release };
+    };
+    // Both gates exist before checkout, so even a late preparation can be released on failure.
+    const initialPreparation = preparationGate();
+    const resumePreparation = preparationGate();
+    const gates = [initialPreparation, resumePreparation];
+    const prepared: string[] = [];
+    await setup({
+      wrapMemberWorkspaces: (inner) => ({
+        ...inner,
+        prepareDependencies: async (key) => {
+          expect(await branchOf((await inner.location(key)).path)).toBe('AR-1-login-page');
+          const gate = gates[prepared.length];
+          if (!gate) throw new Error('Unexpected dependency preparation');
+          prepared.push(key.member);
+          gate.enter();
+          await gate.ready;
+          return { status: 'ready', key: 'a'.repeat(64), changed: true };
+        },
+      }),
+    });
+    const saveBinding = vi.spyOn(h.repos.memberWorkspaces, 'saveBinding');
+    const pending: Promise<unknown>[] = [];
+    try {
+      const starting = startTask('AR-1', 'dev-1');
+      pending.push(starting);
+      // An early start failure must reject the test instead of leaving the entry wait pending.
+      await Promise.race([initialPreparation.entered, starting]);
+      expect(prepared).toEqual(['dev-1']);
+      expect(h.runner.started).toHaveLength(0);
+      expect(saveBinding).not.toHaveBeenCalled();
+      expect(h.repos.memberWorkspaces.bindingsOfTask('AR', 'AR-1')).toHaveLength(0);
+      initialPreparation.release();
+      await starting;
+      expect(h.runner.started).toHaveLength(1);
+      expect(saveBinding).toHaveBeenCalledTimes(1);
+      const first = h.runner.lastStarted();
+      h.runner.emit({
+        type: 'transcript_path',
+        sessionId: first.sessionId,
+        path: '/tmp/fictional-deps.jsonl',
+      });
+      await h.domain.sessions.stop('AR', first.sessionId);
+      const resuming = ensure('dev-1', 'AR-1');
+      pending.push(resuming);
+      await Promise.race([resumePreparation.entered, resuming]);
+      expect(prepared).toEqual(['dev-1', 'dev-1']);
+      expect(h.runner.started).toHaveLength(1);
+      expect(saveBinding).toHaveBeenCalledTimes(1);
+      resumePreparation.release();
+      await expect(resuming).resolves.toMatchObject({ resumed: true });
+      expect(h.runner.started).toHaveLength(2);
+      expect(saveBinding).toHaveBeenCalledTimes(2);
+    } finally {
+      for (const gate of gates) gate.release();
+      // Drain in-flight starts before afterEach stops the domain and removes its repositories.
+      await Promise.allSettled(pending);
+    }
+  });
+
+  it.each(['workspace_dependencies_pending', 'workspace_dependencies_failed'] as const)(
+    'releases the reservation after %s and permits a later retry',
+    async (code) => {
+      let refuse = true;
+      const details = code.endsWith('pending')
+        ? { startedAt: '2026-10-16T20:00:00.000Z' }
+        : { reason: 'install_failed', exitCode: 23, key: 'a'.repeat(64) };
+      await setup({
+        wrapMemberWorkspaces: (inner) => ({
+          ...inner,
+          prepareDependencies: async () => {
+            if (refuse) throw Object.assign(new Error('fixture dependency refusal'), { code, details });
+            return { status: 'ready', key: 'a'.repeat(64), changed: false };
+          },
+        }),
+      });
+      await expect(startTask('AR-1', 'dev-1')).rejects.toMatchObject({
+        code,
+        details: { member: 'dev-1', ...details },
+      });
+      expect(h.runner.started).toHaveLength(0);
+      expect(h.repos.memberWorkspaces.find('AR', 'dev-1', 'web')?.holder).toBeNull();
+      expect(h.repos.memberWorkspaces.bindingsOfTask('AR', 'AR-1')).toHaveLength(0);
+      refuse = false;
+      await startTask('AR-1', 'dev-1');
+      expect(h.runner.started).toHaveLength(1);
+    },
+  );
+
+  it('prepares review dependencies after checking out the snapshot commit and before launching', async () => {
+    let ready!: () => void;
+    // Create the gate before checkout so finally can release even a late preparation.
+    const dependenciesReady = new Promise<void>((resolve) => {
+      ready = resolve;
+    });
+    const reviewHeads: string[] = [];
+    await setup({
+      wrapMemberWorkspaces: (inner) => ({
+        ...inner,
+        prepareDependencies: async (key) => {
+          if (key.member === 'cr') {
+            const ws = await inner.location(key);
+            const head = await git(ws.path, 'rev-parse', 'HEAD');
+            expect(await branchOf(ws.path)).toBe('');
+            reviewHeads.push(head);
+            await dependenciesReady;
+          }
+          return { status: 'ready', key: key.member, changed: true };
+        },
+      }),
+    });
+    try {
+      await startTask('AR-1', 'dev-1');
+      const commit = await commitFile(await workspaceOf('dev-1'), 'login.txt', 'review version');
+      await h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', aiActor('dev-1'));
+      await vi.waitFor(() => expect(reviewHeads).toEqual([commit]), { timeout: 15_000 });
+      expect(h.runner.started).toHaveLength(1);
+    } finally {
+      ready();
+    }
+    await startedCount(2);
+    expect(h.runner.lastStarted()).toMatchObject({ member: 'cr' });
+  });
+
   it('reports a missing task branch instead of starting the task over', async () => {
     await setup();
     await startTask('AR-1', 'dev-1');
@@ -237,6 +521,126 @@ describe('member workspaces (PM-138)', { timeout: 60_000 }, () => {
     await git(dev1, 'branch', '--quiet', '-D', 'AR-1-login-page');
     await expect(ensure('dev-1', 'AR-1')).rejects.toMatchObject({ code: 'workspace_branch_missing' });
   });
+
+  it('selects design review only for a non-implementing designer inspecting another member branch (PM-828)', async () => {
+    await setup();
+    const config = await h.domain.projects.config('AR');
+    const designer: AiMemberConfig = {
+      ...(config.team.members.find((m) => m.handle === 'dev-2') as AiMemberConfig),
+      role: 'designer',
+    };
+    const workspaces = new MemberWorkspaces({
+      ctx: createDomainContext({
+        repos: h.repos,
+        bus: createEventBus(),
+        logger: h.log.logger,
+        now: () => new Date(),
+      }),
+      manager: createMemberWorkspaceManager({ rootDir: h.workspacesDir, logger: h.log.logger }),
+      isRunning: () => false,
+      stop: async () => undefined,
+      processExists: () => false,
+    });
+    const unstarted = h.domain.tasks.get('AR', 'AR-1');
+    expect(workspaces.kindFor(config, designer, unstarted)).toBe('work');
+    await startTask('AR-1', 'dev-1');
+    const task = h.domain.tasks.get('AR', 'AR-1');
+    expect(workspaces.kindFor(config, designer, task)).toBe('review');
+    expect(workspaces.kindFor(config, designer, { ...task, stageId: 'code_review' })).toBe('review');
+    expect(workspaces.kindFor(config, designer, { ...task, assignee: designer.handle })).toBe('work');
+    config.team.roleOverrides = {
+      ...config.team.roleOverrides,
+      designer: { duties: ['ux_design', 'implementation'], instructions: '' },
+    };
+    expect(workspaces.kindFor(config, designer, task)).toBe('work');
+  });
+
+  it.each(['stopped', 'idle', 'working'] as const)(
+    'starts a %s designer from the current developer commit on a message in development (PM-828)',
+    async (state) => {
+      await setup({
+        adjust: (config) => {
+          twoTasks(config);
+          config.team.members.push({
+            ...(config.team.members.find((m) => m.handle === 'dev-1') as AiMemberConfig),
+            kind: 'ai',
+            handle: 'designer',
+            displayName: 'Designer',
+            role: 'designer',
+            sponsor: 'owner',
+          });
+        },
+      });
+      // Planning can leave an older branch in the designer's clone.
+      await ensure('designer', 'AR-1');
+      const planning = h.runner.lastStarted();
+      expect(planning.policy?.placement.kind).toBe('task_worktree');
+      h.runner.emit({ type: 'transcript_path', sessionId: planning.sessionId, path: '/tmp/planning.jsonl' });
+      if (state === 'stopped') await h.domain.sessions.stop('AR', planning.sessionId);
+      else h.runner.setState(planning.sessionId, state);
+      await startTask('AR-1', 'dev-1');
+      const dev = await workspaceOf('dev-1');
+      const current = await commitFile(dev, 'screen.txt', 'ready for design review\n');
+      const request = async () => {
+        await h.domain.messaging.send(
+          'AR',
+          'dev-1',
+          { to: ['designer'], text: 'Please review the screen.', taskKey: 'AR-1' },
+          { actor: aiActor('dev-1') },
+        );
+      };
+      await request();
+      if (state === 'working') {
+        await flush();
+        expect(h.runner.started).toHaveLength(2);
+        expect(h.runner.stopped).not.toContain(planning.sessionId);
+        h.runner.setState(planning.sessionId, 'idle');
+      }
+      await startedCount(3);
+      const designer = await workspaceOf('designer');
+      expect(h.domain.tasks.get('AR', 'AR-1').stageId).toBe('development');
+      expect(h.runner.lastStarted().policy?.placement).toMatchObject({
+        kind: 'review_copy',
+        sourceCommit: current,
+        roundId: '1',
+      });
+      expect(await git(designer, 'rev-parse', 'HEAD')).toBe(current);
+      expect(await git(designer, 'rev-parse', 'refs/heads/AR-1-login-page')).toBe(initial);
+      expect(
+        await h.domain.sessions.sourceHead(
+          await h.domain.projects.config('AR'),
+          h.domain.tasks.get('AR', 'AR-1'),
+        ),
+      ).toMatchObject({ commit: current, path: dev });
+      expect(await readFile(path.join(designer, 'screen.txt'), 'utf8')).toBe('ready for design review\n');
+
+      // A rewritten developer tip must reach the next round too.
+      const review = h.runner.lastStarted();
+      h.runner.emit({ type: 'transcript_path', sessionId: review.sessionId, path: '/tmp/designer.jsonl' });
+      h.runner.setState(review.sessionId, 'idle');
+      await writeFile(path.join(dev, 'screen.txt'), 'revised screen\n');
+      await git(dev, 'add', 'screen.txt');
+      await git(dev, 'commit', '--quiet', '--amend', '-m', 'Revise screen');
+      const rewritten = await git(dev, 'rev-parse', 'HEAD');
+      await request();
+      await startedCount(4);
+      expect(h.runner.lastStarted().policy?.placement).toMatchObject({
+        kind: 'review_copy',
+        sourceCommit: rewritten,
+        roundId: '2',
+      });
+      expect(await git(designer, 'rev-parse', 'HEAD')).toBe(rewritten);
+
+      await h.domain.sessions.stop('AR', review.sessionId);
+      const latest = await commitFile(dev, 'screen.txt', 'latest screen\n');
+      await ensure('designer', 'AR-1');
+      expect(h.runner.lastStarted().policy?.placement).toMatchObject({
+        sourceCommit: latest,
+        roundId: '3',
+      });
+      expect(await git(designer, 'rev-parse', 'HEAD')).toBe(latest);
+    },
+  );
 
   it("reviews the handed-over commit in the reviewer's own workspace; a new round on a stage entry or the developer's message", async () => {
     await setup();
@@ -307,6 +711,232 @@ describe('member workspaces (PM-138)', { timeout: 60_000 }, () => {
     expect(h.runner.lastStarted().policy?.placement).toMatchObject({ sourceCommit: fixed, roundId: '2' });
   });
 
+  it('reads the fetched default branch for a reader on a card with no branch yet, pinned for the round (PM-805)', async () => {
+    await setup();
+    const head = await commitFile(h.workspace, 'docs.txt', 'current\n');
+    await ensure('cr', 'AR-2');
+    const first = h.runner.lastStarted();
+    const cr = await workspaceOf('cr');
+    expect(first).toMatchObject({ member: 'cr', cwd: cr });
+    expect(first.policy?.placement).toMatchObject({
+      kind: 'review_copy',
+      path: cr,
+      sourceCommit: head,
+      sourceBranch: 'main',
+      baseCommit: head,
+      roundId: '1',
+    });
+    expect(await git(cr, 'rev-parse', 'HEAD')).toBe(head);
+    expect(await branchOf(cr)).toBe('');
+
+    // Continuing the round keeps its pin even when the default branch moves on.
+    await commitFile(h.workspace, 'docs.txt', 'newer\n');
+    await h.domain.sessions.stop('AR', first.sessionId);
+    await ensure('cr', 'AR-2');
+    expect(h.runner.lastStarted().policy?.placement).toMatchObject({ sourceCommit: head, roundId: '1' });
+  });
+
+  it('pins a review round to a snapshot in the project repository and imports the approved commit for the merge (PM-739)', async () => {
+    await setup();
+    await startTask('AR-1', 'dev-1');
+    const dev1 = await workspaceOf('dev-1');
+    const handedOver = await commitFile(dev1, 'login.txt', 'v1\n');
+    const known = (commit: string) =>
+      git(h.workspace, 'cat-file', '-e', `${commit}^{commit}`).then(
+        () => true,
+        () => false,
+      );
+    expect(await known(handedOver)).toBe(false);
+
+    await h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', aiActor('dev-1'));
+    await startedCount(2);
+    const snapshot = `refs/projectman/workspaces/dev-1/AR-1/${handedOver}`;
+    const pin = () => h.repos.memberWorkspaces.bindingsOfTask('AR', 'AR-1').find((b) => b.kind === 'review')!;
+    expect(pin()).toMatchObject({
+      sourcePath: await realpath(h.workspace),
+      sourceRef: snapshot,
+      sourceCommit: handedOver,
+      round: 1,
+    });
+    expect(await git(h.workspace, 'rev-parse', snapshot)).toBe(handedOver);
+    expect(h.runner.lastStarted().policy?.placement).toMatchObject({ sourceBranch: 'AR-1-login-page' });
+    // The developer's branch name is not made in the project repository.
+    expect(await git(h.workspace, 'branch', '--list', 'AR-1-login-page')).toBe('');
+
+    // Later work of the developer does not change the pin; the same round continues on it.
+    await commitFile(dev1, 'login.txt', 'v2\n');
+    const review = h.runner.lastStarted();
+    await h.domain.sessions.stop('AR', review.sessionId);
+    await ensure('cr', 'AR-1');
+    expect(pin()).toMatchObject({ sourceRef: snapshot, sourceCommit: handedOver, round: 1 });
+
+    // The merge reads the approved commit from the project repository: it is imported once.
+    const approved = await commitFile(dev1, 'login.txt', 'v3\n');
+    expect(await known(approved)).toBe(false);
+    const config = await h.domain.projects.config('AR');
+    const task = h.domain.tasks.get('AR', 'AR-1');
+    await h.domain.sessions.prepareMergeSource(config, task, approved);
+    await h.domain.sessions.prepareMergeSource(config, task, approved);
+    expect(await known(approved)).toBe(true);
+    expect(await git(h.workspace, 'rev-parse', `refs/projectman/workspaces/dev-1/AR-1/${approved}`)).toBe(
+      approved,
+    );
+    // A commit the developer's branch does not hold is refused, never taken from anywhere else.
+    await expect(h.domain.sessions.prepareMergeSource(config, task, 'f'.repeat(40))).rejects.toMatchObject({
+      code: 'workspace_source_missing',
+    });
+  });
+
+  it('restarts a hybrid merger in its fix checkout, releases the old scope and ignores clone reservations and review refreshes', async () => {
+    const liveProcesses = new Set([1002]);
+    await setup({
+      liveProcesses,
+      adjust(config) {
+        twoTasks(config);
+        config.project.repos[0]!.requireMerge = true;
+        config.team.merger = { kind: 'member', handle: 'cr' };
+        config.pipeline.stages = config.pipeline.stages.filter(
+          (stage) => stage.id !== 'merge' && stage.id !== 'release',
+        );
+        config.pipeline.stages.find((stage) => stage.id === 'done')!.gate = {
+          conditions: [{ type: 'has_label', label: 'code-review-ok' }],
+        };
+        const reviewer = config.team.members.find((m) => m.handle === 'cr')!;
+        if (reviewer.kind === 'ai') {
+          reviewer.role = 'lead_developer';
+          reviewer.permissionMode = 'auto';
+        }
+      },
+    });
+    vi.spyOn(h.domain.autoAdvance, 'check').mockResolvedValue(undefined);
+    scopeStarts();
+    vi.spyOn(h.runner, 'stop').mockImplementation(async (sessionId) => {
+      h.runner.stopped.push(sessionId);
+      h.runner.emit({
+        type: 'exit',
+        sessionId,
+        exitCode: 0,
+        signal: null,
+        cleanup: scopeCleanup('scp_0123456789abcdef', 'clean'),
+      });
+    });
+    await startTask('AR-1', 'dev-1');
+    const approved = await commitFile(await workspaceOf('dev-1'), 'login.txt', 'approved\n');
+    await h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', aiActor('dev-1'));
+    await startedCount(2);
+    const review = h.runner.lastStarted();
+    const pin = h.repos.memberWorkspaces.bindingsOfTask('AR', 'AR-1').find((b) => b.kind === 'review')!;
+    expect(review.member).toBe('cr');
+    expect(h.repos.memberWorkspaces.heldBy(review.sessionId)[0]?.holder).toMatchObject({
+      pid: 1002,
+      scopeId: 'scp_0123456789abcdef',
+    });
+    h.runner.setState(review.sessionId, 'working');
+    const now = new Date().toISOString();
+    h.repos.tasks.update(h.domain.tasks.get('AR', 'AR-1').id, { labels: ['code-review-ok'] });
+    h.repos.taskMerges.save({
+      id: newId('merge'),
+      projectKey: 'AR',
+      taskKey: 'AR-1',
+      repo: 'web',
+      base: 'main',
+      commit: approved,
+      branch: 'AR-1-login-page',
+      fromStageId: 'code_review',
+      toStageId: 'done',
+      merger: 'cr',
+      requestedAt: now,
+      state: 'fixing',
+      landed: 'nowhere',
+      createdAt: now,
+      updatedAt: now,
+      fix: { by: 'cr', base: initial, branch: 'merge-fix/AR-1', startedAt: now },
+    });
+    h.runner.setState(review.sessionId, 'idle');
+    await startedCount(3);
+    const fixer = h.runner.lastStarted();
+    expect(fixer).toMatchObject({
+      sessionId: review.sessionId,
+      policy: { placement: { kind: 'task_worktree', mergeFix: { branch: 'merge-fix/AR-1' } } },
+    });
+    expect(fixer.cwd).toContain('_merge-fix');
+    expect(fixer.policy?.filesystem.writableRoots).toContain(fixer.cwd);
+    expect(h.repos.memberWorkspaces.heldBy(fixer.sessionId)).toHaveLength(0);
+    expect(h.repos.memberWorkspaces.get(pin.workspaceId)?.holder).toBeNull();
+
+    // The merger can review another task in its clone while the fix session uses the worktree.
+    await ensure('cr', 'AR-2');
+    const other = h.runner.lastStarted();
+    h.runner.setState(other.sessionId, 'working');
+    const config = await h.domain.projects.config('AR');
+    const member = config.team.members.find((m) => m.handle === 'cr') as AiMemberConfig;
+    const task = h.domain.tasks.get('AR', 'AR-1');
+    expect(() =>
+      h.domain.sessions.assertWorkspaceFree(config, member, { ...task, merge: undefined }),
+    ).toThrow(expect.objectContaining({ code: 'workspace_busy' }));
+    expect(() => h.domain.sessions.assertWorkspaceFree(config, member, task)).not.toThrow();
+    await h.domain.sessions.stop('AR', fixer.sessionId);
+    await ensure('cr', 'AR-1');
+    expect(h.runner.lastStarted()).toMatchObject({ sessionId: fixer.sessionId, cwd: fixer.cwd });
+    expect(h.repos.memberWorkspaces.heldBy(fixer.sessionId)).toHaveLength(0);
+    expect(h.repos.memberWorkspaces.heldBy(other.sessionId)).toHaveLength(1);
+
+    h.domain.sessions.requestReviewRound('AR', 'AR-1', 'cr');
+    const current = h.domain.sessions.get('AR', fixer.sessionId);
+    expect(h.domain.sessions.reviewRoundDue({ ...current, cwd: review.cwd })).toBe(true);
+    expect(h.domain.sessions.reviewRoundDue(current)).toBe(false);
+    const starts = h.runner.started.length;
+    h.runner.setState(fixer.sessionId, 'idle');
+    await flush();
+    expect(h.runner.started).toHaveLength(starts);
+    expect(
+      h.repos.memberWorkspaces.bindingsOfTask('AR', 'AR-1').find((b) => b.kind === 'review'),
+    ).toMatchObject({ ...pin, refresh: true });
+  });
+
+  it('still reads a round pinned before PM-739 directly on the developer workspace', async () => {
+    await setup();
+    await startTask('AR-1', 'dev-1');
+    const dev1 = await workspaceOf('dev-1');
+    const handedOver = await commitFile(dev1, 'login.txt', 'v1\n');
+    await h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', aiActor('dev-1'));
+    await startedCount(2);
+    const pin = () => h.repos.memberWorkspaces.bindingsOfTask('AR', 'AR-1').find((b) => b.kind === 'review')!;
+    // The old shape: the pin names the developer's workspace and branch directly.
+    h.repos.memberWorkspaces.saveBinding({
+      ...pin(),
+      sourcePath: dev1,
+      sourceRef: 'refs/heads/AR-1-login-page',
+    });
+    await h.domain.sessions.stop('AR', h.runner.lastStarted().sessionId);
+    await ensure('cr', 'AR-1');
+    expect(h.runner.lastStarted().policy?.placement).toMatchObject({
+      sourceCommit: handedOver,
+      sourceBranch: 'AR-1-login-page',
+      roundId: '1',
+    });
+    expect(pin()).toMatchObject({ sourcePath: dev1, sourceRef: 'refs/heads/AR-1-login-page' });
+  });
+
+  it('preserves a lost engine link while handing a merge source over', async () => {
+    const lost = Object.assign(new Error('the link dropped'), { linkCode: 'link_down' });
+    let disconnected = false;
+    await setup({
+      wrapMemberWorkspaces: (inner) => ({
+        ...inner,
+        publishTaskBranch: (...args) =>
+          disconnected ? Promise.reject(lost) : inner.publishTaskBranch(...args),
+      }),
+    });
+    await startTask('AR-1', 'dev-1');
+    const config = await h.domain.projects.config('AR');
+    const task = h.domain.tasks.get('AR', 'AR-1');
+    disconnected = true;
+    await expect(h.domain.sessions.prepareMergeSource(config, task, initial)).rejects.toBe(lost);
+    disconnected = false;
+    await h.domain.sessions.prepareMergeSource(config, task, initial);
+  });
+
   it('keeps a reservation over a restart until the old processes are proven gone', async () => {
     const liveProcesses = new Set<number>();
     await setup({ liveProcesses });
@@ -320,6 +950,112 @@ describe('member workspaces (PM-138)', { timeout: 60_000 }, () => {
     liveProcesses.delete(1001);
     await ensure('dev-1', 'AR-2');
     expect(await branchOf(await workspaceOf('dev-1'))).toBe('AR-2-signup-page');
+  });
+
+  const scopeCleanup = (scopeId: string, outcome: 'clean' | 'failed' | 'unverified') => ({
+    scopeId,
+    kind: 'process_group' as const,
+    outcome,
+    reason: 'stop' as const,
+    killed: true,
+    survivors: outcome === 'failed' ? 1 : 0,
+    durationMs: 7000,
+  });
+  function scopeStarts() {
+    const original = h.runner.start.bind(h.runner);
+    vi.spyOn(h.runner, 'start').mockImplementation(async (spec) => {
+      const info = await original(spec);
+      info.scopeId = 'scp_0123456789abcdef';
+      return info;
+    });
+  }
+  it('waits for exit cleanup and releases a clean scope even when the pid probe is alive', async () => {
+    const liveProcesses = new Set([1001]);
+    await setup({ liveProcesses });
+    scopeStarts();
+    await startTask('AR-1', 'dev-1');
+    const sessionId = h.runner.lastStarted().sessionId;
+    h.runner.setState(sessionId, 'exited');
+    expect(h.domain.sessions.get('AR', sessionId).state).toBe('starting');
+    expect(h.repos.memberWorkspaces.heldBy(sessionId)).toHaveLength(1);
+    h.runner.emit({
+      type: 'exit',
+      sessionId,
+      exitCode: 0,
+      signal: null,
+      cleanup: scopeCleanup('scp_0123456789abcdef', 'clean'),
+    });
+    expect(h.repos.memberWorkspaces.heldBy(sessionId)).toHaveLength(0);
+    await ensure('dev-1', 'AR-2');
+  });
+  it('persists failed cleanup across restart and blocks resume until the matching scope recovers', async () => {
+    await setup();
+    scopeStarts();
+    await startTask('AR-1', 'dev-1');
+    const sessionId = h.runner.lastStarted().sessionId;
+    const scopeId = 'scp_0123456789abcdef';
+    h.runner.emit({
+      type: 'exit',
+      sessionId,
+      exitCode: 0,
+      signal: null,
+      cleanup: scopeCleanup(scopeId, 'failed'),
+    });
+    expect(h.repos.memberWorkspaces.heldBy(sessionId)[0]?.holder).toMatchObject({
+      scopeId,
+      cleanupFailed: true,
+    });
+    await expect(ensure('dev-1', 'AR-1')).rejects.toMatchObject({ code: 'workspace_busy' });
+    h = await restartDomainHarness(h, { memberWorkspaces: true });
+    await expect(ensure('dev-1', 'AR-2')).rejects.toMatchObject({ code: 'workspace_busy' });
+    h.runner.emit({
+      type: 'scope_recovered',
+      sessionId,
+      cleanup: scopeCleanup('scp_1111111111111111', 'clean'),
+    });
+    h.runner.emit({ type: 'scope_recovered', sessionId, cleanup: scopeCleanup(scopeId, 'unverified') });
+    expect(h.repos.memberWorkspaces.heldBy(sessionId)[0]?.holder?.cleanupFailed).toBe(true);
+    h.runner.emit({ type: 'scope_recovered', sessionId, cleanup: scopeCleanup(scopeId, 'clean') });
+    expect(h.repos.memberWorkspaces.heldBy(sessionId)).toHaveLength(0);
+    await ensure('dev-1', 'AR-2');
+  });
+  it('retries persisted cleanup on the owning runner at startup', async () => {
+    await setup();
+    scopeStarts();
+    await startTask('AR-1', 'dev-1');
+    const sessionId = h.runner.lastStarted().sessionId;
+    const scopeId = 'scp_0123456789abcdef';
+    h.runner.emit({
+      type: 'exit',
+      sessionId,
+      exitCode: 0,
+      signal: null,
+      cleanup: scopeCleanup(scopeId, 'failed'),
+    });
+    h = await restartDomainHarness(h, { memberWorkspaces: true });
+    const closeScopes = vi.fn(async () => [{ sessionId, cleanup: scopeCleanup(scopeId, 'clean') }]);
+    Object.assign(h.runner, { closeScopes });
+    await h.domain.sessions.reconcileAfterRestart();
+    expect(closeScopes).toHaveBeenCalledWith([{ sessionId, scopeId, sinceAgeMs: expect.any(Number) }]);
+    expect(h.repos.memberWorkspaces.heldBy(sessionId)).toHaveLength(0);
+    expect(
+      h.repos.operatorSignals.list('AR').find((signal) => signal.kind === 'process_cleanup_failed')
+        ?.resolvedAt,
+    ).not.toBeNull();
+  });
+
+  it('does not keep the workspace for a session ended by a restart that an engine report would revive (PM-792)', async () => {
+    await setup();
+    await startTask('AR-1', 'dev-1');
+    const sessionId = h.runner.lastStarted().sessionId;
+    // The row is closed while the process goes on, then the late report arrives.
+    await h.domain.sessions.reconcileEngine(LOCAL_ENGINE_ID, new Set(), () => false);
+    h.runner.setState(sessionId, 'idle');
+    expect(h.repos.sessions.get(sessionId)?.state).toBe('exited');
+
+    await h.domain.sessions.reconcileEngine(LOCAL_ENGINE_ID, new Set([sessionId]), () => false);
+    expect(h.runner.stopped).toContain(sessionId);
+    await ensure('dev-1', 'AR-2');
   });
 
   it('starts a new conversation when the workspace had to be made again', async () => {

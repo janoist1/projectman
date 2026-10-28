@@ -1,5 +1,5 @@
-import { execFile } from 'node:child_process';
 import { devNull } from 'node:os';
+import { execCommand, ExecCommandError } from '../exec';
 
 export interface GitResult {
   stdout: string;
@@ -7,7 +7,7 @@ export interface GitResult {
   code: number;
 }
 
-export class GitError extends Error {
+class GitError extends Error {
   readonly args: string[];
   readonly exitCode: number;
   readonly stderr: string;
@@ -41,35 +41,36 @@ function gitEnv(extra: Record<string, string>): NodeJS.ProcessEnv {
 }
 
 /** A git call on the customization repository that takes longer is killed (it would block every save). */
-export const GIT_TIMEOUT_MS = 120_000;
+const GIT_TIMEOUT_MS = 120_000;
 
 /**
  * Runs git without a shell. Exit codes listed in `okCodes` resolve instead of rejecting; a call
  * running longer than `timeoutMs` is killed and rejects.
  */
-export function runGit(
+export async function runGit(
   cwd: string,
   args: string[],
   opts: { env?: Record<string, string>; okCodes?: number[]; timeoutMs?: number } = {},
 ): Promise<GitResult> {
-  return new Promise((resolve, reject) => {
-    execFile(
+  try {
+    const { stdout, stderr, exitCode } = await execCommand(
       'git',
       ['-c', `core.hooksPath=${devNull}`, '-c', 'commit.gpgSign=false', ...args],
       {
         cwd,
         env: gitEnv(opts.env ?? {}),
-        maxBuffer: 32 * 1024 * 1024,
-        encoding: 'utf8',
-        timeout: opts.timeoutMs ?? GIT_TIMEOUT_MS,
-      },
-      (error, stdout, stderr) => {
-        if (!error) return resolve({ stdout, stderr, code: 0 });
-        const code = typeof error.code === 'number' ? error.code : -1;
-        if (opts.okCodes?.includes(code)) return resolve({ stdout, stderr, code });
-        const timedOut = error.killed && code === -1;
-        reject(new GitError(args, code, timedOut ? 'timed out' : stderr || error.message));
+        maxOutputBytes: 32 * 1024 * 1024,
+        timeoutMs: opts.timeoutMs ?? GIT_TIMEOUT_MS,
+        okExitCodes: [0, ...(opts.okCodes ?? [])],
       },
     );
-  });
+    return { stdout, stderr, code: exitCode };
+  } catch (error) {
+    if (!(error instanceof ExecCommandError)) throw error;
+    throw new GitError(
+      args,
+      error.reason === 'exit_code' ? error.exitCode! : -1,
+      error.reason === 'timeout' ? 'timed out' : error.stderr || error.message,
+    );
+  }
 }

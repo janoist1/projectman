@@ -4,6 +4,7 @@ import {
   FALLBACK_PERMISSION_MODE,
   hasPlanUsage,
   pausesOnPlanUsage,
+  planUsagePause,
   modelForProvider,
   PLAN_USAGE_PROVIDERS,
   PROVIDER_PERMISSION_MODES,
@@ -13,9 +14,32 @@ import {
   cliVersionAtLeast,
   CODEX_PERMISSION_PROFILE_MIN_VERSION,
   NANOGPT_MIN_CODEX_VERSION,
+  starterProvider,
 } from './provider-model';
 
 describe('provider settings contracts', () => {
+  it('prefers Claude regardless of response order', () => {
+    expect(
+      starterProvider([
+        { provider: 'codex', loggedIn: true },
+        { provider: 'claude', loggedIn: true },
+      ]),
+    ).toBe('claude');
+  });
+  it('picks the first ready provider after unavailable providers', () => {
+    expect(
+      starterProvider([
+        { provider: 'claude', loggedIn: null },
+        { provider: 'nanogpt', loggedIn: true },
+        { provider: 'gemini', loggedIn: true },
+        { provider: 'codex', loggedIn: false },
+      ]),
+    ).toBe('gemini');
+  });
+  it('returns null without a ready provider', () => {
+    expect(starterProvider([{ provider: 'claude', loggedIn: false }])).toBeNull();
+    expect(starterProvider([])).toBeNull();
+  });
   it.each([
     ['0.159.1', true],
     ['0.159.0', false],
@@ -128,6 +152,37 @@ describe('permission modes per provider', () => {
     expect(hasPlanUsage('claude')).toBe(true);
     expect(hasPlanUsage('codex')).toBe(true);
     expect(hasPlanUsage('fictional' as never)).toBe(false);
+  });
+
+  it('pauses a threshold provider only when the higher plan usage is strictly above the threshold (PM-1051)', () => {
+    const usage = (fiveHourPercent: number | null, weeklyPercent: number | null) => ({
+      fiveHourPercent,
+      weeklyPercent,
+      fiveHourResetsAt: null,
+      weeklyResetsAt: null,
+      fetchedAt: '2026-10-27T10:00:00Z',
+    });
+    expect(planUsagePause('claude', usage(20, 96), 95)).toEqual({
+      provider: 'claude',
+      percent: 96,
+      threshold: 95,
+    });
+    expect(planUsagePause('codex', usage(97, null), 95)).toMatchObject({ percent: 97 });
+    expect(planUsagePause('claude', usage(95, 90), 95)).toBeNull();
+    expect(planUsagePause('claude', usage(null, null), 95)).toBeNull();
+    expect(planUsagePause('claude', null, 95)).toBeNull();
+  });
+
+  it('never pauses a provider without a plan usage threshold (PM-1051)', () => {
+    const usage = {
+      fiveHourPercent: 100,
+      weeklyPercent: 100,
+      fiveHourResetsAt: null,
+      weeklyResetsAt: null,
+      fetchedAt: '2026-10-27T10:00:00Z',
+    };
+    expect(planUsagePause('nanogpt', usage, 95)).toBeNull();
+    expect(planUsagePause('gemini', usage, 95)).toBeNull();
   });
 
   it('has a fallback every provider allows', () => {

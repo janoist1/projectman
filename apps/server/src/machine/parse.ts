@@ -48,10 +48,12 @@ const PS_LINE =
  * The output of `ps -axww -o pid=,ppid=,uid=,rss=,%cpu=,time=,lstart=,args=`. A line that does
  * not parse (a wrapped command line, an unknown time format) is skipped.
  */
-export function parsePsList(output: string): ProcessRecord[] {
+export function parsePsList(output: string, withPgid = false): ProcessRecord[] {
   const records: ProcessRecord[] = [];
   for (const line of output.split('\n')) {
-    const match = PS_LINE.exec(line);
+    const group = withPgid ? /^\s*\d+\s+\d+\s+(\d+)\s+/.exec(line) : null;
+    const normalized = group ? line.replace(/^(\s*\d+\s+\d+)\s+\d+\s+/, '$1 ') : line;
+    const match = PS_LINE.exec(normalized);
     if (!match) continue;
     const startedAt = parseLstart(match[7]!);
     const cpuSeconds = parseCpuTime(match[6]!);
@@ -59,6 +61,7 @@ export function parsePsList(output: string): ProcessRecord[] {
     records.push({
       pid: Number(match[1]),
       ppid: Number(match[2]),
+      pgid: group ? Number(group[1]) : null,
       uid: Number(match[3]),
       rssBytes: Number(match[4]) * 1024,
       cpuSeconds,
@@ -68,6 +71,17 @@ export function parsePsList(output: string): ProcessRecord[] {
     });
   }
   return records;
+}
+
+/** Linux stat fields follow the final ')' of the command name; pgrp is field 5. */
+export function parseProcPgid(stat: string): number | null {
+  const end = stat.lastIndexOf(')');
+  if (end < 0) return null;
+  const value = stat
+    .slice(end + 1)
+    .trim()
+    .split(/\s+/)[2];
+  return value && /^\d+$/.test(value) ? Number(value) : null;
 }
 
 /** `ps -ww -o pid=,command=` lines by pid (the line after the pid, whitespace of the end kept off). */
@@ -185,59 +199,4 @@ export function parseMeminfo(content: string): {
     swapTotalBytes: kilobytes('SwapTotal'),
     swapFreeBytes: kilobytes('SwapFree'),
   };
-}
-
-const INTERPRETERS = /^(?:node|nodejs|python[\d.]*|sh|bash|zsh|dash|fish|npm|npx|pnpm|yarn|bun|deno)$/;
-/** After these a package runner's next word is the command, not a name of its own. */
-const RUNNER_WORDS = new Set(['run', 'exec', 'x', 'dlx']);
-const SHORT_NAME_MAX = 40;
-
-function cleanName(raw: string): string {
-  const base = raw.replace(/^["'-]+/, '').replace(/\s*\([^)]*\)\s*$/, '');
-  return base.replace(/\.(?:m?js|cjs|ts)$/, '').slice(0, SHORT_NAME_MAX);
-}
-
-/** The program of a command line: macOS application executables may have spaces in their paths. */
-function programOf(args: string): { program: string; rest: string[] } {
-  if (args.startsWith('/') && args.includes('.app/Contents/')) {
-    // "…/Google Chrome Helper (Renderer).app/Contents/MacOS/Google Chrome Helper (Renderer) --type=…"
-    const flag = args.search(/\s-/);
-    const head = flag < 0 ? args : args.slice(0, flag);
-    return { program: head.slice(head.lastIndexOf('/') + 1), rest: [] };
-  }
-  const [first = '', ...rest] = args.trim().split(/\s+/);
-  return { program: first.slice(first.lastIndexOf('/') + 1), rest };
-}
-
-/** The name a script argument stands for: the package below `node_modules`, else the file's own name. */
-function scriptName(script: string): string {
-  const parts = script.split('/');
-  const modules = parts.lastIndexOf('node_modules');
-  if (modules >= 0 && modules < parts.length - 1) {
-    const rest = parts.slice(modules + 1);
-    if (rest[0] === '.bin') return rest[rest.length - 1] ?? '';
-    const scoped = rest[0]!.startsWith('@');
-    const pkg = scoped ? rest[1] : rest[0];
-    const inside = rest.slice(scoped ? 2 : 1);
-    // `typescript/bin/tsc` is "tsc", `vitest/vitest.mjs` is "vitest".
-    if (inside.length === 2 && inside[0] === 'bin') return inside[1]!;
-    return pkg ?? '';
-  }
-  return parts[parts.length - 1] ?? '';
-}
-
-/**
- * The short name processes are grouped by: the last part of the program's name, and for an
- * interpreter the first argument that is no flag (inside `node_modules`, the package's name),
- * without `.js`, `.mjs`, `.cjs` or `.ts`, at most 40 characters.
- */
-export function shortName(args: string): string {
-  const { program, rest } = programOf(args);
-  const name = cleanName(program);
-  if (!INTERPRETERS.test(name)) return name || cleanName(args.trim().slice(0, SHORT_NAME_MAX));
-  const words = rest.filter((word) => !word.startsWith('-'));
-  const isRunner = /^(?:npm|npx|pnpm|yarn|bun|deno)$/.test(name);
-  const target = (isRunner && RUNNER_WORDS.has(words[0] ?? '') ? words[1] : words[0]) ?? '';
-  if (target === '') return name;
-  return cleanName(scriptName(target)) || name;
 }

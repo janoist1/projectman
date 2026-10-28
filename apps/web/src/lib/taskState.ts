@@ -1,10 +1,12 @@
 import {
   DEFAULT_AGENT_PROVIDER,
   CODEX_PERMISSION_PROFILE_MIN_VERSION,
-  fixLimitDecisionOf,
   labelDefinition,
   openPrerequisites,
+  stageAdvance,
   startBlock,
+  taskWait,
+  waitHolders,
 } from '@projectman/shared';
 import type {
   InboxItem,
@@ -15,18 +17,25 @@ import type {
   StartBlock,
   Task,
   TaskPhase,
+  TaskMergeState,
   TaskStartWaiting,
+  TaskWait,
   WorkDoing,
 } from '@projectman/shared';
 import { formatAge, formatStamp } from '../i18n/format';
-import { joinNames, t } from '../i18n/t';
+import { joinAlternatives, joinNames, t } from '../i18n/t';
+import { capacityHint, capacityOf, capacityReason } from './capacity';
 import { decidesFixLimit, fixLimitStatus } from './fixLimit';
-import { isAssignedTo, newestFirst, openItems, permissionCommand, shortCommand } from './inbox';
+import { isAssignedTo, openItems, permissionCommand, shortCommand } from './inbox';
 import { labelName } from './labels';
 import { nameOf } from './members';
+import { failureKind, isMerger, mergeStepText } from './merge';
 import type { MemberIndex } from './members';
 import { nextStage } from './pipeline';
+import { outageStuckLabel, outageStuckTitle } from './outage';
 import type { PipelineIndex } from './pipeline';
+import { deriveNext } from './taskNext';
+import type { TaskNext } from './taskNext';
 
 /**
  * Where a task stands from the viewer's point of view. The board, the phone list and
@@ -43,7 +52,9 @@ export type { TaskPhase };
 export interface PrerequisiteWait {
   key: string | null;
   more: number;
-  cards: { key: string; title: string }[];
+  cards: { key: string; title: string; stage: string | null }[];
+  /** The stage of the first prerequisite, as the viewer sees the card; null where it is not known. */
+  stage: string | null;
   /** The state's label already says it (the card stands on it): no second mention on the card. */
   inLabel: boolean;
 }
@@ -51,6 +62,8 @@ export interface PrerequisiteWait {
 export interface TaskState {
   phase: TaskPhase;
   label: string;
+  /** What to do about it, as a tooltip: set on a `stuck` card (PM-468). */
+  title?: string;
   /** When the current state began (for the age on the card); the first worker's, while it works. */
   since: string;
   /** The AI member working on it right now, if any (the first of `workers`). */
@@ -61,11 +74,20 @@ export interface TaskState {
   prerequisite?: PrerequisiteWait;
   /** The blocking labels the state's label names: the card shows them once, not again as chips. */
   holdingLabels?: string[];
+  /** The shared wait says "ready" and the card's next stage is work: a person can start it (PM-1079). */
+  startable?: boolean;
   /**
    * Why a person's Start of the card is refused now (PM-291), from the shared rule; absent when the card
    * can be started, and when the context has no configuration (a client, or the configuration still loads).
    */
   startBlock?: StartBlock;
+  /** Why the card stands still, from the shared rule (PM-460); absent for a done or cancelled card. */
+  wait?: TaskWait;
+  /**
+   * Who acts next and what it waits for (PM-461), for the card row and the drawer's "Miért áll?" box;
+   * absent while somebody works on the card, when it is ready to start, and when it is closed.
+   */
+  next?: TaskNext;
 }
 
 export interface TaskStateContext {
@@ -154,9 +176,9 @@ function workerVerb(member: MemberView, task: Task, pipeline: PipelineIndex): Wo
 /**
  * Who works on this card now, in the order the card names them: the owner of the card's current step
  * (e.g. the reviewer) first, then the assignee, then the rest by when they began. Only a member with a working session on
- * the card itself counts. A member's status and activity describe the member as a whole (the member
- * may work on another card), and the command a session runs is never part of this: it lives in the
- * session view.
+ * the card itself counts. An idle or retired member cannot be working, even if an earlier work entry
+ * remains. Otherwise the member's status and activity cannot identify the card (the member may work
+ * on another card). The command a session runs lives in the session view.
  */
 function findWorkers(
   task: Task,
@@ -168,6 +190,7 @@ function findWorkers(
   const rank = (member: MemberView) =>
     stepOwners.includes(member.handle) ? 0 : member.handle === task.assignee ? 1 : 2;
   const working = [...ctx.members.values()].flatMap((member) => {
+    if (member.status === 'idle' || member.status === 'retired') return [];
     const work = member.taskWork?.find((entry) => entry.taskKey === task.key);
     return work ? [{ member, work }] : [];
   });
@@ -231,7 +254,11 @@ export function cardWorkerRows(
  * or withdrawn one no longer holds the card). A start that waits for prerequisites (PM-204) names
  * them too; those the viewer cannot see are left out.
  */
-function prerequisiteWait(task: Task, tasksByKey: ReadonlyMap<string, Task>): PrerequisiteWait | null {
+function prerequisiteWait(
+  task: Task,
+  tasksByKey: ReadonlyMap<string, Task>,
+  pipeline: PipelineIndex,
+): PrerequisiteWait | null {
   if (isTaskClosed(task)) return null;
   const linked = task.links.flatMap((link) => {
     const other = link.kind === 'prerequisite' ? tasksByKey.get(link.ref) : undefined;
@@ -245,20 +272,45 @@ function prerequisiteWait(task: Task, tasksByKey: ReadonlyMap<string, Task>): Pr
         ? (task.startWaiting.prerequisites ?? []).filter((key) => tasksByKey.has(key))
         : [];
   if (keys.length === 0) return null;
-  return {
-    key: keys[0]!,
-    more: keys.length - 1,
-    cards: keys.map((key) => ({ key, title: tasksByKey.get(key)?.title ?? '' })),
-    inLabel: false,
-  };
+  const cards = keys.map((key) => {
+    const other = tasksByKey.get(key);
+    return {
+      key,
+      title: other?.title ?? '',
+      stage: pipeline.stageById.get(other?.stageId ?? '')?.name ?? null,
+    };
+  });
+  return { key: keys[0]!, more: keys.length - 1, cards, stage: cards[0]!.stage, inLabel: false };
 }
 
-/** "Előfeltételre vár: PM-202 +1": the label of a card that stands on its prerequisites. */
-export function prerequisiteLabel(wait: Pick<PrerequisiteWait, 'key' | 'more'> | null): string {
+/** "Vár: PM-202 (Átnézés) +1": the label of a card that stands on its prerequisites. */
+export function prerequisiteLabel(wait: Pick<PrerequisiteWait, 'key' | 'more' | 'stage'> | null): string {
   if (!wait?.key) return t('taskStatus.prerequisite');
-  return wait.more > 0
-    ? t('taskStatus.prerequisiteOnMore', { key: wait.key, more: wait.more })
-    : t('taskStatus.prerequisiteOn', { key: wait.key });
+  return t('taskStatus.prerequisiteOn', { ref: prerequisiteRef({ ...wait, key: wait.key }) });
+}
+
+/** "PM-202 (Átnézés) +1": the first prerequisite, where it stands (when known) and how many more. */
+export function prerequisiteRef(wait: { key: string; more: number; stage: string | null }): string {
+  const ref = wait.stage ? t('taskStatus.prerequisiteRef', { key: wait.key, stage: wait.stage }) : wait.key;
+  return wait.more > 0 ? t('taskStatus.prerequisiteMore', { ref, more: wait.more }) : ref;
+}
+
+/** The screen-reader sentence of a prerequisite wait: the card, where it stands, and how many more. */
+export function prerequisiteAriaLabel(wait: Pick<PrerequisiteWait, 'key' | 'more' | 'stage'>): string {
+  const params = { key: wait.key ?? '', stage: wait.stage ?? '', more: wait.more };
+  const base = t(wait.stage ? 'taskStatus.prerequisiteLabelStage' : 'taskStatus.prerequisiteLabel', params);
+  return wait.more > 0 ? t('taskStatus.prerequisiteLabelMore', { base, more: wait.more }) : base;
+}
+
+/** The tooltip of a prerequisite wait, one line per card: "PM-202 – Title · Átnézés". */
+export function prerequisiteTitle(wait: Pick<PrerequisiteWait, 'cards'>): string {
+  return wait.cards
+    .map((card) =>
+      card.stage
+        ? t('taskStatus.prerequisiteLine', { key: card.key, title: card.title, stage: card.stage })
+        : `${card.key} – ${card.title}`,
+    )
+    .join('\n');
 }
 
 /** The state of a card that stands on its prerequisites: waiting, under the label that names them. */
@@ -286,6 +338,10 @@ export function startWaitingHint(task: Task, members: MemberIndex, myHandle: str
           name: nameOf(waiting.waitDecidedBy, members, myHandle),
         });
   }
+  // What holds the member's places says what happens and when (PM-297); without holders it is today's tip.
+  const capacity = capacityOf(waiting);
+  if (capacity)
+    return capacityHint(capacity, waiting.member ? nameOf(waiting.member, members, myHandle) : '');
   return t(`taskStatus.startHints.${waiting.reason}`, {
     minCliVersion: CODEX_PERMISSION_PROFILE_MIN_VERSION,
   });
@@ -304,6 +360,13 @@ export function startWaitingText(
     return t('taskStatus.startWaiting.provider_rate_limited_unknown');
   if (waiting.reason === 'engine_offline' && !waiting.engine)
     return t('taskStatus.startWaiting.engine_offline_none');
+  const name = waiting.member
+    ? nameOf(waiting.member, ctx.members, ctx.myHandle)
+    : t('taskStatus.stageOwners');
+  // One thing holds the member's place: the sentence says what (PM-297); several, or no data: "tele van".
+  const capacity = capacityOf(waiting);
+  const what = capacity ? capacityReason(capacity) : null;
+  if (what) return t('taskStatus.startWaiting.capacityOne', { name, what });
   return t(`taskStatus.startWaiting.${waiting.reason}`, {
     provider: t(`providers.${waiting.provider ?? DEFAULT_AGENT_PROVIDER}`),
     engine: waiting.engine ? (ctx.engineNames?.get(waiting.engine) ?? waiting.engine) : '',
@@ -311,7 +374,7 @@ export function startWaitingText(
     until: waiting.until ? formatStamp(waiting.until) : '',
     prerequisites: (waiting.prerequisites ?? []).join(', '),
     labels: (waiting.labels ?? []).map((id) => labelName(id, ctx.labels ?? [])).join(', '),
-    name: waiting.member ? nameOf(waiting.member, ctx.members, ctx.myHandle) : t('taskStatus.stageOwners'),
+    name,
   });
 }
 
@@ -321,7 +384,7 @@ export function startWaitingText(
  * happening to the card, so the card and the drawer never say it twice.
  */
 export function deriveTaskState(task: Task, ctx: TaskStateContext): TaskState {
-  const wait = prerequisiteWait(task, ctx.tasksByKey);
+  const wait = prerequisiteWait(task, ctx.tasksByKey, ctx.pipeline);
   const block = ctx.config ? startBlock(task, ctx.config) : null;
   const { workers = [], ...state } = deriveOpenState(task, ctx, wait, block);
   return {
@@ -333,8 +396,28 @@ export function deriveTaskState(task: Task, ctx: TaskStateContext): TaskState {
 }
 
 /** A label's name in a status line, in quotes; several read as a list. */
-function quotedLabels(ids: readonly string[], ctx: TaskStateContext): string {
+function quotedLabels(ids: readonly string[], ctx: Pick<TaskStateContext, 'labels'>): string {
   return joinNames(ids.map((id) => t('taskStatus.quoted', { name: labelName(id, ctx.labels ?? []) })));
+}
+
+/**
+ * The main line of a card that waits for approvals only a person may give (PM-445), whether the card
+ * cannot start yet or its stage is done: the viewer when they may give it, otherwise the people who may
+ * (any one of them), or that nobody may.
+ */
+function approvalWaiting(
+  labelIds: readonly string[],
+  approvers: readonly string[],
+  since: string,
+  ctx: Pick<TaskStateContext, 'members' | 'myHandle' | 'labels'>,
+): Omit<TaskState, 'workers'> {
+  const label = quotedLabels(labelIds, ctx);
+  const state = (phase: TaskPhase, text: string) => ({ phase, label: text, since, worker: null });
+  if (approvers.length === 0) return state('blocked', t('taskStatus.approvalNobody', { label }));
+  if (ctx.myHandle && approvers.includes(ctx.myHandle))
+    return state('needs_you', t('taskStatus.approvalMissingYou', { label }));
+  const who = joinAlternatives(approvers.map((handle) => nameOf(handle, ctx.members, ctx.myHandle)));
+  return state('waiting', t('taskStatus.approvalMissingBy', { who, label }));
 }
 
 /**
@@ -372,12 +455,8 @@ function startBlockState(
       const who = joinNames(setters.map((handle) => nameOf(handle, members, myHandle)));
       return waiting(t('taskStatus.waitingOn', { who }));
     }
-    case 'approval': {
-      const label = quotedLabels([block.label], ctx);
-      return myHandle && block.approvers.includes(myHandle)
-        ? waiting(t('taskStatus.approvalMissingYou', { label }), 'needs_you')
-        : waiting(t('taskStatus.approvalMissing', { label }));
-    }
+    case 'approval':
+      return approvalWaiting([block.label], block.approvers, task.updatedAt, ctx);
     case 'unmet':
       return block.refines
         ? { ...waiting(t('taskStatus.notRefined'), 'ready'), since: task.createdAt }
@@ -393,7 +472,7 @@ type DerivedState = Omit<TaskState, 'workers'> & { workers?: TaskWorker[] };
 function deriveOpenState(
   task: Task,
   ctx: TaskStateContext,
-  wait: PrerequisiteWait | null,
+  prerequisites: PrerequisiteWait | null,
   block: StartBlock | null,
 ): DerivedState {
   const { pipeline, members, myHandle } = ctx;
@@ -419,146 +498,51 @@ function deriveOpenState(
     };
   }
 
-  if (task.startWaiting?.reason === 'prerequisite_open') {
-    return standingOnPrerequisite(wait, task.startWaiting.since);
-  }
-  // The old assignee still hands the card over (PM-342): that, and not the receiver's wait, is the news.
-  if (task.handoff) {
-    const handing = findWorkers(task, ctx).filter((worker) => worker.verb === 'handingOff');
-    if (handing[0]) {
-      return {
-        phase: 'working',
-        label: workersLabel(handing),
-        since: handing[0].since,
-        worker: handing[0].member,
-        workers: handing,
-      };
-    }
-  }
-  if (task.startWaiting) {
-    return {
-      phase: 'waiting',
-      label: startWaitingLabel(task, ctx),
-      since: task.startWaiting.since,
-      worker: null,
-    };
-  }
-
-  const mine = newestFirst(open.filter((item) => isAssignedTo(item, myHandle)));
-  if (mine[0]) {
-    // The decision of a held card says how many rounds it took, like the line of everybody else.
-    const label =
-      task.fixLimit && fixLimitDecisionOf(mine[0])
-        ? fixLimitStatus(task.fixLimit, members, myHandle)
-        : needsYouLabel(mine[0]);
-    return { phase: 'needs_you', label, since: mine[0].createdAt, worker: null };
-  }
-
-  if (task.status === 'blocked') {
-    return { phase: 'blocked', label: t('taskStatus.statuses.blocked'), since: task.updatedAt, worker: null };
-  }
-
-  // A card held at its fix round limit waits for a decision, whoever else is on it (PM-262).
-  if (task.fixLimit) {
-    return {
-      phase: decidesFixLimit(task.fixLimit, myHandle) ? 'needs_you' : 'waiting',
-      label: fixLimitStatus(task.fixLimit, members, myHandle),
-      since: task.fixLimit.heldAt,
-      worker: null,
-    };
-  }
-
   const workers = findWorkers(task, ctx);
-  if (workers[0]) {
+  const wait = taskWait({
+    task,
+    // Where the configuration is not known (a client, or it still loads) the team and the stages are
+    // sketched from what the board has, and the start rule and the gates are not asked (PM-460).
+    config: ctx.config ?? sketchConfig(ctx),
+    rulesKnown: !!ctx.config,
+    openItems: open,
+    workers: workers.map((worker) => ({
+      handle: worker.member.handle,
+      since: worker.since,
+      handingOff: worker.verb === 'handingOff',
+    })),
+    holders: waitHolders(task, [...members.values()]),
+    openPrerequisites: (prerequisites?.cards ?? []).map((card) => card.key),
+    viewer: myHandle,
+  });
+  // The card stands because its provider or engine cannot work (PM-468), a start or a continuation alike.
+  // It wins over every other reason but a prerequisite and a handing-off, which stay the news (PM-342).
+  if (task.outage && wait?.reason !== 'prerequisite' && wait?.reason !== 'handing_off') {
     return {
-      phase: 'working',
-      label: workersLabel(workers),
-      since: workers[0].since,
-      worker: workers[0].member,
-      workers,
-    };
-  }
-
-  // A blocking label (e.g. "waiting for an answer") holds the task until someone takes it off.
-  const holding = (ctx.labels ?? []).filter((label) => label.blocks && task.labels.includes(label.id));
-  if (holding.length > 0) {
-    return {
-      phase: 'waiting',
-      label: joinNames(holding.map((label) => label.name)),
-      since: task.updatedAt,
-      worker: null,
-      holdingLabels: holding.map((label) => label.id),
-    };
-  }
-
-  const others = newestFirst(open);
-  if (others[0]) {
-    const who = joinNames(others[0].assignees.map((handle) => nameOf(handle, members, myHandle)));
-    return {
-      phase: 'waiting',
-      label: t('taskStatus.waitingOn', { who }),
-      since: others[0].createdAt,
+      phase: 'stuck',
+      label: outageStuckLabel(task.outage),
+      title: outageStuckTitle(task.outage),
+      since: task.startWaiting?.since ?? task.outage.since,
       worker: null,
     };
   }
+  if (!wait) return queuedFor(task, ctx);
+  const state = stateOfWait(task, wait, { ctx, workers, prerequisites, block });
+  const next = deriveNext(task, wait, {
+    members,
+    pipeline,
+    labels: ctx.labels ?? [],
+    myHandle,
+    item: open.find((entry) => entry.id === wait.inboxItemId) ?? null,
+    startText: task.startWaiting ? startWaitingText(task.startWaiting, ctx) : null,
+    startHint: startWaitingHint(task, members, myHandle),
+    prerequisite: prerequisites?.key ? prerequisiteRef({ ...prerequisites, key: prerequisites.key }) : null,
+  });
+  return { ...state, wait, ...(next ? { next } : {}) };
+}
 
-  // A card that cannot be started yet says what it waits for, before the queue's "ready" (PM-291).
-  const blocked = block ? startBlockState(task, block, ctx) : null;
-  if (blocked) return blocked;
-
-  if (stage?.kind === 'queue') {
-    if (task.status === 'waiting' || wait) return standingOnPrerequisite(wait, task.updatedAt);
-    // An earlier queue (e.g. incoming requests before "ready") is not ready to start yet.
-    const label = nextStage(pipeline, stage.id)?.kind === 'queue' ? stage.name : t('taskStatus.ready');
-    return { phase: 'ready', label, since: task.createdAt, worker: null };
-  }
-
-  const owners = stage?.owners ?? [];
-  const humanOwners = owners.filter((handle) => members.get(handle)?.kind === 'human');
-  if (task.status === 'waiting' && humanOwners.length > 0) {
-    if (myHandle && humanOwners.includes(myHandle)) {
-      return {
-        phase: 'needs_you',
-        label: t('taskStatus.needsYou', { what: stage?.name ?? '' }),
-        since: task.updatedAt,
-        worker: null,
-      };
-    }
-    const who = joinNames(humanOwners.map((handle) => nameOf(handle, members, myHandle)));
-    return {
-      phase: 'waiting',
-      label: t('taskStatus.waitingOn', { who }),
-      since: task.updatedAt,
-      worker: null,
-    };
-  }
-
-  const assignee = task.assignee ? members.get(task.assignee) : undefined;
-  if (task.status === 'active' && assignee && stage?.kind === 'work') {
-    return {
-      phase: 'waiting',
-      label: t('taskStatus.waitingOn', { who: nameOf(assignee.handle, members, myHandle) }),
-      since: task.updatedAt,
-      worker: null,
-    };
-  }
-
-  // An AI stage owner already carries the task (its session is idle between turns).
-  const holder = owners.find(
-    (handle) =>
-      handle !== task.assignee &&
-      members.get(handle)?.kind === 'ai' &&
-      members.get(handle)?.currentTaskKeys.includes(task.key),
-  );
-  if (holder) {
-    return {
-      phase: 'waiting',
-      label: t('taskStatus.waitingOn', { who: nameOf(holder, members, myHandle) }),
-      since: task.updatedAt,
-      worker: null,
-    };
-  }
-
+function queuedFor(task: Task, ctx: Pick<TaskStateContext, 'pipeline'>): Omit<TaskState, 'workers'> {
+  const stage = ctx.pipeline.stageById.get(task.stageId);
   return {
     phase: 'waiting',
     label: t('taskStatus.queuedFor', { stage: stage?.name ?? task.stageId }),
@@ -567,10 +551,218 @@ function deriveOpenState(
   };
 }
 
+/**
+ * The team and the stages as far as the board knows them, for the shared rule where the configuration
+ * is not known: members with their kind, stages without gates, the blocking labels.
+ */
+function sketchConfig(ctx: TaskStateContext): Pick<ProjectConfig, 'team' | 'pipeline'> {
+  return {
+    team: {
+      members: [...ctx.members.values()].map((member) => ({
+        handle: member.handle,
+        kind: member.kind,
+        displayName: member.displayName,
+      })),
+    },
+    pipeline: {
+      stages: ctx.pipeline.stages.map(({ gate: _gate, ...stage }) => stage),
+      labels: (ctx.labels ?? []).map(({ id, name, blocks }) => ({ id, name, blocks })),
+    },
+  } as unknown as Pick<ProjectConfig, 'team' | 'pipeline'>;
+}
+
+/**
+ * The state of a card whose approved work is being merged into the main branch (PM-453): the merger is
+ * asked wherever there is something to do (a request, a failure, a stop); everyone else waits for them,
+ * and a running merge reads as work in progress.
+ */
+function mergeCardState(
+  merge: TaskMergeState,
+  since: string,
+  ctx: Pick<TaskStateContext, 'members' | 'myHandle'>,
+): Omit<TaskState, 'workers'> {
+  const you = isMerger(merge, ctx.myHandle);
+  const state = (phase: TaskPhase, label: string, at = since): Omit<TaskState, 'workers'> => ({
+    phase,
+    label,
+    since: at,
+    worker: null,
+  });
+  const who = nameOf(merge.merger, ctx.members, ctx.myHandle);
+  const asked = (what: string) => state('needs_you', t('taskStatus.needsYou', { what }));
+  switch (merge.state) {
+    case 'running':
+      return state(
+        'working',
+        t('taskStatus.merge.running', { step: mergeStepText(merge.step) }),
+        merge.startedAt ?? since,
+      );
+    case 'queued':
+      return state('waiting', t('taskStatus.merge.queued'));
+    case 'fixing':
+      return state('working', t('taskStatus.merge.fixing'), merge.fix?.startedAt ?? since);
+    case 'failed':
+      return you
+        ? asked(
+            t(
+              failureKind(merge) === 'conflict'
+                ? 'taskStatus.next.short.mergeConflictYou'
+                : 'taskStatus.next.short.mergeCheckFailedYou',
+            ),
+          )
+        : state('waiting', t('taskStatus.waitingOn', { who }));
+    case 'blocked':
+      return you
+        ? asked(t('taskStatus.next.short.mergeBlockedYou'))
+        : state('blocked', t('taskStatus.statuses.blocked'));
+    case 'requested':
+      return you
+        ? asked(t('taskStatus.next.short.mergeYou'))
+        : state('waiting', t('taskStatus.waitingOn', { who }));
+  }
+}
+
+/**
+ * The state of a card from the shared reason it stands still (PM-460): the phase and the sentence the
+ * board has always shown for each reason. A reason that several causes share (`nobody`, `labels_missing`,
+ * `refinement`) keeps the line of its cause.
+ */
+function stateOfWait(
+  task: Task,
+  wait: TaskWait,
+  parts: {
+    ctx: TaskStateContext;
+    workers: TaskWorker[];
+    prerequisites: PrerequisiteWait | null;
+    block: StartBlock | null;
+  },
+): DerivedState {
+  const { ctx, workers, prerequisites, block } = parts;
+  const { members, myHandle } = ctx;
+  const stage = ctx.pipeline.stageById.get(task.stageId);
+  const item = ctx.openInboxByTask.get(task.key)?.find((entry) => entry.id === wait.inboxItemId);
+  const mine = !!item && isAssignedTo(item, myHandle);
+  const handles = wait.next.map((actor) => actor.handle);
+  const waitingOn = (who: readonly string[], since: string): Omit<TaskState, 'workers'> => ({
+    phase: 'waiting',
+    label: t('taskStatus.waitingOn', {
+      who: joinNames(who.map((handle) => nameOf(handle, members, myHandle))),
+    }),
+    since,
+    worker: null,
+  });
+
+  switch (wait.reason) {
+    case 'prerequisite':
+      return standingOnPrerequisite(prerequisites, wait.since);
+    case 'handing_off': {
+      const handing = workers.filter((worker) => worker.verb === 'handingOff');
+      return {
+        phase: 'working',
+        label: workersLabel(handing),
+        since: handing[0]!.since,
+        worker: handing[0]!.member,
+        workers: handing,
+      };
+    }
+    case 'start_waiting':
+      return { phase: 'waiting', label: startWaitingLabel(task, ctx), since: wait.since, worker: null };
+    case 'merge': {
+      if (task.merge) return mergeCardState(task.merge, wait.since, ctx);
+      if (item && mine)
+        return { phase: 'needs_you', label: needsYouLabel(item), since: wait.since, worker: null };
+      return waitingOn(handles, wait.since);
+    }
+    case 'inbox':
+    case 'hand_on': {
+      if (item && mine)
+        return { phase: 'needs_you', label: needsYouLabel(item), since: wait.since, worker: null };
+      return waitingOn(handles, wait.since);
+    }
+    case 'blocked':
+      return { phase: 'blocked', label: t('taskStatus.statuses.blocked'), since: wait.since, worker: null };
+    case 'fix_limit': {
+      const limit = task.fixLimit!;
+      return {
+        phase: mine || decidesFixLimit(limit, myHandle) ? 'needs_you' : 'waiting',
+        label: fixLimitStatus(limit, members, myHandle),
+        since: wait.since,
+        worker: null,
+      };
+    }
+    case 'working':
+      return {
+        phase: 'working',
+        label: workersLabel(workers),
+        since: wait.since,
+        worker: workers[0]!.member,
+        workers,
+      };
+    case 'held': {
+      const names = wait.labels.map((id) => labelName(id, ctx.labels ?? []));
+      return {
+        phase: 'waiting',
+        label: joinNames(names),
+        since: wait.since,
+        worker: null,
+        holdingLabels: [...wait.labels],
+      };
+    }
+    case 'approval':
+      return approvalWaiting(wait.labels, handles, wait.since, ctx);
+    case 'labels_missing':
+    case 'refinement':
+      return (block && startBlockState(task, block, ctx)) || queuedFor(task, ctx);
+    case 'ready': {
+      // An earlier queue (e.g. incoming requests before "ready") is not ready to start yet.
+      const waitsInQueue = !!stage && nextStage(ctx.pipeline, stage.id)?.kind === 'queue';
+      const label = waitsInQueue ? stage.name : t('taskStatus.ready');
+      // Highlighted only where the start rule is known (not for a client, nor while the configuration loads).
+      const startable = !waitsInQueue && !!ctx.config;
+      return { phase: 'ready', label, since: wait.since, worker: null, ...(startable ? { startable } : {}) };
+    }
+    case 'queued': {
+      const [first] = wait.next;
+      // The people who own the stage: the viewer among them is asked, the others are waited for.
+      if (first?.kind === 'human') {
+        return myHandle && handles.includes(myHandle)
+          ? {
+              phase: 'needs_you',
+              label: t('taskStatus.needsYou', { what: stage?.name ?? '' }),
+              since: wait.since,
+              worker: null,
+            }
+          : waitingOn(handles, wait.since);
+      }
+      // An AI stage owner already carries the card (its session is idle between turns).
+      return first ? waitingOn(handles, wait.since) : queuedFor(task, ctx);
+    }
+    case 'assignee':
+    case 'part_left':
+      return waitingOn(handles, wait.since);
+    case 'nobody': {
+      // Nobody can act: the line says what is missing, as its cause always did.
+      const blocked = block ? startBlockState(task, block, ctx) : null;
+      if (blocked) return blocked;
+      const advance = ctx.config ? stageAdvance(task, ctx.config) : null;
+      if (advance?.kind === 'approve') {
+        return approvalWaiting(
+          advance.approvals.map((approval) => approval.label),
+          [],
+          task.updatedAt,
+          ctx,
+        );
+      }
+      return queuedFor(task, ctx);
+    }
+  }
+}
+
 /** Sort order inside a column: what needs you first, finished work last. */
 export const phaseOrder: Record<TaskPhase, number> = {
   needs_you: 0,
   blocked: 1,
+  stuck: 1,
   working: 2,
   waiting: 3,
   ready: 4,
@@ -582,6 +774,6 @@ export type BoardFilter = 'all' | 'needsYou' | 'waiting';
 
 export function matchesFilter(phase: TaskPhase, filter: BoardFilter): boolean {
   if (filter === 'needsYou') return phase === 'needs_you';
-  if (filter === 'waiting') return phase === 'waiting' || phase === 'blocked';
+  if (filter === 'waiting') return phase === 'waiting' || phase === 'blocked' || phase === 'stuck';
   return phase !== 'cancelled';
 }

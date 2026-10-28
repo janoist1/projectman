@@ -11,8 +11,7 @@ The installation secret comes from PM-328's store, only at launch and resume. A 
 `auth.json`; there is no ChatGPT fallback. The key is excluded from CLI shell environments.
 Missing keys or incomplete setup defer automatic starts; key changes refresh readiness and
 retry them. Deletion does not stop an existing session. Hook, terminal, team MCP, permission
-and resume behavior follow Codex, without a ChatGPT plan gauge. Managed VM is unsupported
-until PM-331. Real-key tool, effort and process-environment checks are performed by the owner.
+and resume behavior follow Codex, without a ChatGPT plan gauge. Real-key tool, effort and process-environment checks are performed by the owner.
 Both Codex and NanoGPT pass `-c notify=[]` so project configuration cannot install a
 notification command running outside the CLI sandbox. Acceptance of this override by
 Codex 0.159.1 remains part of the owner's manual check.
@@ -198,6 +197,9 @@ deadline, the timeline) is PM-219; this is what the runner does and relies on in
   is not forced.
 - **Refused tools.** A tool whose approval is denied (a decision, the timeout, a failure) sends no
   PostToolUse, so it stops counting as running at the denial; the pause does not wait for it.
+- **Process scope (PM-698).** A pause is not a session end: the CLI and its process scope stay open
+  while the session is held, so background commands go on. The scope closes only when the process
+  ends (stop, exit, shutdown), and a resumed conversation gets a new scope generation.
 - **Release.** `release` lets the input through again. A stopped session types the `nudge` first, then
   what waited. A session still stopping has its pause taken back: pending `pause` promises resolve to
   `null`; if a halting answer or Esc already went out (the turn is ending) the nudge is typed after the
@@ -228,6 +230,16 @@ pre-allowed and denied tools), `--model`, `--effort`, `--permission-mode`, `--ad
 (extra readable directories such as the developer's worktree for a reviewer) and
 `-n <display name>`. The runner pre-accepts the workspace trust dialog for session
 directories.
+
+**No token on the command line (PM-156).** `--mcp-config` and `--settings` name files, not JSON:
+`claude-mcp.json` and `claude-settings.json` in the session's private launch folder
+(`<app home>/run/<session id>.<random>`, 0700, files 0600; `runner/session-config.ts`). The team
+MCP URL and the hook URL hold the session's tokens, so `ps` shows neither. Hook commands of a
+sandboxed session run the forwarder with `--config '<folder>/hook.curl'` (or read the same file in
+the Node fallback); the file holds the one line `url = "<hook URL>"`. The folder is new for every
+start, a resume included, and is removed when the session's process has exited. Claude Code
+reads the files itself, outside the Bash sandbox. The fake CLI takes both flags as inline JSON or
+as a file.
 
 **Reach (PM-208).** The session runs under the owner's account, so by default it would load the
 owner's claude.ai connectors (Gmail, Drive, Calendar, ClickUp, ...) and Claude in Chrome (the
@@ -268,7 +280,7 @@ part of `--tools`. What stays and why:
 | ToolSearch      | the team tools are deferred; without it they cannot be reached      | all   |
 | AskUserQuestion | PM-199 forwards its call to the inbox's waiting list                | all   |
 
-One list for every role and for the managed VM profile, the same settings too. A reading role
+One list for every role, the same settings too. A reading role
 (`read_only`, `review_copy`) keeps Edit and Write on purpose (the architect's decision on PM-221):
 it had them before, its prompts name them (a file in `$TMPDIR`; without them it would need a
 here-document, which waits for a human), and what it must not change is kept by the deny rules and
@@ -285,7 +297,7 @@ prompts from naming a tool that is left out.
 
 A session in a task's own worktree (a developer's) runs its shell commands in Claude Code's
 sandbox, the first step of PM-87: the session spec carries `sandbox` (`sessionSandbox` in
-`domain/session-policy.ts`, computed per session) and the runner turns it into the `sandbox`
+`runtime/sessions` (`session-policy`), computed per session) and the runner turns it into the `sandbox`
 settings probed in PM-126 (see Sandboxes below). Commands then run without asking as long as they
 read only their own work below the home (PM-153), write only the worktree (with the shared git
 directory, minus hooks, config, the default branch and the integrating checkout's `HEAD` and
@@ -307,7 +319,7 @@ PTY tests cannot run in the sandbox yet; that needs a newer CLI. The server ther
 itself (PM-217): when a card enters review, `src/full-test` runs the repository's `reviewTest`
 command in its own sandbox, the Anthropic Sandbox Runtime (`@anthropic-ai/sandbox-runtime`, `srt`,
 macOS Seatbelt) with `allowPty`, outside every member's session (see "Full test before review" in
-ARCHITECTURE.md). Its settings come from `fullTestSandbox` in `domain/session-policy.ts`: reads only
+ARCHITECTURE.md). Its settings come from `fullTestSandbox` in `runtime/sessions` (`session-policy`): reads only
 the checkout and its git directory below the home, writes only its own run directory in the temp
 directory, no network (but listening on local ports), and a small allow list of environment variables.
 
@@ -316,12 +328,12 @@ A development instance started in such a sandbox has no PTY for its own sessions
 (`runner/pipe-spawn.ts`) instead of node-pty. This works only with the fake CLIs
 (`test/fixtures/fake-claude.mjs`, `fake-codex.mjs`, which also exit when their standard input
 closes): the real `claude` and `codex` are not interactive without a terminal, and the live instance
-and the managed VM never run this way. `parseTerminalMode` (`app.ts`, called by `index.ts`) refuses
+never runs this way. `parseTerminalMode` (`app.ts`, called by `index.ts`) refuses
 `pipe` when `PROJECTMAN_HOME` is unset or is the live home (`~/.projectman`; a directory below it,
 like a member's `member-caches/…/projectman-dev`, is fine), when `CLAUDE_BIN` or `CODEX_BIN` is not
-set explicitly, when `PROJECTMAN_BOUNDARY_CONFIG` is set, or with the `managed_vm` profile. Whether
+set explicitly. Whether
 the two binaries are really fakes cannot be checked; requiring them explicitly only rules out an
-accidental default. Sessions started through the launcher are not affected.
+accidental default.
 
 `scripts/lib/instance.mjs` (PM-269) starts such a throwaway development instance for members and
 scripts: `startInstance()` runs the server and Vite on free ports with the data and logs in one
@@ -377,15 +389,21 @@ on its own only where the CLI does not cover a case or the owner asked for it.
   changes of the host, a file tool writing outside the session's directories); it is a cautious
   filter, not proof, and the decider's duty text sends doubtful cases to a person anyway. The
   item is a `permission` item assigned to the decider, with `payload.delegation` (`pending_lead`,
-  `leads`, `leadDeadline` after `team.boundary.leadTimeoutSeconds`); the owner does not see it as
-  waiting, may still answer it, and sees the decision under the recent items. The decider is woken
-  by a team message with the exact input (`permission_delegated` domain event) and answers with the
+  `leads`, `deliveredAt`, `leadDeadline`); the owner does not see it as
+  waiting, may still answer it, and sees the decision under the recent items. The decider gets a
+  `permission` item in its member queue (the decision lane, PM-926: its session works at the desk,
+  in a general session with no card workspace, outside the AI and capacity limits) with the exact
+  input. The deadline is 5 minutes from the request until the item is delivered; from the delivery
+  it is `team.boundary.leadTimeoutSeconds`, at most 8 minutes after the request
+  (`deliveredLeadDeadline`). The decider answers with the
   team tool `decide_permission_request` (`allow`, `deny` or `escalate`, a reason is required;
   `InboxService.resolveDelegated`, the one way an AI resolves an inbox item, only for a delegated
   permission item and only for a chosen, live, independent decider before the deadline,
   `canDecidePermission`). The hook keeps waiting up to `permissionTimeoutMs`; an `escalate`, the
   deadline, a decider that went on leave or delegation switched off hand the item to the
-  sponsor or owners (`payload.delegation.state` `pending_owner`, a `permission_escalated` event;
+  sponsor or owners (`payload.delegation.state` `pending_owner`, a `permission_escalated` event
+  whose cause is `lead`, `timeout` after a delivery, `undelivered` before one, or `unavailable`
+  when no decider can be started any more;
   `InboxService.sweepDelegations` runs every second and on configuration changes). Nothing
   here is ever an allowance by itself. The decision is a `permission_resolved` event in the
   decider's name with `delegated: true` and the reason, and the inbox item's resolution carries
@@ -398,19 +416,18 @@ on its own only where the CLI does not cover a case or the owner asked for it.
   `bypassPermissions` too: `git push`, `gh pr create`, `gh pr merge` (a repository without GitHub),
   `Read` and `Edit` of the user's credentials (`~/.ssh`, `~/.config/gh`, `~/.claude/.credentials.json`,
   `~/.claude/settings.json`, `~/.claude/settings.local.json`, `~/.claude/hooks`, `~/.claude.json`,
-  `~/.codex`, `~/.npmrc`; not the whole `~/.claude`: the member's saved tool outputs under
+  `~/.codex`, `~/.npmrc`, `~/.aws`, `~/.cloudflared`; not the whole `~/.claude`: the member's saved tool outputs under
   `projects/` and the plan mode's `plans/` live there) and of the sensitive parts of the app home (database,
   cookie secret, logs, customization repository, members' memory, publishing identity, spool), and
-  `WebFetch` of `localhost` and `127.0.0.1`. `domain/session-policy.ts` (`sensitivePaths`,
-  `HARD_DENIED_HOSTS`) lists them, `SessionPolicy.filesystem.deniedPaths` and
-  `network.deniedHosts` carry them, `runner/providers/claude/policy.ts` renders the rules. The
+  `WebFetch` of `localhost` and `127.0.0.1`. `contracts/sandbox.ts` (`sensitivePaths`) and `runtime/sessions` (`session-policy`)
+  (`HARD_DENIED_HOSTS`) list them, `SessionPolicy.filesystem.deniedPaths` and
+  `network.deniedHosts` carry them, `contracts/claude-rules.ts` renders the rules. The
   whole app home is not denied: worktrees, workspaces and attachments live there, and deny wins
   over allow. Read rules also cover Grep and Glob (best effort, per the Claude Code docs).
 - **Codex members too:** `decide` is provider-neutral, so approver `none` refuses a Codex member's
   escalation the same way (after `commandVerdict`). Only the deny rules and `autoMode` are Claude's.
 - **`autoMode` in `--settings`** (`environment`, `hard_deny`, both with `$defaults`) is prose for
   the classifier only; the deny rules are what hold.
-- **The managed VM profile is unchanged:** no deny rules, no `autoMode`, no approver path (decision 26).
 
 Server-side decisions, with the reason each exists (the CLI covers none of them):
 
@@ -421,7 +438,6 @@ Server-side decisions, with the reason each exists (the CLI covers none of them)
 | The `none` refusal text and its timeline event | The CLI has no "nobody answers" mode; the agent must learn the refusal is final and where to go next                                                              |
 | The list of denied files and hosts             | The CLI has no list of the credentials and the live instance's data of this installation; the owner decided they stay out of reach                                |
 | `PermissionDenied` to the timeline             | The CLI's classifier decisions are otherwise invisible to the people following the work                                                                           |
-| Managed VM profile: no inner limits            | The boundary is outside the CLI (decisions 25 and 26)                                                                                                             |
 
 The same denied paths are the sandbox's `denyRead` (PM-167), so a shell command does not read
 them either. The database is the glob `<appHome>/db.sqlite*`: it takes `db.sqlite`, its `-wal`
@@ -429,8 +445,9 @@ and `-shm` files and any copy next to it (`db.sqlite.bak-…`). Claude Code rend
 macOS Seatbelt as it is (2.1.284 lists it under "Denied" in `/sandbox`); its Linux sandbox
 (bubblewrap) leaves out the glob patterns it does not support and lists them in `/sandbox`
 (unverified for this one), and then the database files stay readable from the shell on Linux
-until they are named one by one. The `Read` deny rules of the file tools take the glob on both. Residual risk: port 4800 stays reachable from the shell up to the VM
-(decision 24).
+until they are named one by one. The `Read` deny rules of the file tools take the glob on both. Residual risk: port 4800 stays reachable from the shell
+(decision 24); the PM-811 probe found `deniedDomains` cannot close it (it acts only on proxied
+traffic, direct loopback connects pass), see `SECURITY.md`.
 Codex ignores the deny rules (its sandbox is its own, PM-166). See `SECURITY.md`.
 
 ### Questions at the terminal (PM-199)
@@ -469,6 +486,12 @@ Codex is started as `codex [resume] --no-alt-screen --no-daemon
 check off, the directory trusted, hooks, the team MCP server with its tools pre-approved,
 developer instructions); nothing is written to `~/.codex`.
 
+The team server must stay optional (PM-1070). PM-1055 made it `required = true` (with a
+20-second startup timeout and `mcp_optional_startup_grace_ms = 0`), and every Codex
+session then exited at start with "agent CLI exited before it was ready", because a
+required server that fails to start ends the CLI. Do not set `required` again unless the
+cause of the team MCP start failure is fixed and proven with a real `codex` run.
+
 The bypass flag lets our own hooks run without the one-time review in `/hooks`; it also runs
 any other enabled hooks of the user's Codex config and of the trusted project's `.codex/`
 folder, the same exposure as pre-trusting a Claude Code workspace (backlog PM-49).
@@ -503,7 +526,6 @@ with `codex_setup_incomplete`, and ambiguous user MCP configuration with `mcp_co
 Administrator configuration with any content is refused. Errors report paths and key
 names only. No local launch supplies `--sandbox`, `sandbox_mode` or
 `sandbox_workspace_write`: the native probe confirmed `--sandbox` overrides the profile.
-The `managed_vm` profile retains its existing sandbox arguments; its VM is the boundary.
 
 The runner resolves the real CLI file on the session PATH. If it is beneath a denied
 directory, only its official `packages/standalone` installation ancestor may be reopened
@@ -528,7 +550,7 @@ Developers' Codex sessions get one extra writable root, the parent of the machin
 queue folder (`AgentSandbox.portable`, PM-346), and the queue variables
 (`PROJECTMAN_HEAVY_LOCK_DIR`, `npm_config_prefer_offline`) through
 `shell_environment_policy.set.<NAME>`, so their `npm test` waits in the queue like the Claude
-members'. Both are left out in the managed VM profile. The network stays off. The roots
+members'. The network stays off. The roots
 are filesystem write entries in the permission profile. A command run outside the sandbox
 after a question still queues, and the CLI stops one that cannot use the queue (exit 78).
 
@@ -537,11 +559,9 @@ Codex and NanoGPT sessions in a developer's own placement also receive the membe
 `npm_config_cache` and `PROJECTMAN_HOME` set through `shell_environment_policy.set`.
 These are the same private cache and development-data paths Claude uses (PM-193);
 denied paths remain excluded. Only a writing sandbox grants write access to these roots;
-plan mode keeps the variables without granting writes. Reading placements and the managed
-VM receive neither these member-directory variables nor these local write roots.
+plan mode keeps the variables without granting writes. Reading placements receive neither these member-directory variables nor these local write roots.
 
-A Codex session whose sandbox writes (`workspace-write`, a developer's own placement, outside the
-managed VM; PM-339) also gets its own **session folder** and its own **temporary directory**, both made
+A Codex session whose sandbox writes (`workspace-write`, a developer's own placement; PM-339) also gets its own **session folder** and its own **temporary directory**, both made
 by the server before the process starts and removed with the session:
 
 - the folder (`$PROJECTMAN_SESSION_DIR`, as for a Claude member; `PLAYWRIGHT_BROWSERS_PATH` with it) is
@@ -565,8 +585,16 @@ by the server before the process starts and removed with the session:
   path itself: a process of an earlier run could re-make a removed path, even as a link. It is removed when
   the process ends, swept at the server's start, and the empty root is removed at the server's stop.
 
-A read-only session (the default mode, `plan`) gets neither: Codex's read-only sandbox takes no
-writable root, and the mode changes only with a restart. A tool that writes a hard-coded `/tmp` path stops
+NanoGPT is Codex over a custom provider and gets the same (PM-522; it had none before): with a
+writing sandbox and a tmp root, the folder, the browsers and its own `TMPDIR`; without a tmp root it
+keeps the shared `/tmp` and gets no folder.
+
+A read-only session (the default mode, `plan`, a reader; Codex or NanoGPT) gets **no temporary
+directory and no browsers**, but since PM-522 it does get the **session folder to read**: the
+server puts the files of a message there (`read_message_attachment`), `$PROJECTMAN_SESSION_DIR`
+names it (`shell_environment_policy.set`), the read-only profile reads it and `tools.view_image`
+opens its images. The sandbox writes nothing there (no writable root) and no screenshot is taken.
+Codex's read-only sandbox takes no writable root, and the mode changes only with a restart. A tool that writes a hard-coded `/tmp` path stops
 after the closing; give it a targeted writable root, do not reopen `/tmp`. The PM-356
 native probe allowed own TMPDIR writes and denied shared `/tmp` and the original CLI tmp.
 The member-level development acceptance still checks attachments, caches and the heavy-run
@@ -591,13 +619,19 @@ instruction injection, fail-closed PreToolUse decisions, subscription login chec
 `PROJECTMAN_HOME/providers/gemini` root, without changing HOME or workspace `.agents` files.
 The initial brief is typed after screen readiness; continuation uses `--conversation`.
 Owner decisions T1–T4 prefill onboarding, disable self-updates, wait for inbox decisions,
-and temporarily allow role shell rules without a sandbox (PM-361). Managed VM support is
-deferred to PM-331. The fake CLI covers this protocol without running real agy.
+and temporarily allow role shell rules without a sandbox (PM-361). The fake CLI covers this protocol without running real agy.
 
 ### Permission modes in projectman (PM-327)
 
 The projectman `PreToolUse` hook enforces these modes; agy's `--mode` flag is not the gate.
 Commands currently run without a sandbox (PM-326, owner decision T4).
+
+Since PM-522 a Gemini session also has its own **session folder** (`$PROJECTMAN_SESSION_DIR`, in the
+process environment `launch` returns): the file tools write there under the same gate (own folder
+allowed outside `plan`, another member's folder asks, reading is allowed), the server puts message
+files there, and the model opens one with `view_file` or `attach_file`s a result. No temporary
+directory, browsers or screenshots. **Open:** whether `view_file` shows a PDF or an image to the
+model is unproven; the prompt names the path either way.
 
 | Mode                | Hook behavior                                                                                                                                                                                                                                      |
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -849,7 +883,10 @@ continue, the TUI replays the history (`print-mode/resume-conversation.ndjson`,
   `antigravity-cli/brain/<id>/`.
 
 `cache/last_conversations.json` maps a workspace to its last id. So, like Codex, the id is
-learned from the first hook rather than set by us. _Not tested:_ `--continue`, and
+learned from the first hook rather than set by us. _PM-156:_ the provider folder outlives the
+session, so `config/hooks.json` holds no hook token either: each event's command names
+`hook-<event>.curl` in the session's private launch folder. A resume rewrites `hooks.json` with the
+new folder's files; `config/mcp_config.json` still holds the team MCP URL (see `docs/SECURITY.md`). _Not tested:_ `--continue`, and
 `--input-format stream-json` (multi-turn over stdin, a possible alternative to scraping the PTY).
 
 ### Q7. Transcript
@@ -977,9 +1014,8 @@ sandbox's network rules.
   their adapters do not follow `network.outbound`, so the setting is only shown. The hint under
   the checkbox tells the user that other addresses are refused; a Gemini mapping needs its own
   card.
-- **Managed VM:** the profile ignores the setting; its network rules are unchanged.
 
-The session policy (`apps/server/src/domain/session-policy.ts`) is the union of the member's
+The session policy in `runtime/sessions` (`session-policy`) is the union of the member's
 duties: editing duties work in the task worktree, read-only duties pre-approve reading tools,
 and developer roles get everyday git and npm commands pre-approved. Reviewers get the
 developer's worktree as an extra readable directory. The team tools are pre-approved for
@@ -1001,8 +1037,12 @@ the timeline like any other answer):
 - publishing from a local-only repository (no GitHub in its config) is denied, whatever else
   the command says and even when it cannot be parsed;
 - a developer's routine steps in the task's own worktree are allowed: a lockfile install,
-  `git add`, `git commit` with a message and `git merge --ff-only` of the default branch or a
-  commit, each one command, which may carry `2>&1` and be piped into readers that filter its
+  `git add`, `git commit` with a message, `git checkout -- <path>` or `git checkout HEAD [--] <path>`,
+  `git restore <path>` (optionally `--source=HEAD`, `--staged` or `--worktree`), and
+  `git merge --ff-only` of the default branch or a commit. Checkout and restore accept only named
+  paths inside the worktree, excluding the worktree root, patterns and `:`-prefixed pathspecs;
+  branch switches and sources other than HEAD or the index still require a decision (PM-893).
+  Each is one command, which may carry `2>&1` and be piped into readers that filter its
   output (`npm install … 2>&1 | tail -3`; a `tee` or any other writer after the pipe still goes
   to a human, PM-105). They may be joined with `&&`, `||`
   or `;` and mixed with read-only steps, which may be whole pipelines, as long as those stay
@@ -1055,7 +1095,7 @@ session's working directory, or where a `cd` of the chain has led), however it i
 `-C` to any other directory, a second `-C`, `-c`, `--git-dir` and `--work-tree` are not
 followed, and neither is a `-C` in front of what `xargs` runs.
 
-The allow rules read the command with a strict parser (`domain/shell-words.ts`): quotes are
+The allow rules read the command with a strict parser (`runtime/permissions` (`shell-words`)): quotes are
 understood, every `$`, backtick, subshell, unknown redirection or unclear construct refuses the
 rule, and anything it does not recognise goes to a human. A newline inside quotes is text (a
 commit message of several lines); a backslash before one in double quotes is a line
@@ -1063,93 +1103,6 @@ continuation, removed as the shell removes it. A newline outside quotes, a carri
 every other control character are refused. Denied tools are enforced through
 Claude Code's settings; Codex relies on its sandbox and the PermissionRequest hook, which is
 why a Codex member never runs in `bypassPermissions`.
-
-## Managed VM profile (PM-141)
-
-The question-free profile for the verified managed VM ([VM.md](VM.md), decisions 25 and 26). It is
-a separate **execution profile**, not a permission-mode migration and not a strict-sandbox claim:
-`SessionPolicy.execution = { profile: 'managed_vm', boundary }` (absent means legacy) with the new
-`member_workspace` placement (`use`: `work` on the task branch, `review` on a pinned round, `home`
-without a repository). The member's `permissionMode` is only read: `plan` stays research-only, every
-other value runs question-free; leaving the profile restores exactly what was configured. Nothing in
-an existing installation changes: the legacy, default and plan settings, the command broker, the
-PM-134 sandbox and the denied operations are the legacy path's alone.
-
-**It runs only on a proven boundary.** The installation's owner selects it
-(`PROJECTMAN_EXECUTION_PROFILE=managed_vm`, read only in `index.ts`; an unknown value stops the
-server, and so does a missing `PROJECTMAN_WORKSPACES=member` or readiness report setting). The
-setting alone proves nothing: at **every** start and resume the domain and the runner ask the
-`ManagedVmBoundary` (`createReadinessBoundary`) which reads the root-owned readiness report of
-`deploy/vm/verify.sh` (`PROJECTMAN_VM_READINESS_REPORT`, at most
-`PROJECTMAN_VM_REPORT_MAX_AGE_MINUTES` old, default one day): the host must be Linux, the report
-ready by `evaluateVmReadiness()` **and** its `launcher` and `domain-gate` checks passed
-(`evaluateManagedVmActivation`). The baseline report of PM-137 lists those two as unverified, so on
-it, and on the Mac, a start is refused with `managed_vm_unavailable` (`details.reason`:
-`no_boundary`, `platform`, `no_report`, `bad_report`, `not_ready`, `profile_mismatch`,
-`provider_version`, `ambient_config`); nothing is prepared or spawned, and there is no fallback to a
-legacy start. A repository file, an environment flag or a member setting is never an input.
-
-|                         | Claude Code                                                                                                                                                        | Codex                                                                                             |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
-| No local approval       | `--permission-mode bypassPermissions` (or `plan`), `skipDangerousModePermissionPrompt` in `--settings` so the first-use confirmation does not wait in the terminal | `--sandbox danger-full-access --ask-for-approval never` (or `read-only` for `plan`)               |
-| Inner limits            | none: no tool rules except `mcp__team__*`, no deny rules, no `sandbox` settings, the PM-134 sandbox is not passed                                                  | none: no writable roots, nothing of the legacy mapping                                            |
-| Protected start (PM-49) | `--setting-sources user` (project settings and `.mcp.json` are left out); `--strict-mcp-config` and `--no-chrome` are on every Claude session (PM-208)             | every hook event and the team server are `-c` overrides; the VM's own files are inspected (below) |
-| Hooks                   | kept (HTTP hooks, SessionStart through the forwarder): the state of the session is followed as before                                                              | kept (command hooks through the forwarder)                                                        |
-
-A `PermissionRequest` that reaches a managed VM session anyway is **not** shown to a human and not
-judged by the command rules (`commandVerdict` is the legacy path's): the runner (and, one step
-further, the inbox's broker) refuses it at once with the way forward (`MANAGED_VM_NO_LOCAL_APPROVAL`),
-and the session carries on. A question for a person at the terminal (`AskUserQuestion`,
-`request_user_input`) is not a permission and is handled as in every profile (below). The context pack leaves out the
-"Commands that run without asking" section and says the member works freely; the business limits
-(owner exceptions, publishing, cost) apply at the domain, network and operation gate (BOUNDARY.md),
-not as deny rules in the CLI.
-
-**Versions and the VM's own configuration** are checked before each spawn, on the CLI that would run
-(`<cli> --version`) and on the files that would override the protected start:
-
-- The installed version must be one of `MANAGED_VM_PROVIDER_VERSIONS` in `packages/shared`
-  (`2.1.284` and `0.159.1` today, kept equal to `deploy/vm/profile.env` by a test). Another version is
-  refused: the flags above were written for these, and a newer release may read them differently.
-- No managed policy (`/etc/claude-code/managed-settings.json` and `.d/*.json`, the macOS path, Codex's
-  `/etc/codex/*.toml`) may exist with content, and the provider's user configuration
-  (`$CLAUDE_CONFIG_DIR/settings.json`, `$CODEX_HOME/config.toml`) and Codex's `<cwd>/.codex/config.toml`
-  may not set hooks, MCP servers, `ask`/`deny` rules or a default mode, the sandbox, approval policy,
-  features, profiles or credentials/endpoints. Only names are reported, never values. Codex's own
-  bookkeeping (`[notice]`, `[projects]`) and Claude settings that only add allow rules or choose a
-  model stand.
-- A conversation of the other profile is never resumed: the session row keeps the profile it last ran
-  in (`sessions.execution_profile`, migration 14, not part of the public `Session`). A change starts a
-  new conversation in the directory the new profile places it in, and voids the session's unconsumed
-  boundary requests (`policy_changed`). An "allow for this session" lives only in a process, so it
-  does not outlive it; the old working directory is never reused.
-- The worker environment drops `SSH_AUTH_SOCK`, `SSH_AGENT_PID`, `SSH_ASKPASS`, `GIT_ASKPASS` and the
-  GitHub token variables on top of the billing variables every session loses.
-
-**Not yet proven by hand** (the adapters are tested against the fake CLIs only; the real CLIs were
-not run): that Claude Code 2.1.284 accepts `skipDangerousModePermissionPrompt` from `--settings` and
-`--setting-sources user`, whether writes to `.git`/`.claude` still prompt in `bypassPermissions`, the
-managed-policy and Codex file locations above, and that Codex 0.159.1 shows no confirmation for
-`danger-full-access`. These are the first things of the human trial in [VM.md](VM.md); an answer
-that differs changes the adapter, not the contract.
-
-## Conversations across the move to the VM (PM-143)
-
-A conversation belongs to the machine, the directory and the provider environment it ran in: a Claude Code
-transcript lives in the home of the account that ran it, keyed by the working directory, and a Codex rollout in
-that account's `CODEX_HOME`. The move ([MIGRATION.md](MIGRATION.md)) therefore keeps the **history** and starts
-**new conversations**:
-
-- The transcripts the database names are copied into the package and, by `apply`, into
-  `<home>/migrated/transcripts/<session id>/`; the session rows point at the copies, so the session page still
-  shows the old conversation (a transcript missing on the old machine stays empty, and the report says how many).
-- Nothing is resumed from the old environment: the moved rows are all of the `legacy` execution profile, and the
-  managed VM profile never resumes across profiles (above). A member's next task or message starts a new
-  conversation in the VM workspace from the task brief and the member's memory (`memory/<KEY>/<handle>.md`
-  moved with the data); the old row keeps its history.
-- No personal CLI home is copied. Claude Code's and Codex's logins, settings and trust files on the Mac are not
-  part of the package; the VM's providers are logged in anew by a person, and the VM's own configuration must stay
-  free of the settings the profile refuses.
 
 ## Login and plan usage
 
@@ -1186,7 +1139,7 @@ the last 24 hours and 7 days (by the hour).
   counted once, and a later, larger `output_tokens` adds the difference (early entries may carry a
   placeholder). API error entries and the `<synthetic>` model are skipped. A subagent's
   conversation is in its own file, which the `SubagentStop` hook names (`agent_transcript_path`):
-  it is read whole then, inside the worker home for a managed VM session. A subagent still running
+  it is read whole then, from the transcript file. A subagent still running
   when the session ends is not counted. Sidechain entries in the main transcript (older versions)
   count as subagent usage.
 - Codex: the difference of `total_token_usage` from the previous `token_count` counts (a repeated
@@ -1280,13 +1233,15 @@ and enforcement of either type remain version-specific observations to reproduce
 Current source differs from that probe: the developer sandbox allows npm/development-data writes
 and local binding, and closes the home but its own work (PM-153). Codex's normal session spec
 no longer grants the shared git root (PM-131). Its local permission profile now implements the
-PM-356 sensitive-path deny list, while the wider home boundary remains PM-360.
+PM-356 sensitive-path deny list; a reading session (PM-425) also gets the typed read boundary of
+PM-360 (home and app home closed, only its own project and card reopened), the developer's wider
+home reads stay as they were.
 Command-rule approval of Codex escalations is host execution,
 not strict isolation. PM-134's transitional Claude setup is not the final PM-128/129 proof.
 
 ### The sandboxes the server hands out (PM-167)
 
-`sessionSandbox(policy)` (`domain/session-policy.ts`) computes them per session from the actual
+`sessionSandbox(policy)` in `runtime/sessions` (`session-policy`) computes them per session from the actual
 paths; `buildSandboxSettings` renders them, and `test/cli-sandbox.integration.test.ts` checks the
 exact `--settings` the fake CLI receives:
 
@@ -1294,8 +1249,7 @@ exact `--settings` the fake CLI receives:
 | ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------- |
 | Developer (`task_worktree`, PM-153, PM-193)           | `allowWrite`: the member's npm cache and development data (`<app home>/member-caches/<KEY>/<handle>/npm-cache`, `…/projectman-dev`) and the session folder (PM-268, a Claude session only); `denyRead`: the user's home, the app home (when not below it), `sensitivePaths`; `allowRead`: the worktree, the task's attachments, the member's two directories, the session folders' root (every member's folder of this instance is read, PM-333) and the browsers directory (PM-268), the shared git directory, `~/.gitconfig`, `~/.config/git`, `~/.claude/shell-snapshots`, the user's `core.excludesfile` (PM-216); `denyWrite`: see below | `registry.npmjs.org`, local binding allowed | none                                                           | `GH_TOKEN`, `GITHUB_TOKEN`, `NPM_TOKEN`, `NODE_AUTH_TOKEN`, `SSH_AUTH_SOCK` unset; `env`: `npm_config_cache`, `PROJECTMAN_HOME` to the member's directories, `PROJECTMAN_SESSION_DIR` and `PLAYWRIGHT_BROWSERS_PATH` (PM-268), `PROJECTMAN_SKIP_PTY_TESTS=1` (PM-194), `GIT_CONFIG_SYSTEM` to a read-only file in the member's directory with `gc.auto=0`, `maintenance.auto=false` and `core.packedRefsTimeout=0`; the "Unable to create packed-refs.lock" message after a commit stays (known, harmless, see SECURITY.md) (PM-216) | `Edit(//<path>)`, `Edit(//<path>/**)` per `denyWrite` |
 | Reader (`read_only`, review copy without test opt-in) | `allowWrite`: the session folder (PM-268; else temp only); `denyWrite`: working directory, every `--add-dir` directory, the project's workspace, the app home, the server's own checkout; `denyRead`: `sensitivePaths`                                                                                                                                                                                                                                                                                                                                                                                                                        | `registry.npmjs.org`, local binding allowed | `gh pr view:*`, `gh pr diff:*`, only on a repository on GitHub | `env`: `PROJECTMAN_SKIP_PTY_TESTS=1` (PM-194), `PROJECTMAN_SESSION_DIR`, `PLAYWRIGHT_BROWSERS_PATH` (PM-268)                                                                                                                                                                                                                                                                                                                                                                                                                         | `Edit(//<path>)`, `Edit(//<path>/**)` per `denyWrite` |
-| Managed VM profile, sessions behind the VM boundary   | none (the boundary is outside the CLI)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |                                             |                                                                |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |                                                       |
-| Codex                                                 | local `projectman` permission profile: sensitive paths denied, portable writer roots granted (PM-356); managed VM unchanged                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |                                             |                                                                |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |                                                       |
+| Codex                                                 | local `projectman` permission profile: sensitive paths denied, portable writer roots granted (PM-356)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |                                             |                                                                |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |                                                       |
 
 All paths are absolute, from the actual user home and app home. A developer in a task worktree
 gets `denyWrite` in the shared git directory (`sharedGitDenials`): `refs/heads/<default branch>`,
@@ -1330,8 +1284,7 @@ before the process starts. It removes the folder when the process ends (an exit,
 restart, a failed start; the restart's new folder is made after the old one is removed): the
 folder is renamed to a `.trash-<random>` name inside the root first, then removed, so the old
 run's rule no longer reaches it while it is removed. The whole root is swept when the server
-starts. A Codex session and the
-managed VM profile get none. The sandbox writes only that folder; every session reads the other
+starts. A read-only Codex session gets none. The sandbox writes only that folder; every session reads the other
 members' folders of the same instance (PM-333, the owner's decision: a teammate names a
 screenshot): the developer's `allowRead` holds the root, the reader reads everything anyway. Claude
 Code's file tools, which are outside the sandbox, get `Read(//<root>/**)` and, for the own folder,
@@ -1381,7 +1334,8 @@ runs it after the change is live. Record its result here.
 
 `autoAllowBashIfSandboxed` does not cover every command. The PM-142 developer asked at 12:44 on
 2026-10-01 (inbox `inb_mupj09dy200e8fe2a4`) for
-`cd apps/server/src/domain && cat > /dev/null <<'EOF'` + an empty body + `EOF` + `grep -n …`; it was
+`cd <working-directory> && cat > /dev/null <<'EOF'` + an empty body + `EOF` + `grep -n …`
+(the historical directory is shown as a placeholder); it was
 the only one of its 84 shell commands that asked (transcript: one `PermissionRequest` hook
 decision). In Claude Code 2.1.284 (read from its bundled source): the bash parser gives up on a
 here-document whose body it did not see (an empty one: "Heredoc body was not scanned by the

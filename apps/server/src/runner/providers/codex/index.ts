@@ -3,22 +3,27 @@ import os from 'node:os';
 import path from 'node:path';
 import type { FastifyBaseLogger } from 'fastify';
 import { z } from 'zod';
+import { PROVIDER_MCP_IMAGE_RESULTS } from '../../../contracts';
 import type { PermissionDecision, ProviderStatus } from '../../../contracts';
 import { resolveCommand, runQuietly } from '../../cli';
 import { DENY_DEFAULT, type HookPayload } from '../../hook-payload';
 import { parseCodexLoginStatus } from '../login';
+import { writeHookConfig } from '../../session-config';
 import type { ProviderAdapter, SessionTiming, TranscriptLineParser } from '../types';
-import { buildCodexArgs, codexCliReadRoot, codexDeniedPaths } from './args';
+import { buildCodexArgs, codexCliReadRoot, codexCliDenials, validateCodexReadBoundary } from './args';
+import type { ReadBoundaryProblem } from './args';
 import { CodexPlanUsage } from './plan-usage';
 import { CodexTranscriptParser } from './transcript';
-import { assertCodexMemberWorkspace, inspectCodexMcpServers, type AmbientIssue } from '../../managed-vm';
+import { assertCodexMemberWorkspace, inspectCodexMcpServers, type AmbientIssue } from '../../ambient-config';
 
 /** A fail-closed local Codex start; details contain version and setting names, never values. */
 export class CodexStartError extends Error {
   readonly code = 'codex_setup_incomplete';
   readonly details: Record<string, unknown>;
   constructor(details: {
-    problem: 'cli_missing' | 'cli_too_old' | 'sandbox_config' | 'mcp_config' | 'cli_location';
+    problem:
+      'cli_missing' | 'cli_too_old' | 'sandbox_config' | 'mcp_config' | 'cli_location' | 'read_boundary';
+    reason?: ReadBoundaryProblem;
     cliPath?: string;
     cliVersion?: string;
     minCliVersion?: string;
@@ -45,7 +50,8 @@ export const CODEX_TIMING: SessionTiming = {
   /** Codex treats an Enter within 120 ms of pasted input as a newline. */
   enterDelayMs: 250,
   enterRetryMs: 1_500,
-  maxEnterRetries: 2,
+  /** A busy machine swallows Enter (PM-571): press it on every check within the submit timeout. */
+  maxEnterRetries: 4,
   submitTimeoutMs: 8_000,
   /** The first prompt waits for the MCP servers and the session to start. */
   argumentSubmitTimeoutMs: 60_000,
@@ -161,7 +167,7 @@ export function defaultCodexHome(env: NodeJS.ProcessEnv = process.env): string {
   return env.CODEX_HOME || path.join(os.homedir(), '.codex');
 }
 
-export interface CodexAdapterOptions {
+interface CodexAdapterOptions {
   bin: string;
   codexHome: string;
   logger: FastifyBaseLogger;
@@ -178,15 +184,17 @@ export function createCodexAdapter(opts: CodexAdapterOptions): ProviderAdapter {
       presetSessionId: false,
       sessionPermissionRules: false,
       readiness: 'screen',
+      mcpImageResults: PROVIDER_MCP_IMAGE_RESULTS.codex,
     },
     timing: CODEX_TIMING,
     inputTools: CODEX_INPUT_TOOLS,
 
-    async launch({ spec, hookUrl, permissionTimeoutMs, cliPath }) {
+    async launch({ spec, hookUrl, permissionTimeoutMs, cliPath, sessionConfigDir }) {
+      const boundaryProblem = validateCodexReadBoundary({ spec, codexHome: opts.codexHome });
+      if (boundaryProblem) throw new CodexStartError({ problem: 'read_boundary', reason: boundaryProblem });
       if (
-        spec.policy?.execution?.profile !== 'managed_vm' &&
         cliPath &&
-        codexCliReadRoot(cliPath, codexDeniedPaths({ spec, codexHome: opts.codexHome })).kind === 'misplaced'
+        codexCliReadRoot(cliPath, codexCliDenials({ spec, codexHome: opts.codexHome })).kind === 'misplaced'
       )
         throw new CodexStartError({ problem: 'cli_location', cliPath });
       const realCwd = await realpath(spec.cwd).catch(() => spec.cwd);
@@ -196,7 +204,7 @@ export function createCodexAdapter(opts: CodexAdapterOptions): ProviderAdapter {
         throw new CodexStartError({ problem: 'mcp_config', ambientConfig: userMcp.unresolved });
       const { args, initialMessageSent } = buildCodexArgs({
         spec,
-        hookUrl,
+        hookConfigPath: await writeHookConfig(sessionConfigDir, hookUrl),
         permissionTimeoutMs,
         realCwd,
         codexHome: opts.codexHome,

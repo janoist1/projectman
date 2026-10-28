@@ -12,11 +12,12 @@ import type { MemberIndex } from '../../lib/members';
 import { stagePosition } from '../../lib/pipeline';
 import type { PipelineIndex } from '../../lib/pipeline';
 import type { TaskState, TaskWorker } from '../../lib/taskState';
-import { PmButton } from '../pm/PmButton';
+import { OperatorButton } from '../operator/OperatorButton';
 import { prChip } from './cardModel';
 import { CardSizeToggle, useCardLink } from './cardSize';
 import { useDrawerBase } from './drawerBase';
 import type { CardSize } from './cardSize';
+import { NextLine } from './NextLine';
 import { TaskTitle } from './TaskEdit';
 import { RefinementRow } from './RefinementRow';
 import { TaskLifecycleMenu } from './TaskLifecycle';
@@ -90,6 +91,7 @@ export function TaskHeader({
         members={members}
         myHandle={myHandle}
         pipeline={pipeline}
+        workers={state.workers}
       />
     ) : null;
   const stage = pipeline.stageById.get(task.stageId);
@@ -100,6 +102,11 @@ export function TaskHeader({
       ? `${column.name} · ${stage.name}`
       : (stage?.name ?? task.stageId);
   const pr = prChip(task);
+  const stageChipLabel = t('task.stageChip', {
+    stage: stageLabel,
+    index: position.index,
+    total: position.total,
+  });
   const prBadge = pr ? (
     <Chip tone="neutral" size="md" icon={pr.merged ? 'prMerged' : 'prOpen'}>
       {pr.label}
@@ -113,8 +120,15 @@ export function TaskHeader({
         </Link>
       ) : null}
       <div className={styles.chips}>
-        <Chip tone="column" data-column-color={column?.color} size="md">
-          {t('task.stageChip', { stage: stageLabel, index: position.index, total: position.total })}
+        <Chip
+          tone="column"
+          data-column-color={column?.color}
+          size="md"
+          className={styles.stageChip}
+          title={stageChipLabel}
+          aria-label={stageChipLabel}
+        >
+          {stageChipLabel}
         </Chip>
         {pr?.href ? (
           <a href={pr.href} target="_blank" rel="noreferrer noopener" className={styles.prLink}>
@@ -126,7 +140,7 @@ export function TaskHeader({
         <span className={styles.key}>{task.key}</span>
         <span className={styles.spacer} />
         {can.manageTeam ? <TaskLifecycleMenu key={task.key} task={task} /> : null}
-        <PmButton variant="drawer" />
+        <OperatorButton variant="drawer" />
         <CardSizeToggle size={size} onToggle={onToggleSize} />
         <Button variant="muted" iconOnly icon="close" onClick={onClose} aria-label={t('common.close')} />
       </div>
@@ -149,6 +163,9 @@ export function TaskHeader({
           <StatusDot phase={state.phase} pulse={state.phase === 'working'} size={9} />
           {state.workers[0]?.doing ? (
             <WorkerText worker={state.workers[0]} />
+          ) : state.next ? (
+            // The same "{ki} · {mire vár}" row as on the card; the box under the header says the rest.
+            <NextLine next={state.next} className={styles.nowText} wrap />
           ) : (
             <span className={styles.nowText}>{state.label}</span>
           )}

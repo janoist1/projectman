@@ -8,9 +8,11 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import type { ProjectConfig, RepoConfig } from '@projectman/shared';
 import { getTemplate } from '@projectman/templates';
 import { createWorktreeManager } from './index';
+import { createGitSeed } from '../../test/helpers/git-seed';
+import { hasApfsTemporaryFilesystem } from '../../test/helpers/apfs';
 
 /*
- * Every test builds its own repositories in a temp directory: a bare "remote" and a clone
+ * Every test copies independent repositories into a temp directory: a bare "remote" and a clone
  * of it as the workspace repo. The user's git configuration is replaced by a test one.
  */
 
@@ -75,6 +77,7 @@ function buildProject(workspacePath: string, repos: RepoConfig[]): ProjectConfig
 }
 
 let configDir: string;
+let seed: ReturnType<typeof createGitSeed>;
 let base: string;
 let remote: string;
 let workspace: string;
@@ -100,6 +103,7 @@ beforeAll(async () => {
   );
   vi.stubEnv('GIT_CONFIG_GLOBAL', configFile);
   vi.stubEnv('GIT_CONFIG_NOSYSTEM', '1');
+  seed = createGitSeed(path.join(configDir, 'seed'), { 'README.md': 'hello\n' });
 });
 
 afterAll(async () => {
@@ -113,11 +117,7 @@ beforeEach(async () => {
   workspace = path.join(base, 'workspace');
   clone = path.join(workspace, 'app');
   rootDir = path.join(base, 'worktrees');
-  await git('init', '--quiet', '--bare', '-b', 'main', remote);
-  await mkdir(workspace);
-  await git('clone', '--quiet', remote, clone);
-  await commitFile(clone, 'README.md', 'hello\n', 'Initial commit');
-  await git('-C', clone, 'push', '--quiet', 'origin', 'main');
+  seed.copyTo(clone, remote);
   project = buildProject(workspace, [{ name: 'app', path: 'app', defaultBranch: 'main' }]);
 });
 
@@ -130,6 +130,97 @@ function task(taskKey: string, title: string, repoName = 'app') {
 }
 
 describe('worktree manager', { timeout: 30_000 }, () => {
+  it('resolves a real conflict in a separate pinned fix worktree and removes only that checkout and branch', async () => {
+    const manager = createWorktreeManager({ rootDir, logger: testLogger().logger });
+    const work = await manager.ensureForTask(task('AR-1', 'Change greeting'));
+    const approved = await commitFile(work.path, 'README.md', 'approved\n', 'Change greeting');
+    const onto = await commitFile(clone, 'README.md', 'base changed\n', 'Change base greeting');
+    const key = { project, repoName: 'app', taskKey: 'AR-1' };
+    const fix = await manager.ensureMergeFix({ ...key, commit: approved });
+    expect(fix.path).toBe(path.join(rootDir, 'AR', '_merge-fix', 'AR-1-app'));
+    expect(fix.branch).toBe('merge-fix/AR-1');
+    expect((await manager.head(fix.path))?.commit).toBe(approved);
+    await expect(git('-C', fix.path, 'merge', onto)).rejects.toThrow();
+    expect((await manager.head(fix.path))?.dirty).toBe(true);
+    await writeFile(path.join(fix.path, 'README.md'), 'approved and base changed\n');
+    await git('-C', fix.path, 'add', 'README.md');
+    await git('-C', fix.path, 'commit', '-m', 'Resolve adjacent greeting edits');
+    const head = (await manager.head(fix.path))!;
+    expect(head.dirty).toBe(false);
+    await git('-C', clone, 'merge-base', '--is-ancestor', approved, head.commit);
+    await git('-C', clone, 'merge-base', '--is-ancestor', onto, head.commit);
+    expect((await manager.ensureMergeFix({ ...key, commit: approved })).path).toBe(fix.path);
+    expect((await manager.head(fix.path))?.commit).toBe(head.commit);
+    expect(await manager.listMergeFixes({ project, repoName: 'app' })).toEqual([
+      { taskKey: 'AR-1', path: fix.path },
+    ]);
+    await manager.removeMergeFix(key);
+    expect(await manager.findMergeFix(key)).toBeNull();
+    expect(await manager.listMergeFixes({ project, repoName: 'app' })).toEqual([]);
+    expect((await manager.head(work.path))?.commit).toBe(approved);
+    expect(await git('-C', clone, 'rev-parse', 'HEAD')).toBe(onto);
+  });
+  it('force-removes dirty fix worktrees and recreates them at the approved commit', async () => {
+    const manager = createWorktreeManager({ rootDir, logger: testLogger().logger });
+    const key = { project, repoName: 'app', taskKey: 'AR-1' };
+    const commit = await git('-C', clone, 'rev-parse', 'HEAD');
+    const fix = await manager.ensureMergeFix({ ...key, commit });
+    await writeFile(path.join(fix.path, 'README.md'), 'uncommitted resolution');
+    await manager.removeMergeFix(key);
+    expect(await exists(fix.path)).toBe(false);
+    expect(await manager.listMergeFixes({ project, repoName: 'app' })).toEqual([]);
+    expect((await manager.ensureMergeFix({ ...key, commit })).path).toBe(fix.path);
+    expect((await manager.head(fix.path))?.commit).toBe(commit);
+  });
+  it.each(['detached', 'other branch'] as const)(
+    'finds and removes a registered fix checkout on %s with no fix branch',
+    async (checkout) => {
+      const manager = createWorktreeManager({ rootDir, logger: testLogger().logger });
+      const key = { project, repoName: 'app', taskKey: 'AR-1' };
+      const commit = await git('-C', clone, 'rev-parse', 'HEAD');
+      const fix = await manager.ensureMergeFix({ ...key, commit });
+      if (checkout === 'detached') await git('-C', fix.path, 'checkout', '--detach', commit);
+      else await git('-C', fix.path, 'checkout', '-b', 'another-branch', commit);
+      await git('-C', clone, 'branch', '-D', fix.branch);
+      expect(await manager.listMergeFixes({ project, repoName: 'app' })).toEqual([
+        { taskKey: key.taskKey, path: fix.path },
+      ]);
+      await manager.removeMergeFix(key);
+      expect(await exists(fix.path)).toBe(false);
+      expect(await manager.listMergeFixes({ project, repoName: 'app' })).toEqual([]);
+      await manager.ensureMergeFix({ ...key, commit });
+      if (checkout === 'other branch')
+        expect(await git('-C', clone, 'rev-parse', 'another-branch')).toBe(commit);
+    },
+  );
+  it('leaves unregistered directories and refuses symlinks during fix cleanup', async () => {
+    const manager = createWorktreeManager({ rootDir, logger: testLogger().logger });
+    const key = { project, repoName: 'app', taskKey: 'AR-1' };
+    const dir = path.join(rootDir, 'AR', '_merge-fix', 'AR-1-app');
+    await mkdir(dir, { recursive: true });
+    await writeFile(path.join(dir, 'keep.txt'), 'keep');
+    expect(await manager.listMergeFixes({ project, repoName: 'app' })).toEqual([
+      { taskKey: key.taskKey, path: dir },
+    ]);
+    await manager.removeMergeFix(key);
+    expect(await readFile(path.join(dir, 'keep.txt'), 'utf8')).toBe('keep');
+    await rm(dir, { recursive: true });
+    await symlink(clone, dir);
+    await expect(manager.removeMergeFix(key)).rejects.toMatchObject({ code: 'outside_root' });
+    expect(await exists(clone)).toBe(true);
+  });
+  it('refuses merge-fix path redirection and non-commit start points', async () => {
+    const manager = createWorktreeManager({ rootDir, logger: testLogger().logger });
+    const key = { project, repoName: 'app', taskKey: 'AR-1' };
+    await expect(manager.ensureMergeFix({ ...key, commit: '--help' })).rejects.toMatchObject({
+      code: 'no_start_point',
+    });
+    await mkdir(path.join(rootDir, 'AR'), { recursive: true });
+    await symlink(clone, path.join(rootDir, 'AR', '_merge-fix'));
+    await expect(
+      manager.ensureMergeFix({ ...key, commit: await git('-C', clone, 'rev-parse', 'HEAD') }),
+    ).rejects.toMatchObject({ code: 'outside_root' });
+  });
   it('never refreshes an unregistered checkout or an unknown path', async () => {
     const manager = createWorktreeManager({ rootDir, logger: testLogger().logger, cloneDependencies: true });
     expect(await manager.refreshDependencies(clone)).toEqual({ status: 'skipped', reason: 'not_worktree' });
@@ -422,7 +513,7 @@ describe('worktree manager', { timeout: 30_000 }, () => {
 });
 
 /* PM-332: node_modules cloned into the worktree from an installed checkout (APFS, macOS). */
-describe.skipIf(process.platform !== 'darwin')(
+describe.skipIf(!hasApfsTemporaryFilesystem)(
   'worktree manager: dependency clone',
   { timeout: 30_000 },
   () => {

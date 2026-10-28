@@ -1,7 +1,18 @@
 import { chmodSync, existsSync, unlinkSync } from 'node:fs';
 import net from 'node:net';
 import { ControlRequest } from '@projectman/shared';
-import type { ControlResponse, PauseRequest, PauseStatus } from '@projectman/shared';
+import type {
+  ControlResponse,
+  HybridDeployment,
+  PauseRequest,
+  PauseStatus,
+  Release,
+  ReleaseDeployBegin,
+  ReleaseDeployChange,
+  ReleaseDrainStatus,
+  ReleaseEngineStatus,
+  ReleaseReport,
+} from '@projectman/shared';
 
 /** The instance's pause, as the control socket drives it (the app composes this from the domain). */
 export interface ControlPause {
@@ -10,6 +21,43 @@ export interface ControlPause {
   force(): Promise<PauseStatus | null>;
   status(): PauseStatus | null;
 }
+
+/**
+ * The instance's releases, as the release watcher drives them (PM-491; the app composes this from the
+ * domain). Every method refuses with `release_not_configured` when the instance is not set up to release.
+ */
+export interface ControlRelease {
+  /** The hybrid deployment's operations (PM-752); absent: this instance has no hybrid binding. */
+  deploy?: ControlDeploy;
+  /** The commit the answering server runs. */
+  appVersion(): string;
+  /** The release the watcher has something to do with, if any. */
+  next(): Release | null;
+  /** One release of the instance's target in any state (PM-749); refused for another target's release. */
+  get(releaseId: string): Release;
+  claim(releaseId: string, previousCommit: string | null): Release;
+  report(releaseId: string, report: ReleaseReport): Promise<Release>;
+}
+
+/** What a `release_deploy_*` operation answers with. */
+interface ControlDeployView {
+  deployment: HybridDeployment | null;
+  release: Release;
+  drain: ReleaseDrainStatus;
+  databaseSchemaVersion: number;
+}
+
+/** The durable deployment of a hybrid release (PM-752). */
+export interface ControlDeploy {
+  /** Throws `release_protocol_unavailable` on a hybrid instance: the single-target claim and report skip the fence. */
+  refuseLegacy(): void;
+  get(releaseId: string): ControlDeployView;
+  begin(input: ReleaseDeployBegin): Promise<ControlDeployView>;
+  change(input: ReleaseDeployChange): Promise<ControlDeployView>;
+}
+
+/** The engines the cloud registry knows, as `engine_status` answers them (PM-749). */
+export type ControlEngines = () => ReleaseEngineStatus[];
 
 export interface ControlLog {
   info(obj: object, msg: string): void;
@@ -45,7 +93,12 @@ function answers(path: string): Promise<boolean> {
 
 const failure = (code: string, message: string): ControlResponse => ({ ok: false, error: { code, message } });
 
-async function respond(pause: ControlPause, line: string): Promise<ControlResponse> {
+async function respond(
+  pause: ControlPause,
+  release: ControlRelease | undefined,
+  engines: ControlEngines | undefined,
+  line: string,
+): Promise<ControlResponse> {
   let raw: unknown;
   try {
     raw = JSON.parse(line);
@@ -61,23 +114,73 @@ async function respond(pause: ControlPause, line: string): Promise<ControlRespon
     );
   }
   const request = parsed.data;
+  // The watcher tells a restarted server by the commit it runs: every answer carries it.
+  const version = release ? { appVersion: release.appVersion() } : {};
   switch (request.op) {
     case 'pause':
       return {
         ok: true,
         pause: await pause.pause({ reason: request.reason, forceAfterMs: request.forceAfterMs }),
+        ...version,
       };
     case 'resume':
-      return { ok: true, pause: await pause.resume() };
+      return { ok: true, pause: await pause.resume(), ...version };
     case 'force':
-      return { ok: true, pause: await pause.force() };
+      return { ok: true, pause: await pause.force(), ...version };
     case 'status':
-      return { ok: true, pause: pause.status() };
+      return { ok: true, pause: pause.status(), ...version };
+    case 'engine_status':
+      return { ok: true, pause: pause.status(), engines: engines?.() ?? [], ...version };
+    case 'release_next':
+    case 'release_get':
+    case 'release_claim':
+    case 'release_report': {
+      if (!release) return failure('release_not_configured', 'this instance does not release');
+      // A hybrid instance moves a release only through the deployment: the legacy pair would skip the fence.
+      if (request.op === 'release_claim' || request.op === 'release_report') release.deploy?.refuseLegacy();
+      const result =
+        request.op === 'release_next'
+          ? release.next()
+          : request.op === 'release_get'
+            ? release.get(request.releaseId)
+            : request.op === 'release_claim'
+              ? release.claim(request.releaseId, request.previousCommit)
+              : await release.report(request.releaseId, request.report);
+      return { ok: true, pause: pause.status(), release: result, ...version };
+    }
+    case 'release_deploy_get':
+    case 'release_deploy_begin':
+    case 'release_deploy_change': {
+      if (!release?.deploy)
+        return failure('release_not_configured', 'this instance does not release in the hybrid way');
+      const { deploy } = release;
+      const view =
+        request.op === 'release_deploy_get'
+          ? deploy.get(request.releaseId)
+          : request.op === 'release_deploy_begin'
+            ? await deploy.begin(request)
+            : await deploy.change(request);
+      return {
+        ok: true,
+        pause: pause.status(),
+        release: view.release,
+        deployment: view.deployment,
+        drain: view.drain,
+        databaseSchemaVersion: view.databaseSchemaVersion,
+        ...version,
+      };
+    }
   }
 }
 
 /** The protocol on one connection: a request per line in, a response per line out, in order. */
-export function serveControlConnection(connection: net.Socket, pause: ControlPause, log: ControlLog): void {
+export function serveControlConnection(
+  connection: net.Socket,
+  pause: ControlPause,
+  log: ControlLog,
+  release?: ControlRelease,
+  engines?: ControlEngines,
+): void {
   connection.on('error', () => connection.destroy());
   connection.setTimeout(IDLE_MS, () => connection.destroy());
   connection.setEncoding('utf8');
@@ -87,7 +190,7 @@ export function serveControlConnection(connection: net.Socket, pause: ControlPau
     chain = chain.then(async () => {
       let response: ControlResponse;
       try {
-        response = await respond(pause, line);
+        response = await respond(pause, release, engines, line);
       } catch (err) {
         const code =
           typeof (err as { code?: unknown }).code === 'string'
@@ -127,8 +230,12 @@ export async function startControlSocket(options: {
   path: string;
   pause: ControlPause;
   log: ControlLog;
+  /** The release watcher's operations (PM-491); absent: the socket only pauses. */
+  release?: ControlRelease;
+  /** The cloud registry's engines for `engine_status` (PM-749); absent: none. */
+  engines?: ControlEngines;
 }): Promise<ControlSocket> {
-  const { path, pause, log } = options;
+  const { path, pause, log, release, engines } = options;
   const none: ControlSocket = { close: async () => undefined };
   if (Buffer.byteLength(path) > maxSocketPathBytes()) {
     log.error({ path }, 'the control socket path is too long for a socket; it is not opened');
@@ -146,7 +253,7 @@ export async function startControlSocket(options: {
   const server = net.createServer((connection) => {
     connections.add(connection);
     connection.on('close', () => connections.delete(connection));
-    serveControlConnection(connection, pause, log);
+    serveControlConnection(connection, pause, log, release, engines);
   });
 
   try {

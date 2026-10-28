@@ -7,10 +7,10 @@ import {
   SelectablePermissionMode,
   SessionStop,
   SessionStartCause,
+  SessionWorkMetadata,
 } from '@projectman/shared';
 import type {
   AgentProvider,
-  ExecutionProfile,
   Session,
   SessionPause,
   SessionState,
@@ -53,6 +53,7 @@ interface SessionRow {
   doing_summary: string | null;
   doing_detail: string | null;
   last_stop: string | null;
+  work_metadata: string | null;
   start_cause: string | null;
   engine_id: string;
 }
@@ -62,6 +63,17 @@ function lastStopOf(raw: string | null): SessionStop | undefined {
   if (!raw) return undefined;
   try {
     const parsed = SessionStop.safeParse(JSON.parse(raw));
+    return parsed.success ? parsed.data : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The stored work metadata (JSON); an empty or broken value is none (PM-694). */
+function workMetadataOf(raw: string | null): SessionWorkMetadata | undefined {
+  if (!raw) return undefined;
+  try {
+    const parsed = SessionWorkMetadata.safeParse(JSON.parse(raw));
     return parsed.success ? parsed.data : undefined;
   } catch {
     return undefined;
@@ -80,7 +92,7 @@ function startCauseOf(raw: string | null): SessionStartCause | undefined {
 }
 
 /** What a session's conversation owes and measures for the end-of-round compaction (PM-213). */
-export interface SessionCompaction {
+interface SessionCompaction {
   /** Its round ended and no compaction ran or was given up since. */
   pending: boolean;
   /** The context of the conversation's last step (input + cache read + cache write); null: unknown. */
@@ -107,7 +119,7 @@ export function encodeWorkItem(item: WorkItemRef): { type: string; ref: string }
     case 'schedule':
       return { type: 'schedule', ref: item.runId };
     case 'general':
-      return { type: 'general', ref: '' };
+      return { type: 'general', ref: item.with ?? '' };
   }
 }
 
@@ -115,7 +127,7 @@ export function decodeWorkItem(type: string, ref: string): WorkItemRef {
   if (type === 'task') return { type: 'task', taskKey: ref };
   if (type === 'schedule') return { type: 'schedule', runId: ref };
   if (type === 'meeting') return { type: 'meeting', meetingId: ref };
-  return { type: 'general' };
+  return ref ? { type: 'general', with: ref } : { type: 'general' };
 }
 
 /** The session without its token usage, which comes from another table. */
@@ -154,6 +166,7 @@ const baseSession = (r: SessionRow): Session => ({
     ? { doing: { summary: r.doing_summary, ...(r.doing_detail ? { detail: r.doing_detail } : {}) } }
     : {}),
   ...(lastStopOf(r.last_stop) ? { lastStop: lastStopOf(r.last_stop) } : {}),
+  ...(workMetadataOf(r.work_metadata) ? { workMetadata: workMetadataOf(r.work_metadata) } : {}),
   ...(startCauseOf(r.start_cause) ? { startCause: startCauseOf(r.start_cause) } : {}),
   // The column has a default, so a row from before engines is the local one; a session without an
   // `engineId` is local, so a local session reads as it always did.
@@ -174,7 +187,7 @@ export function tokenUsageOf(r: UsageRow): TokenUsage {
   };
 }
 
-export type SessionPatch = Partial<
+type SessionPatch = Partial<
   Pick<
     Session,
     | 'claudeSessionId'
@@ -203,10 +216,15 @@ export type SessionPatch = Partial<
   /** Why the session stopped (PM-288); null clears it. */
   lastStop?: SessionStop | null;
   startCause?: SessionStartCause | null;
+  /** What the chat proves about the session's work (PM-694); null clears it. */
+  workMetadata?: SessionWorkMetadata | null;
 };
 
 /** The patch with `doing` spread over its two columns; the other keys are columns of their own. */
-const COLUMNS: Record<Exclude<keyof SessionPatch, 'doing' | 'lastStop' | 'startCause'>, string> = {
+const COLUMNS: Record<
+  Exclude<keyof SessionPatch, 'doing' | 'lastStop' | 'startCause' | 'workMetadata'>,
+  string
+> = {
   usageSince: 'usage_since',
   permissionModeOverride: 'permission_mode',
   approverOverride: 'approver',
@@ -236,8 +254,6 @@ export function createSessionRepository(db: Db) {
               OR (s.work_item_type = 'task' AND EXISTS (
                     SELECT 1 FROM tasks t WHERE t.key = s.work_item_ref AND t.status NOT IN ('done', 'cancelled'))))`,
     ),
-    profile: db.prepare('SELECT execution_profile FROM sessions WHERE id = ?'),
-    setProfile: db.prepare('UPDATE sessions SET execution_profile = ? WHERE id = ?'),
     compaction: db.prepare('SELECT compact_pending, context_tokens FROM sessions WHERE id = ?'),
     setCompactPending: db.prepare('UPDATE sessions SET compact_pending = ? WHERE id = ?'),
     setContextTokens: db.prepare('UPDATE sessions SET context_tokens = ? WHERE id = ?'),
@@ -255,6 +271,11 @@ export function createSessionRepository(db: Db) {
     ),
     findByWorkItem: db.prepare(
       'SELECT * FROM sessions WHERE project_key = ? AND member = ? AND work_item_type = ? AND work_item_ref = ?',
+    ),
+    latestSourceOfTask: db.prepare(
+      `SELECT * FROM sessions WHERE project_key = ? AND work_item_type = 'task' AND work_item_ref = ?
+         AND (branch IS NOT NULL OR reviewed_commit IS NOT NULL)
+       ORDER BY started_at DESC, id DESC LIMIT 1`,
     ),
     list: db.prepare('SELECT * FROM sessions WHERE project_key = ? ORDER BY started_at, id'),
     listByMember: db.prepare(
@@ -299,17 +320,6 @@ export function createSessionRepository(db: Db) {
 
   return {
     get,
-    /**
-     * The execution profile the session's conversation ran in (PM-141). Kept beside the session, not
-     * in its public shape: it only decides whether a conversation may be resumed.
-     */
-    executionProfile(id: string): ExecutionProfile {
-      const row = statements.profile.get(id) as { execution_profile: string } | undefined;
-      return row?.execution_profile === 'managed_vm' ? 'managed_vm' : 'legacy';
-    },
-    setExecutionProfile(id: string, profile: ExecutionProfile): void {
-      statements.setProfile.run(profile, id);
-    },
     /** The end-of-round compaction state of the session's conversation (PM-213). */
     compaction(id: string): SessionCompaction {
       const row = statements.compaction.get(id) as
@@ -365,6 +375,11 @@ export function createSessionRepository(db: Db) {
         SessionRow | undefined;
       return row ? toSession(row) : null;
     },
+    /** The latest task session with a source trace, including legacy worktrees without workspace bindings (PM-818). */
+    latestSourceOfTask(projectKey: string, taskKey: string): Session | null {
+      const row = statements.latestSourceOfTask.get(projectKey, taskKey) as SessionRow | undefined;
+      return row ? toSession(row) : null;
+    },
     list(projectKey: string, filter: { member?: string; taskKey?: string } = {}): Session[] {
       const rows =
         filter.member && filter.taskKey
@@ -397,7 +412,7 @@ export function createSessionRepository(db: Db) {
       return row.n;
     },
     update(id: string, patch: SessionPatch): Session | null {
-      const { doing, lastStop, startCause, ...columns } = patch;
+      const { doing, lastStop, startCause, workMetadata, ...columns } = patch;
       const entries = Object.entries(columns).filter(([, v]) => v !== undefined) as Array<
         [keyof typeof COLUMNS, unknown]
       >;
@@ -406,6 +421,8 @@ export function createSessionRepository(db: Db) {
         named.push(['doing_summary', doing?.summary ?? null], ['doing_detail', doing?.detail ?? null]);
       }
       if (lastStop !== undefined) named.push(['last_stop', lastStop ? JSON.stringify(lastStop) : null]);
+      if (workMetadata !== undefined)
+        named.push(['work_metadata', workMetadata ? JSON.stringify(workMetadata) : null]);
       if (startCause !== undefined)
         named.push(['start_cause', startCause ? JSON.stringify(startCause) : null]);
       if (named.length > 0) {

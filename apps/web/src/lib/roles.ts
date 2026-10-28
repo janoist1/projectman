@@ -18,6 +18,7 @@ export type RoleTone =
   | 'scheduled'
   | 'human'
   | 'owner'
+  | 'operator'
   | 'system';
 
 export interface StyledRole extends CatalogueRole {
@@ -91,7 +92,7 @@ export function aiRoleView(
 /** When to turn to a member: the "when to ask" texts of the roles they hold, in order. */
 export function whenToAsk(roleIds: readonly string[], catalogue: readonly CatalogueRole[] = []): string {
   return roleIds
-    .map((id) => catalogue.find((role) => role.id === id)?.whenToAsk?.trim() ?? '')
+    .map((id) => catalogue.find((role) => role.id === id)?.whenToAsk.trim() ?? '')
     .filter(Boolean)
     .join(' ');
 }

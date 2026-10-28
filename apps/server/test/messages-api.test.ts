@@ -1,5 +1,6 @@
+import { waitForSession } from './helpers/domain-harness';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { routes, MemberProfile, TeamMessage, TeamMessagesView } from '@projectman/shared';
+import { routes, CardBusyDetails, MemberProfile, TeamMessage, TeamMessagesView } from '@projectman/shared';
 import type { HumanAccess, ServerEvent } from '@projectman/shared';
 import {
   addHumanAndLogin,
@@ -55,7 +56,7 @@ describe('human team messages and member profiles', () => {
     );
     await vi.waitFor(() => expect(h.runner.started).toHaveLength(1));
     await flush();
-    const session = domain.sessions.list(key, { member: 'dev-1' })[0]!;
+    const session = await waitForSession(domain, { member: 'dev-1' }, key);
     expect(session.workItem).toEqual({ type: 'task', taskKey: 'AR-1' });
     // The new session takes the whole message in its first input, behind its brief.
     expect(h.runner.lastStarted().initialMessage).toContain('Discuss the Acme webshop');
@@ -80,6 +81,24 @@ describe('human team messages and member profiles', () => {
     release();
     await h.app.projectman.domain.stop();
     expect(h.runner.started).toHaveLength(1);
+  });
+
+  it('returns card_busy details with 409 and sends only after despiteWorkers confirms parallel work', async () => {
+    const domain = h.app.projectman.domain;
+    await domain.tasks.create(key, { title: 'Checkout' }, actor);
+    const before = h.app.projectman.repos.messages.list(key);
+    const response = await send(['dev-1', 'dev-2'], owner, { taskKey: 'AR-1' });
+    expect(response.statusCode).toBe(409);
+    expect(response.json().error.code).toBe('card_busy');
+    expect(CardBusyDetails.parse(response.json().error.details)).toEqual({
+      taskKey: 'AR-1',
+      groups: [{ role: 'developer', working: [], joining: ['dev-1', 'dev-2'] }],
+    });
+    expect(h.app.projectman.repos.messages.list(key)).toEqual(before);
+    expect(h.runner.started).toEqual([]);
+    const confirmed = await send(['dev-1', 'dev-2'], owner, { taskKey: 'AR-1', despiteWorkers: true });
+    expect(confirmed.statusCode).toBe(202);
+    expect(TeamMessage.parse(confirmed.json()).to).toEqual(['dev-1', 'dev-2']);
   });
 
   it('delivers to a live task session with the team prefix and retries failed delivery on resume', async () => {
@@ -195,9 +214,17 @@ describe('human team messages and member profiles', () => {
     ).toBe(404);
   });
 
+  /** The project's contacts, as an admin sets them. */
+  const setContacts = (...contacts: string[]) =>
+    h.app.projectman.domain.projects.update(key, { actor, author: OWNER_LOGIN }, (draft) => {
+      draft.team.contacts = contacts;
+      return 'Set contacts';
+    });
+
   it('accepts developers and clients, rejects viewers, validates all recipients before recording', async () => {
     const kata = await human('kata', 'client');
     const bence = await human('bence');
+    await setContacts('dev-1', 'owner');
     expect((await send(['dev-1'], bence)).statusCode).toBe(202);
     await h.app.projectman.domain.members.update(
       key,
@@ -217,17 +244,9 @@ describe('human team messages and member profiles', () => {
       expect((await send(['owner'], owner, payload)).statusCode).toBeGreaterThanOrEqual(400);
     }
     expect(h.app.projectman.repos.messages.list(key)).toHaveLength(before);
-    await h.app.projectman.domain.tasks.create(
-      key,
-      { title: 'Internal Acme work', visibility: 'internal' },
-      actor,
-    );
-    expect((await send(['owner'], kata, { taskKey: 'AR-1' })).statusCode).toBe(404);
-    await h.app.projectman.domain.tasks.create(
-      key,
-      { title: 'Shared Acme work', visibility: 'shared' },
-      actor,
-    );
+    await h.app.projectman.domain.tasks.create(key, { title: 'Internal Acme work' }, actor);
+    expect((await send(['owner'], kata, { taskKey: 'AR-1' })).statusCode).toBe(202);
+    await h.app.projectman.domain.tasks.create(key, { title: 'Shared Acme work' }, actor);
     expect((await send(['owner'], kata, { taskKey: 'AR-2' })).statusCode).toBe(202);
     expect(
       (
@@ -247,6 +266,57 @@ describe('human team messages and member profiles', () => {
         })
       ).statusCode,
     ).toBe(400);
+  });
+
+  describe('contact-restricted senders', () => {
+    it('refuses the whole message when one recipient is not a contact, and records nothing', async () => {
+      const kata = await human('kata', 'client');
+      await setContacts('dev-1');
+      const before = h.app.projectman.repos.messages.list(key).length;
+      const res = await send(['dev-1', 'owner'], kata);
+      expect(res.statusCode).toBe(403);
+      expect(res.json()).toMatchObject({
+        error: { code: 'recipient_not_contact', details: { recipients: ['owner'] } },
+      });
+      expect(h.app.projectman.repos.messages.list(key)).toHaveLength(before);
+      expect(h.app.projectman.domain.sessions.list(key, { member: 'dev-1' })).toEqual([]);
+    });
+
+    it('refuses everyone when no contact is set', async () => {
+      const kata = await human('kata', 'client');
+      const res = await send(['dev-1'], kata);
+      expect(res.statusCode).toBe(403);
+      expect(res.json()).toMatchObject({
+        error: { code: 'recipient_not_contact', details: { recipients: ['dev-1'] } },
+      });
+    });
+
+    it('checks the recipients again with the fresh config when recording', async () => {
+      const kata = await human('kata', 'client');
+      await setContacts('dev-1');
+      const projects = h.app.projectman.domain.projects;
+      const real = projects.cachedConfig.bind(projects);
+      // The admin removes the contact after the first check and before the message is recorded.
+      vi.spyOn(projects, 'cachedConfig').mockImplementation((projectKey) => {
+        const config = real(projectKey);
+        return config && { ...config, team: { ...config.team, contacts: [] } };
+      });
+      const before = h.app.projectman.repos.messages.list(key).length;
+      const res = await send(['dev-1'], kata);
+      expect(res.statusCode).toBe(403);
+      expect(res.json()).toMatchObject({ error: { code: 'recipient_not_contact' } });
+      expect(h.app.projectman.repos.messages.list(key)).toHaveLength(before);
+    });
+
+    it('lets a viewer message only the project manager, and keeps insufficient_access', async () => {
+      const vera = await human('vera', 'viewer');
+      const res = await send(['dev-1'], vera);
+      expect(res.statusCode).toBe(403);
+      expect(res.json()).toMatchObject({
+        error: { code: 'insufficient_access', details: { recipients: ['dev-1'] } },
+      });
+      expect((await send(['pm'], vera)).statusCode).toBe(202);
+    });
   });
 
   it('enforces member capacity, concurrency, provider usage, and reuses live conversations', async () => {
@@ -305,12 +375,12 @@ describe('human team messages and member profiles', () => {
     ).toEqual({ memory: '- Acme uses fictional fixtures.\n' });
     const kata = await human('kata', 'client');
     const clientProfile = MemberProfile.parse((await profile('dev-1', kata)).json());
-    expect(clientProfile.tasks).toEqual([]);
-    expect(clientProfile.sessions).toEqual([]);
+    expect(clientProfile.tasks).toEqual(data.tasks);
+    expect(clientProfile.sessions).toEqual(data.sessions);
     expect(
       (await h.app.inject({ url: routes.memberMemories(key, 'dev-1'), headers: { cookie: kata } }))
         .statusCode,
-    ).toBe(403);
+    ).toBe(200);
     expect((await profile('missing')).statusCode).toBe(404);
   });
 

@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "at": "2026-10-28T04:00:00.000Z",
+  "home": "/fixture/engine",
+  "overall": "not_initialised",
+  "engine": null,
+  "service": {
+    "supported": true,
+    "installed": false,
+    "loaded": true,
+    "running": false,
+    "pid": null
+  },
+  "process": {
+    "running": false,
+    "pid": null,
+    "startedAt": "2026-10-28T01:00:00.000Z",
+    "version": "abc123",
+    "releaseTag": "v1"
+  },
+  "link": {
+    "state": "down",
+    "since": "2026-10-28T01:00:00.000Z",
+    "attempts": 0,
+    "lastError": null,
+    "pendingEvents": 0,
+    "droppedEvents": 0
+  },
+  "sessions": [],
+  "work": {
+    "sessions": 0,
+    "fullTests": 0,
+    "screenshots": 0
+  },
+  "keepAwake": {
+    "mode": "while_working",
+    "holding": false,
+    "since": "2026-10-28T03:46:00.000Z",
+    "supported": true
+  },
+  "machine": {
+    "diskPath": "/fixture",
+    "diskFreeBytes": 182000000000,
+    "diskTotalBytes": 994000000000,
+    "memTotalBytes": 32000000000,
+    "memFreeBytes": 9100000000,
+    "loadAverage1m": 2.4
+  },
+  "logs": {
+    "out": "/fixture/engine/logs/out.log",
+    "err": "/fixture/engine/logs/err.log"
+  }
+}

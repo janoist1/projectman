@@ -1,3 +1,4 @@
+import { attachmentPreviewOf } from '@projectman/shared';
 import { getLocale, roleViews, standardLabel, standardLabelsFor } from '@projectman/templates';
 import type {
   Actor,
@@ -7,17 +8,143 @@ import type {
   InboxOption,
   MemberView,
   PlanUsage,
+  OperatorSignal,
+  OperatorApprovalPayload,
   ProjectConfig,
   ProjectSummary,
   RoleView,
   Session,
   Task,
   TeamMessage,
-  TemplateSummary,
   TimelineEvent,
   TimelineEventType,
 } from '@projectman/shared';
 import { daysAgo, hoursFromNow, minutesAgo, mockUuid } from './time';
+import type { StructureView } from '@projectman/shared';
+
+/** Structure endpoint fixture; names and summaries are descriptor data. */
+export const structureFixture: StructureView = {
+  repos: [
+    {
+      repo: 'webshop',
+      status: 'ok',
+      problem: null,
+      reason: null,
+      commit: 'fixture',
+      readAt: '2026-10-14T12:00:00Z',
+      truncated: false,
+      map: {
+        version: 1,
+        ignore: [],
+        areas: [
+          { id: 'experience', name: 'Vásárlói élmény', summary: 'A vásárlás látható részei.' },
+          { id: 'engine', name: 'Működés', summary: 'A rendelések és az adatok kezelése.' },
+          { id: 'partners', name: 'Partnerek', summary: 'Külső szolgáltatások.' },
+        ],
+        modules: [
+          {
+            id: 'shop',
+            area: 'experience',
+            kind: 'module',
+            name: 'Webáruház',
+            summary: 'A termékek és a kosár felülete.',
+            paths: ['src/shop/'],
+          },
+          {
+            id: 'checkout',
+            area: 'experience',
+            kind: 'module',
+            name: 'Pénztár',
+            summary: 'A vásárlás befejezése.',
+            paths: ['src/checkout/'],
+          },
+          {
+            id: 'orders',
+            area: 'engine',
+            kind: 'core',
+            name: 'Rendelések',
+            summary: 'A rendelés életútját vezérli.',
+            paths: ['src/orders/'],
+          },
+          {
+            id: 'database',
+            area: 'engine',
+            kind: 'store',
+            name: 'Adattár',
+            summary: 'A rendelések tartós tárolása.',
+            paths: ['src/db/'],
+          },
+          {
+            id: 'payment',
+            area: 'partners',
+            kind: 'external',
+            name: 'Fizetési szolgáltató',
+            summary: 'A bankkártyás fizetést végzi.',
+            paths: [],
+          },
+        ],
+        links: [
+          { from: 'shop', to: 'orders', label: 'rendelést indít' },
+          { from: 'checkout', to: 'orders', label: 'véglegesít' },
+          { from: 'orders', to: 'database', label: 'eltárol' },
+          { from: 'orders', to: 'payment', label: 'fizetést kér' },
+        ],
+      },
+      sizes: [
+        { id: 'shop', files: 210 },
+        { id: 'checkout', files: 32 },
+        { id: 'orders', files: 126 },
+        { id: 'database', files: 6 },
+      ],
+      unmapped: { count: 3, examples: ['README.md', 'scripts/check.ts', 'package.json'] },
+      cards: [
+        {
+          taskKey: 'AC-17',
+          source: 'branch',
+          commit: 'fixture',
+          files: 9,
+          modules: [
+            { id: 'shop', files: 6 },
+            { id: 'orders', files: 3 },
+          ],
+          unmapped: [],
+          truncated: false,
+        },
+        {
+          taskKey: 'AC-18',
+          source: 'review',
+          commit: 'fixture',
+          files: 5,
+          modules: [{ id: 'orders', files: 4 }],
+          unmapped: ['README.md'],
+          truncated: false,
+        },
+        {
+          taskKey: 'AC-19',
+          source: 'merge',
+          commit: 'fixture',
+          files: 2,
+          modules: [{ id: 'database', files: 2 }],
+          unmapped: [],
+          truncated: false,
+        },
+      ],
+    },
+    {
+      repo: 'mobile',
+      status: 'missing',
+      map: null,
+      sizes: [],
+      cards: [],
+      unmapped: { count: 0, examples: [] },
+      truncated: false,
+      commit: null,
+      problem: null,
+      reason: null,
+      readAt: '2026-10-14T12:00:00Z',
+    },
+  ],
+};
 
 /**
  * A fictional project for the UI tests' MockBackend: "Acme webshop" with three humans (the owner, Kata the
@@ -28,6 +155,58 @@ import { daysAgo, hoursFromNow, minutesAgo, mockUuid } from './time';
 
 export const PROJECT_KEY = 'AC';
 export const OWNER = 'owner';
+
+/** A critical message proposal, opt-in so existing inbox examples stay unchanged. */
+export function operatorMessageApprovalFixture(): OperatorApprovalPayload {
+  return {
+    requestId: 'opr_message',
+    stepId: 'ops_message',
+    quote: '',
+    action: 'message',
+    operation: {
+      op: 'message_send',
+      to: ['kata'],
+      text: 'The requested work is complete.\n\nPlease reply in your conversation.',
+      taskKey: 'AC-1',
+    },
+    changes: [],
+    consequence: 'message_send',
+    baseVersion: null,
+    session: null,
+    stale: null,
+    plan: { why: 'Report completed work', impact: 'Kata receives one message', reversible: false },
+    expiresAt: hoursFromNow(24),
+  };
+}
+
+/** A summary with three independent owner decisions (PM-549), opt-in for UI examples and tests. */
+export function operatorSummaryFixture(messageId: string): { body: string; signals: OperatorSignal[] } {
+  const base = {
+    state: 'open' as const,
+    subject: null,
+    inboxItemId: null,
+    messageId,
+    raisedAt: '2026-10-10T08:00:00.000Z',
+    decidedBy: null,
+    decidedAt: null,
+    resolvedAt: null,
+  };
+  return {
+    body: '**Megtettem**\n\nEllenőriztem a táblát és elindítottam a szabad fejlesztőt.\n\n**Döntés kell**\n\nHárom dologhoz kell a szavad, lent soronként dönthetsz.',
+    signals: [
+      { ...base, id: 'sig_out', kind: 'outage', actionable: false, taskKey: null, inboxItemId: 'inbox_1' },
+      {
+        ...base,
+        id: 'sig_later',
+        kind: 'stalled',
+        actionable: true,
+        taskKey: 'AC-20',
+        raisedAt: '2026-10-10T09:00:00.000Z',
+      },
+      { ...base, id: 'sig_first', kind: 'nobody', actionable: true, taskKey: 'AC-20' },
+    ],
+  };
+}
 
 export const mockUser = {
   userId: 'usr_owner',
@@ -46,37 +225,6 @@ export const DECISION_OPTIONS: InboxOption[] = [
   { id: 'reject', label: 'reject', style: 'danger' },
 ];
 const ANSWER_OPTION: InboxOption = { id: 'answer', label: 'answer', style: 'secondary' };
-
-export const templates: TemplateSummary[] = [
-  {
-    id: 'web-client-project',
-    nameKey: 'templates.web-client-project.name',
-    descriptionKey: 'templates.web-client-project.description',
-    memberCount: { human: 1, ai: 7 },
-    stageCount: 9,
-  },
-  {
-    id: 'small-team',
-    nameKey: 'templates.small-team.name',
-    descriptionKey: 'templates.small-team.description',
-    memberCount: { human: 1, ai: 2 },
-    stageCount: 5,
-  },
-  {
-    id: 'internal-tool',
-    nameKey: 'templates.internal-tool.name',
-    descriptionKey: 'templates.internal-tool.description',
-    memberCount: { human: 1, ai: 4 },
-    stageCount: 6,
-  },
-  {
-    id: 'daily-routine',
-    nameKey: 'templates.daily-routine.name',
-    descriptionKey: 'templates.daily-routine.description',
-    memberCount: { human: 1, ai: 1 },
-    stageCount: 3,
-  },
-];
 
 export function buildConfig(): ProjectConfig {
   return {
@@ -226,6 +374,7 @@ export function buildConfig(): ProjectConfig {
           temp: false,
         },
       ],
+      contacts: [],
       roles: [],
       limits: {
         aiEnabled: true,
@@ -484,6 +633,7 @@ for (const member of members) {
     Object.assign(member, {
       provider: config.provider ?? 'claude',
       model: config.model,
+      ...(config.effort ? { effort: config.effort } : {}),
       permissionMode: config.permissionMode,
     });
 }
@@ -500,7 +650,6 @@ function task(partial: Partial<Task> & Pick<Task, 'key' | 'title' | 'stageId' | 
     priority: null,
     labels: [],
     links: [],
-    visibility: 'internal',
     createdBy: OWNER,
     createdAt: daysAgo(6, 9, 30),
     updatedAt: daysAgo(1, 12, 0),
@@ -615,7 +764,6 @@ export const tasks: Task[] = [
       },
       { kind: 'branch', ref: '21-order-confirmation', repo: 'acme/webshop' },
     ],
-    visibility: 'shared',
     createdAt: daysAgo(2, 9, 15),
     updatedAt: minutesAgo(99),
   }),
@@ -638,7 +786,6 @@ export const tasks: Task[] = [
         state: 'open',
       },
     ],
-    visibility: 'shared',
     createdAt: daysAgo(3, 11, 0),
     updatedAt: daysAgo(1, 15, 52),
   }),
@@ -660,7 +807,6 @@ export const tasks: Task[] = [
         state: 'open',
       },
     ],
-    visibility: 'shared',
     createdAt: daysAgo(2, 10, 0),
     updatedAt: minutesAgo(250),
   }),
@@ -676,7 +822,6 @@ export const tasks: Task[] = [
     links: [
       { kind: 'pull_request', ref: '15', repo: 'acme/webshop', title: 'Newsletter signup', state: 'open' },
     ],
-    visibility: 'shared',
     createdAt: daysAgo(5, 9, 0),
     updatedAt: minutesAgo(70),
   }),
@@ -699,7 +844,6 @@ export const tasks: Task[] = [
         state: 'merged',
       },
     ],
-    visibility: 'shared',
     createdAt: daysAgo(5, 9, 0),
     updatedAt: minutesAgo(32),
   }),
@@ -721,7 +865,6 @@ export const tasks: Task[] = [
         state: 'merged',
       },
     ],
-    visibility: 'shared',
     createdAt: daysAgo(6, 9, 0),
     updatedAt: minutesAgo(15),
   }),
@@ -1751,6 +1894,69 @@ export function plainLanguageQuestion(overrides: Partial<InboxItem> = {}): Inbox
     state: 'open',
     resolution: null,
     createdAt: minutesAgo(5),
+    ...overrides,
+  };
+}
+
+/**
+ * The files `attachmentQuestion` names, as the cards hold them: an image, a HTML and a PDF of the
+ * question's own card (AC-22), a PDF of its parent (AC-20) and one that was deleted since. Tests
+ * that delete a file put the entry into `MockBackend.attachments` first.
+ */
+export const attachmentQuestionFiles = [
+  {
+    id: 'att_aq0000image1',
+    taskKey: 'AC-22',
+    fileName: 'kosar-hiba.png',
+    size: 84_200,
+    mediaType: 'image/png',
+  },
+  {
+    id: 'att_aq0000html01',
+    taskKey: 'AC-22',
+    fileName: 'jelentes.html',
+    size: 12_400,
+    mediaType: 'text/html',
+  },
+  {
+    id: 'att_aq0000pdf001',
+    taskKey: 'AC-22',
+    fileName: 'merespecifikacio.pdf',
+    size: 1_250_000,
+    mediaType: 'application/pdf',
+  },
+  {
+    id: 'att_aq0000pdf002',
+    taskKey: 'AC-20',
+    fileName: 'szerzodes-vazlat.pdf',
+    size: 310_000,
+    mediaType: 'application/pdf',
+  },
+  {
+    id: 'att_aq0000gone01',
+    taskKey: 'AC-22',
+    fileName: 'regi-terv.png',
+    size: 45_000,
+    mediaType: 'image/png',
+    goneAt: minutesAgo(2),
+  },
+] as const;
+
+/**
+ * An open question that names files (PM-498): an image, a HTML and a PDF of its own card, a PDF of
+ * the parent card and a file that was deleted since. Not part of the default inbox; tests put it
+ * into `MockBackend.inbox`.
+ */
+export function attachmentQuestion(overrides: Partial<InboxItem> = {}): InboxItem {
+  return {
+    ...plainLanguageQuestion({ id: 'inb_q_attachments' }),
+    payload: {
+      ...plainLanguageQuestion().payload,
+      attachments: attachmentQuestionFiles.map((file) => ({
+        ...file,
+        preview: attachmentPreviewOf(file.mediaType),
+      })),
+    },
     ...overrides,
   };
 }

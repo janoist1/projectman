@@ -10,12 +10,14 @@ import { DAILY_WORKER_SCHEDULE } from '@projectman/templates';
 import { migrateProjectConfig } from '../src/config/migrations';
 import { testConfig } from './helpers/test-template';
 
-/** The test configuration as a plain object, as it comes out of the YAML files. */
+/** The test configuration as a plain object, as it comes out of the YAML files (with its merger, as saved). */
 function raw(): {
-  team: { members: Array<Record<string, unknown>> };
+  team: { members: Array<Record<string, unknown>>; merger?: unknown };
   pipeline: { stages: Array<Record<string, unknown>>; labels: Array<{ id: string; setBy?: unknown }> };
 } {
-  return JSON.parse(JSON.stringify(testConfig()));
+  const config = JSON.parse(JSON.stringify(testConfig()));
+  config.team.merger = { kind: 'code_reviewer' };
+  return config;
 }
 
 function migrate(config: unknown) {
@@ -145,6 +147,46 @@ describe('project configuration migrations', () => {
     expect(migrated).toBe(legacy);
     expect(config.pipeline.stages.find((s) => s.id === 'code_review')!.kind).toBe('step');
     expect(validateProjectConfig(config).filter((issue) => issue.severity !== 'warning')).toEqual([]);
+  });
+});
+
+describe('merger migration (PM-470)', () => {
+  type Raw = ReturnType<typeof raw>;
+  const withoutMerger = (): Raw => {
+    const legacy = raw();
+    delete legacy.team.merger;
+    return legacy;
+  };
+
+  it('gives a project with a code review stage before the merge target the code reviewer', () => {
+    const { config, migrated } = migrate(withoutMerger());
+    expect(config.team.merger).toEqual({ kind: 'code_reviewer' });
+    expect((migrated as Raw).team.merger).toEqual({ kind: 'code_reviewer' });
+  });
+
+  it('gives a project without a code review stage the developer', () => {
+    const legacy = withoutMerger();
+    legacy.pipeline.stages = legacy.pipeline.stages.filter((s) => s.id !== 'code_review');
+    expect(migrate(legacy).config.team.merger).toEqual({ kind: 'developer' });
+  });
+
+  it('keeps an explicit merger', () => {
+    for (const merger of [{ kind: 'developer' }, { kind: 'member', handle: 'owner' }]) {
+      const legacy = withoutMerger();
+      legacy.team.merger = merger;
+      const { migrated, config, warn } = migrate(legacy);
+      expect(migrated).toBe(legacy);
+      expect(config.team.merger).toEqual(merger);
+      expect(warn).not.toHaveBeenCalled();
+    }
+  });
+
+  it('leaves a configuration that does not parse alone', () => {
+    const broken = withoutMerger();
+    broken.team.members = [];
+    const warn = vi.fn();
+    expect(migrateProjectConfig(broken, { projectKey: 'AR', logger: { warn } })).toBe(broken);
+    expect(broken.team.merger).toBeUndefined();
   });
 });
 
@@ -324,6 +366,126 @@ describe('release approval migration (decision 19)', () => {
     });
   });
 
+  describe('the retired Operator (decision 66, PM-1076)', () => {
+    /** A configuration from before: an Operator on leave, scheduled, with its own role override and as the temp role. */
+    const withOperator = () => {
+      const legacy = raw();
+      legacy.team.members.push({
+        kind: 'ai',
+        handle: 'operator',
+        displayName: 'Operator',
+        role: 'ai_operator',
+        sponsor: 'owner',
+        onLeave: true,
+        schedule: { cron: '0 9 * * *', prompt: 'Look around.' },
+      });
+      const team = legacy.team as unknown as {
+        contacts?: string[];
+        roleOverrides?: Record<string, unknown>;
+        limits: { tempWorkers?: Record<string, unknown> };
+      };
+      team.contacts = ['pm', 'operator'];
+      team.roleOverrides = {
+        ai_operator: { duties: ['project_operation'], instructions: 'Be bold.' },
+        qa: { duties: ['testing_acceptance'], instructions: 'Test.' },
+      };
+      team.limits.tempWorkers = { enabled: true, max: 1, role: 'ai_operator' };
+      legacy.pipeline.stages.find((s) => s.id === 'backlog')!.owners = ['owner', 'operator'];
+      return legacy;
+    };
+
+    it('removes the member and every reference to it, and the configuration loads', () => {
+      const { config, warn } = migrate(withOperator());
+      expect(config.team.members.some((m) => m.handle === 'operator')).toBe(false);
+      expect(config.team.contacts).toEqual(['pm']);
+      expect(config.pipeline.stages.find((s) => s.id === 'backlog')!.owners).toEqual(['owner']);
+      expect(config.team.roleOverrides).not.toHaveProperty('ai_operator');
+      expect(config.team.roleOverrides?.qa).toBeDefined();
+      expect(config.team.limits.tempWorkers).toMatchObject({ enabled: true, role: 'developer' });
+      expect(validateProjectConfig(config).filter((i) => i.severity !== 'warning')).toEqual([]);
+      expect(warn).toHaveBeenCalledWith(
+        { projectKey: 'AR', members: ['operator'] },
+        'Removed the retired Operator member',
+      );
+    });
+
+    it('is done once and the removed addOperator and fixOperator do not bring it back', () => {
+      const first = migrate(withOperator());
+      const again = vi.fn();
+      const snapshot = JSON.parse(JSON.stringify(first.migrated));
+      expect(migrateProjectConfig(first.migrated, { projectKey: 'AR', logger: { warn: again } })).toEqual(
+        snapshot,
+      );
+      expect(again).not.toHaveBeenCalled();
+      expect(first.config.team.members.filter((m) => m.kind === 'ai' && m.role === 'ai_operator')).toEqual(
+        [],
+      );
+    });
+
+    it('takes the Operator out of the labels it could set by name, so the configuration still loads', () => {
+      const legacy = withOperator();
+      const base = { name: 'Fictional', color: 'gray' };
+      legacy.pipeline.labels.push(
+        { ...base, id: 'with-others', setBy: { members: ['operator', 'owner'] } } as never,
+        { ...base, id: 'with-duty', setBy: { members: ['operator'], duties: ['code_review'] } } as never,
+        { ...base, id: 'only-operator', setBy: { members: ['operator'] } } as never,
+      );
+      const { config } = migrate(legacy);
+      const setBy = (id: string) => config.pipeline.labels.find((l) => l.id === id)!.setBy;
+      expect(setBy('with-others')).toEqual({ members: ['owner'] });
+      expect(setBy('with-duty')).toEqual({ duties: ['code_review'] });
+      // No wider than before: the owners in person, not every human with access.
+      expect(setBy('only-operator')).toEqual({ members: ['owner'], humansOnly: true });
+      expect(validateProjectConfig(config).filter((i) => i.severity !== 'warning')).toEqual([]);
+    });
+
+    it('leaves a label only the Operator could set to the system when the project has no owner', () => {
+      const legacy = withOperator();
+      for (const member of legacy.team.members) if (member.kind === 'human') member.access = 'admin';
+      legacy.pipeline.labels.push({
+        id: 'only-operator',
+        name: 'Fictional',
+        color: 'gray',
+        setBy: { members: ['operator'] },
+      } as never);
+      const { config } = migrate(legacy);
+      expect(config.pipeline.labels.find((l) => l.id === 'only-operator')!.setBy).toBe('system');
+    });
+
+    it('derives a default merger when the stored one named the removed Operator', () => {
+      const legacy = withOperator();
+      legacy.team.merger = { kind: 'member', handle: 'operator' };
+      const { config } = migrate(legacy);
+      expect(config.team.merger).toBeDefined();
+      expect(config.team.merger).not.toMatchObject({ handle: 'operator' });
+      expect(validateProjectConfig(config).filter((i) => i.severity !== 'warning')).toEqual([]);
+    });
+
+    it('removes a temp worker with the role too, and leaves every other member alone', () => {
+      const legacy = withOperator();
+      legacy.team.members.push({
+        kind: 'ai',
+        handle: 'standin',
+        displayName: 'Stand-in',
+        role: 'ai_operator',
+        sponsor: 'owner',
+        temp: true,
+      });
+      const { config } = migrate(legacy);
+      expect(config.team.members.map((m) => m.handle)).toEqual(raw().team.members.map((m) => m.handle));
+    });
+
+    it('adds nothing to a project that never had an Operator, and the project manager stays the only coordinator', () => {
+      const current = raw();
+      const before = JSON.parse(JSON.stringify(current));
+      const { migrated, config, warn } = migrate(current);
+      expect(migrated).toBe(current);
+      expect(migrated).toEqual(before);
+      expect(projectManagersOf(config)).toHaveLength(1);
+      expect(warn).not.toHaveBeenCalled();
+    });
+  });
+
   it('is done once', () => {
     const legacy = raw();
     label(legacy, 'release-ok').setBy = 'humans';
@@ -442,6 +604,33 @@ describe('custom roles that became built-in roles', () => {
     expect(warn).not.toHaveBeenCalled();
   });
 
+  it('appends the feedback processing duty to a project manager override, once (PM-506)', () => {
+    const legacy = raw();
+    Object.assign(legacy.team, {
+      roleOverrides: { project_manager: { duties: ['scheduling', 'triage'], instructions: '' } },
+    });
+    const { config, warn } = migrate(legacy);
+    expect(config.team.roleOverrides?.project_manager?.duties).toEqual([
+      'scheduling',
+      'triage',
+      'feedback_processing',
+    ]);
+    expect(warn).toHaveBeenCalledWith(
+      { projectKey: 'AR', fields: ['roleOverrides.project_manager.duties'] },
+      'Added the feedback processing duty to the project manager role override',
+    );
+    const again = vi.fn();
+    const migrated = migrateProjectConfig(config, { projectKey: 'AR', logger: { warn: again } });
+    expect(migrated).toBe(config);
+    expect(again).not.toHaveBeenCalled();
+  });
+
+  it('leaves a project manager role without an override to the built-in defaults (PM-506)', () => {
+    const { migrated } = migrate(raw());
+    expect(JSON.stringify(migrated)).not.toContain('feedback_processing');
+    expect(BUILT_IN_ROLE_DUTIES.project_manager).toContain('feedback_processing');
+  });
+
   it('leaves a malformed roles list to the schema', () => {
     const warn = vi.fn();
     for (const roles of [null, 'lead_developer', [null, 7, 'x', { id: 7 }, { name: 'no id' }]]) {
@@ -450,5 +639,62 @@ describe('custom roles that became built-in roles', () => {
       expect(config.team.roles).toBe(roles);
     }
     expect(warn).not.toHaveBeenCalled();
+  });
+});
+
+describe('Senior mark migration (PM-1007)', () => {
+  const member = (config: ReturnType<typeof raw>, handle: string) =>
+    config.team.members.find((m) => m.handle === handle)!;
+
+  it('gives the Senior the largest limit, drops the mark, and is done once', () => {
+    const legacy = raw();
+    member(legacy, 'dev-2').senior = true;
+    member(legacy, 'dev-1').senior = false;
+    const first = migrate(legacy);
+    expect(first.config.team.members.find((m) => m.handle === 'dev-2')).toMatchObject({
+      complexityLimit: 13,
+    });
+    for (const m of first.config.team.members) expect(m).not.toHaveProperty('senior');
+    expect(first.config.team.members.find((m) => m.handle === 'dev-1')).not.toHaveProperty('complexityLimit');
+    expect(first.warn).toHaveBeenCalled();
+    const again = migrate(first.migrated);
+    expect(again.config).toEqual(first.config);
+    expect(again.warn).not.toHaveBeenCalled();
+  });
+
+  it('keeps a limit that is already set and gives a temp worker none', () => {
+    const legacy = raw();
+    Object.assign(member(legacy, 'dev-1'), { senior: true, complexityLimit: 8 });
+    Object.assign(member(legacy, 'dev-2'), { senior: true, temp: true });
+    const { config } = migrate(legacy);
+    expect(config.team.members.find((m) => m.handle === 'dev-1')).toMatchObject({ complexityLimit: 8 });
+    expect(config.team.members.find((m) => m.handle === 'dev-2')).not.toHaveProperty('complexityLimit');
+  });
+});
+
+describe('separate mailbox name migration (PM-1039)', () => {
+  const member = (config: ReturnType<typeof raw>, handle: string) =>
+    config.team.members.find((m) => m.handle === handle)!;
+
+  it('drops the mailbox name, warns only when it differed from the handle, and is done once', () => {
+    const legacy = raw();
+    Object.assign(member(legacy, 'dev-1'), { email: { enabled: true, mailbox: 'builder' } });
+    Object.assign(member(legacy, 'dev-2'), { email: { enabled: true, mailbox: 'dev-2' } });
+    const first = migrate(legacy);
+    expect(member(first.migrated as ReturnType<typeof raw>, 'dev-1').email).toEqual({ enabled: true });
+    expect(first.config.team.members.find((m) => m.handle === 'dev-1')).toMatchObject({
+      email: { enabled: true },
+    });
+    expect(first.config.team.members.find((m) => m.handle === 'dev-2')).toMatchObject({
+      email: { enabled: true },
+    });
+    expect(first.warn).toHaveBeenCalledTimes(1);
+    expect(first.warn).toHaveBeenCalledWith(
+      { projectKey: 'AR', member: 'dev-1', mailbox: 'builder' },
+      expect.stringContaining('mailbox'),
+    );
+    const again = migrate(first.migrated);
+    expect(again.config).toEqual(first.config);
+    expect(again.warn).not.toHaveBeenCalled();
   });
 });

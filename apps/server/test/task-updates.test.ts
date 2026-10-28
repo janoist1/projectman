@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { TeamToolError } from '../src/contracts';
 import type { ToolContext } from '../src/contracts';
-import { aiActor } from '../src/domain';
+import { aiActor } from '../src/kernel';
 import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { rejection } from './helpers/errors';
@@ -84,6 +84,32 @@ describe('task updates', () => {
     expect(h.domain.messages.list('AR', { member: 'dev-1' })).toMatchObject([
       { from: 'owner', to: ['dev-1'], taskKey: 'AR-1', body: 'Needs information' },
     ]);
+  });
+
+  it('records excerpts only from the same call, retaining the complete note', async () => {
+    const note = `\n  ${'x'.repeat(510)}\nSecond line`;
+    await h.domain.tasks.update('AR', 'AR-1', { labels: ['tag'], stageId: 'development', note }, OWNER_ACTOR);
+    const sources = h.repos.timeline.roundEvents('AR', 'AR-1');
+    expect(
+      sources
+        .filter((e) => e.type === 'task_labels_changed' || e.type === 'task_stage_changed')
+        .map((e) => e.data.noteExcerpt),
+    ).toEqual(['x'.repeat(500), 'x'.repeat(500)]);
+    expect(
+      h.domain.timeline.list('AR', { taskKey: 'AR-1' }).find((e) => e.type === 'task_note')?.data.text,
+    ).toBe(note.trim());
+    await h.domain.tasks.changeLabels('AR', 'AR-1', { add: ['another'] }, OWNER_ACTOR);
+    await h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', OWNER_ACTOR);
+    expect(
+      h.repos.timeline
+        .roundEvents('AR', 'AR-1')
+        .slice(-2)
+        .every((e) => e.data.noteExcerpt === undefined),
+    ).toBe(true);
+    await h.domain.tasks.changeLabels('AR', 'AR-1', { add: ['third'] }, OWNER_ACTOR, {
+      comment: '\n Own reason\nDetails',
+    });
+    expect(h.repos.timeline.roundEvents('AR', 'AR-1').at(-1)?.data.noteExcerpt).toBe('Own reason');
   });
 
   it('a PATCH that needs an approval requests it with the rest applied', async () => {

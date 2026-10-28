@@ -1,3 +1,4 @@
+import { LoopTriageState } from '@projectman/shared';
 import type { Db } from './database';
 import { parseJson, toJson } from './json';
 
@@ -30,6 +31,7 @@ export interface TaskLoopRecord {
   inboxItemId: string | null;
   /** The head of the card's branch when the loop was found; a different one later is progress. */
   headCommit: string | null;
+  triage: LoopTriageState | null;
   endedAt: string | null;
   endReason: string | null;
   letRunBy: string | null;
@@ -51,6 +53,7 @@ interface LoopRow {
   deciders: string;
   inbox_item_id: string | null;
   head_commit: string | null;
+  triage_json: string | null;
   ended_at: string | null;
   end_reason: string | null;
   let_run_by: string | null;
@@ -72,6 +75,7 @@ const toRecord = (row: LoopRow): TaskLoopRecord => ({
   deciders: parseJson<string[]>(row.deciders, []),
   inboxItemId: row.inbox_item_id,
   headCommit: row.head_commit,
+  triage: row.triage_json ? LoopTriageState.parse(JSON.parse(row.triage_json)) : null,
   endedAt: row.ended_at,
   endReason: row.end_reason,
   letRunBy: row.let_run_by,
@@ -81,14 +85,14 @@ const toRecord = (row: LoopRow): TaskLoopRecord => ({
 export function createTaskLoopRepository(db: Db) {
   const insert = db.prepare(
     `INSERT INTO task_loops (id, project_key, task_key, started_at, raised_at, last_message_at, members, count,
-       notified, notified_count, phase, owner_reason, deciders, inbox_item_id, head_commit)
+       notified, notified_count, phase, owner_reason, deciders, inbox_item_id, head_commit, triage_json)
      VALUES (@id, @projectKey, @taskKey, @startedAt, @raisedAt, @lastMessageAt, @members, @count,
-       @notified, @notifiedCount, @phase, @ownerReason, @deciders, @inboxItemId, @headCommit)`,
+       @notified, @notifiedCount, @phase, @ownerReason, @deciders, @inboxItemId, @headCommit, @triage)`,
   );
   const update = db.prepare(
     `UPDATE task_loops SET last_message_at = @lastMessageAt, members = @members, count = @count,
        notified = @notified, notified_count = @notifiedCount, phase = @phase, owner_reason = @ownerReason, deciders = @deciders, inbox_item_id = @inboxItemId,
-       let_run_by = @letRunBy
+       let_run_by = @letRunBy, triage_json = @triage
      WHERE id = @id AND ended_at IS NULL`,
   );
   const end = db.prepare(
@@ -129,10 +133,20 @@ export function createTaskLoopRepository(db: Db) {
       return (lastEnded.get(taskKey) as { ended_at: string } | undefined)?.ended_at ?? null;
     },
     create(loop: Omit<TaskLoopRecord, 'endedAt' | 'endReason' | 'letRunBy'>): void {
-      insert.run({ ...loop, members: toJson(loop.members), deciders: toJson(loop.deciders) });
+      insert.run({
+        ...loop,
+        members: toJson(loop.members),
+        deciders: toJson(loop.deciders),
+        triage: loop.triage ? toJson(LoopTriageState.parse(loop.triage)) : null,
+      });
     },
     save(loop: TaskLoopRecord): void {
-      update.run({ ...loop, members: toJson(loop.members), deciders: toJson(loop.deciders) });
+      update.run({
+        ...loop,
+        members: toJson(loop.members),
+        deciders: toJson(loop.deciders),
+        triage: loop.triage ? toJson(LoopTriageState.parse(loop.triage)) : null,
+      });
     },
     close(id: string, at: string, reason: string): void {
       end.run(at, reason, id);

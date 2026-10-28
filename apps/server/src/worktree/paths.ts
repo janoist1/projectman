@@ -12,17 +12,6 @@ export async function canonical(p: string): Promise<string> {
   }
 }
 
-/** Whether `child` is strictly below `parent` (both absolute). */
-export function isInside(child: string, parent: string): boolean {
-  const relative = path.relative(parent, child);
-  return (
-    relative !== '' &&
-    relative !== '..' &&
-    !relative.startsWith(`..${path.sep}`) &&
-    !path.isAbsolute(relative)
-  );
-}
-
 /** Serialises async work per key (git operations on one repository). */
 export function createKeyedLock(): <T>(key: string, fn: () => Promise<T>) => Promise<T> {
   const tails = new Map<string, Promise<void>>();

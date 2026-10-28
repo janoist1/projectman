@@ -3,7 +3,7 @@ import type { Db } from './database';
 import { tokenUsageOf, type UsageRow } from './sessions';
 
 /** Where a session's usage is counted: its member and, for a task's session, the task. */
-export interface UsageOwner {
+interface UsageOwner {
   sessionId: string;
   projectKey: string;
   member: string;
@@ -62,6 +62,6 @@ export function createTokenUsageRepository(db: Db) {
 }
 
 /** The hour bucket of a time: its ISO form cut to the hour ("2026-10-01T19"), which sorts by time. */
-export function usageHour(at: Date): string {
+function usageHour(at: Date): string {
   return at.toISOString().slice(0, 13);
 }

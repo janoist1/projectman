@@ -55,6 +55,9 @@ export function createEngineRepository(db: Db) {
         'UPDATE engines SET revoked_at = ?, revoked_by = ?, is_default = 0 WHERE id = ? AND revoked_at IS NULL',
       ).run(at, userId, id);
     },
+    rename(id: string, name: string): void {
+      db.prepare('UPDATE engines SET name = ? WHERE id = ? AND revoked_at IS NULL').run(name, id);
+    },
     setDefault(id: string): void {
       db.transaction(() => {
         db.prepare('UPDATE engines SET is_default = 0 WHERE is_default = 1').run();

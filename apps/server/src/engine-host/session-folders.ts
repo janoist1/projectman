@@ -1,8 +1,9 @@
 import { randomBytes } from 'node:crypto';
-import { chmodSync, lstatSync, mkdirSync, realpathSync } from 'node:fs';
-import { lstat, mkdir, readdir, rename, rm, rmdir } from 'node:fs/promises';
+import { link, mkdir, readdir, rename, rm, rmdir } from 'node:fs/promises';
 import path from 'node:path';
 import type { EngineSessionFolders } from '../contracts';
+import { copyChecked, isSameFile } from './checked-copy';
+import { assertOwnDirectory } from './session-roots';
 
 /**
  * The session folders (PM-268): a Claude session's own writable directory for what its commands
@@ -18,50 +19,6 @@ const SESSION_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const TMP_NAME = /^[0-9a-f]{12}$/;
 
 const code = (err: unknown): string | undefined => (err as NodeJS.ErrnoException | undefined)?.code;
-
-function assertOwnDirectorySync(dir: string, mustExist = false): void {
-  const stat = lstatSync(dir, { throwIfNoEntry: false });
-  checkOwnDirectory(dir, stat, mustExist);
-}
-
-async function assertOwnDirectory(dir: string, mustExist = false): Promise<void> {
-  const stat = await lstat(dir).catch((err: unknown) => {
-    if (code(err) === 'ENOENT') return undefined;
-    throw err;
-  });
-  checkOwnDirectory(dir, stat, mustExist);
-}
-
-function checkOwnDirectory(
-  dir: string,
-  stat: ReturnType<typeof lstatSync> | undefined,
-  mustExist: boolean,
-): void {
-  if (!stat) {
-    if (mustExist) throw new Error(`${dir} is gone`);
-    return;
-  }
-  if (stat.isSymbolicLink()) throw new Error(`${dir} is a symbolic link`);
-  if (!stat.isDirectory()) throw new Error(`${dir} is not a directory`);
-  if (typeof process.getuid === 'function' && stat.uid !== process.getuid())
-    throw new Error(`${dir} belongs to another user`);
-}
-
-/**
- * Makes the root (0700) and checks it and its parent: a real directory (no symbolic link) owned
- * by the server's user. A root with group or other bits is made 0700. The root is predictable and
- * the parent may be a shared `/tmp`, where another user could have made it first (a link to a
- * directory the sweep would then empty). Throws with the reason.
- */
-export function prepareSessionFoldersRoot(root: string): void {
-  // Before the mkdir as well: nothing is made behind a link that is already there.
-  assertOwnDirectorySync(path.dirname(root));
-  assertOwnDirectorySync(root);
-  mkdirSync(root, { recursive: true, mode: 0o700 });
-  assertOwnDirectorySync(path.dirname(root));
-  assertOwnDirectorySync(root);
-  if ((lstatSync(root).mode & 0o077) !== 0) chmodSync(root, 0o700);
-}
 
 /**
  * Removes `dir` (a direct child of `root`) with everything in it. It is renamed away first, inside
@@ -79,72 +36,6 @@ async function removeTree(root: string, dir: string): Promise<void> {
     return;
   }
   await rm(trash, { recursive: true, force: true });
-}
-
-/**
- * The parent of the sessions' own temporary directories (PM-339): a short path below the real
- * `/tmp` (macOS: `/private/tmp/...`). A sibling of the heavy-run queue folder
- * (`projectman-<uid>`), never below it: the sandbox of every member's commands writes that one, so
- * a path in it could be pre-empted or read by any member. This folder is 0700 and no sandbox rule
- * names it. An installation's root is a folder of its own in it (like its session folders root:
- * one's sweep must not remove another's).
- */
-export function defaultSessionTmpRoot(): string {
-  return path.join(realpathSync('/tmp'), `projectman-${process.getuid?.() ?? 'user'}-tmp`);
-}
-
-/**
- * Claude Code's temporary roots every Claude Code process of the user shares (PM-353): its
- * `<base>/claude-<uid>` (the base is `CLAUDE_CODE_TMPDIR`, else `/tmp`), where the scratchpads, the
- * background commands' `tasks/*.output` and the `bash-edit-diff` of every session of every project
- * live, and the sandbox runtime's default `/tmp/claude`. Each as given and as its canonical path
- * (macOS: `/private/tmp/...`), once.
- */
-export function sharedClaudeTmpRoots(
-  input: { claudeTmpBase?: string; uid?: number | string } = {},
-): string[] {
-  const uid = input.uid ?? process.getuid?.() ?? 'user';
-  const given = [
-    path.join('/tmp', `claude-${uid}`),
-    ...(input.claudeTmpBase ? [path.join(input.claudeTmpBase, `claude-${uid}`)] : []),
-    '/tmp/claude',
-  ];
-  return [...new Set(given.flatMap((root) => [root, realpathOfNearest(root)]))];
-}
-
-/**
- * The canonical path of `target`, which need not exist: the nearest existing ancestor is resolved
- * (links followed, macOS `/tmp` is `/private/tmp`) and the rest is appended. The sandboxes
- * canonicalize the paths they are given, so overlaps are compared on these.
- */
-export function realpathOfNearest(target: string): string {
-  const missing: string[] = [];
-  let current = path.resolve(target);
-  for (;;) {
-    try {
-      return path.join(realpathSync(current), ...missing.reverse());
-    } catch (err) {
-      const parent = path.dirname(current);
-      // Only a path that is not there (or not a directory) is climbed past; anything else is a real error.
-      if (parent === current || (code(err) !== 'ENOENT' && code(err) !== 'ENOTDIR')) throw err;
-      missing.push(path.basename(current));
-      current = parent;
-    }
-  }
-}
-
-/**
- * Makes an installation's temporary directories root (`<defaultSessionTmpRoot()>/<instance>`, both
- * 0700) and checks it and the folder above it: real directories of the server's user, none a link.
- * Throws with the reason.
- */
-export function prepareSessionTmpRoot(root: string): void {
-  const base = path.dirname(root);
-  assertOwnDirectorySync(base);
-  mkdirSync(base, { recursive: true, mode: 0o700 });
-  assertOwnDirectorySync(base, true);
-  if ((lstatSync(base).mode & 0o077) !== 0) chmodSync(base, 0o700);
-  prepareSessionFoldersRoot(root);
 }
 
 /**
@@ -277,6 +168,54 @@ export class SessionFolders implements EngineSessionFolders {
     }
     await this.sweepTmp(keptTmps);
     return removed;
+  }
+
+  /**
+   * A file of the server's storage into the session's folder, `<folder>/<name>` (PM-518, PM-523).
+   * Only the folder this registry recorded for the session is written, never a path the caller names:
+   * a session the registry does not know (not started here, already ended) is refused. The content is
+   * copied to a name in the root, which no session reaches, checked against the size and checksum,
+   * and then linked into place, so the file the agent sees is complete and made exclusively (0600,
+   * never through a link).
+   *
+   * The file goes straight into the session folder and there is no subfolder: the agent writes inside
+   * the folder, so a directory in it could be renamed away and replaced by a link between the check
+   * and the use, and the server (outside the sandbox) would write and remove through that link. The
+   * folder itself lives in the root, which the agent cannot write, so it cannot be swapped, and its
+   * last element is safe by itself: `link` refuses an existing name (a link included, it is never
+   * followed) and a name that is not the same file is renamed into the root and removed there, so the
+   * agent's own entry (a link, or a folder it keeps changing) is never walked in its place. A file
+   * already there with the same checksum stays as the answer.
+   */
+  async materializeFile(
+    sessionId: string,
+    input: { name: string; source: { path: string; size: number; sha256: string } },
+  ): Promise<{ path: string }> {
+    const { name, source } = input;
+    if (!name || name.length > 255 || name === '.' || name === '..' || /[/\\\0]/.test(name))
+      throw new Error(`Not a plain file name: ${JSON.stringify(name)}`);
+    const folder = this.folders.get(sessionId);
+    if (!folder) throw new Error(`Session ${sessionId} has no folder on this engine`);
+    const staged = path.join(this.root, `.part-${randomBytes(8).toString('hex')}`);
+    try {
+      await copyChecked(source, staged);
+      await assertOwnDirectory(folder, true);
+      const dest = path.join(folder, name);
+      if (await isSameFile(dest, source)) return { path: dest };
+      // The slow check above is over: what is there now (nothing, mostly) is moved out of the agent's
+      // reach by its name alone (a link moves as a link), and only then removed.
+      const trash = path.join(this.root, `.trash-${randomBytes(8).toString('hex')}`);
+      try {
+        await rename(dest, trash);
+        await rm(trash, { recursive: true, force: true });
+      } catch (err) {
+        if (code(err) !== 'ENOENT') throw err;
+      }
+      await link(staged, dest);
+      return { path: dest };
+    } finally {
+      await rm(staged, { force: true });
+    }
   }
 
   /**

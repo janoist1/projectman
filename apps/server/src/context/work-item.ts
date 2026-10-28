@@ -1,23 +1,41 @@
 import path from 'node:path';
 import {
   DESIGN_REVIEW_CHANGES_LABEL,
+  cardMoverHandle,
+  cardMoverOf,
+  isHandOnMove,
   DUTIES,
   dutyMembers,
   effectiveRepo,
+  isMergeFixer,
+  requiresMerge,
   gateLabels,
   isHumanOnlyLabel,
   labelDefinition,
   labelHolders,
   labelSetters,
+  partReadyStage,
+  projectRefines,
+  REFINE_LABEL,
   refinementTurn,
   repoOf,
   resolvedStages,
+  reviewTestRunnerBeforeReview,
   roleBundle,
   stageOwners,
 } from '@projectman/shared';
 import type { DutyId, LabelDefinition, RepoConfig, Stage, Task } from '@projectman/shared';
 import type { ContextPackInput } from '../contracts';
-import { code, codeList, fullTestLine, labelRef, lowerFirst, stageLabel } from './format';
+import {
+  cardBranchMergeRule,
+  code,
+  codeList,
+  fullTestLine,
+  labelRef,
+  lowerFirst,
+  mergeStepCheckLine,
+  stageLabel,
+} from './format';
 
 /** Where the member's work item stands in the pipeline. */
 export interface Situation {
@@ -89,7 +107,7 @@ function repositoryFolder(repo: RepoConfig): string | null {
  * from the reviewer's own directory. The commands are the read-only ones the server allows without
  * asking (plain `git branch --list`, `git log` and `git diff`, never `-C`; a repository in a folder of
  * the workspace is entered with `cd`). The worktree manager names the branch after the task key and
- * the title, `<TASKKEY>-<slug of the title>` (worktree/branch-name.ts).
+ * the title, `<TASKKEY>-<slug of the title>` (packages/shared/src/domain/branch-name.ts).
  */
 function reviewBranch(repo: RepoConfig, taskKey: string): string {
   const base = repo.defaultBranch;
@@ -117,7 +135,22 @@ const LOCAL_ONLY_DUTY_PROMPTS: Partial<Record<DutyId, string>> = {
 
 /** The prompt fragment of a duty for this work item; see `LOCAL_ONLY_DUTY_PROMPTS`. */
 export function dutyPrompt(input: ContextPackInput, duty: DutyId): string {
+  if (isMergeFixer(input.task?.merge, input.member.handle))
+    return 'You are fixing a mechanical merge conflict in the dedicated writable merge-fix worktree. Follow the Merge fix steps; commit the resolution and submit it with merge_task. Send behavioral conflicts back to the developer with a reason. Never push manually.';
+  const mergeRepo = serverMergeRepo(input);
+  if (mergeRepo && (duty === 'implementation' || duty === 'docs')) {
+    const work =
+      duty === 'implementation'
+        ? "Implement the task and tests only in its worktree; run checks and commit on the task's branch."
+        : "Write documentation in the task worktree, verify examples and commit on the task's branch.";
+    return `${work} ${cardBranchMergeRule(mergeRepo.defaultBranch)} The gate checks the approved commit.`;
+  }
   return (localOnlyRepo(input) && LOCAL_ONLY_DUTY_PROMPTS[duty]) || DUTIES[duty].prompt;
+}
+
+function serverMergeRepo(input: ContextPackInput): RepoConfig | null {
+  const repo = input.task ? repoOf(input.project, effectiveRepo(input.project, input.task)) : undefined;
+  return repo && requiresMerge(repo) ? repo : null;
 }
 
 /**
@@ -222,6 +255,7 @@ function reviewBeforeHandover(c: StepContext, target: Stage | null): string[] {
 function building(work: (where: string, tests: string) => string[], ownerReview?: StepRule): StepRule {
   return (c) => {
     const { input, s, current, inQueue, localOnly } = c;
+    const mergeRepo = serverMergeRepo(input);
     if ((inQueue || current.kind === 'work') && (s.ownsStage || s.isAssignee || inQueue)) {
       const working = inQueue ? s.next : current;
       const target = working ? stageAfter(s.stages, working) : null;
@@ -235,8 +269,8 @@ function building(work: (where: string, tests: string) => string[], ownerReview?
         ...work(where, developerTests(input, c.task)),
         localOnly
           ? `Commit the work on the task's own branch in your worktree. Never push and never open a pull request: ${LOCAL_ONLY_REASON}. Before you hand over, make sure everything is committed: \`git status\` shows nothing left to commit.`
-          : input.sessionPolicy?.execution?.profile === 'managed_vm'
-            ? 'Commit on the task branch, then publish it with publish_task_branch (the full commit id of HEAD): it pushes the branch and opens the pull request, recorded on the task under your name. Do not push or open a pull request yourself, and do not link it again.'
+          : mergeRepo
+            ? `Commit the work on the task's own branch. ${cardBranchMergeRule(mergeRepo.defaultBranch)}`
             : 'Commit, push, open a pull request and attach it with link_pull_request.',
         ...reviewBeforeHandover(c, target),
         handover(input, target, localOnly ? LOCAL_ONLY_FACTS : undefined),
@@ -248,7 +282,9 @@ function building(work: (where: string, tests: string) => string[], ownerReview?
       return [
         localOnly
           ? `${past} Fix what teammates report on the same branch and commit the fixes; never push, because ${LOCAL_ONLY_REASON}. Then ask the reporter for a re-review or a retest with send_message, naming the new commits.`
-          : `${past} Fix what teammates report in the same branch and pull request, push, and ask the reporter for a re-review or a retest with send_message.`,
+          : mergeRepo
+            ? `${past} Fix what teammates report on the same branch, commit the fixes, and ask the reporter for a re-review or a retest with send_message. ${cardBranchMergeRule(mergeRepo.defaultBranch)}`
+            : `${past} Fix what teammates report in the same branch and pull request, push, and ask the reporter for a re-review or a retest with send_message.`,
         ...(testsAtMerge(input, c.task) ? [developerTests(input, c.task)] : []),
       ];
     }
@@ -354,18 +390,14 @@ const reviewing: StepRule = ({ input, s, task, duty, author, localOnly }) => {
   }
   const placement = input.sessionPolicy?.placement;
   // In the member's own workspace (PM-138) the handed-over commit is already checked out.
-  const ownWorkspace =
-    placement?.kind === 'review_copy'
-      ? placement.sourceBranch !== undefined
-      : placement?.kind === 'member_workspace' &&
-        placement.use === 'review' &&
-        placement.review?.sourceBranch !== undefined;
+  const ownWorkspace = placement?.kind === 'review_copy' ? placement.sourceBranch !== undefined : false;
   const pin = task.reviewPin;
   return [
     ...(repoOf(input.project, effectiveRepo(input.project, task))?.fullTestAtMerge &&
     fullTestLine(input.project, task) === null
       ? [
-          'Do not run the whole test suite: the integrator or merge step owns the full check before merge. Run only targeted tests if needed for this review.',
+          `Do not run the whole test suite: ${mergeStepCheckLine(input.project, task) ?? 'the integrator or merge step owns the full check before merge'}. Run only targeted tests if needed for this review.`,
+          'Verify that the developer recorded the local hand-over checks required by the repository, including `npm run dead-code` if that script is available; ask for missing checks before approving.',
         ]
       : []),
     ...(pin
@@ -382,7 +414,9 @@ const reviewing: StepRule = ({ input, s, task, duty, author, localOnly }) => {
     `Send "Blocking" / "Not blocking" findings with file:line to ${author} with send_message; review again when they report a fix.`,
     // After a review a local-only branch is merged by the owner and nobody else.
     `When the review passes, ${lowerFirst(handover(input, s.next))}${
-      localOnly ? ` The owner merges the branch into ${code(localOnly.defaultBranch)}.` : ''
+      localOnly && !requiresMerge(localOnly)
+        ? ` The owner merges the branch into ${code(localOnly.defaultBranch)}.`
+        : ''
     }`,
   ];
 };
@@ -412,27 +446,59 @@ function requirementsWork(): string[] {
 }
 
 /** The work of the technical direction: the same in the queue and in refinement. */
-function technicalWork({ localOnly }: StepContext): string[] {
+function technicalWork(c: StepContext): string[] {
   return [
     'Read the task with get_task and the code it touches; read only, never edit, commit or push.',
     'Add the technical plan to the description with update_task, under its own heading: approach, affected parts, data or API changes, risks, how to test.',
-    `If the work is bigger than one ${localOnly ? 'branch' : 'pull request'}, create the parts with create_task and note the order and dependencies on this task.`,
+    ...partSteps(c),
+  ];
+}
+
+/**
+ * Breaking the work into parts (PM-480). The member who breaks a card down also takes its parts on: in
+ * the same turn they link, order, label and move them, so none stays where nobody starts it. Only a
+ * member who may put `refine` on a card gets the long version (a part that cannot start needs it), in a
+ * project that has refinement and a stage to take the parts to; the others get the short one.
+ */
+function partSteps({ input, task, localOnly }: StepContext): string[] {
+  const unit = localOnly ? 'branch' : 'pull request';
+  const config = input.project;
+  const split = `If the work is bigger than one ${unit}, split it into parts with create_task, each with ${code('parent_key')} set to this task, and give their order as ${code('prerequisite')} relations (add_relations), not as text.`;
+  const target = partReadyStage(config);
+  const refine = labelDefinition(config, REFINE_LABEL);
+  const first = config.pipeline.stages[0];
+  if (
+    !projectRefines(config) ||
+    !target ||
+    !first ||
+    !refine ||
+    !labelSetters(config, refine, task).includes(input.member.handle)
+  )
+    return [split];
+  const labels = config.pipeline.labels;
+  return [
+    split,
+    `In the same turn, take every part out of ${stageLabel(first)}, where nobody starts it. A part that can start: add with update_task the labels the gates up to ${stageLabel(target)} ask for, with their reasons in the note (the plan on this task counts: "plan on ${task.key}"), and move it to ${stageLabel(target)} (${code('stage_id')}). A part that cannot start yet (it needs a requirement, a UI/UX design or a person's decision): add the labels you can set now with their reasons, add ${labelRef(REFINE_LABEL, labels)} and write in its description what it lacks; the refinement hands out the rest.`,
+    'Then note on this task where each part went and why.',
   ];
 }
 
 /** Whether merge owns the full check instead of the server's earlier review gate. */
 function testsAtMerge(input: ContextPackInput, task: Task): boolean {
   const repo = repoOf(input.project, effectiveRepo(input.project, task));
-  return repo?.fullTestAtMerge === true && !(input.serverFullTest && repo.reviewTest);
+  return repo?.fullTestAtMerge === true;
 }
 
 /** The checks a developer runs depend on who owns the full test. */
 function developerTests(input: ContextPackInput, task: Task): string {
   const reviewTest = repoOf(input.project, effectiveRepo(input.project, task))?.reviewTest;
+  const repo = repoOf(input.project, effectiveRepo(input.project, task));
+  if (input.serverFullTest && reviewTest && repo && reviewTestRunnerBeforeReview(repo) === 'github_actions')
+    return `While you work, run only the tests that cover your change (single test files, or your test runner's related or changed mode) and the type check of the parts you touched. Do not run the whole test suite: GitHub Actions runs ${code(reviewTest.command)} once on the commit you hand over, and the task goes back to you if it fails.`;
   return input.serverFullTest && reviewTest
     ? `While you work, run only the tests that cover your change (single test files, or your test runner's related or changed mode) and the type check of the parts you touched. Do not run the whole test suite: the server runs ${code(reviewTest.command)} once on the commit you hand over, PTY tests included, and sends the task back if it fails.`
     : testsAtMerge(input, task)
-      ? "While you work, before hand-over and in fix rounds, run only the tests that cover your change (your test runner's related or changed mode) and the type check of the workspaces you touched. Do not run the whole test suite: the integrator or merge step runs the full check once before the task enters the default branch."
+      ? `While you work, before hand-over and in fix rounds, run only the tests that cover your change (your test runner's related or changed mode) and the type check of the workspaces you touched. Also run the repository's fast local hand-over checks, including \`npm run dead-code\` from the repository root if that script is available; record results on the card and fix new findings without automatically extending the baseline. When adding a merge check that can run quickly locally, update the developer hand-over checklist in the same change. Do not run the whole test suite: ${mergeStepCheckLine(input.project, task) ?? 'the integrator or merge step runs the full check once before the task enters the default branch'}.`
       : "While you work, run the tests that cover your change; run the project's full tests and type check once, on the commit you hand over.";
 }
 
@@ -500,6 +566,8 @@ const DUTY_STEPS: Partial<Record<DutyId, StepRule>> = {
     if (s.ownsStage) return ownerSteps(input, s);
     return [
       'Do the deployment or operations work you were asked for and report to the sender with send_message. Production changes need an approved human decision.',
+      'If you are asked to prepare a release of this instance: call propose_release with preview: true to see the commit and the cards, write a short English summary of the cards with their keys, then call propose_release with the title and the summary. Your session ends with that call; an owner approves and the release watcher deploys. Never tag, push or touch the live instance yourself.',
+      'If you are asked for a release of a repository (a git tag and a GitHub release): call publish_release with preview: true to see the tag, the commit and the cards, write a short English summary with the card keys, then call publish_release with the summary. It only tags and publishes; it deploys nothing. If it ends with release_publish_failed after the tag was pushed, call it again to finish.',
     ];
   },
 
@@ -590,6 +658,11 @@ export function expectedSteps(input: ContextPackInput, s: Situation): string[] {
   const task = input.workItem.type === 'task' ? input.task : null;
   const current = s.current;
   if (!task || !current) return ['Read the task with get_task and ask the sender what is expected of you.'];
+  if (isMergeFixer(task.merge, input.member.handle) && task.merge?.fix)
+    return [
+      `In the merge-fix worktree run git merge ${task.merge.fix.base}. Resolve only mechanical conflicts and commit.`,
+      'Call merge_task with resolution describing what and where you fixed. If behavior is affected, send the card back with update_task and a reason instead.',
+    ];
 
   const notOwner = `You do not own the current stage (${stageLabel(current)}${
     (current.owners ?? []).length > 0 ? `, owners ${codeList(current.owners ?? [])}` : ''
@@ -781,6 +854,13 @@ export function handover(
     ];
     return `Request the move to ${stageLabel(target)} with update_task: it needs a human approval (${approvals.map((id) => labelRef(id, labels)).join(', ')}), so the system opens a decision for ${codeList(approvers)} and the task waits until they approve. Do not message them separately and never set that label yourself.`;
   }
+  const mover = cardMoverHandle(input.project);
+  const from = input.stage?.id ?? input.task?.stageId;
+  const handsOn = from !== undefined && isHandOnMove(input.project, from, target.id);
+  if (handsOn && cardMoverOf(input.project).kind === 'project_manager' && mover === input.member.handle)
+    return `You move cards on in this project when the system tells you the stage is finished: check the card with get_task and move it to ${stageLabel(target)} with update_task, or tell the worker what is missing.`;
+  if (handsOn && mover && mover !== input.member.handle)
+    return `Request the move to ${stageLabel(target)} with update_task: ${mover} moves cards on in this project, so the card waits for them and your work on this stage is done.`;
   // A done task's sessions stop (PM-190): what comes after the move may never be sent.
   if (target.kind === 'done') {
     return `Move the task to ${stageLabel(target)} with update_task as your very last step, after your messages and notes: once the task is done, its sessions stop.`;

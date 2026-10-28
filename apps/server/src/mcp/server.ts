@@ -2,10 +2,25 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { AjvJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/ajv';
 import type { FastifyBaseLogger } from 'fastify';
-import { TeamToolError, type TeamToolsHandler, type ToolContext } from '../contracts';
+import {
+  TeamToolError,
+  type TeamToolsHandler,
+  type ToolContext,
+  type MemberAudience,
+  type TeamToolListing,
+} from '../contracts';
+import { toolVisible } from './kit';
 import { TEAM_INSTRUCTIONS, TEAM_TOOLS, type TeamTool } from './tools';
 
 export const SERVER_INFO = { name: 'projectman-team', version: '1.0.0' } as const;
+
+function toolsFor(audience: MemberAudience): TeamTool[] {
+  return TEAM_TOOLS.filter((tool) => toolVisible(tool.audience, audience));
+}
+
+export function visibleTeamTools(audience: MemberAudience): TeamToolListing[] {
+  return toolsFor(audience).map(({ name, title, description }) => ({ name, title, description }));
+}
 
 /**
  * A handler that has not answered after this long gets a `timeout` tool error, so a hung
@@ -15,15 +30,16 @@ export const SERVER_INFO = { name: 'projectman-team', version: '1.0.0' } as cons
 export const DEFAULT_TOOL_TIMEOUT_MS = 60_000;
 
 export interface TeamServerDeps {
+  audienceOf(ctx: ToolContext): MemberAudience;
   handler: TeamToolsHandler;
   logger: FastifyBaseLogger;
   toolTimeoutMs: number;
 }
 
 /** Error codes seen by the model: the TeamToolError codes plus our own. */
-export type ToolErrorCode = TeamToolError['code'] | 'timeout' | 'internal';
+type ToolErrorCode = TeamToolError['code'] | 'timeout' | 'internal';
 
-class ToolTimeoutError extends Error {
+export class ToolTimeoutError extends Error {
   constructor(ms: number) {
     super(`team tool timed out after ${ms} ms`);
     this.name = 'ToolTimeoutError';
@@ -32,7 +48,7 @@ class ToolTimeoutError extends Error {
 
 // Only used for elicitation, which the team server never does; shared so that the
 // per-request servers do not each build their own validator.
-const jsonSchemaValidator = new AjvJsonSchemaValidator();
+export const jsonSchemaValidator = new AjvJsonSchemaValidator();
 
 /**
  * Builds an MCP server bound to one calling session. The endpoint is stateless: a fresh
@@ -40,7 +56,8 @@ const jsonSchemaValidator = new AjvJsonSchemaValidator();
  */
 export function createTeamMcpServer(ctx: ToolContext, deps: TeamServerDeps): McpServer {
   const server = new McpServer(SERVER_INFO, { instructions: TEAM_INSTRUCTIONS, jsonSchemaValidator });
-  for (const tool of TEAM_TOOLS) {
+  const audience = deps.audienceOf(ctx);
+  for (const tool of toolsFor(audience)) {
     server.registerTool(
       tool.name,
       {
@@ -56,7 +73,7 @@ export function createTeamMcpServer(ctx: ToolContext, deps: TeamServerDeps): Mcp
   return server;
 }
 
-export function toolError(code: ToolErrorCode, message: string): CallToolResult {
+function toolError(code: ToolErrorCode, message: string): CallToolResult {
   return { content: [{ type: 'text', text: `Error [${code}]: ${message}` }], isError: true };
 }
 
@@ -70,9 +87,19 @@ async function runTool(
   const startedAt = Date.now();
   const call = tool.run({ ctx, args, handler: deps.handler });
   try {
-    const text = await withTimeout(call, deps.toolTimeoutMs);
+    const output = await withTimeout(call, deps.toolTimeoutMs);
     deps.logger.debug({ ...log, ms: Date.now() - startedAt }, 'team tool call');
-    return { content: [{ type: 'text', text }] };
+    if (typeof output === 'string') return { content: [{ type: 'text', text: output }] };
+    return {
+      content: [
+        { type: 'text', text: output.text },
+        ...output.images.map((image) => ({
+          type: 'image' as const,
+          data: image.data.toString('base64'),
+          mimeType: image.mimeType,
+        })),
+      ],
+    };
   } catch (err) {
     if (err instanceof TeamToolError) {
       deps.logger.debug({ ...log, code: err.code, detail: err.message }, 'team tool refused');
@@ -101,7 +128,7 @@ async function runTool(
   }
 }
 
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+export function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   let timer: NodeJS.Timeout | undefined;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => reject(new ToolTimeoutError(ms)), ms);

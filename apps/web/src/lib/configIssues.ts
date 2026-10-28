@@ -7,6 +7,8 @@ import { codeMessage } from './errors';
 export interface IssueRef {
   code: string;
   path: string;
+  /** What the invariant adds (the kind or the handle that cannot merge); the schema issues have none. */
+  detail?: string;
 }
 
 /**
@@ -33,6 +35,8 @@ export const CONFIG_ISSUE_MESSAGES: Record<ConfigIssue['code'], PlainMessageKey>
   last_stage_not_done: 'settings.issues.last_stage_not_done',
   duplicate_stage: 'settings.issues.duplicate_stage',
   duplicate_repo: 'errors.codes.duplicate_repo',
+  review_test_runner_github: 'settings.issues.review_test_runner_github',
+  duplicate_feedback_surface: 'errors.codes.duplicate_feedback_surface',
   sponsor_not_human: 'settings.issues.sponsor_not_human',
   codex_bypass_not_allowed: 'settings.issues.codex_bypass_not_allowed',
   unknown_role: 'errors.codes.unknown_role',
@@ -40,6 +44,13 @@ export const CONFIG_ISSUE_MESSAGES: Record<ConfigIssue['code'], PlainMessageKey>
   role_not_for_human: 'errors.codes.role_not_for_human',
   custom_role_shadows_builtin: 'errors.codes.custom_role_shadows_builtin',
   duplicate_role: 'errors.codes.duplicate_role',
+  merger_unresolved: 'errors.codes.merger_unresolved',
+  stage_without_owner: 'settings.issues.stage_without_owner',
+  work_stage_without_worker: 'settings.issues.work_stage_without_worker',
+  gate_unreachable: 'settings.issues.gate_unreachable',
+  mover_not_member: 'settings.issues.mover_not_member',
+  mover_cannot_move: 'settings.issues.mover_cannot_move',
+  mover_on_leave: 'settings.issues.mover_on_leave',
 };
 
 function isInvariantCode(code: string): code is ConfigIssue['code'] {
@@ -48,6 +59,14 @@ function isInvariantCode(code: string): code is ConfigIssue['code'] {
 
 /** Readable text of an issue: invariants by their code, schema issues by the zod issue code. */
 export function issueMessage(issue: IssueRef): string {
+  // Who merges cannot be found: the detail is the kind of merger, or the handle of the named member.
+  if (issue.code === 'merger_unresolved' && issue.detail) {
+    const ok =
+      issue.detail === 'code_reviewer' || issue.detail === 'developer'
+        ? t(`settings.issues.mergerReason.${issue.detail}`)
+        : t('settings.issues.mergerReason.member', { handle: issue.detail });
+    return t('settings.issues.merger_unresolved', { ok });
+  }
   if (isInvariantCode(issue.code)) return t(CONFIG_ISSUE_MESSAGES[issue.code]);
   return (
     codeMessage(issue.code) ?? tDynamic(`settings.issues.${issue.code}`, t('settings.issues.invalid_value'))

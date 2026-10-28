@@ -9,17 +9,17 @@ import type { ServerEvent } from '@projectman/shared';
 import type { AttachmentStorage } from '../src/contracts';
 import {
   allowedToolsFor,
-  DomainError,
   HARD_DENIED_HOSTS,
   LOCAL_ONLY_DENIED_TOOLS,
   SANDBOX_DENIED_ENV_VARS,
   SANDBOX_PTY_ENV,
   sensitivePaths,
-} from '../src/domain';
+} from '../src/runtime/sessions';
+import { DomainError } from '../src/kernel';
 import { SANDBOX_GIT_CONFIG, SANDBOX_GIT_CONFIG_FILE } from '../src/contracts';
-import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
+import { createDomainHarness, OWNER, OWNER_ACTOR, waitForSession } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
-import { testConfig } from './helpers/test-template';
+import { dropSystemLabelGates, testConfig } from './helpers/test-template';
 
 describe('session orchestrator', () => {
   let h: DomainHarness;
@@ -33,6 +33,66 @@ describe('session orchestrator', () => {
   afterEach(() => h.cleanup());
 
   const task = { type: 'task' as const, taskKey: 'AR-1' };
+
+  it('clears the source card when a general session takes precedence over card work', async () => {
+    const card = (await h.domain.sessions.ensureSession('AR', 'cr', task)).session;
+    const general = (await h.domain.sessions.ensureSession('AR', 'cr', { type: 'general' })).session;
+    h.runner.setState(card.id, 'working', 'Read file');
+    h.runner.setState(general.id, 'waiting_input', 'Read file');
+    expect(h.repos.memberState.get('AR', 'cr')).toMatchObject({
+      status: 'waiting_for_human',
+      activity: 'Read file',
+      activityTaskKey: null,
+    });
+    expect(events.filter((event) => event.type === 'member_state').at(-1)).toMatchObject({
+      activityTaskKey: null,
+    });
+  });
+
+  it('recomputes tool audience from the current configuration without restarting the session', async () => {
+    const ctx = { sessionId: 'ses_dev', projectKey: 'AR', member: 'dev-1', taskKey: 'AR-1' };
+    expect(h.domain.sessions.audienceOf(ctx)).toMatchObject({
+      projectManager: false,
+      merger: true,
+    });
+    expect(h.domain.sessions.audienceOf(ctx).duties.has('deployment')).toBe(false);
+    await h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (config) => {
+      config.team.merger = { kind: 'member', handle: 'cr' };
+      config.team.roleOverrides = {
+        ...config.team.roleOverrides,
+        developer: { duties: ['implementation', 'deployment'], instructions: '' },
+      };
+      return 'Change tool audience for the active member';
+    });
+    expect(h.domain.sessions.audienceOf(ctx).merger).toBe(false);
+    expect(h.domain.sessions.audienceOf(ctx).duties.has('deployment')).toBe(true);
+    expect(h.domain.sessions.audienceOf({ ...ctx, member: 'pm' }).projectManager).toBe(true);
+    expect(h.domain.sessions.audienceOf({ ...ctx, member: 'unknown' }).duties.size).toBe(0);
+  });
+
+  it('serves the current session guide, rejects missing topics and rebuilds it on resume', async () => {
+    const build = h.contextBuilder.build.bind(h.contextBuilder);
+    vi.spyOn(h.contextBuilder, 'build').mockImplementation((input) => {
+      const pack = build(input);
+      pack.guide.sandbox = '# Sandbox guide';
+      return pack;
+    });
+    const { session } = await h.domain.sessions.ensureSession('AR', 'cr', task);
+    const ctx = { sessionId: session.id, projectKey: 'AR', member: 'cr', taskKey: 'AR-1' };
+    await expect(h.domain.teamTools.getGuide(ctx, { topic: 'rules' })).resolves.toContain('# Team rules');
+    await expect(h.domain.teamTools.getGuide(ctx, { topic: 'sandbox' })).resolves.toContain(
+      '# Sandbox guide',
+    );
+    await expect(h.domain.teamTools.getGuide(ctx, { topic: 'commands' })).rejects.toMatchObject({
+      code: 'not_found',
+    });
+    h.runner.emit({ type: 'exit', sessionId: session.id, exitCode: 0, signal: null });
+    await expect(h.domain.teamTools.getGuide(ctx, { topic: 'rules' })).rejects.toMatchObject({
+      code: 'not_found',
+    });
+    await h.domain.sessions.ensureSession('AR', 'cr', task);
+    await expect(h.domain.teamTools.getGuide(ctx, { topic: 'rules' })).resolves.toContain('# Team rules');
+  });
 
   it('reuses a running session, resumes an exited one in the same directory', async () => {
     const first = await h.domain.sessions.ensureSession('AR', 'cr', task);
@@ -123,7 +183,7 @@ describe('session orchestrator', () => {
     const err = await h.domain.sessions.ensureSession('AR', 'cr', task).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(DomainError);
     expect((err as DomainError).code).toBe('session_start_failed');
-    const failed = h.domain.sessions.list('AR', { member: 'cr' })[0]!;
+    const failed = await waitForSession(h.domain, { member: 'cr' });
     expect(failed.state).toBe('failed');
 
     const retry = await h.domain.sessions.ensureSession('AR', 'cr', task);
@@ -142,10 +202,12 @@ describe('session orchestrator', () => {
       activity: 'Bash: npm test',
     });
     let roster = await h.domain.members.roster('AR');
+    expect(h.repos.memberState.get('AR', 'cr')?.activityTaskKey).toBe('AR-1');
     expect(roster.find((m) => m.handle === 'cr')).toMatchObject({
       status: 'working',
       activity: 'Bash: npm test',
       currentTaskKeys: ['AR-1'],
+      activityTaskKey: 'AR-1',
     });
 
     h.runner.setState(session.id, 'waiting_permission', 'Bash: rm -rf dist');
@@ -170,9 +232,10 @@ describe('session orchestrator', () => {
       handle: 'cr',
       status: 'working',
       activity: 'Bash: npm test',
+      activityTaskKey: 'AR-1',
     });
     expect(events.filter((e) => e.type === 'session_upserted').length).toBeGreaterThanOrEqual(4);
-    expect(h.repos.memberState.get('AR', 'cr')?.status).toBe('idle');
+    expect(h.repos.memberState.get('AR', 'cr')).toMatchObject({ status: 'idle', activityTaskKey: null });
   });
 
   it('lists the member work per card: only a working session counts, aged from its last state change (PM-207)', async () => {
@@ -204,6 +267,30 @@ describe('session orchestrator', () => {
 
     h.runner.setState(first.session.id, 'idle');
     expect(await workOf()).toEqual([]);
+  });
+
+  it('builds the roster from live sessions of its own project without reading ended history', async () => {
+    await h.domain.tasks.create('AR', { title: 'Ended review' }, OWNER_ACTOR);
+    const live = await h.domain.sessions.ensureSession('AR', 'cr', task);
+    const ended = await h.domain.sessions.ensureSession('AR', 'cr', { type: 'task', taskKey: 'AR-2' });
+    h.runner.setState(live.session.id, 'working');
+    h.runner.emit({ type: 'exit', sessionId: ended.session.id, exitCode: 0, signal: null });
+    const list = vi.spyOn(h.repos.sessions, 'list');
+    const readLive = h.repos.sessions.listInStates;
+    const listInStates = vi.spyOn(h.repos.sessions, 'listInStates');
+    const foreign = {
+      ...live.session,
+      id: 'ses_foreign',
+      projectKey: 'XY',
+      workItem: { type: 'task' as const, taskKey: 'AR-2' },
+    };
+    listInStates.mockImplementation((states) => [...readLive(states), foreign]);
+    const member = (await h.domain.members.roster('AR')).find((m) => m.handle === 'cr');
+    expect(member?.currentTaskKeys).toEqual(['AR-1']);
+    expect(member?.taskWork).toMatchObject([{ sessionId: live.session.id, taskKey: 'AR-1' }]);
+    expect(list).not.toHaveBeenCalled();
+    list.mockRestore();
+    listInStates.mockRestore();
   });
 
   it('keeps the sentence a member gives with set_current_work until the round or the session ends (PM-238)', async () => {
@@ -268,7 +355,7 @@ describe('session orchestrator', () => {
 
   it('delivers human messages into the session and records them as team messages', async () => {
     const { session } = await h.domain.sessions.ensureSession('AR', 'cr', task);
-    const message = await h.domain.messaging.sendToSession(
+    const message = await h.domain.sessionMessages.sendToSession(
       'AR',
       session.id,
       'Please check the tests',
@@ -282,7 +369,7 @@ describe('session orchestrator', () => {
     // A stopped session is resumed for the message.
     await h.domain.sessions.stop('AR', session.id);
     expect(h.domain.sessions.get('AR', session.id).state).toBe('exited');
-    await h.domain.messaging.sendToSession('AR', session.id, 'Are you there?', 'owner');
+    await h.domain.sessionMessages.sendToSession('AR', session.id, 'Are you there?', 'owner');
     expect(h.runner.started).toHaveLength(2);
   });
 
@@ -377,6 +464,7 @@ describe('session orchestrator', () => {
   it('grants reviewers the existing developer worktree and propagates local-only deny rules', async () => {
     await h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (draft) => {
       delete draft.project.repos[0]!.github;
+      dropSystemLabelGates(draft);
       return 'Use a local-only repository';
     });
     const withRepo = await h.domain.tasks.create('AR', { title: 'Example change', repo: 'web' }, OWNER_ACTOR);
@@ -395,15 +483,26 @@ describe('session orchestrator', () => {
     // credentials unreadable. A local-only repository has no pull request: no `gh` outside it.
     const reviewer = h.runner.lastStarted();
     expect(reviewer.policy!.access).toBe('read_only');
-    expect(reviewer.sandbox).toEqual({
+    expect(reviewer.sandbox).toMatchObject({
       allowWrite: [],
       denyWrite: [h.workspace, developer.session.cwd, join(h.dir, 'worktrees')],
-      denyRead: reviewer.policy!.filesystem.deniedPaths,
       allowedDomains: ['*'],
       deniedDomains: expect.any(Array),
       allowLocalBinding: true,
       env: SANDBOX_PTY_ENV,
     });
+    // It reads nothing below the user's home but its own places (PM-425): the home is closed, the
+    // credentials and every Claude transcript stay denied, the developer's worktree is reopened.
+    const boundary = reviewer.policy!.filesystem.readBoundary!;
+    expect(reviewer.sandbox!.denyRead).toEqual(
+      expect.arrayContaining([...boundary.deniedRoots, ...reviewer.policy!.filesystem.deniedPaths!]),
+    );
+    expect(reviewer.policy!.filesystem.deniedPaths).toContainEqual(
+      expect.stringMatching(/\/\.claude\/projects$/),
+    );
+    expect(boundary.allowedPaths).toContainEqual({ path: developer.session.cwd, kind: 'directory' });
+    expect(reviewer.sandbox!.allowRead).toEqual(expect.arrayContaining([developer.session.cwd]));
+    expect(reviewer.sandbox!.portable!.readBoundary).toEqual(boundary);
     expect(h.worktrees.calls).toHaveLength(1);
   });
 
@@ -499,6 +598,43 @@ describe('session orchestrator', () => {
     h.domain.sessions.reconcileAfterRestart();
     expect(h.domain.sessions.get('AR', session.id).state).toBe('exited');
   });
+
+  it('ends a live row with no running process after two sweep rounds', async () => {
+    const at = new Date(0).toISOString();
+    h.repos.sessions.insert({
+      id: 'ses_ghost',
+      projectKey: 'AR',
+      member: 'cr',
+      workItem: task,
+      claudeSessionId: 'ghost-conversation',
+      cwd: h.workspace,
+      branch: null,
+      transcriptPath: null,
+      state: 'working',
+      activity: null,
+      startedAt: at,
+      lastActivityAt: at,
+      endedAt: null,
+    });
+
+    await h.domain.sessions.sweepLive();
+    expect(h.domain.sessions.get('AR', 'ses_ghost').state).toBe('working');
+    await h.domain.sessions.sweepLive();
+    expect(h.domain.sessions.get('AR', 'ses_ghost')).toMatchObject({
+      state: 'exited',
+      lastStop: { kind: 'exited' },
+      endedAt: expect.any(String),
+    });
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'session_upserted',
+        session: expect.objectContaining({ id: 'ses_ghost', state: 'exited' }),
+      }),
+    );
+    expect(h.domain.timeline.list('AR', { taskKey: 'AR-1' })).toContainEqual(
+      expect.objectContaining({ type: 'session_ended', sessionId: 'ses_ghost' }),
+    );
+  });
 });
 
 describe("a developer's sandbox reads only its own work (PM-153)", () => {
@@ -568,6 +704,7 @@ describe("a developer's sandbox reads only its own work (PM-153)", () => {
         join(gitDir, 'packed-refs.lock'),
         // A replacement or graft would change what the default branch shows without moving it.
         join(gitDir, 'refs/replace'),
+        join(gitDir, 'refs/projectman'),
         join(gitDir, 'info/grafts'),
       ],
       // The app home is not below the user's home here, so it is closed on its own; the credentials

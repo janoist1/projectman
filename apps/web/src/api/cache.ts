@@ -14,7 +14,12 @@ import type {
   Task,
   TaskDetail,
 } from '@projectman/shared';
-import { withSessionWork } from '@projectman/shared';
+import {
+  hasBoundOrigin,
+  operatorApprovalOf,
+  operatorKnowledgeApprovalOf,
+  withSessionWork,
+} from '@projectman/shared';
 import { openItemsFor } from '../lib/inbox';
 import { ApiError } from './client';
 import { queryKeys } from './queryKeys';
@@ -101,8 +106,11 @@ export function invalidateAttachments(client: QueryClient, key: string, taskKey:
  * data that is not in the cache are ignored; it is fetched fresh when a screen needs it.
  */
 export function applyServerEvent(client: QueryClient, event: ServerEvent): void {
+  // System feedback (PM-472) is the installation's, not a project's: its screen reads it fresh.
+  if (event.type === 'system_feedback_changed') return;
   if (
     'projectKey' in event &&
+    event.projectKey !== undefined &&
     [
       'task_upserted',
       'timeline_appended',
@@ -114,9 +122,11 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
   ) {
     void client.invalidateQueries({ queryKey: queryKeys.profiles(event.projectKey) });
   }
-  // The project manager's channel state follows these (PM-434 adds no event of its own).
+  // The project manager's channel state follows these (PM-434 adds no event of its own). The Operator's
+  // channel adds the Operator's steps, which an approval in the inbox settles (`inbox_upserted`).
   if (
     'projectKey' in event &&
+    event.projectKey !== undefined &&
     [
       'member_changed',
       'member_state',
@@ -125,18 +135,21 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       'config_changed',
       'plan_usage',
       'team_message',
+      'team_message_updated',
     ].includes(event.type)
+  ) {
+    void client.invalidateQueries({ queryKey: queryKeys.projectManager(event.projectKey) });
+  }
+  if (
+    'projectKey' in event &&
+    event.type === 'inbox_upserted' &&
+    (operatorApprovalOf(event.item) || operatorKnowledgeApprovalOf(event.item))
   ) {
     void client.invalidateQueries({ queryKey: queryKeys.projectManager(event.projectKey) });
   }
   switch (event.type) {
     case 'task_upserted': {
       const { projectKey: key, task } = event;
-      // Who may see the files follows the task's visibility: read the list again when it changes.
-      const before = client.getQueryData<TaskDetail>(queryKeys.task(key, task.key))?.task;
-      if (before && before.visibility !== task.visibility) {
-        void client.invalidateQueries({ queryKey: queryKeys.attachments(key, task.key) });
-      }
       writeTask(client, key, task);
       if (task.status === 'done') void client.invalidateQueries({ queryKey: queryKeys.closedCardsAll(key) });
       if (task.links.some((link) => link.kind === 'pull_request')) {
@@ -146,6 +159,17 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
     }
     case 'timeline_appended': {
       const { projectKey: key, event: entry } = event;
+      if (
+        hasBoundOrigin(entry.actor) ||
+        entry.type === 'super_handoff_changed' ||
+        entry.type === 'super_operation_changed'
+      ) {
+        void client.invalidateQueries({ queryKey: ['project', key, 'super-audit'] });
+        void client.invalidateQueries({ queryKey: ['project', key, 'super-handoffs'] });
+        void client.invalidateQueries({ queryKey: ['project', key, 'super-operation'] });
+      }
+      if (entry.type === 'operator_knowledge_changed')
+        void client.invalidateQueries({ queryKey: queryKeys.operatorKnowledge(key) });
       if (entry.type === 'session_started' || entry.type === 'session_ended')
         void client.invalidateQueries({ queryKey: ['involvements', key] });
       if (!entry.taskKey) return;
@@ -180,6 +204,7 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       invalidateAttachments(client, event.projectKey, event.taskKey);
       return;
     case 'engine_changed': {
+      void client.invalidateQueries({ queryKey: queryKeys.ownerAccounts });
       // The status list of every internal member, then the owner's list (counts, hello data) where it is on screen.
       client.setQueryData<EngineStatusResponse>(queryKeys.engineStatus, (status) =>
         status ? { ...status, engines: upsertBy(status.engines, event.engine, (entry) => entry.id) } : status,
@@ -187,6 +212,8 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       // The event does not say that an engine was revoked: the reload drops it from the status list.
       void client.invalidateQueries({ queryKey: queryKeys.engineStatus });
       void client.invalidateQueries({ queryKey: queryKeys.engines });
+      // A project's engines carry `holdsProject`, which changes when the engine connects with a new hello.
+      void client.invalidateQueries({ queryKey: queryKeys.projectEnginesAll });
       // What failed because the engine was away (a machine view, a session's chat) loads again at connect.
       if (event.engine.online)
         void client.invalidateQueries({
@@ -252,11 +279,52 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
         view ? { items: upsertBy(view.items, item, (entry) => entry.id) } : view,
       );
       patchOpenInboxCount(client, key, inbox);
+      // The Operator's trail follows a question that moves through screening (PM-561).
+      if (item.kind === 'question')
+        void client.invalidateQueries({ queryKey: queryKeys.screenedQuestionsAll(key) });
       return;
     }
-    case 'team_message': {
+    case 'team_message':
+    case 'team_message_updated': {
       // The feed, its unread count, the threads and the unread list all change: refetch them.
+      // An updated message (a file of it deleted, PM-516) shows in the same places.
       void client.invalidateQueries({ queryKey: queryKeys.messages(event.projectKey) });
+      void client.invalidateQueries({ queryKey: queryKeys.operatorPreferenceMeAll(event.projectKey) });
+      void client.invalidateQueries({ queryKey: queryKeys.operatorPreferences(event.projectKey) });
+      return;
+    }
+    case 'feedback_changed': {
+      // A mark came, was answered or decided: the list, the badge, the open mark and the cards' rows read again.
+      void client.invalidateQueries({ queryKey: queryKeys.feedback(event.projectKey) });
+      return;
+    }
+    case 'project_checklist_changed': {
+      void client.invalidateQueries({ queryKey: queryKeys.checklist(event.projectKey) });
+      return;
+    }
+    case 'email_changed': {
+      // The channel, a contact or a mail changed: the settings section and the log read again, and the
+      // member views (their `email` field) with them.
+      void client.invalidateQueries({ queryKey: queryKeys.emailChannel(event.projectKey) });
+      void client.invalidateQueries({ queryKey: queryKeys.emailLog(event.projectKey) });
+      void client.invalidateQueries({ queryKey: queryKeys.members(event.projectKey) });
+      return;
+    }
+    case 'member_queue_changed': {
+      // An item came, was taken or was closed: the corner shows the count (PM-894), its panel the list.
+      void client.invalidateQueries({ queryKey: queryKeys.projectManager(event.projectKey) });
+      void client.invalidateQueries({ queryKey: queryKeys.operatorQueueAll(event.projectKey) });
+      return;
+    }
+    case 'operator_grant_changed': {
+      // The grant was given, replaced, revoked or expired (PM-881): the Gép button's dot and the panel's row.
+      void client.invalidateQueries({ queryKey: queryKeys.operatorGrant });
+      void client.invalidateQueries({ queryKey: queryKeys.operatorGrantAudit });
+      return;
+    }
+    case 'operator_signal': {
+      // A signal opened or was decided or resolved: the corner's channel carries it (PM-476).
+      void client.invalidateQueries({ queryKey: queryKeys.projectManager(event.projectKey) });
       return;
     }
     case 'chat_appended': {

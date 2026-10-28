@@ -9,15 +9,17 @@ import type {
   RunnerModule,
   ToolContext,
 } from '../../contracts';
-import { conflict } from '../../domain/errors';
+import { conflict } from '../../kernel';
 import type { EngineLinks } from '../index';
+import type { EngineAdministration } from '../../administration';
+import { createRemoteAdministration } from './administration';
 import { createAttachmentMaterializer } from './attachments';
 import { createRemoteGithub } from './github';
 import { registerCloudHandlers } from './handlers';
 import { createRemoteEngineDirectory } from './host';
 import type { RemoteEngineDirectory } from './host';
 import { createRemoteHub } from './hub';
-import type { RemoteHub } from './hub';
+import type { HubRegistry, RemoteHub } from './hub';
 import { createRemoteMachineProbe } from './machine';
 import type { RemoteMachineProbe } from './machine';
 import { createRemoteRunner } from './runner';
@@ -47,16 +49,13 @@ export interface CloudDomain {
   providerKeys?: { onChange(listener: () => void): () => void } | null;
 }
 
-export interface CloudRemoteOptions {
+interface CloudRemoteOptions {
   links: EngineLinks;
-  registry: {
-    isOnline(id: EngineId): boolean;
-    defaultId(): EngineId | null;
-    ids(): EngineId[];
-    onOnlineChange(listener: (id: EngineId, online: boolean) => void): () => void;
-  };
+  registry: HubRegistry;
   /** The engine a session ran on according to the database (for one the engine does not report any more). */
   recordedEngine: (sessionId: string) => EngineId | null;
+  /** The project a session belongs to according to the database; null for a session that is unknown. */
+  recordedProject: (sessionId: string) => string | null;
   /** Where the files an engine uploads wait for their use (emptied at start). */
   spoolDir: string;
   logger: FastifyBaseLogger;
@@ -71,6 +70,8 @@ export interface CloudRemote {
   machineProbe: RemoteMachineProbe;
   github: GithubService;
   attachments: EngineAttachments;
+  /** The administration supervisors of the engines' machines over their links (PM-763). */
+  administration: EngineAdministration;
   /** The runner module the domain asks for: the permission handlers are bound to its `broker`. */
   createRunnerModule(
     broker: PermissionBroker,
@@ -94,26 +95,31 @@ export function createCloudRemote(options: CloudRemoteOptions): CloudRemote {
     now: options.now,
   });
   const directory = createRemoteEngineDirectory({ hub, transfers, logger, now: options.now });
+  // Set by `createRunnerModule`; the runner reads only whether it holds a key, never the key itself.
+  let nanogptKey: () => Promise<string | null> = async () => null;
   const runner = createRemoteRunner({
     hub,
+    directory,
     recordedEngine: options.recordedEngine,
     logger,
+    nanogptKeySet: async () => (await nanogptKey()) !== null,
     now: options.now,
   });
   const transcripts = createRemoteTranscripts({ hub, transfers, now: options.now });
   const { planUsage, planUsageFor } = createRemotePlanUsage({ hub, now: options.now });
-  const machineProbe = createRemoteMachineProbe({ hub });
-  const github = createRemoteGithub({ hub, logger });
+  const machineProbe = createRemoteMachineProbe({ hub, directory });
+  const github = createRemoteGithub({ hub, directory, logger });
   const materializer = createAttachmentMaterializer({ hub, transfers });
   const attachments: EngineAttachments = {
     async directory(projectKey, taskKey) {
-      const engineId = hub.defaultId();
+      const engineId = directory.projectEngine(projectKey);
       const dir = engineId ? materializer.directory(engineId, projectKey, taskKey) : null;
       if (!dir) throw conflict('engine_offline', 'There is no connected engine to keep the attachments on');
       return dir;
     },
     async materialize(input) {
-      const engineId = runner.engineOf(input.sessionId) ?? hub.defaultId();
+      // The session's own engine, even when it is offline: no other machine takes its attachments.
+      const engineId = runner.engineOf(input.sessionId) ?? directory.projectEngine(input.projectKey);
       if (!engineId) throw conflict('engine_offline', 'There is no engine the session runs on');
       return materializer.materialize(engineId, {
         projectKey: input.projectKey,
@@ -139,10 +145,31 @@ export function createCloudRemote(options: CloudRemoteOptions): CloudRemote {
 
   /** One team-tools request of an engine's session, run through the MCP routes of this very server. */
   const relayMcp: Parameters<typeof registerCloudHandlers>[0]['relayMcp'] = async (engineId, request) => {
-    if (!bound) return { status: 503, contentType: 'application/json', body: '{"error":"starting"}' };
+    if (!bound) {
+      logger.warn({ engineId }, 'team MCP relay: the server is still starting');
+      return { status: 503, contentType: 'application/json', body: '{"error":"starting"}' };
+    }
     const context = bound.domain.sessions.resolveToken(request.token);
     // A token works for the engine its session runs on and for no other.
-    if (!context || bound.domain.sessions.engineOf(context.sessionId) !== engineId) return NOT_FOUND;
+    if (!context) {
+      logger.warn({ engineId }, 'team MCP relay: the token is unknown or revoked');
+      return NOT_FOUND;
+    }
+    if (bound.domain.sessions.engineOf(context.sessionId) !== engineId) {
+      logger.warn(
+        { engineId, sessionId: context.sessionId },
+        'team MCP relay: the session runs on another engine',
+      );
+      return NOT_FOUND;
+    }
+    // The token's session belongs to a project; the engine must be bound to it (PM-1061).
+    if (!hub.isBound(engineId, context.projectKey)) {
+      logger.warn(
+        { engineId, sessionId: context.sessionId },
+        'team MCP relay: the session belongs to a project not bound to the engine',
+      );
+      return NOT_FOUND;
+    }
     const response = await bound.app.inject({
       method: 'POST',
       url: routes.mcp(request.token),
@@ -164,12 +191,15 @@ export function createCloudRemote(options: CloudRemoteOptions): CloudRemote {
     machineProbe,
     github,
     attachments,
-    createRunnerModule(broker, nanogptKey) {
+    administration: createRemoteAdministration({ hub }),
+    createRunnerModule(broker, key) {
+      if (key) nanogptKey = key;
       registerCloudHandlers({
         hub,
         runner,
         broker,
-        nanogptKey: nanogptKey ?? (async () => null),
+        nanogptKey,
+        projectOf: options.recordedProject,
         relayMcp,
         logger,
       });

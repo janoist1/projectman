@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ServerEvent } from '@projectman/shared';
 import type { ProjectConfig, Task } from '@projectman/shared';
-import { conflict } from '../src/domain';
+import { conflict } from '../src/kernel';
 import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
+import { deferredStartRecords } from './helpers/deferred-starts';
 
 /** PM-119: a card moved into a work stage without an assignee starts like the Start button starts it. */
 describe('automatic start of unassigned cards moved into a work stage', () => {
@@ -21,7 +22,7 @@ describe('automatic start of unassigned cards moved into a work stage', () => {
   const setLeave = (handle: string, leave: boolean) =>
     h.domain.members.update('AR', handle, { onLeave: leave }, by());
   const sessionsOf = (key: string) => h.domain.sessions.list('AR', { taskKey: key });
-  const storedKeys = () => h.repos.deferredStarts.list().map((r) => r.key);
+  const storedKeys = () => deferredStartRecords(h.repos).map((r) => r.key);
   /** Room for every session, so that the developers' capacity is what decides. */
   const roomy = (c: ProjectConfig) => void (c.team.limits.maxConcurrentAi = 10);
   const temp = (c: ProjectConfig) => {
@@ -33,6 +34,62 @@ describe('automatic start of unassigned cards moved into a work stage', () => {
       draft.team.limits.aiEnabled = aiEnabled;
       return 'Switch AI work';
     });
+
+  it('drops a deferred start when the card gains an open subtask', async () => {
+    h = await createDomainHarness({ adjust: roomy });
+    await setLeave('dev-1', true);
+    await setLeave('dev-2', true);
+    const parent = await create('Collecting card');
+    await move(parent);
+    await vi.waitFor(() => expect(waiting(parent)).toMatchObject({ reason: 'no_free_member' }));
+    await h.domain.tasks.create('AR', { title: 'Subtask', parentKey: parent }, OWNER_ACTOR);
+    await setLeave('dev-1', false);
+    await h.domain.admission.retryDeferred();
+    await flush();
+    expect(task(parent).assignee).toBeNull();
+    expect(waiting(parent)).toBeUndefined();
+    expect(storedKeys()).toEqual([]);
+    expect(sessionsOf(parent)).toEqual([]);
+    expect(h.runner.started).toHaveLength(0);
+  });
+
+  it('keeps a person able to explicitly start a collecting card', async () => {
+    h = await createDomainHarness({ adjust: roomy });
+    const parent = await create('Collecting card');
+    await h.domain.tasks.create('AR', { title: 'Subtask', parentKey: parent }, OWNER_ACTOR);
+    await h.domain.taskStarts.start('AR', parent, by());
+    expect(task(parent).assignee).toBe('dev-1');
+    expect(sessionsOf(parent)).toHaveLength(1);
+  });
+
+  it('leaves a card whose subtasks are all closed unassigned', async () => {
+    h = await createDomainHarness({ adjust: roomy });
+    const parent = await create('Collecting card');
+    const child = (await h.domain.tasks.create('AR', { title: 'Subtask', parentKey: parent }, OWNER_ACTOR))
+      .key;
+    await h.domain.tasks.cancel('AR', child, { reason: 'Fictional scope changed.' }, OWNER_ACTOR);
+    await move(parent);
+    await h.domain.admission.retryDeferred();
+    await flush();
+    expect(task(parent).assignee).toBeNull();
+    expect(sessionsOf(parent)).toEqual([]);
+  });
+
+  it('rechecks open subtasks after the admission check', async () => {
+    h = await createDomainHarness({ adjust: roomy });
+    const parent = await create('Collecting card');
+    const check = h.domain.admission.check.bind(h.domain.admission);
+    vi.spyOn(h.domain.admission, 'check').mockImplementationOnce(async (request) => {
+      await check(request);
+      await h.domain.tasks.create('AR', { title: 'Subtask', parentKey: parent }, OWNER_ACTOR);
+    });
+    await move(parent);
+    await flush();
+    await h.domain.admission.retryDeferred();
+    expect(task(parent).assignee).toBeNull();
+    expect(sessionsOf(parent)).toEqual([]);
+    expect(storedKeys()).toEqual([]);
+  });
 
   it('starts a free developer on the moved card, as the Start button would', async () => {
     h = await createDomainHarness({ adjust: roomy });
@@ -70,6 +127,9 @@ describe('automatic start of unassigned cards moved into a work stage', () => {
     expect(waiting(second)?.member).toBeUndefined();
     expect(task(second).assignee).toBeNull();
     expect(storedKeys()).toEqual(['work-start:AR:AR-2']);
+    // No member is chosen yet, so no member's queue can hold it: it waits in the legacy table (PM-949).
+    expect(h.repos.deferredStarts.list().map((r) => r.key)).toEqual(['work-start:AR:AR-2']);
+    expect(h.repos.memberQueue.listOpenOfType('start')).toEqual([]);
     expect(h.runner.started).toHaveLength(1);
 
     // Calling the developer back frees a place: the card starts without anyone asking.
@@ -186,14 +246,48 @@ describe('automatic start of unassigned cards moved into a work stage', () => {
     expect(task(keys[3]!).assignee).toBeNull();
   });
 
-  it('leaves a card that has an assignee alone: it is only told, as before', async () => {
+  it.each(['withdrawn', 'refused'] as const)(
+    'retires a new temp worker when the final start check is %s',
+    async (outcome) => {
+      h = await createDomainHarness({ adjust: temp });
+      await setLeave('dev-1', true);
+      await setLeave('dev-2', true);
+      const key = await create();
+      const hire = h.domain.members.hire.bind(h.domain.members);
+      let hiredHandle: string | undefined;
+      vi.spyOn(h.domain.members, 'hire').mockImplementation(async (...args) => {
+        const member = await hire(...args);
+        hiredHandle = member.handle;
+        return member;
+      });
+      const refusal = new Error('The start is no longer authorized');
+      const result = h.domain.taskStarts.start('AR', key, {
+        ...by(),
+        stillWanted: () => {
+          if (!hiredHandle) return true;
+          if (outcome === 'refused') throw refusal;
+          return false;
+        },
+      });
+      if (outcome === 'refused') await expect(result).rejects.toBe(refusal);
+      else await expect(result).resolves.toMatchObject({ session: null, hired: null });
+      expect(hiredHandle).toBeDefined();
+      expect((await h.domain.projects.config('AR')).team.members.map((m) => m.handle)).not.toContain(
+        hiredHandle,
+      );
+      expect(task(key)).toMatchObject({ stageId: 'backlog', assignee: null });
+      expect(sessionsOf(key)).toEqual([]);
+    },
+  );
+
+  it('leaves an assigned card to the hand-over, which starts or notifies its assignee', async () => {
     h = await createDomainHarness({ adjust: roomy });
     const key = await create();
     await h.domain.tasks.update('AR', key, { assignee: 'dev-2' }, OWNER_ACTOR);
     await move(key);
     await flush();
     await h.domain.admission.retryDeferred();
-    expect(h.runner.started).toHaveLength(0);
+    expect(h.runner.started).toHaveLength(1);
     expect(task(key).assignee).toBe('dev-2');
     expect(storedKeys()).toEqual([]);
 
@@ -276,8 +370,11 @@ describe('automatic start of unassigned cards moved into a work stage', () => {
     await h.domain.tasks.cancel('AR', waits[1]!, { reason: 'Fictional scope changed.' }, OWNER_ACTOR);
     await h.domain.tasks.update('AR', waits[2]!, { assignee: 'dev-2' }, OWNER_ACTOR);
     expect(waiting(waits[2]!)).toBeUndefined();
-    // What the move and the cancellation made obsolete is gone; the assigned card's wait is dropped by the next retry.
-    expect(storedKeys().sort()).toEqual(['work-start:AR:AR-5', 'work-start:AR:AR-6']);
+    // What the move and the cancellation made obsolete is gone; the assigned card's wait is dropped by the next
+    // retry, which may be the one the cancellation asked for (rounds run one after the other).
+    expect(storedKeys()).toContain('work-start:AR:AR-6');
+    expect(storedKeys()).not.toContain('work-start:AR:AR-3');
+    expect(storedKeys()).not.toContain('work-start:AR:AR-4');
 
     // A developer frees up: only the card still waiting starts; the assigned one is not touched.
     await h.domain.tasks.cancel('AR', busy[0]!, { reason: 'Fictional scope changed.' }, OWNER_ACTOR);
@@ -309,9 +406,9 @@ describe('automatic start of unassigned cards moved into a work stage', () => {
   it('carries on with its own half-done attempt, but not with an assignment somebody else made', async () => {
     h = await createDomainHarness({ adjust: roomy });
     const ensure = h.domain.sessions.ensureSession.bind(h.domain.sessions);
-    let failures = 1;
+    let dirty = true;
     vi.spyOn(h.domain.sessions, 'ensureSession').mockImplementation(async (...args) => {
-      if (failures-- > 0) throw conflict('workspace_dirty', 'the workspace holds unfinished work');
+      if (dirty) throw conflict('workspace_dirty', 'the workspace holds unfinished work');
       return ensure(...args);
     });
     const key = await create();
@@ -321,19 +418,21 @@ describe('automatic start of unassigned cards moved into a work stage', () => {
       expect(waiting(key)).toMatchObject({ reason: 'workspace_dirty', member: 'dev-1' }),
     );
     expect(task(key).assignee).toBe('dev-1');
+    dirty = false;
     await h.domain.admission.retryDeferred();
     expect(h.runner.started).toHaveLength(1);
     expect(sessionsOf(key)[0]!.member).toBe('dev-1');
     expect(waiting(key)).toBeUndefined();
 
     // The same wait, but somebody else assigns the card meanwhile: nothing starts for it.
-    failures = 1;
+    dirty = true;
     const other = await create('Other');
     await move(other);
     await vi.waitFor(() => expect(waiting(other)).toMatchObject({ reason: 'workspace_dirty' }));
     const owner = task(other).assignee!;
     const rest = owner === 'dev-1' ? 'dev-2' : 'dev-1';
     await h.domain.tasks.update('AR', other, { assignee: rest }, OWNER_ACTOR);
+    dirty = false;
     await h.domain.admission.retryDeferred();
     expect(sessionsOf(other)).toEqual([]);
     expect(storedKeys()).toEqual([]);

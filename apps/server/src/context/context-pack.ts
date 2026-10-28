@@ -42,8 +42,13 @@ export function createContextPackBuilder(): ContextPackBuilder {
     handoffCancelled,
     build(input: ContextPackInput): ContextPack {
       const situation = assess(input);
+      const guide: ContextPack['guide'] = {};
+      const sections = buildSystemPrompt(input, situation, guide);
+      const appendSystemPrompt = sections.map((section) => section.text).join('\n\n');
       return {
-        appendSystemPrompt: buildSystemPrompt(input, situation),
+        sections,
+        appendSystemPrompt,
+        guide,
         initialMessage: buildBrief(input, situation),
         continueMessage: buildContinueMessage(input, situation),
         standing: buildStanding(input),

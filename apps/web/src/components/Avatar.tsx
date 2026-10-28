@@ -1,5 +1,6 @@
 import clsx from 'clsx';
-import type { MemberStatus } from '@projectman/shared';
+import { hasConnectedOrigin, hasSuperOrigin } from '@projectman/shared';
+import type { Actor, MemberStatus } from '@projectman/shared';
 import { t } from '../i18n/t';
 import { iconFor, initialsFor, toneFor } from '../lib/members';
 import type { MemberLike } from '../lib/members';
@@ -12,6 +13,7 @@ const pixelSize: Record<AvatarSize, number> = { xs: 20, sm: 24, md: 28, lg: 38, 
 const iconSize: Record<AvatarSize, number> = { xs: 11, sm: 13, md: 15, lg: 20, xl: 22, xxl: 26 };
 
 interface AvatarProps {
+  actor?: Actor;
   via?: 'integrator';
   member: MemberLike | null | undefined;
   /** Shown when the member is unknown. */
@@ -20,7 +22,7 @@ interface AvatarProps {
   size?: AvatarSize;
   /** AI members show their role icon by default; stacks use initials. */
   variant?: 'icon' | 'initials';
-  status?: MemberStatus | 'needs_you' | 'paused' | 'exited' | 'failed' | null;
+  status?: MemberStatus | 'needs_you' | 'paused' | 'cannot_work' | 'exited' | 'failed' | null;
   /** Border in the page colour, for overlapping stacks. */
   ring?: boolean;
   /** Accessible name; without it the avatar is decorative. */
@@ -30,7 +32,8 @@ interface AvatarProps {
 
 /** Humans are round with initials; AI members are rounded squares (role icon or initials). */
 export function Avatar({
-  via,
+  actor,
+  via = actor?.via,
   member,
   handle,
   isMe = false,
@@ -41,13 +44,26 @@ export function Avatar({
   label,
   className,
 }: AvatarProps) {
-  const isAi = member?.kind === 'ai' || via === 'integrator';
-  const tone = via
-    ? 'owner'
-    : member
-      ? toneFor(isMe && member.kind === 'human' ? { ...member, role: 'owner' } : member)
-      : 'system';
+  const superMode = hasSuperOrigin(actor);
+  // A connected Claude's step (decision 66) keeps the actor's own avatar; only the badge marks the key.
+  const connected = hasConnectedOrigin(actor);
+  const isAi = member?.kind === 'ai' || (via === 'integrator' && !connected);
+  const tone = superMode
+    ? 'operator'
+    : via && !connected
+      ? 'owner'
+      : member
+        ? toneFor(isMe && member.kind === 'human' ? { ...member, role: 'owner' } : member)
+        : 'system';
   const showIcon = isAi && variant === 'icon';
+  const connectedName = t('connected.avatar', { name: label ?? member?.displayName ?? handle ?? '' });
+  const accessibleName = connected
+    ? connectedName
+    : superMode
+      ? t('superMode.avatar')
+      : via
+        ? t('involvement.integratorFull')
+        : label;
   const px = pixelSize[size];
   return (
     <span
@@ -61,15 +77,29 @@ export function Avatar({
       data-tone={tone}
       style={{ width: px, height: px }}
       role={label || via ? 'img' : undefined}
-      aria-label={via ? t('involvement.integratorFull') : label}
+      aria-label={accessibleName}
       aria-hidden={label || via ? undefined : true}
-      title={via ? t('involvement.integratorFull') : label}
+      title={accessibleName}
     >
       {showIcon ? (
-        <Icon name={via ? 'terminal' : iconFor(member)} size={iconSize[size]} strokeWidth={2} />
+        <Icon
+          name={via && !superMode && !connected ? 'terminal' : iconFor(member)}
+          size={iconSize[size]}
+          strokeWidth={2}
+        />
       ) : (
         <span className={styles.initials}>{initialsFor(member, isMe, handle)}</span>
       )}
+      {superMode ? (
+        <span className={styles.superBadge}>
+          <Icon name="terminal" size={10} />
+        </span>
+      ) : null}
+      {connected ? (
+        <span className={styles.connectedBadge}>
+          <Icon name="plug" size={10} />
+        </span>
+      ) : null}
       {status ? (
         <span
           className={clsx(styles.dot, status === 'working' && 'pulse')}

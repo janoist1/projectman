@@ -13,7 +13,14 @@ import { UsageSummary } from './token-usage';
 export const WorkItemRef = z.discriminatedUnion('type', [
   z.object({ type: z.literal('task'), taskKey: TaskKey }),
   z.object({ type: z.literal('meeting'), meetingId: z.string() }),
-  z.object({ type: z.literal('general') }),
+  z.object({
+    type: z.literal('general'),
+    /**
+     * Whom the Operator's conversation is with (PM-475): set only on the Operator's conversation with a
+     * person who is not an owner; the owners share the one without it.
+     */
+    with: MemberHandle.optional(),
+  }),
   z.object({ type: z.literal('schedule'), runId: z.string() }),
 ]);
 export type WorkItemRef = z.infer<typeof WorkItemRef>;
@@ -89,6 +96,17 @@ export const WorkDoing = z.object({
 });
 export type WorkDoing = z.infer<typeof WorkDoing>;
 
+/**
+ * What the session's chat proves about its work (PM-694), kept without any text of the chat. `lastWorkAt` is
+ * the time of the last real step (a tool call or a sent team message); `lastError.code` is a code, never a message.
+ */
+export const SessionWorkMetadata = z.object({
+  lastWorkAt: z.string().datetime().nullable(),
+  lastTool: z.object({ name: z.string().min(1).max(120), at: z.string().datetime() }).nullable(),
+  lastError: z.object({ code: z.string().min(1).max(120), at: z.string().datetime() }).nullable(),
+});
+export type SessionWorkMetadata = z.infer<typeof SessionWorkMetadata>;
+
 export const Session = z.object({
   /** Our id ("ses_..."). */
   id: z.string(),
@@ -159,11 +177,17 @@ export const Session = z.object({
   startCause: SessionStartCause.optional(),
   /** The engine the session runs on (PM-311). Absent: `local`, a row from before engines. */
   engineId: EngineId.optional(),
+  /** The proven work of the session (PM-694); absent: nothing proven, or a row from before it. */
+  workMetadata: SessionWorkMetadata.optional(),
 });
 export type Session = z.infer<typeof Session>;
 
 /** Minutes of silence (since `Session.lastActivityAt`) after which an idle session closes by itself (PM-288). */
 export const SESSION_IDLE_CLOSE_MINUTES = 15;
+/** How long a PM's conversation with a person who is not an owner stands idle before it closes (PM-475). */
+export const GUEST_IDLE_CLOSE_MINUTES = 5;
+/** Maximum minutes of silence protected by a queued or running heavy command (PM-569). */
+export const SESSION_HEAVY_RUN_IDLE_MAX_MINUTES = 120;
 
 /**
  * A member's work on one card (PM-207): a task session that is working. A member's status and

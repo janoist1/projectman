@@ -6,6 +6,7 @@ import { api } from '../../api/endpoints';
 import { useBoard } from '../../api/queries';
 import { useProject, useProjectIndexes } from '../../app/contexts';
 import { Avatar } from '../../components/Avatar';
+import { ActorName } from '../../components/ActorName';
 import { Button } from '../../components/Button';
 import { Chip } from '../../components/Chip';
 import { PageHeader } from '../../components/PageHeader';
@@ -16,8 +17,10 @@ import { formatDayHeading, formatStamp } from '../../i18n/format';
 import { t } from '../../i18n/t';
 import { describeStart, describeStop, involvementText } from '../../lib/involvement';
 import { useDocumentTitle } from '../../lib/hooks';
+import { hasBoundOrigin } from '@projectman/shared';
 import type { InvolvementItem } from '@projectman/shared';
 import styles from './InvolvementsPage.module.css';
+import { SuperActivity } from './SuperActivity';
 
 export function InvolvementRows({
   items,
@@ -40,7 +43,11 @@ export function InvolvementRows({
           event.type === 'session_started' ? describeStart(event, ctx) : describeStop(event, ctx);
         const detail =
           event.data.cause || event.data.stop
-            ? involvementText({ ...description, verb: '' })
+            ? involvementText({
+                ...description,
+                verb: '',
+                ...(hasBoundOrigin(description.byActor) ? { by: '' } : {}),
+              })
             : t('involvement.unknown');
         const day = formatDayHeading(event.createdAt);
         const heading = previousDay !== day;
@@ -55,7 +62,7 @@ export function InvolvementRows({
                   <Link to={`/p/${key}/team/${handle}`}>{member?.displayName ?? handle}</Link>
                   <Chip tone={description.tone ?? 'neutral'}>{description.verb}</Chip>
                   {event.taskKey ? (
-                    <Link to={`/p/${key}/tasks/${event.taskKey}#timeline-${event.id}`}>
+                    <Link to={`/p/${key}/tasks/${event.taskKey}/timeline#timeline-${event.id}`}>
                       {event.taskKey} · {taskTitle}
                     </Link>
                   ) : (
@@ -76,6 +83,14 @@ export function InvolvementRows({
                   )}
                 </div>
                 {detail ? <p>{detail}</p> : null}
+                {hasBoundOrigin(description.byActor) ? (
+                  <ActorName
+                    actor={description.byActor}
+                    members={indexes.members}
+                    myHandle={myHandle}
+                    projectKey={key}
+                  />
+                ) : null}
               </div>
             </div>
           </li>
@@ -109,6 +124,11 @@ export function RecentInvolvements() {
 }
 
 export function InvolvementsPage() {
+  const [params] = useSearchParams();
+  return params.get('by') === 'super' ? <SuperActivity /> : <Involvements />;
+}
+
+function Involvements() {
   const { key, myHandle } = useProject();
   const indexes = useProjectIndexes(key);
   const [params, setParams] = useSearchParams();
@@ -207,6 +227,7 @@ export function InvolvementsPage() {
           ['', t('involvement.anyone')],
           ...(myHandle ? [[myHandle, t('common.you')] as [string, string]] : []),
           ['integrator', t('involvement.integrator')],
+          ['super', t('superMode.actor')],
           ['system', t('common.system')],
           ...members.filter(([id]) => id !== myHandle),
         ])}

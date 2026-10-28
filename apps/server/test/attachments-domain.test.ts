@@ -1,5 +1,4 @@
 import {
-  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -14,9 +13,10 @@ import { join } from 'node:path';
 import { Readable, Writable } from 'node:stream';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MAX_ATTACHMENT_BYTES } from '@projectman/shared';
+import { copyTree } from '../../../scripts/migrate/copy';
 import type { Attachment, ServerEvent } from '@projectman/shared';
 import type { AttachmentStorage } from '../src/contracts';
-import { aiActor } from '../src/domain';
+import { aiActor } from '../src/kernel';
 import { pngBytes } from './helpers/attachments';
 import { createDomainHarness, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
@@ -510,9 +510,9 @@ describe('attachments service', () => {
       await h.domain.stop();
       h.repos.db.close();
 
-      // The backup: everything under the home, as DEPLOY.md says; restored to another place.
+      // The backup: the complete home is restored to another place.
       const restoredDir = mkdtempSync(join(tmpdir(), 'pm-restore-'));
-      cpSync(h.dir, restoredDir, { recursive: true, preserveTimestamps: true });
+      copyTree(h.dir, restoredDir);
       const restored = await createDomainHarness({ directory: restoredDir });
       try {
         expect(restored.dir).not.toBe(h.dir);
@@ -520,7 +520,7 @@ describe('attachments service', () => {
         const { stream } = await restored.domain.attachments.open('AR', 'AR-1', kept.id, OWNER_ACTOR);
         expect(Buffer.concat(await stream.toArray()).equals(bytes)).toBe(true);
         expect(existsSync(join(restored.attachmentsDir, 'AR', 'AR-1', deleted.id))).toBe(false);
-        // Private as before (DEPLOY.md: restore the modes too).
+        // Restoring the directory modes keeps the files private.
         expect(statSync(join(restored.attachmentsDir, 'AR', 'AR-1', kept.id)).mode & 0o777).toBe(0o600);
         expect(statSync(join(restored.attachmentsDir, 'AR', 'AR-1')).mode & 0o777).toBe(0o700);
         expect(statSync(restored.attachmentsDir).mode & 0o777).toBe(0o700);

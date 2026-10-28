@@ -9,14 +9,16 @@ import {
   SessionState,
   TokenUsage,
 } from '@projectman/shared';
+import { ADMINISTRATION_CAPABILITIES } from '../contracts';
 import type { EnginePaths, PermissionRefusedInfo, RunnerEvent, RunningSessionInfo } from '../contracts';
-import type { PullRequestInfo } from '../contracts/github';
+import type { PullRequestInfo, SessionCleanup } from '../contracts';
 
 export const ENGINE_PROTOCOL_VERSION = 1;
 export const ENGINE_MAX_FRAME_BYTES = 4 * 1024 * 1024;
 export const ENGINE_HEARTBEAT_MS = 20_000;
-export const ENGINE_DEAD_AFTER_MS = 45_000;
-export const ENGINE_OFFLINE_AFTER_MS = 120_000;
+export const ENGINE_DEAD_AFTER_MS = 90_000;
+export const ENGINE_DEAD_AFTER_PINGS = 3;
+export { ENGINE_OFFLINE_AFTER_MS } from '../contracts';
 export const ENGINE_RELAY_WAIT_MS = 60_000;
 export const ENGINE_UPLOAD_MAX_BYTES = {
   file: MAX_ATTACHMENT_BYTES,
@@ -34,8 +36,17 @@ export type EngineUploaded = z.infer<typeof EngineUploaded>;
 const text = z.string();
 const int = z.number().int().nonnegative();
 const seq = z.number().int().min(1).max(Number.MAX_SAFE_INTEGER);
-export const RequestId = text.regex(/^[A-Za-z0-9_-]{1,64}$/);
-export const Paths: z.ZodType<EnginePaths> = z.strictObject({
+export const SessionCleanupWire: z.ZodType<SessionCleanup> = z.strictObject({
+  scopeId: text.regex(/^scp_[0-9a-f]{16}$/),
+  kind: z.enum(['cgroup', 'process_group']),
+  outcome: z.enum(['clean', 'failed', 'unverified']),
+  reason: z.enum(['stop', 'kill', 'exit', 'shutdown', 'start_failed', 'recovery']),
+  killed: z.boolean(),
+  survivors: int,
+  durationMs: z.number().nonnegative(),
+});
+const RequestId = text.regex(/^[A-Za-z0-9_-]{1,64}$/);
+const Paths: z.ZodType<EnginePaths> = z.strictObject({
   userHome: text,
   home: text.nullable(),
   worktreesRoot: text.nullable(),
@@ -49,6 +60,7 @@ export const Paths: z.ZodType<EnginePaths> = z.strictObject({
   gitExcludesFile: text.nullable(),
 });
 export const RunningSession: z.ZodType<RunningSessionInfo> = z.strictObject({
+  scopeId: text.optional(),
   sessionId: text,
   pid: int,
   state: SessionState,
@@ -73,20 +85,22 @@ export const PullRequest: z.ZodType<PullRequestInfo> = z.strictObject({
   authorLogin: text.optional(),
   headSha: text.optional(),
 });
-export const RefusedInfo: z.ZodType<PermissionRefusedInfo> = z.strictObject({
+const RefusedInfo: z.ZodType<PermissionRefusedInfo> = z.strictObject({
   sessionId: text,
   toolName: text,
   toolInput: z.unknown(),
   reason: text.optional(),
 });
-export const WireRunnerEvent: z.ZodType<Exclude<RunnerEvent, { type: 'terminal_data' }>> =
-  z.discriminatedUnion('type', [
+const WireRunnerEvent: z.ZodType<Exclude<RunnerEvent, { type: 'terminal_data' }>> = z.discriminatedUnion(
+  'type',
+  [
     z.strictObject({
       type: z.literal('rate_limited'),
       sessionId: text,
       provider: AgentProvider,
       message: text,
       at: text,
+      resetsAt: z.string().datetime().optional(),
     }),
     z.strictObject({
       type: z.literal('state'),
@@ -101,8 +115,11 @@ export const WireRunnerEvent: z.ZodType<Exclude<RunnerEvent, { type: 'terminal_d
       sessionId: text,
       exitCode: z.number().int().nullable(),
       signal: z.number().int().nullable(),
+      cleanup: SessionCleanupWire.optional(),
     }),
+    z.strictObject({ type: z.literal('scope_recovered'), sessionId: text, cleanup: SessionCleanupWire }),
     z.strictObject({ type: z.literal('first_input_sent'), sessionId: text }),
+    z.strictObject({ type: z.literal('first_input_failed'), sessionId: text }),
     z.strictObject({ type: z.literal('provider_session_id'), sessionId: text, providerSessionId: text }),
     z.strictObject({
       type: z.literal('auth_error'),
@@ -130,16 +147,19 @@ export const WireRunnerEvent: z.ZodType<Exclude<RunnerEvent, { type: 'terminal_d
       point: PausePoint,
       tool: text.nullable(),
     }),
-  ]);
+  ],
+);
 export const EngineEvent = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('runner'), event: WireRunnerEvent }),
   z.strictObject({ kind: z.literal('pending_input'), sessionId: text, pending: z.boolean() }),
   z.strictObject({ kind: z.literal('refused'), info: RefusedInfo }),
   z.strictObject({ kind: z.literal('github_changed'), watchId: text, change: PullRequest }),
   z.strictObject({ kind: z.literal('screenshot_started'), runId: text }),
+  z.strictObject({ kind: z.literal('full_test_started'), runId: text }),
 ]);
 export type EngineEvent = z.infer<typeof EngineEvent>;
 export const Hello = z.strictObject({
+  processScope: z.enum(['cgroup', 'process_group']).optional(),
   t: z.literal('hello'),
   protocol: z.number().int(),
   version: z.string().regex(/^[A-Za-z0-9._+-]{1,64}$/),
@@ -155,6 +175,13 @@ export const Hello = z.strictObject({
   pid: int.min(1),
   uid: int.nullable(),
   bootId: text.regex(/^[a-f0-9]{16}$/),
+  /** What this machine's administration supervisor can do (PM-763); absent: the engine has none (or is older). */
+  administration: z
+    .array(z.enum(ADMINISTRATION_CAPABILITIES))
+    .max(ADMINISTRATION_CAPABILITIES.length)
+    .optional(),
+  /** 'engine': NanoGPT sessions use the engine's own key file; absent: the cloud's key (or an older engine). */
+  nanogptKey: z.literal('engine').optional(),
 });
 export type Hello = z.infer<typeof Hello>;
 export const EngineErrorCode = z.enum([
@@ -168,6 +195,7 @@ export const EngineErrorCode = z.enum([
   'repo_not_registered',
   'signal_not_allowed',
   'secret_not_allowed',
+  'merge_not_allowed',
   'link_down',
   'timeout',
   'internal',
@@ -190,7 +218,7 @@ export const EngineWireError = z
     message: 'Module metadata requires module_error',
   });
 export type EngineWireError = z.infer<typeof EngineWireError>;
-export const RequestFrame = z.strictObject({
+const RequestFrame = z.strictObject({
   t: z.literal('req'),
   id: RequestId,
   method: text,

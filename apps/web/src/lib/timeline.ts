@@ -1,21 +1,26 @@
 import {
-  BoundaryAuditReason,
-  BoundaryState,
+  FixLimitAssessment,
+  ReleaseFailure,
+  ReleaseState,
   FullTestErrorReason,
   LabelChangeReason,
+  ObligationKind,
+  QuestionCloseRule,
   TaskRelationKind,
   TaskPriority,
 } from '@projectman/shared';
-import type { LabelView, TimelineEvent } from '@projectman/shared';
+import type { LabelView, MergeBlockReason, TimelineEvent } from '@projectman/shared';
 import { joinNames, t, tDynamic } from '../i18n/t';
 import { fixRoundParts } from './fixLimit';
 import { fallbackReasonText, handoffEndName, noteExcerpt, providerName } from './handoff';
 import { labelName } from './labels';
+import { mergeBlockText } from './merge';
 import { decidesText, pairText } from './loop';
 import { nameOf, namesOf } from './members';
 import type { MemberIndex } from './members';
 import { reasonText } from './pause';
 import type { PipelineIndex } from './pipeline';
+import { isHttpsUrl, releaseOutcome, releaseStepName } from './release';
 import { closureTexts, eventClosure } from './sessions';
 import { describeStart, describeStop, involvementText } from './involvement';
 
@@ -34,6 +39,12 @@ export interface DescribedEvent {
   emphasis: 'normal' | 'needs';
   /** Raw (often English) explanation, shown folded behind "Részletek". */
   detail?: string;
+  /** What the merger wrote about the conflict it fixed (markdown prose), folded behind "Ütközés javítva" (PM-471). */
+  resolution?: string;
+  /** The reason a person gave with their decision (a rejected release), shown as a quote under the row. */
+  note?: string;
+  /** An external page the row ends with ("GitHub release ↗"); always an `https://` address. */
+  link?: { href: string; label: string };
 }
 
 function str(value: unknown): string {
@@ -245,11 +256,15 @@ function fixLimitEventText(d: Record<string, unknown>, ctx: TimelineContext): st
   switch (d.phase) {
     case 'passed_on':
       // The row's header names who did it, so the text does not.
-      return t('fixLimit.events.passed_on', {
-        decides: decidesText(strings(d.deciders), ctx.members, ctx.myHandle),
-        note: withNote,
-      });
+      return (
+        t('fixLimit.events.passed_on', {
+          decides: decidesText(strings(d.deciders), ctx.members, ctx.myHandle),
+          note: withNote,
+        }) + assessmentText(d.assessment)
+      );
     case 'decided': {
+      if (d.decision === 'another_round' && typeof d.extraRounds === 'number')
+        return t('fixLimit.events.decidedExtra', { i: d.extraRounds, note: withNote });
       const decision = (FIX_LIMIT_DECISIONS as readonly string[]).includes(str(d.decision))
         ? t(`fixLimit.decisions.${str(d.decision) as (typeof FIX_LIMIT_DECISIONS)[number]}`)
         : str(d.decision);
@@ -275,6 +290,7 @@ function fixLimitEventText(d: Record<string, unknown>, ctx: TimelineContext): st
         changeRequests: Number(d.changeRequests) || 0,
         designChangeRequests: Number(d.designChangeRequests) || 0,
         sendBacks: Number(d.sendBacks) || 0,
+        testsFailed: typeof d.testsFailed === 'number' ? d.testsFailed : undefined,
       });
       // The limit is named only when it is not the number of rounds itself.
       return rounds === limit
@@ -284,16 +300,175 @@ function fixLimitEventText(d: Record<string, unknown>, ctx: TimelineContext): st
   }
 }
 
+function assessmentText(value: unknown): string {
+  const assessment = FixLimitAssessment.safeParse(value);
+  if (!assessment.success) return '';
+  const { recurrence, currentState, recommendation } = assessment.data;
+  return t('fixLimit.events.assessment', {
+    recurrence,
+    currentState,
+    decision: t(`fixLimit.decisions.${recommendation.optionId}`),
+    reason: recommendation.reason,
+  });
+}
+
 /** Attributed, translated text of a timeline event. Free text (notes, messages) stays as written. */
 export function describeEvent(event: TimelineEvent, ctx: TimelineContext): DescribedEvent {
   const d = event.data;
   const normal = (text: string): DescribedEvent => ({ text, emphasis: 'normal' });
   switch (event.type) {
-    case 'boundary_changed': {
-      const state = BoundaryState.safeParse(d.state);
-      const reason = BoundaryAuditReason.safeParse(d.reason);
+    case 'task_merge_requested':
+      return normal(
+        t('timeline.events.task_merge_requested', {
+          merger: nameOf(str(d.merger), ctx.members, ctx.myHandle),
+        }),
+      );
+    case 'task_merge_prioritized': {
+      const ahead = strings(d.ahead);
+      return normal(
+        ahead.length
+          ? t('timeline.events.task_merge_prioritized_ahead', {
+              ahead: ahead.join(', '),
+              reason: str(d.reason),
+            })
+          : t('timeline.events.task_merge_prioritized', { reason: str(d.reason) }),
+      );
+    }
+    case 'task_merge_failed': {
+      const files = strings(d.files);
+      const check = str(d.command);
+      const output = str(d.outputTail);
+      const detail = [files.join('\n'), output].filter(Boolean).join('\n\n');
+      const what =
+        d.reason === 'check_failed'
+          ? check
+            ? t('timeline.events.merge_failed_check', { check })
+            : t('timeline.events.merge_failed_check_unnamed')
+          : files.length
+            ? t('timeline.events.merge_failed_conflict', { count: files.length })
+            : t('timeline.events.merge_failed_conflict_unnamed');
       return {
-        text: `${t('boundary.heading')}: ${str(d.resource)} · ${state.success ? t(`boundary.states.${state.data}`) : str(d.state)}${reason.success ? ` · ${t(`boundary.reasons.${reason.data}`)}` : ''}`,
+        text: t('timeline.events.task_merge_failed', { what }),
+        emphasis: 'normal',
+        ...(detail ? { detail } : {}),
+      };
+    }
+    case 'task_merged': {
+      const base = str(d.base);
+      if (d.via === 'found' || !str(d.mergeCommit))
+        return normal(t('timeline.events.task_merged_found', { base, commit: shortCommit(str(d.commit)) }));
+      // Only what the event really records is told; a part that is not there is left out.
+      const check = record(d.check);
+      const pushed = record(d.pushed);
+      const pulls = Array.isArray(d.pullRequests) ? d.pullRequests : [];
+      const parts = [
+        check && check.status === 'passed' && str(check.command)
+          ? t('timeline.events.merged_checked', { check: str(check.command) })
+          : check
+            ? null
+            : t('timeline.events.merged_unchecked'),
+        pushed
+          ? t(pushed.commitUrl ? 'timeline.events.merged_pushed_github' : 'timeline.events.merged_pushed')
+          : null,
+        ...pulls.flatMap((pull) => {
+          const number = Number(record(pull)?.number);
+          return Number.isInteger(number) ? [t('timeline.events.merged_pull', { number })] : [];
+        }),
+      ].filter((part): part is string => !!part);
+      const text = t('timeline.events.task_merged', {
+        base,
+        commit: shortCommit(str(d.mergeCommit)),
+        parts: parts.map((part) => ` · ${part}`).join(''),
+      });
+      const resolution = str(record(d.resolution)?.note).trim();
+      return resolution ? { text, emphasis: 'normal', resolution } : normal(text);
+    }
+    case 'task_merge_blocked': {
+      const reason = mergeBlockText(
+        {
+          repo: str(d.repo),
+          base: str(d.base),
+          landed: d.landed === 'remote' ? 'remote' : 'nowhere',
+          toStageId: '',
+          block: { reason: d.reason as MergeBlockReason, message: str(d.message), at: event.createdAt },
+        },
+        { github: true, check: null, target: t('timeline.events.merge_target_unknown') },
+      );
+      return {
+        text: t('timeline.events.task_merge_blocked', { reason }),
+        emphasis: 'normal',
+        ...(str(d.message) ? { detail: str(d.message) } : {}),
+      };
+    }
+    case 'host_request_opened':
+      return normal(t('timeline.events.host_request_opened', { title: str(d.title) }));
+    case 'host_request_answered':
+      return normal(
+        t(`timeline.events.host_request_answered.${d.outcome === 'declined' ? 'declined' : 'answered'}`, {
+          title: str(d.title),
+        }),
+      );
+    case 'host_request_withdrawn':
+      return normal(t('timeline.events.host_request_withdrawn', { title: str(d.title) }));
+    case 'release_changed': {
+      const commit = shortCommit(str(d.commit));
+      const key = 'timeline.events.release_changed';
+      switch (ReleaseState.safeParse(d.state).data) {
+        case 'proposed':
+          return normal(t(`${key}.proposed`, { commit }));
+        case 'approved':
+          return normal(t(`${key}.approved`));
+        case 'rejected': {
+          const note = str(d.note).trim();
+          return { text: t(`${key}.rejected`), emphasis: 'normal', ...(note ? { note } : {}) };
+        }
+        case 'deploying':
+          return normal(t(`${key}.deploying`, { commit }));
+        case 'failed': {
+          const failure = ReleaseFailure.safeParse(d.failure).data;
+          if (!failure) return normal(t(`${key}.unknown`, { commit }));
+          const outcome = releaseOutcome(failure.step, failure.rolledBack);
+          const text = t(`${key}.failed`, {
+            step: releaseStepName(failure.step),
+            outcome: t(
+              outcome === 'early'
+                ? `${key}.failedEarly`
+                : outcome === 'rolledBack'
+                  ? `${key}.failedRolledBack`
+                  : `${key}.failedDown`,
+            ),
+          });
+          return {
+            text,
+            emphasis: outcome === 'down' ? 'needs' : 'normal',
+            ...(failure.message ? { detail: failure.message } : {}),
+          };
+        }
+        case 'live': {
+          const publishError = str(d.publishError);
+          if (publishError)
+            return { text: t(`${key}.livePublishError`), emphasis: 'needs', detail: publishError };
+          return normal(t(`${key}.live`, { commit }));
+        }
+        case 'published': {
+          const tag = str(d.tag);
+          const text = tag ? t(`${key}.published`, { tag }) : t(`${key}.live`, { commit });
+          // Only an https address becomes a link (the row is written by the release watcher, but still data).
+          return {
+            ...normal(text),
+            ...(isHttpsUrl(d.url) ? { link: { href: d.url, label: t(`${key}.githubRelease`) } } : {}),
+          };
+        }
+        default:
+          return normal(t(`${key}.unknown`, { commit }));
+      }
+    }
+    // Kept for the events recorded before the external operation requests were removed (PM-1035).
+    case 'boundary_changed': {
+      const state = str(d.state);
+      const reason = str(d.reason);
+      return {
+        text: `${t('boundary.heading')}: ${str(d.resource)} · ${tDynamic(`boundary.states.${state}`, state)}${reason ? ` · ${tDynamic(`boundary.reasons.${reason}`, reason)}` : ''}`,
         emphasis: ctx.openInboxIds.has(str(d.requestId)) ? 'needs' : 'normal',
       };
     }
@@ -353,8 +528,34 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
         }),
       );
     }
+    case 'task_hand_on_requested':
+      return normal(
+        t('timeline.events.task_hand_on_requested', {
+          requestedBy: nameOf(str(d.requestedBy), ctx.members, ctx.myHandle),
+          mover: nameOf(str(d.mover), ctx.members, ctx.myHandle),
+          to: stageName(ctx, str(d.toStageId)),
+        }),
+      );
     case 'task_stage_changed': {
       const names = { from: stageName(ctx, str(d.from)), to: stageName(ctx, str(d.to)) };
+      const partsClosed = record(d.partsClosed);
+      if (partsClosed) {
+        const trigger = str(partsClosed.trigger);
+        return normal(
+          t(
+            trigger
+              ? 'timeline.events.task_stage_changed_parts_closed_by'
+              : 'timeline.events.task_stage_changed_parts_closed',
+            {
+              ...names,
+              parts: [...strings(partsClosed.done), ...strings(partsClosed.cancelled)].join(
+                t('common.listSeparator'),
+              ),
+              trigger,
+            },
+          ),
+        );
+      }
       const moved = record(d.branchMoved);
       if (moved)
         return normal(
@@ -362,7 +563,9 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
             ...names,
             pinned: shortCommit(str(moved.pinned)),
             head: shortCommit(str(moved.head)),
-          }),
+          }) +
+            '. ' +
+            t('fixLimit.events.notCounted'),
         );
       const testsFailed = record(d.testsFailed);
       if (testsFailed)
@@ -425,14 +628,13 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
       const assignment = d.assignee
         ? t('timeline.events.task_assigned', { assignee: nameOf(str(d.assignee), ctx.members, ctx.myHandle) })
         : t('timeline.events.task_unassigned');
-      return normal(
-        d.previous
-          ? t('timeline.events.assignment_previous', {
-              assignment,
-              previous: nameOf(str(d.previous), ctx.members, ctx.myHandle),
-            })
-          : assignment,
-      );
+      const line = d.previous
+        ? t('timeline.events.assignment_previous', {
+            assignment,
+            previous: nameOf(str(d.previous), ctx.members, ctx.myHandle),
+          })
+        : assignment;
+      return normal(d.note ? t('timeline.events.assignment_note', { line, note: str(d.note) }) : line);
     }
     case 'task_check_changed':
       return normal(checkLine(str(d.check), str(d.to)));
@@ -453,6 +655,8 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
     }
     case 'task_loop':
       return normal(loopEventText(d, ctx));
+    case 'loop_triaged':
+      return normal(t('timeline.events.loop_triaged'));
     case 'task_fix_limit':
       return normal(fixLimitEventText(d, ctx));
     case 'task_link_added':
@@ -479,6 +683,19 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
     }
     case 'task_level_changed':
       return normal(levelEventText(d));
+    case 'task_complexity_changed': {
+      const previous = record(d.previous);
+      const points = Number(d.points);
+      const before = Number(previous?.points);
+      return normal(
+        (d.points === null
+          ? t('timeline.complexityRemoved', { previous: before })
+          : previous && before !== points
+            ? t('timeline.complexityChanged', { previous: before, points })
+            : t('timeline.complexitySet', { points })) +
+          (str(d.reason).trim() ? t('timeline.levelReason', { reason: str(d.reason).trim() }) : ''),
+      );
+    }
     case 'task_senior_wait':
       return normal(seniorWaitEventText(d, ctx));
     case 'task_prerequisite_closed': {
@@ -493,6 +710,18 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
             : t('timeline.prerequisiteFree')),
       );
     }
+    case 'task_parts_left':
+      return normal(
+        t(
+          str(d.phase) === 'alerted'
+            ? 'timeline.events.parts_left_alerted'
+            : 'timeline.events.parts_left_told',
+          {
+            name: nameOf(str(d.member), ctx.members, ctx.myHandle),
+            parts: strings(d.parts).join(', '),
+          },
+        ),
+      );
     case 'task_note':
       return normal(str(d.text));
     case 'attachment_added':
@@ -502,6 +731,8 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
           fileName: str(d.fileName),
         }),
       );
+    case 'feedback_linked':
+      return normal(t(d.created === true ? 'timeline.feedbackCreated' : 'timeline.feedbackLinked'));
     case 'schedule_started':
       return normal(t('schedules.startedEvent'));
     case 'schedule_skipped':
@@ -629,7 +860,7 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
       return normal(
         t('timeline.events.team_message', {
           to: joinNames(namesOf(strings(d.to), ctx.members, ctx.myHandle)),
-          excerpt: str(d.excerpt),
+          excerpt: str(d.excerpt) || t('messageAttachments.timelineExcerpt'),
         }),
       );
     case 'permission_requested':
@@ -680,18 +911,153 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
         text: t(
           d.cause === 'timeout'
             ? 'timeline.events.permission_escalated_timeout'
-            : 'timeline.events.permission_escalated_lead',
+            : d.cause === 'undelivered' || d.cause === 'unavailable'
+              ? 'timeline.events.permission_escalated_unreached'
+              : 'timeline.events.permission_escalated_lead',
         ),
         emphasis: ctx.openInboxIds.has(str(d.inboxItemId)) ? 'needs' : 'normal',
         ...(str(d.reason) ? { detail: str(d.reason) } : {}),
       };
-    case 'question_asked':
+    case 'question_asked': {
+      // A question the Operator screens first says so; a question asked again says why it skips the screening (PM-556).
+      const unscreened = d.unscreened as { reason?: unknown } | undefined;
+      const key =
+        d.screening === true
+          ? 'timeline.events.question_asked_screening'
+          : unscreened
+            ? 'timeline.events.question_asked_unscreened'
+            : 'timeline.events.question_asked';
       return {
-        text: t('timeline.events.question_asked', { question: str(d.question) }),
+        text: t(key, { question: str(d.question), reason: str(unscreened?.reason) }),
         emphasis: ctx.openInboxIds.has(str(d.inboxItemId)) ? 'needs' : 'normal',
       };
+    }
+    case 'question_recipient_escalated':
+      if (d.reason === 'integrator_unavailable')
+        return normal(t('timeline.events.question_recipient_escalated_unavailable'));
+      return d.reason === 'integrator_passed_on'
+        ? normal(
+            t('timeline.events.question_recipient_escalated_passed_on', {
+              note: str(d.note) ? t('fixLimit.events.note', { note: str(d.note) }) : '',
+            }),
+          )
+        : normal(t('timeline.events.question_recipient_escalated'));
+    case 'fix_limit_recipient_escalated':
+      if (d.reason === 'integrator_unavailable')
+        return normal(t('timeline.events.fix_limit_recipient_escalated_unavailable'));
+      return d.reason === 'integrator_passed_on'
+        ? normal(
+            t('timeline.events.fix_limit_recipient_escalated_passed_on', {
+              note: str(d.note) ? t('fixLimit.events.note', { note: str(d.note) }) : '',
+            }),
+          )
+        : normal(t('timeline.events.fix_limit_recipient_escalated_timeout'));
+    case 'member_queue_item_closed':
+      return normal(t('timeline.events.member_queue_item_closed'));
+    case 'obligation_woken':
+    case 'obligation_handed_over': {
+      const kind = ObligationKind.safeParse(d.kind);
+      return normal(
+        t(
+          event.type === 'obligation_handed_over' && str(d.recipientRefusal)
+            ? 'timeline.events.obligation_handed_over_refused'
+            : `timeline.events.${event.type}`,
+          {
+            responsible: nameOf(str(d.responsible), ctx.members, ctx.myHandle),
+            step: kind.success
+              ? t(`timeline.obligationSteps.${kind.data}`)
+              : t('timeline.obligationSteps.step'),
+            minutes: typeof d.minutes === 'number' ? d.minutes : 0,
+            reason: str(d.recipientRefusal),
+          },
+        ),
+      );
+    }
     case 'question_answered':
-      return normal(t('timeline.events.question_answered', { answer: str(d.answer) }));
+      if (d.integratorTodo && typeof d.integratorTodo === 'object') {
+        const result = d.integratorTodo as { optionId?: string; note?: string | null };
+        return normal(
+          t(
+            result.optionId === 'todo_cannot'
+              ? 'timeline.events.integrator_todo_cannot'
+              : 'timeline.events.integrator_todo_done',
+            { note: result.note ?? '' },
+          ),
+        );
+      }
+      return normal(
+        t(
+          d.groupPrimaryItemId
+            ? 'timeline.events.question_answered_grouped'
+            : 'timeline.events.question_answered',
+          { answer: str(d.answer) },
+        ),
+      );
+    case 'question_grouped':
+      return normal(
+        t('timeline.events.question_grouped', { count: Array.isArray(d.itemIds) ? d.itemIds.length : 0 }),
+      );
+    case 'question_screened': {
+      const asker = nameOf(str(d.asker), ctx.members, ctx.myHandle);
+      const note = str(d.note);
+      switch (d.outcome) {
+        case 'answered':
+          return normal(t('timeline.events.question_screened_answered', { asker, answer: str(d.answer) }));
+        case 'forwarded':
+          return normal(
+            t('timeline.events.question_screened_forwarded', {
+              asker,
+              note,
+              to: nameOf(str(d.forwardedTo), ctx.members, ctx.myHandle),
+            }),
+          );
+        case 'decision':
+          return normal(t('timeline.events.question_screened_decision', { note }));
+        case 'todo':
+          if (d.recipient === 'integrator')
+            return normal(t('timeline.events.question_screened_integrator', { note }));
+          // Only a todo that was recorded as a missing feature (PM-472) says so.
+          return normal(
+            t(
+              str(d.feedbackId)
+                ? 'timeline.events.question_screened_todo_recorded'
+                : 'timeline.events.question_screened_todo',
+              { note },
+            ),
+          );
+        default:
+          return normal(t('timeline.events.question_screened_moot', { asker, note }));
+      }
+    }
+    case 'question_screening_skipped':
+      return normal(
+        t(
+          d.reason === 'unavailable'
+            ? 'timeline.events.question_screening_skipped_unavailable'
+            : 'timeline.events.question_screening_skipped_timeout',
+          { asker: nameOf(str(d.asker), ctx.members, ctx.myHandle) },
+        ),
+      );
+    case 'question_closed': {
+      const asker = nameOf(str(d.asker), ctx.members, ctx.myHandle);
+      if (d.rule === 'withdrawn')
+        return normal(t('timeline.events.question_closed_withdrawn', { asker, note: str(d.note) }));
+      const reason = QuestionCloseRule.safeParse(d.rule);
+      return normal(
+        t('timeline.events.question_closed', {
+          asker,
+          reason: reason.success ? t(`inbox.resolutions.${reason.data}`) : str(d.note),
+        }),
+      );
+    }
+    case 'question_answer_delivery': {
+      const asker = nameOf(str(d.asker), ctx.members, ctx.myHandle);
+      return normal(
+        d.state === 'waiting'
+          ? t('timeline.events.question_answer_waiting', { asker })
+          : t('timeline.events.question_answer_delivered'),
+      );
+    }
     case 'member_hired':
       return normal(t('timeline.events.member_hired', { handle: str(d.handle) }));
     case 'member_retired':
@@ -703,8 +1069,20 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
             })
           : t('timeline.events.member_retired', { handle: str(d.handle) }),
       );
+    case 'member_renamed':
+      return normal(t('timeline.events.member_renamed', { from: str(d.from), to: str(d.to) }));
     case 'config_changed':
       return normal(t('timeline.events.config_changed', { message: str(d.message) }));
+    case 'team_contact_changed':
+      return normal(
+        t(d.contact === true ? 'timeline.events.contactAdded' : 'timeline.events.contactRemoved', {
+          name: nameOf(str(d.handle), ctx.members, ctx.myHandle),
+        }),
+      );
+    case 'operator_knowledge_changed':
+      return normal(t('timeline.events.operator_knowledge_changed', { revision: Number(d.revision) }));
+    case 'operator_approval_waived':
+      return normal(t('timeline.events.operator_approval_waived', { version: Number(d.agreementVersion) }));
     case 'team_paused': {
       if (d.scope !== 'instance') return normal(t('timeline.events.team_paused'));
       // The reason the instance paused for ("élesítés miatt"), as the bar says it.
@@ -722,6 +1100,20 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
       return normal(
         t(d.scope === 'instance' ? 'timeline.events.team_resumed_instance' : 'timeline.events.team_resumed'),
       );
+    case 'super_handoff_changed':
+      return normal(
+        t('timeline.events.super_handoff_changed', {
+          state: tDynamic(`superMode.states.${str(d.state)}`, str(d.state)),
+        }),
+      );
+    case 'super_operation_changed':
+      return normal(
+        t('timeline.events.super_operation_changed', {
+          state: tDynamic(`superMode.states.${str(d.state)}`, str(d.state)),
+        }),
+      );
+    case 'workspace_released':
+      return normal(t('timeline.events.workspace_released', { reason: str(d.reason) }));
     case 'focus_changed': {
       const title = str(d.title);
       if (d.action === 'added')

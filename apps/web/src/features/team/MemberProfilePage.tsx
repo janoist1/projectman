@@ -1,14 +1,15 @@
 import { InviteDialog } from './InviteDialog';
 import { describeStart, involvementText } from '../../lib/involvement';
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { providerModelLabel } from './providerModels';
-import { Link, useNavigate, useParams } from 'react-router';
+import { Link, Navigate, useNavigate, useParams } from 'react-router';
 import {
   cheapSubagentOf,
   DEFAULT_AGENT_PROVIDER,
   effortForProvider,
   hasPlanUsage,
   mergeTokenUsage,
+  PROJECT_MANAGER_ROLE,
   roleBundle,
 } from '@projectman/shared';
 import type { SchedulesView, Session, TeamMessage } from '@projectman/shared';
@@ -16,7 +17,6 @@ import {
   useBoard,
   useProviders,
   useConfig,
-  useProjectManagerChannel,
   useSchedules,
   useLabels,
   useMemberMemories,
@@ -31,7 +31,7 @@ import {
 import { useProject, useProjectIndexes } from '../../app/contexts';
 import { PlanUsageMeter } from '../../app/PlanUsageMeter';
 import { Avatar } from '../../components/Avatar';
-import { Button } from '../../components/Button';
+import { Button, ButtonLink } from '../../components/Button';
 import { Dialog } from '../../components/Dialog';
 import { Fold } from '../../components/Fold';
 import { Icon } from '../../components/Icon';
@@ -46,21 +46,26 @@ import { ErrorState, LoadingState } from '../../components/States';
 import { t } from '../../i18n/t';
 import { formatStamp } from '../../i18n/format';
 import { errorMessage } from '../../lib/errors';
+import { capacityFrom } from '../../lib/capacity';
 import { inboxHeading } from '../../lib/inbox';
-import { memberStatusView } from '../../lib/members';
+import { canRenameMember, memberStatusView, renamedTo } from '../../lib/members';
 import { closureTexts, isLiveSession, sessionClosure } from '../../lib/sessions';
 import { aiRoleView, humanRoleName } from '../../lib/roles';
 import { useDocumentTitle } from '../../lib/hooks';
 import { describeCron } from '../../lib/schedules';
+import { ContactNote } from '../messages/ContactNote';
 import { MessageComposer } from '../messages/MessageComposer';
+import { useContacts } from '../messages/useContacts';
 import { MessageList } from '../messages/MessageList';
 import { usePausedRows, useHeldStart, useTeamPaused } from '../pause/usePause';
-import { useIsRequiredPm } from '../pm/useRequiredPm';
+import { useIsRequiredPm } from '../operator/useRequiredMember';
 import { ChatView } from '../session/ChatView';
 import { EditMemberDialog } from './EditMemberDialog';
 import { ProviderWarning } from './ProviderWarning';
 import { LeaveButton } from './LeaveButton';
+import { CapacityNote } from './CapacityNote';
 import { MemberMenu } from './MemberMenu';
+import { RenameMemberDialog } from './RenameMemberDialog';
 import { RetireDialog } from './RetireDialog';
 import { PermissionLevelControl } from './PermissionLevelControl';
 import { MemberScheduleControl } from './ScheduledRuns';
@@ -112,14 +117,15 @@ function MemberSchedule({
 
 export function MemberProfilePage() {
   const { handle = '' } = useParams();
-  const { key, myHandle, can, me, openPm } = useProject();
+  const { key, myHandle, can, me, isOwner } = useProject();
   const navigate = useNavigate();
-  const isChannelPm = useProjectManagerChannel(key, can.createTasks).data?.member?.handle === handle;
   const requiredPm = useIsRequiredPm(handle);
-  const profile = useMemberProfile(key, handle);
   const board = useBoard(key);
-  const providers = useProviders();
   const indexes = useProjectIndexes(key);
+  // The old address of a renamed member goes to the new one, before any profile is asked for (PM-1026).
+  const movedTo = renamedTo(handle, indexes.members);
+  const profile = useMemberProfile(key, handle, movedTo === null && !board.isPending);
+  const providers = useProviders();
   const labels = useLabels(key);
   const roles = useRoles(key);
   const config = useConfig(key, can.manageTeam);
@@ -130,18 +136,23 @@ export function MemberProfilePage() {
   const toast = useToast();
   const [inviting, setInviting] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [renaming, setRenaming] = useState(false);
   const [retiring, setRetiring] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [reply, setReply] = useState<TeamMessage | null>(null);
   const access = me.projects.find((p) => p.key === key)?.access;
-  const internal = access !== 'client';
-  const canSend = access !== undefined && ['owner', 'admin', 'developer', 'client'].includes(access);
-  const memory = useMemberMemories(key, handle, internal && profile.data?.member.kind === 'ai');
-  const schedules = useSchedules(key, internal && profile.data?.member.kind === 'ai');
+  const contacts = useContacts();
+  // A member who writes only to the contacts cannot answer someone else here (PM-985).
+  const notContact = contacts.restricted && contacts.ready && !contacts.canWriteTo(handle);
+  const canSend =
+    access !== undefined && ['owner', 'admin', 'developer', 'client'].includes(access) && !notContact;
+  const memory = useMemberMemories(key, handle, profile.data?.member.kind === 'ai');
+  const schedules = useSchedules(key, profile.data?.member.kind === 'ai');
   const pausedRows = usePausedRows();
   const held = useHeldStart(useTeamPaused(), t('pause.disabled.newWork'));
   useDocumentTitle(profile.data?.member.displayName ?? t('profile.title'), board.data?.project.name);
+  if (movedTo) return <Navigate replace to={`/p/${key}/team/${movedTo}`} />;
   if (profile.error) return <ErrorState error={profile.error} onRetry={() => void profile.refetch()} />;
   if (!profile.data) return <LoadingState />;
   const data = profile.data;
@@ -150,9 +161,15 @@ export function MemberProfilePage() {
   const providerStatus = providers.data?.providers.find((entry) => entry.provider === provider);
   const effort = effortForProvider(provider, member.effort);
   const ai = member.kind === 'ai';
+  const isPm = ai && member.role === PROJECT_MANAGER_ROLE;
   const cheapSubagent = cheapSubagentOf(member);
   const ownConfig = config.data?.config.team.members.find((entry) => entry.handle === handle);
   const status = memberStatusView(member, data.inbox, myHandle, pausedRows);
+  // What holds the member's places, and the cards that wait for one of them (PM-297).
+  const capacity = capacityFrom(data.capacityHolders, data.capacity ?? undefined);
+  const waitingCards = (board.data?.tasks ?? []).filter(
+    (task) => task.startWaiting?.reason === 'member_at_capacity' && task.startWaiting.member === handle,
+  );
   const live = data.sessions.filter(isLiveSession);
   const pastSessions = data.sessions.filter((s) => !live.includes(s)).slice(0, 10);
   const schedule = schedules.data?.members.find((entry) => entry.member === handle);
@@ -165,10 +182,10 @@ export function MemberProfilePage() {
   const nothingYet = [
     data.tasks.length === 0 ? t('profile.noTasks') : null,
     !ai && data.inbox.length === 0 ? t('profile.noWaiting') : null,
-    ai && internal && schedules.data && !schedule ? t('profile.noSchedule') : null,
-    ai && internal && live.length === 0 && pastSessions.length === 0 ? t('profile.noSessions') : null,
-    ai && internal && usageEmpty ? t('tokenUsage.none') : null,
-    ai && internal && memory.data?.memory === '' ? t('profile.memoryEmpty') : null,
+    ai && schedules.data && !schedule ? t('profile.noSchedule') : null,
+    ai && live.length === 0 && pastSessions.length === 0 ? t('profile.noSessions') : null,
+    ai && usageEmpty ? t('tokenUsage.none') : null,
+    ai && memory.data?.memory === '' ? t('profile.memoryEmpty') : null,
   ].filter((text): text is string => text !== null);
   const titles = new Map((board.data?.tasks ?? []).map((task) => [task.key, task.title]));
   const thread = (messages.data?.messages ?? []).filter((m) =>
@@ -186,11 +203,32 @@ export function MemberProfilePage() {
         title={member.displayName}
         subtitle={
           <>
-            <code>{member.handle}</code> ·{' '}
-            {member.senior ? (
+            <code>{member.handle}</code>
+            {member.formerHandles?.length ? (
               <>
-                <Chip tone="accent" title={t('team.seniorTitle')}>
-                  {t('team.senior')}
+                {' '}
+                <span className={styles.former}>
+                  {t('memberRename.former')}{' '}
+                  {member.formerHandles.map((former, i) => (
+                    <Fragment key={former}>
+                      {i > 0 ? t('common.listSeparator') : null}
+                      <code>{former}</code>
+                    </Fragment>
+                  ))}
+                </span>
+              </>
+            ) : null}{' '}
+            ·{' '}
+            {member.complexityLimit !== undefined ? (
+              <>
+                <Chip
+                  title={
+                    member.complexityLimit === 13
+                      ? t('team.limitUnlimited')
+                      : t('team.limitTitle', { limit: member.complexityLimit })
+                  }
+                >
+                  {t('team.limit', { limit: member.complexityLimit })}
                 </Chip>{' '}
                 ·{' '}
               </>
@@ -203,7 +241,16 @@ export function MemberProfilePage() {
                 ·{' '}
               </>
             ) : null}
-            <span>{status.label}</span>
+            {contacts.contacts.includes(handle) ? (
+              <>
+                <Chip>{t('team.contactChip')}</Chip> ·{' '}
+              </>
+            ) : null}
+            <span>
+              {status.reason
+                ? t('memberStatus.cannotWorkWithReason', { reason: status.reason })
+                : status.label}
+            </span>
           </>
         }
       >
@@ -211,11 +258,11 @@ export function MemberProfilePage() {
           {ai && member.onLeave && can.manageTeam ? <LeaveButton member={member} variant="primary" /> : null}
           {ai && !member.onLeave && can.workInSessions ? (
             <span className={styles.heldStart}>
-              {isChannelPm ? (
-                // The project manager has its one conversation, in the header panel (PM-429).
-                <Button variant="primary" onClick={(event) => openPm(event.currentTarget)}>
+              {isPm ? (
+                // The project manager is a member of the Messages page like any other (PM-447).
+                <ButtonLink to={`/p/${key}/messages/with/${handle}`} variant="primary">
                   {t('profile.conversation')}
-                </Button>
+                </ButtonLink>
               ) : (
                 <>
                   <Button
@@ -240,8 +287,10 @@ export function MemberProfilePage() {
           {can.manageTeam ? (
             <MemberMenu
               member={member}
+              align="row"
               editDisabled={!roles.data || (ai && !config.data)}
               onEdit={() => setEditing(true)}
+              onRename={canRenameMember(member, isOwner) ? () => setRenaming(true) : undefined}
               onInvite={() => setInviting(true)}
               onRetire={() => setRetiring(true)}
               onRemove={
@@ -260,6 +309,9 @@ export function MemberProfilePage() {
         <p role="status" className={styles.leaveNote}>
           {t('leave.status')}
         </p>
+      ) : null}
+      {capacity && waitingCards.length > 0 ? (
+        <CapacityNote member={member} capacity={capacity} cards={waitingCards} />
       ) : null}
       {start.error ? <ErrorBanner>{errorMessage(start.error)}</ErrorBanner> : null}
       <section className={styles.panel}>
@@ -326,6 +378,12 @@ export function MemberProfilePage() {
             </div>
           </Fold>
         ) : null}
+        {ai && access === 'owner' ? (
+          <p>
+            <Link to={`/p/${key}/team/${handle}/context`}>{t('memberContext.entry')} →</Link>{' '}
+            <small className={styles.contextHint}>{t('memberContext.entryHint')}</small>
+          </p>
+        ) : null}
       </section>
       <div className={styles.grid}>
         {data.tasks.length ? (
@@ -356,8 +414,8 @@ export function MemberProfilePage() {
             </ul>
           </section>
         ) : null}
-        {ai && internal && schedule ? <MemberSchedule handle={handle} schedule={schedule} /> : null}
-        {ai && internal && schedules.error ? <ErrorState compact error={schedules.error} /> : null}
+        {ai && schedule ? <MemberSchedule handle={handle} schedule={schedule} /> : null}
+        {ai && schedules.error ? <ErrorState compact error={schedules.error} /> : null}
       </div>
       {nothingYet.length ? <p className={styles.quiet}>{nothingYet.join(' ')}</p> : null}
       {ai ? (
@@ -397,6 +455,7 @@ export function MemberProfilePage() {
               </p>
             ) : null}
             <p>{t('profile.capacity', { used: data.capacityUsed, max: data.capacity ?? 0 })}</p>
+            {member.machineAccess ? <p>{t('profile.machineAccess')}</p> : null}
             <PermissionLevelControl member={member} />
             {hasPlanUsage(member.provider ?? DEFAULT_AGENT_PROVIDER) ? (
               <PlanUsageMeter
@@ -412,7 +471,7 @@ export function MemberProfilePage() {
           </div>
         </details>
       ) : null}
-      {ai && internal ? (
+      {ai ? (
         <>
           {live.length || pastSessions.length ? (
             <section className={styles.panel}>
@@ -556,12 +615,18 @@ export function MemberProfilePage() {
           />
         )}
         {read.error ? <ErrorBanner>{errorMessage(read.error)}</ErrorBanner> : null}
-        <MessageComposer
-          key={`${handle}:${reply?.id ?? ''}`}
-          initialTo={reply ? [...new Set([reply.from, ...reply.to])].filter((h) => h !== myHandle) : [handle]}
-          initialTask={reply?.taskKey ?? ''}
-          onSent={() => setReply(null)}
-        />
+        {notContact ? (
+          <ContactNote className={styles.contactNote} />
+        ) : (
+          <MessageComposer
+            key={`${handle}:${reply?.id ?? ''}`}
+            initialTo={
+              reply ? [...new Set([reply.from, ...reply.to])].filter((h) => h !== myHandle) : [handle]
+            }
+            initialTask={reply?.taskKey ?? ''}
+            onSent={() => setReply(null)}
+          />
+        )}
       </section>
       <InviteDialog open={inviting} member={member} onClose={() => setInviting(false)} />
       <EditMemberDialog
@@ -569,6 +634,11 @@ export function MemberProfilePage() {
         config={config.data?.config}
         roles={roles.data?.roles ?? []}
         onClose={() => setEditing(false)}
+      />
+      <RenameMemberDialog
+        member={renaming ? member : null}
+        busyWith={live.length > 0 ? workName(live[0]!) : null}
+        onClose={() => setRenaming(false)}
       />
       <RetireDialog
         member={retiring ? member : null}

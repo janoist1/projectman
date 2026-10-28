@@ -27,7 +27,7 @@ export interface EngineTransfers {
   download(token: string, dest: string, expected: { size: number; sha256: string }): Promise<void>;
 }
 
-export interface EngineTransferOptions {
+interface EngineTransferOptions {
   cloudUrl: string;
   /** The headers of every request, `authorization` included; read at each call (the key file may be replaced). */
   headers: () => Record<string, string>;

@@ -46,7 +46,7 @@ describe('reading the project configuration', () => {
     if (access !== 'owner') await actAs(access);
   }
 
-  it.each(['owner', 'admin', 'developer', 'viewer'] as const)(
+  it.each(['owner', 'admin', 'developer', 'viewer', 'client'] as const)(
     'gives it to a member with %s access',
     async (access) => {
       await setup(access);
@@ -55,11 +55,4 @@ describe('reading the project configuration', () => {
       expect(ConfigView.parse(response.json()).config.project.key).toBe('AR');
     },
   );
-
-  it('refuses a client', async () => {
-    await setup('client');
-    const response = await read();
-    expect(response.statusCode).toBe(403);
-    expect(response.json()).toMatchObject({ error: { code: 'insufficient_access' } });
-  });
 });

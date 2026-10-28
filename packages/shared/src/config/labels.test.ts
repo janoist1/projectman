@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Actor } from '../domain/event';
-import type { LabelRefusal } from '../domain/label';
+import type { LabelDefinition, LabelRefusal } from '../domain/label';
 import type { Task } from '../domain/task';
 import {
   approvalRefusal,
@@ -12,6 +12,8 @@ import {
   noApproverReason,
   planLabelChange,
   isOwnerApprovalLabel,
+  isReturnedWorkLabel,
+  reviewReturnedWork,
 } from './labels';
 import type { LabelChangePlan } from './labels';
 import { ProjectConfig } from './schema';
@@ -93,6 +95,7 @@ function config(fourEyes = false) {
         { id: 'release-ok', name: 'Release ok', setBy: { duties: ['release_approval'], humansOnly: true } },
         { id: 'merged', name: 'Merged', setBy: 'system' },
         { id: 'waiting', name: 'Waiting', setBy: 'anyone' },
+        { id: 'owner-tag', name: 'Owner tag', setBy: { members: ['owner'] } },
         { id: 'lead-ok', name: 'Lead ok', setBy: { members: ['ann', 'dev-1'] } },
         {
           id: 'lead-human-ok',
@@ -116,6 +119,39 @@ const task: Pick<Task, 'assignee' | 'links'> = {
 const human = (handle: string): Actor => ({ kind: 'human', handle });
 const ai = (handle: string): Actor => ({ kind: 'ai', handle });
 const system: Actor = { kind: 'system', handle: null };
+
+describe('isReturnedWorkLabel (PM-570)', () => {
+  const labels = [
+    ...config().pipeline.labels,
+    {
+      id: 'security-changes',
+      name: 'Security: changes',
+      setBy: { duties: ['security_review'] },
+      requiresComment: true,
+    },
+    { id: 'qa-failed', name: 'QA failed', setBy: { duties: ['testing_acceptance'] }, requiresComment: true },
+    { id: 'qa-ok', name: 'QA ok', setBy: { duties: ['testing_acceptance'] }, notByAuthor: true },
+    { id: 'needs-plan', name: 'Needs plan', setBy: { members: ['dev-1'] }, requiresComment: true },
+  ] as ProjectConfig['pipeline']['labels'];
+  const withLabels = { ...config().pipeline, labels };
+  const of = (id: string) => isReturnedWorkLabel(labelDefinition({ pipeline: withLabels }, id));
+
+  it('is true for the results that give the work back', () => {
+    for (const id of ['review-changes', 'security-changes', 'qa-failed']) expect(of(id)).toBe(true);
+  });
+
+  it('is false for an approval, a note-asking label no review sets, and a missing label', () => {
+    for (const id of ['review-ok', 'qa-ok', 'needs-plan', 'waiting', 'unknown']) expect(of(id)).toBe(false);
+    expect(isReturnedWorkLabel(undefined)).toBe(false);
+  });
+
+  it('keeps reviewReturnedWork as it was', () => {
+    const pipeline = { ...withLabels };
+    expect(reviewReturnedWork({ pipeline }, { labels: ['review-ok', 'review-changes'] })).toBe(true);
+    expect(reviewReturnedWork({ pipeline }, { labels: ['review-ok', 'needs-plan'] })).toBe(false);
+    expect(reviewReturnedWork({ pipeline }, { labels: [] })).toBe(false);
+  });
+});
 
 describe('labelRefusal', () => {
   it.each<[string, string, Actor, LabelRefusal | null]>([
@@ -381,5 +417,129 @@ describe('gateLabels', () => {
       facts: ['review-ok'],
       forbidden: [],
     });
+  });
+});
+
+describe('the key owner’s authority in super mode (PM-831)', () => {
+  const superActor: Actor = {
+    kind: 'ai',
+    handle: 'operator',
+    via: 'integrator',
+    operatorMode: 'super',
+    credential: { id: 'key_1', prefix: 'pmk_abc' },
+  };
+  const authority = { authorizedBy: 'owner' };
+  const empty = { labels: [] as string[], assignee: null, links: [] };
+  const code = (plan: LabelChangePlan) => (plan.ok ? 'ok' : plan.refusal.code);
+
+  it('lets the key owner’s holding add and remove a label the Operator does not hold', () => {
+    const c = config();
+    expect(code(planLabelChange(c, empty, { add: ['owner-tag'] }, superActor, undefined, authority))).toBe(
+      'ok',
+    );
+    expect(
+      code(
+        planLabelChange(
+          c,
+          { ...empty, labels: ['owner-tag'] },
+          { remove: ['owner-tag'] },
+          superActor,
+          undefined,
+          authority,
+        ),
+      ),
+    ).toBe('ok');
+  });
+
+  it('refuses without the authority, for a non-owner authority and for a step without the super origin', () => {
+    const c = config();
+    const refused = { ok: false, refusal: { code: 'label_not_allowed', reason: 'not_holder' } };
+    expect(planLabelChange(c, empty, { add: ['owner-tag'] }, superActor)).toMatchObject(refused);
+    expect(
+      planLabelChange(c, empty, { add: ['lead-ok'] }, superActor, undefined, { authorizedBy: 'ann' }),
+    ).toMatchObject(refused);
+    expect(
+      planLabelChange(c, empty, { add: ['owner-tag'] }, ai('operator'), undefined, authority),
+    ).toMatchObject(refused);
+    expect(
+      planLabelChange(
+        c,
+        empty,
+        { add: ['owner-tag'] },
+        { kind: 'ai', handle: 'operator', via: 'integrator' },
+        undefined,
+        authority,
+      ),
+    ).toMatchObject(refused);
+  });
+
+  it('opens the approval and human-only labels the key owner holds, add and remove (PM-870)', () => {
+    const c = config();
+    for (const id of ['release-ok', 'decided'])
+      expect(code(planLabelChange(c, empty, { add: [id] }, superActor, undefined, authority)), id).toBe('ok');
+    expect(
+      code(
+        planLabelChange(
+          c,
+          { ...empty, labels: ['decided'] },
+          { remove: ['decided'] },
+          superActor,
+          undefined,
+          authority,
+        ),
+      ),
+    ).toBe('ok');
+  });
+
+  it('keeps the approval labels the key owner does not hold refused, and the legacy and AI rules as they were', () => {
+    const c = config();
+    for (const id of ['review-ok', 'lead-human-ok'])
+      expect(code(planLabelChange(c, empty, { add: [id] }, superActor, undefined, authority)), id).toBe(
+        'owner_approval_required',
+      );
+    const legacy: Actor = { kind: 'human', handle: 'owner', via: 'integrator' };
+    expect(labelRefusal(c, labelDefinition(c, 'release-ok'), legacy, empty, authority)).toBe(
+      'owner_approval',
+    );
+    expect(labelRefusal(c, labelDefinition(c, 'release-ok'), ai('dev-1'), empty, authority)).toBe(
+      'humans_only',
+    );
+    expect(
+      code(
+        planLabelChange(c, empty, { add: ['release-ok'] }, superActor, undefined, { authorizedBy: 'ann' }),
+      ),
+    ).toBe('owner_approval_required');
+    expect(
+      planLabelChange(
+        c,
+        { ...empty, labels: ['review-ok'] },
+        { remove: ['review-ok'] },
+        superActor,
+        undefined,
+        authority,
+      ),
+    ).toMatchObject({ ok: false, refusal: { code: 'label_not_allowed', reason: 'not_holder' } });
+  });
+
+  it('refuses a label of the system and keeps the self-review rule for the authorizing owner', () => {
+    const c = config();
+    expect(labelRefusal(c, labelDefinition(c, 'merged'), superActor, empty, authority)).toBe('system_only');
+    const own: LabelDefinition = {
+      id: 'own',
+      name: 'Own',
+      setBy: { members: ['owner'] },
+      notByAuthor: true,
+    };
+    const authored = { ...empty, links: [{ kind: 'pull_request' as const, ref: '9', author: 'owner' }] };
+    expect(labelRefusal(c, own, ai('operator'), empty, authority)).toBeNull();
+    expect(labelRefusal(c, own, ai('operator'), authored, authority)).toBe('self_review');
+    expect(labelRefusal(c, own, ai('operator'), authored)).toBe('not_holder');
+    // The self-review rule holds in super mode on a human-only label the owner holds, too.
+    const four: LabelDefinition = {
+      ...own,
+      id: 'own-approval',
+      setBy: { members: ['owner'], humansOnly: true },
+    };
+    expect(labelRefusal(c, four, superActor, authored, authority)).toBe('self_review');
   });
 });

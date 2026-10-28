@@ -1,4 +1,3 @@
-import type { PublishRefusal } from '@projectman/shared';
 import type { FastifyBaseLogger } from 'fastify';
 
 /**
@@ -29,12 +28,24 @@ export interface PullRequestInfo {
   headSha?: string;
 }
 
-export interface GithubService {
+/**
+ * GitHub through one machine's `gh` login: what the engine runs and what the engine RPC carries. It does not
+ * know projects; the domain's `GithubService` adds the project, which chooses the machine (PM-1059).
+ */
+export interface MachineGithubService {
   /** gh is installed and authenticated. */
   isAvailable(): Promise<boolean>;
   getPullRequest(repo: string, number: number): Promise<PullRequestInfo>;
   findPullRequestsForBranch(repo: string, branch: string): Promise<PullRequestInfo[]>;
   parsePullRequestUrl(url: string): { repo: string; number: number } | null;
+  /**
+   * The public GitHub release of `tag`, which must be on the remote already (PM-968). A release that exists
+   * is returned as is, so a repeated call is safe. The only write of this service.
+   */
+  publishRelease(
+    repo: string,
+    input: { tag: string; title: string; notes: string },
+  ): Promise<{ url: string }>;
   /** Polls the given PRs and reports every change; returns an unsubscribe function. */
   watch(
     targets: Array<{ repo: string; number: number }>,
@@ -43,81 +54,80 @@ export interface GithubService {
 }
 
 /**
- * What the publishing gate asks the publisher to do (PM-142): put one commit on one branch of one
- * repository and make sure a pull request exists for it. Every field comes from the server's own
- * records (the authenticated session, the task, the workspace binding); the publisher checks the
- * branch and commit again (`checkPublishTarget` in the shared package) and never trusts more.
+ * GitHub as the domain uses it: every call names the project, whose engine runs `gh` (PM-1059). With one
+ * machine the project makes no difference (`createProjectGithubService` ignores it).
  */
-export interface PublishRequest {
-  /** "owner/name" of the GitHub repository. */
-  repo: string;
-  /** The task branch to create or fast-forward. */
-  branch: string;
-  /** The repository's default branch: the pull request's base, never written. */
-  baseBranch: string;
-  /** The full commit id the branch tip must be. */
-  commit: string;
-  /** A repository that holds the branch (the member's workspace clone); read, never written. */
-  sourcePath: string;
-  /**
-   * `bundle`: `sourcePath` is a git bundle of the branch the server owns (behind the VM boundary
-   * the member's worker made it, PM-140); default `repository`.
-   */
-  sourceKind?: 'repository' | 'bundle';
-  title: string;
-  body: string;
-  /** The task key, for the log only. */
-  taskKey: string;
+export interface GithubService {
+  /** gh is installed and authenticated on the project's machine. */
+  isAvailable(projectKey: string): Promise<boolean>;
+  getPullRequest(projectKey: string, repo: string, number: number): Promise<PullRequestInfo>;
+  findPullRequestsForBranch(projectKey: string, repo: string, branch: string): Promise<PullRequestInfo[]>;
+  parsePullRequestUrl(url: string): { repo: string; number: number } | null;
+  publishRelease(
+    projectKey: string,
+    repo: string,
+    input: { tag: string; title: string; notes: string },
+  ): Promise<{ url: string }>;
+  /** Polls the given PRs and reports every change; returns an unsubscribe function. */
+  watch(
+    projectKey: string,
+    targets: Array<{ repo: string; number: number }>,
+    onChange: (pr: PullRequestInfo) => void,
+  ): () => void;
 }
 
-export interface PublishResult {
-  repo: string;
-  branch: string;
-  commit: string;
-  /** The remote branch already had this commit, so nothing was uploaded. */
-  alreadyPublished: boolean;
-  pullRequest: PullRequestInfo;
-  /** False when an open pull request for the branch already existed and was reused. */
-  pullRequestCreated: boolean;
+export interface WorkflowRunInfo {
+  id: number;
+  /** GitHub's status as is: queued, in_progress, completed, waiting, requested, pending … */
+  status: string;
+  /** success, failure, cancelled, timed_out, skipped, startup_failure …; null until completed. */
+  conclusion: string | null;
+  headSha: string;
+  headBranch: string;
+  htmlUrl: string;
+  createdAt: string;
 }
 
-/** Where the remote stands for a task branch (what the integrator and the reviewer read). */
-export interface RemoteState {
-  repo: string;
-  baseBranch: string;
-  /** The remote default branch's head; null when the branch does not exist there. */
-  baseCommit: string | null;
-  branch: string;
-  /** The remote task branch's head; null when it was never published. */
-  branchCommit: string | null;
-  /** Commits of the task branch the default branch lacks, and the other way round; null when unknown. */
-  ahead: number | null;
-  behind: number | null;
-  pullRequests: PullRequestInfo[];
+export interface WorkflowStepInfo {
+  name: string;
+  status: string;
+  conclusion: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
 }
 
-/**
- * Publishing through a separate GitHub identity with narrow rights (PM-142). The identity's token
- * lives only in the server's process: no worker sees it, so neither a raw `git` or `gh` nor any
- * other HTTP client in a session holds more than this gate does. The identity cannot write the
- * default branch, force push, delete or merge either; the repository's protection says so too
- * (docs/GITHUB.md). Owned by src/github.
- */
-export interface GithubPublisher {
-  /** Pushes the commit to the task branch (not forced) and opens its pull request once. */
-  publish(request: PublishRequest): Promise<PublishResult>;
-  /** Remote base and task-branch heads, their distance and the branch's pull requests. */
-  remoteState(repo: string, baseBranch: string, branch: string): Promise<RemoteState>;
+export interface WorkflowJobInfo {
+  id: number;
+  name: string;
+  status: string;
+  conclusion: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  steps: WorkflowStepInfo[];
 }
 
-/** A publication the publisher refuses or could not finish; the message never holds a credential. */
-export class PublishError extends Error {
-  readonly code: PublishRefusal;
-  constructor(code: PublishRefusal, message: string) {
-    super(message);
-    this.code = code;
-    this.name = 'PublishError';
-  }
+/** GitHub Actions through this machine's `gh` login (PM-900). Rejects with GithubError. */
+export interface GithubActionsClient {
+  dispatchWorkflow(
+    repo: string,
+    workflow: string,
+    input: { ref: string; inputs: Record<string, string> },
+    signal?: AbortSignal,
+  ): Promise<void>;
+  /** The newest workflow_dispatch run of `workflow` on `branch` whose head is `headSha`; null: none yet. */
+  findDispatchedRun(
+    repo: string,
+    workflow: string,
+    input: { branch: string; headSha: string },
+    signal?: AbortSignal,
+  ): Promise<WorkflowRunInfo | null>;
+  getRun(repo: string, runId: number, signal?: AbortSignal): Promise<WorkflowRunInfo>;
+  /** The run's jobs (at most 100). */
+  listJobs(repo: string, runId: number, signal?: AbortSignal): Promise<WorkflowJobInfo[]>;
+  /** The job's plain log; GithubError not_found until GitHub has it. */
+  jobLog(repo: string, jobId: number, signal?: AbortSignal): Promise<string>;
+  /** Asks GitHub to cancel; an already completed run is fine. */
+  cancelRun(repo: string, runId: number, signal?: AbortSignal): Promise<void>;
 }
 
 export interface GithubModuleOptions {
@@ -127,4 +137,49 @@ export interface GithubModuleOptions {
   ghHost?: string;
   pollIntervalMs: number;
   logger: FastifyBaseLogger;
+}
+
+/** Why a GitHub call failed. Callers branch on `code`; `message` is meant for logs. */
+export type GithubErrorCode =
+  /** A bad repo, pull request number or branch was passed in; gh was not run. */
+  | 'invalid_argument'
+  /** The gh binary could not be started (not installed or not executable). */
+  | 'not_installed'
+  /** gh is not logged in, or its token is no longer valid. */
+  | 'not_authenticated'
+  /** GitHub API rate limit (primary or secondary). */
+  | 'rate_limited'
+  /** The repository or pull request does not exist, or the login cannot see it. */
+  | 'not_found'
+  /** gh did not finish in time and was killed. */
+  | 'timeout'
+  /** GitHub could not be reached (offline, DNS, connection refused …); usually temporary. */
+  | 'unreachable'
+  /** GitHub answered with a server error (5xx, failed query); usually temporary. */
+  | 'server_error'
+  /** gh printed something that is not the JSON we asked for. */
+  | 'invalid_response'
+  /** The caller cancelled the call (e.g. a watch was unsubscribed). */
+  | 'aborted'
+  /** Anything else. */
+  | 'failed';
+
+export class GithubError extends Error {
+  readonly code: GithubErrorCode;
+  /** Exit code of gh when it ran and failed; null otherwise. */
+  readonly exitCode: number | null;
+  /** Beginning of gh's stderr, for logs. */
+  readonly stderr: string;
+
+  constructor(
+    code: GithubErrorCode,
+    message: string,
+    details: { exitCode?: number | null; stderr?: string; cause?: unknown } = {},
+  ) {
+    super(message, details.cause === undefined ? undefined : { cause: details.cause });
+    this.name = 'GithubError';
+    this.code = code;
+    this.exitCode = details.exitCode ?? null;
+    this.stderr = details.stderr ?? '';
+  }
 }

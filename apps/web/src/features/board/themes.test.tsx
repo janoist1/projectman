@@ -157,7 +157,10 @@ describe('themes on the board', () => {
 
   it('follows a collecting card that changes theme, with its subtasks', async () => {
     const { project, backend, other, collector, subtask } = themed();
-    expect(backend.handle('PATCH', `${base}/${collector.key}`, { themeKey: other.key }).status).toBe(200);
+    backend.updateTask(collector.key, { themeKey: other.key });
+    backend.updateTask(subtask.key, { themeKey: other.key });
+    for (const task of backend.tasks.filter((task) => task.parentKey === collector.key))
+      backend.updateTask(task.key, { themeKey: other.key });
     project.render(<BoardPage />);
     fireEvent.click(await tile(other.title, 0, 2));
     await waitFor(() => expect(hasCard(subtask.title)).toBe(true));
@@ -324,6 +327,7 @@ describe("a theme's card", () => {
     await screen.findByText(t('theme.progress', { done: 1, total: 4 }));
     expect(screen.queryByRole('button', { name: t('theme.close') })).toBeNull();
     expect(screen.getByRole('button', { name: t('theme.filterBoard') })).toBeTruthy();
+    expect(document.querySelector('a[href*="/map/"]')).toBeNull();
   });
 
   it('filters the board from its card', async () => {
@@ -376,7 +380,6 @@ describe('the theme of a card in its drawer', () => {
   it('has no theme row while the project has no theme', async () => {
     const project = mockProject();
     project.render(drawerRoutes, '/p/AC/tasks/AC-20');
-    await screen.findByText(t('newTask.fields.visibility'));
     expect(screen.queryByText(t('task.theme'))).toBeNull();
   });
 

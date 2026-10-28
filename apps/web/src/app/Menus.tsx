@@ -2,7 +2,7 @@ import clsx from 'clsx';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { Link, useNavigate } from 'react-router';
-import { useLogout, useProjects } from '../api/queries';
+import { useLogout, useProjects, useServerVersion } from '../api/queries';
 import { Avatar } from '../components/Avatar';
 import { Icon } from '../components/Icon';
 import { t } from '../i18n/t';
@@ -81,13 +81,19 @@ export function ProjectSwitcher({
 /** Avatar button with the account: settings and logout. */
 export function AccountMenu({
   settingsPath,
+  notificationsPath = null,
   howWeWorkPath = null,
+  feedback = null,
   placement = 'right',
   onPause,
 }: {
   settingsPath: string | null;
+  /** The person's browser notifications (PM-815): the first item of the links, at every width. */
+  notificationsPath?: string | null;
   /** The "how we work" page, above the settings: only the phone's menu has it (the rail has an item). */
   howWeWorkPath?: string | null;
+  /** The feedback marks (PM-511): like the "how we work" page, only the phone's menu has it; `badge` is what is owed. */
+  feedback?: { to: string; badge: number } | null;
   placement?: 'right' | 'below';
   /** Pause the team (PM-220): in this menu at every width; the top bar has the button on wide windows too. */
   onPause?: (() => void) | undefined;
@@ -101,6 +107,8 @@ export function AccountMenu({
   const refs = useMemo(() => [triggerRef, panelRef], []);
   const panelId = useId();
   const logout = useLogout();
+  const serverVersion = useServerVersion(open);
+  const version = serverVersion.isSuccess ? serverVersion.data : undefined;
   const navigate = useNavigate();
   useDismiss(open, () => setOpen(false), refs, triggerRef);
   useEffect(() => {
@@ -162,6 +170,26 @@ export function AccountMenu({
               <div className={styles.separator} />
             </>
           ) : null}
+          {notificationsPath ? (
+            <Link to={notificationsPath} className={styles.item} onClick={() => setOpen(false)}>
+              <Icon name="bell" size={16} />
+              <span className={styles.itemText}>{t('nav.notifications')}</span>
+            </Link>
+          ) : null}
+          {feedback ? (
+            <Link to={feedback.to} className={styles.item} onClick={() => setOpen(false)}>
+              <Icon name="pin" size={16} />
+              <span className={styles.itemText}>{t('nav.feedback')}</span>
+              {feedback.badge > 0 ? (
+                <span className={styles.itemBadge}>
+                  <span aria-hidden="true">{feedback.badge}</span>
+                  <span className="visually-hidden">
+                    , {t('nav.feedbackCount', { count: feedback.badge })}
+                  </span>
+                </span>
+              ) : null}
+            </Link>
+          ) : null}
           {howWeWorkPath ? (
             <Link to={howWeWorkPath} className={styles.item} onClick={() => setOpen(false)}>
               <Icon name="map" size={16} />
@@ -186,6 +214,16 @@ export function AccountMenu({
             <Icon name="logout" size={16} />
             <span className={styles.itemText}>{t('common.logout')}</span>
           </button>
+          {version ? (
+            <>
+              <div className={styles.separator} />
+              <div className={styles.version} title={version.commit ?? version.version}>
+                {t('nav.version', {
+                  version: version.tag ?? version.commit?.slice(0, 8) ?? version.version,
+                })}
+              </div>
+            </>
+          ) : null}
         </div>
       ) : null}
     </div>

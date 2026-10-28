@@ -4,8 +4,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { setFetchImplementation } from '../../api/client';
 import { t } from '../../i18n/t';
 import { withoutTeamStrip } from '../../test/boardCards';
+import { MockBackend } from '../../mocks/backend';
 import { mockProject } from '../../test/mockProject';
 import { BoardPage } from './BoardPage';
+
+const doneColumnName = new MockBackend().config.pipeline.columns.find((col) => col.id === 'done')!.name;
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -51,7 +54,7 @@ function cardLink(key: string): HTMLElement {
   return link;
 }
 
-const doneGroup = () => screen.getByRole('region', { name: t('board.groups.done') });
+const doneGroup = () => screen.getByRole('region', { name: doneColumnName });
 const keysIn = (container: HTMLElement) => within(container).getAllByRole('link').map(keyOf);
 
 describe('the card header', () => {
@@ -98,7 +101,11 @@ describe('the card header', () => {
     const project = mockProject();
     await renderBoard(project);
     const name = project.backend.config.pipeline.labels.find((label) => label.id === 'waiting-answer')!.name;
-    expect(within(cardLink('AC-19')).getAllByText(name)).toHaveLength(1);
+    // The row says it ("Áll · amíg rajta van: …"); no chip is the bare label name.
+    const card = cardLink('AC-19');
+    expect(within(card).queryAllByText(name)).toHaveLength(0);
+    expect(card.querySelectorAll('[title*="Mire vár: amíg rajta van"]')).toHaveLength(1);
+    expect(card.textContent).toContain(name);
   });
 });
 

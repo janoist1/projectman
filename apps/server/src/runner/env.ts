@@ -11,43 +11,8 @@
  * host-session markers follows agent-office (MIT, src/server/workers.ts).
  */
 
-/** Variables that would move billing away from the subscription. Never passed on. */
-export const BILLING_ENV_VARS = [
-  'ANTHROPIC_API_KEY',
-  'ANTHROPIC_AUTH_TOKEN',
-  'ANTHROPIC_BASE_URL',
-  'CLAUDE_CODE_USE_BEDROCK',
-  'CLAUDE_CODE_USE_VERTEX',
-  'CLAUDE_CODE_USE_FOUNDRY',
-  // Codex: CODEX_API_KEY overrides the ChatGPT login; voice falls back to OPENAI_API_KEY.
-  'CODEX_API_KEY',
-  // Takes precedence over stored Codex authentication, even with an ephemeral auth store.
-  'CODEX_ACCESS_TOKEN',
-  // AuthManager OAuth routing overrides must not redirect subscription credentials.
-  'CODEX_APP_SERVER_LOGIN_CLIENT_ID',
-  'CODEX_REFRESH_TOKEN_URL_OVERRIDE',
-  'CODEX_REVOKE_TOKEN_URL_OVERRIDE',
-  'OPENAI_API_KEY',
-  'OPENAI_BASE_URL',
-  'OPENAI_API_BASE',
-  'AZURE_OPENAI_API_KEY',
-  'AZURE_OPENAI_ENDPOINT',
-  'AZURE_OPENAI_AD_TOKEN',
-  // Gemini (Antigravity CLI): API keys, custom endpoints and the Vertex / enterprise / pay-as-you-go
-  // routes bill something other than the Google subscription.
-  'GEMINI_API_KEY',
-  'GOOGLE_API_KEY',
-  'GOOGLE_GEMINI_BASE_URL',
-  'GOOGLE_GENAI_USE_VERTEXAI',
-  'GOOGLE_GENAI_USE_ENTERPRISE',
-  'GOOGLE_APPLICATION_CREDENTIALS',
-  'GOOGLE_CLOUD_PROJECT',
-  'GOOGLE_CLOUD_LOCATION',
-  'AGY_ADC_AUTH',
-  'AGY_BUSINESS_PAYGO_TIER',
-  // NanoGPT: only the NanoGPT adapter hands the key back, as a trusted `extra`, to NanoGPT members.
-  'NANOGPT_API_KEY',
-] as const;
+import { BILLING_ENV_VARS } from '@projectman/shared';
+export { BILLING_ENV_VARS } from '@projectman/shared';
 
 /** Exact names set by a parent Claude Code / Agent SDK session, or that change the TUI. */
 const HOST_SESSION_VARS = new Set([
@@ -83,9 +48,22 @@ const HOST_SESSION_PREFIXES = [
   'PROJECTMAN_',
 ];
 
+/**
+ * Cloudflare Access service-token variables (`CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET`) and the names a
+ * header-environment convention could give them: the integrator's second credential (PM-765). Matched without
+ * regard to case, with `-` read as `_`, so `CF-Access-Client-Secret` and `cf_access_client_secret` go too.
+ */
+const ACCESS_ENV_PREFIXES = ['CF_ACCESS_', 'CLOUDFLARE_ACCESS_'];
+
+function isAccessCredentialName(name: string): boolean {
+  const normal = name.toUpperCase().replace(/-/g, '_');
+  return ACCESS_ENV_PREFIXES.some((prefix) => normal.startsWith(prefix));
+}
+
 function isRemoved(name: string): boolean {
   if ((BILLING_ENV_VARS as readonly string[]).includes(name)) return true;
   if (HOST_SESSION_VARS.has(name)) return true;
+  if (isAccessCredentialName(name)) return true;
   return HOST_SESSION_PREFIXES.some((prefix) => name.startsWith(prefix));
 }
 
@@ -106,7 +84,7 @@ export function buildChildEnv(
 }
 
 /** Hosts that must never go through an HTTP(S) proxy: hooks and the team MCP server live there. */
-export const LOCAL_NO_PROXY = ['127.0.0.1', 'localhost', '::1'] as const;
+const LOCAL_NO_PROXY = ['127.0.0.1', 'localhost', '::1'] as const;
 
 /**
  * Adds the loopback hosts to NO_PROXY and no_proxy, keeping existing entries. Claude Code
@@ -127,28 +105,12 @@ export function withLocalNoProxy(env: Record<string, string>): Record<string, st
 }
 
 /**
- * What a managed VM worker (PM-141) never inherits from the service's environment: a way to act
- * as someone else on the network. The VM has no agent socket and the worker's GitHub identity is
- * its own (PM-142), so none of the service's reaches it, whatever the unit's environment holds.
- */
-const MANAGED_VM_REMOVED_VARS = new Set([
-  'SSH_AUTH_SOCK',
-  'SSH_AGENT_PID',
-  'SSH_ASKPASS',
-  'GIT_ASKPASS',
-  'GH_TOKEN',
-  'GITHUB_TOKEN',
-  'GH_ENTERPRISE_TOKEN',
-  'GITHUB_ENTERPRISE_TOKEN',
-]);
-
-/**
  * Editors that never open a window: git (a rebase's commit message or todo list) and other tools
  * that start `$EDITOR` would otherwise leave Vim waiting on a terminal nobody types into, and the
  * member could not stop it (PM-428). `true` accepts the file as it is. Set last, for every
  * provider, so neither the service's environment nor a parent session can bring an editor back.
  */
-export const NON_INTERACTIVE_EDITOR_ENV = {
+const NON_INTERACTIVE_EDITOR_ENV = {
   GIT_EDITOR: 'true',
   GIT_SEQUENCE_EDITOR: 'true',
   EDITOR: 'true',
@@ -159,7 +121,7 @@ export const NON_INTERACTIVE_EDITOR_ENV = {
 export function buildSessionEnv(
   base: NodeJS.ProcessEnv,
   sessionId: string,
-  opts: { managedVm?: boolean; instanceTag?: string } = {},
+  opts: { instanceTag?: string; scopeId?: string } = {},
 ): Record<string, string> {
   const env = withLocalNoProxy(
     buildChildEnv(base, {
@@ -167,10 +129,10 @@ export function buildSessionEnv(
       COLORTERM: 'truecolor',
       ...NON_INTERACTIVE_EDITOR_ENV,
       PROJECTMAN_SESSION_ID: sessionId,
+      ...(opts.scopeId ? { PROJECTMAN_SCOPE_ID: opts.scopeId } : {}),
       // With the session id it marks every process of the session as this instance's (PM-320).
       ...(opts.instanceTag ? { PROJECTMAN_INSTANCE: opts.instanceTag } : {}),
     }),
   );
-  if (opts.managedVm) for (const name of MANAGED_VM_REMOVED_VARS) delete env[name];
   return env;
 }

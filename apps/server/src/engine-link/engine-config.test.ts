@@ -39,11 +39,73 @@ describe('engine configuration', () => {
     });
   });
 
+  it('keeps the optional keepAwake mode, absent without it, and refuses an unknown one', () => {
+    saveEngineConfig(dir, base());
+    expect(loadEngineConfig(dir).keepAwake).toBeUndefined();
+    saveEngineConfig(dir, base({ keepAwake: 'off' }));
+    expect(loadEngineConfig(dir).keepAwake).toBe('off');
+    expect(() => base({ keepAwake: 'always' })).toThrow();
+  });
+
   it('refuses a file that is not JSON, or that has a field it does not know', () => {
     writeFileSync(path.join(dir, 'engine.json'), '{nope');
     expect(() => loadEngineConfig(dir)).toThrowError(expect.objectContaining({ code: 'config_invalid' }));
     writeFileSync(path.join(dir, 'engine.json'), JSON.stringify({ ...base(), extra: true }));
     expect(() => loadEngineConfig(dir)).toThrowError(expect.objectContaining({ code: 'config_invalid' }));
+  });
+
+  it('keeps the optional mergeBranch of a repo, and refuses an empty one', () => {
+    const repo = { project: 'PM', repo: 'projectman', path: '/work/projectman' };
+    saveEngineConfig(
+      dir,
+      base({
+        repos: [
+          { ...repo, mergeBranch: 'main' },
+          { ...repo, repo: 'other' },
+        ],
+      }),
+    );
+    const loaded = loadEngineConfig(dir);
+    expect(loaded.repos[0]).toMatchObject({ mergeBranch: 'main' });
+    expect(loaded.repos[1]).not.toHaveProperty('mergeBranch');
+    expect(() => base({ repos: [{ ...repo, mergeBranch: '' }] })).toThrow();
+  });
+
+  it.each([
+    [undefined, null],
+    [{ kind: 'none' }, null],
+    [{ kind: 'npm_ci' }, { kind: 'npm_ci', timeoutMs: 600_000 }],
+    [
+      { kind: 'npm_ci', timeoutMs: 1_000 },
+      { kind: 'npm_ci', timeoutMs: 1_000 },
+    ],
+  ])('resolves the optional workspace setup %j', (workspaceSetup, expected) => {
+    const workspace = path.join(dir, 'workspace');
+    const repo = path.join(workspace, 'app');
+    mkdirSync(repo, { recursive: true });
+    const config = base({
+      projects: [{ project: 'PM', workspacePath: workspace }],
+      repos: [{ project: 'PM', repo: 'app', path: repo, ...(workspaceSetup ? { workspaceSetup } : {}) }],
+    });
+    saveEngineConfig(dir, config);
+    expect(loadEngineConfig(dir).schemaVersion).toBe(1);
+    expect(
+      resolveEngineConfig(config, path.join(dir, 'home'), { tmpdir: path.join(dir, 'tmp') }).repos[0]
+        ?.workspaceSetup,
+    ).toEqual(expected);
+  });
+
+  it.each([
+    { kind: 'shell', command: 'npm install' },
+    { kind: 'none', timeoutMs: 1_000 },
+    { kind: 'npm_ci', command: 'npm install' },
+    { kind: 'npm_ci', timeoutMs: 999 },
+    { kind: 'npm_ci', timeoutMs: 1_800_001 },
+    { kind: 'npm_ci', timeoutMs: 1_000.5 },
+  ])('rejects invalid workspace setup %j', (workspaceSetup) => {
+    expect(() =>
+      base({ repos: [{ project: 'PM', repo: 'app', path: '/fixture', workspaceSetup }] }),
+    ).toThrow();
   });
 
   describe('secret files', () => {
@@ -174,6 +236,18 @@ describe('engine configuration', () => {
       );
     });
 
+    it('resolves the own NanoGPT key file and refuses it inside a workspace (PM-1068)', () => {
+      const workspace = path.join(dir, 'work');
+      mkdirSync(workspace);
+      const projects = [{ project: 'PM', workspacePath: workspace }];
+      const resolved = resolve(base({ nanogptKeyFile: path.join(dir, 'keys', 'nanogpt.key') }));
+      expect(resolved.nanogptKeyFile).toBe(path.join(dir, 'keys', 'nanogpt.key'));
+      expect(resolve(base()).nanogptKeyFile).toBeUndefined();
+      expect(() =>
+        resolve(base({ projects, nanogptKeyFile: path.join(workspace, 'nanogpt.key') })),
+      ).toThrowError(expect.objectContaining({ code: 'secret_in_root' }));
+    });
+
     it('refuses a key file or home inside the temporary directory, and inside the engine’s own worktrees', () => {
       const home = path.join(dir, 'home');
       mkdirSync(path.join(tmpdir(), 'x'), { recursive: true });
@@ -191,6 +265,31 @@ describe('engine configuration', () => {
       expect(() => resolveEngineConfig(base(), dir)).toThrowError(
         expect.objectContaining({ code: 'secret_in_root' }),
       );
+    });
+
+    it('accepts an absolute workRoot (PM-846), refuses a relative one, and loads an old file without it', () => {
+      saveEngineConfig(dir, base());
+      expect(loadEngineConfig(dir).workRoot).toBeUndefined();
+      expect(resolve(base()).workRoot).toBeUndefined();
+      const home = path.join(dir, 'home');
+      mkdirSync(home);
+      saveEngineConfig(home, base({ workRoot: path.join(home, 'work') }));
+      expect(loadEngineConfig(home).workRoot).toBe(path.join(home, 'work'));
+      expect(resolve(base({ workRoot: path.join(home, 'work') }), home).workRoot).toBe(
+        path.join(home, 'work'),
+      );
+      expect(() => resolve(base({ workRoot: 'work' }), home)).toThrowError(
+        'invalid engine.json: workRoot must be an absolute path',
+      );
+    });
+
+    it('refuses a key file inside the work root’s worktrees', () => {
+      const home = path.join(dir, 'home');
+      const root = path.join(home, 'work');
+      mkdirSync(path.join(root, 'worktrees'), { recursive: true });
+      expect(() =>
+        resolve(base({ workRoot: root, keyFile: path.join(root, 'worktrees', 'k') }), home),
+      ).toThrowError(expect.objectContaining({ code: 'secret_in_root' }));
     });
 
     it('refuses a key file that reaches a workspace through a symbolic link', () => {

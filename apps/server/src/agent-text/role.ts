@@ -3,7 +3,7 @@ import type { BuiltInRoleId, CustomRoleDefinition } from '@projectman/shared';
 
 /** English names of the built-in roles for prompt text. */
 const ROLE_LABELS: Record<BuiltInRoleId, string> = {
-  operator: 'operator',
+  operator: 'owner',
   product_owner: 'product owner',
   project_manager: 'project manager',
   business_analyst: 'business analyst',

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentSandbox, SessionPolicy } from '../src/contracts';
-import { sensitivePaths, sessionSandbox } from '../src/domain/session-policy';
-import { describeSandbox } from '../src/domain/unattended-commands';
+import { sensitivePaths, sessionSandbox } from '../src/runtime/sessions';
+import { describeSandbox } from '../src/runtime/permissions';
 import { buildSessionPolicy } from './helpers/session-policy';
 import { testConfig } from './helpers/test-template';
 
@@ -102,7 +102,7 @@ describe('describeSandbox: the machine queue', () => {
     allowLocalBinding: true,
   };
   const text = (sandbox: AgentSandbox) =>
-    describeSandbox({ sandbox, cwd: '/fictional/work', localOnly: false }).join('\n');
+    describeSandbox({ sandbox, cwd: '/fictional/work', localOnly: false, details: true }).join('\n');
 
   it('tells the member the heavy runs wait their turn, one at a time, and are best started in the background', () => {
     const out = text({

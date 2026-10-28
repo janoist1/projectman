@@ -1,10 +1,11 @@
 import { routes } from '@projectman/shared';
 import type { Task } from '@projectman/shared';
 import { afterEach, expect, it } from 'vitest';
-import { humanActor } from '../src/domain';
+import { humanActor } from '../src/kernel';
 import { waitFor } from '../src/runner/test-helpers';
 import { createAppHarness, createProject, setupOwner } from './helpers/app-harness';
 import type { CliAppHarness } from './helpers/app-harness';
+import { deferredStartRecords } from './helpers/deferred-starts';
 
 let h: CliAppHarness | undefined;
 afterEach(async () => {
@@ -43,7 +44,7 @@ it(
       what: 'the deferred hand-over',
     });
     expect(waiting).toMatchObject({ reason: 'ai_disabled', member: 'cr' });
-    expect(h.app.projectman.repos.deferredStarts.list().map((r) => r.key)).toEqual(['hand-over:AR:AR-1']);
+    expect(deferredStartRecords(h.app.projectman.repos).map((r) => r.key)).toEqual(['hand-over:AR:AR-1']);
 
     // The server stops and starts again over the same database: the start was not lost.
     await h.restart();

@@ -26,7 +26,8 @@
  * The cards no longer sit by what they wait for (PM-118), so what waits for a person, or is blocked,
  * is told by a stripe on the card's edge.
  */
-.card[data-phase='needs_you']:not(.selected, .compact, .fileTarget) {
+.card[data-phase='needs_you']:not(.selected, .compact, .fileTarget),
+.card[data-phase='stuck']:not(.selected, .compact, .fileTarget) {
   box-shadow:
     var(--shadow-xs),
     inset 3px 0 0 var(--c-needs);
@@ -35,6 +36,21 @@
   box-shadow:
     var(--shadow-xs),
     inset 3px 0 0 var(--c-blocked);
+}
+
+/* A card a person can start now (PM-1079): the green stripe and the ▶ mark tell it from the waiting ones. */
+.card[data-startable]:not(.selected, .compact, .fileTarget) {
+  box-shadow:
+    var(--shadow-xs),
+    inset 3px 0 0 var(--c-ok);
+}
+.card[data-startable] .statusText,
+.startMark {
+  color: var(--c-ok-text);
+}
+.startMark {
+  display: inline-flex;
+  flex-shrink: 0;
 }
 
 .selected,
@@ -172,11 +188,21 @@
   color: var(--c-ink-3);
 }
 
-/* "Senior": the card is a task for the team's Senior (PM-349); text, not only colour. */
-.senior {
-  background: var(--c-accent-bg);
-  color: var(--c-accent-text);
-  animation: pm-fade-in 160ms ease-out;
+.points {
+  min-width: 20px;
+  height: 18px;
+  padding: 0 4px;
+  border: 1px solid var(--c-line);
+  border-radius: 5px;
+  background: var(--c-muted);
+  color: var(--c-ink-2);
+  font-size: var(--text-2xs);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  display: inline-grid;
+  place-items: center;
+  line-height: 1;
+  flex-shrink: 0;
 }
 
 .stageRows {
@@ -241,6 +267,16 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* "Áll: …" (PM-468): the reason wraps in two lines, it is the news of the card. */
+.statusStuck {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  line-height: 1.35;
 }
 
 /* A worker's own sentence (PM-239): the dot and the age sit on the first line, the sentence wraps in two. */

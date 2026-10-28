@@ -91,17 +91,55 @@ describe('task comments API', () => {
     expect(h.runner.started.find((spec) => spec.member === 'cr')?.initialMessage).toContain(text);
   });
 
-  it.each(['viewer', 'client'] as const)('refuses %s access', async (access) => {
-    await h.app.projectman.domain.projects.update(
-      'AR',
-      { actor: OWNER_ACTOR, author: OWNER_LOGIN },
-      (draft) => {
-        const member = draft.team.members.find((member) => member.handle === 'robin')!;
-        if (member.kind === 'human') member.access = access;
-        return 'Change access';
-      },
-    );
-    expect((await comment({ text: 'Comment' }, developer)).statusCode).toBe(403);
+  /** Robin's access, and the project's contacts, as the owner sets them. */
+  const setRobin = (access: 'viewer' | 'client', contacts: string[] = []) =>
+    h.app.projectman.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER_LOGIN }, (draft) => {
+      const member = draft.team.members.find((member) => member.handle === 'robin')!;
+      if (member.kind === 'human') member.access = access;
+      draft.team.contacts = contacts;
+      return 'Change access';
+    });
+
+  it('refuses a viewer', async () => {
+    await setRobin('viewer');
+    const response = await comment({ text: 'Comment' }, developer);
+    expect(response.statusCode).toBe(403);
+    expect(response.json().error.code).toBe('insufficient_access');
+  });
+
+  it('lets a client comment on any card (PM-985)', async () => {
+    await setRobin('client');
+    const response = await comment({ text: 'Looks good' }, developer);
+    expect(response.statusCode).toBe(201);
+    expect(
+      TaskDetail.parse(response.json()).timeline.find((event) => event.type === 'task_note'),
+    ).toMatchObject({ actor: { kind: 'human', handle: 'robin' }, data: { text: 'Looks good' } });
+  });
+
+  it('keeps a client mention of a non-contact in the comment without a notification', async () => {
+    await setRobin('client', ['cr']);
+    const response = await comment({ text: '@owner @cr please look' }, developer);
+    expect(response.statusCode).toBe(201);
+    expect(
+      TaskDetail.parse(response.json()).timeline.find((event) => event.type === 'task_note'),
+    ).toMatchObject({ data: { mentions: ['owner', 'cr'] } });
+    await flush();
+    const messages = h.app.projectman.domain.messages.list('AR');
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({ from: 'robin', to: ['cr'] });
+  });
+
+  it('notifies nobody when a client has no contacts, and still records the comment', async () => {
+    await setRobin('client');
+    expect((await comment({ text: '@owner @cr hello' }, developer)).statusCode).toBe(201);
+    await flush();
+    expect(h.app.projectman.domain.messages.list('AR')).toHaveLength(0);
+    expect(h.runner.started).toHaveLength(0);
+  });
+
+  it('refuses imported history from a client', async () => {
+    await setRobin('client');
+    expect((await comment({ text: 'History', importedAuthor: 'Morgan' }, developer)).statusCode).toBe(403);
   });
 
   it('requires login and membership and resolves tasks within the project', async () => {

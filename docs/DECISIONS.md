@@ -270,7 +270,8 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     merge commit the live instance runs. The GitHub release has the same name and a short English
     summary of what changed, with the card keys. The integrator creates both after the switch,
     once the new build runs. The releases before v2026.10.5.5 were tagged afterwards from the live
-    switch backups, without GitHub releases.
+    switch backups, without GitHub releases. The roadmap update before a release moved from the
+    integrator to the Operator (decision 50).
 36. **The virtual-machine direction is dropped.** Decided by the owner on 2026-10-06 (board
     triage; „felesleges nekünk menedzselni még egy réteget, ha nem elengedhetetlen a rendszer
     futásához”). This supersedes decision 25. The members keep running on the owner's machine in
@@ -335,3 +336,182 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     the AI work runs on an engine on the Mac (PM-286, PM-311 to PM-318). Critical bugs still come
     first; the architect checks the October 4 plans against the current code before development
     starts.
+46. **Each project chooses who moves cards on.** Decided by the owner on 2026-10-10
+    (PM-439, implemented by PM-457). The worker is the default and retains the existing behaviour;
+    alternatively the project manager or a named human moves cards forward. An AI worker's or
+    the system's forward move from work, step or release becomes a hand-on request for that
+    mover: the card stays put and appears in the human's inbox or reaches the project manager
+    as a message. Queue starts, refinement, backward moves and human moves keep their existing
+    rules. Human approval gates keep going to the approver in every mode, and approval advances
+    the card automatically.
+47. **Members merge, never the system.** Decided by the owner on 2026-10-10, overriding the
+    PM-448 plan in which the server merged a card when it entered Done (PM-452). Nothing is
+    merged automatically: a member does it, AI or human. For a developed card, the senior
+    developer or the developer who built the card merges it. "Done means merged" (PM-448)
+    still holds; the system may give the member a tool and check that the work is in the main
+    branch, but it does not merge on its own.
+48. **The board helps, the members work.** Decided by the owner on 2026-10-10 as a principle to
+    decide the details by. The board (the app) records, connects, reminds, checks and enforces
+    the rules (gates, approvals); it never works on the result: it writes no code, merges and
+    pushes nothing, and makes no decision. Every piece of work is done by a member, AI or
+    human, and shows whose it is. Decisions belong to people or to a member a person entrusted
+    with them; the board asks for them and records them. Who does a kind of work is set per
+    project, as a duty in the project's configuration, never fixed in the app: in projectman
+    the senior developer merges (decision 47), another project may choose differently.
+49. **A card's conversation always has a recipient.** Decided by the owner on 2026-10-11
+    (PM-488). When nobody else is on the card (no one works on it, no assignee, no stage owner
+    but the writer), the project manager is the default recipient and passes the message on to
+    the member it is meant for; the screen says so. There is no note without a recipient: it
+    would be mixed up with the card's notes.
+50. **The Operator keeps the decision log and the roadmap.** Decided by the owner on 2026-10-10
+    (PM-447, „Operatoré a sarok és a napló”) and made concrete on 2026-10-11 (PM-388). The
+    Operator writes `docs/DECISIONS.md` and `docs/ROADMAP.md`, in the merge slot, and nobody
+    else changes them on a card branch; this entry is the last one written by hand on a card.
+    It writes down what the owner tells it and what the owner accepts from its offers: „Amit
+    neki mondasz, és amit ő ajánl”, and updates the roadmap „Döntéskor, kérésre és release
+    előtt” (when a decision changes the plan, on request, and before a release). The Operator
+    offers the owner's answers to card questions as decision candidates (PM-496); the owner's
+    yes or no is remembered, so a candidate is not offered twice. This modifies decision 35
+    only in who updates the roadmap before a release.
+51. **The board runs in the cloud.** Decided by the owner on 2026-10-12, so that the board is
+    reachable while the Mac is off. Host: an AWS Lightsail instance (2 GB) running the
+    `deploy/cloud` container, behind Cloudflare Tunnel and Access at chopper.istvan.io (PM-532).
+    A container is a deployment option under `deploy/`; the projectman core does not depend on
+    Docker. The public entrance from the Mac (PM-200, `docs/DEPLOY.md`) is dropped; Fly.io stays
+    only as an alternative.
+52. **Outwardly there is one actor, the Operator.** Decided by the owner on 2026-10-19 (PM-824,
+    PM-782, PM-818): „kifelé egyetlen szereplő van, az »Operátor«. A super mód csak egy belső
+    állapot: épp az integrátor (Claude Code) vezeti-e az Operátort a saját kulcsával.” What says
+    „Integrátor” in the UI, the integrator to-do list, the PM's messages and the prompts says
+    „Operátor”. The integrator's to-do becomes an Operator to-do: the integrator does it when
+    connected (super mode), the Operator AI otherwise, and it reaches the owner only when
+    neither can do it. On to-dos for the Operator, „Nem tudom megcsinálni” becomes „Operátori
+    segítség kérése” (the owner's idea). Refined by decision 54.
+53. **General or PM-specific.** Decided by the owner on 2026-10-20 (PM-850). The PM project
+    develops projectman, but it is only one project among many. What is about how the PM team
+    works in this repository (test style, merge test, repository rules, PM's settings) is
+    PM-specific: it goes into the repository (CLAUDE.md, docs) and PM's project settings. What
+    is about how projectman works for any project is general: it goes into the product code
+    and the templates and prompts. The two must not mix: a PM-specific rule never goes into the
+    templates that apply to every project. Every card and rule is checked for which side it
+    belongs to; a card that mixes them is split or flagged. Example: the „one test per
+    behaviour” rule of PM-850 goes into PM only: „természetesen csak a PM-re! most a PM-mel
+    fejlesztjük a PM-et, de ez ne keveredjen bele – ismerjük fel, hogy mi általános/projekt és
+    mi PM specifikus.”
+54. **One Operator; super is an elevated permission.** Decided by the owner on 2026-10-20
+    (PM-875); refines decision 52. The super and the non-super Operator are one and the same:
+    the Operator inside the app, woken by the system, working its queue (everything that went
+    to the integrator so far) while it has items. Super is not a separate actor but an
+    elevated permission the owner grants and can revoke, for operations the closed environment
+    does not allow (for example access to the owner's machine, deploy, restart, diagnostics),
+    typed and logged, also with an engine in the cloud. Claude Code on the Mac is only a client
+    of the same Operator, not part of the process. The owner's words: „egybe kéne vonni a super
+    és nem super operátort. viszont a super azért kell, hogy olyan műveleteket is végre tudjon
+    hajtani az operátor, amit amúgy nem tudna, pl a gépemhez hozzáfér. ha a felhőbe költözne az
+    engine is, akkor is lenne ez a funkció, mert … megemelt jogosítványokat lehetne
+    biztosítani.”
+    _Refined by decision 55._
+55. **The Operator can do everything; super reaches outside.** Decided by the owner on
+    2026-10-20 (PM-875); refines decision 54. Inside the app the Operator can do everything the
+    owner can, except the most critical actions (deleting members, keys, the project or a
+    repository; the owner's own login and security settings; paid cost, as answered on PM-862).
+    When the owner is away, it runs the system autonomously in the owner's name. Super is an
+    extra layer on top: with permission and instruction it reaches outside its place to the
+    owner's machine, its resources and the owner's rights, for example the owner's command
+    line, like Claude Desktop. The in-app rights do not depend on super. PM-862 and PM-871–873
+    were merged into PM-875 for this. The owner's words: „az Operátor szinte mindenható. ez a
+    lényege. a cél, hogy az Operátoron keresztül mindent tudjak csinálni, illetve ha épp nem
+    vagyok jelen, akkor az Op autonóm módon tudja vinni a rendszert a nevemben, csak a
+    legkritikusabb dolgokat nem csinálhatja.” and „az operátor mindent tudjon ! a super egy
+    extra réteg azért, hogy az operátor ki tudjon nyúlni a helyéről és az én gépem erőforrásait
+    és akár engedéllyel és utasítással az én jogaimmal is élhessen, pl használhassa a
+    parancssoromat, mint a claude desktop !”
+56. **The board is public behind its own login.** Decided by the owner on 2026-10-21 (PM-930).
+    Cloudflare Access is removed from chopper.istvan.io; the board is reached directly and
+    guarded by projectman's own email and password login, without an emailed code. Only the
+    integrator's machine host keeps Access (a service token plus the integrator key). The
+    owner's words: „nem lenne elég egy szokásos email/jelszó ??” and „vedd le az Access-t a
+    chopper.istvan.io-ról, tedd publikussá a táblát”.
+57. **What is in Indulhat starts by itself.** Decided by the owner on 2026-10-22. The project
+    manager starts the cards in Indulhat (ready) when a member is free; nothing is taken from
+    Ötletek (incoming) on its own. When Indulhat is empty, what goes there next is agreed with
+    the owner. The owner's words: „inkább ne az ötletekből vegye elő magától hanem az
+    indulhatból. ami ott van, az mehet fejlesztésre automatikusan. ha kifogy, egyeztetni kell h
+    mi kerüljön oda”.
+58. **Members decide, the system enforces; less is more.** Decided by the owner on 2026-10-23
+    (PM-970, PM-971). As much as possible is left to the members; what the system does is
+    offered to them as tools. Members may create rules, and the system makes sure they are kept,
+    because an AI that understood something well tends to forget it later. What members need to
+    know about the system (their tools, the rules, the members and who does what) is kept as a
+    short list they can look up, in the skill pattern, not as long instructions: for an AI, less
+    is usually more. The owner's words: „a tagokra bízzunk minél több dolgot és ami rendszer, az
+    pedig inkább eszközként legyen biztosított a tagok kezében. a szabályok is a tagok által
+    létrehozhatóak, de a rendszer tartatja be.” and „nem szájbarágósan kell … AI esetében a
+    kevesebb általában több !”
+59. **The client sees everything.** Decided by the owner on 2026-10-25 (PM-79, PM-985). There
+    are no internal cards: a client reads the whole project, its sessions included, and can
+    comment on cards. A client writes messages only to the members enabled for it; in PM this
+    is the project manager only. The owner's words: „szerintem mindent lásson az ügyfél inkább,
+    egyszerűbb és nincs is mit titkolni”, „nem kell belső kártya inkább … legyen egy ügyfél
+    szerep, kommentelni tud és olvasni mindent” and „az ügyfél továbbá írhat azoknak a
+    tagoknak, akinek engedélyezve van (egyelőre csak a PM-nél engedélyezzük)”.
+60. **Email reaches members, and members reach people.** Decided by the owner on 2026-10-25
+    (PM-989). Members may email any person who agreed to it, the owner included („bővítsük,
+    hogy nekem is írhassanak”). Each AI member can have its own mailbox, so mail can be
+    addressed to it directly, and replies too; a mail lands in that member's existing
+    conversation. The addresses are set in the project's email settings („az email beállításnál
+    legyen a postafiók is megadható”). In this installation mail is received on
+    mail.chopper.istvan.io („akkor legyen a mail”).
+61. **Planning is the architects' work.** Decided by the owner on 2026-10-25. The technical
+    plan of a card is made by an architect, not by the lead developer; the planning duty was
+    taken off the lead developer. The owner's words: „nem értem miért a vez. fejlesztő csinálja
+    ! nem ő az architekt”.
+62. **Complexity points instead of a Senior switch.** Decided by the owner on 2026-10-25
+    (PM-1001). A project may turn on complexity points: the fitting member, for example an
+    architect, gives a card a Fibonacci number (1, 2, 3, 5, …), and each developer has a
+    complexity limit, so weaker AI members pick cards they can carry. It is a tool members use,
+    not a project rule. The Senior switch on members goes; the limit is set on developers only.
+    The owner's words: „inkább nem kell a senior kapcsoló a tag-on, helyette valami komplexitási
+    szám beállítás lenne jobb (de csak a fejlesztőknél legyen ez állítható)”.
+63. **The owner does no manual work; the Operator adds lessons itself.** Decided by the owner
+    on 2026-10-25 (PM-1002). The owner is asked for decisions when needed, but is never handed
+    documents to write or commands to run that the Operator or a member can do. Lessons go into
+    `docs/LESSONS.md` without asking the owner, and whoever is responsible acts on a lesson
+    without waiting to be told. Decisions and the roadmap still follow decision 50. This
+    modifies decision 50 for the lessons. The owner's words: „az rendben van ha kérdez tőlem
+    (amennyiben szükséges), de az nincs, h nekem kelljen manuálisan írogatnom doksikat meg
+    futtatnom parancsokat, amiket technikaliag te is tudsz” and „ezt legjobb lenne, ha az
+    illetékes magától megtenni legközelebb, ne nekünk kelljen az ilyet kiszúrni”.
+64. **The project manager speaks like a person.** Decided by the owner on 2026-10-26. The
+    project manager writes in a human, plain-spoken tone that anyone can follow, and still
+    answers technical details in technical language when asked. This is the default of the
+    role when a member is created, in every project; a project may change it, and the project
+    manager learns the people's preferred style as it goes, like the Operator. The owner's
+    words: „a PM alapvetően emberibb hangot üt meg, közérthetően kommunikál, de képes tech
+    nyelven is részletekre válaszolni. Ez alapból legyen a tag létrehozásánál, át lehet írni
+    aki akarja másik projektben, de ugye ez is tanul menet közben hasonlóan az Op-hoz”.
+65. **The project manager runs the project; the Operator is the owner's Swiss army knife.**
+    Decided by the owner on 2026-10-26; refines decisions 52–55. Everything about a project's
+    work (cards, rules, questions, starting and moving work) belongs to the project manager,
+    who is the project's contact in the top right corner, for the owner and for clients. The
+    Operator is like a system administrator: it does little on its own, and helps the owner
+    develop, and bridge missing or broken functionality. It works across all projects, not per
+    project. Whether it stays a fixed in-app member or exists only while the owner is
+    connected (Claude Desktop or Claude Code) is still open; it is planned from what the
+    in-app Operator actually did. The owner's words: „inkább a pm lenne a jobb felső sarokban”,
+    „az operátor inkább teljes globálisan lehetne nem per projekt”, „az operátor az kb egy
+    rendszergazda és magától nem csinál sokat, legalábbis minden ticket szabály stb stb azt a
+    pm-nek kéne. az operátor segít nekem fejleszteni, hibás vagy hiányzó funkcionalitást
+    áthidalni, svájci bicska”.
+66. **No Operator; a connected Claude acts for its person or for a member.** Decided by the
+    owner on 2026-10-27; refines decision 65. There is no separate Operator actor. Members do
+    the project's work; a member may get "machine access" (the name is not final), which lets
+    it put machine tasks (installs, setup) into its owner's queue. Any person may connect their
+    own Claude (Claude Desktop or Claude Code) with their own key: it works the queue of their
+    projects, in the issuing member's name, and on its person's direct instruction in that
+    person's name, with that person's rights. The board's owner has global rights, so their
+    connected Claude reaches every project and the server (deploy, infrastructure). The
+    timeline shows who acted, through which connected Claude, and who approved. The owner's
+    words: „az Op az kizárólag az enyém”, „nem lenne jobb annak, aki kiadta? pl devops?” and,
+    on dropping the word Operator for one notion of a connected Claude: „rendben, ez így
+    sokkal tisztább. én is hajlok a B-re.”

@@ -1,7 +1,7 @@
 import { appendFileSync, mkdirSync, renameSync, rmSync, statSync } from 'node:fs';
 import path from 'node:path';
 
-export interface RotatingFile {
+interface RotatingFile {
   /** Appends `text` (a whole line, with its newline); rotates first when it would pass the size limit. Throws on I/O errors. */
   append(text: string): void;
 }

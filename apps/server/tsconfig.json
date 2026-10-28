@@ -7,8 +7,15 @@
     "src",
     "test",
     "scripts",
+    "../../scripts/administration",
     "../../scripts/migrate",
     "../../scripts/control",
-    "../../scripts/heavy"
+    "../../scripts/heavy",
+    "../../scripts/merge-test",
+    "../../scripts/full-test",
+    "../../scripts/live",
+    "../../scripts/cloud",
+    "../../scripts/release",
+    "../../scripts/projectman"
   ]
 }

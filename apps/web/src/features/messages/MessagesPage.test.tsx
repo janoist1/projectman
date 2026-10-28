@@ -120,6 +120,18 @@ describe('a conversation', () => {
     ).toEqual([expect.stringContaining('AC-21'), expect.stringContaining('AC-22')]);
   });
 
+  it('marks a message that came by e-mail with the subject, in the thread of the member', async () => {
+    const p = mockProject();
+    p.backend.messages = [];
+    const message = p.backend.sendTeamMessage('owner', ['fe-1'], null, 'Mail body');
+    message.email = { emailId: 'eml-1', subject: 'Mail subject', direct: true };
+    p.render(<Pages />, '/p/AC/messages/with/fe-1');
+    const log = await screen.findByRole('log');
+    await within(log).findByText('Mail body');
+    expect(within(log).getByText(t('messages.email.received'))).toBeTruthy();
+    expect(within(log).getByText('Mail subject').tagName).toBe('STRONG');
+  });
+
   it('reads the incoming messages in one request after a moment and keeps the new-messages line', async () => {
     const p = mockProject();
     p.backend.messages = [];
@@ -223,13 +235,14 @@ describe('a conversation', () => {
     expect(await within(thread).findByText('No card')).toBeTruthy();
   });
 
-  it('does not send the project manager to a task session in the empty thread text', async () => {
+  it('says in the empty project manager thread that the Operator handles the daily requests, and marks the distributor', async () => {
     const p = mockProject();
     p.backend.messages = [];
     p.render(<Pages />, '/p/AC/messages/with/pm');
     const thread = await screen.findByRole('region', { name: /Beszélgetés:/ });
-    expect(await within(thread).findByText(t('messages.thread.emptyMarkBody'))).toBeTruthy();
+    expect(await within(thread).findByText(t('pm.emptyThread'))).toBeTruthy();
     expect(within(thread).queryByText(t('messages.thread.emptyBody'))).toBeNull();
+    expect(within(thread).getByText(t('pm.distributor'))).toBeTruthy();
   });
 
   it('shows an open question of the member in the thread and answers it there', async () => {
@@ -342,6 +355,77 @@ describe('a conversation', () => {
     expect(screen.queryByRole('button', { name: t('messages.new') })).toBeNull();
     expect(screen.queryByRole('button', { name: t('common.send') })).toBeNull();
     expect(screen.getByText(t('messages.composer.readOnly'))).toBeTruthy();
+  });
+});
+
+/** Kata, a client, with the given contacts: she writes to them alone (PM-985). */
+function asClient(p: ReturnType<typeof mockProject>, contacts: string[]) {
+  p.backend.viewerHandle = 'kata';
+  p.backend.config.team.contacts = contacts;
+  const me = { ...p.context.me, projects: [{ ...p.context.me.projects[0]!, access: 'client' as const }] };
+  return { me, myHandle: 'kata', can: { createTasks: false, manageTeam: false, workInSessions: false } };
+}
+
+describe('a member who writes only to the contacts', () => {
+  it('offers only the contacts as recipients, and sends to one', async () => {
+    const p = mockProject();
+    p.backend.messages = [];
+    p.render(<Pages />, '/p/AC/messages', asClient(p, ['fe-1']));
+    fireEvent.click(await screen.findByRole('button', { name: t('messages.new') }));
+    const dialog = within(await screen.findByRole('dialog'));
+    expect(await dialog.findByRole('checkbox', { name: /Frontend fejlesztő/ })).toBeTruthy();
+    expect(dialog.getAllByRole('checkbox')).toHaveLength(1);
+    fireEvent.change(dialog.getByLabelText(t('messages.text')), { target: { value: 'Acme question' } });
+    fireEvent.click(dialog.getByRole('button', { name: t('messages.send') }));
+    await waitFor(() => expect(p.backend.messages.at(-1)).toMatchObject({ from: 'kata', to: ['fe-1'] }));
+  });
+
+  it('has no way to write at all while the project has no contacts', async () => {
+    const p = mockProject();
+    p.backend.messages = [];
+    p.backend.inbox.length = 0;
+    p.render(<Pages />, '/p/AC/messages', asClient(p, []));
+    await screen.findByText(t('messages.list.noContactsTitle'));
+    expect(screen.queryByRole('button', { name: t('messages.new') })).toBeNull();
+    expect(screen.queryByRole('button', { name: t('common.send') })).toBeNull();
+  });
+
+  it('reads an old thread of a non-contact, with the contacts to turn to instead of a reply box', async () => {
+    const p = mockProject();
+    p.backend.messages = [];
+    p.backend.sendTeamMessage('qa', ['kata'], null, 'Acme old question');
+    p.render(<Pages />, '/p/AC/messages/with/qa', asClient(p, ['fe-1']));
+    await within(await screen.findByRole('log')).findByText('Acme old question');
+    expect(screen.queryByRole('button', { name: t('common.send') })).toBeNull();
+    const note = await screen.findByRole('note');
+    expect(
+      within(note)
+        .getByRole('link', { name: /Frontend fejlesztő/ })
+        .getAttribute('href'),
+    ).toBe('/p/AC/messages/with/fe-1');
+  });
+
+  it('answers everyone only when every other party is a contact', async () => {
+    const p = mockProject();
+    p.backend.messages = [];
+    p.backend.sendTeamMessage('fe-1', ['kata', 'qa'], null, 'Acme group question');
+    p.render(<Pages />, '/p/AC/messages/with/fe-1', asClient(p, ['fe-1']));
+    await within(await screen.findByRole('log')).findByText('Acme group question');
+    expect(screen.queryByRole('button', { name: t('messages.thread.replyAll') })).toBeNull();
+  });
+
+  it('refuses a message to a non-contact in the fake like the server does', async () => {
+    const p = mockProject();
+    asClient(p, ['fe-1']);
+    const refused = p.backend.handle('POST', '/api/projects/AC/messages', {
+      to: ['fe-1', 'qa'],
+      text: 'Hello',
+    });
+    expect(refused).toMatchObject({
+      status: 403,
+      body: { error: { code: 'recipient_not_contact', details: { recipients: ['qa'] } } },
+    });
+    expect(p.backend.messages.some((message) => message.from === 'kata')).toBe(false);
   });
 });
 

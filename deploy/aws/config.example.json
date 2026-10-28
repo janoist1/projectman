@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "aws": {
+    "compute": "ec2",
+    "profile": "aroom",
+    "region": "eu-central-1",
+    "instanceName": "projectman-cloud",
+    "ec2": {
+      "architecture": "arm64",
+      "instanceType": "t4g.micro",
+      "amiId": "CHOOSE-CANONICAL-UBUNTU-24.04-ARM64-AMI",
+      "vpcId": "CHOOSE-EXISTING-VPC",
+      "subnetId": "CHOOSE-PUBLIC-SUBNET",
+      "volumeGiB": 20
+    },
+    "databaseBucket": "CHANGE-ME-projectman-db",
+    "backupBucket": "CHANGE-ME-projectman-backup"
+  },
+  "deployment": { "imageBundle": "./images/accepted-sha" },
+  "repository": {
+    "url": "https://github.com/janoist1/projectman.git"
+  },
+  "cloudflare": {
+    "zone": "istvan.io",
+    "hostname": "chopper.istvan.io",
+    "feedbackHostname": "feedback.istvan.io",
+    "integratorHostname": "CHOOSE-INTEGRATOR-HOSTNAME"
+  },
+  "access": {
+    "emails": ["owner@example.com"],
+    "sessionDuration": "24h",
+    "integratorServiceToken": true,
+    "boardMode": "private"
+  },
+  "route53": { "profile": "i" },
+  "ses": {
+    "profile": "i",
+    "region": "eu-west-1",
+    "domain": "istvan.io",
+    "from": "CHOOSE-SENDER@istvan.io",
+    "inbound": { "replyDomain": "reply.istvan.io" }
+  }
+}

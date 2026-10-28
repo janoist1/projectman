@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BoardView, Me, MemberView, ServerEvent } from '@projectman/shared';
 import type { AgentProvider } from '@projectman/shared';
+import { PlanUsageMonitor } from '../src/runtime/usage';
 import { cookieOf, createAppHarness, createProject, inject, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 import { OWNER, OWNER_ACTOR } from './helpers/domain-harness';
@@ -11,9 +12,10 @@ describe('board API', () => {
   let cookie: string;
   let refreshUsage: () => void;
   beforeEach(async () => {
-    const intervals = vi.spyOn(globalThis, 'setInterval');
-    h = await createAppHarness();
-    refreshUsage = intervals.mock.calls.find((call) => call[1] === 60_000)![0] as () => void;
+    const starts = vi.spyOn(PlanUsageMonitor.prototype, 'start');
+    h = await createAppHarness({ app: { claudeTmpRoots: [] } });
+    const monitor = starts.mock.contexts[0] as PlanUsageMonitor;
+    refreshUsage = () => monitor.refresh();
     cookie = await setupOwner(h.app);
     await createProject(h, cookie);
   });
@@ -45,8 +47,6 @@ describe('board API', () => {
         { name: 'Fictional reader', password: 'correct horse battery' },
       );
       const login = cookieOf(accepted);
-      if (access === 'client')
-        expect((await inject(h.app, 'GET', '/api/projects/AR/config', login)).statusCode).toBe(403);
       const board = BoardView.parse((await inject(h.app, 'GET', '/api/projects/AR/board', login)).json());
       expect(MemberView.parse(board.members.find((m) => m.handle === member.handle))).toMatchObject({
         model: 'fictional-model',
@@ -60,19 +60,11 @@ describe('board API', () => {
     },
   );
 
-  it('sends a client no key of an internal card an AI member works on, on the board, the member list and the profile (PM-244)', async () => {
+  it('sends a client the keys of the cards an AI member works on, on the board, the member list and the profile (PM-79)', async () => {
     const { domain } = h.app.projectman;
     const member = await domain.members.hire('AR', { role: 'qa' }, by);
-    const internal = await domain.tasks.create(
-      'AR',
-      { title: 'Internal job', visibility: 'internal' },
-      OWNER_ACTOR,
-    );
-    const shared = await domain.tasks.create(
-      'AR',
-      { title: 'Shared job', visibility: 'shared' },
-      OWNER_ACTOR,
-    );
+    const internal = await domain.tasks.create('AR', { title: 'Internal job' }, OWNER_ACTOR);
+    const shared = await domain.tasks.create('AR', { title: 'Shared job' }, OWNER_ACTOR);
     for (const task of [internal, shared]) {
       const { session } = await domain.sessions.ensureSession('AR', member.handle, {
         type: 'task',
@@ -103,19 +95,15 @@ describe('board API', () => {
     expect(workKeys(ownerMember).sort()).toEqual([internal.key, shared.key].sort());
     expect(ownerMember?.currentTaskKeys).toContain(internal.key);
     const clientMember = clientBoard.members.find((m) => m.handle === member.handle);
-    expect(workKeys(clientMember)).toEqual([shared.key]);
-    expect(clientMember?.currentTaskKeys).toEqual([shared.key]);
-    expect(JSON.stringify(clientBoard)).not.toContain(internal.key);
+    expect(workKeys(clientMember).sort()).toEqual([internal.key, shared.key].sort());
+    expect(clientMember?.currentTaskKeys).toEqual(ownerMember?.currentTaskKeys);
 
     const clientList = (await get('members', login)) as MemberView[];
     const clientListed = clientList.find((m) => m.handle === member.handle);
-    expect(workKeys(clientListed)).toEqual([shared.key]);
-    expect(clientListed?.currentTaskKeys).toEqual([shared.key]);
-    const ownerList = (await get('members', cookie)) as MemberView[];
-    expect(workKeys(ownerList.find((m) => m.handle === member.handle))).toHaveLength(2);
+    expect(workKeys(clientListed)).toHaveLength(2);
 
     const clientProfile = JSON.stringify(await get(`members/${member.handle}/profile`, login));
-    expect(clientProfile).not.toContain(internal.key);
+    expect(clientProfile).toContain(internal.key);
     expect(clientProfile).toContain(shared.key);
   });
 

@@ -2,17 +2,12 @@ import clsx from 'clsx';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { isUnreadBy, PROJECT_MANAGER_ROLE } from '@projectman/shared';
 import type { InboxItem, ResolveInboxRequest, RoleView, TeamMessage } from '@projectman/shared';
-import {
-  useBoard,
-  useConversation,
-  useInbox,
-  useReadTeamMessages,
-  useResolveInbox,
-  useSendTeamMessage,
-} from '../../api/queries';
+import { useBoard, useConversation, useInbox, useReadTeamMessages, useResolveInbox } from '../../api/queries';
 import { useProject, useProjectIndexes } from '../../app/contexts';
 import { Avatar } from '../../components/Avatar';
+import { ActorName } from '../../components/ActorName';
 import { Button, ButtonLink } from '../../components/Button';
+import { Chip } from '../../components/Chip';
 import { ErrorBanner } from '../../components/ErrorBanner';
 import { LeaveChip } from '../../components/LeaveChip';
 import { Markdown } from '../../components/Markdown';
@@ -22,7 +17,7 @@ import { formatTime } from '../../i18n/format';
 import { joinNames, t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
 import { inboxHeading, optionLabel } from '../../lib/inbox';
-import { nameOf, namesOf, roleLabel } from '../../lib/members';
+import { isOwnActor, recordActor, nameOf, namesOf, roleLabel } from '../../lib/members';
 import { useIsMobile } from '../../lib/hooks';
 import { InboxCard } from '../inbox/InboxCard';
 import { Composer } from '../session/Composer';
@@ -34,9 +29,17 @@ import {
   threadItems,
 } from './conversations';
 import type { ThreadEntry } from './conversations';
+import { ContactNote } from './ContactNote';
 import { DeliveryStatus } from './DeliveryStatus';
+import { EmailMessageHead } from './EmailMessageHead';
+import { useContacts } from './useContacts';
 import { TaskChip } from './TaskChip';
 import styles from './ConversationThread.module.css';
+import { MessageAttachments } from './MessageAttachments';
+import { useMessageAttachmentUploads } from './useMessageAttachmentUploads';
+import { useCardBusySend } from './useCardBusySend';
+import { useFileDrop } from '../board/useFileDrop';
+import attachmentStyles from './MessageAttachments.module.css';
 
 /** An opened thread marks its incoming messages read after this long, so a glance in passing does not. */
 export const READ_AFTER_MS = 1000;
@@ -78,15 +81,27 @@ export function ConversationThread({
   const conversation = useConversation(key, peer);
   const resolve = useResolveInbox(key, myHandle);
   const readMessages = useReadTeamMessages(key);
-  const send = useSendTeamMessage(key);
+  const {
+    mutation: send,
+    send: sendConfirmed,
+    dialog: cardBusyDialog,
+  } = useCardBusySend(key, () => composerBox.current?.querySelector('textarea') ?? null);
   const toast = useToast();
   const isMobile = useIsMobile();
+  const uploads = useMessageAttachmentUploads(key);
   const visible = useDocumentVisible();
   const member = members.get(peer);
+  const quotaWaiting = member?.kind === 'ai' ? member.quotaWaiting : undefined;
+  const quotaUntil = quotaWaiting?.until;
   // The project manager has one conversation (PM-434): a card only marks the message, it never picks a thread.
   const marksOnly = member?.kind === 'ai' && member.role === PROJECT_MANAGER_ROLE && !member.temp;
   const access = me.projects.find((p) => p.key === key)?.access;
-  const canSend = Boolean(access && ['owner', 'admin', 'developer', 'client'].includes(access));
+  const contacts = useContacts();
+  // A member who writes only to the contacts reads this thread but cannot answer in it (PM-985).
+  const canSend =
+    Boolean(access && ['owner', 'admin', 'developer', 'client'].includes(access)) &&
+    contacts.canWriteTo(peer);
+  const writesOnlyToContacts = contacts.restricted && contacts.ready && !contacts.canWriteTo(peer);
 
   const titles = useMemo(
     () => new Map((board.data?.tasks ?? []).map((task) => [task.key, task.title])),
@@ -145,7 +160,7 @@ export function ConversationThread({
     }
     if (stick.current) box.scrollTop = box.scrollHeight;
     else if (lastIsIncoming) setPill(true);
-  }, [entries.length, ready, lastIsIncoming]);
+  }, [entries.length, ready, lastIsIncoming, quotaWaiting]);
 
   const jumpToEnd = () => {
     const box = scroller.current;
@@ -170,11 +185,12 @@ export function ConversationThread({
     setTaskChoice(message.taskKey ?? '');
     composerBox.current?.querySelector('textarea')?.focus();
   };
+  const othersOf = (message: TeamMessage) =>
+    [...new Set([message.from, ...message.to])].filter((handle) => handle !== myHandle);
   const replyAll = (message: TeamMessage) =>
-    onCompose({
-      to: [...new Set([message.from, ...message.to])].filter((handle) => handle !== myHandle),
-      task: message.taskKey ?? '',
-    });
+    onCompose({ to: othersOf(message), task: message.taskKey ?? '' });
+  // "Mindenkinek" only when every other party can be written to.
+  const canReplyAll = (message: TeamMessage) => othersOf(message).every(contacts.canWriteTo);
 
   const answer = (item: InboxItem, body: ResolveInboxRequest) =>
     resolve.mutate({ item, body }, { onError: () => toast.show(t('inbox.resolveFailed'), 'error') });
@@ -186,6 +202,11 @@ export function ConversationThread({
   const gone = Boolean(board.data) && !member;
   const unknown = gone && conversation.isSuccess && entries.length === 0;
   const retired = member?.status === 'retired' || gone;
+  const fileDrop = useFileDrop({
+    allowed: canSend && !retired && !send.isPending && !isMobile,
+    onFiles: uploads.add,
+    isolate: true,
+  });
   const headName = useRef<HTMLDivElement>(null);
   // On a phone the thread is a page of its own: the focus goes to its title.
   useEffect(() => {
@@ -216,6 +237,7 @@ export function ConversationThread({
             projectKey={key}
             titles={titles}
             canSend={canSend}
+            canReplyAll={canReplyAll(item.message)}
             onReply={reply}
             onReplyAll={replyAll}
           />
@@ -266,7 +288,17 @@ export function ConversationThread({
   }
 
   return (
-    <section className={styles.thread} aria-label={t('messages.thread.label', { name })}>
+    <section
+      className={styles.thread}
+      aria-label={t('messages.thread.label', { name })}
+      data-message-composer
+      {...fileDrop.props}
+    >
+      {fileDrop.state && !isMobile ? (
+        <div className={attachmentStyles.drop} role="status">
+          {t('attachments.dropActive')}
+        </div>
+      ) : null}
       <header className={styles.head}>
         {isMobile ? (
           <ButtonLink
@@ -284,7 +316,17 @@ export function ConversationThread({
             <span className={styles.nameText}>{name}</span>
             <LeaveChip member={member} />
           </div>
-          <div className={styles.role}>{roleLabel(member, roles)}</div>
+          <div className={styles.role}>
+            {roleLabel(member, roles)}
+            {marksOnly ? (
+              <>
+                {' '}
+                <Chip tone="accent" title={t('pm.distributorTitle')}>
+                  {t('pm.distributor')}
+                </Chip>
+              </>
+            ) : null}
+          </div>
         </div>
         {member ? (
           <ButtonLink to={`/p/${key}/team/${peer}`} variant="ghost" size="sm">
@@ -319,12 +361,21 @@ export function ConversationThread({
                 <p className={styles.emptyBody}>
                   {member?.kind === 'human'
                     ? t('messages.thread.emptyHuman')
-                    : t(marksOnly ? 'messages.thread.emptyMarkBody' : 'messages.thread.emptyBody')}
+                    : marksOnly
+                      ? t('pm.emptyThread')
+                      : t('messages.thread.emptyBody')}
                 </p>
               </div>
             ) : (
               entries.map(renderEntry)
             )}
+            {quotaWaiting ? (
+              <p className={styles.answered} role="status">
+                {quotaUntil && Date.parse(quotaUntil) > Date.now()
+                  ? t('messages.thread.quotaWaiting', { time: formatTime(quotaUntil) })
+                  : t('messages.thread.quotaWaitingUnknown')}
+              </p>
+            ) : null}
           </div>
           {pill ? (
             <Button
@@ -342,6 +393,8 @@ export function ConversationThread({
 
       {retired ? (
         <p className={styles.readOnly}>{t('messages.thread.retiredMember')}</p>
+      ) : contacts.restricted && !contacts.ready ? null : writesOnlyToContacts ? (
+        <ContactNote className={styles.readOnly} />
       ) : canSend ? (
         <div className={styles.composer} ref={composerBox}>
           {send.error ? (
@@ -388,14 +441,27 @@ export function ConversationThread({
             ) : null}
           </div>
           <Composer
+            attachments={uploads}
             autoFocus={!isMobile && ready && entries.length === 0}
             label={t('messages.composer.label', { name })}
             placeholder={t('messages.composer.placeholder')}
             disabled={send.isPending}
             onSend={(text) =>
-              send.mutateAsync({ to: [peer], text, ...(task ? { taskKey: task } : {}) }).then(() => undefined)
+              sendConfirmed({
+                to: [peer],
+                text,
+                ...(uploads.items.length
+                  ? {
+                      attachmentIds: uploads.items.flatMap((item) =>
+                        item.attachment ? [item.attachment.id] : [],
+                      ),
+                    }
+                  : {}),
+                ...(task ? { taskKey: task } : {}),
+              }).then(() => undefined)
             }
           />
+          {cardBusyDialog}
         </div>
       ) : (
         <p className={styles.readOnly}>{t('messages.composer.readOnly')}</p>
@@ -423,6 +489,7 @@ function MessageBubble({
   projectKey,
   titles,
   canSend,
+  canReplyAll,
   onReply,
   onReplyAll,
 }: {
@@ -434,10 +501,11 @@ function MessageBubble({
   projectKey: string;
   titles: ReadonlyMap<string, string>;
   canSend: boolean;
+  canReplyAll: boolean;
   onReply: (message: TeamMessage) => void;
   onReplyAll: (message: TeamMessage) => void;
 }) {
-  const mine = message.from === myHandle;
+  const mine = isOwnActor(recordActor(message), myHandle);
   const unread = !mine && isUnreadBy(message, myHandle);
   // Who else got it: a group message is in every recipient's thread, marked with the others.
   const also = message.to.filter((handle) => handle !== myHandle && handle !== peer);
@@ -455,21 +523,35 @@ function MessageBubble({
       {mine ? null : (
         <span className={styles.avatarSlot}>
           {entry.firstOfRun ? (
-            <Avatar member={members.get(peer)} handle={peer} via={message.via} size="md" />
+            <Avatar
+              actor={recordActor(message)}
+              member={members.get(message.from)}
+              handle={message.from}
+              via={message.via}
+              size="md"
+            />
           ) : null}
         </span>
       )}
       <div className={styles.col}>
         {message.via || (!mine && entry.firstOfRun) ? (
           <span className={styles.sender}>
-            {message.via ? t('involvement.integratorFull') : nameOf(message.from, members, myHandle)}
+            <ActorName
+              actor={recordActor(message)}
+              members={members}
+              myHandle={myHandle}
+              projectKey={projectKey}
+              showApproval={false}
+            />
           </span>
         ) : null}
         {entry.showTask && message.taskKey ? (
           <TaskChip projectKey={projectKey} taskKey={message.taskKey} title={titles.get(message.taskKey)} />
         ) : null}
         <div className={styles.bubble}>
-          <Markdown text={message.body} />
+          {message.email ? <EmailMessageHead email={message.email} /> : null}
+          {message.body.trim() ? <Markdown text={message.body} /> : null}
+          <MessageAttachments files={message.attachments ?? []} from={message.from} />
         </div>
         <div className={styles.meta}>
           <time dateTime={message.createdAt}>{formatTime(message.createdAt)}</time>
@@ -485,7 +567,7 @@ function MessageBubble({
               <Button size="sm" variant="ghost" onClick={() => onReply(message)}>
                 {t('messages.reply')}
               </Button>
-              {also.length > 0 ? (
+              {also.length > 0 && canReplyAll ? (
                 <Button size="sm" variant="ghost" onClick={() => onReplyAll(message)}>
                   {t('messages.thread.replyAll')}
                 </Button>

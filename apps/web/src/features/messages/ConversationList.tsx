@@ -7,9 +7,10 @@ import { Chip } from '../../components/Chip';
 import { LeaveChip } from '../../components/LeaveChip';
 import { formatAge, formatTime } from '../../i18n/format';
 import { t } from '../../i18n/t';
-import { nameOf, roleLabel } from '../../lib/members';
+import { actorLabel, recordActor, nameOf, roleLabel } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
-import { plainPreview } from './conversations';
+import { attachmentPreview, plainPreview } from './conversations';
+import { Icon } from '../../components/Icon';
 import type { ConversationRow } from './conversations';
 import styles from './ConversationList.module.css';
 
@@ -32,6 +33,8 @@ export interface ConversationListProps {
   questionTitles: ReadonlyMap<string, string>;
   /** First use: no conversation anywhere yet. */
   intro: boolean;
+  /** The first-use text of a member who writes only to the contacts (PM-985); the default otherwise. */
+  introText?: { title: string; body: string };
   /** The member whose row takes the focus when the list opens. */
   focusPeer?: string | null;
 }
@@ -47,6 +50,7 @@ export function ConversationList({
   selected,
   questionTitles,
   intro,
+  introText,
   focusPeer = null,
 }: ConversationListProps) {
   const href = (peer: string) => `/p/${projectKey}/messages/with/${peer}`;
@@ -67,20 +71,25 @@ export function ConversationList({
     <nav ref={nav} className={styles.list} aria-label={t('messages.list.label')}>
       {intro ? (
         <div className={styles.intro}>
-          <h2 className={styles.introTitle}>{t('messages.list.introTitle')}</h2>
-          <p className={styles.introBody}>{t('messages.list.introBody')}</p>
+          <h2 className={styles.introTitle}>{introText?.title ?? t('messages.list.introTitle')}</h2>
+          <p className={styles.introBody}>{introText?.body ?? t('messages.list.introBody')}</p>
         </div>
       ) : null}
       {rows.map((row) => {
         const member = members.get(row.peer);
         const name = nameOf(row.peer, members, myHandle);
         const message = row.lastMessage;
+        const preview = message
+          ? message.body.trim()
+            ? plainPreview(message.body)
+            : attachmentPreview(message)
+          : '';
         const text = message
           ? message.via
-            ? `${t('involvement.integrator')}: ${plainPreview(message.body)}`
+            ? `${actorLabel(recordActor(message), members, myHandle)}: ${preview}`
             : message.from === myHandle
-              ? t('messages.list.you', { text: plainPreview(message.body) })
-              : plainPreview(message.body)
+              ? t('messages.list.you', { text: preview })
+              : preview
           : (questionTitles.get(row.peer) ?? '');
         const label = [
           name,
@@ -104,7 +113,12 @@ export function ConversationList({
               <LeaveChip member={member} />
             </span>
             <span className={styles.time}>{rowTime(row.lastAt)}</span>
-            <span className={styles.preview}>{text}</span>
+            <span className={styles.preview}>
+              {message && !message.body.trim() && message.attachments?.length ? (
+                <Icon name="paperclip" size={12} />
+              ) : null}
+              {text}
+            </span>
             <span className={styles.marks}>
               {row.asks ? <Chip tone="needs">{t('messages.list.asks')}</Chip> : null}
               {row.unreadCount ? (

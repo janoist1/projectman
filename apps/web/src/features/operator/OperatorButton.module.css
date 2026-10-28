@@ -1,0 +1,187 @@
+.button {
+  height: 40px;
+  box-sizing: border-box;
+  padding: 0 12px 0 8px;
+  border: 0;
+  border-radius: 11px;
+  background: var(--c-muted);
+  color: var(--c-ink-2);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  font: inherit;
+  font-weight: 700;
+  font-size: var(--text-md);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.button:hover {
+  background: var(--c-muted-hover);
+  color: var(--c-ink);
+}
+
+.open {
+  background: var(--c-accent-bg);
+  color: var(--c-accent-text);
+}
+
+.button:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+}
+
+/* The phone header's icon: a 44px touch target with the avatar only. */
+.phone {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  justify-content: center;
+  border-radius: 12px;
+}
+
+/* A card's head: the size of its other icon buttons. */
+.drawer {
+  width: 40px;
+  padding: 0;
+  justify-content: center;
+}
+
+.avatar {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.dot {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  width: 10px;
+  height: 10px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  border: 2px solid var(--c-surface);
+}
+
+.dot_available {
+  background: var(--c-ok);
+}
+
+.dot_working {
+  background: var(--c-accent);
+  animation: operator-dot-pulse 1.4s ease-in-out infinite;
+}
+
+.dot_waiting {
+  background: var(--c-ink-4);
+}
+
+/* A reply the viewer has not seen, while the panel is closed. */
+.newReply {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--c-accent);
+  border: 2px solid var(--c-surface);
+}
+
+/* The owner's open signals: a number on the avatar; it shakes once (600 ms) when it appears. */
+.signals {
+  position: absolute;
+  top: -6px;
+  right: -8px;
+  min-width: 16px;
+  height: 16px;
+  box-sizing: border-box;
+  padding: 0 4px;
+  border-radius: 8px;
+  border: 2px solid var(--c-surface);
+  background: var(--c-needs);
+  color: var(--c-surface);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 12px;
+  text-align: center;
+  animation: operator-signals-shake 600ms ease-in-out 1;
+}
+
+/* The length of the Operator's queue, when no signal waits for the viewer: the signals' badge is theirs. */
+.queued {
+  position: absolute;
+  top: -6px;
+  right: -8px;
+  min-width: 16px;
+  height: 16px;
+  box-sizing: border-box;
+  padding: 0 4px;
+  border-radius: 8px;
+  border: 2px solid var(--c-surface);
+  background: var(--c-accent);
+  color: var(--c-surface);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 12px;
+  text-align: center;
+}
+
+.narrow {
+  display: none;
+}
+
+@keyframes operator-signals-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20%,
+  60% {
+    transform: translateX(-2px);
+  }
+  40%,
+  80% {
+    transform: translateX(2px);
+  }
+}
+
+@keyframes operator-dot-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+/* The label sheds width in steps: name, then "Op", then the avatar only. */
+@media (max-width: 1499px) {
+  .wide {
+    display: none;
+  }
+
+  .narrow {
+    display: inline;
+  }
+}
+
+@media (max-width: 900px) {
+  .narrow {
+    display: none;
+  }
+
+  .button:not(.phone) {
+    padding: 0 8px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dot_working,
+  .signals {
+    animation: none;
+  }
+}

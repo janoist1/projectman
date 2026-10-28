@@ -2,10 +2,22 @@ import type { ReactNode } from 'react';
 
 /** Stroke icons on a 24×24 grid, drawn after the mockups. Always decorative (aria-hidden). */
 const icons = {
+  refresh: (
+    <>
+      <path d="M20 7v5h-5M4 17v-5h5" />
+      <path d="M6 7a7 7 0 0 1 12-1l2 3M4 15l2 3a7 7 0 0 0 12-1" />
+    </>
+  ),
   alertCircle: (
     <>
       <circle cx="12" cy="12" r="9" />
       <path d="M12 7v6M12 17h.01" />
+    </>
+  ),
+  ban: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M5.6 5.6l12.8 12.8" />
     </>
   ),
   activity: <path d="M2 12h5l3-8 4 16 3-8h5" />,
@@ -45,6 +57,13 @@ const icons = {
     </>
   ),
   messages: <path d="M20.5 11.6a8 8 0 0 1-11.7 7.1L4 20l1.3-4.4a8 8 0 1 1 15.2-4z" />,
+  /** A map pin: the feedback marks (PM-511). */
+  pin: (
+    <>
+      <path d="M12 21s6.5-5.6 6.5-11a6.5 6.5 0 0 0-13 0c0 5.4 6.5 11 6.5 11z" />
+      <circle cx="12" cy="10" r="2.3" />
+    </>
+  ),
   map: (
     <>
       <path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2z" />
@@ -104,6 +123,26 @@ const icons = {
     <>
       <path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 1.5h-15z" />
       <path d="M10 20.5a2.2 2.2 0 0 0 4 0" />
+    </>
+  ),
+  /** A bell with a stroke through it: notifications are off (PM-815). */
+  bellOff: (
+    <>
+      <path d="M8.2 5.2A6 6 0 0 1 18 11v4.2M6 11v5.5L4.5 18H15" />
+      <path d="M10 20.5a2.2 2.2 0 0 0 4 0" />
+      <path d="M4 4l16 16" />
+    </>
+  ),
+  laptop: (
+    <>
+      <rect x="5" y="5" width="14" height="10" rx="1.5" />
+      <path d="M3 19h18" />
+    </>
+  ),
+  phone: (
+    <>
+      <rect x="7" y="3" width="10" height="18" rx="2" />
+      <path d="M11 18h2" />
     </>
   ),
   arrowRight: (
@@ -321,6 +360,13 @@ const icons = {
       <path d="M4.5 6.5h.01" />
       <path d="M4.5 12h.01" />
       <path d="M4.5 17.5h.01" />
+    </>
+  ),
+  /** A plug: a step made through a connected Claude (decision 66). */
+  plug: (
+    <>
+      <path d="M12 22v-5M9 8V2M15 8V2" />
+      <path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8z" />
     </>
   ),
   sparkle: <path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9-1.9 5.1-1.9-5.1-5.1-1.9 5.1-1.9z" />,

@@ -21,6 +21,7 @@ async function fixture(version = '0.159.1') {
     env: { PATH: process.env.PATH, HOME: home, CODEX_HOME: home, FAKE_CODEX_VERSION: version },
     ambientConfig: { codexUser: user, codexManaged: [] },
     publicBaseUrl: 'http://127.0.0.1:1',
+    sessionConfigRoot: path.join(await dirs.make(), 'run'),
     permissionTimeoutMs: 1_000,
     broker: { decide: async () => ({ behavior: 'deny' as const }) },
     logger: silentLogger(),
@@ -42,6 +43,26 @@ async function fixture(version = '0.159.1') {
 }
 
 describe('fail-closed Codex start', () => {
+  it.each(['claude', 'codex'] as const)(
+    'reports a missing %s CLI as unusable with an empty PATH',
+    async (provider) => {
+      const { options } = await fixture();
+      const runner = createRunnerModule({
+        ...options,
+        claudeBin: 'missing-claude',
+        codexBin: 'missing-codex',
+        env: { PATH: '' },
+      }).runner;
+      try {
+        expect(await runner.providerStatus!(provider)).toMatchObject({
+          loggedIn: false,
+          problem: 'cli_missing',
+        });
+      } finally {
+        await runner.shutdown();
+      }
+    },
+  );
   it('refuses an unknown CLI installation inside the denied Codex home', async () => {
     const { options, spec, home } = await fixture();
     const adapter = createCodexAdapter({ ...options, bin: FAKE_CODEX });
@@ -51,6 +72,7 @@ describe('fail-closed Codex start', () => {
         spec,
         cliPath,
         hookUrl: 'http://127.0.0.1:1/hooks/fictional',
+        sessionConfigDir: await dirs.make(),
         permissionTimeoutMs: 1000,
       }),
     ).rejects.toMatchObject({
@@ -126,6 +148,7 @@ describe('fail-closed Codex start', () => {
     const command = await adapter.launch({
       spec,
       hookUrl: 'http://127.0.0.1:1/hooks/fictional',
+      sessionConfigDir: await dirs.make(),
       permissionTimeoutMs: 1_000,
     });
     expect(command.cliArgs).toContain('mcp_servers.node_repl.enabled=false');

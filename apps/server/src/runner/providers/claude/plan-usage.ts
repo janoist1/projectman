@@ -3,6 +3,8 @@ import os from 'node:os';
 import type { FastifyBaseLogger } from 'fastify';
 import type { PlanUsage } from '@projectman/shared';
 import type { PlanUsageProvider } from '../../../contracts';
+import { runPromise } from '../../../kernel';
+import { probeWithin, type ProbeProcess } from './plan-usage-probe';
 import { resolveCommand } from '../../cli';
 import { buildChildEnv } from '../../env';
 import { rec, type Json } from '../../transcript/json';
@@ -19,7 +21,7 @@ import { rec, type Json } from '../../transcript/json';
  * with the same billing-safe environment as member sessions.
  */
 
-export interface PlanUsageOptions {
+interface PlanUsageOptions {
   claudeBin: string;
   logger: FastifyBaseLogger;
   /** Results are reused for this long (default two minutes). */
@@ -46,6 +48,7 @@ const PROBE_ARGS = [
 ];
 
 const REQUEST_ID = 'projectman-usage';
+const KILL_AFTER_MS = 5_000;
 
 function percent(window: Json | null): number | null {
   const value = window?.utilization;
@@ -78,28 +81,19 @@ export function toPlanUsage(answer: unknown, now: Date = new Date()): PlanUsage 
 }
 
 /** Runs one probe; resolves to Claude Code's answer, or null when it gave none. */
-export function probeUsage(
-  claudeBin: string,
-  env: Record<string, string>,
-  timeoutMs: number,
-): Promise<unknown> {
-  return new Promise((resolve) => {
+function probeUsage(claudeBin: string, env: Record<string, string>, timeoutMs: number): Promise<unknown> {
+  try {
     const { file, args } = resolveCommand(claudeBin, PROBE_ARGS);
-    let settled = false;
     let buffer = '';
     const child = spawn(file, args, { cwd: os.tmpdir(), env, stdio: ['pipe', 'pipe', 'ignore'] });
-    const finish = (value: unknown) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      resolve(value);
-      // No prompt was sent: closing stdin ends the process; a stuck one is killed.
-      child.stdin.end();
-      setTimeout(() => {
-        if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
-      }, 5_000).unref();
-    };
-    const timer = setTimeout(() => finish(null), timeoutMs);
+    let finish!: (value: unknown) => void;
+    let finishClosed!: () => void;
+    const answer = new Promise<unknown>((resolve) => {
+      finish = resolve;
+    });
+    const closed = new Promise<void>((resolve) => {
+      finishClosed = resolve;
+    });
     child.stdout.setEncoding('utf8');
     child.stdout.on('data', (chunk: string) => {
       buffer += chunk;
@@ -120,8 +114,14 @@ export function probeUsage(
         }
       }
     });
-    child.on('error', () => finish(null));
-    child.on('close', () => finish(null));
+    child.on('error', () => {
+      finish(null);
+      if (child.pid === undefined) finishClosed();
+    });
+    child.on('close', () => {
+      finish(null);
+      finishClosed();
+    });
     child.stdin.on('error', () => undefined);
     child.stdin.write(
       `${JSON.stringify({
@@ -130,7 +130,19 @@ export function probeUsage(
         request: { subtype: 'get_usage', skip_behaviors: true },
       })}\n`,
     );
-  });
+    const process: ProbeProcess = {
+      answer,
+      closed,
+      end: () => child.stdin.end(),
+      running: () => child.pid !== undefined && child.exitCode === null && child.signalCode === null,
+      kill: () => {
+        child.kill('SIGKILL');
+      },
+    };
+    return runPromise(probeWithin(process, timeoutMs, KILL_AFTER_MS));
+  } catch (error) {
+    return Promise.reject(error);
+  }
 }
 
 export function createPlanUsageProvider(opts: PlanUsageOptions): PlanUsageProvider {

@@ -1,5 +1,17 @@
 import { PermissionMode } from './member';
 import type { AgentProvider, Approver } from './member';
+import type { PlanUsage, ProviderLoginStatus } from '../api/dto';
+
+/** The first ready provider in the starter team's preference order. */
+export function starterProvider(
+  statuses: readonly Pick<ProviderLoginStatus, 'provider' | 'loggedIn'>[],
+): AgentProvider | null {
+  return (
+    (['claude', 'codex', 'gemini', 'nanogpt'] as const).find((provider) =>
+      statuses.some((status) => status.provider === provider && status.loggedIn === true),
+    ) ?? null
+  );
+}
 
 /** Providers running through the Codex CLI share its sandbox and session metadata. */
 export function usesCodexCli(provider: AgentProvider | undefined): boolean {
@@ -50,6 +62,25 @@ export const PLAN_USAGE_PAUSE_PROVIDERS: readonly AgentProvider[] = ['claude', '
 
 export function pausesOnPlanUsage(provider: AgentProvider): boolean {
   return PLAN_USAGE_PAUSE_PROVIDERS.includes(provider);
+}
+
+/**
+ * The one plan usage threshold rule (PM-1051): a provider that pauses on plan usage is on hold when the
+ * highest known five-hour or weekly percent is strictly above the threshold. A percent equal to it, an
+ * unknown measurement and a provider that does not pause on usage are not.
+ */
+export function planUsagePause(
+  provider: AgentProvider,
+  usage: Pick<PlanUsage, 'fiveHourPercent' | 'weeklyPercent'> | null,
+  threshold: number,
+): { provider: AgentProvider; percent: number; threshold: number } | null {
+  if (!usage || !pausesOnPlanUsage(provider)) return null;
+  const known = [usage.fiveHourPercent, usage.weeklyPercent].filter(
+    (value): value is number => typeof value === 'number',
+  );
+  if (known.length === 0) return null;
+  const percent = Math.max(...known);
+  return percent > threshold ? { provider, percent, threshold } : null;
 }
 
 /** Claude aliases and full model ids must never be sent to Codex. */

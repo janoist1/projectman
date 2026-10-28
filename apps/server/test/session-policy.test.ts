@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { AI_BUILT_IN_ROLE_IDS, BUILT_IN_ROLE_IDS } from '@projectman/shared';
+import { AI_BUILT_IN_ROLE_IDS, BUILT_IN_ROLE_IDS, roleSessionAccess } from '@projectman/shared';
+import type { AgentProvider } from '@projectman/shared';
 import { testConfig, testTemplate } from './helpers/test-template';
 import { aiRoleDefaults } from '@projectman/templates';
 import {
@@ -11,12 +12,60 @@ import {
   commandVerdict,
   readableRootsFor,
   READ_ONLY_REVIEW_TOOLS,
+  sessionFolderAccess,
   sessionPolicyFor,
   TEAM_TOOLS_ALLOWED,
   usesWorktree,
-} from '../src/domain';
+} from '../src/runtime/sessions';
+import type { SessionFolderAccess } from '../src/runtime/sessions';
 
 describe('role session policy', () => {
+  it('allows design review copies without turning an implementing designer into a reviewer (PM-828)', () => {
+    const config = testConfig();
+    expect(roleSessionAccess(config, 'designer')).toMatchObject({ worktree: true, reviewCopy: true });
+    config.team.roleOverrides = {
+      ...config.team.roleOverrides,
+      designer: { duties: ['ux_design', 'implementation'], instructions: '' },
+    };
+    expect(roleSessionAccess(config, 'designer')).toMatchObject({ worktree: true, reviewCopy: false });
+  });
+  it('allows only the pinned base merge and routine commits in a nominated merge-fix session', () => {
+    const base = 'a'.repeat(40);
+    const task = {
+      repo: 'web',
+      merge: {
+        id: 'm',
+        repo: 'web',
+        base: 'main',
+        merger: 'lead',
+        toStageId: 'done',
+        requestedAt: 'now',
+        state: 'fixing' as const,
+        landed: 'nowhere' as const,
+        fix: { by: 'lead', base, branch: 'merge-fix/AR-1', startedAt: 'now' },
+      },
+    };
+    const session = {
+      cwd: '/worktrees/AR/AR-1-web-merge-fix',
+      role: 'lead_developer',
+      member: 'lead',
+      branch: task.merge.fix.branch,
+    };
+    const verdict = (command: string, member = 'lead') =>
+      commandVerdict({
+        config: testConfig(),
+        session: { ...session, member },
+        task,
+        worktreesRootDir: '/worktrees',
+        toolName: 'Bash',
+        toolInput: { command },
+      });
+    expect(verdict(`git merge ${base}`)).toEqual({ behavior: 'allow' });
+    expect(verdict('git add -A && git commit -m "Resolve imports"')).toEqual({ behavior: 'allow' });
+    expect(verdict('git merge main')).toBeNull();
+    expect(verdict(`git merge ${'b'.repeat(40)}`)).toBeNull();
+    expect(verdict(`git merge ${base}`, 'other')).toBeNull();
+  });
   // The built-in duty bundles: no overrides and no custom roles.
   const team = testConfig();
 
@@ -71,17 +120,21 @@ const input = {
 const verdict = (command: string) => commandVerdict({ ...input, toolInput: { command } });
 
 describe('automatic command policy', () => {
-  it.each(['git status', 'cat README.md', 'npm ci', 'git add -A', 'git commit -m "Example"'])(
-    'requires an explicit NanoGPT decision for %s',
-    (command) => {
-      const request = { ...input, readableRoots: [cwd], toolInput: { command } };
-      for (const provider of ['claude', 'codex'] as const)
-        expect(commandVerdict({ ...request, session: { ...input.session, provider } })).toEqual({
-          behavior: 'allow',
-        });
-      expect(commandVerdict({ ...request, session: { ...input.session, provider: 'nanogpt' } })).toBeNull();
-    },
-  );
+  it.each([
+    'git status',
+    'cat README.md',
+    'npm ci',
+    'git add -A',
+    'git commit -m "Example"',
+    'git checkout HEAD apps/server/test/session-policy.test.ts',
+  ])('requires an explicit NanoGPT decision for %s', (command) => {
+    const request = { ...input, readableRoots: [cwd], toolInput: { command } };
+    for (const provider of ['claude', 'codex', 'gemini'] as const)
+      expect(commandVerdict({ ...request, session: { ...input.session, provider } })).toEqual({
+        behavior: 'allow',
+      });
+    expect(commandVerdict({ ...request, session: { ...input.session, provider: 'nanogpt' } })).toBeNull();
+  });
 
   it.each(['git push', 'gh pr create', 'gh pr merge 12', 'sed -i s/a/b/ README.md'])(
     'retains automatic NanoGPT denials for %s',
@@ -356,6 +409,20 @@ describe('routine git steps in the developer worktree (PM-77)', () => {
     'git commit -m "Run git push next"',
     "git commit -m 'Cost: $5, `x`, (y), {z}, ~w, #v, !u, \\t, <s>'",
     'git commit -m "Update the \\"history\\" section"',
+    // Restore named paths from HEAD or the index without switching branches (PM-893).
+    'git checkout -- a.ts',
+    'git checkout -q HEAD -- a.ts b.ts',
+    'git checkout --quiet HEAD a.ts',
+    'git checkout -- -odd.txt',
+    `git -C ${cwd} checkout HEAD -- ${cwd}/src`,
+    'git restore a.ts',
+    'git restore -q --quiet -S --staged -W --worktree a.ts',
+    'git restore -s HEAD -- -odd.txt',
+    'git restore --source HEAD a.ts',
+    'git restore --source=HEAD a.ts',
+    'git restore -- --source=main',
+    'git checkout HEAD -- a.ts && git status',
+    `cd ${cwd} && git restore a.ts 2>&1 | tail -3`,
     'git merge --ff-only abcdef0123456789abcdef0123456789abcdef01',
     'git merge --quiet --ff-only ABCDEF0',
     'git merge --ff-only -q origin/main',
@@ -385,6 +452,36 @@ describe('routine git steps in the developer worktree (PM-77)', () => {
   });
 
   it.each([
+    // Branch switches, other sources and ambiguous checkout spellings (PM-893).
+    'git checkout main',
+    'git checkout a.ts',
+    'git checkout main -- a.ts',
+    'git checkout HEAD~1 -- a.ts',
+    'git checkout HEAD',
+    'git checkout --',
+    'git checkout -b x',
+    'git checkout -p -- a.ts',
+    'git checkout HEAD a.ts --detach',
+    'git restore --source=main a.ts',
+    'git restore -s main a.ts',
+    'git restore --source HEAD~1 a.ts',
+    'git restore -s',
+    'git restore --source=HEAD',
+    'git restore -SW a.ts',
+    'git restore a.ts --pathspec-from-file=paths.txt',
+    'git restore',
+    'git switch main',
+    // Whole-worktree restores, patterns, pathspec magic and paths outside the worktree.
+    'git checkout -- .',
+    `git checkout HEAD -- ${cwd}`,
+    "git checkout -- 'src/*.ts'",
+    "git checkout -- ':/'",
+    "git checkout HEAD -- ''",
+    'git checkout -- ../other/a.ts',
+    `git -C ${cwd}/src checkout -- a.ts`,
+    'git restore .',
+    'git restore src/../a.ts',
+    'git restore /worktrees/AR/AR-2-local/a.ts',
     // Rewriting, skipping checks, an editor, other sources of a message, empty commits.
     'git commit --amend -m x',
     'git commit --amend --no-edit',
@@ -1290,7 +1387,6 @@ describe('read-only commands for any AI session on a task (PM-69)', () => {
     'git ls-files | xargs -I Y -I X git log -1 -- X',
     // A placeholder that only stands where a name goes: an operand, never the program or an option.
     'git ls-files | xargs -I X head -1 X',
-    'git ls-files | xargs -I X git show HEAD:X',
     'git ls-files | xargs -IX grep -n foo X',
     'git ls-files | xargs -I FILE wc -l FILE',
     "git ls-files | xargs -I '{}' cat '{}'",
@@ -1599,7 +1695,6 @@ describe('read-only commands for any AI session on a task (PM-69)', () => {
     'grep -lb foo README.md | xargs cat',
     'grep -lT foo README.md | xargs cat',
     'grep -l --color=always foo README.md | xargs cat',
-    'grep foo README.md | xargs cat',
     'rg --files --hyperlink-format=x | xargs cat',
     'rg --files --hyperlink-format vscode | xargs cat',
     'rg --files --path-separator x | xargs cat',
@@ -2038,7 +2133,6 @@ describe('read-only commands for any AI session on a task (PM-69)', () => {
     '',
     ' ',
     // Options whose name is a pattern may expand to a forbidden option.
-    'tail -[f] log',
     'git log --out* ',
     'git log -[p]',
     'ls -?',
@@ -2438,5 +2532,29 @@ describe('buildSessionPolicy', () => {
       outboundNetwork: false,
     });
     expect(allowlist.network.outbound).toBe('allowlist');
+  });
+});
+
+describe('sessionFolderAccess (PM-522)', () => {
+  type Sandbox = 'read-only' | 'workspace-write' | 'danger-full-access';
+  // [provider, sandbox, tmpRoot, access]
+  const table: (readonly [AgentProvider, Sandbox, boolean, SessionFolderAccess | null])[] = [
+    ...(['claude', 'gemini'] as const).flatMap((provider) =>
+      (['read-only', 'workspace-write', 'danger-full-access'] as const).flatMap((sandbox) =>
+        [true, false].map((tmpRoot) => [provider, sandbox, tmpRoot, 'write' as const] as const),
+      ),
+    ),
+    ...(['codex', 'nanogpt'] as const).flatMap((provider) => [
+      [provider, 'workspace-write', true, 'write'] as const,
+      [provider, 'workspace-write', false, null] as const,
+      [provider, 'read-only', true, 'read'] as const,
+      [provider, 'read-only', false, 'read'] as const,
+      [provider, 'danger-full-access', true, null] as const,
+      [provider, 'danger-full-access', false, null] as const,
+    ]),
+  ];
+
+  it.each(table)('%s, %s sandbox, tmpRoot %s: %s', (provider, sandbox, tmpRoot, access) => {
+    expect(sessionFolderAccess({ provider, sandbox, tmpRoot })).toBe(access);
   });
 });

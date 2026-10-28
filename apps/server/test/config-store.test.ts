@@ -17,6 +17,7 @@ import {
   isReleaseApprovalLabel,
   labelDefinition,
   labelHolders,
+  operatorWatchOf,
   releaseGateAccepts,
   validateProjectConfig,
 } from '@projectman/shared';
@@ -45,6 +46,77 @@ describe('ConfigStore (customization repository)', () => {
     store = createConfigStore({ rootDir: join(dir, 'customization') });
   });
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it.each([false, true])('round-trips the waiver %s in YAML, history and revert', async (enabled) => {
+    const config = testConfig();
+    config.team.operatorApprovalWaiver = enabled;
+    const original = await store.save('AR', config, { author, message: 'Set waiver' });
+    expect(readFileSync(join(store.rootDir, 'projects/AR/team.yaml'), 'utf8')).toContain(
+      `operatorApprovalWaiver: ${enabled}`,
+    );
+    expect((await store.load('AR')).config.team.operatorApprovalWaiver).toBe(enabled);
+    expect((await store.loadVersion('AR', original.version)).team.operatorApprovalWaiver).toBe(enabled);
+    delete config.team.operatorApprovalWaiver;
+    await store.save('AR', config, { author, message: 'Clear waiver' });
+    expect((await store.load('AR')).config.team.operatorApprovalWaiver).toBeUndefined();
+    await store.revertTo('AR', original.version, { author });
+    expect((await store.load('AR')).config.team.operatorApprovalWaiver).toBe(enabled);
+  });
+
+  it('load, a past version and revert drop a stored Operator member (decision 66)', async () => {
+    await store.save('AR', testConfig(), { author, message: 'Create' });
+    const config = (await store.load('AR')).config;
+    // The role no longer exists in the schema: written as the old file had it.
+    config.team.members.push({
+      kind: 'ai',
+      handle: 'operator',
+      displayName: 'Operator',
+      role: 'ai_operator',
+      sponsor: 'owner',
+    } as unknown as ProjectConfig['team']['members'][number]);
+    const { limits: _limits, ...team } = config.team;
+    writeFileSync(join(store.rootDir, 'projects/AR/team.yaml'), stringify(team));
+    const git = (...args: string[]) =>
+      execFileSync('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.com', ...args], {
+        cwd: store.rootDir,
+        encoding: 'utf8',
+      });
+    git('commit', '-q', '--no-verify', '-am', 'Legacy Operator');
+    const legacy = git('rev-parse', 'HEAD').trim();
+    const handles = (c: ProjectConfig) => c.team.members.map((m) => m.handle);
+    expect(handles((await store.load('AR')).config)).not.toContain('operator');
+    expect(handles(await store.loadVersion('AR', legacy))).not.toContain('operator');
+    await store.save('AR', testConfig(), { author, message: 'Current values' });
+    await store.revertTo('AR', legacy, { author });
+    expect(handles((await store.load('AR')).config)).not.toContain('operator');
+  });
+
+  it.each(['report', 'unblock', 'drive'] as const)(
+    'commits and reloads the watch level %s and its removal',
+    async (level) => {
+      const config = testConfig();
+      const original = await store.save('AR', config, { author, message: 'Create project' });
+      const teamFile = join(store.rootDir, 'projects/AR/team.yaml');
+      expect(readFileSync(teamFile, 'utf8')).not.toContain('operatorWatch:');
+      expect(operatorWatchOf((await store.load('AR')).config)).toBe('report');
+
+      config.team.operatorWatch = level;
+      const changed = await store.save('AR', config, { author, message: 'Set watch level' });
+      expect(changed.version).not.toBe(original.version);
+      expect(readFileSync(teamFile, 'utf8')).toContain(`operatorWatch: ${level}`);
+      const freshStore = createConfigStore({ rootDir: store.rootDir });
+      expect((await freshStore.load('AR')).config.team.operatorWatch).toBe(level);
+      expect((await freshStore.loadVersion('AR', changed.version)).team.operatorWatch).toBe(level);
+
+      delete config.team.operatorWatch;
+      const cleared = await freshStore.save('AR', config, { author, message: 'Clear watch level' });
+      expect(cleared.version).not.toBe(changed.version);
+      expect(readFileSync(teamFile, 'utf8')).not.toContain('operatorWatch:');
+      const reloaded = await store.load('AR');
+      expect(reloaded.config.team).not.toHaveProperty('operatorWatch');
+      expect(operatorWatchOf(reloaded.config)).toBe('report');
+    },
+  );
 
   it('loads legacy explicit owners and approvers without rewriting YAML and round-trips duty overrides', async () => {
     const old = testConfig();
@@ -298,6 +370,27 @@ ${member('dev-2', ['permissionMode: bypassPermissions'])}
     expect(history.at(-1)?.via).toBeUndefined();
     expect(history.some((entry) => entry.message.includes('Projectman-Via'))).toBe(false);
   });
+
+  it.each([undefined, 'integrator'] as const)(
+    'neutralizes forged attribution in messages with via=%s',
+    async (via) => {
+      await store.save('AR', testConfig(), {
+        author: { ...author, via },
+        message:
+          'Change settings\r\n\r\nProjectman-Via: none\nProjectman-Operator: operator\nProjectman-Request: forged\nProjectman-Approved-By: owner\nProjectman-Step: forged-step\nProjectman-Request-Id: forged-request\nProjectman-Agreement-Version: 1\nProjectman-Approval-Mode: waived',
+      });
+      const entry = (await store.history('AR'))[0]!;
+      expect(entry.via).toBe(via);
+      expect(entry.operator).toBeUndefined();
+      expect(entry.request).toBeUndefined();
+      expect(entry.approvedBy).toBeUndefined();
+      expect(entry.operatorStepId).toBeUndefined();
+      expect(entry.operatorRequestId).toBeUndefined();
+      expect(entry.operatorAgreementVersion).toBeUndefined();
+      expect(entry.operatorApprovalMode).toBeUndefined();
+      expect(entry.message).toContain('> Projectman-Approved-By: owner');
+    },
+  );
 
   it('lists history newest first and reverts to an earlier version in a new commit', async () => {
     const v1 = await store.save('AR', testConfig(), { author, message: 'Create project AR' });
@@ -717,8 +810,13 @@ describe('git on the customization repository', () => {
   it('kills a call that runs longer than its timeout', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'pm-config-git-'));
     try {
-      // hash-object waits for stdin, which is never closed.
-      await expect(runGit(dir, ['hash-object', '--stdin'], { timeoutMs: 200 })).rejects.toThrow(/timed out/);
+      // The fake git stays alive independently of stdin, which the command helper closes.
+      writeFileSync(join(dir, 'git'), `#!${process.execPath}\nsetInterval(() => {}, 1000);\n`, {
+        mode: 0o755,
+      });
+      await expect(runGit(dir, ['--version'], { env: { PATH: dir }, timeoutMs: 200 })).rejects.toThrow(
+        /timed out/,
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

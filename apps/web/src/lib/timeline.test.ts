@@ -15,7 +15,67 @@ const creation: TimelineEvent = {
 };
 const context = { pipeline: null, members: new Map(), myHandle: 'owner', openInboxIds: new Set<string>() };
 
+it('renders a PM loop assessment without exposing its private note', () => {
+  const event: TimelineEvent = {
+    ...creation,
+    actor: { kind: 'ai', handle: 'pm' },
+    type: 'loop_triaged',
+    data: { loopId: 'loop_1', generation: 0, outcome: 'progress', evidenceIds: [], headCommit: null },
+  };
+  expect(describeEvent(event, context).text).toBe(t('timeline.events.loop_triaged'));
+});
+
+it('renders a member rename with both handles as they were recorded (PM-1026)', () => {
+  const event: TimelineEvent = {
+    ...creation,
+    taskKey: null,
+    type: 'member_renamed',
+    data: { from: 'dev', to: 'haini', version: 'v1' },
+  };
+  expect(describeEvent(event, context).text).toBe(
+    t('timeline.events.member_renamed', { from: 'dev', to: 'haini' }),
+  );
+});
+
+it.each([
+  ['host_request_opened', {}, 'timeline.events.host_request_opened'],
+  ['host_request_withdrawn', {}, 'timeline.events.host_request_withdrawn'],
+  ['host_request_answered', { outcome: 'answered' }, 'timeline.events.host_request_answered.answered'],
+  ['host_request_answered', { outcome: 'declined' }, 'timeline.events.host_request_answered.declined'],
+] as const)('renders %s with the request title (PM-1064)', (type, extra, key) => {
+  const event: TimelineEvent = {
+    ...creation,
+    type,
+    data: { requestId: 'hreq_1', title: 'Need a right', ...extra },
+  };
+  expect(describeEvent(event, context).text).toBe(t(key, { title: 'Need a right' }));
+});
+
+describe('merge queue timeline text (PM-576)', () => {
+  it('names the cards a merge was put ahead of and the reason', () => {
+    const event: TimelineEvent = {
+      ...creation,
+      type: 'task_merge_prioritized',
+      data: { mergeId: 'm1', repo: 'web', reason: 'AC-3 depends on it', ahead: ['AC-2', 'AC-4'] },
+    };
+    expect(describeEvent(event, context).text).toBe(
+      t('timeline.events.task_merge_prioritized_ahead', {
+        ahead: 'AC-2, AC-4',
+        reason: 'AC-3 depends on it',
+      }),
+    );
+    expect(describeEvent({ ...event, data: { ...event.data, ahead: [] } }, context).text).toBe(
+      t('timeline.events.task_merge_prioritized', { reason: 'AC-3 depends on it' }),
+    );
+  });
+});
+
 describe('creation timeline labels', () => {
+  it('renders the field label of a legacy visibility update', () => {
+    expect(
+      describeEvent({ ...creation, type: 'task_updated', data: { fields: ['visibility'] } }, context).text,
+    ).toContain(t('timeline.fields.visibility'));
+  });
   it('names previous and new priority, including setting and clearing', () => {
     for (const [previousPriority, priority] of [
       [null, 'urgent'],
@@ -169,6 +229,17 @@ it('shows the AI decider reason as a detail, and an escalation to a person', () 
       open,
     ),
   ).toMatchObject({ text: t('timeline.events.permission_escalated_timeout'), emphasis: 'needs' });
+  for (const cause of ['undelivered', 'unavailable'] as const)
+    expect(
+      describeEvent(
+        {
+          ...escalated,
+          actor: { kind: 'system', handle: null },
+          data: { ...escalated.data, cause },
+        },
+        open,
+      ),
+    ).toMatchObject({ text: t('timeline.events.permission_escalated_unreached'), emphasis: 'needs' });
 });
 
 it('describes checks recorded before labels replaced them', () => {
@@ -202,6 +273,78 @@ describe('themes on the timeline (PM-192)', () => {
         context,
       ).text,
     ).toBe('Lezárta a témát.');
+  });
+});
+
+describe('parts left after a breakdown on the timeline (PM-480)', () => {
+  const left = (phase: string) =>
+    describeEvent(
+      { ...creation, type: 'task_parts_left', data: { phase, member: 'dev-1', parts: ['AC-2', 'AC-3'] } },
+      context,
+    ).text;
+
+  it('says the member was reminded, and later that the owner was told', () => {
+    expect(left('told')).toBe(t('timeline.events.parts_left_told', { name: 'dev-1', parts: 'AC-2, AC-3' }));
+    expect(left('alerted')).toBe(
+      t('timeline.events.parts_left_alerted', { name: 'dev-1', parts: 'AC-2, AC-3' }),
+    );
+  });
+});
+
+describe('the reason of a reassignment on the timeline (PM-1040)', () => {
+  it('adds the note to the assignment line', () => {
+    const line = describeEvent(
+      { ...creation, type: 'task_assigned', data: { assignee: 'dev-1', note: 'dev-2 is busy' } },
+      context,
+    ).text;
+    expect(line).toContain('dev-2 is busy');
+  });
+});
+
+describe('open-step reminders on the timeline (PM-806)', () => {
+  const row = (type: 'obligation_woken' | 'obligation_handed_over', data: Record<string, unknown>) =>
+    describeEvent({ ...creation, actor: { kind: 'system', handle: null }, type, data }, context).text;
+
+  it('names the responsible, the step and the minutes', () => {
+    const data = { kind: 'merge', responsible: 'dev-1', minutes: 30 };
+    expect(row('obligation_woken', data)).toBe(
+      t('timeline.events.obligation_woken', { responsible: 'dev-1', step: 'beolvasztás', minutes: 30 }),
+    );
+    expect(row('obligation_handed_over', data)).toBe(
+      t('timeline.events.obligation_handed_over', { responsible: 'dev-1', step: 'beolvasztás', minutes: 30 }),
+    );
+  });
+
+  it('calls a step kind this build does not know a step', () => {
+    expect(row('obligation_woken', { kind: 'other', responsible: 'dev-1', minutes: 5 })).toContain('lépés');
+  });
+
+  it('shows why the obligation todo went to the owner', () => {
+    expect(
+      row('obligation_handed_over', {
+        kind: 'start',
+        responsible: 'dev-1',
+        minutes: 30,
+        recipient: 'owner',
+        recipientRefusal: 'integrator_unavailable',
+      }),
+    ).toBe(
+      t('timeline.events.obligation_handed_over_refused', {
+        responsible: 'dev-1',
+        step: 'indítás',
+        minutes: 30,
+        reason: 'integrator_unavailable',
+      }),
+    );
+  });
+});
+
+describe('a released workspace on the timeline (PM-935)', () => {
+  it('shows the reason the owner gave', () => {
+    const data = { scopeId: 'scp_1', sessionId: 'ses_1', workspaceIds: ['mws_1'], reason: 'Checked by hand' };
+    expect(describeEvent({ ...creation, type: 'workspace_released', data }, context).text).toBe(
+      t('timeline.events.workspace_released', { reason: 'Checked by hand' }),
+    );
   });
 });
 
@@ -296,6 +439,22 @@ describe('repository changes on the timeline', () => {
   });
 });
 
+describe('the hand-on request on the timeline (PM-461)', () => {
+  it('says who finished, who takes the card on and where it goes', () => {
+    const event: TimelineEvent = {
+      ...creation,
+      type: 'task_hand_on_requested',
+      actor: { kind: 'system', handle: null },
+      data: { fromStageId: 'dev', toStageId: 'review', mover: 'kata', requestedBy: 'be-1' },
+    };
+    const { text } = describeEvent(event, context);
+    expect(text).toBe('be-1 végzett; kata viszi tovább ide: review');
+    expect(text).toBe(
+      t('timeline.events.task_hand_on_requested', { requestedBy: 'be-1', mover: 'kata', to: 'review' }),
+    );
+  });
+});
+
 describe('review pins on the timeline (PM-183)', () => {
   const move = (data: Record<string, unknown>): TimelineEvent => ({
     ...creation,
@@ -324,8 +483,36 @@ describe('review pins on the timeline (PM-183)', () => {
         to: 'review',
         pinned: shortCommit(commitA),
         head: shortCommit(commitB),
+      }) +
+        '. ' +
+        t('fixLimit.events.notCounted'),
+    );
+  });
+
+  it('says a collecting card went on without the gates because its parts closed (PM-647)', () => {
+    expect(
+      describeEvent(move({ partsClosed: { done: ['AC-2', 'AC-4'], cancelled: ['AC-3'] } }), context).text,
+    ).toBe(
+      t('timeline.events.task_stage_changed_parts_closed', {
+        from: 'dev',
+        to: 'review',
+        parts: 'AC-2, AC-4, AC-3',
       }),
     );
+  });
+
+  it('names the subtask that triggered the automatic close, when there is one (PM-373)', () => {
+    const closed = { done: ['AC-2', 'AC-4'], cancelled: [] };
+    const triggered = describeEvent(move({ partsClosed: { ...closed, trigger: 'AC-4' } }), context).text;
+    expect(triggered).toBe(
+      t('timeline.events.task_stage_changed_parts_closed_by', {
+        from: 'dev',
+        to: 'review',
+        parts: 'AC-2, AC-4',
+        trigger: 'AC-4',
+      }),
+    );
+    expect(describeEvent(move({ partsClosed: closed }), context).text).not.toBe(triggered);
   });
 
   it('describes a send-back after a failed full test and the full test results (PM-217)', () => {
@@ -469,6 +656,31 @@ describe('fix round limit timeline rows (PM-262)', () => {
   });
   const text = (data: Record<string, unknown>) => describeEvent(fixLimit(data), context).text;
 
+  it('renders grants, assessments and the failed test subtotal from additive fields', () => {
+    expect(text({ phase: 'decided', decision: 'another_round', extraRounds: 4, note: 'Small fix.' })).toBe(
+      t('fixLimit.events.decidedExtra', { i: 4, note: t('fixLimit.events.note', { note: 'Small fix.' }) }),
+    );
+    const assessment = {
+      recurrence: 'Same issue.',
+      currentState: 'Almost ready.',
+      recommendation: { optionId: 'replan', reason: 'Clarify scope.' },
+    };
+    expect(text({ phase: 'passed_on', deciders: ['owner'], assessment })).toContain(
+      t('fixLimit.events.assessment', {
+        recurrence: assessment.recurrence,
+        currentState: assessment.currentState,
+        decision: t('fixLimit.decisions.replan'),
+        reason: assessment.recommendation.reason,
+      }),
+    );
+    expect(text({ phase: 'reached', sendBacks: 2, testsFailed: 1 })).toContain(
+      t('fixLimit.part.testsFailed', { count: 1 }),
+    );
+    expect(text({ phase: 'reached', sendBacks: 2, testsFailed: 1 })).toContain(
+      t('fixLimit.part.manual', { count: 1 }),
+    );
+  });
+
   it('says what the rounds were and who decides, the lead or the people', () => {
     // Only the kinds of round that happened are named, and the limit only when it is not the rounds.
     const parts = `${t('fixLimit.part.changes', { count: 2 })}${t('common.and')}${t('fixLimit.part.design', { count: 1 })}`;
@@ -516,6 +728,15 @@ describe('fix round limit timeline rows (PM-262)', () => {
 describe('Senior timeline texts (PM-349)', () => {
   const text = (type: TimelineEvent['type'], data: Record<string, unknown>) =>
     describeEvent({ ...creation, type, data }, context).text;
+
+  it.each([
+    [{ points: 5, reason: 'reason', previous: null }, ['5', 'reason']],
+    [{ points: 8, reason: null, previous: { points: 5, reason: null } }, ['5', '8']],
+    [{ points: null, reason: null, previous: { points: 8, reason: null } }, ['8']],
+  ])('renders complexity events: %j', (data, required) => {
+    const rendered = text('task_complexity_changed', data);
+    for (const part of required) expect(rendered).toContain(part);
+  });
 
   it('tells a first recommendation, a change, and the reason', () => {
     expect(text('task_level_changed', { level: 'senior', reason: 'Kényes migráció' })).toBe(
@@ -644,6 +865,132 @@ describe('the handoff rows (PM-342)', () => {
     );
     expect(restarted({ reason: 'lost', lastHandoffId: 'hnd_1' })).toBe(
       t('timeline.events.session_conversation_restarted.lostNote', { member: 'fe-1' }),
+    );
+  });
+});
+
+describe('the merge event with a fixed conflict (PM-471)', () => {
+  const merged = (data: Record<string, unknown>) =>
+    describeEvent(
+      {
+        ...creation,
+        type: 'task_merged',
+        data: { base: 'main', commit: 'a'.repeat(40), mergeCommit: 'b'.repeat(40), via: 'tool', ...data },
+      },
+      context,
+    );
+
+  it('keeps what the merger wrote about the conflict for its own fold', () => {
+    const note = 'Kept both imports in **board.ts**.';
+    expect(merged({ resolution: { note, commit: 'c'.repeat(40) } }).resolution).toBe(note);
+  });
+
+  it('has no resolution when there is none or it is blank', () => {
+    expect(merged({}).resolution).toBeUndefined();
+    expect(merged({ resolution: { note: '  ', commit: 'c' } }).resolution).toBeUndefined();
+  });
+});
+
+describe('the rows of a question the Operator screens (PM-556)', () => {
+  const row = (type: TimelineEvent['type'], data: Record<string, unknown>) =>
+    describeEvent({ ...creation, type, actor: { kind: 'system', handle: null }, data }, context).text;
+  const asker = 'dev-1';
+
+  it('distinguishes integrator screening, own results and a system handoff from historical owner answers', () => {
+    expect(
+      row('question_screened', {
+        inboxItemId: 'inb_1',
+        asker,
+        note: 'Measure',
+        outcome: 'todo',
+        recipient: 'integrator',
+      }),
+    ).toBe(t('timeline.events.question_screened_integrator', { note: 'Measure' }));
+    expect(
+      row('question_answered', {
+        inboxItemId: 'inb_1',
+        answer: 'Done',
+        integratorTodo: { optionId: 'todo_done', note: null },
+      }),
+    ).toBe(t('timeline.events.integrator_todo_done'));
+    expect(
+      row('question_answered', {
+        inboxItemId: 'inb_1',
+        answer: 'Cannot',
+        integratorTodo: { optionId: 'todo_cannot', note: 'No access' },
+      }),
+    ).toBe(t('timeline.events.integrator_todo_cannot', { note: 'No access' }));
+    expect(row('question_recipient_escalated', {})).toBe(t('timeline.events.question_recipient_escalated'));
+  });
+
+  it('words each outcome of the screening', () => {
+    const base = { inboxItemId: 'inb_1', asker, note: 'It is clear.' };
+    expect(row('question_screened', { ...base, outcome: 'answered', answer: 'Yes' })).toBe(
+      t('timeline.events.question_screened_answered', { asker: 'dev-1', answer: 'Yes' }),
+    );
+    expect(row('question_screened', { ...base, outcome: 'forwarded', forwardedTo: 'dev-2' })).toBe(
+      t('timeline.events.question_screened_forwarded', { asker: 'dev-1', to: 'dev-2', note: base.note }),
+    );
+    expect(row('question_screened', { ...base, outcome: 'moot' })).toBe(
+      t('timeline.events.question_screened_moot', { asker: 'dev-1', note: base.note }),
+    );
+    expect(row('question_screened', { ...base, outcome: 'decision' })).toBe(
+      t('timeline.events.question_screened_decision', { note: base.note }),
+    );
+    expect(row('question_screened', { ...base, outcome: 'todo' })).toBe(
+      t('timeline.events.question_screened_todo', { note: base.note }),
+    );
+  });
+
+  it('says when a question goes to the Operator first, and why one skips the screening', () => {
+    const base = { inboxItemId: 'inb_1', question: 'Which font?' };
+    expect(row('question_asked', base)).toBe(
+      t('timeline.events.question_asked', { question: 'Which font?' }),
+    );
+    expect(row('question_asked', { ...base, screening: true })).toBe(
+      t('timeline.events.question_asked_screening', { question: 'Which font?' }),
+    );
+    expect(
+      row('question_asked', {
+        ...base,
+        unscreened: { reason: 'It needs a person', previousItemId: 'inb_0' },
+      }),
+    ).toBe(
+      t('timeline.events.question_asked_unscreened', {
+        question: 'Which font?',
+        reason: 'It needs a person',
+      }),
+    );
+  });
+
+  it('says a todo was recorded as a missing feature only when it was', () => {
+    const base = { inboxItemId: 'inb_1', asker, note: 'Needs a key.', outcome: 'todo' };
+    expect(row('question_screened', { ...base, feedbackId: 'fb_1' })).toBe(
+      t('timeline.events.question_screened_todo_recorded', { note: base.note }),
+    );
+    expect(row('question_screened', base)).toBe(
+      t('timeline.events.question_screened_todo', { note: base.note }),
+    );
+  });
+
+  it('words the fallback, the closing and the answer delivery', () => {
+    expect(row('question_screening_skipped', { inboxItemId: 'inb_1', asker, reason: 'timeout' })).toBe(
+      t('timeline.events.question_screening_skipped_timeout', { asker: 'dev-1' }),
+    );
+    expect(row('question_screening_skipped', { inboxItemId: 'inb_1', asker, reason: 'unavailable' })).toBe(
+      t('timeline.events.question_screening_skipped_unavailable', { asker: 'dev-1' }),
+    );
+    expect(row('question_closed', { inboxItemId: 'inb_1', asker, rule: 'task_done', note: null })).toBe(
+      t('timeline.events.question_closed', { asker: 'dev-1', reason: t('inbox.resolutions.task_done') }),
+    );
+    expect(
+      row('question_closed', { inboxItemId: 'inb_1', asker, rule: 'withdrawn', note: 'Never mind' }),
+    ).toBe(t('timeline.events.question_closed_withdrawn', { asker: 'dev-1', note: 'Never mind' }));
+    expect(row('question_answer_delivery', { inboxItemId: 'inb_1', asker, state: 'waiting' })).toBe(
+      t('timeline.events.question_answer_waiting', { asker: 'dev-1' }),
+    );
+    expect(row('question_answer_delivery', { inboxItemId: 'inb_1', asker, state: 'delivered' })).toBe(
+      t('timeline.events.question_answer_delivered'),
     );
   });
 });

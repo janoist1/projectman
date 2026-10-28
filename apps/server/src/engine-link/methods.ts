@@ -5,15 +5,19 @@ import {
   HANDOFF_SUMMARY_MAX,
   HandoffSummary,
   MemoryPressure,
+  MergeTestReport,
   PausePoint,
   PlanUsage,
   ProjectConfig,
   ProviderProblem,
 } from '@projectman/shared';
+import { MAX_CHANGED_ITEMS, MAX_CHANGED_PATHS, MAX_LISTED_PATHS } from '../contracts';
 import type {
   FullTestResult,
   FullTestSpec,
+  BranchMerger,
   MachineSnapshot,
+  MergeRepoRef,
   PermissionDecision,
   PermissionRequestInfo,
   ProviderStatus,
@@ -27,15 +31,22 @@ import type {
   SessionRunner,
   TranscriptReader,
   PlanUsageProvider,
-  GithubService,
+  MachineGithubService,
   MachineProbe,
   ProcessRecord,
   EngineHost,
   EngineSessionFolders,
   WorkspaceFileRefusal,
 } from '../contracts';
+import { SocketParams, SocketValues } from '../administration';
 import { EngineStartSpec } from './session-schemas';
-import { EngineUploaded, ENGINE_UPLOAD_MAX_BYTES, PullRequest, RunningSession } from './protocol';
+import {
+  EngineUploaded,
+  ENGINE_UPLOAD_MAX_BYTES,
+  PullRequest,
+  RunningSession,
+  SessionCleanupWire,
+} from './protocol';
 
 const text = z.string();
 const texts = z.array(text);
@@ -63,6 +74,9 @@ const worktreeInfo: z.ZodType<WorktreeInfo> = z.strictObject({
   branch: text,
   repo: text,
 });
+const mergeRef: z.ZodType<MergeRepoRef> = z.strictObject({ projectKey: text.max(10), repo: text.max(100) });
+/** A commit id or a branch name as it crosses the wire; the engine's limit checks what they hold. */
+const mergeText = text.max(200);
 const fullSpec: z.ZodType<FullTestSpec> = z.strictObject({
   runId: text,
   cwd: text,
@@ -70,6 +84,23 @@ const fullSpec: z.ZodType<FullTestSpec> = z.strictObject({
   maxWorkers: int,
   timeoutMs: int,
   sandbox: z.strictObject({ denyRead: texts, allowRead: texts }),
+  requireHeavyLock: z.boolean().optional(),
+  npmCi: z.strictObject({ ref: mergeRef, mergeId: mergeText }).optional(),
+  regenerate: z
+    .strictObject({ ref: mergeRef, mergeId: mergeText, patterns: z.array(text.max(200)).min(1).max(10) })
+    .optional(),
+  githubActions: z
+    .strictObject({
+      ref: mergeRef,
+      mergeId: mergeText,
+      repo: text.max(100).regex(/^[\w.-]+\/[\w.-]+$/),
+      base: mergeText,
+      commit: z.string().regex(/^[0-9a-f]{40}$/),
+      workflow: text.max(100),
+      files: z.array(text.max(500)).min(1).max(20).optional(),
+      all: z.boolean().optional(),
+    })
+    .optional(),
 });
 const fullResult: z.ZodType<FullTestResult> = z.strictObject({
   outcome: z.enum(['passed', 'failed', 'error']),
@@ -78,7 +109,18 @@ const fullResult: z.ZodType<FullTestResult> = z.strictObject({
   durationMs: int,
   failedFiles: texts,
   outputTail: text,
+  // Only a githubActions run has one, so an older hub never receives it.
+  externalUrl: text.max(500).optional(),
 });
+const fullAttachResult = z.discriminatedUnion('state', [
+  z.strictObject({ state: z.literal('ended'), result: fullResult }),
+  z.strictObject({ state: z.literal('unknown') }),
+]);
+/** The step measurements of an ended run (PM-876); `report` null: the output had none. */
+const fullReportResult = z.discriminatedUnion('state', [
+  z.strictObject({ state: z.literal('ended'), report: MergeTestReport.nullable() }),
+  z.strictObject({ state: z.literal('unknown') }),
+]);
 const screenshotSpec: z.ZodType<ScreenshotRunSpec> = z.strictObject({
   runId: text,
   cwd: text,
@@ -96,6 +138,74 @@ const screenshotEnded: z.ZodType<ScreenshotRunEnded> = z.strictObject({
   spawnError: text.optional(),
   output: text,
 });
+const mergeCall = <T extends z.ZodRawShape>(shape: T) => z.strictObject({ ref: mergeRef, ...shape });
+const mergeState = z.strictObject({
+  local: mergeText,
+  remote: z.strictObject({ name: mergeText, commit: mergeText }).nullable(),
+  relation: z.enum(['same', 'local_behind', 'local_ahead', 'diverged']),
+  contains: z.strictObject({ local: z.boolean(), remote: z.boolean().nullable() }),
+  checkout: text.nullable(),
+});
+const mergeBuilt = z.discriminatedUnion('ok', [
+  z.strictObject({ ok: z.literal(true), mergeCommit: mergeText, changed: z.array(text).max(1000) }),
+  z.strictObject({
+    ok: z.literal(false),
+    conflict: z.array(text).max(50),
+    provisional: mergeText.optional(),
+  }),
+]);
+const mergeRegenerated = z.discriminatedUnion('ok', [
+  z.strictObject({ ok: z.literal(true), mergeCommit: mergeText, changed: z.array(text).max(1000) }),
+  z.strictObject({
+    ok: z.literal(false),
+    reason: z.enum(['outside', 'missing', 'not_regular', 'too_many']),
+    paths: z.array(text).max(50),
+  }),
+]);
+const mergePushed = z.discriminatedUnion('ok', [
+  z.strictObject({ ok: z.literal(true) }),
+  z.strictObject({
+    ok: z.literal(false),
+    reason: z.enum(['non_fast_forward', 'rejected', 'unreachable']),
+    message: text.max(2000),
+  }),
+]);
+const mergeAdvanced = z.discriminatedUnion('ok', [
+  z.strictObject({ ok: z.literal(true) }),
+  z.strictObject({
+    ok: z.literal(false),
+    reason: z.enum(['checkout_in_the_way', 'moved']),
+    message: text.max(2000),
+    paths: z.array(text).max(50),
+  }),
+]);
+const mergeListed = z.strictObject({
+  commit: mergeText,
+  paths: z.array(text).max(MAX_LISTED_PATHS),
+  truncated: z.boolean(),
+});
+const mergeChangedItem = z.strictObject({
+  id: text.min(1).max(40),
+  at: z.union([
+    z.strictObject({ branch: mergeText }),
+    z.strictObject({ commit: mergeText }),
+    z.strictObject({ merge: mergeText }),
+  ]),
+});
+const mergeChanged = z
+  .array(
+    z.discriminatedUnion('ok', [
+      z.strictObject({
+        id: text.max(40),
+        ok: z.literal(true),
+        commit: mergeText,
+        paths: z.array(text).max(MAX_CHANGED_PATHS),
+        truncated: z.boolean(),
+      }),
+      z.strictObject({ id: text.max(40), ok: z.literal(false), reason: z.literal('unknown') }),
+    ]),
+  )
+  .max(MAX_CHANGED_ITEMS);
 const snapshot: z.ZodType<MachineSnapshot> = z.strictObject({
   cpu: z.strictObject({ busyMs: z.number(), totalMs: z.number() }).nullable(),
   cores: int.nullable(),
@@ -108,6 +218,7 @@ const snapshot: z.ZodType<MachineSnapshot> = z.strictObject({
 const processRecord: z.ZodType<ProcessRecord> = z.strictObject({
   pid: int,
   ppid: int,
+  pgid: int.nullable().default(null),
   uid: int,
   rssBytes: z.number(),
   cpuSeconds: z.number(),
@@ -125,6 +236,7 @@ type ContractResults = {
   'session.send': SessionRunner['sendUserMessage'];
   'session.compact': NonNullable<SessionRunner['compact']>;
   'session.stop': SessionRunner['stop'];
+  'session.close_scopes': NonNullable<SessionRunner['closeScopes']>;
   'session.pause': SessionRunner['pause'];
   'session.force_pause': SessionRunner['forcePause'];
   'session.release': SessionRunner['release'];
@@ -137,14 +249,16 @@ type ContractResults = {
   'transcript.summary': TranscriptReader['summary'];
   'usage.plan': PlanUsageProvider['get'];
   'provider.status': NonNullable<SessionRunner['providerStatus']>;
-  'github.is_available': GithubService['isAvailable'];
-  'github.get_pull_request': GithubService['getPullRequest'];
-  'github.find_pull_requests_for_branch': GithubService['findPullRequestsForBranch'];
+  'github.is_available': MachineGithubService['isAvailable'];
+  'github.get_pull_request': MachineGithubService['getPullRequest'];
+  'github.find_pull_requests_for_branch': MachineGithubService['findPullRequestsForBranch'];
+  'github.publish_release': MachineGithubService['publishRelease'];
   'machine.snapshot': MachineProbe['machine'];
   'machine.processes': MachineProbe['processes'];
   'machine.signal': MachineProbe['signal'];
   'host.free_disk': EngineHost['freeDiskBytes'];
-  'host.is_directory': EngineHost['isDirectory'];
+  'host.heavy_run_sessions': EngineHost['heavyRunSessions'];
+  'host.is_directory': (path: string) => Promise<boolean>;
   'host.resolve_git_dir': EngineHost['resolveGitDir'];
   'host.realpath': EngineHost['realpath'];
   'host.is_real_directory': EngineHost['isRealDirectory'];
@@ -156,11 +270,27 @@ type ContractResults = {
   'folders.release_tmp_root': EngineSessionFolders['releaseTmpRoot'];
   'files.resolve_scenario': EngineHost['resolveScenario'];
   'files.list_images': EngineHost['listImages'];
+  'merge.prepare': BranchMerger['prepare'];
+  'merge.is_ancestor': BranchMerger['isAncestor'];
+  'merge.build': BranchMerger['build'];
+  'merge.commit_regenerated': BranchMerger['commitRegenerated'];
+  'merge.checkout_conflicts': BranchMerger['checkoutConflicts'];
+  'merge.checkout_for_check': BranchMerger['checkoutForCheck'];
+  'merge.release_check': BranchMerger['releaseCheck'];
+  'merge.push': BranchMerger['push'];
+  'merge.remote_tags': BranchMerger['remoteTags'];
+  'merge.push_tag': BranchMerger['pushTag'];
+  'merge.advance': BranchMerger['advance'];
+  'merge.read_file': BranchMerger['readFile'];
+  'merge.commit_files': BranchMerger['commitFiles'];
+  'merge.list_paths': BranchMerger['listPaths'];
+  'merge.changed_paths': BranchMerger['changedPaths'];
 };
 /** Named wire parameters are projections of the engine contract's argument tuples. */
 type ContractParams = {
   'host.free_disk': Record<string, never>;
-  'host.is_directory': { path: Parameters<EngineHost['isDirectory']>[0] };
+  'host.heavy_run_sessions': Record<string, never>;
+  'host.is_directory': { path: string };
   'host.resolve_git_dir': { repoPath: Parameters<EngineHost['resolveGitDir']>[0] };
   'host.realpath': { path: Parameters<EngineHost['realpath']>[0] };
   'host.is_real_directory': { dir: Parameters<EngineHost['isRealDirectory']>[0] };
@@ -183,6 +313,22 @@ type ContractParams = {
     dir: Parameters<EngineHost['listImages']>[0];
     sinceMs: Parameters<EngineHost['listImages']>[1];
   };
+  // The merge calls (PM-451): the engine finds the repository from its own binding (`ref` names it).
+  'merge.prepare': { ref: MergeRepoRef } & Parameters<BranchMerger['prepare']>[1];
+  'merge.is_ancestor': { ref: MergeRepoRef } & Parameters<BranchMerger['isAncestor']>[1];
+  'merge.build': { ref: MergeRepoRef } & Parameters<BranchMerger['build']>[1];
+  'merge.commit_regenerated': { ref: MergeRepoRef } & Parameters<BranchMerger['commitRegenerated']>[1];
+  'merge.checkout_conflicts': { ref: MergeRepoRef } & Parameters<BranchMerger['checkoutConflicts']>[1];
+  'merge.checkout_for_check': { ref: MergeRepoRef } & Parameters<BranchMerger['checkoutForCheck']>[1];
+  'merge.release_check': { ref: MergeRepoRef } & Parameters<BranchMerger['releaseCheck']>[1];
+  'merge.push': { ref: MergeRepoRef } & Parameters<BranchMerger['push']>[1];
+  'merge.remote_tags': { ref: MergeRepoRef } & Parameters<BranchMerger['remoteTags']>[1];
+  'merge.push_tag': { ref: MergeRepoRef } & Parameters<BranchMerger['pushTag']>[1];
+  'merge.advance': { ref: MergeRepoRef } & Parameters<BranchMerger['advance']>[1];
+  'merge.read_file': { ref: MergeRepoRef } & Parameters<BranchMerger['readFile']>[1];
+  'merge.commit_files': { ref: MergeRepoRef } & Parameters<BranchMerger['commitFiles']>[1];
+  'merge.list_paths': { ref: MergeRepoRef } & Parameters<BranchMerger['listPaths']>[1];
+  'merge.changed_paths': { ref: MergeRepoRef } & Parameters<BranchMerger['changedPaths']>[1];
   // Streams and cleanup stay on the engine; only metadata and the upload receipt cross JSON.
   'files.export': {
     sessionId: string;
@@ -242,6 +388,22 @@ type ManagerMethods<T> = {
     : never;
 };
 const worktrees = {
+  ensureMergeFix: method(
+    z.tuple([z.strictObject({ project: ProjectConfig, repoName: text, taskKey: text, commit: mergeText })]),
+    worktreeInfo,
+  ),
+  findMergeFix: method(
+    z.tuple([z.strictObject({ project: ProjectConfig, repoName: text, taskKey: text })]),
+    worktreeInfo.nullable(),
+  ),
+  removeMergeFix: method(
+    z.tuple([z.strictObject({ project: ProjectConfig, repoName: text, taskKey: text })]),
+    done,
+  ),
+  listMergeFixes: method(
+    z.tuple([z.strictObject({ project: ProjectConfig, repoName: text })]),
+    z.array(z.strictObject({ taskKey: text, path: text })),
+  ),
   refreshDependencies: method(
     z.tuple([text]),
     z.discriminatedUnion('status', [
@@ -290,8 +452,16 @@ const workspaces = {
   ),
   sourceHead: method(z.tuple([key, text]), head.nullable()),
   fetchBase: method(z.tuple([key]), z.strictObject({ branch: text, commit: text })),
+  prepareDependencies: method(
+    z.tuple([key]),
+    z.discriminatedUnion('status', [
+      z.strictObject({ status: z.literal('ready'), key: z.string().min(1).max(128), changed: z.boolean() }),
+      z.strictObject({ status: z.literal('skipped'), reason: z.literal('not_configured') }),
+    ]),
+  ),
   findTaskBranch: method(
-    z.tuple([key, text, text.optional()]),
+    // JSON turns a trailing undefined into null.
+    z.tuple([key, text, text.nullish().transform((value) => value ?? undefined)]),
     z.strictObject({ branch: text, source: source.nullable() }).nullable(),
   ),
   resolveSource: method(z.tuple([source]), text.nullable()),
@@ -307,7 +477,8 @@ const workspaces = {
     checkout,
   ),
   checkoutReview: method(z.tuple([key, source, text]), checkout),
-} satisfies ManagerMethods<Omit<MemberWorkspaceManager, 'exportBranch'>>;
+  publishTaskBranch: method(z.tuple([key, text, text, text]), source),
+} satisfies ManagerMethods<MemberWorkspaceManager>;
 const transcriptOptions = z.strictObject({
   provider: AgentProvider.optional(),
   self: text.optional(),
@@ -322,6 +493,20 @@ export const methods = {
   'session.send': method(session.extend({ message: text }), done),
   'session.compact': method(session.extend({ instruction: text }), z.boolean()),
   'session.stop': method(session.extend({ force: z.boolean().optional() }), done),
+  'session.close_scopes': method(
+    z.strictObject({
+      scopes: z
+        .array(
+          z.strictObject({
+            sessionId: text,
+            scopeId: text.regex(/^scp_[0-9a-f]{16}$/),
+            sinceAgeMs: z.number().int().nonnegative().optional(),
+          }),
+        )
+        .max(50),
+    }),
+    z.array(z.strictObject({ sessionId: text, cleanup: SessionCleanupWire })).max(50),
+  ),
   'session.pause': method(session.extend({ forceAfterMs: int.optional() }), pause),
   'session.force_pause': method(session, pause),
   'session.release': method(session.extend({ nudge: text.optional() }), z.boolean()),
@@ -347,6 +532,10 @@ export const methods = {
   'worktree.refreshDependencies': worktrees.refreshDependencies,
   'worktree.head': worktrees.head,
   'worktree.ensureForTask': worktrees.ensureForTask,
+  'worktree.ensureMergeFix': worktrees.ensureMergeFix,
+  'worktree.findMergeFix': worktrees.findMergeFix,
+  'worktree.removeMergeFix': worktrees.removeMergeFix,
+  'worktree.listMergeFixes': worktrees.listMergeFixes,
   'worktree.find': worktrees.find,
   'worktree.status': worktrees.status,
   'worktree.remove': worktrees.remove,
@@ -356,16 +545,21 @@ export const methods = {
   'workspace.status': workspaces.status,
   'workspace.sourceHead': workspaces.sourceHead,
   'workspace.fetchBase': workspaces.fetchBase,
+  'workspace.prepareDependencies': workspaces.prepareDependencies,
   'workspace.findTaskBranch': workspaces.findTaskBranch,
   'workspace.resolveSource': workspaces.resolveSource,
   'workspace.checkoutTaskBranch': workspaces.checkoutTaskBranch,
   'workspace.checkoutReview': workspaces.checkoutReview,
-  'workspace.export_branch': method(z.strictObject({ key, branch: text, uploadToken: text }), EngineUploaded),
+  'workspace.publishTaskBranch': workspaces.publishTaskBranch,
   'github.is_available': method(empty, z.boolean()),
   'github.get_pull_request': method(z.strictObject({ repo: text, number: int.min(1) }), PullRequest),
   'github.find_pull_requests_for_branch': method(
     z.strictObject({ repo: text, branch: text }),
     z.array(PullRequest),
+  ),
+  'github.publish_release': method(
+    z.strictObject({ repo: text, tag: text.max(64), title: text.max(200), notes: text.max(20_000) }),
+    z.strictObject({ url: text }),
   ),
   'github.watch': method(
     z.strictObject({ watchId: text, targets: z.array(z.strictObject({ repo: text, number: int.min(1) })) }),
@@ -373,10 +567,13 @@ export const methods = {
   ),
   'github.unwatch': method(z.strictObject({ watchId: text }), done),
   'full_test.run': method(z.strictObject({ spec: fullSpec }), fullResult),
+  'full_test.attach': method(z.strictObject({ runId: text }), fullAttachResult),
+  'full_test.report': method(z.strictObject({ runId: text }), fullReportResult),
   'full_test.cancel': method(z.strictObject({ runId: text }), done),
   'screenshots.run': method(z.strictObject({ runId: text, spec: screenshotSpec }), screenshotEnded),
   'screenshots.cancel': method(z.strictObject({ runId: text }), done),
   'host.free_disk': method(empty, z.number().nonnegative().nullable()),
+  'host.heavy_run_sessions': method(empty, texts),
   'host.is_directory': method(z.strictObject({ path: text }), z.boolean()),
   'host.resolve_git_dir': method(z.strictObject({ repoPath: text }), text.nullable()),
   'host.realpath': method(z.strictObject({ path: text }), text.nullable()),
@@ -427,6 +624,17 @@ export const methods = {
     }),
     z.strictObject({ path: text }),
   ),
+  // A message attachment into the session's own folder on the engine (PM-518).
+  'files.materialize_into_session': method(
+    z.strictObject({
+      downloadToken: text,
+      sessionId: text,
+      name: text,
+      sha256: text.regex(/^[a-f0-9]{64}$/),
+      size: int.max(ENGINE_UPLOAD_MAX_BYTES.file),
+    }),
+    z.strictObject({ path: text }),
+  ),
   'files.resolve_scenario': method(
     z.strictObject({ roots: z.strictObject({ cwd: text, sessionDir: text }), requested: text }),
     z.union([
@@ -435,6 +643,70 @@ export const methods = {
     ]),
   ),
   'files.list_images': method(z.strictObject({ dir: text, sinceMs: z.number() }), texts),
+  'merge.prepare': method(mergeCall({ base: mergeText, commit: mergeText }), mergeState),
+  'merge.is_ancestor': method(mergeCall({ ancestor: mergeText, commit: mergeText }), z.boolean().nullable()),
+  'merge.build': method(
+    mergeCall({
+      onto: mergeText,
+      commit: mergeText,
+      message: text.max(2000),
+      regenerate: z.array(text.max(200)).max(10).optional(),
+    }),
+    mergeBuilt,
+  ),
+  'merge.commit_regenerated': method(
+    mergeCall({
+      mergeId: mergeText,
+      onto: mergeText,
+      commit: mergeText,
+      message: text.max(2000),
+      paths: z.array(text.max(4096)).max(50),
+      patterns: z.array(text.max(200)).max(10),
+    }),
+    mergeRegenerated,
+  ),
+  'merge.checkout_conflicts': method(
+    mergeCall({ base: mergeText, changed: z.array(text).max(1000) }),
+    z.array(text).max(50),
+  ),
+  'merge.checkout_for_check': method(
+    mergeCall({
+      mergeId: mergeText,
+      mergeCommit: mergeText,
+      depsFrom: text.nullable(),
+      allowDependencyInstall: z.boolean().optional(),
+    }),
+    z.strictObject({ path: text, gitDir: text, dependencyInstallRequired: z.boolean().optional() }),
+  ),
+  'merge.release_check': method(mergeCall({ mergeId: mergeText }), done),
+  'merge.push': method(mergeCall({ base: mergeText, mergeCommit: mergeText }), mergePushed),
+  'merge.remote_tags': method(
+    mergeCall({ base: mergeText }),
+    z.array(z.strictObject({ name: text, commit: text })).max(5000),
+  ),
+  'merge.push_tag': method(mergeCall({ base: mergeText, tag: mergeText, commit: mergeText }), mergePushed),
+  'merge.advance': method(mergeCall({ base: mergeText, from: mergeText, to: mergeText }), mergeAdvanced),
+  'merge.read_file': method(
+    mergeCall({
+      at: z.union([z.strictObject({ commit: mergeText }), z.strictObject({ base: mergeText })]),
+      path: text.max(200),
+    }),
+    z.strictObject({ commit: mergeText, text: text.nullable() }),
+  ),
+  // The limit allows 2 files; the schema is looser so that a third is refused as `invalid_params`.
+  'merge.commit_files': method(
+    mergeCall({
+      onto: mergeText,
+      files: z.array(z.strictObject({ path: text.max(200), text })).max(20),
+      message: text.max(2000),
+    }),
+    z.strictObject({ commit: mergeText, changed: z.array(text).max(10) }),
+  ),
+  'merge.list_paths': method(mergeCall({ base: mergeText }), mergeListed),
+  'merge.changed_paths': method(
+    mergeCall({ base: mergeText, items: z.array(mergeChangedItem).max(MAX_CHANGED_ITEMS) }),
+    mergeChanged,
+  ),
   'machine.snapshot': method(empty, snapshot),
   'machine.processes': method(empty, z.array(processRecord).nullable()),
   'machine.env_values': method(
@@ -444,6 +716,7 @@ export const methods = {
         pid: int,
         values: z.strictObject({
           PROJECTMAN_SESSION_ID: text.optional(),
+          PROJECTMAN_SCOPE_ID: text.optional(),
           PROJECTMAN_INSTANCE: text.optional(),
         }),
       }),
@@ -453,6 +726,13 @@ export const methods = {
     z.strictObject({ pid: int.min(2), signal: z.enum(['SIGTERM', 'SIGKILL']) }),
     z.enum(['sent', 'gone', 'denied']),
   ),
+  // The administration of this engine's own machine (PM-763): the engine hands the call to its local
+  // supervisor, and only for its own target; there is no engine-to-cloud counterpart.
+  'admin.status': method(SocketParams.status, SocketValues.status),
+  'admin.logs': method(SocketParams.logs, SocketValues.logs),
+  'admin.machine': method(SocketParams.machine, SocketValues.machine),
+  'admin.submit': method(SocketParams.submit, SocketValues.submit),
+  'admin.inspect': method(SocketParams.inspect, SocketValues.inspect),
   'permission.decide': method(z.strictObject({ request: permissionRequest }), permissionDecision, 'cloud'),
   'permission.cancel': method(z.strictObject({ reqId: text }), done, 'cloud'),
   'permission.forward_question': method(z.strictObject({ info: question }), z.boolean(), 'cloud'),

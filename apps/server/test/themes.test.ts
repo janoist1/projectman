@@ -1,6 +1,6 @@
 import type { Actor, ServerEvent, Task } from '@projectman/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { aiActor, humanActor } from '../src/domain';
+import { aiActor, humanActor, SYSTEM_ACTOR } from '../src/kernel';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush, pullRequest } from './helpers/fakes';
@@ -500,6 +500,29 @@ describe('closing and reopening a theme', () => {
     await expect(h.domain.tasks.reopen('AR', 'AR-2', DEVELOPER)).rejects.toMatchObject({
       code: 'task_not_cancelled',
     });
+  });
+
+  it('is closed for the system by the domain, like a person closes it, and a closed one is left as it is (PM-491)', async () => {
+    await setTheme('AR-5', 'AR-1');
+    const closed = h.domain.tasks.closeThemeBySystem('AR', 'AR-1', aiActor('devops'));
+    expect(closed).toMatchObject({ status: 'cancelled', kind: 'theme' });
+    expect(closed.closedAt).toBeTruthy();
+    expect(get('AR-5').themeKey).toBe('AR-1');
+    const events = () =>
+      h.domain.timeline.list('AR', { taskKey: 'AR-1' }).filter((event) => event.type === 'task_updated');
+    expect(events().at(-1)).toMatchObject({
+      actor: { kind: 'ai', handle: 'devops' },
+      data: { action: 'closed', fields: ['status', 'closedAt'], previousStatus: 'active' },
+    });
+    // Closed already: returned unchanged, nothing recorded again.
+    const count = events().length;
+    expect(h.domain.tasks.closeThemeBySystem('AR', 'AR-1', SYSTEM_ACTOR)).toEqual(closed);
+    expect(events()).toHaveLength(count);
+    // A person can reopen it, as any closed theme.
+    expect(await h.domain.tasks.reopen('AR', 'AR-1', DEVELOPER)).toMatchObject({ status: 'active' });
+    expect(() => h.domain.tasks.closeThemeBySystem('AR', 'AR-5', SYSTEM_ACTOR)).toThrowError(
+      expect.objectContaining({ code: 'task_not_theme' }),
+    );
   });
 
   it('reopens a card as before: only an admin or the owner may', async () => {

@@ -1,11 +1,13 @@
 import { spawn } from 'node:child_process';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, describe, expect, it } from 'vitest';
 import { InstanceApiError, startInstance } from '../../../scripts/lib/instance.mjs';
 import type { Instance } from '../../../scripts/lib/instance.mjs';
+import { waitUntil } from './helpers/wait';
 
 /**
  * scripts/lib/instance.mjs (PM-269): real servers and Vite on free ports, the fake CLIs, no
@@ -25,6 +27,17 @@ afterEach(async () => {
   await Promise.all(running.splice(0).map((instance) => instance.stop()));
 });
 
+// Starting a server runs the whole source through tsx, which is most of a test's time. The tests that only
+// use a demo instance (they invite their own accounts and open their own sessions) share one.
+let shared: Promise<Instance> | undefined;
+function demoInstance(): Promise<Instance> {
+  return (shared ??= startInstance({ web: false }));
+}
+
+afterAll(async () => {
+  if (shared) await (await shared.catch(() => undefined))?.stop();
+});
+
 async function answers(url: string): Promise<boolean> {
   try {
     await fetch(url, { signal: AbortSignal.timeout(1_000) });
@@ -32,15 +45,6 @@ async function answers(url: string): Promise<boolean> {
   } catch {
     return false;
   }
-}
-
-async function waitUntil(check: () => Promise<boolean>, timeoutMs: number): Promise<boolean> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (await check()) return true;
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-  return check();
 }
 
 describe('startInstance', () => {
@@ -92,7 +96,7 @@ describe('startInstance', () => {
   it(
     'logs a non-admin account in with an invitation',
     async () => {
-      const instance = await start();
+      const instance = await demoInstance();
       const client = await instance.invite({
         project: 'AC',
         email: 'Client@Acme.test',
@@ -118,7 +122,7 @@ describe('startInstance', () => {
   it(
     'gives a browser login as a storageState: the session cookie only, no password',
     async () => {
-      const instance = await start();
+      const instance = await demoInstance();
       const client = await instance.invite({
         project: 'AC',
         email: 'cookie@acme.test',
@@ -143,7 +147,7 @@ describe('startInstance', () => {
   it(
     'shows the fake lead’s ask_human question in the inbox',
     async () => {
-      const instance = await start();
+      const instance = await demoInstance();
       const members = await instance.api('/api/projects/AC/members');
       const developer = members.find(
         (member: { kind: string; role: string }) => member.kind === 'ai' && member.role === 'developer',
@@ -151,11 +155,16 @@ describe('startInstance', () => {
       const sessionId = await instance.startSession('AC', 'AC-1', developer.handle);
       await instance.waitIdle('AC', sessionId);
       await instance.setFakeCalls([
-        { tool: 'ask_human', arguments: { question: 'Which colour should the basket button be?' } },
+        {
+          tool: 'ask_human',
+          arguments: { question: 'Which colour should the basket button be?', options: ['Green', 'Blue'] },
+        },
       ]);
       await instance.say('AC', sessionId, 'CALLS please');
       await instance.waitIdle('AC', sessionId);
-      const inbox = await instance.api('/api/projects/AC/inbox');
+      // The template has an Operator, so the AI member's question first waits in screening (PM-558): the
+      // default list shows only open items, `state=all` shows it in whatever state the Operator left it.
+      const inbox = await instance.api('/api/projects/AC/inbox?state=all');
       expect(JSON.stringify(inbox)).toContain('Which colour should the basket button be?');
     },
     SLOW,
@@ -181,12 +190,14 @@ describe('startInstance', () => {
         expect(await answers(serverUrl)).toBe(true);
         expect(await answers(webUrl)).toBe(true);
         parent.kill('SIGKILL');
-        expect(await waitUntil(async () => !(await answers(serverUrl)), 20_000)).toBe(true);
-        expect(await waitUntil(async () => !(await answers(webUrl)), 20_000)).toBe(true);
+        const options = { timeoutMs: 20_000, intervalMs: 100 };
+        expect(await waitUntil(async () => !(await answers(serverUrl)), options)).toBe(true);
+        expect(await waitUntil(async () => !(await answers(webUrl)), options)).toBe(true);
       } finally {
         parent.kill('SIGKILL');
-        // A killed parent cannot remove its temporary directory.
-        if (dir) rmSync(dir, { recursive: true, force: true });
+        // A killed parent cannot remove its temporary directory. Its children may still finish
+        // writing after their ports close, so retry transient ENOTEMPTY during teardown.
+        if (dir) await rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
       }
     },
     SLOW,

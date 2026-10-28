@@ -7,14 +7,14 @@ import {
   validateProjectConfig,
 } from '@projectman/shared';
 import { describe, expect, it } from 'vitest';
-import { legacyCheckLabels, migrateLegacyConfig, standardLabelsFor } from './labels';
+import { migrateLegacyConfig, standardLabelsFor } from './labels';
 import { getLocale } from './locales';
-import { templates } from './index';
+import { getTemplate } from './index';
 
 function legacyConfig() {
   const config = JSON.parse(
     JSON.stringify(
-      templates[0]!.build({
+      getTemplate('web-client-project')!.build({
         key: 'AC',
         name: 'Acme',
         workspacePath: '/tmp/acme',
@@ -97,17 +97,5 @@ describe('labels', () => {
     expect(label('qa-failed')).toBe(locale.labels['qa-failed'].name);
     expect(label('release-approved')).toBe(locale.labels['release-approved'].name);
     expect(label('qa-failed')).not.toBe(getLocale('en').labels['qa-failed'].name);
-  });
-
-  it('maps recorded checks to labels, pending ones to none', () => {
-    expect(
-      legacyCheckLabels({
-        code_review: 'passed',
-        qa: 'retest_needed',
-        client_test: 'pending',
-        unknown: 'passed',
-      }),
-    ).toEqual(['code-review-ok', 'qa-retest']);
-    expect(legacyCheckLabels(undefined)).toEqual([]);
   });
 });

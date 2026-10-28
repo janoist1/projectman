@@ -1,23 +1,47 @@
 import {
   alertPayloadOf,
-  BoundaryRequest,
+  humanInboxAssignment,
   fixLimitDecisionOf,
+  gateRequestOf,
+  handOnRequestOf,
   loopDecisionOf,
+  mergeRequestOf,
   permissionDelegationOf,
+  QuestionCloseRule,
   questionPayloadOf,
+  isLinkedQuestion,
+  releaseApprovalOf,
   seniorWaitDecisionOf,
+  emailApprovalOf,
 } from '@projectman/shared';
-import type { InboxItem, InboxOption, LabelView, WorkItemRef } from '@projectman/shared';
-import { formatStamp, formatTokens } from '../i18n/format';
+import type {
+  AnswerDelivery,
+  InboxItem,
+  InboxOption,
+  LabelView,
+  QuestionScreening,
+  Task,
+  TaskStartWaiting,
+  WorkItemRef,
+} from '@projectman/shared';
+import { formatStamp, formatTime, formatTokens } from '../i18n/format';
 import { joinNames, t, tDynamic } from '../i18n/t';
 import { toolPresentationFor } from './chat';
 import { labelName } from './labels';
-import { nameOf, namesOf } from './members';
+import { actorLabel, nameOf, namesOf } from './members';
 import type { MemberIndex } from './members';
 import { fixRoundParts } from './fixLimit';
 import { pairText, watcherName } from './loop';
+import { outageHeading, outageOfItem } from './outage';
 import type { PipelineIndex } from './pipeline';
+import { releaseFailedWords } from './release';
 import { relationKindLabel } from './timeline';
+
+/** Operator-origin requests use the same sender in the inbox and in task status lines. */
+export function isOperatorInboxRequest(item: Pick<InboxItem, 'payload'>): boolean {
+  const payload = questionPayloadOf(item);
+  return !!payload?.operatorHandoff || !!payload?.superOperation;
+}
 
 /** Option id used for a free-text answer to a question (the text goes in `note`). */
 export const FREE_ANSWER_OPTION_ID = 'answer';
@@ -37,6 +61,11 @@ const BUILT_IN_OPTIONS = [
   'another_round',
   'wait_for_senior',
   'any_developer',
+  'move',
+  'dismiss',
+  'merge',
+  'todo_done',
+  'todo_cannot',
 ] as const;
 type BuiltInOption = (typeof BUILT_IN_OPTIONS)[number];
 
@@ -54,12 +83,23 @@ export function optionLabel(option: InboxOption): string {
  * shown in monospace anyway, so the heading names the kind of tool instead.
  */
 export function inboxHeading(item: InboxItem): string {
-  if (item.kind === 'boundary') return t('boundary.heading');
+  const merge = mergeRequestOf(item);
+  if (merge)
+    return t(merge.failure ? 'inbox.mergeRequest.failedTitle' : 'inbox.mergeRequest.title', {
+      key: merge.taskKey,
+    });
+  if (releaseApprovalOf(item)) return t('inbox.release.title');
+  if (emailApprovalOf(item)) return t('inbox.email.title');
   if (loopDecisionOf(item)) return t('inbox.loop.heading');
   if (fixLimitDecisionOf(item)) return t('inbox.fixLimit.heading');
   if (seniorWaitDecisionOf(item)) return t('inbox.seniorWait.heading');
   if (item.kind === 'alert') {
     const alert = alertPayloadOf(item);
+    if (alert?.alert === 'email_parked') return t('inbox.email.parkedTitle');
+    if (alert?.alert === 'merge_blocked') return t('inbox.mergeBlocked.title', { key: alert.taskKey });
+    if (alert?.alert === 'work_outage') return outageHeading(alert.outage);
+    if (alert?.alert === 'release_failed')
+      return releaseFailedWords(alert.step, alert.rolledBack, alert.taskKey).title;
     return alert ? t(`inbox.alerts.${alert.alert}.heading`) : t('inbox.alerts.unknown');
   }
   if (item.kind === 'permission') {
@@ -236,6 +276,12 @@ export function alertText(
 ): string | null {
   const alert = alertPayloadOf(item);
   if (!alert) return null;
+  if (alert.alert === 'email_parked') return null;
+  // The merge alert says why in the words of its card (MergeInboxBody), with the raw message folded.
+  if (alert.alert === 'merge_blocked') return null;
+  if (alert.alert === 'work_outage') return null;
+  // The release alert tells the step and what became of the old version in its own body (ReleaseAlertBody).
+  if (alert.alert === 'release_failed') return null;
   if (alert.alert === 'provider_rate_limited')
     return t(
       alert.until ? 'inbox.alerts.provider_rate_limited.body' : 'inbox.alerts.provider_rate_limited.unknown',
@@ -275,6 +321,39 @@ export function alertText(
       relations: joinNames(
         alert.relations.map((relation) => `${relationKindLabel(relation.kind)} ${relation.key}`),
       ),
+    });
+  if (alert.alert === 'parts_left')
+    return t('inbox.alerts.parts_left.body', {
+      key: alert.taskKey,
+      member: nameOf(alert.member, members, myHandle),
+      parts: alert.parts.join(', '),
+    });
+  if (alert.alert === 'work_stalled')
+    return t('inbox.alerts.work_stalled.body', {
+      since: formatStamp(alert.since),
+      cards: alert.cards.join(', '),
+      free: joinNames(namesOf(alert.free, members, myHandle)),
+      unavailable: alert.unavailable.length
+        ? t('inbox.alerts.work_stalled.unavailable', {
+            members: joinNames(
+              alert.unavailable.map(
+                (entry) =>
+                  `${nameOf(entry.handle, members, myHandle)} (${t(`inbox.alerts.work_stalled.reasons.${entry.reason}`)})`,
+              ),
+            ),
+          })
+        : '',
+    });
+  if (alert.alert === 'feedback_forwarded')
+    return t('inbox.alerts.feedback_forwarded.body', {
+      author: nameOf(alert.author, members, myHandle),
+      excerpt: alert.excerpt,
+      reason: alert.reason,
+    });
+  if (alert.alert === 'host_request_answered')
+    return t(`inbox.alerts.host_request_answered.${alert.outcome}`, {
+      title: alert.title,
+      answer: alert.answer,
     });
   if (alert.alert === 'session_input')
     return t('inbox.alerts.session_input.body', {
@@ -334,7 +413,7 @@ export function fixLimitDecisionText(
     parts: fixRoundParts(limit),
     reason:
       limit.reason === 'passed_on'
-        ? t('inbox.fixLimit.reasons.passed_on', {
+        ? t(limit.assessment ? 'inbox.fixLimit.reasons.passedOnShort' : 'inbox.fixLimit.reasons.passed_on', {
             name: nameOf(limit.decider, members, myHandle),
             note: note ? t('inbox.fixLimit.note', { note }) : '',
           })
@@ -354,9 +433,10 @@ export function seniorWaitDecisionText(
   const wait = seniorWaitDecisionOf(item);
   if (!wait) return null;
   const reason = wait.reason?.trim();
-  return t('inbox.seniorWait.body', {
+  return t(wait.points !== undefined ? 'inbox.seniorWait.bodyPoints' : 'inbox.seniorWait.body', {
     key: wait.taskKey,
     minutes: wait.minutes,
+    points: wait.points ?? '',
     names: joinNames(namesOf(wait.seniors, members, myHandle)),
     reason: reason ? t('inbox.seniorWait.reason', { reason }) : '',
   });
@@ -378,7 +458,13 @@ export function withConsequences(item: InboxItem, options: readonly InboxOption[
   if (!group) return [...options];
   return options.map((option) =>
     group.ids.includes(option.id)
-      ? { ...option, consequence: tDynamic(`inbox.${group.scope}.consequence.${option.id}`, '') }
+      ? {
+          ...option,
+          consequence: tDynamic(
+            `inbox.${group.scope}.consequence.${option.id === 'another_round' && (fixLimitDecisionOf(item)?.extraRounds ?? 0) >= 3 ? 'another_round_over' : option.id}`,
+            '',
+          ),
+        }
       : option,
   );
 }
@@ -386,14 +472,92 @@ export function withConsequences(item: InboxItem, options: readonly InboxOption[
 interface GatePayload {
   fromStageId?: unknown;
   toStageId?: unknown;
+  label?: unknown;
 }
 
-/** "Továbblépés: Merge → Élesítés" for gate approval decisions. */
-export function gateMoveText(item: InboxItem, pipeline: PipelineIndex | null | undefined): string | null {
+/**
+ * "Jóváhagyás: „Merge jóváhagyva” · Code review → Kész" for gate approval decisions (PM-445); a request
+ * from before the approval was a label names none, and reads "Továbblépés: Code review → Kész".
+ */
+export function gateMoveText(
+  item: InboxItem,
+  pipeline: PipelineIndex | null | undefined,
+  labels: readonly LabelView[] = [],
+): string | null {
   const gate = item.payload.gate as GatePayload | undefined;
   if (!gate || typeof gate !== 'object' || typeof gate.toStageId !== 'string') return null;
   const name = (id: unknown) => (typeof id === 'string' ? (pipeline?.stageById.get(id)?.name ?? id) : '');
-  return t('inbox.gateMove', { from: name(gate.fromStageId), to: name(gate.toStageId) });
+  const from = name(gate.fromStageId);
+  const to = name(gate.toStageId);
+  return typeof gate.label === 'string'
+    ? t('inbox.gateApproval', {
+        label: t('taskStatus.quoted', { name: labelName(gate.label, labels) }),
+        from,
+        to,
+      })
+    : t('inbox.gateMove', { from, to });
+}
+
+/**
+ * "Jóváhagyás után X beolvasztja a main ágba, és a kártya átkerül ide: Kész." under an approval a merge
+ * follows (PM-484); null when the request names no merge (older requests, no merger).
+ */
+export function gateThenMergeText(
+  item: InboxItem,
+  pipeline: PipelineIndex | null | undefined,
+  members: MemberIndex,
+  myHandle: string | null,
+): string | null {
+  const gate = item.kind === 'decision' ? gateRequestOf(item) : null;
+  if (!gate?.merge) return null;
+  const params = {
+    base: gate.merge.base,
+    to: pipeline?.stageById.get(gate.toStageId)?.name ?? gate.toStageId,
+  };
+  return gate.merge.merger === myHandle
+    ? t('inbox.gateThenMergeYou', params)
+    : t('inbox.gateThenMerge', { ...params, merger: nameOf(gate.merge.merger, members, myHandle) });
+}
+
+/** What a question that asks for an approval tells the reader (PM-484): the answer sets no label. */
+export type ApprovalHint =
+  | { kind: 'jump'; label: string; gateItemId: string }
+  | { kind: 'others'; label: string; approvers: string[] }
+  | { kind: 'none'; label: string; taskKey: string }
+  | { kind: 'done'; label: string };
+
+/**
+ * Which of the four notes an open question gets: the label is already on the card (`done`), the approval
+ * request waits for the viewer (`jump`) or for others (`others`), or there is none open (`none`). `label` is
+ * the label id; the card shows its name. Null when the question asks for no approval.
+ */
+export function approvalHintOf(
+  item: InboxItem,
+  ctx: {
+    task: Pick<Task, 'labels'> | undefined;
+    items: readonly InboxItem[];
+    myHandle: string | null;
+  },
+): ApprovalHint | null {
+  if (item.kind !== 'question' || item.state !== 'open') return null;
+  const label = questionPayloadOf(item)?.approvalLabel;
+  if (!label) return null;
+  if (ctx.task?.labels.includes(label)) return { kind: 'done', label };
+  const requests = openItems(ctx.items).filter(
+    (other) =>
+      other.kind === 'decision' && other.taskKey === item.taskKey && gateRequestOf(other)?.label === label,
+  );
+  const mine = requests.find((other) => isAssignedTo(other, ctx.myHandle));
+  if (mine) return { kind: 'jump', label, gateItemId: mine.id };
+  if (requests.length > 0) {
+    return { kind: 'others', label, approvers: [...new Set(requests.flatMap((other) => other.assignees))] };
+  }
+  return { kind: 'none', label, taskKey: item.taskKey ?? '' };
+}
+
+/** The id of an item's card in the page, for a link that scrolls to it. */
+export function inboxItemDomId(itemId: string): string {
+  return `inbox-item-${itemId}`;
 }
 
 /** Short text of what was decided, for history lists. */
@@ -406,6 +570,11 @@ export function decisionSubject(item: InboxItem): string {
   const seniorWait = seniorWaitDecisionOf(item);
   if (seniorWait) return t('inbox.seniorWait.subject', { key: seniorWait.taskKey });
   if (item.kind === 'question') return inboxHeading(item);
+  // A decided e-mail is listed by its subject; a parked one by what the mail was about.
+  const email = emailApprovalOf(item);
+  if (email) return email.subject;
+  const outage = outageOfItem(item);
+  if (outage) return outageHeading(outage);
   return item.title;
 }
 
@@ -416,11 +585,6 @@ export function decisionLine(item: InboxItem, members: MemberIndex, myHandle: st
   return [resolutionLabel(item), nameOf(source, members, myHandle), item.taskKey]
     .filter((part): part is string => Boolean(part))
     .join(' · ');
-}
-
-export function boundaryOf(item: InboxItem): BoundaryRequest | null {
-  const parsed = item.kind === 'boundary' ? BoundaryRequest.safeParse(item.payload.boundary) : null;
-  return parsed?.success ? parsed.data : null;
 }
 
 const OWNER_CATEGORIES = ['cost', 'production', 'credentials', 'host_expansion'] as const;
@@ -522,19 +686,51 @@ export function isAutomaticDecision(item: InboxItem): boolean {
 }
 
 export function resolutionLabel(item: InboxItem): string {
+  // A question closed without an answer (PM-556) says why, whatever its state is.
+  const closed = QuestionCloseRule.safeParse(item.resolution?.rule);
+  if (closed.success) return t(`inbox.resolutions.${closed.data}`);
   if (item.state === 'expired') return t('inbox.resolutions.expired');
   if (item.state === 'cancelled') return t('inbox.resolutions.cancelled');
+  if (item.resolution?.rule === 'outage_ended') return t('inbox.resolutions.outage_ended');
   if (item.resolution?.rule === 'loop_ended') return t('inbox.resolutions.loop_ended');
   if (item.resolution?.rule === 'fix_limit_ended') return t('inbox.resolutions.fix_limit_ended');
   if (item.resolution?.rule === 'senior_took') return t('inbox.resolutions.senior_took');
   if (item.resolution?.rule === 'senior_wait_ended') return t('inbox.resolutions.senior_wait_ended');
+  if (item.resolution?.rule === 'approval_given') return t('inbox.resolutions.approval_given');
+  // The system took an e-mail back (the channel was switched off, or the sender lost the right): no person decided.
+  if (item.resolution?.rule === 'email_not_allowed') return t('inbox.email.revoked');
+  if (item.resolution?.rule === 'feedback_handled') return t('inbox.resolutions.feedback_handled');
   const optionId = item.resolution?.optionId;
   if (!optionId) return t('inbox.resolutions.answer');
+  if (emailApprovalOf(item) && (optionId === 'approve' || optionId === 'reject'))
+    return optionId === 'approve' ? t('inbox.email.sent') : t('inbox.email.notSent');
   if (isAutomaticDecision(item) && (optionId === 'allow' || optionId === 'deny'))
     return t(`inbox.resolutions.automatic_${optionId}`);
   if (isBuiltIn(optionId)) return t(`inbox.resolutions.${optionId}`);
   const option = item.options.find((entry) => entry.id === optionId);
   return option ? t('inbox.resolutions.option', { label: option.label }) : t('inbox.resolutions.answer');
+}
+
+/** A taken-on card in the list of decisions (PM-461): "Továbbvitted: Átnézés" / "Kata továbbvitte: Átnézés". */
+export function handOnResolvedText(
+  item: InboxItem,
+  members: MemberIndex,
+  myHandle: string | null,
+  pipeline: PipelineIndex | null | undefined,
+): string {
+  const request = handOnRequestOf(item);
+  const stage = request ? (pipeline?.stageById.get(request.toStageId)?.name ?? request.toStageId) : '';
+  const by = item.resolution?.by;
+  return by && by !== myHandle
+    ? t('inbox.handOn.resolvedBy', { name: nameOf(by, members, myHandle), stage })
+    : t('inbox.handOn.resolvedMe', { stage });
+}
+
+/** The notice after the viewer took a finished card on (PM-461): "Továbbvitted: Átnézés". */
+export function handOnToast(item: InboxItem, pipeline: PipelineIndex | null | undefined): string {
+  const request = handOnRequestOf(item);
+  const stage = request ? (pipeline?.stageById.get(request.toStageId)?.name ?? request.toStageId) : '';
+  return t('inbox.handOn.resolvedMe', { stage });
 }
 
 /** The short notice after the viewer's own decision went through: "Engedélyezve", "Válasz: B". */
@@ -559,44 +755,273 @@ export function decisionToast(item: InboxItem, optionId: string, myHandle: strin
   });
 }
 
-/** Who decided: the rule the system decided by, "Rendszer" for older automatic decisions, or the member. */
+/**
+ * Who decided: the rule the system decided by, "Rendszer" for older automatic decisions, or the member.
+ * A question that closed by itself (the card finished, the asker handed it off) says so; one the Operator
+ * closed names the Operator, and a withdrawn one the asker.
+ */
 export function resolverName(item: InboxItem, members: MemberIndex, myHandle: string | null): string {
   const resolution = item.resolution;
+  if (resolution?.actor) return actorLabel(resolution.actor, members, myHandle);
   if (resolution?.via) return t('involvement.integratorFull');
+  const closed = QuestionCloseRule.safeParse(resolution?.rule);
+  if (closed.success) {
+    if (resolution?.by === 'system' || closed.data === 'task_done' || closed.data === 'task_cancelled')
+      return t('inbox.closedBySystem');
+    return nameOf(resolution?.by ?? null, members, myHandle);
+  }
   if (resolution?.rule) return t(`inbox.resolutionRules.${resolution.rule}`);
   return nameOf(resolution && resolution.by !== 'system' ? resolution.by : null, members, myHandle);
 }
 
 /** The note written with the decision (an answer, or an older automatic decision's note), or null. */
 export function resolutionNote(item: InboxItem): string | null {
+  if (item.resolution?.integratorTodo) {
+    const note = item.resolution.note?.trim();
+    return note
+      ? t(
+          item.resolution.optionId === 'todo_cannot'
+            ? 'inbox.handedOff.reasonNote'
+            : 'inbox.handedOff.resultNote',
+          { note },
+        )
+      : null;
+  }
   if (item.kind === 'question' && item.resolution?.via && item.resolution.note?.trim())
     return `${t('integratorKey.forwarded')}: ${item.resolution.note.trim()}`;
-  if (item.kind === 'boundary' && item.resolution?.note)
-    return tDynamic(`boundary.reasons.${item.resolution.note}`, item.resolution.note);
   return item.resolution?.note?.trim() || null;
 }
 
 export function isPositiveResolution(item: InboxItem): boolean {
   const optionId = item.resolution?.optionId;
-  return item.state === 'resolved' && optionId !== 'deny' && optionId !== 'reject';
+  return (
+    item.state === 'resolved' &&
+    optionId !== 'deny' &&
+    optionId !== 'reject' &&
+    optionId !== 'todo_cannot' &&
+    item.resolution?.rule !== 'email_not_allowed' &&
+    !isClosedWithoutAnswer(item)
+  );
+}
+
+/** A question closed without an answer (PM-556): the card finished, the asker left it, or the Operator found it moot. */
+export function isClosedWithoutAnswer(item: InboxItem): boolean {
+  return QuestionCloseRule.safeParse(item.resolution?.rule).success;
+}
+
+/** The mark of a row in the history: a tick, a cross, a quiet dash (closed without an answer) or "…" (the answer waits). */
+export type ResolutionMark = 'ok' | 'no' | 'moot' | 'wait';
+
+export function resolutionMark(item: InboxItem): ResolutionMark {
+  if (isClosedWithoutAnswer(item)) return 'moot';
+  if (!isPositiveResolution(item)) return 'no';
+  return answerDeliveryOf(item)?.state === 'waiting' ? 'wait' : 'ok';
+}
+
+/**
+ * Whether the history ("Mostanában döntöttél") lists an item. What the Operator settled with no person
+ * involved is in its trail ("Az Operátor intézte") instead. A question the Operator closed as moot only
+ * counts when it had gone to the people first (it was a todo, or released by the fallback): the record
+ * does not keep a plain decision released and closed later, so that case stays in the trail.
+ */
+export function isRecentDecision(item: InboxItem): boolean {
+  if (item.resolution?.integratorTodo || item.resolution?.integratorFixLimit) return false;
+  if (item.state === 'open' || item.state === 'screening') return false;
+  const rule = item.resolution?.rule;
+  if (rule === 'operator_answered' || rule === 'operator_forwarded') return false;
+  if (rule === 'operator_moot') {
+    const screening = screeningOf(item);
+    return Boolean(screening?.todo || screening?.fallback);
+  }
+  return true;
 }
 
 export function openItems(items: readonly InboxItem[] | undefined): InboxItem[] {
-  return (items ?? []).filter((item) => item.state === 'open');
+  return (items ?? []).filter((item) => item.state === 'open' && !isLinkedQuestion(item));
+}
+
+/** What the Operator recorded about a question (PM-556), or null. */
+export function screeningOf(item: InboxItem): QuestionScreening | null {
+  return item.kind === 'question' ? (questionPayloadOf(item)?.screening ?? null) : null;
+}
+
+/** A question the Operator made a todo of: "Teendő", not "Kérdés" (PM-556), also after it closed. */
+export function isTodo(item: InboxItem): boolean {
+  return (
+    item.kind === 'question' &&
+    (screeningOf(item)?.outcome === 'todo' || !!questionPayloadOf(item)?.operatorHandoff)
+  );
+}
+
+/** The kind a card shows: a todo is its own kind. */
+export type DisplayKind = InboxItem['kind'] | 'todo';
+
+export function displayKindOf(item: InboxItem): DisplayKind {
+  return isTodo(item) ? 'todo' : item.kind;
+}
+
+/** What the Operator said about a question that went to the people (a decision or a todo), or null. */
+export function operatorNoteOf(item: InboxItem): string | null {
+  const screening = screeningOf(item);
+  if (!screening || (screening.outcome !== 'decision' && screening.outcome !== 'todo')) return null;
+  return screening.note?.trim() || null;
+}
+
+/** Why the Operator did not look at a question: it did not answer in time, or could not be started. */
+export function operatorFallbackOf(item: InboxItem): 'timeout' | 'unavailable' | null {
+  return screeningOf(item)?.fallback ?? null;
+}
+
+/** The question was asked again without screening (PM-556): the reason the asker gave, or null. */
+export function rerouteReasonOf(item: InboxItem): string | null {
+  return item.kind === 'question' ? (questionPayloadOf(item)?.unscreened?.reason.trim() ?? null) : null;
+}
+
+/** The rows of a todo's step box, in order; those the Operator left empty are skipped. */
+export function todoRows(item: InboxItem): { label: string; value: string }[] {
+  const todo = screeningOf(item)?.todo;
+  if (!todo) return [];
+  return [
+    { label: t('inbox.todo.what'), value: todo.what },
+    { label: t('inbox.todo.where'), value: todo.where },
+    { label: t('inbox.todo.expected'), value: todo.expected },
+  ].filter((row) => row.value.trim() !== '');
+}
+
+/** The delivery state of the viewer's answer to an AI member's question (PM-556), or null. */
+export function answerDeliveryOf(item: InboxItem): AnswerDelivery | null {
+  return item.kind === 'question' ? (questionPayloadOf(item)?.answerDelivery ?? null) : null;
+}
+
+type StartWaitingReason = TaskStartWaiting['reason'];
+
+/** The few words why a member cannot start now, or null for a reason the asker's wait is not explained by. */
+function startWaitingWords(reason: StartWaitingReason, form: 'before' | 'after'): string | null {
+  switch (reason) {
+    case 'member_on_leave':
+      return t(`inbox.awaitsStart.${form}.leave`);
+    case 'plan_usage_paused':
+    case 'provider_rate_limited':
+      return t(`inbox.awaitsStart.${form}.quota`);
+    case 'member_at_capacity':
+    case 'ai_limit_reached':
+      return t(`inbox.awaitsStart.${form}.capacity`);
+    default:
+      return null;
+  }
+}
+
+/** The line above the buttons: the asker cannot start now, so an answer waits ("{név} most szabadságon van: …"). Null otherwise. */
+export function askerStartNote(
+  item: InboxItem,
+  members: MemberIndex,
+  myHandle: string | null,
+): string | null {
+  const reason = item.askerStart?.reason;
+  const words = reason ? startWaitingWords(reason, 'before') : null;
+  return words
+    ? t('inbox.awaitsStart.note', { name: nameOf(item.source, members, myHandle), reason: words })
+    : null;
+}
+
+/** The notice after an answer went through when the asker cannot start now: "Elküldve. {név} {ok}, a válasz megvárja." */
+export function askerStartToast(
+  item: InboxItem,
+  members: MemberIndex,
+  myHandle: string | null,
+): string | null {
+  const reason = item.askerStart?.reason;
+  const words = reason ? startWaitingWords(reason, 'before') : null;
+  return words
+    ? t('inbox.awaitsStart.toast', { name: nameOf(item.source, members, myHandle), reason: words })
+    : null;
+}
+
+/** The history line under an answered question: the answer waits for the member's start, or reached them. Null otherwise. */
+export function answerDeliveryText(
+  item: InboxItem,
+  members: MemberIndex,
+  myHandle: string | null,
+): string | null {
+  if (item.state === 'cancelled') return null;
+  const delivery = answerDeliveryOf(item);
+  if (!delivery) return null;
+  if (delivery.state === 'delivered')
+    return t('inbox.awaitsStart.delivered', { time: formatTime(delivery.at) });
+  const words = startWaitingWords(delivery.reason, 'after');
+  return t('inbox.awaitsStart.waiting', {
+    name: nameOf(item.source, members, myHandle),
+    reason: words ?? t('inbox.awaitsStart.after.other'),
+  });
+}
+
+/** "Ez a kérdés közben lezárult: {ok}": the reason the question closed while it was open, or null when not known. */
+export function closedReasonOf(item: InboxItem): string | null {
+  const closed = QuestionCloseRule.safeParse(item.resolution?.rule);
+  return closed.success ? t(`inbox.closedReasons.${closed.data}`) : null;
+}
+
+/**
+ * Whether an open item left the list because of something other than the viewer's own answer: a rule or
+ * another person closed it (a question of an asker who handed the card off, for one).
+ */
+export function closedBySomeoneElse(item: InboxItem, myHandle: string | null): boolean {
+  if (item.state === 'open' || item.state === 'screening') return false;
+  if (isClosedWithoutAnswer(item) || item.resolution?.integratorTodo || item.resolution?.integratorFixLimit)
+    return true;
+  return item.resolution?.by !== undefined && item.resolution.by !== myHandle;
+}
+
+/** The Operator's part in a question the viewer did not see (the trail "Az Operátor intézte"). */
+export type OperatorTrailMark = 'answered' | 'forwarded' | 'moot' | 'at';
+
+export function operatorTrailMark(item: InboxItem): OperatorTrailMark {
+  if (item.state === 'screening') return 'at';
+  const outcome = screeningOf(item)?.outcome;
+  return outcome === 'answered' || outcome === 'forwarded' ? outcome : 'moot';
+}
+
+/**
+ * The line under a trail row: the Operator's note (for a forwarded question, who got it), or for a question
+ * still with the Operator when it goes to the people.
+ */
+export function operatorTrailNote(
+  item: InboxItem,
+  members: MemberIndex,
+  myHandle: string | null,
+): string | null {
+  const screening = screeningOf(item);
+  if (item.state === 'screening' && screening?.queue) return t('inbox.operatorTrail.queued');
+  if (item.state === 'screening' && screening)
+    return t('inbox.operatorTrail.until', { time: formatTime(screening.until) });
+  const note = screening?.note?.trim();
+  if (screening?.outcome === 'forwarded' && screening.forwardedTo) {
+    const name = nameOf(screening.forwardedTo, members, myHandle);
+    return note
+      ? t('inbox.operatorTrail.forwardedTo', { name, note })
+      : t('inbox.operatorTrail.forwardedToPlain', { name });
+  }
+  return note || null;
 }
 
 export function isAssignedTo(item: InboxItem, handle: string | null): boolean {
-  return !handle || item.assignees.includes(handle);
+  return humanInboxAssignment(item, handle);
 }
 
 /** Ids of every open item (the timeline marks requests that still wait). */
 export function openItemIds(items: readonly InboxItem[] | undefined): Set<string> {
-  return new Set(openItems(items).map((item) => item.id));
+  return new Set(openItemsFor(items, null).map((item) => item.id));
 }
 
 /** Open items waiting for this member (every open item when the handle is unknown). */
-export function openItemsFor(items: readonly InboxItem[] | undefined, handle: string | null): InboxItem[] {
-  return openItems(items).filter((item) => isAssignedTo(item, handle));
+export function openItemsFor(
+  items: readonly InboxItem[] | undefined,
+  handle: string | null,
+  includeLinked = false,
+): InboxItem[] {
+  return (includeLinked ? (items ?? []).filter((item) => item.state === 'open') : openItems(items)).filter(
+    (item) => isAssignedTo(item, handle),
+  );
 }
 
 export function newestFirst<T extends { createdAt: string }>(items: readonly T[]): T[] {

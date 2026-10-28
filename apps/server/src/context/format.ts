@@ -1,4 +1,4 @@
-import { effectiveRepo, isHumanOnlyLabel, needsRepoChoice, repoOf } from '@projectman/shared';
+import { effectiveRepo, isHumanOnlyLabel, needsRepoChoice, repoOf, requiresMerge } from '@projectman/shared';
 import type { Gate, LabelDefinition, ProjectConfig, Stage, Task } from '@projectman/shared';
 import { describeRepo } from '../agent-text';
 import type { TextStyle } from '../agent-text';
@@ -13,6 +13,12 @@ export function codeList(values: readonly string[]): string {
   return values.map(code).join(', ');
 }
 
+/** Distinguish updating a card branch from landing its approved commit (PM-747). */
+export function cardBranchMergeRule(defaultBranch: string): string {
+  const base = code(defaultBranch);
+  return `Merging ${base} into your own task branch (for example to resolve review conflicts) is always allowed and needs no permission. Never merge into ${base} or push manually: only the card merger's merge_task may move ${base} by merging the approved commit and push it when the branch has an upstream.`;
+}
+
 /**
  * Where the task's work happens, worded for the brief and the system prompt: its repository as
  * inline code (the task's own, else the project's only one), else why it has none.
@@ -25,6 +31,21 @@ export function repoText(project: Pick<ProjectConfig, 'project'>, task: Pick<Tas
 }
 
 /**
+ * Who runs the full check of a repository whose work is merged by a member: the merge step, on the
+ * merge result, before the default branch moves (PM-386). Null where the merge is not the project's
+ * own (an outside integrator merges): the caller keeps the general wording.
+ */
+export function mergeStepCheckLine(
+  project: Pick<ProjectConfig, 'project'>,
+  task: Pick<Task, 'repo'>,
+): string | null {
+  const repo = repoOf(project, effectiveRepo(project, task));
+  if (!repo || !requiresMerge(repo)) return null;
+  const check = repo.reviewTest ? `the full check (${code(repo.reviewTest.command)})` : 'the full check';
+  return `the merge step (the merger's ${code('merge_task')}) runs ${check} on the merge result before the default branch moves`;
+}
+
+/**
  * What the server's full test of the handed-over commit found (PM-217), for the reviewer's brief and
  * its resume message; none while there is no result (not asked for, still queued or running).
  */
@@ -32,12 +53,22 @@ export function fullTestLine(project: ProjectConfig, task: Pick<Task, 'repo' | '
   const test = task.reviewPin?.fullTest;
   if (!test) return null;
   const command = repoOf(project, effectiveRepo(project, task))?.reviewTest?.command ?? 'the full test';
+  const reason = test.reason ? code(test.reason) : 'unknown reason';
+  if (test.runner === 'github_actions') {
+    // The Actions run is the whole full test, and a failure to run it asks for no local full test (PM-909).
+    const page = test.externalUrl ? ` The run: ${test.externalUrl}.` : '';
+    if (test.status === 'passed')
+      return `The full test (${code(command)}) passed on GitHub Actions on this commit at ${test.at}: you need not run the tests or the type check again.${page}`;
+    if (test.status === 'error')
+      return `The full test could not run on GitHub Actions on this commit (${reason}): run only targeted checks if needed for this review. Do not run the whole test suite, locally or by asking someone to: ${mergeStepCheckLine(project, task) ?? 'the integrator or merge step runs the full check before merge'}.${page}`;
+    return null;
+  }
   if (test.status === 'passed')
     return `The full test (${code(command)}, PTY tests included) passed on this commit at ${test.at}: you need not run the tests or the type check again.`;
   if (test.status === 'error')
     return repoOf(project, effectiveRepo(project, task))?.fullTestAtMerge
-      ? `The full test could not run on this commit (${test.reason ? code(test.reason) : 'unknown reason'}): run only targeted checks if needed for this review. Do not run the whole test suite: the integrator or merge step runs the full check before merge.`
-      : `The full test could not run on this commit (${test.reason ? code(test.reason) : 'unknown reason'}): run the checks yourself as usual; your sandbox leaves out the PTY tests.`;
+      ? `The full test could not run on this commit (${reason}): run only targeted checks if needed for this review. Do not run the whole test suite: ${mergeStepCheckLine(project, task) ?? 'the integrator or merge step runs the full check before merge'}.`
+      : `The full test could not run on this commit (${reason}): run the checks yourself as usual; your sandbox leaves out the PTY tests.`;
   return null;
 }
 

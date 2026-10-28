@@ -10,6 +10,24 @@ export interface AllMessagesFilter {
  * ['project', key] so a reconnect can refetch a whole project at once.
  */
 export const queryKeys = {
+  ownerInvitations: ['owners', 'invitations'] as const,
+  ownerAccounts: ['owners', 'accounts'] as const,
+  hostRequestsAll: ['host-requests'] as const,
+  hostRequests: (state: 'open' | 'all') => ['host-requests', state] as const,
+  checklist: (key: string) => ['project', key, 'checklist'] as const,
+  serverVersion: ['server-version'] as const,
+  operatorKnowledge: (key: string) => ['project', key, 'operator-knowledge'] as const,
+  /** The corner member's queue (PM-894, PM-1042); the shorter key is every member and `closedSince` of it. */
+  operatorQueueAll: (key: string) => ['project', key, 'operator-queue'] as const,
+  operatorQueue: (key: string, handle: string, closedSince: string) =>
+    ['project', key, 'operator-queue', handle, closedSince] as const,
+  /** The Operator's grant for machine operations (PM-881); one for the whole instance. */
+  operatorGrant: ['operator-grant'] as const,
+  operatorGrantAudit: ['operator-grant-audit'] as const,
+  operatorPreferenceMeAll: (key: string) => ['project', key, 'operator-preference'] as const,
+  operatorPreferenceMe: (key: string, handle: string | null) =>
+    ['project', key, 'operator-preference', handle] as const,
+  operatorPreferences: (key: string) => ['project', key, 'operator-preferences'] as const,
   profiles: (key: string) => ['project', key, 'profile'] as const,
   profile: (key: string, handle: string) => ['project', key, 'profile', handle] as const,
   memories: (key: string, handle: string) => ['project', key, 'memory', handle] as const,
@@ -20,12 +38,18 @@ export const queryKeys = {
   /** Hybrid mode (PM-316): what every internal member sees, kept live by `engine_changed`, and the owner's list. */
   engineStatus: ['engines', 'status'] as const,
   engines: ['engines', 'list'] as const,
+  /** One engine's provider logins (PM-1077) and a project's engines (PM-1060); `engine_changed` reloads them. */
+  engineProviders: (id: string) => ['engines', 'providers', id] as const,
+  projectEnginesAll: ['engines', 'project'] as const,
+  projectEngines: (key: string) => ['engines', 'project', key] as const,
   invitations: (key: string) => ['project', key, 'invitations'] as const,
   invite: (token: string) => ['invite', token] as const,
+  ownerInvite: (token: string) => ['owner-invite', token] as const,
   setupStatus: ['setupStatus'] as const,
   me: ['me'] as const,
+  /** The person's own web push devices and settings (PM-815): not tied to a project. */
+  push: ['push'] as const,
   projects: ['projects'] as const,
-  templates: ['templates'] as const,
   project: (key: string) => ['project', key] as const,
   board: (key: string) => ['project', key, 'board'] as const,
   task: (key: string, taskKey: string) => ['project', key, 'task', taskKey] as const,
@@ -40,6 +64,9 @@ export const queryKeys = {
   /** Prefix of every session detail query of a project. */
   sessionDetails: (key: string) => ['project', key, 'session'] as const,
   inbox: (key: string) => ['project', key, 'inbox'] as const,
+  /** The Operator's screened questions of a day (PM-561); `since` is the start of the viewer's day. */
+  screenedQuestions: (key: string, since: string) => ['project', key, 'inbox-screened', since] as const,
+  screenedQuestionsAll: (key: string) => ['project', key, 'inbox-screened'] as const,
   /** The project's message feed; also the prefix of the thread and unread queries below. */
   messages: (key: string) => ['project', key, 'messages'] as const,
   messageThread: (key: string, handle: string) => ['project', key, 'messages', 'thread', handle] as const,
@@ -54,7 +81,21 @@ export const queryKeys = {
   /** "All messages" under a filter (PM-78). */
   allMessages: (key: string, filter: AllMessagesFilter) =>
     ['project', key, 'messages', 'all', filter] as const,
-  /** The project manager's channel state (PM-429); its own prefix, reloaded on the events that change it. */
+  /** Feedback marks (PM-511); also the prefix of the list, the badge numbers, the settings and every mark. */
+  feedback: (key: string) => ['project', key, 'feedback'] as const,
+  feedbackList: (key: string) => ['project', key, 'feedback', 'list'] as const,
+  feedbackSummary: (key: string) => ['project', key, 'feedback', 'summary'] as const,
+  feedbackSettings: (key: string) => ['project', key, 'feedback', 'settings'] as const,
+  /** The marks of one card (the "From feedback" row of its drawer). */
+  feedbackOfTask: (key: string, taskKey: string) => ['project', key, 'feedback', 'task', taskKey] as const,
+  feedbackMark: (key: string, markId: string) => ['project', key, 'feedback', 'mark', markId] as const,
+  /** The e-mail channel (PM-942): its state, and its log (the pages of one infinite query). */
+  emailChannel: (key: string) => ['project', key, 'email', 'channel'] as const,
+  emailLog: (key: string) => ['project', key, 'email', 'log'] as const,
+  /**
+   * The viewer's corner: the project manager's channel state (PM-429) with its requests, signals and queue
+   * (PM-1042); its own prefix, reloaded on the events that change it and on the signals.
+   */
   projectManager: (key: string) => ['project', key, 'project-manager'] as const,
   schedules: (key: string) => ['project', key, 'schedules'] as const,
   members: (key: string) => ['project', key, 'members'] as const,

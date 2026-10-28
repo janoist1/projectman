@@ -1,14 +1,14 @@
 import type { FastifyInstance } from 'fastify';
 import { CustomRoleRequest, routes } from '@projectman/shared';
 import type { RolesView, RoleView } from '@projectman/shared';
-import type { Domain } from '../domain';
+import type { ApiDomain } from './ports';
 import { actorOf, authorOf, requireAccess } from './context';
-import { parseBody } from './validation';
+import { parseBody } from '../http';
 
 type ProjectParams = { Params: { key: string } };
 type RoleParams = { Params: { key: string; roleId: string } };
 
-export function registerRoleRoutes(app: FastifyInstance, domain: Domain): void {
+export function registerRoleRoutes(app: FastifyInstance, domain: ApiDomain): void {
   /** The role catalogue: built-in roles in the project's language, then the team's custom roles. */
   app.get<ProjectParams>(routes.roles(':key'), async (request): Promise<RolesView> => {
     await requireAccess(domain, request, request.params.key);
@@ -20,7 +20,10 @@ export function registerRoleRoutes(app: FastifyInstance, domain: Domain): void {
     const key = request.params.key;
     const access = await requireAccess(domain, request, key, { minimum: 'admin' });
     const body = parseBody(CustomRoleRequest, request.body);
-    const role = await domain.roles.create(key, body, { actor: actorOf(access), author: authorOf(request) });
+    const role = await domain.roles.create(key, body, {
+      actor: actorOf(access),
+      author: authorOf(request, access),
+    });
     return reply.code(201).send(role);
   });
 
@@ -29,14 +32,17 @@ export function registerRoleRoutes(app: FastifyInstance, domain: Domain): void {
     const { key, roleId } = request.params;
     const access = await requireAccess(domain, request, key, { minimum: 'admin' });
     const body = parseBody(CustomRoleRequest, request.body);
-    return domain.roles.update(key, roleId, body, { actor: actorOf(access), author: authorOf(request) });
+    return domain.roles.update(key, roleId, body, {
+      actor: actorOf(access),
+      author: authorOf(request, access),
+    });
   });
 
   /** Removes a custom role; refused (409 role_in_use) while anyone holds it. */
   app.delete<RoleParams>(routes.role(':key', ':roleId'), async (request, reply) => {
     const { key, roleId } = request.params;
     const access = await requireAccess(domain, request, key, { minimum: 'admin' });
-    await domain.roles.remove(key, roleId, { actor: actorOf(access), author: authorOf(request) });
+    await domain.roles.remove(key, roleId, { actor: actorOf(access), author: authorOf(request, access) });
     return reply.code(204).send();
   });
 }

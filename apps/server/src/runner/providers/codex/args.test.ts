@@ -30,13 +30,67 @@ const spec: StartSessionSpec = {
 
 const input = {
   spec,
-  hookUrl: 'http://127.0.0.1:4700/hooks/secret',
+  hookConfigPath: '/run/ses_1.0123456789abcdef/hook.curl',
   permissionTimeoutMs: 40_000,
   realCwd: '/Users/anna/.projectman/worktrees/AR/AR-1',
   nodePath: '/usr/local/bin/node',
 };
 
 describe('codexPermissionProfile', () => {
+  it('closes both homes and reopens typed own paths without downgrading writes', () => {
+    expect(
+      codexPermissionProfile({
+        sandbox: 'workspace-write',
+        tmpDir: '/own-tmp',
+        deniedPaths: ['/home/.ssh', '/home/app/db.sqlite*'],
+        writableRoots: ['/home/app/cache/dev', '/home/app/work/dev'],
+        readOnlyPaths: ['/home/app/work/dev/.git', '/home/app/work/dev/.codex', '/home/app/work/dev/.agents'],
+        readBoundary: {
+          deniedRoots: ['/home', '/home/app'],
+          allowedPaths: [
+            { path: '/home/app/work/dev', kind: 'directory' },
+            { path: '/home/app/cache/dev', kind: 'directory' },
+            { path: '/home/.gitconfig', kind: 'file' },
+            { path: '/home/.ssh/key', kind: 'file' },
+            { path: '/home/app/db.sqlite-wal', kind: 'file' },
+          ],
+        },
+      }),
+    ).toEqual({
+      extends: ':read-only',
+      filesystem: {
+        ':root': 'read',
+        '/home': 'deny',
+        '/home/app': 'deny',
+        '/home/app/work/dev': 'write',
+        '/home/app/cache/dev': 'write',
+        '/home/.gitconfig': 'read',
+        ':workspace_roots': { '.': 'write', '.git': 'read', '.codex': 'read', '.agents': 'read' },
+        '/own-tmp': 'write',
+        '/home/app/work/dev/.git': 'read',
+        '/home/app/work/dev/.codex': 'read',
+        '/home/app/work/dev/.agents': 'read',
+        '/home/.ssh': 'deny',
+        '/home/app/db.sqlite*': 'deny',
+      },
+    });
+  });
+
+  it('keeps the standalone exception narrow beneath a soft home denial', () => {
+    const profile = codexPermissionProfile({
+      sandbox: 'read-only',
+      writableRoots: [],
+      deniedPaths: ['/home/.codex'],
+      cliPath: '/home/.codex/packages/standalone/bin/codex',
+      readBoundary: { deniedRoots: ['/home'], allowedPaths: [] },
+    });
+    expect(profile.filesystem).toEqual({
+      ':root': 'read',
+      '/home': 'deny',
+      '/home/.codex': 'deny',
+      '/home/.codex/packages/standalone': 'read',
+    });
+  });
   it('reopens only the standalone CLI installation, after the credential denial', () => {
     expect(
       codexCliReadRoot('/home/.codex/packages/standalone/releases/1/bin/codex', ['/home/.codex']),
@@ -245,6 +299,13 @@ describe('Codex settings from the member', () => {
 });
 
 describe('buildCodexArgs', () => {
+  it.each([false, true])('keeps the team MCP server optional with resume=%s (PM-1070)', (resume) => {
+    for (const provider of [undefined, NANOGPT_CODEX_PROVIDER]) {
+      const c = overrides(buildCodexArgs({ ...input, provider, spec: { ...spec, resume } }).args);
+      expect(c.has('mcp_optional_startup_grace_ms')).toBe(false);
+      expect(c.get('mcp_servers.team')).toBe('{url="http://127.0.0.1:4700/mcp/tok"}');
+    }
+  });
   it.each([false, true])(
     'disables plugins for both providers and ChatGPT services only for NanoGPT with resume=%s',
     (resume) => {
@@ -363,18 +424,21 @@ describe('buildCodexArgs', () => {
     const c = overrides(buildCodexArgs(input).args);
     const permission = c.get('hooks.PermissionRequest')!;
     expect(permission).toContain('timeout=70}');
-    expect(permission).toContain("curl -q --noproxy '*' -sSf -m 70");
+    expect(permission).toContain(
+      "curl -q --config '/run/ses_1.0123456789abcdef/hook.curl' --noproxy '*' -sSf -m 70",
+    );
     expect(permission).not.toContain('-o /dev/null');
     const stop = c.get('hooks.Stop')!;
     expect(stop).toContain('timeout=10}');
     expect(stop).toContain('-o /dev/null');
-    expect(stop).toContain("'http://127.0.0.1:4700/hooks/secret'");
+    expect(stop).toContain("--config '/run/ses_1.0123456789abcdef/hook.curl'");
+    expect(stop).not.toContain('/hooks/');
   });
 
   it('allows dependency preparation before a tool in the CLI and its forwarder', () => {
     const hook = overrides(buildCodexArgs(input).args).get('hooks.PreToolUse')!;
     expect(hook).toContain('timeout=120}');
-    expect(hook).toContain("curl -q --noproxy '*' -sS -m 120");
+    expect(hook).toContain("--noproxy '*' -sS -m 120");
     expect(hook).toContain('Number(process.argv[2])*1000');
   });
 
@@ -398,77 +462,6 @@ describe('buildCodexArgs', () => {
         ).toBe(false);
       }
     }
-  });
-
-  describe('the managed VM profile (PM-141)', () => {
-    const managed = (
-      sandbox: 'danger-full-access' | 'read-only' | 'workspace-write' = 'danger-full-access',
-      approval: 'never' | 'on-request' = 'never',
-    ): NonNullable<StartSessionSpec['policy']> => ({
-      version: 1,
-      enforcement: 'legacy',
-      execution: { profile: 'managed_vm', boundary: { name: 'managed-vm', version: 1 } },
-      access: 'member_workspace',
-      placement: { kind: 'member_workspace', path: '/work', use: 'work' },
-      tools: { team: { all: true, names: [] }, files: [], shell: [] },
-      filesystem: { readableRoots: ['/work'], writableRoots: ['/work'], protectedPaths: [] },
-      deniedOperations: [],
-      network: { allowedDomains: [], allowLocalBinding: false },
-      outsideSandbox: 'deny',
-      permissions: { claude: 'bypassPermissions', sandbox, approval },
-    });
-    const managedInput = (policy = managed()) => ({
-      ...input,
-      spec: { ...spec, permissionMode: 'default', policy },
-    });
-
-    it('runs without a sandbox and without questions', () => {
-      const args = buildCodexArgs(managedInput()).args;
-      expect(args.slice(args.indexOf('--sandbox'), args.indexOf('--sandbox') + 4)).toEqual([
-        '--sandbox',
-        'danger-full-access',
-        '--ask-for-approval',
-        'never',
-      ]);
-    });
-
-    it('keeps the hooks and the team tools, and passes no approval of the old kind', () => {
-      const c = overrides(buildCodexArgs(managedInput()).args);
-      for (const event of CODEX_HOOK_EVENTS) expect(c.has(`hooks.${event}`)).toBe(true);
-      expect(c.get('mcp_servers.team')).toContain('default_tools_approval_mode="approve"');
-      expect(c.has('sandbox_workspace_write.writable_roots')).toBe(false);
-      for (const feature of [
-        'plugins',
-        'remote_plugin',
-        'apps',
-        'tool_suggest',
-        'skill_mcp_dependency_install',
-        'computer_use',
-        'browser_use',
-        'browser_use_external',
-      ])
-        expect(c.get(`features.${feature}`)).toBe('false');
-    });
-
-    it('keeps a research-only member read-only, also without questions', () => {
-      const args = buildCodexArgs(managedInput(managed('read-only'))).args;
-      expect(args.slice(args.indexOf('--sandbox'), args.indexOf('--sandbox') + 4)).toEqual([
-        '--sandbox',
-        'read-only',
-        '--ask-for-approval',
-        'never',
-      ]);
-    });
-
-    it('refuses a managed policy that asks or sandboxes the legacy way, and the freedom anywhere else', () => {
-      expect(() => buildCodexArgs(managedInput(managed('danger-full-access', 'on-request')))).toThrow(
-        /asks nothing locally/,
-      );
-      expect(() => buildCodexArgs(managedInput(managed('workspace-write')))).toThrow(/no inner sandbox/);
-      // The same permissions without the managed VM execution profile are never started.
-      const free = { ...managed(), execution: undefined };
-      expect(() => buildCodexArgs(managedInput(free))).toThrow(/only in the managed VM profile/);
-    });
   });
 
   describe('the shared git directory of a task worktree (PM-399)', () => {
@@ -561,12 +554,50 @@ describe('buildCodexArgs', () => {
 
     it('opens nothing in a read-only sandbox, outside a worktree or without its admin directory', () => {
       expect(profile(policy('read-only'))).not.toContain(gitDir);
-      expect(
-        profile(policy('workspace-write', { kind: 'member_workspace', path: '/work', use: 'work' })),
-      ).not.toContain(gitDir);
+      expect(profile(policy('workspace-write', { kind: 'read_only', path: '/work' }))).not.toContain(gitDir);
       expect(
         profile(policy('workspace-write', { kind: 'task_worktree', path: '/work', gitDir })),
       ).not.toContain(gitDir);
+    });
+
+    describe('an independent clone of a member workspace (PM-138)', () => {
+      const clone = {
+        kind: 'task_worktree' as const,
+        path: '/work',
+        workspace: { branch: 'PM-1-work', baseCommit: null },
+      };
+      const own = '/work/.git';
+
+      it('opens its own git directory, with the configuration, hooks, alternates and links closed', () => {
+        const rendered = profile(policy('workspace-write', clone));
+        expect(rendered).toContain(`"${own}"="write"`);
+        for (const name of [
+          'config',
+          'config.lock',
+          'config.worktree',
+          'commondir',
+          'gitdir',
+          'hooks',
+          'modules',
+          'objects/info',
+        ])
+          expect(rendered).toContain(`"${own}/${name}"="read"`);
+        expect(rendered).not.toContain(gitDir);
+      });
+
+      it('opens nothing in a read-only sandbox or without the member workspace marker', () => {
+        expect(profile(policy('read-only', clone))).not.toContain(own);
+        const { workspace: _workspace, ...plain } = clone;
+        expect(profile(policy('workspace-write', plain))).not.toContain(own);
+        expect(profile(policy('workspace-write', { kind: 'read_only', path: '/work' }))).not.toContain(own);
+      });
+
+      it('leaves the shared worktree rules as they were when there is a shared git directory', () => {
+        const rendered = profile(policy('workspace-write', { ...clone, gitDir, worktreeGitDir: adminDir }));
+        expect(rendered).not.toContain(`"${own}"="write"`);
+        expect(rendered).toContain(`"${gitDir}/refs"="write"`);
+        expect(rendered).toContain(`"${adminDir}"="write"`);
+      });
     });
 
     it('does not open the git directories when they lie in a denied path', () => {
@@ -595,13 +626,11 @@ describe('buildCodexArgs', () => {
     };
     const withPolicy = (
       sandboxMode: 'read-only' | 'workspace-write' | 'danger-full-access',
-      execution?: NonNullable<StartSessionSpec['policy']>['execution'],
     ): NonNullable<StartSessionSpec['policy']> => ({
       version: 1,
       enforcement: 'legacy',
-      ...(execution ? { execution } : {}),
       access: 'task_worktree',
-      placement: { kind: 'member_workspace', path: '/work', use: 'work' },
+      placement: { kind: 'task_worktree', path: '/work' },
       tools: { team: { all: true, names: [] }, files: [], shell: [] },
       filesystem: { readableRoots: ['/work'], writableRoots: ['/work'], protectedPaths: [] },
       deniedOperations: [],
@@ -627,6 +656,9 @@ describe('buildCodexArgs', () => {
     });
 
     it('changes nothing without `portable`', () => {
+      expect(() => build({ policy: withPolicy('danger-full-access'), sandbox })).toThrow(
+        'Codex requires its sandbox',
+      );
       const plain = { ...sandbox, portable: undefined };
       const policy = withPolicy('workspace-write');
       expect(buildCodexArgs({ ...input, spec: { ...spec, policy, sandbox: plain } }).args).toEqual(
@@ -646,19 +678,6 @@ describe('buildCodexArgs', () => {
       expect(c.get('permissions.projectman')).toContain(
         `"/workspace/.git"="write",${tomlValue(lockParent)}="write"`,
       );
-    });
-
-    it('gives the managed VM neither the root nor the variables', () => {
-      const policy = withPolicy('danger-full-access', {
-        profile: 'managed_vm',
-        boundary: { name: 'managed-vm', version: 1 },
-      });
-      const c = build({
-        policy: { ...policy, permissions: { ...policy.permissions, approval: 'never' } },
-        sandbox,
-      });
-      expect(c.has('sandbox_workspace_write.writable_roots')).toBe(false);
-      expect([...c.keys()].some((key) => key.startsWith('shell_environment_policy'))).toBe(false);
     });
 
     describe('the session folder and the own temporary directory (PM-339)', () => {
@@ -709,31 +728,31 @@ describe('buildCodexArgs', () => {
         expect(c.has(`${SET}.TMPDIR`)).toBe(false);
       });
 
-      it('sets none of it in a read-only sandbox', () => {
+      it('only names and reads the folder in a read-only sandbox (PM-522): no write entry, no tmp, no browsers', () => {
         const c = build({ policy: withPolicy('read-only'), sandbox: withFolder });
         for (const key of [
           'sandbox_workspace_write.writable_roots',
           'sandbox_workspace_write.exclude_slash_tmp',
           'sandbox_workspace_write.exclude_tmpdir_env_var',
           `${SET}.TMPDIR`,
-          `${SET}.PROJECTMAN_SESSION_DIR`,
           `${SET}.PLAYWRIGHT_BROWSERS_PATH`,
-          'tools.view_image',
         ])
           expect(c.has(key), key).toBe(false);
+        const profile = c.get('permissions.projectman') ?? '';
+        expect(profile).not.toContain(tomlValue(folder));
+        expect(profile).not.toContain(tomlValue(tmpDir));
+        expect(profile).not.toContain(':tmpdir');
+        expect(profile).not.toContain(':slash_tmp');
+        expect(profile).not.toContain('"write"');
+        expect(c.get(`${SET}.PROJECTMAN_SESSION_DIR`)).toBe(tomlValue(folder));
+        expect(c.get('tools.view_image')).toBe('true');
         expect(c.get(ENV_KEY)).toBe(tomlValue(lockDir));
       });
 
-      it('sets none of it in the managed VM', () => {
-        const policy = withPolicy('danger-full-access', {
-          profile: 'managed_vm',
-          boundary: { name: 'managed-vm', version: 1 },
-        });
-        const c = build({
-          policy: { ...policy, permissions: { ...policy.permissions, approval: 'never' } },
-          sandbox: withFolder,
-        });
-        expect([...c.keys()].filter((key) => /exclude_|TMPDIR|SESSION_DIR|view_image/.test(key))).toEqual([]);
+      it('sets no folder variable and no viewer in a read-only sandbox without a folder', () => {
+        const c = build({ policy: withPolicy('read-only'), sandbox });
+        expect(c.has(`${SET}.PROJECTMAN_SESSION_DIR`)).toBe(false);
+        expect(c.has('tools.view_image')).toBe(false);
       });
     });
 

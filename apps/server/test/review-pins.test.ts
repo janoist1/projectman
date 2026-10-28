@@ -5,10 +5,11 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { aiActor } from '../src/domain';
+import { aiActor } from '../src/kernel';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush, pullRequest } from './helpers/fakes';
+import { createGitSeed } from './helpers/git-seed';
 
 /*
  * PM-183: a task handed over for review is reviewed at the commit that was handed over. Entering a
@@ -34,6 +35,7 @@ async function commitFile(repo: string, file: string, content: string): Promise<
 }
 
 let configDir: string;
+let seed: ReturnType<typeof createGitSeed>;
 beforeAll(async () => {
   configDir = await mkdtemp(path.join(tmpdir(), 'pm-gitconfig-'));
   const file = path.join(configDir, 'gitconfig');
@@ -43,6 +45,10 @@ beforeAll(async () => {
   );
   vi.stubEnv('GIT_CONFIG_GLOBAL', file);
   vi.stubEnv('GIT_CONFIG_NOSYSTEM', '1');
+  seed = createGitSeed(path.join(configDir, 'seed'), {
+    '.gitignore': 'node_modules/\n',
+    'README.md': 'hello\n',
+  });
 });
 afterAll(async () => {
   vi.unstubAllEnvs();
@@ -55,10 +61,7 @@ describe('review at a pinned commit, in member workspaces', { timeout: 60_000 },
 
   async function setup() {
     h = await createDomainHarness({ memberWorkspaces: true, persistent: true });
-    await git(h.workspace, 'init', '--quiet', '-b', 'main');
-    await writeFile(path.join(h.workspace, '.gitignore'), 'node_modules/\n');
-    await git(h.workspace, 'add', '.gitignore');
-    await commitFile(h.workspace, 'README.md', 'hello\n');
+    seed.copyTo(h.workspace);
     await h.domain.tasks.create('AR', { title: 'Login page' }, OWNER_ACTOR);
     await h.domain.taskStarts.start('AR', 'AR-1', { assignee: 'dev-1', actor: OWNER_ACTOR, author: OWNER });
     dev1 = path.join(await realpath(h.workspacesDir), 'AR', 'dev-1', 'web', 'repo');
@@ -219,11 +222,11 @@ describe('review at a pinned commit, in member workspaces', { timeout: 60_000 },
     await commitFile(dev1, 'login.txt', 'v1\n');
     await toReview();
     await flush();
-    await h.domain.githubSync.handleChange(pullRequest({ headSha: 'a'.repeat(40) }));
+    await h.domain.githubSync.handleChange('AR', pullRequest({ headSha: 'a'.repeat(40) }));
     expect(h.domain.tasks.get('AR', 'AR-1').stageId).toBe('code_review');
 
     await commitFile(dev1, 'login.txt', 'v2\n');
-    await h.domain.githubSync.handleChange(pullRequest({ headSha: 'b'.repeat(40) }));
+    await h.domain.githubSync.handleChange('AR', pullRequest({ headSha: 'b'.repeat(40) }));
     expect(h.domain.tasks.get('AR', 'AR-1').stageId).toBe('development');
   });
 

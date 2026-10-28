@@ -7,43 +7,64 @@ import Fastify from 'fastify';
 import type { FastifyInstance, FastifyReply, FastifyRequest, FastifyServerOptions } from 'fastify';
 import { AgentProvider, routes } from '@projectman/shared';
 import { APP_DEFAULTS, loopbackBaseUrl } from './app';
-import { serializeRequest } from './auth/request-logging';
+import { serializeRequest } from './http';
 import type {
+  AdministrationCapability,
+  AdministrationPort,
+  AdministrationTarget,
   FullTestExecutor,
-  GithubService,
+  GithubActionsClient,
+  MachineGithubService,
   MachineProbe,
   PermissionBroker,
   RunnerModule,
   RunnerModuleOptions,
   ScreenshotExecutor,
+  WorkspaceDependencyInstaller,
 } from './contracts';
-import { createLocalEngine } from './domain/engines';
-import { createEngineAudit } from './engine-link/engine-audit';
-import { createEngineClient } from './engine-link/engine-client';
-import type { LinkSocketFactory } from './engine-link/engine-client';
+import { SESSION_CONFIG_DIR } from './contracts';
+import { createSocketClient } from './administration';
+import { createLocalEngine, resolveWorkRoots } from './engine-host';
 import {
+  createEngineAudit,
+  createEngineClient,
+  createEngineHandlers,
+  createEngineLimit,
+  createEngineStatusWriter,
+  createRunningTracker,
+  createEngineTransfers,
+  createEngineEventBuffer,
+  ENGINE_RELAY_WAIT_MS,
+  EngineCallError,
   EngineConfigError,
   engineFiles,
   loadEngineConfig,
   readLinkHeaders,
   readSecretFile,
+  resolveAppTag,
   resolveEngineConfig,
-} from './engine-link/engine-config';
-import { createEngineHandlers } from './engine-link/engine-handlers';
-import { createEngineLimit } from './engine-link/engine-limit';
-import { createEngineStatusWriter } from './engine-link/engine-status';
-import { createEngineTransfers } from './engine-link/engine-transfer';
-import { createEngineEventBuffer } from './engine-link/event-buffer';
-import { ENGINE_RELAY_WAIT_MS } from './engine-link/protocol';
-import { EngineCallError } from './engine-link/rpc';
-import type { EngineEvent, Hello } from './engine-link/protocol';
-import { createFullTestExecutor, createScreenshotExecutor, defaultHeavyLockDir } from './full-test';
-import { freeBytesOf } from './engine-host';
-import { nonLocalReason } from './http/local-guard';
+} from './engine-link';
+import type { EngineEvent, Hello, LinkSocketFactory } from './engine-link';
+import {
+  createFullTestExecutor,
+  createScreenshotExecutor,
+  createWorkspaceDependencyInstaller,
+  defaultHeavyLockDir,
+  readHeavyRunSessions,
+  withGithubActions,
+} from './full-test';
+import { createCheckBranchGit, createKeepAwake, freeBytesOf, spawnKeepAwakeProcess } from './engine-host';
+import { nonLocalReason } from './kernel';
+import { assertHomeMayStart } from './instance';
 import { createMachineProbe } from './machine';
-import { createRunnerModule } from './runner';
-import { createGithubService } from './github';
-import { createMemberWorkspaceManager, createWorktreeManager } from './worktree';
+import { createRunnerModule, DEPENDENCY_GATE_WAIT_S } from './runner';
+import { createGithubActionsClient, createGithubService } from './services/github';
+import {
+  createDependencyGate,
+  createMemberWorkspaceManager,
+  createMemberWorkspaceRegistry,
+  createWorktreeManager,
+} from './worktree';
 
 /**
  * The engine process (PM-314): the runner, the worktrees and the local tools on the machine the work
@@ -56,31 +77,37 @@ import { createMemberWorkspaceManager, createWorktreeManager } from './worktree'
 export const ENGINE_DEFAULT_PORT = 4801;
 const MAX_BODY_BYTES = 1024 * 1024;
 const HELLO_PROVIDER_WAIT_MS = 10_000;
+const ADMINISTRATION_HELLO_WAIT_MS = 3_000;
 const PENDING_INPUT_POLL_MS = 1000;
 const SHUTDOWN_PAUSE_CAP_MS = 20_000;
 const TOKEN = /^[A-Za-z0-9_-]{8,256}$/;
 const LOOPBACK = '127.0.0.1';
 
-/** A hybrid engine runs the `legacy` profile on the owner's machine; the managed VM is a different installation. */
-export function assertEngineProfile(settings: { executionProfile?: string; boundaryConfig?: string }): void {
-  if (settings.executionProfile === 'managed_vm' || settings.boundaryConfig)
-    throw new EngineConfigError(
-      'managed_vm_unsupported',
-      'The engine runs the legacy execution profile only: PROJECTMAN_EXECUTION_PROFILE=managed_vm and PROJECTMAN_BOUNDARY_CONFIG belong to the managed VM, not to an engine.',
-    );
-}
-
 export interface EngineAppModules {
   createRunnerModule?: (opts: RunnerModuleOptions) => RunnerModule;
-  github?: GithubService;
-  createFullTestExecutor?: (deps: { heavyLockDir: string }) => FullTestExecutor;
+  github?: MachineGithubService;
+  /** Overrides the GitHub Actions client of the merge check (PM-900); tests pass a fake. */
+  githubActions?: GithubActionsClient;
+  createFullTestExecutor?: (deps: {
+    heavyLockDir: string;
+    worktreesRoot?: string;
+    stepCacheFile?: string;
+  }) => FullTestExecutor;
   createScreenshotExecutor?: (deps: { heavyLockDir: string }) => ScreenshotExecutor;
   createMachineProbe?: (deps: { runningPids: () => number[]; instanceTag: string }) => MachineProbe;
   createSocket?: LinkSocketFactory;
+  /** The client of this machine's administration supervisor (PM-763); tests supply a fake one. */
+  createAdministrationClient?: (socketPath: string) => AdministrationPort;
   fetch?: typeof fetch;
   random?: () => number;
   auditMaxBytes?: number;
   statusDelayMs?: number;
+  /** PM-1086: the platform and the process start behind the keep-awake hold; tests supply fakes. */
+  keepAwake?: {
+    platform?: NodeJS.Platform;
+    spawn?: Parameters<typeof createKeepAwake>[0]['spawn'];
+    releaseDelayMs?: number;
+  };
 }
 
 export interface EngineAppOptions {
@@ -90,9 +117,6 @@ export interface EngineAppOptions {
   /** `resolveAppVersion(installDir, PROJECTMAN_VERSION)`: what the cloud compares with its own. */
   version: string;
   installDir: string;
-  /** Checked at start: a managed VM setting stops the engine. */
-  executionProfile?: string;
-  boundaryConfig?: string;
   agentEnv?: NodeJS.ProcessEnv;
   claudeBin?: string;
   codexBin?: string;
@@ -105,6 +129,8 @@ export interface EngineAppOptions {
   sessionFoldersDir?: string;
   sessionTmpDir?: string;
   claudeTmpBase?: string;
+  /** The Unix socket of this machine's administration supervisor (PM-763); absent: no administration here. */
+  administrationSocket?: string;
   browsersDir?: string;
   heavyLockDir?: string;
   cloneDependencies?: boolean;
@@ -137,13 +163,28 @@ function jsonRpcError(reply: FastifyReply, status: number, message: string) {
     .send(JSON.stringify({ jsonrpc: '2.0', error: { code: -32000, message }, id: null }));
 }
 
+/** The JSON-RPC method of a team-tools call, read without parsing the body (its parameters stay unlogged). */
+const RPC_METHOD = /"method"\s*:\s*"([A-Za-z0-9/_.-]{1,64})"/;
+/** The calls that decide whether a session gets its team tools: a start that stops before them is visible. */
+const HANDSHAKE_METHODS: ReadonlySet<string> = new Set(['initialize', 'tools/list']);
+/** Only these names are logged; anything else a body matches (a nested field of a tool call) is not. */
+const LOGGED_RPC_METHODS: ReadonlySet<string> = new Set([
+  ...HANDSHAKE_METHODS,
+  'notifications/initialized',
+  'tools/call',
+  'ping',
+]);
+const rpcMethodOf = (body: string): string => {
+  const method = RPC_METHOD.exec(body)?.[1];
+  return method !== undefined && LOGGED_RPC_METHODS.has(method) ? method : 'other';
+};
+
 const headerText = (value: string | string[] | undefined, fallback: string): string => {
   const first = Array.isArray(value) ? value[0] : value;
   return typeof first === 'string' && first.length > 0 && first.length <= 256 ? first : fallback;
 };
 
 export async function buildEngineApp(options: EngineAppOptions): Promise<EngineApp> {
-  assertEngineProfile(options);
   if (os.platform() !== 'darwin' && os.platform() !== 'linux')
     throw new EngineConfigError('platform_unsupported', 'The engine runs on macOS or Linux.');
   const modules = options.modules ?? {};
@@ -154,9 +195,15 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
   const resolved = resolveEngineConfig(loadEngineConfig(home), home, {
     ...(options.tmpdir ? { tmpdir: options.tmpdir } : {}),
   });
+  assertHomeMayStart(home, 'engine'); // a damaged or retired marker stops the engine too (PM-318)
+  // PM-846: an unmounted or misplaced work volume stops the start; it never falls back to the home quietly.
+  const roots = resolveWorkRoots(home, resolved.workRoot);
   // The key and the extra headers are read here once so a wrong mode stops the start, not a later reconnect.
   readSecretFile(resolved.keyFile, 'The engine key');
   if (resolved.linkHeadersFile) readLinkHeaders(resolved.linkHeadersFile);
+  // PM-1068: the same for the engine's own NanoGPT key; the value is read again at every use, not kept here.
+  const nanogptKeyFile = resolved.nanogptKeyFile;
+  if (nanogptKeyFile) readSecretFile(nanogptKeyFile, 'The NanoGPT key');
   const files = engineFiles(home, resolved);
   const instanceTag = createHash('sha256').update(realpathSync(home)).digest('hex').slice(0, 16);
   const bootId = randomBytes(8).toString('hex');
@@ -183,6 +230,7 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
     { pid: process.pid, bootId },
     { delayMs: modules.statusDelayMs },
   );
+  const runningTracker = createRunningTracker();
   const audit = createEngineAudit(files.audit, {
     ...(modules.auditMaxBytes === undefined ? {} : { maxBytes: modules.auditMaxBytes }),
     onError: () => log.warn('engine audit log: a record could not be written'),
@@ -250,8 +298,25 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
     },
   };
 
-  // The NanoGPT key is fetched per session start and kept in memory only: nothing writes it to a file, the
-  // log or the status. Outside such a start (plan usage, the login check) there is no key to give.
+  // The engine's own NanoGPT key file (PM-1068): read at every use, so a changed file takes effect at once.
+  // A file that cannot be read gives no key; the log names the error code only, never the key.
+  const ownNanogptKey = nanogptKeyFile
+    ? async (): Promise<string | null> => {
+        try {
+          return readSecretFile(nanogptKeyFile, 'The NanoGPT key');
+        } catch (error) {
+          log.warn(
+            { code: error instanceof EngineConfigError ? error.code : 'internal' },
+            'the NanoGPT key file could not be read',
+          );
+          return null;
+        }
+      }
+    : undefined;
+
+  // Without an own key file the NanoGPT key is fetched per session start and kept in memory only: nothing
+  // writes it to a file, the log or the status. Outside such a start (plan usage, the login check) there is
+  // no key to give.
   const nanogptScope = new AsyncLocalStorage<{
     sessionId: string;
     active: boolean;
@@ -309,14 +374,38 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
       pollIntervalMs: APP_DEFAULTS.githubPollIntervalMs,
       logger: log.child({ module: 'github' }),
     });
+  const githubActions =
+    modules.githubActions ??
+    createGithubActionsClient({
+      ghBin: options.ghBin ?? APP_DEFAULTS.ghBin,
+      ghHost: options.ghHost ?? APP_DEFAULTS.ghHost,
+      pollIntervalMs: APP_DEFAULTS.githubPollIntervalMs,
+      logger: log.child({ module: 'github' }),
+    });
+  // A repository's path from the engine's own binding (`engine.json`), never the cloud's paths (PM-451).
+  const boundRepoPath = (projectKey: string, repo: string) =>
+    resolved.repos.find((entry) => entry.project === projectKey && entry.repo === repo)?.path ?? null;
   const worktrees = createWorktreeManager({
-    rootDir: path.join(home, 'worktrees'),
+    rootDir: roots.worktrees,
     logger: log.child({ module: 'worktree' }),
     cloneDependencies: options.cloneDependencies ?? false,
   });
-  const workspacesDir = path.join(home, 'workspaces');
+  const workspacesDir = roots.workspaces;
+  let workspaceDependencies: WorkspaceDependencyInstaller | undefined;
+  const memberClones = createMemberWorkspaceRegistry();
   const memberWorkspaces = createMemberWorkspaceManager({
     rootDir: workspacesDir,
+    logger: log.child({ module: 'workspace' }),
+    onEnsured: memberClones.register,
+    // The limit needs the engine's paths; install the port before the link can accept any call.
+    get dependencies() {
+      return workspaceDependencies;
+    },
+  });
+  // A running session's command tools wait for its clone's dependencies (PM-743).
+  const dependencyGate = createDependencyGate({
+    prepare: (key, opts) => memberWorkspaces.prepareDependencies(key, opts),
+    waitMs: DEPENDENCY_GATE_WAIT_S * 1000,
     logger: log.child({ module: 'workspace' }),
   });
   const nanogptCodexHome = path.join(home, 'providers', 'nanogpt', 'codex-home');
@@ -326,16 +415,29 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
     codexBin: options.codexBin ?? APP_DEFAULTS.codexBin,
     codexHome: options.codexHome,
     nanogptCodexHome,
-    nanogptKey,
+    nanogptKey: ownNanogptKey ?? nanogptKey,
+    nanogptKeyInCloud: !ownNanogptKey,
     geminiBin: options.geminiBin,
     geminiConfigDir,
     claudeConfigPath: options.claudeConfigPath,
     env: agentEnv,
     terminal: options.terminal,
     publicBaseUrl: baseUrl,
+    sessionConfigRoot: path.join(home, SESSION_CONFIG_DIR),
     instanceTag,
     broker,
-    refreshDependencies: (cwd) => worktrees.refreshDependencies(cwd).then(() => undefined),
+    scopeProcesses: {
+      processes: () => probe.processes(),
+      envValues: (pids, names) => probe.envValues(pids, names),
+    },
+    refreshDependencies: async (cwd) => {
+      const key = await memberClones.keyOf(cwd);
+      if (!key) {
+        await worktrees.refreshDependencies(cwd);
+        return;
+      }
+      return dependencyGate(key);
+    },
     permissionTimeoutMs: options.permissionTimeoutMs ?? APP_DEFAULTS.permissionTimeoutMs,
     logger: log.child({ module: 'runner' }),
   });
@@ -345,9 +447,26 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
     {
       worktrees,
       memberWorkspaces,
-      fullTestExecutor:
-        modules.createFullTestExecutor?.({ heavyLockDir }) ??
-        createFullTestExecutor({ logger: log.child({ module: 'full-test' }), env: agentEnv, heavyLockDir }),
+      // The merge check as a GitHub Actions workflow (PM-900) is run by this engine, with its own gh login.
+      fullTestExecutor: withGithubActions(
+        modules.createFullTestExecutor?.({
+          heavyLockDir,
+          worktreesRoot: roots.worktrees,
+          stepCacheFile: path.join(home, 'cache', 'merge-test-steps.json'),
+        }) ??
+          createFullTestExecutor({
+            logger: log.child({ module: 'full-test' }),
+            env: agentEnv,
+            heavyLockDir,
+            worktreesRoot: roots.worktrees,
+            stepCacheFile: path.join(home, 'cache', 'merge-test-steps.json'),
+          }),
+        {
+          actions: githubActions,
+          branches: createCheckBranchGit({ repoPath: boundRepoPath, networkTimeoutMs: 60_000 }),
+          logger: log.child({ module: 'github-actions' }),
+        },
+      ),
       screenshotExecutor:
         modules.createScreenshotExecutor?.({ heavyLockDir }) ??
         createScreenshotExecutor({
@@ -355,12 +474,25 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
           env: agentEnv,
           heavyLockDir,
         }),
-      freeDiskBytes: () => freeBytesOf(home),
+      // The work volume fills up apart from the home (PM-846): the smaller of the two guards admission.
+      freeDiskBytes: async () =>
+        roots.workRoot
+          ? Math.min(await freeBytesOf(home), await freeBytesOf(roots.worktrees))
+          : freeBytesOf(home),
+      heavyRunSessions: () => readHeavyRunSessions(heavyLockDir),
       workspacePath: (projectKey) =>
         resolved.projects.find((entry) => entry.project === projectKey)?.workspacePath ?? null,
+      repoPath: boundRepoPath,
+      // A merge that moved the engine's own checkout keeps its dependencies installed (PM-1083).
+      onCheckoutAdvanced: (ref, checkout) =>
+        workspaceDependencies?.refreshCheckout({
+          project: ref.projectKey,
+          repo: ref.repo,
+          repoPath: checkout,
+        }),
       appHome: home,
       userHome,
-      worktreesRootDir: path.join(home, 'worktrees'),
+      worktreesRootDir: roots.worktrees,
       workspacesRootDir: workspacesDir,
       installDir: options.installDir,
       sessionFoldersDir: options.sessionFoldersDir,
@@ -393,11 +525,60 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
     ...(options.tmpdir ? { tmpdir: options.tmpdir } : {}),
   });
   const exportDir = path.join(home, 'export-tmp');
+  const dependencyPaths = engine.paths();
+  workspaceDependencies = createWorkspaceDependencyInstaller({
+    home,
+    heavyLockDir,
+    worktreesRoot: roots.worktrees,
+    denyRead: [
+      // Match the merge installer's home-wide denials; lifecycle scripts get only their clone.
+      userHome,
+      home,
+      ...limit.sensitiveRead(),
+      ...dependencyPaths.claudeTmpRoots,
+      ...(dependencyPaths.sessionTmpRoot ? [path.dirname(dependencyPaths.sessionTmpRoot)] : []),
+      ...(dependencyPaths.sessionFoldersRoot ? [path.dirname(dependencyPaths.sessionFoldersRoot)] : []),
+      workspacesDir,
+      roots.worktrees,
+      path.join(home, 'workspace-deps'),
+    ],
+    setupOf: (project, repo) =>
+      resolved.repos.find((entry) => entry.project === project && entry.repo === repo)?.workspaceSetup ??
+      null,
+    repoPathOf: boundRepoPath,
+    logger: log.child({ module: 'workspace-dependencies' }),
+  });
+  // The engine's own checkouts are installed at start too (PM-1083); a fresh one costs nothing.
+  for (const entry of resolved.repos)
+    workspaceDependencies.refreshCheckout({ project: entry.project, repo: entry.repo, repoPath: entry.path });
   mkdirSync(exportDir, { recursive: true, mode: 0o700 });
+  const administration: { port: AdministrationPort; target: AdministrationTarget } | undefined =
+    options.administrationSocket
+      ? {
+          port: (modules.createAdministrationClient ?? ((socketPath) => createSocketClient({ socketPath })))(
+            options.administrationSocket,
+          ),
+          target: { kind: 'engine', id: resolved.engineId },
+        }
+      : undefined;
+  /** What this machine's supervisor says it can do now; none when it is absent, down or answers wrongly. */
+  async function administrationCapabilities(): Promise<AdministrationCapability[] | undefined> {
+    if (!administration) return undefined;
+    try {
+      const status = await Promise.race([
+        administration.port.status(administration.target),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), ADMINISTRATION_HELLO_WAIT_MS).unref()),
+      ]);
+      return status && status.online ? status.capabilities : undefined;
+    } catch {
+      return undefined;
+    }
+  }
   handlers = createEngineHandlers({
     limit,
     audit,
     runner,
+    onSessionStarted: runningTracker.started,
     transcripts: runnerModule.transcripts,
     planUsageFor: (provider) => runnerModule.planUsageFor?.(provider) ?? runnerModule.planUsage,
     engine,
@@ -406,11 +587,13 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
     transfers,
     fullTest: engine.fullTestExecutor,
     screenshots: engine.screenshotExecutor,
+    logger: log,
     mcpBase: baseUrl,
     emit,
     terminals,
     exportDir,
-    nanogptStart,
+    ...(ownNanogptKey ? {} : { nanogptStart }),
+    administration,
   });
 
   async function hello(): Promise<Omit<Hello, 't' | 'protocol' | 'nextSeq'>> {
@@ -432,6 +615,7 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
         }
       }),
     );
+    const administrationAdvertised = await administrationCapabilities();
     return {
       version: options.version,
       hostname: os.hostname(),
@@ -457,10 +641,13 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
       })),
       providers,
       running: runner.list(),
+      processScope: 'process_group',
       instanceTag,
       pid: process.pid,
       uid,
       bootId,
+      ...(administrationAdvertised ? { administration: administrationAdvertised } : {}),
+      ...(nanogptKeyFile ? { nanogptKey: 'engine' as const } : {}),
     };
   }
 
@@ -479,15 +666,29 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
     }
     emit({ kind: 'runner', event });
     if (event.type === 'exit') {
+      runningTracker.exited(event.sessionId);
       terminals.delete(event.sessionId);
       syncPendingInput(event.sessionId);
       pendingInput.delete(event.sessionId);
     } else syncPendingInput(event.sessionId);
   });
-  const runningState = () => runner.list().map(({ sessionId, state }) => ({ sessionId, state }));
+  const runningState = () => runningTracker.decorate(runner.list());
+  const keepAwake = createKeepAwake({
+    mode: resolved.keepAwake ?? 'while_working',
+    platform: modules.keepAwake?.platform ?? os.platform(),
+    enginePid: process.pid,
+    spawn: modules.keepAwake?.spawn ?? spawnKeepAwakeProcess,
+    ...(modules.keepAwake?.releaseDelayMs === undefined
+      ? {}
+      : { releaseDelayMs: modules.keepAwake.releaseDelayMs }),
+    log,
+  });
   const poll = setInterval(() => {
-    for (const info of runner.list()) syncPendingInput(info.sessionId);
-    status.set({ running: runningState() });
+    const sessions = runner.list();
+    for (const info of sessions) syncPendingInput(info.sessionId);
+    const work = { sessions: sessions.length, ...handlers.activeRuns() };
+    keepAwake.update(work.sessions + work.fullTests + work.screenshots > 0);
+    status.set({ running: runningState(), work, keepAwake: keepAwake.state() });
   }, PENDING_INPUT_POLL_MS);
   poll.unref();
 
@@ -521,6 +722,10 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
       async handler(request, reply) {
         const { token } = request.params as { token: string };
         const body = typeof request.body === 'string' ? request.body : '';
+        // Only the method name is logged (never the token or the body): a Codex session without team
+        // tools leaves no other trace of where its handshake stopped (PM-1072).
+        const rpc = rpcMethodOf(body);
+        const startedAt = Date.now();
         try {
           const result = await client.call(
             'mcp.relay',
@@ -532,13 +737,21 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
             },
             { timeoutMs: options.relayWaitMs ?? ENGINE_RELAY_WAIT_MS },
           );
-          if (result.status < 200 || result.status > 599)
+          const elapsedMs = Date.now() - startedAt;
+          if (result.status < 200 || result.status > 599) {
+            log.warn({ rpc, status: result.status, elapsedMs }, 'team MCP relay: the cloud answered badly');
             return jsonRpcError(reply, 502, 'The cloud answered badly.');
+          }
+          if (result.status >= 300)
+            log.warn({ rpc, status: result.status, elapsedMs }, 'team MCP relay: the cloud refused the call');
+          else if (HANDSHAKE_METHODS.has(rpc))
+            log.info({ rpc, status: result.status, elapsedMs }, 'team MCP relay: handshake call answered');
           reply.code(result.status);
           if (result.contentType) reply.type(result.contentType);
           return reply.send(result.body.length > 0 ? result.body : undefined);
         } catch (error) {
           const code = error instanceof Error && 'linkCode' in error ? String(error.linkCode) : 'internal';
+          log.warn({ rpc, code, elapsedMs: Date.now() - startedAt }, 'team MCP relay: the call failed');
           if (code === 'link_down')
             return jsonRpcError(reply, 503, 'The engine is not connected to the cloud.');
           if (code === 'timeout') return jsonRpcError(reply, 504, 'The cloud did not answer in time.');
@@ -565,7 +778,11 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
     app,
     files,
     async start() {
-      status.set({ running: runningState() });
+      status.set({ version: options.version, running: runningState(), keepAwake: keepAwake.state() });
+      // Once, not per poll: git takes up to 2 s and never throws.
+      void resolveAppTag(options.installDir).then((releaseTag) => {
+        if (!closed) status.set({ releaseTag });
+      });
       await app.listen({ port: options.port, host: LOOPBACK });
       client.start();
       log.info({ home, engineId: resolved.engineId, port: options.port }, 'projectman engine ready');
@@ -594,11 +811,14 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
       closed = true;
       clearInterval(poll);
       handlers.dispose();
+      await workspaceDependencies?.close();
       // The sessions stop first so that their last events (exit, paused) are in what is sent.
       await runner
         .shutdown()
         .catch((error: unknown) => log.warn({ err: error }, 'the runner did not shut down'));
       unsubscribe();
+      keepAwake.close();
+      status.set({ keepAwake: keepAwake.state() });
       await client.flush(5000);
       await client.close();
       await engine.sessionFolders?.releaseTmpRoot().catch(() => undefined);

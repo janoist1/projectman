@@ -1,12 +1,16 @@
+import { Effect, Exit, Scope } from 'effect';
+import { runPromise } from '../kernel';
+import { holderHeartbeat, waitForLock } from './heavy-lock-core';
+import type { LockWaitAborted, LockWaitTimedOut, LockQueueUnusable } from './heavy-lock-core';
 import { randomBytes } from 'node:crypto';
-import { realpathSync } from 'node:fs';
 import { lstat, mkdir, readdir, readFile, rename, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+export { defaultHeavyLockDir } from './heavy-lock-dir';
 
 /**
  * The machine's heavy-run queue (PM-332, PM-336): one full test, type check or screenshot run at a time
- * across the members' sandboxes, the server's full test and the integrating session. Only node built-ins
- * are used: the CLI (`scripts/heavy/cli.ts`) imports this file directly, and `full-test/index.ts` loads the
+ * across the members' sandboxes, the server's full test and the integrating session. Only node built-ins and Effect (through heavy-lock-core and kernel)
+ * are used: the CLI (`scripts/heavy/cli.ts`) imports this file directly, independently of the
  * sandbox runtime. macOS has no `flock` or `lockf`, so the lock is a directory.
  *
  * Layout of the queue folder `dir` (its parent, `projectman-<uid>`, is ours and 0700):
@@ -70,12 +74,6 @@ const DEFAULT_HEARTBEAT_MS = 5_000;
 const DEFAULT_STALE_MS = 30_000;
 const DEFAULT_POLL_MS = 500;
 const DEFAULT_NOTIFY_MS = 30_000;
-/** Poll rounds in a row that may fail (the folder was removed under us, say) before the lock is given up. */
-const MAX_FAILED_ROUNDS = 20;
-
-export function defaultHeavyLockDir(): string {
-  return path.join(realpathSync('/tmp'), `projectman-${process.getuid?.() ?? 'user'}`, 'heavy');
-}
 
 const layout = (dir: string) => ({
   holder: path.join(dir, 'holder'),
@@ -193,29 +191,38 @@ export async function readHeavyQueue(
   return { holder, waiting };
 }
 
-/** Resolves after `ms`, or rejects with the signal's reason. The timer keeps the process alive: it is waiting. */
-function sleep(ms: number, signal?: AbortSignal): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (signal?.aborted) {
-      reject(signal.reason);
-      return;
-    }
-    const onAbort = (): void => {
-      clearTimeout(timer);
-      reject(signal?.reason);
-    };
-    const timer = setTimeout(() => {
-      signal?.removeEventListener('abort', onAbort);
-      resolve();
-    }, ms);
-    signal?.addEventListener('abort', onAbort, { once: true });
-  });
+/** Live holder and waiter session ids (PM-569). Reads only; an unreadable queue gives no sessions. */
+export async function readHeavyRunSessions(
+  dir: string,
+  options: { staleMs?: number } = {},
+): Promise<string[]> {
+  try {
+    const paths = layout(dir);
+    const holder = await readEntry(paths.owner);
+    const entries = await listTickets(paths.queue);
+    if (holder?.entry) entries.push({ ...holder, entry: holder.entry, file: paths.owner });
+    const now = Date.now();
+    return [
+      ...new Set(
+        entries
+          .filter(
+            ({ entry, mtimeMs }) =>
+              now - mtimeMs <= (options.staleMs ?? DEFAULT_STALE_MS) && pidAlive(entry.pid),
+          )
+          .map(({ entry }) => entry.sessionId)
+          .filter((id): id is string => typeof id === 'string' && id.length > 0),
+      ),
+    ];
+  } catch {
+    return [];
+  }
 }
 
 /**
  * Waits for the lock in queue order. Waiters and the holder write a heartbeat (the modification time of
  * their file); a ticket or a holder whose heartbeat stopped, or whose process is gone, is removed by the
  * waiter at the head of the queue. A live holder is never broken, however long it runs.
+ * A held lock keeps the process alive until release().
  */
 export async function acquireHeavyLock(opts: HeavyLockOptions): Promise<HeavyLock> {
   const { dir, signal } = opts;
@@ -313,82 +320,71 @@ export async function acquireHeavyLock(opts: HeavyLockOptions): Promise<HeavyLoc
     return { acquired: true };
   };
 
-  const ticketTimer = setInterval(() => void touch(ticketFile), heartbeatMs);
-  ticketTimer.unref();
-  let failedRounds = 0;
-  let lastNotice = 0;
-  try {
-    for (;;) {
-      if (signal?.aborted) throw signal.reason;
-      let result: Round | undefined;
-      try {
-        result = await round();
-        failedRounds = 0;
-      } catch (err) {
-        if (++failedRounds >= MAX_FAILED_ROUNDS)
-          throw new HeavyLockError(
-            'heavy_lock_unavailable',
-            `the heavy-run queue folder ${dir} cannot be used: ${err instanceof Error ? err.message : String(err)}`,
-            { cause: err },
-          );
-        // The folder may have been removed: make it again before the next round.
-        await mkdir(paths.queue, { recursive: true, mode: 0o700 }).catch(() => undefined);
-      }
-      if (result?.acquired) break;
-      const waitedMs = Date.now() - queuedAt;
-      if (result && (lastNotice === 0 || Date.now() - lastNotice >= notifyMs)) {
-        lastNotice = Date.now();
-        try {
-          opts.onWait?.({ holder: result.holder, ahead: result.ahead, waitedMs });
-        } catch {
-          // A broken display never stops the wait.
-        }
-      }
-      if (opts.maxWaitMs !== undefined && waitedMs >= opts.maxWaitMs)
-        throw new HeavyLockError(
-          'heavy_lock_timeout',
-          `the heavy-run queue did not free up in ${Math.round(opts.maxWaitMs / 1000)} s`,
-        );
-      await sleep(
-        opts.maxWaitMs === undefined ? pollMs : Math.max(1, Math.min(pollMs, opts.maxWaitMs - waitedMs)),
-        signal,
+  const lockScope = Scope.makeUnsafe();
+  const toCallerError = (err: LockWaitAborted | LockWaitTimedOut | LockQueueUnusable): unknown => {
+    if (err._tag === 'LockWaitAborted') return err.reason;
+    if (err._tag === 'LockWaitTimedOut')
+      return new HeavyLockError(
+        'heavy_lock_timeout',
+        `the heavy-run queue did not free up in ${Math.round(opts.maxWaitMs! / 1000)} s`,
       );
-    }
-  } catch (err) {
-    clearInterval(ticketTimer);
-    await rm(ticketFile, { force: true }).catch(() => undefined);
-    throw err;
-  }
-  clearInterval(ticketTimer);
-
-  const waitedMs = Date.now() - queuedAt;
-  let warned = false;
-  const heartbeat = setInterval(() => {
-    void (async () => {
-      const owner = await readEntry(paths.owner);
-      if (owner?.entry?.ticket === ticket) {
-        await touch(paths.owner);
-        return;
-      }
-      if (!warned) {
-        warned = true;
-        process.stderr.write(
-          `heavy: the machine's heavy-run lock of "${opts.label}" was taken over by someone else (the machine slept?); running on.\n`,
-        );
-      }
-    })();
-  }, heartbeatMs);
-  heartbeat.unref();
+    const cause = err.cause;
+    return new HeavyLockError(
+      'heavy_lock_unavailable',
+      `the heavy-run queue folder ${dir} cannot be used: ${cause instanceof Error ? cause.message : String(cause)}`,
+      { cause },
+    );
+  };
+  const waitedMs = await runPromise(
+    waitForLock({
+      takeTurn: round,
+      remakeQueue: () =>
+        mkdir(paths.queue, { recursive: true, mode: 0o700 })
+          .then(() => undefined)
+          .catch(() => undefined),
+      touchTicket: () => touch(ticketFile),
+      removeTicket: () => rm(ticketFile, { force: true }).catch(() => undefined),
+      onWait: opts.onWait,
+      signal,
+      queuedAt,
+      heartbeatMs,
+      pollMs,
+      notifyMs,
+      maxWaitMs: opts.maxWaitMs,
+    }).pipe(
+      Effect.tap(() =>
+        Effect.forkIn(
+          holderHeartbeat({
+            heartbeatMs,
+            beat: async () => {
+              const owner = await readEntry(paths.owner);
+              if (owner?.entry?.ticket !== ticket) return false;
+              await touch(paths.owner);
+              return true;
+            },
+            takenOver: () =>
+              process.stderr.write(
+                `heavy: the machine's heavy-run lock of "${opts.label}" was taken over by someone else (the machine slept?); running on.\n`,
+              ),
+          }),
+          lockScope,
+          { startImmediately: true },
+        ),
+      ),
+      Effect.mapError(toCallerError),
+    ),
+  );
 
   let released: Promise<void> | undefined;
   return {
     waitedMs,
     release() {
-      released ??= (async () => {
-        clearInterval(heartbeat);
-        const owner = await readEntry(paths.owner);
-        if (owner?.entry?.ticket === ticket) await breakHolder(paths.holder);
-      })().catch(() => undefined);
+      released ??= runPromise(Scope.close(lockScope, Exit.void))
+        .then(async () => {
+          const owner = await readEntry(paths.owner);
+          if (owner?.entry?.ticket === ticket) await breakHolder(paths.holder);
+        })
+        .catch(() => undefined);
       return released;
     },
   };

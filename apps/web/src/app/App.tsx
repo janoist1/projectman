@@ -2,7 +2,7 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { Suspense, lazy, useState } from 'react';
 import type { ComponentType } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router';
-import { useProjects } from '../api/queries';
+import { useMe, useProjects } from '../api/queries';
 import { createQueryClient } from '../api/queryClient';
 import { ErrorState, LoadingState } from '../components/States';
 import { ToastProvider } from '../components/Toast';
@@ -26,6 +26,15 @@ function lazyPage<K extends string>(load: () => Promise<Record<K, ComponentType>
 }
 
 const invitePage = lazyPage(() => import('../features/invites/AcceptInvitePage'), 'AcceptInvitePage');
+const ownerInvitePage = lazyPage(
+  () => import('../features/owner-onboarding/AcceptOwnerInvitePage'),
+  'AcceptOwnerInvitePage',
+);
+const welcomePage = lazyPage(() => import('../features/owner-onboarding/WelcomePage'), 'WelcomePage');
+const projectSetupPage = lazyPage(
+  () => import('../features/owner-onboarding/ProjectSetupPage'),
+  'ProjectSetupPage',
+);
 const setupPage = lazyPage(() => import('../features/auth/SetupPage'), 'SetupPage');
 const loginPage = lazyPage(() => import('../features/auth/LoginPage'), 'LoginPage');
 const createProjectPage = lazyPage(
@@ -35,26 +44,31 @@ const createProjectPage = lazyPage(
 const sessionPage = lazyPage(() => import('../features/session/SessionPage'), 'SessionPage');
 const inboxPage = lazyPage(() => import('../features/inbox/InboxPage'), 'InboxPage');
 const memberProfilePage = lazyPage(() => import('../features/team/MemberProfilePage'), 'MemberProfilePage');
-const mapPage = lazyPage(() => import('../features/map/MapPage'), 'MapPage');
-const mapOverview = lazyPage(() => import('../features/map/MapOverview'), 'MapOverview');
-const mapGroupView = lazyPage(() => import('../features/map/MapGroupView'), 'MapGroupView');
+const memberContextPage = lazyPage(() => import('../features/team/MemberContextPage'), 'MemberContextPage');
+const mapPage = lazyPage(() => import('../features/map/StructureView'), 'StructureView');
 const teamPage = lazyPage(() => import('../features/team/TeamPage'), 'TeamPage');
 const involvementsPage = lazyPage(() => import('../features/team/InvolvementsPage'), 'InvolvementsPage');
 const messagesPage = lazyPage(() => import('../features/messages/MessagesPage'), 'MessagesPage');
+const feedbackPage = lazyPage(() => import('../features/feedback/FeedbackPage'), 'FeedbackPage');
+const notificationsPage = lazyPage(
+  () => import('../features/notifications/NotificationsPage'),
+  'NotificationsPage',
+);
 const howWeWorkPage = lazyPage(() => import('../features/how-we-work/HowWeWorkPage'), 'HowWeWorkPage');
 const settingsPage = lazyPage(() => import('../features/settings/SettingsPage'), 'SettingsPage');
 
-/** "/" → the last visited project, the first project, or project creation. */
+/** "/" → the last visited project, the first project, the first steps of an owner account, or project creation. */
 function HomeRedirect() {
   const projects = useProjects();
-  if (projects.isPending) return <LoadingState className={styles.full} />;
+  const me = useMe();
+  if (projects.isPending || me.isPending) return <LoadingState className={styles.full} />;
   if (projects.isError)
     return (
       <ErrorState className={styles.full} error={projects.error} onRetry={() => void projects.refetch()} />
     );
   const last = readStorage('lastProject');
   const target = projects.data.find((project) => project.key === last) ?? projects.data[0];
-  if (!target) return <Navigate to="/projects/new" replace />;
+  if (!target) return <Navigate to={me.data?.ownerAccount ? '/welcome' : '/projects/new'} replace />;
   return <Navigate to={`/p/${target.key}`} replace />;
 }
 
@@ -64,10 +78,13 @@ export function AppRoutes() {
   return (
     <Routes>
       <Route path="/invite/:token" element={invitePage} />
+      <Route path="/owner-invite/:token" element={ownerInvitePage} />
       <Route path="/setup" element={setupPage} />
       <Route path="/login" element={loginPage} />
       <Route element={<AuthGate />}>
         <Route index element={<HomeRedirect />} />
+        <Route path="/welcome" element={welcomePage} />
+        <Route path="/welcome/:projectKey" element={projectSetupPage} />
         <Route path="/projects/new" element={createProjectPage} />
         <Route path="/p/:projectKey" element={<ProjectLayout />}>
           <Route element={<BoardPage />}>
@@ -77,19 +94,23 @@ export function AppRoutes() {
           </Route>
           <Route path="sessions/:sessionId" element={sessionPage} />
           <Route path="sessions" element={involvementsPage} />
-          <Route path="inbox" element={inboxPage} />
+          <Route path="inbox" element={inboxPage}>
+            {/* The card's drawer over the inbox; the splat selects `…/thread` too. */}
+            <Route path="tasks/:taskKey/*" element={<TaskDrawer />} />
+          </Route>
           <Route path="map" element={mapPage}>
-            <Route index element={mapOverview} />
-            <Route path=":groupKey" element={mapGroupView}>
-              {/* The card's drawer over the zoomed group; the splat selects `…/thread` too. */}
-              <Route path="tasks/:taskKey/*" element={<TaskDrawer />} />
-            </Route>
+            <Route path="tasks/:taskKey/*" element={<TaskDrawer />} />
+            <Route path=":groupKey/*" element={<Navigate to=".." relative="route" replace />} />
           </Route>
           <Route path="team" element={teamPage} />
           <Route path="team/:handle" element={memberProfilePage} />
+          <Route path="team/:handle/context" element={memberContextPage} />
           <Route path="messages" element={messagesPage} />
           <Route path="messages/with/:handle" element={messagesPage} />
           <Route path="messages/all" element={messagesPage} />
+          <Route path="feedback" element={feedbackPage} />
+          <Route path="feedback/:markId" element={feedbackPage} />
+          <Route path="notifications" element={notificationsPage} />
           <Route path="how-we-work" element={howWeWorkPage} />
           <Route path="settings" element={settingsPage} />
           <Route path="settings/:section" element={settingsPage} />

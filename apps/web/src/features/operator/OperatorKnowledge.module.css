@@ -1,0 +1,125 @@
+.view {
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  animation: pm-fade-in 160ms ease-out;
+}
+.view h3,
+.section h4,
+.section p {
+  margin: 0;
+}
+.section {
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius-lg);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-wrap: anywhere;
+}
+.meta {
+  color: var(--c-ink-3);
+  font-size: var(--text-sm);
+}
+.summary {
+  white-space: pre-wrap;
+}
+.clamped {
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.chip {
+  color: var(--c-kind-approval-fg);
+  background: var(--c-kind-approval-bg);
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  font-size: var(--text-sm);
+  width: fit-content;
+}
+.alert {
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  background: var(--c-needs-bg);
+  color: var(--c-needs-text);
+}
+.actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.actions > * {
+  flex: 1;
+  min-height: 44px;
+}
+.switch {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  cursor: pointer;
+  gap: 12px;
+}
+.switch input {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  accent-color: var(--c-accent);
+}
+.edit {
+  align-self: flex-start;
+  justify-content: flex-start;
+  width: fit-content;
+  min-height: 44px;
+}
+.editActions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.editActions > button {
+  min-height: 44px;
+}
+.confirmBody {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.style {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 0;
+}
+.style dd {
+  margin: 0;
+  font-weight: 600;
+}
+.person {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.skeleton {
+  display: grid;
+  gap: 12px;
+}
+.skeleton span {
+  height: 12px;
+  border-radius: var(--radius-sm);
+  background: var(--c-line);
+}
+.skeleton span:last-child {
+  width: 60%;
+}
+@media (prefers-reduced-motion: reduce) {
+  .view {
+    animation: none;
+  }
+}

@@ -17,6 +17,16 @@ export const FullTestErrorReason = z.enum([
   'killed',
   // The engine's link was lost while the run was on its way (hybrid mode, PM-315).
   'engine_offline',
+  // A run that requires the machine's heavy-run queue (PM-658) found it missing or unusable.
+  'heavy_lock_unavailable',
+  // The dependencies the run needs could not be prepared (PM-681), or the executor cannot prepare them yet.
+  'dependency_install_failed',
+  // The merge check's GitHub Actions run (PM-900) could not start: no `gh` login or access, the workflow is
+  // not on main, the upstream remote is not the configured repository, an older engine, or the run did not appear.
+  'github_unavailable',
+  // The GitHub Actions run ended without a verdict: a job failed outside the `merge-test` step, was skipped
+  // or cancelled from outside, or the head_sha differs.
+  'github_run_error',
 ]);
 export type FullTestErrorReason = z.infer<typeof FullTestErrorReason>;
 
@@ -26,5 +36,8 @@ export const FullTestCancelReason = z.enum([
   'branch_moved',
   'interrupted',
   'shutdown',
+  // The repository's review test setting changed (runner switched or switched off) while the run waited or
+  // ran (PM-909); it is no verdict, and the pin is brought in line with the new setting.
+  'configuration_changed',
 ]);
 export type FullTestCancelReason = z.infer<typeof FullTestCancelReason>;

@@ -149,6 +149,10 @@ describe('Gemini hooks', () => {
   });
   it.each([
     ['run_command', { CommandLine: 'npm test', Cwd: '/work' }, 'Bash', 'command'],
+    ['run_command', { CommandLine: 'npm test' }, 'Bash', 'command'],
+    ['read_file', { Path: '/work/a' }, 'Read', 'read'],
+    ['write_file', { Path: '/work/a' }, 'Write', 'edit'],
+    ['edit_file', { Path: '/work/a' }, 'Edit', 'edit'],
     ['view_file', { AbsolutePath: '/work/a' }, 'Read', 'read'],
     ['list_dir', { DirectoryPath: '/work' }, 'LS', 'read'],
     ['grep_search', { SearchPath: '/work', Query: 'x' }, 'Grep', 'read'],
@@ -186,7 +190,8 @@ describe('Gemini hooks', () => {
         root,
       );
     expect(check('run_command', { CommandLine: 'npm test', Cwd: '/work' }).decision).toBe('allow');
-    for (const Cwd of ['/foreign', 'relative', '', undefined])
+    expect(check('run_command', { CommandLine: 'npm test' }).decision).toBe('allow');
+    for (const Cwd of ['/foreign', 'relative', '', null, 42])
       expect(check('run_command', { CommandLine: 'npm test', Cwd })).toEqual({
         decision: 'deny',
         reason: 'cwd_outside_workspace',
@@ -212,5 +217,132 @@ describe('Gemini hooks', () => {
       'deny',
     );
     expect(check('read_url_content', { Url: 'http://127.0.0.1' }).decision).toBe('deny');
+  });
+
+  it('uses the policy placement for commands without Cwd even with a foreign hook workspace', () => {
+    const policy = geminiSpec().policy!;
+    const payload = parseGeminiHook(
+      {
+        conversationId: CONVERSATION_ID,
+        workspacePaths: ['/foreign'],
+        stepIdx: 1,
+        toolCall: { name: 'run_command', args: { CommandLine: 'npm test' } },
+      },
+      'PreToolUse',
+    )!;
+    expect(decideGeminiToolCall(policy, payload, null)).toEqual({ decision: 'allow' });
+    payload.gemini_args = { CommandLine: 'git push' };
+    policy.deniedOperations = ['git_push'];
+    expect(decideGeminiToolCall(policy, payload, null)).toEqual({
+      decision: 'deny',
+      reason: 'denied_operation',
+    });
+    expect(mapGeminiTool('run_command', { CommandLine: 'npm test' }, '/work')).toMatchObject({
+      input: { command: 'npm test', cwd: '/work' },
+      call: { cwd: '/work', paths: ['/work'] },
+    });
+  });
+
+  it.each(['read_file', 'write_file', 'edit_file'])('applies file policy to %s with Path', (name) => {
+    const policy = geminiSpec().policy!;
+    policy.filesystem.deniedPaths = ['/secret'];
+    const check = (args: Record<string, unknown>) =>
+      decideGeminiToolCall(
+        policy,
+        parseGeminiHook(
+          { conversationId: CONVERSATION_ID, stepIdx: 1, toolCall: { name, args } },
+          'PreToolUse',
+        )!,
+        null,
+      ).decision;
+    expect(mapGeminiTool(name, { Path: '/work/a' })).toMatchObject({
+      input: { file_path: '/work/a' },
+      call: { paths: ['/work/a'] },
+    });
+    expect(check({ Path: '/work/a' })).toBe('allow');
+    expect(check({ Path: '/secret/a' })).toBe('deny');
+    for (const Path of [undefined, '', 42]) expect(check({ Path })).toBe('ask');
+    if (name !== 'read_file') {
+      expect(check({ Path: '/work/.agents/settings.json' })).toBe('ask');
+      policy.permissions.claude = 'plan';
+      expect(check({ Path: '/work/a' })).toBe('deny');
+    }
+  });
+
+  it('refuses a read below the closed home with the same boundary the other providers get (PM-425)', () => {
+    const policy = geminiSpec().policy!;
+    policy.filesystem.readBoundary = {
+      deniedRoots: ['/fictional/home'],
+      allowedPaths: [{ path: '/work', kind: 'directory' }],
+    };
+    const check = (Path: string) =>
+      decideGeminiToolCall(
+        policy,
+        parseGeminiHook(
+          { conversationId: CONVERSATION_ID, stepIdx: 1, toolCall: { name: 'read_file', args: { Path } } },
+          'PreToolUse',
+        )!,
+        null,
+      );
+    expect(check('/fictional/home/Dev/other/a.ts')).toEqual({ decision: 'deny', reason: 'denied_path' });
+    expect(check('/work/a')).toEqual({ decision: 'allow' });
+  });
+
+  it('refuses a command that names a place below the closed home, and does not ask about it (PM-425)', () => {
+    const policy = geminiSpec().policy!;
+    policy.filesystem.readBoundary = {
+      deniedRoots: ['/fictional/home'],
+      allowedPaths: [{ path: '/work', kind: 'directory' }],
+    };
+    const check = (CommandLine: string) =>
+      decideGeminiToolCall(
+        policy,
+        parseGeminiHook(
+          {
+            conversationId: CONVERSATION_ID,
+            stepIdx: 1,
+            toolCall: { name: 'run_command', args: { CommandLine, Cwd: '/work' } },
+          },
+          'PreToolUse',
+        )!,
+        null,
+      );
+    expect(check('cat /fictional/home/Dev/other/.env')).toEqual({ decision: 'deny', reason: 'denied_path' });
+    expect(check('cd /fictional/home/Dev/other && cat .env')).toEqual({
+      decision: 'deny',
+      reason: 'denied_path',
+    });
+    expect(check('cat /work/src/a.ts').decision).not.toBe('deny');
+  });
+
+  describe('the session folder (PM-522)', () => {
+    const own = '/instance/folders/ses_gemini.0123456789abcdef';
+    const other = '/instance/folders/ses_other.fedcba9876543210';
+    const check = (name: string, args: Record<string, unknown>, plan = false) => {
+      const policy = geminiSpec().policy!;
+      policy.filesystem.sessionFolder = own;
+      policy.filesystem.sessionFoldersRoot = '/instance/folders';
+      if (plan) policy.permissions.claude = 'plan';
+      return decideGeminiToolCall(
+        policy,
+        parseGeminiHook(
+          { conversationId: CONVERSATION_ID, stepIdx: 1, toolCall: { name, args } },
+          'PreToolUse',
+        )!,
+        null,
+      ).decision;
+    };
+
+    it('opens a file in its own folder and in another member’s without asking', () => {
+      expect(check('view_file', { AbsolutePath: `${own}/msa_1-plan.pdf` })).toBe('allow');
+      expect(check('view_file', { AbsolutePath: `${other}/shot.png` })).toBe('allow');
+      expect(check('view_file', { AbsolutePath: `${own}/msa_1-plan.pdf` }, true)).toBe('allow');
+    });
+
+    it('writes its own folder in default mode, not in plan mode, and asks for another member’s', () => {
+      expect(check('write_to_file', { TargetFile: `${own}/notes.md` })).toBe('allow');
+      expect(check('write_to_file', { TargetFile: `${own}/notes.md` }, true)).toBe('deny');
+      expect(check('write_to_file', { TargetFile: `${other}/notes.md` })).toBe('ask');
+    });
   });
 });

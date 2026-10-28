@@ -16,15 +16,11 @@ import styles from './FocusStrip.module.css';
 const VISIBLE_CHIPS = 5;
 
 /**
- * The project's focus above the board and the map (PM-438): what the team works on now, in order, with
+ * The project's focus above the board (PM-438): what the team works on now, in order, with
  * the way into the panel and the "Csak a fókusz" filter. Nothing is drawn for a viewer who may not see
  * the focus, and nothing for an empty focus that the viewer cannot set up either.
  */
-export function FocusStrip({
-  flush = false,
-}: {
-  /** The page around it already has its own side padding. */ flush?: boolean;
-}) {
+export function FocusStrip() {
   const { visible, loading, loadFailed, reload, items, canEdit, tasksByKey } = useFocus();
   const filter = useFocusFilter();
   const mobile = useIsMobile();
@@ -34,7 +30,7 @@ export function FocusStrip({
   if (!visible) return null;
 
   const panel = <FocusPanel open={open} onClose={() => setOpen(false)} />;
-  const stripClass = clsx(styles.strip, flush && styles.flush);
+  const stripClass = styles.strip;
 
   if (loading) {
     return (

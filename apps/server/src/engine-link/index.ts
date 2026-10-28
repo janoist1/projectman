@@ -1,15 +1,15 @@
-import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { FastifyBaseLogger, FastifyInstance, FastifyRequest } from 'fastify';
 import type { EngineId } from '@projectman/shared';
 import { routes } from '@projectman/shared';
-import { clientAddress, createAttemptLimiter, isLocalRequest, requestProtocol } from '../auth';
-import { DomainError } from '../domain';
-import type { EngineRegistry } from '../domain';
+import { clientAddress, createAttemptLimiter, isLocalRequest, requestProtocol } from '../kernel';
+import { DomainError } from '../kernel';
 import { createEngineRpc, createRpcState } from './rpc';
 import type { EngineRpc, RpcState } from './rpc';
 import {
   decodeFrame,
   encodeFrame,
   ENGINE_DEAD_AFTER_MS,
+  ENGINE_DEAD_AFTER_PINGS,
   ENGINE_HEARTBEAT_MS,
   ENGINE_OFFLINE_AFTER_MS,
   ENGINE_PROTOCOL_VERSION,
@@ -21,9 +21,22 @@ export * from './methods';
 export * from './rpc';
 export { createEngineEventBuffer } from './event-buffer';
 export { createCloudRemote } from './remote';
-export type { CloudRemote } from './remote';
-export { resolveAppVersion } from './version';
-export { EngineStartSpec } from './session-schemas';
+export { createAppTagReader, resolveAppTag, resolveAppVersion } from './version';
+export { createEngineAudit } from './engine-audit';
+export { createEngineClient } from './engine-client';
+export type { LinkSocketFactory } from './engine-client';
+export {
+  EngineConfigError,
+  engineFiles,
+  loadEngineConfig,
+  readLinkHeaders,
+  readSecretFile,
+  resolveEngineConfig,
+} from './engine-config';
+export { createEngineHandlers } from './engine-handlers';
+export { createEngineLimit } from './engine-limit';
+export { createEngineStatusWriter, createRunningTracker } from './engine-status';
+export { createEngineTransfers } from './engine-transfer';
 
 export interface EngineLink extends Omit<EngineRpc, 'receive' | 'close'> {
   readonly resumed: boolean;
@@ -42,11 +55,23 @@ export interface EngineLinks {
   close(): void;
 }
 
+/** Why the cloud ended an engine link; logged with the close code. */
+type LinkStopCause = 'heartbeat' | 'closed' | 'socket_error' | 'invalid_frame' | 'hello_timeout' | 'refused';
+
+/** What the link needs from the engine registry; the assembly passes `EngineRegistry`. */
+interface EngineLinkRegistry {
+  resolve(key: string): EngineId | null;
+  onRevoke(listener: (id: EngineId) => void): () => void;
+  seen(id: EngineId, ip: string, hello?: Hello): void;
+  setOnline(id: EngineId, online: boolean): void;
+}
+
 /** Authenticated outgoing engine sockets. Human cookies and integrator tokens grant no access. */
 export function createEngineLinks(options: {
-  registry: EngineRegistry;
+  registry: EngineLinkRegistry;
   clientIpHeader?: string;
   now?: () => number;
+  logger?: FastifyBaseLogger;
 }): EngineLinks {
   const { registry } = options;
   const now = options.now ?? Date.now;
@@ -114,21 +139,34 @@ export function createEngineLinks(options: {
           let link: EngineLink | undefined;
           let rpc: EngineRpc | undefined;
           let ended = false;
-          let lastPong = now();
-          let deadTimer: ReturnType<typeof setTimeout> | undefined;
+          // Any decoded frame or pong shows the engine lives; `unanswered` counts the pings sent since.
+          let lastHeard = now();
+          let unanswered = 0;
+          let connectedAt = 0;
           const refuse = (
             code: 'engine_revoked' | 'engine_replaced' | 'protocol_mismatch',
             closeCode: number,
           ) => {
             if (socket.readyState === 1) socket.send(encodeFrame({ t: 'refuse', code, message: code }));
-            stop(closeCode);
+            stop(closeCode, 'refused');
           };
-          const stop = (code = 1000) => {
+          const stop = (code = 1000, cause: LinkStopCause = 'closed') => {
             if (ended) return;
             ended = true;
             clearTimeout(helloTimer);
-            clearTimeout(deadTimer);
             pulses.delete(pulse);
+            if (link) {
+              options.logger?.info(
+                {
+                  engineId: id,
+                  code,
+                  cause,
+                  sinceHeardMs: now() - lastHeard,
+                  connectedForMs: now() - connectedAt,
+                },
+                'engine link: disconnected',
+              );
+            }
             pendingSockets.get(id)?.delete(pendingRevoke);
             rpc?.close();
             if (link && active.get(id) === link) {
@@ -150,23 +188,20 @@ export function createEngineLinks(options: {
           const pending = pendingSockets.get(id) ?? new Set<() => void>();
           pending.add(pendingRevoke);
           pendingSockets.set(id, pending);
-          const helloTimer = setTimeout(() => stop(4400), 10_000);
+          const helloTimer = setTimeout(() => stop(4400, 'hello_timeout'), 10_000);
           helloTimer.unref();
+          // The only place that judges a link dead. A stalled event loop sends no pings, so it cannot
+          // pile up unanswered ones: the cloud does not drop a live engine because it was itself paused.
           const pulse = () => {
-            if (now() - lastPong >= ENGINE_DEAD_AFTER_MS) {
-              stop(4400);
+            if (now() - lastHeard >= ENGINE_DEAD_AFTER_MS && unanswered >= ENGINE_DEAD_AFTER_PINGS) {
+              stop(4400, 'heartbeat');
               socket.terminate();
               return;
             }
-            if (socket.readyState === 1) socket.ping();
-          };
-          const resetDeadTimer = () => {
-            clearTimeout(deadTimer);
-            deadTimer = setTimeout(() => {
-              stop(4400);
-              socket.terminate();
-            }, ENGINE_DEAD_AFTER_MS);
-            deadTimer.unref();
+            if (socket.readyState === 1) {
+              socket.ping();
+              unanswered += 1;
+            }
           };
           // Register listeners synchronously: frames can arrive as soon as the upgrade succeeds.
           socket.on('message', (data: Buffer | ArrayBuffer | Buffer[], binary: boolean) => {
@@ -181,12 +216,14 @@ export function createEngineLinks(options: {
                   : Buffer.concat(data);
               frame = decodeFrame(bytes);
             } catch {
-              stop(4400);
+              stop(4400, 'invalid_frame');
               return;
             }
+            lastHeard = now();
+            unanswered = 0;
             if (!rpc) {
               if (frame.t !== 'hello') {
-                stop(4400);
+                stop(4400, 'invalid_frame');
                 return;
               }
               if (frame.protocol !== ENGINE_PROTOCOL_VERSION) {
@@ -218,7 +255,13 @@ export function createEngineLinks(options: {
               boots.set(id, frame.bootId);
               states.set(id, state);
               const hello = frame;
-              rpc = createEngineRpc({ side: 'cloud', state, send: (data) => socket.send(data), now });
+              rpc = createEngineRpc({
+                side: 'cloud',
+                state,
+                send: (data) => socket.send(data),
+                now,
+                onFailed: (failure) => options.logger?.warn(failure, 'engine link: a request failed'),
+              });
               link = {
                 resumed,
                 call: rpc.call,
@@ -236,8 +279,7 @@ export function createEngineLinks(options: {
               registry.seen(id, ip, hello);
               registry.setOnline(id, true);
               pulses.add(pulse);
-              lastPong = now();
-              resetDeadTimer();
+              connectedAt = now();
               socket.send(
                 encodeFrame({
                   t: 'welcome',
@@ -246,22 +288,26 @@ export function createEngineLinks(options: {
                   serverTime: new Date(now()).toISOString(),
                 }),
               );
+              options.logger?.info(
+                { engineId: id, resumed, version: hello.version },
+                'engine link: connected',
+              );
               // A restarted cloud may have lost its memory of events already acknowledged by the engine.
               // PM-315 reconciles the hello snapshot when resumed is false; replay starts at nextSeq.
               state.ackedSeq = Math.max(state.ackedSeq, hello.nextSeq - 1);
               notify(id, true);
               return;
             }
-            void rpc.receive(frame).catch(() => stop(4400));
+            void rpc.receive(frame).catch(() => stop(4400, 'invalid_frame'));
           });
           socket.on('pong', () => {
             if (!ended && link && active.get(id) === link) {
-              lastPong = now();
-              resetDeadTimer();
+              lastHeard = now();
+              unanswered = 0;
               registry.seen(id, ip);
             }
           });
-          socket.on('error', () => stop(4400));
+          socket.on('error', () => stop(4400, 'socket_error'));
           socket.on('close', () => stop());
         },
       );

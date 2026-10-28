@@ -7,6 +7,7 @@ import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harnes
 import type { DomainHarness } from './helpers/domain-harness';
 import { createAppHarness, createProject, setupOwner } from './helpers/app-harness';
 import { waitFor } from '../src/runner/test-helpers';
+import { withoutOnboarding } from './helpers/onboarding';
 
 const disabled = { code: 'ai_disabled', status: 409 };
 
@@ -38,9 +39,11 @@ describe('project AI switch', () => {
         config.pipeline.stages.find((stage) => stage.kind === 'work')!.owners!.push('owner');
       },
     });
-    await h.domain.projects.create(
-      { key: 'BR', name: 'Fictional enabled project', workspacePath: h.workspace, templateId: 'test' },
-      OWNER,
+    await withoutOnboarding(h.domain, () =>
+      h.domain.projects.create(
+        { key: 'BR', name: 'Fictional enabled project', workspacePath: h.workspace, templateId: 'test' },
+        OWNER,
+      ),
     );
     expect((await h.domain.sessions.ensureSession('BR', 'dev-1', { type: 'general' })).started).toBe(true);
     const task = await h.domain.tasks.create('AR', { title: 'Fictional human work' }, OWNER_ACTOR);
@@ -112,7 +115,7 @@ describe('project AI switch', () => {
     expect(h.runner.isRunning(session.id)).toBe(true);
     expect((await h.domain.sessions.ensureSession('AR', 'dev-1', workItem)).started).toBe(false);
     expect((await h.domain.messageStarts.startConversation('AR', 'dev-1')).id).toBe(session.id);
-    await h.domain.messaging.sendToSession('AR', session.id, 'Fictional follow-up', 'owner');
+    await h.domain.sessionMessages.sendToSession('AR', session.id, 'Fictional follow-up', 'owner');
     h.runner.emit({
       type: 'transcript_path',
       sessionId: session.id,
@@ -121,7 +124,7 @@ describe('project AI switch', () => {
     h.runner.emit({ type: 'exit', sessionId: session.id, exitCode: 0, signal: null });
     const messageCount = h.repos.messages.list('AR').length;
     await expect(
-      h.domain.messaging.sendToSession('AR', session.id, 'Resume please', 'owner'),
+      h.domain.sessionMessages.sendToSession('AR', session.id, 'Resume please', 'owner'),
     ).rejects.toMatchObject(disabled);
     await expect(h.domain.sessions.ensureSession('AR', 'dev-1', workItem)).rejects.toMatchObject(disabled);
     await expect(h.domain.sessions.ensureSession('AR', 'dev-2', workItem)).rejects.toMatchObject(disabled);
@@ -130,7 +133,7 @@ describe('project AI switch', () => {
     expect(h.repos.messages.list('AR')).toHaveLength(messageCount);
     expect(h.runner.started).toHaveLength(1);
     await setEnabled(true);
-    await h.domain.messaging.sendToSession('AR', session.id, 'Resume please', 'owner');
+    await h.domain.sessionMessages.sendToSession('AR', session.id, 'Resume please', 'owner');
     expect(h.runner.lastStarted()).toMatchObject({ sessionId: session.id, resume: true });
   });
 

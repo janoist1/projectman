@@ -1,0 +1,131 @@
+import type {
+  Actor,
+  ExternalToolOrigin,
+  HumanMemberConfig,
+  ProjectConfig,
+  BoundActor,
+  SuperMutationInput,
+} from '@projectman/shared';
+
+/**
+ * The authenticated integrator key behind a request (PM-757). It is made only by the key check of the
+ * server (`auth`), from a stored key: no request body, header or JSON can be parsed into one, so an `Actor`
+ * that merely says "super" is never authority. Only `super` and `read` keys authenticate (PM-1037);
+ * legacy rows remain readable in storage but never become principals. `userId` is the token owner,
+ * whose current project membership is the access basis; it is checked again when the principal is bound to a project.
+ */
+export interface IntegratorPrincipal {
+  readonly kind: 'integrator';
+  readonly userId: string;
+  readonly keyId: string;
+  readonly prefix: string;
+  readonly mode: 'super' | 'read';
+  /**
+   * Where the credential comes from (PM-888): a stored `key` (the default) or the in-app Operator `app`, whose
+   * `keyId` is its session's id. An `app` principal is made only by the server's own issuer and is valid only
+   * while `OperatorAppSessions.active` says so; no stored key stands behind it.
+   */
+  readonly source?: 'key' | 'app';
+  /** Server-issued session member; present only for app principals (PM-1041). */
+  readonly member?: string;
+  /**
+   * Whose request the app session acts on (PM-1010): an owner's own message or answer, or anyone else's (a
+   * queue item, another member's message). Server-set from the session's open request; absent on a stored
+   * key's principal, which keeps all it had.
+   */
+  readonly requestOrigin?: 'owner' | 'member';
+}
+
+/**
+ * Whether the in-app Operator's session may still act as the owner on the shared super-operation path
+ * (PM-888): the session runs, it is the project's Operator in its own general conversation, and an owner
+ * request is open.
+ */
+export interface OperatorAppSessions {
+  active(principal: IntegratorPrincipal): boolean;
+}
+
+/**
+ * Who a super-mode operation acts as, once a principal is bound to a project: the project's Operator with
+ * the credential's id and prefix, and the request the operation belongs to. The core takes this from the
+ * authenticated execution context; it never builds one from a request.
+ */
+export interface SuperExecutionContext {
+  readonly projectKey: string;
+  readonly actor: BoundActor;
+  readonly requestId: string;
+  readonly handoffId?: string | null;
+}
+
+/** Server-owned credential scope. No field is accepted from an operation's JSON arguments. */
+export interface IntegratorExecutionContext {
+  readonly principal: IntegratorPrincipal;
+  readonly email: string;
+  readonly requestId: string;
+  readonly projectKey?: string | null;
+  /**
+   * The issuer of the queue item this call works on (decision 66): the step is then recorded under that AI
+   * member, through the holder's Claude. Set only by the server after it checked the item; no argument of a
+   * tool call carries it.
+   */
+  readonly issuer?: string;
+}
+
+export interface AuthenticatedIntegratorExecutionContext {
+  readonly principal: IntegratorPrincipal;
+  readonly projectKey: string | null;
+  readonly actor: Actor;
+  readonly requestId: string;
+  readonly handoffId?: string | null;
+}
+
+export interface IntegratorCredentialAuthority {
+  assertActive(principal: IntegratorPrincipal): void;
+  user(id: string): { email: string } | null;
+  /** Whether the user is the host owner (PM-1061); absent: nobody is, so the host's operations are refused. */
+  isHostOwner?(userId: string): boolean;
+  /**
+   * Whether a key of this holder reaches the project at all (PM-1063): in a project an owner account created
+   * only the creator's key does, whoever the project's editable team lists as owner. Absent: no project is
+   * reached (fail closed).
+   */
+  keyCoversProject?(userId: string, projectKey: string): boolean;
+  /**
+   * The live principal of a stored key (PM-784), for work that outlives the call that started it: a queued
+   * document write. Null when the key is revoked, expired or no longer the one stored (id, owner, prefix);
+   * the mode is the key's own. It records no use of the key.
+   */
+  reactivate?(stored: { userId: string; keyId: string; prefix: string }): IntegratorPrincipal | null;
+}
+
+/**
+ * Runs the later steps of a bearer-MCP write under a fresh authenticated scope (PM-784). `action` gets
+ * `assertActive`, which re-checks the key, the owner's membership and the Operator and throws when any of
+ * them is gone; the runner itself throws the same way before `action` starts.
+ */
+export interface DocWriteExternalRunner {
+  run<T>(
+    projectKey: string,
+    origin: ExternalToolOrigin,
+    action: (assertActive: () => Promise<void>) => Promise<T>,
+  ): Promise<T>;
+}
+
+export interface SuperMutationAuthorizer {
+  assertAllowed(input: SuperMutationInput): Promise<void>;
+}
+export type { SuperMutationCommand, OwnerReservedEffect } from '@projectman/shared';
+
+/** Internal live capability; the authenticated DTO alone never grants authority. */
+export interface IntegratorExecutionScope {
+  readonly context: AuthenticatedIntegratorExecutionContext;
+  active: boolean;
+  actorFor(config: ProjectConfig | null): Actor;
+  assertAccess(
+    config: ProjectConfig,
+    operation: 'read' | 'write' | 'approval' | 'key_management',
+    actor?: Actor,
+  ): HumanMemberConfig | undefined;
+  assertMutation(input: SuperMutationInput): void;
+  authorizeMutation(input: SuperMutationInput): Promise<void>;
+}

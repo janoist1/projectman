@@ -1,16 +1,29 @@
 import { describe, expect, it } from 'vitest';
+import { QuestionCloseRule } from '@projectman/shared';
 import type { InboxItem } from '@projectman/shared';
 import { t } from '../i18n/t';
 import {
   alertText,
+  answerDeliveryText,
+  approvalHintOf,
+  askerStartNote,
+  askerStartToast,
+  closedBySomeoneElse,
   decisionSubject,
+  displayKindOf,
+  gateThenMergeText,
   inboxHeading,
+  isRecentDecision,
+  operatorTrailMark,
+  operatorTrailNote,
   questionExtras,
   resolutionLabel,
+  resolutionMark,
   resolverName,
   resolutionNote,
   shortCommand,
   splitQuestion,
+  todoRows,
 } from './inbox';
 
 const item: InboxItem = {
@@ -29,6 +42,281 @@ const item: InboxItem = {
   createdAt: '2026-09-30T10:00:00.000Z',
   resolution: { optionId: 'allow', by: 'system', at: '2026-09-30T10:00:00.000Z', note: null },
 };
+
+it('shows approval questions closed by the system as approved rather than answered', () => {
+  const approved: InboxItem = {
+    ...item,
+    kind: 'question',
+    payload: { question: 'May we merge?', approvalLabel: 'merge-approved' },
+    resolution: { ...item.resolution!, optionId: 'ended', rule: 'approval_given' },
+  };
+  expect(resolutionLabel(approved)).toBe(t('inbox.resolutions.approval_given'));
+  expect(resolverName(approved, new Map(), 'owner')).toBe(t('inbox.resolutionRules.approval_given'));
+});
+
+it('says why a question was closed without an answer, although its state is cancelled (PM-556)', () => {
+  const closed = (rule: QuestionCloseRule): InboxItem => ({
+    ...item,
+    kind: 'question',
+    payload: { question: 'Which font?' },
+    state: 'cancelled',
+    resolution: { ...item.resolution!, optionId: 'closed', rule },
+  });
+  for (const rule of QuestionCloseRule.options) {
+    expect(resolutionLabel(closed(rule))).toBe(t(`inbox.resolutions.${rule}`));
+  }
+  // Nobody answered: a rule of the card closed it by itself, or the member who left it is named.
+  expect(resolverName(closed('task_done'), new Map(), 'owner')).toBe(t('inbox.closedBySystem'));
+  expect(resolverName(closed('task_cancelled'), new Map(), 'owner')).toBe(t('inbox.closedBySystem'));
+  const byMember = {
+    ...closed('handed_off'),
+    resolution: { ...closed('handed_off').resolution!, by: 'dev-1' },
+  };
+  expect(resolverName(byMember, new Map(), 'owner')).not.toBe(t('inbox.closedBySystem'));
+  expect(resolutionLabel({ ...closed('task_done'), resolution: null })).toBe(
+    t('inbox.resolutions.cancelled'),
+  );
+});
+
+describe('the screened question helpers (PM-561)', () => {
+  const asked = (payload: Record<string, unknown>, overrides: Partial<InboxItem> = {}): InboxItem => ({
+    ...item,
+    kind: 'question',
+    state: 'open',
+    resolution: null,
+    payload: { question: 'Which font?', ...payload },
+    ...overrides,
+  });
+  const screened = (screening: Record<string, unknown>, overrides: Partial<InboxItem> = {}) =>
+    asked({ screening: { until: '2026-09-30T10:10:00.000Z', ...screening } }, overrides);
+  const todoItem = screened({ outcome: 'todo', todo: { what: 'Run it', where: ' ', expected: 'No errors' } });
+
+  it('makes a todo a kind of its own, also after it closed', () => {
+    expect(displayKindOf(todoItem)).toBe('todo');
+    expect(displayKindOf({ ...todoItem, state: 'cancelled' })).toBe('todo');
+    expect(displayKindOf(asked({}))).toBe('question');
+    expect(todoRows(todoItem).map((row) => row.value)).toEqual(['Run it', 'No errors']);
+  });
+
+  it('marks a closed question by what happened to it', () => {
+    const resolved = (optionId: string, extra: Partial<NonNullable<InboxItem['resolution']>> = {}) =>
+      asked(
+        {},
+        {
+          state: 'resolved',
+          resolution: { optionId, by: 'owner', at: item.createdAt, note: null, ...extra },
+        },
+      );
+    expect(resolutionMark(resolved('answer'))).toBe('ok');
+    expect(resolutionMark(resolved('todo_cannot'))).toBe('no');
+    expect(resolutionMark(resolved('closed', { rule: 'withdrawn' }))).toBe('moot');
+    expect(
+      resolutionMark(
+        asked(
+          { answerDelivery: { state: 'waiting', reason: 'member_on_leave', since: item.createdAt } },
+          {
+            state: 'resolved',
+            resolution: { optionId: 'answer', by: 'owner', at: item.createdAt, note: 'x' },
+          },
+        ),
+      ),
+    ).toBe('wait');
+  });
+
+  it('keeps what the Operator settled out of the history, unless the question had gone to the people', () => {
+    const closedAs = (
+      rule: NonNullable<InboxItem['resolution']>['rule'],
+      screening: Record<string, unknown>,
+    ) =>
+      screened(screening, {
+        state: 'cancelled',
+        resolution: { optionId: 'closed', by: 'operator', at: item.createdAt, note: null, rule },
+      });
+    expect(isRecentDecision(todoItem)).toBe(false);
+    expect(isRecentDecision(asked({}, { state: 'resolved' }))).toBe(true);
+    expect(isRecentDecision(closedAs('operator_moot', { outcome: 'moot' }))).toBe(false);
+    expect(isRecentDecision(closedAs('operator_moot', { fallback: 'timeout' }))).toBe(true);
+    expect(isRecentDecision(closedAs('operator_answered', { outcome: 'answered' }))).toBe(false);
+    expect(isRecentDecision(closedAs('task_done', {}))).toBe(true);
+  });
+
+  it("tells a question closed by someone else from the viewer's own answer", () => {
+    const resolvedBy = (by: string, rule?: QuestionCloseRule) =>
+      asked(
+        {},
+        {
+          state: rule ? 'cancelled' : 'resolved',
+          resolution: {
+            optionId: rule ? 'closed' : 'answer',
+            by,
+            at: item.createdAt,
+            note: null,
+            ...(rule ? { rule } : {}),
+          },
+        },
+      );
+    expect(closedBySomeoneElse(asked({}), 'owner')).toBe(false);
+    expect(closedBySomeoneElse(resolvedBy('owner'), 'owner')).toBe(false);
+    expect(closedBySomeoneElse(resolvedBy('kata'), 'owner')).toBe(true);
+    expect(closedBySomeoneElse(resolvedBy('system', 'task_done'), 'owner')).toBe(true);
+    expect(closedBySomeoneElse(asked({}, { state: 'screening' }), 'owner')).toBe(false);
+  });
+
+  it('words the wait for the member to start only for a reason that explains it', () => {
+    const members = new Map();
+    const leave = asked({}, { askerStart: { reason: 'member_on_leave' } });
+    expect(askerStartNote(leave, members, 'owner')).toContain(t('inbox.awaitsStart.before.leave'));
+    expect(askerStartToast(leave, members, 'owner')).toContain(t('inbox.awaitsStart.before.leave'));
+    expect(askerStartNote(asked({}), members, 'owner')).toBeNull();
+    const waiting = asked({
+      answerDelivery: { state: 'waiting', reason: 'member_on_leave', since: item.createdAt },
+    });
+    expect(answerDeliveryText(waiting, members, 'owner')).toContain(t('inbox.awaitsStart.after.leave'));
+    expect(answerDeliveryText(asked({}), members, 'owner')).toBeNull();
+  });
+
+  it('marks the Operator trail rows and notes what it held', () => {
+    expect(operatorTrailMark(asked({}, { state: 'screening' }))).toBe('at');
+    expect(operatorTrailMark(screened({ outcome: 'answered' }))).toBe('answered');
+    expect(operatorTrailMark(screened({ outcome: 'forwarded' }))).toBe('forwarded');
+    expect(operatorTrailMark(screened({ outcome: 'moot' }))).toBe('moot');
+    const members = new Map();
+    expect(operatorTrailNote(screened({ outcome: 'moot', note: ' Not needed. ' }), members, 'owner')).toBe(
+      'Not needed.',
+    );
+    expect(operatorTrailNote(screened({ outcome: 'moot' }), members, 'owner')).toBeNull();
+  });
+
+  it('says a question waits for the Operator’s machine instead of naming a time (PM-708)', () => {
+    const queued = screened(
+      { queue: { reason: 'engine_offline', since: '2026-09-30T10:00:00.000Z', remainingMs: 600_000 } },
+      { state: 'screening' },
+    );
+    expect(operatorTrailNote(queued, new Map(), 'owner')).toBe(t('inbox.operatorTrail.queued'));
+  });
+
+  it('names who a forwarded question went to', () => {
+    const members = new Map();
+    const forwarded = (note?: string) =>
+      screened({ outcome: 'forwarded', forwardedTo: 'claude', ...(note ? { note } : {}) });
+    expect(operatorTrailNote(forwarded('Ez a vezetőre tartozik'), members, 'owner')).toBe(
+      t('inbox.operatorTrail.forwardedTo', { name: 'claude', note: 'Ez a vezetőre tartozik' }),
+    );
+    expect(operatorTrailNote(forwarded(), members, 'owner')).toBe(
+      t('inbox.operatorTrail.forwardedToPlain', { name: 'claude' }),
+    );
+  });
+});
+
+describe('approvalHintOf (PM-484)', () => {
+  const question: InboxItem = {
+    ...item,
+    id: 'inb_q',
+    kind: 'question',
+    state: 'open',
+    resolution: null,
+    assignees: ['dev-1'],
+    payload: { question: 'May we merge?', approvalLabel: 'merge-approved' },
+  };
+  const gate = (id: string, assignees: string[], label = 'merge-approved'): InboxItem => ({
+    ...item,
+    id,
+    kind: 'decision',
+    state: 'open',
+    resolution: null,
+    assignees,
+    payload: {
+      gate: {
+        requestId: 'gat_1',
+        taskKey: 'AR-1',
+        fromStageId: 'review',
+        toStageId: 'done',
+        stageId: 'done',
+        label,
+        requestedBy: { kind: 'ai', handle: 'dev-1' },
+      },
+    },
+  });
+  const task = { labels: ['code-review-ok'] };
+
+  it('says nothing for a question without an approval label or an item that is no open question', () => {
+    const plain = { ...question, payload: { question: 'Inline or toast?' } };
+    expect(approvalHintOf(plain, { task, items: [], myHandle: 'owner' })).toBeNull();
+    expect(
+      approvalHintOf({ ...question, state: 'resolved' }, { task, items: [], myHandle: 'owner' }),
+    ).toBeNull();
+    expect(approvalHintOf(gate('g', ['owner']), { task, items: [], myHandle: 'owner' })).toBeNull();
+  });
+
+  it('is done when the label is already on the card', () => {
+    const hint = approvalHintOf(question, {
+      task: { labels: ['merge-approved'] },
+      items: [gate('g', ['owner'])],
+      myHandle: 'owner',
+    });
+    expect(hint).toEqual({ kind: 'done', label: 'merge-approved' });
+  });
+
+  it('jumps to the open approval item the viewer may give', () => {
+    const hint = approvalHintOf(question, {
+      task,
+      items: [gate('g_other_label', ['owner'], 'release-approved'), gate('g', ['owner'])],
+      myHandle: 'owner',
+    });
+    expect(hint).toEqual({ kind: 'jump', label: 'merge-approved', gateItemId: 'g' });
+  });
+
+  it('names the approvers when the approval is for others', () => {
+    const hint = approvalHintOf(question, {
+      task,
+      items: [gate('g', ['kata', 'owner'])],
+      myHandle: 'dev-1',
+    });
+    expect(hint).toEqual({ kind: 'others', label: 'merge-approved', approvers: ['kata', 'owner'] });
+  });
+
+  it('has no request to point at when none is open (rejected, or on another card)', () => {
+    const rejected = { ...gate('g', ['owner']), state: 'cancelled' as const };
+    const elsewhere = { ...gate('h', ['owner']), taskKey: 'AR-2' };
+    const hint = approvalHintOf(question, { task, items: [rejected, elsewhere], myHandle: 'owner' });
+    expect(hint).toEqual({ kind: 'none', label: 'merge-approved', taskKey: 'AR-1' });
+  });
+});
+
+describe('gateThenMergeText (PM-484)', () => {
+  const request = (merge?: { merger: string; base: string }): InboxItem => ({
+    ...item,
+    kind: 'decision',
+    state: 'open',
+    resolution: null,
+    payload: {
+      gate: {
+        requestId: 'gat_1',
+        taskKey: 'AR-1',
+        fromStageId: 'review',
+        toStageId: 'done',
+        stageId: 'done',
+        label: 'merge-approved',
+        requestedBy: { kind: 'ai', handle: 'dev-1' },
+        ...(merge ? { merge } : {}),
+      },
+    },
+  });
+
+  it('says who merges into which branch, and "te" for the viewer', () => {
+    const merge = { merger: 'dev-1', base: 'main' };
+    expect(gateThenMergeText(request(merge), null, new Map(), 'owner')).toBe(
+      t('inbox.gateThenMerge', { merger: 'dev-1', base: 'main', to: 'done' }),
+    );
+    expect(gateThenMergeText(request(merge), null, new Map(), 'dev-1')).toBe(
+      t('inbox.gateThenMergeYou', { base: 'main', to: 'done' }),
+    );
+  });
+
+  it('leaves the line out when the request names no merge', () => {
+    expect(gateThenMergeText(request(), null, new Map(), 'owner')).toBeNull();
+  });
+});
 
 it('attributes a forwarded owner answer to the integrator', () => {
   const forwarded: InboxItem = {
@@ -86,6 +374,62 @@ describe('splitQuestion', () => {
     expect(text).toContain('AR-1');
     expect(text).toContain('AR-2');
     expect(text).toContain('AR-3');
+    expect(text).not.toContain('{');
+  });
+  it('renders the alert that parts were left in the first stage after a reminder (PM-480)', () => {
+    const alert: InboxItem = {
+      ...item,
+      kind: 'alert',
+      source: 'system',
+      payload: { alert: 'parts_left', taskKey: 'AR-1', member: 'dev-1', parts: ['AR-2', 'AR-3'] },
+    };
+    expect(inboxHeading(alert)).toBe(t('inbox.alerts.parts_left.heading'));
+    const text = alertText(alert, new Map(), null);
+    expect(text).toContain('AR-1');
+    expect(text).toContain('AR-2, AR-3');
+    expect(text).toContain('dev-1');
+    expect(text).not.toContain('{');
+  });
+  it.each(['answered', 'declined'] as const)(
+    'renders the host’s %s reply to a request (PM-1064)',
+    (outcome) => {
+      const alert: InboxItem = {
+        ...item,
+        kind: 'alert',
+        source: 'system',
+        payload: {
+          alert: 'host_request_answered',
+          requestId: 'hreq_1',
+          title: 'Need a right',
+          outcome,
+          answer: 'Fine.',
+        },
+      };
+      expect(inboxHeading(alert)).toBe(t('inbox.alerts.host_request_answered.heading'));
+      const text = alertText(alert, new Map(), null);
+      expect(text).toContain('Need a right');
+      expect(text).toContain('Fine.');
+      expect(text).not.toContain('{');
+    },
+  );
+  it('renders the alert that startable cards wait with no developer started (PM-1082)', () => {
+    const alert: InboxItem = {
+      ...item,
+      kind: 'alert',
+      source: 'system',
+      payload: {
+        alert: 'work_stalled',
+        since: '2026-10-27T10:00:00.000Z',
+        cards: ['AR-4', 'AR-5'],
+        free: ['dev-1'],
+        unavailable: [{ handle: 'dev-2', reason: 'provider_hold' }],
+      },
+    };
+    expect(inboxHeading(alert)).toBe(t('inbox.alerts.work_stalled.heading'));
+    const text = alertText(alert, new Map(), null);
+    expect(text).toContain('AR-4, AR-5');
+    expect(text).toContain('dev-1');
+    expect(text).toContain(`dev-2 (${t('inbox.alerts.work_stalled.reasons.provider_hold')})`);
     expect(text).not.toContain('{');
   });
   it('keeps a short one-line question whole, without marks', () => {

@@ -194,6 +194,14 @@
   font-size: var(--text-sm);
 }
 
+/* A refused choice of a group of controls: the field error's look, under the group. */
+.fieldError {
+  margin: 8px 0 0;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--c-blocked-text);
+}
+
 .problems {
   margin: 0;
   padding-left: 18px;
@@ -246,6 +254,29 @@
   font-size: 12.5px;
   line-height: 1.4;
   color: var(--c-ink-4);
+}
+
+/* One member's tick in the contacts list: the checkbox, the avatar and the name on one line, a finger tall. */
+.contactRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  min-width: 0;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.contactRow input {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+}
+
+.contactRow span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 /* A named group of related controls inside a section ("Körbe futó munka"). */

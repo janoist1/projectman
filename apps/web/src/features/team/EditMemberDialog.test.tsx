@@ -196,7 +196,7 @@ describe('EditMemberDialog', () => {
       />,
     );
     expect(screen.queryByLabelText(t('providerSettings.provider'))).toBeNull();
-    expect((screen.getByRole('checkbox', { name: 'Operátor' }) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByRole('checkbox', { name: 'Tulajdonos' }) as HTMLInputElement).checked).toBe(true);
     expect(screen.queryByRole('checkbox', { name: templateLocale.roles.watchdog.name })).toBeTruthy();
     fireEvent.click(screen.getByRole('checkbox', { name: 'QA' }));
     fireEvent.click(screen.getByRole('checkbox', { name: 'Terméktulajdonos' }));
@@ -338,5 +338,133 @@ describe('EditMemberDialog', () => {
     await waitFor(() =>
       expect(project.backend.findMember('be-1')).toMatchObject({ provider: 'claude', model: 'opus' }),
     );
+  });
+
+  describe('machine access (decision 66)', () => {
+    const renderAccess = (handle: string, isOwner = true) => {
+      const project = mockProject();
+      project.render(
+        <EditMemberDialog
+          member={project.backend.findMember(handle)!}
+          config={project.backend.config}
+          roles={builtInRoles}
+          onClose={() => {}}
+        />,
+        '/',
+        { isOwner },
+      );
+      const toggle = () =>
+        screen.queryByRole('checkbox', { name: t('memberEdit.machineAccess') }) as HTMLInputElement | null;
+      return { project, toggle };
+    };
+
+    const patches = (project: ReturnType<typeof mockProject>, handle: string) =>
+      project.requests.filter(
+        (request) => request.method === 'PATCH' && request.path.endsWith(`/members/${handle}`),
+      );
+
+    it('lets an owner switch it on and sends the change only then', async () => {
+      const { project, toggle } = renderAccess('qa');
+      expect(toggle()!.checked).toBe(false);
+      fireEvent.click(screen.getByRole('button', { name: t('memberEdit.save') }));
+      await waitFor(() => expect(patches(project, 'qa')).toHaveLength(1));
+      expect(patches(project, 'qa')[0]!.body).not.toHaveProperty('machineAccess');
+      fireEvent.click(toggle()!);
+      fireEvent.click(screen.getByRole('button', { name: t('memberEdit.save') }));
+      await waitFor(() => expect(patches(project, 'qa')).toHaveLength(2));
+      expect(patches(project, 'qa')[1]!.body).toMatchObject({ machineAccess: true });
+      expect(project.backend.findMember('qa')?.machineAccess).toBe(true);
+    });
+
+    it('shows the project manager as switched on, read-only for an admin', () => {
+      const { toggle } = renderAccess('pm', false);
+      expect(toggle()!.checked).toBe(true);
+      expect(toggle()!.disabled).toBe(true);
+    });
+
+    it('offers no switch for a person', () => {
+      const { toggle } = renderAccess('owner');
+      expect(toggle()).toBeNull();
+    });
+
+    it('offers no switch for a temp worker', () => {
+      const project = mockProject();
+      project.backend.findMember('qa')!.temp = true;
+      project.render(
+        <EditMemberDialog
+          member={project.backend.findMember('qa')!}
+          config={project.backend.config}
+          roles={builtInRoles}
+          onClose={() => {}}
+        />,
+        '/',
+        { isOwner: true },
+      );
+      expect(screen.queryByRole('checkbox', { name: t('memberEdit.machineAccess') })).toBeNull();
+    });
+  });
+
+  describe('e-mail correspondence (PM-942)', () => {
+    const renderEmail = (channelOn: boolean, isOwner = true) => {
+      const project = mockProject();
+      project.backend.config.project.email = { enabled: channelOn };
+      project.render(
+        <EditMemberDialog
+          member={project.backend.findMember('qa')!}
+          config={project.backend.config}
+          roles={builtInRoles}
+          onClose={() => {}}
+        />,
+        '/',
+        { isOwner },
+      );
+      const enabled = () =>
+        screen.getByRole('checkbox', { name: t('memberEdit.emailEnabled') }) as HTMLInputElement;
+      const auto = () =>
+        screen.getByRole('checkbox', { name: t('memberEdit.emailSendWithoutApproval') }) as HTMLInputElement;
+      return { project, enabled, auto };
+    };
+
+    const memberPatches = (project: ReturnType<typeof mockProject>) =>
+      project.requests.filter(
+        (request) => request.method === 'PATCH' && request.path.endsWith('/members/qa'),
+      );
+
+    it('lets the second switch work only once the member may write, and saves both', async () => {
+      const { project, enabled, auto } = renderEmail(true);
+      expect(auto().disabled).toBe(true);
+      fireEvent.click(enabled());
+      expect(auto().disabled).toBe(false);
+      fireEvent.click(auto());
+      fireEvent.click(screen.getByRole('button', { name: t('memberEdit.save') }));
+      await waitFor(() => expect(memberPatches(project)).toHaveLength(1));
+      expect(memberPatches(project)[0]!.body).toMatchObject({
+        email: { enabled: true, sendWithoutApproval: true },
+      });
+    });
+
+    it('sends no e-mail setting when none was touched', async () => {
+      const { project } = renderEmail(true);
+      fireEvent.click(screen.getByRole('button', { name: t('memberEdit.save') }));
+      await waitFor(() => expect(memberPatches(project)).toHaveLength(1));
+      expect(memberPatches(project)[0]!.body).not.toHaveProperty('email');
+    });
+
+    it('keeps the approval-free sending read-only for an admin', () => {
+      const { enabled, auto } = renderEmail(true, false);
+      fireEvent.click(enabled());
+      expect(auto().disabled).toBe(true);
+      expect(screen.getAllByText(t('memberEdit.ownerOnly')).length).toBeGreaterThan(0);
+    });
+
+    it('warns that nothing goes out while the channel is off, with a way to switch it on', () => {
+      const { enabled } = renderEmail(false);
+      expect(screen.queryByText(t('memberEdit.emailChannelOff'), { exact: false })).toBeNull();
+      fireEvent.click(enabled());
+      expect(screen.getByText(t('memberEdit.emailChannelOff'), { exact: false })).toBeTruthy();
+      expect(
+        screen.getByRole('link', { name: t('memberEdit.emailChannelOffLink') }).getAttribute('href'),
+      ).toContain('/settings/email');
+    });
   });
 });

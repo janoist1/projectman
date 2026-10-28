@@ -1,6 +1,7 @@
 import type { Actor } from '../domain/event';
 import type { WorkItemRef } from '../domain/session';
 import { stageIndex } from './gates';
+import { cardMoverOf, isHandOnMove } from './card-mover';
 import { isOnLeave } from './leave';
 import { memberOf } from './lookup';
 import type { AiMemberConfig, MemberConfig, ProjectConfig } from './schema';
@@ -24,6 +25,81 @@ export function projectManagerOf(config: Pick<ProjectConfig, 'team'>): AiMemberC
   return managers.find((m) => !isOnLeave(m)) ?? managers[0] ?? null;
 }
 
+/**
+ * Where the conversation with the project manager of `from` runs (PM-1042): the owners, the AI members and the
+ * system share the one general conversation; every other person has their own, named by `with` (decision 59).
+ */
+export function managerConversationOf(config: Pick<ProjectConfig, 'team'>, from: string): WorkItemRef {
+  const sender = memberOf(config, from);
+  return sender?.kind === 'human' && sender.access !== 'owner'
+    ? { type: 'general', with: from }
+    : { type: 'general' };
+}
+
+/** The selected, available coordinator; null while the project manager is on leave. */
+export function coordinationMemberOf(config: Pick<ProjectConfig, 'team'>): AiMemberConfig | null {
+  const member = projectManagerOf(config);
+  return member && !isOnLeave(member) ? member : null;
+}
+
+/**
+ * Whether people who are not owners talk to `member` in a conversation of their own, restricted to the
+ * guest tools (PM-475, PM-1080): the selected coordinator. Where such a conversation runs is
+ * `managerConversationOf`; every guest condition asks this one rule.
+ */
+export function hasGuestConversations(
+  config: Pick<ProjectConfig, 'team'>,
+  member: MemberConfig | null | undefined,
+): boolean {
+  return member?.kind === 'ai' && coordinationMemberOf(config)?.handle === member.handle;
+}
+
+/**
+ * The person a session of `member` in `workItem` talks with as a guest; undefined outside a guest conversation.
+ * Fails closed: a `with` conversation of any project manager stays restricted, also when that manager is no
+ * longer the selected coordinator (a switch or leave while the conversation exists).
+ */
+export function guestOfConversation(
+  config: Pick<ProjectConfig, 'team'>,
+  member: MemberConfig | null | undefined,
+  workItem: WorkItemRef,
+): string | undefined {
+  if (workItem.type !== 'general') return undefined;
+  return hasGuestConversations(config, member) || isProjectManager(member) ? workItem.with : undefined;
+}
+
+/** Coordination mutations require the selected PM acting directly, never an integrator or a human. */
+export function coordinationActorRefusal(
+  config: Pick<ProjectConfig, 'team'>,
+  actor: Pick<Actor, 'kind' | 'handle' | 'via'>,
+): 'project_manager_only' | null {
+  const member = coordinationMemberOf(config);
+  return member && actor.kind === 'ai' && actor.handle === member.handle && !actor.via
+    ? null
+    : 'project_manager_only';
+}
+
+/** Whether the selected PM acts directly, with no integrator in between (PM-1040). */
+export function isCoordinationActor(
+  config: Pick<ProjectConfig, 'team'>,
+  actor: Pick<Actor, 'kind' | 'handle' | 'via'>,
+): boolean {
+  return coordinationActorRefusal(config, actor) === null;
+}
+
+/**
+ * The project manager among member views (`MemberView`): the same choice as `projectManagerOf`; a temp or
+ * retired one never counts (PM-488).
+ */
+export function projectManagerAmong<
+  M extends { kind: string; role: string; temp: boolean; onLeave?: boolean; status?: string },
+>(members: Iterable<M>): M | null {
+  const managers = [...members].filter(
+    (m) => m.kind === 'ai' && m.role === PROJECT_MANAGER_ROLE && !m.temp && m.status !== 'retired',
+  );
+  return managers.find((m) => !m.onLeave) ?? managers[0] ?? null;
+}
+
 /** Whether `handle` is the team's only AI project manager: it cannot be retired or lose the role. */
 export function isRequiredProjectManager(config: Pick<ProjectConfig, 'team'>, handle: string): boolean {
   const managers = projectManagersOf(config);
@@ -31,14 +107,16 @@ export function isRequiredProjectManager(config: Pick<ProjectConfig, 'team'>, ha
 }
 
 /**
- * The only stage move a project manager makes on its own: from a queue stage that is not the
- * first into a later work stage. Anything else needs the owner.
+ * A project manager starts cards from a later queue into work, and hands cards on when
+ * selected as the project's card mover. Other stage moves need the owner.
  */
 export function projectManagerMoveRefusal(
-  config: Pick<ProjectConfig, 'pipeline'>,
+  config: Pick<ProjectConfig, 'team' | 'pipeline'>,
   fromStageId: string,
   toStageId: string,
 ): 'project_manager_move_refused' | null {
+  if (cardMoverOf(config).kind === 'project_manager' && isHandOnMove(config, fromStageId, toStageId))
+    return null;
   const from = stageIndex(config.pipeline, fromStageId);
   const to = stageIndex(config.pipeline, toStageId);
   if (from <= 0 || to <= from) return 'project_manager_move_refused';
@@ -67,7 +145,10 @@ export function actorMoveRefusal(
     : null;
 }
 
-/** Where a member's work item runs: a project manager's card work runs in its one general conversation. */
+/**
+ * Where a member's work item runs: a project manager's card work runs in its one general conversation
+ * (PM-434, PM-463).
+ */
 export function sessionWorkItemOf(
   member: MemberConfig | null | undefined,
   workItem: WorkItemRef,

@@ -1,7 +1,7 @@
 import { messageRoute } from '@projectman/shared';
 import type { Session, WorkItemRef } from '@projectman/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
+import { createDomainHarness, OWNER_ACTOR, waitForSession } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
 
@@ -124,7 +124,7 @@ describe('routing a message to a running session of the same family', () => {
     // Moving AR-2 to code review starts its owner, cr, on it; that session then ends.
     await h.domain.tasks.moveToStage('AR', 'AR-2', 'code_review', OWNER_ACTOR);
     await flush();
-    const review = h.domain.sessions.list('AR', { member: 'cr', taskKey: 'AR-2' })[0]!;
+    const review = await waitForSession(h.domain, { member: 'cr', taskKey: 'AR-2' });
     await h.domain.sessions.stop('AR', review.id);
     const parent = await run('cr', task('AR-1'));
 
@@ -139,7 +139,7 @@ describe('routing a message to a running session of the same family', () => {
   it('does not route what a human typed into a session', async () => {
     const child = await run('dev-2', task('AR-2'));
     await run('dev-2', task('AR-1'));
-    const message = await h.domain.messaging.sendToSession('AR', child.id, 'Plain words.', 'owner');
+    const message = await h.domain.sessionMessages.sendToSession('AR', child.id, 'Plain words.', 'owner');
     expect(messageRoute(message, 'dev-2')).toEqual(task('AR-2'));
   });
 });
@@ -199,7 +199,7 @@ describe('a message about a closed card', () => {
     expect(message.receipts?.[0]?.route).toBeUndefined();
   });
 
-  it('leaves an older message that waits on the closed card where it is', async () => {
+  it('moves an older message that waits on the closed card to the desk (PM-925)', async () => {
     // Written before routes existed: no route on its receipt, so it waits on its card.
     const old = h.domain.messages.record({
       projectKey: 'AR',
@@ -209,15 +209,12 @@ describe('a message about a closed card', () => {
       body: 'Fictional old news.',
       actor: OWNER_ACTOR,
     });
-    await h.domain.messageStarts.wake('AR', 'dev-2', task('AR-2'));
+    await h.domain.memberQueueDriver.wake('AR', 'dev-2', task('AR-2'));
     await flush();
-    expect(h.runner.started).toHaveLength(0);
-
-    // A general chat that starts later does not take it either.
-    const chat = (await h.domain.sessions.ensureSession('AR', 'dev-2', general)).session;
-    await flush();
-    expect(h.runner.messages.filter((m) => m.sessionId === chat.id)).toEqual([]);
-    expect(h.repos.messages.get(old.id)?.deliveredAt).toBeNull();
+    expect(h.runner.started).toHaveLength(1);
+    expect(h.domain.sessions.list('AR', { member: 'dev-2' }).map((s) => s.workItem)).toEqual([general]);
+    expect(h.repos.messages.get(old.id)?.receipts?.[0]).toMatchObject({ route: general });
+    expect(h.repos.messages.pending('AR', 'dev-2')).toEqual([]);
   });
 
   it('tells the sender where each recipient gets it (send_message)', async () => {

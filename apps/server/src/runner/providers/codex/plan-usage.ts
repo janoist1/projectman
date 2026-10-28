@@ -100,7 +100,7 @@ export function toCodexPlanUsage(limits: CodexRateLimits, now: Date = new Date()
 }
 
 /** The newest rate limits in the last part of a rollout, or null. */
-export async function lastRateLimits(file: string): Promise<CodexRateLimits | null> {
+async function lastRateLimits(file: string): Promise<CodexRateLimits | null> {
   let handle;
   try {
     handle = await open(file, 'r');
@@ -144,7 +144,7 @@ async function numberedDirs(dir: string, width: number): Promise<string[]> {
 }
 
 /** The most recently written rollouts under `sessionsDir` (newest day folders first). */
-export async function recentRollouts(sessionsDir: string): Promise<Array<{ file: string; mtimeMs: number }>> {
+async function recentRollouts(sessionsDir: string): Promise<Array<{ file: string; mtimeMs: number }>> {
   const days: string[] = [];
   for (const year of await numberedDirs(sessionsDir, 4)) {
     for (const month of await numberedDirs(path.join(sessionsDir, year), 2)) {
@@ -177,7 +177,7 @@ export async function recentRollouts(sessionsDir: string): Promise<Array<{ file:
   return files.sort((a, b) => b.mtimeMs - a.mtimeMs).slice(0, MAX_FILES);
 }
 
-export interface CodexPlanUsageOptions {
+interface CodexPlanUsageOptions {
   codexHome: string;
   logger: FastifyBaseLogger;
   /** Results are reused for this long (default one minute). */

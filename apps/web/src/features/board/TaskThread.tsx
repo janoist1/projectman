@@ -1,7 +1,14 @@
 import clsx from 'clsx';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router';
-import { canSeeAllTeamMessages, cardThreadRecipients, isUnreadBy, SYSTEM_SENDER } from '@projectman/shared';
+import {
+  canSeeAllTeamMessages,
+  cardThreadRecipients,
+  hasConnectedOrigin,
+  isUnreadBy,
+  projectManagerAmong,
+  SYSTEM_SENDER,
+} from '@projectman/shared';
 import type {
   InboxItem,
   LabelView,
@@ -10,13 +17,7 @@ import type {
   Task,
   TeamMessage,
 } from '@projectman/shared';
-import {
-  useInbox,
-  useReadTeamMessages,
-  useResolveInbox,
-  useSendTeamMessage,
-  useTaskMessages,
-} from '../../api/queries';
+import { useInbox, useReadTeamMessages, useResolveInbox, useTaskMessages } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Avatar } from '../../components/Avatar';
 import { Button } from '../../components/Button';
@@ -29,7 +30,7 @@ import { formatTime } from '../../i18n/format';
 import { joinNames, t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
 import { splitQuestion } from '../../lib/inbox';
-import { nameOf, namesOf } from '../../lib/members';
+import { actorLabel, nameOf, namesOf } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
 import { useDismiss, useIsMobile } from '../../lib/hooks';
 import { InboxCard } from '../inbox/InboxCard';
@@ -38,16 +39,25 @@ import { PAGE_LIMIT, READ_AFTER_MS, STICK_PX, useDocumentVisible } from '../mess
 import { layoutThread, threadItems } from '../messages/conversations';
 import type { ThreadEntry } from '../messages/conversations';
 import { DeliveryStatus } from '../messages/DeliveryStatus';
+import { EmailMessageHead } from '../messages/EmailMessageHead';
+import { useContacts } from '../messages/useContacts';
 import { Composer } from '../session/Composer';
 import styles from './TaskThread.module.css';
+import { MessageAttachments } from '../messages/MessageAttachments';
+import { useMessageAttachmentUploads } from '../messages/useMessageAttachmentUploads';
+import { useCardBusySend } from '../messages/useCardBusySend';
+import { useFileDrop } from './useFileDrop';
+import attachmentStyles from '../messages/MessageAttachments.module.css';
 
 /** How long a message reached by a link stays highlighted. */
 const FLASH_MS = 1800;
 
 const BASIS_KEY = {
+  contact: 'contact',
   workers: 'workers',
   assignee: 'assignee',
   stage_owners: 'stageOwners',
+  project_manager: 'projectManager',
   none: 'none',
 } as const;
 
@@ -74,6 +84,8 @@ interface TaskThreadProps {
   labels: readonly LabelView[] | undefined;
   /** `?message=`: the message a link leads to. */
   messageParam: string | null;
+  /** Switches to the card's own view, where a member without contacts can still comment (PM-985). */
+  onShowCard?: () => void;
 }
 
 /**
@@ -90,18 +102,30 @@ export function TaskThread({
   members,
   labels,
   messageParam,
+  onShowCard,
 }: TaskThreadProps) {
   const { key, myHandle, me } = useProject();
+  const contacts = useContacts();
   const inbox = useInbox(key);
   const resolve = useResolveInbox(key, myHandle);
   const readMessages = useReadTeamMessages(key);
-  const send = useSendTeamMessage(key);
+  const {
+    mutation: send,
+    send: sendConfirmed,
+    dialog: cardBusyDialog,
+  } = useCardBusySend(key, () => composerBox.current?.querySelector('textarea') ?? null);
   const toast = useToast();
   const isMobile = useIsMobile();
+  const uploads = useMessageAttachmentUploads(key);
   const visible = useDocumentVisible();
   const access = me.projects.find((project) => project.key === key)?.access;
   const canSeeAll = access ? canSeeAllTeamMessages({ access }) : false;
   const canSend = Boolean(myHandle && access && ['owner', 'admin', 'developer', 'client'].includes(access));
+  const fileDrop = useFileDrop({
+    allowed: canSend && !send.isPending && !isMobile,
+    onFiles: uploads.add,
+    isolate: true,
+  });
 
   const messages = useMemo(() => query.data?.messages ?? [], [query.data]);
   const ready = Boolean(query.data);
@@ -209,16 +233,27 @@ export function TaskThread({
     return (
       Boolean(member) &&
       member?.status !== 'retired' &&
-      !(member?.kind === 'human' && member.role === 'client')
+      !(member?.kind === 'human' && member.role === 'client') &&
+      contacts.canWriteTo(handle)
     );
   };
-  const defaults = cardThreadRecipients({
+  const candidates = [...members.values()].filter(
+    (member) => member.handle !== myHandle && canReceive(member.handle),
+  );
+  const computed = cardThreadRecipients({
     workers,
     assignee: task.assignee,
     stageOwners,
+    projectManager: projectManagerAmong(members.values())?.handle ?? null,
     writer: myHandle ?? '',
     canReceive,
   });
+  // A member who writes only to the contacts falls back to the first contact when nobody on the card is one.
+  const firstContact = contacts.restricted && computed.to.length === 0 ? candidates[0] : undefined;
+  const defaults = firstContact
+    ? { basis: 'contact' as const, to: [firstContact.handle] }
+    : { basis: computed.basis, to: computed.to };
+  const noContacts = contacts.restricted && contacts.ready && candidates.length === 0;
   const [chosen, setChosen] = useState<string[] | null>(null);
   const to = chosen ?? defaults.to;
   const toggle = (handle: string) =>
@@ -226,9 +261,6 @@ export function TaskThread({
       const base = current ?? defaults.to;
       return base.includes(handle) ? base.filter((candidate) => candidate !== handle) : [...base, handle];
     });
-  const candidates = [...members.values()].filter(
-    (member) => member.handle !== myHandle && canReceive(member.handle),
-  );
   const working = candidates.filter((member) => workers.includes(member.handle));
   const others = candidates.filter((member) => !workers.includes(member.handle));
 
@@ -251,6 +283,10 @@ export function TaskThread({
     setChosen([...new Set(people)].filter((handle) => handle !== myHandle && canReceive(handle)));
     composerBox.current?.querySelector('textarea')?.focus();
   };
+
+  const replyAllOthers = (message: TeamMessage) => [
+    ...new Set([message.from, ...message.to].filter((handle) => handle !== myHandle)),
+  ];
 
   const answer = (item: InboxItem, body: ResolveInboxRequest) =>
     resolve.mutate({ item, body }, { onError: () => toast.show(t('inbox.resolveFailed'), 'error') });
@@ -284,12 +320,13 @@ export function TaskThread({
               entry={entry}
               members={members}
               myHandle={myHandle}
-              canSend={canSend}
+              // No Reply under the message of someone the writer may not write to (PM-985).
+              canSend={canSend && (item.message.from === myHandle || contacts.canWriteTo(item.message.from))}
               canSeeAll={canSeeAll}
               flash={flash === item.message.id}
               canReplyAll={
-                new Set([item.message.from, ...item.message.to].filter((handle) => handle !== myHandle))
-                  .size > 1
+                replyAllOthers(item.message).length > 1 &&
+                replyAllOthers(item.message).every(contacts.canWriteTo)
               }
               onReply={reply}
             />
@@ -330,7 +367,17 @@ export function TaskThread({
   );
 
   return (
-    <section className={styles.panel} aria-label={t('task.thread.label')}>
+    <section
+      className={styles.panel}
+      aria-label={t('task.thread.label')}
+      data-message-composer
+      {...fileDrop.props}
+    >
+      {fileDrop.state && !isMobile ? (
+        <div className={attachmentStyles.drop} role="status">
+          {t('attachments.dropActive')}
+        </div>
+      ) : null}
       {query.isPending ? (
         <LoadingState className={styles.state} />
       ) : query.isError ? (
@@ -398,7 +445,16 @@ export function TaskThread({
         </div>
       )}
 
-      {canSend ? (
+      {noContacts ? (
+        <p className={styles.readOnly}>
+          {t('task.thread.noContacts')}{' '}
+          {onShowCard ? (
+            <button type="button" className={styles.reset} onClick={onShowCard}>
+              {t('task.view.card')}
+            </button>
+          ) : null}
+        </p>
+      ) : canSend ? (
         <div className={styles.composer} ref={composerBox}>
           <div className={styles.composerColumn}>
             {send.error ? (
@@ -468,6 +524,8 @@ export function TaskThread({
             ) : null}
             <p className={styles.toHint}>{hint}</p>
             <Composer
+              attachments={uploads}
+              attachmentHint={t('messageAttachments.cardHint')}
               autoFocus={false}
               label={t('task.thread.composerLabel', { key: task.key })}
               placeholder={t('task.thread.placeholder')}
@@ -475,9 +533,21 @@ export function TaskThread({
               blocked={to.length === 0}
               onSend={(text) => {
                 stick.current = true;
-                return send.mutateAsync({ to, text, taskKey: task.key }).then(() => undefined);
+                return sendConfirmed({
+                  to,
+                  text,
+                  taskKey: task.key,
+                  ...(uploads.items.length
+                    ? {
+                        attachmentIds: uploads.items.flatMap((item) =>
+                          item.attachment ? [item.attachment.id] : [],
+                        ),
+                      }
+                    : {}),
+                }).then(() => undefined);
               }}
             />
+            {cardBusyDialog}
           </div>
         </div>
       ) : (
@@ -521,10 +591,16 @@ function RecipientGroup({
   );
 }
 
+/** Who wrote a message: a connected Claude's step names its holder (decision 66); the old integrator rows stay as they were. */
+function senderOf(message: TeamMessage, members: MemberIndex, myHandle: string | null): string {
+  if (hasConnectedOrigin(message.actor)) return actorLabel(message.actor, members, myHandle);
+  return message.via ? t('involvement.integratorFull') : nameOf(message.from, members, myHandle);
+}
+
 /** "Név → Név, Név": who wrote it and to whom. */
 function routeOf(message: TeamMessage, members: MemberIndex, myHandle: string | null): string {
   return t('messages.fromTo', {
-    from: message.via ? t('involvement.integratorFull') : nameOf(message.from, members, myHandle),
+    from: senderOf(message, members, myHandle),
     to: joinNames(namesOf(message.to, members, myHandle)),
   });
 }
@@ -581,9 +657,12 @@ function MessageBubble({
           <span className={styles.route}>{routeOf(message, members, myHandle)}</span>
         ) : null}
         <div className={styles.bubble}>
-          <Markdown text={message.body} />
+          {message.email ? <EmailMessageHead email={message.email} /> : null}
+          {message.body.trim() ? <Markdown text={message.body} /> : null}
+          <MessageAttachments files={message.attachments ?? []} from={message.from} />
         </div>
         <div className={styles.meta}>
+          {message.relayed ? <span>{t('pm.relayed')}</span> : null}
           <time dateTime={message.createdAt}>{formatTime(message.createdAt)}</time>
           {unread ? <span className={styles.unreadMark}>{t('messages.thread.unread')}</span> : null}
           {mine || (system && canSeeAll) ? (
@@ -652,7 +731,7 @@ function QuestionAndAnswer({
           : message.from === myHandle
             ? t('task.thread.youAnswered', { answer: answer.answer })
             : t('task.thread.answered', {
-                name: message.via ? t('involvement.integratorFull') : nameOf(message.from, members, myHandle),
+                name: senderOf(message, members, myHandle),
                 answer: answer.answer,
               })}
       </p>

@@ -3,8 +3,8 @@ import type { AgentProvider, ProjectConfig } from '@projectman/shared';
 import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush, planUsage } from './helpers/fakes';
-import { ScheduleService } from '../src/domain/schedules';
-import type { ScheduleTimer } from '../src/domain/schedules';
+import { ScheduleService } from '../src/services/schedules';
+import type { ScheduleTimer } from '../src/services/schedules';
 
 const prompt = 'Inspect the fictional project and report maintenance opportunities.';
 function scheduled(config: ProjectConfig) {

@@ -10,7 +10,6 @@ import {
   parsePsList,
   parseSwapUsage,
   parseVmStat,
-  shortName,
 } from './parse';
 
 const MAC_PS = `    1     0     0  13520   0.0   1:09.31 Thu Sep 25 08:01:02 2026 /sbin/launchd
@@ -58,6 +57,7 @@ describe('parsePsList', () => {
     expect(records[1]).toEqual({
       pid: 412,
       ppid: 1,
+      pgid: null,
       uid: 501,
       rssBytes: 120304 * 1024,
       cpuSeconds: 12 * 60 + 34.56,
@@ -205,53 +205,5 @@ SwapFree:        2000000 kB
 
   it('leaves a missing line null', () => {
     expect(parseMeminfo('MemTotal: 100 kB\n')).toMatchObject({ totalBytes: 102400, availableBytes: null });
-  });
-});
-
-describe('shortName', () => {
-  it('takes the last part of the program', () => {
-    expect(shortName('/usr/bin/sleep 600')).toBe('sleep');
-    expect(shortName('/sbin/launchd')).toBe('launchd');
-    expect(shortName('-zsh')).toBe('zsh');
-    expect(shortName('')).toBe('');
-  });
-
-  it('names an interpreter by its first argument that is no flag', () => {
-    expect(shortName('node /srv/app/server.js --port 1')).toBe('server');
-    expect(shortName('/opt/homebrew/bin/node --enable-source-maps /srv/run.mjs')).toBe('run');
-    expect(shortName('python3 -m pytest -q')).toBe('pytest');
-    expect(shortName('python3.12 tool.py')).toBe('tool.py');
-    expect(shortName('bash ./scripts/deploy.sh')).toBe('deploy.sh');
-    expect(shortName('node')).toBe('node');
-    expect(shortName('/bin/sh -c echo hi')).toBe('echo');
-  });
-
-  it('names a package run from node_modules by the package', () => {
-    expect(shortName('node /x/node_modules/vitest/vitest.mjs run')).toBe('vitest');
-    expect(shortName('node /x/node_modules/vitest/dist/workers/forks.js')).toBe('vitest');
-    expect(shortName('node /x/node_modules/vite/bin/vite.js --port 5173')).toBe('vite');
-    expect(shortName('node /x/node_modules/typescript/bin/tsc --noEmit')).toBe('tsc');
-    expect(shortName('node /x/node_modules/playwright/cli.js test')).toBe('playwright');
-    expect(shortName('node /x/node_modules/.bin/vite')).toBe('vite');
-    expect(shortName('node /x/node_modules/@esbuild/darwin-arm64/bin/esbuild --service')).toBe('esbuild');
-  });
-
-  it('skips the run word of a package runner', () => {
-    expect(shortName('npm run dev')).toBe('dev');
-    expect(shortName('npm test')).toBe('test');
-    expect(shortName('npx vitest')).toBe('vitest');
-  });
-
-  it('keeps the spaces of a macOS application and drops its role in brackets', () => {
-    expect(shortName('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome')).toBe('Google Chrome');
-    expect(
-      shortName(
-        '/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/129/Helpers/Google Chrome Helper (Renderer).app/Contents/MacOS/Google Chrome Helper (Renderer) --type=renderer --lang=en-US',
-      ),
-    ).toBe('Google Chrome Helper');
-  });
-
-  it('is at most 40 characters', () => {
-    expect(shortName(`/usr/bin/${'x'.repeat(80)}`)).toHaveLength(40);
   });
 });

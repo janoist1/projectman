@@ -25,10 +25,43 @@ import { appendUnique, applyServerEvent, upsertBy, writeTaskDetail } from './cac
 import { queryKeys } from './queryKeys';
 
 const KEY = 'AC';
+it('refreshes grant state and audit after an owner changes machine access', () => {
+  const client = new QueryClient();
+  client.setQueryData(queryKeys.operatorGrant, {});
+  client.setQueryData(queryKeys.operatorGrantAudit, {});
+  applyServerEvent(client, { type: 'operator_grant_changed' });
+  expect(client.getQueryState(queryKeys.operatorGrant)?.isInvalidated).toBe(true);
+  expect(client.getQueryState(queryKeys.operatorGrantAudit)?.isInvalidated).toBe(true);
+});
+it('refreshes super DTOs when their timeline changes without executing an operation', () => {
+  const client = new QueryClient();
+  const keys = [
+    ['project', KEY, 'super-audit'],
+    ['project', KEY, 'super-handoffs'],
+    ['project', KEY, 'super-operation', 'op'],
+  ];
+  for (const queryKey of keys) client.setQueryData(queryKey, { fixture: true });
+  applyServerEvent(client, {
+    type: 'timeline_appended',
+    projectKey: KEY,
+    event: {
+      id: 'changed',
+      projectKey: KEY,
+      taskKey: null,
+      sessionId: null,
+      actor: { kind: 'ai', handle: 'operator' },
+      type: 'super_handoff_changed',
+      data: { handoffId: 'h', state: 'pending' },
+      createdAt: new Date().toISOString(),
+    },
+  });
+  expect(keys.every((queryKey) => client.getQueryState(queryKey)?.isInvalidated)).toBe(true);
+});
 
 function seed(): QueryClient {
   const client = new QueryClient();
   const board: BoardView = {
+    aiEnabled: true,
     project: projectSummary,
     columns: [],
     stages: [],
@@ -110,7 +143,12 @@ describe('applyServerEvent', () => {
 
   it("keeps the inbox and the board's count of the viewer's open items in sync", () => {
     const client = seed();
-    client.setQueryData<Me>(queryKeys.me, { ...mockUser, handles: { [KEY]: 'owner' }, projects: [] });
+    client.setQueryData<Me>(queryKeys.me, {
+      ...mockUser,
+      instanceOwner: true,
+      handles: { [KEY]: 'owner' },
+      projects: [],
+    });
     const item = { ...inbox.find((entry) => entry.id === 'inb_perm_push')!, state: 'resolved' as const };
     applyServerEvent(client, { type: 'inbox_upserted', projectKey: KEY, item });
     const items = client.getQueryData<InboxView>(queryKeys.inbox(KEY))!.items;
@@ -249,6 +287,21 @@ describe('applyServerEvent', () => {
   });
 });
 
+describe('the Operator queue events', () => {
+  it('reads the queue, the corner and the grant again when the queue or the grant changes', () => {
+    const client = new QueryClient();
+    const keys = [
+      queryKeys.projectManager(KEY),
+      queryKeys.operatorQueue(KEY, 'pm', '2026-10-22T00:00:00.000Z'),
+      queryKeys.operatorGrant,
+    ];
+    keys.forEach((key) => client.setQueryData(key, {}));
+    applyServerEvent(client, { type: 'member_queue_changed', projectKey: KEY, member: 'operator' });
+    applyServerEvent(client, { type: 'operator_grant_changed' });
+    keys.forEach((key) => expect(client.getQueryState(key)!.isInvalidated).toBe(true));
+  });
+});
+
 describe('contract follow-up events', () => {
   it('keeps provider usage separate and preserves the legacy Claude value', () => {
     const client = seed();
@@ -313,24 +366,6 @@ describe('contract follow-up events', () => {
 
   it('keeps the attachment list of a task apart from the task detail queries', () => {
     expect(queryKeys.attachments(KEY, 'AC-21').slice(0, 3)).not.toEqual(queryKeys.taskDetails(KEY));
-  });
-
-  it('reads the attachment list again when the visibility of its task changes, and only then', () => {
-    const client = seed();
-    client.setQueryData(queryKeys.attachments(KEY, 'AC-21'), { attachments: [] });
-    const task = tasks.find((entry) => entry.key === 'AC-21')!;
-    applyServerEvent(client, {
-      type: 'task_upserted',
-      projectKey: KEY,
-      task: { ...task, title: 'New title' },
-    });
-    expect(client.getQueryState(queryKeys.attachments(KEY, 'AC-21'))!.isInvalidated).toBe(false);
-    applyServerEvent(client, {
-      type: 'task_upserted',
-      projectKey: KEY,
-      task: { ...task, visibility: task.visibility === 'shared' ? 'internal' : 'shared' },
-    });
-    expect(client.getQueryState(queryKeys.attachments(KEY, 'AC-21'))!.isInvalidated).toBe(true);
   });
 
   it('refreshes PR details when a linked task is published', () => {

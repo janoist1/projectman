@@ -1,7 +1,15 @@
 import { constants } from 'node:os';
-import { describe, expect, it } from 'vitest';
+import { randomUUID } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { describe, expect, it, vi } from 'vitest';
 import { pipeSpawn } from './pipe-spawn';
-import type { PtyProcess } from './session';
+import { AgentSession, type PtyProcess } from './session';
+import type { RunnerEvent, StartSessionSpec } from '../contracts';
+import { createClaudeAdapter } from './providers/claude';
+import { fixtureScopeProcesses, silentLogger, tempDirs, waitFor, FAKE_CLAUDE } from './test-helpers';
+import { createProcessScopeDriver } from './process-scope';
 
 const NODE = process.execPath;
 const options = {
@@ -26,6 +34,202 @@ function run(script: string) {
 }
 
 describe('pipeSpawn', () => {
+  it.each([false, true])(
+    'stops and immediately restarts a pipe generation with saved conversation=%s',
+    async (saved) => {
+      const dirs = tempDirs();
+      const directory = await dirs.make('scope-resume-');
+      const transcripts = await dirs.make('transcripts-');
+      const spec: StartSessionSpec = {
+        sessionId: 'ses_pipe_resume',
+        claudeSessionId: randomUUID(),
+        resume: false,
+        cwd: directory,
+        displayName: 'Test',
+        appendSystemPrompt: '',
+        mcpUrl: 'http://unused.invalid',
+        allowedTools: [],
+      };
+      const driver = createProcessScopeDriver({
+        config: { kind: 'process_group' },
+        uid: process.getuid?.() ?? null,
+        instanceTag: 'pipe-resume',
+        logger: silentLogger(),
+        processes: fixtureScopeProcesses(directory),
+      });
+      const events: RunnerEvent[] = [];
+      const sessions: AgentSession[] = [];
+      const launch = async (resume: boolean) => {
+        let output = '';
+        let proc!: PtyProcess;
+        const session = new AgentSession({
+          spec: { ...spec, resume },
+          hookToken: randomUUID(),
+          adapter: createClaudeAdapter({ bin: FAKE_CLAUDE, logger: silentLogger() }),
+          deps: {
+            logger: silentLogger(),
+            broker: { decide: async () => ({ behavior: 'deny' }) },
+            permissionTimeoutMs: 1000,
+            processScopes: driver,
+            emit: (event) => events.push(event),
+            onExited: () => {},
+            spawnPty: (file, args, opts) => {
+              proc = pipeSpawn(file, args, opts);
+              proc.onData((data) => {
+                output += data;
+              });
+              return proc;
+            },
+          },
+        });
+        sessions.push(session);
+        await session.spawn(NODE, [FAKE_CLAUDE, resume ? '--resume' : '--session-id', spec.claudeSessionId], {
+          ...options.env,
+          PROJECTMAN_SESSION_ID: spec.sessionId,
+          PROJECTMAN_INSTANCE: 'pipe-resume',
+          FAKE_SCOPE_RECORDS_DIR: directory,
+          FAKE_CLAUDE_TRANSCRIPT_DIR: transcripts,
+          FAKE_CLAUDE_CONFIG_FILE: '',
+          FAKE_CLAUDE_ARGS_FILE: '',
+        });
+        await waitFor(() => output.includes('> '));
+        return { session, proc, output: () => output };
+      };
+      try {
+        const first = await launch(false);
+        await first.session.handleHook({ hook_event_name: 'SessionStart' }, new AbortController().signal);
+        if (saved) {
+          first.proc.write('before pause\r');
+          await waitFor(() => first.output().includes('Echo: before pause'));
+        }
+        expect(
+          await readFile(path.join(transcripts, `${spec.claudeSessionId}.jsonl`), 'utf8').then(
+            () => true,
+            () => false,
+          ),
+        ).toBe(saved);
+        // A pause holds the session; the process and its scope stay until the stop.
+        await expect(first.session.pause()).resolves.toEqual({ point: 'idle', tool: null });
+        expect(() => process.kill(first.proc.pid, 0)).not.toThrow();
+        expect(first.session.release()).toBe(true);
+        await first.session.stop(false);
+        expect(events.find((e) => e.type === 'exit')).toMatchObject({ cleanup: { outcome: 'clean' } });
+        expect(() => process.kill(first.proc.pid, 0)).toThrow();
+        const second = await launch(saved);
+        expect(second.session.info().scopeId).not.toBe(first.session.info().scopeId);
+        expect(second.proc.pid).not.toBe(first.proc.pid);
+        expect(
+          await driver.closeScopes([{ sessionId: spec.sessionId, scopeId: first.session.info().scopeId! }]),
+        ).toMatchObject([{ cleanup: { outcome: 'clean' } }]);
+        const sent = second.session.send('Carry on.');
+        await second.session.handleHook(
+          { hook_event_name: 'SessionStart', source: saved ? 'resume' : 'startup' },
+          new AbortController().signal,
+        );
+        await waitFor(() => second.output().includes('Echo: Carry on.'));
+        await second.session.handleHook(
+          { hook_event_name: 'UserPromptSubmit', prompt: 'Carry on.' },
+          new AbortController().signal,
+        );
+        await sent;
+        expect(() => process.kill(second.proc.pid, 0)).not.toThrow();
+      } finally {
+        await Promise.all(sessions.map((session) => session.stop(true)));
+        sessions.forEach((session) => session.dispose());
+        await dirs.cleanup();
+      }
+    },
+    15_000,
+  );
+  it('closes the fake lifecycle fixture and its marked detached TERM-resistant child without ps', async () => {
+    const dirs = tempDirs();
+    const directory = await dirs.make('scope-smoke-');
+    const childFile = path.join(directory, 'child-info');
+    const driver = createProcessScopeDriver({
+      config: { kind: 'process_group' },
+      uid: process.getuid?.() ?? null,
+      logger: silentLogger(),
+      processes: fixtureScopeProcesses(directory),
+    });
+    const scope = await driver.open('ses_pipe_smoke');
+    const fixture = pathToFileURL(path.join(path.dirname(FAKE_CLAUDE), 'fake-tui.mjs')).href;
+    const command = scope.launch({
+      file: NODE,
+      args: [
+        '-e',
+        `import(${JSON.stringify(fixture)}).then(({ exitOnSignals }) => {
+        exitOnSignals({ sessionEnd: async () => {}, restore: '' });
+        process.stdout.write('ready'); setInterval(() => {}, 1000);
+      });`,
+      ],
+      env: {
+        ...options.env,
+        PROJECTMAN_SESSION_ID: 'ses_pipe_smoke',
+        FAKE_SCOPE_RECORDS_DIR: directory,
+        FAKE_SCOPE_CHILD_FILE: childFile,
+      },
+    });
+    const proc = pipeSpawn(command.file, command.args, { ...options, env: command.env });
+    scope.attached(proc.pid);
+    let child: { pid: number; scopeId: string } | undefined;
+    try {
+      await vi.waitFor(
+        async () => {
+          child = await readFile(childFile, 'utf8').then(
+            (text) => JSON.parse(text),
+            () => undefined,
+          );
+          expect(child?.scopeId).toBe(scope.scopeId);
+        },
+        { timeout: 5000 },
+      );
+      expect(await scope.close('stop', { force: false })).toMatchObject({ outcome: 'clean', killed: true });
+      expect(() => process.kill(child!.pid, 0)).toThrow();
+    } finally {
+      proc.kill('SIGKILL');
+      if (child) {
+        try {
+          process.kill(child.pid, 'SIGKILL');
+        } catch {
+          /* already gone */
+        }
+      }
+      await dirs.cleanup();
+    }
+  }, 15_000);
+  it('reports the CLI exit even when a detached child still holds its output pipes open', async () => {
+    const { proc, output, exited } = run(
+      "const child = require('node:child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { detached: true, stdio: ['ignore', 'inherit', 'inherit'] }); process.stdout.write(String(child.pid)); child.unref(); process.exit(0);",
+    );
+    const finished = exited();
+    let pid: number | undefined;
+    try {
+      pid = await waitFor(() => (/^\d+$/.test(output()) ? Number(output()) : undefined));
+      expect(
+        await Promise.race([finished, new Promise((resolve) => setTimeout(() => resolve('blocked'), 500))]),
+      ).toMatchObject({ exitCode: 0 });
+      expect(proc.pid).not.toBe(pid);
+    } finally {
+      if (pid) {
+        try {
+          process.kill(pid, 'SIGKILL');
+        } catch {
+          /* already gone */
+        }
+      }
+    }
+  });
+  it('starts the pipe process as its own group leader', async () => {
+    const { proc, output, exited } = run("process.stdout.write('ready'); setInterval(() => {}, 1000);");
+    const finished = exited();
+    try {
+      await waitFor(() => output().includes('ready'));
+      expect(() => process.kill(-proc.pid, 0)).not.toThrow();
+    } finally {
+      proc.kill('SIGKILL');
+      await finished;
+    }
+  });
   it('returns what is written to the standard input, and the standard error too', async () => {
     const { proc, output, exited } = run(
       "process.stdin.setEncoding('utf8'); process.stdin.on('data', (d) => { process.stdout.write('out:' + d); process.stderr.write('err:' + d); process.exit(0); });",

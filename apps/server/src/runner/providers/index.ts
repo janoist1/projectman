@@ -22,6 +22,7 @@ export function createProviderAdapters(opts: RunnerModuleOptions): ProviderAdapt
         opts.nanogptCodexHome ??
         path.join(path.dirname(opts.codexHome ?? defaultCodexHome(env)), 'projectman-nanogpt-codex-home'),
       nanogptKey: opts.nanogptKey ?? (async () => null),
+      keyInCloud: opts.nanogptKeyInCloud ?? false,
       ambientConfig: opts.ambientConfig,
       logger: opts.logger,
     }),
@@ -34,8 +35,7 @@ export function createProviderAdapters(opts: RunnerModuleOptions): ProviderAdapt
       bin: opts.claudeBin,
       logger: opts.logger,
       claudeConfigPath: opts.claudeConfigPath,
-      // Through the launcher, trust goes into the worker's own config (the runner asks for it).
-      trustWorkspaces: opts.launcher ? false : opts.trustWorkspaces,
+      trustWorkspaces: opts.trustWorkspaces,
       env,
     }),
     codex: createCodexAdapter({

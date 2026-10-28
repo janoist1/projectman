@@ -1,10 +1,16 @@
 import { z } from 'zod';
 import { dutyMembers } from '../config/duties';
+import { evaluateStart, stageIndex } from '../config/gates';
 import { ownerHandles } from '../config/lookup';
+import { developmentStage } from '../config/refinement';
 import type { ProjectConfig } from '../config/schema';
+import { startBlock } from '../config/start-block';
+import { compareBoardOrder } from './board-order';
 import { Actor } from './event';
-import { isOpenTask, isTheme, TaskKey } from './task';
+import { openPrerequisites } from './relations';
+import { canAutomaticallyStartTask, isOpenTask, isTheme, TaskKey } from './task';
 import type { Task } from './task';
+import type { Stage } from './pipeline';
 
 /**
  * The project's focus (PM-427): one ordered list per project of themes and cards the team works on now.
@@ -84,4 +90,96 @@ export function projectFocusPlaces(
     }
   });
   return places;
+}
+
+/**
+ * How a start of a card ranks among the waiting ones (PM-427): `urgent` first, then the cards the focus
+ * covers by their place, then `other`.
+ */
+export type StartClass = { kind: 'urgent' } | { kind: 'focus'; position: number } | { kind: 'other' };
+
+/**
+ * The class of a start: `urgent` for an open card whose priority is urgent, `focus` for one with a place
+ * in `places`, else `other`. A start with no card (`null`) is `other`.
+ */
+export function startClass(task: Task | null, places: ReadonlyMap<string, FocusPlace>): StartClass {
+  if (!task || !isOpenTask(task)) return { kind: 'other' };
+  if (task.priority === 'urgent') return { kind: 'urgent' };
+  const place = places.get(task.key);
+  return place ? { kind: 'focus', position: place.position } : { kind: 'other' };
+}
+
+const CLASS_RANK = { urgent: 0, focus: 1, other: 2 } as const;
+
+/** Urgent before focus (the smaller place first) before other; 0 within the same class. */
+export function compareStartClass(a: StartClass, b: StartClass): number {
+  const byKind = CLASS_RANK[a.kind] - CLASS_RANK[b.kind];
+  if (byKind !== 0) return byKind;
+  return a.kind === 'focus' && b.kind === 'focus' ? a.position - b.position : 0;
+}
+
+/**
+ * The stage cards are pulled from (PM-427): the step before the development stage, when it is a queue;
+ * null when there is none, so nothing is pulled.
+ */
+export function pullSourceStage(config: Pick<ProjectConfig, 'pipeline'>): Stage | null {
+  const development = developmentStage(config);
+  if (!development) return null;
+  const index = stageIndex(config.pipeline, development.id);
+  const source = index > 0 ? config.pipeline.stages[index - 1] : undefined;
+  return source?.kind === 'queue' ? source : null;
+}
+
+/**
+ * The cards that may be pulled into development, in order: the urgent ones in board order, then the
+ * focus cards by place (the board order within one place). A card is a candidate when it is an active card
+ * (not a theme or a collector with subtasks) in the source stage with no assignee and no open
+ * prerequisite, its start is not blocked (`startBlock`: not being refined, no holding label, no approval pending) and the gates on the way
+ * ask for nothing more: no missing label and no approval to request.
+ */
+export function pullCandidates(input: {
+  config: ProjectConfig;
+  tasks: readonly Task[];
+  places: ReadonlyMap<string, FocusPlace>;
+}): Task[] {
+  const { config, tasks, places } = input;
+  const source = pullSourceStage(config);
+  const development = developmentStage(config);
+  if (!source || !development) return [];
+  const ranked = (task: Task) => ({ key: task.key, rank: task.boardRank, updatedAt: task.updatedAt });
+  const candidates: { task: Task; class: StartClass }[] = [];
+  for (const task of startableCards({ config, tasks, fromStageId: source.id, toStageId: development.id })) {
+    const cls = startClass(task, places);
+    if (cls.kind !== 'other') candidates.push({ task, class: cls });
+  }
+  return candidates
+    .sort((a, b) => compareStartClass(a.class, b.class) || compareBoardOrder(ranked(a.task), ranked(b.task)))
+    .map((candidate) => candidate.task);
+}
+
+/** The cards of a queue stage a developer could start into the given work stage now (PM-665),
+ * in the order of `tasks`: the rules of `pullCandidates` without its urgent or focus condition.
+ * A card that already has an assignee is left out unless `assigned` is set (PM-879): its assignee keeps it
+ * and a `start_task` moves it into the work stage, which a plain move does not do. */
+export function startableCards(input: {
+  config: ProjectConfig;
+  tasks: readonly Task[];
+  fromStageId: string;
+  toStageId: string;
+  assigned?: boolean;
+}): Task[] {
+  const { config, tasks, fromStageId, toStageId, assigned } = input;
+  return tasks.filter((task) => {
+    if (
+      !canAutomaticallyStartTask(task, tasks) ||
+      task.status !== 'active' ||
+      task.stageId !== fromStageId ||
+      (task.assignee && !assigned)
+    )
+      return false;
+    if (openPrerequisites(task, tasks).length > 0) return false;
+    if (startBlock(task, config) !== null) return false;
+    const evaluation = evaluateStart(task, config, toStageId);
+    return evaluation.unmet.length === 0 && evaluation.approvals.length === 0;
+  });
 }

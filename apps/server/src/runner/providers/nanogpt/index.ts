@@ -4,12 +4,20 @@ import { z } from 'zod';
 import { cliVersionAtLeast, NANOGPT_MIN_CODEX_VERSION } from '@projectman/shared';
 import type { PlanUsage } from '@projectman/shared';
 import type { FastifyBaseLogger } from 'fastify';
+import { PROVIDER_MCP_IMAGE_RESULTS } from '../../../contracts';
 import type { AmbientConfigLocations, ProviderStatus } from '../../../contracts';
 import { resolveCommand, runQuietly } from '../../cli';
-import { inspectCodexMcpServers, inspectAmbientConfig } from '../../managed-vm';
+import { inspectCodexMcpServers, inspectAmbientConfig } from '../../ambient-config';
 import { createCodexAdapter } from '../codex';
 import { CodexTranscriptParser } from '../codex/transcript';
-import { buildCodexArgs, codexCliReadRoot, codexDeniedPaths, NANOGPT_CODEX_PROVIDER } from '../codex/args';
+import {
+  buildCodexArgs,
+  codexCliReadRoot,
+  codexCliDenials,
+  validateCodexReadBoundary,
+  NANOGPT_CODEX_PROVIDER,
+} from '../codex/args';
+import { writeHookConfig } from '../../session-config';
 import type { ProviderAdapter } from '../types';
 
 const SubscriptionUsage = z.object({
@@ -34,6 +42,8 @@ export function createNanogptAdapter(opts: {
   bin: string;
   codexHome: string;
   nanogptKey: () => Promise<string | null>;
+  /** The cloud holds the key and reports its presence itself (PM-736): the login check never asks for it. */
+  keyInCloud?: boolean;
   logger: FastifyBaseLogger;
   ambientConfig?: AmbientConfigLocations;
   fetch?: typeof fetch;
@@ -67,6 +77,7 @@ export function createNanogptAdapter(opts: {
     ...codex,
     provider: 'nanogpt',
     label: 'NanoGPT',
+    capabilities: { ...codex.capabilities, mcpImageResults: PROVIDER_MCP_IMAGE_RESULTS.nanogpt },
     createTranscriptParser: (parserOpts) =>
       new CodexTranscriptParser({ ...parserOpts, detectRateLimit: true }),
     planUsage: {
@@ -112,13 +123,20 @@ export function createNanogptAdapter(opts: {
       );
       if (!status.loggedIn) return status;
       if (await hasAuth()) return { ...status, loggedIn: false, method: 'chatgpt', problem: 'chatgpt_login' };
-      if (!(await opts.nanogptKey())) return { ...status, loggedIn: false, problem: 'no_key' };
+      if (!opts.keyInCloud && !(await opts.nanogptKey()))
+        return { ...status, loggedIn: false, problem: 'no_key' };
       return status;
     },
     async launch(input) {
+      const boundaryProblem = validateCodexReadBoundary({ spec: input.spec, codexHome: opts.codexHome });
+      if (boundaryProblem)
+        throw new NanogptStartError('nanogpt_setup_incomplete', {
+          problem: 'read_boundary',
+          reason: boundaryProblem,
+        });
       if (
         input.cliPath &&
-        codexCliReadRoot(input.cliPath, codexDeniedPaths({ spec: input.spec, codexHome: opts.codexHome }))
+        codexCliReadRoot(input.cliPath, codexCliDenials({ spec: input.spec, codexHome: opts.codexHome }))
           .kind === 'misplaced'
       )
         throw new NanogptStartError('nanogpt_setup_incomplete', {
@@ -127,8 +145,6 @@ export function createNanogptAdapter(opts: {
         });
       if (input.spec.permissionMode === 'bypassPermissions')
         throw new NanogptStartError('nanogpt_setup_incomplete');
-      if (input.spec.policy?.execution?.profile === 'managed_vm')
-        throw new NanogptStartError('provider_unsupported', { profile: 'managed_vm' });
       if (await hasAuth())
         throw new NanogptStartError('nanogpt_setup_incomplete', { problem: 'chatgpt_login' });
       const realCwd = await realpath(input.spec.cwd).catch(() => input.spec.cwd);
@@ -152,7 +168,10 @@ export function createNanogptAdapter(opts: {
       await mkdir(opts.codexHome, { recursive: true, mode: 0o700 });
       await chmod(opts.codexHome, 0o700);
       const command = buildCodexArgs({
-        ...input,
+        cliPath: input.cliPath,
+        spec: input.spec,
+        hookConfigPath: await writeHookConfig(input.sessionConfigDir, input.hookUrl),
+        permissionTimeoutMs: input.permissionTimeoutMs,
         realCwd,
         codexHome: opts.codexHome,
         provider: NANOGPT_CODEX_PROVIDER,

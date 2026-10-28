@@ -10,18 +10,23 @@ import { PriorityMark } from '../../components/PriorityMark';
 import { StageProgress } from '../../components/StageProgress';
 import { formatAge, formatDuration } from '../../i18n/format';
 import { t } from '../../i18n/t';
-import { seniorMarkLabel, showsSeniorMark } from '../../lib/developerLevel';
 import { handoffMsLeft, handoffPair } from '../../lib/handoff';
 import { useNow } from '../../lib/useNow';
 import { loopSummary } from '../../lib/loop';
 import { nameOf } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
 import type { PipelineIndex } from '../../lib/pipeline';
-import { cardWorkerRows, prerequisiteLabel } from '../../lib/taskState';
+import {
+  cardWorkerRows,
+  prerequisiteAriaLabel,
+  prerequisiteLabel,
+  prerequisiteTitle,
+} from '../../lib/taskState';
 import type { TaskState } from '../../lib/taskState';
 import { prChip, stageRows } from './cardModel';
 import { LabelChip } from '../../components/LabelChip';
 import { FocusMark } from '../focus/FocusMark';
+import { NextLine } from './NextLine';
 import styles from './TaskCard.module.css';
 
 interface TaskCardProps {
@@ -139,7 +144,6 @@ export function TaskCard({
   // Said by the status line already when the card stands on it: never twice on one card.
   const prerequisite = state.prerequisite?.key && !state.prerequisite.inLabel ? state.prerequisite : null;
   const workerRows = cardWorkerRows(state);
-  const seniorMark = showsSeniorMark(task, pipeline);
   return (
     <Link
       to={to}
@@ -155,6 +159,7 @@ export function TaskCard({
       aria-describedby={reorderHelpId}
       aria-keyshortcuts={reorderHelpId ? 'Alt+ArrowUp Alt+ArrowDown' : undefined}
       data-phase={state.phase}
+      data-startable={state.startable ? '' : undefined}
       data-file={fileState ?? undefined}
     >
       {coverSrc ? <CardCover key={coverSrc} src={coverSrc} thumbnail={compact} /> : null}
@@ -166,6 +171,17 @@ export function TaskCard({
             <PriorityMark priority={task.priority} />
             <span className="visually-hidden">
               {t('priority.markLabel', { level: t(`priority.levels.${task.priority}`) })}
+            </span>
+          </span>
+        ) : null}
+        {task.complexity ? (
+          <span
+            className={styles.points}
+            title={t('task.complexity.mark', { points: task.complexity.points })}
+          >
+            <span aria-hidden="true">{task.complexity.points}</span>
+            <span className="visually-hidden">
+              {t('task.complexity.mark', { points: task.complexity.points })}
             </span>
           </span>
         ) : null}
@@ -188,18 +204,9 @@ export function TaskCard({
       <span className={styles.titleRow}>
         <span className={styles.title}>{task.title}</span>
       </span>
-      {task.parentKey || subtasks.length || prerequisite || task.loop || task.handoff || seniorMark ? (
+      {task.parentKey || subtasks.length || prerequisite || task.loop || task.handoff ? (
         <span className={styles.meta}>
           {task.handoff ? <HandoffMark handoff={task.handoff} members={members} myHandle={myHandle} /> : null}
-          {seniorMark ? (
-            <span
-              className={clsx(styles.label, styles.senior)}
-              title={seniorMarkLabel(task)}
-              aria-label={seniorMarkLabel(task)}
-            >
-              {t('task.level.mark')}
-            </span>
-          ) : null}
           {task.loop ? (
             <span
               className={clsx(styles.label, styles.loop)}
@@ -216,15 +223,8 @@ export function TaskCard({
           {prerequisite ? (
             <span
               className={clsx(styles.label, styles.prerequisite)}
-              title={prerequisite.cards.map((card) => `${card.key} – ${card.title}`).join('\n')}
-              aria-label={
-                prerequisite.more > 0
-                  ? t('taskStatus.prerequisiteOnMoreLabel', {
-                      key: prerequisite.key!,
-                      more: prerequisite.more,
-                    })
-                  : prerequisiteLabel(prerequisite)
-              }
+              title={prerequisiteTitle(prerequisite)}
+              aria-label={prerequisiteAriaLabel(prerequisite)}
             >
               <Icon name="wait" size={12} strokeWidth={2.4} />
               <span>{prerequisiteLabel(prerequisite)}</span>
@@ -280,7 +280,13 @@ export function TaskCard({
         </ul>
       ) : null}
       <span className={clsx(styles.status, workerRows && styles.statusRows)}>
-        <StatusDot phase={state.phase} pulse={state.phase === 'working'} />
+        {state.startable ? (
+          <span className={styles.startMark} aria-hidden="true">
+            <Icon name="play" size={11} strokeWidth={2.4} />
+          </span>
+        ) : (
+          <StatusDot phase={state.phase} pulse={state.phase === 'working'} />
+        )}
         {workerRows ? (
           <span className={styles.workerRows} title={state.workers.map((worker) => worker.line).join('\n')}>
             {workerRows.rows.map((worker, index) => (
@@ -316,15 +322,21 @@ export function TaskCard({
               </span>
             ))}
           </span>
+        ) : state.next ? (
+          <NextLine
+            next={state.next}
+            className={styles.statusText}
+            clamp={state.wait?.reason === 'prerequisite'}
+          />
         ) : (
           <span
-            className={styles.statusText}
+            className={clsx(styles.statusText, state.phase === 'stuck' && styles.statusStuck)}
             title={
               state.workers.length > 0
                 ? state.workers.map((worker) => worker.sentence).join('\n')
                 : state.prerequisite?.inLabel
-                  ? state.prerequisite.cards.map((card) => `${card.key} – ${card.title}`).join('\n')
-                  : undefined
+                  ? prerequisiteTitle(state.prerequisite)
+                  : state.title
             }
           >
             {state.label}

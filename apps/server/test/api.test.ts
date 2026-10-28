@@ -18,7 +18,6 @@ import type {
   Task,
   TaskDetail,
   TeamMessagesView,
-  TemplateSummary,
 } from '@projectman/shared';
 import { hu } from '@projectman/templates';
 import {
@@ -49,6 +48,46 @@ describe('REST API', () => {
     return { status: res.statusCode, body: (res.body ? res.json() : null) as T, res };
   }
 
+  it('accepts complexity through REST and returns the scale error without saving an invalid patch', async () => {
+    const cookie = await setupOwner(h.app);
+    await createProject(h, cookie);
+    const created = await call<Task>('POST', '/api/projects/AR/tasks', cookie, {
+      title: 'Scored',
+      complexity: { points: 5, reason: '  ' },
+    });
+    expect(created.status).toBe(201);
+    expect(created.body.complexity).toMatchObject({ points: 5, reason: null, setBy: 'owner' });
+    const invalid = await call<ApiError>('PATCH', '/api/projects/AR/tasks/AR-1', cookie, {
+      title: 'Invalid',
+      complexity: { points: 4 },
+    });
+    expect(invalid.status).toBe(400);
+    expect(invalid.body.error.code).toBe('complexity_points_invalid');
+    const removed = await call<Task>('PATCH', '/api/projects/AR/tasks/AR-1', cookie, {
+      complexity: { points: null },
+    });
+    expect(removed.status).toBe(200);
+    expect(removed.body).not.toHaveProperty('complexity');
+  });
+
+  it.each(['POST', 'PATCH'] as const)('ignores legacy task visibility in %s requests', async (method) => {
+    const cookie = await setupOwner(h.app);
+    await createProject(h, cookie);
+    if (method === 'PATCH') await call('POST', '/api/projects/AR/tasks', cookie, { title: 'Original' });
+    const url = method === 'POST' ? '/api/projects/AR/tasks' : '/api/projects/AR/tasks/AR-1';
+    const response = await call<Task | TaskDetail>(method, url, cookie, {
+      title: 'Legacy request',
+      visibility: 'internal',
+    });
+    expect(response.status).toBe(method === 'POST' ? 201 : 200);
+    const task = 'task' in response.body ? response.body.task : response.body;
+    expect(task).not.toHaveProperty('visibility');
+    const detail = await call<TaskDetail>('GET', `/api/projects/AR/tasks/${task.key}`, cookie);
+    const updates = detail.body.timeline.filter((event) => event.type === 'task_updated');
+    if (method === 'PATCH') expect(updates).toHaveLength(1);
+    for (const event of updates) expect(event.data?.fields).not.toContain('visibility');
+  });
+
   describe('setup, login and the guard', () => {
     it('rejects cross-origin mutations including login, and sets secure proxy cookies', async () => {
       const cookie = await setupOwner(h.app);
@@ -78,6 +117,42 @@ describe('REST API', () => {
       expect(h.app.projectman.repos.users.list()[0]!.passwordHash).toContain(
         '$argon2id$v=19$m=19456,t=2,p=1$',
       );
+    });
+
+    it.each(['100.64.0.5', '203.0.113.7'])(
+      'rejects a forged HTTPS origin and protocol from the remote peer %s',
+      async (remoteAddress) => {
+        await setupOwner(h.app);
+        const login = await h.app.inject({
+          method: 'POST',
+          url: '/api/auth/login',
+          remoteAddress,
+          headers: {
+            host: 'pm.example',
+            origin: 'https://pm.example',
+            'x-forwarded-proto': 'https',
+          },
+          payload: OWNER_LOGIN,
+        });
+        expect(login.statusCode).toBe(403);
+        expect(login.json<ApiError>().error.code).toBe('invalid_origin');
+        expect(login.headers['set-cookie']).toBeUndefined();
+      },
+    );
+
+    it('allows local HTTP login without setting a Secure cookie', async () => {
+      await setupOwner(h.app);
+      const login = await h.app.inject({
+        method: 'POST',
+        url: '/api/auth/login',
+        remoteAddress: '127.0.0.1',
+        headers: { host: 'localhost', origin: 'http://localhost' },
+        payload: OWNER_LOGIN,
+      });
+      expect(login.statusCode).toBe(200);
+      expect(login.headers['set-cookie']).toEqual(expect.stringContaining('pm_session='));
+      expect(login.headers['set-cookie']).not.toEqual(expect.stringContaining('Secure'));
+      expect((await call('GET', '/api/me', cookieOf(login))).status).toBe(200);
     });
 
     it('bounds concurrent password attempts before hashing', async () => {
@@ -183,17 +258,7 @@ describe('REST API', () => {
       await createProject(h, cookie);
     });
 
-    it('lists templates and projects, and maps the user to a handle', async () => {
-      const templates = await call<TemplateSummary[]>('GET', '/api/templates', cookie);
-      expect(templates.body).toEqual([
-        {
-          id: 'test',
-          nameKey: 'templates.test.name',
-          descriptionKey: 'templates.test.description',
-          memberCount: { human: 1, ai: 4 },
-          stageCount: 6,
-        },
-      ]);
+    it('lists projects, and maps the user to a handle', async () => {
       const projects = await call<ProjectSummary[]>('GET', '/api/projects', cookie);
       expect(projects.body).toEqual([
         {
@@ -204,8 +269,10 @@ describe('REST API', () => {
         },
       ]);
       expect((await call<Me>('GET', '/api/me', cookie)).body.handles).toEqual({ AR: 'owner' });
-      expect((await call<ProjectSummary>('GET', '/api/projects/AR', cookie)).body.key).toBe('AR');
-      expect((await call<ApiError>('GET', '/api/projects/ZZ', cookie)).status).toBe(404);
+      // The unused lookup routes are gone (PM-1030).
+      for (const url of ['/api/templates', '/api/projects/AR']) {
+        expect((await call<ApiError>('GET', url, cookie)).status).toBe(404);
+      }
 
       const duplicate = await call<ApiError>('POST', '/api/projects', cookie, {
         key: 'AR',
@@ -672,25 +739,47 @@ describe('REST API', () => {
       expect(revert.body.error.code).toBe('insufficient_access');
     });
 
-    it('shows client members only what is shared with them', async () => {
+    it('shows client members every card and the team’s news, and lets them change nothing (PM-79)', async () => {
       const clientCookie = await addHumanAndLogin(h.app, {
         handle: 'client',
         name: 'Client',
         access: 'client',
       });
       await call('POST', '/api/projects/AR/tasks', cookie, { title: 'Internal work' });
-      await call('POST', '/api/projects/AR/tasks', cookie, { title: 'Shared work', visibility: 'shared' });
+      await call('POST', '/api/projects/AR/tasks', cookie, { title: 'Shared work' });
 
       const tasks = await call<Task[]>('GET', '/api/projects/AR/tasks', clientCookie);
-      expect(tasks.body.map((t) => t.title)).toEqual(['Shared work']);
+      expect(tasks.body.map((t) => t.title).sort()).toEqual(['Internal work', 'Shared work']);
       const board = await call<BoardView>('GET', '/api/projects/AR/board', clientCookie);
-      expect(board.body.tasks.map((t) => t.key)).toEqual(['AR-2']);
-      expect(board.body.planUsage).toBeNull();
-      expect((await call('GET', '/api/projects/AR/tasks/AR-1', clientCookie)).status).toBe(404);
+      expect(board.body.tasks.map((t) => t.key).sort()).toEqual(['AR-1', 'AR-2']);
+      expect((await call('GET', '/api/projects/AR/tasks/AR-1', clientCookie)).status).toBe(200);
       const shared = await call<TaskDetail>('GET', '/api/projects/AR/tasks/AR-2', clientCookie);
-      expect(shared.body.sessions).toEqual([]);
       expect(shared.body.timeline.map((e) => e.type)).toEqual(['task_created']);
-      expect((await call<ApiError>('GET', '/api/projects/AR/config', clientCookie)).status).toBe(403);
+      // Why a card stands still reaches a client as it reaches the team (PM-460).
+      expect(shared.body.wait?.reason).toBe('ready');
+      const own = await call<TaskDetail>('GET', '/api/projects/AR/tasks/AR-2', cookie);
+      expect(own.body.wait?.reason).toBe('ready');
+      expect(own.body.wait?.toStageId).toEqual(expect.any(String));
+      // The requester is the viewer: an open item assigned to them is their wait (PM-460).
+      h.app.projectman.repos.inbox.insert({
+        id: 'inb_mine',
+        projectKey: 'AR',
+        kind: 'question',
+        assignees: ['owner'],
+        source: 'dev-1',
+        sessionId: null,
+        taskKey: 'AR-2',
+        title: 'Which colour?',
+        body: null,
+        payload: {},
+        options: [],
+        state: 'open',
+        resolution: null,
+        createdAt: '2026-09-30T10:00:00.000Z',
+      });
+      const asked = await call<TaskDetail>('GET', '/api/projects/AR/tasks/AR-2', cookie);
+      expect(asked.body.wait).toMatchObject({ reason: 'inbox', inboxItemId: 'inb_mine' });
+      expect((await call<ApiError>('GET', '/api/projects/AR/config', clientCookie)).status).toBe(200);
       expect((await call('POST', '/api/projects/AR/tasks', clientCookie, { title: 'x' })).status).toBe(403);
     });
   });
@@ -707,6 +796,107 @@ describe('REST API', () => {
       expect((await h.app.inject({ method: 'GET', url: '/' })).statusCode).toBe(200);
       expect((await h.app.inject({ method: 'GET', url: '/api/unknown' })).statusCode).toBe(401);
       expect((await h.app.inject({ method: 'GET', url: '/hooks/unknown' })).statusCode).toBe(404);
+    } finally {
+      rmSync(dist, { recursive: true, force: true });
+    }
+  });
+
+  it('serves the service worker, the manifest and the offline page without a long cache (PM-814)', async () => {
+    await h.close();
+    const dist = mkdtempSync(join(tmpdir(), 'pm-web-'));
+    try {
+      writeFileSync(join(dist, 'index.html'), '<!doctype html><title>projectman</title>');
+      writeFileSync(join(dist, 'sw.js'), '// worker');
+      writeFileSync(join(dist, 'manifest.webmanifest'), '{}');
+      writeFileSync(join(dist, 'offline.html'), '<!doctype html>');
+      h = await createAppHarness({ webDistDir: dist });
+      for (const url of ['/sw.js', '/manifest.webmanifest', '/offline.html']) {
+        const res = await h.app.inject({ method: 'GET', url });
+        expect(res.statusCode).toBe(200);
+        expect(res.headers['cache-control']).toBe('no-cache');
+      }
+      const manifest = await h.app.inject({ method: 'GET', url: '/manifest.webmanifest' });
+      expect(manifest.headers['content-type']).toContain('manifest+json');
+    } finally {
+      rmSync(dist, { recursive: true, force: true });
+    }
+  });
+
+  it('answers 404 JSON, never the web app, to unknown paths under the server namespaces (PM-723)', async () => {
+    await h.close();
+    const dist = mkdtempSync(join(tmpdir(), 'pm-web-'));
+    try {
+      writeFileSync(join(dist, 'index.html'), '<!doctype html><title>projectman</title>');
+      h = await createAppHarness({ webDistDir: dist });
+      const notFound = { error: { code: 'not_found', message: 'route not found' } };
+      for (const url of [
+        '/engine',
+        '/engine/',
+        '/engine/unknown',
+        '/engine/files/uploads/smoke-test',
+        '/engine/files/uploads/smoke-test?x=1',
+        '/engine?x=1',
+      ]) {
+        const get = await h.app.inject({ method: 'GET', url });
+        expect(get.statusCode, url).toBe(404);
+        expect(get.headers['content-type'], url).toContain('application/json');
+        expect(get.json(), url).toEqual(notFound);
+        const head = await h.app.inject({ method: 'HEAD', url });
+        expect(head.statusCode, url).toBe(404);
+        expect(head.headers['content-type'], url).toContain('application/json');
+        expect(head.body, url).toBe('');
+      }
+      const cookie = await setupOwner(h.app);
+      const api = await inject(h.app, 'GET', '/api/unknown', cookie);
+      expect(api.statusCode).toBe(404);
+      for (const url of ['/hooks/unknown/deeper', '/mcp/unknown/deeper']) {
+        const res = await h.app.inject({ method: 'GET', url });
+        expect(res.statusCode, url).toBe(404);
+        expect(res.body, url).not.toContain('<title>');
+      }
+      const anonymous = await h.app.inject({ method: 'GET', url: '/api/unknown' });
+      expect(anonymous.statusCode).toBe(401);
+      expect(anonymous.json()).toEqual({ error: { code: 'unauthorized', message: 'login required' } });
+      for (const url of ['/', '/board/AR', '/engineered']) {
+        const res = await h.app.inject({ method: 'GET', url });
+        expect(res.statusCode, url).toBe(200);
+        expect(res.body, url).toContain('<title>projectman</title>');
+      }
+      const head = await h.app.inject({ method: 'HEAD', url: '/board/AR' });
+      expect(head.statusCode).toBe(200);
+      expect(head.headers['content-type']).toContain('text/html');
+      expect(head.body).toBe('');
+    } finally {
+      rmSync(dist, { recursive: true, force: true });
+    }
+  });
+
+  it('answers 404 to an unknown engine path when the web app is not built (PM-723)', async () => {
+    const res = await h.app.inject({ method: 'GET', url: '/engine/unknown' });
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toEqual({ error: { code: 'not_found', message: 'route not found' } });
+  });
+
+  it('cloud app: the upload GET is 404 and the upload POST is refused without a machine key (PM-723)', async () => {
+    await h.close();
+    const dist = mkdtempSync(join(tmpdir(), 'pm-web-'));
+    try {
+      writeFileSync(join(dist, 'index.html'), '<!doctype html><title>projectman</title>');
+      h = await createAppHarness({
+        webDistDir: dist,
+        app: { engineMode: 'cloud', appVersion: 'test-version', claudeTmpRoots: [] },
+      });
+      const get = await h.app.inject({ method: 'GET', url: '/engine/files/uploads/smoke-test' });
+      expect(get.statusCode).toBe(404);
+      expect(get.body).not.toContain('<title>');
+      const post = await h.app.inject({
+        method: 'POST',
+        url: '/engine/files/uploads/smoke-test',
+        headers: { 'content-type': 'application/octet-stream' },
+        payload: Buffer.alloc(0),
+      });
+      expect(post.statusCode).toBe(401);
+      expect(post.json()).toEqual({ error: { code: 'unauthorized', message: 'Invalid engine key' } });
     } finally {
       rmSync(dist, { recursive: true, force: true });
     }

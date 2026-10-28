@@ -193,6 +193,81 @@ export function evaluateStart(
   return evaluateGates(task, config.pipeline.stages.slice(from, to + 1), config, { forward: true });
 }
 
+/**
+ * What the card does next on its own (PM-445): the next stage, entered because every condition of its
+ * gate holds (`move`), or because only approvals only a person may give are missing (`approve`: the
+ * system asks for them in the inbox).
+ */
+export type StageAdvance =
+  { kind: 'move'; to: Stage } | { kind: 'approve'; to: Stage; approvals: ApprovalRequirement[] };
+
+/**
+ * The rule of a card that goes on by itself (PM-445). Only a card in a `step` or `release` stage does,
+ * because there the result of the stage is a label: the gate of the next stage then says the stage is done.
+ * A `work` stage never goes on by itself (its gate does not say the work is finished: the developer hands
+ * it over), nor does a queue, a card never goes on by itself into a work stage (that starts the work), and a
+ * next stage with no gate has no result to wait for. Null when a
+ * condition other than a human approval is unmet, a blocking label holds the card, or there is no next stage.
+ * Whether somebody works on the card, or it is held in another way, is the caller's to check.
+ */
+export function stageAdvance(
+  task: GateTask & Pick<Task, 'stageId'>,
+  config: GateConfig,
+): StageAdvance | null {
+  const stages = config.pipeline.stages;
+  const from = stages[stageIndex(config.pipeline, task.stageId)];
+  const to = from ? stages[stageIndex(config.pipeline, from.id) + 1] : undefined;
+  if (!from || !to || (from.kind !== 'step' && from.kind !== 'release')) return null;
+  // Entering a work stage starts the work: that is the refinement's and the people's to decide.
+  if (to.kind === 'work') return null;
+  // The result of the stage must be a label this card is to get: a `has_label` condition that binds it.
+  const resultLabel = (to.gate?.conditions ?? []).some(
+    (c) => c.type === 'has_label' && (c.when === undefined || task.labels.includes(c.when)),
+  );
+  if (!resultLabel) return null;
+  const evaluation = evaluateMove(task, config, from.id, to.id);
+  if (evaluation.unmet.length > 0) return null;
+  return evaluation.approvals.length > 0
+    ? { kind: 'approve', to, approvals: evaluation.approvals }
+    : { kind: 'move', to };
+}
+
+/** What ends a member's part of a step stage (PM-809). */
+export interface StepResult {
+  /** Labels of the next stage's gate this card must get and the member may set (the authors are left out where `notByAuthor`). */
+  gate: string[];
+  /** `gate` plus the other labels of their groups (`code-review-changes`, `code-review-blocked`): any of them ends the step. */
+  results: string[];
+}
+
+/**
+ * The result of a member's part of the step stage the card stands in; null when the card is not in a
+ * `step` stage, there is no next stage, or the member sets none of the next gate's labels.
+ */
+export function stepResult(
+  config: GateConfig,
+  task: Pick<Task, 'stageId' | 'labels' | 'assignee' | 'links'>,
+  member: string,
+): StepResult | null {
+  const stages = config.pipeline.stages;
+  const from = stages[stageIndex(config.pipeline, task.stageId)];
+  const to = from ? stages[stageIndex(config.pipeline, from.id) + 1] : undefined;
+  if (!from || !to || from.kind !== 'step') return null;
+  const gate: string[] = [];
+  for (const condition of to.gate?.conditions ?? []) {
+    if (condition.type !== 'has_label' || gate.includes(condition.label)) continue;
+    if (condition.when !== undefined && !task.labels.includes(condition.when)) continue;
+    const label = labelDefinition(config, condition.label);
+    if (label && labelSetters(config, label, task).includes(member)) gate.push(condition.label);
+  }
+  if (gate.length === 0) return null;
+  const groups = new Set(gate.map((id) => labelDefinition(config, id)?.group).filter((g) => g !== undefined));
+  const mates = config.pipeline.labels
+    .filter((label) => label.group !== undefined && groups.has(label.group))
+    .map((label) => label.id);
+  return { gate, results: [...new Set([...gate, ...mates])] };
+}
+
 /** Gates of a move from one stage to another; forward moves also respect blocking labels. */
 export function evaluateMove(
   task: GateTask,

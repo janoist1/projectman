@@ -1,8 +1,11 @@
-import { execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { open, mkdir, readFile, realpath, rename, rm, rmdir, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { Effect } from 'effect';
+import { execCommand } from '../../../exec';
+import { runPromise } from '../../../kernel';
+import { takeConfigLock } from './trust-lock';
 
 /**
  * Pre-accepting Claude Code's workspace trust dialog.
@@ -21,7 +24,7 @@ import path from 'node:path';
  * untouched. No backup files are created.
  */
 
-export type TrustOutcome =
+type TrustOutcome =
   | { result: 'already_trusted'; key: string }
   | { result: 'trusted'; key: string }
   | { result: 'skipped'; key: string | null; reason: string };
@@ -51,19 +54,19 @@ function isRecord(value: unknown): value is Json {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-function git(cwd: string, args: string[]): Promise<string[] | null> {
-  return new Promise((resolve) => {
-    execFile('git', ['-C', cwd, 'rev-parse', ...args], { timeout: 10_000 }, (err, stdout) => {
-      if (err) resolve(null);
-      else
-        resolve(
-          stdout
-            .split('\n')
-            .map((l) => l.trim())
-            .filter(Boolean),
-        );
+async function git(cwd: string, args: string[]): Promise<string[] | null> {
+  try {
+    const { stdout } = await execCommand('git', ['-C', cwd, 'rev-parse', ...args], {
+      env: { ...process.env },
+      timeoutMs: 10_000,
     });
-  });
+    return stdout
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean);
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -122,34 +125,24 @@ async function readConfig(file: string): Promise<Json | null> {
   }
 }
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
 /** Acquires the proper-lockfile style lock of `file`; null when it stays busy. */
 async function acquireLock(file: string): Promise<(() => Promise<void>) | null> {
   const lockPath = `${file}.lock`;
-  const deadline = Date.now() + LOCK_WAIT_MS;
-  for (;;) {
-    try {
-      await mkdir(lockPath);
-      return async () => {
+  const held = await runPromise(
+    takeConfigLock(lockPath, {
+      mkdir,
+      rmdir,
+      stat,
+      staleMs: LOCK_STALE_MS,
+      waitMs: LOCK_WAIT_MS,
+      pauseMs: () => 40 + Math.floor(Math.random() * 40),
+    }).pipe(Effect.catchTag('ConfigLockFailed', (error) => Effect.die(error.cause))),
+  );
+  return held
+    ? async () => {
         await rmdir(lockPath).catch(() => undefined);
-      };
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
-    }
-    try {
-      const { mtimeMs } = await stat(lockPath);
-      if (Date.now() - mtimeMs > LOCK_STALE_MS) {
-        await rmdir(lockPath).catch(() => undefined); // abandoned by a crashed process
-        continue;
       }
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') continue; // released meanwhile
-      throw err;
-    }
-    if (Date.now() >= deadline) return null;
-    await sleep(40 + Math.floor(Math.random() * 40));
-  }
+    : null;
 }
 
 /** Writes through a temporary file in the same directory and renames it over `file`. */

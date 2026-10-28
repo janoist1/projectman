@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import {
+  canSeeOperatorSessions,
   MemberHandle,
   ReadTeamMessagesRequest,
   routes,
@@ -11,11 +12,12 @@ import {
   StopSessionRequest,
 } from '@projectman/shared';
 import type { Session, SessionDetail, TeamMessagesView, TeamThreadsView } from '@projectman/shared';
-import { notFound } from '../domain';
-import type { Domain } from '../domain';
-import { canSeeTask, teamMessageParticipant, visibleSession } from '../domain/visibility';
-import { actorOf, requireAccess } from './context';
-import { parseBody } from './validation';
+import { notFound } from '../kernel';
+import type { ApiDomain } from './ports';
+import { teamMessageParticipant, visibleSession } from '../core/projects';
+import type { Viewer } from '../core/projects';
+import { actorOf, requireAccess, senderOf } from './context';
+import { parseBody } from '../http';
 
 type ProjectParams = { Params: { key: string } };
 type SessionParams = { Params: { key: string; sessionId: string } };
@@ -28,11 +30,21 @@ const MessagesQuery = z.object({
   limit: z.coerce.number().int().min(1).max(500).optional(),
 });
 
-export function registerSessionRoutes(app: FastifyInstance, domain: Domain): void {
+/**
+ * The Operator's sessions and the PM's conversations with others are for the owner and the admin only
+ * (PM-475, PM-1080): to anyone else they do not exist.
+ */
+function assertMaySeeSession(domain: ApiDomain, viewer: Viewer, sessionId: string): void {
+  if (!canSeeOperatorSessions(viewer) && domain.sessions.isRestrictedSession(sessionId))
+    throw notFound('session', sessionId);
+}
+
+export function registerSessionRoutes(app: FastifyInstance, domain: ApiDomain): void {
   /** Session with its chat, parsed from the Claude Code transcript. */
   app.get<SessionParams>(routes.session(':key', ':sessionId'), async (request): Promise<SessionDetail> => {
     const { key, sessionId } = request.params;
-    const access = await requireAccess(domain, request, key, { internal: true });
+    const access = await requireAccess(domain, request, key);
+    assertMaySeeSession(domain, access, sessionId);
     const detail = await domain.sessions.detail(key, sessionId);
     return { ...detail, session: visibleSession(access, detail.session, (id) => domain.messages.get(id)) };
   });
@@ -44,6 +56,7 @@ export function registerSessionRoutes(app: FastifyInstance, domain: Domain): voi
   app.patch<SessionParams>(routes.session(':key', ':sessionId'), async (request): Promise<Session> => {
     const { key, sessionId } = request.params;
     const access = await requireAccess(domain, request, key, { minimum: 'owner' });
+    assertMaySeeSession(domain, access, sessionId);
     const body = parseBody(UpdateSessionRequest, request.body);
     return domain.sessions.updatePermissions(key, sessionId, body, actorOf(access));
   });
@@ -52,12 +65,13 @@ export function registerSessionRoutes(app: FastifyInstance, domain: Domain): voi
   app.post<SessionParams>(routes.sessionMessages(':key', ':sessionId'), async (request, reply) => {
     const { key, sessionId } = request.params;
     const access = await requireAccess(domain, request, key, { minimum: 'developer' });
+    assertMaySeeSession(domain, access, sessionId);
     const body = parseBody(SendMessageRequest, request.body);
-    const message = await domain.messaging.sendToSession(
+    const message = await domain.sessionMessages.sendToSession(
       key,
       sessionId,
       body.text,
-      access.handle,
+      senderOf(access),
       actorOf(access),
     );
     return reply.code(202).send(message);
@@ -66,6 +80,7 @@ export function registerSessionRoutes(app: FastifyInstance, domain: Domain): voi
   app.post<SessionParams>(routes.stopSession(':key', ':sessionId'), async (request): Promise<Session> => {
     const { key, sessionId } = request.params;
     const access = await requireAccess(domain, request, key, { minimum: 'developer' });
+    assertMaySeeSession(domain, access, sessionId);
     const body = parseBody(StopSessionRequest, request.body ?? {});
     const stopped = await domain.sessions.stop(key, sessionId, {
       kind: body.purpose ?? 'manual',
@@ -77,13 +92,18 @@ export function registerSessionRoutes(app: FastifyInstance, domain: Domain): voi
 
   app.post<ProjectParams>(routes.sendTeamMessage(':key'), async (request, reply) => {
     const key = request.params.key;
-    const access = await requireAccess(domain, request, key, { messaging: true });
+    // Who a read-only or contact-restricted member may write to is the messaging service's rule (PM-475, PM-985).
+    const access = await requireAccess(domain, request, key);
     const body = parseBody(SendTeamMessageRequest, request.body);
-    if (body.taskKey && !canSeeTask(access, domain.tasks.get(key, body.taskKey)))
-      throw notFound('task', body.taskKey);
-    return reply
-      .code(202)
-      .send(await domain.messaging.send(key, access.handle, body, { actor: actorOf(access) }));
+    // `attachmentIds` ride along in `body`: the messaging service checks and binds them.
+    if (body.taskKey) domain.tasks.get(key, body.taskKey);
+    return reply.code(202).send(
+      await domain.messaging.send(key, senderOf(access), body, {
+        workerCheck: !body.despiteWorkers,
+        actor: actorOf(access),
+        operatorSignal: body.operatorSignal,
+      }),
+    );
   });
 
   app.post<{ Params: { key: string; id: string } }>(
@@ -123,10 +143,6 @@ export function registerSessionRoutes(app: FastifyInstance, domain: Domain): voi
     const key = request.params.key;
     const access = await requireAccess(domain, request, key);
     const query = parseBody(MessagesQuery, request.query);
-    // A card the viewer may not see has no thread for them (the POST refuses it the same way); an
-    // unknown key stays an empty list, which the free-text "all messages" filter relies on.
-    const task = query.taskKey ? domain.tasks.find(key, query.taskKey) : null;
-    if (task && !canSeeTask(access, task)) throw notFound('task', query.taskKey!);
     return {
       messages: domain.messages.list(key, {
         taskKey: query.taskKey,

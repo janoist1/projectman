@@ -104,6 +104,13 @@ describe('links', () => {
 });
 
 describe('describeEvent', () => {
+  it.each([
+    [{ points: 5, reason: 'two modules', previous: null }, ['5', 'two modules']],
+    [{ points: null, reason: null, previous: { points: 8, reason: null } }, ['removed', '8']],
+  ])('describes a complexity change: %j', (data, required) => {
+    const text = describeEvent(event('task_complexity_changed', data), 280);
+    for (const part of required) expect(text).toContain(part);
+  });
   it('describes priority changes by name, including clearing, and keeps legacy updates readable', () => {
     expect(
       describeEvent(
@@ -118,6 +125,40 @@ describe('describeEvent', () => {
       ),
     ).toBe('updated priority (high -> none)');
     expect(describeEvent(event('task_updated', { fields: ['priority'] }), 100)).toBe('updated priority');
+  });
+  it('describes the reminder and the todo of an open step (PM-806)', () => {
+    const data = { kind: 'review_step', responsible: 'cr', subject: 'code_review@x', minutes: 30 };
+    expect(describeEvent(event('obligation_woken', data, undefined, null), 100)).toBe(
+      'reminded cr once about the open review step (code_review@x): no action in 30 minutes',
+    );
+    expect(
+      describeEvent(
+        event('obligation_handed_over', { ...data, recipient: 'integrator' }, undefined, null),
+        100,
+      ),
+    ).toBe(
+      'gave the open review step (code_review@x) of cr to the integrator as a todo: still no action after the reminder',
+    );
+    expect(
+      describeEvent(
+        event(
+          'obligation_handed_over',
+          {
+            ...data,
+            recipient: 'owner',
+            recipientRefusal: 'integrator_unavailable',
+          },
+          undefined,
+          null,
+        ),
+        100,
+      ),
+    ).toBe(
+      'gave the open review step (code_review@x) of cr to the owner as a todo (the integrator is not available: integrator_unavailable): still no action after the reminder',
+    );
+    expect(describeEvent(event('obligation_woken', {}, undefined, null), 100)).toBe(
+      'reminded the responsible once about the open step (?): no action in ? minutes',
+    );
   });
   it('names the labels of a label change', () => {
     const changed = event('task_labels_changed', { added: ['qa-ok'], removed: ['qa-failed', 'qa-retest'] });
@@ -145,6 +186,25 @@ describe('describeEvent', () => {
     expect(describeEvent(event('task_full_test', { ...run, outcome: 'error', reason: 'timeout' }), 100)).toBe(
       `the full test could not run on commit ${'a'.repeat(12)} (timeout)`,
     );
+    // A GitHub Actions run names its runner and the run page (PM-909).
+    const externalUrl = 'https://github.com/acme/web/actions/runs/7';
+    expect(
+      describeEvent(
+        event('task_full_test', { ...run, outcome: 'passed', runner: 'github_actions', externalUrl }),
+        100,
+      ),
+    ).toBe(`the GitHub Actions full test passed on commit ${'a'.repeat(12)} (${externalUrl})`);
+    expect(
+      describeEvent(
+        event('task_full_test', {
+          ...run,
+          outcome: 'error',
+          reason: 'github_unavailable',
+          runner: 'github_actions',
+        }),
+        100,
+      ),
+    ).toBe(`the GitHub Actions full test could not run on commit ${'a'.repeat(12)} (github_unavailable)`);
     expect(
       describeEvent(
         event('task_stage_changed', {
@@ -168,6 +228,21 @@ describe('describeEvent', () => {
     expect(describeEvent(event('task_check_changed', { check: 'qa', from: null, to: 'pending' }), 100)).toBe(
       'set the qa check to pending',
     );
+  });
+
+  it('names the subtask that triggered an automatic collecting close, when there is one (PM-373)', () => {
+    const closed = { done: ['AR-2', 'AR-3'], cancelled: [] };
+    const without = describeEvent(
+      event('task_stage_changed', { from: 'a', to: 'b', partsClosed: closed }),
+      100,
+    );
+    const triggered = describeEvent(
+      event('task_stage_changed', { from: 'a', to: 'b', partsClosed: { ...closed, trigger: 'AR-3' } }),
+      100,
+    );
+    expect(without).not.toContain('triggered');
+    expect(triggered).toContain('triggered by');
+    expect(triggered).toContain('AR-3');
   });
 
   it('words task changes with stage names and quoted handles in the given style', () => {
@@ -253,6 +328,16 @@ describe('describeEvent', () => {
     expect(
       describeEvent(event('team_message', { to: ['fe-1', 'owner'], excerpt: 'Ready' }), 100, named),
     ).toBe('message to `fe-1`, `owner` [action]: Ready');
+  });
+
+  it('marks the excerpt of an e-mail reply as outside data', () => {
+    const text = describeEvent(
+      event('team_message', { to: ['fe-1'], excerpt: 'Ready', email: true }),
+      100,
+      named,
+    );
+    expect(text).toContain('data from outside the team');
+    expect(text.endsWith(': Ready')).toBe(true);
   });
 
   it('shows the data of event types without their own wording', () => {

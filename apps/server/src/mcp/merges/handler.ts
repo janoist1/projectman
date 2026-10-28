@@ -1,0 +1,67 @@
+import type { Task } from '@projectman/shared';
+import type { ListMergeChecksInput, MergeCheckList, MergeToolsHandler, ToolContext } from '../../contracts';
+import { aiActor } from '../../kernel';
+import type { Merges } from '../../services/merges';
+import type { ToolCaller } from '../caller';
+
+/** The runs list_merge_checks returns when it is not told how many. */
+const MERGE_CHECKS_DEFAULT_LIMIT = 30;
+
+export class MergeTools implements MergeToolsHandler {
+  private readonly calls: ToolCaller;
+  private readonly merges: Pick<Merges, 'start' | 'prioritize' | 'checkRuns'>;
+  constructor(deps: { calls: ToolCaller; merges: Pick<Merges, 'start' | 'prioritize' | 'checkRuns'> }) {
+    this.calls = deps.calls;
+    this.merges = deps.merges;
+  }
+
+  async listMergeChecks(ctx: ToolContext, args: ListMergeChecksInput): Promise<MergeCheckList> {
+    return this.calls.guard(async () => {
+      await this.calls.callerWithRequest(ctx, 'list_merge_checks');
+      const taskKey = args.taskKey === undefined ? undefined : this.calls.validTaskKey(ctx, args.taskKey);
+      const limit = args.limit ?? MERGE_CHECKS_DEFAULT_LIMIT;
+      const kind = args.kind ?? 'checks';
+      const query = {
+        projectKey: ctx.projectKey,
+        ...(taskKey ? { taskKey } : {}),
+        ...(args.outcome && args.outcome !== 'any' ? { outcome: args.outcome } : {}),
+        ...(kind === 'any' ? {} : { kinds: kind === 'checks' ? (['merge', 'train'] as const) : [kind] }),
+        ...(args.since ? { since: new Date(args.since).toISOString() } : {}),
+        ...(args.until ? { until: new Date(args.until).toISOString() } : {}),
+        limit,
+      };
+      const page = this.merges.checkRuns({ ...query, offset: 0 });
+      return { runs: page.runs, hasMore: page.hasMore };
+    });
+  }
+
+  async mergeTask(
+    ctx: ToolContext,
+    args: { taskKey: string; fixConflict?: boolean; resolution?: string },
+  ): Promise<{ task: Task }> {
+    return this.calls.guard(async () => {
+      await this.calls.caller(ctx, 'merge_task');
+      return {
+        task: await this.merges.start(
+          ctx.projectKey,
+          this.calls.validTaskKey(ctx, args.taskKey),
+          aiActor(ctx.member),
+          args,
+        ),
+      };
+    });
+  }
+
+  async prioritizeMerge(
+    ctx: ToolContext,
+    args: { taskKey: string; reason: string },
+  ): Promise<{ task: Task; moved: boolean }> {
+    return this.calls.guard(async () => {
+      const caller = await this.calls.callerWithRequest(ctx, 'prioritize_merge');
+      const taskKey = this.calls.validTaskKey(ctx, args.taskKey);
+      return this.calls.recorded(caller, null, () =>
+        this.merges.prioritize(ctx.projectKey, taskKey, aiActor(ctx.member), args.reason),
+      );
+    });
+  }
+}

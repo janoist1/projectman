@@ -1,17 +1,19 @@
 import type { FastifyBaseLogger } from 'fastify';
+import { PROVIDER_MCP_IMAGE_RESULTS } from '../../../contracts';
 import type { ProviderStatus } from '../../../contracts';
 import { resolveCommand, runQuietly } from '../../cli';
 import { parseClaudeAuthStatus } from '../login';
 import type { ProviderAdapter, SessionTiming, TranscriptLineParser } from '../types';
-import { buildClaudeArgs, buildSettings } from './args';
+import { writeHookConfig, writeSessionFile } from '../../session-config';
+import { buildClaudeArgs, buildMcpConfig, buildSettings } from './args';
 import { ClaudeHookPayload, denyOutput, permissionOutput, refuseQuestionOutput } from './permissions';
 import { createPlanUsageProvider } from './plan-usage';
 import { TranscriptParser } from './transcript';
 import { defaultClaudeConfigPath, ensureWorkspaceTrusted } from './trust';
 
 /**
- * Claude Code: `--session-id`/`--resume`, `--append-system-prompt`, `--mcp-config` and inline
- * `--settings` with HTTP hooks (args.ts), permission answers that can remember an "allow for
+ * Claude Code: `--session-id`/`--resume`, `--append-system-prompt`, `--mcp-config` and
+ * `--settings` as files of the session's private folder, with HTTP hooks (args.ts), permission answers that can remember an "allow for
  * this session" (permissions.ts), workspace trust pre-accepted in its global config
  * (trust.ts), transcripts under ~/.claude/projects (transcript.ts), plan usage from a
  * `get_usage` probe (plan-usage.ts).
@@ -26,7 +28,8 @@ export const CLAUDE_TIMING: SessionTiming = {
   /** agent-office uses 120 ms. */
   enterDelayMs: 120,
   enterRetryMs: 1_500,
-  maxEnterRetries: 2,
+  /** A busy machine swallows Enter (PM-571): press it on every check within the submit timeout. */
+  maxEnterRetries: 4,
   submitTimeoutMs: 8_000,
   argumentSubmitTimeoutMs: 30_000,
   startupCheckMs: 1_000,
@@ -127,7 +130,7 @@ function claudeTranscriptParser(opts: {
   };
 }
 
-export interface ClaudeAdapterOptions {
+interface ClaudeAdapterOptions {
   bin: string;
   logger: FastifyBaseLogger;
   /** Default: `$CLAUDE_CONFIG_DIR/.claude.json` of `env`, else `~/.claude.json`. */
@@ -163,14 +166,19 @@ export function createClaudeAdapter(opts: ClaudeAdapterOptions): ProviderAdapter
       presetSessionId: true,
       sessionPermissionRules: true,
       readiness: 'session_start',
+      mcpImageResults: PROVIDER_MCP_IMAGE_RESULTS.claude,
     },
     timing: CLAUDE_TIMING,
     inputTools: CLAUDE_INPUT_TOOLS,
 
-    async launch({ spec, hookUrl, permissionTimeoutMs }) {
+    async launch({ spec, hookUrl, permissionTimeoutMs, sessionConfigDir }) {
       await trust(spec.cwd);
+      // Everything with a token goes into files of the session's private folder (PM-156); the
+      // command line names the files, and the hook commands the forwarder's target.
+      const hookConfigPath = await writeHookConfig(sessionConfigDir, hookUrl);
       const settings = buildSettings({
         hookUrl,
+        hookConfigPath,
         allowedTools: spec.allowedTools,
         policy: spec.policy,
         deniedTools: spec.deniedTools,
@@ -178,7 +186,18 @@ export function createClaudeAdapter(opts: ClaudeAdapterOptions): ProviderAdapter
         sandbox: spec.sandbox,
         autoCompactWindowTokens: spec.autoCompactWindowTokens,
       });
-      const cliArgs = buildClaudeArgs(spec, settings);
+      const cliArgs = buildClaudeArgs(spec, {
+        settingsPath: await writeSessionFile(
+          sessionConfigDir,
+          'claude-settings.json',
+          JSON.stringify(settings),
+        ),
+        mcpConfigPath: await writeSessionFile(
+          sessionConfigDir,
+          'claude-mcp.json',
+          JSON.stringify(buildMcpConfig(spec.mcpUrl)),
+        ),
+      });
       const command = resolveCommand(opts.bin, cliArgs);
       // The first message (the brief; for a resumed conversation, the message that caused the
       // resume or the continue message) is typed once SessionStart arrives, which Claude Code
@@ -206,6 +225,7 @@ export function createClaudeAdapter(opts: ClaudeAdapterOptions): ProviderAdapter
     permissionOutput,
     denyOutput,
     refuseQuestionOutput,
+    refuseToolOutput: (message) => refuseQuestionOutput('PreToolUse', message),
     // Claude Code ends the turn at a hook answer with `continue: false`, then runs the Stop hook.
     haltOutput: (reason) => ({ continue: false, stopReason: reason }),
     hookAuthError(payload) {

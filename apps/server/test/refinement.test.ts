@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { alertPayloadOf } from '@projectman/shared';
-import type { ProjectConfig } from '@projectman/shared';
-import { aiActor } from '../src/domain';
+import { ALERT_SEEN_OPTION, alertPayloadOf } from '@projectman/shared';
+import type { CardMover, ProjectConfig } from '@projectman/shared';
+import { aiActor } from '../src/kernel';
 import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush, planUsage } from './helpers/fakes';
+import { deferredStartRecords } from './helpers/deferred-starts';
 
 /**
  * Decision 31: a card that is being refined (label `refine`, or standing in the refinement stage
@@ -17,8 +18,11 @@ describe('Refinement line', () => {
   afterEach(() => h?.cleanup());
 
   const setup =
-    (opts: { refine?: boolean; plan?: boolean; waiting?: boolean } = {}) =>
+    (opts: { refine?: boolean; plan?: boolean; waiting?: boolean; pmAtWork?: boolean } = {}) =>
     (config: ProjectConfig) => {
+      // The start offer (PM-804) goes only to a project manager who is not on leave.
+      const manager = config.team.members.find((member) => member.handle === 'pm');
+      if (opts.pmAtWork && manager?.kind === 'ai') manager.onLeave = false;
       if (opts.waiting)
         config.pipeline.labels.push({
           id: 'waiting-answer',
@@ -143,8 +147,8 @@ describe('Refinement line', () => {
       'AR',
       'owner',
       { to: ['ana'], text: 'Status?', taskKey: 'AR-1' },
-      // A message for a member who has no turn waits otherwise.
-      { duringRefinement: true },
+      // A message for a member who has no turn waits otherwise, but an answer does not.
+      { duringRefinement: true, origin: { kind: 'answer', inboxItemId: 'inb_status' } },
     );
     await vi.waitFor(() => expect(h.runner.started.length).toBeGreaterThan(before));
     expect(h.runner.started.at(-1)).toMatchObject({ sessionId: ana.id });
@@ -212,8 +216,8 @@ describe('Refinement line', () => {
     expect(h.domain.sessions.pendingClose(dev.id)).toBeUndefined();
   });
 
-  it('removes the label, moves the card and tells who prioritises when the chain ends', async () => {
-    await prepare();
+  it('removes the label and moves the card without an acknowledgement alert when the chain ends', async () => {
+    await prepare({ pmAtWork: true });
     await label({ add: ['refine'] });
     await vi.waitFor(() => expect(members()).toEqual(['ana']));
     await label({ add: ['scope-ok'] }, aiActor('ana'));
@@ -227,12 +231,117 @@ describe('Refinement line', () => {
     expect(task().labels).toEqual(expect.arrayContaining(['scope-ok', 'design-ok']));
     expect(turn()?.data).toMatchObject({ label: null, member: null, reason: 'done' });
     expect(h.domain.refinement.turnMember('AR', 'AR-1')).toBeNull();
-    expect(alerts('done')).toHaveLength(1);
-    expect(alerts('done')[0]).toMatchObject({ assignees: ['owner'], state: 'open' });
+    expect(alerts('done')).toHaveLength(0);
+    const notices = () =>
+      h.domain.messages.list('AR', { taskKey: 'AR-1' }).filter((message) => message.from === 'system');
+    await vi.waitFor(() => expect(notices()).toHaveLength(1));
+    expect(notices()[0]).toMatchObject({ to: ['pm'], kind: 'action' });
     // The card is in the queue stage before development: nobody is started for it.
     await flush();
     expect(members()).toEqual(['ana', 'des']);
-    expect(alerts('done')).toHaveLength(1);
+    expect(alerts('done')).toHaveLength(0);
+    await h.domain.refinement.changed(task());
+    expect(notices()).toHaveLength(1);
+  });
+
+  it.each(['human', 'timeline'] as const)('routes completion to %s without an inbox alert', async (route) => {
+    h = await createDomainHarness({
+      persistent: true,
+      adjust: (config) => {
+        setup()(config);
+        if (route === 'human') config.team.cardMover = { kind: 'human', handle: 'owner' };
+      },
+    });
+    if (route !== 'human') {
+      // Older configurations can lack the now-required project manager.
+      const config = structuredClone(await h.domain.projects.config('AR'));
+      config.team.members = config.team.members.filter(
+        (member) =>
+          member.kind !== 'ai' || (member.role !== 'project_manager' && member.role !== 'ai_operator'),
+      );
+      vi.spyOn(h.domain.projects, 'config').mockResolvedValue(config);
+    }
+    await h.domain.tasks.create('AR', { title: 'Ready card', labels: ['scope-ok'] }, OWNER_ACTOR);
+    await label({ add: ['refine'] });
+    await vi.waitFor(() => expect(turn()?.data.reason).toBe('done'));
+    await flush();
+    expect(alerts('done')).toEqual([]);
+    const messages = h.domain.messages.list('AR', { taskKey: 'AR-1' });
+    // The start offer (PM-804) goes to an AI member only: a human card mover moves the card unprompted, and
+    // the Operator is no recipient (PM-1045).
+    expect(messages).toEqual([]);
+    await h.domain.refinement.changed(task());
+    expect(h.domain.messages.list('AR', { taskKey: 'AR-1' })).toHaveLength(messages.length);
+  });
+
+  it('starts the project manager without a card role for the completion message', async () => {
+    h = await createDomainHarness({
+      adjust: (config) => {
+        setup()(config);
+        const pm = config.team.members.find((member) => member.handle === 'pm')!;
+        if (pm.kind === 'ai') pm.onLeave = false;
+      },
+    });
+    await h.domain.tasks.create('AR', { title: 'Ready card', labels: ['scope-ok'] }, OWNER_ACTOR);
+    await label({ add: ['refine'] });
+    await vi.waitFor(() =>
+      expect(h.runner.started.some((start) => start.initialMessage?.includes('Can start now: AR-1'))).toBe(
+        true,
+      ),
+    );
+    const message = h.domain.messages.list('AR', { taskKey: 'AR-1' })[0]!;
+    expect(message.to).toEqual(['pm']);
+    await vi.waitFor(() =>
+      expect(h.domain.messages.list('AR', { taskKey: 'AR-1' })[0]?.receipts?.[0]?.deliveredAt).toEqual(
+        expect.any(String),
+      ),
+    );
+    expect(h.domain.sessions.list('AR', { member: 'pm' })[0]?.workItem).toEqual({ type: 'general' });
+  });
+
+  it('finishes refinement and records the failure when the notification cannot be sent', async () => {
+    await prepare({ pmAtWork: true }, ['scope-ok']);
+    vi.spyOn(h.domain.messaging, 'send').mockRejectedValue(new Error('Recipient unavailable'));
+    await label({ add: ['refine'] });
+    await vi.waitFor(() => expect(turn()?.data.reason).toBe('done'));
+    await vi.waitFor(() =>
+      expect(h.log.warnings).toContainEqual([
+        expect.objectContaining({ taskKey: 'AR-1' }),
+        'could not send the start offer',
+      ]),
+    );
+    expect(task().stageId).toBe('ready');
+    expect(task().labels).not.toContain('refine');
+    expect(alerts('done')).toEqual([]);
+  });
+
+  it('cancels legacy completion notices at startup and leaves actionable alerts open', async () => {
+    await prepare({}, ['scope-ok']);
+    const createAlert = (reason: 'done' | 'manual_step' | 'stalled') =>
+      h.domain.inbox.create({
+        projectKey: 'AR',
+        kind: 'alert',
+        taskKey: 'AR-1',
+        assignees: ['owner'],
+        source: 'system',
+        title: 'Refinement',
+        options: [ALERT_SEEN_OPTION],
+        payload: {
+          alert: 'refinement',
+          taskKey: 'AR-1',
+          label: reason === 'done' ? null : 'scope-ok',
+          reason,
+        },
+      });
+    const done = createAlert('done');
+    createAlert('manual_step');
+    createAlert('stalled');
+    const events = h.domain.timeline.list('AR', { taskKey: 'AR-1' });
+    h = await restartDomainHarness(h);
+    expect(alerts('done').find((item) => item.id === done.id)?.state).toBe('cancelled');
+    expect(alerts('manual_step')[0]?.state).toBe('open');
+    expect(alerts('stalled')[0]?.state).toBe('open');
+    expect(h.domain.timeline.list('AR', { taskKey: 'AR-1' })).toEqual(events);
   });
 
   it('goes on when a person sets a label, and goes back when an earlier one is removed', async () => {
@@ -295,9 +404,7 @@ describe('Refinement line', () => {
     await label({ add: ['sign-off'] });
     await vi.waitFor(() => expect(task().stageId).toBe('ready'));
     expect(alerts('manual_step')[0]).toMatchObject({ state: 'cancelled' });
-    expect(h.domain.inbox.list('AR', { kind: 'alert', state: 'open' }).map((i) => alertPayloadOf(i))).toEqual(
-      [expect.objectContaining({ alert: 'refinement', reason: 'done' })],
-    );
+    expect(h.domain.inbox.list('AR', { kind: 'alert', state: 'open' })).toEqual([]);
   });
 
   it('alerts once when the turn ended without the label, and does not start the member again', async () => {
@@ -384,7 +491,7 @@ describe('Refinement line', () => {
       await h.domain.sessions.ensureSession('AR', 'ana2', { type: 'task', taskKey: 'AR-3' });
       await label({ add: ['refine'] });
       await vi.waitFor(() =>
-        expect(h.repos.deferredStarts.list().map((record) => record.spec)).toEqual([refineSpec]),
+        expect(deferredStartRecords(h.repos).map((record) => record.spec)).toEqual([refineSpec]),
       );
       expect(sessionsOf()).toEqual([]);
       expect(turn()).toBeNull();
@@ -403,12 +510,12 @@ describe('Refinement line', () => {
       h.runnerModule.planUsage.value = planUsage(95);
       await label({ add: ['refine'] });
       await vi.waitFor(() =>
-        expect(h.repos.deferredStarts.list().map((record) => record.spec)).toEqual([refineSpec]),
+        expect(deferredStartRecords(h.repos).map((record) => record.spec)).toEqual([refineSpec]),
       );
       expect(members()).toEqual([]);
 
       h = await restartDomainHarness(h, { planUsagePercent: 95 });
-      expect(h.repos.deferredStarts.list().map((record) => record.key)).toEqual(['refinement:AR:AR-1']);
+      expect(deferredStartRecords(h.repos).map((record) => record.key)).toEqual(['refinement:AR:AR-1']);
       await h.domain.admission.retryDeferred();
       expect(members()).toEqual([]);
 
@@ -431,7 +538,7 @@ describe('Refinement line', () => {
       await h.domain.pauses.pause(PAUSED_PROJECT, BY);
       await label({ add: ['refine'] });
       await vi.waitFor(() =>
-        expect(h.repos.deferredStarts.list().map((record) => record.spec)).toEqual([
+        expect(deferredStartRecords(h.repos).map((record) => record.spec)).toEqual([
           {
             kind: 'refinement_turn',
             projectKey: 'AR',
@@ -559,6 +666,26 @@ describe('Refinement line', () => {
     await vi.waitFor(() => expect(members()).toEqual(['ana', 'des']));
   });
 
+  it.each<CardMover>([{ kind: 'worker' }, { kind: 'project_manager' }, { kind: 'human', handle: 'owner' }])(
+    'finishes refinement without a hand-on request with mover $kind',
+    async (cardMover) => {
+      h = await createDomainHarness({
+        adjust: (config) => {
+          setup({ plan: true })(config);
+          config.team.cardMover = cardMover;
+        },
+      });
+      await h.domain.tasks.create('AR', { title: 'Plan' }, OWNER_ACTOR);
+      await h.domain.tasks.moveToStage('AR', 'AR-1', 'plan', OWNER_ACTOR);
+      await vi.waitFor(() => expect(members()).toEqual(['ana']));
+      await label({ add: ['scope-ok'] }, aiActor('ana'));
+      endTurn('ana');
+      await vi.waitFor(() => expect(task().stageId).toBe('ready'));
+      expect(task().handOn).toBeUndefined();
+      expect(h.domain.inbox.list('AR', { kind: 'hand_on', taskKey: 'AR-1' })).toEqual([]);
+    },
+  );
+
   it('spreads cards over the setters by load', async () => {
     await prepare({}, []);
     await h.domain.tasks.create('AR', { title: 'Second' }, OWNER_ACTOR);
@@ -629,7 +756,7 @@ describe('Refinement line', () => {
     await label({ add: ['refine'] });
 
     await vi.waitFor(() =>
-      expect(h.repos.deferredStarts.list().map((record) => record.spec)).toEqual([
+      expect(deferredStartRecords(h.repos).map((record) => record.spec)).toEqual([
         { kind: 'refinement_turn', projectKey: 'AR', taskKey: 'AR-1', stageId: 'backlog', label: 'scope-ok' },
       ]),
     );
@@ -651,10 +778,10 @@ describe('Refinement line', () => {
       return 'Switch AI off';
     });
     await label({ add: ['refine'] });
-    await vi.waitFor(() => expect(h.repos.deferredStarts.list()).toHaveLength(1));
+    await vi.waitFor(() => expect(deferredStartRecords(h.repos)).toHaveLength(1));
 
     h = await restartDomainHarness(h);
-    expect(h.repos.deferredStarts.list().map((record) => record.key)).toEqual(['refinement:AR:AR-1']);
+    expect(deferredStartRecords(h.repos).map((record) => record.key)).toEqual(['refinement:AR:AR-1']);
     await h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (draft) => {
       draft.team.limits.aiEnabled = true;
       return 'Switch AI on';
@@ -715,14 +842,14 @@ describe('Refinement line', () => {
     await label({ add: ['scope-ok'] }, aiActor('ana'));
     endTurn('ana');
 
-    await vi.waitFor(() => expect(alerts('done')).toHaveLength(1));
+    await vi.waitFor(() => expect(turn()?.data.reason).toBe('done'));
     expect(task().stageId).toBe('plan');
     expect(turn()?.data).toMatchObject({ label: null, member: null, reason: 'done' });
     expect(h.domain.refinement.turnMember('AR', 'AR-1')).toBeNull();
 
     await h.domain.refinement.changed(task());
     await flush();
-    expect(alerts('done')).toHaveLength(1);
+    expect(alerts('done')).toHaveLength(0);
   });
 
   /** PM-255: a message about a card that is being refined waits for its AI recipient's turn. */
@@ -891,7 +1018,7 @@ describe('Refinement line', () => {
       expect(firstInputs()[0]).toContain('Please look at the header.');
     });
 
-    it('leaves a deferred wake-up alone when a card that was never refined moves on', async () => {
+    it('keeps a deferred wake-up when a card that was never refined moves on', async () => {
       h = await createDomainHarness({
         persistent: true,
         adjust: (config) => {
@@ -914,10 +1041,9 @@ describe('Refinement line', () => {
       await flush();
       expect(members()).toEqual(['ana']);
 
-      // Capacity frees up: the obsolete wake-up is not made again.
+      // Capacity frees up: the person's message still waits for the designer, and wakes it (it is queued, not deferred).
       await h.domain.sessions.stop('AR', sessionsOf()[0]!.id);
-      await flush();
-      expect(members()).toEqual(['ana']);
+      await vi.waitFor(() => expect(members()).toEqual(['ana', 'des']));
     });
   });
 });

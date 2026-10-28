@@ -1,5 +1,15 @@
 import clsx from 'clsx';
-import { createContext, useContext, useEffect, useId, useMemo, useRef, useState } from 'react';
+import {
+  Children,
+  createContext,
+  useContext,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import type { ReactNode, RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { t } from '../i18n/t';
@@ -37,6 +47,7 @@ export function DialogActions({ error, children }: { error?: ReactNode; children
 }
 
 interface DialogProps {
+  role?: 'dialog' | 'alertdialog';
   open: boolean;
   onClose: () => void;
   /** A nested confirmation may consume Escape while the close button still closes the dialog. */
@@ -68,6 +79,7 @@ interface DialogProps {
  * mounted only while open, so forms start fresh every time.
  */
 export function Dialog({
+  role,
   open,
   onClose,
   onEscape,
@@ -90,6 +102,7 @@ export function Dialog({
   if (!open) return null;
   return (
     <DialogInner
+      role={role}
       onClose={onClose}
       onEscape={onEscape}
       title={title}
@@ -113,6 +126,7 @@ export function Dialog({
 }
 
 function DialogInner({
+  role,
   onClose,
   onEscape,
   title,
@@ -144,15 +158,29 @@ function DialogInner({
   const [footerSlot, setFooterSlot] = useState<HTMLElement | null>(null);
   const slots = useMemo(() => ({ error: errorSlot, footer: footerSlot }), [errorSlot, footerSlot]);
 
-  useEffect(() => {
+  // The content mounts only once the dialog is open: React's `autoFocus` calls focus() on mount and
+  // does not set the `autofocus` attribute, so the field would otherwise lose the focus to the close
+  // button when showModal() runs.
+  const [shown, setShown] = useState(false);
+  const previousRef = useRef<HTMLElement | null>(null);
+
+  useLayoutEffect(() => {
     const dialog = ref.current;
     if (!dialog) return;
-    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    previousRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     if (typeof dialog.showModal === 'function') {
       if (!dialog.open) dialog.showModal();
     } else {
       dialog.setAttribute('open', '');
     }
+    setShown(true);
+  }, []);
+
+  // The cleanup stays a passive effect: it runs after the commit, so the focus can return to an
+  // element the same update renders.
+  useEffect(() => {
+    const dialog = ref.current;
+    if (!dialog) return;
     return () => {
       const active = document.activeElement;
       const restore = active === document.body || (active instanceof Node && dialog.contains(active));
@@ -161,7 +189,7 @@ function DialogInner({
         if (active instanceof HTMLElement && active.isConnected) active.focus();
         return;
       }
-      const target = returnFocusRef ? returnFocusRef.current : previous;
+      const target = returnFocusRef ? returnFocusRef.current : previousRef.current;
       if (target?.isConnected) target.focus();
       else returnFocusFallback?.()?.focus();
     };
@@ -173,6 +201,7 @@ function DialogInner({
 
   return (
     <dialog
+      role={role}
       ref={ref}
       className={clsx(styles.dialog, styles[size], className)}
       aria-labelledby={titleId}
@@ -244,10 +273,12 @@ function DialogInner({
           ) : null}
         </header>
         <SlotsContext.Provider value={slots}>
-          {children ? <div className={styles.body}>{children}</div> : null}
+          {Children.toArray(children).length ? (
+            <div className={styles.body}>{shown ? children : null}</div>
+          ) : null}
           <div ref={setErrorSlot} className={styles.error} />
           <footer ref={setFooterSlot} className={styles.footer} />
-          {footer || error ? <DialogActions error={error}>{footer}</DialogActions> : null}
+          {shown && (footer || error) ? <DialogActions error={error}>{footer}</DialogActions> : null}
         </SlotsContext.Provider>
       </div>
     </dialog>

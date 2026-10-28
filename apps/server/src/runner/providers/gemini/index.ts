@@ -1,4 +1,5 @@
 import type { FastifyBaseLogger } from 'fastify';
+import { PROVIDER_MCP_IMAGE_RESULTS, SESSION_DIR_VARIABLE } from '../../../contracts';
 import { DENY_DEFAULT } from '../../hook-payload';
 import { resolveCommand } from '../../cli';
 import { CODEX_TIMING } from '../codex';
@@ -7,7 +8,12 @@ import { buildGeminiArgs } from './args';
 import { prepareGeminiDir } from './config-dir';
 import { decideGeminiToolCall, parseGeminiHook } from './hooks';
 import { checkGeminiLogin, geminiLoginCommand, parseGeminiLogin } from './login';
-import { detectGeminiBlockingScreen, geminiPromptVisible, geminiWorkingVisible } from './screen';
+import {
+  detectGeminiBlockingScreen,
+  detectGeminiQuota,
+  geminiPromptVisible,
+  geminiWorkingVisible,
+} from './screen';
 import { GeminiTranscriptParser } from './transcript';
 
 export function createGeminiAdapter(opts: {
@@ -25,6 +31,7 @@ export function createGeminiAdapter(opts: {
       sessionPermissionRules: false,
       readiness: 'screen',
       toolGate: 'pre_tool_use',
+      mcpImageResults: PROVIDER_MCP_IMAGE_RESULTS.gemini,
     },
     timing: CODEX_TIMING,
     inputTools: new Set(),
@@ -33,11 +40,14 @@ export function createGeminiAdapter(opts: {
       buildGeminiArgs(input.spec, '');
       const dir = await prepareGeminiDir(opts.configDir, input);
       const args = buildGeminiArgs(input.spec, dir);
+      // The session's own folder (PM-522): the commands and the file tools find it in the variable.
+      const sessionFolder = input.spec.policy?.filesystem.sessionFolder;
       return {
         ...resolveCommand(opts.bin, args),
         cliArgs: args,
         initialMessageSent: false,
         conversationRoot: dir,
+        ...(sessionFolder ? { env: { [SESSION_DIR_VARIABLE]: sessionFolder } } : {}),
       };
     },
     parseHook: parseGeminiHook,
@@ -48,10 +58,12 @@ export function createGeminiAdapter(opts: {
     permissionOutput: (decision) =>
       decision.behavior === 'allow' ? { decision: 'allow' } : deny(decision.message?.trim() || DENY_DEFAULT),
     denyOutput: deny,
+    refuseToolOutput: deny,
     haltOutput: deny,
     hookAuthError: (payload) =>
       typeof payload.error === 'string' && /Please sign in/i.test(payload.error) ? payload.error : null,
     detectBlockingScreen: detectGeminiBlockingScreen,
+    detectRateLimitScreen: detectGeminiQuota,
     promptVisible: geminiPromptVisible,
     workingVisible: geminiWorkingVisible,
     createTranscriptParser: (opts) => new GeminiTranscriptParser(opts),

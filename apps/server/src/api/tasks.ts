@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import {
   BoardMoveRequest,
+  canCommentOnTask,
   ChangeTaskLabelsRequest,
   MAX_CLOSED_CARDS_DAYS,
   CreateTaskCommentRequest,
@@ -22,11 +23,12 @@ import type {
   TaskHandoffRecord,
   UpdateTaskResponse,
 } from '@projectman/shared';
-import type { Domain } from '../domain';
-import { notFound } from '../domain';
-import { canSeeTask, visibleTaskDetail, visibleTasks } from '../domain/visibility';
+import type { ApiDomain } from './ports';
+import { forbidden, notFound } from '../kernel';
+import type { ProjectAccess } from '../core/members';
+import { visibleTaskDetail } from '../core/projects';
 import { actorOf, authorOf, requireAccess } from './context';
-import { parseBody } from './validation';
+import { parseBody } from '../http';
 
 type ProjectParams = { Params: { key: string } };
 type TaskParams = { Params: { key: string; taskKey: string } };
@@ -35,10 +37,20 @@ const ClosedCardsQuery = z.object({
   days: z.coerce.number().int().min(1).max(MAX_CLOSED_CARDS_DAYS).optional(),
 });
 
-export function registerTaskRoutes(app: FastifyInstance, domain: Domain): void {
+export function registerTaskRoutes(app: FastifyInstance, domain: ApiDomain): void {
+  /** The detail the viewer sees, with why the card stands still (PM-460). */
+  const detailFor = async (access: ProjectAccess, key: string, taskKey: string): Promise<TaskDetail> => {
+    const detail = visibleTaskDetail(
+      access,
+      domain.cardMeasure.withRounds(domain.tasks.detail(key, taskKey)),
+      (id) => domain.messages.get(id),
+    );
+    const wait = domain.taskWaits.ofCard(await domain.projects.config(key), detail.task, access.handle);
+    return wait ? { ...detail, wait } : detail;
+  };
   app.get<ProjectParams>(routes.tasks(':key'), async (request): Promise<Task[]> => {
     const access = await requireAccess(domain, request, request.params.key);
-    return visibleTasks(access, domain.tasks.list(request.params.key));
+    return domain.tasks.list(request.params.key);
   });
 
   app.post<ProjectParams>(routes.tasks(':key'), async (request, reply) => {
@@ -53,17 +65,7 @@ export function registerTaskRoutes(app: FastifyInstance, domain: Domain): void {
   app.get<TaskParams>(routes.task(':key', ':taskKey'), async (request): Promise<TaskDetail> => {
     const { key, taskKey } = request.params;
     const access = await requireAccess(domain, request, key);
-    const detail = domain.cardMeasure.withRounds(domain.tasks.detail(key, taskKey));
-    if (!canSeeTask(access, detail.task)) throw notFound('task', taskKey);
-    return visibleTaskDetail(
-      access,
-      detail,
-      (linked) => {
-        const other = domain.tasks.find(key, linked);
-        return !!other && canSeeTask(access, other);
-      },
-      (id) => domain.messages.get(id),
-    );
+    return detailFor(access, key, taskKey);
   });
 
   /** A stage move is gated: 409 gate_blocked, or 409 approval_requested when approvers were asked. */
@@ -80,9 +82,8 @@ export function registerTaskRoutes(app: FastifyInstance, domain: Domain): void {
     routes.taskHandoff(':key', ':taskKey', ':handoffId'),
     async (request): Promise<TaskHandoffRecord> => {
       const { key, taskKey, handoffId } = request.params;
-      const access = await requireAccess(domain, request, key, { minimum: 'developer' });
-      const task = domain.tasks.find(key, taskKey);
-      if (!task || !canSeeTask(access, task)) throw notFound('task', taskKey);
+      await requireAccess(domain, request, key, { minimum: 'developer' });
+      if (!domain.tasks.find(key, taskKey)) throw notFound('task', taskKey);
       return domain.handoffs.closedRecord(key, taskKey, handoffId);
     },
   );
@@ -100,7 +101,10 @@ export function registerTaskRoutes(app: FastifyInstance, domain: Domain): void {
 
   app.post<TaskParams>(routes.taskComments(':key', ':taskKey'), async (request, reply) => {
     const { key, taskKey } = request.params;
-    const access = await requireAccess(domain, request, key, { minimum: 'developer' });
+    // Every member but the read-only viewer comments (PM-985); the domain checks the author again.
+    const access = await requireAccess(domain, request, key);
+    if (!canCommentOnTask(access.access))
+      throw forbidden('insufficient_access', 'read-only members cannot comment');
     // Imported comments (author and time from elsewhere) are owner-only; the domain enforces it.
     const { text, ...imported } = parseBody(CreateTaskCommentRequest, request.body);
     await domain.tasks.addNote(key, taskKey, text, actorOf(access), null, imported);
@@ -114,12 +118,7 @@ export function registerTaskRoutes(app: FastifyInstance, domain: Domain): void {
     await domain.tasks.changeLabels(key, taskKey, { add: body.add, remove: body.remove }, actorOf(access), {
       comment: body.comment,
     });
-    return visibleTaskDetail(
-      access,
-      domain.cardMeasure.withRounds(domain.tasks.detail(key, taskKey)),
-      undefined,
-      (id) => domain.messages.get(id),
-    );
+    return detailFor(access, key, taskKey);
   });
 
   app.post<TaskParams>(routes.cancelTask(':key', ':taskKey'), async (request): Promise<Task> => {
@@ -155,23 +154,18 @@ export function registerTaskRoutes(app: FastifyInstance, domain: Domain): void {
       despitePrerequisites: body.despitePrerequisites,
       startSetters: true,
       actor: actorOf(access),
-      author: authorOf(request),
+      author: authorOf(request, access),
       sponsor: await domain.members.sponsorFor(access),
     });
-    return visibleTaskDetail(
-      access,
-      domain.cardMeasure.withRounds(domain.tasks.detail(key, taskKey)),
-      undefined,
-      (id) => domain.messages.get(id),
-    );
+    return detailFor(access, key, taskKey);
   });
 
   /**
    * The cards closed in the last `days` days (14 by default) with their review rounds, send-backs
-   * and weighted tokens per model (PM-222). Whoever sees the sessions' usage sees this: not clients.
+   * and weighted tokens per model (PM-222). Every member reads it.
    */
   app.get<ProjectParams>(routes.closedCardsMeasure(':key'), async (request): Promise<ClosedCardsMeasure> => {
-    await requireAccess(domain, request, request.params.key, { internal: true });
+    await requireAccess(domain, request, request.params.key);
     const { days } = parseBody(ClosedCardsQuery, request.query);
     return domain.cardMeasure.closedCards(request.params.key, days);
   });

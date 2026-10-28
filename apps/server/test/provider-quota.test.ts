@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { LOCAL_ENGINE_ID } from '@projectman/shared';
 import type { PlanUsage, Session } from '@projectman/shared';
 import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
-import { StartSpec } from '../src/domain/admission';
+import { StartSpec } from '../src/runtime/admission';
 import { waitFor } from '../src/runner/test-helpers';
+import { deferredStartRecords } from './helpers/deferred-starts';
 
 describe('NanoGPT provider quota recovery', () => {
   let h: DomainHarness;
@@ -78,7 +80,7 @@ describe('NanoGPT provider quota recovery', () => {
       taskKey: task.key,
       text: 'Wait for the reset',
     });
-    await waitFor(() => h.repos.deferredStarts.list().length >= 2);
+    await waitFor(() => h.repos.memberQueue.listOpen('AR', 'dev-2')[0]?.wait);
     expect(h.runner.started).toHaveLength(started);
     now = new Date(reset);
     await h.domain.admission.retryDeferred();
@@ -144,7 +146,7 @@ describe('NanoGPT provider quota recovery', () => {
     await fail(session);
     expect(await waitFor(() => waiting(task.key))).toMatchObject({ reason: 'provider_rate_limited' });
     expect(
-      h.repos.deferredStarts.list().some((row) => StartSpec.parse(row.spec).kind === 'provider_resume'),
+      deferredStartRecords(h.repos).some((row) => StartSpec.parse(row.spec).kind === 'provider_resume'),
     ).toBe(true);
     complete(usage(100));
     await waitFor(() => waiting(task.key)?.until === reset);
@@ -156,8 +158,8 @@ describe('NanoGPT provider quota recovery', () => {
     await waitFor(() => waiting(task.key));
     h.runnerModule.planUsage.value = usage(40);
     h.domain.planUsage.invalidate();
-    await h.domain.planUsage.get('nanogpt');
-    expect(() => h.domain.sessions.assertProviderCooldown('nanogpt')).not.toThrow();
+    await h.domain.planUsage.get('nanogpt', LOCAL_ENGINE_ID);
+    expect(() => h.domain.sessions.assertProviderCooldown('nanogpt', null)).not.toThrow();
     await h.domain.admission.retryDeferred();
     expect(h.domain.sessions.findRunning('AR', 'dev-1', { type: 'task', taskKey: task.key })).not.toBeNull();
   });
@@ -176,7 +178,7 @@ describe('NanoGPT provider quota recovery', () => {
       await waitFor(() => waiting(task.key));
       await waitFor(() => waiting(otherTask.key));
       expect(
-        h.repos.deferredStarts.list().filter((row) => StartSpec.parse(row.spec).kind === 'provider_resume'),
+        deferredStartRecords(h.repos).filter((row) => StartSpec.parse(row.spec).kind === 'provider_resume'),
       ).toHaveLength(2);
       h = await restartDomainHarness(h, { now: () => now });
       // The restarted fake source is unknown: persisted continuations must not launch inference.
@@ -216,7 +218,134 @@ describe('NanoGPT provider quota recovery', () => {
     await h.domain.admission.retryDeferred();
     expect(h.runner.started).toHaveLength(started);
     expect(
-      h.repos.deferredStarts.list().some((row) => StartSpec.parse(row.spec).kind === 'provider_resume'),
+      deferredStartRecords(h.repos).some((row) => StartSpec.parse(row.spec).kind === 'provider_resume'),
     ).toBe(false);
+  });
+});
+
+describe('Gemini provider quota recovery', () => {
+  let h: DomainHarness;
+  let now: Date;
+  const reset = '2026-10-25T05:10:58.000Z';
+  afterEach(() => h?.cleanup());
+
+  async function setup(allGemini = false, persistent = false) {
+    now = new Date('2026-10-22T12:00:00Z');
+    h = await createDomainHarness({
+      now: () => now,
+      persistent,
+      adjust: (config) => {
+        config.team.limits.tempWorkers.enabled = false;
+        for (const member of config.team.members)
+          if (member.kind === 'ai' && (member.handle === 'dev-1' || (allGemini && member.handle === 'dev-2')))
+            member.provider = 'gemini';
+      },
+    });
+    const task = await h.domain.tasks.create('AR', { title: 'Fictional Gemini quota recovery' }, OWNER_ACTOR);
+    const { session } = await h.domain.taskStarts.start('AR', task.key, {
+      assignee: 'dev-1',
+      actor: OWNER_ACTOR,
+      author: OWNER,
+    });
+    return { task, session: session! };
+  }
+
+  async function fail(session: Session, resetsAt: string | undefined = reset) {
+    h.runner.emit({
+      type: 'rate_limited',
+      sessionId: session.id,
+      provider: 'gemini',
+      message: 'RESOURCE_EXHAUSTED (code 429): Individual quota reached',
+      at: now.toISOString(),
+      ...(resetsAt ? { resetsAt } : {}),
+    });
+    h.runner.setState(session.id, 'failed');
+    await h.runner.stop(session.id);
+  }
+
+  it('reassigns the interrupted card to an available provider with a quota handoff reason', async () => {
+    const { task, session } = await setup();
+    await fail(session);
+    await waitFor(() => h.domain.tasks.get('AR', task.key).assignee === 'dev-2');
+    await waitFor(() => h.domain.sessions.findRunning('AR', 'dev-2', { type: 'task', taskKey: task.key }));
+    expect(
+      h.domain.admission
+        .freeDevelopers(await h.domain.projects.config('AR'), 'development')
+        .some((member) => member.handle === 'dev-1'),
+    ).toBe(false);
+    expect(
+      h.repos.timeline
+        .list('AR', { taskKey: task.key })
+        .some((event) => event.type === 'task_handoff' && event.data.reason === 'provider_quota'),
+    ).toBe(true);
+    expect(
+      deferredStartRecords(h.repos).some((row) => StartSpec.parse(row.spec).kind === 'provider_resume'),
+    ).toBe(false);
+  });
+
+  it('keeps an unassigned card waiting when every developer is held and starts it at reset', async () => {
+    const { task, session } = await setup(true);
+    await fail(session);
+    await waitFor(() => h.domain.tasks.get('AR', task.key).startWaiting?.reason === 'no_free_member');
+    expect(h.domain.tasks.get('AR', task.key).assignee).toBeNull();
+    const started = h.runner.started.length;
+    now = new Date(Date.parse(reset) - 1);
+    await h.domain.admission.retryDeferred();
+    expect(h.runner.started).toHaveLength(started);
+    now = new Date(reset);
+    await h.domain.admission.retryDeferred();
+    await waitFor(() => h.runner.started.length > started);
+    expect(h.domain.tasks.get('AR', task.key).assignee).not.toBeNull();
+  });
+
+  it('restores the hold from an acknowledged alert after the affected card was reassigned', async () => {
+    const { task, session } = await setup(false, true);
+    await fail(session);
+    await waitFor(() => h.domain.tasks.get('AR', task.key).assignee === 'dev-2');
+    const alert = h.repos.inbox.latestProviderQuota('gemini')!;
+    h.repos.inbox.close(
+      alert.id,
+      'resolved',
+      { optionId: 'seen', by: 'owner', at: now.toISOString(), note: null },
+      now.toISOString(),
+    );
+    h = await restartDomainHarness(h, { now: () => now });
+    expect(() => h.domain.sessions.assertProviderCooldown('gemini', null)).toThrow(
+      expect.objectContaining({
+        code: 'provider_rate_limited',
+        details: expect.objectContaining({ until: reset }),
+      }),
+    );
+    now = new Date(reset);
+    expect(() => h.domain.sessions.assertProviderCooldown('gemini', null)).not.toThrow();
+  });
+
+  it('uses a thirty-minute hold when no reset duration is reported', async () => {
+    const { session } = await setup();
+    await fail(session, '');
+    expect(h.repos.inbox.latestProviderQuota('gemini')?.payload.until).toBe('2026-10-22T12:30:00.000Z');
+    now = new Date('2026-10-22T12:29:59.999Z');
+    expect(() => h.domain.sessions.assertProviderCooldown('gemini', null)).toThrow();
+    now = new Date('2026-10-22T12:30:00.000Z');
+    expect(() => h.domain.sessions.assertProviderCooldown('gemini', null)).not.toThrow();
+  });
+  it.each([
+    [1, 1],
+    [60_000, 2],
+  ])('extends the hold by %i ms with %i owner alerts', async (difference, expectedAlerts) => {
+    const { session } = await setup(true);
+    const other = await h.domain.sessions.ensureSession('AR', 'dev-2', { type: 'general' });
+    await fail(session);
+    const later = new Date(Date.parse(reset) + difference).toISOString();
+    await fail(other.session, later);
+    expect(
+      h.repos.inbox
+        .list('AR', { kind: 'alert' })
+        .filter((item) => item.payload.alert === 'provider_rate_limited'),
+    ).toHaveLength(expectedAlerts);
+    expect(h.repos.inbox.latestProviderQuota('gemini')?.payload.until).toBe(later);
+    expect(() => h.domain.sessions.assertProviderCooldown('gemini', null)).toThrow(
+      expect.objectContaining({ details: expect.objectContaining({ until: later }) }),
+    );
   });
 });

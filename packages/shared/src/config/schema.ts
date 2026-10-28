@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { ComplexityPoints } from '../domain/complexity';
+import { LabelId } from '../domain/label';
 import { AgentEffort, CheapSubagentModel } from '../domain/member';
 import {
   AgentProvider,
@@ -8,9 +10,14 @@ import {
   MemberHandle,
   PermissionMode,
 } from '../domain/member';
+import { FeedbackConfig } from '../domain/feedback';
+import { MergeCheckRunner } from '../domain/merge-test';
 import { Pipeline } from '../domain/pipeline';
 import { DEFAULT_PROVIDER_MODELS } from '../domain/provider-model';
 import { CustomRoleDefinition, RoleId, RoleOverrides } from '../domain/role';
+import { RepoDocs } from './project-docs';
+import { isRegeneratedPathPattern } from './regenerated-paths';
+import { OperatorWatch } from './operator-watch';
 
 /**
  * Project configuration ("customizations"). Lives as YAML files in a separate git
@@ -18,6 +25,24 @@ import { CustomRoleDefinition, RoleId, RoleOverrides } from '../domain/role';
  * every change is a commit that an admin can revert. Display names inside are data in
  * the project's language.
  */
+
+export const CardMover = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('worker') }),
+  z.object({ kind: z.literal('project_manager') }),
+  z.object({ kind: z.literal('human'), handle: MemberHandle }),
+]);
+export type CardMover = z.infer<typeof CardMover>;
+
+/** Who merges a card's approved work into the repository's default branch (PM-448, decision 48). */
+export const Merger = z.discriminatedUnion('kind', [
+  /** The owner of the card's code review stage who reviewed it. */
+  z.object({ kind: z.literal('code_reviewer') }),
+  /** The card's assignee, who developed it. */
+  z.object({ kind: z.literal('developer') }),
+  /** A named member, AI or human. */
+  z.object({ kind: z.literal('member'), handle: MemberHandle }),
+]);
+export type Merger = z.infer<typeof Merger>;
 
 export const HumanMemberConfig = z.object({
   kind: z.literal('human'),
@@ -52,9 +77,30 @@ export type MemberSchedule = z.infer<typeof MemberSchedule>;
  */
 export const AutoCompactWindowTokens = z.number().int().min(100_000).max(1_000_000);
 
+export const ProjectEmailConfig = z.object({ enabled: z.boolean() });
+export type ProjectEmailConfig = z.infer<typeof ProjectEmailConfig>;
+/**
+ * The local part of an AI member's own e-mail address: its handle (PM-1039); the `r-` prefix belongs
+ * to the reply addresses.
+ */
+export const EmailMailbox = z.string().regex(/^(?!r-)[a-z0-9][a-z0-9-]{0,31}$/);
+export type EmailMailbox = z.infer<typeof EmailMailbox>;
+export const AiMemberEmail = z.object({
+  enabled: z.boolean(),
+  sendWithoutApproval: z.boolean().optional(),
+});
+export type AiMemberEmail = z.infer<typeof AiMemberEmail>;
+
 export const AiMemberConfig = z.object({
   kind: z.literal('ai'),
+  email: AiMemberEmail.optional(),
   handle: MemberHandle,
+  /**
+   * The member's earlier handles, the oldest first (PM-1024). Not edited by hand: a rename
+   * writes it. The first one is the member's storage handle (`memberStorageHandle`), so the
+   * workspace, memory and sandbox paths do not move when the handle changes.
+   */
+  formerHandles: z.array(MemberHandle).max(10).optional(),
   displayName: z.string().min(1),
   githubLogin: GithubLogin.optional(),
   /** The one role this member holds: a built-in role or one of the team's custom roles. */
@@ -97,11 +143,9 @@ export const AiMemberConfig = z.object({
   sponsor: MemberHandle,
   /** Temporary stand-in ("beugró"): hired for one task, retired when it is done. */
   temp: z.boolean().default(false),
-  /**
-   * The team's Senior (PM-347): Senior cards are for this member. Absent: not a Senior (see `isSenior`);
-   * a temp worker is never one.
-   */
-  senior: z.boolean().optional(),
+  complexityLimit: ComplexityPoints.optional(),
+  /** Automatic assignment requires at least one of these labels; explicit assignees are unrestricted. */
+  specialtyLabels: z.array(LabelId).min(1).max(10).optional(),
   /** Recurring runs, e.g. every weekday morning. */
   schedule: MemberSchedule.optional(),
   /**
@@ -114,6 +158,12 @@ export const AiMemberConfig = z.object({
    * (`DEFAULT_OUTBOUND_NETWORK`), so members from before the setting have it on.
    */
   outboundNetwork: z.boolean().optional(),
+  /**
+   * Whether the member may put machine work in the owners' queue (decision 66); owner only. Absent means
+   * the role's default (`machineAccessOf`): on for a project manager, off for everyone else. An explicit
+   * `false` is kept: for a project manager it differs from absent.
+   */
+  machineAccess: z.boolean().optional(),
 });
 export type AiMemberConfig = z.infer<typeof AiMemberConfig>;
 
@@ -121,6 +171,14 @@ export const MemberConfig = z.discriminatedUnion('kind', [HumanMemberConfig, AiM
 export type MemberConfig = z.infer<typeof MemberConfig>;
 
 export const MaxConcurrentAi = z.number().int().min(1).max(20);
+
+/**
+ * The project's contacts (PM-985): the members a contact-restricted member (`isContactRestricted`) may
+ * write messages to, each handle once. The list belongs to the project, not to a member.
+ */
+export const ContactHandles = z
+  .array(MemberHandle)
+  .refine((handles) => new Set(handles).size === handles.length, 'duplicate contact');
 
 /**
  * The compaction window of a session whose member and project set none (PM-212). Not the CLI's own
@@ -212,6 +270,11 @@ export const TeamLimits = z.object({
    * Absent: `DEFAULT_SENIOR_WAIT_MINUTES`.
    */
   seniorWaitMinutes: z.number().int().min(5).max(1440).optional(),
+  /**
+   * How many minutes an obligation (PM-806) waits before each of its two deadlines: the reminder to the
+   * responsible, then the integrator todo. Absent: `DEFAULT_OBLIGATION_MINUTES`.
+   */
+  obligationMinutes: z.number().int().min(5).max(1440).optional(),
   tempWorkers: z
     .object({
       enabled: z.boolean().default(false),
@@ -222,6 +285,51 @@ export const TeamLimits = z.object({
     .default({ enabled: false, max: 1, role: 'developer' }),
 });
 export type TeamLimits = z.infer<typeof TeamLimits>;
+
+/** A repository's full test: the shell command the server runs in the full test sandbox, and its limits (PM-538). */
+export const ReviewTestConfig = z.object({
+  /** Shell command run at the root of the developer's checkout, e.g. "npm run typecheck && npm test". */
+  command: z.string().min(1).max(500),
+  /** Test workers: VITEST_MAX_FORKS and VITEST_MAX_THREADS. */
+  maxWorkers: z.number().int().min(1).max(8).default(2),
+  /** Wall-clock limit of one run. */
+  timeoutMinutes: z.number().int().min(1).max(60).default(15),
+  /**
+   * Shell command prefix that runs only the given test files; the server appends the
+   * repository-relative paths, each shell-quoted. Absent: a failed train is halved as before (PM-844).
+   */
+  filesCommand: z.string().min(1).max(500).optional(),
+  /**
+   * Where the merge check runs (PM-900): absent or 'engine' = the card's engine (full test sandbox,
+   * heavy-run queue); 'github_actions' = the repository's merge-check workflow. The merge check only;
+   * a review-time full test stays on the engine.
+   */
+  runner: MergeCheckRunner.optional(),
+  /**
+   * Where the full test runs before review (PM-909). Absent: the old rule (`reviewTestRunnerBeforeReview`):
+   * on the engine when `fullTestAtMerge` is not true, else off. 'off': no check before review; 'engine':
+   * the engine's full test sandbox; 'github_actions': the repository's merge-check workflow on the review
+   * pin, also with `fullTestAtMerge`. Independent of `runner`, which picks the merge check's runner.
+   */
+  beforeReview: z.enum(['off', 'engine', 'github_actions']).optional(),
+  /**
+   * Generated files a conflicting merge makes again instead of failing (PM-1050): when a merge conflicts
+   * only on files matching `paths`, the engine runs `command` on the merge result and commits the files it
+   * wrote there. Absent: every conflict fails as before.
+   */
+  regenerate: z
+    .object({
+      /** Repository-relative glob patterns (git `:(glob)` pathspec syntax), e.g. "apps/server/src/context/__snapshots__/**". */
+      paths: z
+        .array(z.string().min(1).max(200).refine(isRegeneratedPathPattern, 'Not a path pattern'))
+        .min(1)
+        .max(10),
+      /** Shell command run at the root of the merge result's check checkout, in the full test sandbox; it writes the generated files. */
+      command: z.string().trim().min(1).max(500),
+    })
+    .optional(),
+});
+export type ReviewTestConfig = z.infer<typeof ReviewTestConfig>;
 
 export const RepoConfig = z.object({
   /** Short name used in task.repo, e.g. "locked". */
@@ -238,21 +346,24 @@ export const RepoConfig = z.object({
    * The full test the server runs on the pinned commit before a task is reviewed (PM-217), in a
    * sandbox of its own with PTYs. Absent: the feature is off for this repository.
    */
-  reviewTest: z
-    .object({
-      /** Shell command run at the root of the developer's checkout, e.g. "npm run typecheck && npm test". */
-      command: z.string().min(1).max(500),
-      /** Test workers: VITEST_MAX_FORKS and VITEST_MAX_THREADS. */
-      maxWorkers: z.number().int().min(1).max(8).default(2),
-      /** Wall-clock limit of one run. */
-      timeoutMinutes: z.number().int().min(1).max(60).default(15),
-    })
-    .optional(),
+  reviewTest: ReviewTestConfig.optional(),
   /**
    * Developers run targeted checks only; the integrator owns the full check before merge (PM-380).
-   * Absent or false: retain the existing hand-over policy. Does not disable `reviewTest`.
+   * Absent or false: retain the existing hand-over policy. true: `reviewTest` runs only at the merge,
+   * not before review (`reviewTestBeforeReview`, PM-386).
    */
   fullTestAtMerge: z.boolean().optional(),
+  /**
+   * true: a card's work must be in `defaultBranch` before the card enters the merge target (PM-448);
+   * false: it need not be; absent: `requiresMerge` decides.
+   */
+  requireMerge: z.boolean().optional(),
+  /**
+   * Where the project documents (decision log, roadmap, lessons) live in this repository (PM-388, PM-1004). No default:
+   * absent, the feature is off, so nothing is written to a client's public default branch unasked.
+   * When several repositories have it, the first counts (`projectDocsOf`).
+   */
+  docs: RepoDocs.optional(),
 });
 export type RepoConfig = z.infer<typeof RepoConfig>;
 
@@ -262,6 +373,7 @@ export const DEFAULT_PROJECT_LANGUAGE = 'hu';
 export const ProjectConfig = z.object({
   schemaVersion: z.literal(1),
   project: z.object({
+    email: ProjectEmailConfig.optional(),
     /** Uppercase project key used in task keys ("AR" -> "AR-21"). */
     key: z.string().regex(/^[A-Z][A-Z0-9]{0,9}$/),
     name: z.string().min(1),
@@ -273,9 +385,19 @@ export const ProjectConfig = z.object({
     /** IANA time zone of the team, e.g. "Europe/Budapest"; schedules run in it. */
     timezone: z.string().min(1).default('UTC'),
     templateId: z.string().optional(),
+    /** The feedback tool (PM-506): where it may run and who may not mark. */
+    feedback: FeedbackConfig.optional(),
   }),
   team: z.object({
+    operatorWatch: OperatorWatch.optional(),
+    /** Owner-controlled approval waiver; absent means every approval still needs a click. */
+    operatorApprovalWaiver: z.boolean().optional(),
+    cardMover: CardMover.optional(),
+    /** Who merges approved work into the default branch. Absent: `defaultMerger` decides. */
+    merger: Merger.optional(),
     members: z.array(MemberConfig).min(1),
+    /** Who a contact-restricted member may write to (PM-985); absent in older configurations: nobody. */
+    contacts: ContactHandles.default([]),
     /** Roles the team defined in addition to the built-in ones. */
     roles: z.array(CustomRoleDefinition).default([]),
     roleOverrides: RoleOverrides.optional(),

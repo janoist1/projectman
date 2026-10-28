@@ -11,12 +11,14 @@ import type { RemoteRunner } from './runner';
  * engine's own sessions: an engine can ask about, and be given something for, only a session it runs.
  */
 
-export interface CloudHandlerOptions {
+interface CloudHandlerOptions {
   hub: RemoteHub;
   runner: RemoteRunner;
   broker: PermissionBroker;
   /** The projectman-managed NanoGPT key; null when there is none. */
   nanogptKey: () => Promise<string | null>;
+  /** The project a session belongs to according to the database; null for an unknown session. */
+  projectOf: (sessionId: string) => string | null;
   /**
    * Runs one team-tool request. Bound once the domain exists (it needs the session's token). Resolves the
    * session the token belongs to and refuses (`null`) a token that is not valid or not that engine's.
@@ -39,8 +41,16 @@ export function registerCloudHandlers(options: CloudHandlerOptions): void {
   const pending = new Map<string, Pending>();
   const keyOf = (engineId: EngineId, requestId: string) => `${engineId}\u0000${requestId}`;
 
+  /** The session runs on this engine and its project is bound to it (PM-1061); the answer is the same for both. */
+  const isOwnSession = (engineId: EngineId, sessionId: string): boolean => {
+    if (runner.engineOf(sessionId) !== engineId) return false;
+    const projectKey = options.projectOf(sessionId);
+    if (projectKey !== null && hub.isBound(engineId, projectKey)) return true;
+    logger.warn({ engineId, sessionId }, 'an engine asked about a session of a project not bound to it');
+    return false;
+  };
   const ownSession = (engineId: EngineId, sessionId: string) => {
-    if (runner.engineOf(sessionId) !== engineId)
+    if (!isOwnSession(engineId, sessionId))
       throw new EngineRpcError('not_running', 'The session is not running on this engine');
   };
   const abortWhere = (matches: (entry: Pending) => boolean) => {
@@ -88,8 +98,8 @@ export function registerCloudHandlers(options: CloudHandlerOptions): void {
   });
   hub.onEvent((engineId, event) => {
     if (event.kind !== 'refused') return;
-    // A session of another engine is not recorded: it could not have asked.
-    if (runner.engineOf(event.info.sessionId) !== engineId) return;
+    // A session of another engine or of a project not bound to this one is not recorded: it could not have asked.
+    if (!isOwnSession(engineId, event.info.sessionId)) return;
     try {
       broker.refused?.(event.info);
     } catch (err) {
@@ -98,9 +108,18 @@ export function registerCloudHandlers(options: CloudHandlerOptions): void {
   });
 
   hub.handle('secret.nanogpt_key', async (engineId, { sessionId }) => {
+    // The key is the host owner's: an engine of another owner never gets it (PM-1061). The wire code is
+    // the old `secret_not_allowed`, so that an older engine reads the refusal too.
+    if (!hub.ownedByHost(engineId)) {
+      logger.warn(
+        { engineId, sessionId },
+        'nanogpt_key_not_for_engine: the key was asked for by another owner',
+      );
+      throw new EngineRpcError('secret_not_allowed', 'nanogpt_key_not_for_engine');
+    }
     // Only to the session that is starting a NanoGPT member on this engine, and only until its start
     // call returns; never cached on the cloud.
-    if (!runner.takeKeyGrant(engineId, sessionId))
+    if (!isOwnSession(engineId, sessionId) || !runner.takeKeyGrant(engineId, sessionId))
       throw new EngineRpcError('secret_not_allowed', 'This session is not starting');
     const key = await options.nanogptKey();
     if (!key) throw new EngineRpcError('secret_not_allowed', 'There is no NanoGPT key');

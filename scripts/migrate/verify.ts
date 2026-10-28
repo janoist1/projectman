@@ -3,26 +3,34 @@ import { join, resolve } from 'node:path';
 import { createConfigStore } from '../../apps/server/src/config';
 import { LATEST_SCHEMA_VERSION } from '../../apps/server/src/db';
 import { instanceRole, InstanceMarkerError } from '../../apps/server/src/instance';
-import { ACTIVATED_FILE, APPLY_REPORT_FILE, MIGRATED_DIR } from './apply';
+import { ACTIVATED_FILE, APPLY_REPORT_FILE, MIGRATED_DIR } from './instance';
 import { databaseInUse, snapshotDatabase } from './database';
 import { git, isGitRepository } from './git';
+import { forbiddenEntries } from './hybrid-entries';
 import { readProjectFiles } from './inventory';
 import type { Finding } from './inventory';
 
 /**
  * Checks that a home directory is whole and consistent (PM-143): after a copy, after a restore, on a
- * backup extracted to a scratch directory. It decides nothing about the machine (that is
- * `deploy/vm/verify.sh`); it reads the home and returns findings, and `ok` only when there is no
+ * backup extracted to a scratch directory. It reads the home and returns findings, and `ok` only when there is no
  * blocker. The server must not be running on the home (the database is read from a scratch copy).
  */
 
-export interface VerifyOptions {
+interface VerifyOptions {
   home: string;
   /** Also require that every project's workspace and repositories exist at their stored paths. */
   checkPaths: boolean;
+  /**
+   * The home is the cloud's side of the hybrid mode (PM-318): no workspace or repository exists on it
+   * (`checkPaths` is ignored), only the closed list of entries may be there, and the database must hold
+   * exactly one default engine and an engine for every session.
+   */
+  hybridCloud?: boolean;
+  /** With `hybridCloud`: the home is a copy of the running cloud's data, so what the cloud writes itself is tolerated. */
+  cloudData?: boolean;
 }
 
-export interface VerifyResult {
+interface VerifyResult {
   home: string;
   ok: boolean;
   role: string;
@@ -60,7 +68,7 @@ export async function verifyHome(options: VerifyOptions): Promise<VerifyResult> 
         'blocker',
         'apply_incomplete',
         MIGRATED_DIR,
-        `the apply did not finish (no ${join(MIGRATED_DIR, APPLY_REPORT_FILE)}): the copy is incomplete, apply the package again into a new home`,
+        `the apply did not finish (no ${join(MIGRATED_DIR, APPLY_REPORT_FILE)}): the copy is incomplete; start from the source again`,
       );
     if (role === 'active' && !existsSync(join(migrated, ACTIVATED_FILE)))
       add(
@@ -70,6 +78,14 @@ export async function verifyHome(options: VerifyOptions): Promise<VerifyResult> 
         'a migrated copy has no role marker and was never activated: it would work next to the old machine',
       );
   }
+  if (options.hybridCloud)
+    for (const entry of forbiddenEntries(home, { cloudData: options.cloudData }))
+      add(
+        'blocker',
+        'forbidden_entry',
+        entry.name,
+        `${entry.name} must not be in the cloud's home (${entry.why}): it belongs on the Mac`,
+      );
   const mode = statSync(home).mode & 0o777;
   if ((mode & 0o077) !== 0)
     add('blocker', 'home_mode', home, `the home has mode ${mode.toString(8)}: it must be private (700)`);
@@ -128,6 +144,46 @@ export async function verifyHome(options: VerifyOptions): Promise<VerifyResult> 
           'users',
           'the database has no account: the first start would ask for a new owner',
         );
+      if (options.hybridCloud) {
+        const hasEngines = db.prepare("SELECT 1 FROM sqlite_master WHERE name = 'engines'").get();
+        if (!hasEngines)
+          add(
+            'blocker',
+            'engines_missing',
+            'engines',
+            'the database has no engine registry (schema older than 42): it is not a hybrid cloud database',
+          );
+        else {
+          const defaults = Number(
+            (
+              db
+                .prepare('SELECT count(*) AS n FROM engines WHERE is_default = 1 AND revoked_at IS NULL')
+                .get() as { n: number }
+            ).n,
+          );
+          if (defaults !== 1)
+            add(
+              'blocker',
+              'default_engine',
+              'engines',
+              `the database has ${defaults} default engines that are not revoked: exactly one is needed`,
+            );
+          const orphans = (
+            db
+              .prepare(
+                'SELECT DISTINCT engine_id FROM sessions WHERE engine_id NOT IN (SELECT id FROM engines)',
+              )
+              .all() as { engine_id: string }[]
+          ).map((r) => r.engine_id);
+          if (orphans.length > 0)
+            add(
+              'blocker',
+              'session_engine_missing',
+              'sessions',
+              `sessions belong to engines the database does not know: ${orphans.join(', ')}`,
+            );
+        }
+      }
       if (schema >= 11)
         attachmentIds.push(
           ...(db.prepare("SELECT id FROM attachments WHERE state = 'ready'").all() as { id: string }[]).map(
@@ -213,7 +269,7 @@ export async function verifyHome(options: VerifyOptions): Promise<VerifyResult> 
   }
 
   // --- paths: only what a session would start in
-  if (options.checkPaths) {
+  if (options.checkPaths && !options.hybridCloud) {
     for (const project of readProjectFiles(home)) {
       if (!existsSync(project.workspacePath))
         add(

@@ -1,7 +1,9 @@
-import { isOnLeave, SYSTEM_SENDER } from '@projectman/shared';
+import { hasConnectedOrigin, hasSuperOrigin, isOnLeave, SYSTEM_SENDER } from '@projectman/shared';
 import type { Actor, InboxItem, MemberStatus, MemberView, PausedSession, RoleView } from '@projectman/shared';
 import type { IconName } from '../components/Icon';
 import { t } from '../i18n/t';
+import { formatTime } from '../i18n/format';
+import { outageReason } from './outage';
 import { aiRoleView, humanRoleName } from './roles';
 import type { RoleTone } from './roles';
 
@@ -61,12 +63,87 @@ export function roleLabel(
 
 export type MemberIndex = ReadonlyMap<string, MemberView>;
 
+export interface ActorParts {
+  /** Who acted: nameOf(actor.handle) ("Te" for the viewer). */
+  name: string;
+  /** A decision-66 step (actor.through); null on every other actor, an old super row included. */
+  connected: {
+    /** The holder's name for the chip; null when the actor is the holder (a direct instruction). */
+    chipHolder: string | null;
+    /** The holder's name for the detail line and the chip's accessible name; always set. */
+    holder: string;
+    /** The approver's name (actor.approvedBy); null without an approval. */
+    approver: string | null;
+    /** Whether the approver shows in the meta line: false when the approver is the actor. */
+    approverInline: boolean;
+    /** credential.prefix; the id and the secret never leave this helper. */
+    prefix: string;
+  } | null;
+  /** An old operatorMode: 'super' row: drawn as before. */
+  legacySuper: boolean;
+}
+
+/** The parts every view draws a step's actor from; the components compose no actor text themselves. */
+export function actorParts(actor: Actor, index: MemberIndex, myHandle: string | null): ActorParts {
+  const name = nameOf(actor.handle, index, myHandle);
+  if (!hasConnectedOrigin(actor)) return { name, connected: null, legacySuper: hasSuperOrigin(actor) };
+  const { holder } = actor.through;
+  return {
+    name,
+    legacySuper: false,
+    connected: {
+      chipHolder: holder === actor.handle ? null : nameOf(holder, index, myHandle),
+      holder: nameOf(holder, index, myHandle),
+      approver: actor.approvedBy === undefined ? null : nameOf(actor.approvedBy, index, myHandle),
+      approverInline: actor.approvedBy !== undefined && actor.approvedBy !== actor.handle,
+      prefix: actor.through.credential.prefix,
+    },
+  };
+}
+
+/** The viewer acted: their own handle, and no integrator origin unless it is the viewer's own connected Claude. */
+export function isOwnActor(actor: Actor, myHandle: string | null): boolean {
+  if (myHandle === null || actor.handle !== myHandle) return false;
+  return !actor.via || (hasConnectedOrigin(actor) && actor.through.holder === myHandle);
+}
+
 export function actorLabel(actor: Actor, index: MemberIndex, myHandle: string | null): string {
+  const { name, connected } = actorParts(actor, index, myHandle);
+  if (connected)
+    return connected.chipHolder === null
+      ? t('connected.label', { name })
+      : t('connected.labelHolder', { name, holder: connected.chipHolder });
+  if (hasSuperOrigin(actor))
+    return t(actor.credential.prefix === 'operator-app' ? 'superMode.name' : 'superMode.actor');
   return actor.via === 'integrator' ? t('involvement.integrator') : nameOf(actor.handle, index, myHandle);
 }
 
+/** Historical records without an actor retain their original sender and integrator attribution. */
+export function recordActor(record: { actor?: Actor; via?: 'integrator'; from: string }): Actor {
+  return record.actor ?? { kind: 'human', handle: record.from, ...(record.via ? { via: record.via } : {}) };
+}
+
+/**
+ * Members by handle, and by each of their former handles (PM-1026): records written before a rename
+ * still name the member. A current handle wins over a former one.
+ */
 export function indexMembers(members: readonly MemberView[] | undefined): MemberIndex {
-  return new Map((members ?? []).map((member) => [member.handle, member]));
+  const all = members ?? [];
+  const index = new Map<string, MemberView>();
+  for (const member of all) for (const former of member.formerHandles ?? []) index.set(former, member);
+  for (const member of all) index.set(member.handle, member);
+  return index;
+}
+
+/** The current handle of the member a handle stands for, when that is another one (a renamed member); else null. */
+export function renamedTo(handle: string, index: MemberIndex): string | null {
+  const member = index.get(handle);
+  return member && member.handle !== handle ? member.handle : null;
+}
+
+/** Only the owner renames, and only an AI member (PM-1026). */
+export function canRenameMember(member: MemberView, isOwner: boolean): boolean {
+  return isOwner && member.kind === 'ai';
 }
 
 /** Display name, with "Te" for the current user. */
@@ -103,16 +180,37 @@ const PAUSABLE_STATUSES: readonly MemberStatus[] = ['idle', 'working', 'waiting_
  * Status key for data-status plus its label; "waiting for a human" becomes "Rád vár" when it is you.
  * With `pausedRows` (the rows of the pause the page shows; an empty list: nobody was working) an AI
  * member that is not on leave reads "Szünetel", or "Megáll…" while one of its sessions has not stopped.
+ * An outage that keeps a member from working (PM-468) reads "Nem tud dolgozni", with its reason; the
+ * order is a pause, then leave, then an outage, then a quota wait, then "Rád vár", then the member's own state, and a
+ * running session does not change it.
  */
 export function memberStatusView(
   member: MemberView,
   inbox: readonly InboxItem[] | undefined,
   myHandle: string | null,
   pausedRows?: readonly Pick<PausedSession, 'member' | 'point'>[],
-): { status: MemberStatus | 'needs_you' | 'paused'; label: string } {
+): { status: MemberStatus | 'needs_you' | 'paused' | 'cannot_work'; label: string; reason?: string } {
   if (pausedRows && member.kind === 'ai' && !isOnLeave(member) && PAUSABLE_STATUSES.includes(member.status)) {
     const stopping = pausedRows.some((row) => row.member === member.handle && row.point === null);
     return { status: 'paused', label: t(stopping ? 'memberStatus.pausing' : 'memberStatus.paused') };
+  }
+  if (member.kind === 'ai' && member.outage && !isOnLeave(member)) {
+    return {
+      status: 'cannot_work',
+      label: t('memberStatus.cannotWork'),
+      reason: outageReason(member.outage),
+    };
+  }
+  if (member.kind === 'ai' && member.quotaWaiting && !isOnLeave(member)) {
+    const until = member.quotaWaiting.until;
+    return {
+      status: 'cannot_work',
+      label: t('memberStatus.cannotWork'),
+      reason:
+        until && Date.parse(until) > Date.now()
+          ? t('memberStatus.quotaReasonUntil', { time: formatTime(until) })
+          : t('memberStatus.quotaReason'),
+    };
   }
   if (member.status === 'waiting_for_human' && isWaitingForMe(member, inbox, myHandle)) {
     return { status: 'needs_you', label: t('memberStatus.needsYou') };

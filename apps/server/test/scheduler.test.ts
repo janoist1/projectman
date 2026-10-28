@@ -1,13 +1,13 @@
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { ServerEvent } from '@projectman/shared';
+import { LOCAL_ENGINE_ID, ServerEvent } from '@projectman/shared';
 import type { ProjectConfig, Task } from '@projectman/shared';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import { rejection } from './helpers/errors';
 import type { DomainHarness } from './helpers/domain-harness';
 import { settle } from './helpers/fakes';
 import { waitFor } from '../src/runner/test-helpers';
-import { aiActor } from '../src/domain';
+import { aiActor } from '../src/kernel';
 
 const start = (h: DomainHarness, key: string, assignee?: string) =>
   h.domain.taskStarts.start('AR', key, { assignee, actor: OWNER_ACTOR, author: OWNER, sponsor: 'owner' });
@@ -104,6 +104,8 @@ describe('scheduler', () => {
     };
     expect(await code(start(h, 'AR-1'))).toBe('plan_usage_paused');
     h.runnerModule.planUsage.value = { ...h.runnerModule.planUsage.value, fiveHourPercent: 80 };
+    // The member choice reads the last refreshed value, so refresh it as the background poll would.
+    await h.domain.planUsage.get('claude', LOCAL_ENGINE_ID);
     expect((await start(h, 'AR-1')).session).not.toBeNull();
   });
 
@@ -212,7 +214,7 @@ describe('scheduler', () => {
     await settle();
     expect(h.runner.isRunning(dev.id)).toBe(true);
     await h.domain.teamTools.sendMessage(ctx, {
-      kind: 'action',
+      kind: 'info',
       to: ['owner'],
       text: 'Five notes that do not block',
     });

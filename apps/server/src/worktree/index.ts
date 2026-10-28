@@ -1,10 +1,12 @@
-export { createWorktreeManager, WorktreeError, type WorktreeErrorCode } from './worktree-manager';
+export { createWorktreeManager } from './worktree-manager';
+export { createMemberWorkspaceManager } from './member-workspace-manager';
+export { createMemberWorkspaceRegistry } from './member-workspace-registry';
+export { createDependencyGate } from './dependency-gate';
+export { git } from './git';
 export {
-  createMemberWorkspaceManager,
-  MemberWorkspaceError,
-  type MemberWorkspaceManagerSettings,
-} from './member-workspace-manager';
-export { localWorkspaceAccess, SAFE_GIT_SETTINGS } from './workspace-access';
-export type { TransferSource, WorkspaceAccess } from './workspace-access';
-export { slugify, taskBranchName } from './branch-name';
-export { git, GitCommandError } from './git';
+  DEPENDENCY_LOCKFILE,
+  dependencyState,
+  findDependencyReference,
+  markDependenciesInstalled,
+} from './dependencies';
+export { copyDependencyTrees } from './dependency-copy';

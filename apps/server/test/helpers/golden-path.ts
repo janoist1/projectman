@@ -23,7 +23,7 @@ import {
   type TimelineEvent,
 } from '@projectman/shared';
 import { templates } from '@projectman/templates';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ToolContext } from '../../src/contracts';
 import { waitFor } from '../../src/runner/test-helpers';
 import { createAppHarness, setupOwner } from './app-harness';
@@ -90,6 +90,16 @@ async function setup(templateId: string) {
   );
   expect(created.statusCode, created.body).toBe(201);
   const domain = server.projectman.domain;
+  // The stage hand-overs run in the background after a move. The journey needs to know when each one is
+  // over (it stores the notice to a running session, or starts a session, or does nothing), so it tracks
+  // them here and waits for them instead of guessing from the timeline what the hand-over decided.
+  const handOvers = new Set<Promise<void>>();
+  const handOff = domain.handOver.handOff.bind(domain.handOver);
+  vi.spyOn(domain.handOver, 'handOff').mockImplementation((change) => {
+    const running: Promise<void> = handOff(change).finally(() => handOvers.delete(running));
+    handOvers.add(running);
+    return running;
+  });
   const configView = async (): Promise<ConfigView> =>
     (await server.inject({ method: 'GET', url: routes.config(projectKey), headers })).json();
   const board = async (): Promise<BoardView> =>
@@ -112,7 +122,18 @@ async function setup(templateId: string) {
     });
     return next.config;
   };
-  return { server, domain, cookie, headers, workspace, configView, board, patchConfig, close: harness.close };
+  return {
+    server,
+    domain,
+    cookie,
+    headers,
+    workspace,
+    handOvers,
+    configView,
+    board,
+    patchConfig,
+    close: harness.close,
+  };
 }
 
 type Harness = Awaited<ReturnType<typeof setup>>;
@@ -170,7 +191,10 @@ async function startTask(h: Harness) {
     expect(detail.task.labels).toEqual(labels);
     if (status === 'done') expect(detail.task.closedAt).toEqual(expect.any(String));
     const businessEvents = detail.timeline.filter((event) => !event.type.startsWith('session_'));
-    expect(businessEvents).toHaveLength(events.length);
+    expect(
+      businessEvents,
+      `timeline: ${businessEvents.map((event) => `${event.type} ${JSON.stringify(event.data)}`).join('; ')}`,
+    ).toHaveLength(events.length);
     events.forEach((event, i) => expect(businessEvents[i]).toMatchObject(event));
     // A session closes by itself when its member's step on the card is done (PM-295), and starts again,
     // resumed, when the member is needed again: so each session has one fresh start, and any number of
@@ -330,12 +354,25 @@ async function awaitSystem(h: Harness, j: Journey) {
       what: `the system moves the card on from ${task.stageId}`,
     });
   }
+  // A hand-over that is still running may store its notice: let it finish before the timeline is read.
+  await settledHandOvers(h);
   const business = h.domain.timeline
     .list(projectKey, { taskKey: j.task.key })
     .filter((event) => !event.type.startsWith('session_'));
   for (const event of business.slice(j.events.length)) {
     expect(event.actor, `${event.type} that nobody asked for is the system's`).toMatchObject(system);
-    expect(['task_updated', 'task_stage_changed']).toContain(event.type);
+    expect(['task_updated', 'task_stage_changed', 'team_message']).toContain(event.type);
+    if (event.type === 'team_message') {
+      // The stage notice to a member whose session is already running is a stored message from the
+      // system (PM-82): it shows in the card's history, once, and only to a member of the team.
+      expect(event.data, 'the only message the system sends is a stage notice').toMatchObject({
+        from: 'system',
+        kind: 'action',
+      });
+      expect(event.data.to).toHaveLength(1);
+      j.events.push({ type: 'team_message', actor: system, data: { from: 'system', kind: 'action' } });
+      continue;
+    }
     j.events.push({ type: event.type, actor: system, data: {} });
     if (event.type === 'task_updated') {
       const request = event.data.gateRequest as { inboxItemIds: string[] } | undefined;
@@ -409,13 +446,22 @@ async function handedOverTo(h: Harness, j: Journey, mover: string | null, from: 
       m.handle !== j.developer &&
       stageOwners(config, stage).includes(m.handle),
   );
-  if (owner)
-    await j.context(owner.handle, {
-      kind: 'hand_over',
-      from,
-      to: target,
-      by: mover ? ai(mover) : system,
-    });
+  if (!owner) return;
+  await j.context(owner.handle, {
+    kind: 'hand_over',
+    from,
+    to: target,
+    by: mover ? ai(mover) : system,
+  });
+  // The hand-over runs in the background and decides by itself, depending on timing, whether it finds the
+  // session running (it stores a notice for it, PM-82) or starts the session (no notice). Either way it is
+  // over when its promise settles, so nothing after this point can add a notice to the timeline later.
+  await settledHandOvers(h);
+}
+
+/** Waits for every stage hand-over that is running, and for those they start in turn. */
+async function settledHandOvers(h: Harness) {
+  while (h.handOvers.size > 0) await Promise.allSettled([...h.handOvers]);
 }
 
 async function approve(h: Harness, j: Journey, member: string, target: string, cookie = h.cookie) {
@@ -487,6 +533,9 @@ async function approve(h: Harness, j: Journey, member: string, target: string, c
     actor: owner,
     data: { from, to: target, approvedBy: ['owner'], inboxItemIds: [item.id] },
   });
+  // The approver's session may be running already: the hand-over then tells it with a stored message in
+  // the background (PM-82), so wait for it before the timeline is read.
+  await handedOverTo(h, j, null, from, target);
   // The card may lack only the next approval now (merge, then release): the system asks for it.
   await awaitSystem(h, j);
   await j.assertState(target, target === 'done' ? 'done' : undefined);

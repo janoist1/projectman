@@ -13,6 +13,7 @@ import {
   PENDING_INBOX_STATES,
   refinementStallRefusal,
   refinementTurn,
+  SYSTEM_SENDER,
   turnStalled,
 } from '@projectman/shared';
 import type {
@@ -25,6 +26,7 @@ import type {
 } from '@projectman/shared';
 import { ownerHandles } from '@projectman/shared';
 import type { InboxService } from '../../core/inbox';
+import type { Messaging } from '../../core/messages';
 import type { MessageDelivery } from '../delivery';
 import type { ProjectService } from '../../core/projects';
 import type { SessionOrchestrator } from '../sessions';
@@ -77,6 +79,7 @@ export class RefinementSteps {
   private readonly delivery: MessageDelivery;
   private readonly inbox: InboxService;
   private readonly timeline: TimelineService;
+  private messaging?: Pick<Messaging, 'send'>;
   private notifyDone?: (task: Task, recipient: string) => Promise<void>;
   private stallNotices?: RefinementStallNotices;
   /** One look at a card at a time, so that two events do not hand the same step out twice. */
@@ -103,6 +106,11 @@ export class RefinementSteps {
   /** Bound by assembly: the services side that tells the project manager about a stalled turn (PM-702). */
   useStallNotices(notices: RefinementStallNotices): void {
     this.stallNotices = notices;
+  }
+
+  /** Bound after Messaging, which depends on this service's turnMember. */
+  useMessaging(messaging: Pick<Messaging, 'send'>): void {
+    this.messaging = messaging;
   }
 
   /** Bound after Messaging, which depends on this service's turnMember. */
@@ -288,12 +296,38 @@ export class RefinementSteps {
         const text = stepText(task, turn);
         const working = owners.find((m) => this.sessions.findRunning(projectKey, m.handle, workItem));
         if (working) {
-          this.delivery.notice(
-            this.sessions.findRunning(projectKey, working.handle, workItem)!,
-            'projectman',
-            text,
-            taskKey,
-          );
+          // A stored message from the system (PM-82); the turn is recorded after it, so it is not held for the turn.
+          // The send reads the commit first (a git call): the step may be gone by the time it records, and then
+          // nothing is stored (a notice about a stage the card has left would only mislead the member).
+          let gone = false;
+          try {
+            await this.messaging!.send(
+              projectKey,
+              SYSTEM_SENDER,
+              { to: [working.handle], taskKey, text },
+              {
+                kind: 'action',
+                actor: SYSTEM_ACTOR,
+                ownCard: true,
+                duringRefinement: true,
+                beforeRecord: () => {
+                  const current = this.tasks.find(projectKey, taskKey);
+                  if (
+                    current &&
+                    isOpenTask(current) &&
+                    current.stageId === spec.stageId &&
+                    !current.labels.includes(label)
+                  )
+                    return;
+                  gone = true;
+                  throw new Error('the refinement step is gone');
+                },
+              },
+            );
+          } catch (err) {
+            if (gone) return;
+            throw err;
+          }
           this.record(task, label, working.handle);
           this.handOverWaiting(projectKey, working.handle, workItem);
           return;

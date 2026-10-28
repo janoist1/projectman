@@ -202,8 +202,10 @@ describe('automatic session admission and retries', () => {
         'Please review the fictional checkout.',
       ),
     );
-    expect(h.runner.messages.map((m) => m.text).join('\n')).toContain(
-      'Task AR-1 is now in stage Code review',
+    await vi.waitFor(() =>
+      expect(h.runner.messages.map((m) => m.text).join('\n')).toContain(
+        'Task AR-1 is now in stage Code review',
+      ),
     );
     const cause = h.domain.sessions.get('AR', session.id).startCause;
     expect(cause).toMatchObject({ kind: 'hand_over', from: 'backlog', to: 'code_review', by: OWNER_ACTOR });

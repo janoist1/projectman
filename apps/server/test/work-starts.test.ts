@@ -292,7 +292,8 @@ describe('automatic start of unassigned cards moved into a work stage', () => {
     expect(storedKeys()).toEqual([]);
 
     // With a live session, the assignee is told that the card entered its stage.
-    await h.domain.sessions.ensureSession('AR', 'dev-2', { type: 'task', taskKey: key });
+    const live = await h.domain.sessions.ensureSession('AR', 'dev-2', { type: 'task', taskKey: key });
+    h.runner.setState(live.session.id, 'idle');
     await move(key, 'backlog');
     await move(key);
     await vi.waitFor(() =>

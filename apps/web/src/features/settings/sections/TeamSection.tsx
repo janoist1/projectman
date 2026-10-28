@@ -7,6 +7,7 @@ import {
   contactHandles,
   hasAccess,
   mergerOf,
+  projectManagerMovesOf,
 } from '@projectman/shared';
 import type { MemberConfig, ProjectConfig, RoleView } from '@projectman/shared';
 import { isApiError } from '../../../api/client';
@@ -150,6 +151,30 @@ function MergerControls({ config }: { config: ProjectConfig }) {
 function moverCandidates(config: ProjectConfig): MemberConfig[] {
   return config.team.members.filter(
     (member) => member.kind === 'human' && hasAccess(member.access, 'developer'),
+  );
+}
+
+function ProjectManagerMovesControls({ config }: { config: ProjectConfig }) {
+  const { shown, saving, commit, error, locked } = useInstantLimits(config);
+  return (
+    <fieldset className={shared.controls} disabled={locked} aria-busy={saving}>
+      <SelectField
+        label={t('settings.team.projectManagerMoves.label')}
+        hint={t('settings.team.projectManagerMoves.help')}
+        value={projectManagerMovesOf(shown)}
+        onChange={(event) => {
+          const value = event.target.value;
+          if (value === 'queues_and_start' || value === 'start_only')
+            commit((draft) => {
+              draft.team.projectManagerMoves = value;
+            });
+        }}
+      >
+        <option value="queues_and_start">{t('settings.team.projectManagerMoves.queues_and_start')}</option>
+        <option value="start_only">{t('settings.team.projectManagerMoves.start_only')}</option>
+      </SelectField>
+      {error ? <ErrorBanner>{errorMessage(error)}</ErrorBanner> : null}
+    </fieldset>
   );
 }
 
@@ -342,6 +367,24 @@ export function TeamSection({ config }: { config: ProjectConfig }) {
             </dl>
           )}
         </div>
+      </section>
+      <section aria-labelledby="settings-pm-moves-title">
+        <h3 id="settings-pm-moves-title" className={shared.groupTitle}>
+          {t('settings.team.projectManagerMoves.label')}
+        </h3>
+        {can.manageTeam ? (
+          <ProjectManagerMovesControls config={config} />
+        ) : (
+          <dl className={shared.facts}>
+            <div>
+              <dt>{t('settings.team.projectManagerMoves.label')}</dt>
+              <dd>
+                {t(`settings.team.projectManagerMoves.${projectManagerMovesOf(config)}`)}
+                <p className={shared.help}>{t('settings.team.projectManagerMoves.help')}</p>
+              </dd>
+            </div>
+          </dl>
+        )}
       </section>
       <section aria-labelledby="settings-merger-title">
         <h3 id="settings-merger-title" className={shared.groupTitle}>

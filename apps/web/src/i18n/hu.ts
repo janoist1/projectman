@@ -6471,6 +6471,12 @@ export const hu = {
           human: '{name}',
         },
       },
+      projectManagerMoves: {
+        label: 'A Projektmenedzser önálló kártyamozgatása',
+        help: 'A várakozó sorok közötti mozgatás mindkét irányban engedélyezhető, az első sort is beleértve. Munkát csak az első utáni sorból indíthat. A szakaszkapuk mindig érvényesek; a kész munka továbbadását a külön beállítás szabályozza.',
+        queues_and_start: 'Mozgatás a várakozó sorok között és munkaindítás',
+        start_only: 'Csak munkaindítás',
+      },
       merger: {
         label: 'Beolvasztó',
         help: 'Ő olvasztja be a jóváhagyott munkát a fő ágba. A rendszer magától nem olvaszt be.',

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ComplexityPoints } from '../domain/complexity';
+import { ComplexityPoints, DEFAULT_TEMP_MAX_POINTS } from '../domain/complexity';
 import { LabelId } from '../domain/label';
 import { AgentEffort, CheapSubagentModel } from '../domain/member';
 import {
@@ -281,8 +281,10 @@ export const TeamLimits = z.object({
       max: z.number().int().min(0).max(5).default(1),
       /** Role a temp worker is hired for (an AI-capable built-in or custom role). */
       role: RoleId.default('developer'),
+      /** The largest card a temp worker takes (PM-1101). Absent: `DEFAULT_TEMP_MAX_POINTS`. */
+      maxPoints: ComplexityPoints.optional(),
     })
-    .default({ enabled: false, max: 1, role: 'developer' }),
+    .default({ enabled: false, max: 1, role: 'developer', maxPoints: DEFAULT_TEMP_MAX_POINTS }),
 });
 export type TeamLimits = z.infer<typeof TeamLimits>;
 

@@ -566,7 +566,7 @@ const WAIVER_LIMITS: WaiverFields = {
   maxFixRounds: true,
   seniorWaitMinutes: true,
   obligationMinutes: true,
-  tempWorkers: { enabled: true, max: true, role: true },
+  tempWorkers: { enabled: true, max: true, role: true, maxPoints: true },
 };
 const WAIVER_STAGE: WaiverFields = {
   id: true,

@@ -227,7 +227,9 @@ function EditMemberForm({
             />
             {canSetLimit ? (
               member.temp ? (
-                <p className={styles.toggleHint}>{t('memberEdit.tempLimit')}</p>
+                <p className={styles.toggleHint}>
+                  {t('memberEdit.tempLimit', { points: member.complexityLimit ?? 5 })}
+                </p>
               ) : (
                 <SelectField
                   label={t('memberEdit.limit')}

@@ -174,6 +174,21 @@ describe('configuration PATCH', () => {
     });
   });
 
+  it('sets the temp worker card limit and refuses a value off the points scale (PM-1101)', async () => {
+    const before = (await view()).config.team.limits.tempWorkers;
+    const ok = await patch({
+      baseVersion: (await view()).version,
+      limits: { tempWorkers: { maxPoints: 8 } },
+    });
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json<ConfigView>().config.team.limits.tempWorkers).toEqual({ ...before, maxPoints: 8 });
+    const bad = await patch({
+      baseVersion: (await view()).version,
+      limits: { tempWorkers: { maxPoints: 4 } },
+    });
+    expect(bad.statusCode).toBe(400);
+  });
+
   it('rejects a stale version without writing history', async () => {
     const current = await view();
     const response = await patch({ baseVersion: 'outdated', project: { name: 'Stale edit' } });

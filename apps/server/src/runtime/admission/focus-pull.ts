@@ -9,6 +9,7 @@ import {
   stageDevelopers,
   stageOwners,
   startClass,
+  tempMaxPointsOf,
 } from '@projectman/shared';
 import type { FocusPlace, StagePull, Task } from '@projectman/shared';
 import type { DomainContext } from '../../core/base';
@@ -138,6 +139,7 @@ export class FocusPull implements FocusPulling {
         anyDecided: this.seniorWaits.decisionFor(projectKey, card.key)?.decision === 'any',
         reaching: reachingDevelopers(developers, points, card.labels),
         free,
+        tempMaxPoints: tempMaxPointsOf(config),
       });
       // The card waits for a developer whose limit reaches its points, or nobody can take it: the next card.
       if (pick.kind !== 'member') {

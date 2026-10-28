@@ -26,7 +26,12 @@ describe('chooseDeveloper (PM-1007)', () => {
   const pick = (
     points: ComplexityPoints | null,
     pool: FreeDeveloper[],
-    extra: { anyDecided?: boolean; developers?: StageDeveloper[]; labels?: string[] } = {},
+    extra: {
+      anyDecided?: boolean;
+      developers?: StageDeveloper[];
+      labels?: string[];
+      tempMaxPoints?: ComplexityPoints;
+    } = {},
   ) =>
     chooseDeveloper({
       points,
@@ -34,6 +39,7 @@ describe('chooseDeveloper (PM-1007)', () => {
       anyDecided: extra.anyDecided ?? false,
       reaching: reachingDevelopers(extra.developers ?? developers, points, extra.labels ?? []),
       free: pool,
+      tempMaxPoints: extra.tempMaxPoints ?? 5,
     });
 
   it('skips a specialist for an unlabelled card', () => {
@@ -94,6 +100,12 @@ describe('chooseDeveloper (PM-1007)', () => {
     const temp = free('temp', 3, 5, { temp: true });
     expect(pick(8, [temp], { anyDecided: true })).toEqual({ kind: 'none', tempAllowed: false });
     expect(pick(8, [temp], { developers: [] })).toEqual({ kind: 'none', tempAllowed: false });
+  });
+
+  it('hires a temp worker up to the project temp limit', () => {
+    const only: StageDeveloper[] = [{ handle: 'big', limit: 13 }];
+    expect(pick(8, [], { developers: only, tempMaxPoints: 8 })).toEqual({ kind: 'none', tempAllowed: true });
+    expect(pick(13, [], { developers: [], tempMaxPoints: 8 })).toEqual({ kind: 'none', tempAllowed: false });
   });
 
   it('may hire a temp worker for a small card when nobody is free', () => {

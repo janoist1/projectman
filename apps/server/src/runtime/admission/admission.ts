@@ -327,7 +327,7 @@ export class Admission {
       if (load >= member.capacity) return;
       free.push({
         handle: member.handle,
-        limit: complexityLimitOf(member),
+        limit: complexityLimitOf(config, member),
         specialtyLabels: member.specialtyLabels,
         temp: false,
         load,

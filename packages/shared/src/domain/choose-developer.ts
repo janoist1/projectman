@@ -34,9 +34,6 @@ export type DeveloperChoice =
   | { kind: 'senior_busy'; seniors: string[] }
   | { kind: 'none'; tempAllowed: boolean };
 
-/** The temp worker's limit is {@link complexityLimitOf}: a card above it never goes to one. */
-const TEMP_MAX_POINTS = 5;
-
 /** The points of the card; `null` when nobody scored it yet. */
 export function complexityOf(task: Pick<Task, 'complexity'>): ComplexityPoints | null {
   return task.complexity?.points ?? null;
@@ -47,7 +44,11 @@ export function stageDevelopers(config: Pick<ProjectConfig, 'team'>, stage: Stag
   const owners = new Set(stageOwners(config, stage));
   return config.team.members
     .filter((m): m is AiMemberConfig => m.kind === 'ai' && owners.has(m.handle) && !m.temp)
-    .map((m) => ({ handle: m.handle, limit: complexityLimitOf(m), specialtyLabels: m.specialtyLabels }));
+    .map((m) => ({
+      handle: m.handle,
+      limit: complexityLimitOf(config, m),
+      specialtyLabels: m.specialtyLabels,
+    }));
 }
 
 /** The first eligible human in team order, used when no AI developer can be chosen. */
@@ -118,6 +119,8 @@ export function chooseDeveloper(input: {
   /** The developers whose limit reaches the points, free or not. */
   reaching: string[];
   free: FreeDeveloper[];
+  /** The largest card a temp worker takes (`tempMaxPointsOf`): a card above it never goes to one. */
+  tempMaxPoints: ComplexityPoints;
 }): DeveloperChoice {
   const { points, anyDecided, reaching } = input;
   const free = input.free.filter((developer) => fitsSpecialty(developer, input.labels));
@@ -126,7 +129,7 @@ export function chooseDeveloper(input: {
     .sort((a, b) => a.limit - b.limit || byLoad(a, b))[0];
   if (fitting) return { kind: 'member', handle: fitting.handle };
   if (points === null) return { kind: 'none', tempAllowed: true };
-  const tempAllowed = points <= TEMP_MAX_POINTS;
+  const tempAllowed = points <= input.tempMaxPoints;
   if (anyDecided || reaching.length === 0) {
     const largest = free.filter((d) => !d.temp).sort((a, b) => b.limit - a.limit || byLoad(a, b))[0];
     return largest ? { kind: 'member', handle: largest.handle } : { kind: 'none', tempAllowed };

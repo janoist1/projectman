@@ -90,6 +90,13 @@ interface EngineHandlerDeps {
   terminals: Set<string>;
   /** Where the bundle of a branch is made before it is uploaded. */
   exportDir: string;
+  /** A session started (PM-1087): the engine status remembers who runs it. Gets the spec the cloud sent. */
+  onSessionStarted?: (spec: {
+    sessionId: string;
+    member?: string;
+    provider?: string;
+    displayName: string;
+  }) => void;
   /** Runs a NanoGPT session start inside the scope in which the key may be fetched for that session. */
   nanogptStart?: <T>(sessionId: string, start: () => Promise<T>) => Promise<T>;
   /**
@@ -204,7 +211,11 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
       const { mcpToken, ...rest } = spec;
       // The address is the engine's own; only the token comes from the cloud.
       const mcpUrl = `${deps.mcpBase}${routes.mcp(limit.token(mcpToken))}`;
-      const start = () => runner.start({ ...rest, mcpUrl });
+      const start = () =>
+        runner.start({ ...rest, mcpUrl }).then((info) => {
+          deps.onSessionStarted?.(spec);
+          return info;
+        });
       // Only a NanoGPT start may ask the cloud for the key, and only while it runs.
       return deps.nanogptStart && spec.provider === 'nanogpt'
         ? deps.nanogptStart(spec.sessionId, start)

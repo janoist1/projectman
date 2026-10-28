@@ -31,6 +31,7 @@ import {
   createEngineHandlers,
   createEngineLimit,
   createEngineStatusWriter,
+  createRunningTracker,
   createEngineTransfers,
   createEngineEventBuffer,
   ENGINE_RELAY_WAIT_MS,
@@ -40,6 +41,7 @@ import {
   loadEngineConfig,
   readLinkHeaders,
   readSecretFile,
+  resolveAppTag,
   resolveEngineConfig,
 } from './engine-link';
 import type { EngineEvent, Hello, LinkSocketFactory } from './engine-link';
@@ -228,6 +230,7 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
     { pid: process.pid, bootId },
     { delayMs: modules.statusDelayMs },
   );
+  const runningTracker = createRunningTracker();
   const audit = createEngineAudit(files.audit, {
     ...(modules.auditMaxBytes === undefined ? {} : { maxBytes: modules.auditMaxBytes }),
     onError: () => log.warn('engine audit log: a record could not be written'),
@@ -575,6 +578,7 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
     limit,
     audit,
     runner,
+    onSessionStarted: runningTracker.started,
     transcripts: runnerModule.transcripts,
     planUsageFor: (provider) => runnerModule.planUsageFor?.(provider) ?? runnerModule.planUsage,
     engine,
@@ -662,12 +666,13 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
     }
     emit({ kind: 'runner', event });
     if (event.type === 'exit') {
+      runningTracker.exited(event.sessionId);
       terminals.delete(event.sessionId);
       syncPendingInput(event.sessionId);
       pendingInput.delete(event.sessionId);
     } else syncPendingInput(event.sessionId);
   });
-  const runningState = () => runner.list().map(({ sessionId, state }) => ({ sessionId, state }));
+  const runningState = () => runningTracker.decorate(runner.list());
   const keepAwake = createKeepAwake({
     mode: resolved.keepAwake ?? 'while_working',
     platform: modules.keepAwake?.platform ?? os.platform(),
@@ -773,7 +778,11 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
     app,
     files,
     async start() {
-      status.set({ running: runningState(), keepAwake: keepAwake.state() });
+      status.set({ version: options.version, running: runningState(), keepAwake: keepAwake.state() });
+      // Once, not per poll: git takes up to 2 s and never throws.
+      void resolveAppTag(options.installDir).then((releaseTag) => {
+        if (!closed) status.set({ releaseTag });
+      });
       await app.listen({ port: options.port, host: LOOPBACK });
       client.start();
       log.info({ home, engineId: resolved.engineId, port: options.port }, 'projectman engine ready');

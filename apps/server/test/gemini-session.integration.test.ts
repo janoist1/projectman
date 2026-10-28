@@ -155,7 +155,7 @@ it(
     await runnerModule.runner.sendUserMessage(session.id, 'quota');
     await waitFor(() => domain.sessions.get('AR', session.id).state === 'failed');
     await waitFor(() => !runnerModule.runner.isRunning(session.id));
-    expect(() => domain.sessions.assertProviderCooldown('gemini')).toThrow(
+    expect(() => domain.sessions.assertProviderCooldown('gemini', null)).toThrow(
       expect.objectContaining({
         code: 'provider_rate_limited',
         details: expect.objectContaining({ provider: 'gemini', kind: 'quota', until: expect.any(String) }),

@@ -49,14 +49,23 @@ const principalActor = (
     issuer,
   );
 
-/** Whether the person with this e-mail is an owner member of the project, as of its current configuration. */
-const holdsOwnership = (config: ProjectConfig, email: string | undefined): boolean =>
-  email !== undefined &&
+/**
+ * Whether the key's holder is an owner member of the project, as of its current configuration, and the key
+ * reaches the project at all (`keyCoversProject`, PM-1063): the team is the owners' to edit, so it alone does
+ * not make another owner's project the holder's.
+ */
+const holdsOwnership = (
+  config: ProjectConfig,
+  holder: { id: string; email: string } | null,
+  credentials: IntegratorCredentialAuthority | undefined,
+): boolean =>
+  holder !== null &&
+  !!credentials?.keyCoversProject?.(holder.id, config.project.key) &&
   config.team.members.some(
     (member) =>
       member.kind === 'human' &&
       member.access === 'owner' &&
-      member.email?.trim().toLowerCase() === email.trim().toLowerCase(),
+      member.email?.trim().toLowerCase() === holder.email.trim().toLowerCase(),
   );
 
 /** Authenticated execution shared by REST and bearer MCP. The composition supplies domain ports. */
@@ -65,6 +74,10 @@ export function createSuperOperator(deps: {
   audit: SuperAuditService;
   credentials?: IntegratorCredentialAuthority;
 }) {
+  const holderOf = (principal: IntegratorPrincipal) => {
+    const user = deps.credentials?.user(principal.userId);
+    return user ? { id: principal.userId, email: user.email } : null;
+  };
   let authorizer: SuperMutationAuthorizer = {
     async assertAllowed(input) {
       let effect;
@@ -97,7 +110,7 @@ export function createSuperOperator(deps: {
             .find(
               (config) =>
                 config &&
-                holdsOwnership(config, user.email) &&
+                holdsOwnership(config, { id: input.principal.userId, email: user.email }, credentials) &&
                 superAccessVerdict(config, {
                   mode: input.principal.mode,
                   operation: 'read',
@@ -124,7 +137,9 @@ export function createSuperOperator(deps: {
       const verdict = superAccessVerdict(config, {
         mode: input.principal.mode,
         operation,
-        ownerMembership: owner?.access === 'owner',
+        ownerMembership:
+          owner?.access === 'owner' &&
+          !!credentials.keyCoversProject?.(input.principal.userId, config.project.key),
       });
       if (!verdict.allowed) throw forbidden(verdict.code, 'the credential cannot perform this operation');
       const expected = principalActor(config, input.principal, user.email, input.issuer);
@@ -243,8 +258,8 @@ export function createSuperOperator(deps: {
         // The operation is one instance action, run exactly once; the access check and the audit belong to the
         // projects the key's holder owns. A project of another owner is left out, and a policy that forbids the
         // key in an own project still refuses the call.
-        const email = deps.credentials?.user(context.principal.userId)?.email;
-        const projects = configs.filter((config) => holdsOwnership(config, email));
+        const holder = holderOf(context.principal);
+        const projects = configs.filter((config) => holdsOwnership(config, holder, deps.credentials));
         let work = run;
         for (const config of projects) {
           assertIntegratorAccess(config, 'read');
@@ -278,10 +293,10 @@ export function createSuperOperator(deps: {
     ): Promise<T> {
       const configs = await Promise.all(deps.projects.summaries().map((p) => deps.projects.config(p.key)));
       return runIntegratorExecution(scopeFor({ ...context, projectKey: null }), async () => {
-        const email = deps.credentials?.user(context.principal.userId)?.email;
+        const holder = holderOf(context.principal);
         const owned = configs.filter(
           (config) =>
-            holdsOwnership(config, email) &&
+            holdsOwnership(config, holder, deps.credentials) &&
             superAccessVerdict(config, {
               mode: context.principal.mode,
               operation: 'read',

@@ -136,6 +136,7 @@ export const EXTERNAL_ONLY_TOOLS: readonly ExternalRegisteredTool[] = [
       'The status of the hub (target "hub") or of an engine linked to this project (target: the engine id): {status}.',
     access: 'read',
     modes: ['super'],
+    hostOnly: true,
     input: withoutProject(GetAdministrationStatusArgs),
     async run({ ctx, args, handler }) {
       return { structured: await handler.getAdministrationStatus(ctx, args.target) };
@@ -148,6 +149,7 @@ export const EXTERNAL_ONLY_TOOLS: readonly ExternalRegisteredTool[] = [
       'The log of the hub (target "hub") or of an engine linked to this project (target: the engine id): {entries}, oldest first. limit is at most 200. source is "supervisor" (default, its own journal) or "service" (the managed service\'s log, secrets redacted); min_level (info, warn, error), since (ISO time) and contains (up to 100 characters) narrow it.',
     access: 'read',
     modes: ['super'],
+    hostOnly: true,
     input: withoutProject(GetAdministrationLogsArgs),
     async run({ ctx, args, handler }) {
       return {
@@ -169,6 +171,7 @@ export const EXTERNAL_ONLY_TOOLS: readonly ExternalRegisteredTool[] = [
       'The state of the machine of the hub (target "hub") or of an engine linked to this project (target: the engine id): {snapshot} with the load average, memory, swap and the ten largest processes of the supervisor user (name, cpu, memory; no arguments).',
     access: 'read',
     modes: ['super'],
+    hostOnly: true,
     input: withoutProject(GetMachineSnapshotArgs),
     async run({ ctx, args, handler }) {
       return { structured: await handler.getMachineSnapshot(ctx, args.target) };
@@ -267,6 +270,7 @@ export const EXTERNAL_ONLY_TOOLS: readonly ExternalRegisteredTool[] = [
       'The global Operator’s own knowledge, one for the whole instance and the same for every project: {revision, agreement, principles}. Read it when you connect. It is not a project’s knowledge: that belongs to the project’s pm.',
     access: 'read',
     modes: ['super'],
+    hostOnly: true,
     input: {},
     async run({ principal, requestId, handler }) {
       const { revision, agreement, principles } = await handler.getInstanceKnowledge(principal, requestId);
@@ -280,6 +284,7 @@ export const EXTERNAL_ONLY_TOOLS: readonly ExternalRegisteredTool[] = [
       'Replaces the agreement and/or the whole list of principles of the global Operator’s own knowledge: {revision, agreement, principles}. expected_revision is the revision you read; a changed one is refused (operator_knowledge_stale), so read again. It writes directly, with no approval in the app, and the super audit records it. A principle without an id gets one; keep the id of one you keep.',
     access: 'write',
     modes: ['super'],
+    hostOnly: true,
     input: {
       expected_revision: z.number().int().nonnegative(),
       agreement: OperatorAgreementData.optional(),

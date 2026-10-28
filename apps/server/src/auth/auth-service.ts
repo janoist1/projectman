@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { hash, verify } from '@node-rs/argon2';
-import { isOwnerAccount } from '@projectman/shared';
+import { canHoldIntegratorKey, integratorKeyCoversProject, isOwnerAccount } from '@projectman/shared';
 import type {
   CreateIntegratorAccessKeyRequest,
   IntegratorChannel,
@@ -87,12 +87,40 @@ export class AuthService {
   }
 
   /**
-   * Whether the account with this email has a live (not revoked, not expired) super key: the owner's connected
-   * client can work the integrator queue (PM-1045). False for an unknown email.
+   * Whether the account with this email has a live (not revoked, not expired) super key that reaches the
+   * project: the owner's connected client can work the project's integrator queue (PM-1045, PM-1063). False for
+   * an unknown email, and for a project another owner account created (`keyCoversProject`).
    */
-  hasActiveSuperKey(email: string): boolean {
+  hasActiveSuperKey(email: string, projectKey: string): boolean {
     const user = this.repos.users.findByEmail(email.trim());
-    return !!user && this.repos.integratorKeys.hasActiveSuper(user.id, this.now().toISOString());
+    return (
+      !!user &&
+      this.keyHolderAllowed(user.id) &&
+      this.keyCoversProject(user.id, projectKey) &&
+      this.repos.integratorKeys.hasActiveSuper(user.id, this.now().toISOString())
+    );
+  }
+
+  /**
+   * Whether a key of this holder reaches the project (`integratorKeyCoversProject`, PM-1063): the creator
+   * of a project an owner account made is the only holder, whatever its editable team says.
+   */
+  keyCoversProject(userId: string, projectKey: string): boolean {
+    const createdBy = this.repos.projects.get(projectKey)?.createdBy ?? null;
+    return integratorKeyCoversProject({
+      createdBy,
+      creatorIsHost: createdBy !== null && this.isHostOwner(createdBy),
+      holder: userId,
+    });
+  }
+
+  /** Whether this account may hold an integrator key right now (`canHoldIntegratorKey`, PM-1063). */
+  keyHolderAllowed(userId: string): boolean {
+    return canHoldIntegratorKey({
+      hostOwner: this.isHostOwner(userId),
+      ownerAccount: this.isOwnerAccount(userId),
+      hasPassword: this.hasPassword(userId),
+    });
   }
 
   /** Milliseconds until an integrator key expires; null: it does not (or is unknown). */
@@ -116,6 +144,8 @@ export class AuthService {
   }
 
   private createKey(userId: string, mode: IntegratorPrincipal['mode'], expiresInDays: number | null) {
+    if (!this.keyHolderAllowed(userId))
+      throw forbidden('owner_only', 'only an owner with a password may hold an integrator key');
     const secret = `pmi_${randomBytes(32).toString('base64url')}`;
     const at = this.now();
     const key = this.repos.integratorKeys.create({
@@ -136,8 +166,7 @@ export class AuthService {
   resolveIntegratorCredential(secret: string, channel: IntegratorChannel): IntegratorPrincipal | null {
     const at = this.now().toISOString();
     const key = this.repos.integratorKeys.resolveKey(tokenId(secret), at);
-    if (!key || key.mode === 'legacy' || !this.isHostOwner(key.userId) || !this.hasPassword(key.userId))
-      return null;
+    if (!key || key.mode === 'legacy' || !this.keyHolderAllowed(key.userId)) return null;
     this.repos.integratorKeys.touch(key.id, at, channel);
     const principal = Object.freeze({
       kind: 'integrator' as const,
@@ -161,8 +190,7 @@ export class AuthService {
       key.mode === 'legacy' ||
       key.userId !== stored.userId ||
       key.prefix !== stored.prefix ||
-      !this.isHostOwner(key.userId) ||
-      !this.hasPassword(key.userId)
+      !this.keyHolderAllowed(key.userId)
     )
       return null;
     const principal = Object.freeze({
@@ -187,8 +215,7 @@ export class AuthService {
       key.userId !== principal.userId ||
       key.prefix !== principal.prefix ||
       key.mode !== principal.mode ||
-      !this.isHostOwner(key.userId) ||
-      !this.hasPassword(key.userId)
+      !this.keyHolderAllowed(key.userId)
     ) {
       throw new DomainError('integrator_key_invalid', 'Integrator key is invalid, revoked or expired', {
         status: 401,

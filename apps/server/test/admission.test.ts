@@ -83,7 +83,13 @@ interface World {
   /** The providers whose CLI is not logged in. */
   loggedOut?: AgentProvider[];
   /** Members on different engines: each engine has its own plan usage (the rest are on `ENGINE_A`). */
-  engines?: { of: Record<string, EngineId>; usage: Record<string, PlanUsage | null> };
+  engines?: {
+    of: Record<string, EngineId>;
+    usage: Record<string, PlanUsage | null>;
+    /** The engines whose sessions' provider key is on hold (PM-1091), and the ones that are not connected. */
+    held?: EngineId[];
+    offline?: EngineId[];
+  };
 }
 
 const ENGINE_A = 'eng_aaaaaaaaaaaa' as EngineId;
@@ -121,9 +127,12 @@ function admissionFor(world: World = {}) {
       if (world.loggedOut?.includes(provider))
         throw conflict('provider_not_logged_in', `${provider} is not logged in`, { provider });
     },
-    assertProviderCooldown: () => undefined,
+    assertProviderCooldown: vi.fn((provider: AgentProvider, engineId?: EngineId | null) => {
+      if (engineId && world.engines?.held?.includes(engineId))
+        throw conflict('provider_rate_limited', 'Provider request limit reached', { provider });
+    }),
     refreshProviderQuota: async () => undefined,
-    restoreProviderQuota: () => undefined,
+    restoreProviderQuota: vi.fn(),
     findRunning: (_projectKey: string, member: string, workItem: WorkItemRef) =>
       sessions.find(
         (s) =>
@@ -160,7 +169,7 @@ function admissionFor(world: World = {}) {
           engines: {
             engineFor: (_projectKey: string, handle: string) => world.engines!.of[handle] ?? ENGINE_A,
             projectEngine: () => ENGINE_A,
-            get: () => ({}) as never,
+            get: (id: EngineId) => (world.engines!.offline?.includes(id) ? null : ({} as never)),
           },
         }
       : {}),
@@ -566,6 +575,29 @@ describe('admission checks', () => {
     expect(admission.providerAvailable(config, 'claude', 'dev-2')).toBe(true);
   });
 
+  it("holds a member only for the provider key of the member's own engine (PM-1091)", async () => {
+    const { admission, config, member } = admissionFor({
+      engines: { of: { 'dev-1': ENGINE_A, 'dev-2': ENGINE_B }, usage: {}, held: [ENGINE_A] },
+    });
+    expect(await refusal(admission.check({ config, member: member('dev-1'), workItem: general }))).toBe(
+      'provider_rate_limited',
+    );
+    expect(await refusal(admission.check({ config, member: member('dev-2'), workItem: general }))).toBeNull();
+    expect(() => admission.assertProviderAvailable(config, 'claude', 'dev-1')).toThrow(
+      expect.objectContaining({ code: 'provider_rate_limited' }),
+    );
+    expect(() => admission.assertProviderAvailable(config, 'claude', 'dev-2')).not.toThrow();
+  });
+
+  it('waits for an offline engine before its provider hold', async () => {
+    const { admission, config, member } = admissionFor({
+      engines: { of: { 'dev-1': ENGINE_A }, usage: {}, held: [ENGINE_A], offline: [ENGINE_A] },
+    });
+    expect(await refusal(admission.check({ config, member: member('dev-1'), workItem: general }))).toBe(
+      'engine_offline',
+    );
+  });
+
   it('asks for no plan usage when an earlier check refuses', async () => {
     const { admission, config, usageRequests } = admissionFor({
       adjust: (c) => void (c.team.limits.aiEnabled = false),
@@ -800,6 +832,22 @@ describe('deferred starts', () => {
     };
     return { automatic, run, retry };
   }
+
+  it('restores the quota hold on the engine of each deferred start that waits for it (PM-1091)', () => {
+    const { admission, deferred, sessionFake } = admissionFor({
+      engines: { of: { 'dev-1': ENGINE_A, 'dev-2': ENGINE_B }, usage: {} },
+    });
+    deferred.keep({
+      start: start('hand-over:AR-1', { taskKey: 'AR-1', member: 'dev-2' }).automatic,
+      waiting: { reason: 'provider_rate_limited', provider: 'nanogpt', member: 'dev-2', since: AT },
+    });
+    deferred.keep({
+      start: start('hand-over:AR-2', { taskKey: 'AR-2', member: 'dev-1' }).automatic,
+      waiting: { reason: 'ai_disabled', member: 'dev-1', since: AT },
+    });
+    admission.restoreDeferred(() => null);
+    expect(sessionFake.restoreProviderQuota).toHaveBeenCalledWith([ENGINE_B]);
+  });
 
   it('keeps a start refused for a reason that can clear, with why it waits', async () => {
     const reviewing = task('AR-1', { stageId: 'code_review' });

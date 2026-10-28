@@ -321,9 +321,9 @@ export function registerAuth(
   const keyOwner = (request: FastifyRequest): string => {
     if (request.via)
       throw forbidden('integrator_not_allowed', 'Only the owner may manage this key using their own login');
-    // A passwordless (e-mail login) account never holds an integrator key (PM-670).
-    if (!request.user || !auth.isHostOwner(request.user.id) || !auth.hasPassword(request.user.id))
-      throw forbidden('owner_only', 'Only the host owner may manage this key');
+    // A passwordless (e-mail login) account never holds an integrator key (PM-670); an owner account may (PM-1063).
+    if (!request.user || !auth.keyHolderAllowed(request.user.id))
+      throw forbidden('owner_only', 'Only an owner may manage this key');
     return request.user.id;
   };
   app.get(routes.integratorKeys(), async (request) => ({

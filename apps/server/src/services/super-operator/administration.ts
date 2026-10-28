@@ -62,6 +62,8 @@ export function createAdministrationExecutor(deps: SuperAdministrationDeps): Sup
         'only the integrator in super mode runs an administration job',
       );
     const projectKey = operation.projectKey;
+    // The machine, the engines and the hub's service are the host's: another owner's key never starts a job here.
+    deps.rights.assertHost(scope.principal);
     await authorize(deps, scope.principal, projectKey, operation.taskKey, request);
     // The owner's switch: no grant, no machine operation, however valid the key is (PM-881). The executor runs on
     // every start and on the continuation after the owner's yes, so both stop at once when the grant is gone;
@@ -100,12 +102,9 @@ async function authorize(
     case 'restart':
     case 'owner_command':
     case 'process_cleanup': {
-      if (request.target.kind === 'hub') {
-        // The hub serves every project: each one's owner right is needed.
-        await deps.rights.assertNow(principal, [projectKey, ...deps.rights.allProjectKeys()], 'write');
-        return;
-      }
+      // The hub is the host's (`assertHost` ran before): the key's own project is the one it works through.
       await deps.rights.assertNow(principal, [projectKey], 'write');
+      if (request.target.kind === 'hub') return;
       if (!deps.engineLinked(projectKey, request.target.id))
         throw forbidden('administration_target_mismatch', 'the engine is not linked to this project');
       return;
@@ -126,8 +125,8 @@ async function authorize(
       return;
     }
     case 'deploy': {
-      // A deployment switches the hub for every project.
-      await deps.rights.assertNow(principal, [projectKey, ...deps.rights.allProjectKeys()], 'write');
+      // A deployment switches the hub, which is the host's (`assertHost` ran before).
+      await deps.rights.assertNow(principal, [projectKey], 'write');
       const release = deps.release(request.releaseId);
       if (release.projectKey !== projectKey)
         throw conflict('release_target_mismatch', 'the release belongs to another project');

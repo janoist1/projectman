@@ -530,7 +530,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       operatorGrants: auth.operatorGrantGate,
       // Integrator items wait for the owner's connected client while an owner has a live super key (PM-1045).
       integratorTodoAccess: {
-        available: (config) => integratorSideAvailable(config, (email) => auth.hasActiveSuperKey(email)),
+        available: (config) =>
+          integratorSideAvailable(config, (email) => auth.hasActiveSuperKey(email, config.project.key)),
       },
       appVersion: options.appVersion ?? 'dev',
       ...(options.appTag ? { appTag: options.appTag } : {}),

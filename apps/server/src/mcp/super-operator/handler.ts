@@ -204,6 +204,7 @@ export class ExternalTools implements ExternalToolsHandler {
   backend(): ExternalMcpBackend {
     return {
       handler: this,
+      isHost: (principal) => this.deps.credentials.isHostOwner?.(principal.userId) ?? false,
       bind: (input, operation) => this.bind(input, operation),
       queueIssuer: (input, queueItemId) => this.queueIssuer(input, queueItemId),
       execute: async (context, target, run) => {

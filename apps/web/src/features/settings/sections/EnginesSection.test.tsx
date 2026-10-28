@@ -11,11 +11,15 @@ import { EnginesSection } from './EnginesSection';
 
 afterEach(() => setFetchImplementation((input, init) => globalThis.fetch(input, init)));
 
+/** A cloud installation seen by its host owner, who is not the project owner: only the "Gépeid" card shows. */
 function cloud(setup?: (backend: MockBackend) => void) {
   const backend = new MockBackend();
   backend.engineMode = 'cloud';
   setup?.(backend);
-  return mockProject(backend);
+  const project = mockProject(backend);
+  project.context.me.hostOwner = true;
+  project.context.isOwner = false;
+  return project;
 }
 
 const key = (backend: MockBackend) => backend.lastEngineKey ?? '';
@@ -53,15 +57,14 @@ describe('engines settings', () => {
     fireEvent.click(create);
 
     const keyDialog = await screen.findByRole('dialog', {
-      name: t('engines.keyTitle', { name: 'Mac Studio' }),
+      name: t('engines.guideTitle', { name: 'Mac Studio' }),
     });
     const secret = key(project.backend);
     expect(secret).not.toBe('');
-    expect(within(keyDialog).getByLabelText(t('engines.keyAria')).textContent).toBe(secret);
-    expect(within(keyDialog).getByLabelText(t('engines.commandAria')).textContent).toMatch(
-      /^npm run engine -- init --cloud \S+ --id eng_/,
-    );
-    expect(within(keyDialog).getByLabelText(t('engines.commandAria')).textContent).not.toContain(secret);
+    expect(within(keyDialog).getByLabelText(t('ownerOnboarding.guide.keyAria')).textContent).toBe(secret);
+    expect(
+      within(keyDialog).getByLabelText(t('ownerOnboarding.guide.assistantAria')).textContent,
+    ).not.toContain(secret);
     expect(project.requests.find((r) => r.method === 'POST' && r.path === '/api/engines')?.body).toEqual({
       name: 'Mac Studio',
     });
@@ -78,7 +81,7 @@ describe('engines settings', () => {
     ]);
     expect(cached).not.toContain(secret);
 
-    fireEvent.click(within(keyDialog).getByRole('button', { name: t('engines.keyDone') }));
+    fireEvent.click(within(keyDialog).getByRole('button', { name: t('engines.guideDone') }));
     await waitFor(() => expect(screen.queryByText(secret)).toBeNull());
     expect(await screen.findByText('Mac Studio')).toBeTruthy();
     expect(screen.getByText(t('engines.defaultChipCap'))).toBeTruthy();
@@ -260,7 +263,7 @@ describe('engines settings', () => {
     const dialog = await screen.findByRole('dialog', { name: t('engines.newTitle') });
     fireEvent.change(within(dialog).getByLabelText(t('engines.nameLabel')), { target: { value: 'Mac' } });
     fireEvent.click(within(dialog).getByRole('button', { name: t('engines.create') }));
-    const keyDialog = await screen.findByRole('dialog', { name: t('engines.keyTitle', { name: 'Mac' }) });
+    const keyDialog = await screen.findByRole('dialog', { name: t('engines.guideTitle', { name: 'Mac' }) });
     fireEvent.click(within(keyDialog).getAllByRole('button', { name: t('engines.copy') })[0]!);
     expect(await within(keyDialog).findByRole('button', { name: t('engines.copied') })).toBeTruthy();
     await waitFor(
@@ -342,7 +345,7 @@ describe('engines in the settings page', () => {
     const project = cloud();
     project.context.me.hostOwner = true;
     project.render(<SettingsTestRoutes initialSection="engines" />);
-    expect(await screen.findByRole('heading', { name: t('engines.settingsTitle') })).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: t('engines.yourTitle') })).toBeTruthy();
   });
 
   it('lists the section among the settings sections for the host owner', async () => {
@@ -361,6 +364,101 @@ describe('engines in the settings page', () => {
     project.render(<SettingsTestRoutes initialSection="engines" />);
     const nav = await screen.findByRole('navigation', { name: t('settings.nav.label') });
     expect(within(nav).queryByRole('link', { name: new RegExp(t('settings.nav.engines')) })).toBeNull();
-    expect(screen.queryByRole('heading', { name: t('engines.settingsTitle') })).toBeNull();
+    expect(screen.queryByRole('heading', { name: t('engines.yourTitle') })).toBeNull();
+  });
+
+  it('shows the section to an owner account, with its own machines and no default to pick', async () => {
+    const backend = new MockBackend();
+    backend.engineMode = 'cloud';
+    backend.user = { userId: 'usr_owner2', name: 'Eszter', email: 'eszter@owner.test' };
+    backend.ownerAccountIds.add('usr_owner2');
+    backend.addEngine({
+      name: 'Eszter Mac',
+      createdBy: 'usr_owner2',
+      lastSeenAt: '2026-10-01T10:00:00.000Z',
+    });
+    backend.addEngine({ name: 'Host Mac', lastSeenAt: '2026-10-01T10:00:00.000Z' });
+    const project = mockProject(backend);
+    project.context.me.ownerAccount = true;
+    project.context.me.hostOwner = false;
+    project.render(<SettingsTestRoutes initialSection="engines" />);
+    expect(await screen.findByRole('heading', { name: t('engines.yourTitle') })).toBeTruthy();
+    const own = await screen.findByRole('list', { name: t('engines.listLabel') });
+    expect(within(own).getByText('Eszter Mac')).toBeTruthy();
+    expect(screen.queryByText('Host Mac')).toBeNull();
+    fireEvent.click(
+      within(own).getByRole('button', { name: t('engines.rowActions', { name: 'Eszter Mac' }) }),
+    );
+    expect(await screen.findByRole('button', { name: t('engines.rename') })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: t('engines.makeDefault') })).toBeNull();
+  });
+});
+
+describe('own machines', () => {
+  it('lists only the machines the caller created', async () => {
+    const project = cloud((backend) => {
+      backend.addEngine({ name: 'Mine', lastSeenAt: '2026-10-01T10:00:00.000Z' });
+      backend.addEngine({ name: 'Theirs', createdBy: 'usr_other', lastSeenAt: '2026-10-01T10:00:00.000Z' });
+    });
+    project.render(<EnginesSection />);
+    expect(await screen.findByText('Mine')).toBeTruthy();
+    expect(screen.queryByText('Theirs')).toBeNull();
+  });
+
+  it('renames a machine with a PATCH and shows the new name', async () => {
+    const project = cloud((backend) => {
+      backend.addEngine({ name: 'Mac Studio', lastSeenAt: '2026-10-01T10:00:00.000Z' });
+    });
+    const view = renderSection(project);
+    const row = (await screen.findByText('Mac Studio')).closest('li')!;
+    fireEvent.click(
+      within(row).getByRole('button', { name: t('engines.rowActions', { name: 'Mac Studio' }) }),
+    );
+    fireEvent.click(await screen.findByRole('button', { name: t('engines.rename') }));
+    const dialog = await screen.findByRole('dialog', { name: t('engines.renameTitle') });
+    const input = within(dialog).getByLabelText(t('engines.nameLabel')) as HTMLInputElement;
+    const save = within(dialog).getByRole('button', { name: t('engines.renameSave') });
+    expect(input.value).toBe('Mac Studio');
+    expect((save as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(input, { target: { value: ' Studio ' } });
+    fireEvent.click(save);
+    await waitFor(() => expect(view.toasts).toContain(t('engines.renamed', { name: 'Studio' })));
+    const patch = project.requests.find((r) => r.method === 'PATCH' && r.path.startsWith('/api/engines/'));
+    expect(patch?.body).toEqual({ name: 'Studio' });
+    expect(await screen.findByText('Studio')).toBeTruthy();
+  });
+
+  it('keeps the typed name when the rename is refused', async () => {
+    const project = cloud((backend) => {
+      backend.addEngine({ name: 'Mac Studio', lastSeenAt: '2026-10-01T10:00:00.000Z' });
+    });
+    project.render(<EnginesSection />);
+    const row = (await screen.findByText('Mac Studio')).closest('li')!;
+    fireEvent.click(
+      within(row).getByRole('button', { name: t('engines.rowActions', { name: 'Mac Studio' }) }),
+    );
+    fireEvent.click(await screen.findByRole('button', { name: t('engines.rename') }));
+    const dialog = await screen.findByRole('dialog', { name: t('engines.renameTitle') });
+    const input = within(dialog).getByLabelText(t('engines.nameLabel')) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'Studio' } });
+    project.backend.engines[0]!.revokedAt = '2026-10-02T10:00:00.000Z';
+    fireEvent.click(within(dialog).getByRole('button', { name: t('engines.renameSave') }));
+    expect(await within(dialog).findByRole('alert')).toBeTruthy();
+    expect(input.value).toBe('Studio');
+  });
+
+  it('leaves the default engine to the host owner', async () => {
+    const project = cloud((backend) => {
+      backend.addEngine({ name: 'Mac Studio', lastSeenAt: '2026-10-01T10:00:00.000Z' });
+      backend.addEngine({ name: 'Linux box', lastSeenAt: '2026-10-01T10:00:00.000Z' });
+    });
+    project.context.me.hostOwner = false;
+    project.render(<EnginesSection />);
+    const row = (await screen.findByText('Linux box')).closest('li')!;
+    fireEvent.click(
+      within(row).getByRole('button', { name: t('engines.rowActions', { name: 'Linux box' }) }),
+    );
+    expect(await screen.findByRole('button', { name: t('engines.rename') })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: t('engines.makeDefault') })).toBeNull();
   });
 });

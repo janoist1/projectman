@@ -175,6 +175,9 @@
   color: var(--c-ink-3);
   font-weight: 400;
 }
+.assistantIntro {
+  margin: 0 0 10px;
+}
 .modes {
   border: 0;
   padding: 0;

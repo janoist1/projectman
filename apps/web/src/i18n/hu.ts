@@ -281,6 +281,32 @@ export const hu = {
     connectionBody:
       'Mentsd a kulcsot a ~/.config/projectman/integrator-key fájlba (mappa: 700, fájl: 600). A projectman parancs ebből a fájlból olvas. Cloudban az Access service token is kell, ugyanebben a mappában. A kulcsot soha ne add meg parancssori argumentumként. Részletek: docs/DEPLOY.md.',
     mcpAddress: 'MCP-cím',
+    /** The instruction for the owner's own assistant (PM-1078): it names no key; the owner saves it from the clipboard. */
+    assistant: {
+      summary: 'AI-asszisztenssel',
+      intro:
+        'Másold be a Claude vagy a Codex asztali alkalmazásába. Ha kéri a kulcsot, a fenti Másolás gombbal tedd a vágólapra; az utasításban nincs benne.',
+      introOpen:
+        'Másold be a Claude vagy a Codex asztali alkalmazásába. Az utasításban nincs kulcs: ha kéri, a kulcs létrehozásakor a Másolás gombbal tedd a vágólapra.',
+      aria: 'Utasítás az asszisztensnek',
+      copy: 'Utasítás másolása',
+      help: 'Az asszisztens a te gépeden, a te engedélyeddel futtat parancsokat.',
+      helpOwner: 'A kulcs csak a saját projektjeidhez ad hozzáférést.',
+      head: 'Segíts csatlakoztatni téged a projectmanhez ({origin}) ezen a gépen, MCP-n át. Haladj lépésenként, minden parancs előtt mondd el, mit csinál, és hibánál állj meg, és mondd el, mi történt.',
+      install:
+        'Ha még nincs projectman-mappa a gépen (például a gépem bekötéséből), töltsd le: `git clone https://github.com/janoist1/projectman.git ~/projectman && cd ~/projectman && npm install`. Utána a mappában `npm link`, hogy a `projectman` parancs elérhető legyen.',
+      saveKey:
+        'Hozd létre a `~/.config/projectman` mappát 700-as joggal. Kérj meg, hogy másoljam ki a kulcsot a projectman oldaláról, és ha szóltam, mentsd el: `pbpaste > ~/.config/projectman/integrator-key && chmod 600 ~/.config/projectman/integrator-key` (macOS-en kívül a rendszer vágólap-parancsával). A kulcsot ne írd ki, ne olvasd vissza, és ne kérd, hogy beírjam a beszélgetésbe.',
+      cloudToken:
+        'Nézd meg, megvan-e a `~/.config/projectman/cloud/integrator-access-token.json` (600-as jog). Ezt a projectman gazdájától kapom személyesen. Ha nincs meg, kérd, hogy hozzam létre; az értékeit ne kérd el.',
+      client:
+        'Írd meg a `~/.config/projectman/client.json`-t 600-as joggal: `baseUrl` = `{origin}`, `keyFile` = `~/.config/projectman/integrator-key`{cloudFile}, `version` = 1. Titok ne kerüljön bele.',
+      clientCloudFile: ', `accessHeadersFile` = `~/.config/projectman/cloud/integrator-access-token.json`',
+      mcp: 'Add hozzá a saját MCP-beállításodhoz a projectman szervert: parancs `projectman`, argumentum `mcp-proxy`. (A proxy a {mcpUrl} címet hívja.) Titok ide se kerüljön.',
+      verify:
+        'Kérd, hogy indítsam újra az alkalmazást, utána hívd meg a projectman `list_projects` eszközét, és mondd meg, mely projekteket látod.',
+      tail: 'Jelszót, kulcsot vagy tokent soha ne kérj tőlem, és ne írj fájlba vagy üzenetbe; a belépéseket én végzem.',
+    },
     revokeReadBody:
       'A scriptek minden hívása azonnal elutasítást kap. Amit eddig tettek, a naplóban megmarad.',
     intro:
@@ -533,15 +559,23 @@ export const hu = {
     chatOfflineCrumb: 'Munkamenet',
     chatEngine: 'Motor: {name}',
     composerNote: 'Az üzeneted megvárja a motort, és a csatlakozáskor megy tovább.',
-    /** Settings → Motorok. */
-    settingsTitle: 'Motorok',
-    settingsMeta: 'A gépek, amelyeken az AI-munka fut. Csak te látod és kezeled.',
-    newEngine: 'Új motor',
-    listLabel: 'Motorok',
-    loadFailed: 'Nem sikerült betölteni a motorokat.',
-    emptyTitle: 'Még nincs motor',
+    /** Settings → Motorok → Gépeid (PM-1078): the caller's own machines. */
+    yourTitle: 'Gépeid',
+    yourMeta: 'Csak te látod és kezeled.',
+    newEngine: 'Új gép',
+    listLabel: 'Gépeid',
+    loadFailed: 'Nem sikerült betölteni a gépeket.',
+    emptyTitle: 'Még nincs géped',
     emptyBody: 'Hozz létre egyet, és indítsd el a Macen: utána a tagok ott dolgoznak.',
-    rowActions: 'Műveletek: {name}',
+    rowActions: '{name} műveletei',
+    rename: 'Átnevezés…',
+    renameTitle: 'Gép átnevezése',
+    renameHint: 'Így látod a listákban és a projekt gépeinél.',
+    renameSave: 'Mentés',
+    renameSaving: 'Mentés…',
+    renamed: 'Átnevezve: {name}',
+    guideTitle: '{name}: gép beállítása',
+    guideDone: 'Kész',
     platform: { darwin: 'macOS', linux: 'Linux' },
     mismatch: 'Más verzió, mint a felhő',
     mismatchHint: 'A motor más verziót futtat, mint a felhő. Csatlakozik, de frissítsd, ha teheted.',
@@ -561,29 +595,18 @@ export const hu = {
     revokedFold: 'Visszavont motorok ({count})',
     revokedLine: 'Visszavonva {when} · kulcs: {prefix}…',
     /** The new engine dialog: step 1, the name. */
-    newTitle: 'Új motor',
+    newTitle: 'Új gép',
     newIntro:
-      'A motor az a gép, amelyen az AI-tagok dolgoznak (például a Maced). Létrehozás után kapsz hozzá egy kulcsot.',
+      'A gép az, amelyen az AI-tagok dolgoznak (például a Maced). Létrehozás után kapsz hozzá egy kulcsot.',
     nameLabel: 'Név',
     namePlaceholder: 'pl. Mac Studio',
     nameHint: 'Erről ismered fel a felső sávban és a kártyákon.',
     create: 'Létrehozás',
     creating: 'Létrehozás…',
-    /** Step 2: the key, shown once. */
-    keyTitle: '{name}: a motor kulcsa',
-    keyOnceStrong: 'Ezt a kulcsot csak most látod.',
-    keyOnceBody:
-      'Másold ki; bezárás után nem mutatjuk újra. Ha elveszik, vond vissza a motort, és hozz létre újat.',
-    keyStep: '1. A kulcs',
-    keyAria: 'A motor kulcsa',
-    commandStep: '2. Futtasd a gépen, a projectman mappájában',
     commandAria: 'A beállító parancs',
-    keyPromptNote: 'A parancs bekéri a kulcsot: illeszd be. A kulcs nem kerül a parancssorba.',
-    connectNote: 'Amint a motor csatlakozik, a sora a listában „Csatlakozva” lesz.',
     copy: 'Másolás',
     copied: 'Másolva',
     copyFailed: 'Nem sikerült másolni. Jelöld ki és másold ki kézzel.',
-    keyDone: 'Kimásoltam, bezárás',
     /** The command dialog of an engine that has not connected yet (no key). */
     commandTitle: 'Beállító parancs: {name}',
     commandIntro:
@@ -598,6 +621,36 @@ export const hu = {
     revokeDefault: 'Ez az alapértelmezett motor: utána jelölj ki másikat, különben az új AI-munka vár.',
     revokeConfirm: 'Visszavonás',
     revoked: '{name} visszavonva.',
+  },
+  /** Settings → Motorok → the project's machines (PM-1078). */
+  projectEngines: {
+    title: 'Ezen a gépen fut a projekt',
+    titleMany: 'Ezeken a gépeken fut a projekt',
+    loadFailed: 'Nem sikerült betölteni a projekt gépeit.',
+    baseChip: 'Alap',
+    othersChip: 'Más gépe',
+    offline: 'Nem elérhető',
+    notHolding: 'A gép még nem futtatja ezt a projektet, ezért az AI-munka vár. Futtasd rajta:',
+    commandAria: 'A projekt beállító parancsa',
+    folderHint: 'A mappa a projekt kódjának helye a gépen.',
+    folderPlaceholder: '<mappa>',
+    makeBase: 'Legyen a projekt alapja',
+    baseSet: '{name} lett a projekt alapja.',
+    unbind: 'Leoldás…',
+    unbindBlocked: 'Előbb jelölj ki másik alapot.',
+    unbindTitle: '{name} leoldása',
+    unbindBody: 'Ezután ez a gép nem kap munkát a {key} projektből. A gépet és a kulcsát nem vonja vissza.',
+    unbindConfirm: 'Leoldás',
+    unbound: '{name} leoldva.',
+    bindMore: 'Másik gép hozzákötése',
+    bindFirst: 'Gép hozzákötése',
+    bindTitle: 'Gép hozzákötése a {key} projekthez',
+    bindLegend: 'Gép',
+    bindHint: 'Ha a gép most nem elérhető, a következő csatlakozáskor kap munkát.',
+    bindConfirm: 'Hozzákötés',
+    binding: 'Hozzákötés…',
+    bound: '{name} hozzákötve.',
+    emptyWarn: 'Ehhez a projekthez még nincs gép kötve, ezért az AI-munka vár.',
   },
   boundary: {
     heading: 'Külső művelet engedélyezése',
@@ -1350,12 +1403,12 @@ export const hu = {
       web_push_test_too_soon: 'Várj öt másodpercet az újabb próba előtt.',
       card_busy: 'A kártyán már dolgozik egy azonos szerepű tag.',
       engine_not_found: 'Nincs ilyen motor.',
-      engine_revoked: 'Ezt a motort visszavonták.',
-      engine_not_owned:
-        'Ezt a motort csak a gazdája kötheti projekthez, kezelheti vagy használhatja új projekthez.',
+      engine_revoked: 'Ez a gép vissza van vonva. Köss be egy újat a Gépeid alatt.',
+      engine_not_owned: 'Ez a gép nem a tiéd, ezért nem kötheted ehhez a projekthez.',
       owner_account_exists: 'Ehhez az e-mail-címhez már tartozik tulajdonosi fiók (vagy a gazdáé).',
-      engine_in_use: 'A projektnek még fut munkamenete ezen a motoron.',
-      engine_is_default: 'Ez a projekt alapmotorja. Előbb tegyél alappá egy másikat.',
+      engine_in_use:
+        'A gépen még fut munka ebből a projektből. Várd meg, amíg befejeződik, aztán próbáld újra.',
+      engine_is_default: 'Ez a projekt alapgépe. Előbb jelölj ki másik alapot.',
       engine_not_bound: 'Ez a motor nincs a projekthez kötve.',
       engine_not_host: 'Ez a művelet csak a gazda gépén fut.',
       nanogpt_key_not_for_engine: 'A gazda NanoGPT-kulcsa nem használható ezen a motoron.',

@@ -2,6 +2,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { setFetchImplementation } from '../../../api/client';
 import { t } from '../../../i18n/t';
+import { MockBackend } from '../../../mocks/backend';
 import { mockProject } from '../../../test/mockProject';
 import { IntegratorSection } from './IntegratorSection';
 import { OPERATOR_MACHINE_OPERATIONS } from '@projectman/shared';
@@ -290,6 +291,40 @@ describe('integrator key settings', () => {
     project.render(<IntegratorSection />);
     expect(screen.queryByRole('heading', { name: t('operatorGrant.title') })).toBeNull();
     expect(project.requests.some((request) => request.path.includes('/integrator-keys'))).toBe(false);
+  });
+  it('gives an owner account the key of its own projects, without the machine access grant', async () => {
+    const backend = new MockBackend();
+    backend.user = { userId: 'usr_owner2', name: 'Eszter', email: 'eszter@owner.test' };
+    backend.ownerAccountIds.add('usr_owner2');
+    const project = mockProject(backend);
+    project.context.me.hostOwner = false;
+    project.context.me.ownerAccount = true;
+    project.render(<IntegratorSection />);
+    expect(await screen.findByRole('button', { name: t('integratorKey.create') })).toBeTruthy();
+    expect(screen.queryByText(t('operatorGrant.intro'))).toBeNull();
+    expect(screen.queryByRole('button', { name: t('operatorGrant.grant') })).toBeNull();
+    expect(project.requests.some((request) => request.path.includes('/operator-grant'))).toBe(false);
+  });
+  it('shows the assistant instruction under the new key, with the MCP address and without the key', async () => {
+    const project = mockProject();
+    project.context.me.hostOwner = true;
+    project.render(<IntegratorSection />);
+    fireEvent.click(await screen.findByRole('button', { name: t('integratorKey.create') }));
+    fireEvent.click(
+      within(screen.getByRole('dialog')).getByRole('button', { name: t('integratorKey.submit') }),
+    );
+    await screen.findByText('pmi_mock_key_for_ui_tests_only');
+    const instruction = within(screen.getByRole('dialog')).getByLabelText(t('integratorKey.assistant.aria'));
+    expect(instruction.textContent).toContain(`${window.location.origin}/mcp`);
+    expect(instruction.textContent).not.toContain('pmi_mock_key_for_ui_tests_only');
+    expect(instruction.getAttribute('tabindex')).toBe('0');
+  });
+  it('shows the same instruction in the connection fold', async () => {
+    const project = mockProject();
+    project.context.me.hostOwner = true;
+    project.render(<IntegratorSection />);
+    await screen.findByRole('button', { name: t('integratorKey.create') });
+    expect(screen.getByLabelText(t('integratorKey.assistant.aria')).textContent).toContain('/mcp');
   });
   it('does not fetch or manage keys through a token', async () => {
     const project = mockProject();

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { FIX_ANOTHER_ROUND_OPTION, routes } from '@projectman/shared';
@@ -10,7 +11,9 @@ import { TEAM_TOOL_NAMES } from '../src/mcp';
 import {
   addHumanAndLogin,
   createAppHarness,
+  addHostAsOwnerMember,
   createForeignProject,
+  createOwnerAccountWithProject,
   createProject,
   OWNER_LOGIN,
   setupOwner,
@@ -400,6 +403,126 @@ describe('the bearer MCP endpoint (PM-760)', () => {
     expect(only.structuredContent?.items.map((entry: { id: string }) => entry.id)).toEqual([inAr.id]);
   });
 
+  it('shows a further owner’s key no host-only tool, and the host’s key all of them (PM-1063)', async () => {
+    const tenant = await createOwnerAccountWithProject(h, cookie, 'BR');
+    const tenantKey = h.app.projectman.auth.createIntegratorAccessKey(tenant.userId, {
+      mode: 'super',
+      expiresInDays: 7,
+    });
+    const hostOnly = EXTERNAL_TOOLS.filter((tool) => tool.hostOnly).map((tool) => tool.name);
+    expect(hostOnly.length).toBeGreaterThan(0);
+    const tenantTools = (await listTools(tenantKey.secret)).map((tool) => tool.name);
+    const hostTools = (await listTools(key('super').secret)).map((tool) => tool.name);
+    for (const name of hostOnly) {
+      expect(tenantTools).not.toContain(name);
+      expect(hostTools).toContain(name);
+    }
+    expect(tenantTools).toContain('list_integrator_inbox');
+    const instructionsOf = async (secret: string) =>
+      (
+        await post(
+          secret,
+          rpc('initialize', {
+            protocolVersion: '2025-06-18',
+            capabilities: {},
+            clientInfo: { name: 'fake-integrator', version: '1' },
+          }),
+        )
+      ).json().result.instructions as string;
+    expect(await instructionsOf(key('super').secret)).toContain('get_operator_instance_knowledge');
+    expect(await instructionsOf(tenantKey.secret)).not.toContain('get_operator_instance_knowledge');
+  });
+
+  it('keeps a further owner’s queue to their own projects, and the host’s to theirs (PM-1063)', async () => {
+    const tenant = await createOwnerAccountWithProject(h, cookie, 'BR');
+    const tenantSecret = h.app.projectman.auth.createIntegratorAccessKey(tenant.userId, {
+      mode: 'super',
+      expiresInDays: 7,
+    }).secret;
+    const todo = (projectKey: string, title: string) =>
+      h.app.projectman.domain.inbox.create({
+        projectKey,
+        kind: 'question',
+        source: 'dev-1',
+        assignees: ['owner'],
+        title,
+        payload: {
+          question: title,
+          recipient: 'integrator',
+          integratorOpenedAt: now.toISOString(),
+          screening: {
+            until: now.toISOString(),
+            outcome: 'todo',
+            todo: { what: title, where: 'Machine', expected: 'Result', recipient: 'integrator' },
+          },
+        },
+        options: [
+          { id: 'todo_done', label: 'Done', style: 'primary' },
+          { id: 'todo_cannot', label: 'Cannot', style: 'secondary' },
+        ],
+      });
+    const hostTodo = todo('AR', 'Host todo');
+    const tenantTodo = todo('BR', 'Tenant todo');
+    const idsOf = async (secret: string) =>
+      (await call(secret, 'list_integrator_inbox')).structuredContent?.items.map(
+        (entry: { id: string }) => entry.id,
+      );
+    expect(await idsOf(tenantSecret)).toEqual([tenantTodo.id]);
+    expect(await idsOf(key('super').secret)).toEqual([hostTodo.id]);
+    const foreign = await call(tenantSecret, 'resolve_integrator_todo', {
+      project_key: 'AR',
+      item_id: hostTodo.id,
+      option_id: 'todo_done',
+    });
+    expect(foreign.structuredContent?.errorCode).toBe('insufficient_access');
+    const own = await call(tenantSecret, 'resolve_integrator_todo', {
+      project_key: 'BR',
+      item_id: tenantTodo.id,
+      option_id: 'todo_done',
+    });
+    expect(own.isError).not.toBe(true);
+  });
+
+  it('does not reach a further owner’s project with the host’s key, even when the project’s team lists the host (PM-1063)', async () => {
+    const tenant = await createOwnerAccountWithProject(h, cookie, 'BR');
+    await addHostAsOwnerMember(h, 'BR');
+    const hostKey = key('super').secret;
+    const todo = h.app.projectman.domain.inbox.create({
+      projectKey: 'BR',
+      kind: 'question',
+      source: 'dev-1',
+      assignees: ['owner'],
+      title: 'Tenant todo',
+      payload: {
+        question: 'Tenant todo',
+        recipient: 'integrator',
+        integratorOpenedAt: now.toISOString(),
+        screening: {
+          until: now.toISOString(),
+          outcome: 'todo',
+          todo: { what: 'Tenant todo', where: 'Machine', expected: 'Result', recipient: 'integrator' },
+        },
+      },
+      options: [{ id: 'todo_done', label: 'Done', style: 'primary' }],
+    });
+    const projects = await call(hostKey, 'list_projects');
+    expect(projects.structuredContent?.projects.map((p: { key: string }) => p.key)).not.toContain('BR');
+    expect((await call(hostKey, 'list_integrator_inbox')).structuredContent?.items).toEqual([]);
+    const resolved = await call(hostKey, 'resolve_integrator_todo', {
+      project_key: 'BR',
+      item_id: todo.id,
+      option_id: 'todo_done',
+    });
+    expect(resolved.structuredContent?.errorCode).toBe('insufficient_access');
+    // The creator's own key still reaches it.
+    const tenantKey = h.app.projectman.auth.createIntegratorAccessKey(tenant.userId, {
+      mode: 'super',
+      expiresInDays: 7,
+    }).secret;
+    const listed = await call(tenantKey, 'list_projects');
+    expect(listed.structuredContent?.projects.map((p: { key: string }) => p.key)).toEqual(['BR']);
+  });
+
   it('initializes, lists, reads and writes with no session and no engine', async () => {
     const { secret } = key('super');
     const initialized = await post(
@@ -739,6 +862,147 @@ describe('the bearer MCP endpoint (PM-760)', () => {
     });
     expect(relay.isError).toBe(true);
     expect(relay.structuredContent?.errorCode).toBe('not_found');
+  });
+
+  describe('a step on a queue item (decision 66)', () => {
+    const createItem = (source: string, assignees: string[]) =>
+      h.app.projectman.domain.inbox.create({
+        projectKey: 'AR',
+        kind: 'question',
+        source,
+        assignees,
+        title: 'Fictional queue item',
+        payload: {
+          question: 'Fictional',
+          recipient: 'integrator',
+          integratorOpenedAt: now.toISOString(),
+          screening: {
+            until: now.toISOString(),
+            outcome: 'todo',
+            todo: { what: 'Fictional', where: 'Hub', expected: 'Result', recipient: 'integrator' },
+          },
+        },
+        options: [
+          { id: 'todo_done', label: 'Done', style: 'primary' },
+          { id: 'todo_cannot', label: 'Cannot', style: 'secondary' },
+        ],
+      });
+    const operate = (secret: string, queueItemId: string) =>
+      call(secret, 'super_operate', {
+        project_key: 'AR',
+        request_id: randomUUID(),
+        queue_item_id: queueItemId,
+        command: { kind: 'operate', operation: { op: 'message_send', to: ['dev-2'], text: 'Fictional' } },
+      });
+
+    it('refuses an item that is not open for the key’s holder', async () => {
+      const item = createItem('dev-1', ['dev-1']);
+      const result = await operate(key('super').secret, item.id);
+      expect(result.isError).toBe(true);
+      expect(result.structuredContent?.errorCode).toBe('queue_item_not_yours');
+    });
+
+    it('refuses an item whose issuer has no machine access', async () => {
+      const item = createItem('ghost', ['owner']);
+      const result = await operate(key('super').secret, item.id);
+      expect(result.isError).toBe(true);
+      expect(result.structuredContent?.errorCode).toBe('issuer_without_machine_access');
+    });
+
+    describe('with an issuer that has machine access', () => {
+      const grantMachineAccess = () =>
+        h.app.projectman.domain.projects.update(
+          'AR',
+          { actor: humanActor('owner'), author: { name: 'Owner', email: 'owner@example.com' } },
+          (draft) => {
+            const issuer = draft.team.members.find((m) => m.handle === 'dev-1');
+            if (issuer?.kind === 'ai') issuer.machineAccess = true;
+            draft.pipeline.labels.push({
+              id: 'owner-tag',
+              name: 'Owner tag',
+              setBy: { members: ['owner'] },
+            });
+            return 'Grant machine access and add an owner label';
+          },
+        );
+      const runCommand = (secret: string, queueItemId: string | undefined, command: unknown) =>
+        call(secret, 'super_operate', {
+          project_key: 'AR',
+          request_id: randomUUID(),
+          ...(queueItemId ? { queue_item_id: queueItemId } : {}),
+          command,
+        });
+
+      it('records the step under the issuer’s name with the holder behind it', async () => {
+        await grantMachineAccess();
+        const { secret, keyId, prefix } = key('super');
+        const item = createItem('dev-1', ['owner']);
+        const result = await operate(secret, item.id);
+        expect(result.structuredContent?.operation.state).toBe('succeeded');
+        const sent = h.app.projectman.repos.messages
+          .list('AR')
+          .find((m) => m.to.includes('dev-2') && m.body.includes('Fictional'));
+        expect(sent?.from).toBe('dev-1');
+        expect(sent?.actor).toEqual({
+          kind: 'ai',
+          handle: 'dev-1',
+          via: 'integrator',
+          through: { holder: 'owner', credential: { id: keyId, prefix } },
+        });
+      });
+
+      it.each([
+        [
+          'inbox_resolve',
+          (itemId: string) => ({ kind: 'inbox_resolve', itemId, request: { optionId: 'todo_done' } }),
+        ],
+        ['merge', () => ({ kind: 'merge', taskKey: 'AR-1', request: {} })],
+        [
+          'workspace_release',
+          () => ({ kind: 'workspace_release', scopeId: 'fictional', reason: 'Fictional' }),
+        ],
+      ])('refuses %s, which needs the owner’s own request', async (_kind, command) => {
+        await grantMachineAccess();
+        const item = createItem('dev-1', ['owner']);
+        const result = await runCommand(key('super').secret, item.id, command(item.id));
+        expect(result.isError).toBe(true);
+        expect(result.structuredContent?.errorCode).toBe('operator_owner_only');
+      });
+
+      it.each([
+        ['owner-tag', 'label_not_allowed'],
+        ['merge-ok', 'owner_approval_required'],
+      ])(
+        'lends no owner authority to the label %s, which a direct instruction does hold',
+        async (labelId, refusal) => {
+          await grantMachineAccess();
+          const { secret } = key('super');
+          await call(secret, 'create_task', { project_key: 'AR', title: 'Fictional card' });
+          const taskKey = h.app.projectman.domain.tasks
+            .list('AR')
+            .find((entry) => entry.title === 'Fictional card')!.key;
+          const item = createItem('dev-1', ['owner']);
+          const labelsOf = () => h.app.projectman.domain.tasks.get('AR', taskKey).labels;
+          const label = (queueItemId?: string) =>
+            runCommand(secret, queueItemId, {
+              kind: 'task_labels',
+              taskKey,
+              request: { add: [labelId], remove: [] },
+            });
+
+          const onQueueItem = await label(item.id);
+          expect(onQueueItem.structuredContent?.operation).toMatchObject({
+            state: 'failed',
+            errorCode: refusal,
+          });
+          expect(labelsOf()).not.toContain(labelId);
+
+          const direct = await label();
+          expect(direct.structuredContent?.operation.state).toBe('succeeded');
+          expect(labelsOf()).toContain(labelId);
+        },
+      );
+    });
   });
 
   describe('behind the Cloudflare Access front and the tunnel', () => {

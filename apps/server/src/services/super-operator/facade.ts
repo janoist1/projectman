@@ -15,8 +15,9 @@ import type {
   OperatorGrantGate,
 } from '../../contracts';
 import type { ProjectAccess } from '../../core/members';
-import { DomainError, forbidden, unavailable } from '../../kernel';
+import { DomainError, forbidden, integratorExecution, unavailable } from '../../kernel';
 import type { SuperHandoffService } from './handoffs';
+import type { SuperRights } from './rights';
 import type { SuperDiagnostics } from './diagnostics';
 
 /**
@@ -48,9 +49,18 @@ export function createSuperAdministration(deps: {
   administration: AdministrationPort | null;
   /** The owner's grant for machine operations: the status and log reads need it (PM-881). */
   grants: OperatorGrantGate;
+  /** The host-only check of the reads below (PM-1063); the grant is the host's, so no other key passes. */
+  rights: Pick<SuperRights, 'assertHost'>;
   diagnostics: SuperDiagnostics;
   engineLinked(projectKey: string, engineId: EngineId): boolean;
 }): SuperAdministration {
+  // A read outside an integrator scope has no key to prove it is the host's: refused like another owner's.
+  const assertHost = (): void => {
+    const scope = integratorExecution();
+    if (!scope)
+      throw forbidden('host_only', 'only the host owner’s key may use the administration of the hub');
+    deps.rights.assertHost(scope.principal);
+  };
   const adapter = (): AdministrationPort => {
     if (!deps.administration)
       throw unavailable('administration_unavailable', 'this instance has no administration adapter');
@@ -63,16 +73,19 @@ export function createSuperAdministration(deps: {
   };
   return {
     async status(projectKey, target) {
+      assertHost();
       const port = bind(projectKey, target);
       deps.grants.assertActive();
       return port.status(target);
     },
     async logs(projectKey, target, options) {
+      assertHost();
       const port = bind(projectKey, target);
       deps.grants.assertActive();
       return port.logs(target, options);
     },
     async machine(projectKey, target) {
+      assertHost();
       const port = bind(projectKey, target);
       deps.grants.assertActive();
       return port.machine(target);

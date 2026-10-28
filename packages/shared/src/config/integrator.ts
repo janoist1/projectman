@@ -5,7 +5,6 @@ import { isOwnerApprovalLabel, labelHolders } from './labels';
 import { ownerOnlyChanges } from './owner-only';
 import { DEFAULT_MAX_FIX_ROUNDS } from './schema';
 import type { ProjectConfig } from './schema';
-import { operatorOf } from './operator-member';
 
 export type SuperAccessVerdict =
   | { allowed: true }
@@ -17,7 +16,7 @@ export type SuperAccessVerdict =
 
 /** Credential policy, independent of HTTP verbs. Domain operations classify reads and decisions (PM-759). */
 export function superAccessVerdict(
-  config: ProjectConfig,
+  _config: ProjectConfig,
   facts: {
     mode: 'super' | 'read';
     operation: 'read' | 'write' | 'approval' | 'key_management';
@@ -30,10 +29,38 @@ export function superAccessVerdict(
   // The super key decides approvals in the Operator's own name (PM-870).
   if (facts.operation === 'approval' && facts.mode !== 'super')
     return { allowed: false, code: 'owner_approval_required' };
+  // The connected Claude acts as its holder or the queue item's issuer, so the project needs no Operator (decision 66).
   if (!facts.ownerMembership) return { allowed: false, code: 'insufficient_access' };
-  if (facts.mode === 'super' && !operatorOf(config))
-    return { allowed: false, code: 'integrator_not_allowed' };
   return { allowed: true };
+}
+
+/**
+ * Who may hold an integrator key (PM-1063): the host owner and an active owner account, each with a password
+ * (a passwordless, e-mail-login account never does, PM-670). The scope of a key is its holder's own projects.
+ * Extend the circle here and nowhere else.
+ */
+export function canHoldIntegratorKey(input: {
+  hostOwner: boolean;
+  ownerAccount: boolean;
+  hasPassword: boolean;
+}): boolean {
+  return input.hasPassword && (input.hostOwner || input.ownerAccount);
+}
+
+/**
+ * Whether an integrator key of `holder` reaches a project at all (PM-1063). The project's team is editable by
+ * its owners, so the key's reach also rests on a fact the team cannot write: who created the project. A
+ * project an owner account created (`createdBy` is that account, not the host owner) is reached by the
+ * creator's key only, whoever else the team lists as an owner; any other project (registered by the host
+ * owner, `createdBy` null or the host) stays with the owner members' keys. The caller still checks the
+ * owner membership.
+ */
+export function integratorKeyCoversProject(input: {
+  createdBy: string | null;
+  creatorIsHost: boolean;
+  holder: string;
+}): boolean {
+  return input.createdBy === null || input.creatorIsHost || input.createdBy === input.holder;
 }
 
 /** What the integrator key may not change (PM-418), in the order integratorConfigRefusal checks them. */

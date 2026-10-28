@@ -3,7 +3,7 @@ import type {
   ExternalToolOrigin,
   HumanMemberConfig,
   ProjectConfig,
-  SuperActor,
+  BoundActor,
   SuperMutationInput,
 } from '@projectman/shared';
 
@@ -52,7 +52,7 @@ export interface OperatorAppSessions {
  */
 export interface SuperExecutionContext {
   readonly projectKey: string;
-  readonly actor: SuperActor;
+  readonly actor: BoundActor;
   readonly requestId: string;
   readonly handoffId?: string | null;
 }
@@ -63,6 +63,12 @@ export interface IntegratorExecutionContext {
   readonly email: string;
   readonly requestId: string;
   readonly projectKey?: string | null;
+  /**
+   * The issuer of the queue item this call works on (decision 66): the step is then recorded under that AI
+   * member, through the holder's Claude. Set only by the server after it checked the item; no argument of a
+   * tool call carries it.
+   */
+  readonly issuer?: string;
 }
 
 export interface AuthenticatedIntegratorExecutionContext {
@@ -78,6 +84,12 @@ export interface IntegratorCredentialAuthority {
   user(id: string): { email: string } | null;
   /** Whether the user is the host owner (PM-1061); absent: nobody is, so the host's operations are refused. */
   isHostOwner?(userId: string): boolean;
+  /**
+   * Whether a key of this holder reaches the project at all (PM-1063): in a project an owner account created
+   * only the creator's key does, whoever the project's editable team lists as owner. Absent: no project is
+   * reached (fail closed).
+   */
+  keyCoversProject?(userId: string, projectKey: string): boolean;
   /**
    * The live principal of a stored key (PM-784), for work that outlives the call that started it: a queued
    * document write. Null when the key is revoked, expired or no longer the one stored (id, owner, prefix);

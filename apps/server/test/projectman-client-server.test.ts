@@ -166,7 +166,7 @@ describe('projectman CLI against the server (PM-765)', () => {
     expect(domain.inbox.get('AR', item.id).resolution).toMatchObject({
       via: 'integrator',
       superDecision: true,
-      actor: { handle: 'operator' },
+      actor: { handle: 'owner', through: { holder: 'owner' } },
     });
     await change(['config', 'set', '--project', 'AR', 'limits.maxConcurrentAi', '2']);
     expect((await domain.projects.config('AR')).team.limits.maxConcurrentAi).toBe(2);
@@ -184,7 +184,7 @@ describe('projectman CLI against the server (PM-765)', () => {
     });
     await domain.merges.reconcile('AR', taskKey);
     await change(['merges', 'enqueue', taskKey]);
-    expect(repos.taskMerges.open('AR', taskKey)).toMatchObject({ state: 'queued', startedBy: 'operator' });
+    expect(repos.taskMerges.open('AR', taskKey)).toMatchObject({ state: 'queued', startedBy: 'owner' });
   });
 
   it('a read key reads, and every change is refused by the server as before', async () => {

@@ -296,6 +296,10 @@ export const ERROR_CODES = [
   'operator_owner_only',
   // The Operator exists only when the owner's client connects (PM-1045, 409): no session, no message to it.
   'operator_connected_only',
+  // A connected Claude's step on a queue item (decision 66): the item is not open for the key's holder (403),
+  // or its issuer has no machine access (409).
+  'queue_item_not_yours',
+  'issuer_without_machine_access',
   'operator_no_request',
   'operator_never',
   'operator_only',

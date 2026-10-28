@@ -1,5 +1,5 @@
 import type { Actor, Session, SessionStop, TeamMessage } from '@projectman/shared';
-import { prepareOperatorConfigPatch } from '@projectman/shared';
+import { connectedOriginOf, operatorOf, prepareOperatorConfigPatch } from '@projectman/shared';
 import { assertIntegratorAccess, forbidden, integratorExecution, invalid } from '../../kernel';
 import type { SuperCommandExecutor } from './handoffs';
 import { superJobIdentity } from './commands';
@@ -56,6 +56,8 @@ export function createOperateExecutor(deps: OperateExecutorDeps): SuperCommandEx
     if (!actor || !scope || scope.principal.mode !== 'super')
       throw forbidden('integrator_not_allowed', 'only the integrator in super mode runs an operate job');
     const superActor = actor;
+    const origin = connectedOriginOf(superActor);
+    if (!origin) throw forbidden('integrator_not_allowed', 'the operate job has no connected origin');
     const projectKey = job.config.project.key;
     assertIntegratorAccess(job.config, 'write', superActor);
     const op = command.operation;
@@ -79,7 +81,7 @@ export function createOperateExecutor(deps: OperateExecutorDeps): SuperCommandEx
           userId: scope.principal.userId,
           source: 'app' as const,
           via: 'integrator' as const,
-          credential: { ...superActor.credential },
+          credential: { ...origin.credential },
         };
         const target = { scope: 'project' as const, projectKey };
         if (op.op === 'project_pause')
@@ -89,7 +91,7 @@ export function createOperateExecutor(deps: OperateExecutorDeps): SuperCommandEx
       }
       case 'session_stop': {
         const session = deps.sessions.get(projectKey, op.sessionId);
-        if (session.member === superActor.handle)
+        if (session.member === superActor.handle || session.member === operatorOf(job.config)?.handle)
           throw forbidden('operator_never', 'the Operator cannot stop its own session');
         await deps.sessions.stop(projectKey, op.sessionId, { kind: 'manual', by: superActor });
         return;

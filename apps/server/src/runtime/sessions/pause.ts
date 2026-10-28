@@ -1,5 +1,6 @@
 import { assertIntegratorAccess, integratorExecution, forbidden, assertSuperMutation } from '../../kernel';
 import {
+  connectedActorOf,
   DEFAULT_PAUSE_FORCE_AFTER_MS,
   isWorkPaused,
   NUDGE_POINTS,
@@ -751,16 +752,14 @@ export class PauseService {
         const config = await this.projects.config(projectKey);
         const member = findHumanByEmail(config, user.email);
         if (!member) continue;
-        // A super request is the project's Operator only while its token owner is an owner there.
+        // A super request is the key holder's step (their connected Claude) only while the holder is an owner
+        // there; an in-app session keeps the old actor, the Operator or the selected coordinator.
+        const principal = integratorExecution()?.principal;
         const superActor =
           by.credential && member.access === 'owner'
-            ? superActorOf(
-                config,
-                by.credential,
-                integratorExecution()?.principal.source === 'app'
-                  ? integratorExecution()?.principal.member
-                  : undefined,
-              )
+            ? principal?.source === 'app'
+              ? superActorOf(config, by.credential, principal.member)
+              : connectedActorOf(member.handle, by.credential)
             : null;
         actors.set(
           projectKey,

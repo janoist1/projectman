@@ -214,6 +214,8 @@ interface ExternalToolBase {
   readonly annotations: ToolAnnotations;
   readonly access: ExternalAccess;
   readonly modes: readonly ExternalCredentialMode[];
+  /** Only the host owner's key is offered and may call it (PM-1063): the hub's administration, machine, instance knowledge. */
+  readonly hostOnly?: true;
 }
 
 export type ExternalResult = string | ToolOutput | ExternalStructured;
@@ -276,6 +278,8 @@ interface ExternalToolDefinition {
   access: ExternalAccess;
   /** Overrides the modes of the access class, e.g. a tool only the super mode calls. */
   modes?: readonly ExternalCredentialMode[];
+  /** Offered and callable only with the host owner's key. */
+  hostOnly?: true;
 }
 
 function externalBase(def: ExternalToolDefinition, inputSchema: z.ZodObject): ExternalToolBase {
@@ -292,6 +296,7 @@ function externalBase(def: ExternalToolDefinition, inputSchema: z.ZodObject): Ex
     },
     access: def.access,
     modes: def.modes ?? EXTERNAL_MODES[def.access],
+    ...(def.hostOnly ? { hostOnly: true as const } : {}),
   };
 }
 

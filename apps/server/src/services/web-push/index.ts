@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import {
   canSeeInboxItem,
   deviceLabelOf,
-  holdsOwnership,
+  holdsOwnershipByEmail,
   isAllowedPushEndpoint,
   isPushableItem,
   pushCategoryOf,
@@ -333,7 +333,7 @@ export function createWebPushService(opts: WebPushOptions) {
       let home: string | null = null;
       for (const project of [...opts.repos.projects.list()].sort((a, b) => a.key.localeCompare(b.key))) {
         const config = await opts.config(project.key).catch(() => null);
-        if (config && holdsOwnership(config, user.email)) {
+        if (config && holdsOwnershipByEmail(config, user.email)) {
           home = project.key;
           break;
         }

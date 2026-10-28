@@ -4,7 +4,13 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { routes } from '@projectman/shared';
 import { humanActor } from '../src/kernel';
-import { createAppHarness, createProject, inject, setupOwner } from './helpers/app-harness';
+import {
+  createAppHarness,
+  createOwnerAccountWithProject,
+  createProject,
+  inject,
+  setupOwner,
+} from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 import { createGitSeed } from './helpers/git-seed';
 
@@ -64,6 +70,19 @@ describe('the bearer MCP endpoint: the Operator tools (PM-784)', () => {
   const code = (result: ToolResult) => result.structuredContent?.errorCode;
   const audit = () => h.app.projectman.repos.superAudit.list('AR', { limit: 100 }).entries;
   const inboxItems = () => h.app.projectman.domain.inbox.list('AR');
+
+  it('refuses another owner’s key the host’s machine and instance knowledge, with the host grant active (PM-1063)', async () => {
+    const { auth, repos } = h.app.projectman;
+    auth.grantOperator(repos.users.list()[0]!.id, 'until_revoked');
+    const tenant = await createOwnerAccountWithProject(h, cookie, 'BR');
+    const { secret } = auth.createIntegratorAccessKey(tenant.userId, { mode: 'super', expiresInDays: 7 });
+    const refused = [
+      await call(secret, 'get_machine_snapshot', { project_key: 'BR', target: { kind: 'hub' } }),
+      await call(secret, 'get_operator_instance_knowledge'),
+    ];
+    for (const result of refused) expect(code(result)).toBe('host_only');
+    expect(code(await call(key('super').secret, 'get_operator_instance_knowledge'))).toBeUndefined();
+  });
 
   describe('ask_human, get_super_question and withdraw_question', () => {
     it('opens an owner question without a session, reads it and withdraws it', async () => {
@@ -368,7 +387,7 @@ describe('the bearer MCP endpoint: the Operator tools (PM-784)', () => {
       expect(row).toMatchObject({
         autonomousLessons: false,
         requestId: null,
-        externalOrigin: { actor: { credential: { id } } },
+        externalOrigin: { actor: { handle: 'owner', through: { holder: 'owner', credential: { id } } } },
       });
       expect(readFileSync(join(h.workspace, path), 'utf8')).toContain('A new lesson');
     });

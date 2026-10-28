@@ -2905,7 +2905,10 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   file (0600; `authorization` is never taken from it), `engine-status.json` (what `status` shows: no
   secret; PM-1086 adds the optional `work` counts (sessions, merge checks, screenshot runs) and `keepAwake`
   (`mode`, `holding`, `since`, `unsupported`), and `engine.json` the optional `keepAwake` mode,
-  `while_working` when absent), `logs/engine-audit.jsonl` (one line per request: method, session id, outcome and refusal
+  `while_working` when absent; PM-1087 adds the optional `version` (as in the hello), `releaseTag` (the git tag
+  of the checkout, read once at start-up with a 2 s limit) and, per running session, `member`, `provider`, `label`
+  (the display name) and `startedAt`, which the engine remembers from `session.start` until the runner's exit;
+  no prompt, token or path), `logs/engine-audit.jsonl` (one line per request: method, session id, outcome and refusal
   code, never a prompt, message, terminal input, file content, token or key; rotated at 10 MB, five
   files kept) and `attachments-cache/` (downloaded attachments, checked against size and sha256; a task
   session may read its card's folder there, which `engine-limit.ts` allows as a read-only sandbox root
@@ -3180,6 +3183,22 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   PM-1045: `AuthService.hasActiveSuperKey(ownerEmail)` (repository `hasActiveSuper`) tells whether an owner has
   a live (not revoked, not expired) super key; `integratorSideAvailable` reads it to decide where a machine todo
   waits. It reads only the hub database; no machine assumption is added.
+  PM-1074 (decision 66): a step made with the key is the connected Claude's: it is recorded under the key holder's
+  name (or the queue item issuer's), with `through` naming the holder and the key; the project needs no Operator for
+  a key to bind. The key still carries no authority beyond the authenticated scope and the holder's rights.
+  PM-1063: a further owner (an active owner account, PM-1062) with a password holds `super`/`read` keys of
+  their own beside the host owner; the pure rule is `canHoldIntegratorKey` (`packages/shared/src/config/integrator.ts`),
+  applied by `AuthService.keyHolderAllowed` at issuing, authentication, `assertActive` and `hasActiveSuperKey`.
+  A key's scope is its holder's own projects (the existing owner-membership checks); revoking the owner account
+  makes the key `integrator_key_invalid` (401). The team of a project is editable by its owners, so the reach
+  also rests on a fact the team cannot write (`integratorKeyCoversProject`, `AuthService.keyCoversProject`):
+  in a project an owner account created (`projects.created_by`, PM-1062) only the creator's key counts, even if
+  the team lists the host owner; a project the host registered stays with its owner members' keys. The check
+  sits in the scope's access check, `executeOwned`/`executeInstance`, `SuperRights.assertNow` and
+  `hasActiveSuperKey(email, projectKey)` (the queue). Administration is the host's alone: `SuperRights.assertHost`
+  refuses every non-host key with `host_only` (403) for the status, log and machine reads of the facade, for
+  every `super_operate` administration command (hub or engine restart, deploy, process cleanup) and for the
+  operator grant gate, which stays the host's. Instance-level REST routes are not `host_only` (PM-1058).
   Legacy keys are revoked with a lifecycle audit by migration 114 (PM-1037); the singular API is removed.
   Authentication rejects legacy rows, which remain readable in key lists and audit history. Before release,
   the owner must replace any active legacy credential on the integrator's machine with a super or read key.
@@ -3229,8 +3248,20 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   engine. Machine assumptions: a local or HTTPS connection (`requestProtocol` trusts `X-Forwarded-Proto` only from a
   loopback peer, so the proxy or tunnel must run on the server's machine and keep Host and the protocol header) and a
   tunnel/proxy that refuses `/mcp/` and `/hooks` but passes `/mcp`. Remote engine: not affected; nothing of the endpoint
-  runs on or crosses to an engine. Since PM-1045 this endpoint is the Operator's only door: the `operator` member
-  stays as a transitional identity (`superActorOf` maps a super-key step to it), the app starts no session for it.
+  runs on or crosses to an engine. Since PM-1045 this endpoint is the Operator's only door: the app starts no
+  session for it. **The connected Claude as an actor (PM-1074, decision 66):** a super-key step is recorded as the
+  key holder in person (`kind: human`, `via: integrator`, `through: {holder, credential}`), or, with
+  `queue_item_id` on `super_operate` / `execute_super_handoff`, as the member who issued that open integrator queue
+  item (`kind: ai`, the same `through`; `queue_item_not_yours` / `issuer_without_machine_access` refuse it). After the
+  owner's own yes on a K3 question the step also carries `approvedBy`, set by the server only. The `operator`
+  member and the old `operatorMode: super` events stay readable; `superActorOf` serves only the in-app Operator
+  principal. The actor is created and stored on the hub (`actor_meta`); no machine-dependent part is added.
+  **Two kinds of key holder (PM-1063):** a tool with `hostOnly: true` (`mcp/kit.ts`: `get_administration_status`,
+  `get_administration_logs`, `get_machine_snapshot` and the two instance-knowledge tools; the host-request tools of
+  PM-1064 take the same flag) is absent from `tools/list` of a further owner's key and answers `host_only` if called
+  (`ExternalMcpBackend.isHost`). The server's `instructions` come in two kinds: the host's (the global Operator,
+  unchanged) and a short one for a further owner (own projects, own machine with their approval, no secrets).
+  Remote engine: not affected; the filter reads the hub's user and owner-account rows.
   **The global Operator on the endpoint (PM-1046, PM-1023 K7):** in the super mode `get_operator_instance_knowledge`
   and `update_operator_instance_knowledge` (`expected_revision`, `agreement?`, `principles?`) read and write the
   Operator's own knowledge with no `project_key` (`services/super-operator/instance-knowledge.ts`); the write is
@@ -4624,7 +4655,7 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   guide tells the person to delete them after use.
   **Module:** `scripts`
 
-- **Engine service (launchd)** — `scripts/engine/{service,commands,cli}.ts`,
+- **Engine service (launchd)** — `scripts/engine/{service,snapshot,logs,commands,cli}.ts`,
   PM-674's [rollback runbook](CLOUD-CUTOVER.md) uninstalls KeepAlive before hybrid back.
   Updates are manual owner-approved steps in
   the engine's own checkout; neither credentials nor launchd operations cross engine RPC.
@@ -4636,6 +4667,18 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   gets only the variables the plist names (`PATH`, `PROJECTMAN_MODE=engine`, `PROJECTMAN_HOME`): no
   API key and no integrator key. `install` runs the same preflight as `start` and refuses another
   home's installed agent; `uninstall` leaves the logs (`<home>/logs/engine-service.{out,err}.log`).
+  PM-1087 adds `service start|stop|restart` and the machine-readable state, the one contract of the menu bar
+  app and any other shell: `start` loads the file (`bootstrap`, with the busy retry) or `kickstart`s a loaded
+  idle job (no file: `service_not_installed`); `stop` is `bootout` (the file stays, `RunAtLoad` starts it at
+  the next login) and waits up to 100 s for the process to leave; `restart` is `kickstart -k` (an unknown job
+  is started); none touches another home's agent (`service_other_home`). The plist has `ExitTimeOut` 100:
+  the engine's shutdown pause is 60 s (`APP_DEFAULTS.shutdownPauseMs`) plus a 20 s cap, while launchd sends
+  SIGKILL after about 20 s by default; an existing machine needs `service install` again for it to apply.
+  `status --json` prints one line (`EngineLocalSnapshot`, `scripts/engine/snapshot.ts`, exit 0 in every
+  state, 1 only when it cannot be built) from `engine.json`, `engine-status.json`, one `launchctl print` (none
+  off macOS: `service.supported` false) and the disk and memory of the machine; `overall` has one rule,
+  `overallState`. `logs [--lines N] [--json]` prints the last lines (50, at most 200, from the last 256 KiB)
+  of the two service logs.
   **Assumptions:** macOS, `launchctl`, a logged-in user, and the checkout the command ran from being
   the one that should run the engine (the plist names it). **Does this work on a remote engine?**
   This is the engine's own start-up: it must run on the engine's machine, as the user who owns the

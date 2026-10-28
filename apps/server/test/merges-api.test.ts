@@ -113,12 +113,12 @@ describe('member merge API', () => {
         });
         expect(started.statusCode, started.body).toBe(202);
         expect(SuperOperateResponse.parse(started.json()).operation.state).toBe('succeeded');
-        expect(repos.taskMerges.open('AR', 'AR-1')?.startedBy).toBe('operator');
+        expect(repos.taskMerges.open('AR', 'AR-1')?.startedBy).toBe('owner');
         expect(domain.inbox.get('AR', item.id).resolution).toMatchObject({
           by: 'owner',
           superDecision: true,
           via: 'integrator',
-          actor: { handle: 'operator' },
+          actor: { handle: 'owner', through: { holder: 'owner' } },
         });
       } else {
         const started = await inject(h.app, 'POST', routes.taskMerge('AR', 'AR-1'), cookie);

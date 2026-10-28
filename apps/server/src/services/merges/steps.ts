@@ -5,6 +5,7 @@ import {
   mergeRequestOf,
   mergeReadiness,
   memberOf,
+  hasBoundOrigin,
   isOpenTask,
   openPrerequisites,
   MERGE_ENGINE_WAIT_MINUTES,
@@ -115,7 +116,8 @@ export class MergeSteps {
     const task = tasks.get(projectKey, taskKey);
     const row = ctx.repos.taskMerges.open(projectKey, taskKey);
     const handle = actorHandle(actor);
-    if (!row || row.merger !== handle)
+    // A conflict fix is the merger's own work in a worktree: a key acting under the holder's name keeps out.
+    if (!row || row.merger !== handle || hasBoundOrigin(actor))
       throw conflict('merge_fix_not_allowed', 'only the card merger may fix conflicts', {
         reason: 'not_merger',
       });

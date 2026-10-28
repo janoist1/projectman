@@ -7,17 +7,10 @@ import type {
 } from '../../contracts';
 import { assertIntegratorAccess, runIntegratorExecution, forbidden } from '../../kernel';
 import type { ProjectAccess } from '../../core/members';
-import { bindSuperPrincipal } from '../../core/members';
+import { bindSuperPrincipal, findHumanByEmail, principalActorOf } from '../../core/members';
 import type { ProjectService } from '../../core/projects';
 import type { SuperAuditService } from '../../core/timeline';
-import {
-  canonical,
-  hasSuperOrigin,
-  holdsOwnership,
-  ownerReservedEffect,
-  superAccessVerdict,
-  superActorOf,
-} from '@projectman/shared';
+import { canonical, hasBoundOrigin, ownerReservedEffect, superAccessVerdict } from '@projectman/shared';
 import type { Actor, HumanMemberConfig, ProjectConfig, SuperMutationInput } from '@projectman/shared';
 
 export { SUPER_OWNER_YES, SuperHandoffService, createSuperHandoffService } from './handoffs';
@@ -42,11 +35,37 @@ export { INTEGRATOR_INBOX_LIMIT, listIntegratorInbox, resolveIntegratorFixLimit 
 export { updateInstanceKnowledge } from './instance-knowledge';
 export { createSuperRights } from './rights';
 
-const principalActor = (config: ProjectConfig, principal: IntegratorPrincipal) =>
-  superActorOf(
+/** The actor a step made with the principal is recorded as: the holder's, or the queue item issuer's (decision 66). */
+const principalActor = (
+  config: ProjectConfig,
+  principal: IntegratorPrincipal,
+  email: string | undefined,
+  issuer?: string,
+) =>
+  principalActorOf(
     config,
-    { id: principal.keyId, prefix: principal.prefix },
-    principal.source === 'app' ? principal.member : undefined,
+    principal,
+    email === undefined ? undefined : findHumanByEmail(config, email)?.handle,
+    issuer,
+  );
+
+/**
+ * Whether the key's holder is an owner member of the project, as of its current configuration, and the key
+ * reaches the project at all (`keyCoversProject`, PM-1063): the team is the owners' to edit, so it alone does
+ * not make another owner's project the holder's.
+ */
+const holdsOwnership = (
+  config: ProjectConfig,
+  holder: { id: string; email: string } | null,
+  credentials: IntegratorCredentialAuthority | undefined,
+): boolean =>
+  holder !== null &&
+  !!credentials?.keyCoversProject?.(holder.id, config.project.key) &&
+  config.team.members.some(
+    (member) =>
+      member.kind === 'human' &&
+      member.access === 'owner' &&
+      member.email?.trim().toLowerCase() === holder.email.trim().toLowerCase(),
   );
 
 /** Authenticated execution shared by REST and bearer MCP. The composition supplies domain ports. */
@@ -55,6 +74,10 @@ export function createSuperOperator(deps: {
   audit: SuperAuditService;
   credentials?: IntegratorCredentialAuthority;
 }) {
+  const holderOf = (principal: IntegratorPrincipal) => {
+    const user = deps.credentials?.user(principal.userId);
+    return user ? { id: principal.userId, email: user.email } : null;
+  };
   let authorizer: SuperMutationAuthorizer = {
     async assertAllowed(input) {
       let effect;
@@ -87,7 +110,7 @@ export function createSuperOperator(deps: {
             .find(
               (config) =>
                 config &&
-                holdsOwnership(config, user.email) &&
+                holdsOwnership(config, { id: input.principal.userId, email: user.email }, credentials) &&
                 superAccessVerdict(config, {
                   mode: input.principal.mode,
                   operation: 'read',
@@ -95,7 +118,9 @@ export function createSuperOperator(deps: {
                 }).allowed,
             );
     const actor =
-      initial && input.principal.mode === 'super' ? principalActor(initial, input.principal) : null;
+      initial && input.principal.mode === 'super'
+        ? principalActor(initial, input.principal, user.email, input.issuer)
+        : null;
     const authorized = new Set<string>();
     const check = (
       config: ProjectConfig,
@@ -112,14 +137,18 @@ export function createSuperOperator(deps: {
       const verdict = superAccessVerdict(config, {
         mode: input.principal.mode,
         operation,
-        ownerMembership: owner?.access === 'owner',
+        ownerMembership:
+          owner?.access === 'owner' &&
+          !!credentials.keyCoversProject?.(input.principal.userId, config.project.key),
       });
       if (!verdict.allowed) throw forbidden(verdict.code, 'the credential cannot perform this operation');
-      const expected = principalActor(config, input.principal);
+      const expected = principalActor(config, input.principal, user.email, input.issuer);
+      // The approver on the step is the server's own record of a checked yes; it is no part of who acted.
+      const { approvedBy: _approvedBy, ...acted } = by ?? {};
       if (
         by &&
         input.principal.mode === 'super' &&
-        (!hasSuperOrigin(by) || !expected || canonical(by) !== canonical(expected))
+        (!hasBoundOrigin(by) || !expected || canonical(acted) !== canonical(expected))
       )
         throw forbidden('insufficient_access', 'the actor does not match the authenticated credential');
       return owner;
@@ -168,7 +197,9 @@ export function createSuperOperator(deps: {
       actorFor(config) {
         if (config) check(config, 'write');
         const bound =
-          config && input.principal.mode === 'super' ? principalActor(config, input.principal) : actor;
+          config && input.principal.mode === 'super'
+            ? principalActor(config, input.principal, user.email, input.issuer)
+            : actor;
         if (!bound) throw forbidden('insufficient_access', 'the mutation has no bound actor');
         return bound;
       },
@@ -202,7 +233,7 @@ export function createSuperOperator(deps: {
         assertIntegratorAccess(config, 'read');
         // A read key's call is audited too (PM-784): the entry carries the project's Operator and the key's
         // id and prefix, while the principal's mode stays `read`.
-        const actor = principalActor(config, context.principal);
+        const actor = principalActor(config, context.principal, context.email, context.issuer);
         if (!actor) return run();
         return deps.audit.runExternal(
           { projectKey: target.projectKey, actor, requestId: context.requestId },
@@ -227,12 +258,12 @@ export function createSuperOperator(deps: {
         // The operation is one instance action, run exactly once; the access check and the audit belong to the
         // projects the key's holder owns. A project of another owner is left out, and a policy that forbids the
         // key in an own project still refuses the call.
-        const email = deps.credentials?.user(context.principal.userId)?.email;
-        const projects = configs.filter((config) => holdsOwnership(config, email));
+        const holder = holderOf(context.principal);
+        const projects = configs.filter((config) => holdsOwnership(config, holder, deps.credentials));
         let work = run;
         for (const config of projects) {
           assertIntegratorAccess(config, 'read');
-          const actor = principalActor(config, context.principal);
+          const actor = principalActor(config, context.principal, context.email);
           if (context.principal.mode !== 'super' || !actor) continue;
           const next = work;
           work = () =>
@@ -262,10 +293,10 @@ export function createSuperOperator(deps: {
     ): Promise<T> {
       const configs = await Promise.all(deps.projects.summaries().map((p) => deps.projects.config(p.key)));
       return runIntegratorExecution(scopeFor({ ...context, projectKey: null }), async () => {
-        const email = deps.credentials?.user(context.principal.userId)?.email;
+        const holder = holderOf(context.principal);
         const owned = configs.filter(
           (config) =>
-            holdsOwnership(config, email) &&
+            holdsOwnership(config, holder, deps.credentials) &&
             superAccessVerdict(config, {
               mode: context.principal.mode,
               operation: 'read',
@@ -275,7 +306,7 @@ export function createSuperOperator(deps: {
         let work = () => run(owned.map((config) => ({ key: config.project.key, name: config.project.name })));
         if (context.principal.mode === 'super') {
           for (const config of owned) {
-            const actor = principalActor(config, context.principal);
+            const actor = principalActor(config, context.principal, context.email);
             if (!actor) continue;
             const next = work;
             work = () =>
@@ -303,7 +334,7 @@ export function createSuperOperator(deps: {
       return runIntegratorExecution(scopeFor({ ...context, projectKey: access.projectKey }), () => {
         assertIntegratorAccess(config, operation);
         return context.principal.mode === 'super'
-          ? bindSuperPrincipal(config, access, context.principal)
+          ? bindSuperPrincipal(config, access, context.principal, context.issuer)
           : { ...access, via: 'integrator' };
       });
     },

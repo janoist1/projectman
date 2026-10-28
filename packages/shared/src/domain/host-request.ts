@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { holdsOwnership } from '../config/lookup';
+import { holdsOwnershipByEmail } from '../config/lookup';
 import { coordinationActorRefusal } from '../config/project-manager';
 import type { ProjectConfig } from '../config/schema';
 
@@ -60,6 +60,6 @@ export function hostRequestRefusal(
   if (coordinationActorRefusal(config, { kind: 'ai', handle, via: undefined }) !== null) {
     return 'project_manager_only';
   }
-  if (hostEmail === null || holdsOwnership(config, hostEmail)) return 'host_request_not_needed';
+  if (hostEmail === null || holdsOwnershipByEmail(config, hostEmail)) return 'host_request_not_needed';
   return null;
 }

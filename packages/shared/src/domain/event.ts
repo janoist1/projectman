@@ -23,7 +23,7 @@ import { MemberHandle, type AgentProvider } from './member';
 import type { PauseScopeKind, PauseSource } from './pause';
 import type { GateCondition } from './pipeline';
 import type { ReleaseFailure, ReleaseState } from './release';
-import { ActorCredential, actorOriginIssue } from './actor-origin';
+import { ActorCredential, ActorThrough, actorOriginIssue } from './actor-origin';
 // The origin helpers (`hasSuperOrigin`, `SuperActor`, ...) live in actor-origin.ts, a leaf of the domain.
 import { TaskKey } from './task';
 import type { TaskPriority, TaskStartWaiting } from './task';
@@ -32,6 +32,8 @@ import type { TaskPriority, TaskStartWaiting } from './task';
  * Who did something. Every step is attributed to a human, an AI member or the system.
  * `operatorMode` and `credential` (PM-757) mark the Operator's super mode: the project's Operator
  * (`handle`, computed by the server) acting through the integrator, with the credential's id and prefix.
+ * `through` and `approvedBy` (decision 66) mark a connected Claude's step: who acted (`handle`: the holder
+ * in person, or the issuer of the queue item worked on), through whose Claude and key, and who approved it.
  * Older steps (a person through the integrator key: `via` alone) stay valid as they are.
  */
 export const Actor = z
@@ -41,6 +43,8 @@ export const Actor = z
     via: z.literal('integrator').optional(),
     operatorMode: z.literal('super').optional(),
     credential: ActorCredential.optional(),
+    through: ActorThrough.optional(),
+    approvedBy: MemberHandle.optional(),
   })
   .superRefine((actor, ctx) => {
     const issue = actorOriginIssue(actor);

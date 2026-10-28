@@ -97,7 +97,7 @@ export function externalToolNamed(name: string): ExternalRegisteredTool | undefi
   return EXTERNAL_TOOLS.find((tool) => tool.name === name);
 }
 
-/** The tools a credential mode is offered, and may call. */
-export function externalToolsFor(mode: ExternalCredentialMode): ExternalRegisteredTool[] {
-  return EXTERNAL_TOOLS.filter((tool) => tool.modes.includes(mode));
+/** The tools a credential mode is offered, and may call; a `hostOnly` tool only when the key is the host owner's. */
+export function externalToolsFor(mode: ExternalCredentialMode, host: boolean): ExternalRegisteredTool[] {
+  return EXTERNAL_TOOLS.filter((tool) => tool.modes.includes(mode) && (host || !tool.hostOnly));
 }

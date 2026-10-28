@@ -24,7 +24,10 @@ export function ownerHandles(config: Pick<ProjectConfig, 'team'>): string[] {
 }
 
 /** Whether the person with this e-mail is an owner member of the project, as of its current configuration. */
-export function holdsOwnership(config: Pick<ProjectConfig, 'team'>, email: string | undefined): boolean {
+export function holdsOwnershipByEmail(
+  config: Pick<ProjectConfig, 'team'>,
+  email: string | undefined,
+): boolean {
   return (
     email !== undefined &&
     config.team.members.some(

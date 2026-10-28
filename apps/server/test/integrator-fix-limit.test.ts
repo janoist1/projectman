@@ -148,11 +148,11 @@ describe('integrator fix limit decision', () => {
       optionId: 'another_round',
       via: 'integrator',
       integratorFixLimit: true,
-      actor: { kind: 'ai', handle: 'operator', operatorMode: 'super' },
+      actor: { kind: 'human', handle: 'owner', through: { holder: 'owner' } },
     });
     expect(record()).toMatchObject({ holdPhase: null, extraRounds: 1, inboxItemId: null });
     expect(fixLimitEvents().at(-1)).toMatchObject({
-      actor: { handle: 'operator', operatorMode: 'super' },
+      actor: { handle: 'owner', through: { holder: 'owner' } },
       data: { phase: 'decided', decision: 'another_round', note: 'Try once more.', extraRounds: 1 },
     });
     expect((await decide(created.id, 'another_round')).json().error.code).toBe('inbox_item_closed');
@@ -179,13 +179,13 @@ describe('integrator fix limit decision', () => {
     expect(item(created.id).resolution).toMatchObject({
       by: 'owner',
       superDecision: true,
-      actor: { handle: 'operator', operatorMode: 'super' },
+      actor: { handle: 'owner', through: { holder: 'owner' } },
     });
     expect(record()).toMatchObject({ holdPhase: null, extraRounds: 1 });
-    expect(fixLimitEvents().at(-1)?.actor).toMatchObject({ handle: 'operator', operatorMode: 'super' });
+    expect(fixLimitEvents().at(-1)?.actor).toMatchObject({ handle: 'owner', through: { holder: 'owner' } });
   });
 
-  it('starts a held card as the Operator and releases its fix limit hold', async () => {
+  it('starts a held card as the connected holder and releases its fix limit hold', async () => {
     await passedOn();
     const response = await h.app.inject({
       method: 'POST',
@@ -199,7 +199,7 @@ describe('integrator fix limit decision', () => {
     expect(response.statusCode, response.body).toBe(202);
     expect(response.json().operation.state).toBe('succeeded');
     expect(record()).toMatchObject({ holdPhase: null, extraRounds: 1 });
-    expect(fixLimitEvents().at(-1)?.actor).toMatchObject({ handle: 'operator', operatorMode: 'super' });
+    expect(fixLimitEvents().at(-1)?.actor).toMatchObject({ handle: 'owner', through: { holder: 'owner' } });
   });
 
   it('reassign: another implementer starts with a fresh count', async () => {
@@ -210,7 +210,7 @@ describe('integrator fix limit decision', () => {
     expect(task().assignee).toBe('dev-2');
     expect(record()).toMatchObject({ holdPhase: null, extraRounds: 0 });
     expect(fixLimitEvents().at(-1)).toMatchObject({
-      actor: { operatorMode: 'super' },
+      actor: { through: { holder: 'owner' } },
       data: { phase: 'decided', decision: 'reassign' },
     });
   });
@@ -270,7 +270,7 @@ describe('integrator fix limit decision', () => {
     expect(response.statusCode, response.body).toBe(200);
     expect(record()).toMatchObject({ holdPhase: 'replan', decider: 'arch' });
     expect(fixLimitEvents().at(-1)).toMatchObject({
-      actor: { operatorMode: 'super' },
+      actor: { through: { holder: 'owner' } },
       data: { phase: 'decided', decision: 'replan', decider: 'arch' },
     });
   });
@@ -291,7 +291,7 @@ describe('integrator fix limit decision', () => {
     expect(item(created.id).payload.integratorEscalatedAt).toBeDefined();
     expect(escalations()).toHaveLength(1);
     expect(escalations()[0]).toMatchObject({
-      actor: { operatorMode: 'super' },
+      actor: { through: { holder: 'owner' } },
       data: {
         inboxItemId: created.id,
         from: 'integrator',

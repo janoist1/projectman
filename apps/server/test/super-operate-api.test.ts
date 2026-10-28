@@ -157,11 +157,12 @@ describe('the wired operate executor in super mode (PM-831)', () => {
     const response = await inject(app.app, 'PUT', routes.config('AR'), cookie, draft);
     expect(response.statusCode, response.body).toBe(200);
   };
+  // A step made with the super key is the holder's own, with the key behind it (decision 66).
   const operator = {
-    kind: 'ai',
-    handle: 'operator',
+    kind: 'human',
+    handle: 'owner',
     via: 'integrator',
-    operatorMode: 'super',
+    through: { holder: 'owner' },
   } as const;
 
   it('sends a message as the Operator, about a card', async () => {
@@ -175,10 +176,10 @@ describe('the wired operate executor in super mode (PM-831)', () => {
     expect(operation).toMatchObject({ state: 'succeeded', errorCode: null });
     const [message] = app.app.projectman.domain.messages.list('AR', { taskKey: task.key });
     expect(message).toMatchObject({
-      from: 'operator',
+      from: 'owner',
       to: ['dev-1'],
       body: 'Please look at this',
-      actor: { ...operator, credential: { prefix: keyPrefix } },
+      actor: { ...operator, through: { holder: 'owner', credential: { prefix: keyPrefix } } },
     });
   });
 
@@ -207,7 +208,10 @@ describe('the wired operate executor in super mode (PM-831)', () => {
       .filter((event) => event.type === 'team_paused' || event.type === 'team_resumed');
     expect(events.map((event) => event.type).sort()).toEqual(['team_paused', 'team_resumed']);
     for (const event of events)
-      expect(event.actor).toMatchObject({ ...operator, credential: { prefix: keyPrefix } });
+      expect(event.actor).toMatchObject({
+        ...operator,
+        through: { holder: 'owner', credential: { prefix: keyPrefix } },
+      });
   });
 
   it('refuses to stop the Operator’s own session and an unknown one', async () => {
@@ -244,7 +248,14 @@ describe('the wired operate executor in super mode (PM-831)', () => {
     /** A failed cleanup of an ended session that still holds its member's workspace. */
     async function failedCleanup() {
       const { domain, repos } = app.app.projectman;
-      const task = await domain.tasks.create('AR', { title: 'Held workspace', repo: 'web' }, operator);
+      const task = await domain.tasks.create(
+        'AR',
+        { title: 'Held workspace', repo: 'web' },
+        {
+          kind: 'human',
+          handle: 'owner',
+        },
+      );
       const now = new Date().toISOString();
       repos.sessions.insert({
         id: 'ses_held',
@@ -405,16 +416,25 @@ describe('the wired operate executor in super mode (PM-831)', () => {
     });
   });
 
-  it('fails an update whose move became a hand-on request instead of reporting success', async () => {
+  it('moves a hand-on stage directly when the holder is not the card mover', async () => {
     await edit((draft) => {
-      draft.team.cardMover = { kind: 'human', handle: 'owner' };
+      draft.team.members.push({
+        kind: 'human',
+        handle: 'ada',
+        displayName: 'Ada',
+        access: 'admin',
+        roles: [],
+        email: 'ada@example.invalid',
+      });
+      draft.team.cardMover = { kind: 'human', handle: 'ada' };
     });
     const created = await submit({ kind: 'task_create', request: { title: 'A card' } });
     const taskKey = created.taskKey!;
     await submit({ kind: 'task_start', taskKey, request: { assignee: 'dev-1' } });
+    // The holder's own instruction is a person's move (decision 66): it needs no hand-on request.
     const operation = await submit({ kind: 'task_update', taskKey, request: { stageId: 'code_review' } });
-    expect(operation).toMatchObject({ state: 'failed', errorCode: 'hand_on_requested' });
-    expect(app.app.projectman.domain.tasks.get('AR', taskKey).stageId).toBe('development');
+    expect(operation).toMatchObject({ state: 'succeeded' });
+    expect(app.app.projectman.domain.tasks.get('AR', taskKey).stageId).toBe('code_review');
   });
 
   it('sets a scope label and an approval label on the owner’s delegated authority', async () => {

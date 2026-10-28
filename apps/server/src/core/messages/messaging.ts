@@ -10,7 +10,7 @@ import {
   currentHandleOf,
   formatInjectedTeamMessage,
   hasGuestConversations,
-  hasSuperOrigin,
+  hasBoundOrigin,
   isOpenTask,
   isOperator,
   isProjectManager,
@@ -1018,17 +1018,17 @@ function connectedOnlyRefusal(recipients: readonly string[]): DomainError {
   );
 }
 
-/** The actor a question's resolution is delivered as: the super origin when it has one (PM-757). */
+/** The actor a question's resolution is delivered as: the super or connected origin when it has one (PM-757). */
 function resolverActor(resolution: {
   by: string;
   via?: 'integrator' | undefined;
   actor?: Actor | undefined;
 }): Actor {
-  if (hasSuperOrigin(resolution.actor)) return resolution.actor;
+  if (hasBoundOrigin(resolution.actor)) return resolution.actor;
   return { ...humanActor(resolution.by), ...(resolution.via ? { via: resolution.via } : {}) };
 }
 
 /** The sender handle of that answer: the Operator in the super mode, so the message and its actor agree. */
 function resolverSender(resolution: { by: string; actor?: Actor | undefined }): string {
-  return hasSuperOrigin(resolution.actor) ? resolution.actor.handle : resolution.by;
+  return hasBoundOrigin(resolution.actor) ? resolution.actor.handle : resolution.by;
 }

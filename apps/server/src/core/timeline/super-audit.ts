@@ -1,4 +1,4 @@
-import { SUPER_AUDIT_NAME, SUPER_AUDIT_REQUEST_ID } from '@projectman/shared';
+import { connectedOriginOf, SUPER_AUDIT_NAME, SUPER_AUDIT_REQUEST_ID } from '@projectman/shared';
 import type { SuperAuditOutcome, SuperAuditPage, SuperAuditQuery } from '@projectman/shared';
 import type { SuperExecutionContext } from '../../contracts';
 import type { StoredSuperAudit } from '../../db';
@@ -145,12 +145,14 @@ export class SuperAuditService {
     opts: SuperAuditOptions,
     settlesId: string | null = null,
   ): StoredSuperAudit {
+    const credential = connectedOriginOf(exec.actor)?.credential;
+    if (!credential) throw new Error('a super-mode operation needs a connected origin');
     const entry: StoredSuperAudit = {
       id: newId('saud'),
       projectKey: exec.projectKey,
       taskKey: opts.taskKey ?? null,
-      keyId: exec.actor.credential.id,
-      prefix: exec.actor.credential.prefix,
+      keyId: credential.id,
+      prefix: credential.prefix,
       operatorMode: 'super',
       requestId: exec.requestId,
       handoffId: exec.handoffId ?? null,

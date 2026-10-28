@@ -1,6 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import { isOperatorActor, isSuperOperatorActor, superActorOf } from '../config/operator-member';
-import { actorOriginMetaOf, actorWithOriginMeta, hasSuperOrigin } from './actor-origin';
+import {
+  isConnectedOwnerActor,
+  isOperatorActor,
+  isSuperOperatorActor,
+  superActorOf,
+} from '../config/operator-member';
+import {
+  actorOriginMetaOf,
+  actorWithOriginMeta,
+  connectedActorOf,
+  connectedOriginOf,
+  hasBoundOrigin,
+  hasConnectedOrigin,
+  hasSuperOrigin,
+  withApprovedBy,
+} from './actor-origin';
 import { Actor } from './event';
 import { TeamMessage } from './message';
 import { SuperAuditPage, SuperAuditQuery } from './super-audit';
@@ -23,6 +37,88 @@ const config = {
     roles: [],
   },
 } as never;
+
+const holder = {
+  kind: 'human',
+  handle: 'owner',
+  via: 'integrator',
+  through: { holder: 'owner', credential },
+} as const;
+const issuerStep = {
+  kind: 'ai',
+  handle: 'pm',
+  via: 'integrator',
+  through: { holder: 'owner', credential },
+} as const;
+const humanConfig = {
+  team: {
+    members: [
+      { kind: 'human', handle: 'owner', access: 'owner' },
+      { kind: 'human', handle: 'helper', access: 'admin' },
+      { kind: 'ai', handle: 'pm', role: 'project_manager' },
+    ],
+    roles: [],
+  },
+} as never;
+
+describe('connected Claude actor origin (decision 66)', () => {
+  it('builds the holder in person or the queue item issuer, with the holder behind it', () => {
+    expect(connectedActorOf('owner', credential)).toEqual(holder);
+    expect(connectedActorOf('owner', credential, { issuer: 'pm' })).toEqual(issuerStep);
+    expect(connectedActorOf('owner', credential, { approvedBy: 'owner' }).approvedBy).toBe('owner');
+  });
+
+  it.each([
+    ['a person who is not the holder', { ...holder, handle: 'helper' }],
+    ['the old pair next to through', { ...holder, operatorMode: 'super', credential }],
+    ['the system', { kind: 'system', handle: null, via: 'integrator', through: holder.through }],
+    ['no integrator origin', { ...holder, via: undefined }],
+    [
+      'approvedBy without through',
+      { kind: 'human', handle: 'owner', via: 'integrator', approvedBy: 'owner' },
+    ],
+  ])('refuses %s', (_name, actor) => {
+    expect(Actor.safeParse(actor).success).toBe(false);
+  });
+
+  it('parses the holder and the issuer step and keeps their origin apart from the old one', () => {
+    expect(Actor.parse(holder)).toEqual(holder);
+    expect(hasConnectedOrigin(issuerStep)).toBe(true);
+    expect(hasSuperOrigin(holder)).toBe(false);
+    expect(hasBoundOrigin(holder)).toBe(true);
+    expect(connectedOriginOf(holder)).toEqual({ holder: 'owner', credential });
+    expect(connectedOriginOf(superActor)).toEqual({ holder: null, credential });
+    expect(connectedOriginOf({ kind: 'human', handle: 'owner' })).toBeNull();
+  });
+
+  it('round-trips the origin through the stored meta, with the approver, and reads an old row', () => {
+    const approved = withApprovedBy(connectedActorOf('owner', credential, { issuer: 'pm' }), 'owner');
+    const meta = actorOriginMetaOf(approved);
+    expect(meta).toEqual({ through: issuerStep.through, approvedBy: 'owner' });
+    expect(actorWithOriginMeta({ kind: 'ai', handle: 'pm', via: 'integrator' }, meta)).toEqual(approved);
+    expect(
+      actorWithOriginMeta({ kind: 'human', handle: 'owner', via: 'integrator' }, actorOriginMetaOf(holder)),
+    ).toEqual(holder);
+    // A row that disagrees with its columns (a person who is not the holder) reads as the plain actor.
+    const plain = { kind: 'human', handle: 'helper', via: 'integrator' } as const;
+    expect(actorWithOriginMeta(plain, actorOriginMetaOf(holder))).toEqual(plain);
+    // The old shape is still read as before.
+    expect(
+      actorWithOriginMeta(
+        { kind: 'ai', handle: 'operator', via: 'integrator' },
+        { operatorMode: 'super', credential },
+      ),
+    ).toEqual(superActor);
+  });
+
+  it('treats only an owner holder in person as the owner, and a queue item step as no owner', () => {
+    expect(isConnectedOwnerActor(humanConfig, holder)).toBe(true);
+    expect(isConnectedOwnerActor(humanConfig, connectedActorOf('helper', credential))).toBe(false);
+    expect(isConnectedOwnerActor(humanConfig, issuerStep)).toBe(false);
+    // An old super actor keeps its own rule.
+    expect(isConnectedOwnerActor(config, superActor)).toBe(true);
+  });
+});
 
 describe('super-mode actor origin (PM-757)', () => {
   it('parses an old actor unchanged and a new one with its origin', () => {

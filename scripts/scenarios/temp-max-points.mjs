@@ -66,7 +66,9 @@ export default async ({ instance, open, shoot, step }) => {
     });
     await page.reload();
     await page.getByRole('button', { name: t('team.moreFor', { name: member.displayName }) }).click();
-    await page.getByRole('button', { name: t('memberEdit.editMember', { name: member.displayName }) }).click();
+    await page
+      .getByRole('button', { name: t('memberEdit.editMember', { name: member.displayName }) })
+      .click();
     await page.getByRole('dialog').waitFor();
     await capture(page, 'd-temp-dialog', page.getByText(t('memberEdit.tempLimit', { points: 8 })));
   });

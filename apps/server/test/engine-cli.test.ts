@@ -14,6 +14,8 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { runEngineCli } from '../../../scripts/engine/commands';
 import type { EngineCliIo } from '../../../scripts/engine/commands';
+import { LOG_TAIL_BYTES, tailLines } from '../../../scripts/engine/logs';
+import { EngineLocalSnapshot, overallState } from '../../../scripts/engine/snapshot';
 import { loadEngineConfig } from '../src/engine-link/engine-config';
 
 const KEY = 'machine-key-0123456789abcdef';
@@ -299,6 +301,167 @@ describe('engine commands', () => {
       running.add(4242);
       expect(await run('status')).toBe(1);
       expect(out.join('\n')).toContain('link_refused');
+    });
+
+    it('shows the version and the release of the engine, or that an older one reports none', async () => {
+      writeStatus({ version: 'abc123', releaseTag: 'v2026.10.9' });
+      await run('status');
+      expect(out.join('\n')).toContain('version: abc123; release: v2026.10.9');
+      out.length = 0;
+      writeStatus();
+      await run('status');
+      expect(out.join('\n')).toContain('not reported by this engine version');
+    });
+  });
+
+  describe('status --json', () => {
+    const statusFile = () => path.join(home, 'engine-status.json');
+    const writeStatus = (overrides: Record<string, unknown> = {}) =>
+      writeFileSync(
+        statusFile(),
+        JSON.stringify({
+          pid: 4242,
+          bootId: '0123456789abcdef',
+          startedAt: '2026-10-09T09:50:00Z',
+          connection: 'connected',
+          connectedSince: '2026-10-09T09:55:00Z',
+          updatedAt: '2026-10-09T09:59:50Z',
+          attempts: 1,
+          pendingEvents: 3,
+          droppedEvents: 0,
+          running: [
+            {
+              sessionId: 's1',
+              state: 'working',
+              member: 'dev',
+              provider: 'claude',
+              label: 'Dev · PM-1',
+              startedAt: '2026-10-09T09:56:00Z',
+            },
+          ],
+          version: 'abc123',
+          releaseTag: 'v2026.10.9',
+          work: { sessions: 1, fullTests: 1, screenshots: 0 },
+          keepAwake: { mode: 'while_working', holding: true, since: '2026-10-09T09:56:00Z' },
+          ...overrides,
+        }),
+      );
+    const snapshot = async () => {
+      out.length = 0;
+      expect(await run('status', '--json')).toBe(0);
+      expect(out).toHaveLength(1);
+      return EngineLocalSnapshot.parse(JSON.parse(out[0]!));
+    };
+
+    it.each([
+      [{ initialised: false, processAlive: false, connection: null }, 'not_initialised'],
+      [{ initialised: true, processAlive: false, connection: 'connected' }, 'stopped'],
+      [{ initialised: true, processAlive: true, connection: 'connected' }, 'running'],
+      [{ initialised: true, processAlive: true, connection: 'connecting' }, 'no_cloud'],
+    ] as const)('judges the overall state of %j as %s', (input, expected) => {
+      expect(overallState(input)).toBe(expected);
+    });
+
+    it('is not initialised without engine.json, and still exits 0', async () => {
+      const result = await snapshot();
+      expect(result).toMatchObject({ overall: 'not_initialised', engine: null, link: { state: 'down' } });
+    });
+
+    it('describes a running, connected engine', async () => {
+      await init('--name', 'my-mac');
+      writeStatus();
+      running.add(4242);
+      const result = await snapshot();
+      expect(result).toMatchObject({
+        overall: 'running',
+        engine: { id: 'eng_aaaaaaaaaaaa', name: 'my-mac', cloudOrigin: 'https://cloud.example.com' },
+        process: { running: true, pid: 4242, version: 'abc123', releaseTag: 'v2026.10.9' },
+        link: { state: 'connected', since: '2026-10-09T09:55:00Z', pendingEvents: 3 },
+        sessions: [{ sessionId: 's1', member: 'dev', provider: 'claude', label: 'Dev · PM-1' }],
+        work: { sessions: 1, fullTests: 1, screenshots: 0 },
+        keepAwake: { mode: 'while_working', holding: true },
+        service: { supported: false, installed: false },
+      });
+      expect(result.logs.out).toBe(path.join(home, 'logs', 'engine-service.out.log'));
+    });
+
+    it('says stopped, with the link down and nothing running, when the process is gone', async () => {
+      await init();
+      writeStatus();
+      const result = await snapshot();
+      expect(result).toMatchObject({
+        overall: 'stopped',
+        process: { running: false, pid: null },
+        link: { state: 'down', since: null },
+        sessions: [],
+        work: { sessions: 0 },
+        keepAwake: { holding: false, since: null },
+      });
+    });
+
+    it('says no_cloud for a live engine whose link is not connected', async () => {
+      await init();
+      writeStatus({ connection: 'disconnected', connectedSince: undefined });
+      running.add(4242);
+      expect((await snapshot()).overall).toBe('no_cloud');
+    });
+
+    it('fills what the status file of an older engine does not have', async () => {
+      await init();
+      writeStatus({
+        version: undefined,
+        releaseTag: undefined,
+        work: undefined,
+        keepAwake: undefined,
+        running: [{ sessionId: 's1', state: 'working' }],
+      });
+      running.add(4242);
+      const result = await snapshot();
+      expect(result.process).toMatchObject({ version: null, releaseTag: null });
+      expect(result.sessions).toEqual([
+        { sessionId: 's1', state: 'working', member: null, provider: null, label: null, startedAt: null },
+      ]);
+      expect(result.work).toEqual({ sessions: 1, fullTests: 0, screenshots: 0 });
+      expect(result.keepAwake).toMatchObject({ mode: 'while_working', holding: false, since: null });
+    });
+
+    it('exits 1, and says why, when the configuration cannot be read', async () => {
+      mkdirSync(home, { recursive: true });
+      writeFileSync(path.join(home, 'engine.json'), '{not json');
+      expect(await run('status', '--json')).toBe(1);
+      expect(err.join('\n')).toContain('config_invalid');
+    });
+  });
+
+  describe('logs', () => {
+    const logDir = () => path.join(home, 'logs');
+    const write = (name: string, text: string) => {
+      mkdirSync(logDir(), { recursive: true });
+      writeFileSync(path.join(logDir(), name), text);
+    };
+
+    it('gives the last lines of both logs, 50 by default and no more than were asked for', async () => {
+      write('engine-service.out.log', `${Array.from({ length: 80 }, (_, i) => `out ${i}`).join('\n')}\n`);
+      write('engine-service.err.log', 'err 1\nerr 2\nerr 3\n');
+      expect(await run('logs', '--json')).toBe(0);
+      const all = JSON.parse(out[0]!) as { out: string[]; err: string[] };
+      expect(all.out).toHaveLength(50);
+      expect(all.out.at(-1)).toBe('out 79');
+      out.length = 0;
+      await run('logs', '--json', '--lines', '2');
+      expect(JSON.parse(out[0]!)).toEqual({ out: ['out 78', 'out 79'], err: ['err 2', 'err 3'] });
+    });
+
+    it('reads only the end of a big file, without its cut-off first line', () => {
+      const file = path.join(base, 'big.log');
+      writeFileSync(file, `${'x'.repeat(LOG_TAIL_BYTES)}\nlast\n`);
+      expect(tailLines(file, 200)).toEqual(['last']);
+    });
+
+    it('gives empty lists for a missing file, and refuses a wrong line count', async () => {
+      expect(await run('logs', '--json')).toBe(0);
+      expect(JSON.parse(out[0]!)).toEqual({ out: [], err: [] });
+      for (const lines of ['0', '201', 'many']) expect(await run('logs', '--lines', lines)).toBe(2);
     });
   });
 

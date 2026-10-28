@@ -2895,7 +2895,10 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   file (0600; `authorization` is never taken from it), `engine-status.json` (what `status` shows: no
   secret; PM-1086 adds the optional `work` counts (sessions, merge checks, screenshot runs) and `keepAwake`
   (`mode`, `holding`, `since`, `unsupported`), and `engine.json` the optional `keepAwake` mode,
-  `while_working` when absent), `logs/engine-audit.jsonl` (one line per request: method, session id, outcome and refusal
+  `while_working` when absent; PM-1087 adds the optional `version` (as in the hello), `releaseTag` (the git tag
+  of the checkout, read once at start-up with a 2 s limit) and, per running session, `member`, `provider`, `label`
+  (the display name) and `startedAt`, which the engine remembers from `session.start` until the runner's exit;
+  no prompt, token or path), `logs/engine-audit.jsonl` (one line per request: method, session id, outcome and refusal
   code, never a prompt, message, terminal input, file content, token or key; rotated at 10 MB, five
   files kept) and `attachments-cache/` (downloaded attachments, checked against size and sha256; a task
   session may read its card's folder there, which `engine-limit.ts` allows as a read-only sandbox root
@@ -4596,7 +4599,7 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   guide tells the person to delete them after use.
   **Module:** `scripts`
 
-- **Engine service (launchd)** — `scripts/engine/{service,commands,cli}.ts`,
+- **Engine service (launchd)** — `scripts/engine/{service,snapshot,logs,commands,cli}.ts`,
   PM-674's [rollback runbook](CLOUD-CUTOVER.md) uninstalls KeepAlive before hybrid back.
   Updates are manual owner-approved steps in
   the engine's own checkout; neither credentials nor launchd operations cross engine RPC.
@@ -4608,6 +4611,18 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   gets only the variables the plist names (`PATH`, `PROJECTMAN_MODE=engine`, `PROJECTMAN_HOME`): no
   API key and no integrator key. `install` runs the same preflight as `start` and refuses another
   home's installed agent; `uninstall` leaves the logs (`<home>/logs/engine-service.{out,err}.log`).
+  PM-1087 adds `service start|stop|restart` and the machine-readable state, the one contract of the menu bar
+  app and any other shell: `start` loads the file (`bootstrap`, with the busy retry) or `kickstart`s a loaded
+  idle job (no file: `service_not_installed`); `stop` is `bootout` (the file stays, `RunAtLoad` starts it at
+  the next login) and waits up to 100 s for the process to leave; `restart` is `kickstart -k` (an unknown job
+  is started); none touches another home's agent (`service_other_home`). The plist has `ExitTimeOut` 100:
+  the engine's shutdown pause is 60 s (`APP_DEFAULTS.shutdownPauseMs`) plus a 20 s cap, while launchd sends
+  SIGKILL after about 20 s by default; an existing machine needs `service install` again for it to apply.
+  `status --json` prints one line (`EngineLocalSnapshot`, `scripts/engine/snapshot.ts`, exit 0 in every
+  state, 1 only when it cannot be built) from `engine.json`, `engine-status.json`, one `launchctl print` (none
+  off macOS: `service.supported` false) and the disk and memory of the machine; `overall` has one rule,
+  `overallState`. `logs [--lines N] [--json]` prints the last lines (50, at most 200, from the last 256 KiB)
+  of the two service logs.
   **Assumptions:** macOS, `launchctl`, a logged-in user, and the checkout the command ran from being
   the one that should run the engine (the plist names it). **Does this work on a remote engine?**
   This is the engine's own start-up: it must run on the engine's machine, as the user who owns the

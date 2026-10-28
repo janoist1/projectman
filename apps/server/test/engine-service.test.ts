@@ -20,9 +20,12 @@ import {
   PLIST_TEMPLATE,
   renderPlist,
   reportService,
+  restartService,
   SERVICE_LABEL,
   servicePathEnv,
   servicePaths,
+  startService,
+  stopService,
   uninstallService,
 } from '../../../scripts/engine/service';
 import type { LaunchctlResult, ServiceOptions } from '../../../scripts/engine/service';
@@ -61,6 +64,8 @@ describe('the plist template', () => {
     expect(plist).toMatch(/<key>PATH<\/key>\s*<string>\/opt\/homebrew\/bin:\/usr\/bin<\/string>/);
     expect(plist).toMatch(/<key>RunAtLoad<\/key>\s*<true\/>/);
     expect(plist).toMatch(/<key>KeepAlive<\/key>\s*<true\/>/);
+    // The shutdown pause (60 s + 20 s cap) must fit before launchd's SIGKILL.
+    expect(plist).toMatch(/<key>ExitTimeOut<\/key>\s*<integer>100<\/integer>/);
     expect(plist).toContain('<string>/Users/me/.projectman/logs/engine-service.out.log</string>');
   });
 
@@ -224,6 +229,117 @@ describe('service install, uninstall and status', () => {
     responses.print = { status: 113, stdout: '', stderr: 'Could not find service' };
     expect(reportService(options())).toBe(false);
     expect(output.at(-1)).toBe('launchd: not loaded');
+  });
+
+  describe('start, stop and restart', () => {
+    const verbs = () => calls.map((c) => c.join(' '));
+    const plistFile = () => servicePaths(options()).plist;
+    const install = () => {
+      installService(options());
+      calls.length = 0;
+    };
+    const loaded = (state: 'running' | 'waiting') => {
+      responses.print = {
+        status: 0,
+        stdout: `\tstate = ${state}\n${state === 'running' ? '\tpid = 9\n' : ''}`,
+        stderr: '',
+      };
+    };
+    const notLoaded = () => {
+      responses.print = { status: 113, stdout: '', stderr: 'Could not find service' };
+    };
+
+    it('start without a file is refused with the way out, and calls nothing to change', () => {
+      expect(() => startService(options())).toThrow(/service_not_installed|service install/);
+      expect(verbs()).toEqual([]);
+    });
+
+    it('start loads the file when launchd does not know the job, with the busy retry', () => {
+      install();
+      notLoaded();
+      let attempts = 0;
+      startService(
+        options({
+          launchctl: (args) => {
+            calls.push(args);
+            if (args[0] === 'print') return responses.print!;
+            return attempts++ < 1 && args[0] === 'bootstrap'
+              ? { status: 5, stdout: '', stderr: 'busy' }
+              : { status: 0, stdout: '', stderr: '' };
+          },
+        }),
+      );
+      expect(calls.filter((c) => c[0] === 'bootstrap')).toHaveLength(2);
+      expect(calls.some((c) => c[0] === 'kickstart')).toBe(false);
+    });
+
+    it('start kicks a loaded job that is not running, and leaves a running one alone', () => {
+      install();
+      loaded('waiting');
+      startService(options());
+      expect(verbs()).toEqual([
+        'print gui/501/com.projectman.engine',
+        'kickstart gui/501/com.projectman.engine',
+      ]);
+      calls.length = 0;
+      loaded('running');
+      startService(options());
+      expect(verbs()).toEqual(['print gui/501/com.projectman.engine']);
+      expect(output.at(-1)).toContain('already running');
+    });
+
+    it('stop unloads the job, keeps the file, and treats "not loaded" as done', () => {
+      install();
+      notLoaded();
+      responses.bootout = { status: 3, stdout: '', stderr: 'No such process' };
+      stopService(options());
+      expect(verbs()[0]).toBe('bootout gui/501/com.projectman.engine');
+      expect(existsSync(plistFile())).toBe(true);
+      expect(output.join('\n')).toContain('paused');
+    });
+
+    it('stop waits for the engine to leave, and gives up after 100 s', () => {
+      install();
+      let polls = 0;
+      stopService(
+        options({
+          launchctl: (args) => {
+            calls.push(args);
+            if (args[0] !== 'print') return { status: 0, stdout: '', stderr: '' };
+            return (polls += 1) <= 3
+              ? { status: 0, stdout: 'state = running\npid = 9\n', stderr: '' }
+              : { status: 113, stdout: '', stderr: '' };
+          },
+        }),
+      );
+      expect(waits).toEqual([1000, 1000, 1000]);
+      waits.length = 0;
+      responses.print = { status: 0, stdout: 'state = running\npid = 9\n', stderr: '' };
+      expect(() => stopService(options())).toThrow(/did not leave within 100 s/);
+      expect(waits).toHaveLength(100);
+    });
+
+    it('restart is kickstart -k, and starts a job launchd does not know', () => {
+      install();
+      loaded('running');
+      restartService(options());
+      expect(verbs()).toEqual([
+        'print gui/501/com.projectman.engine',
+        'kickstart -k gui/501/com.projectman.engine',
+      ]);
+      calls.length = 0;
+      notLoaded();
+      restartService(options());
+      expect(verbs()).toEqual(['print gui/501/com.projectman.engine', `bootstrap gui/501 ${plistFile()}`]);
+    });
+
+    it('touches nothing of the agent of another home', () => {
+      install();
+      const other = options({ home: path.join(base, 'other-home') });
+      for (const act of [startService, stopService, restartService])
+        expect(() => act(other)).toThrow(/service for .*home is installed/);
+      expect(calls).toEqual([]);
+    });
   });
 });
 

@@ -17,14 +17,20 @@ import type { EngineStatus } from '../../apps/server/src/engine-link/engine-stat
 import { assertHomeMayStart } from '../../apps/server/src/instance';
 import { defaultExec, moveWorkRoot } from './move-work-root';
 import type { Exec } from './move-work-root';
+import { LOG_LINES_DEFAULT, LOG_LINES_MAX, tailLines } from './logs';
 import {
   installedServiceFor,
   installService,
   reportService,
+  restartService,
+  serviceLogPaths,
   serviceState,
+  startService,
+  stopService,
   uninstallService,
 } from './service';
 import type { ServiceOptions } from './service';
+import { buildSnapshot } from './snapshot';
 
 /**
  * The commands of `npm run engine -- …` (PM-314). Kept apart from `cli.ts` so that tests drive them with
@@ -59,10 +65,11 @@ const USAGE = `usage:
   npm run engine -- project set <KEY> <path>
   npm run engine -- repo add <KEY> <repo> <path> [--full-test "<command>"]
   npm run engine -- repo remove <KEY> <repo>
-  npm run engine -- status
+  npm run engine -- status [--json]   (--json: one line, the state for other programs; exit 0 in every state)
+  npm run engine -- logs [--lines N] [--json]   (the end of the service's output and error logs; N up to ${LOG_LINES_MAX})
   npm run engine -- keep-awake on|off   (keep the Mac awake while work runs; takes effect when the engine restarts)
   npm run engine -- start
-  npm run engine -- service install|uninstall|status   (macOS LaunchAgent: the engine starts at login and restarts)
+  npm run engine -- service install|uninstall|status|start|stop|restart   (macOS LaunchAgent: the engine starts at login and restarts)
   npm run engine -- move-work-root <absolute path>   (the engine is stopped; copies worktrees/ and workspaces/ to the work volume)
   (all:[--home <dir>]; the home is PROJECTMAN_HOME or ~/.projectman)`;
 
@@ -71,8 +78,8 @@ interface Parsed {
   flags: Map<string, string>;
 }
 
-const BOOLEAN_FLAGS = new Set(['force']);
-const VALUE_FLAGS = new Set(['cloud', 'id', 'name', 'home', 'full-test', 'link-headers-file']);
+const BOOLEAN_FLAGS = new Set(['force', 'json']);
+const VALUE_FLAGS = new Set(['cloud', 'id', 'name', 'home', 'full-test', 'link-headers-file', 'lines']);
 
 function parse(argv: string[]): Parsed {
   const positional: string[] = [];
@@ -255,6 +262,19 @@ export async function runEngineCli(argv: string[], io: EngineCliIo): Promise<num
       }
       case 'status': {
         if (sub !== undefined) throw new UsageError('status takes no arguments');
+        if (flags.has('json')) {
+          // The state in every case is an answer, not a failure: the caller reads `overall`.
+          const snapshot = buildSnapshot({
+            home,
+            now: () => new Date((io.now ?? Date.now)()),
+            isRunning: io.isRunning,
+            pathEnv: io.env.PATH ?? '',
+            ...(io.launchd ? { launchd: io.launchd } : {}),
+            ...(io.platform ? { platform: io.platform } : {}),
+          });
+          io.out(JSON.stringify(snapshot));
+          return 0;
+        }
         const status = readEngineStatus(files.status);
         if (!status) {
           io.err(`no engine status at ${files.status}: the engine has not run here`);
@@ -268,6 +288,9 @@ export async function runEngineCli(argv: string[], io: EngineCliIo): Promise<num
         io.out(
           `link: ${alive ? status.connection : 'down'}${status.connectedSince && alive ? ` since ${age(status.connectedSince, now)} ago` : ''}`,
         );
+        io.out(
+          `version: ${status.version ?? 'not reported by this engine version'}; release: ${status.releaseTag ?? 'none'}`,
+        );
         io.out(`status written ${age(status.updatedAt, now)} ago; connection attempts: ${status.attempts}`);
         io.out(`events waiting for the cloud: ${status.pendingEvents}; dropped: ${status.droppedEvents}`);
         if (status.lastError)
@@ -279,6 +302,23 @@ export async function runEngineCli(argv: string[], io: EngineCliIo): Promise<num
         );
         io.out(keepAwakeLine(status, alive, now));
         return alive && status.connection === 'connected' ? 0 : 1;
+      }
+      case 'logs': {
+        if (sub !== undefined) throw new UsageError('logs takes no arguments');
+        const linesFlag = flags.get('lines');
+        const lines = linesFlag === undefined ? LOG_LINES_DEFAULT : Number(linesFlag);
+        if (!Number.isInteger(lines) || lines < 1 || lines > LOG_LINES_MAX)
+          throw new UsageError(`--lines is a whole number from 1 to ${LOG_LINES_MAX}`);
+        const paths = serviceLogPaths(home);
+        const tails = { out: tailLines(paths.logOut, lines), err: tailLines(paths.logErr, lines) };
+        if (flags.has('json')) io.out(JSON.stringify(tails));
+        else {
+          io.out(`--- ${paths.logOut}`);
+          for (const line of tails.out) io.out(line);
+          io.out(`--- ${paths.logErr}`);
+          for (const line of tails.err) io.out(line);
+        }
+        return 0;
       }
       case 'keep-awake': {
         if ((sub !== 'on' && sub !== 'off') || rest.length > 0) throw new UsageError('keep-awake on|off');
@@ -299,8 +339,11 @@ export async function runEngineCli(argv: string[], io: EngineCliIo): Promise<num
         return io.startEngine(home, { ...io.env, PROJECTMAN_MODE: 'engine', PROJECTMAN_HOME: home });
       }
       case 'service': {
-        if (rest.length > 0 || !['install', 'uninstall', 'status'].includes(sub ?? ''))
-          throw new UsageError('service install, service uninstall or service status');
+        if (
+          rest.length > 0 ||
+          !['install', 'uninstall', 'status', 'start', 'stop', 'restart'].includes(sub ?? '')
+        )
+          throw new UsageError('service install, uninstall, status, start, stop or restart');
         const launchd = io.launchd;
         if (!launchd)
           throw new EngineConfigError('service_unsupported', 'The engine service is not available here.');
@@ -321,6 +364,18 @@ export async function runEngineCli(argv: string[], io: EngineCliIo): Promise<num
         }
         if (sub === 'uninstall') {
           uninstallService(options);
+          return 0;
+        }
+        if (sub === 'start') {
+          startService(options);
+          return 0;
+        }
+        if (sub === 'stop') {
+          stopService(options);
+          return 0;
+        }
+        if (sub === 'restart') {
+          restartService(options);
           return 0;
         }
         return reportService(options) ? 0 : 1;
@@ -349,7 +404,7 @@ export async function runEngineCli(argv: string[], io: EngineCliIo): Promise<num
       }
       default:
         throw new UsageError(
-          'commands: init, project set, repo add, repo remove, status, keep-awake, start, service, move-work-root',
+          'commands: init, project set, repo add, repo remove, status, logs, keep-awake, start, service, move-work-root',
         );
     }
   } catch (error) {

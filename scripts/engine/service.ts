@@ -94,11 +94,18 @@ export function renderPlist(template: string, values: PlistValues): string {
   });
 }
 
+/** Where the service writes its output (the plist's `StandardOutPath` and `StandardErrorPath`). */
+export function serviceLogPaths(home: string) {
+  return {
+    logOut: path.join(home, 'logs', 'engine-service.out.log'),
+    logErr: path.join(home, 'logs', 'engine-service.err.log'),
+  };
+}
+
 export function servicePaths(options: Pick<ServiceOptions, 'home' | 'agentsDir'>) {
   return {
     plist: path.join(options.agentsDir, `${SERVICE_LABEL}.plist`),
-    logOut: path.join(options.home, 'logs', 'engine-service.out.log'),
-    logErr: path.join(options.home, 'logs', 'engine-service.err.log'),
+    ...serviceLogPaths(options.home),
   };
 }
 
@@ -175,19 +182,116 @@ export function installService(options: ServiceOptions): void {
   chmodSync(paths.plist, 0o644);
   // A loaded job is unloaded first, so that the new file is the one launchd reads (the result is not an error).
   options.launchctl(['bootout', domainTarget(options.uid)]);
-  let loaded = options.launchctl(['bootstrap', `gui/${options.uid}`, paths.plist]);
+  bootstrapJob(options, paths.plist);
+  options.out(`engine service installed: ${paths.plist}`);
+  options.out(`it starts now and at every login; logs: ${paths.logOut}, ${paths.logErr}`);
+}
+
+/** Loads the job; launchd's "busy" answer is retried while it still tears the old job down. */
+function bootstrapJob(options: ServiceOptions, plist: string): void {
+  let loaded = options.launchctl(['bootstrap', `gui/${options.uid}`, plist]);
   const tryLimit = options.bootstrapTries ?? BOOTSTRAP_TRIES;
   for (let tries = 1; loaded.status === BOOTSTRAP_BUSY && tries < tryLimit; tries += 1) {
     (options.sleep ?? blockingSleep)(BOOTSTRAP_WAIT_MS);
-    loaded = options.launchctl(['bootstrap', `gui/${options.uid}`, paths.plist]);
+    loaded = options.launchctl(['bootstrap', `gui/${options.uid}`, plist]);
   }
   if (loaded.status !== 0)
     throw new EngineConfigError(
       'service_bootstrap',
       `launchctl bootstrap failed (${loaded.status}): ${(loaded.stderr || loaded.stdout).trim() || 'no output'}`,
     );
-  options.out(`engine service installed: ${paths.plist}`);
-  options.out(`it starts now and at every login; logs: ${paths.logOut}, ${paths.logErr}`);
+}
+
+/** An installed agent of another home is not ours to touch (as with `install`). */
+function refuseOtherHome(options: ServiceOptions, plist: string): void {
+  if (!existsSync(plist)) return;
+  const other = installedHome(readFileSync(plist, 'utf8'));
+  if (other !== null && other !== path.resolve(options.home))
+    throw new EngineConfigError(
+      'service_other_home',
+      `An engine service for ${other} is installed: this command is for ${options.home}.`,
+    );
+}
+
+/** The agent's file for this home, or the refusal that tells what to do. */
+function requireInstalled(options: ServiceOptions): string {
+  requireMac(options);
+  const { plist } = servicePaths(options);
+  refuseOtherHome(options, plist);
+  if (!existsSync(plist))
+    throw new EngineConfigError(
+      'service_not_installed',
+      'No engine service is installed: run "npm run engine -- service install" first.',
+    );
+  return plist;
+}
+
+/** Starts the installed agent: loads it when launchd does not know it, kicks it when it is loaded but idle. */
+export function startService(options: ServiceOptions): void {
+  const plist = requireInstalled(options);
+  const state = serviceState(options);
+  if (state.running) {
+    options.out(`engine service is already running${state.pid ? ` (pid ${state.pid})` : ''}`);
+    return;
+  }
+  if (state.loaded) kickstart(options, false);
+  else bootstrapJob(options, plist);
+  options.out('engine service started');
+}
+
+/**
+ * Restarts the engine: `kickstart -k` kills the running process (the engine pauses its sessions first, which
+ * the plist's `ExitTimeOut` leaves time for) and starts it again; an agent launchd does not know is started.
+ */
+export function restartService(options: ServiceOptions): void {
+  const plist = requireInstalled(options);
+  if (!serviceState(options).loaded) {
+    bootstrapJob(options, plist);
+    options.out('engine service started');
+    return;
+  }
+  kickstart(options, true);
+  options.out('engine service restarted: the running sessions pause first, then the engine starts again');
+}
+
+function kickstart(options: ServiceOptions, kill: boolean): void {
+  const result = options.launchctl(['kickstart', ...(kill ? ['-k'] : []), domainTarget(options.uid)]);
+  if (result.status !== 0)
+    throw new EngineConfigError(
+      'service_kickstart',
+      `launchctl kickstart failed (${result.status}): ${(result.stderr || result.stdout).trim() || 'no output'}`,
+    );
+}
+
+/** The longest a stop waits for the engine to leave: the shutdown pause (60 s) and its cap (20 s) with margin. */
+const STOP_WAIT_MS = 100_000;
+const STOP_POLL_MS = 1000;
+
+/**
+ * Unloads the agent and waits until the engine has left. The file stays, so the engine starts again at the
+ * next login (`RunAtLoad`); `service uninstall` removes it.
+ */
+export function stopService(options: ServiceOptions): void {
+  requireMac(options);
+  refuseOtherHome(options, servicePaths(options).plist);
+  const unloaded = options.launchctl(['bootout', domainTarget(options.uid)]);
+  // 3: "no such process" (not loaded); 113: could not find the service. Both mean there is nothing to unload.
+  if (unloaded.status !== 0 && unloaded.status !== 3 && unloaded.status !== 113)
+    throw new EngineConfigError(
+      'service_bootout',
+      `launchctl bootout failed (${unloaded.status}): ${(unloaded.stderr || unloaded.stdout).trim() || 'no output'}`,
+    );
+  const sleep = options.sleep ?? blockingSleep;
+  for (let waited = 0; serviceState(options).running; waited += STOP_POLL_MS) {
+    if (waited >= STOP_WAIT_MS)
+      throw new EngineConfigError(
+        'service_stop_timeout',
+        `The engine did not leave within ${STOP_WAIT_MS / 1000} s.`,
+      );
+    sleep(STOP_POLL_MS);
+  }
+  options.out('engine service stopped; the running sessions were paused and continue when it starts again');
+  options.out('the file stays: the engine starts again at the next login, or with "service start"');
 }
 
 /** Unloads the LaunchAgent and removes its file; the logs stay. Nothing installed is no error. */
@@ -206,7 +310,7 @@ export function uninstallService(options: ServiceOptions): void {
   options.out(had ? `engine service removed: ${paths.plist}` : 'no engine service was installed');
 }
 
-interface ServiceState {
+export interface ServiceState {
   installed: boolean;
   loaded: boolean;
   running: boolean;

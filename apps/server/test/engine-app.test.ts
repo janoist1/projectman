@@ -933,6 +933,26 @@ describe('engine process', () => {
       expect(JSON.parse(readFileSync(statusFile, 'utf8')).keepAwake.holding).toBe(false);
     });
 
+    it('reports the version and who runs each session in the status file, without the prompt', async () => {
+      await startEngine();
+      const { call } = await cloud.connected();
+      await call(
+        'session.start',
+        startSpec({ member: 'dev', provider: 'claude', displayName: 'Dev · PM-1' }),
+      );
+      const statusFile = path.join(home, 'engine-status.json');
+      await waitFor(
+        () => JSON.parse(readFileSync(statusFile, 'utf8')).running?.[0]?.member === 'dev',
+        'the session details in the status file',
+      );
+      const text = readFileSync(statusFile, 'utf8');
+      expect(JSON.parse(text)).toMatchObject({
+        version: '0.0.0-test',
+        running: [{ sessionId: 's1', provider: 'claude', label: 'Dev · PM-1' }],
+      });
+      expect(text).not.toContain('system');
+    });
+
     it('does not pause anything when the pause time is zero', async () => {
       const built = await startEngine({ shutdownPauseMs: 0 });
       const { call } = await cloud.connected();

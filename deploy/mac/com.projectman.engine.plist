@@ -5,7 +5,9 @@
   tool fills the {{…}} placeholders (absolute paths of this machine) and writes the result to
   ~/Library/LaunchAgents. (An XML comment may hold no double hyphen, so the command is not spelled out.)
   A LaunchAgent in the user's gui domain, not a daemon: the CLIs of the sessions (claude, codex) need the
-  login keychain and the user's files. launchd gives the job no shell environment, so nothing but the
+  login keychain and the user's files. ExitTimeOut (PM-1087) leaves the engine time to pause the running
+  sessions on a stop or restart: its shutdown pause is 60 s plus a 20 s cap, while launchd would send
+  SIGKILL after about 20 s. launchd gives the job no shell environment, so nothing but the
   variables below reaches the engine: no API key, no PROJECTMAN_INTEGRATOR_KEY.
 -->
 <plist version="1.0">
@@ -36,6 +38,8 @@
     <true/>
     <key>ThrottleInterval</key>
     <integer>30</integer>
+    <key>ExitTimeOut</key>
+    <integer>100</integer>
     <key>StandardOutPath</key>
     <string>{{LOG_OUT}}</string>
     <key>StandardErrorPath</key>

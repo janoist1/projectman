@@ -248,6 +248,15 @@ on battery with the lid closed sleeps anyway). `npm run engine -- status` shows 
 runs. To turn it off (or on again): `npm run engine -- keep-awake off|on`; it takes effect when the engine
 is restarted.
 
+## Controlling the engine service (PM-1087)
+
+`npm run engine -- service start|stop|restart` controls the installed LaunchAgent. `stop` keeps the file (the
+engine starts again at the next login) and waits until the engine has paused its running sessions and left,
+up to 100 seconds. `npm run engine -- status --json` prints the whole state on one line for other programs
+and `npm run engine -- logs [--lines N]` the end of the service's logs. The plist now has `ExitTimeOut` 100, so
+that a stop or restart does not kill the engine while it pauses the work: **on a machine where the service is
+already installed, run `npm run engine -- service install` once more** for the new setting to apply.
+
 ## Separate work volume on a Mac (PM-846)
 
 macOS keeps a log of every file change in the `fseventsd` daemon. Task worktrees, member workspaces,

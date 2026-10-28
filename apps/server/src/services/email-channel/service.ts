@@ -227,13 +227,18 @@ export function createEmailChannelService(deps: {
     }
   }
 
+  /** Tells the sender how its e-mail ended. A failure is logged and never changes that outcome (PM-957). */
   async function notify(
     projectKey: string,
     member: string,
     taskKey: string | null,
     text: string,
   ): Promise<void> {
-    await messaging.send(projectKey, SYSTEM_SENDER, { to: [member], taskKey, text }, { kind: 'info' });
+    try {
+      await messaging.send(projectKey, SYSTEM_SENDER, { to: [member], taskKey, text }, { kind: 'info' });
+    } catch (err) {
+      ctx.logger.warn({ err, projectKey, member }, 'telling the sender about its e-mail failed');
+    }
   }
 
   function publishInbox(item: InboxItem | null): void {
@@ -364,10 +369,11 @@ export function createEmailChannelService(deps: {
     closeItem(item, optionId, by, note);
     try {
       await deliver(item.projectKey, config, repo.messages.get(record.id)!);
-      await notify(item.projectKey, record.member!, record.taskKey, 'Your e-mail was sent.');
     } catch {
       await notify(item.projectKey, record.member!, record.taskKey, 'Your e-mail could not be sent.');
+      return;
     }
+    await notify(item.projectKey, record.member!, record.taskKey, 'Your e-mail was sent.');
   }
 
   return {
@@ -538,11 +544,11 @@ export function createEmailChannelService(deps: {
         changed(projectKey);
         try {
           await deliver(projectKey, config, record);
-          await notify(projectKey, caller, taskKey, 'Your e-mail was sent.');
         } catch (error) {
-          await notify(projectKey, caller, taskKey, 'Your e-mail could not be sent.').catch(() => undefined);
+          await notify(projectKey, caller, taskKey, 'Your e-mail could not be sent.');
           throw error;
         }
+        await notify(projectKey, caller, taskKey, 'Your e-mail was sent.');
         return { emailId: record.id, status: 'sent' };
       }
       const recipientMember = recipient!;
@@ -659,7 +665,7 @@ export function createEmailChannelService(deps: {
           by: caller,
           at: now().toISOString(),
           requestedBy: input.requestedBy,
-          source: input.sourceMessageId ? 'message' : 'email',
+          source: input.sourceMessageId ? 'message' : input.sourceEmailId ? 'email' : 'member',
           sourceRef: sourceRef ?? null,
           quote: input.quote ?? null,
         });
@@ -719,7 +725,7 @@ export function createEmailChannelService(deps: {
           record.member!,
           record.taskKey,
           'Your pending e-mail was cancelled because e-mail is no longer allowed.',
-        ).catch(() => undefined);
+        );
       }
     },
   };

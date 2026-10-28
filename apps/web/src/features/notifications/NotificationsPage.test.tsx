@@ -386,6 +386,7 @@ describe('kinds', () => {
       approval: true,
       permission: true,
       release: true,
+      host_request: true,
     });
     expect(project.backend.push.settings.quietHours.enabled).toBe(false);
   });

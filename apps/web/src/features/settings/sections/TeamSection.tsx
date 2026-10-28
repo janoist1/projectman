@@ -284,30 +284,32 @@ function TaskCreateControls({ config }: { config: ProjectConfig }) {
   return (
     <fieldset className={shared.controls} disabled={locked || saving} aria-busy={saving}>
       <legend className={shared.setterLegend}>{t('settings.team.taskCreate.question')}</legend>
-      {TaskCreateAccess.options.map((access) => (
-        <label key={access} className={shared.contactRow}>
-          <input
-            type="radio"
-            name="task-create-access"
-            value={access}
-            checked={chosen === access}
-            aria-describedby={access === 'client' ? noteId : undefined}
-            onChange={() =>
-              commit((draft) => {
-                draft.team.taskCreateAccess = access;
-              })
-            }
-          />
-          <span className={shared.dutyText}>
-            <span>{t(`settings.team.taskCreate.options.${access}`)}</span>
-            {access === 'client' ? (
-              <span id={noteId} className={shared.dutyHolders}>
-                {t('settings.team.taskCreate.clientNote', { stage: firstStageName(shown) })}
-              </span>
-            ) : null}
-          </span>
-        </label>
-      ))}
+      <div className={shared.choiceList}>
+        {TaskCreateAccess.options.map((access) => (
+          <label key={access} className={`${shared.contactRow} ${shared.choiceRow}`}>
+            <input
+              type="radio"
+              name="task-create-access"
+              value={access}
+              checked={chosen === access}
+              aria-describedby={access === 'client' ? noteId : undefined}
+              onChange={() =>
+                commit((draft) => {
+                  draft.team.taskCreateAccess = access;
+                })
+              }
+            />
+            <span className={shared.dutyText}>
+              <span>{t(`settings.team.taskCreate.options.${access}`)}</span>
+              {access === 'client' ? (
+                <span id={noteId} className={shared.dutyHolders}>
+                  {t('settings.team.taskCreate.clientNote', { stage: firstStageName(shown) })}
+                </span>
+              ) : null}
+            </span>
+          </label>
+        ))}
+      </div>
       {error ? <ErrorBanner>{errorMessage(error)}</ErrorBanner> : null}
     </fieldset>
   );

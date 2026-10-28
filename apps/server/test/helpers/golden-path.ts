@@ -27,6 +27,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { ToolContext } from '../../src/contracts';
 import { waitFor } from '../../src/runner/test-helpers';
 import { createAppHarness, setupOwner } from './app-harness';
+import { settle } from './fakes';
 import { withoutOnboarding } from './onboarding';
 
 /**
@@ -335,7 +336,18 @@ async function awaitSystem(h: Harness, j: Journey) {
     .filter((event) => !event.type.startsWith('session_'));
   for (const event of business.slice(j.events.length)) {
     expect(event.actor, `${event.type} that nobody asked for is the system's`).toMatchObject(system);
-    expect(['task_updated', 'task_stage_changed']).toContain(event.type);
+    expect(['task_updated', 'task_stage_changed', 'team_message']).toContain(event.type);
+    if (event.type === 'team_message') {
+      // The stage notice to a member whose session is already running is a stored message from the
+      // system (PM-82): it shows in the card's history, once, and only to a member of the team.
+      expect(event.data, 'the only message the system sends is a stage notice').toMatchObject({
+        from: 'system',
+        kind: 'action',
+      });
+      expect(event.data.to).toHaveLength(1);
+      j.events.push({ type: 'team_message', actor: system, data: { from: 'system', kind: 'action' } });
+      continue;
+    }
     j.events.push({ type: event.type, actor: system, data: {} });
     if (event.type === 'task_updated') {
       const request = event.data.gateRequest as { inboxItemIds: string[] } | undefined;
@@ -409,13 +421,15 @@ async function handedOverTo(h: Harness, j: Journey, mover: string | null, from: 
       m.handle !== j.developer &&
       stageOwners(config, stage).includes(m.handle),
   );
-  if (owner)
-    await j.context(owner.handle, {
-      kind: 'hand_over',
-      from,
-      to: target,
-      by: mover ? ai(mover) : system,
-    });
+  if (!owner) return;
+  await j.context(owner.handle, {
+    kind: 'hand_over',
+    from,
+    to: target,
+    by: mover ? ai(mover) : system,
+  });
+  // The hand-over finds the session running and tells it with a stored message (PM-82): let it finish.
+  await settle();
 }
 
 async function approve(h: Harness, j: Journey, member: string, target: string, cookie = h.cookie) {

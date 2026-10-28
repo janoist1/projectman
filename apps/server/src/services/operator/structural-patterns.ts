@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { countFixRounds, isTheme, PatternFacts, stageOf } from '@projectman/shared';
+import { absorbedSendBacks, countFixRounds, isTheme, PatternFacts, stageOf } from '@projectman/shared';
 import type { OperatorSignalKind, ProjectConfig, Task, TimelineEvent } from '@projectman/shared';
 import type { DomainContext } from '../../core/base';
 
@@ -319,8 +319,10 @@ export class StructuralPatterns {
     for (const card of cards) {
       const own = eventsOf.get(card.key) ?? [];
       if (countFixRounds(own, config, null).rounds < 3) continue;
+      // A send-back that goes with a change request is part of that round, not evidence of its own (PM-1103).
+      const absorbed = absorbedSendBacks(own, config);
       for (const event of own)
-        if (countFixRounds([event], config, null).rounds > 0)
+        if (!absorbed.has(event) && countFixRounds([event], config, null).rounds > 0)
           add('fix_rounds', config.project.key, '', event);
     }
     return [...groups].flatMap(([fingerprint, group]) => {

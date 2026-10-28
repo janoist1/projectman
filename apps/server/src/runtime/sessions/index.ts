@@ -1,7 +1,7 @@
 export { EngineRegistry, machineKeyHash, newMachineKey } from './engine-registry';
 export type { EngineCounters, EngineHelloMetadata } from './engine-registry';
 export { engineIdOf, engineOption, LocalEngineDirectory } from './engines';
-export { createNewProjectEngines } from './new-project-engines';
+export { checklistEngineHolds, createNewProjectEngines } from './new-project-engines';
 export { memberAudience } from './audience';
 export { PauseService } from './pause';
 export type { PauseRequester } from './pause';

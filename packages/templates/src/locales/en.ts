@@ -6,6 +6,10 @@ export const en: TemplateLocale = {
     items: {
       goal: { title: 'Project goal', hint: 'Agree on the goal and what success means.' },
       code: { title: 'Source code', hint: 'Connect the project repository.' },
+      engine: {
+        title: 'Engine',
+        hint: "The project's work runs on its engine: it must be connected and hold the project's folder (`project set`).",
+      },
       providers: { title: 'AI providers', hint: 'Check the subscriptions used by the team.' },
       team: { title: 'Team', hint: 'Choose the members and their responsibilities.' },
       process: { title: 'Workflow', hint: 'Agree on the stages and review requirements.' },

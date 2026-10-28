@@ -65,7 +65,7 @@ it('wakes the project manager after project creation without an owner message an
   );
   expect(
     h.contextBuilder.inputs.find((input) => input.member.handle === 'pm')?.checklist?.items,
-  ).toHaveLength(10);
+  ).toHaveLength(11);
   expect(h.repos.memberQueue.listOpen('AR', 'operator')).toEqual([]);
 });
 

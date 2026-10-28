@@ -4719,6 +4719,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                 "feedback_surface",
                 "agreement_approved",
                 "task_exists",
+                "engine_connected",
               ],
               "type": "string",
             },

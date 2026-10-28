@@ -3,6 +3,7 @@ import {
   DEFAULT_AGENT_PROVIDER,
   effectiveSessionPermissions,
   guestOfConversation,
+  hostOutsideOwners,
   isOpenTask,
   isTheme,
   memberStorageHandle,
@@ -166,6 +167,10 @@ export class SessionContextInput {
       ...(task && this.host.fullTests()?.runsFor(task, config) ? { serverFullTest: true } : {}),
       project: config,
       ...(checklist ? { checklist } : {}),
+      // An owner account's project: the host is not an owner, so the onboarding covers the owner's own machine (PM-1069).
+      ...(checklist && hostOutsideOwners(config, this.deps.hostOwnerEmail())
+        ? { hostOutsideOwners: true }
+        : {}),
       // The settings that apply to this session: the system prompt tells the agent who answers.
       member: contextMember(config, member, workItem, existing),
       workItem,

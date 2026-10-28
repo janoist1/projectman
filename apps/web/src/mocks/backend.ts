@@ -2396,6 +2396,13 @@ export class MockBackend {
     return error(404, 'not_found', `No route for ${method} ${path}`);
   }
 
+  /** The checklist's `engine_connected` fact (PM-1069): the single-machine engine holds all; in a cloud, the default binding's engine must list the project. */
+  private projectEngineHolds(projectKey: string): boolean {
+    if (this.engineMode === 'single') return true;
+    const bound = (this.projectEngineBindings.get(projectKey) ?? []).find((binding) => binding.isDefault);
+    return bound !== undefined && this.engineHolds.has(`${projectKey}/${bound.engineId}`);
+  }
+
   /** The server's project engine endpoints (PM-1060), with the shared rules; the fake has one viewer. */
   private projectEngineRoutes(
     method: string,
@@ -2675,6 +2682,7 @@ export class MockBackend {
             ? checklistConditionHolds(item.condition, this.config, {
                 agreementApproved: this.operatorKnowledge.agreement !== null,
                 taskCount: this.tasks.filter((task) => task.status !== 'cancelled').length,
+                engineConnected: this.projectEngineHolds(this.config.project.key),
               })
             : null;
         this.checklist.progress = checklistProgress(this.checklist.items);

@@ -193,7 +193,7 @@ import { HandoffService } from './runtime/admission';
 import { PauseService } from './runtime/sessions';
 import { MachineMonitor } from './runtime/watchers';
 import { createMachineProbe } from './machine';
-import { createNewProjectEngines, LocalEngineDirectory } from './runtime/sessions';
+import { checklistEngineHolds, createNewProjectEngines, LocalEngineDirectory } from './runtime/sessions';
 import type { EngineRegistry } from './runtime/sessions';
 import { createCheckBranchGit, createLocalEngine } from './engine-host';
 import { createAdministrationService } from './administration';
@@ -735,7 +735,13 @@ export function createDomain(opts: DomainOptions) {
     handoff: (input) => handoffs.begin(input),
   });
   const projectFocus = new ProjectFocusService({ ctx, projects, tasks, timeline });
-  const checklist = new ChecklistService({ ctx, projects, tasks, knowledge: opts.operatorKnowledge });
+  const checklist = new ChecklistService({
+    ctx,
+    projects,
+    tasks,
+    knowledge: opts.operatorKnowledge,
+    engineHolds: checklistEngineHolds(opts.engineRegistry),
+  });
   const attachments = new AttachmentService({
     ctx,
     projects,

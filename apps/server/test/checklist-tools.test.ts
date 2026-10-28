@@ -46,7 +46,10 @@ describe('the Operator’s checklist tools', () => {
     h.repos.db.prepare('DELETE FROM project_checklists WHERE project_key = ?').run('AR');
     expect(await h.domain.teamTools.getChecklist(ctx)).toMatchObject({ checklist: null });
     await update({ op: 'init' });
-    expect((await items()).filter((item) => item.state === 'done').map((item) => item.id)).toEqual(['code']);
+    expect((await items()).filter((item) => item.state === 'done').map((item) => item.id)).toEqual([
+      'code',
+      'engine',
+    ]);
   });
 
   it('adds, edits, binds a condition to and settles an item as the Operator', async () => {
@@ -147,7 +150,7 @@ describe('the Operator’s checklist tools', () => {
       const guest = sessionAs('operator', { type: 'general', with: 'ada' });
       await expect(h.domain.teamTools.getChecklist(guest)).rejects.toThrow('operator_owner_only');
       await expect(update({ op: 'add', title: 'x' }, guest)).rejects.toThrow('operator_owner_only');
-      expect(await items()).toHaveLength(10);
+      expect(await items()).toHaveLength(11);
     });
   });
 

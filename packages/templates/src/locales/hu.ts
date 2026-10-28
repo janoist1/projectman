@@ -6,6 +6,10 @@ export const hu: TemplateLocale = {
     items: {
       goal: { title: 'A projekt célja', hint: 'Egyeztessétek a célt és a siker feltételeit.' },
       code: { title: 'Forráskód', hint: 'Kapcsold hozzá a projekt kódtárát.' },
+      engine: {
+        title: 'Motor',
+        hint: 'A projekt munkái a motoron futnak: legyen csatlakozva, és adja hozzá a projekt mappáját (`project set`).',
+      },
       providers: { title: 'AI-szolgáltatók', hint: 'Ellenőrizd a csapat előfizetéseit.' },
       team: { title: 'Csapat', hint: 'Válassz tagokat és felelősségeket.' },
       process: { title: 'Munkafolyamat', hint: 'Egyeztessétek a szakaszokat és az átnézés feltételeit.' },

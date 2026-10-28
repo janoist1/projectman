@@ -11,7 +11,7 @@ import type {
 import { isTaskBranch, taskBranchName } from '@projectman/shared';
 import { isStrictlyWithin } from '../kernel';
 import { cloneDependencies, dependencyState } from './dependencies';
-import { git, gitSucceeds, isoOrNull, tryGit } from './git';
+import { git, GitCommandError, gitSucceeds, isoOrNull, tryGit } from './git';
 import { canonical, createKeyedLock } from './paths';
 
 /** A fetch that takes longer is abandoned; the worktree starts from the last known state. */
@@ -19,6 +19,13 @@ const FETCH_TIMEOUT_MS = 60_000;
 /** Checkouts (and the repository's checkout hooks, e.g. Git LFS) may take a while. */
 const CHECKOUT_TIMEOUT_MS = 10 * 60_000;
 const DEPENDENCY_RETRY_MS = 60_000;
+
+/** Settings of the shared repository the packed-refs lock grant of Codex worktrees relies on (PM-411). */
+const SHARED_REPO_SETTINGS = [
+  ['core.useReplaceRefs', 'false'],
+  ['gc.packRefs', 'false'],
+  ['maintenance.pack-refs.enabled', 'false'],
+] as const;
 
 type WorktreeErrorCode =
   | 'invalid_task_key'
@@ -221,6 +228,27 @@ export function createWorktreeManager(opts: WorktreeManagerOptions): WorktreeMan
     }
   }
 
+  /**
+   * Turns off replace refs and ref packing in the shared repository's own config, so a session
+   * that swaps the writable `packed-refs.lock` while the host rewrites `packed-refs` cannot
+   * inject a `refs/replace` line or rewrite a packed default branch. Errors propagate: without
+   * the settings the worktree does not start. Call under the repository's lock.
+   */
+  async function ensureSharedRepoSettings(repoPath: string): Promise<void> {
+    for (const [key, value] of SHARED_REPO_SETTINGS) {
+      let current: string | null = null;
+      try {
+        current = (await git(['-C', repoPath, 'config', '--local', '--get', key])).trim();
+      } catch (err) {
+        // `config --get` exits 1 when the key is unset: that is a value to write, not a failure.
+        if (!(err instanceof GitCommandError && err.exitCode === 1)) throw err;
+      }
+      if (current === value) continue;
+      await git(['-C', repoPath, 'config', '--local', '--replace-all', key, value]);
+      log.info({ repo: repoPath, key }, 'set shared repository git setting');
+    }
+  }
+
   async function ensureWorktree(
     args: { project: ProjectConfig; repoName: string; taskKey: string; title: string },
     location: { repo: ProjectConfig['project']['repos'][number]; repoPath: string; target: string },
@@ -229,6 +257,7 @@ export function createWorktreeManager(opts: WorktreeManagerOptions): WorktreeMan
     const { repo, repoPath, target } = location;
     return withLock(await canonical(repoPath), async () => {
       await git(['-C', repoPath, 'worktree', 'prune']);
+      await ensureSharedRepoSettings(repoPath);
       const worktrees = await listWorktrees(repoPath);
 
       const atTarget = await findByPath(worktrees, target);
@@ -445,6 +474,7 @@ export function createWorktreeManager(opts: WorktreeManagerOptions): WorktreeMan
       throw new WorktreeError('no_start_point', 'merge fix needs a commit id');
     const { repo, repoPath, target, branch } = await fixLocation(args);
     const info = await withLock(await canonical(repoPath), async () => {
+      await ensureSharedRepoSettings(repoPath);
       const listed = await listWorktrees(repoPath);
       const found = await findByPath(listed, target);
       if (found) {

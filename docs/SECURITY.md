@@ -945,7 +945,15 @@ by this lock-only exception. Two residual risks remain: a leftover lock blocks t
 deletions until removed, and a session can replace the writable lock while the host rewrites
 `packed-refs` (gc/pack-refs or packed-ref deletion), injecting content into that host rewrite.
 On 2026-10-08, the owner explicitly accepted these two risks on PM-411, conditional on a
-follow-up card ("Elfogadom, utókártyával"). PM-413 tracks their mitigation.
+follow-up card ("Elfogadom, utókártyával"). PM-413 switches off the two effects of the swap
+race in the shared repository's own git config, which members cannot write (`config` is denied
+in every profile): `core.useReplaceRefs=false` (an injected `refs/replace/<sha>` line cannot make
+main look like another commit in the integrator's diff, merge or checkout), and
+`gc.packRefs=false` plus `maintenance.pack-refs.enabled=false` (the host's gc and maintenance no
+longer pack the default branch, so it is not only in `packed-refs`). The worktree manager sets
+them under the repository lock in every `ensureForTask` and `ensureMergeFix`, and a failed write
+stops the worktree from starting. Remaining: a `git pack-refs` a person runs by hand, and git
+clients that do not read the repository's config.
 Existing sessions need a restart with the updated runner to receive the new profile.
 The live Codex probe must use a task worktree's actual shared git directory outside the
 worktree, in a session started by the updated runner: a disposable repository inside an

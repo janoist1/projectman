@@ -724,7 +724,7 @@ describe('the bearer MCP endpoint (PM-760)', () => {
         project_key: 'AR',
         request_id: randomUUID(),
         queue_item_id: queueItemId,
-        command: { kind: 'operate', operation: { op: 'message_send', to: ['dev-1'], text: 'Fictional' } },
+        command: { kind: 'operate', operation: { op: 'message_send', to: ['dev-2'], text: 'Fictional' } },
       });
 
     it('refuses an item that is not open for the key’s holder', async () => {
@@ -739,6 +739,89 @@ describe('the bearer MCP endpoint (PM-760)', () => {
       const result = await operate(key('super').secret, item.id);
       expect(result.isError).toBe(true);
       expect(result.structuredContent?.errorCode).toBe('issuer_without_machine_access');
+    });
+
+    describe('with an issuer that has machine access', () => {
+      const grantMachineAccess = () =>
+        h.app.projectman.domain.projects.update(
+          'AR',
+          { actor: humanActor('owner'), author: { name: 'Owner', email: 'owner@example.com' } },
+          (draft) => {
+            const issuer = draft.team.members.find((m) => m.handle === 'dev-1');
+            if (issuer?.kind === 'ai') issuer.machineAccess = true;
+            draft.pipeline.labels.push({
+              id: 'owner-tag',
+              name: 'Owner tag',
+              setBy: { members: ['owner'] },
+            });
+            return 'Grant machine access and add an owner label';
+          },
+        );
+      const runCommand = (secret: string, queueItemId: string | undefined, command: unknown) =>
+        call(secret, 'super_operate', {
+          project_key: 'AR',
+          request_id: randomUUID(),
+          ...(queueItemId ? { queue_item_id: queueItemId } : {}),
+          command,
+        });
+
+      it('records the step under the issuer’s name with the holder behind it', async () => {
+        await grantMachineAccess();
+        const { secret, keyId, prefix } = key('super');
+        const item = createItem('dev-1', ['owner']);
+        const result = await operate(secret, item.id);
+        expect(result.structuredContent?.operation.state).toBe('succeeded');
+        const sent = h.app.projectman.repos.messages
+          .list('AR')
+          .find((m) => m.to.includes('dev-2') && m.body.includes('Fictional'));
+        expect(sent?.from).toBe('dev-1');
+        expect(sent?.actor).toEqual({
+          kind: 'ai',
+          handle: 'dev-1',
+          via: 'integrator',
+          through: { holder: 'owner', credential: { id: keyId, prefix } },
+        });
+      });
+
+      it('refuses a command that needs the owner’s own request', async () => {
+        await grantMachineAccess();
+        const item = createItem('dev-1', ['owner']);
+        const result = await runCommand(key('super').secret, item.id, {
+          kind: 'inbox_resolve',
+          itemId: item.id,
+          request: { optionId: 'todo_done' },
+        });
+        expect(result.isError).toBe(true);
+        expect(result.structuredContent?.errorCode).toBe('operator_owner_only');
+      });
+
+      it('lends no owner authority to a label, which a direct instruction does hold', async () => {
+        await grantMachineAccess();
+        const { secret } = key('super');
+        await call(secret, 'create_task', { project_key: 'AR', title: 'Fictional card' });
+        const taskKey = h.app.projectman.domain.tasks
+          .list('AR')
+          .find((entry) => entry.title === 'Fictional card')!.key;
+        const item = createItem('dev-1', ['owner']);
+        const labelsOf = () => h.app.projectman.domain.tasks.get('AR', taskKey).labels;
+        const label = (queueItemId?: string) =>
+          runCommand(secret, queueItemId, {
+            kind: 'task_labels',
+            taskKey,
+            request: { add: ['owner-tag'], remove: [] },
+          });
+
+        const onQueueItem = await label(item.id);
+        expect(onQueueItem.structuredContent?.operation).toMatchObject({
+          state: 'failed',
+          errorCode: 'label_not_allowed',
+        });
+        expect(labelsOf()).not.toContain('owner-tag');
+
+        const direct = await label();
+        expect(direct.structuredContent?.operation.state).toBe('succeeded');
+        expect(labelsOf()).toContain('owner-tag');
+      });
     });
   });
 

@@ -368,7 +368,7 @@ describe('the bearer MCP endpoint: the Operator tools (PM-784)', () => {
       expect(row).toMatchObject({
         autonomousLessons: false,
         requestId: null,
-        externalOrigin: { actor: { credential: { id } } },
+        externalOrigin: { actor: { handle: 'owner', through: { holder: 'owner', credential: { id } } } },
       });
       expect(readFileSync(join(h.workspace, path), 'utf8')).toContain('A new lesson');
     });

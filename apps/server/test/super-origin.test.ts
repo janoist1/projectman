@@ -816,6 +816,53 @@ describe('super-mode origin and audit (PM-757)', () => {
       expect(answers[0]).toMatchObject({ from: 'owner', actor: SUPER });
     });
 
+    it('refuses to answer a question on the holder’s authority from a step on a queue item', async () => {
+      h = await createDomainHarness();
+      const question = h.domain.inbox.create({
+        projectKey: 'AR',
+        kind: 'question',
+        assignees: ['owner'],
+        source: 'dev-1',
+        sessionId: null,
+        title: 'Fictional question',
+        payload: { question: 'Which fictional option?', responsePurpose: 'information' },
+        options: [{ id: 'answer', label: 'answer', style: 'primary' }],
+      });
+      const issuerStep = connectedActorOf('owner', CREDENTIAL, { issuer: 'pm' });
+      await expect(
+        authenticated(
+          () =>
+            h.domain.inbox.resolve(
+              'AR',
+              question.id,
+              { optionId: 'answer', note: 'The first fictional option.' },
+              { handle: 'owner', access: 'owner', via: 'integrator', superActor: issuerStep },
+            ),
+          'req-issuer',
+          'pm',
+        ),
+      ).rejects.toMatchObject({ code: 'owner_approval_required' });
+      expect(h.domain.inbox.get('AR', question.id).state).toBe('open');
+    });
+
+    it('refuses to close a merge request in the holder’s name from a step on a queue item', async () => {
+      h = await createDomainHarness();
+      const request = h.domain.inbox.create({
+        projectKey: 'AR',
+        taskKey: 'AR-1',
+        kind: 'merge_request',
+        assignees: ['owner'],
+        source: 'dev-1',
+        title: 'Merge request',
+        payload: {},
+        options: [{ id: 'merge', label: 'merge', style: 'primary' }],
+      });
+      expect(() =>
+        authenticated(() => h.domain.inbox.resolveMergeRequest(request.id, 'owner'), 'r', 'pm'),
+      ).toThrow(expect.objectContaining({ code: 'owner_approval_required' }));
+      expect(h.domain.inbox.get('AR', request.id).state).toBe('open');
+    });
+
     it.each([
       { question: 'Which fictional option?' },
       { question: 'Which fictional option?', responsePurpose: 'owner_decision' as const },

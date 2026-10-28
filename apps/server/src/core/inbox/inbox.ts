@@ -1042,6 +1042,9 @@ export class InboxService {
     // Every pending group member must be decidable; only an entirely relayable group is an information relay.
     let relayed = false;
     if (superScope) {
+      // A connected step on a member's queue item is named for the issuer, so it relays nothing for the holder.
+      if (hasConnectedOrigin(by.superActor) && by.superActor!.kind !== 'human')
+        throw forbidden('owner_approval_required', 'this item requires a person using their own login');
       const group = this.ctx.repos.inbox.groupOf(id);
       const members = [
         item,
@@ -1052,14 +1055,22 @@ export class InboxService {
       ];
       // A connected step is the holder's in person, yet what the Operator asked or runs stays reserved to the
       // owner's own login, as it was for the old super step.
-      const protectedHandle = hasConnectedOrigin(by.superActor)
-        ? (operatorOf(initialConfig)?.handle ?? by.superActor!.handle)
-        : by.superActor!.handle;
+      // The questions the connected Claude asked itself carry the holder's name as source.
+      const protectedHandles = new Set([
+        by.superActor!.handle,
+        ...(hasConnectedOrigin(by.superActor)
+          ? [operatorOf(initialConfig)?.handle ?? by.superActor!.handle]
+          : []),
+      ]);
       for (const member of members) {
-        const refusal = superDecisionRefusal(member, {
-          operatorHandle: protectedHandle,
-          sessionMember: member.sessionId ? this.ctx.repos.sessions.get(member.sessionId)?.member : null,
-        });
+        const refusal = [...protectedHandles]
+          .map((operatorHandle) =>
+            superDecisionRefusal(member, {
+              operatorHandle,
+              sessionMember: member.sessionId ? this.ctx.repos.sessions.get(member.sessionId)?.member : null,
+            }),
+          )
+          .find((found) => found !== null);
         const question = member.kind === 'question' ? member.payload : null;
         if (refusal || (question && externalQuestionAnswerRefusal(question, by)))
           throw forbidden('owner_approval_required', 'this item requires a person using their own login');

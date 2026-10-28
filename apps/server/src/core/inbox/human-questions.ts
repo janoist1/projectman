@@ -1,6 +1,7 @@
 import {
   coordinationMemberOf,
   externalOriginActor,
+  hasBoundOrigin,
   isOperator,
   memberOf,
   ownerHandles,
@@ -75,8 +76,8 @@ export class HumanQuestions implements HumanQuestionsPort {
     const config = await this.projects.config(projectKey);
     const external = caller.kind === 'external';
     const asker = external ? caller.origin.actor.handle : caller.member;
-    if (external && !isOperator(memberOf(config, asker)))
-      throw new DomainError('integrator_not_allowed', 'The project has no Operator to ask in', {
+    if (external && !hasBoundOrigin(caller.origin.actor))
+      throw new DomainError('integrator_not_allowed', 'Only a connected Claude asks the owners here', {
         status: 403,
       });
     const question = input.question.trim();
@@ -85,8 +86,9 @@ export class HumanQuestions implements HumanQuestionsPort {
     const task = taskKey ? this.tasks.find(projectKey, taskKey) : null;
     if (taskKey && !task) throw missing(`Task ${taskKey} does not exist in this project.`);
 
-    // The Operator asks only the owners (PM-463): an answer of anyone else would not be a request to it.
-    const operator = isOperator(memberOf(config, asker));
+    // The Operator and a connected Claude ask only the owners (PM-463, decision 66): an answer of anyone else
+    // would not be a request to them.
+    const operator = external || isOperator(memberOf(config, asker));
     let unscreened: { reason: string; previousItemId: string } | null = null;
     if (caller.kind === 'member') unscreened = this.reask(projectKey, caller.member, input);
     else if (

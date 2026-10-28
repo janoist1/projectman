@@ -4,6 +4,7 @@ import {
   defaultMerger,
   DEFAULT_PRIORITY_SETTERS,
   DEFAULT_PROJECT_MANAGER_MOVES,
+  DEFAULT_VIEWER_RECIPIENTS,
   isProjectManager,
   type AiBuiltInRoleId,
   type BoardColumn,
@@ -189,6 +190,7 @@ function draftProject(templateId: TemplateId, input: BuildTemplateInput): Templa
           cardMover: input.cardMover ?? { kind: 'worker' },
           projectManagerMoves: DEFAULT_PROJECT_MANAGER_MOVES,
           prioritySetters: [...DEFAULT_PRIORITY_SETTERS],
+          viewerRecipients: DEFAULT_VIEWER_RECIPIENTS,
         },
         pipeline: {
           ...pipeline,

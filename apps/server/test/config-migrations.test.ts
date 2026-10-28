@@ -18,6 +18,7 @@ function raw(): {
     merger?: unknown;
     projectManagerMoves?: unknown;
     prioritySetters?: unknown;
+    viewerRecipients?: unknown;
   };
   pipeline: { stages: Array<Record<string, unknown>>; labels: Array<{ id: string; setBy?: unknown }> };
 } {
@@ -25,6 +26,7 @@ function raw(): {
   config.team.merger = { kind: 'code_reviewer' };
   config.team.projectManagerMoves = 'queues_and_start';
   config.team.prioritySetters = ['project_manager'];
+  config.team.viewerRecipients = 'project_manager';
   return config;
 }
 
@@ -62,9 +64,16 @@ describe('project configuration migrations', () => {
     expect(migrate(reloaded).config.team.prioritySetters).toEqual(['prioritization_duty']);
   });
 
+  it('defaults a missing viewer recipients setting to the project manager only (PM-1102)', () => {
+    const legacy = raw();
+    delete legacy.team.viewerRecipients;
+    expect(migrate(legacy).config.team.viewerRecipients).toBe('project_manager');
+  });
+
   it('preserves a saved start-only choice across configuration files and migration', () => {
     const restricted = migrate(raw()).config;
     restricted.team.projectManagerMoves = 'start_only';
+    restricted.team.viewerRecipients = 'contacts';
     const files = splitProjectConfig(restricted);
     const reloaded = mergeProjectFiles({
       'project.yaml': parseYamlFile('project.yaml', files['project.yaml']),
@@ -72,6 +81,7 @@ describe('project configuration migrations', () => {
       'pipeline.yaml': parseYamlFile('pipeline.yaml', files['pipeline.yaml']),
     });
     expect(migrate(reloaded).config.team.projectManagerMoves).toBe('start_only');
+    expect(migrate(reloaded).config.team.viewerRecipients).toBe('contacts');
   });
 
   it('passes a current configuration through untouched', () => {

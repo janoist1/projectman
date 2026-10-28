@@ -31,6 +31,7 @@ export function splitProjectConfig(config: ProjectConfig): Record<ProjectFileNam
       prioritySetters: config.team.prioritySetters,
       merger: config.team.merger,
       contacts: config.team.contacts?.length ? config.team.contacts : undefined,
+      viewerRecipients: config.team.viewerRecipients,
       operatorWatch: config.team.operatorWatch,
       operatorApprovalWaiver: config.team.operatorApprovalWaiver,
       boundary: config.team.boundary,
@@ -81,6 +82,7 @@ export function mergeProjectFiles(files: Record<ProjectFileName, unknown>): unkn
       prioritySetters: team.prioritySetters,
       merger: team.merger,
       contacts: team.contacts,
+      viewerRecipients: team.viewerRecipients,
       ...(team.operatorWatch !== undefined ? { operatorWatch: team.operatorWatch } : {}),
       ...(team.operatorApprovalWaiver !== undefined
         ? { operatorApprovalWaiver: team.operatorApprovalWaiver }

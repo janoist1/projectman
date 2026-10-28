@@ -2589,9 +2589,12 @@ export const hu = {
           'Most senki nem foglalkozik vele, ezért a projektmenedzser kapja meg, és ő továbbítja a megfelelő tagnak.',
         none: 'Válaszd ki, kinek írsz.',
         contact: 'A kártyán dolgozók közül senki sem kapcsolattartó, ezért egy kapcsolattartó kapja meg.',
+        managerOnly: 'A projektmenedzser kapja meg, és ő továbbítja a kártyán dolgozóknak.',
       },
       noContacts:
         'A projektnek nincs kapcsolattartója, ezért innen nem tudsz üzenni. Hozzászólni a kártya nézetében tudsz:',
+      noContactsReadOnly: 'A projektnek nincs kapcsolattartója, ezért innen nem tudsz üzenni.',
+      noManager: 'A projektnek nincs projektmenedzsere, ezért innen nem tudsz üzenni.',
       edited: 'Te választottad.',
       reset: 'Vissza az alaphoz',
       composerLabel: 'Üzenet a(z) {key} kártyáról',
@@ -3724,6 +3727,7 @@ export const hu = {
         order: 'sorrend',
         schemaVersion: 'sémaverzió',
         docs: 'dokumentumok helye',
+        viewerRecipients: 'kinek írhat a betekintő',
       },
     },
     approval: {
@@ -6054,6 +6058,7 @@ export const hu = {
     new: 'Új üzenet',
     recipients: 'Címzettek',
     contactsOnlyHint: 'Csak a kapcsolattartóknak írhatsz.',
+    managerOnlyHint: 'Csak a projektmenedzsernek írhatsz.',
     text: 'Üzenet',
     task: 'Kapcsolódó feladat',
     noTask: 'Nincs kapcsolódó feladat',
@@ -6094,6 +6099,9 @@ export const hu = {
       noContactsTitle: 'A projektnek még nincs kapcsolattartója.',
       noContactsBody:
         'Amíg nincs, nem tudsz üzenetet küldeni. A beérkezett üzeneteket itt olvashatod, a kártyákhoz pedig hozzászólhatsz.',
+      managerIntroBody: 'Csak a projektmenedzsernek írhatsz. Ha mástól kérsz valamit, ő továbbítja.',
+      noManagerTitle: 'A projektnek most nincs projektmenedzsere.',
+      cannotSendBody: 'Amíg nincs, nem tudsz üzenetet küldeni. A beérkezett üzeneteket itt olvashatod.',
     },
     thread: {
       label: 'Beszélgetés: {name}',
@@ -6114,6 +6122,9 @@ export const hu = {
       notContact: 'Neki nem tudsz üzenni, mert nem kapcsolattartó. Írj inkább a kapcsolattartónak:',
       notContactNoContacts:
         'Neki nem tudsz üzenni, mert nem kapcsolattartó, és a projektnek most nincs kapcsolattartója.',
+      notManager: 'Neki nem tudsz üzenni, mert csak a projektmenedzsernek írhatsz. Írj inkább neki:',
+      notManagerNoManager:
+        'Neki nem tudsz üzenni, mert csak a projektmenedzsernek írhatsz, és a projektnek most nincs projektmenedzsere.',
       or: 'vagy',
       quotaWaiting: 'A tag kerete most elfogyott, kb. {time}-kor áll vissza; az üzeneted addig várakozik.',
       quotaWaitingUnknown: 'A tag kerete most elfogyott; az üzeneted a visszaállásig várakozik.',
@@ -6507,6 +6518,17 @@ export const hu = {
         label: 'Kapcsolattartók',
         hint: 'Aki csak olvasni és hozzászólni tud, üzenetet csak nekik küldhet. Ha senki sincs kijelölve, csak a kártyákon szólhat hozzá.',
         none: 'Nincs kapcsolattartó',
+        viewerToo: 'A betekintő is csak nekik írhat.',
+      },
+      /** Whom a read-only viewer may write to (PM-1102). */
+      viewerRecipients: {
+        label: 'Kinek írhat a betekintő?',
+        help: 'A betekintő a projektet csak nézi, de üzenni tud. Kapcsolattartós beállításnál a projektmenedzsernek csak akkor írhat, ha ő is kapcsolattartó.',
+        project_manager: 'Csak a projektmenedzsernek',
+        contacts: 'A kapcsolattartóknak',
+        noManager: 'A projektnek nincs projektmenedzsere, ezért a betekintő most senkinek sem írhat.',
+        noContacts: 'Nincs kapcsolattartó, ezért a betekintő most senkinek sem írhat.',
+        managerNotContact: 'A projektmenedzser nem kapcsolattartó, ezért a betekintő nem írhat neki.',
       },
       /** Who moves the cards on (PM-439): the choice of the wizard and the settings. */
       mover: {

@@ -1,7 +1,7 @@
 import type { HumanAccess } from '../domain/member';
 import { memberOf } from './lookup';
 import { projectManagerOf } from './project-manager';
-import type { ProjectConfig } from './schema';
+import type { ProjectConfig, ViewerRecipients } from './schema';
 
 /** A member's access level as the rules below see it: `ai` for an AI member, absent for a non-member. */
 export type CommunicationAccess = HumanAccess | 'ai' | undefined;
@@ -54,12 +54,64 @@ export type TeamMessageRecipientRefusal = {
   recipients: string[];
 };
 
+/** A read-only viewer writes only to the project manager unless the project says otherwise (PM-1102). */
+export const DEFAULT_VIEWER_RECIPIENTS: ViewerRecipients = 'project_manager';
+
+/** Whom a read-only viewer may write to in this project. */
+export function viewerRecipientsOf(config: Pick<ProjectConfig, 'team'>): ViewerRecipients {
+  return config.team.viewerRecipients ?? DEFAULT_VIEWER_RECIPIENTS;
+}
+
 /**
- * Whether a team message from `from` to `to` is refused for who the sender is (PM-985):
- * - a contact-restricted sender writes only to contacts: one recipient who is none refuses the whole
- *   message (`recipient_not_contact`);
- * - a read-only viewer writes only to the project manager (`insufficient_access`);
- * - anyone else, and the system, has no limit here.
+ * Whether a member of this access has a recipient limit at all (client, viewer). Config-free, so the web
+ * can ask it before the configuration has loaded.
+ */
+export function hasRecipientLimit(access: CommunicationAccess): boolean {
+  return isContactRestricted(access) || access === 'viewer';
+}
+
+/** The members a limited access may write to and the refusal code for any other (`null`: no limit). */
+function recipientLimit(
+  config: Pick<ProjectConfig, 'team'>,
+  access: CommunicationAccess,
+): { handles: string[]; code: TeamMessageRecipientRefusal['code'] } | null {
+  if (isContactRestricted(access) || (access === 'viewer' && viewerRecipientsOf(config) === 'contacts'))
+    return { handles: contactHandles(config), code: 'recipient_not_contact' };
+  if (access === 'viewer') {
+    const manager = projectManagerOf(config);
+    return { handles: manager ? [manager.handle] : [], code: 'insufficient_access' };
+  }
+  return null;
+}
+
+/**
+ * Whom this access may write to (PM-985, PM-1102): a client the contacts; a viewer the project manager or,
+ * by the project's setting, the contacts. `null`: no limit beyond the members the caller already offers.
+ */
+export function writableRecipientHandles(
+  config: Pick<ProjectConfig, 'team'>,
+  access: CommunicationAccess,
+): string[] | null {
+  return recipientLimit(config, access)?.handles ?? null;
+}
+
+/** The refusal of a team message to `to` for the sender's access alone; `null` when every recipient is allowed. */
+export function recipientRefusalForAccess(
+  config: Pick<ProjectConfig, 'team'>,
+  access: CommunicationAccess,
+  to: readonly string[],
+): TeamMessageRecipientRefusal | null {
+  const limit = recipientLimit(config, access);
+  if (!limit) return null;
+  const refused = [...new Set(to)].filter((handle) => !limit.handles.includes(handle));
+  return refused.length > 0 ? { code: limit.code, recipients: refused } : null;
+}
+
+/**
+ * Whether a team message from `from` to `to` is refused for who the sender is (PM-985, PM-1102): a client
+ * writes only to the contacts (`recipient_not_contact`); a read-only viewer only to the project manager
+ * (`insufficient_access`) or, when the project says so, the contacts (`recipient_not_contact`); anyone
+ * else, and the system, has no limit here.
  * Not a membership check: the caller's own authentication and recipient checks stay.
  */
 export function teamMessageRecipientRefusal(
@@ -67,29 +119,5 @@ export function teamMessageRecipientRefusal(
   from: string,
   to: readonly string[],
 ): TeamMessageRecipientRefusal | null {
-  const access = accessOfHandle(config, from);
-  const distinct = [...new Set(to)];
-  if (isContactRestricted(access)) {
-    const contacts = new Set(contactHandles(config));
-    const refused = distinct.filter((handle) => !contacts.has(handle));
-    return refused.length > 0 ? { code: 'recipient_not_contact', recipients: refused } : null;
-  }
-  if (access === 'viewer') {
-    // The project manager is the corner's contact.
-    const allowed = [projectManagerOf(config)?.handle];
-    const refused = distinct.filter((handle) => !allowed.includes(handle));
-    return refused.length > 0 ? { code: 'insufficient_access', recipients: refused } : null;
-  }
-  return null;
-}
-
-/**
- * The members a contact-restricted writer may address: the contacts. Everyone else may address every
- * member the caller already offers; `null` means no extra limit.
- */
-export function writableContactHandles(
-  config: Pick<ProjectConfig, 'team'>,
-  access: CommunicationAccess,
-): string[] | null {
-  return isContactRestricted(access) ? contactHandles(config) : null;
+  return recipientRefusalForAccess(config, accessOfHandle(config, from), to);
 }

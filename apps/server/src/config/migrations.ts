@@ -7,6 +7,7 @@ import {
   DEFAULT_PROJECT_LANGUAGE,
   DEFAULT_PRIORITY_SETTERS,
   DEFAULT_PROJECT_MANAGER_MOVES,
+  DEFAULT_VIEWER_RECIPIENTS,
   defaultMerger,
   FALLBACK_PERMISSION_MODE,
   isProjectManager,
@@ -282,6 +283,13 @@ function addPrioritySetters(raw: unknown): unknown {
   return raw;
 }
 
+/** Existing projects keep a viewer writing to the project manager only (PM-1102). */
+function addViewerRecipients(raw: unknown): unknown {
+  const team = asRecord(asRecord(raw)?.team);
+  if (team && team.viewerRecipients === undefined) team.viewerRecipients = DEFAULT_VIEWER_RECIPIENTS;
+  return raw;
+}
+
 /**
  * The Operator member is gone (decision 66, PM-1076): a connected Claude replaces it. A member of the
  * retired `ai_operator` role leaves the team like any retired member (the `reconcile` listener records it
@@ -396,6 +404,7 @@ function addFeedbackProcessing(raw: unknown, { projectKey, logger }: MigrationCo
  *   - a missing card mover becomes worker (above);
  *   - missing project manager moves allow queue moves and starting work (above);
  *   - a missing priority setting becomes the project managers (above);
+ *   - a missing viewer recipients setting becomes the project manager only (above);
  *   - the retired Operator member (`ai_operator`) leaves the team, with its role override and its
  *     references (above), and is never put back;
  *   - a missing merger becomes the code reviewer or the developer, by the pipeline (above), judged on
@@ -408,29 +417,31 @@ export function migrateProjectConfig(raw: unknown, context: MigrationContext): u
   return addFeedbackProcessing(
     addMerger(
       removeOperator(
-        addPrioritySetters(
-          addProjectManagerMoves(
-            addCardMover(
-              addProjectManager(
-                migrateReleaseApproval(
-                  migrateLegacyConfig(
-                    migrateCodexBypass(
-                      migrateScheduledRole(
-                        dropMessageBurst(
-                          migrateSeniorLimit(
-                            dropEmailMailbox(migrateShadowingRoles(raw, context), context),
+        addViewerRecipients(
+          addPrioritySetters(
+            addProjectManagerMoves(
+              addCardMover(
+                addProjectManager(
+                  migrateReleaseApproval(
+                    migrateLegacyConfig(
+                      migrateCodexBypass(
+                        migrateScheduledRole(
+                          dropMessageBurst(
+                            migrateSeniorLimit(
+                              dropEmailMailbox(migrateShadowingRoles(raw, context), context),
+                              context,
+                            ),
                             context,
                           ),
                           context,
                         ),
                         context,
                       ),
-                      context,
                     ),
+                    context,
                   ),
                   context,
                 ),
-                context,
               ),
             ),
           ),

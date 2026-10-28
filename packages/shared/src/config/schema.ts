@@ -44,6 +44,10 @@ export const PrioritySetters = z
   .refine((ids) => new Set(ids).size === ids.length, 'duplicate priority setters');
 export type PrioritySetters = z.infer<typeof PrioritySetters>;
 
+/** Whom a read-only viewer may write to (PM-1102): the project manager only, or the project's contacts. */
+export const ViewerRecipients = z.enum(['project_manager', 'contacts']);
+export type ViewerRecipients = z.infer<typeof ViewerRecipients>;
+
 /** Who merges a card's approved work into the repository's default branch (PM-448, decision 48). */
 export const Merger = z.discriminatedUnion('kind', [
   /** The owner of the card's code review stage who reviewed it. */
@@ -413,6 +417,8 @@ export const ProjectConfig = z.object({
     members: z.array(MemberConfig).min(1),
     /** Who a contact-restricted member may write to (PM-985); absent in older configurations: nobody. */
     contacts: ContactHandles.default([]),
+    /** Whom a read-only viewer may write to (PM-1102); absent: DEFAULT_VIEWER_RECIPIENTS applies. */
+    viewerRecipients: ViewerRecipients.optional(),
     /** Roles the team defined in addition to the built-in ones. */
     roles: z.array(CustomRoleDefinition).default([]),
     roleOverrides: RoleOverrides.optional(),

@@ -3,10 +3,13 @@ import {
   accessOfHandle,
   canCommentOnTask,
   contactHandles,
+  DEFAULT_VIEWER_RECIPIENTS,
+  hasRecipientLimit,
   isContact,
   isContactRestricted,
   teamMessageRecipientRefusal,
-  writableContactHandles,
+  viewerRecipientsOf,
+  writableRecipientHandles,
 } from './communication';
 import { applyConfigPatch, PatchConfigRequest } from './edit';
 import { validateProjectConfig } from './invariants';
@@ -101,11 +104,34 @@ describe('the project contacts', () => {
     expect(issues).toEqual([{ code: 'unknown_member', path: 'team.contacts[1]', detail: 'gone' }]);
   });
 
-  it('offers a restricted member only the contacts, and everyone else no extra limit', () => {
-    const config = withContacts('pm');
-    expect(writableContactHandles(config, 'client')).toEqual(['pm']);
-    expect(writableContactHandles(config, 'developer')).toBeNull();
-    expect(writableContactHandles(config, 'viewer')).toBeNull();
+  it('offers a client the contacts, and a developer no extra limit', () => {
+    const config = withContacts('op');
+    expect(writableRecipientHandles(config, 'client')).toEqual(['op']);
+    expect(writableRecipientHandles(config, 'developer')).toBeNull();
+  });
+
+  it('offers a viewer the project manager, or no one without one', () => {
+    expect(writableRecipientHandles(withContacts('op'), 'viewer')).toEqual(['pm']);
+    const noManager = build((input) => {
+      input.team.members = input.team.members.filter((member) => member.handle !== 'pm');
+    });
+    expect(writableRecipientHandles(noManager, 'viewer')).toEqual([]);
+  });
+
+  it('offers a viewer the contacts by the setting, and the manager only when a contact', () => {
+    const config = build((input) => {
+      Object.assign(input.team, { contacts: ['op'], viewerRecipients: 'contacts' });
+    });
+    expect(viewerRecipientsOf(config)).toBe('contacts');
+    expect(writableRecipientHandles(config, 'viewer')).toEqual(['op']);
+    expect(viewerRecipientsOf(withContacts())).toBe(DEFAULT_VIEWER_RECIPIENTS);
+  });
+
+  it('limits only the client and the viewer, without the configuration', () => {
+    expect(hasRecipientLimit('client')).toBe(true);
+    expect(hasRecipientLimit('viewer')).toBe(true);
+    for (const access of ['owner', 'admin', 'developer', 'ai', undefined] as const)
+      expect(hasRecipientLimit(access)).toBe(false);
   });
 });
 
@@ -124,6 +150,17 @@ describe('patching the contacts', () => {
     const config = withContacts('pm');
     expect(patch(config, ['op', 'owner']).team.contacts).toEqual(['op', 'owner']);
     expect(patch(config, []).team.contacts).toEqual([]);
+  });
+
+  it('sets the viewer recipients and keeps them when the patch has none (PM-1102)', () => {
+    const set = applyConfigPatch(
+      withContacts(),
+      PatchConfigRequest.parse({ baseVersion: 'v1', viewerRecipients: 'contacts' }),
+    );
+    expect(set.team.viewerRecipients).toBe('contacts');
+    expect(applyConfigPatch(set, PatchConfigRequest.parse({ baseVersion: 'v1' })).team.viewerRecipients).toBe(
+      'contacts',
+    );
   });
 
   it('refuses null and duplicates', () => {
@@ -151,6 +188,17 @@ describe('teamMessageRecipientRefusal', () => {
     expect(teamMessageRecipientRefusal(config, 'vic', ['pm', 'dev-1'])).toEqual({
       code: 'insufficient_access',
       recipients: ['dev-1'],
+    });
+  });
+
+  it('lets a viewer write to the contacts, as a client does, when the project says so (PM-1102)', () => {
+    const viewerContacts = build((input) => {
+      Object.assign(input.team, { contacts: ['op'], viewerRecipients: 'contacts' });
+    });
+    expect(teamMessageRecipientRefusal(viewerContacts, 'vic', ['op'])).toBeNull();
+    expect(teamMessageRecipientRefusal(viewerContacts, 'vic', ['pm', 'op'])).toEqual({
+      code: 'recipient_not_contact',
+      recipients: ['pm'],
     });
   });
 

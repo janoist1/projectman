@@ -143,10 +143,12 @@ export function MemberProfilePage() {
   const [reply, setReply] = useState<TeamMessage | null>(null);
   const access = me.projects.find((p) => p.key === key)?.access;
   const contacts = useContacts();
-  // A member who writes only to the contacts cannot answer someone else here (PM-985).
+  // A member who writes only to some members cannot answer someone else here (PM-985, PM-1102).
   const notContact = contacts.restricted && contacts.ready && !contacts.canWriteTo(handle);
   const canSend =
-    access !== undefined && ['owner', 'admin', 'developer', 'client'].includes(access) && !notContact;
+    access !== undefined &&
+    ['owner', 'admin', 'developer', 'client', 'viewer'].includes(access) &&
+    !notContact;
   const memory = useMemberMemories(key, handle, profile.data?.member.kind === 'ai');
   const schedules = useSchedules(key, profile.data?.member.kind === 'ai');
   const pausedRows = usePausedRows();

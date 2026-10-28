@@ -120,7 +120,9 @@ export function TaskThread({
   const visible = useDocumentVisible();
   const access = me.projects.find((project) => project.key === key)?.access;
   const canSeeAll = access ? canSeeAllTeamMessages({ access }) : false;
-  const canSend = Boolean(myHandle && access && ['owner', 'admin', 'developer', 'client'].includes(access));
+  const canSend = Boolean(
+    myHandle && access && ['owner', 'admin', 'developer', 'client', 'viewer'].includes(access),
+  );
   const fileDrop = useFileDrop({
     allowed: canSend && !send.isPending && !isMobile,
     onFiles: uploads.add,
@@ -362,6 +364,9 @@ export function TaskThread({
         {t('task.thread.reset')}
       </button>
     </>
+  ) : contacts.limit === 'project_manager' && defaults.to.length > 0 ? (
+    // Whoever works on the card, a writer limited to the project manager reaches only them (PM-1102).
+    t('task.thread.default.managerOnly')
   ) : (
     t(`task.thread.default.${BASIS_KEY[defaults.basis]}`)
   );
@@ -446,14 +451,21 @@ export function TaskThread({
       )}
 
       {noContacts ? (
-        <p className={styles.readOnly}>
-          {t('task.thread.noContacts')}{' '}
-          {onShowCard ? (
-            <button type="button" className={styles.reset} onClick={onShowCard}>
-              {t('task.view.card')}
-            </button>
-          ) : null}
-        </p>
+        access === 'viewer' ? (
+          // A viewer does not comment either, so there is no card view to point to (PM-1102).
+          <p className={styles.readOnly}>
+            {t(contacts.limit === 'contacts' ? 'task.thread.noContactsReadOnly' : 'task.thread.noManager')}
+          </p>
+        ) : (
+          <p className={styles.readOnly}>
+            {t('task.thread.noContacts')}{' '}
+            {onShowCard ? (
+              <button type="button" className={styles.reset} onClick={onShowCard}>
+                {t('task.view.card')}
+              </button>
+            ) : null}
+          </p>
+        )
       ) : canSend ? (
         <div className={styles.composer} ref={composerBox}>
           <div className={styles.composerColumn}>

@@ -73,6 +73,8 @@ export const PatchConfigRequest = z
     merger: ProjectConfig.shape.team.shape.merger,
     /** The project's contacts (PM-985): the whole list replaces the saved one, [] clears it. */
     contacts: ContactHandles.optional(),
+    /** Whom a read-only viewer may write to (PM-1102). */
+    viewerRecipients: ProjectConfig.shape.team.shape.viewerRecipients,
     /** Per repository: whether a card's work must be merged (`requireMerge`); null removes the explicit value. */
     repoMerge: z
       .array(z.object({ repo: z.string(), requireMerge: z.boolean().nullable() }))
@@ -272,6 +274,7 @@ export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigReques
       ...(patch.prioritySetters !== undefined ? { prioritySetters: patch.prioritySetters } : {}),
       ...(patch.merger !== undefined ? { merger: patch.merger } : {}),
       ...(patch.contacts !== undefined ? { contacts: patch.contacts } : {}),
+      ...(patch.viewerRecipients !== undefined ? { viewerRecipients: patch.viewerRecipients } : {}),
       ...(patch.roleOverrides !== undefined ? { roleOverrides: patch.roleOverrides } : {}),
       ...(patch.roles !== undefined ? { roles: patch.roles } : {}),
       ...(patch.releaseFourEyes !== undefined ? { releaseFourEyes: patch.releaseFourEyes } : {}),

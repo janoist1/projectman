@@ -229,15 +229,27 @@ describe('the card conversation (PM-273)', () => {
     expect(within(panel).queryByText(t('task.thread.emptyLimitedTitle'))).toBeNull();
   });
 
-  it('gives a viewer no box to write in', async () => {
+  it('lets a viewer write to the project manager alone, and says who gets it (PM-1102)', async () => {
     const { project, overrides } = asDeveloper();
     overrides.me.projects[0]!.access = 'viewer' as never;
     project.backend.findMember('kata')!.role = 'viewer';
     project.render(card, '/p/AC/tasks/AC-21/thread', overrides);
     const panel = await thread();
-    await within(panel).findByText(t('messages.composer.readOnly'));
+    await within(panel).findByText(t('task.thread.default.managerOnly'));
+    expect(screen.getByLabelText(t('task.thread.composerLabel', { key: 'AC-21' }))).toBeTruthy();
+    expect(within(panel).queryByText(t('messages.composer.readOnly'))).toBeNull();
+  });
+
+  it('gives a viewer no box to write in when the project has no one for them (PM-1102)', async () => {
+    const { project, overrides } = asDeveloper();
+    overrides.me.projects[0]!.access = 'viewer' as never;
+    project.backend.findMember('kata')!.role = 'viewer';
+    project.backend.config.team.viewerRecipients = 'contacts';
+    project.backend.config.team.contacts = [];
+    project.render(card, '/p/AC/tasks/AC-21/thread', overrides);
+    const panel = await thread();
+    await within(panel).findByText(t('task.thread.noContactsReadOnly'));
     expect(screen.queryByLabelText(t('task.thread.composerLabel', { key: 'AC-21' }))).toBeNull();
-    await within(panel).findByText(t('task.thread.emptyViewerBody'));
   });
 });
 

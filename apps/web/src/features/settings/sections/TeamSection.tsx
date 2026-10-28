@@ -1,3 +1,4 @@
+import clsx from 'clsx';
 import { useId, useState } from 'react';
 import { Link } from 'react-router';
 import {
@@ -12,6 +13,9 @@ import {
   prioritySetterMembers,
   prioritySettersOf,
   projectManagerMovesOf,
+  projectManagerOf,
+  viewerRecipientsOf,
+  writableRecipientHandles,
 } from '@projectman/shared';
 import type { MemberConfig, ProjectConfig, RoleView } from '@projectman/shared';
 import { isApiError } from '../../../api/client';
@@ -355,6 +359,66 @@ function contactsValue(config: ProjectConfig): string {
   return names.length ? names.join(', ') : t('settings.team.contacts.none');
 }
 
+/** The contacts hint, and in the contacts mode that the viewer is held to them too (PM-1102). */
+function ContactsHint({ config }: { config: ProjectConfig }) {
+  return (
+    <>
+      {t('settings.team.contacts.hint')}
+      {viewerRecipientsOf(config) === 'contacts' ? ` ${t('settings.team.contacts.viewerToo')}` : ''}
+    </>
+  );
+}
+
+/** What the viewer's setting leaves them: nobody (a warning), or the manager left out (plain); else nothing. */
+function ViewerRecipientsStatus({ config }: { config: ProjectConfig }) {
+  const handles = writableRecipientHandles(config, 'viewer') ?? [];
+  const mode = viewerRecipientsOf(config);
+  const manager = projectManagerOf(config);
+  if (handles.length === 0)
+    return (
+      <p role="status" className={clsx(shared.help, shared.warning)}>
+        {t(
+          mode === 'contacts'
+            ? 'settings.team.viewerRecipients.noContacts'
+            : 'settings.team.viewerRecipients.noManager',
+        )}
+      </p>
+    );
+  if (mode === 'contacts' && manager && !handles.includes(manager.handle))
+    return (
+      <p role="status" className={shared.help}>
+        {t('settings.team.viewerRecipients.managerNotContact')}
+      </p>
+    );
+  return null;
+}
+
+/** Whom the read-only viewer may write to (PM-1102): the project manager or the contacts. Saves as it changes. */
+function ViewerRecipientsControls({ config }: { config: ProjectConfig }) {
+  const { shown, saving, commit, error, locked } = useInstantLimits(config);
+  return (
+    <fieldset className={clsx(shared.controls, shared.controlsBelow)} disabled={locked} aria-busy={saving}>
+      <SelectField
+        label={t('settings.team.viewerRecipients.label')}
+        hint={t('settings.team.viewerRecipients.help')}
+        value={viewerRecipientsOf(shown)}
+        onChange={(event) => {
+          const value = event.target.value;
+          if (value === 'project_manager' || value === 'contacts')
+            commit((draft) => {
+              draft.team.viewerRecipients = value;
+            });
+        }}
+      >
+        <option value="project_manager">{t('settings.team.viewerRecipients.project_manager')}</option>
+        <option value="contacts">{t('settings.team.viewerRecipients.contacts')}</option>
+      </SelectField>
+      <ViewerRecipientsStatus config={shown} />
+      {error ? <ErrorBanner>{errorMessage(error)}</ErrorBanner> : null}
+    </fieldset>
+  );
+}
+
 /** Who may be written to by the members who write only to the contacts (PM-985): a tick per member, saved at once. */
 function ContactControls({ config }: { config: ProjectConfig }) {
   const { key } = useProject();
@@ -371,7 +435,7 @@ function ContactControls({ config }: { config: ProjectConfig }) {
       aria-describedby={hintId}
     >
       <p id={hintId} className={shared.help}>
-        {t('settings.team.contacts.hint')}
+        <ContactsHint config={shown} />
       </p>
       {shown.team.members.map((member) => (
         <label key={member.handle} className={shared.contactRow}>
@@ -508,14 +572,27 @@ export function TeamSection({ config }: { config: ProjectConfig }) {
           {t('settings.team.contacts.label')}
         </h3>
         {can.manageTeam ? (
-          <ContactControls config={config} />
+          <>
+            <ContactControls config={config} />
+            <ViewerRecipientsControls config={config} />
+          </>
         ) : (
           <dl className={shared.facts}>
             <div>
               <dt>{t('settings.team.contacts.label')}</dt>
               <dd>
                 {contactsValue(config)}
-                <p className={shared.help}>{t('settings.team.contacts.hint')}</p>
+                <p className={shared.help}>
+                  <ContactsHint config={config} />
+                </p>
+              </dd>
+            </div>
+            <div>
+              <dt>{t('settings.team.viewerRecipients.label')}</dt>
+              <dd>
+                {t(`settings.team.viewerRecipients.${viewerRecipientsOf(config)}`)}
+                <p className={shared.help}>{t('settings.team.viewerRecipients.help')}</p>
+                <ViewerRecipientsStatus config={config} />
               </dd>
             </div>
           </dl>

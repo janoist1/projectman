@@ -97,9 +97,9 @@ export function ConversationThread({
   const marksOnly = member?.kind === 'ai' && member.role === PROJECT_MANAGER_ROLE && !member.temp;
   const access = me.projects.find((p) => p.key === key)?.access;
   const contacts = useContacts();
-  // A member who writes only to the contacts reads this thread but cannot answer in it (PM-985).
+  // A member who writes only to some members reads this thread but cannot answer in it (PM-985, PM-1102).
   const canSend =
-    Boolean(access && ['owner', 'admin', 'developer', 'client'].includes(access)) &&
+    Boolean(access && ['owner', 'admin', 'developer', 'client', 'viewer'].includes(access)) &&
     contacts.canWriteTo(peer);
   const writesOnlyToContacts = contacts.restricted && contacts.ready && !contacts.canWriteTo(peer);
 
@@ -358,13 +358,16 @@ export function ConversationThread({
             {entries.length === 0 ? (
               <div className={styles.empty}>
                 <h2 className={styles.emptyTitle}>{t('messages.thread.emptyTitle')}</h2>
-                <p className={styles.emptyBody}>
-                  {member?.kind === 'human'
-                    ? t('messages.thread.emptyHuman')
-                    : marksOnly
-                      ? t('pm.emptyThread')
-                      : t('messages.thread.emptyBody')}
-                </p>
+                {/* "Write below" is no use where there is no box below: the note under the thread says why. */}
+                {member?.kind === 'human' || marksOnly || canSend ? (
+                  <p className={styles.emptyBody}>
+                    {member?.kind === 'human'
+                      ? t('messages.thread.emptyHuman')
+                      : marksOnly
+                        ? t('pm.emptyThread')
+                        : t('messages.thread.emptyBody')}
+                  </p>
+                ) : null}
               </div>
             ) : (
               entries.map(renderEntry)

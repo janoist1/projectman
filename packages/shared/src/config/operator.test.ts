@@ -580,6 +580,17 @@ describe('approval waiver eligibility (PM-691)', () => {
       waiverEligible: false,
     });
   });
+  it('holds a viewer recipients change for the owner’s approval and never makes it waivable (PM-1102)', () => {
+    const previous = config();
+    previous.team.operatorApprovalWaiver = true;
+    const next = structuredClone(previous);
+    next.team.viewerRecipients = 'contacts';
+    expect(operatorConfigVerdict(previous, next, { operator: 'operator' })).toMatchObject({
+      level: 'approval',
+      changes: [expect.objectContaining({ field: 'viewerRecipients', level: 'approval' })],
+      waiverEligible: false,
+    });
+  });
   it('names the waiver switch as an owner-only change in both directions', () => {
     const previous = config();
     const next = structuredClone(previous);

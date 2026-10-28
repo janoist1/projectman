@@ -679,16 +679,14 @@ export function TeamSection({ config }: { config: ProjectConfig }) {
               <dl className={shared.facts}>
                 <div>
                   <dt>{t('settings.team.taskCreate.question')}</dt>
-                  <dd>
-                    {t(`settings.team.taskCreate.options.${taskCreateAccessOf(config)}`)}
-                    {taskCreateAccessOf(config) === 'client' ? (
-                      <p className={shared.help}>
-                        {t('settings.team.taskCreate.clientNote', { stage: firstStageName(config) })}
-                      </p>
-                    ) : null}
-                  </dd>
+                  <dd>{t(`settings.team.taskCreate.options.${taskCreateAccessOf(config)}`)}</dd>
                 </div>
               </dl>
+              {taskCreateAccessOf(config) === 'client' ? (
+                <p className={shared.help}>
+                  {t('settings.team.taskCreate.clientNote', { stage: firstStageName(config) })}
+                </p>
+              ) : null}
               {can.manageTeam ? (
                 <p className={shared.help}>{t('settings.team.taskCreate.ownerOnly')}</p>
               ) : null}

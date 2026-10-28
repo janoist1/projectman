@@ -249,6 +249,7 @@ describe('approval waiver eligibility (PM-691)', () => {
     ['template', (n) => (n.project.templateId = 'custom')],
     ['card mover', (n) => (n.team.cardMover = { kind: 'project_manager' })],
     ['project manager moves', (n) => (n.team.projectManagerMoves = 'start_only')],
+    ['priority setters', (n) => (n.team.prioritySetters = [])],
     ['display name', (n) => (ai(n, 'writer').displayName = 'Author')],
     ['specialty', (n) => (ai(n, 'writer').specialty = 'Documentation')],
     ['provider', (n) => (ai(n, 'writer').provider = 'codex')],

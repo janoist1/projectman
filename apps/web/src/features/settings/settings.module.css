@@ -284,6 +284,18 @@
   overflow-wrap: anywhere;
 }
 
+/* The question above the priority ticks (a visible legend) and the line under a tick: whom it covers now. */
+.setterLegend {
+  padding: 0;
+  font-size: var(--text-sm);
+  font-weight: 700;
+}
+
+.setterNote {
+  margin: -4px 0 6px 28px;
+  overflow-wrap: anywhere;
+}
+
 /* A named group of related controls inside a section ("Körbe futó munka"). */
 .groupTitle {
   margin: 8px 0 0;

@@ -17,6 +17,7 @@ function raw(): {
     members: Array<Record<string, unknown>>;
     merger?: unknown;
     projectManagerMoves?: unknown;
+    prioritySetters?: unknown;
     viewerRecipients?: unknown;
   };
   pipeline: { stages: Array<Record<string, unknown>>; labels: Array<{ id: string; setBy?: unknown }> };
@@ -24,6 +25,7 @@ function raw(): {
   const config = JSON.parse(JSON.stringify(testConfig()));
   config.team.merger = { kind: 'code_reviewer' };
   config.team.projectManagerMoves = 'queues_and_start';
+  config.team.prioritySetters = ['project_manager'];
   config.team.viewerRecipients = 'project_manager';
   return config;
 }
@@ -39,6 +41,27 @@ describe('project configuration migrations', () => {
     const legacy = raw();
     delete legacy.team.projectManagerMoves;
     expect(migrate(legacy).config.team.projectManagerMoves).toBe('queues_and_start');
+  });
+
+  it('defaults a missing priority setting to the project managers and keeps a saved one', () => {
+    const legacy = raw();
+    delete legacy.team.prioritySetters;
+    expect(migrate(legacy).config.team.prioritySetters).toEqual(['project_manager']);
+    const chosen = raw();
+    chosen.team.prioritySetters = [];
+    expect(migrate(chosen).config.team.prioritySetters).toEqual([]);
+  });
+
+  it('preserves the saved priority setters across configuration files and migration', () => {
+    const saved = migrate(raw()).config;
+    saved.team.prioritySetters = ['prioritization_duty'];
+    const files = splitProjectConfig(saved);
+    const reloaded = mergeProjectFiles({
+      'project.yaml': parseYamlFile('project.yaml', files['project.yaml']),
+      'team.yaml': parseYamlFile('team.yaml', files['team.yaml']),
+      'pipeline.yaml': parseYamlFile('pipeline.yaml', files['pipeline.yaml']),
+    });
+    expect(migrate(reloaded).config.team.prioritySetters).toEqual(['prioritization_duty']);
   });
 
   it('defaults a missing viewer recipients setting to the project manager only (PM-1102)', () => {

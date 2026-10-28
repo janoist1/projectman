@@ -1655,7 +1655,8 @@ export const hu = {
       approver_unavailable: 'Ez a döntnök most nem választható.',
       task_not_cancelled: 'Csak megszakított feladat nyitható újra.',
       task_session_live: 'Még fut egy munkamenet. A módosítás előtt állítsd le.',
-      priority_humans_only: 'A prioritást csak ember vagy a Projektmenedzser állíthatja.',
+      priority_humans_only:
+        'A prioritást csak ember és a projekt beállításában kijelölt AI-tagok állíthatják.',
       focus_humans_only: 'A fókuszt csak ember állíthatja, AI-tag nem.',
       focus_not_allowed: 'A fókuszt a tulajdonos vagy a prioritálás felelőse állíthatja.',
       focus_item_exists: 'Ez már a fókuszban van.',
@@ -6564,6 +6565,23 @@ export const hu = {
         help: 'A szakaszkapuk mindig érvényesek. Munkát csak az első utáni várakozó sorból indíthat.',
         queues_and_start: 'Várakozó sorok között mozgathat és munkát indíthat',
         start_only: 'Csak munkát indíthat',
+      },
+      /** Who besides people may set a card's priority (PM-1096). */
+      priority: {
+        label: 'Prioritás állítása',
+        help: 'Ember mindig állíthat prioritást. A Sürgős kártya elsőként indul.',
+        question: 'Ki állíthat még?',
+        project_manager: 'Projektmenedzser',
+        duty: '„{duty}” feladatkört viselő AI-tagok',
+        covers: 'Érintett tagok: {names}',
+        noProjectManager: 'Most nincs Projektmenedzser a csapatban.',
+        noDutyHolder: 'Most egy AI-tag sem viseli.',
+        humansOnly: 'Most csak ember állíthat prioritást.',
+        readOnlyLabel: 'Ki állíthat prioritást?',
+        value: {
+          humansOnly: 'Csak ember',
+          with: 'Ember, valamint: {names}',
+        },
       },
       merger: {
         label: 'Beolvasztó',

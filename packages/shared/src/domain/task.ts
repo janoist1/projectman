@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { isConnectedOwnerActor } from '../config/operator-member';
-import { isProjectManagerActor } from '../config/project-manager';
+import { prioritySetterMembers } from '../config/priority';
 import type { ProjectConfig } from '../config/schema';
 import { TaskComplexity } from './complexity';
 import { EngineId } from './engine';
@@ -28,14 +28,16 @@ export const TaskPriority = z.enum(['urgent', 'high', 'normal', 'low']);
 export type TaskPriority = z.infer<typeof TaskPriority>;
 export const TASK_PRIORITIES: readonly TaskPriority[] = TaskPriority.options;
 
-/** People and the team's project manager (PM-433) may set or clear a card's priority; no other AI member. */
+/**
+ * People and the connected owner may set or clear a card's priority; an AI member only when the
+ * project's priority setting (`team.prioritySetters`, PM-1096) covers it. Default: the project managers.
+ */
 export function priorityRefusal(
   actor: Actor,
   config: Pick<ProjectConfig, 'team'>,
 ): 'priority_humans_only' | null {
-  return actor.kind === 'human' ||
-    isProjectManagerActor(config, actor) ||
-    isConnectedOwnerActor(config, actor)
+  if (actor.kind === 'human' || isConnectedOwnerActor(config, actor)) return null;
+  return actor.kind === 'ai' && prioritySetterMembers(config).some((m) => m.handle === actor.handle)
     ? null
     : 'priority_humans_only';
 }

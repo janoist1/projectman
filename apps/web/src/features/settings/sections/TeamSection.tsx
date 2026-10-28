@@ -8,6 +8,10 @@ import {
   contactHandles,
   hasAccess,
   mergerOf,
+  PrioritySetter,
+  prioritySetterCandidates,
+  prioritySetterMembers,
+  prioritySettersOf,
   projectManagerMovesOf,
   projectManagerOf,
   viewerRecipientsOf,
@@ -177,6 +181,80 @@ function ProjectManagerMovesControls({ config }: { config: ProjectConfig }) {
         <option value="queues_and_start">{t('settings.team.projectManagerMoves.queues_and_start')}</option>
         <option value="start_only">{t('settings.team.projectManagerMoves.start_only')}</option>
       </SelectField>
+      {error ? <ErrorBanner>{errorMessage(error)}</ErrorBanner> : null}
+    </fieldset>
+  );
+}
+
+/** The names of the AI members a priority source covers now, in team order. */
+function setterNames(config: ProjectConfig, setter: PrioritySetter): string[] {
+  return prioritySetterCandidates(config, setter).map((member) => member.displayName);
+}
+
+/** Who may set priorities as a sentence, for those who may not change it. */
+function prioritySettersValue(config: ProjectConfig): string {
+  const names = prioritySetterMembers(config).map((member) => member.displayName);
+  return names.length
+    ? t('settings.team.priority.value.with', { names: names.join(', ') })
+    : t('settings.team.priority.value.humansOnly');
+}
+
+/** Who besides people may set a card's priority (PM-1096): a tick per source, with whom it covers now. Saves as it changes. */
+function PriorityControls({ config, helpId }: { config: ProjectConfig; helpId: string }) {
+  const { key } = useProject();
+  const { shown, saving, commit, error, locked } = useInstantLimits(config);
+  const noteId = useId();
+  const chosen = prioritySettersOf(shown);
+  return (
+    <fieldset
+      className={shared.controls}
+      disabled={locked || saving}
+      aria-busy={saving}
+      aria-describedby={helpId}
+    >
+      <legend className={shared.setterLegend}>{t('settings.team.priority.question')}</legend>
+      {PrioritySetter.options.map((setter) => {
+        const names = setterNames(shown, setter);
+        const rowId = `${noteId}-${setter}`;
+        return (
+          <div key={setter}>
+            <label className={shared.contactRow}>
+              <input
+                type="checkbox"
+                checked={chosen.includes(setter)}
+                aria-describedby={rowId}
+                onChange={(event) =>
+                  commit((draft) => {
+                    const on = prioritySettersOf(draft);
+                    draft.team.prioritySetters = PrioritySetter.options.filter((id) =>
+                      id === setter ? event.target.checked : on.includes(id),
+                    );
+                  })
+                }
+              />
+              <span>
+                {setter === 'project_manager'
+                  ? t('settings.team.priority.project_manager')
+                  : t('settings.team.priority.duty', { duty: t('dutyNames.prioritization') })}
+              </span>
+            </label>
+            <p id={rowId} className={`${shared.muted} ${shared.setterNote}`}>
+              {names.length
+                ? t('settings.team.priority.covers', { names: names.join(', ') })
+                : setter === 'project_manager'
+                  ? t('settings.team.priority.noProjectManager')
+                  : t('settings.team.priority.noDutyHolder')}
+              {names.length === 0 && setter === 'prioritization_duty' ? (
+                <>
+                  {' '}
+                  <Link to={`/p/${key}/settings/duties`}>{t('duties.title')}</Link>
+                </>
+              ) : null}
+            </p>
+          </div>
+        );
+      })}
+      {chosen.length === 0 ? <p className={shared.muted}>{t('settings.team.priority.humansOnly')}</p> : null}
       {error ? <ErrorBanner>{errorMessage(error)}</ErrorBanner> : null}
     </fieldset>
   );
@@ -390,6 +468,7 @@ function ContactControls({ config }: { config: ProjectConfig }) {
 export function TeamSection({ config }: { config: ProjectConfig }) {
   const { key, can } = useProject();
   const roles = useRoles(key);
+  const priorityHelpId = useId();
   return (
     <SettingsSection id="settings-team" title={t('settings.sections.team')}>
       <ul className={shared.members}>
@@ -449,6 +528,26 @@ export function TeamSection({ config }: { config: ProjectConfig }) {
             </div>
           </dl>
         )}
+      </section>
+      <section aria-labelledby="settings-priority-title">
+        <h3 id="settings-priority-title" className={shared.groupTitle}>
+          {t('settings.team.priority.label')}
+        </h3>
+        <div className={shared.controls}>
+          <p id={priorityHelpId} className={shared.help}>
+            {t('settings.team.priority.help')}
+          </p>
+          {can.manageTeam ? (
+            <PriorityControls config={config} helpId={priorityHelpId} />
+          ) : (
+            <dl className={shared.facts}>
+              <div>
+                <dt>{t('settings.team.priority.readOnlyLabel')}</dt>
+                <dd>{prioritySettersValue(config)}</dd>
+              </div>
+            </dl>
+          )}
+        </div>
       </section>
       <section aria-labelledby="settings-merger-title">
         <h3 id="settings-merger-title" className={shared.groupTitle}>

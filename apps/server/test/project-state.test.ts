@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { ProjectConfig } from '@projectman/shared';
+import type { ToolContext } from '../src/contracts';
 import { createDomainHarness, OWNER_ACTOR, type DomainHarness } from './helpers/domain-harness';
 import { flush, planUsage } from './helpers/fakes';
 import { seedOperatorSession } from './helpers/operator-session';
@@ -9,24 +11,35 @@ let h: DomainHarness;
 afterEach(async () => {
   await h?.cleanup();
 });
-const operator = { sessionId: 'ses_operator', projectKey: 'AR', member: 'operator', taskKey: null };
+/** The context of the selected project manager's own conversation; set by `startWithPm`. */
+let pm: ToolContext;
+/** The project manager is on leave in the test template: bring it back so that it is the coordinator. */
+async function startWithPm(adjust: (config: ProjectConfig) => void = () => {}): Promise<void> {
+  h = await createDomainHarness({
+    adjust: (config) => {
+      const member = config.team.members.find((m) => m.handle === 'pm');
+      if (member?.kind === 'ai') member.onLeave = false;
+      adjust(config);
+    },
+  });
+  const session = seedOperatorSession(h, 'AR', { member: 'pm' });
+  pm = { sessionId: session.id, projectKey: 'AR', member: 'pm', taskKey: null };
+}
 const report = (key = 'AR-1') => h.domain.projectState.task('AR', key);
 
 describe('project state from server records', () => {
   it.each([undefined, 'report', 'unblock', 'drive'] as const)(
     'reports the watch level %s through get_project_state',
     async (level) => {
-      h = await createDomainHarness({
-        adjust: (config) => {
-          config.team.operatorWatch = level;
-        },
+      await startWithPm((config) => {
+        config.team.operatorWatch = level;
       });
-      expect(await h.domain.teamTools.getProjectState(operator, {})).toHaveProperty(
+      expect(await h.domain.teamTools.getProjectState(pm, {})).toHaveProperty(
         'operatorWatch',
         level ?? 'report',
       );
       const tool = TEAM_TOOLS.find((t) => t.name === 'get_project_state')!;
-      expect(await tool.run({ ctx: operator, args: {}, handler: h.domain.teamTools })).toContain(
+      expect(await tool.run({ ctx: pm, args: {}, handler: h.domain.teamTools })).toContain(
         `Operator watch: ${level ?? 'report'}.`,
       );
     },
@@ -92,35 +105,34 @@ describe('project state from server records', () => {
     expect(h.repos.operatorSignals.list('AR')).toEqual(before);
     expect(formatProjectState(overview)).toContain('Signals:\n- signal_silent:');
   });
-  it('uses the common Operator guard to refuse internal reports in guest conversations', async () => {
-    h = await createDomainHarness({
-      adjust: (config) =>
-        config.team.members.push({
-          kind: 'human',
-          handle: 'guest',
-          displayName: 'Guest',
-          access: 'client',
-          roles: [],
-        }),
+  it('uses the common coordination guard to refuse internal reports in guest conversations', async () => {
+    await startWithPm((config) => {
+      config.team.members.push({
+        kind: 'human',
+        handle: 'guest',
+        displayName: 'Guest',
+        access: 'client',
+        roles: [],
+      });
     });
     await h.domain.tasks.create('AR', { title: 'Internal checkout' }, OWNER_ACTOR);
-    const session = seedOperatorSession(h, 'AR', { with: 'guest' });
+    const session = seedOperatorSession(h, 'AR', { member: 'pm', with: 'guest' });
     for (const args of [{}, { taskKey: 'AR-1' }]) {
       await expect(
-        h.domain.teamTools.getProjectState({ ...operator, sessionId: session.id }, args),
+        h.domain.teamTools.getProjectState({ ...pm, sessionId: session.id }, args),
       ).rejects.toMatchObject({ code: 'forbidden', message: expect.stringContaining('operator_owner_only') });
     }
   });
 
   it('returns an invalid tool refusal for themes and unknown stages', async () => {
-    h = await createDomainHarness();
+    await startWithPm();
     const theme = await h.domain.tasks.create('AR', { title: 'Checkout theme', kind: 'theme' }, OWNER_ACTOR);
-    await expect(h.domain.teamTools.getProjectState(operator, { taskKey: theme.key })).rejects.toMatchObject({
+    await expect(h.domain.teamTools.getProjectState(pm, { taskKey: theme.key })).rejects.toMatchObject({
       code: 'invalid',
     });
     const task = await h.domain.tasks.create('AR', { title: 'Checkout' }, OWNER_ACTOR);
     h.repos.tasks.update(task.id, { stageId: 'obsolete' });
-    await expect(h.domain.teamTools.getProjectState(operator, { taskKey: task.key })).rejects.toMatchObject({
+    await expect(h.domain.teamTools.getProjectState(pm, { taskKey: task.key })).rejects.toMatchObject({
       code: 'invalid',
     });
   });
@@ -241,7 +253,7 @@ describe('project state from server records', () => {
     h.runner.setState(session.id, 'idle');
     await flush();
     const question = await h.domain.teamTools.askHuman(
-      { ...operator, member: 'dev-1', taskKey: 'AR-1', sessionId: session.id },
+      { ...pm, member: 'dev-1', taskKey: 'AR-1', sessionId: session.id },
       { question: 'Which checkout?', taskKey: 'AR-1', to: ['owner'] },
     );
     const state = await report();
@@ -308,30 +320,26 @@ describe('project state from server records', () => {
     expect(text).toContain('- dev-1: 2, the oldest sent');
   });
 
-  it('allows the Operator to read without an owner request and refuses other callers', async () => {
-    h = await createDomainHarness();
+  it('allows the project manager to read without an owner request and refuses other callers', async () => {
+    await startWithPm();
     await h.domain.tasks.create('AR', { title: 'Checkout' }, OWNER_ACTOR);
-    await expect(
-      h.domain.teamTools.getProjectState({ ...operator, member: 'dev-1' }, {}),
-    ).rejects.toMatchObject({
+    await expect(h.domain.teamTools.getProjectState({ ...pm, member: 'dev-1' }, {})).rejects.toMatchObject({
       code: 'forbidden',
       message: expect.stringContaining('project_manager_only'),
     });
-    expect(await h.domain.teamTools.getProjectState(operator, {})).toHaveProperty('stages');
-    expect(await h.domain.teamTools.getProjectState(operator, { taskKey: 'AR-1' })).toHaveProperty(
+    expect(await h.domain.teamTools.getProjectState(pm, {})).toHaveProperty('stages');
+    expect(await h.domain.teamTools.getProjectState(pm, { taskKey: 'AR-1' })).toHaveProperty(
       'taskKey',
       'AR-1',
     );
-    await expect(h.domain.teamTools.getProjectState(operator, { taskKey: 'OTHER-1' })).rejects.toMatchObject({
+    await expect(h.domain.teamTools.getProjectState(pm, { taskKey: 'OTHER-1' })).rejects.toMatchObject({
       code: 'not_found',
     });
     const tool = TEAM_TOOLS.find((t) => t.name === 'get_project_state')!;
     expect(tool.annotations.readOnlyHint).toBe(true);
-    expect(
-      await tool.run({ ctx: operator, args: { task_key: 'AR-1' }, handler: h.domain.teamTools }),
-    ).toContain('AR-1: Checkout');
-    expect(await tool.run({ ctx: operator, args: {}, handler: h.domain.teamTools })).toContain(
-      'Cards by stage:',
+    expect(await tool.run({ ctx: pm, args: { task_key: 'AR-1' }, handler: h.domain.teamTools })).toContain(
+      'AR-1: Checkout',
     );
+    expect(await tool.run({ ctx: pm, args: {}, handler: h.domain.teamTools })).toContain('Cards by stage:');
   });
 });

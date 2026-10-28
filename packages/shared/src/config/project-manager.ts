@@ -4,7 +4,6 @@ import { stageIndex } from './gates';
 import { cardMoverOf, isHandOnMove } from './card-mover';
 import { isOnLeave } from './leave';
 import { memberOf } from './lookup';
-import { isOperator } from './operator-member';
 import type { AiMemberConfig, MemberConfig, ProjectConfig } from './schema';
 
 /** The built-in role of the project manager every project requires (PM-429). */
@@ -37,7 +36,7 @@ export function managerConversationOf(config: Pick<ProjectConfig, 'team'>, from:
     : { type: 'general' };
 }
 
-/** The selected, available coordinator; an Operator never substitutes for a missing PM. */
+/** The selected, available coordinator; null while the project manager is on leave. */
 export function coordinationMemberOf(config: Pick<ProjectConfig, 'team'>): AiMemberConfig | null {
   const member = projectManagerOf(config);
   return member && !isOnLeave(member) ? member : null;
@@ -147,14 +146,12 @@ export function actorMoveRefusal(
 }
 
 /**
- * Where a member's work item runs: a project manager's and the Operator's card work runs in their one
- * general conversation (PM-434, PM-463).
+ * Where a member's work item runs: a project manager's card work runs in its one general conversation
+ * (PM-434, PM-463).
  */
 export function sessionWorkItemOf(
   member: MemberConfig | null | undefined,
   workItem: WorkItemRef,
 ): WorkItemRef {
-  return (isProjectManager(member) || isOperator(member)) && workItem.type === 'task'
-    ? { type: 'general' }
-    : workItem;
+  return isProjectManager(member) && workItem.type === 'task' ? { type: 'general' } : workItem;
 }

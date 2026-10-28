@@ -28,7 +28,7 @@ function configInput(): ProjectConfigInput {
         { kind: 'human', handle: 'vic', displayName: 'Vic', access: 'viewer' },
         { kind: 'ai', handle: 'dev-1', displayName: 'Developer', role: 'developer', sponsor: 'owner' },
         { kind: 'ai', handle: 'pm', displayName: 'PM', role: 'project_manager', sponsor: 'owner' },
-        { kind: 'ai', handle: 'op', displayName: 'Operator', role: 'ai_operator', sponsor: 'owner' },
+        { kind: 'ai', handle: 'op', displayName: 'Ops', role: 'developer', sponsor: 'owner' },
       ],
       limits: {},
     },
@@ -145,16 +145,6 @@ describe('teamMessageRecipientRefusal', () => {
       recipients: ['dev-1'],
     });
   });
-
-  it.each(['owner', 'cleo', 'vic', 'dev-1', 'system'])(
-    'refuses a message to the Operator from %s: it exists only when the owner connects (PM-1045)',
-    (from) => {
-      expect(teamMessageRecipientRefusal(config, from, ['pm', 'op', 'op'])).toEqual({
-        code: 'operator_connected_only',
-        recipients: ['op'],
-      });
-    },
-  );
 
   it('lets a viewer write to the project manager alone', () => {
     expect(teamMessageRecipientRefusal(config, 'vic', ['pm'])).toBeNull();

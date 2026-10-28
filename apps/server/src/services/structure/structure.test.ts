@@ -102,17 +102,17 @@ describe('structure service', () => {
     );
     expect(JSON.stringify(h.logger.warn.mock.calls)).not.toContain('sensitive text');
   });
-  it('uses the operator engine for base reads and preserves repository order', async () => {
+  it('uses the coordinator engine for base reads and preserves repository order', async () => {
     const h = harness();
     h.config.team.members.push({
       kind: 'ai',
-      handle: 'operator',
-      role: 'ai_operator',
+      handle: 'pm',
+      role: 'project_manager',
     } as ProjectConfig['team']['members'][number]);
     h.config.project.repos.push({ ...h.config.project.repos[0]!, name: 'second' });
     vi.mocked(h.engines.engineFor).mockReturnValue('remote');
     expect((await h.service.view('AR')).repos.map((r) => r.repo)).toEqual(['app', 'second']);
-    expect(h.engines.engineFor).toHaveBeenCalledWith('AR', 'operator');
+    expect(h.engines.engineFor).toHaveBeenCalledWith('AR', 'pm');
     expect(h.engines.get).toHaveBeenCalledWith('remote');
   });
   it('limits cards to 300, prioritizing review then latest branch cards', async () => {

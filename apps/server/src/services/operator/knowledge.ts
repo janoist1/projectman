@@ -1,6 +1,5 @@
 import {
   coordinationMemberOf,
-  isOperator,
   isProjectManager,
   hasAccess,
   memberOf,
@@ -51,8 +50,8 @@ export class OperatorKnowledge {
   async get(ctx: ToolContext): Promise<OperatorKnowledgeDocument> {
     const config = await this.deps.projects.config(ctx.projectKey);
     const member = memberOf(config, ctx.member);
-    if (!isOperator(member) && !isProjectManager(member))
-      throw forbidden('operator_only', 'only the Operator or project manager may read shared knowledge');
+    if (!isProjectManager(member))
+      throw forbidden('operator_only', 'only the project manager may read shared knowledge');
     this.session(ctx);
     const request = this.deps.requests.openFor(ctx.sessionId);
     if (request && !ownerHandles(config).includes(request.fromHandle))
@@ -69,13 +68,12 @@ export class OperatorKnowledge {
     if (workItem.type !== 'general' || workItem.with !== undefined) return undefined;
     const config = await this.deps.projects.config(projectKey);
     const member = memberOf(config, handle);
-    if (!isOperator(member) && !isProjectManager(member)) return undefined;
+    if (!isProjectManager(member)) return undefined;
     const actor = cause?.by;
     const person = actor?.handle ? memberOf(config, actor.handle) : undefined;
     if (
       actor?.via ||
-      (actor?.kind === 'human' &&
-        (person?.kind !== 'human' || !hasAccess(person.access, isOperator(member) ? 'owner' : 'developer')))
+      (actor?.kind === 'human' && (person?.kind !== 'human' || !hasAccess(person.access, 'developer')))
     )
       return undefined;
     const { revision, agreement, principles } = await this.read(projectKey);
@@ -87,15 +85,10 @@ export class OperatorKnowledge {
     if (!parsed.success) throw invalid('invalid_request', 'invalid knowledge proposal');
     const args = parsed.data;
     return this.deps.projects.withConfigurationLock(ctx.projectKey, async (loaded) => {
-      const proposer = memberOf(loaded.config, ctx.member);
-      const byPm = !isOperator(proposer) && coordinationMemberOf(loaded.config)?.handle === ctx.member;
-      if (!isOperator(proposer) && !byPm)
-        throw forbidden(
-          'operator_only',
-          'only the Operator or the project manager may propose shared knowledge',
-        );
+      if (coordinationMemberOf(loaded.config)?.handle !== ctx.member)
+        throw forbidden('operator_only', 'only the project manager may propose shared knowledge');
       // The project manager cannot run operate, so its approval would have no continuation to carry them.
-      if (byPm && args.operations.length)
+      if (args.operations.length)
         throw invalid('invalid_request', 'a project manager proposal carries no operations');
       this.session(ctx);
       const request = this.deps.requests.openFor(ctx.sessionId);
@@ -247,9 +240,7 @@ export class OperatorKnowledge {
     const person = actor?.handle ? memberOf(config, actor.handle) : undefined;
     if (
       actor?.via ||
-      (actor?.kind === 'human' &&
-        (person?.kind !== 'human' ||
-          !hasAccess(person.access, isOperator(memberOf(config, ctx.member)) ? 'owner' : 'developer')))
+      (actor?.kind === 'human' && (person?.kind !== 'human' || !hasAccess(person.access, 'developer')))
     )
       throw forbidden('operator_owner_only', 'shared knowledge is unavailable to a customer conversation');
   }

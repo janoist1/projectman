@@ -28,11 +28,8 @@ export function messageStaleReason(
   return null;
 }
 
-/**
- * Why a valid action message starts no session for its recipient: an AI member has no role on the card
- * (PM-426), or the recipient is the Operator and the message is not a person's own (PM-447, PM-475).
- */
-export type WakeBlock = 'no_card_role' | 'operator_owner_only';
+/** Why a valid action message starts no session for its recipient: an AI member has no role on the card (PM-426). */
+export type WakeBlock = 'no_card_role';
 
 export interface WakeFacts {
   fromHuman: boolean;
@@ -40,28 +37,13 @@ export interface WakeFacts {
   fromAi: boolean;
   /** `hasCardRole` of the recipient on the message's card; true for a message about no card or about a theme. */
   recipientHasRole: boolean;
-  /** The recipient is the project's Operator, who works only on the owner's request (PM-447). */
-  recipientIsOperator: boolean;
-  /** The sender is a person with their own login, not acting through the integrator key (PM-475). */
-  fromOwnLogin: boolean;
   /** The message answers or passes on a question (origin `answer` or `question_forward`, PM-556): it wakes like a person's. */
   answersQuestion: boolean;
 }
 
 /**
- * Whether a message to the Operator wakes it: only a person's own-login message (an old message; the Operator
- * runs no session in the app since PM-1045, and a new message to it is refused). A person's message sent with
- * the integrator key never does.
- */
-function operatorMessageWakes(facts: WakeFacts): boolean {
-  return facts.fromHuman && facts.fromOwnLogin;
-}
-
-/**
  * The block, only when it alone keeps a valid action from waking: null for a person's, the system's, an
- * info or a stale message (PM-426). The Operator is the exception: only a person's message sent with their
- * own login wakes it (PM-475), so an AI member's, the system's or the integrator key's action message to it
- * is blocked (PM-447).
+ * info or a stale message (PM-426).
  */
 export function messageWakeBlock(
   message: Pick<TeamMessage, 'kind'>,
@@ -69,7 +51,6 @@ export function messageWakeBlock(
   stale: StaleReason | null,
 ): WakeBlock | null {
   if ((message.kind ?? 'action') !== 'action' || stale !== null) return null;
-  if (facts.recipientIsOperator) return operatorMessageWakes(facts) ? null : 'operator_owner_only';
   if (facts.answersQuestion) return null;
   return !facts.fromHuman && facts.fromAi && !facts.recipientHasRole ? 'no_card_role' : null;
 }
@@ -79,7 +60,6 @@ export function messageWakes(
   facts: WakeFacts,
   stale: StaleReason | null,
 ): boolean {
-  if (facts.recipientIsOperator) return operatorMessageWakes(facts);
   return (
     facts.fromHuman ||
     facts.answersQuestion ||

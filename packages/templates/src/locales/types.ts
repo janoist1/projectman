@@ -30,6 +30,7 @@ export type SpecialtyKey = 'frontend' | 'backend';
 export type ChecklistItemKey =
   | 'goal'
   | 'code'
+  | 'engine'
   | 'providers'
   | 'team'
   | 'process'

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { PatternFacts, structuralReviewOf, superActorOf } from '@projectman/shared';
+import { PatternFacts, structuralReviewOf, coordinatorSuperActorOf } from '@projectman/shared';
 import type { AiMemberConfig, TimelineEvent } from '@projectman/shared';
 import type { IntegratorExecutionScope, MemberStartResult } from '../src/contracts';
 import { forbidden, runIntegratorExecution } from '../src/kernel';
@@ -476,8 +476,6 @@ describe('owner-approved occasional review', () => {
     await flush();
     expect(h.domain.sessions.list('AR', { member: 'planner' })).toEqual([]);
     expect(requests().openFor(ctx.sessionId)).toMatchObject({ source: 'approval', inboxItemId: item.id });
-    const operator = h.domain.sessions.list('AR', { member: 'operator' });
-    expect(operator).toEqual([]);
     await expect(
       h.domain.teamTools.startMember(ctx, { member: 'dev-1', text: 'Unrelated work.' }),
     ).rejects.toThrow('changed');
@@ -532,10 +530,10 @@ describe('owner-approved occasional review', () => {
         { handle: 'owner', access: 'owner' },
       ),
     ).rejects.toThrow('signal');
-    const operator = seedOperatorSession(h, 'AR');
+    const other = seedOperatorSession(h, 'AR', { member: 'dev-1' });
     await expect(
       h.domain.teamTools.requestStructuralReview(
-        { ...ctx, sessionId: operator.id, member: 'operator' },
+        { ...ctx, sessionId: other.id, member: 'dev-1' },
         { signalId: signal.id, note: 'Review.' },
       ),
     ).rejects.toThrow('project_manager_only');
@@ -564,7 +562,7 @@ describe('the integrator in super mode requests a review (PM-784)', () => {
   };
   /** A live scope of a key, as the authenticated facade makes it; `revoked` turns true when the key goes. */
   function scope(mode: 'super' | 'read' = 'super', revoked: () => boolean = () => false) {
-    const actor = superActorOf(config(), KEY)!;
+    const actor = coordinatorSuperActorOf(config(), KEY, 'pm')!;
     return {
       active: true,
       context: {
@@ -611,10 +609,11 @@ describe('the integrator in super mode requests a review (PM-784)', () => {
   };
   const questions = () => h.domain.inbox.list('AR', { kind: 'question' });
 
-  it('starts the review of a current signal as the Operator, with no approval request and no session of its own', async () => {
+  it('starts the review of a current signal as the project manager, with no approval request and no session of its own', async () => {
     await setup();
     const { signal } = await detected();
     const asked = questions().length;
+    const sessions = h.domain.sessions.list('AR', { member: 'pm' }).length;
     const start = startWith();
     expect(await request(signal.id, start)).toEqual({
       status: 'started',
@@ -628,7 +627,7 @@ describe('the integrator in super mode requests a review (PM-784)', () => {
     expect(start.mock.calls[0]![1]).toContain('failed_test_file');
     expect(h.repos.operatorSignals.get(signal.id)?.resolvedAt).not.toBeNull();
     expect(questions()).toHaveLength(asked);
-    expect(h.domain.sessions.list('AR', { member: 'operator' })).toEqual([]);
+    expect(h.domain.sessions.list('AR', { member: 'pm' })).toHaveLength(sessions);
     expect(h.repos.operatorRequests.stepsOfSignal(signal.id)).toEqual([]);
   });
 

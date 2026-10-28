@@ -6,7 +6,6 @@ import {
   emailSenderOf,
   hasMachineAccess,
   hostRequestRefusal,
-  isOperator,
   isProjectManager,
   memberOf,
 } from '@projectman/shared';
@@ -21,7 +20,6 @@ export function memberAudience(
 ): MemberAudience {
   const member = memberOf(config, handle);
   return {
-    operator: isOperator(member),
     projectManager: isProjectManager(member),
     // The list is session-wide: include anyone who can merge a card under this policy.
     merger: cardMerger(config, { assignee: handle }, handle) === handle,

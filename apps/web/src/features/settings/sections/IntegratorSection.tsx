@@ -18,6 +18,7 @@ import { ErrorState, LoadingState } from '../../../components/States';
 import { formatStamp } from '../../../i18n/format';
 import { t } from '../../../i18n/t';
 import { errorMessage } from '../../../lib/errors';
+import { AssistantInstruction, mcpUrl } from './AssistantInstruction';
 import { SettingsSection } from './SettingsSection';
 import styles from './IntegratorSection.module.css';
 import { OperatorGrantCard } from './OperatorGrantCard';
@@ -28,14 +29,17 @@ export function IntegratorSection() {
   const toast = useToast();
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLElement | null>(null);
-  const ownLogin = me.hostOwner === true && !me.via;
+  // The host owner and an owner account hold a key (PM-1063); the machine grant and the log are the host's.
+  const host = me.hostOwner === true;
+  const holder = host || me.ownerAccount === true;
+  const ownLogin = holder && !me.via;
   const queryKey = ['integrator-keys', me.userId];
   const query = useQuery({ queryKey, queryFn: api.integratorKeys, enabled: ownLogin });
-  const grant = useOperatorGrant();
+  const grant = useOperatorGrant(host);
   const grantAudit = useQuery({
     queryKey: queryKeys.operatorGrantAudit,
     queryFn: api.operatorGrantAudit,
-    enabled: me.hostOwner === true,
+    enabled: host,
     retry: false,
   });
   const [dialog, setDialog] = useState<'create' | 'revoke' | null>(null);
@@ -77,7 +81,7 @@ export function IntegratorSection() {
       toast.show(t('integratorKey.revoked'));
     },
   });
-  if (!me.hostOwner) return null;
+  if (!holder) return null;
   const pending = create.isPending || revoke.isPending;
   const keys = query.data?.keys ?? [];
   const active = keys.filter((info) => info.state === 'active');
@@ -195,12 +199,19 @@ export function IntegratorSection() {
     })),
   ].sort((a, b) => b.at.localeCompare(a.at));
   return (
-    <SettingsSection id="settings-integrator" title={t('operatorGrant.title')}>
+    <SettingsSection
+      id="settings-integrator"
+      title={t(host ? 'operatorGrant.title' : 'operatorGrant.clientTitle')}
+    >
       <div ref={root} className={styles.content}>
-        <p>{t('operatorGrant.intro')}</p>
-        <OperatorGrantCard />
+        {host ? (
+          <>
+            <p>{t('operatorGrant.intro')}</p>
+            <OperatorGrantCard />
+          </>
+        ) : null}
         <div className={styles.keyRow}>
-          <h3>{t('operatorGrant.clientTitle')}</h3>
+          {host ? <h3>{t('operatorGrant.clientTitle')}</h3> : null}
           <p>{t('integratorKey.intro')}</p>
           {grant.data?.active === false && active.some((info) => info.mode === 'super') ? (
             <p className={styles.info}>{t('operatorGrant.clientInactive')}</p>
@@ -242,13 +253,13 @@ export function IntegratorSection() {
           <Fold summary={t('integratorKey.connection')}>
             <p>{t('integratorKey.connectionBody')}</p>
             <p>
-              {t('integratorKey.mcpAddress')}: <code>{window.location.origin}/mcp</code>
+              {t('integratorKey.mcpAddress')}: <code>{mcpUrl(window.location.origin)}</code>
             </p>
             <Button
               variant="secondary"
               onClick={async () => {
                 try {
-                  await navigator.clipboard.writeText(`${window.location.origin}/mcp`);
+                  await navigator.clipboard.writeText(mcpUrl(window.location.origin));
                   setAddressCopied(true);
                 } catch {
                   toast.show(t('integratorKey.copyFailed'), 'error');
@@ -257,44 +268,49 @@ export function IntegratorSection() {
             >
               {t(addressCopied ? 'integratorKey.copied' : 'integratorKey.copy')}
             </Button>
+            <AssistantInstruction foldable={false} ownerAccount={!host} />
           </Fold>
         </div>
-        <div className={styles.keyRow}>
-          <h3>{t('operatorGrant.audit')}</h3>
-          {grantAudit.isError && !(isApiError(grantAudit.error) && grantAudit.error.status === 403) ? (
-            <ErrorState error={grantAudit.error} onRetry={() => void grantAudit.refetch()} />
-          ) : null}
-          {!log.length && !audit.isLoading && !grantAudit.isLoading ? (
-            <p>{t('operatorGrant.auditEmpty')}</p>
-          ) : null}
-          {log.length ? (
-            <ul className={styles.audit}>
-              {log.map((entry) => (
-                <li key={entry.id}>
-                  <time dateTime={entry.at}>{formatStamp(entry.at)}</time> · {entry.text}
-                </li>
-              ))}
-            </ul>
-          ) : null}
-          {ownLogin ? (
-            <div>
-              {audit.isLoading ? <LoadingState /> : null}
-              {audit.isError ? <ErrorState error={audit.error} onRetry={() => void audit.refetch()} /> : null}
-              {audit.hasNextPage ? (
-                <Button
-                  variant="secondary"
-                  loading={audit.isFetchingNextPage}
-                  onClick={() => void audit.fetchNextPage()}
-                >
-                  {t('superMode.more')}
-                </Button>
-              ) : null}
-            </div>
-          ) : null}
-          <Fold summary={t('superMode.activity')}>
-            <Link to={activity()}>{t('superMode.activity')}</Link>
-          </Fold>
-        </div>
+        {host ? (
+          <div className={styles.keyRow}>
+            <h3>{t('operatorGrant.audit')}</h3>
+            {grantAudit.isError && !(isApiError(grantAudit.error) && grantAudit.error.status === 403) ? (
+              <ErrorState error={grantAudit.error} onRetry={() => void grantAudit.refetch()} />
+            ) : null}
+            {!log.length && !audit.isLoading && !grantAudit.isLoading ? (
+              <p>{t('operatorGrant.auditEmpty')}</p>
+            ) : null}
+            {log.length ? (
+              <ul className={styles.audit}>
+                {log.map((entry) => (
+                  <li key={entry.id}>
+                    <time dateTime={entry.at}>{formatStamp(entry.at)}</time> · {entry.text}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {ownLogin ? (
+              <div>
+                {audit.isLoading ? <LoadingState /> : null}
+                {audit.isError ? (
+                  <ErrorState error={audit.error} onRetry={() => void audit.refetch()} />
+                ) : null}
+                {audit.hasNextPage ? (
+                  <Button
+                    variant="secondary"
+                    loading={audit.isFetchingNextPage}
+                    onClick={() => void audit.fetchNextPage()}
+                  >
+                    {t('superMode.more')}
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
+            <Fold summary={t('superMode.activity')}>
+              <Link to={activity()}>{t('superMode.activity')}</Link>
+            </Fold>
+          </div>
+        ) : null}
       </div>
       <Dialog
         open={dialog !== null}
@@ -423,6 +439,7 @@ export function IntegratorSection() {
             {t('integratorKey.copied')}
           </p>
         ) : null}
+        <AssistantInstruction foldable ownerAccount={!host} />
       </Dialog>
     </SettingsSection>
   );

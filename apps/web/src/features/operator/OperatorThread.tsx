@@ -1,7 +1,6 @@
 import clsx from 'clsx';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router';
-import { OPERATOR_ROLE, isUnreadBy } from '@projectman/shared';
+import { isUnreadBy } from '@projectman/shared';
 import type {
   ProjectManagerCorner,
   OperatorRequestView,
@@ -129,7 +128,7 @@ export function OperatorThread({
   /** An example of the introduction was picked: it goes into the message box. */
   onExample: (text: string) => void;
 }) {
-  const { key, myHandle, isOwner } = useProject();
+  const { key, myHandle } = useProject();
   const isMobile = useIsMobile();
   const { members } = useProjectIndexes(key);
   const board = useBoard(key);
@@ -162,10 +161,6 @@ export function OperatorThread({
   const entries = operatorEntries(messages, unanchoredSignals);
   const retainSignal = (id: string) =>
     setDismissedHere((previous) => (previous.has(id) ? previous : new Set([...previous, id])));
-  // The earlier conversation with the Operator stays in the Messages (PM-1042); until it leaves the app (PM-1045).
-  const operatorHandle = [...members.values()].find(
-    (m) => m.kind === 'ai' && m.role === OPERATOR_ROLE,
-  )?.handle;
 
   // Opening is reading: the project manager's unread replies, while the panel is visible.
   const unreadKey = messages
@@ -337,14 +332,6 @@ export function OperatorThread({
               </button>
             ))}
           </div>
-          {isOwner && operatorHandle ? (
-            <p className={clsx(styles.introBody, styles.transition)}>
-              {t('operator.intro.earlier')}{' '}
-              <Link to={`/p/${key}/messages/with/${operatorHandle}`} className={styles.transitionLink}>
-                {t('operator.intro.earlierLink')} →
-              </Link>
-            </p>
-          ) : null}
         </div>
       ) : (
         entries.map((entry) =>

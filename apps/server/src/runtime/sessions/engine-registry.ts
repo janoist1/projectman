@@ -185,6 +185,12 @@ export class EngineRegistry {
     });
   }
 
+  /** The project's engine (`projectEngine`) reported the project in its hello (PM-1069); online or not. */
+  projectEngineHolds(projectKey: string): boolean {
+    const id = this.projectEngine(projectKey);
+    return id !== null && this.projectHolds(id, projectKey);
+  }
+
   /** Called after the project's engine choice may have changed (a write of its bindings, a revocation, a new global default). */
   onProjectEngineChange(listener: (projectKey: string) => void): () => void {
     this.projectEngineListeners.add(listener);

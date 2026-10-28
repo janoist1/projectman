@@ -214,27 +214,7 @@ describe('the wired operate executor in super mode (PM-831)', () => {
       });
   });
 
-  it('refuses to stop the Operator’s own session and an unknown one', async () => {
-    const now = new Date().toISOString();
-    app.app.projectman.repos.sessions.insert({
-      id: 'ses_operator',
-      projectKey: 'AR',
-      member: 'operator',
-      workItem: { type: 'general' },
-      claudeSessionId: 'claude-ses_operator',
-      cwd: '/tmp/work',
-      branch: null,
-      transcriptPath: null,
-      state: 'exited',
-      activity: null,
-      startedAt: now,
-      lastActivityAt: now,
-      endedAt: now,
-    });
-    expect(await operate({ op: 'session_stop', sessionId: 'ses_operator' })).toMatchObject({
-      state: 'failed',
-      errorCode: 'operator_never',
-    });
+  it('refuses to stop an unknown session', async () => {
     expect(await operate({ op: 'session_stop', sessionId: 'ses_missing' })).toMatchObject({
       state: 'failed',
       errorCode: 'not_found',
@@ -579,12 +559,6 @@ describe('the wired operate executor in super mode (PM-831)', () => {
           role: 'lead_developer',
         }),
     },
-    {
-      name: 'Operator model',
-      command: { kind: 'member_update', handle: 'operator', request: { model: 'sonnet' } },
-      verify: (config) =>
-        expect(config.team.members.find((m) => m.handle === 'operator')).toMatchObject({ model: 'sonnet' }),
-    },
   ];
 
   it.each(reserved)('waits for the owner and resumes $name once', async ({ command, verify }) => {
@@ -651,19 +625,6 @@ describe('the wired operate executor in super mode (PM-831)', () => {
     expect((await app.app.projectman.domain.projects.history('AR', 1))[0]?.actor).toMatchObject(operator);
   });
 
-  it('refuses direct self modification outside an owner-approved operation', async () => {
-    const before = (await config()).team.members.find((m) => m.handle === 'operator');
-    const response = await app.app.inject({
-      method: 'PATCH',
-      url: routes.member('AR', 'operator'),
-      headers: { authorization: `Bearer ${secret}` },
-      payload: { model: 'sonnet' },
-    });
-    expect(response.statusCode).toBe(403);
-    expect(response.json().error.code).toBe('owner_approval_required');
-    expect((await config()).team.members.find((m) => m.handle === 'operator')).toEqual(before);
-  });
-
   it('waits for a boundary duty config patch instead of failing in the executor', async () => {
     const command: SuperCommand = {
       kind: 'operate',
@@ -684,33 +645,22 @@ describe('the wired operate executor in super mode (PM-831)', () => {
     expect((await config()).team.roleOverrides?.developer?.duties).toContain('boundary_authorization');
   });
 
-  it.each<SuperCommand>([
-    { kind: 'member_update', handle: 'operator', request: { instructions: 'Rewrite myself' } },
-    {
-      kind: 'operate',
-      operation: {
-        op: 'config_patch',
-        patch: {
-          roleOverrides: { ai_operator: { duties: ['project_operation'], instructions: 'Rewrite my role' } },
-        },
-      },
-    },
-    { kind: 'operate', operation: { op: 'member_retire', handle: 'operator' } },
-    {
-      kind: 'operate',
-      operation: { op: 'member_hire', request: { role: 'ai_operator', handle: 'another-operator' } },
-    },
-  ])('refuses a fixed Operator change before creating an owner question: %j', async (command) => {
+  it('refuses to hire a member under the retired Operator handle before creating an owner question', async () => {
     const before = await config();
     const questions = app.app.projectman.repos.inbox.listOpen('question').length;
     const response = await app.app.inject({
       method: 'POST',
       url: routes.superOperations('AR'),
       headers: { authorization: `Bearer ${secret}` },
-      payload: { requestId: randomUUID(), command },
+      payload: {
+        requestId: randomUUID(),
+        command: {
+          kind: 'operate',
+          operation: { op: 'member_hire', request: { role: 'developer', handle: 'operator' } },
+        },
+      },
     });
     expect(response.statusCode, response.body).toBe(409);
-    expect(response.json().error.code).toBe('operator_fixed');
     expect(app.app.projectman.repos.inbox.listOpen('question')).toHaveLength(questions);
     expect(await config()).toEqual(before);
   });

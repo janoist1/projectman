@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { isOperator } from '@projectman/shared';
 import type { AiMemberConfig } from '@projectman/shared';
 import { createDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
@@ -10,14 +9,13 @@ describe('the cap on concurrent AI sessions is optional (decision 23)', () => {
 
   /**
    * Starts a general chat of each AI member at work through admission, in turn; the codes of the
-   * refusals. The project manager of the test template is on leave and the Operator (never on leave,
-   * PM-473) works only on the owner's message: both stay out.
+   * refusals. The project manager of the test template is on leave and stays out.
    */
   async function startAll(): Promise<Array<string | null>> {
     const config = await h.domain.projects.config('AR');
     const refusals: Array<string | null> = [];
     for (const member of config.team.members.filter(
-      (m): m is AiMemberConfig => m.kind === 'ai' && !m.onLeave && !isOperator(m),
+      (m): m is AiMemberConfig => m.kind === 'ai' && !m.onLeave,
     )) {
       refusals.push(
         await h.domain.admission.start({ config, member, workItem: { type: 'general' } }).then(

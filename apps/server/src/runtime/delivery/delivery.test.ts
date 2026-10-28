@@ -85,7 +85,6 @@ function setup() {
       wakes: () => true,
       markRecipientDelivered,
     } as unknown as DeliveryDeps['messages'],
-    decisionCandidates: { unseen: () => 0 },
   };
   const add = (id: string) => waiting.set(id, messageOf(id));
   return { deps, logger, typeInto, markRecipientDelivered, control, add, waiting };

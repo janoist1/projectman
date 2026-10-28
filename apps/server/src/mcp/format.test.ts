@@ -854,19 +854,6 @@ describe('formatSentMessage', () => {
     );
     expect(out).not.toContain('it starts nothing');
   });
-  it('says the Operator starts only on the owner’s request (PM-447)', () => {
-    const out = formatSentMessage({
-      messageId: 'msg_1',
-      requested: ['operator'],
-      deliveredTo: ['operator'],
-      taskKey: null,
-      recipients: [{ handle: 'operator', delivery: 'next_input', noWake: 'operator_owner_only' }],
-    });
-    expect(out).toContain(
-      '- operator: not started: the Operator works only when the owner asks, and a message from anyone else starts nothing. They get it the next time the owner talks to them. If it really must reach the owner, ask a person to relay it.',
-    );
-    expect(out).not.toContain('it starts nothing');
-  });
   it('reports recipients the message did not reach', () => {
     expect(
       formatSentMessage({
@@ -917,7 +904,6 @@ describe('formatSentMessage', () => {
       requested: ['a', 'b', 'c', 'd', 'e'],
       deliveredTo: ['a', 'b', 'c', 'd', 'e'],
       taskKey: null,
-      operator: true,
       recipients: [
         { handle: 'a', delivery: 'wake', start: { state: 'started', sessionId: 'ses_1' } },
         { handle: 'b', delivery: 'wake', start: { state: 'starting' } },
@@ -927,7 +913,7 @@ describe('formatSentMessage', () => {
       ],
     });
     const lines = text.split('\n');
-    expect(lines[0]).toContain('Read later what became of it with get_project_state message_id msg_1.');
+    expect(lines[0]).not.toContain('get_project_state');
     expect(lines.slice(1)).toEqual([
       '- a: started: their session ses_1 runs and has the full text. Do not resend it.',
       "- b: starting: the start did not finish within the wait and goes on in the background; the full text is in the session's first input. Do not resend it.",
@@ -935,26 +921,6 @@ describe('formatSentMessage', () => {
       '- d: the start failed (start_failed). The message is stored; they get it with their next start. Do not resend it.',
       '- e: not started: the start ran but no session of theirs is live. The message is stored; they get it with their next start. Do not resend it.',
     ]);
-  });
-
-  it('does not point to a later read when every start is decided or the sender is not the Operator', () => {
-    const decided = formatSentMessage({
-      messageId: 'msg_1',
-      requested: ['a'],
-      deliveredTo: ['a'],
-      taskKey: null,
-      operator: true,
-      recipients: [{ handle: 'a', delivery: 'wake', start: { state: 'started', sessionId: 'ses_1' } }],
-    });
-    expect(decided).not.toContain('get_project_state');
-    const other = formatSentMessage({
-      messageId: 'msg_1',
-      requested: ['a'],
-      deliveredTo: ['a'],
-      taskKey: null,
-      recipients: [{ handle: 'a', delivery: 'wake', start: { state: 'starting' } }],
-    });
-    expect(other).not.toContain('get_project_state');
   });
 
   it('states why an info or an out-of-date message starts nothing (PM-543)', () => {
@@ -966,13 +932,10 @@ describe('formatSentMessage', () => {
     );
   });
 
-  it('drops the advice to ask a person for the Operator as sender (PM-543)', () => {
+  it('drops the advice to ask a person for the coordinator as sender (PM-543)', () => {
     const roleless = { handle: 'dev', delivery: 'next_input', noWake: 'no_card_role' } as const;
     expect(recipientLine(roleless, 'AR-1')).toContain('ask a person to bring them in');
     expect(recipientLine(roleless, 'AR-1', true)).not.toContain('ask a person');
-    const owners = { handle: 'operator', delivery: 'next_input', noWake: 'operator_owner_only' } as const;
-    expect(recipientLine(owners, null)).toContain('ask a person to relay it');
-    expect(recipientLine(owners, null, true)).not.toContain('ask a person');
   });
 
   it('says where a message went when it did not go to its own card (PM-182)', () => {
@@ -1034,8 +997,8 @@ describe('formatQuestionAsked', () => {
   });
 });
 
-describe('formatQuestionAsked while the Operator screens', () => {
-  it('says the Operator looks first, that a person gets it within ten minutes, and how to ask again', () => {
+describe('formatQuestionAsked while the project manager screens', () => {
+  it('says the project manager looks first, that a person gets it within ten minutes, and how to ask again', () => {
     const out = formatQuestionAsked(
       'inb_1',
       undefined,
@@ -1044,7 +1007,7 @@ describe('formatQuestionAsked while the Operator screens', () => {
       undefined,
       true,
     );
-    expect(out).toContain('Question inb_1 went to the Operator first');
+    expect(out).toContain('Question inb_1 went to the project manager first');
     expect(out).toContain('A person gets it within 10 minutes at the latest');
     expect(out).toContain('reask_of and reask_reason');
     expect(out).not.toContain('is waiting in the inbox');

@@ -1,7 +1,6 @@
 import { assertIntegratorAccess, assertSuperMutation, SYSTEM_ACTOR } from '../../kernel';
 import {
   hasGuestConversations,
-  isOperator,
   managerConversationOf,
   memberOf,
   sessionWorkItemOf,
@@ -67,8 +66,7 @@ export class MessageStarts {
       const member = requireAiMember(config, handle);
       assertIntegratorAccess(config, 'write', by);
       assertSuperMutation(config, { kind: 'runtime_start', providers: [member.provider ?? 'claude'] }, by);
-      // The Operator and the PM talk with each person in a conversation of their own (PM-475, PM-1080);
-      // only the Operator's owners' one stays outside the capacity.
+      // The PM talks with each person in a conversation of their own (PM-475, PM-1080).
       const workItem: WorkItemRef =
         hasGuestConversations(config, member) && by?.kind === 'human' && by.handle
           ? managerConversationOf(config, by.handle)
@@ -79,7 +77,6 @@ export class MessageStarts {
           member,
           workItem,
           cause: { kind: 'conversation', by },
-          ...(isOperator(member) && !('with' in workItem) ? { capacity: false } : {}),
         })
       ).session;
     });
@@ -102,7 +99,6 @@ export class MessageStarts {
         config,
         member,
         workItem,
-        ...(isOperator(member) && !(workItem.type === 'general' && workItem.with) ? { capacity: false } : {}),
       });
       return null;
     } catch (err) {

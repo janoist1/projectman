@@ -6,7 +6,6 @@ import {
   cardMoverOf,
   contactHandles,
   hasAccess,
-  isOperator,
   mergerOf,
 } from '@projectman/shared';
 import type { MemberConfig, ProjectConfig, RoleView } from '@projectman/shared';
@@ -60,10 +59,10 @@ function reviewerName(config: ProjectConfig): string | null {
   return config.team.members.find((member) => member.handle === handle)?.displayName ?? null;
 }
 
-/** The members who may merge: AI members (not the Operator) and humans with developer access or more. */
+/** The members who may merge: AI members and humans with developer access or more. */
 function mergerCandidates(config: ProjectConfig): MemberConfig[] {
   return config.team.members.filter(
-    (member) => !isOperator(member) && (member.kind === 'ai' || hasAccess(member.access, 'developer')),
+    (member) => member.kind === 'ai' || hasAccess(member.access, 'developer'),
   );
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { memberOf, memberRoles, stageOf } from './lookup';
+import { hostOutsideOwners, memberOf, memberRoles, stageOf } from './lookup';
 import { ProjectConfig } from './schema';
 
 const config = ProjectConfig.parse({
@@ -52,5 +52,22 @@ describe('config lookups', () => {
     ['dev-1', ['developer']],
   ])('lists the roles %s holds', (handle, roles) => {
     expect(memberRoles(memberOf(config, handle)!)).toEqual(roles);
+  });
+
+  it.each([
+    ['host@example.com', false],
+    ['Host@Example.com', false],
+    ['other@example.com', true],
+    [null, false],
+  ])('tells whether the host %s is outside the owners', (hostEmail, outside) => {
+    const withEmail = {
+      team: {
+        ...config.team,
+        members: config.team.members.map((m) =>
+          m.kind === 'human' && m.access === 'owner' ? { ...m, email: 'host@example.com' } : m,
+        ),
+      },
+    };
+    expect(hostOutsideOwners(withEmail, hostEmail)).toBe(outside);
   });
 });

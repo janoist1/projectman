@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import type { CreatedOwnerInvitation } from '@projectman/shared';
 import { useCreateOwnerInvitation } from '../../../api/queries';
 import { Button } from '../../../components/Button';
-import { CopyRow } from '../../../components/CopyRow';
+import { CopyRow } from '../../engines/CopyRow';
 import { Dialog } from '../../../components/Dialog';
 import { ErrorBanner } from '../../../components/ErrorBanner';
 import { TextField } from '../../../components/Field';

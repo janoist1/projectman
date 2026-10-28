@@ -76,7 +76,7 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
   tools: [
     defineTool({
       name: 'get_role_configuration',
-      audience: { roles: ['operator', 'project_manager'] },
+      audience: { roles: ['project_manager'] },
       title: 'Read one built-in role configuration',
       readOnly: true,
       description:
@@ -155,7 +155,7 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
     }),
     defineTool({
       name: 'get_operator_diagnostics',
-      audience: { roles: ['operator', 'project_manager'] },
+      audience: { roles: ['project_manager'] },
       title: 'Read filtered task diagnostics',
       readOnly: true,
       description:
@@ -179,7 +179,7 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
     }),
     defineTool({
       name: 'get_checklist',
-      audience: { roles: ['operator', 'project_manager'] },
+      audience: { roles: ['project_manager'] },
       title: 'Read the project startup checklist',
       readOnly: true,
       description:
@@ -194,7 +194,7 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
     }),
     defineTool({
       name: 'update_checklist',
-      audience: { roles: ['operator', 'project_manager'] },
+      audience: { roles: ['project_manager'] },
       title: 'Change the project startup checklist',
       readOnly: false,
       description:
@@ -250,7 +250,7 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
     }),
     defineTool({
       name: 'get_operator_knowledge',
-      audience: { roles: ['operator', 'project_manager'] },
+      audience: { roles: ['project_manager'] },
       title: 'Read approved shared Operator knowledge',
       readOnly: true,
       description:
@@ -262,7 +262,7 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
     }),
     defineTool({
       name: 'propose_operator_knowledge',
-      audience: { roles: ['operator', 'project_manager'] },
+      audience: { roles: ['project_manager'] },
       title: 'Propose shared Operator knowledge',
       readOnly: false,
       description:
@@ -278,7 +278,7 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
     }),
     defineTool({
       name: 'get_operator_preference',
-      audience: { roles: ['operator', 'project_manager'] },
+      audience: { roles: ['project_manager'] },
       title: 'Read personal conversation preferences',
       description:
         'The Operator in the current person’s general conversation, or the selected active PM with an open direct owner message/answer in its internal general session. Read their personal style and revision. The server chooses the person; no handle, project or path is accepted. These five style fields never authorize project changes.',
@@ -290,7 +290,7 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
     }),
     defineTool({
       name: 'set_operator_preference',
-      audience: { roles: ['operator', 'project_manager'] },
+      audience: { roles: ['project_manager'] },
       title: 'Set personal conversation preferences',
       description:
         'The Operator for the person currently speaking in their own conversation, including guests, or the selected active PM with an open direct owner message/answer in its internal general session. Learn only from explicit style requests or corrections. Read get_operator_preference first and pass its revision as expected_revision. Changes only this person’s five style fields; grants no other write. Confirm the new style in one sentence in the project language. To reset, use brief/plain/offer/plain/minimal. On operator_knowledge_stale read again before retrying.',
@@ -307,7 +307,7 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
     }),
     defineTool({
       name: 'get_project_state',
-      audience: { roles: ['operator', 'project_manager'] },
+      audience: { roles: ['project_manager'] },
       title: 'Read project state',
       description:
         'Operator or selected PM, in their internal general conversation; unavailable in guest conversations. The source of facts about the running system: the running version and release, why a card is waiting, what became of a start or a message, or the project overview (stages, live and idle sessions, waiting starts, pauses and open owner inbox items). This read needs no open owner request. Explain the result to the owner in the project language.',
@@ -336,7 +336,7 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
 
     defineTool({
       name: 'operate',
-      audience: { roles: ['operator', 'project_manager'] },
+      audience: { roles: ['project_manager'] },
       title: 'Operate the project',
       readOnly: false,
       description:
@@ -354,7 +354,7 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
 
     defineTool({
       name: 'execute_operation',
-      audience: { roles: ['operator', 'project_manager'] },
+      audience: { roles: ['project_manager'] },
       title: 'Execute one command as the Operator or PM',
       readOnly: false,
       description:
@@ -383,7 +383,7 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
 
     defineTool({
       name: 'get_operation',
-      audience: { roles: ['operator', 'project_manager'] },
+      audience: { roles: ['project_manager'] },
       title: 'Read an operation',
       readOnly: true,
       description:
@@ -396,7 +396,7 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
 
     defineTool({
       name: 'get_machine_status',
-      audience: { roles: ['operator'] },
+      audience: { roles: [] },
       title: 'Read the status of the machine',
       readOnly: true,
       description:
@@ -409,7 +409,7 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
 
     defineTool({
       name: 'get_machine_logs',
-      audience: { roles: ['operator'] },
+      audience: { roles: [] },
       title: 'Read the log of the machine',
       readOnly: true,
       description:

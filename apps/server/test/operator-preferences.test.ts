@@ -53,7 +53,7 @@ describe('personal Operator preference authorization', () => {
 
   function conversation(
     handle?: string,
-    member = 'operator',
+    member = 'pm',
     workItem?: WorkItemRef,
     sessionProjectKey = 'AR',
   ): ToolContext {
@@ -92,167 +92,28 @@ describe('personal Operator preference authorization', () => {
   const set = (ctx: ToolContext, preference: OperatorPreferenceData = detailed, expectedRevision = 0) =>
     h.domain.teamTools.setOperatorPreference(ctx, { preference, expectedRevision });
 
-  it.each(['dana', 'cleo', 'vera', 'ada'])(
-    'allows %s to change and reset only their own style',
-    async (handle) => {
-      const ctx = conversation(handle);
-      request(ctx, handle);
-      expect(await h.domain.teamTools.getOperatorPreference(ctx)).toMatchObject({
-        revision: 0,
-        data: DEFAULT_OPERATOR_PREFERENCE,
-      });
-      expect(await set(ctx)).toMatchObject({ revision: 1, data: detailed });
-      expect(await h.domain.operatorKnowledge.readPreference('AR', 'owner')).toMatchObject({ revision: 0 });
-      expect(await set(ctx, { ...DEFAULT_OPERATOR_PREFERENCE }, 1)).toMatchObject({
-        revision: 2,
-        data: DEFAULT_OPERATOR_PREFERENCE,
-      });
-      await expect(set(ctx)).rejects.toThrow('operator_knowledge_stale');
-      await expect(
-        h.domain.teamTools.operate(ctx, { title: 'Change project', operation: { op: 'project_pause' } }),
-      ).rejects.toThrow('operator_owner_only');
-      await expect(
-        h.domain.teamTools.updateTask(ctx, { taskKey: 'AR-1', title: 'Unrelated write' }),
-      ).rejects.toThrow('operator_owner_only');
-      await expect(h.domain.teamTools.saveMemory(ctx, { note: 'Share preference globally' })).rejects.toThrow(
-        'operator_owner_only',
-      );
-    },
-  );
-
-  it('keeps two people’s data separate and CAS admits one competing write', async () => {
-    const dana = conversation('dana');
-    const cleo = conversation('cleo');
-    request(dana, 'dana');
-    request(cleo, 'cleo');
-    const writes = await Promise.allSettled([set(dana), set(dana, plain)]);
-    expect(writes.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
-    expect(await h.domain.teamTools.getOperatorPreference(cleo)).toMatchObject({
+  it('lets the PM change, reset and compare-and-swap the owner style, and nothing else', async () => {
+    const pm = conversation(undefined, 'pm');
+    request(pm, 'owner');
+    expect(await h.domain.teamTools.getOperatorPreference(pm)).toMatchObject({
       revision: 0,
       data: DEFAULT_OPERATOR_PREFERENCE,
     });
-    await set(cleo, plain);
-    expect(await h.domain.teamTools.getOperatorPreference(cleo)).toMatchObject({ revision: 1, data: plain });
-    await expect(h.domain.operatorPreferences.set(cleo, 0, detailed)).rejects.toMatchObject({
-      code: 'operator_knowledge_stale',
-      status: 409,
-    });
-  });
-
-  it('uses the fresh owner request, permits only unambiguous reads without one, and expires writes', async () => {
-    const ctx = conversation();
-    expect(await h.domain.teamTools.getOperatorPreference(ctx)).toMatchObject({ revision: 0 });
-    await expect(set(ctx)).rejects.toThrow('operator_no_request');
-    const open = request(ctx, 'owner');
-    h.repos.operatorRequests.close(open.id, '2000-01-01T00:00:00.000Z');
-    h.repos.operatorRequests.insert({ ...open, id: 'opr_expired', openedAt: '2000-01-01T00:00:00.000Z' });
-    await expect(set(ctx)).rejects.toThrow('operator_no_request');
-    await h.domain.projects.update(
-      'AR',
-      { actor: humanActor('owner'), author: { name: 'Owner', email: 'owner@example.com' } },
-      (config) => {
-        const ada = config.team.members.find((member) => member.handle === 'ada')!;
-        if (ada.kind === 'human') ada.access = 'owner';
-        return 'Add second owner';
-      },
-    );
-    await expect(h.domain.teamTools.getOperatorPreference(ctx)).rejects.toThrow(
-      'operator_preference_no_person',
-    );
-    request(ctx, 'owner');
-    await set(ctx);
-    request(ctx, 'ada');
-    await set(ctx, plain);
-    expect(await h.domain.operatorKnowledge.readPreference('AR', 'ada')).toMatchObject({
-      data: plain,
-      revision: 1,
-    });
-    expect(await h.domain.operatorKnowledge.readPreference('AR', 'owner')).toMatchObject({
-      revision: 1,
-      data: detailed,
-    });
-    request(ctx, 'owner');
-    expect(await h.domain.teamTools.getOperatorPreference(ctx)).toMatchObject({
-      revision: 1,
-      data: detailed,
-    });
-  });
-
-  it('rejects other AI members, foreign sessions, and non-general work', async () => {
-    const guest = conversation('dana');
-    request(guest, 'dana');
-    const dev = conversation(undefined, 'dev-1');
-    const foreign = conversation('vera', 'operator', undefined, 'OTHER');
-    for (const method of [() => h.domain.teamTools.getOperatorPreference(dev), () => set(dev)])
-      await expect(method()).rejects.toThrow('operator_only');
-    for (const ctx of [
-      { ...guest, sessionId: dev.sessionId },
-      { ...guest, sessionId: 'ses_missing' },
-      foreign,
-    ]) {
-      await expect(h.domain.teamTools.getOperatorPreference(ctx)).rejects.toThrow('operator_owner_only');
-      await expect(set(ctx)).rejects.toThrow('operator_owner_only');
-    }
-    const task = conversation('cleo', 'operator', { type: 'task', taskKey: 'AR-1' });
-    await expect(h.domain.teamTools.getOperatorPreference(task)).rejects.toThrow('operator_owner_only');
-  });
-
-  it('rechecks the guest opener and request, including removed and nonhuman people', async () => {
-    const guest = conversation('dana');
-    request(guest, 'cleo');
-    await expect(set(guest)).rejects.toThrow('operator_owner_only');
-    request(guest, 'dana');
-    h.repos.sessions.update(guest.sessionId, {
-      startCause: { kind: 'message', by: { ...humanActor('dana'), via: 'integrator' } },
-    });
-    await expect(set(guest)).rejects.toThrow('operator_owner_only');
-    h.repos.sessions.update(guest.sessionId, { startCause: { kind: 'message', by: humanActor('cleo') } });
-    await expect(set(guest)).rejects.toThrow('operator_owner_only');
-    const ai = conversation('dev-1');
-    request(ai, 'dev-1');
-    await expect(set(ai)).rejects.toThrow('operator_owner_only');
-    h.repos.sessions.update(guest.sessionId, { startCause: { kind: 'message', by: humanActor('dana') } });
-    await h.domain.projects.update(
-      'AR',
-      { actor: humanActor('owner'), author: { name: 'Owner', email: 'owner@example.com' } },
-      (config) => {
-        config.team.members = config.team.members.filter((member) => member.handle !== 'dana');
-        return 'Remove guest';
-      },
-    );
-    await expect(set(guest)).rejects.toThrow('operator_owner_only');
-    await expect(h.domain.teamTools.getOperatorPreference(guest)).rejects.toThrow('operator_owner_only');
-  });
-  it('keeps an expired guest request read-only', async () => {
-    const ctx = conversation('dana');
-    const open = request(ctx, 'dana');
-    h.repos.operatorRequests.close(open.id, '2000-01-01T00:00:00.000Z');
-    h.repos.operatorRequests.insert({ ...open, id: 'opr_expired', openedAt: '2000-01-01T00:00:00.000Z' });
-    expect(await h.domain.teamTools.getOperatorPreference(ctx)).toMatchObject({ revision: 0 });
-    await expect(set(ctx)).rejects.toThrow('operator_no_request');
-  });
-
-  it('shares owner style between the PM and Operator with reset and CAS', async () => {
-    const operator = conversation();
-    request(operator, 'owner');
-    await set(operator);
-    const pm = conversation(undefined, 'pm');
-    request(pm, 'owner');
-    expect(await h.domain.teamTools.getOperatorPreference(pm)).toMatchObject({ revision: 1, data: detailed });
-    await set(pm, plain, 1);
-    expect(await h.domain.teamTools.getOperatorPreference(operator)).toMatchObject({
+    expect(await set(pm)).toMatchObject({ revision: 1, data: detailed });
+    await expect(set(pm, plain, 0)).rejects.toThrow('operator_knowledge_stale');
+    expect(await set(pm, { ...DEFAULT_OPERATOR_PREFERENCE }, 1)).toMatchObject({
       revision: 2,
-      data: plain,
-    });
-    await expect(set(operator, detailed, 1)).rejects.toThrow('operator_knowledge_stale');
-    await set(pm, { ...DEFAULT_OPERATOR_PREFERENCE }, 2);
-    expect(await h.domain.teamTools.getOperatorPreference(operator)).toMatchObject({
-      revision: 3,
       data: DEFAULT_OPERATOR_PREFERENCE,
     });
     await expect(
       h.domain.teamTools.operate(pm, { title: 'Change project', operation: { op: 'project_pause' } }),
     ).rejects.toThrow();
+  });
+
+  it('rejects other AI members', async () => {
+    const dev = conversation(undefined, 'dev-1');
+    for (const method of [() => h.domain.teamTools.getOperatorPreference(dev), () => set(dev)])
+      await expect(method()).rejects.toThrow('operator_only');
   });
 
   it.each(['missing', 'closed', 'expired', 'approval', 'signal', 'queue'] as const)(
@@ -297,7 +158,7 @@ describe('personal Operator preference authorization', () => {
         variant === 'foreign-project' ? 'OTHER' : 'AR',
       );
       request(pm, 'owner');
-      if (variant === 'foreign-member') pm = { ...pm, sessionId: conversation().sessionId };
+      if (variant === 'foreign-member') pm = { ...pm, sessionId: conversation(undefined, 'dev-1').sessionId };
       if (variant === 'missing-session') pm = { ...pm, sessionId: 'ses_missing' };
       await expect(h.domain.teamTools.getOperatorPreference(pm)).rejects.toThrow('operator_owner_only');
       await expect(set(pm)).rejects.toThrow('operator_owner_only');
@@ -312,8 +173,8 @@ describe('personal Operator preference authorization', () => {
   });
 
   it('uses only the PM session request and rechecks its owner membership', async () => {
-    const operator = conversation();
-    request(operator, 'owner');
+    const other = conversation(undefined, 'dev-1');
+    request(other, 'owner');
     const pm = conversation(undefined, 'pm');
     await expect(h.domain.teamTools.getOperatorPreference(pm)).rejects.toThrow('operator_no_request');
     await h.domain.projects.update(

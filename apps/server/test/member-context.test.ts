@@ -92,6 +92,8 @@ describe('member context preview', () => {
 
   it("keeps only the requesting owner's preference", async () => {
     await h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (config) => {
+      for (const member of config.team.members)
+        if (member.kind === 'ai' && member.handle === 'pm') delete member.onLeave;
       config.team.members.push({
         kind: 'human',
         handle: 'other',
@@ -117,7 +119,7 @@ describe('member context preview', () => {
       ['owner', 'brief'],
       ['other', 'detailed'],
     ] as const) {
-      await h.domain.sessions.previewContext('AR', 'operator', { viewer });
+      await h.domain.sessions.previewContext('AR', 'pm', { viewer });
       expect(h.contextBuilder.inputs.at(-1)!.operatorPreference).toEqual({
         ...DEFAULT_OPERATOR_PREFERENCE,
         length,
@@ -125,22 +127,21 @@ describe('member context preview', () => {
     }
   });
 
-  it('lists distinct tools for the Operator, project manager and developer from the MCP rule', async () => {
+  it('lists distinct tools for the project manager and the developer from the MCP rule', async () => {
     const config = await h.domain.projects.config('AR');
     const lists = [];
-    for (const handle of ['operator', 'pm', 'dev-1']) {
+    for (const handle of ['pm', 'dev-1']) {
       const preview = await h.domain.sessions.previewContext('AR', handle, { viewer: 'owner' });
       expect(preview.tools).toEqual(visibleTeamTools(memberAudience(config, handle)));
       lists.push(preview.tools.map((tool) => tool.name));
     }
-    expect(new Set(lists.map((list) => JSON.stringify(list))).size).toBe(3);
+    expect(new Set(lists.map((list) => JSON.stringify(list))).size).toBe(2);
   });
 
   it.each<{ merger?: Merger; handle: string; visible: boolean }>([
     { handle: 'cr', visible: true },
     { handle: 'dev-1', visible: false },
     { merger: { kind: 'developer' }, handle: 'dev-1', visible: true },
-    { merger: { kind: 'developer' }, handle: 'operator', visible: false },
     { merger: { kind: 'member', handle: 'cr' }, handle: 'cr', visible: true },
     { merger: { kind: 'member', handle: 'cr' }, handle: 'dev-1', visible: false },
   ])(
@@ -150,11 +151,9 @@ describe('member context preview', () => {
       config.team.merger = merger;
       const audience = memberAudience(config, handle);
       expect(audience.merger).toBe(visible);
-      if (!audience.operator) {
-        const names = visibleTeamTools(audience).map((tool) => tool.name);
-        for (const tool of ['merge_task', 'prioritize_merge']) {
-          expect(names.includes(tool)).toBe(visible);
-        }
+      const names = visibleTeamTools(audience).map((tool) => tool.name);
+      for (const tool of ['merge_task', 'prioritize_merge']) {
+        expect(names.includes(tool)).toBe(visible);
       }
     },
   );
@@ -196,6 +195,37 @@ describe('member context preview', () => {
       expect(input.sessionPolicy).toBeUndefined();
       expect(input.sandbox).toBeUndefined();
     }
+  });
+});
+
+describe('the owner-account flag of the project manager context (PM-1069)', () => {
+  let h: DomainHarness;
+  beforeEach(async () => {
+    h = await createDomainHarness({ pmOnDuty: true });
+    await h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (config) => {
+      const owner = config.team.members.find((m) => m.kind === 'human' && m.access === 'owner')!;
+      if (owner.kind === 'human') owner.email = OWNER.email;
+      return 'Set the owner e-mail';
+    });
+  });
+  afterEach(async () => {
+    await h.cleanup();
+  });
+
+  it.each([
+    ['pm', 'host@example.test', true],
+    ['pm', OWNER.email, false],
+    ['dev-1', 'host@example.test', false],
+  ])('flags %s with the host %s: %s', async (handle, hostEmail, flagged) => {
+    h.repos.users.insert({
+      id: 'host-user',
+      name: 'Host',
+      email: hostEmail,
+      passwordHash: 'unused-test-hash',
+      createdAt: '2026-10-28T10:00:00.000Z',
+    });
+    await h.domain.sessions.previewContext('AR', handle, { viewer: 'owner' });
+    expect(h.contextBuilder.inputs.at(-1)!.hostOutsideOwners).toBe(flagged ? true : undefined);
   });
 });
 

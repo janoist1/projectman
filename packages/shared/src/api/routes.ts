@@ -251,6 +251,11 @@ export const routes = {
   /** GET: the widget script the customer's page embeds. */
   feedbackWidgetScript: () => '/feedback/widget.js',
 
+  /** GET `HostRequestListResponse` (`?state=`; the host only). */
+  hostRequests: () => '/api/host-requests',
+  /** POST (`AnswerHostRequestRequest` -> `HostRequestView`; the host only). */
+  answerHostRequest: (id: string) => `/api/host-requests/${id}/answer`,
+
   websocket: () => '/ws',
   mcp: (token: string) => `/mcp/${token}`,
 } as const;

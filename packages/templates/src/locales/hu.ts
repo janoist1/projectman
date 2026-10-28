@@ -6,6 +6,10 @@ export const hu: TemplateLocale = {
     items: {
       goal: { title: 'A projekt célja', hint: 'Egyeztessétek a célt és a siker feltételeit.' },
       code: { title: 'Forráskód', hint: 'Kapcsold hozzá a projekt kódtárát.' },
+      engine: {
+        title: 'Motor',
+        hint: 'A projekt munkái a motoron futnak: legyen csatlakozva, és adja hozzá a projekt mappáját (`project set`).',
+      },
       providers: { title: 'AI-szolgáltatók', hint: 'Ellenőrizd a csapat előfizetéseit.' },
       team: { title: 'Csapat', hint: 'Válassz tagokat és felelősségeket.' },
       process: { title: 'Munkafolyamat', hint: 'Egyeztessétek a szakaszokat és az átnézés feltételeit.' },
@@ -42,6 +46,7 @@ export const hu: TemplateLocale = {
       approval: 'Jóváhagyás vár rád',
       permission: 'Engedélykérés vár rád',
       release: 'Kiadás vár a jóváhagyásodra',
+      host_request: 'Kérés érkezett hozzád',
     },
     digest: { title: '{n} teendő vár rád', body: 'A csendes órák alatt érkeztek.' },
     test: { title: 'Próbaértesítés', body: 'Ha ezt látod, működik.' },

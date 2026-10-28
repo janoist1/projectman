@@ -1,4 +1,4 @@
-import { hasSuperOrigin, isOnLeave, SYSTEM_SENDER } from '@projectman/shared';
+import { hasConnectedOrigin, hasSuperOrigin, isOnLeave, SYSTEM_SENDER } from '@projectman/shared';
 import type { Actor, InboxItem, MemberStatus, MemberView, PausedSession, RoleView } from '@projectman/shared';
 import type { IconName } from '../components/Icon';
 import { t } from '../i18n/t';
@@ -63,7 +63,56 @@ export function roleLabel(
 
 export type MemberIndex = ReadonlyMap<string, MemberView>;
 
+export interface ActorParts {
+  /** Who acted: nameOf(actor.handle) ("Te" for the viewer). */
+  name: string;
+  /** A decision-66 step (actor.through); null on every other actor, an old super row included. */
+  connected: {
+    /** The holder's name for the chip; null when the actor is the holder (a direct instruction). */
+    chipHolder: string | null;
+    /** The holder's name for the detail line and the chip's accessible name; always set. */
+    holder: string;
+    /** The approver's name (actor.approvedBy); null without an approval. */
+    approver: string | null;
+    /** Whether the approver shows in the meta line: false when the approver is the actor. */
+    approverInline: boolean;
+    /** credential.prefix; the id and the secret never leave this helper. */
+    prefix: string;
+  } | null;
+  /** An old operatorMode: 'super' row: drawn as before. */
+  legacySuper: boolean;
+}
+
+/** The parts every view draws a step's actor from; the components compose no actor text themselves. */
+export function actorParts(actor: Actor, index: MemberIndex, myHandle: string | null): ActorParts {
+  const name = nameOf(actor.handle, index, myHandle);
+  if (!hasConnectedOrigin(actor)) return { name, connected: null, legacySuper: hasSuperOrigin(actor) };
+  const { holder } = actor.through;
+  return {
+    name,
+    legacySuper: false,
+    connected: {
+      chipHolder: holder === actor.handle ? null : nameOf(holder, index, myHandle),
+      holder: nameOf(holder, index, myHandle),
+      approver: actor.approvedBy === undefined ? null : nameOf(actor.approvedBy, index, myHandle),
+      approverInline: actor.approvedBy !== undefined && actor.approvedBy !== actor.handle,
+      prefix: actor.through.credential.prefix,
+    },
+  };
+}
+
+/** The viewer acted: their own handle, and no integrator origin unless it is the viewer's own connected Claude. */
+export function isOwnActor(actor: Actor, myHandle: string | null): boolean {
+  if (myHandle === null || actor.handle !== myHandle) return false;
+  return !actor.via || (hasConnectedOrigin(actor) && actor.through.holder === myHandle);
+}
+
 export function actorLabel(actor: Actor, index: MemberIndex, myHandle: string | null): string {
+  const { name, connected } = actorParts(actor, index, myHandle);
+  if (connected)
+    return connected.chipHolder === null
+      ? t('connected.label', { name })
+      : t('connected.labelHolder', { name, holder: connected.chipHolder });
   if (hasSuperOrigin(actor))
     return t(actor.credential.prefix === 'operator-app' ? 'superMode.name' : 'superMode.actor');
   return actor.via === 'integrator' ? t('involvement.integrator') : nameOf(actor.handle, index, myHandle);

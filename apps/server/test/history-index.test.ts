@@ -371,6 +371,8 @@ describe('history index', () => {
         // Migration 118 (PM-1062) created them.
         'owner_accounts',
         'owner_invitations',
+        // Migration 122 (PM-1064) created it.
+        'host_requests',
       ])
         old.exec(`DROP TABLE ${table}`);
       // Migration 99 (PM-925) dropped the pending recipients table, which version 83 still has and 84 to 98 read.

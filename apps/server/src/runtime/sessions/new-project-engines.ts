@@ -6,6 +6,14 @@ import { conflict, DomainError, forbidden, invalid } from '../../kernel';
 import type { EngineRegistry } from './engine-registry';
 
 /**
+ * The setup checklist's `engine_connected` fact (PM-1069): the project's engine reported the project in its
+ * hello. Without a registry (a single-machine installation) the local engine holds every project.
+ */
+export function checklistEngineHolds(registry?: EngineRegistry): (projectKey: string) => boolean {
+  return (projectKey) => (registry ? registry.projectEngineHolds(projectKey) : true);
+}
+
+/**
  * The engines a new project is created on (PM-1062). The host owner's way without an engine choice is the
  * old one: the folder is checked on the host's engine and nothing is bound. A chosen engine (the host owner's
  * or an owner account's) must be the creator's own, not revoked and online; the folder is checked on it and

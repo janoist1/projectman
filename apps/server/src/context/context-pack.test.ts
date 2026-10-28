@@ -158,6 +158,31 @@ describe('Project manager checklist onboarding', () => {
     const section = text.split('\n\n').find((part) => part.startsWith('# Project onboarding checklist'));
     await expect(`${section}\n`).toMatchFileSnapshot('__snapshots__/pm-checklist.section.txt');
   });
+  it('adds the own-machine onboarding only when the host is outside the owners', async () => {
+    const own = packOf({ checklist });
+    expect(own.guide.role).not.toContain('ask_host');
+    expect(own.appendSystemPrompt).not.toContain('own-machine step');
+    const pack = packOf({ checklist, hostOutsideOwners: true });
+    expect(pack.guide.role).toContain('ask_host');
+    expect(pack.guide.role).toContain('engine item');
+    expect(pack.appendSystemPrompt).toContain('own-machine step');
+    const procedure = pack.guide.role!.slice(pack.guide.role!.indexOf('## Project onboarding'));
+    await expect(`${procedure}\n`).toMatchFileSnapshot(
+      '__snapshots__/pm-checklist.owner-account.procedure.txt',
+    );
+  });
+  it('leaves the integrator todo out of the own-machine onboarding without machine access', () => {
+    const source = input({ handle: 'pm' });
+    source.member.machineAccess = false;
+    const pack = packOf({
+      checklist,
+      hostOutsideOwners: true,
+      project: source.project,
+      member: source.member,
+    });
+    expect(pack.guide.role).toContain('ask_host');
+    expect(pack.guide.role).not.toContain('open_integrator_todo');
+  });
   it('routes checklist gaps to owners when PM machine access is disabled', () => {
     const source = input({ handle: 'pm' });
     source.member.machineAccess = false;

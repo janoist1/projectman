@@ -2,7 +2,14 @@ import { z } from 'zod';
 import { gateRequestOf, humanInboxAssignment } from './inbox';
 import type { InboxItem } from './inbox';
 
-export const PushCategory = z.enum(['question', 'decision', 'approval', 'permission', 'release']);
+export const PushCategory = z.enum([
+  'question',
+  'decision',
+  'approval',
+  'permission',
+  'release',
+  'host_request',
+]);
 export type PushCategory = z.infer<typeof PushCategory>;
 export const PushResult = z.enum(['ok', 'failed', 'expired']);
 export type PushResult = z.infer<typeof PushResult>;
@@ -39,12 +46,21 @@ export const PushCategories = z.object({
   approval: z.boolean(),
   permission: z.boolean(),
   release: z.boolean(),
+  /** A request to the instance's host (PM-1064); rows stored before it read as on. */
+  host_request: z.boolean().default(true),
 });
 export type PushCategories = z.infer<typeof PushCategories>;
 export const PushSettings = z.object({ categories: PushCategories, quietHours: QuietHours });
 export type PushSettings = z.infer<typeof PushSettings>;
 export const DEFAULT_PUSH_SETTINGS: PushSettings = {
-  categories: { question: true, decision: true, approval: true, permission: true, release: true },
+  categories: {
+    question: true,
+    decision: true,
+    approval: true,
+    permission: true,
+    release: true,
+    host_request: true,
+  },
   quietHours: { enabled: false, start: '22:00', end: '07:00', timeZone: 'UTC' },
 };
 export const PushDeviceView = z.object({

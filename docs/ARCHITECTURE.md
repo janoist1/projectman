@@ -2052,7 +2052,9 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   to the allowlisted browser push providers (Google, Mozilla, Apple and Windows); redirects are
   not followed. Visibility is held per authenticated WebSocket connection in hub memory.
   Standby copies never create keys or send; cloud restore rehearsals additionally set
-  `PROJECTMAN_WEB_PUSH_ENABLED=0`. **Remote engine:** fully supported; nothing runs on the
+  `PROJECTMAN_WEB_PUSH_ENABLED=0`. A request to the instance host (PM-1064, `notifyHost`) is pushed
+  to the host directly, not through an inbox item: the payload carries only the request title and a
+  link to the host's own first project. **Remote engine:** fully supported; nothing runs on the
   engine and no new data crosses the server/engine boundary.
 
 - **Administration adapter and supervisor (PM-763, Super mode 7/10)** — `apps/server/src/administration/**`
@@ -3063,7 +3065,9 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   an event from the old one is no longer heard). A binding cannot be removed while the project has an
   open session on the engine (`engine_in_use`) or, for the default, while another binding stays
   (`engine_is_default`). The engine-side `hello.projects[]` is only the local contribution (it fills
-  `holdsProject` of the list); it never decides the binding.
+  `holdsProject` of the list); it never decides the binding. It also feeds the setup checklist's
+  `engine_connected` condition (PM-1069, `EngineRegistry.projectEngineHolds`): the hub reads the engine's
+  last hello without its online state, and the engine side does not change.
   **Does this work on a remote engine?** This entry is the cloud's side of the remote engine: nothing
   here starts a process on the cloud's host. Without a connected engine a project cannot be created
   (`isDirectory` answers `engine_offline`, HTTP 409; PM-1062: the engine is the one the creator chose, an

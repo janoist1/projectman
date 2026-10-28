@@ -8,6 +8,7 @@ import { AttachmentUploadsProvider } from '../features/board/attachmentUploads';
 import { noBoardFilters } from '../features/board/boardFilters';
 import { MockBackend } from '../mocks/backend';
 import { renderUi } from './render';
+import type { RenderRoute } from './render';
 import { server } from './msw/server';
 import { defaultTaskHandlers } from './msw/tasks';
 
@@ -95,7 +96,7 @@ export function mockProject(backend = new MockBackend()) {
     backend,
     requests,
     context,
-    render: (ui: ReactElement, route = '/', overrides: ContextOverrides = {}) =>
+    render: (ui: ReactElement, route: RenderRoute = '/', overrides: ContextOverrides = {}) =>
       renderUi(
         <StatefulProject value={{ ...context, ...overrides, can: { ...context.can, ...canOf(overrides) } }}>
           <AttachmentUploadsProvider>{ui}</AttachmentUploadsProvider>

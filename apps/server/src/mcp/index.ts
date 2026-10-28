@@ -32,6 +32,7 @@ export { AdmissionTools } from './admission';
 export { WatcherTools } from './watchers';
 export { SessionTools } from './sessions';
 export { EmailChannelTools } from './email-channel';
+export { HostRequestTools } from './host-requests';
 export { ExternalTools } from './super-operator/handler';
 
 export { TEAM_TOOLS, TEAM_TOOL_NAMES, toolOutputText } from './tools';

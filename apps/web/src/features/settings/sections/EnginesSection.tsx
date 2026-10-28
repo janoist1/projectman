@@ -18,7 +18,15 @@ import { formatDate } from '../../../i18n/format';
 import { t } from '../../../i18n/t';
 import { errorCode, errorMessage } from '../../../lib/errors';
 import { useNow } from '../../../lib/useNow';
-import { defaultFirst, engineCommand, engineState, statusText, workParts } from '../../engines/engineView';
+import { CopyRow } from '../../engines/CopyRow';
+import {
+  defaultFirst,
+  engineCommand,
+  engineState,
+  machineParts,
+  statusText,
+  workParts,
+} from '../../engines/engineView';
 import { SettingsSection } from './SettingsSection';
 import styles from './EnginesSection.module.css';
 
@@ -27,7 +35,6 @@ type Dialogs =
 
 /** How long a row that has just connected stays tinted. */
 const FLASH_MS = 600;
-const COPIED_MS = 1600;
 
 /**
  * Settings → Motorok (PM-316): the machines the AI work runs on, their machine keys, the default
@@ -270,46 +277,6 @@ export function EnginesSection() {
       {dialog?.kind === 'command' && <CommandDialog engine={dialog.engine} onClose={() => setDialog(null)} />}
       {dialog?.kind === 'revoke' && <RevokeDialog engine={dialog.engine} onClose={() => setDialog(null)} />}
     </SettingsSection>
-  );
-}
-
-/** What the engine reported about its machine, one part each; empty before it has ever connected. */
-function machineParts(engine: EngineView): { text: string; mono?: boolean }[] {
-  const parts: { text: string; mono?: boolean }[] = [];
-  if (engine.hostname) parts.push({ text: engine.hostname });
-  if (engine.platform) parts.push({ text: t(`engines.platform.${engine.platform}`) });
-  if (engine.version) parts.push({ text: `v${engine.version}`, mono: true });
-  return parts;
-}
-
-function CopyRow({ text, label }: { text: string; label: string }) {
-  const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle');
-  // "Másolva" is a confirmation, not a state: it goes back to "Másolás" after a moment.
-  useEffect(() => {
-    if (state !== 'copied') return;
-    const timer = window.setTimeout(() => setState('idle'), COPIED_MS);
-    return () => window.clearTimeout(timer);
-  }, [state]);
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setState('copied');
-    } catch {
-      setState('failed');
-    }
-  };
-  return (
-    <>
-      <div className={styles.copyRow}>
-        <code className={styles.code} aria-label={label}>
-          {text}
-        </code>
-        <Button variant="secondary" size="md" onClick={() => void copy()}>
-          {t(state === 'copied' ? 'engines.copied' : 'engines.copy')}
-        </Button>
-      </div>
-      {state === 'failed' && <ErrorBanner>{t('engines.copyFailed')}</ErrorBanner>}
-    </>
   );
 }
 

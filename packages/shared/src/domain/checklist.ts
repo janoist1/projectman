@@ -15,6 +15,7 @@ export const CHECKLIST_CONDITIONS = [
   'feedback_surface',
   'agreement_approved',
   'task_exists',
+  'engine_connected',
 ] as const;
 export const ChecklistCondition = z.enum(CHECKLIST_CONDITIONS);
 export type ChecklistCondition = z.infer<typeof ChecklistCondition>;
@@ -22,7 +23,7 @@ export type ChecklistCondition = z.infer<typeof ChecklistCondition>;
 export function checklistConditionHolds(
   condition: ChecklistCondition,
   config: ProjectConfig,
-  facts: { agreementApproved: boolean; taskCount: number },
+  facts: { agreementApproved: boolean; taskCount: number; engineConnected: boolean },
 ): boolean {
   switch (condition) {
     case 'reviewer_member':
@@ -46,6 +47,8 @@ export function checklistConditionHolds(
       return facts.agreementApproved;
     case 'task_exists':
       return facts.taskCount > 0;
+    case 'engine_connected':
+      return facts.engineConnected;
   }
 }
 

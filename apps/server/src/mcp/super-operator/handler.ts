@@ -12,6 +12,7 @@ import {
   TaskKey,
   TaskStatus as TaskStatusSchema,
 } from '@projectman/shared';
+import type { HostRequestState } from '@projectman/shared';
 import type {
   ExternalAttachmentRead,
   ExternalDocWriteState,
@@ -62,6 +63,7 @@ import {
   invalid,
   unique,
 } from '../../kernel';
+import type { HostRequestsService } from '../../services/host-requests';
 import type { ProjectState, StructuralReviews } from '../../services/operator';
 import { docWindow } from '../../services/project-docs';
 import type { DocWrites } from '../../services/project-docs';
@@ -112,6 +114,7 @@ interface ExternalToolsDeps {
     OperatorKnowledgeStore,
     'readInstanceKnowledge' | 'compareAndSwapInstanceKnowledge'
   >;
+  hostRequests: Pick<HostRequestsService, 'listForHost' | 'answer'>;
 }
 
 /**
@@ -582,8 +585,11 @@ export class ExternalTools implements ExternalToolsHandler {
     };
   }
 
-  /** The knowledge read needs at least one project the key's holder owns: the audit lands in those. */
-  private async instanceKnowledgeScope<T>(
+  /**
+   * What only the instance host's key does (the instance knowledge, PM-1061; the requests to the host, PM-1064):
+   * it needs at least one project the key's holder owns, where the audit lands.
+   */
+  private async hostScope<T>(
     principal: IntegratorPrincipal,
     requestId: string,
     operation: string,
@@ -592,7 +598,7 @@ export class ExternalTools implements ExternalToolsHandler {
     const email = this.holder(principal);
     // The instance knowledge describes the host's machine: only the host owner's key reads or changes it (PM-1061).
     if (!this.deps.credentials.isHostOwner?.(principal.userId))
-      throw forbidden('host_only', 'only the host owner’s key may use the instance knowledge');
+      throw forbidden('host_only', 'only the host owner’s key may use this');
     return this.deps.superOperator.executeOwned(
       { principal, email, requestId },
       operation,
@@ -605,7 +611,7 @@ export class ExternalTools implements ExternalToolsHandler {
   }
 
   async getInstanceKnowledge(principal: IntegratorPrincipal, requestId: string) {
-    return this.instanceKnowledgeScope(principal, requestId, 'mcp_get_operator_instance_knowledge', () =>
+    return this.hostScope(principal, requestId, 'mcp_get_operator_instance_knowledge', () =>
       this.deps.operatorKnowledge.readInstanceKnowledge(),
     );
   }
@@ -615,8 +621,29 @@ export class ExternalTools implements ExternalToolsHandler {
     requestId: string,
     args: Parameters<ExternalToolsHandler['updateInstanceKnowledge']>[2],
   ) {
-    return this.instanceKnowledgeScope(principal, requestId, 'mcp_update_operator_instance_knowledge', () =>
+    return this.hostScope(principal, requestId, 'mcp_update_operator_instance_knowledge', () =>
       updateInstanceKnowledge(this.deps.operatorKnowledge, args, new Date().toISOString()),
+    );
+  }
+
+  async listHostInbox(principal: IntegratorPrincipal, requestId: string, args: { state?: HostRequestState }) {
+    return this.hostScope(principal, requestId, 'mcp_list_host_inbox', () =>
+      this.deps.hostRequests.listForHost(principal.userId, args.state),
+    );
+  }
+
+  async answerHostRequest(
+    principal: IntegratorPrincipal,
+    requestId: string,
+    args: Parameters<ExternalToolsHandler['answerHostRequest']>[2],
+  ) {
+    return this.hostScope(principal, requestId, 'mcp_answer_host_request', () =>
+      this.deps.hostRequests.answer(
+        principal.userId,
+        args.id,
+        { outcome: args.outcome, answer: args.answer },
+        'super',
+      ),
     );
   }
 

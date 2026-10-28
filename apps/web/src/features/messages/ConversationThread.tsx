@@ -17,7 +17,7 @@ import { formatTime } from '../../i18n/format';
 import { joinNames, t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
 import { inboxHeading, optionLabel } from '../../lib/inbox';
-import { recordActor, nameOf, namesOf, roleLabel } from '../../lib/members';
+import { isOwnActor, recordActor, nameOf, namesOf, roleLabel } from '../../lib/members';
 import { useIsMobile } from '../../lib/hooks';
 import { InboxCard } from '../inbox/InboxCard';
 import { Composer } from '../session/Composer';
@@ -505,7 +505,7 @@ function MessageBubble({
   onReply: (message: TeamMessage) => void;
   onReplyAll: (message: TeamMessage) => void;
 }) {
-  const mine = message.from === myHandle && !message.via;
+  const mine = isOwnActor(recordActor(message), myHandle);
   const unread = !mine && isUnreadBy(message, myHandle);
   // Who else got it: a group message is in every recipient's thread, marked with the others.
   const also = message.to.filter((handle) => handle !== myHandle && handle !== peer);
@@ -541,6 +541,7 @@ function MessageBubble({
               members={members}
               myHandle={myHandle}
               projectKey={projectKey}
+              showApproval={false}
             />
           </span>
         ) : null}

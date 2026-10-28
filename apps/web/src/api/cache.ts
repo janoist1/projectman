@@ -13,7 +13,12 @@ import type {
   Task,
   TaskDetail,
 } from '@projectman/shared';
-import { operatorApprovalOf, operatorKnowledgeApprovalOf, withSessionWork } from '@projectman/shared';
+import {
+  hasBoundOrigin,
+  operatorApprovalOf,
+  operatorKnowledgeApprovalOf,
+  withSessionWork,
+} from '@projectman/shared';
 import { openItemsFor } from '../lib/inbox';
 import { ApiError } from './client';
 import { queryKeys } from './queryKeys';
@@ -154,8 +159,7 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
     case 'timeline_appended': {
       const { projectKey: key, event: entry } = event;
       if (
-        entry.actor.operatorMode === 'super' ||
-        entry.actor.through !== undefined ||
+        hasBoundOrigin(entry.actor) ||
         entry.type === 'super_handoff_changed' ||
         entry.type === 'super_operation_changed'
       ) {
@@ -206,6 +210,8 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       // The event does not say that an engine was revoked: the reload drops it from the status list.
       void client.invalidateQueries({ queryKey: queryKeys.engineStatus });
       void client.invalidateQueries({ queryKey: queryKeys.engines });
+      // A project's engines carry `holdsProject`, which changes when the engine connects with a new hello.
+      void client.invalidateQueries({ queryKey: queryKeys.projectEnginesAll });
       // What failed because the engine was away (a machine view, a session's chat) loads again at connect.
       if (event.engine.online)
         void client.invalidateQueries({

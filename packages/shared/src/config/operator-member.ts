@@ -21,8 +21,9 @@ export const RETIRED_OPERATOR_HANDLE = 'operator';
 
 /**
  * The super actor of an in-app session (PM-757, PM-1041): the server-issued session member when it is the
- * selected coordinator. A caller-supplied actor grants no authority. Without a member the stored-key behavior
- * is unchanged, which now means no actor. Only authenticated execution may call this.
+ * selected coordinator, and nobody else (a different member, or no coordinator, gives no actor). Without a member
+ * it is the coordinator itself. A caller-supplied actor grants no authority. Only authenticated execution may
+ * call this.
  */
 export function coordinatorSuperActorOf(
   config: Pick<ProjectConfig, 'team'>,
@@ -30,7 +31,7 @@ export function coordinatorSuperActorOf(
   member?: string,
 ): SuperActor | null {
   const coordinator = coordinationMemberOf(config);
-  if (!coordinator || coordinator.handle !== member) return null;
+  if (!coordinator || (member !== undefined && coordinator.handle !== member)) return null;
   return {
     kind: 'ai',
     handle: coordinator.handle,

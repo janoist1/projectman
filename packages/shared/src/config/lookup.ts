@@ -22,3 +22,24 @@ export function memberRoles(member: MemberConfig): string[] {
 export function ownerHandles(config: Pick<ProjectConfig, 'team'>): string[] {
   return config.team.members.filter((m) => m.kind === 'human' && m.access === 'owner').map((m) => m.handle);
 }
+
+/** Whether the person with this e-mail is an owner member of the project, as of its current configuration. */
+export function holdsOwnershipByEmail(
+  config: Pick<ProjectConfig, 'team'>,
+  email: string | undefined,
+): boolean {
+  return (
+    email !== undefined &&
+    config.team.members.some(
+      (member) =>
+        member.kind === 'human' &&
+        member.access === 'owner' &&
+        member.email?.trim().toLowerCase() === email.trim().toLowerCase(),
+    )
+  );
+}
+
+/** The instance's host is not among the project's owners: an owner account's project (PM-1069). null: before the first-run setup. */
+export function hostOutsideOwners(config: Pick<ProjectConfig, 'team'>, hostEmail: string | null): boolean {
+  return hostEmail !== null && !holdsOwnershipByEmail(config, hostEmail);
+}

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { InboxItem, MessageReceipt, TeamMessage, TeamThread } from '@projectman/shared';
+import { connectedActorOf } from '@projectman/shared';
+import type { Actor, InboxItem, MessageReceipt, TeamMessage, TeamThread } from '@projectman/shared';
 import type { MemberIndex } from '../../lib/members';
 import {
   answeredQuestionsFrom,
@@ -50,6 +51,8 @@ function question(id: string, source: string, patch: Partial<InboxItem> = {}): I
     ...patch,
   } as InboxItem;
 }
+
+const credential = { id: 'key', prefix: 'pmk_test' };
 
 const members = new Map([
   ['owner', { handle: 'owner', status: 'active' }],
@@ -121,6 +124,31 @@ describe('layoutThread', () => {
       [],
     );
     expect(layoutThread(items, null).map((entry) => entry.firstOfRun)).toEqual([true, true, true]);
+  });
+
+  it.each([
+    { name: 'another holder', second: connectedActorOf('kata', credential, { issuer: 'fe-1' }) },
+    {
+      name: 'another approver',
+      second: connectedActorOf('bence', credential, { issuer: 'fe-1', approvedBy: 'bence' }),
+    },
+  ])('breaks a run of connected Claude steps on $name', ({ second }) => {
+    const first = connectedActorOf('bence', credential, { issuer: 'fe-1' });
+    const connected = (id: string, ms: number, actor: Actor): TeamMessage => ({
+      ...message(id, 'fe-1', ['owner'], null, ms),
+      via: 'integrator',
+      actor,
+    });
+    const same = layoutThread(
+      threadItems([connected('m1', 0, first), connected('m2', 1000, first)], [], []),
+      null,
+    );
+    expect(same.map((entry) => entry.firstOfRun)).toEqual([true, false]);
+    const changed = layoutThread(
+      threadItems([connected('m1', 0, first), connected('m2', 1000, second)], [], []),
+      null,
+    );
+    expect(changed.map((entry) => entry.firstOfRun)).toEqual([true, true]);
   });
 
   it('orders questions and answers among the messages by time', () => {

@@ -247,6 +247,12 @@ describe('engine commands', () => {
       expect(out.join('\n')).toContain('s1 working');
     });
 
+    it('does not claim a hold or a need when the engine process is gone', async () => {
+      writeStatus({ keepAwake: { mode: 'while_working', holding: true, since: '2026-10-09T09:55:00Z' } });
+      await run('status');
+      expect(out.join('\n')).toContain('keep awake: not held');
+    });
+
     it('reads a status file of an older engine without the keep-awake fields', async () => {
       writeStatus();
       running.add(4242);

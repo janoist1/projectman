@@ -137,8 +137,8 @@ function keepAwakeLine(status: EngineStatus, alive: boolean, now: number): strin
   let state: string;
   if (keepAwake.mode === 'off') state = 'off';
   else if (keepAwake.unsupported) state = 'not supported on this system';
-  else if (keepAwake.holding && alive)
-    state = `holding${keepAwake.since ? ` for ${age(keepAwake.since, now)}` : ''}`;
+  else if (!alive) state = 'not held (the engine is not running)';
+  else if (keepAwake.holding) state = `holding${keepAwake.since ? ` for ${age(keepAwake.since, now)}` : ''}`;
   else state = 'not needed (nothing is running)';
   const counts = work
     ? `; work: ${work.sessions} sessions, ${work.fullTests} merge checks, ${work.screenshots} screenshot runs`

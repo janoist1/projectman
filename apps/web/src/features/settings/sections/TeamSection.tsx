@@ -214,26 +214,28 @@ function PrerequisiteOverrideControls({ config, helpId }: { config: ProjectConfi
       aria-describedby={helpId}
     >
       <legend className={shared.setterLegend}>{t('settings.team.prerequisiteOverride.question')}</legend>
-      <label className={shared.contactRow}>
-        <input
-          type="checkbox"
-          checked={allowed}
-          aria-describedby={noteId}
-          onChange={(event) =>
-            commit((draft) => {
-              draft.team.prerequisiteOverride = event.target.checked
-                ? 'people_and_project_manager'
-                : 'people';
-            })
-          }
-        />
-        <span>{t('settings.team.prerequisiteOverride.project_manager')}</span>
-      </label>
-      <p id={noteId} className={`${shared.muted} ${shared.setterNote}`}>
-        {names.length
-          ? t('settings.team.prerequisiteOverride.covers', { names: names.join(', ') })
-          : t('settings.team.prerequisiteOverride.noProjectManager')}
-      </p>
+      <div>
+        <label className={shared.contactRow}>
+          <input
+            type="checkbox"
+            checked={allowed}
+            aria-describedby={noteId}
+            onChange={(event) =>
+              commit((draft) => {
+                draft.team.prerequisiteOverride = event.target.checked
+                  ? 'people_and_project_manager'
+                  : 'people';
+              })
+            }
+          />
+          <span>{t('settings.team.prerequisiteOverride.project_manager')}</span>
+        </label>
+        <p id={noteId} className={`${shared.muted} ${shared.setterNote}`}>
+          {names.length
+            ? t('settings.team.prerequisiteOverride.covers', { names: names.join(', ') })
+            : t('settings.team.prerequisiteOverride.noProjectManager')}
+        </p>
+      </div>
       {allowed ? null : <p className={shared.muted}>{t('settings.team.prerequisiteOverride.humansOnly')}</p>}
       {error ? <ErrorBanner>{errorMessage(error)}</ErrorBanner> : null}
     </fieldset>

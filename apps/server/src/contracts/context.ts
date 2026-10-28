@@ -34,6 +34,8 @@ export interface ContextPackInput {
   placementDeferred?: true;
   /** Current checklist data for the selected project manager; absent for other members or older projects. */
   checklist?: Pick<ProjectChecklist, 'items'>;
+  /** The instance's host is not among the project's owners (PM-1069): the onboarding covers the owner's own machine. */
+  hostOutsideOwners?: true;
   /**
    * The server runs the full test before review on this task's handed-over commits (PM-217, PM-332): the
    * executor is available and the task's repository has a `reviewTest`. The developer's steps then ask

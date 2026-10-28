@@ -3,6 +3,7 @@ import type { ChecklistCondition } from '@projectman/shared';
 export const BASE_CHECKLIST: readonly { id: string; condition: ChecklistCondition | null }[] = [
   { id: 'goal', condition: null },
   { id: 'code', condition: null },
+  { id: 'engine', condition: 'engine_connected' },
   { id: 'providers', condition: null },
   { id: 'team', condition: null },
   { id: 'process', condition: null },

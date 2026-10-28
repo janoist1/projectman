@@ -3200,6 +3200,7 @@ export const hu = {
         feedback_surface: 'van visszajelzés-felület',
         agreement_approved: 'a megállapodás jóvá van hagyva',
         task_exists: 'van legalább egy kártya',
+        engine_connected: 'a motor csatlakozott és tartja a projektet',
       },
       reopened: {
         condition: 'Visszanyílt: a feltétel már nem teljesül',

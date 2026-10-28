@@ -199,6 +199,37 @@ describe('member context preview', () => {
   });
 });
 
+describe('the owner-account flag of the project manager context (PM-1069)', () => {
+  let h: DomainHarness;
+  beforeEach(async () => {
+    h = await createDomainHarness({ pmOnDuty: true });
+    await h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (config) => {
+      const owner = config.team.members.find((m) => m.kind === 'human' && m.access === 'owner')!;
+      if (owner.kind === 'human') owner.email = OWNER.email;
+      return 'Set the owner e-mail';
+    });
+  });
+  afterEach(async () => {
+    await h.cleanup();
+  });
+
+  it.each([
+    ['pm', 'host@example.test', true],
+    ['pm', OWNER.email, false],
+    ['dev-1', 'host@example.test', false],
+  ])('flags %s with the host %s: %s', async (handle, hostEmail, flagged) => {
+    h.repos.users.insert({
+      id: 'host-user',
+      name: 'Host',
+      email: hostEmail,
+      passwordHash: 'unused-test-hash',
+      createdAt: '2026-10-28T10:00:00.000Z',
+    });
+    await h.domain.sessions.previewContext('AR', handle, { viewer: 'owner' });
+    expect(h.contextBuilder.inputs.at(-1)!.hostOutsideOwners).toBe(flagged ? true : undefined);
+  });
+});
+
 describe('member context endpoint', () => {
   let h: AppHarness;
   let cookie: string;

@@ -38,3 +38,8 @@ export function holdsOwnershipByEmail(
     )
   );
 }
+
+/** The instance's host is not among the project's owners: an owner account's project (PM-1069). null: before the first-run setup. */
+export function hostOutsideOwners(config: Pick<ProjectConfig, 'team'>, hostEmail: string | null): boolean {
+  return hostEmail !== null && !holdsOwnershipByEmail(config, hostEmail);
+}

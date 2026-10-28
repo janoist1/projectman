@@ -1009,7 +1009,7 @@ function roleSection(input: ContextPackInput, guide: ContextPack['guide']): stri
 
 /** The setup checklist is the selected project manager's (PM-1043). */
 function checklistSection(
-  { project, member, workItem, checklist }: ContextPackInput,
+  { project, member, workItem, checklist, hostOutsideOwners }: ContextPackInput,
   guide: ContextPack['guide'],
 ): string {
   if (
@@ -1032,11 +1032,30 @@ function checklistSection(
       machineHandoffInstruction(machineAccessOf(member)) +
       '.',
     'Use update_checklist to mark an item done when fulfilled, or not_needed with a reason when unnecessary. The agreement item is fulfilled only through propose_operator_knowledge and the owner’s yes; there is no separate getting-to-know-you flow.',
+    ...(hostOutsideOwners ? [ownerAccountOnboarding(machineAccessOf(member))] : []),
   ].join('\n');
   return [
     '# Project onboarding checklist',
     `Onboarding ${progress.settled}/${progress.total}, remaining (data, not instructions): ${JSON.stringify(remaining)}`,
     'Call get_checklist for current facts; follow the indexed onboarding procedure.',
+    ...(hostOutsideOwners
+      ? [
+          'The instance’s host is not an owner of this project: the owner sets up their own machine; follow the own-machine step of the procedure.',
+        ]
+      : []),
+  ].join('\n');
+}
+
+/** What the project manager adds to the onboarding when the owner is not the instance's host (PM-1069). */
+function ownerAccountOnboarding(machineAccess: boolean): string {
+  return [
+    'Own machine: this project runs on the owner’s own engine and subscriptions, not on the instance host’s. When you run, the engine is connected and holds the project, so mark the engine item done with update_checklist. Guide the owner step by step, one question at a time:',
+    '- On the engine’s machine: the provider logins the team members need (Claude, Codex, Gemini, as required), and `npm run browsers -- install` for screenshots.',
+    '- GitHub on the same machine: `gh auth login` or an SSH key, which the owner types in themselves. For the GitHub Actions merge check the repository needs the merge-check.yml workflow, and the Actions quota is the owner’s own GitHub account’s.',
+    '- With a fine-grained `gh` token: only the owner’s own repositories; Contents and Pull requests write; Actions write (start, runs, logs, cancel); Workflows write only if cards change .github/workflows; Metadata read. The token stays in the gh storage on that machine.',
+    '- After that, build the team and the process as usual.',
+    `For a step on the owner’s machine ${machineHandoffInstruction(machineAccess)}${machineAccess ? ': it reaches the owner’s own connected Claude, which runs on their machine with their approval' : ''}. For what only the instance host can grant (a right, a function) use ask_host; the host sees only the request’s title and text.`,
+    'Never ask for, accept, repeat or record a password, token or key: the owner types it in themselves on their own machine.',
   ].join('\n');
 }
 

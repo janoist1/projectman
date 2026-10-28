@@ -352,6 +352,7 @@ export async function runEngineCli(argv: string[], io: EngineCliIo): Promise<num
           home,
           pathEnv: io.env.PATH ?? '',
           out: io.out,
+          isRunning: io.isRunning,
         };
         if (sub === 'install') {
           // The same preflight as "start": a service that would only crash and restart is not installed.

@@ -90,7 +90,6 @@ interface EngineHandlerDeps {
   terminals: Set<string>;
   /** Where the bundle of a branch is made before it is uploaded. */
   exportDir: string;
-  /** Runs a NanoGPT session start inside the scope in which the key may be fetched for that session. */
   /** A session started (PM-1087): the engine status remembers who runs it. Gets the spec the cloud sent. */
   onSessionStarted?: (spec: {
     sessionId: string;
@@ -98,6 +97,7 @@ interface EngineHandlerDeps {
     provider?: string;
     displayName: string;
   }) => void;
+  /** Runs a NanoGPT session start inside the scope in which the key may be fetched for that session. */
   nanogptStart?: <T>(sessionId: string, start: () => Promise<T>) => Promise<T>;
   /**
    * This machine's administration supervisor over its local socket (PM-763), with the one target this engine

@@ -39,6 +39,8 @@ export interface ServiceOptions {
   out: (text: string) => void;
   /** Waits between the retries of `bootstrap` (default: a blocking wait; tests pass a no-op). */
   sleep?: (ms: number) => void;
+  /** Whether a process is alive; `stop` waits for the engine's pid with it (default: `kill(pid, 0)`). */
+  isRunning?: (pid: number) => boolean;
   /** How many times `bootstrap` is tried while launchd still tears the old job down (default 5; PM-751 waits longer). */
   bootstrapTries?: number;
 }
@@ -50,6 +52,15 @@ const BOOTSTRAP_WAIT_MS = 500;
 
 const blockingSleep = (ms: number): void => {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+};
+
+const processAlive = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'EPERM';
+  }
 };
 
 /**
@@ -268,12 +279,14 @@ const STOP_WAIT_MS = 100_000;
 const STOP_POLL_MS = 1000;
 
 /**
- * Unloads the agent and waits until the engine has left. The file stays, so the engine starts again at the
+ * Unloads the agent and waits until the engine process has left. launchd forgets the job at once at `bootout`,
+ * so the wait is on the pid read before it, not on the job. The file stays, so the engine starts again at the
  * next login (`RunAtLoad`); `service uninstall` removes it.
  */
 export function stopService(options: ServiceOptions): void {
   requireMac(options);
   refuseOtherHome(options, servicePaths(options).plist);
+  const { pid } = serviceState(options);
   const unloaded = options.launchctl(['bootout', domainTarget(options.uid)]);
   // 3: "no such process" (not loaded); 113: could not find the service. Both mean there is nothing to unload.
   if (unloaded.status !== 0 && unloaded.status !== 3 && unloaded.status !== 113)
@@ -282,7 +295,8 @@ export function stopService(options: ServiceOptions): void {
       `launchctl bootout failed (${unloaded.status}): ${(unloaded.stderr || unloaded.stdout).trim() || 'no output'}`,
     );
   const sleep = options.sleep ?? blockingSleep;
-  for (let waited = 0; serviceState(options).running; waited += STOP_POLL_MS) {
+  const alive = options.isRunning ?? processAlive;
+  for (let waited = 0; pid !== null && alive(pid); waited += STOP_POLL_MS) {
     if (waited >= STOP_WAIT_MS)
       throw new EngineConfigError(
         'service_stop_timeout',

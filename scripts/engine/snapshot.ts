@@ -131,8 +131,9 @@ function serviceOf(io: SnapshotIo): EngineLocalSnapshot['service'] {
 }
 
 /**
- * An engine without a configuration is `not_initialised`. A configuration or status file that cannot be read is
- * an error (the caller exits 1): nothing is guessed about a machine whose state is not known.
+ * An engine without a configuration is `not_initialised`. A configuration that cannot be read is an error (the
+ * caller exits 1): nothing is guessed about a machine whose state is not known. A missing or unreadable status
+ * file is not: it reads as an engine that is not running.
  */
 export function buildSnapshot(io: SnapshotIo): EngineLocalSnapshot {
   const files = engineFiles(io.home);

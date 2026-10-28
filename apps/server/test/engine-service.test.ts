@@ -293,29 +293,40 @@ describe('service install, uninstall and status', () => {
       notLoaded();
       responses.bootout = { status: 3, stdout: '', stderr: 'No such process' };
       stopService(options());
-      expect(verbs()[0]).toBe('bootout gui/501/com.projectman.engine');
+      expect(verbs()).toEqual([
+        'print gui/501/com.projectman.engine',
+        'bootout gui/501/com.projectman.engine',
+      ]);
       expect(existsSync(plistFile())).toBe(true);
       expect(output.join('\n')).toContain('paused');
     });
 
-    it('stop waits for the engine to leave, and gives up after 100 s', () => {
+    it('stop waits for the pid it read before the bootout, though launchd forgets the job at once', () => {
       install();
-      let polls = 0;
-      stopService(
-        options({
-          launchctl: (args) => {
-            calls.push(args);
-            if (args[0] !== 'print') return { status: 0, stdout: '', stderr: '' };
-            return (polls += 1) <= 3
-              ? { status: 0, stdout: 'state = running\npid = 9\n', stderr: '' }
-              : { status: 113, stdout: '', stderr: '' };
-          },
-        }),
-      );
+      loaded('running');
+      let checks = 0;
+      const gone = options({
+        launchctl: (args) => {
+          calls.push(args);
+          // After the bootout launchd no longer knows the job.
+          return args[0] === 'print' && !calls.some((c) => c[0] === 'bootout')
+            ? responses.print!
+            : { status: args[0] === 'print' ? 113 : 0, stdout: '', stderr: '' };
+        },
+        isRunning: (pid) => {
+          expect(pid).toBe(9);
+          return (checks += 1) <= 3;
+        },
+      });
+      stopService(gone);
       expect(waits).toEqual([1000, 1000, 1000]);
-      waits.length = 0;
-      responses.print = { status: 0, stdout: 'state = running\npid = 9\n', stderr: '' };
-      expect(() => stopService(options())).toThrow(/did not leave within 100 s/);
+      expect(verbs().filter((v) => v.startsWith('print'))).toHaveLength(1);
+    });
+
+    it('stop gives up after 100 s when the engine does not leave', () => {
+      install();
+      loaded('running');
+      expect(() => stopService(options({ isRunning: () => true }))).toThrow(/did not leave within 100 s/);
       expect(waits).toHaveLength(100);
     });
 

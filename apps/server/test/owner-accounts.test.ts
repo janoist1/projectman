@@ -435,6 +435,53 @@ describe('owner accounts', () => {
     });
 
     const revoke = (who = host) => inject(h.app, 'POST', routes.revokeOwnerAccount(guestId), who);
+    const guestRow = async () =>
+      (
+        (await inject(h.app, 'GET', routes.ownerAccounts(), host)).json() as { accounts: OwnerAccountView[] }
+      ).accounts.find((account) => account.userId === guestId)!;
+
+    it('counts the projects the revocation would pause, and those paused now, but not one shared with the host', async () => {
+      expect(
+        (
+          await createGuestProject(guestCookie, {
+            key: 'G2',
+            workspacePath: '/fictional/guest/two',
+            engineId: guestEngine.engine.id,
+          })
+        ).statusCode,
+      ).toBe(201);
+      // The guest is named an owner of the host's project, where the host keeps a seat: it is not theirs to lose.
+      const draft = structuredClone(await h.app.projectman.domain.projects.config('AR'));
+      draft.team.members.push({
+        kind: 'human',
+        handle: 'guest',
+        displayName: 'Guest',
+        email: guest.email,
+        access: 'owner',
+        roles: [],
+      });
+      expect((await inject(h.app, 'PUT', routes.config('AR'), host, draft)).statusCode).toBe(200);
+      await h.app.projectman.domain.pauses.pause(
+        { scope: 'project', projectKey: 'G2' },
+        { userId: hostId, source: 'app' },
+      );
+      expect(await guestRow()).toMatchObject({ projectCount: 2, pausedProjectCount: 1 });
+    });
+
+    it('counts the engines that are not revoked, and those connected now', async () => {
+      await createEngine(guestCookie, 'Idle Mac');
+      const revoked = await createEngine(guestCookie, 'Old Mac');
+      registry.revoke(revoked.engine.id, hostId);
+      expect((await guestRow()).engines).toEqual({ total: 2, online: 1 });
+    });
+
+    it('reports every project paused and no engine left in the revocation response', async () => {
+      const res = await revoke();
+      const body = res.json<OwnerAccountView>();
+      expect(body.projectCount).toBeGreaterThan(0);
+      expect(body.pausedProjectCount).toBe(body.projectCount);
+      expect(body.engines).toEqual({ total: 0, online: 0 });
+    });
 
     it('pauses their projects, revokes their engines and keys, and takes the right to create away', async () => {
       const res = await revoke();

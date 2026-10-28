@@ -1526,6 +1526,12 @@ export const OwnerAccountView = z.object({
   email: z.string(),
   grantedAt: z.string(),
   revokedAt: z.string().nullable(),
+  /** The projects a revocation pauses (PM-1066): the ones the account created, and the ones it owns where the host has no seat. */
+  projectCount: z.number().int().nonnegative(),
+  /** Of those, the ones whose work is paused now (their own pause or the instance's). */
+  pausedProjectCount: z.number().int().nonnegative(),
+  /** The account's engines that are not revoked, and how many of them are connected now. */
+  engines: z.object({ total: z.number().int().nonnegative(), online: z.number().int().nonnegative() }),
 });
 export type OwnerAccountView = z.infer<typeof OwnerAccountView>;
 export const OwnerAccountsView = z.object({ accounts: z.array(OwnerAccountView) });

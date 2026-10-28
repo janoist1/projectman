@@ -15,8 +15,10 @@ should confirm still goes to them as a question.
   messages, test names, log messages, error codes.
 - The UI language is Hungarian, but Hungarian text lives **only** in locale files:
   `apps/web/src/i18n/hu.ts` (UI), `apps/feedback-widget/src/i18n/hu.ts` (the embeddable
-  feedback widget's own text) and `packages/templates/src/locales/hu.ts` (default display
-  names in templates). Components use `t('some.key')`; never hardcode UI text.
+  feedback widget's own text), `packages/templates/src/locales/hu.ts` (default display
+  names in templates), and `deploy/mac/menubar/Resources/hu.lproj/Localizable.strings`
+  (native engine menu bar app). Components use `t('some.key')`; the native app uses `L10n`.
+  Never hardcode UI text.
   Exception: the names, summaries and link labels in `projectman.structure.yaml` are UI text
   in the project's language (Hungarian here); its ids stay English.
 - Prompt text for AI members (role instructions, context pack) is English; it tells the

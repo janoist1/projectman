@@ -31,6 +31,8 @@ import {
 } from './service';
 import type { ServiceOptions } from './service';
 import { buildSnapshot } from './snapshot';
+import { installMenubar, uninstallMenubar } from './menubar';
+import type { MenubarMachine } from './menubar';
 
 /**
  * The commands of `npm run engine -- …` (PM-314). Kept apart from `cli.ts` so that tests drive them with
@@ -40,6 +42,7 @@ import { buildSnapshot } from './snapshot';
 class UsageError extends Error {}
 
 export interface EngineCliIo {
+  menubar?: MenubarMachine;
   env: NodeJS.ProcessEnv;
   cwd: string;
   /** Everything on standard input (the key of `init`), or null when it is a terminal. */
@@ -61,6 +64,7 @@ export interface EngineCliIo {
 }
 
 const USAGE = `usage:
+  npm run engine -- app install|uninstall   (macOS menu bar app)
   npm run engine -- init --cloud <https-url> --id <eng_…> [--name <name>] [--link-headers-file <path>] [--force]   (the key on standard input)
   npm run engine -- project set <KEY> <path>
   npm run engine -- repo add <KEY> <repo> <path> [--full-test "<command>"]
@@ -165,6 +169,16 @@ export async function runEngineCli(argv: string[], io: EngineCliIo): Promise<num
     const files = engineFiles(home);
     const resolveOptions = io.tmpdir ? { tmpdir: io.tmpdir } : {};
     switch (command) {
+      case 'app': {
+        if (rest.length || !['install', 'uninstall'].includes(sub ?? ''))
+          throw new UsageError('app install|uninstall');
+        if (!io.launchd || !io.menubar)
+          throw new EngineConfigError('app_unsupported', 'The menu bar app requires macOS.');
+        const options = { ...io.launchd, ...io.menubar, home, pathEnv: io.env.PATH ?? '', out: io.out };
+        if (sub === 'install') installMenubar(options);
+        else uninstallMenubar(options);
+        return 0;
+      }
       case 'init': {
         const cloud = flags.get('cloud');
         const id = flags.get('id');

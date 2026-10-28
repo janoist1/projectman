@@ -19,3 +19,5 @@ apps/server/models/history/
 
 # agent worktrees created by Claude Code
 .claude/worktrees/
+deploy/mac/menubar/.build/
+deploy/mac/menubar/.swiftpm/

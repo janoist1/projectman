@@ -144,9 +144,10 @@ export default async ({ instance, open, shoot, step, log }) => {
       access: 'developer',
     });
     await board('/p/AC', colleague);
-    await page.getByRole('button', { name: ui.focus.details }).waitFor();
+    await page.getByRole('button', { name: openButton() }).waitFor();
     await shoot(page, 'focus-strip-readonly', { widths });
-    await openPanel(ui.focus.details);
+    // The title button opens the panel at every width; "Részletek" is only beside the chips.
+    await openPanel(openButton());
     await page.getByText(ui.focus.viewerNote).waitFor();
     await shoot(page, 'focus-panel-readonly', { widths });
   });

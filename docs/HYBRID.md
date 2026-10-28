@@ -104,6 +104,13 @@ Plain settings (in the host's environment):
   4096 becomes `node --max-old-space-size=<n>`; empty or unset leaves node's default, which is
   computed from the machine's memory (about 450 MB on the 904 MB machine, so garbage is collected only
   near that line). Any other value stops the container before anything starts (exit 64).
+- **Crash diagnostics (PM-1105).** The entrypoint always adds `--report-on-fatalerror` and
+  `--heapsnapshot-near-heap-limit=1`, writing into `<home>/diagnostics` (`/data/diagnostics`): node's JSON
+  report of a fatal error (an out-of-memory crash included) and at most one heap snapshot per server
+  process as the heap nears its limit. Each start deletes all but the newest earlier snapshot, so the
+  volume holds at most two. The directory is not backed up (a snapshot holds the process's secrets).
+  Writing a snapshot needs memory beside the heap; if the machine runs short, the snapshot is lost, not
+  the data.
 - `PROJECTMAN_MEMORY_LOG_SECONDS` is read by the server (cloud and single mode): 0 (the default) is
   off, otherwise 60 to 86400 seconds; any other value stops the start with a `projectman:` message.
   Each line is `memory` with `rssMb`, `heapUsedMb`, `heapTotalMb`, `externalMb`, `arrayBuffersMb`,

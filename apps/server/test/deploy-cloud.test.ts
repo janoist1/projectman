@@ -5,8 +5,10 @@ import {
   globSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -48,6 +50,10 @@ const withoutComments = (source: string) =>
     .filter((line) => !line.trimStart().startsWith('#'))
     .join('\n');
 
+/** The node flags of the fatal-error report and the near-limit heap snapshot (PM-1105). */
+const diagnosticArgs = (home: string) =>
+  `--report-on-fatalerror --report-directory=${home}/diagnostics --heapsnapshot-near-heap-limit=1 --diagnostic-dir=${home}/diagnostics`;
+
 describe('cloud backup and restore with fake storage tools', () => {
   let temp: string;
   let home: string;
@@ -68,6 +74,7 @@ describe('cloud backup and restore with fake storage tools', () => {
     'db.sqlite-wal',
     'db.sqlite-shm',
     'logs/server.log',
+    'diagnostics/near-limit.heapsnapshot',
     'providers/login.json',
     'engine.key',
     'engine.json',
@@ -271,7 +278,9 @@ else if (tool === 'node') {
       const result = run('rehearse', join(temp, 'rehearsal'), { PROJECTMAN_HEAP_LIMIT_MB: value });
       expect(result.status).toBe(0);
       const server = calls().filter((call) => call.startsWith('node '));
-      expect(server).toEqual([`node --max-old-space-size=${Number(value)} ${app}/apps/server/dist/index.js`]);
+      expect(server).toEqual([
+        `node --max-old-space-size=${Number(value)} ${diagnosticArgs(join(temp, 'rehearsal'))} ${app}/apps/server/dist/index.js`,
+      ]);
     },
   );
 
@@ -286,10 +295,25 @@ else if (tool === 'node') {
       );
       expect(result.status).toBe(0);
       expect(calls().filter((call) => call.startsWith('node '))).toEqual([
-        `node ${app}/apps/server/dist/index.js`,
+        `node ${diagnosticArgs(join(temp, 'rehearsal'))} ${app}/apps/server/dist/index.js`,
       ]);
     },
   );
+
+  it('writes a fatal-error report and one heap snapshot into <home>/diagnostics, keeping only the newest earlier snapshot (PM-1105)', () => {
+    expect(run('backup').status).toBe(0);
+    const dir = join(temp, 'fresh', 'diagnostics');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'old.heapsnapshot'), 'x');
+    utimesSync(join(dir, 'old.heapsnapshot'), new Date(1_000_000_000_000), new Date(1_000_000_000_000));
+    writeFileSync(join(dir, 'new.heapsnapshot'), 'x');
+    writeFileSync(join(dir, 'report.json'), '{}');
+    run('serve');
+    expect(calls().filter((call) => call.startsWith('node '))).toEqual([
+      `node ${diagnosticArgs(join(temp, 'fresh'))} ${app}/apps/server/dist/index.js`,
+    ]);
+    expect(readdirSync(dir).sort()).toEqual(['new.heapsnapshot', 'report.json']);
+  });
 
   it.each(['127', '4097', '99999', 'abc', '1e3', '-256', '256.5', '256 ', ' 256', '0'])(
     'refuses PROJECTMAN_HEAP_LIMIT_MB=%j before starting anything (PM-775)',

@@ -99,10 +99,23 @@ restore_state() { # restore_state <home> <write marker: yes|no>
   if [ "$2" = yes ]; then date -u +%Y-%m-%dT%H:%M:%SZ >"$marker"; fi
 }
 
+# What a fatal error leaves behind (PM-1105): node's diagnostic report on a fatal error, and one heap snapshot
+# when the heap nears its limit, in <home>/diagnostics. Only the newest snapshot is kept from earlier starts,
+# so the volume holds at most two at a time (each is about the size of the heap limit).
+prepare_diagnostics() { # prepare_diagnostics <home>; prints the directory
+  local dir=$1/diagnostics old
+  mkdir -p "$dir"
+  chmod 700 "$dir"
+  while IFS= read -r old; do rm -f -- "$old"; done < <(ls -1t "$dir"/*.heapsnapshot 2>/dev/null | tail -n +2)
+  printf '%s\n' "$dir"
+}
+
 start_server() { # start_server <home> <port> [extra NAME=value...]; sets server_pid
-  local home=$1 port=$2 node_args=()
+  local home=$1 port=$2 node_args=() diagnostics
   shift 2
   if [ -n "$HEAP_LIMIT_MB" ]; then node_args+=("--max-old-space-size=$HEAP_LIMIT_MB"); fi
+  diagnostics=$(prepare_diagnostics "$home")
+  node_args+=("--report-on-fatalerror" "--report-directory=$diagnostics" "--heapsnapshot-near-heap-limit=1" "--diagnostic-dir=$diagnostics")
   env -i "${base_env[@]}" "${server_env[@]}" PROJECTMAN_HOME="$home" PORT="$port" HOST=127.0.0.1 PROJECTMAN_MODE=cloud "$@" \
     node ${node_args[@]+"${node_args[@]}"} "$APP_DIR/apps/server/dist/index.js" &
   server_pid=$!

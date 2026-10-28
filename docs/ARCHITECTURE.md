@@ -3179,6 +3179,12 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   machine's memory (docs/HYBRID.md "Settings"); the docker `--memory` limit, the systemd unit and the
   host (`deploy/aws`) are unchanged. **Remote engine:** none; the engine process does not read either
   variable and nothing crosses the server/engine boundary.
+  PM-1105 adds: the entrypoint also starts the server with `--report-on-fatalerror` and
+  `--heapsnapshot-near-heap-limit=1`, both writing into `<home>/diagnostics` (created at the start, mode
+  700, excluded from the restic backup because a heap snapshot holds secrets); only the newest earlier
+  heap snapshot is kept at each start. **Machine assumption:** the persistent volume has room for two
+  snapshots of about the heap limit each, and the machine has memory for writing one near the limit.
+  **Remote engine:** none; it concerns only the cloud server process.
   The cloud runs in a container with `git` and without the `claude`, `codex` and `gh` CLIs, as an
   unprivileged user (the entrypoint starts as root only to hand the mounted volume over, then drops
   with `setpriv --no-new-privs`). Its processes: the server (`HOST=127.0.0.1`), Litestream

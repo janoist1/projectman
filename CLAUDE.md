@@ -159,7 +159,9 @@ before hand-over and in fix rounds. When changing the shared `ErrorCode` union, 
 `errors.codes` in `apps/web/src/i18n/hu.ts`, run `npm run typecheck -w @projectman/web`, and
 run the web i18n test listed above. Also run `npm run dead-code` from the repository root
 before hand-over and in fix rounds; it is fast and does not queue. Fix new findings rather
-than extending the baseline. After adding, moving or renaming files, also run
+than extending the baseline. After adding a column to an existing table with `ALTER TABLE`, add it to the version-83
+rollback list in `apps/server/test/history-index.test.ts` and run that test in `apps/server`.
+After changing `apps/web/src/mocks`, run `npx vitest run src/mocks` in `apps/web`. After adding, moving or renaming files, also run
 `npx vitest run test/architecture` in `apps/server`, including before hand-over; it is fast
 and does not queue. They never run the full suite. The merger (`team.merger`,
 `claude` in PM) merges with `merge_task`. The server runs the card's single full check at merge,

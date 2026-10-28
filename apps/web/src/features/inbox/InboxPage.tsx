@@ -7,6 +7,7 @@ import {
   InboxKind,
   fixLimitDecisionOf,
   handOnRequestOf,
+  hasBoundOrigin,
   operatorApprovalOf,
   operatorKnowledgeApprovalOf,
   questionPayloadOf,
@@ -125,13 +126,14 @@ function RecentRow({
           <span className={styles.recentSubject}>{subject}</span>
         )}
         <span className={styles.recentMeta}>
-          {item.resolution?.actor?.operatorMode === 'super' ? (
+          {hasBoundOrigin(item.resolution?.actor) ? (
             <>
               <ActorName
                 actor={item.resolution.actor}
                 members={members}
                 myHandle={myHandle}
                 projectKey={item.projectKey}
+                showApproval={false}
               />{' '}
               · {formatAgo(item.resolution.at)}
             </>

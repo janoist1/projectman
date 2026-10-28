@@ -1,9 +1,14 @@
 import { useEffect, useRef } from 'react';
 import { Link, Navigate, NavLink, useLocation, useParams } from 'react-router';
-import { emailChannelOn, settingsSectionVisible, validateProjectConfig } from '@projectman/shared';
+import {
+  emailChannelOn,
+  hasBoundOrigin,
+  settingsSectionVisible,
+  validateProjectConfig,
+} from '@projectman/shared';
 import type { ConfigView, EngineStatusView } from '@projectman/shared';
 import { useConfig, useEmailChannel, useEngineStatus } from '../../api/queries';
-import { useProject } from '../../app/contexts';
+import { useProject, useProjectIndexes } from '../../app/contexts';
 import { Chip } from '../../components/Chip';
 import { Icon } from '../../components/Icon';
 import { PageHeader } from '../../components/PageHeader';
@@ -12,6 +17,7 @@ import { formatAgo } from '../../i18n/format';
 import { t } from '../../i18n/t';
 import { useDocumentTitle, useMediaQuery } from '../../lib/hooks';
 import { actorLabel } from '../../lib/members';
+import type { MemberIndex } from '../../lib/members';
 import { ConfigProblems } from './ConfigProblems';
 import { DutiesMatrix } from './DutiesMatrix';
 import { issueTarget } from './issueTarget';
@@ -39,6 +45,8 @@ function summary(
   name: string,
   engines: readonly EngineStatusView[] = [],
   emailHumans = 0,
+  members: MemberIndex = new Map(),
+  myHandle: string | null = null,
 ): string {
   if (section === 'account') return t('settings.summary.account', { name });
   if (section === 'engines')
@@ -95,20 +103,20 @@ function summary(
       return history[0]
         ? t('settings.summary.history', {
             time: formatAgo(history[0].at),
-            author:
-              history[0].actor?.operatorMode === 'super'
-                ? actorLabel(history[0].actor, new Map(), null)
-                : history[0].operator
-                  ? (config.team.members.find((member) => member.handle === history[0]!.operator)
-                      ?.displayName ?? history[0].operator)
-                  : history[0].author,
+            author: hasBoundOrigin(history[0].actor)
+              ? actorLabel(history[0].actor, members, myHandle)
+              : history[0].operator
+                ? (config.team.members.find((member) => member.handle === history[0]!.operator)
+                    ?.displayName ?? history[0].operator)
+                : history[0].author,
           })
         : t('settings.summary.historyEmpty');
   }
 }
 
 export function SettingsPage() {
-  const { key, isOwner, me, can } = useProject();
+  const { key, isOwner, me, can, myHandle } = useProject();
+  const { members } = useProjectIndexes(key);
   const config = useConfig(key);
   // Engines exist in cloud mode only, and only the host owner manages them (PM-316).
   const engineStatus = useEngineStatus();
@@ -217,7 +225,15 @@ export function SettingsPage() {
               <span
                 className={`${styles.summary} ${id === 'limits' && config.data?.config.team.limits.aiEnabled === false ? styles.disabled : ''}`}
               >
-                {summary(id, config.data, me.name, engineStatus.data?.engines, emailHumans)}
+                {summary(
+                  id,
+                  config.data,
+                  me.name,
+                  engineStatus.data?.engines,
+                  emailHumans,
+                  members,
+                  myHandle,
+                )}
               </span>
             ) : null}
           </span>

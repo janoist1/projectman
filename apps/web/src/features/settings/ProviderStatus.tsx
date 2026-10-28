@@ -63,7 +63,8 @@ export function ProviderTodo({
       );
     return null;
   }
-  if (entry.problem === 'not_logged_in') return <ProviderLoginSteps provider={provider} />;
+  if (entry.problem === 'not_logged_in')
+    return <ProviderLoginSteps provider={provider} onMachine={onMachine} />;
   if (entry.problem === 'cli_missing')
     return (
       <>

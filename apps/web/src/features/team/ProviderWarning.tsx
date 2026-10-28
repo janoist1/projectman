@@ -8,11 +8,18 @@ import { Icon } from '../../components/Icon';
 import { useToast } from '../../components/toastContext';
 import { NanogptKeyDialog } from '../settings/NanogptKeyDialog';
 
-export function ProviderLoginSteps({ provider }: { provider: AgentProvider }) {
+export function ProviderLoginSteps({
+  provider,
+  onMachine = false,
+}: {
+  provider: AgentProvider;
+  /** The login is done on the owner's own machine, not on the server. */
+  onMachine?: boolean;
+}) {
   if (provider === 'nanogpt') return null;
   return (
     <>
-      {t(`providerSettings.loginSteps.${provider}`)}{' '}
+      {t(`providerSettings.${onMachine ? 'loginStepsMachine' : 'loginSteps'}.${provider}`)}{' '}
       <code>{t(`providerSettings.loginCommands.${provider}`)}</code>
     </>
   );

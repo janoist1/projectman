@@ -5494,6 +5494,11 @@ export const hu = {
       codex: 'Futtasd a szerveren:',
       gemini: 'Futtasd a szerveren, és lépj be a Google-fiókoddal:',
     },
+    loginStepsMachine: {
+      claude: 'Futtasd a gépeden:',
+      codex: 'Futtasd a gépeden:',
+      gemini: 'Futtasd a gépeden, és lépj be a Google-fiókoddal:',
+    },
     loginWarning: 'A {provider} nincs bejelentkezve.',
     notReadyWarning: 'A {provider} nincs kész, ezért a tag munkamenete nem indul.',
     badgeNotReady: '{provider} · nincs kész',

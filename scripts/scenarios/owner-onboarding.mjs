@@ -206,7 +206,11 @@ export default async ({ open, shoot, step, log }) => {
     await page.getByText(TEXT.engineLegend, { exact: true }).first().waitFor();
     await shoot(page, 'g-wizard-engine', { widths: WIDTHS });
     // The sticky bottom bar covers the lower machine in a full-page image, so the machine block also gets a viewport shot.
-    await page.getByText(TEXT.engineLegend, { exact: true }).first().scrollIntoViewIfNeeded();
+    // Resize first, then scroll the machine block to the middle of the screen, so it is not behind the bar.
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page
+      .locator('fieldset:has(> legend)', { hasText: 'Régi gép' })
+      .evaluate((node) => node.scrollIntoView({ block: 'center' }));
     await shoot(page, 'g-wizard-engine-viewport', { widths: [390], fullPage: false });
   });
 

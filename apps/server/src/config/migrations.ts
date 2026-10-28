@@ -7,6 +7,7 @@ import {
   DEFAULT_COMPLEXITY_SETTERS,
   DEFAULT_PROJECT_LANGUAGE,
   DEFAULT_PRIORITY_SETTERS,
+  DEFAULT_PREREQUISITE_OVERRIDE,
   DEFAULT_PROJECT_MANAGER_MOVES,
   DEFAULT_TEMP_MAX_POINTS,
   DEFAULT_VIEWER_RECIPIENTS,
@@ -278,6 +279,14 @@ function addProjectManagerMoves(raw: unknown): unknown {
   return raw;
 }
 
+/** Existing projects keep today's rule: only people override an open prerequisite (PM-1099). */
+function addPrerequisiteOverride(raw: unknown): unknown {
+  const team = asRecord(asRecord(raw)?.team);
+  if (team && team.prerequisiteOverride === undefined)
+    team.prerequisiteOverride = DEFAULT_PREREQUISITE_OVERRIDE;
+  return raw;
+}
+
 /** Existing projects keep today's circle: only the project managers may set a priority (PM-1096). */
 function addPrioritySetters(raw: unknown): unknown {
   const team = asRecord(asRecord(raw)?.team);
@@ -423,6 +432,7 @@ function addTempMaxPoints(raw: unknown): unknown {
  *   - a project without an AI project manager gets one, on leave (above);
  *   - a missing card mover becomes worker (above);
  *   - missing project manager moves allow queue moves and starting work (above);
+ *   - a missing prerequisite override becomes people only (above);
  *   - a missing priority setting becomes the project managers (above);
  *   - missing complexity setters become requirements analysis and task breakdown (above);
  *   - a missing viewer recipients setting becomes the project manager only (above);
@@ -443,28 +453,30 @@ export function migrateProjectConfig(raw: unknown, context: MigrationContext): u
           addViewerRecipients(
             addComplexitySetters(
               addPrioritySetters(
-                addProjectManagerMoves(
-                  addCardMover(
-                    addProjectManager(
-                      migrateReleaseApproval(
-                        migrateLegacyConfig(
-                          migrateCodexBypass(
-                            migrateScheduledRole(
-                              dropMessageBurst(
-                                migrateSeniorLimit(
-                                  dropEmailMailbox(migrateShadowingRoles(raw, context), context),
+                addPrerequisiteOverride(
+                  addProjectManagerMoves(
+                    addCardMover(
+                      addProjectManager(
+                        migrateReleaseApproval(
+                          migrateLegacyConfig(
+                            migrateCodexBypass(
+                              migrateScheduledRole(
+                                dropMessageBurst(
+                                  migrateSeniorLimit(
+                                    dropEmailMailbox(migrateShadowingRoles(raw, context), context),
+                                    context,
+                                  ),
                                   context,
                                 ),
                                 context,
                               ),
                               context,
                             ),
-                            context,
                           ),
+                          context,
                         ),
                         context,
                       ),
-                      context,
                     ),
                   ),
                 ),

@@ -18,6 +18,7 @@ function raw(): {
     merger?: unknown;
     projectManagerMoves?: unknown;
     prioritySetters?: unknown;
+    prerequisiteOverride?: unknown;
     viewerRecipients?: unknown;
   };
   pipeline: { stages: Array<Record<string, unknown>>; labels: Array<{ id: string; setBy?: unknown }> };
@@ -41,6 +42,15 @@ describe('project configuration migrations', () => {
     const legacy = raw();
     delete legacy.team.projectManagerMoves;
     expect(migrate(legacy).config.team.projectManagerMoves).toBe('queues_and_start');
+  });
+
+  it('defaults a missing prerequisite override to people only and keeps a saved one (PM-1099)', () => {
+    const legacy = raw();
+    delete legacy.team.prerequisiteOverride;
+    expect(migrate(legacy).config.team.prerequisiteOverride).toBe('people');
+    const chosen = raw();
+    chosen.team.prerequisiteOverride = 'people_and_project_manager';
+    expect(migrate(chosen).config.team.prerequisiteOverride).toBe('people_and_project_manager');
   });
 
   it('defaults a missing priority setting to the project managers and keeps a saved one', () => {

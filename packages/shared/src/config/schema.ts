@@ -37,6 +37,10 @@ export type CardMover = z.infer<typeof CardMover>;
 export const ProjectManagerMoves = z.enum(['queues_and_start', 'start_only']);
 export type ProjectManagerMoves = z.infer<typeof ProjectManagerMoves>;
 
+/** Who may move or start a card despite an open prerequisite (PM-1099); people always may. */
+export const PrerequisiteOverride = z.enum(['people', 'people_and_project_manager']);
+export type PrerequisiteOverride = z.infer<typeof PrerequisiteOverride>;
+
 /** Who besides people may set or clear a card's priority (PM-1096). Absent: the project managers (PM-433). */
 export const PrioritySetter = z.enum(['project_manager', 'prioritization_duty']);
 export type PrioritySetter = z.infer<typeof PrioritySetter>;
@@ -419,6 +423,8 @@ export const ProjectConfig = z.object({
     cardMover: CardMover.optional(),
     /** Independent PM moves (PM-1094); absent: DEFAULT_PROJECT_MANAGER_MOVES applies. */
     projectManagerMoves: ProjectManagerMoves.optional(),
+    /** PM-1099; absent: DEFAULT_PREREQUISITE_OVERRIDE applies. */
+    prerequisiteOverride: PrerequisiteOverride.optional(),
     /** Who besides people may set a card's priority (PM-1096); absent: DEFAULT_PRIORITY_SETTERS applies. */
     prioritySetters: PrioritySetters.optional(),
     /** Duties whose holders may set complexity points; absent: `DEFAULT_COMPLEXITY_SETTERS`. */

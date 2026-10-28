@@ -154,6 +154,7 @@ export class TaskTools implements TaskToolsHandler {
       themeKey?: string | null;
       priority?: TaskPriority | null;
       complexity?: ComplexityRequest;
+      despitePrerequisites?: boolean;
     },
   ): Promise<{ task: Task }> {
     return this.calls.guard(async () => {
@@ -341,6 +342,7 @@ export class TaskTools implements TaskToolsHandler {
           ...(args.themeKey !== undefined ? { themeKey: args.themeKey } : {}),
           ...(args.priority !== undefined ? { priority: args.priority } : {}),
           ...(args.complexity ? { complexity: args.complexity } : {}),
+          ...(args.despitePrerequisites ? { despitePrerequisites: true } : {}),
           addLabels: args.addLabels,
           removeLabels: args.removeLabels,
           note: args.note,

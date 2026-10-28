@@ -6551,7 +6551,7 @@ export const hu = {
         question: 'Ki állíthat még?',
         project_manager: 'Projektmenedzser',
         duty: '„{duty}” feladatkört viselő AI-tagok',
-        covers: 'Most: {names}',
+        covers: 'Érintett tagok: {names}',
         noProjectManager: 'Most nincs Projektmenedzser a csapatban.',
         noDutyHolder: 'Most egy AI-tag sem viseli.',
         humansOnly: 'Most csak ember állíthat prioritást.',

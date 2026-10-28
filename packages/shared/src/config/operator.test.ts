@@ -345,6 +345,7 @@ describe('approval waiver eligibility (PM-691)', () => {
       (n) => (n.project.repos[0]!.reviewTest = { command: 'npm test', maxWorkers: 2, timeoutMinutes: 15 }),
     ],
     ['merger', (n) => (n.team.merger = { kind: 'developer' })],
+    ['prerequisite override', (n) => (n.team.prerequisiteOverride = 'people_and_project_manager')],
     ['boundary', (n) => (n.team.boundary = { enabled: true, leadTimeoutSeconds: 120 })],
     ['operator watch', (n) => (n.team.operatorWatch = 'drive')],
     ['waiver switch', (n) => (n.team.operatorApprovalWaiver = true)],

@@ -49,6 +49,40 @@ describe('the card mover in the settings (PM-439)', () => {
     expect(group.getByText(t('settings.team.projectManagerMoves.start_only'))).toBeTruthy();
   });
 
+  it('shows the prerequisite override off by default, and saves the ticked choice at once (PM-1099)', async () => {
+    const project = mockProject();
+    project.render(<SettingsTestRoutes initialSection="team" />);
+    const group = within(
+      await screen.findByRole('region', { name: t('settings.team.prerequisiteOverride.title') }),
+    );
+    const tick = group.getByRole('checkbox', {
+      name: t('settings.team.prerequisiteOverride.project_manager'),
+    }) as HTMLInputElement;
+    expect(tick.checked).toBe(false);
+    expect(group.getByText(t('settings.team.prerequisiteOverride.humansOnly'))).toBeTruthy();
+    fireEvent.click(tick);
+    await waitFor(() =>
+      expect(project.backend.config.team.prerequisiteOverride).toBe('people_and_project_manager'),
+    );
+    expect(lastConfigPatch(project.requests).prerequisiteOverride).toBe('people_and_project_manager');
+    await waitFor(() =>
+      expect(group.queryByText(t('settings.team.prerequisiteOverride.humansOnly'))).toBeNull(),
+    );
+  });
+
+  it('only tells a member who may not manage the team who may override a prerequisite (PM-1099)', async () => {
+    const project = mockProject();
+    project.backend.config.team.prerequisiteOverride = 'people_and_project_manager';
+    project.render(<SettingsTestRoutes initialSection="team" />, '/', { can: { manageTeam: false } });
+    const group = within(
+      await screen.findByRole('region', { name: t('settings.team.prerequisiteOverride.title') }),
+    );
+    expect(group.queryByRole('checkbox')).toBeNull();
+    expect(
+      group.getByText(t('settings.team.prerequisiteOverride.value.people_and_project_manager')),
+    ).toBeTruthy();
+  });
+
   it('shows the project manager as the default priority setter, and saves a ticked duty at once (PM-1096)', async () => {
     const project = mockProject();
     project.render(<SettingsTestRoutes initialSection="team" />);

@@ -107,6 +107,10 @@ function limitsBody(draft: ProjectConfig, saved: ProjectConfig, baseVersion: str
   };
   const projectManagerLifecycle = lifecycleOf(draft);
   const lifecycleChanged = JSON.stringify(projectManagerLifecycle) !== JSON.stringify(lifecycleOf(saved));
+  const prerequisiteOverride =
+    draft.team.prerequisiteOverride !== saved.team.prerequisiteOverride
+      ? draft.team.prerequisiteOverride
+      : undefined;
   // The priority setters go as the whole list when it changed, [] too; compared in the options' order.
   const settersOf = (config: ProjectConfig) => {
     const chosen = prioritySettersOf(config);
@@ -129,6 +133,7 @@ function limitsBody(draft: ProjectConfig, saved: ProjectConfig, baseVersion: str
     ...(cardMover ? { cardMover } : {}),
     ...(projectManagerMoves ? { projectManagerMoves } : {}),
     ...(lifecycleChanged ? { projectManagerLifecycle } : {}),
+    ...(prerequisiteOverride ? { prerequisiteOverride } : {}),
     ...(prioritySettersChanged ? { prioritySetters } : {}),
     ...(complexityChanged ? { complexitySetters: [...complexitySetters] } : {}),
     ...(contactsChanged ? { contacts } : {}),

@@ -388,6 +388,7 @@ export class TeamToolsService implements TeamToolsHandler {
       themeKey?: string | null;
       priority?: TaskPriority | null;
       complexity?: ComplexityRequest;
+      despitePrerequisites?: boolean;
     },
   ): Promise<{ task: Task }> {
     return this.tools.tasks.updateTask(ctx, args);

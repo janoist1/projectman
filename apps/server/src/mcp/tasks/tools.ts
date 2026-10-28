@@ -114,6 +114,7 @@ interface UpdateTaskArgs {
   remove_relations?: { kind: TaskRelationKind; task_key: string }[] | undefined;
   theme_key?: string | null | undefined;
   priority?: TaskPriority | null | undefined;
+  despite_prerequisites?: boolean | undefined;
 }
 
 async function runUpdateTask<C>({
@@ -141,6 +142,7 @@ async function runUpdateTask<C>({
     add_relations: addRelations,
     remove_relations: removeRelations,
     theme_key: themeKey,
+    despite_prerequisites: despitePrerequisites,
   } = args;
   const complexity = complexityArg(args);
   if (
@@ -180,6 +182,7 @@ async function runUpdateTask<C>({
     ...(themeKey !== undefined ? { themeKey } : {}),
     ...(priority !== undefined ? { priority } : {}),
     ...(complexity ? { complexity } : {}),
+    ...(despitePrerequisites ? { despitePrerequisites } : {}),
   });
   const moverName =
     task.handOn && stageId
@@ -374,6 +377,14 @@ export const TASK_TOOL_GROUP: TeamToolGroup = {
           .optional()
           .describe(
             "The card priority; null clears it. People may set it; an AI member only when the project's priority setting allows it.",
+          ),
+        despite_prerequisites: z
+          .boolean()
+          .optional()
+          .describe(
+            'Move into the work stage despite an open prerequisite. Honored only for a person, or for the ' +
+              'project manager when the project settings allow it (team.prerequisiteOverride); otherwise the ' +
+              "card's work start waits for its prerequisites.",
           ),
       },
       external: { access: 'write', run: runUpdateTask },

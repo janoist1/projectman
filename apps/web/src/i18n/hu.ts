@@ -6604,6 +6604,21 @@ export const hu = {
         noProjectManager: 'Most nincs Projektmenedzser a csapatban.',
         none: 'Egyiket sem',
       },
+      /** Who may start a card despite an open prerequisite (PM-1099). */
+      prerequisiteOverride: {
+        title: 'Nyitott előfeltétel felülbírálása',
+        help: 'Ember a figyelmeztetés után mindig elindíthat egy kártyát akkor is, ha az előfeltétele még nyitott. Más ilyenkor megvárja az előfeltétel lezárását.',
+        question: 'Ki indíthat még?',
+        project_manager: 'Projektmenedzser, kifejezett jelzéssel',
+        covers: 'Érintett tag: {names}',
+        noProjectManager: 'Most nincs Projektmenedzser a csapatban.',
+        humansOnly: 'Most csak ember indíthat nyitott előfeltétellel.',
+        readOnlyLabel: 'Ki indíthat nyitott előfeltétellel?',
+        value: {
+          people: 'Csak ember',
+          people_and_project_manager: 'Ember és a Projektmenedzser, kifejezett jelzéssel',
+        },
+      },
       /** Who besides people may set a card's priority (PM-1096). */
       priority: {
         label: 'Prioritás állítása',

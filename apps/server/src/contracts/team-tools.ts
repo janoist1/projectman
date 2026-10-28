@@ -486,6 +486,8 @@ export interface TaskToolsHandler {
       /** The card priority (PM-433); null clears it. People may set it; an AI member only when the project's priority setting allows it. */
       priority?: TaskPriority | null;
       complexity?: ComplexityRequest;
+      /** Honored only as `mayOverridePrerequisites` allows (PM-1099); otherwise dropped. */
+      despitePrerequisites?: boolean;
     },
   ): Promise<{ task: Task }>;
   /**

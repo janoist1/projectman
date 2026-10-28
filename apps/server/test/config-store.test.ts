@@ -63,6 +63,13 @@ describe('ConfigStore (customization repository)', () => {
     expect((await store.load('AR')).config.team.operatorApprovalWaiver).toBe(enabled);
   });
 
+  it('keeps the prerequisite override through a save and a load (PM-1099)', async () => {
+    const config = testConfig();
+    config.team.prerequisiteOverride = 'people_and_project_manager';
+    await store.save('AR', config, { author, message: 'Let the project manager override' });
+    expect((await store.load('AR')).config.team.prerequisiteOverride).toBe('people_and_project_manager');
+  });
+
   it.each([[['prioritization_duty']], [[]]])(
     'keeps the priority setters %j through a save and a load (PM-1096)',
     async (setters) => {

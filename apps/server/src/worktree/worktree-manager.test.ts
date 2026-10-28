@@ -129,6 +129,80 @@ function task(taskKey: string, title: string, repoName = 'app') {
   return { project, repoName, taskKey, title };
 }
 
+const SHARED_SETTING_KEYS = ['core.useReplaceRefs', 'gc.packRefs', 'maintenance.pack-refs.enabled'];
+
+async function sharedSettings(repo: string): Promise<Record<string, string>> {
+  const values: Record<string, string> = {};
+  for (const key of SHARED_SETTING_KEYS) {
+    values[key] = await git('-C', repo, 'config', '--local', '--get', key).catch(() => '(unset)');
+  }
+  return values;
+}
+
+const ALL_FALSE = Object.fromEntries(SHARED_SETTING_KEYS.map((key) => [key, 'false']));
+
+describe('shared repository settings', { timeout: 30_000 }, () => {
+  it('sets them on a new task worktree, rewrites only what changed and leaves a settled repository alone', async () => {
+    const infos: string[] = [];
+    const { logger } = testLogger();
+    const manager = createWorktreeManager({
+      rootDir,
+      logger: { ...logger, info: (_obj: unknown, msg?: string) => infos.push(msg ?? '') } as typeof logger,
+    });
+    await manager.ensureForTask(task('AR-1', 'Change greeting'));
+    expect(await sharedSettings(clone)).toEqual(ALL_FALSE);
+    expect(infos.filter((m) => m === 'set shared repository git setting')).toHaveLength(3);
+    await git('-C', clone, 'config', '--local', 'core.useReplaceRefs', 'true');
+    await manager.ensureForTask(task('AR-1', 'Change greeting'));
+    expect(await sharedSettings(clone)).toEqual(ALL_FALSE);
+    expect(infos.filter((m) => m === 'set shared repository git setting')).toHaveLength(4);
+    await manager.ensureForTask(task('AR-1', 'Change greeting'));
+    expect(infos.filter((m) => m === 'set shared repository git setting')).toHaveLength(4);
+  });
+
+  it('sets them on a merge-fix checkout, new and reused', async () => {
+    const manager = createWorktreeManager({ rootDir, logger: testLogger().logger });
+    const key = { project, repoName: 'app', taskKey: 'AR-1' };
+    const commit = await git('-C', clone, 'rev-parse', 'HEAD');
+    await manager.ensureMergeFix({ ...key, commit });
+    expect(await sharedSettings(clone)).toEqual(ALL_FALSE);
+    await git('-C', clone, 'config', '--local', 'gc.packRefs', 'true');
+    await manager.ensureMergeFix({ ...key, commit });
+    expect(await sharedSettings(clone)).toEqual(ALL_FALSE);
+  });
+
+  it('shows the real main again after a packed replace ref is switched off', async () => {
+    const mainCommit = await git('-C', clone, 'rev-parse', 'main');
+    const subject = await git('-C', clone, 'log', '-1', '--format=%s', 'main');
+    const other = await git(
+      '-C',
+      clone,
+      'commit-tree',
+      `${mainCommit}^{tree}`,
+      '-p',
+      mainCommit,
+      '-m',
+      'other',
+    );
+    await git('-C', clone, 'replace', mainCommit, other);
+    await git('-C', clone, 'pack-refs', '--all');
+    expect(await readFile(path.join(clone, '.git', 'packed-refs'), 'utf8')).toContain(
+      `refs/replace/${mainCommit}`,
+    );
+    expect(await git('-C', clone, 'log', '-1', '--format=%s', 'main')).toBe('other');
+    const manager = createWorktreeManager({ rootDir, logger: testLogger().logger });
+    await manager.ensureForTask(task('AR-1', 'Change greeting'));
+    expect(await git('-C', clone, 'log', '-1', '--format=%s', 'main')).toBe(subject);
+  });
+
+  it('fails closed without creating the worktree when a setting cannot be written', async () => {
+    await writeFile(path.join(clone, '.git', 'config.lock'), '');
+    const manager = createWorktreeManager({ rootDir, logger: testLogger().logger });
+    await expect(manager.ensureForTask(task('AR-1', 'Change greeting'))).rejects.toThrow(/config/);
+    expect(await exists(path.join(rootDir, 'AR', 'AR-1-app'))).toBe(false);
+  });
+});
+
 describe('worktree manager', { timeout: 30_000 }, () => {
   it('resolves a real conflict in a separate pinned fix worktree and removes only that checkout and branch', async () => {
     const manager = createWorktreeManager({ rootDir, logger: testLogger().logger });

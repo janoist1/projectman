@@ -45,6 +45,10 @@ export const ProjectManagerLifecycle = z
   .refine((ids) => new Set(ids).size === ids.length, 'duplicate lifecycle actions');
 export type ProjectManagerLifecycle = z.infer<typeof ProjectManagerLifecycle>;
 
+/** Who may move or start a card despite an open prerequisite (PM-1099); people always may. */
+export const PrerequisiteOverride = z.enum(['people', 'people_and_project_manager']);
+export type PrerequisiteOverride = z.infer<typeof PrerequisiteOverride>;
+
 /** Who besides people may set or clear a card's priority (PM-1096). Absent: the project managers (PM-433). */
 export const PrioritySetter = z.enum(['project_manager', 'prioritization_duty']);
 export type PrioritySetter = z.infer<typeof PrioritySetter>;
@@ -429,6 +433,8 @@ export const ProjectConfig = z.object({
     projectManagerMoves: ProjectManagerMoves.optional(),
     /** Lifecycle actions the PM may take on its own (PM-1098); absent: DEFAULT_PROJECT_MANAGER_LIFECYCLE. */
     projectManagerLifecycle: ProjectManagerLifecycle.optional(),
+    /** PM-1099; absent: DEFAULT_PREREQUISITE_OVERRIDE applies. */
+    prerequisiteOverride: PrerequisiteOverride.optional(),
     /** Who besides people may set a card's priority (PM-1096); absent: DEFAULT_PRIORITY_SETTERS applies. */
     prioritySetters: PrioritySetters.optional(),
     /** Duties whose holders may set complexity points; absent: `DEFAULT_COMPLEXITY_SETTERS`. */

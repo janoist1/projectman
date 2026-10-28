@@ -387,6 +387,19 @@ item and no `with`/customer conversation. Refusal is `project_manager_only` (HTT
 `forbidden` with the domain code). `get_project_state` is read-only for the Operator and the
 internal PM without an owner request; guest/customer access remains excluded.
 
+Card tools (PM-1040, `PM_CARD_TOOLS`): the selected PM may also call `reassign_task` (change or
+clear a card's assignee) and `cancel_task` (close a card as cancelled). Both pass the same
+`assertCoordinationSession` guard, so only the selected PM's internal `general` session reaches
+them; they need no owner request, and an approval continuation refuses them. Each requires a
+non-empty `reason` (at most 500 characters), recorded on the card's timeline under the PM's own
+name (`note` on `task_assigned`, `reason` on `task_updated` with `action: cancelled`). Other AI
+members receive `project_manager_only` at the tool. The task service repeats the check
+(`requireLifecycleAccess` with `isCoordinationActor`, and the assignee rule for `reassign_task`):
+a PM acting through an integrator (`via`) is refused with `insufficient_access`, as is any other
+AI member. The external (bearer, super actor) endpoint has no binding for either tool, so it is
+denied by default. Existing checks still apply: the member must exist and not be on leave, and a
+closed card or a theme is refused. Deleting a card is unchanged and stays with the owners.
+
 PM starts need either the PM's own open `CoordinationRequest` or a permitted signal step.
 A request opens only when an owner's own-login message or answer is actually delivered to
 the current PM's internal general session. Other humans, integrators, AI members and system

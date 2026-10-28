@@ -539,9 +539,12 @@ export class SessionOrchestrator {
     this.limits.observeProviderUsage(provider, engineId, usage);
   }
 
-  /** Persisted quota deferrals must check usage again before any restart-time inference. */
-  restoreProviderQuota(): void {
-    this.limits.restoreProviderQuota();
+  /**
+   * Persisted quota deferrals must check usage again before any restart-time inference, on the key of
+   * the engine each deferred start runs on.
+   */
+  restoreProviderQuota(engineIds: Array<EngineId | null>): void {
+    this.limits.restoreProviderQuota(engineIds);
   }
 
   /** Unknown quota holds retry only the read-only usage probe, never inference. */
@@ -1119,7 +1122,7 @@ export class SessionOrchestrator {
    * the session took it; rejects when it did not (PM-571), so the caller leaves the message waiting.
    */
   typeInto(session: Session, text: string): Promise<void> {
-    this.assertProviderCooldown(session.provider ?? DEFAULT_AGENT_PROVIDER);
+    this.assertProviderCooldown(session.provider ?? DEFAULT_AGENT_PROVIDER, engineIdOf(session));
     // The session is being closed (PM-288): the message stays waiting, and its wake-up resumes the session.
     if (this.closeStates.isClosing(session.id)) throw new Error(`session ${session.id} is closing`);
     return this.deps.runner.sendUserMessage(session.id, text);
@@ -1617,11 +1620,12 @@ export class SessionOrchestrator {
       );
     }
     await this.refreshProviderQuota();
-    this.assertProviderCooldown(provider);
+    this.assertProviderCooldown(provider, engineId);
   }
 
-  assertProviderCooldown(provider: AgentProvider): void {
-    this.limits.assertProviderCooldown(provider);
+  /** The hold on the provider's key that sessions on the engine use (none: the cloud's). */
+  assertProviderCooldown(provider: AgentProvider, engineId: EngineId | null | undefined): void {
+    this.limits.assertProviderCooldown(provider, engineId);
   }
 
   /**

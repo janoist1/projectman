@@ -265,9 +265,10 @@ export class Admission {
       throw conflict('ai_limit_reached', `${busy} AI sessions are working (limit ${max})`, { busy, max });
     }
     const provider = member?.provider ?? DEFAULT_AGENT_PROVIDER;
-    this.sessions.assertProviderCooldown(provider);
     // The engine the member's sessions run on must be connected (PM-311): the start waits for it.
     const engineId = member ? this.assertEngineOnline(projectKey, member.handle) : undefined;
+    // The hold is on the key that engine uses (PM-1091), so it is read once the engine is known.
+    this.sessions.assertProviderCooldown(provider, engineId);
     // A provider that is not logged in cannot run the session (PM-324): the start waits for the login.
     if (member) await this.sessions.assertProviderReady(provider, member.handle, engineId);
     if (pausesOnPlanUsage(provider)) {
@@ -394,7 +395,7 @@ export class Admission {
    * quota hold and the last known usage of the account on the member's engine.
    */
   assertProviderAvailable(config: ProjectConfig, provider: AgentProvider, member: MemberHandle): void {
-    this.sessions.assertProviderCooldown(provider);
+    this.sessions.assertProviderCooldown(provider, this.engines?.engineFor(config.project.key, member));
     this.assertUsageBelowPause(
       config,
       provider,
@@ -444,7 +445,10 @@ export class Admission {
     const projectKey = request.config.project.key;
     const running = this.sessions.findRunning(projectKey, request.member.handle, request.workItem);
     await this.sessions.refreshProviderQuota();
-    this.sessions.assertProviderCooldown(request.member.provider ?? DEFAULT_AGENT_PROVIDER);
+    this.sessions.assertProviderCooldown(
+      request.member.provider ?? DEFAULT_AGENT_PROVIDER,
+      this.engines?.engineFor(projectKey, request.member.handle),
+    );
     if (running) {
       const result: EnsureSessionResult = {
         session: running,
@@ -568,16 +572,18 @@ export class Admission {
    */
   restoreDeferred(rebuild: (spec: StartSpec) => AutomaticStart | null): number {
     const { restored, removed } = this.deferred.restore(rebuild);
-    if (
-      this.deferred
-        .list()
-        .some(
-          ({ start, waiting }) =>
-            start.spec().kind === 'provider_resume' ||
-            (waiting.reason === 'provider_rate_limited' && waiting.provider === 'nanogpt'),
-        )
-    )
-      this.sessions.restoreProviderQuota();
+    // The key each such start would use decides whose hold is restored (PM-1091); no engine: the cloud's.
+    const engineIds = this.deferred.list().flatMap(({ start, waiting }): Array<EngineId | null> => {
+      const spec = start.spec();
+      if (
+        spec.kind !== 'provider_resume' &&
+        !(waiting.reason === 'provider_rate_limited' && waiting.provider === 'nanogpt')
+      )
+        return [];
+      const member = spec.kind === 'provider_resume' ? spec.handle : (start.waitsFor() ?? waiting.member);
+      return [member ? (this.engines?.engineFor(start.projectKey, member) ?? null) : null];
+    });
+    if (engineIds.length > 0) this.sessions.restoreProviderQuota(engineIds);
     if (restored + removed > 0)
       this.ctx.logger.info({ restored, removed }, 'deferred session starts restored');
     return restored;

@@ -295,32 +295,34 @@ function ComplexityControls({ config }: { config: ProjectConfig }) {
       <p id={helpId} className={shared.help}>
         {t('settings.team.complexity.help')}
       </p>
-      <p>
-        {dutyList.length
-          ? t('settings.team.complexity.duties', { duties: dutyList.join(', ') })
-          : t('settings.team.complexity.ownerOnly')}
-      </p>
-      <p className={shared.muted} aria-live="polite">
-        {t('settings.team.complexity.covers', { names: names(setters) })}
-      </p>
-      {unheld.length ? (
-        <p className={shared.muted}>
-          {t('settings.team.complexity.unheld', { duties: unheld.map((id) => duties[id].name).join(', ') })}{' '}
-          <Link to={`/p/${key}/settings/duties`}>{t('duties.title')}</Link>
+      <div className={shared.summaryBlock}>
+        <p>
+          {dutyList.length
+            ? t('settings.team.complexity.duties', { duties: dutyList.join(', ') })
+            : t('settings.team.complexity.ownerOnly')}
         </p>
-      ) : null}
-      {developers.length ? (
-        <p className={shared.warning}>
-          {t('settings.team.complexity.developerWarning', { names: names(developers) })}
+        <p className={shared.muted} aria-live="polite">
+          {t('settings.team.complexity.covers', { names: names(setters) })}
         </p>
-      ) : null}
+        {unheld.length ? (
+          <p className={shared.muted}>
+            {t('settings.team.complexity.unheld', { duties: unheld.map((id) => duties[id].name).join(', ') })}{' '}
+            <Link to={`/p/${key}/settings/duties`}>{t('duties.title')}</Link>
+          </p>
+        ) : null}
+        {developers.length ? (
+          <p className={shared.warning}>
+            {t('settings.team.complexity.developerWarning', { names: names(developers) })}
+          </p>
+        ) : null}
+      </div>
       <details open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
         <summary className={shared.foldSummary}>
           <Icon name="chevronRight" size={14} strokeWidth={2.4} className={shared.chevron} />
           {t('settings.team.complexity.choose')}
         </summary>
         <fieldset className={shared.controls} disabled={locked || saving} aria-busy={saving}>
-          <legend>{t('settings.team.complexity.question')}</legend>
+          <legend className={shared.legendGap}>{t('settings.team.complexity.question')}</legend>
           {DUTY_GROUPS.map((group) => (
             <div
               key={group}
@@ -339,6 +341,7 @@ function ComplexityControls({ config }: { config: ProjectConfig }) {
                       <input
                         type="checkbox"
                         checked={chosen.includes(id)}
+                        aria-labelledby={`settings-complexity-name-${id}`}
                         aria-describedby={`settings-complexity-holders-${id}`}
                         onChange={(event) =>
                           commit((draft) => {
@@ -349,16 +352,15 @@ function ComplexityControls({ config }: { config: ProjectConfig }) {
                           })
                         }
                       />
-                      <span>{duties[id].name}</span>
+                      <span className={shared.dutyText}>
+                        <span id={`settings-complexity-name-${id}`}>{duties[id].name}</span>
+                        <span id={`settings-complexity-holders-${id}`} className={shared.dutyHolders}>
+                          {holders.length
+                            ? t('settings.team.complexity.holders', { names: names(holders) })
+                            : t('settings.team.complexity.noHolder')}
+                        </span>
+                      </span>
                     </label>
-                    <p
-                      id={`settings-complexity-holders-${id}`}
-                      className={`${shared.help} ${shared.holders}`}
-                    >
-                      {holders.length
-                        ? t('settings.team.complexity.holders', { names: names(holders) })
-                        : t('settings.team.complexity.noHolder')}
-                    </p>
                   </div>
                 );
               })}

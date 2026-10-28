@@ -322,10 +322,35 @@ details[open] > .foldSummary .chevron {
   margin: 0;
 }
 
-/* The members who hold a duty now, under its tick, indented past the checkbox. */
-.holders {
-  padding-left: 28px;
-  overflow-wrap: anywhere;
+/* A duty's name with the members who hold it now under it, one block beside the tick (as the roles page's summary). */
+.dutyText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 0;
+}
+
+.dutyHolders {
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--c-ink-4);
+}
+
+/* The lines of a summary read as one block: a small step between them instead of the paragraphs' own margins. */
+.summaryBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.summaryBlock p {
+  margin: 0;
+}
+
+/* The question of a folded list: a step above the first group title. */
+.legendGap {
+  padding: 0;
+  margin-bottom: 6px;
 }
 
 /* A named group of related controls inside a section ("Körbe futó munka"). */

@@ -11,7 +11,10 @@ describe('removal of the mailbox name from stored commands (PM-1039)', () => {
     try {
       for (const migration of migrations.filter((item) => item.version <= 121)) db.exec(migration.sql);
       db.pragma('user_version = 121');
-      db.exec(`INSERT INTO projects VALUES ('AR', 'Example', NULL, 'v1', '2026-01-01', '2026-01-01');`);
+      db.exec(
+        `INSERT INTO projects (key, name, config_version, created_at, updated_at)
+         VALUES ('AR', 'Example', 'v1', '2026-01-01', '2026-01-01');`,
+      );
       const memberUpdate = { kind: 'member_update', request: { handle: 'dev-1', ...withMailbox } };
       const operate = { kind: 'operate', operation: { changes: withMailbox } };
       const untouched = { kind: 'member_update', request: { handle: 'dev-2', email: { enabled: true } } };
@@ -48,14 +51,22 @@ describe('removal of the mailbox name from stored commands (PM-1039)', () => {
         }),
       );
       // Not an approval: its payload is not ours to rewrite.
-      insertInbox.run('inb_3', 'question', JSON.stringify({ operator: { operation: { changes: withMailbox } } }));
+      insertInbox.run(
+        'inb_3',
+        'question',
+        JSON.stringify({ operator: { operation: { changes: withMailbox } } }),
+      );
 
       expect(migrate(db)).toBe(LATEST_SCHEMA_VERSION);
 
       const command = (table: string, id: string) =>
-        JSON.parse((db.prepare(`SELECT command FROM ${table} WHERE id = ?`).get(id) as { command: string }).command);
+        JSON.parse(
+          (db.prepare(`SELECT command FROM ${table} WHERE id = ?`).get(id) as { command: string }).command,
+        );
       const payload = (id: string) =>
-        JSON.parse((db.prepare('SELECT payload FROM inbox_items WHERE id = ?').get(id) as { payload: string }).payload);
+        JSON.parse(
+          (db.prepare('SELECT payload FROM inbox_items WHERE id = ?').get(id) as { payload: string }).payload,
+        );
       expect(command('super_handoffs', 'sho_1')).toEqual({
         kind: 'member_update',
         request: { handle: 'dev-1', email: { enabled: true }, complexityLimit: 5 },

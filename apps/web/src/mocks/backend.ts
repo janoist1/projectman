@@ -3611,8 +3611,7 @@ export class MockBackend {
       if (input.approver !== undefined) nextMember.approver = input.approver;
       if (input.outboundNetwork !== undefined) nextMember.outboundNetwork = input.outboundNetwork;
       if (input.machineAccess !== undefined) nextMember.machineAccess = input.machineAccess;
-      if (input.email !== undefined)
-        nextMember.email = applyMemberEmailChange(nextMember.email, input.email);
+      if (input.email !== undefined) nextMember.email = applyMemberEmailChange(nextMember.email, input.email);
     }
     if (input.access !== undefined && nextMember.kind !== 'human')
       return error(400, 'not_human_member', 'Access is for humans');

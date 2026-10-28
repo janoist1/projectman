@@ -5,12 +5,7 @@ import { ComplexityPoints, COMPLEXITY_REASON_MAX } from '../domain/complexity';
 import { DutyId } from '../domain/duty';
 import { EngineId } from '../domain/engine';
 import { ChatItem } from '../chat/chat';
-import {
-  AutoCompactWindowTokens,
-  MemberSchedule,
-  ProjectConfig,
-  RepoConfig,
-} from '../config/schema';
+import { AutoCompactWindowTokens, MemberSchedule, ProjectConfig, RepoConfig } from '../config/schema';
 import { ConfigChangeRow } from '../config/operator';
 import { canonical } from '../config/canonical';
 import { OperatorKnowledgeChange } from '../domain/operator-knowledge';

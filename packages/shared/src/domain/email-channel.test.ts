@@ -317,7 +317,10 @@ describe('email member address', () => {
     const configs = [configOf('AR', [on('pm')]), configOf('BR', [on('pm')])];
     expect(emailMailboxOwners(configs, 'pm')).toHaveLength(2);
     const member = on('pm');
-    expect(emailMailboxState(configs, 'AR', member, domain)).toEqual({ address: null, addressConflict: true });
+    expect(emailMailboxState(configs, 'AR', member, domain)).toEqual({
+      address: null,
+      addressConflict: true,
+    });
     expect(emailOwnAddress(configs, 'BR', member, domain)).toBeNull();
     expect(emailOwnAddress([configs[0]!], 'AR', member, domain)).toBe('pm@reply.example.org');
   });

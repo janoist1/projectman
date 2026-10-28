@@ -44,7 +44,11 @@ export function RevokeOwnerDialog({ account, onClose }: { account: OwnerAccountV
       }
     >
       <ul>
-        <li>{t('owners.revokeProjects', { n: account.projectCount })}</li>
+        <li>
+          {account.projectCount === 0
+            ? t('owners.revokeNoProjects')
+            : t('owners.revokeProjects', { n: account.projectCount })}
+        </li>
         <li>{t('owners.revokeKeys')}</li>
         <li>{t('owners.revokeNew')}</li>
         <li>{t('owners.revokeData')}</li>

@@ -26,6 +26,15 @@
   border-bottom: 1px solid var(--c-line);
   min-width: 0;
 }
+.row:last-child {
+  border-bottom: 0;
+}
+.linkHint {
+  margin-top: 10px;
+}
+.more {
+  margin-left: -15px;
+}
 .body {
   flex: 1;
   min-width: 0;

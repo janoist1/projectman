@@ -6,6 +6,7 @@ import { queryKeys } from '../../../api/queryKeys';
 import { createMockFetch, mockProject } from '../../../test/mockProject';
 import { t } from '../../../i18n/t';
 import { OwnersSection } from './OwnersSection';
+import { RevokeOwnerDialog } from './RevokeOwnerDialog';
 import { SettingsTestRoutes } from '../testRoutes';
 
 afterEach(() => setFetchImplementation((input, init) => globalThis.fetch(input, init)));
@@ -132,6 +133,13 @@ describe('host owner settings', () => {
     ).toBe(true);
   });
 
+  it('explains revocation when the owner has no projects', async () => {
+    mockProject().render(<RevokeOwnerDialog account={{ ...account, projectCount: 0 }} onClose={() => {}} />);
+    const dialog = await screen.findByRole('alertdialog');
+    expect(within(dialog).getByText(t('owners.revokeNoProjects'))).toBeTruthy();
+    expect(within(dialog).queryByText(t('owners.revokeProjects', { n: 0 }))).toBeNull();
+  });
+
   it('confirms account revocation with cancel focused and moves it into the revoked fold', async () => {
     const project = fixture();
     project.render(<OwnersSection />);
@@ -181,8 +189,10 @@ describe('host owner settings', () => {
 
   it('explains a concurrently closed request and refreshes the list', async () => {
     const project = fixture();
+    project.backend.owners.requests.push({ ...request, id: 'hr_2', title: 'Another request' });
     project.render(<OwnersSection />);
-    fireEvent.click(await screen.findByRole('button', { name: t('hostRequests.answer') }));
+    const first = (await screen.findByText(request.title)).closest('li')!;
+    fireEvent.click(within(first).getByRole('button', { name: t('hostRequests.answer') }));
     project.backend.owners.requests[0]!.state = 'withdrawn';
     fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Answer' } });
     fireEvent.click(screen.getByRole('button', { name: t('hostRequests.sendAnswer') }));
@@ -191,6 +201,8 @@ describe('host owner settings', () => {
     expect(
       project.requests.filter((r) => r.path === '/api/host-requests' && r.method === 'GET').length,
     ).toBeGreaterThan(1);
+    fireEvent.click(screen.getByRole('button', { name: t('hostRequests.answer') }));
+    expect(screen.queryByText(t('hostRequests.stale'))).toBeNull();
   });
 
   it('preserves the answer when sending fails', async () => {

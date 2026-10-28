@@ -9,6 +9,7 @@ import { TextField } from '../../../components/Field';
 import { formatDate } from '../../../i18n/format';
 import { t } from '../../../i18n/t';
 import { errorMessage } from '../../../lib/errors';
+import styles from './owners.module.css';
 
 export function InviteOwnerDialog({ onClose }: { onClose: () => void }) {
   const create = useCreateOwnerInvitation();
@@ -56,7 +57,9 @@ export function InviteOwnerDialog({ onClose }: { onClose: () => void }) {
             label={t('owners.link')}
             failedText={t('owners.copyFailed')}
           />
-          <p>{t('owners.linkHint', { expires: formatDate(created.expiresAt) })}</p>
+          <p className={styles.linkHint}>
+            {t('owners.linkHint', { expires: formatDate(created.expiresAt) })}
+          </p>
         </>
       ) : (
         <form

@@ -33,7 +33,12 @@ function RequestBody({ text }: { text: string }) {
         {text}
       </p>
       {overflows && (
-        <Button variant="ghost" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
+        <Button
+          variant="ghost"
+          className={styles.more}
+          aria-expanded={expanded}
+          onClick={() => setExpanded(!expanded)}
+        >
           {t(expanded ? 'hostRequests.less' : 'hostRequests.more')}
         </Button>
       )}
@@ -168,7 +173,11 @@ export function HostRequestsCard({ requests }: { requests: HostRequestView[] }) 
   );
   return (
     <>
-      {stale && <p role="status">{t('hostRequests.stale')}</p>}
+      {stale && (
+        <p className={styles.meta} role="status">
+          {t('hostRequests.stale')}
+        </p>
+      )}
       {open.length ? (
         <ul className={styles.list} aria-label={t('hostRequests.title')}>
           {open.map(row)}

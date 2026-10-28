@@ -34,7 +34,7 @@ export const hu = {
     done: 'Kész',
     link: 'Meghívólink',
     linkHint:
-      'Küldd el neki a linket. Egyszer használható, és {expires}-kor lejár. Az alkalmazás nem küld e-mailt, és a linket később nem mutatjuk újra.',
+      'Küldd el neki a linket. Egyszer használható, lejárata: {expires}. Az alkalmazás nem küld e-mailt, és a linket később nem mutatjuk újra.',
     copyFailed: 'A másolás nem sikerült. Jelöld ki és másold a hivatkozást.',
     pending: 'Függő meghívók',
     expires: 'Lejárat: {date}',
@@ -44,7 +44,8 @@ export const hu = {
     revokeConfirm: 'Visszavonás',
     actions: '{name} – műveletek',
     revokeTitle: 'Visszavonod {name} hozzáférését?',
-    revokeProjects: 'A {n} projektje szünetel: új munka nem indul rajtuk.',
+    revokeProjects: '{n} projektje szünetel: új munka nem indul rajtuk.',
+    revokeNoProjects: 'Még nincs projektje.',
     revokeKeys: 'A motorja és a kliensei kulcsa azonnal érvénytelen.',
     revokeNew: 'Új projektet nem hozhat létre.',
     revokeData: 'Az adatai megmaradnak, és te továbbra sem látod őket.',

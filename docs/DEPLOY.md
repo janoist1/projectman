@@ -239,6 +239,15 @@ by any card: the owner installs it, after the first hybrid release has been rehe
 - **An engine that does not stop**: the coordinator waits 60 seconds and stops with a fixed code. It does not kill
   the process; find out why it does not exit.
 
+## Keeping the Mac awake while the engine works (PM-1086)
+
+The engine keeps the Mac from sleeping on its own while a session, a merge check or a screenshot run is
+active, and lets go two minutes after the last one ended. Running `caffeinate` by hand is no longer needed.
+It holds `/usr/bin/caffeinate -i -s` (idle and system sleep on mains power; the display may sleep, and a Mac
+on battery with the lid closed sleeps anyway). `npm run engine -- status` shows whether it holds and what
+runs. To turn it off (or on again): `npm run engine -- keep-awake off|on`; it takes effect when the engine
+is restarted.
+
 ## Separate work volume on a Mac (PM-846)
 
 macOS keeps a log of every file change in the `fseventsd` daemon. Task worktrees, member workspaces,
@@ -467,7 +476,9 @@ It holds paths and an origin, never a secret:
   path, query or fragment. A redirect is never followed, so the key never goes to another origin.
 - `keyFile` is the file of "Integrator access" above. `accessHeadersFile` (cloud only) is the
   integrator's service-token file made by `npm run cloud -- edge` (`CF-Access-Client-Id`,
-  `CF-Access-Client-Secret`). A relative path is relative to the configuration file's directory.
+  `CF-Access-Client-Secret`). A relative path is relative to the configuration file's directory. A
+  further owner's client points `accessHeadersFile` at the file `owners/<id>/integrator-access-token.json`
+  that the host made for them (PM-1065) and handed over outside projectman.
 - The configuration, the key file and the Access file must be regular files of your user with mode 600,
   in a directory of your user with mode 700, and none may be a symbolic link; otherwise the command
   stops with status 3 before it sends anything.

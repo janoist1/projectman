@@ -362,13 +362,14 @@ describe('web push service', () => {
     expect(JSON.stringify(logger)).not.toContain('Private transport secret');
     expect(log.mock.calls).toEqual([[{ deviceId: d.id, result: 'failed' }, 'web push delivery']]);
   });
-  it('transfers a shared endpoint to its new user', () => {
+  it('refuses another user’s endpoint and leaves their device alone', () => {
     const d = subscribe();
     repos.users.insert({ ...user, id: 'other', email: 'other@example.com' });
-    const next = service.subscribe('other', input(), '', 'https://project.example');
-    expect(next.created).toBe(true);
-    expect(next.device.id).not.toBe(d.id);
-    expect(service.overview(user.id).devices).toHaveLength(0);
+    expect(() => service.subscribe('other', input(), '', 'https://project.example')).toThrow(
+      expect.objectContaining({ code: 'web_push_endpoint_taken', status: 409 }),
+    );
+    expect(service.overview(user.id).devices).toMatchObject([{ id: d.id }]);
+    expect(service.overview('other').devices).toHaveLength(0);
   });
   it('updates an existing endpoint even at the device limit', () => {
     for (let i = 0; i < 20; i++) subscribe(String(i));

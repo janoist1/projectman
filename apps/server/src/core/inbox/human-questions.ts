@@ -192,6 +192,7 @@ export class HumanQuestions implements HumanQuestionsPort {
         ...(details ? { details } : {}),
         ...(autoLabel ? { autoLabel } : {}),
         ...(attachments.length > 0 ? { attachments } : {}),
+        ...(input.signalId ? { signalId: input.signalId } : {}),
         ...(caller.kind === 'external' ? { externalQuestion: caller.origin } : {}),
       },
       options,

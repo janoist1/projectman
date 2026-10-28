@@ -22,6 +22,7 @@ export const ERROR_CODES = [
   'web_push_unavailable',
   'web_push_endpoint_invalid',
   'web_push_device_limit',
+  'web_push_endpoint_taken',
   'web_push_quiet_hours_invalid',
   'web_push_integrator_refused',
   'web_push_test_too_soon',

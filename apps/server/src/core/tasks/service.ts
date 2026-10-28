@@ -22,6 +22,7 @@ import type {
   Task,
   TaskReadyHold,
   TaskStartOffer,
+  TaskStartWaiting,
   WorkOutage,
   TaskPriority,
   TaskDetail,
@@ -248,6 +249,16 @@ export class TaskService implements TaskSchedulingReader {
    */
   readSchedulingTasks(projectKey: string, query: TaskSchedulingQuery): Task[] {
     return this.ctx.repos.tasks.readScheduling(projectKey, query);
+  }
+
+  /** Why the start of AI work on a stored card waits, as `get` would show it (PM-455). */
+  startWaitingOf(task: Task): TaskStartWaiting | undefined {
+    return this.store.startWaitingOf(task);
+  }
+
+  /** Whether the system is trying a deferred start of the card right now (its wait reads empty meanwhile). */
+  startAttempting(task: Task): boolean {
+    return this.store.startAttempting(task);
   }
 
   get(projectKey: string, taskKey: string): Task {

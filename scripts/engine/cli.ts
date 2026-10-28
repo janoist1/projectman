@@ -5,6 +5,7 @@
 //   npm run engine -- repo add <KEY> <repo> <path> [--full-test "<command>"]
 //   npm run engine -- repo remove <KEY> <repo>
 //   npm run engine -- status
+//   npm run engine -- keep-awake on|off   (PM-1086; the Mac stays awake while work runs; after the engine restarts)
 //   npm run engine -- start
 //   npm run engine -- service install|uninstall|status   (macOS LaunchAgent, PM-318; deploy/mac/com.projectman.engine.plist)
 //   npm run engine -- move-work-root <absolute path>   (PM-846; the engine is stopped; docs/DEPLOY.md "Separate work volume")

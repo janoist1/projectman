@@ -112,6 +112,12 @@ exports[`team tool definitions > preserves the public tool definitions across mo
           ],
           "type": "string",
         },
+        "signal_id": {
+          "description": "Only the project manager: the open system signal delivered to you that this question is about. The question closes by itself when the signal's case ends; task_key defaults to the signal's card.",
+          "maxLength": 100,
+          "minLength": 1,
+          "type": "string",
+        },
         "task_key": {
           "description": "Task the question is about. Defaults to the task of your current session.",
           "pattern": "^[A-Z][A-Z0-9]{0,9}-\\d+$",

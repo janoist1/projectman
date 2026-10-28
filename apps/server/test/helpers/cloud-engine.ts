@@ -206,6 +206,8 @@ export async function createCloudEngineWorld(options: CloudEngineOptions = {}): 
           }),
           statusDelayMs: 5,
           random: () => state.reconnectJitter,
+          // PM-1086: a test never starts the real caffeinate.
+          keepAwake: { platform: 'linux' },
         },
         ...over,
       });

@@ -5,6 +5,12 @@ where it went. Newest first. The owner's decisions stay in [DECISIONS.md](DECISI
 file keeps the experience behind them, so that members and the Operator do not learn it twice.
 Anyone may propose a lesson; the Operator adds it.
 
+## 2026-10-25 – 2026-10-26: checks that only the merge ran
+
+**A new column broke an old-database test.** PM-1006 added a column to an existing table. The merge test failed in `history-index.test.ts`, whose fixture rolls the database back to version 83 by dropping the newer columns: the new one was missing from that list ("duplicate column name"). _Lesson:_ a migration that adds a column to an existing table also updates that rollback fixture, and the developer runs the test before hand-over. (PM-1006)
+
+**Changing the web fake without its own tests.** PM-1008 changed `apps/web/src/mocks/backend.ts` and ran the UI tests that use it, but not the fake's own tests; the merge failed in `backend.test.ts`. _Lesson:_ after changing the fake backend, run the whole `src/mocks` group. (PM-1008)
+
 ## 2026-10-25: a new merge check without its local command
 
 **A new merge check failed the next card.** PM-965 added the dead-code check (knip) to the merge test, but the developers' hand-over list did not get the fast local command. The next card, PM-1000, passed its local checks and failed at merge. _Lesson:_ a card that adds a merge check which runs fast locally updates the developers' hand-over list in the same change. When the merger sends a card back, they name the local command that was skipped, and propose adding it if the list lacks it. (PM-1002)

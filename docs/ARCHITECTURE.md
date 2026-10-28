@@ -999,7 +999,7 @@ Every AI member has one durable queue of what is waiting for them: a message, an
   PM-1045 the Operator gets no item at all: it runs no session in the app (`operatorRunsInApp = false`,
   `runsInApp`), so a message to it is refused (`operator_connected_only`) and an integrator todo or narrow fix
   limit decision stays an open inbox item, which the connected client reads through the super-mode tools
-  (`open_integrator_todo`, `resolveIntegratorTodo`). Migration 120 cancelled the Operator rows that were open
+  (`open_integrator_todo`, `resolveIntegratorTodo`). Migration 121 cancelled the Operator rows that were open
   (the inbox items stayed). Both reconcilers are idempotent and a failure is logged and never changes what the
   source write does.
 - **Invariant**: the open message items are exactly the messages pending for an AI recipient. `recover()` runs at
@@ -1019,7 +1019,7 @@ Every AI member has one durable queue of what is waiting for them: a message, an
   stopped. An old `message_wake` deferred-start row is read once (`ensure`) and deleted.
 - **API** (`apps/server/src/api/member-queue.ts`): `GET /api/projects/:key/operator/queue` only (PM-1030 deleted the
   per-member and all-members routes; nothing called them). Access: a person's own login (developer or more) or
-  an integrator read or super key. Legacy keys fail authentication with 401 (PM-1037). The route stays for the old Operator rows and is empty for a project after migration 120.
+  an integrator read or super key. Legacy keys fail authentication with 401 (PM-1037). The route stays for the old Operator rows and is empty for a project after migration 121.
 - **WebSocket**: `member_queue_changed {projectKey, member}`, once per member per unit of work. Clients do not see it.
 - **Remote engine**: no machine-dependent part is added. The queue, the driver and the sweep live on the hub with the
   database; only the session start crosses to an engine, as before. A member whose engine is offline waits with
@@ -1940,6 +1940,17 @@ workers follow the machine's size.
 
 ## Machine-dependent parts (PM-341)
 
+- **Keep awake while working (PM-1086)** — `engine-host/keep-awake.ts` (`createKeepAwake`,
+  `spawnKeepAwakeProcess`), wired in `engine-app.ts` to its 1 s poll; `engine-handlers.ts` `activeRuns()`
+  counts the merge-check and screenshot runs; `engine.json` `keepAwake` and `npm run engine -- keep-awake
+on|off`. While a session, a merge check or a screenshot run is active the engine holds
+  `/usr/bin/caffeinate -i -s -w <engine pid>` and lets go two minutes after the last one ended (a crashed
+  `caffeinate` is started again at most once a minute). **Machine assumptions:** macOS only (other
+  platforms report `unsupported`; a Linux `systemd-inhibit` is not built); `-i`/`-s` keep the system awake
+  on mains power, the display may sleep, and a Mac on battery with the lid closed sleeps anyway; `-w` ends
+  `caffeinate` with the engine even after a SIGKILL. **Remote engine:** everything runs on the engine's own
+  machine and nothing crosses the server/engine boundary; `hello` and the RPC are unchanged.
+
 - **Link-headers file and the working-folder check (PM-1077)** — `scripts/engine/commands.ts` (`init
 --link-headers-file <path>`), `EngineHost.workspaceState(path)` (`contracts/engine.ts`; local:
   `engine-host/local-host.ts`, remote: `engine-link/remote/host.ts`), `NewProjectEngines.workspaceState`
@@ -2415,6 +2426,13 @@ workers follow the machine's size.
   (by `deploy`), `guard-check` over the machine's SSH connection (it asks the container's own guard), and
   `engine-access-token.json`, which is the engine's `linkHeadersFile` content (HYBRID.md) and is put on an
   engine by the owner.
+  **Further owners (PM-1065):** each `access.owners` entry gets its own engine and integrator service
+  token and policies (`<tunnel>-owner-<id>-…`) and its own two files under `owners/<id>/` in the same
+  secrets store (folder 700, files 600; the host's token, policy and file never change). `edge` adds the
+  policies to the engine and integrator applications and removes only a left owner's objects (policies,
+  then tokens, then files). `check` tries each owner's pair from the host's copy of the files. Machine
+  assumption: the same host Mac and store. Remote engine: still nothing runs on it; an owner's engine
+  gets its file by hand from the host, outside projectman.
   **Separate machine entrance (PM-675):** optional explicit `cloudflare.integratorHostname`, required
   with a public integrator service token, has its own Service Auth application and audience on the same
   tunnel. Only literal `/api/...` and exact `/mcp` reach the hub on that host. `edge` writes
@@ -2881,7 +2899,9 @@ workers follow the machine's size.
   is refused with `merge_not_allowed`), the highest permission mode, whether the cloud may type into a terminal), `engine.key` (the machine key,
   mode 0600; a looser mode, another owner or a link is refused at start-up), an optional link-headers
   file (0600; `authorization` is never taken from it), `engine-status.json` (what `status` shows: no
-  secret), `logs/engine-audit.jsonl` (one line per request: method, session id, outcome and refusal
+  secret; PM-1086 adds the optional `work` counts (sessions, merge checks, screenshot runs) and `keepAwake`
+  (`mode`, `holding`, `since`, `unsupported`), and `engine.json` the optional `keepAwake` mode,
+  `while_working` when absent), `logs/engine-audit.jsonl` (one line per request: method, session id, outcome and refusal
   code, never a prompt, message, terminal input, file content, token or key; rotated at 10 MB, five
   files kept) and `attachments-cache/` (downloaded attachments, checked against size and sha256; a task
   session may read its card's folder there, which `engine-limit.ts` allows as a read-only sandbox root
@@ -5065,9 +5085,29 @@ signal authority for task movement, configuration, labels, approvals, stopping o
 The Operator keeps its existing agreement, settings, knowledge, waiver, document and approval rules.
 The historical Operator coordination paths described below are superseded by this section.
 
+`start_blocked` (PM-455, migration 120) speaks for a card whose start waits for `repo_required`,
+`workspace_dirty` or `workspace_fetch_failed`: one open signal per card and reason (`start_blocked:<card>:<reason>`),
+read from the card's start wait (`TaskService.startWaitingOf`, which also covers the raw scheduling cards the sweep
+reads). It closes by itself when the wait ends or changes reason; a wait that is silent only because the system is
+trying the start right now (`startAttempting`: the deferral is taken for the attempt, a fetch may take a minute)
+leaves the signal as it is. A `workspace_fetch_failed` signal is raised at once but not delivered before ten
+minutes have passed without it closing (the retries of the system may mend a network blip); one that mends sooner
+closes without ever reaching the project manager. Facts: reason, member, branch, repositories (for `repo_required`)
+and the card holding the branch (for `workspace_dirty`); never the git error text. Step targets at unblock/drive:
+`workspace_dirty` → `start_member` for the waiting member on the card that holds the branch (`heldBy`);
+`workspace_fetch_failed` → `start_member` for the deployment-duty AI members on the waiting card;
+`repo_required` → no step. The one repository exception of the project manager's prompt (set the card's
+repository on a `repo_required` signal) is prompt-level only: the server adds no restriction, as `update_task`
+with `repo` is open to every member and refused only for an unknown repository or a live session. A question
+about a signal is asked with `ask_human` and `signal_id`: only the coordinator the signal was delivered to may
+bind it, to an open signal of its own project; the question defaults to the signal's card, stores the id in its
+payload, and closes with the rule `signal_resolved` when the signal's case ends.
+
 This works on a remote engine: selection, storage and checks stay on the server; the existing engine
 link and session admission boundaries carry the same messages and starts. No machine-dependent part,
-engine protocol, login, sandbox or cloud AI is added.
+engine protocol, login, sandbox or cloud AI is added. For `start_blocked` the wait comes from the engine's
+refusal code (`workspace_dirty`, `workspace_fetch_failed` and their `branch` detail) as the deferred start already
+records it; the signal itself lives on the server, so no machine-dependent part is affected.
 
 ### The Operator (PM-447, PM-462, PM-463, PM-464)
 

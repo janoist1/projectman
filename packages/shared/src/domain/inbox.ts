@@ -190,6 +190,8 @@ export const InboxResolutionRule = z.enum([
   'group_withdrawn',
   /** The obligation an integrator todo asked about was fulfilled or cancelled meanwhile (PM-806). */
   'obligation_closed',
+  /** The system signal a question was tied to (`signalId`) ended by itself (PM-455): nothing is left to answer. */
+  'signal_resolved',
 ]);
 export type InboxResolutionRule = z.infer<typeof InboxResolutionRule>;
 
@@ -203,6 +205,7 @@ export const QuestionCloseRule = InboxResolutionRule.extract([
   'group_withdrawn',
   'operator_moot',
   'obligation_closed',
+  'signal_resolved',
 ]);
 export type QuestionCloseRule = z.infer<typeof QuestionCloseRule>;
 
@@ -1003,6 +1006,8 @@ export const QuestionPayload = z.object({
   obligation: ObligationRef.optional(),
   /** Why the Operator gave this item to the owner (PM-885): its queue item, the reason and the action left for the owner. */
   operatorHandoff: OperatorHandoff.optional(),
+  /** The system signal this question was asked about (PM-455): the question closes when the signal's case ends. */
+  signalId: z.string().optional(),
 });
 export type QuestionPayload = z.infer<typeof QuestionPayload>;
 

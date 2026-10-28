@@ -40,7 +40,7 @@ export const EmailParkReason = z.enum([
   'sender_not_allowed',
 ]);
 export type EmailParkReason = z.infer<typeof EmailParkReason>;
-export const EmailContactSource = z.enum(['settings', 'message', 'email', 'complaint']);
+export const EmailContactSource = z.enum(['settings', 'message', 'email', 'complaint', 'member']);
 export type EmailContactSource = z.infer<typeof EmailContactSource>;
 export const EmailContentRefusalReason = z.enum([
   'task_not_visible',

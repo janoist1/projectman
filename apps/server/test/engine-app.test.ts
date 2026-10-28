@@ -133,6 +133,8 @@ describe('engine process', () => {
       }) as never,
     statusDelayMs: 5,
     random: () => 0,
+    // PM-1086: a test never starts the real caffeinate.
+    keepAwake: { platform: 'linux' },
   });
 
   const build = async (overrides: Partial<EngineAppOptions> = {}): Promise<EngineApp> => {
@@ -891,6 +893,44 @@ describe('engine process', () => {
       expect(JSON.parse(readFileSync(path.join(home, 'engine-status.json'), 'utf8'))).toMatchObject({
         connection: 'stopped',
       });
+    });
+
+    it('keeps the machine awake while a session runs, reports it in the status file and lets go on close', async () => {
+      const spawns: Array<{ command: string; args: string[]; kills: string[] }> = [];
+      const built = await startEngine({
+        modules: {
+          ...modulesOf(),
+          keepAwake: {
+            platform: 'darwin',
+            spawn: (command, args) => {
+              const entry = { command, args, kills: [] as string[] };
+              spawns.push(entry);
+              return {
+                kill: (signal) => void entry.kills.push(signal ?? 'SIGTERM'),
+                onExit: () => undefined,
+              };
+            },
+          },
+        },
+      });
+      const { call } = await cloud.connected();
+      await call('session.start', startSpec());
+      const statusFile = path.join(home, 'engine-status.json');
+      await waitFor(
+        () => JSON.parse(readFileSync(statusFile, 'utf8')).keepAwake?.holding === true,
+        'the hold in the status file',
+      );
+      expect(spawns).toHaveLength(1);
+      expect(spawns[0]!.args).toContain(String(process.pid));
+      expect(JSON.parse(readFileSync(statusFile, 'utf8')).work).toEqual({
+        sessions: 1,
+        fullTests: 0,
+        screenshots: 0,
+      });
+      await built.close();
+      engine = null;
+      expect(spawns[0]!.kills).toEqual(['SIGTERM']);
+      expect(JSON.parse(readFileSync(statusFile, 'utf8')).keepAwake.holding).toBe(false);
     });
 
     it('does not pause anything when the pause time is zero', async () => {

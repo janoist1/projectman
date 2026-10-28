@@ -2,13 +2,13 @@ import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
 import { LATEST_SCHEMA_VERSION, migrate, migrations } from '../src/db';
 
-describe('in-app Operator queue removal migration (120)', () => {
+describe('in-app Operator queue removal migration (121)', () => {
   it('cancels the Operator members open queue rows, keeps the others and the inbox items', () => {
     const db = new Database(':memory:');
     try {
       db.pragma('foreign_keys = ON');
-      for (const migration of migrations.filter((m) => m.version <= 119)) db.exec(migration.sql);
-      db.pragma('user_version = 119');
+      for (const migration of migrations.filter((m) => m.version <= 120)) db.exec(migration.sql);
+      db.pragma('user_version = 120');
       db.exec(`INSERT INTO projects (key, name, config_version, created_at, updated_at)
         VALUES ('AR', 'Example', 'v1', '2026-01-01', '2026-01-01');
         INSERT INTO inbox_items (id, project_key, kind, assignees, source, title, payload, options, state, created_at, updated_at)

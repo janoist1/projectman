@@ -8,15 +8,25 @@ import {
 } from '@projectman/shared';
 import { DAILY_WORKER_SCHEDULE } from '@projectman/templates';
 import { migrateProjectConfig } from '../src/config/migrations';
+import { mergeProjectFiles, parseYamlFile, splitProjectConfig } from '../src/config/layout';
 import { testConfig } from './helpers/test-template';
 
 /** The test configuration as a plain object, as it comes out of the YAML files (with its merger, as saved). */
 function raw(): {
-  team: { members: Array<Record<string, unknown>>; merger?: unknown };
+  team: {
+    members: Array<Record<string, unknown>>;
+    merger?: unknown;
+    projectManagerMoves?: unknown;
+    prioritySetters?: unknown;
+    viewerRecipients?: unknown;
+  };
   pipeline: { stages: Array<Record<string, unknown>>; labels: Array<{ id: string; setBy?: unknown }> };
 } {
   const config = JSON.parse(JSON.stringify(testConfig()));
   config.team.merger = { kind: 'code_reviewer' };
+  config.team.projectManagerMoves = 'queues_and_start';
+  config.team.prioritySetters = ['project_manager'];
+  config.team.viewerRecipients = 'project_manager';
   return config;
 }
 
@@ -27,6 +37,53 @@ function migrate(config: unknown) {
 }
 
 describe('project configuration migrations', () => {
+  it('defaults missing PM moves to queue moves and starting work', () => {
+    const legacy = raw();
+    delete legacy.team.projectManagerMoves;
+    expect(migrate(legacy).config.team.projectManagerMoves).toBe('queues_and_start');
+  });
+
+  it('defaults a missing priority setting to the project managers and keeps a saved one', () => {
+    const legacy = raw();
+    delete legacy.team.prioritySetters;
+    expect(migrate(legacy).config.team.prioritySetters).toEqual(['project_manager']);
+    const chosen = raw();
+    chosen.team.prioritySetters = [];
+    expect(migrate(chosen).config.team.prioritySetters).toEqual([]);
+  });
+
+  it('preserves the saved priority setters across configuration files and migration', () => {
+    const saved = migrate(raw()).config;
+    saved.team.prioritySetters = ['prioritization_duty'];
+    const files = splitProjectConfig(saved);
+    const reloaded = mergeProjectFiles({
+      'project.yaml': parseYamlFile('project.yaml', files['project.yaml']),
+      'team.yaml': parseYamlFile('team.yaml', files['team.yaml']),
+      'pipeline.yaml': parseYamlFile('pipeline.yaml', files['pipeline.yaml']),
+    });
+    expect(migrate(reloaded).config.team.prioritySetters).toEqual(['prioritization_duty']);
+  });
+
+  it('defaults a missing viewer recipients setting to the project manager only (PM-1102)', () => {
+    const legacy = raw();
+    delete legacy.team.viewerRecipients;
+    expect(migrate(legacy).config.team.viewerRecipients).toBe('project_manager');
+  });
+
+  it('preserves a saved start-only choice across configuration files and migration', () => {
+    const restricted = migrate(raw()).config;
+    restricted.team.projectManagerMoves = 'start_only';
+    restricted.team.viewerRecipients = 'contacts';
+    const files = splitProjectConfig(restricted);
+    const reloaded = mergeProjectFiles({
+      'project.yaml': parseYamlFile('project.yaml', files['project.yaml']),
+      'team.yaml': parseYamlFile('team.yaml', files['team.yaml']),
+      'pipeline.yaml': parseYamlFile('pipeline.yaml', files['pipeline.yaml']),
+    });
+    expect(migrate(reloaded).config.team.projectManagerMoves).toBe('start_only');
+    expect(migrate(reloaded).config.team.viewerRecipients).toBe('contacts');
+  });
+
   it('passes a current configuration through untouched', () => {
     const current = raw();
     const { migrated, warn } = migrate(current);
@@ -681,6 +738,20 @@ describe('Senior mark migration (PM-1007)', () => {
     const { config } = migrate(legacy);
     expect(config.team.members.find((m) => m.handle === 'dev-1')).toMatchObject({ complexityLimit: 8 });
     expect(config.team.members.find((m) => m.handle === 'dev-2')).not.toHaveProperty('complexityLimit');
+  });
+});
+
+describe('temp worker card limit migration (PM-1101)', () => {
+  const tempWorkers = (config: ReturnType<typeof raw>) =>
+    (config.team as unknown as { limits: { tempWorkers: Record<string, unknown> } }).limits.tempWorkers;
+
+  it('writes the default into a section without it and keeps a set value', () => {
+    const legacy = raw();
+    tempWorkers(legacy).maxPoints = undefined;
+    expect(migrate(legacy).config.team.limits.tempWorkers.maxPoints).toBe(5);
+    const set = raw();
+    tempWorkers(set).maxPoints = 8;
+    expect(migrate(set).config.team.limits.tempWorkers.maxPoints).toBe(8);
   });
 });
 

@@ -372,7 +372,9 @@ export const TASK_TOOL_GROUP: TeamToolGroup = {
           .describe('The open theme this card belongs to; null removes it. Not for subtasks and themes.'),
         priority: TaskPriority.nullable()
           .optional()
-          .describe('The card priority; null clears it. Only people and the project manager may set it.'),
+          .describe(
+            "The card priority; null clears it. People may set it; an AI member only when the project's priority setting allows it.",
+          ),
       },
       external: { access: 'write', run: runUpdateTask },
       run: runUpdateTask,
@@ -383,7 +385,8 @@ export const TASK_TOOL_GROUP: TeamToolGroup = {
         ...DEVELOPER_LEVEL_REFUSED,
         visibility: TASK_VISIBILITY_REMOVED,
         priority:
-          'priority is set by people only: AI members can read it (get_task, list_tasks) but cannot set it. ' +
+          'priority cannot be given when a card is created. Set it afterwards with update_task priority, if the ' +
+          "project's priority setting allows it. " +
           'Urgent cards start first and are pulled into development by the system; the other levels only inform.',
       },
       title: 'Create a task',

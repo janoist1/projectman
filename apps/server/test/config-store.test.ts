@@ -63,6 +63,16 @@ describe('ConfigStore (customization repository)', () => {
     expect((await store.load('AR')).config.team.operatorApprovalWaiver).toBe(enabled);
   });
 
+  it.each([[['prioritization_duty']], [[]]])(
+    'keeps the priority setters %j through a save and a load (PM-1096)',
+    async (setters) => {
+      const config = testConfig();
+      config.team.prioritySetters = setters as ProjectConfig['team']['prioritySetters'];
+      await store.save('AR', config, { author, message: 'Set priority setters' });
+      expect((await store.load('AR')).config.team.prioritySetters).toEqual(setters);
+    },
+  );
+
   it('load, a past version and revert drop a stored Operator member (decision 66)', async () => {
     await store.save('AR', testConfig(), { author, message: 'Create' });
     const config = (await store.load('AR')).config;

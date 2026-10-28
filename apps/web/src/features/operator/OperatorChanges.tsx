@@ -38,6 +38,7 @@ const FIELDS = [
   'order',
   'schemaVersion',
   'docs',
+  'viewerRecipients',
 ] as const;
 type KnownField = (typeof FIELDS)[number];
 

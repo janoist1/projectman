@@ -50,7 +50,7 @@ export const ownerLoginRequired = (category: IntegratorRefusal) =>
 export const projectManagerMoveRefused = () =>
   forbidden(
     'project_manager_move_refused',
-    'the project manager only starts cards: from a queue stage after the first into a work stage',
+    'the project manager move is not permitted by the project settings',
   );
 
 export const invalid = (code: ErrorCode, message: string, details?: unknown) =>

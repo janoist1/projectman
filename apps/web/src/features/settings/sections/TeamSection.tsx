@@ -1,3 +1,4 @@
+import clsx from 'clsx';
 import { useId, useState } from 'react';
 import { Link } from 'react-router';
 import {
@@ -14,6 +15,14 @@ import {
   hasAccess,
   isDeveloper,
   mergerOf,
+  PrioritySetter,
+  prioritySetterCandidates,
+  prioritySetterMembers,
+  prioritySettersOf,
+  projectManagerMovesOf,
+  projectManagerOf,
+  viewerRecipientsOf,
+  writableRecipientHandles,
 } from '@projectman/shared';
 import type { MemberConfig, ProjectConfig, RoleView } from '@projectman/shared';
 import { getLocale } from '@projectman/templates';
@@ -159,6 +168,104 @@ function MergerControls({ config }: { config: ProjectConfig }) {
 function moverCandidates(config: ProjectConfig): MemberConfig[] {
   return config.team.members.filter(
     (member) => member.kind === 'human' && hasAccess(member.access, 'developer'),
+  );
+}
+
+function ProjectManagerMovesControls({ config }: { config: ProjectConfig }) {
+  const { shown, saving, commit, error, locked } = useInstantLimits(config);
+  return (
+    <fieldset className={shared.controls} disabled={locked} aria-busy={saving}>
+      <SelectField
+        label={t('settings.team.projectManagerMoves.label')}
+        hint={t('settings.team.projectManagerMoves.help')}
+        value={projectManagerMovesOf(shown)}
+        onChange={(event) => {
+          const value = event.target.value;
+          if (value === 'queues_and_start' || value === 'start_only')
+            commit((draft) => {
+              draft.team.projectManagerMoves = value;
+            });
+        }}
+      >
+        <option value="queues_and_start">{t('settings.team.projectManagerMoves.queues_and_start')}</option>
+        <option value="start_only">{t('settings.team.projectManagerMoves.start_only')}</option>
+      </SelectField>
+      {error ? <ErrorBanner>{errorMessage(error)}</ErrorBanner> : null}
+    </fieldset>
+  );
+}
+
+/** The names of the AI members a priority source covers now, in team order. */
+function setterNames(config: ProjectConfig, setter: PrioritySetter): string[] {
+  return prioritySetterCandidates(config, setter).map((member) => member.displayName);
+}
+
+/** Who may set priorities as a sentence, for those who may not change it. */
+function prioritySettersValue(config: ProjectConfig): string {
+  const names = prioritySetterMembers(config).map((member) => member.displayName);
+  return names.length
+    ? t('settings.team.priority.value.with', { names: names.join(', ') })
+    : t('settings.team.priority.value.humansOnly');
+}
+
+/** Who besides people may set a card's priority (PM-1096): a tick per source, with whom it covers now. Saves as it changes. */
+function PriorityControls({ config, helpId }: { config: ProjectConfig; helpId: string }) {
+  const { key } = useProject();
+  const { shown, saving, commit, error, locked } = useInstantLimits(config);
+  const noteId = useId();
+  const chosen = prioritySettersOf(shown);
+  return (
+    <fieldset
+      className={shared.controls}
+      disabled={locked || saving}
+      aria-busy={saving}
+      aria-describedby={helpId}
+    >
+      <legend className={shared.setterLegend}>{t('settings.team.priority.question')}</legend>
+      {PrioritySetter.options.map((setter) => {
+        const names = setterNames(shown, setter);
+        const rowId = `${noteId}-${setter}`;
+        return (
+          <div key={setter}>
+            <label className={shared.contactRow}>
+              <input
+                type="checkbox"
+                checked={chosen.includes(setter)}
+                aria-describedby={rowId}
+                onChange={(event) =>
+                  commit((draft) => {
+                    const on = prioritySettersOf(draft);
+                    draft.team.prioritySetters = PrioritySetter.options.filter((id) =>
+                      id === setter ? event.target.checked : on.includes(id),
+                    );
+                  })
+                }
+              />
+              <span>
+                {setter === 'project_manager'
+                  ? t('settings.team.priority.project_manager')
+                  : t('settings.team.priority.duty', { duty: t('dutyNames.prioritization') })}
+              </span>
+            </label>
+            <p id={rowId} className={`${shared.muted} ${shared.setterNote}`}>
+              {names.length
+                ? t('settings.team.priority.covers', { names: names.join(', ') })
+                : setter === 'project_manager'
+                  ? t('settings.team.priority.noProjectManager')
+                  : t('settings.team.priority.noDutyHolder')}
+              {names.length === 0 && setter === 'prioritization_duty' ? (
+                <>
+                  {' '}
+                  <Link to={`/p/${key}/settings/duties`}>{t('duties.title')}</Link>
+                </>
+              ) : null}
+            </p>
+          </div>
+        );
+      })}
+      {chosen.length === 0 ? <p className={shared.muted}>{t('settings.team.priority.humansOnly')}</p> : null}
+      {error ? <ErrorBanner>{errorMessage(error)}</ErrorBanner> : null}
+    </fieldset>
   );
 }
 
@@ -381,6 +488,66 @@ function contactsValue(config: ProjectConfig): string {
   return names.length ? names.join(', ') : t('settings.team.contacts.none');
 }
 
+/** The contacts hint, and in the contacts mode that the viewer is held to them too (PM-1102). */
+function ContactsHint({ config }: { config: ProjectConfig }) {
+  return (
+    <>
+      {t('settings.team.contacts.hint')}
+      {viewerRecipientsOf(config) === 'contacts' ? ` ${t('settings.team.contacts.viewerToo')}` : ''}
+    </>
+  );
+}
+
+/** What the viewer's setting leaves them: nobody (a warning), or the manager left out (plain); else nothing. */
+function ViewerRecipientsStatus({ config }: { config: ProjectConfig }) {
+  const handles = writableRecipientHandles(config, 'viewer') ?? [];
+  const mode = viewerRecipientsOf(config);
+  const manager = projectManagerOf(config);
+  if (handles.length === 0)
+    return (
+      <p role="status" className={clsx(shared.help, shared.warning)}>
+        {t(
+          mode === 'contacts'
+            ? 'settings.team.viewerRecipients.noContacts'
+            : 'settings.team.viewerRecipients.noManager',
+        )}
+      </p>
+    );
+  if (mode === 'contacts' && manager && !handles.includes(manager.handle))
+    return (
+      <p role="status" className={shared.help}>
+        {t('settings.team.viewerRecipients.managerNotContact')}
+      </p>
+    );
+  return null;
+}
+
+/** Whom the read-only viewer may write to (PM-1102): the project manager or the contacts. Saves as it changes. */
+function ViewerRecipientsControls({ config }: { config: ProjectConfig }) {
+  const { shown, saving, commit, error, locked } = useInstantLimits(config);
+  return (
+    <fieldset className={clsx(shared.controls, shared.controlsBelow)} disabled={locked} aria-busy={saving}>
+      <SelectField
+        label={t('settings.team.viewerRecipients.label')}
+        hint={t('settings.team.viewerRecipients.help')}
+        value={viewerRecipientsOf(shown)}
+        onChange={(event) => {
+          const value = event.target.value;
+          if (value === 'project_manager' || value === 'contacts')
+            commit((draft) => {
+              draft.team.viewerRecipients = value;
+            });
+        }}
+      >
+        <option value="project_manager">{t('settings.team.viewerRecipients.project_manager')}</option>
+        <option value="contacts">{t('settings.team.viewerRecipients.contacts')}</option>
+      </SelectField>
+      <ViewerRecipientsStatus config={shown} />
+      {error ? <ErrorBanner>{errorMessage(error)}</ErrorBanner> : null}
+    </fieldset>
+  );
+}
+
 /** Who may be written to by the members who write only to the contacts (PM-985): a tick per member, saved at once. */
 function ContactControls({ config }: { config: ProjectConfig }) {
   const { key } = useProject();
@@ -397,7 +564,7 @@ function ContactControls({ config }: { config: ProjectConfig }) {
       aria-describedby={hintId}
     >
       <p id={hintId} className={shared.help}>
-        {t('settings.team.contacts.hint')}
+        <ContactsHint config={shown} />
       </p>
       {shown.team.members.map((member) => (
         <label key={member.handle} className={shared.contactRow}>
@@ -430,6 +597,7 @@ function ContactControls({ config }: { config: ProjectConfig }) {
 export function TeamSection({ config }: { config: ProjectConfig }) {
   const { key, can } = useProject();
   const roles = useRoles(key);
+  const priorityHelpId = useId();
   return (
     <SettingsSection id="settings-team" title={t('settings.sections.team')}>
       <ul className={shared.members}>
@@ -467,6 +635,44 @@ export function TeamSection({ config }: { config: ProjectConfig }) {
               <div>
                 <dt>{t('settings.team.mover.label')}</dt>
                 <dd>{moverValue(config)}</dd>
+              </div>
+            </dl>
+          )}
+        </div>
+      </section>
+      <section aria-labelledby="settings-pm-moves-title">
+        <h3 id="settings-pm-moves-title" className={shared.groupTitle}>
+          {t('settings.team.projectManagerMoves.title')}
+        </h3>
+        {can.manageTeam ? (
+          <ProjectManagerMovesControls config={config} />
+        ) : (
+          <dl className={shared.facts}>
+            <div>
+              <dt>{t('settings.team.projectManagerMoves.label')}</dt>
+              <dd>
+                {t(`settings.team.projectManagerMoves.${projectManagerMovesOf(config)}`)}
+                <p className={shared.help}>{t('settings.team.projectManagerMoves.help')}</p>
+              </dd>
+            </div>
+          </dl>
+        )}
+      </section>
+      <section aria-labelledby="settings-priority-title">
+        <h3 id="settings-priority-title" className={shared.groupTitle}>
+          {t('settings.team.priority.label')}
+        </h3>
+        <div className={shared.controls}>
+          <p id={priorityHelpId} className={shared.help}>
+            {t('settings.team.priority.help')}
+          </p>
+          {can.manageTeam ? (
+            <PriorityControls config={config} helpId={priorityHelpId} />
+          ) : (
+            <dl className={shared.facts}>
+              <div>
+                <dt>{t('settings.team.priority.readOnlyLabel')}</dt>
+                <dd>{prioritySettersValue(config)}</dd>
               </div>
             </dl>
           )}
@@ -513,14 +719,27 @@ export function TeamSection({ config }: { config: ProjectConfig }) {
           {t('settings.team.contacts.label')}
         </h3>
         {can.manageTeam ? (
-          <ContactControls config={config} />
+          <>
+            <ContactControls config={config} />
+            <ViewerRecipientsControls config={config} />
+          </>
         ) : (
           <dl className={shared.facts}>
             <div>
               <dt>{t('settings.team.contacts.label')}</dt>
               <dd>
                 {contactsValue(config)}
-                <p className={shared.help}>{t('settings.team.contacts.hint')}</p>
+                <p className={shared.help}>
+                  <ContactsHint config={config} />
+                </p>
+              </dd>
+            </div>
+            <div>
+              <dt>{t('settings.team.viewerRecipients.label')}</dt>
+              <dd>
+                {t(`settings.team.viewerRecipients.${viewerRecipientsOf(config)}`)}
+                <p className={shared.help}>{t('settings.team.viewerRecipients.help')}</p>
+                <ViewerRecipientsStatus config={config} />
               </dd>
             </div>
           </dl>

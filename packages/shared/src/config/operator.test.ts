@@ -248,6 +248,8 @@ describe('approval waiver eligibility (PM-691)', () => {
     ['timezone', (n) => (n.project.timezone = 'Europe/Budapest')],
     ['template', (n) => (n.project.templateId = 'custom')],
     ['card mover', (n) => (n.team.cardMover = { kind: 'project_manager' })],
+    ['project manager moves', (n) => (n.team.projectManagerMoves = 'start_only')],
+    ['priority setters', (n) => (n.team.prioritySetters = [])],
     ['complexity setters', (n) => (n.team.complexitySetters = ['implementation'])],
     ['display name', (n) => (ai(n, 'writer').displayName = 'Author')],
     ['specialty', (n) => (ai(n, 'writer').specialty = 'Documentation')],
@@ -576,6 +578,17 @@ describe('approval waiver eligibility (PM-691)', () => {
     expect(operatorConfigVerdict(previous, next, { operator: 'operator' })).toMatchObject({
       level: 'approval',
       changes: [expect.objectContaining({ field: 'contacts', level: 'approval' })],
+      waiverEligible: false,
+    });
+  });
+  it('holds a viewer recipients change for the owner’s approval and never makes it waivable (PM-1102)', () => {
+    const previous = config();
+    previous.team.operatorApprovalWaiver = true;
+    const next = structuredClone(previous);
+    next.team.viewerRecipients = 'contacts';
+    expect(operatorConfigVerdict(previous, next, { operator: 'operator' })).toMatchObject({
+      level: 'approval',
+      changes: [expect.objectContaining({ field: 'viewerRecipients', level: 'approval' })],
       waiverEligible: false,
     });
   });

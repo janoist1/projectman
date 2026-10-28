@@ -1655,7 +1655,8 @@ export const hu = {
       approver_unavailable: 'Ez a döntnök most nem választható.',
       task_not_cancelled: 'Csak megszakított feladat nyitható újra.',
       task_session_live: 'Még fut egy munkamenet. A módosítás előtt állítsd le.',
-      priority_humans_only: 'A prioritást csak ember vagy a Projektmenedzser állíthatja.',
+      priority_humans_only:
+        'A prioritást csak ember és a projekt beállításában kijelölt AI-tagok állíthatják.',
       focus_humans_only: 'A fókuszt csak ember állíthatja, AI-tag nem.',
       focus_not_allowed: 'A fókuszt a tulajdonos vagy a prioritálás felelőse állíthatja.',
       focus_item_exists: 'Ez már a fókuszban van.',
@@ -2588,9 +2589,12 @@ export const hu = {
           'Most senki nem foglalkozik vele, ezért a projektmenedzser kapja meg, és ő továbbítja a megfelelő tagnak.',
         none: 'Válaszd ki, kinek írsz.',
         contact: 'A kártyán dolgozók közül senki sem kapcsolattartó, ezért egy kapcsolattartó kapja meg.',
+        managerOnly: 'A projektmenedzser kapja meg, és ő továbbítja a kártyán dolgozóknak.',
       },
       noContacts:
         'A projektnek nincs kapcsolattartója, ezért innen nem tudsz üzenni. Hozzászólni a kártya nézetében tudsz:',
+      noContactsReadOnly: 'A projektnek nincs kapcsolattartója, ezért innen nem tudsz üzenni.',
+      noManager: 'A projektnek nincs projektmenedzsere, ezért innen nem tudsz üzenni.',
       edited: 'Te választottad.',
       reset: 'Vissza az alaphoz',
       composerLabel: 'Üzenet a(z) {key} kártyáról',
@@ -3723,6 +3727,7 @@ export const hu = {
         order: 'sorrend',
         schemaVersion: 'sémaverzió',
         docs: 'dokumentumok helye',
+        viewerRecipients: 'kinek írhat a betekintő',
       },
     },
     approval: {
@@ -3900,7 +3905,7 @@ export const hu = {
     limitHint: 'Automatikusan ennél nagyobb pontú kártyát nem kap. Pontozatlan kártyát bármikor kaphat.',
     limitDefault: '5 pont (alap)',
     limitUnlimited: '13 pont – bármekkora',
-    tempLimit: 'Helyettesként legfeljebb 5 pontos kártyát kaphat.',
+    tempLimit: 'Beugróként legfeljebb {points} pontos kártyát kaphat; ezt a projekt Korlátok része állítja.',
     emailEnabled: 'E-mail levelezés engedélyezése',
     emailEnabledHint:
       'Írhat azoknak, akik a Beállítások › E-mail alatt e-mailt kérnek, és megkapja a válaszukat.',
@@ -6053,6 +6058,7 @@ export const hu = {
     new: 'Új üzenet',
     recipients: 'Címzettek',
     contactsOnlyHint: 'Csak a kapcsolattartóknak írhatsz.',
+    managerOnlyHint: 'Csak a projektmenedzsernek írhatsz.',
     text: 'Üzenet',
     task: 'Kapcsolódó feladat',
     noTask: 'Nincs kapcsolódó feladat',
@@ -6093,6 +6099,9 @@ export const hu = {
       noContactsTitle: 'A projektnek még nincs kapcsolattartója.',
       noContactsBody:
         'Amíg nincs, nem tudsz üzenetet küldeni. A beérkezett üzeneteket itt olvashatod, a kártyákhoz pedig hozzászólhatsz.',
+      managerIntroBody: 'Csak a projektmenedzsernek írhatsz. Ha mástól kérsz valamit, ő továbbítja.',
+      noManagerTitle: 'A projektnek most nincs projektmenedzsere.',
+      cannotSendBody: 'Amíg nincs, nem tudsz üzenetet küldeni. A beérkezett üzeneteket itt olvashatod.',
     },
     thread: {
       label: 'Beszélgetés: {name}',
@@ -6113,6 +6122,9 @@ export const hu = {
       notContact: 'Neki nem tudsz üzenni, mert nem kapcsolattartó. Írj inkább a kapcsolattartónak:',
       notContactNoContacts:
         'Neki nem tudsz üzenni, mert nem kapcsolattartó, és a projektnek most nincs kapcsolattartója.',
+      notManager: 'Neki nem tudsz üzenni, mert csak a projektmenedzsernek írhatsz. Írj inkább neki:',
+      notManagerNoManager:
+        'Neki nem tudsz üzenni, mert csak a projektmenedzsernek írhatsz, és a projektnek most nincs projektmenedzsere.',
       or: 'vagy',
       quotaWaiting: 'A tag kerete most elfogyott, kb. {time}-kor áll vissza; az üzeneted addig várakozik.',
       quotaWaitingUnknown: 'A tag kerete most elfogyott; az üzeneted a visszaállásig várakozik.',
@@ -6506,6 +6518,17 @@ export const hu = {
         label: 'Kapcsolattartók',
         hint: 'Aki csak olvasni és hozzászólni tud, üzenetet csak nekik küldhet. Ha senki sincs kijelölve, csak a kártyákon szólhat hozzá.',
         none: 'Nincs kapcsolattartó',
+        viewerToo: 'A betekintő is csak nekik írhat.',
+      },
+      /** Whom a read-only viewer may write to (PM-1102). */
+      viewerRecipients: {
+        label: 'Kinek írhat a betekintő?',
+        help: 'A betekintő a projektet csak nézi, de üzenni tud. Kapcsolattartós beállításnál a projektmenedzsernek csak akkor írhat, ha ő is kapcsolattartó.',
+        project_manager: 'Csak a projektmenedzsernek',
+        contacts: 'A kapcsolattartóknak',
+        noManager: 'A projektnek nincs projektmenedzsere, ezért a betekintő most senkinek sem írhat.',
+        noContacts: 'Nincs kapcsolattartó, ezért a betekintő most senkinek sem írhat.',
+        managerNotContact: 'A projektmenedzser nem kapcsolattartó, ezért a betekintő nem írhat neki.',
       },
       /** Who moves the cards on (PM-439): the choice of the wizard and the settings. */
       mover: {
@@ -6554,6 +6577,30 @@ export const hu = {
         value: {
           ownerOnly: 'Csak a tulajdonos',
           with: 'A tulajdonos, valamint ezek a feladatkörök: {duties}',
+        },
+      },
+      projectManagerMoves: {
+        title: 'A Projektmenedzser mozgatási joga',
+        label: 'Mit mozgathat önállóan?',
+        help: 'A szakaszkapuk mindig érvényesek. Munkát csak az első utáni várakozó sorból indíthat.',
+        queues_and_start: 'Várakozó sorok között mozgathat és munkát indíthat',
+        start_only: 'Csak munkát indíthat',
+      },
+      /** Who besides people may set a card's priority (PM-1096). */
+      priority: {
+        label: 'Prioritás állítása',
+        help: 'Ember mindig állíthat prioritást. A Sürgős kártya elsőként indul.',
+        question: 'Ki állíthat még?',
+        project_manager: 'Projektmenedzser',
+        duty: '„{duty}” feladatkört viselő AI-tagok',
+        covers: 'Érintett tagok: {names}',
+        noProjectManager: 'Most nincs Projektmenedzser a csapatban.',
+        noDutyHolder: 'Most egy AI-tag sem viseli.',
+        humansOnly: 'Most csak ember állíthat prioritást.',
+        readOnlyLabel: 'Ki állíthat prioritást?',
+        value: {
+          humansOnly: 'Csak ember',
+          with: 'Ember, valamint: {names}',
         },
       },
       merger: {
@@ -6621,7 +6668,7 @@ export const hu = {
       loopWatchTo: 'Jelzést kap: {name} (Ütemezés).',
       loopWatchDuties: 'Feladatkörök',
       tempWorkers: 'Beugrók',
-      tempWorkersOn: 'be · legfeljebb {max} · {role}',
+      tempWorkersOn: 'be · legfeljebb {max} · {role} · {points} pontig',
       tempWorkersOff: 'ki',
       seniorWait: 'Várakozás alkalmas fejlesztőre (perc)',
       seniorWaitSummary: 'Várakozás alkalmas fejlesztőre',
@@ -6691,6 +6738,7 @@ export const hu = {
       addCondition: 'Feltétel hozzáadása',
       removeCondition: 'Feltétel eltávolítása',
       tempMax: 'Beugrók legfeljebb',
+      tempMaxPoints: 'Legnagyobb kártya',
       conflict:
         'A beállítások közben megváltoztak. Töltsd újra a legfrissebb verziót; a szerkesztésed elvész.',
       reload: 'Legfrissebb beállítások betöltése',

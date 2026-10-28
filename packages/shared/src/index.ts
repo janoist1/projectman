@@ -108,6 +108,7 @@ export * from './domain/mentions';
 export * from './deploy/instance-role';
 export * from './deploy/canonical-json';
 export * from './config/card-mover';
+export * from './config/priority';
 export * from './config/communication';
 export * from './config/merger';
 export * from './config/task-wait';

@@ -96,7 +96,7 @@ export function buildBrief(input: ContextPackInput, situation: Situation): strin
         : []),
       ...(isDeveloper(input.project, input.member)
         ? [
-            `- Your complexity limit: ${complexityLimitOf(input.member)} points (automatic assignment gives you cards up to this)`,
+            `- Your complexity limit: ${complexityLimitOf(input.project, input.member)} points (automatic assignment gives you cards up to this)`,
           ]
         : []),
     ].join('\n'),

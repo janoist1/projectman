@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ComplexityPoints } from '../domain/complexity';
+import { ComplexityPoints, DEFAULT_TEMP_MAX_POINTS } from '../domain/complexity';
 import { DutyId } from '../domain/duty';
 import { LabelId } from '../domain/label';
 import { AgentEffort, CheapSubagentModel } from '../domain/member';
@@ -33,6 +33,21 @@ export const CardMover = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('human'), handle: MemberHandle }),
 ]);
 export type CardMover = z.infer<typeof CardMover>;
+
+export const ProjectManagerMoves = z.enum(['queues_and_start', 'start_only']);
+export type ProjectManagerMoves = z.infer<typeof ProjectManagerMoves>;
+
+/** Who besides people may set or clear a card's priority (PM-1096). Absent: the project managers (PM-433). */
+export const PrioritySetter = z.enum(['project_manager', 'prioritization_duty']);
+export type PrioritySetter = z.infer<typeof PrioritySetter>;
+export const PrioritySetters = z
+  .array(PrioritySetter)
+  .refine((ids) => new Set(ids).size === ids.length, 'duplicate priority setters');
+export type PrioritySetters = z.infer<typeof PrioritySetters>;
+
+/** Whom a read-only viewer may write to (PM-1102): the project manager only, or the project's contacts. */
+export const ViewerRecipients = z.enum(['project_manager', 'contacts']);
+export type ViewerRecipients = z.infer<typeof ViewerRecipients>;
 
 /** The duties whose holders may set a card's complexity points (PM-1097); the project owners always may. */
 export const ComplexitySetters = z
@@ -288,8 +303,10 @@ export const TeamLimits = z.object({
       max: z.number().int().min(0).max(5).default(1),
       /** Role a temp worker is hired for (an AI-capable built-in or custom role). */
       role: RoleId.default('developer'),
+      /** The largest card a temp worker takes (PM-1101). Absent: `DEFAULT_TEMP_MAX_POINTS`. */
+      maxPoints: ComplexityPoints.optional(),
     })
-    .default({ enabled: false, max: 1, role: 'developer' }),
+    .default({ enabled: false, max: 1, role: 'developer', maxPoints: DEFAULT_TEMP_MAX_POINTS }),
 });
 export type TeamLimits = z.infer<typeof TeamLimits>;
 
@@ -400,6 +417,10 @@ export const ProjectConfig = z.object({
     /** Owner-controlled approval waiver; absent means every approval still needs a click. */
     operatorApprovalWaiver: z.boolean().optional(),
     cardMover: CardMover.optional(),
+    /** Independent PM moves (PM-1094); absent: DEFAULT_PROJECT_MANAGER_MOVES applies. */
+    projectManagerMoves: ProjectManagerMoves.optional(),
+    /** Who besides people may set a card's priority (PM-1096); absent: DEFAULT_PRIORITY_SETTERS applies. */
+    prioritySetters: PrioritySetters.optional(),
     /** Duties whose holders may set complexity points; absent: `DEFAULT_COMPLEXITY_SETTERS`. */
     complexitySetters: ComplexitySetters.optional(),
     /** Who merges approved work into the default branch. Absent: `defaultMerger` decides. */
@@ -407,6 +428,8 @@ export const ProjectConfig = z.object({
     members: z.array(MemberConfig).min(1),
     /** Who a contact-restricted member may write to (PM-985); absent in older configurations: nobody. */
     contacts: ContactHandles.default([]),
+    /** Whom a read-only viewer may write to (PM-1102); absent: DEFAULT_VIEWER_RECIPIENTS applies. */
+    viewerRecipients: ViewerRecipients.optional(),
     /** Roles the team defined in addition to the built-in ones. */
     roles: z.array(CustomRoleDefinition).default([]),
     roleOverrides: RoleOverrides.optional(),

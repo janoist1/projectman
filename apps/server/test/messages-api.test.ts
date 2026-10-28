@@ -317,6 +317,21 @@ describe('human team messages and member profiles', () => {
       });
       expect((await send(['pm'], vera)).statusCode).toBe(202);
     });
+
+    it('lets a viewer message the contacts only, when the project says so (PM-1102)', async () => {
+      const vera = await human('vera', 'viewer');
+      await setContacts('dev-1');
+      await h.app.projectman.domain.projects.update(key, { actor, author: OWNER_LOGIN }, (draft) => {
+        draft.team.viewerRecipients = 'contacts';
+        return 'Let the viewer write to the contacts';
+      });
+      expect((await send(['dev-1'], vera)).statusCode).toBe(202);
+      const res = await send(['pm'], vera);
+      expect(res.statusCode).toBe(403);
+      expect(res.json()).toMatchObject({
+        error: { code: 'recipient_not_contact', details: { recipients: ['pm'] } },
+      });
+    });
   });
 
   it('enforces member capacity, concurrency, provider usage, and reuses live conversations', async () => {

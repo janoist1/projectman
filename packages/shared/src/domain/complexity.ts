@@ -13,6 +13,8 @@ export const ComplexityPoints = z.union([
 export type ComplexityPoints = z.infer<typeof ComplexityPoints>;
 export const MAX_COMPLEXITY = 13;
 export const DEFAULT_COMPLEXITY_LIMIT = 5;
+/** The largest card a temp worker takes when the project sets nothing (PM-1101). */
+export const DEFAULT_TEMP_MAX_POINTS: ComplexityPoints = 5;
 export const COMPLEXITY_REASON_MAX = 300;
 
 export const TaskComplexity = z.object({

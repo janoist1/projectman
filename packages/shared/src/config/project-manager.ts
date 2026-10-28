@@ -4,7 +4,14 @@ import { stageIndex } from './gates';
 import { cardMoverOf, isHandOnMove } from './card-mover';
 import { isOnLeave } from './leave';
 import { memberOf } from './lookup';
-import type { AiMemberConfig, MemberConfig, ProjectConfig } from './schema';
+import type { AiMemberConfig, MemberConfig, ProjectConfig, ProjectManagerMoves } from './schema';
+
+export const DEFAULT_PROJECT_MANAGER_MOVES: ProjectManagerMoves = 'queues_and_start';
+
+/** What the PM may move independently; gates still apply on every move. */
+export function projectManagerMovesOf(config: Pick<ProjectConfig, 'team'>): ProjectManagerMoves {
+  return config.team.projectManagerMoves ?? DEFAULT_PROJECT_MANAGER_MOVES;
+}
 
 /** The built-in role of the project manager every project requires (PM-429). */
 export const PROJECT_MANAGER_ROLE = 'project_manager';
@@ -107,8 +114,8 @@ export function isRequiredProjectManager(config: Pick<ProjectConfig, 'team'>, ha
 }
 
 /**
- * A project manager starts cards from a later queue into work, and hands cards on when
- * selected as the project's card mover. Other stage moves need the owner.
+ * A project manager moves between queues when configured, starts cards from a later queue into
+ * work, and hands cards on when selected as the project's card mover.
  */
 export function projectManagerMoveRefusal(
   config: Pick<ProjectConfig, 'team' | 'pipeline'>,
@@ -119,6 +126,13 @@ export function projectManagerMoveRefusal(
     return null;
   const from = stageIndex(config.pipeline, fromStageId);
   const to = stageIndex(config.pipeline, toStageId);
+  if (
+    projectManagerMovesOf(config) === 'queues_and_start' &&
+    from !== to &&
+    config.pipeline.stages[from]?.kind === 'queue' &&
+    config.pipeline.stages[to]?.kind === 'queue'
+  )
+    return null;
   if (from <= 0 || to <= from) return 'project_manager_move_refused';
   if (config.pipeline.stages[from]!.kind !== 'queue') return 'project_manager_move_refused';
   if (config.pipeline.stages[to]!.kind !== 'work') return 'project_manager_move_refused';

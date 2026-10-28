@@ -54,6 +54,7 @@ export const PatchConfigRequest = z
           enabled: tempWorkersSchema.shape.enabled.removeDefault(),
           max: tempWorkersSchema.shape.max.removeDefault(),
           role: tempWorkersSchema.shape.role.removeDefault(),
+          maxPoints: tempWorkersSchema.shape.maxPoints,
         })
         .partial()
         .strict()
@@ -67,11 +68,16 @@ export const PatchConfigRequest = z
     releaseFourEyes: z.boolean().optional(),
     operatorWatch: OperatorWatch.nullable().optional(),
     cardMover: ProjectConfig.shape.team.shape.cardMover,
+    projectManagerMoves: ProjectConfig.shape.team.shape.projectManagerMoves,
+    /** Who besides people may set a card's priority (PM-1096): the whole list replaces the saved one, [] too. */
+    prioritySetters: ProjectConfig.shape.team.shape.prioritySetters,
     /** The duties whose holders may set complexity points (PM-1097): the whole list replaces the saved one, [] leaves the owners. */
     complexitySetters: ProjectConfig.shape.team.shape.complexitySetters,
     merger: ProjectConfig.shape.team.shape.merger,
     /** The project's contacts (PM-985): the whole list replaces the saved one, [] clears it. */
     contacts: ContactHandles.optional(),
+    /** Whom a read-only viewer may write to (PM-1102). */
+    viewerRecipients: ProjectConfig.shape.team.shape.viewerRecipients,
     /** Per repository: whether a card's work must be merged (`requireMerge`); null removes the explicit value. */
     repoMerge: z
       .array(z.object({ repo: z.string(), requireMerge: z.boolean().nullable() }))
@@ -267,9 +273,12 @@ export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigReques
     team: {
       ...team,
       ...(patch.cardMover !== undefined ? { cardMover: patch.cardMover } : {}),
+      ...(patch.projectManagerMoves !== undefined ? { projectManagerMoves: patch.projectManagerMoves } : {}),
+      ...(patch.prioritySetters !== undefined ? { prioritySetters: patch.prioritySetters } : {}),
       ...(patch.complexitySetters !== undefined ? { complexitySetters: patch.complexitySetters } : {}),
       ...(patch.merger !== undefined ? { merger: patch.merger } : {}),
       ...(patch.contacts !== undefined ? { contacts: patch.contacts } : {}),
+      ...(patch.viewerRecipients !== undefined ? { viewerRecipients: patch.viewerRecipients } : {}),
       ...(patch.roleOverrides !== undefined ? { roleOverrides: patch.roleOverrides } : {}),
       ...(patch.roles !== undefined ? { roles: patch.roles } : {}),
       ...(patch.releaseFourEyes !== undefined ? { releaseFourEyes: patch.releaseFourEyes } : {}),

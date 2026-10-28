@@ -30,7 +30,13 @@ const developers = [
   { handle: 'dev', limit: 5 },
   { handle: 'big', limit: 13 },
 ] as const;
-const base = { places: new Map(), free: [dev], developers, anyDecided: new Set<string>() };
+const base = {
+  places: new Map(),
+  free: [dev],
+  developers,
+  anyDecided: new Set<string>(),
+  tempMaxPoints: 5 as const,
+};
 const scored = (points: 8): Partial<Task> => ({
   complexity: { points, reason: 'Runner', setBy: 'owner', setAt: '2026-10-18T10:00:00Z' },
 });

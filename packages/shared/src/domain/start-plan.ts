@@ -1,4 +1,5 @@
 import { compareBoardOrder } from './board-order';
+import type { ComplexityPoints } from './complexity';
 import { chooseDeveloper, complexityOf, reachingDevelopers } from './choose-developer';
 import type { FreeDeveloper, StageDeveloper } from './choose-developer';
 import { compareStartClass, startClass } from './project-focus';
@@ -35,6 +36,8 @@ export function planStarts(input: {
   /** All the work stage's developers, free or not (see `stageDevelopers`). */
   developers: readonly StageDeveloper[];
   anyDecided: ReadonlySet<string>;
+  /** The largest card a temp worker takes (`tempMaxPointsOf`). */
+  tempMaxPoints: ComplexityPoints;
   offered?: ReadonlySet<string>;
   /**
    * The keys of the assigned cards whose assignee may be replaced because its provider is on hold and
@@ -75,6 +78,7 @@ export function planStarts(input: {
         anyDecided: anyDecided.has(card.key),
         reaching,
         free: [...candidates],
+        tempMaxPoints: input.tempMaxPoints,
       });
     const pick = choose(free);
     if (pick.kind === 'member') {

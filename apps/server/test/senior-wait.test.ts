@@ -128,6 +128,22 @@ describe('the heavy card: assignment, wait and the question', () => {
       expect(h.domain.tasks.list('AR').find((t) => t.key === key)?.startWaiting).toEqual(waiting(key));
     });
 
+    it('hires a temp worker for a heavy card when the project raises the temp limit (PM-1101)', async () => {
+      await harness((c) => {
+        withTemp(c);
+        c.team.limits.tempWorkers.maxPoints = 8;
+      });
+      await busyTeam();
+      const key = await create('Heavy, nobody free');
+      await move(key);
+      await vi.waitFor(() => expect(task(key).assignee).not.toBeNull());
+      const hired = (await h.domain.projects.config('AR')).team.members.find(
+        (m) => m.kind === 'ai' && m.temp,
+      );
+      expect(hired?.handle).toBe(task(key).assignee);
+      expect(waiting(key)).toBeUndefined();
+    });
+
     it("answers a person's Start with the card in Development, unassigned, and the wait on it", async () => {
       await harness();
       await busySenior();

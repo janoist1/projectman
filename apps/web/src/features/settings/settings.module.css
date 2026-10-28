@@ -242,6 +242,11 @@
   gap: 14px;
 }
 
+/* A second set of controls under the first in one group: air between them, like between two groups. */
+.controlsBelow {
+  margin-top: 18px;
+}
+
 .toggle {
   display: flex;
   flex-direction: column;
@@ -351,6 +356,18 @@ details[open] > .foldSummary .chevron {
 .legendGap {
   padding: 0;
   margin-bottom: 6px;
+}
+
+/* The question above the priority ticks (a visible legend) and the line under a tick: whom it covers now. */
+.setterLegend {
+  padding: 0;
+  font-size: var(--text-sm);
+  font-weight: 700;
+}
+
+.setterNote {
+  margin: -4px 0 6px 28px;
+  overflow-wrap: anywhere;
 }
 
 /* A named group of related controls inside a section ("Körbe futó munka"). */

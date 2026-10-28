@@ -111,7 +111,8 @@ import {
   threadPeersOf,
   canUploadAttachment,
   contactHandles,
-  teamMessageRecipientRefusal,
+  recipientRefusalForAccess,
+  accessOfHandle,
   commentMentions,
   configSchemaIssues,
   coverAttachmentId,
@@ -217,6 +218,7 @@ import {
   maxFixRoundsOf,
   complexityOf,
   complexityLimitOf,
+  tempMaxPointsOf,
   isDeveloper,
   canSetComplexity,
   isComplexityPoints,
@@ -776,7 +778,7 @@ export class MockBackend {
     const config = memberOf(this.config, member.handle);
     const result = { ...clone(member), taskWork };
     if (config?.kind === 'ai' && isDeveloper(this.config, config))
-      result.complexityLimit = complexityLimitOf(config);
+      result.complexityLimit = complexityLimitOf(this.config, config);
     else delete result.complexityLimit;
     return result;
   }
@@ -3804,7 +3806,7 @@ export class MockBackend {
         if (input.complexityLimit === null) delete config.complexityLimit;
         else config.complexityLimit = input.complexityLimit;
       }
-      if (isDeveloper(this.config, config)) member.complexityLimit = complexityLimitOf(config);
+      if (isDeveloper(this.config, config)) member.complexityLimit = complexityLimitOf(this.config, config);
       else delete member.complexityLimit;
       if (input.schedule !== undefined) config.schedule = input.schedule ?? undefined;
       if (input.instructions !== undefined) config.instructions = input.instructions.trim();
@@ -5529,7 +5531,7 @@ export class MockBackend {
         ? [
             {
               handle: member.handle,
-              limit: complexityLimitOf(member),
+              limit: complexityLimitOf(this.config, member),
               specialtyLabels: member.specialtyLabels,
               temp: !!member.temp,
               load: this.memberLoad(member.handle),
@@ -5544,6 +5546,7 @@ export class MockBackend {
       anyDecided: this.seniorWaits.get(task.key)?.decision?.decision === 'any',
       reaching: reachingDevelopers(stageDevelopers(this.config, workStage), complexityOf(task), task.labels),
       free,
+      tempMaxPoints: tempMaxPointsOf(this.config),
     });
   }
 
@@ -5648,7 +5651,9 @@ export class MockBackend {
       else if (task.assignee) {
         const member = memberOf(this.config, task.assignee);
         ended =
-          member?.kind === 'ai' && task.complexity && complexityLimitOf(member) >= task.complexity.points
+          member?.kind === 'ai' &&
+          task.complexity &&
+          complexityLimitOf(this.config, member) >= task.complexity.points
             ? 'senior'
             : 'ended';
       } else if (!task.complexity) ended = 'ended';
@@ -6156,17 +6161,12 @@ export class MockBackend {
       return error(403, 'insufficient_access', 'Developer or client required');
     const input = parseBody(SendTeamMessageRequest, body);
     if (!input) return error(400, 'invalid_request', 'Invalid message');
-    // The same rule as the server's: a viewer writes to the project manager alone, a client to the contacts
-    // alone (PM-985). A fixture can also mark a viewer by the member's role.
-    const managerHandle = projectManagerOf(this.config)?.handle;
-    const notManager = input.to.filter((handle) => handle !== managerHandle);
-    const sharedRefusal = teamMessageRecipientRefusal(this.config, this.viewerHandle, input.to);
-    const recipientRefusal =
-      viewer.role === 'viewer'
-        ? notManager.length > 0
-          ? { code: 'insufficient_access' as const, recipients: notManager }
-          : null
-        : sharedRefusal;
+    // The same rule as the server's (PM-985, PM-1102). A fixture can also mark a viewer by the member's role.
+    const recipientRefusal = recipientRefusalForAccess(
+      this.config,
+      viewer.role === 'viewer' ? 'viewer' : accessOfHandle(this.config, this.viewerHandle),
+      input.to,
+    );
     if (recipientRefusal)
       return error(
         403,

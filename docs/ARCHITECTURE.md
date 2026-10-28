@@ -455,7 +455,7 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   route) starts setters.
   **The complexity limit** (PM-1007, replaces the Senior mark of PM-348): the automatic developer
   choice is `chooseDeveloper` in `packages/shared`. A card's points (`Task.complexity`, PM-1006) are
-  compared with each developer's `complexityLimit` (a temp worker's is always 5). Points are set by
+  compared with each developer's `complexityLimit` (a temp worker's is the project's `team.limits.tempWorkers.maxPoints`, default 5, `tempMaxPointsOf`). Points are set by
   the project owners and by the holders of the duties in `team.complexitySetters` (PM-1097,
   `canSetComplexity`; default: requirements analysis and task breakdown). Among the free
   developers, optional `specialtyLabels` first restricts automatic assignment to cards carrying at
@@ -465,8 +465,8 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   card goes the same way among all free developers. While every developer who reaches the points is
   busy or away, `startLocked` leaves the card in the work stage unassigned and the start waits as a
   `work_start` deferral (`startWaiting.reason` `senior_busy`, with `seniors`: the handles whose limit
-  reaches the points); a person's Start gets a normal response with that wait. A card of up to 5
-  points may go to a temp worker instead of waiting. `SeniorWaits` (`admission/senior-waits.ts`, table
+  reaches the points); a person's Start gets a normal response with that wait. A card of up to the
+  temp worker limit (`tempMaxPointsOf`, PM-1101) may go to a temp worker instead of waiting. `SeniorWaits` (`admission/senior-waits.ts`, table
   `senior_waits`, one open row per card) keeps when the wait began, the question and the answer over a
   restart. After `seniorWaitMinutes` (30) the 60 s sweep asks the owners once (an inbox decision,
   `wait_for_senior` or `any_developer`); "any" lets the free non-temp developer with the largest limit
@@ -5270,7 +5270,8 @@ retired, `operator_required` 409; it cannot go on leave), `isOperatorActor` (an 
   on the server; no new engine data or machine-dependent operation is introduced.
 - **Moves and priority.** The Operator is bound by no stage-move limit (`actorMoveRefusal` binds the project manager
   only), so it may also move a card out of the first stage, through the gates; `priorityRefusal` lets it set the
-  priority. `labelRefusal` is unchanged: no AI member sets a label only a person may set.
+  priority (people and the connected owner always may; an AI member only when `team.prioritySetters`, PM-1096, covers
+  it: the project managers by default, and the AI members holding the `prioritization` duty when chosen). `labelRefusal` is unchanged: no AI member sets a label only a person may set.
 - **Creation.** A new project gets an Operator next to the project manager (`operatorMember`, `draft.finish`); the
   configuration migration `addOperator` adds one to a project without it, at work (not on leave), sponsored by the first
   human owner.

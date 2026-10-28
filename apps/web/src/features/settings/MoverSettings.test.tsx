@@ -26,6 +26,69 @@ const choice = (group: ReturnType<typeof within>, kind: 'worker' | 'project_mana
   group.getByRole('radio', { name: new RegExp(t(`settings.team.mover.${kind}.title`)) }) as HTMLInputElement;
 
 describe('the card mover in the settings (PM-439)', () => {
+  it('shows the default PM queue moves and saves the start-only choice', async () => {
+    const project = mockProject();
+    project.render(<SettingsTestRoutes initialSection="team" />);
+    const select = await screen.findByRole('combobox', {
+      name: t('settings.team.projectManagerMoves.label'),
+    });
+    expect((select as HTMLSelectElement).value).toBe('queues_and_start');
+    fireEvent.change(select, { target: { value: 'start_only' } });
+    await waitFor(() => expect(project.backend.config.team.projectManagerMoves).toBe('start_only'));
+    expect(lastConfigPatch(project.requests).projectManagerMoves).toBe('start_only');
+  });
+
+  it('shows PM moves without editing controls to members who cannot manage the team', async () => {
+    const project = mockProject();
+    project.backend.config.team.projectManagerMoves = 'start_only';
+    project.render(<SettingsTestRoutes initialSection="team" />, '/', { can: { manageTeam: false } });
+    const group = within(
+      await screen.findByRole('region', { name: t('settings.team.projectManagerMoves.title') }),
+    );
+    expect(group.queryByRole('combobox')).toBeNull();
+    expect(group.getByText(t('settings.team.projectManagerMoves.start_only'))).toBeTruthy();
+  });
+
+  it('shows the project manager as the default priority setter, and saves a ticked duty at once (PM-1096)', async () => {
+    const project = mockProject();
+    project.render(<SettingsTestRoutes initialSection="team" />);
+    const group = within(await screen.findByRole('region', { name: t('settings.team.priority.label') }));
+    const manager = group.getByRole('checkbox', {
+      name: t('settings.team.priority.project_manager'),
+    }) as HTMLInputElement;
+    const duty = group.getByRole('checkbox', {
+      name: new RegExp(t('dutyNames.prioritization')),
+    }) as HTMLInputElement;
+    expect(manager.checked).toBe(true);
+    expect(duty.checked).toBe(false);
+    fireEvent.click(duty);
+    await waitFor(() =>
+      expect(project.backend.config.team.prioritySetters).toEqual(['project_manager', 'prioritization_duty']),
+    );
+    expect(lastConfigPatch(project.requests).prioritySetters).toEqual([
+      'project_manager',
+      'prioritization_duty',
+    ]);
+    // The ticks wait while a save runs; an unticked pair is the humans-only setting, saved as [].
+    await waitFor(() => expect(manager.closest('fieldset')!.disabled).toBe(false));
+    fireEvent.click(manager);
+    await waitFor(() => expect(project.backend.config.team.prioritySetters).toEqual(['prioritization_duty']));
+    await waitFor(() => expect(manager.closest('fieldset')!.disabled).toBe(false));
+    fireEvent.click(duty);
+    await waitFor(() => expect(project.backend.config.team.prioritySetters).toEqual([]));
+    expect(await group.findByText(t('settings.team.priority.humansOnly'))).toBeTruthy();
+  });
+
+  it('only tells a member who may not manage the team who may set priorities (PM-1096)', async () => {
+    const project = mockProject();
+    project.render(<SettingsTestRoutes initialSection="team" />, '/', { can: { manageTeam: false } });
+    const group = within(await screen.findByRole('region', { name: t('settings.team.priority.label') }));
+    expect(group.queryByRole('checkbox')).toBeNull();
+    expect(
+      group.getByText(new RegExp(t('settings.team.priority.value.with', { names: '' }).trim())),
+    ).toBeTruthy();
+  });
+
   it('shows the worker as the default, and saves another choice at once', async () => {
     const project = mockProject();
     project.render(<SettingsTestRoutes initialSection="team" />);

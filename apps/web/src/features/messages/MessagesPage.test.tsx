@@ -1,6 +1,7 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Route, Routes, useLocation } from 'react-router';
+import { projectManagerOf } from '@projectman/shared';
 import { getLocale } from '@projectman/templates';
 import { setFetchImplementation } from '../../api/client';
 import { t } from '../../i18n/t';
@@ -345,16 +346,30 @@ describe('a conversation', () => {
     );
   });
 
-  it('shows a viewer the conversations without a composer', async () => {
+  it('offers a viewer only the project manager, and points them to it from another thread (PM-1102)', async () => {
     const p = mockProject();
     p.backend.messages = [];
     p.backend.sendTeamMessage('fe-1', ['owner'], null, 'Acme for a viewer');
+    const manager = projectManagerOf(p.backend.config)!;
     const me = { ...p.context.me, projects: [{ ...p.context.me.projects[0]!, access: 'viewer' as const }] };
     p.render(<Pages />, '/p/AC/messages/with/fe-1', { me });
     await within(await screen.findByRole('log')).findByText('Acme for a viewer');
-    expect(screen.queryByRole('button', { name: t('messages.new') })).toBeNull();
     expect(screen.queryByRole('button', { name: t('common.send') })).toBeNull();
-    expect(screen.getByText(t('messages.composer.readOnly'))).toBeTruthy();
+    const note = await screen.findByRole('note');
+    expect(within(note).getByRole('link').getAttribute('href')).toBe(`/p/AC/messages/with/${manager.handle}`);
+    fireEvent.click(screen.getByRole('button', { name: t('messages.new') }));
+    const dialog = within(await screen.findByRole('dialog'));
+    await waitFor(() => expect(dialog.getAllByRole('checkbox')).toHaveLength(1));
+  });
+
+  it('does not tell a viewer to write below in an empty thread that has no box (PM-1102)', async () => {
+    const p = mockProject();
+    p.backend.messages = [];
+    const me = { ...p.context.me, projects: [{ ...p.context.me.projects[0]!, access: 'viewer' as const }] };
+    p.render(<Pages />, '/p/AC/messages/with/fe-1', { me });
+    await screen.findByRole('heading', { name: t('messages.thread.emptyTitle') });
+    await screen.findByRole('note');
+    expect(screen.queryByText(t('messages.thread.emptyBody'))).toBeNull();
   });
 });
 

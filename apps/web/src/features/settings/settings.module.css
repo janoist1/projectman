@@ -242,6 +242,11 @@
   gap: 14px;
 }
 
+/* A second set of controls under the first in one group: air between them, like between two groups. */
+.controlsBelow {
+  margin-top: 18px;
+}
+
 .toggle {
   display: flex;
   flex-direction: column;

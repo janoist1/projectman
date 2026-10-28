@@ -93,6 +93,8 @@ function limitsBody(draft: ProjectConfig, saved: ProjectConfig, baseVersion: str
     draft.team.projectManagerMoves !== saved.team.projectManagerMoves
       ? draft.team.projectManagerMoves
       : undefined;
+  const viewerRecipients =
+    draft.team.viewerRecipients !== saved.team.viewerRecipients ? draft.team.viewerRecipients : undefined;
   // The contacts go as the whole list when it changed, an empty one too: a missing field keeps the stored list.
   const contacts = draft.team.contacts ?? [];
   const contactsChanged = JSON.stringify(contacts) !== JSON.stringify(saved.team.contacts ?? []);
@@ -103,6 +105,7 @@ function limitsBody(draft: ProjectConfig, saved: ProjectConfig, baseVersion: str
     ...(cardMover ? { cardMover } : {}),
     ...(projectManagerMoves ? { projectManagerMoves } : {}),
     ...(contactsChanged ? { contacts } : {}),
+    ...(viewerRecipients ? { viewerRecipients } : {}),
     ...(repoMerge.length ? { repoMerge } : {}),
     limits: {
       ...draft.team.limits,

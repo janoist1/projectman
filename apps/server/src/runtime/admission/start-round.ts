@@ -6,7 +6,6 @@ import {
   isHandleOnLeave,
   isOpenTask,
   memberOf,
-  operatorOf,
   planStarts,
   projectManagerOf,
   pullSourceStage,
@@ -351,8 +350,7 @@ export class StartRound implements StartRounding {
         const refusal = `${card.stageId}:${member.handle}:${err.code}`;
         state.refusals.set(card.key, refusal);
         if (old?.refusals.get(card.key) === refusal) continue;
-        const recipient =
-          cardMoverHandle(config) ?? projectManagerOf(config)?.handle ?? operatorOf(config)?.handle;
+        const recipient = cardMoverHandle(config) ?? projectManagerOf(config)?.handle;
         if (recipient && memberOf(config, recipient)?.kind === 'ai' && !isHandleOnLeave(config, recipient))
           await this.deps.messaging.send(
             key,
@@ -381,10 +379,9 @@ export class StartRound implements StartRounding {
     const { config, state, cards, plan, places, toStageId } = round;
     const { ctx, tasks, messaging } = this.deps;
     const projectKey = config.project.key;
-    const recipient =
-      cardMoverHandle(config) ?? projectManagerOf(config)?.handle ?? operatorOf(config)?.handle;
+    const recipient = cardMoverHandle(config) ?? projectManagerOf(config)?.handle;
     // A member on leave is not started, so an offer to them would only stand and pause (decision 23): the
-    // round offers again once they are back, and the Operator's ready signal covers the time between.
+    // round offers again once they are back.
     if (!recipient || memberOf(config, recipient)?.kind !== 'ai' || !this.obligations) return;
     if (isHandleOnLeave(config, recipient)) return;
     const fresh = cards

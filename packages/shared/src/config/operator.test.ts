@@ -15,9 +15,10 @@ import {
   isRequiredOperator,
   operatorAutonomousLevel,
   operatorConfigVerdict,
-  operatorConversationOf,
   operatorFixedChange,
   operatorOf,
+  operatorRunsInApp,
+  runsInApp,
 } from './operator';
 import type { OperatorConfigVerdict } from './operator';
 import { actorMoveRefusal } from './project-manager';
@@ -26,17 +27,22 @@ import { DEFAULT_NEW_MEMBER_APPROVER, DEFAULT_PERMISSION_MODE } from '../domain/
 import { cardMerger, mergerOf } from './merger';
 import { integratorSideAvailable } from '../domain/member-queue';
 
-it.each(['active', 'on_leave', 'ai_off', 'absent'] as const)(
-  'keeps integrator work on its side when the Operator is %s',
-  (state) => {
+describe('integratorSideAvailable (PM-1045)', () => {
+  it('is available while an owner has a live super key, whatever the Operator member is', () => {
     const c = config();
-    const operator = operatorOf(c)!;
-    if (state === 'on_leave') operator.onLeave = true;
-    if (state === 'ai_off') c.team.limits.aiEnabled = false;
-    if (state === 'absent') c.team.members = c.team.members.filter((member) => member !== operator);
-    expect(integratorSideAvailable(c)).toBe(state !== 'absent');
-  },
-);
+    expect(integratorSideAvailable(c, (email) => email === 'owner@example.com')).toBe(true);
+    c.team.members = c.team.members.filter((member) => member !== operatorOf(c));
+    expect(integratorSideAvailable(c, (email) => email === 'owner@example.com')).toBe(true);
+  });
+
+  it('is not available when no owner has a live (not revoked, not expired) super key', () => {
+    expect(integratorSideAvailable(config(), () => false)).toBe(false);
+  });
+
+  it('asks only about owners: another person with a key does not count', () => {
+    expect(integratorSideAvailable(config(), (email) => email === 'ann@example.com')).toBe(false);
+  });
+});
 
 function config() {
   return ProjectConfig.parse({
@@ -1334,21 +1340,13 @@ describe('the Operator member', () => {
     expect(operatorOf({ team: { ...c.team, members: [member(c, 'owner')] } })).toBeNull();
   });
 
-  it('operatorConversationOf: owners share the general chat, every other person has their own (PM-475)', () => {
+  it('runsInApp: the Operator never runs a session in the app (PM-1045), every other member does', () => {
     const c = config();
-    for (const [handle, access] of [
-      ['dana', 'developer'],
-      ['cleo', 'client'],
-      ['vera', 'viewer'],
-      ['ada', 'admin'],
-    ] as const)
-      c.team.members.push({ kind: 'human', handle, displayName: handle, access, roles: [] });
-    expect(operatorConversationOf(c, 'owner')).toEqual({ type: 'general' });
-    for (const handle of ['dana', 'cleo', 'vera', 'ada'])
-      expect(operatorConversationOf(c, handle)).toEqual({ type: 'general', with: handle });
-    // An AI member or an unknown sender never gets a conversation of their own.
-    expect(operatorConversationOf(c, 'pm')).toEqual({ type: 'general' });
-    expect(operatorConversationOf(c, 'nobody')).toEqual({ type: 'general' });
+    expect(operatorRunsInApp).toBe(false);
+    expect(runsInApp(operatorOf(c))).toBe(false);
+    expect(runsInApp(member(c, 'pm'))).toBe(true);
+    expect(runsInApp(member(c, 'owner'))).toBe(true);
+    expect(runsInApp(null)).toBe(true);
   });
 
   it('isRequiredOperator: only when it is the one', () => {

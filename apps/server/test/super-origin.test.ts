@@ -92,7 +92,7 @@ describe('super-mode origin and audit (PM-757)', () => {
   it('stores the super origin next to the old actor columns and leaves old rows alone', async () => {
     h = await createDomainHarness();
     const plain = await h.domain.messaging.send('AR', 'owner', {
-      to: ['operator'],
+      to: ['pm'],
       text: 'Fictional old note',
     });
     const sent = await authenticated(() =>

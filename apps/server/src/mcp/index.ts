@@ -30,7 +30,6 @@ export { InboxTools } from './inbox';
 export { MessageTools } from './messages';
 export { AdmissionTools } from './admission';
 export { WatcherTools } from './watchers';
-export { OperatorQueueTools } from './operator-queue';
 export { SessionTools } from './sessions';
 export { EmailChannelTools } from './email-channel';
 export { HostRequestTools } from './host-requests';

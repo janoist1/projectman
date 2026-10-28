@@ -87,7 +87,7 @@ export function registerApiRoutes(app: FastifyInstance, services: ApiServices): 
   registerEngineRoutes(app, services);
   registerVersionRoutes(app, domain);
   registerWebPushRoutes(app, domain);
-  registerProviderRoutes(app, domain);
+  registerProviderRoutes(app, services);
   registerProjectRoutes(app, services);
   registerOperatorRoutes(app, services);
   registerMemberQueueRoutes(app, services);

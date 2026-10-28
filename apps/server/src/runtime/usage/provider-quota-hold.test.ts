@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { PlanUsage } from '@projectman/shared';
+import type { EngineId, PlanUsage } from '@projectman/shared';
 import { ProviderQuotaHolds, NANOGPT_RATE_HOLD_MS } from './provider-quota-hold';
 
 describe('ProviderQuotaHolds', () => {
@@ -30,6 +30,17 @@ describe('ProviderQuotaHolds', () => {
     expect(holds.check('nanogpt', new Date(reset.getTime() - 1))).toEqual({ until: reset, kind: 'quota' });
     expect(holds.check('nanogpt', reset)).toBeNull();
     expect(holds.check('codex', at)).toBeNull();
+  });
+  it('keeps a NanoGPT hold per scope but one shared hold for the other providers', () => {
+    const holds = new ProviderQuotaHolds();
+    expect(holds.start('nanogpt', at, 'eng_friend' as EngineId)).toBe(true);
+    expect(holds.check('nanogpt', at)).toBeNull();
+    expect(holds.check('nanogpt', at, 'eng_friend' as EngineId)?.kind).toBe('unknown');
+    expect(holds.unknownScopes('nanogpt', at)).toEqual(['eng_friend']);
+    holds.observed('nanogpt', usage(40), at, 'eng_friend' as EngineId);
+    expect(holds.unknownScopes('nanogpt', at)).toEqual([]);
+    holds.until('gemini', reset, at, 'eng_friend' as EngineId);
+    expect(holds.check('gemini', at)?.until).toEqual(reset);
   });
   it('waits fifteen minutes for an initially known low usage', () => {
     const holds = new ProviderQuotaHolds();

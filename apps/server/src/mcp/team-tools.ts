@@ -5,7 +5,6 @@ import type {
   MessageToolsHandler,
   AdmissionToolsHandler,
   WatcherToolsHandler,
-  OperatorQueueToolsHandler,
   SessionToolsHandler,
   EmailToolsHandler,
   HostRequestToolsHandler,
@@ -116,7 +115,6 @@ export class TeamToolsService implements TeamToolsHandler {
     messages: MessageToolsHandler;
     admission: AdmissionToolsHandler;
     watchers: WatcherToolsHandler;
-    operatorQueue: OperatorQueueToolsHandler;
     sessions: SessionToolsHandler;
     email: EmailToolsHandler;
     hostRequests: HostRequestToolsHandler;
@@ -166,9 +164,6 @@ export class TeamToolsService implements TeamToolsHandler {
   ) {
     return this.tools.watchers.decideFixLimit(ctx, args);
   }
-  async finishQueueItem(ctx: ToolContext, args: Parameters<OperatorQueueToolsHandler['finishQueueItem']>[1]) {
-    return this.tools.operatorQueue.finishQueueItem(ctx, args);
-  }
   async handOff(ctx: ToolContext, args: { taskKey: string; note: string }): Promise<{ recorded: true }> {
     return this.tools.admission.handOff(ctx, args);
   }
@@ -190,7 +185,6 @@ export class TeamToolsService implements TeamToolsHandler {
       messages: MessageToolsHandler;
       admission: AdmissionToolsHandler;
       watchers: WatcherToolsHandler;
-      operatorQueue: OperatorQueueToolsHandler;
       sessions: SessionToolsHandler;
       email: EmailToolsHandler;
       hostRequests: HostRequestToolsHandler;
@@ -437,6 +431,7 @@ export class TeamToolsService implements TeamToolsHandler {
       /** The question asked again after the Operator screened it away (PM-558), and why a person must see it. */
       reaskOf?: string;
       reaskReason?: string;
+      signalId?: string;
       responsePurpose?: QuestionResponsePurpose;
       recipient?: QuestionRecipient;
     },

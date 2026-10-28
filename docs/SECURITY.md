@@ -65,6 +65,8 @@ tenants into separate OS accounts or machines.
   - `secret.nanogpt_key` gives the key only to a NanoGPT member session that this engine is
     starting right now (`session.start` sent, `started` not yet seen), once, never from a cache
     and never to the log. Any other request is `secret_not_allowed`.
+    An engine with its own NanoGPT key file (PM-1068) never asks for it: the hello only says
+    `nanogptKey: 'engine'`, the value never crosses the link.
   - The `hello` of an engine is its own word and nothing more: a session that the database
     records on another engine is not taken over (no owner change, no mirror entry, no events or
     permission decisions accepted from the reporter), and the reporter is told to stop it.
@@ -91,8 +93,14 @@ tenants into separate OS accounts or machines.
 - NanoGPT keys are a narrow exception to subscription-only providers (PM-319, owner
   decision 1; PM-328). The server stores the key only in
   `PROJECTMAN_HOME/secrets/nanogpt.json`: directory 0700, file 0600, atomic replacement
-  through a private temporary file. Only a human who owns every project may set,
-  replace or clear it. Public status contains only whether it is set and when it was
+  through a private temporary file. Only the host owner may set, replace or clear it
+  (PM-1068; an owner of every project is not enough). It is the host engine's fallback.
+  Every engine may hold its own key instead, in a 0600 file named by `nanogptKeyFile` in
+  `engine.json` (`npm run engine -- nanogpt-key set|clear`; the key is read from standard
+  input, never from an argument). The engine reads it with the same checks as the hub's secret
+  files (regular file, owner, mode, not empty), refuses to start when the file is unusable, keeps
+  it out of every session root (`secret_in_root`) and adds it to the sandbox deny list next to
+  `engine.key`, so a member's file tools and sandboxed commands cannot read it. Public status contains only whether it is set and when it was
   set; the value, suffix and length never appear in configuration, SQLite, logs,
   API responses or errors. Save-time checking inspects only NanoGPT's HTTP status,
   without reading or recording balances.
@@ -431,6 +439,16 @@ steps and a 30-minute gap, without a separate PM budget or a new permission swit
 unblock/drive, subject to the existing task/member mute, gates, prerequisites, permission waits,
 fix-limit and admission checks. Report permits no autonomous start. This signal never grants
 task movement, label/configuration changes, prerequisite override, stop or critical authority.
+
+A `start_blocked` signal (PM-455) permits only `start_member` at unblock/drive, with the same budget, gap and
+mute: for `workspace_dirty` the waiting member on the card that holds the workspace's branch, for
+`workspace_fetch_failed` the deployment-duty AI members on the waiting card, and for `repo_required` nothing. The
+project manager's prompt lets it set the card's repository on a `repo_required` signal; that is no signal authority:
+the server does not restrict it, because `update_task` with `repo` is allowed for every member and refused only for
+an unknown repository or a live session. The facts carry no git error text (a remote URL in it may hold
+credentials). `ask_human` takes `signal_id` only from the coordinator the signal was delivered to, for an open
+signal of the same project; it grants nothing and only ties the question to the case, which closes it
+(`signal_resolved`) when the case ends.
 
 The PM may present delivered, unpresented `pending` or `open` signals once through `send_message`
 with `signal_id` or `signal_ids`, addressed only to owners from its internal general session.

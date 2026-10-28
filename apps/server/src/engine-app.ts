@@ -51,7 +51,7 @@ import {
   readHeavyRunSessions,
   withGithubActions,
 } from './full-test';
-import { createCheckBranchGit, freeBytesOf } from './engine-host';
+import { createCheckBranchGit, createKeepAwake, freeBytesOf, spawnKeepAwakeProcess } from './engine-host';
 import { nonLocalReason } from './kernel';
 import { assertHomeMayStart } from './instance';
 import { createMachineProbe } from './machine';
@@ -100,6 +100,12 @@ export interface EngineAppModules {
   random?: () => number;
   auditMaxBytes?: number;
   statusDelayMs?: number;
+  /** PM-1086: the platform and the process start behind the keep-awake hold; tests supply fakes. */
+  keepAwake?: {
+    platform?: NodeJS.Platform;
+    spawn?: Parameters<typeof createKeepAwake>[0]['spawn'];
+    releaseDelayMs?: number;
+  };
 }
 
 export interface EngineAppOptions {
@@ -193,6 +199,9 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
   // The key and the extra headers are read here once so a wrong mode stops the start, not a later reconnect.
   readSecretFile(resolved.keyFile, 'The engine key');
   if (resolved.linkHeadersFile) readLinkHeaders(resolved.linkHeadersFile);
+  // PM-1068: the same for the engine's own NanoGPT key; the value is read again at every use, not kept here.
+  const nanogptKeyFile = resolved.nanogptKeyFile;
+  if (nanogptKeyFile) readSecretFile(nanogptKeyFile, 'The NanoGPT key');
   const files = engineFiles(home, resolved);
   const instanceTag = createHash('sha256').update(realpathSync(home)).digest('hex').slice(0, 16);
   const bootId = randomBytes(8).toString('hex');
@@ -286,8 +295,25 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
     },
   };
 
-  // The NanoGPT key is fetched per session start and kept in memory only: nothing writes it to a file, the
-  // log or the status. Outside such a start (plan usage, the login check) there is no key to give.
+  // The engine's own NanoGPT key file (PM-1068): read at every use, so a changed file takes effect at once.
+  // A file that cannot be read gives no key; the log names the error code only, never the key.
+  const ownNanogptKey = nanogptKeyFile
+    ? async (): Promise<string | null> => {
+        try {
+          return readSecretFile(nanogptKeyFile, 'The NanoGPT key');
+        } catch (error) {
+          log.warn(
+            { code: error instanceof EngineConfigError ? error.code : 'internal' },
+            'the NanoGPT key file could not be read',
+          );
+          return null;
+        }
+      }
+    : undefined;
+
+  // Without an own key file the NanoGPT key is fetched per session start and kept in memory only: nothing
+  // writes it to a file, the log or the status. Outside such a start (plan usage, the login check) there is
+  // no key to give.
   const nanogptScope = new AsyncLocalStorage<{
     sessionId: string;
     active: boolean;
@@ -386,8 +412,8 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
     codexBin: options.codexBin ?? APP_DEFAULTS.codexBin,
     codexHome: options.codexHome,
     nanogptCodexHome,
-    nanogptKey,
-    nanogptKeyInCloud: true,
+    nanogptKey: ownNanogptKey ?? nanogptKey,
+    nanogptKeyInCloud: !ownNanogptKey,
     geminiBin: options.geminiBin,
     geminiConfigDir,
     claudeConfigPath: options.claudeConfigPath,
@@ -562,7 +588,7 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
     emit,
     terminals,
     exportDir,
-    nanogptStart,
+    ...(ownNanogptKey ? {} : { nanogptStart }),
     administration,
   });
 
@@ -617,6 +643,7 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
       uid,
       bootId,
       ...(administrationAdvertised ? { administration: administrationAdvertised } : {}),
+      ...(nanogptKeyFile ? { nanogptKey: 'engine' as const } : {}),
     };
   }
 
@@ -641,9 +668,22 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
     } else syncPendingInput(event.sessionId);
   });
   const runningState = () => runner.list().map(({ sessionId, state }) => ({ sessionId, state }));
+  const keepAwake = createKeepAwake({
+    mode: resolved.keepAwake ?? 'while_working',
+    platform: modules.keepAwake?.platform ?? os.platform(),
+    enginePid: process.pid,
+    spawn: modules.keepAwake?.spawn ?? spawnKeepAwakeProcess,
+    ...(modules.keepAwake?.releaseDelayMs === undefined
+      ? {}
+      : { releaseDelayMs: modules.keepAwake.releaseDelayMs }),
+    log,
+  });
   const poll = setInterval(() => {
-    for (const info of runner.list()) syncPendingInput(info.sessionId);
-    status.set({ running: runningState() });
+    const sessions = runner.list();
+    for (const info of sessions) syncPendingInput(info.sessionId);
+    const work = { sessions: sessions.length, ...handlers.activeRuns() };
+    keepAwake.update(work.sessions + work.fullTests + work.screenshots > 0);
+    status.set({ running: runningState(), work, keepAwake: keepAwake.state() });
   }, PENDING_INPUT_POLL_MS);
   poll.unref();
 
@@ -733,7 +773,7 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
     app,
     files,
     async start() {
-      status.set({ running: runningState() });
+      status.set({ running: runningState(), keepAwake: keepAwake.state() });
       await app.listen({ port: options.port, host: LOOPBACK });
       client.start();
       log.info({ home, engineId: resolved.engineId, port: options.port }, 'projectman engine ready');
@@ -768,6 +808,8 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
         .shutdown()
         .catch((error: unknown) => log.warn({ err: error }, 'the runner did not shut down'));
       unsubscribe();
+      keepAwake.close();
+      status.set({ keepAwake: keepAwake.state() });
       await client.flush(5000);
       await client.close();
       await engine.sessionFolders?.releaseTmpRoot().catch(() => undefined);

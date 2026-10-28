@@ -1,4 +1,4 @@
-import { waitForSession } from './helpers/domain-harness';
+import { seedOperatorRequest } from './helpers/operator-session';
 import { afterEach, expect, it } from 'vitest';
 import { OperatorKnowledgeDocument, routes } from '@projectman/shared';
 import type { HumanAccess, OperatorKnowledgeChange } from '@projectman/shared';
@@ -29,13 +29,7 @@ it.each(['agreement', 'principle'] as const)(
       readers.push({ handle, access, cookie: await addHumanAndLogin(h.app, { handle, access }) });
     const key = await inject(h.app, 'POST', routes.integratorKeys(), owner, { mode: 'read' });
     const domain = h.app.projectman.domain;
-    await domain.messaging.sendReporting(
-      'AR',
-      'owner',
-      { to: ['operator'], text: 'Propose shared knowledge' },
-      { awaitWake: true },
-    );
-    const session = await waitForSession(domain, { member: 'operator' });
+    const { session } = seedOperatorRequest(h.app.projectman, 'AR', { text: 'Propose shared knowledge' });
     const change: OperatorKnowledgeChange =
       kind === 'agreement'
         ? {

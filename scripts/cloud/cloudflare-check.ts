@@ -1,5 +1,13 @@
 import path from 'node:path';
-import { INTEGRATOR_TOKEN_FILE, ENGINE_TOKEN_FILE, isPublicBoard, readTokenFile } from './cloudflare';
+import {
+  INTEGRATOR_TOKEN_FILE,
+  ENGINE_TOKEN_FILE,
+  OWNERS_DIR,
+  isPublicBoard,
+  ownerDir,
+  ownersOf,
+  readTokenFile,
+} from './cloudflare';
 import type { CloudContext } from './context';
 import { CloudError, refused } from './errors';
 import type { StepResult } from './report';
@@ -59,35 +67,46 @@ async function engineDoor(
   }
 }
 
-async function checkEngineDoors(context: CloudContext, origin: string): Promise<StepResult> {
-  const { report } = context;
-  const file = path.join(context.secretsDir, ENGINE_TOKEN_FILE);
+type TokenHeaders = Record<string, string>;
+
+/** The `CF-Access-*` headers of a token file; null when the file is missing or not a token file. Both parts are masked. */
+function tokenHeaders(context: CloudContext, file: string): TokenHeaders | null {
   const token = readTokenFile(file);
-  if (!token) throw refused(`${file} is missing or not a service token file; run "npm run cloud -- edge"`);
-  report.protect(token.clientId);
-  report.protect(token.clientSecret);
-  const withToken = {
-    'CF-Access-Client-Id': token.clientId,
-    'CF-Access-Client-Secret': token.clientSecret,
-  };
+  if (!token) return null;
+  context.report.protect(token.clientId);
+  context.report.protect(token.clientSecret);
+  return { 'CF-Access-Client-Id': token.clientId, 'CF-Access-Client-Secret': token.clientSecret };
+}
+
+/**
+ * The engine's doors with an engine service token: `who` names it in the messages. The anonymous probes do not
+ * depend on the token, so they run only once (`withAnonymous`).
+ */
+async function checkEngineDoors(
+  context: CloudContext,
+  origin: string,
+  withToken: TokenHeaders,
+  holder: string,
+  withAnonymous: boolean,
+): Promise<string[]> {
   const failures: string[] = [];
   for (const door of ENGINE_DOORS) {
-    const anonymous = await engineDoor(context, `${origin}${door}`, {});
-    if (!anonymous) failures.push(`${door} without a token: no answer`);
-    else if (!(accessRedirect(anonymous) || anonymous.status === 403))
+    const anonymous = withAnonymous ? await engineDoor(context, `${origin}${door}`, {}) : undefined;
+    if (anonymous === null) failures.push(`${door} without a token: no answer`);
+    else if (anonymous && !(accessRedirect(anonymous) || anonymous.status === 403))
       failures.push(`${door} without a token answered ${anonymous.status}, not the Access login or 403`);
     const authorized = await engineDoor(context, `${origin}${door}`, withToken);
-    if (!authorized) failures.push(`${door} with the engine token: no answer (000)`);
+    if (!authorized) failures.push(`${door} with ${holder}: no answer (000)`);
     else if (authorized.status >= 200 && authorized.status <= 299)
-      failures.push(`${door} with the engine token answered ${authorized.status}: the door is open`);
+      failures.push(`${door} with ${holder} answered ${authorized.status}: the door is open`);
     else if (accessRedirect(authorized))
-      failures.push(`${door} with the engine token went to the Access login: the token is not accepted`);
+      failures.push(`${door} with ${holder} went to the Access login: the token is not accepted`);
   }
   // Nobody is let in by the encoded spelling, with or without the token: the Access login, 403 or the board's 404.
   for (const [who, headers] of [
-    ['without a token', {}],
-    ['with the engine token', withToken],
-  ] as const) {
+    ...(withAnonymous ? [['without a token', {}] as const] : []),
+    [`with ${holder}`, withToken] as const,
+  ]) {
     const encoded = await engineDoor(context, `${origin}${ENCODED_ENGINE_DOOR}`, headers);
     if (!encoded) failures.push(`${ENCODED_ENGINE_DOOR} ${who}: no answer`);
     else if (!(accessRedirect(encoded) || encoded.status === 403 || encoded.status === 404))
@@ -98,12 +117,18 @@ async function checkEngineDoors(context: CloudContext, origin: string): Promise<
   if (isPublicBoard(context.config)) {
     // The engine token opens the engine application and nothing else: on the board it is no login (PM-672).
     const board = await engineDoor(context, `${origin}/api/auth/me`, withToken);
-    if (!board) failures.push('/api/auth/me with the engine token: no answer');
+    if (!board) failures.push(`/api/auth/me with ${holder}: no answer`);
     else if (board.status !== 401)
-      failures.push(
-        `/api/auth/me with the engine token answered ${board.status}, not 401: it gives board rights`,
-      );
+      failures.push(`/api/auth/me with ${holder} answered ${board.status}, not 401: it gives board rights`);
   }
+  return failures;
+}
+
+async function checkHostEngineDoors(context: CloudContext, origin: string): Promise<StepResult> {
+  const file = path.join(context.secretsDir, ENGINE_TOKEN_FILE);
+  const headers = tokenHeaders(context, file);
+  if (!headers) throw refused(`${file} is missing or not a service token file; run "npm run cloud -- edge"`);
+  const failures = await checkEngineDoors(context, origin, headers, 'the engine token', true);
   if (failures.length > 0) throw new CloudError(`the engine's doors: ${failures.join('; ')}`);
   return {
     status: 'ok',
@@ -112,22 +137,26 @@ async function checkEngineDoors(context: CloudContext, origin: string): Promise<
 }
 
 function integratorHeaders(context: CloudContext): Record<string, string> {
-  const token = readTokenFile(path.join(context.secretsDir, INTEGRATOR_TOKEN_FILE));
-  if (!token) throw refused('the integrator service token file is missing or invalid');
-  context.report.protect(token.clientId);
-  context.report.protect(token.clientSecret);
-  return { 'CF-Access-Client-Id': token.clientId, 'CF-Access-Client-Secret': token.clientSecret };
+  const headers = tokenHeaders(context, path.join(context.secretsDir, INTEGRATOR_TOKEN_FILE));
+  if (!headers) throw refused('the integrator service token file is missing or invalid');
+  return headers;
 }
 
-async function checkIntegratorDoors(context: CloudContext, origin: string): Promise<StepResult> {
+/**
+ * The integrator host with an integrator token (`own`) and an engine token (`wrong`): the engine token is no key
+ * there, the integrator token passes Access and needs the application key, and it does not open `/engine`.
+ */
+async function integratorDoorProblems(
+  context: CloudContext,
+  origin: string,
+  own: TokenHeaders,
+  wrong: TokenHeaders,
+  withAnonymous: boolean,
+): Promise<string[]> {
   const machine = `https://${context.config.cloudflare.integratorHostname}`;
-  const own = integratorHeaders(context);
-  const engine = readTokenFile(path.join(context.secretsDir, ENGINE_TOKEN_FILE));
-  if (!engine) throw refused('the engine service token file is missing or invalid');
-  const wrong = { 'CF-Access-Client-Id': engine.clientId, 'CF-Access-Client-Secret': engine.clientSecret };
   const problems: string[] = [];
   for (const door of ['/api/projects', '/mcp']) {
-    for (const headers of [{}, wrong]) {
+    for (const headers of withAnonymous ? [{}, wrong] : [wrong]) {
       const answer = await engineDoor(context, `${machine}${door}`, headers);
       if (!answer || !(accessRedirect(answer) || answer.status === 403))
         problems.push(`${door} accepts a missing or wrong service token`);
@@ -138,6 +167,15 @@ async function checkIntegratorDoors(context: CloudContext, origin: string): Prom
   const crossed = await engineDoor(context, `${origin}/engine/link`, own);
   if (!crossed || !(accessRedirect(crossed) || crossed.status === 403))
     problems.push('the integrator service token opens the engine application');
+  return problems;
+}
+
+async function checkIntegratorDoors(context: CloudContext, origin: string): Promise<StepResult> {
+  const machine = `https://${context.config.cloudflare.integratorHostname}`;
+  const own = integratorHeaders(context);
+  const engine = tokenHeaders(context, path.join(context.secretsDir, ENGINE_TOKEN_FILE));
+  if (!engine) throw refused('the engine service token file is missing or invalid');
+  const problems = await integratorDoorProblems(context, origin, own, engine, true);
   for (const door of ['/', '/ws', '/engine/link', '/feedback/widget.js', '/mcp/token', '/hooks/x']) {
     const answer = await engineDoor(context, `${machine}${door}`, own);
     if (!answer || answer.status !== 404) problems.push(`${door} is not closed on the machine host`);
@@ -146,6 +184,38 @@ async function checkIntegratorDoors(context: CloudContext, origin: string): Prom
   return {
     status: 'ok',
     detail: 'separate Access audience, application key required, human and internal doors closed',
+  };
+}
+
+/**
+ * A further owner's two tokens (PM-1065), tried from the host's copy: the engine token passes the three engine doors
+ * and nothing else; the integrator token passes Access on the machine host only. Neither opens the other's door.
+ * No copy at the host (the owner's file was never made here, or it is gone) is a skipped step, not a failure.
+ */
+async function checkOwnerDoors(
+  context: CloudContext,
+  origin: string,
+  owner: { id: string; name: string },
+): Promise<StepResult> {
+  const dir = ownerDir(context.secretsDir, owner.id);
+  const engine = tokenHeaders(context, path.join(dir, ENGINE_TOKEN_FILE));
+  const integrator = tokenHeaders(context, path.join(dir, INTEGRATOR_TOKEN_FILE));
+  if (!engine || !integrator)
+    return {
+      status: 'skipped',
+      detail: `${owner.name}: ${OWNERS_DIR}/${owner.id} has no usable copy of ${[
+        ...(engine ? [] : [ENGINE_TOKEN_FILE]),
+        ...(integrator ? [] : [INTEGRATOR_TOKEN_FILE]),
+      ].join(' and ')} (run edge, or edge --rotate-owner-token ${owner.id})`,
+    };
+  const problems = [
+    ...(await checkEngineDoors(context, origin, engine, `the engine token of ${owner.id}`, false)),
+    ...(await integratorDoorProblems(context, origin, integrator, engine, false)),
+  ];
+  if (problems.length) throw new CloudError(`the doors of owner ${owner.id}: ${problems.join('; ')}`);
+  return {
+    status: 'ok',
+    detail: `${owner.name}: own engine token and own integrator token, each at its own door only`,
   };
 }
 
@@ -184,10 +254,12 @@ export async function runCheck(context: CloudContext, options: CheckOptions): Pr
     return { status: 'ok', detail: origin };
   });
 
-  await report.run('engine-doors', () => checkEngineDoors(context, origin));
+  await report.run('engine-doors', () => checkHostEngineDoors(context, origin));
 
   if (config.cloudflare.integratorHostname) {
     await report.run('integrator-doors', () => checkIntegratorDoors(context, origin));
+    for (const owner of ownersOf(config))
+      await report.run(`owner-doors ${owner.id}`, () => checkOwnerDoors(context, origin, owner));
     return;
   }
 

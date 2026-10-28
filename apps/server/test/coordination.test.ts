@@ -6,6 +6,7 @@ import { CoordinationRequests, OperatorRequests, OperatorSteps } from '../src/se
 import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
+import { seedOperatorRequest, seedOperatorSession } from './helpers/operator-session';
 
 let h: DomainHarness;
 let now: Date;
@@ -38,7 +39,11 @@ async function setup(adjust?: (config: ProjectConfig) => void) {
 
 const requests = () => new CoordinationRequests({ ctx: h.domain.ctx, projects: h.domain.projects });
 async function internal(member = 'pm'): Promise<ToolContext> {
-  const { session } = await h.domain.sessions.ensureSession('AR', member, { type: 'general' });
+  // The app starts no Operator (PM-1045): its session row is seeded.
+  const session =
+    member === 'operator'
+      ? seedOperatorSession(h, 'AR', { at: now.toISOString() })
+      : (await h.domain.sessions.ensureSession('AR', member, { type: 'general' })).session;
   await flush();
   return { projectKey: 'AR', member, sessionId: session.id, taskKey: null };
 }
@@ -54,6 +59,13 @@ async function deliverSignals(): Promise<void> {
   }
 }
 async function ownerMessage(member: string) {
+  if (member === 'operator') {
+    const { session } = seedOperatorRequest(h, 'AR', {
+      text: 'Coordinate this request.',
+      at: now.toISOString(),
+    });
+    return { projectKey: 'AR', member, sessionId: session.id, taskKey: null } satisfies ToolContext;
+  }
   const running = h.domain.sessions.list('AR', { member })[0];
   if (running) h.runner.setState(running.id, 'idle');
   await h.domain.messaging.sendReporting(
@@ -230,9 +242,6 @@ describe('separate PM and Operator authorization', () => {
     expect(requests().openFor(pm.sessionId)?.sessionId).toBe(pm.sessionId);
     const started = await h.domain.teamTools.startMember(pm, { member: 'dev-2', text: 'Work.' });
     expect(h.repos.messages.get(started.messageId)?.from).toBe('pm');
-    const channel = await h.domain.projectManagerChannels.operatorView('AR', 'owner');
-    expect(channel.requests).toHaveLength(1);
-    expect(channel.requests[0]?.id).not.toBe(requests().openFor(pm.sessionId)?.id);
     // The app super path resolves the owner's account, unlike the legacy Operator path.
     h.repos.users.insert({
       id: 'usr_coordination_owner',
@@ -414,7 +423,7 @@ describe('persisted coordination signal bindings', () => {
     ).resolves.toHaveProperty('session_id');
   });
 
-  it('preserves presented legacy signals and their original owner acceptance route', async () => {
+  it('preserves presented legacy signals, and an acceptance through the Operator is refused (PM-1045)', async () => {
     await setup();
     const { signal } = await idleSignal();
     const sent = await h.domain.messaging.sendReporting(
@@ -432,13 +441,15 @@ describe('persisted coordination signal bindings', () => {
     });
     await deliverSignals();
     expect(h.repos.operatorSignals.get(signal.id)?.messageId).toBe(sent.message.id);
-    await h.domain.messaging.sendReporting(
-      'AR',
-      'owner',
-      { to: ['operator'], text: 'Accept the earlier proposal.' },
-      { actor: OWNER_ACTOR, operatorSignal: signal.id },
-    );
-    expect(h.repos.operatorSignals.get(signal.id)?.state).toBe('accepted');
+    await expect(
+      h.domain.messaging.sendReporting(
+        'AR',
+        'owner',
+        { to: ['operator'], text: 'Accept the earlier proposal.' },
+        { actor: OWNER_ACTOR, operatorSignal: signal.id },
+      ),
+    ).rejects.toMatchObject({ code: 'operator_connected_only' });
+    expect(h.repos.operatorSignals.get(signal.id)?.state).toBe('open');
   });
 
   it('rejects an old PM session after the selected coordinator changes', async () => {

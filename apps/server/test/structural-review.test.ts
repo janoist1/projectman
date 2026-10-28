@@ -14,6 +14,7 @@ import {
 } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
+import { seedOperatorSession } from './helpers/operator-session';
 
 let h: DomainHarness;
 let now: Date;
@@ -531,10 +532,10 @@ describe('owner-approved occasional review', () => {
         { handle: 'owner', access: 'owner' },
       ),
     ).rejects.toThrow('signal');
-    const operator = await h.domain.sessions.ensureSession('AR', 'operator', { type: 'general' });
+    const operator = seedOperatorSession(h, 'AR');
     await expect(
       h.domain.teamTools.requestStructuralReview(
-        { ...ctx, sessionId: operator.session.id, member: 'operator' },
+        { ...ctx, sessionId: operator.id, member: 'operator' },
         { signalId: signal.id, note: 'Review.' },
       ),
     ).rejects.toThrow('project_manager_only');

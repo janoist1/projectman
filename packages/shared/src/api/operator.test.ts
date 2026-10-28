@@ -7,7 +7,7 @@ import {
   operatorCriticalOp,
   operatorApprovalOf,
   OperatorSignal,
-  OperatorChannel,
+  ProjectManagerCorner,
   RoleConfigurationRead,
   SendTeamMessageRequest,
 } from './dto';
@@ -98,7 +98,7 @@ describe('Operator operation contracts', () => {
     expect(OperatorSignal.safeParse({ ...signal, kind: 'workflow' }).success).toBe(false);
     expect(OperatorSignal.safeParse({ ...signal, state: 'closed' }).success).toBe(false);
     expect(
-      OperatorChannel.parse({
+      ProjectManagerCorner.parse({
         member: null,
         state: 'missing',
         sessionId: null,

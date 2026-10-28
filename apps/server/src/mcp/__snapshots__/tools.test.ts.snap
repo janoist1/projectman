@@ -149,6 +149,12 @@ exports[`team tool definitions > preserves the public tool definitions across mo
           ],
           "type": "string",
         },
+        "signal_id": {
+          "description": "Only the project manager: the open system signal delivered to you that this question is about. The question closes by itself when the signal's case ends; task_key defaults to the signal's card.",
+          "maxLength": 100,
+          "minLength": 1,
+          "type": "string",
+        },
         "task_key": {
           "description": "Task the question is about. Defaults to the task of your current session.",
           "pattern": "^[A-Z][A-Z0-9]{0,9}-\\d+$",
@@ -723,98 +729,6 @@ exports[`team tool definitions > preserves the public tool definitions across mo
     },
     "name": "execute_operation",
     "title": "Execute one command as the Operator or PM",
-  },
-  {
-    "annotations": {
-      "destructiveHint": false,
-      "openWorldHint": false,
-      "readOnlyHint": false,
-      "title": "End an item of your work queue",
-    },
-    "description": "The Operator ends the work queue item it was given (the message names its id). outcome "done": you did what it asked; summary says what you did, and operation_ids names the operations you ran (execute_operation). A held fix round decision also needs fix_limit_option (replan, reassign or another_round); a todo is closed as done with your summary. outcome "handed_off": handoff.reason owner_reserved goes to the owner (the action is reserved to the owner; with operation_id when the operation already asks the owner). no_typed_operation (no typed operation does this) and no_grant (you have no grant for it) go to the super side’s queue, where the item waits. handoff.action is the imperative step the super side takes, or the owner for owner_reserved (one sentence); handoff.detail is the context. The Operator queue item ends at once. outcome "answered": only on a todo that is the question of an AI member; answer is what the asker receives, as the Operator's answer (not a person's), and summary is your reasoning. If the question is about deleting something, security, paid cost or the direction of the project, hand it off with owner_reserved instead. On any other item: 400 invalid_request; on a todo that is not an answerable question: 403 question_not_answerable. Only the item your session is working on can be ended (409 queue_item_not_processing otherwise).",
-    "inputSchema": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "additionalProperties": false,
-      "properties": {
-        "answer": {
-          "maxLength": 10000,
-          "minLength": 1,
-          "type": "string",
-        },
-        "fix_limit_option": {
-          "enum": [
-            "replan",
-            "reassign",
-            "another_round",
-          ],
-          "type": "string",
-        },
-        "handoff": {
-          "properties": {
-            "action": {
-              "maxLength": 300,
-              "minLength": 1,
-              "type": "string",
-            },
-            "detail": {
-              "maxLength": 2000,
-              "type": "string",
-            },
-            "operation_id": {
-              "maxLength": 100,
-              "type": "string",
-            },
-            "reason": {
-              "enum": [
-                "owner_reserved",
-                "no_typed_operation",
-                "no_grant",
-              ],
-              "type": "string",
-            },
-          },
-          "required": [
-            "reason",
-            "action",
-          ],
-          "type": "object",
-        },
-        "item_id": {
-          "maxLength": 100,
-          "minLength": 1,
-          "type": "string",
-        },
-        "operation_ids": {
-          "items": {
-            "maxLength": 100,
-            "type": "string",
-          },
-          "maxItems": 20,
-          "type": "array",
-        },
-        "outcome": {
-          "enum": [
-            "done",
-            "handed_off",
-            "answered",
-          ],
-          "type": "string",
-        },
-        "summary": {
-          "maxLength": 2000,
-          "minLength": 1,
-          "type": "string",
-        },
-      },
-      "required": [
-        "item_id",
-        "outcome",
-        "summary",
-      ],
-      "type": "object",
-    },
-    "name": "finish_queue_item",
-    "title": "End an item of your work queue",
   },
   {
     "annotations": {
@@ -4053,7 +3967,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": false,
       "title": "Screen an AI member’s question",
     },
-    "description": "Only the selected PM in its internal general conversation; needs no owner request. Settle a question an AI member asked a person, which waits for you in the inbox state screening (the notice lists them). Always give note, the reason or background (the owner and the timeline see it). Outcomes: answered (a fact you found on the card, in the decision log, the roadmap, the code or an earlier owner answer; needs answer, name the source in note; the member is told the answer is yours and may ask a person again), forwarded (answering is another AI member’s part of the work; needs forward_to, an AI member other than the asker and you; that member is woken), moot (the question is obsolete; also works on a question that already went to the people), decision (a person must decide: it opens in the inbox as asked), todo (an owner or external integrator step; an integrator todo reaches your work queue first, where you may answer an AI member’s technical question yourself; needs what, where, expected and recipient: owner or integrator. Independently choose the actual recipient, explain changes in note. Use forwarded for AI teammate work and decision for approvals. The inbox shows Done / Cannot do it). Other fields than the outcome needs are refused (invalid_outcome_fields). After the ten minutes are over the question belongs to the people: question_not_screening, except moot.",
+    "description": "Only the selected PM in its internal general conversation; needs no owner request. Settle a question an AI member asked a person, which waits for you in the inbox state screening (the notice lists them). Always give note, the reason or background (the owner and the timeline see it). Outcomes: answered (a fact you found on the card, in the decision log, the roadmap, the code or an earlier owner answer; needs answer, name the source in note; the member is told the answer is yours and may ask a person again), forwarded (answering is another AI member’s part of the work; needs forward_to, an AI member other than the asker and you; that member is woken), moot (the question is obsolete; also works on a question that already went to the people), decision (a person must decide: it opens in the inbox as asked), todo (an owner or external integrator step; needs what, where, expected and recipient: owner or integrator. Independently choose the actual recipient, explain changes in note. Use forwarded for AI teammate work and decision for approvals. The inbox shows Done / Cannot do it). Other fields than the outcome needs are refused (invalid_outcome_fields). After the ten minutes are over the question belongs to the people: question_not_screening, except moot.",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,

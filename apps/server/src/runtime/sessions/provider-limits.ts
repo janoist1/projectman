@@ -7,14 +7,14 @@ import type { DomainContext } from '../../core/base';
 import type { InboxService } from '../../core/inbox';
 import type { ProjectService } from '../../core/projects';
 import { ProviderQuotaHolds } from '../usage';
-import type { PlanUsageCache, UsageAlerts } from '../usage';
+import type { PlanUsageCache, QuotaScope, UsageAlerts } from '../usage';
 import { engineIdOf, engineOption } from './engines';
 import type { SessionOrchestratorDeps } from './sessions';
 
 interface ProviderLimitsDeps {
   ctx: DomainContext;
-  /** The host's engine, where the shared NanoGPT key is measured. */
-  engines: Pick<EngineDirectory, 'hostEngine'>;
+  /** The host's engine, where the shared NanoGPT key is measured, and whose key an engine's sessions use. */
+  engines: Pick<EngineDirectory, 'hostEngine' | 'nanogptKeyHolder'>;
   projects: Pick<ProjectService, 'cachedConfig'>;
   runner: Pick<SessionRunner, 'providerStatus'>;
   /** The warning limit of a session's tokens (PM-187), checked whenever its usage grows. */
@@ -43,7 +43,8 @@ export class ProviderLimits {
   private quotaReassign: ((session: Session, stageId: string) => Promise<void>) | undefined;
   /** Sessions whose CLI reported a lost login, and of which provider, until they end (PM-467). */
   private readonly lostLogins = new Map<string, AgentProvider>();
-  private quotaProbe: Promise<PlanUsage | null> | null = null;
+  /** The usage measurement behind a fresh NanoGPT hold, per key. */
+  private readonly quotaProbe = new Map<QuotaScope, Promise<PlanUsage | null>>();
 
   constructor(deps: ProviderLimitsDeps) {
     this.deps = deps;
@@ -61,35 +62,57 @@ export class ProviderLimits {
     this.quotaReassign = reassign;
   }
 
+  /** Whose NanoGPT key the engine's sessions use; without an engine or a directory answer, the cloud's. */
+  private scopeOf(engineId: EngineId | null | undefined): QuotaScope {
+    return (engineId ? this.deps.engines.nanogptKeyHolder?.(engineId) : undefined) ?? 'host';
+  }
+
+  /** The engine that measures a key: the host's engine for the cloud's key, else the engine owning it. */
+  private probeEngine(scope: QuotaScope): EngineId | null {
+    return scope === 'host' ? this.deps.engines.hostEngine() : scope;
+  }
+
   /**
-   * The hold on NanoGPT is global (one shared key, PM-377): only a measurement on the host's engine
-   * lifts or moves it. Splitting the hold per owner's key is PM-1068's open part.
+   * A NanoGPT hold is per key (PM-1091): the cloud's key is shared by the whole instance (PM-377), an
+   * engine's own key (PM-1068) holds only that engine's sessions. Only a measurement on the engine that
+   * owns the key lifts or moves its hold: the host's engine for the cloud's, the engine itself for its own.
    */
   observeProviderUsage(provider: AgentProvider, engineId: EngineId, usage: PlanUsage | null): void {
-    if (provider === 'nanogpt' && !this.quotaProbe && engineId === this.deps.engines.hostEngine())
-      this.providerHolds.observed(provider, usage, this.deps.ctx.now());
+    if (provider !== 'nanogpt') return;
+    const scope = this.scopeOf(engineId);
+    if (!this.quotaProbe.has(scope) && engineId === this.probeEngine(scope))
+      this.providerHolds.observed(provider, usage, this.deps.ctx.now(), scope);
   }
 
-  /** Persisted quota deferrals must check usage again before any restart-time inference. */
-  restoreProviderQuota(): void {
-    if (this.providerHolds.start('nanogpt', this.deps.ctx.now())) this.invalidateQuotaUsage();
+  /**
+   * Persisted quota deferrals must check usage again before any restart-time inference, on the key of
+   * the engine each deferred start runs on (null: its engine is gone, which is the cloud's key).
+   */
+  restoreProviderQuota(engineIds: Array<EngineId | null>): void {
+    for (const scope of new Set(engineIds.map((id) => this.scopeOf(id))))
+      if (this.providerHolds.start('nanogpt', this.deps.ctx.now(), scope)) this.invalidateQuotaUsage(scope);
   }
 
-  private invalidateQuotaUsage(): void {
-    const host = this.deps.engines.hostEngine();
-    if (host) this.quotaUsage?.invalidate(host);
+  private invalidateQuotaUsage(scope: QuotaScope): void {
+    const engine = this.probeEngine(scope);
+    if (engine) this.quotaUsage?.invalidate(engine);
   }
 
   /** Unknown quota holds retry only the read-only usage probe, never inference. */
   async refreshProviderQuota(): Promise<void> {
-    if (this.providerHolds.check('nanogpt', this.deps.ctx.now())?.kind !== 'unknown' || this.quotaProbe)
-      return;
-    const usage = (await this.quotaUsage?.get('nanogpt', this.deps.engines.hostEngine())) ?? null;
-    this.providerHolds.observed('nanogpt', usage, this.deps.ctx.now());
+    const now = this.deps.ctx.now();
+    await Promise.all(
+      this.providerHolds.unknownScopes('nanogpt', now).map(async (scope) => {
+        if (this.quotaProbe.has(scope)) return;
+        const usage = (await this.quotaUsage?.get('nanogpt', this.probeEngine(scope))) ?? null;
+        this.providerHolds.observed('nanogpt', usage, this.deps.ctx.now(), scope);
+      }),
+    );
   }
 
-  assertProviderCooldown(provider: AgentProvider): void {
-    const hold = this.providerHolds.check(provider, this.deps.ctx.now());
+  /** The hold on the provider's key that the engine's sessions use (null/undefined: the cloud's). */
+  assertProviderCooldown(provider: AgentProvider, engineId: EngineId | null | undefined): void {
+    const hold = this.providerHolds.check(provider, this.deps.ctx.now(), this.scopeOf(engineId));
     if (hold)
       throw conflict('provider_rate_limited', 'Provider request limit reached', {
         provider,
@@ -169,12 +192,16 @@ export class ProviderLimits {
       return;
     }
     if (event.provider !== 'nanogpt') return;
-    const started = this.providerHolds.start(event.provider, ctx.now());
+    const scope = this.scopeOf(engineIdOf(session));
+    const started = this.providerHolds.start(event.provider, ctx.now(), scope);
     if (started) {
-      this.invalidateQuotaUsage();
-      this.quotaProbe = Promise.resolve()
-        .then(() => this.quotaUsage?.get('nanogpt', this.deps.engines.hostEngine()) ?? null)
-        .catch(() => null);
+      this.invalidateQuotaUsage(scope);
+      this.quotaProbe.set(
+        scope,
+        Promise.resolve()
+          .then(() => this.quotaUsage?.get('nanogpt', this.probeEngine(scope)) ?? null)
+          .catch(() => null),
+      );
     }
     const stageId =
       session.workItem.type === 'task' ? ctx.repos.tasks.get(session.workItem.taskKey)?.stageId : undefined;
@@ -185,7 +212,7 @@ export class ProviderLimits {
       void background(() => resume(session, stageId, 'quota')).catch((err: unknown) =>
         ctx.logger.error({ err, sessionId: session.id }, 'provider quota deferral failed'),
       );
-    void background(() => this.finishQuotaFailure(session, event.message, started, stageId)).catch(
+    void background(() => this.finishQuotaFailure(session, event.message, started, scope, stageId)).catch(
       (err: unknown) => ctx.logger.error({ err, sessionId: session.id }, 'provider quota recovery failed'),
     );
   }
@@ -214,14 +241,15 @@ export class ProviderLimits {
     session: Session,
     message: string,
     started: boolean,
+    scope: QuotaScope,
     stageId?: string,
   ): Promise<void> {
     const { ctx } = this.deps;
-    const usage = await this.quotaProbe;
+    const usage = (await this.quotaProbe.get(scope)) ?? null;
     if (started) {
-      this.providerHolds.settle('nanogpt', usage, ctx.now());
-      this.quotaProbe = null;
-      this.quotaAlert(session, 'nanogpt', message, usage);
+      this.providerHolds.settle('nanogpt', usage, ctx.now(), scope);
+      this.quotaProbe.delete(scope);
+      this.quotaAlert(session, 'nanogpt', message, usage, scope);
     }
     if (session.workItem.type === 'task' && stageId) await this.quotaResume?.(session, stageId, 'quota');
   }
@@ -231,9 +259,10 @@ export class ProviderLimits {
     provider: AgentProvider,
     message: string,
     usage: PlanUsage | null,
+    scope: QuotaScope = 'host',
   ): void {
     const { ctx } = this.deps;
-    const hold = this.providerHolds.check(provider, ctx.now());
+    const hold = this.providerHolds.check(provider, ctx.now(), scope);
     const config = this.deps.projects.cachedConfig(session.projectKey);
     const owners = config ? ownerHandles(config) : [];
     if (owners.length > 0)

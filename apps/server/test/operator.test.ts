@@ -286,9 +286,9 @@ describe('the Operator is fixed (PM-473)', () => {
   });
 });
 
-describe('the Operator works only on the owner’s request (PM-447)', () => {
-  const noWake = async (from: string, via?: 'integrator', kind?: 'info') => {
-    const result = await h.domain.messaging.sendReporting(
+describe('the app starts no Operator (PM-1045)', () => {
+  const send = (from: string, via?: 'integrator', kind?: 'info') =>
+    h.domain.messaging.sendReporting(
       'AR',
       from,
       { to: ['operator'], text: 'Please change something.' },
@@ -297,35 +297,31 @@ describe('the Operator works only on the owner’s request (PM-447)', () => {
         ...(via ? { actor: { ...OWNER_ACTOR, via } } : from === 'owner' ? {} : { actor: aiActor(from) }),
       },
     );
+
+  it.each([
+    ['the owner’s own message', 'owner', undefined, undefined],
+    ['an information message from another AI member', 'dev-1', undefined, 'info'],
+    ['the owner’s integrator key', 'owner', 'integrator', undefined],
+  ] as const)('refuses %s and starts nothing', async (_name, from, via, kind) => {
+    h = await createDomainHarness();
+    await expect(send(from, via, kind)).rejects.toMatchObject({
+      code: 'operator_connected_only',
+      status: 409,
+    });
     await flush();
-    return result.recipients;
-  };
-
-  it('starts it for the owner’s own message', async () => {
-    h = await createDomainHarness();
-    expect(await noWake('owner')).toEqual([{ handle: 'operator', delivery: 'wake' }]);
-    await vi.waitFor(() =>
-      expect(h.runner.started).toContainEqual(expect.objectContaining({ member: 'operator' })),
-    );
+    expect(h.runner.started).toHaveLength(0);
+    expect(h.repos.messages.list('AR', { member: 'operator' })).toHaveLength(0);
   });
 
-  it('does not start it for an information message from another AI member', async () => {
+  it('refuses to start a session for the Operator directly', async () => {
     h = await createDomainHarness();
-    const before = h.runner.started.length;
-    expect(await noWake('dev-1', undefined, 'info')).toEqual([
-      { handle: 'operator', delivery: 'next_input', info: true },
-    ]);
-    expect(h.runner.started).toHaveLength(before);
-    // Not lost: it waits for the next time the owner talks to the Operator.
-    expect(h.repos.messages.pending('AR', 'operator')).toHaveLength(1);
-  });
-
-  it('refuses the owner’s integrator key (PM-463)', async () => {
-    h = await createDomainHarness();
-    await expect(noWake('owner', 'integrator')).rejects.toMatchObject({
-      code: 'operator_owner_only',
-      status: 403,
+    await expect(
+      h.domain.sessions.ensureSession('AR', 'operator', { type: 'general' }),
+    ).rejects.toMatchObject({
+      code: 'operator_connected_only',
+      status: 409,
     });
     expect(h.runner.started).toHaveLength(0);
+    expect(h.domain.sessions.list('AR', { member: 'operator' })).toEqual([]);
   });
 });

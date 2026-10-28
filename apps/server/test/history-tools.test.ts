@@ -3,12 +3,11 @@ import { HISTORY_SEARCH_RETENTION_DAYS, HistorySearchResult } from '@projectman/
 import type { HistorySearchInput, Session } from '@projectman/shared';
 import { TeamToolError } from '../src/contracts';
 import type { ToolContext } from '../src/contracts';
-import { waitFor } from '../src/runner/test-helpers';
 import { OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { rejection } from './helpers/errors';
-import { settle } from './helpers/fakes';
 import { as, historyHarness } from './helpers/history';
+import { seedOperatorSession } from './helpers/operator-session';
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -152,27 +151,8 @@ describe('the history tools of a member (PM-787)', () => {
   });
 
   describe('the Operator in a guest’s conversation', () => {
-    const say = async (from: string, text = 'Hello') => {
-      const result = await h.domain.messaging.sendReporting(
-        'AR',
-        from,
-        { to: ['operator'], text },
-        { awaitWake: true },
-      );
-      await settle();
-      await waitFor(
-        () => {
-          const session = conversationWith(from);
-          return (
-            session &&
-            h.runner.started.some((spec) => spec.sessionId === session.id) &&
-            h.repos.messages.get(result.message.id)?.deliveredAt
-          );
-        },
-        { what: `${from}’s message to reach the Operator conversation` },
-      );
-      return result;
-    };
+    // The app starts no Operator session (PM-1045): the guest's conversation is seeded.
+    const say = (from: string) => seedOperatorSession(h, 'AR', { with: from });
     const conversationWith = (handle: string): Session | undefined =>
       h.domain.sessions
         .list('AR', { member: 'operator' })
@@ -187,7 +167,7 @@ describe('the history tools of a member (PM-787)', () => {
     it('reads with the guest’s own view: a client finds every card like a viewer (PM-79)', async () => {
       await card('Shared page');
       await card('Internal page plan');
-      await say('acme');
+      say('acme');
       const found = await tools().searchHistory(toolOf('acme'), { query: 'page' });
       expect(found.matches).toHaveLength(2);
       // The record names the guest, not the Operator.
@@ -197,7 +177,7 @@ describe('the history tools of a member (PM-787)', () => {
 
     it('lets a guest who left the team find nothing and records nothing', async () => {
       await card('Shared page');
-      await say('acme');
+      say('acme');
       const { config } = await h.configStore.load('AR');
       config.team.members = config.team.members.filter((member) => member.handle !== 'acme');
       await h.configStore.save('AR', config, {
@@ -213,7 +193,7 @@ describe('the history tools of a member (PM-787)', () => {
     });
 
     it('does not let a guest pick another project either', async () => {
-      await say('acme');
+      say('acme');
       const err = await refusal(tools().searchHistory(toolOf('acme'), { query: 'page', projectKey: 'BR' }));
       expect(err.message).toMatch(/^insufficient_access:/);
     });

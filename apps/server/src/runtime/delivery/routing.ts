@@ -30,6 +30,7 @@ import { staleReasonFor, wakeFactsFor } from '../../core/messages';
 import type { ProjectService } from '../../core/projects';
 import type { TaskService } from '../../core/tasks';
 import { DomainError } from '../../kernel';
+import { engineIdOf } from '../sessions';
 import type { SessionOrchestrator } from '../sessions';
 import type { MessageDelivery } from './delivery';
 
@@ -453,7 +454,7 @@ export class MessageRouter implements MessageRouting {
     }
     if (running) {
       try {
-        this.sessions.assertProviderCooldown(running.provider ?? DEFAULT_AGENT_PROVIDER);
+        this.sessions.assertProviderCooldown(running.provider ?? DEFAULT_AGENT_PROVIDER, engineIdOf(running));
       } catch (err) {
         if (!(err instanceof DomainError) || err.code !== 'provider_rate_limited') throw err;
         if (!wakes) return notWoken;

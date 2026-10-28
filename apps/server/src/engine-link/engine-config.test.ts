@@ -39,6 +39,14 @@ describe('engine configuration', () => {
     });
   });
 
+  it('keeps the optional keepAwake mode, absent without it, and refuses an unknown one', () => {
+    saveEngineConfig(dir, base());
+    expect(loadEngineConfig(dir).keepAwake).toBeUndefined();
+    saveEngineConfig(dir, base({ keepAwake: 'off' }));
+    expect(loadEngineConfig(dir).keepAwake).toBe('off');
+    expect(() => base({ keepAwake: 'always' })).toThrow();
+  });
+
   it('refuses a file that is not JSON, or that has a field it does not know', () => {
     writeFileSync(path.join(dir, 'engine.json'), '{nope');
     expect(() => loadEngineConfig(dir)).toThrowError(expect.objectContaining({ code: 'config_invalid' }));
@@ -226,6 +234,18 @@ describe('engine configuration', () => {
       expect(() => resolve(base({ projects }), workspace)).toThrowError(
         expect.objectContaining({ code: 'secret_in_root' }),
       );
+    });
+
+    it('resolves the own NanoGPT key file and refuses it inside a workspace (PM-1068)', () => {
+      const workspace = path.join(dir, 'work');
+      mkdirSync(workspace);
+      const projects = [{ project: 'PM', workspacePath: workspace }];
+      const resolved = resolve(base({ nanogptKeyFile: path.join(dir, 'keys', 'nanogpt.key') }));
+      expect(resolved.nanogptKeyFile).toBe(path.join(dir, 'keys', 'nanogpt.key'));
+      expect(resolve(base()).nanogptKeyFile).toBeUndefined();
+      expect(() =>
+        resolve(base({ projects, nanogptKeyFile: path.join(workspace, 'nanogpt.key') })),
+      ).toThrowError(expect.objectContaining({ code: 'secret_in_root' }));
     });
 
     it('refuses a key file or home inside the temporary directory, and inside the engine’s own worktrees', () => {

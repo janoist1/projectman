@@ -7,6 +7,7 @@ describe('engine-host index', () => {
       'WORK_ROOT_MARKER',
       'WorkRootError',
       'createCheckBranchGit',
+      'createKeepAwake',
       'createLocalBranchMerger',
       'createLocalEngine',
       'createLocalEngineHost',
@@ -26,6 +27,7 @@ describe('engine-host index', () => {
       'resolveScenario',
       'resolveWorkRoots',
       'sharedClaudeTmpRoots',
+      'spawnKeepAwakeProcess',
       'userExcludesFile',
     ]);
   });

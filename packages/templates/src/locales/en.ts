@@ -197,11 +197,11 @@ export const en: TemplateLocale = {
     ai_operator: {
       name: 'Operator',
       summary:
-        "The owner's right hand: inside the app it handles whatever the owner could, from the team's models, leave and role instructions to the board. What needs the owner's own yes (deleting members, keys, the project or a repository; the owner's login and security settings; paid cost) it prepares, and waits.",
+        "A transitional identity only: the steps of the owner's connected client (an integrator with a super key) are recorded under this member. It does not run in the app and cannot be started or messaged.",
       notTheirJob:
-        "Does not develop, and does not decide in the owner's place. Works only when a person writes to it, not on an AI member's message.",
+        'Does not develop, does not answer messages and does not decide in the place of the owner. Machine work goes to the integrator with open_integrator_todo.',
       whenToAsk:
-        'When you want to change how the project works (who uses which model, who is on leave), or want to know why a card is stuck.',
+        'Do not ask it anything: for machine work open an integrator todo, for anything else ask a person with ask_human.',
     },
     product_owner: {
       name: 'Product owner',
@@ -491,10 +491,6 @@ export const en: TemplateLocale = {
         'This item is for the integrator: it picks one of the options above, or passes it to the owner with a reason.',
       owner: 'This item is for the owner.',
     },
-  },
-  operatorQueue: {
-    failedAction: (title) => `Take a look: ${title}`,
-    failedSummary: 'The Operator did not finish the item.',
   },
   systemFeedback: {
     what: 'What happened',

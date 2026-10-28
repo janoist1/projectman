@@ -133,6 +133,8 @@ describe('engine process', () => {
       }) as never,
     statusDelayMs: 5,
     random: () => 0,
+    // PM-1086: a test never starts the real caffeinate.
+    keepAwake: { platform: 'linux' },
   });
 
   const build = async (overrides: Partial<EngineAppOptions> = {}): Promise<EngineApp> => {
@@ -590,6 +592,60 @@ describe('engine process', () => {
       await call('session.start', startSpec({ provider: 'nanogpt' }));
       expect(seen).toEqual([null, null]);
     });
+
+    it('is not announced in the hello without an own key file', async () => {
+      await startEngine();
+      await cloud.connected();
+      expect(cloud.hellos[0]).not.toHaveProperty('nanogptKey');
+    });
+
+    describe('own key file (PM-1068)', () => {
+      const keyFile = () => path.join(base, 'keys', 'nanogpt.key');
+      const useKeyFile = (content = `${NANOGPT_KEY}\n`) => {
+        writeSecretFile(keyFile(), content);
+        saveEngineConfig(home, { ...loadEngineConfig(home), nanogptKeyFile: keyFile() });
+      };
+
+      it('is read from the file at every use, never from the cloud, and announced in the hello', async () => {
+        const requests: string[] = [];
+        cloud.handle('secret.nanogpt_key', ({ sessionId }) => {
+          requests.push(sessionId);
+          return { key: 'cloud-key-must-not-be-used' };
+        });
+        useKeyFile();
+        const seen = readsKeyOnStart();
+        await startEngine();
+        const { call } = await cloud.connected();
+        expect(fake.options()?.nanogptKeyInCloud).toBe(false);
+        await call('session.start', startSpec({ sessionId: 's-nano', provider: 'nanogpt' }));
+        expect(seen).toEqual([NANOGPT_KEY, NANOGPT_KEY]);
+        // Outside a start (the plan usage, the login check) the key is there too, and a changed file counts at once.
+        await expect(nanogptKeyOf()()).resolves.toBe(NANOGPT_KEY);
+        writeSecretFile(keyFile(), 'ng-replaced-1234567890\n');
+        await expect(nanogptKeyOf()()).resolves.toBe('ng-replaced-1234567890');
+        expect(requests).toEqual([]);
+        expect(cloud.hellos[0]).toMatchObject({ nanogptKey: 'engine' });
+        expect(JSON.stringify(cloud.hellos)).not.toContain(NANOGPT_KEY);
+      });
+
+      it('gives no key for a file that became unreadable, and logs the error code only', async () => {
+        useKeyFile();
+        await startEngine();
+        await cloud.connected();
+        chmodSync(keyFile(), 0o644);
+        await expect(nanogptKeyOf()()).resolves.toBeNull();
+        expect(logLines.join('\n')).toContain('secret_permissions');
+        expect(logLines.join('\n')).not.toContain(NANOGPT_KEY);
+      });
+
+      it('stops the start when the file is missing or readable by others', async () => {
+        saveEngineConfig(home, { ...loadEngineConfig(home), nanogptKeyFile: keyFile() });
+        await expect(build()).rejects.toMatchObject({ code: 'secret_missing' });
+        useKeyFile();
+        chmodSync(keyFile(), 0o644);
+        await expect(build()).rejects.toMatchObject({ code: 'secret_permissions' });
+      });
+    });
   });
 
   describe('team tools over the loopback address', () => {
@@ -891,6 +947,44 @@ describe('engine process', () => {
       expect(JSON.parse(readFileSync(path.join(home, 'engine-status.json'), 'utf8'))).toMatchObject({
         connection: 'stopped',
       });
+    });
+
+    it('keeps the machine awake while a session runs, reports it in the status file and lets go on close', async () => {
+      const spawns: Array<{ command: string; args: string[]; kills: string[] }> = [];
+      const built = await startEngine({
+        modules: {
+          ...modulesOf(),
+          keepAwake: {
+            platform: 'darwin',
+            spawn: (command, args) => {
+              const entry = { command, args, kills: [] as string[] };
+              spawns.push(entry);
+              return {
+                kill: (signal) => void entry.kills.push(signal ?? 'SIGTERM'),
+                onExit: () => undefined,
+              };
+            },
+          },
+        },
+      });
+      const { call } = await cloud.connected();
+      await call('session.start', startSpec());
+      const statusFile = path.join(home, 'engine-status.json');
+      await waitFor(
+        () => JSON.parse(readFileSync(statusFile, 'utf8')).keepAwake?.holding === true,
+        'the hold in the status file',
+      );
+      expect(spawns).toHaveLength(1);
+      expect(spawns[0]!.args).toContain(String(process.pid));
+      expect(JSON.parse(readFileSync(statusFile, 'utf8')).work).toEqual({
+        sessions: 1,
+        fullTests: 0,
+        screenshots: 0,
+      });
+      await built.close();
+      engine = null;
+      expect(spawns[0]!.kills).toEqual(['SIGTERM']);
+      expect(JSON.parse(readFileSync(statusFile, 'utf8')).keepAwake.holding).toBe(false);
     });
 
     it('does not pause anything when the pause time is zero', async () => {

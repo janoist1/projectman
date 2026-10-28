@@ -680,6 +680,8 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
   return {
     register,
     refusedBeforeHandler,
+    /** The merge-check and screenshot runs going now (PM-1086: the engine stays awake while they run). */
+    activeRuns: () => ({ fullTests: fullRuns.size, screenshots: shotRuns.size }),
     /** Stops what runs for the cloud when the link is gone for good or the engine stops. */
     dispose() {
       for (const controller of [...fullRuns.values(), ...shotRuns.values()]) controller.abort();

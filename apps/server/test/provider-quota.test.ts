@@ -159,7 +159,7 @@ describe('NanoGPT provider quota recovery', () => {
     h.runnerModule.planUsage.value = usage(40);
     h.domain.planUsage.invalidate();
     await h.domain.planUsage.get('nanogpt', LOCAL_ENGINE_ID);
-    expect(() => h.domain.sessions.assertProviderCooldown('nanogpt')).not.toThrow();
+    expect(() => h.domain.sessions.assertProviderCooldown('nanogpt', null)).not.toThrow();
     await h.domain.admission.retryDeferred();
     expect(h.domain.sessions.findRunning('AR', 'dev-1', { type: 'task', taskKey: task.key })).not.toBeNull();
   });
@@ -310,14 +310,14 @@ describe('Gemini provider quota recovery', () => {
       now.toISOString(),
     );
     h = await restartDomainHarness(h, { now: () => now });
-    expect(() => h.domain.sessions.assertProviderCooldown('gemini')).toThrow(
+    expect(() => h.domain.sessions.assertProviderCooldown('gemini', null)).toThrow(
       expect.objectContaining({
         code: 'provider_rate_limited',
         details: expect.objectContaining({ until: reset }),
       }),
     );
     now = new Date(reset);
-    expect(() => h.domain.sessions.assertProviderCooldown('gemini')).not.toThrow();
+    expect(() => h.domain.sessions.assertProviderCooldown('gemini', null)).not.toThrow();
   });
 
   it('uses a thirty-minute hold when no reset duration is reported', async () => {
@@ -325,9 +325,9 @@ describe('Gemini provider quota recovery', () => {
     await fail(session, '');
     expect(h.repos.inbox.latestProviderQuota('gemini')?.payload.until).toBe('2026-10-22T12:30:00.000Z');
     now = new Date('2026-10-22T12:29:59.999Z');
-    expect(() => h.domain.sessions.assertProviderCooldown('gemini')).toThrow();
+    expect(() => h.domain.sessions.assertProviderCooldown('gemini', null)).toThrow();
     now = new Date('2026-10-22T12:30:00.000Z');
-    expect(() => h.domain.sessions.assertProviderCooldown('gemini')).not.toThrow();
+    expect(() => h.domain.sessions.assertProviderCooldown('gemini', null)).not.toThrow();
   });
   it.each([
     [1, 1],
@@ -344,7 +344,7 @@ describe('Gemini provider quota recovery', () => {
         .filter((item) => item.payload.alert === 'provider_rate_limited'),
     ).toHaveLength(expectedAlerts);
     expect(h.repos.inbox.latestProviderQuota('gemini')?.payload.until).toBe(later);
-    expect(() => h.domain.sessions.assertProviderCooldown('gemini')).toThrow(
+    expect(() => h.domain.sessions.assertProviderCooldown('gemini', null)).toThrow(
       expect.objectContaining({ details: expect.objectContaining({ until: later }) }),
     );
   });

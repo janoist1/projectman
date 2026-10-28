@@ -214,7 +214,8 @@ export class DeferredStarts {
   private queueWaitReader: QueueWaitReader | undefined;
   private readonly queue: StartQueue | undefined;
   private rebuild: ((spec: StartSpec) => AutomaticStart | null) | undefined;
-  private readonly inFlight = new Set<string>();
+  /** The keys of the starts under a new attempt, with the card each belongs to (none if the deferral was gone). */
+  private readonly inFlight = new Map<string, { projectKey: string; taskKey: string | null } | null>();
   private listing = false;
 
   /** `store`: where the deferrals are kept besides memory (none: only in memory). */
@@ -231,8 +232,22 @@ export class DeferredStarts {
   take(key: string): DeferredStart | undefined {
     const entry = this.entries.get(key) ?? this.list().find((entry) => entry.start.key === key);
     this.entries.delete(key);
-    this.inFlight.add(key);
+    this.inFlight.set(
+      key,
+      entry ? { projectKey: entry.start.projectKey, taskKey: entry.start.taskKey } : null,
+    );
     return entry;
+  }
+
+  /**
+   * Whether a deferred start of the task is under a new attempt right now. While it runs `waitingFor` is silent
+   * (the attempt either settles the wait or keeps a new one), so a reader of the wait uses this to tell
+   * "no longer waiting" from "being tried" (PM-455).
+   */
+  attempting(task: Task): boolean {
+    return [...this.inFlight.values()].some(
+      (card) => card?.projectKey === task.projectKey && card.taskKey === task.key,
+    );
   }
 
   keep(entry: DeferredStart): void {

@@ -730,7 +730,6 @@ export interface TeamToolsHandler
     MessageToolsHandler,
     AdmissionToolsHandler,
     WatcherToolsHandler,
-    OperatorQueueToolsHandler,
     SessionToolsHandler {}
 
 /** What read_history_source takes: one source of the project's history, read in lines (PM-787). */
@@ -796,6 +795,8 @@ export interface InboxToolsHandler {
       /** The earlier question the Operator settled, and why a person must see this one (PM-558); only together. */
       reaskOf?: string;
       reaskReason?: string;
+      /** The open system signal this question is about (PM-455); only the coordinator the signal was delivered to. */
+      signalId?: string;
       /** `information`: a simple fact the super-mode integrator may relay (PM-762); missing means an owner decision. */
       responsePurpose?: QuestionResponsePurpose;
       recipient?: QuestionRecipient;
@@ -884,32 +885,6 @@ export interface WatcherToolsHandler {
       assessment?: unknown;
     },
   ): Promise<{ phase: 'released' | 'replan' | 'owner' }>;
-}
-
-export interface OperatorQueueToolsHandler {
-  /**
-   * finish_queue_item (PM-885): the Operator ends the item of its work queue it is working on (the session's
-   * own, `processing`): done, or handed to the owner with a reason and the action to take. 409
-   * `queue_item_not_processing` when the item is not this session's open one.
-   */
-  finishQueueItem(
-    ctx: ToolContext,
-    args: {
-      itemId: string;
-      outcome: 'done' | 'handed_off' | 'answered';
-      summary: string;
-      /** The answer to the asking AI member (outcome `answered`, PM-1009); the summary is the Operator's reasoning. */
-      answer?: string;
-      operationIds: string[];
-      fixLimitOption?: 'replan' | 'reassign' | 'another_round';
-      handoff?: {
-        reason: 'owner_reserved' | 'no_typed_operation' | 'no_grant';
-        action: string;
-        detail?: string;
-        operationId?: string;
-      };
-    },
-  ): Promise<{ item: MemberQueueItem }>;
 }
 
 export interface SessionToolsHandler {

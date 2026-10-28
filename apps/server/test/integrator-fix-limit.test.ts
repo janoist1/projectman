@@ -347,19 +347,17 @@ describe('integrator fix limit decision', () => {
     expect(moved.body).not.toContain(footer.integrator);
   });
 
-  it('goes straight to the owners when the project has no Operator', async () => {
+  it('goes straight to the owners when no owner has a live super key (PM-1045)', async () => {
     await heldAtLimit();
-    const config = structuredClone(await domain().projects.config('AR'));
-    config.team.members = config.team.members.filter(
-      (member) => member.kind !== 'ai' || member.role !== 'ai_operator',
+    h.app.projectman.auth.revokeIntegratorAccessKey(
+      h.app.projectman.repos.users.list()[0]!.id,
+      superKey.key.id,
     );
-    vi.spyOn(domain().projects, 'config').mockResolvedValue(config);
     await domain().fixLimit.decide('lead', 'AR', 'AR-1', 'to_owner', 'Not my call.', ASSESSMENT);
     const created = item(record()!.inboxItemId!);
     expect(created.payload).toMatchObject({ recipient: 'owner', recipientRefusal: 'integrator_unavailable' });
     expect(created.payload.integratorOpenedAt).toBeUndefined();
     expect(domain().inbox.countOpenFor('AR', 'owner')).toBe(1);
-    expect((await decide(created.id, 'another_round')).json().error.code).toBe('integrator_not_allowed');
   });
 
   it('keeps the item for the integrator after 24 hours: the Operator’s queue has no escalation', async () => {

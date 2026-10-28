@@ -90,26 +90,14 @@ describe('provider key API', () => {
       expect(check).not.toHaveBeenCalled();
     },
   );
-  it('refuses an owner of only one project', async () => {
+  it('refuses an owner of every project who is not the host owner (PM-1068)', async () => {
     const { owner, check } = await setup();
-    const partial = await addHumanAndLogin(h.app, { handle: 'partial', access: 'owner' });
-    const second = await h.app.inject({
-      method: 'POST',
-      url: '/api/projects',
-      headers: { cookie: owner },
-      payload: {
-        key: 'OTHER',
-        name: 'Other',
-        workspacePath: h.workspace,
-        templateId: 'test',
-        repos: [{ name: 'web', path: '.', github: 'acme/other' }],
-      },
-    });
-    expect(second.statusCode).toBe(201);
-    expect((await call(partial, 'PUT', { key: 'secret' })).statusCode).toBe(403);
-    expect((await call(partial, 'DELETE')).statusCode).toBe(403);
+    const friend = await addHumanAndLogin(h.app, { handle: 'friend', access: 'owner' });
+    expect((await call(friend, 'PUT', { key: 'secret' })).statusCode).toBe(403);
+    expect((await call(friend, 'DELETE')).statusCode).toBe(403);
+    expect((await call(friend, 'GET')).json()).toMatchObject({ canManageKeys: false });
     expect(check).not.toHaveBeenCalled();
-    expect((await call(owner, 'PUT', { key: 'all-project-owner' })).statusCode).toBe(200);
+    expect((await call(owner, 'PUT', { key: 'host-key' })).statusCode).toBe(200);
   });
   it('rejects invalid keys without saving and accepts an unavailable check', async () => {
     const { owner, check } = await setup('rejected');

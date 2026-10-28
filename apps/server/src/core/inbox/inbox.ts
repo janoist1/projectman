@@ -13,10 +13,8 @@ import {
   hasProtectedQuestionPayload,
   humanInboxAssignment,
   isIntegratorTodo,
-  isOperatorAnswerableTodo,
   isIntegratorFixLimitDecision,
   isIntegratorInboxItem,
-  operatorOwesInboxItem,
   wasIntegratorTodo,
   planIntegratorInboxEscalation,
   selectFixLimitRecipient,
@@ -71,7 +69,6 @@ import type {
   InboxResolutionRule,
   InboxState,
   ObligationRef,
-  OperatorHandoff,
   ProjectConfig,
   QuestionCloseRule,
   QuestionRecipient,
@@ -766,7 +763,7 @@ export class InboxService {
 
   /**
    * Gives an open integrator item to the owners: the integrator's explicit pass-on (`how.actor` is its
-   * authenticated super actor or the Operator, `how.note` the reason). The same item stays open with its payload
+   * authenticated super actor, `how.note` the reason). The same item stays open with its payload
    * and options; only the addressing changes. False when it stays.
    */
   private escalateIntegratorItem(
@@ -776,8 +773,6 @@ export class InboxService {
       reason: 'integrator_passed_on' | 'integrator_unavailable';
       actor?: Actor;
       note?: string;
-      /** The Operator's hand-off (PM-885): kept on the payload for the owner who gets the item. */
-      handoff?: OperatorHandoff;
     },
   ): boolean {
     const at = isoNow(this.ctx);
@@ -791,7 +786,7 @@ export class InboxService {
     const updated = this.ctx.unitOfWork(() => {
       const row = this.ctx.repos.inbox.updateOpen(
         item.id,
-        how.handoff ? { ...patch.payload, operatorHandoff: how.handoff } : patch.payload,
+        patch.payload,
         patch.assignees,
         at,
         item.kind === 'decision' ? (bodyForOwners(config, item.body) ?? undefined) : undefined,
@@ -923,138 +918,8 @@ export class InboxService {
   }
 
   /**
-   * The Operator closes the integrator todo or fix limit decision its queue item is of (PM-885), in its own name:
-   * it is a member of the team, so no super credential is involved. A todo takes `todo_done` or `todo_cannot`
-   * (the summary is the note), a fix limit decision one of its three options; the closing runs the same
-   * application as an owner's choice. The item must still be addressed to the integrator.
-   */
-  async resolveForOperatorQueue(
-    projectKey: string,
-    id: string,
-    optionId: string,
-    note: string,
-    operator: string,
-  ): Promise<InboxItem> {
-    return this.questionLock(id, async () => {
-      const item = this.get(projectKey, id);
-      if (item.state !== 'open') throw conflict('inbox_item_closed', `inbox item ${id} is ${item.state}`);
-      const at = isoNow(this.ctx);
-      if (isIntegratorTodo(item)) {
-        if (optionId !== TODO_DONE_OPTION.id && optionId !== TODO_CANNOT_OPTION.id)
-          throw invalid('invalid_request', 'only todo result options are accepted');
-        const resolution = {
-          optionId,
-          by: operator,
-          at,
-          note,
-          integratorTodo: true as const,
-          operatorQueue: true as const,
-        };
-        return this.deliverResolved(item, resolution, (resolved) => ({
-          answer: answerText(resolved),
-          integratorTodo: {
-            optionId: optionId === TODO_DONE_OPTION.id ? 'todo_done' : 'todo_cannot',
-            note,
-          },
-        }));
-      }
-      if (!isIntegratorFixLimitDecision(item))
-        throw forbidden('super_relay_refused', 'only a current integrator item may be closed this way');
-      const record = item.taskKey ? this.ctx.repos.taskFixLimits.get(item.taskKey) : null;
-      if (!record || record.inboxItemId !== id || record.holdPhase !== 'owner')
-        throw conflict('fix_limit_not_held', `${item.taskKey} is not held for this fix limit decision`);
-      if (!item.options.some((option) => option.id === optionId))
-        throw invalid('unknown_option', `unknown option: ${optionId}`);
-      const resolved = this.ctx.unitOfWork(() =>
-        this.ctx.repos.inbox.close(
-          id,
-          'resolved',
-          { optionId, by: operator, at, note, integratorFixLimit: true, operatorQueue: true },
-          at,
-        ),
-      );
-      if (!resolved) throw conflict('inbox_item_closed', `inbox item ${id} is no longer open`);
-      this.publish(resolved);
-      this.waiters.get(id)?.(resolved);
-      await this.ctx.events.emit('inbox_resolved', resolved);
-      return resolved;
-    });
-  }
-
-  /**
-   * The Operator answers, in its own name, the question of an AI member that reached it as an integrator todo
-   * (PM-1009). The answer goes to the asker as the Operator's (`operator_answered`, not an integrator task
-   * result) and the item closes with the message; the card's waiting label comes off. 403
-   * `question_not_answerable` when the item is not a member's question the Operator may answer.
-   */
-  async answerForOperatorQueue(
-    projectKey: string,
-    id: string,
-    answer: string,
-    operator: string,
-  ): Promise<InboxItem> {
-    return this.questionLock(id, async () => {
-      const item = this.get(projectKey, id);
-      if (item.state !== 'open') throw conflict('inbox_item_closed', `inbox item ${id} is ${item.state}`);
-      const config = await this.projects.config(projectKey);
-      if (
-        !isOperatorAnswerableTodo(item, {
-          operatorHandle: operator,
-          askerIsAi: memberOf(config, item.source)?.kind === 'ai',
-        })
-      )
-        throw forbidden('question_not_answerable', 'the Operator may not answer this item as a question');
-      const at = isoNow(this.ctx);
-      const resolution = {
-        optionId: ANSWER_OPTION.id,
-        by: operator,
-        at,
-        note: answer,
-        rule: 'operator_answered' as const,
-        operatorQueue: true as const,
-      };
-      return this.deliverResolved(item, resolution, () => ({ answer }));
-    });
-  }
-
-  /**
-   * Closes the Operator's question todo with `resolution`, writes the `question_answered` event (`data` adds
-   * to its inbox item id), hands the answer to the asking member (when it has one) and announces the resolution.
-   */
-  private async deliverResolved(
-    item: InboxItem,
-    resolution: NonNullable<InboxItem['resolution']>,
-    data: (resolved: InboxItem) => {
-      answer: string;
-      integratorTodo?: { optionId: 'todo_done' | 'todo_cannot'; note: string };
-    },
-  ): Promise<InboxItem> {
-    const close = (): InboxItem => {
-      const resolved = this.ctx.repos.inbox.close(item.id, 'resolved', resolution, resolution.at);
-      if (!resolved) throw conflict('inbox_item_closed', `inbox item ${item.id} is no longer open`);
-      this.publish(resolved);
-      this.timeline.append({
-        projectKey: item.projectKey,
-        taskKey: resolved.taskKey,
-        sessionId: resolved.sessionId,
-        actor: aiActor(resolution.by),
-        type: 'question_answered',
-        data: { inboxItemId: item.id, ...data(resolved) },
-      });
-      return resolved;
-    };
-    const answered = this.questionAnswer
-      ? await this.questionAnswer({ ...item, state: 'resolved', resolution }, [], close)
-      : null;
-    const resolved = answered ?? this.ctx.unitOfWork(close);
-    this.waiters.get(item.id)?.(resolved);
-    await this.ctx.events.emit('inbox_resolved', resolved);
-    return resolved;
-  }
-
-  /**
-   * Gives every open integrator item (todos and the narrow fix limit decisions) to the owners when the
-   * project no longer has an Operator (PM-1003). On leave or with AI off they wait for it or the super side.
+   * Gives every open integrator item (todos and the narrow fix limit decisions) to the owners when no owner
+   * has a live super key (PM-1045): the owner's connected client works them, and without one nobody does.
    */
   async sweepIntegratorTodos(): Promise<void> {
     const open = [...this.ctx.repos.inbox.listOpen('question'), ...this.ctx.repos.inbox.listOpen('decision')];
@@ -1071,109 +936,6 @@ export class InboxService {
         this.ctx.logger.warn({ error, itemId: candidate.id }, 'integrator_todo_sweep_failed');
       }
     }
-  }
-
-  /**
-   * The Operator passes its integrator todo or fix limit decision on to the owners (PM-885): the same open item
-   * goes to them with the hand-off on its payload. Throws when the item is no longer the integrator's.
-   */
-  async passOnToOwners(
-    projectKey: string,
-    id: string,
-    operator: string,
-    how: { note: string; handoff: OperatorHandoff },
-  ): Promise<InboxItem> {
-    return this.questionLock(id, async () => {
-      const item = this.get(projectKey, id);
-      const config = await this.projects.config(projectKey);
-      if (item.state !== 'open') throw conflict('inbox_item_closed', `inbox item ${id} is ${item.state}`);
-      if (!isIntegratorInboxItem(item))
-        throw forbidden('super_relay_refused', 'only a current integrator item may be passed on');
-      const moved = this.escalateIntegratorItem(item, config, {
-        reason: 'integrator_passed_on',
-        actor: aiActor(operator),
-        note: how.note,
-        handoff: how.handoff,
-      });
-      if (!moved) throw forbidden('super_relay_refused', 'the item cannot be handed to the owners');
-      return this.get(projectKey, id);
-    });
-  }
-
-  /** Hands an open integrator item to the super side without changing its recipient or held decision. */
-  async passOnToSuper(projectKey: string, id: string, handoff: OperatorHandoff): Promise<InboxItem> {
-    return this.questionLock(id, async () => {
-      const item = this.get(projectKey, id);
-      if (item.state !== 'open') throw conflict('inbox_item_closed', `inbox item ${id} is ${item.state}`);
-      if (!operatorOwesInboxItem(item))
-        throw forbidden('super_relay_refused', 'only an unhanded integrator item may be passed on');
-      const updated = this.ctx.unitOfWork(() =>
-        this.ctx.repos.inbox.updateOpen(
-          id,
-          { ...item.payload, operatorHandoff: handoff },
-          item.assignees,
-          isoNow(this.ctx),
-        ),
-      );
-      if (!updated) throw conflict('inbox_item_closed', `inbox item ${id} is no longer open`);
-      this.publish(updated);
-      return updated;
-    });
-  }
-
-  /**
-   * Opens a todo for a message the Operator handed off (PM-1003): the super side gets machine work, the owners
-   * their reserved actions. `todo` says what to do; the Operator is its asker and no answer is delivered.
-   */
-  async openOperatorHandoffTodo(input: {
-    projectKey: string;
-    taskKey: string | null;
-    operator: string;
-    title: string;
-    todo: ScreeningTodo;
-    handoff: OperatorHandoff;
-  }): Promise<InboxItem> {
-    const config = await this.projects.config(input.projectKey);
-    const owners = ownerHandles(config);
-    if (owners.length === 0) throw invalid('no_assignees', 'the project has no owner to give a todo to');
-    const at = isoNow(this.ctx);
-    const draft: InboxItem = {
-      id: newId('inb'),
-      projectKey: input.projectKey,
-      kind: 'question',
-      assignees: owners,
-      source: input.operator,
-      sessionId: null,
-      taskKey: input.taskKey,
-      title: input.title,
-      body: null,
-      payload: {
-        question: input.title,
-        requestedRecipient: input.todo.recipient,
-        recipient: input.todo.recipient,
-      },
-      options: [],
-      state: 'open',
-      resolution: null,
-      createdAt: at,
-    };
-    const { payload, options } = this.releaseFields(
-      draft,
-      { outcome: 'todo', by: input.operator, todo: input.todo },
-      config,
-      at,
-    );
-    return this.create({
-      id: draft.id,
-      projectKey: draft.projectKey,
-      kind: 'question',
-      assignees: owners,
-      source: draft.source,
-      taskKey: draft.taskKey,
-      title: draft.title,
-      payload: { ...payload, operatorHandoff: input.handoff },
-      options,
-    });
   }
 
   openPermissionOf(projectKey: string, sessionId: string): InboxItem | null {
@@ -1953,6 +1715,19 @@ export class InboxService {
    */
   async closeObligationTodo(itemId: string, _at: string): Promise<void> {
     await this.closeQuestion(itemId, { rule: 'obligation_closed', by: 'system', note: null });
+  }
+
+  /**
+   * The case of a system signal ended (PM-455): the pending questions asked about it (`payload.signalId`) close
+   * with the rule `signal_resolved`, nothing is left to answer. Works for any signal kind.
+   */
+  async closeQuestionsOfSignal(projectKey: string, signalId: string): Promise<void> {
+    for (const item of this.ctx.repos.inbox.list(projectKey, {
+      state: PENDING_INBOX_STATES,
+      kind: 'question',
+    }))
+      if ((item.payload as { signalId?: string }).signalId === signalId)
+        await this.closeQuestion(item.id, { rule: 'signal_resolved', by: 'system', note: null });
   }
 
   /**

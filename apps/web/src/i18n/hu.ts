@@ -1371,6 +1371,8 @@ export const hu = {
       operator_fixed:
         'Az Operátoron csak a modell, a szolgáltató és az erőfeszítés állítható. Nem küldhető szabadságra, nem bocsátható el, és második Operátor nem vehető fel.',
       operator_owner_only: 'Ezt csak a projekt tulajdonosa kérheti az Operátortól.',
+      operator_connected_only:
+        'Az Operátor csak akkor létezik, ha a tulajdonos kliense csatlakozik, ezért neki nem lehet üzenni. Gépi munkához nyiss integrátor-teendőt, minden máshoz kérdezz embert.',
       operator_no_request:
         'Az Operátor csak a tulajdonos nyitott kérésére írhat; most nincs ilyen (a köre véget ért, vagy lejárt).',
       operator_never:
@@ -3598,6 +3600,7 @@ export const hu = {
         structural_pattern: 'Több kártyán ismétlődő szerkezeti minta',
         milestone_closed: 'Lezárult szakasz',
         refinement_stalled: '{key}: a kidolgozási kör címke nélkül ért véget',
+        start_blocked: '{key}: az indítás csöndben vár',
       },
       bodies: {
         loop_suspected: 'A PM megvizsgálja, halad-e a munka; igazolt körbejárásról ember dönt.',
@@ -3618,6 +3621,8 @@ export const hu = {
         milestone_closed: 'Egy téma vagy gyűjtőkártya lezárult; a PM mérlegeli egy alkalmi szemle hasznát.',
         refinement_stalled:
           'A kidolgozási kör véget ért, de a hozzá tartozó címke nincs a kártyán, és a tag nem dolgozik tovább.',
+        start_blocked:
+          'A kártya indítása repóválasztásra vagy beragadt munkaterületre vár. A PM megoldja, amit tag megoldhat; az ok megszűntével a jelzés magától lezárul.',
       },
     },
   },
@@ -4435,6 +4440,7 @@ export const hu = {
       withdrawn: 'Visszavonta',
       group_withdrawn: 'Minden kérdező visszavonta',
       obligation_closed: 'Tárgytalan: a lépés közben elkészült vagy megszűnt',
+      signal_resolved: 'Tárgytalan: a jelzés magától lezárult',
       operator_moot: 'Tárgytalan: az Operátor szerint',
       todo_done: 'Megcsináltad',
       todo_cannot: 'Nem csinálod meg',
@@ -4460,6 +4466,7 @@ export const hu = {
       withdrawn: 'Visszavonták',
       group_withdrawn: 'Minden kérdező visszavonta',
       obligation_closed: 'A lépés közben elkészült vagy megszűnt',
+      signal_resolved: 'A jelzés magától lezárult',
     },
     /** The folded row of the history for what the system decided by a rule. */
     automaticDecisions: '{count} automatikus döntés',
@@ -4499,6 +4506,7 @@ export const hu = {
       withdrawn: 'a kérdező visszavonta',
       group_withdrawn: 'minden kérdező visszavonta',
       obligation_closed: 'a lépés közben elkészült vagy megszűnt',
+      signal_resolved: 'a jelzés magától lezárult',
       operator_moot: 'az Operátor szerint tárgytalan',
     },
     /** The card of a question that closed while the viewer was answering it (PM-556). */

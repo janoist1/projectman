@@ -1,6 +1,6 @@
 import { wakesFor } from '../../core/messages';
 import { assertIntegratorAccess, assertSuperMutation } from '../../kernel';
-import { LIVE_SESSION_STATES, workMetadataAfterChat } from '@projectman/shared';
+import { LIVE_SESSION_STATES, runsInApp, workMetadataAfterChat } from '@projectman/shared';
 import type { EnsureSessionOptions, EnsureSessionResult } from '../../contracts';
 import {
   approverBlocker,
@@ -541,9 +541,12 @@ export class SessionOrchestrator {
     this.limits.observeProviderUsage(provider, engineId, usage);
   }
 
-  /** Persisted quota deferrals must check usage again before any restart-time inference. */
-  restoreProviderQuota(): void {
-    this.limits.restoreProviderQuota();
+  /**
+   * Persisted quota deferrals must check usage again before any restart-time inference, on the key of
+   * the engine each deferred start runs on.
+   */
+  restoreProviderQuota(engineIds: Array<EngineId | null>): void {
+    this.limits.restoreProviderQuota(engineIds);
   }
 
   /** Unknown quota holds retry only the read-only usage probe, never inference. */
@@ -824,7 +827,11 @@ export class SessionOrchestrator {
   ): Promise<EnsureSessionResult> {
     const requested = workItem;
     const config = await this.deps.projects.config(projectKey);
-    workItem = sessionWorkItemOf(requireAiMember(config, handle), workItem);
+    const target = requireAiMember(config, handle);
+    // The Operator exists only when the owner's client connects (PM-1045): the app starts no session for it.
+    if (!runsInApp(target))
+      throw conflict('operator_connected_only', `${handle} runs only when the owner's client connects`);
+    workItem = sessionWorkItemOf(target, workItem);
     const result = await this.locks.run(sessionLockKey(projectKey, handle, workItem), async () => {
       const config = await this.deps.projects.config(projectKey);
       const member = requireAiMember(config, handle);
@@ -1086,6 +1093,7 @@ export class SessionOrchestrator {
   private mayWorkNow(config: ProjectConfig, member: MemberConfig | undefined): member is AiMemberConfig {
     return (
       member?.kind === 'ai' &&
+      runsInApp(member) &&
       !isOnLeave(member) &&
       config.team.limits.aiEnabled &&
       !this.workPaused(config.project.key)
@@ -1124,7 +1132,7 @@ export class SessionOrchestrator {
    * the session took it; rejects when it did not (PM-571), so the caller leaves the message waiting.
    */
   typeInto(session: Session, text: string): Promise<void> {
-    this.assertProviderCooldown(session.provider ?? DEFAULT_AGENT_PROVIDER);
+    this.assertProviderCooldown(session.provider ?? DEFAULT_AGENT_PROVIDER, engineIdOf(session));
     // The session is being closed (PM-288): the message stays waiting, and its wake-up resumes the session.
     if (this.closeStates.isClosing(session.id)) throw new Error(`session ${session.id} is closing`);
     return this.deps.runner.sendUserMessage(session.id, text);
@@ -1622,11 +1630,12 @@ export class SessionOrchestrator {
       );
     }
     await this.refreshProviderQuota();
-    this.assertProviderCooldown(provider);
+    this.assertProviderCooldown(provider, engineId);
   }
 
-  assertProviderCooldown(provider: AgentProvider): void {
-    this.limits.assertProviderCooldown(provider);
+  /** The hold on the provider's key that sessions on the engine use (none: the cloud's). */
+  assertProviderCooldown(provider: AgentProvider, engineId: EngineId | null | undefined): void {
+    this.limits.assertProviderCooldown(provider, engineId);
   }
 
   /**

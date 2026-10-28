@@ -820,7 +820,7 @@ The top right corner (PM-1042, decision 65) belongs to the project manager. `GET
 returns a `ProjectManagerCorner`: the manager's channel plus, for the viewer, the requests and steps, the
 signals and the manager's queue; a person who is not an owner gets `readOnly` and no signals or queue. The web
 queue view reads `routes.memberQueue` for the manager. The machine grant is shown on the machine panel and
-managed in Settings → Integrator. The Operator's own channel route stays until PM-1045.
+managed in Settings → Integrator. The Operator's own channel route is gone (PM-1045): the app has no Operator.
 
 Personal conversational style (PM-688) lives in `services/operator/preferences.ts`.
 `get_operator_preference` and `set_operator_preference` choose the person from the
@@ -995,13 +995,13 @@ Every AI member has one durable queue of what is waiting for them: a message, an
   every write (`messages.onPendingChange`, `inbox.onChange`), so a row commits with its source and no call site has to
   remember it. A message gets an item for each AI recipient it is pending for (a receipt without `deliveredAt`; the
   `team_message_pending` table is gone since migration 99); the item closes
-  `done`/`delivered` on delivery and `cancelled`/`source_closed` when the receipt is settled any other way. An open
-  inbox item still owed by the Operator (`operatorOwesInboxItem`: an integrator todo or narrow fix limit decision
-  without `operatorHandoff`) gets an Operator item with `wake: true`; it closes `done`/`resolved` when the integrator
-  answered, or with the Operator's planned outcome when handed off, else `cancelled`/`source_closed`.
-  A handoff to the super side keeps integrator addressing and sets `operatorHandoff`, so reconciliation closes
-  the Operator row and never queues the item again (PM-1003). Both reconcilers are idempotent and a failure is
-  logged and never changes what the source write does.
+  `done`/`delivered` on delivery and `cancelled`/`source_closed` when the receipt is settled any other way. Since
+  PM-1045 the Operator gets no item at all: it runs no session in the app (`operatorRunsInApp = false`,
+  `runsInApp`), so a message to it is refused (`operator_connected_only`) and an integrator todo or narrow fix
+  limit decision stays an open inbox item, which the connected client reads through the super-mode tools
+  (`open_integrator_todo`, `resolveIntegratorTodo`). Migration 121 cancelled the Operator rows that were open
+  (the inbox items stayed). Both reconcilers are idempotent and a failure is logged and never changes what the
+  source write does.
 - **Invariant**: the open message items are exactly the messages pending for an AI recipient. `recover()` runs at
   startup (after `messageAttachments.recover()`) and fills in what is missing or closes what is stale; running it again
   changes nothing. The pending counts, `get_project_state` and the diagnostics read the queue.
@@ -1019,7 +1019,7 @@ Every AI member has one durable queue of what is waiting for them: a message, an
   stopped. An old `message_wake` deferred-start row is read once (`ensure`) and deleted.
 - **API** (`apps/server/src/api/member-queue.ts`): `GET /api/projects/:key/operator/queue` only (PM-1030 deleted the
   per-member and all-members routes; nothing called them). Access: a person's own login (developer or more) or
-  an integrator read or super key. Legacy keys fail authentication with 401 (PM-1037). The Operator channel (`OperatorChannel.queue`) carries the open count and the item in work.
+  an integrator read or super key. Legacy keys fail authentication with 401 (PM-1037). The route stays for the old Operator rows and is empty for a project after migration 121.
 - **WebSocket**: `member_queue_changed {projectKey, member}`, once per member per unit of work. Clients do not see it.
 - **Remote engine**: no machine-dependent part is added. The queue, the driver and the sweep live on the hub with the
   database; only the session start crosses to an engine, as before. A member whose engine is offline waits with
@@ -1940,6 +1940,17 @@ workers follow the machine's size.
 
 ## Machine-dependent parts (PM-341)
 
+- **Keep awake while working (PM-1086)** — `engine-host/keep-awake.ts` (`createKeepAwake`,
+  `spawnKeepAwakeProcess`), wired in `engine-app.ts` to its 1 s poll; `engine-handlers.ts` `activeRuns()`
+  counts the merge-check and screenshot runs; `engine.json` `keepAwake` and `npm run engine -- keep-awake
+on|off`. While a session, a merge check or a screenshot run is active the engine holds
+  `/usr/bin/caffeinate -i -s -w <engine pid>` and lets go two minutes after the last one ended (a crashed
+  `caffeinate` is started again at most once a minute). **Machine assumptions:** macOS only (other
+  platforms report `unsupported`; a Linux `systemd-inhibit` is not built); `-i`/`-s` keep the system awake
+  on mains power, the display may sleep, and a Mac on battery with the lid closed sleeps anyway; `-w` ends
+  `caffeinate` with the engine even after a SIGKILL. **Remote engine:** everything runs on the engine's own
+  machine and nothing crosses the server/engine boundary; `hello` and the RPC are unchanged.
+
 - **Link-headers file and the working-folder check (PM-1077)** — `scripts/engine/commands.ts` (`init
 --link-headers-file <path>`), `EngineHost.workspaceState(path)` (`contracts/engine.ts`; local:
   `engine-host/local-host.ts`, remote: `engine-link/remote/host.ts`), `NewProjectEngines.workspaceState`
@@ -1966,6 +1977,10 @@ workers follow the machine's size.
   needs another card. The hub decides from persisted session and queue state; the existing session
   RPC stops the process on its engine, whose workspace manager still refuses dirty checkouts.
   No new path, process or transport assumption is introduced.
+  **No Operator lane (PM-1045):** the Operator lane and its reminder are gone; the driver starts no session
+  for the Operator and the queue puts no item on it. Machine work waits as an open inbox item for the connected
+  client, with the PM-1003 sweep escalating it to the owner when no owner has a live super key
+  (`integratorSideAvailable`). Nothing new crosses the boundary.
 
 - **Startup sweep of crash leftovers (PM-837)** — when the engine host is created (the server in local mode,
   the engine process in hybrid mode) two one-shot background sweeps remove what a crash left behind, each
@@ -2125,7 +2140,9 @@ workers follow the machine's size.
   the shared operation path under the owner's authority; machine and other unlisted command kinds
   are refused with `command_not_for_project_manager` and handed off through `open_integrator_todo`.
   Owner-reserved effects still wait for the owner's own login. App principals stay on the server;
-  this adds no machine dependency or remote-engine boundary.
+  this adds no machine dependency or remote-engine boundary. Since PM-1045 the app principal has only the
+  project manager branch: the app's Operator session is gone, so nothing issues an Operator principal;
+  the super-key path (`superActorOf`) is unchanged.
   `services/super-operator/handoffs.ts` (`SuperHandoffService`), `db/super-handoffs.ts` (migration 83:
   `super_handoffs`, `super_operations`), `packages/shared/src/{api/super-handoff,config/super-command}.ts`,
   `core/inbox/inbox.ts` (the owner's-own-login rule, the relay), the Operator MCP tool `request_super_operation`
@@ -2411,6 +2428,13 @@ workers follow the machine's size.
   (by `deploy`), `guard-check` over the machine's SSH connection (it asks the container's own guard), and
   `engine-access-token.json`, which is the engine's `linkHeadersFile` content (HYBRID.md) and is put on an
   engine by the owner.
+  **Further owners (PM-1065):** each `access.owners` entry gets its own engine and integrator service
+  token and policies (`<tunnel>-owner-<id>-…`) and its own two files under `owners/<id>/` in the same
+  secrets store (folder 700, files 600; the host's token, policy and file never change). `edge` adds the
+  policies to the engine and integrator applications and removes only a left owner's objects (policies,
+  then tokens, then files). `check` tries each owner's pair from the host's copy of the files. Machine
+  assumption: the same host Mac and store. Remote engine: still nothing runs on it; an owner's engine
+  gets its file by hand from the host, outside projectman.
   **Separate machine entrance (PM-675):** optional explicit `cloudflare.integratorHostname`, required
   with a public integrator service token, has its own Service Auth application and audience on the same
   tunnel. Only literal `/api/...` and exact `/mcp` reach the hub on that host. `edge` writes
@@ -2787,7 +2811,9 @@ workers follow the machine's size.
   Existing inventory boundaries use these groups:
   - Session processes, trust, sandbox and terminal: `session.*`, `terminal.*`, `term`, runner events.
   - Codex project layer inspection: `session.assert_workspace_config`.
-  - NanoGPT secret delivery: `secret.nanogpt_key`; the secret store and HTTP usage remain in cloud.
+  - NanoGPT secret delivery: `secret.nanogpt_key`; the hub's secret store and HTTP usage remain in cloud.
+    An engine with its own key file (PM-1068) reads it locally, never asks for the hub's key, and announces
+    that with `nanogptKey: 'engine'` in its hello; the key value never crosses the link.
   - Dependencies and task/member workspaces: `worktree.*`, `workspace.*` (including uploaded bundles).
   - Session output folders: `folders.*`; canonical paths and preparation: `host.*`.
   - Screenshots, scenario paths and image lists: `screenshots.*`, `files.resolve_scenario`, `files.list_images`.
@@ -2877,7 +2903,9 @@ workers follow the machine's size.
   is refused with `merge_not_allowed`), the highest permission mode, whether the cloud may type into a terminal), `engine.key` (the machine key,
   mode 0600; a looser mode, another owner or a link is refused at start-up), an optional link-headers
   file (0600; `authorization` is never taken from it), `engine-status.json` (what `status` shows: no
-  secret), `logs/engine-audit.jsonl` (one line per request: method, session id, outcome and refusal
+  secret; PM-1086 adds the optional `work` counts (sessions, merge checks, screenshot runs) and `keepAwake`
+  (`mode`, `holding`, `since`, `unsupported`), and `engine.json` the optional `keepAwake` mode,
+  `while_working` when absent), `logs/engine-audit.jsonl` (one line per request: method, session id, outcome and refusal
   code, never a prompt, message, terminal input, file content, token or key; rotated at 10 MB, five
   files kept) and `attachments-cache/` (downloaded attachments, checked against size and sha256; a task
   session may read its card's folder there, which `engine-limit.ts` allows as a read-only sandbox root
@@ -3149,6 +3177,9 @@ workers follow the machine's size.
   The host owner's own login manages explicit `super`/`read` keys with 1/7/30/365-day expiry
   or no expiry (`expiresInDays: null`, PM-825; default 7 days). The hub already stores a null
   `expires_at` and authenticates it until revocation; no migration or engine operation is needed.
+  PM-1045: `AuthService.hasActiveSuperKey(ownerEmail)` (repository `hasActiveSuper`) tells whether an owner has
+  a live (not revoked, not expired) super key; `integratorSideAvailable` reads it to decide where a machine todo
+  waits. It reads only the hub database; no machine assumption is added.
   Legacy keys are revoked with a lifecycle audit by migration 114 (PM-1037); the singular API is removed.
   Authentication rejects legacy rows, which remain readable in key lists and audit history. Before release,
   the owner must replace any active legacy credential on the integrator's machine with a super or read key.
@@ -3198,7 +3229,8 @@ workers follow the machine's size.
   engine. Machine assumptions: a local or HTTPS connection (`requestProtocol` trusts `X-Forwarded-Proto` only from a
   loopback peer, so the proxy or tunnel must run on the server's machine and keep Host and the protocol header) and a
   tunnel/proxy that refuses `/mcp/` and `/hooks` but passes `/mcp`. Remote engine: not affected; nothing of the endpoint
-  runs on or crosses to an engine.
+  runs on or crosses to an engine. Since PM-1045 this endpoint is the Operator's only door: the `operator` member
+  stays as a transitional identity (`superActorOf` maps a super-key step to it), the app starts no session for it.
   **The global Operator on the endpoint (PM-1046, PM-1023 K7):** in the super mode `get_operator_instance_knowledge`
   and `update_operator_instance_knowledge` (`expected_revision`, `agreement?`, `principles?`) read and write the
   Operator's own knowledge with no `project_key` (`services/super-operator/instance-knowledge.ts`); the write is
@@ -3271,8 +3303,15 @@ workers follow the machine's size.
   adapter supplies the secret as trusted child environment and excludes it from CLI shell
   commands. Transcripts remain in that home; ChatGPT plan usage reads only the ordinary
   Codex home. **Remote engine (engine mode, PM-314: runs in the engine process):** use `session.start`,
-  `provider.status` and `secret.nanogpt_key` (PM-313); PM-1061: only an engine the host owner owns gets the key
-  (`nanogpt_key_not_for_engine` for the others); the CLI,
+  `provider.status` and `secret.nanogpt_key` (PM-313); PM-1061: only an engine the host owner owns gets the hub's key
+  (`nanogpt_key_not_for_engine` for the others). **Own key on the engine (PM-1068):** any engine may hold its
+  own key file (`nanogptKeyFile` in `engine.json`, set with `npm run engine -- nanogpt-key set|clear`, 0600, outside every
+  session root and on the engine's sandbox deny list). An engine with a key file always uses it, the host's engine
+  too: it re-reads the file at every start (`ownNanogptKey` in `engine-app.ts`), passes it as `nanogptKey` with
+  `nanogptKeyInCloud: false`, registers no `nanogptStart` handler and says `nanogptKey: 'engine'` in its hello.
+  The hub remembers that from `engines.last_hello` (`EngineRegistry.ownNanogptKey`), sets no key grant for such an
+  engine and does not override its provider status with the hub's key fact. An engine without a key file keeps the old
+  way (host's engine: hub key; another owner's engine: `nanogpt_key_missing`, the start waits). The CLI,
   home and transcripts belong on the engine; secret delivery requires an authenticated
   launch/resume boundary, never configuration, public status or logs. The current server and
   CLI share a machine and filesystem. A remote engine performs local version and auth-file
@@ -3377,7 +3416,9 @@ workers follow the machine's size.
   (`EngineRegistry.ownedByHost`), never to another owner's engine, and says so with `nanogpt_key_not_for_engine`.
   The server stores the installation key under `PROJECTMAN_HOME/secrets/nanogpt.json`,
   with POSIX directory/file modes 0700/0600 and an atomic same-directory rename. Only an
-  owner of every project may change it. Save-time checking needs outbound HTTPS to NanoGPT.
+  host owner may change it (`canManageProviderKeys`, PM-1068; an owner of every project is not enough). It is the
+  host engine's fallback only: an engine's own key file (see above) takes precedence, and each owner pays for their
+  own engine. Save-time checking needs outbound HTTPS to NanoGPT.
   **Remote engine (engine mode, PM-314: runs in the engine process):** delivery uses `secret.nanogpt_key` (PM-313), with the starting-session guard in PM-315;
   storage and validation remain on the server; this card does not send
   the key to an engine. PM-329 must deliver it only to NanoGPT sessions over the authenticated
@@ -4187,7 +4228,8 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   `runner/providers/codex/{transcript,plan-usage}.ts` (`CodexTranscriptParser`),
   `runner/session.ts`, `runtime/usage` (`PlanUsageMonitor`) (PM-341; PM-286, PM-310).
   See **NanoGPT Codex home and key delivery** (PM-329): token usage is parsed as Codex,
-  but NanoGPT rollouts never feed the ChatGPT plan gauge.
+  but NanoGPT rollouts never feed the ChatGPT plan gauge. PM-1068: NanoGPT usage is billed to the key the
+  session was started with, i.e. the engine owner's own key when the engine has one.
   Token counts come from the running CLI's transcript/hook data. Claude plan usage probes
   the locally logged-in CLI without a conversation; Codex reads local rollout rate-limit
   events. These observe the local account, not an arbitrary remote sponsor.
@@ -4197,6 +4239,10 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   (`usage.plan`, `provider.status`); the cloud keeps only the measurements, with the engine that sent them.
   PM-1059: `usage.plan` is asked of one named engine; the monitor and the cache key a value by
   `(engine, provider)` and a board reads the project's representative engine (see "Cloud composition").
+  PM-1091: the NanoGPT quota and rate hold (`ProviderQuotaHolds`, in memory on the hub) is per key: the
+  cloud's key is `'host'`, an engine with its own key file is held under its engine id
+  (`EngineDirectory.nanogptKeyHolder`). Only a `usage.plan` measurement on the engine that owns the key
+  lifts or moves its hold, so a friend's limit does not stop the host's members and the reverse.
   **Module:** `runtime/usage`
 - **Claude workspace trust** — `runner/providers/claude/trust.ts` (PM-341).
   The runner updates workspace trust in `~/.claude.json` (or the configured Claude config directory).
@@ -5057,9 +5103,29 @@ signal authority for task movement, configuration, labels, approvals, stopping o
 The Operator keeps its existing agreement, settings, knowledge, waiver, document and approval rules.
 The historical Operator coordination paths described below are superseded by this section.
 
+`start_blocked` (PM-455, migration 120) speaks for a card whose start waits for `repo_required`,
+`workspace_dirty` or `workspace_fetch_failed`: one open signal per card and reason (`start_blocked:<card>:<reason>`),
+read from the card's start wait (`TaskService.startWaitingOf`, which also covers the raw scheduling cards the sweep
+reads). It closes by itself when the wait ends or changes reason; a wait that is silent only because the system is
+trying the start right now (`startAttempting`: the deferral is taken for the attempt, a fetch may take a minute)
+leaves the signal as it is. A `workspace_fetch_failed` signal is raised at once but not delivered before ten
+minutes have passed without it closing (the retries of the system may mend a network blip); one that mends sooner
+closes without ever reaching the project manager. Facts: reason, member, branch, repositories (for `repo_required`)
+and the card holding the branch (for `workspace_dirty`); never the git error text. Step targets at unblock/drive:
+`workspace_dirty` → `start_member` for the waiting member on the card that holds the branch (`heldBy`);
+`workspace_fetch_failed` → `start_member` for the deployment-duty AI members on the waiting card;
+`repo_required` → no step. The one repository exception of the project manager's prompt (set the card's
+repository on a `repo_required` signal) is prompt-level only: the server adds no restriction, as `update_task`
+with `repo` is open to every member and refused only for an unknown repository or a live session. A question
+about a signal is asked with `ask_human` and `signal_id`: only the coordinator the signal was delivered to may
+bind it, to an open signal of its own project; the question defaults to the signal's card, stores the id in its
+payload, and closes with the rule `signal_resolved` when the signal's case ends.
+
 This works on a remote engine: selection, storage and checks stay on the server; the existing engine
 link and session admission boundaries carry the same messages and starts. No machine-dependent part,
-engine protocol, login, sandbox or cloud AI is added.
+engine protocol, login, sandbox or cloud AI is added. For `start_blocked` the wait comes from the engine's
+refusal code (`workspace_dirty`, `workspace_fetch_failed` and their `branch` detail) as the deferred start already
+records it; the signal itself lives on the server, so no machine-dependent part is affected.
 
 ### The Operator (PM-447, PM-462, PM-463, PM-464)
 
@@ -5142,7 +5208,7 @@ retired, `operator_required` 409; it cannot go on leave), `isOperatorActor` (an 
 - **Project manager documents (PM-495, PM-388, PM-1004, PM-1044).** Tools and their handler live in `mcp/project-docs/`.
   `read_project_doc`, `write_project_docs`, `list_decision_candidates` and `mark_decision_candidates` belong to the
   selected available project manager (`coordinationMemberOf`), only in its own internal general conversation.
-  The app Operator retains access until PM-1045 removes it. The PM uses its own `CoordinationRequests`;
+  The app has no Operator since PM-1045, so only the PM holds them. The PM uses its own `CoordinationRequests`;
   an Operator request, guest conversation, signal or approval continuation grants no document-writing authority.
   Document procedures and lessons guidance belong to the PM's prompt and role guide.
   `read_project_doc { doc, from_line?, line_count? }` is a read tool
@@ -5185,12 +5251,10 @@ retired, `operator_required` 409; it cannot go on leave), `isOperatorActor` (an 
   snapshot survives restart and remains searchable offline, with its status (owner, 2026-10-18). A configured
   custom decision-log path is not followed by this fixed-path copy. See the `merge.read_file` inventory above
   for the remote-engine boundary and the per-repository fetch queue.
-- **Roadmap check at a release proposal (PM-497).** `ReleaseService.propose` emits the domain event
-  `release_proposed`; `ReleaseRoadmapNotices` (`services/releases/roadmap-notices.ts`) then sends the Operator one
-  English `info` system message per release (only when a repository has a `docs.roadmap` path and the team has an
-  Operator; `MessageRepository.hasNote` looks for the release id in the Operator's earlier system messages). It wakes
-  nobody and arrives with the owner's next message; the `operatorRule` line tells the Operator to offer the roadmap
-  comparison then and to write (`write_project_docs`) only after the owner says yes. No machine-dependent part.
+- **Roadmap check at a release proposal (PM-497, removed by PM-1045).** `ReleaseService.propose` still emits the
+  domain event `release_proposed`, but nothing sends the Operator a roadmap notice any more: the Operator runs no
+  session in the app, and `ReleaseRoadmapNotices` (`services/releases/roadmap-notices.ts`) is deleted. The roadmap
+  comparison is the project manager's work on request. No machine-dependent part.
 - **Decision candidates (PM-496, PM-388).** `DecisionCandidates` (`services/project-docs/decision-candidates.ts`) finds the
   questions of the inbox that an owner answered (through the integrator too), that no rule closed, that someone but
   the Operator asked, answered after the project's `since`, and with no verdict yet (`InboxRepository.
@@ -5233,10 +5297,12 @@ listAnsweredQuestions`). `list_decision_candidates { limit? }` (1..50, default 2
   (`canSeeOperatorSessions`: REST, WebSocket events and terminal, the member profile). Capacity (1) counts the guest
   conversations only (`Admission.memberLoad`): the owner's never waits; a guest conversation closes after
   `OPERATOR_GUEST_IDLE_CLOSE_MINUTES` (5) idle. No machine-dependent part is affected.
+  (PM-1045: the app starts no Operator session any more, so these Operator guest conversations are history; the
+  project manager's follow below. Old Operator sessions and events stay readable.)
   **The project manager has the same guest conversations (PM-1080, PM-1023 K3b).** One rule decides who has them,
-  `hasGuestConversations(config, member)` in `packages/shared/src/config/project-manager.ts`: the Operator (until PM-1045)
-  or the selected project manager (`coordinationMemberOf`). The route (`nominalMessagePlace`, via
-  `managerConversationOf`; `operatorConversationOf` stays as an alias until PM-1045), the session start
+  `hasGuestConversations(config, member)` in `packages/shared/src/config/project-manager.ts`: the selected project
+  manager (`coordinationMemberOf`); the Operator lost it with PM-1045. The route (`nominalMessagePlace`, via
+  `managerConversationOf`; the `operatorConversationOf` alias is gone), the session start
   (`message-starts.ts`), the write guard (`prepareSessionChat`), the message wait and the prompt all ask it instead of
   `isOperator`. A `with` conversation of any project manager stays restricted even when it is no longer the selected one
   (`guestOfConversation`, fail closed): `ToolCaller.callerWithRequest` lets it call `OPERATOR_GUEST_TOOLS` only (no new
@@ -5390,8 +5456,8 @@ deploy; decision 32). The runner's part is `SessionRunner.pause` / `forcePause` 
   it stops (point, tool, what it still waits for, `needs_restart`), so it survives a restart. `Session.pause`
   carries that row, `BoardView.pause` the open pauses of the project (`ProjectPauseView`; a client reads them like any member),
   `pause_changed` and `session_upserted` keep the app current. The rules are pure and in
-  `packages/shared/src/domain/pause.ts` (`isWorkPaused`, `pauseStateOf`; `canManageInstancePause` remains only
-  behind `canManageProviderKeys`, PM-1068).
+  `packages/shared/src/domain/pause.ts` (`isWorkPaused`, `pauseStateOf`). The old `canManageInstancePause`
+  rule is gone (PM-1068): `canManageProviderKeys` is the host owner's alone.
 - **Pausing.** Under the admission lock only the rows and the timeline event (`team_paused`; project-level,
   internal) are written; then every running session gets `runner.pause(id, { forceAfterMs })`. The pause is
   `pausing` until every session has a point, then `paused`. `force` writes the deadline as now and cuts the

@@ -371,7 +371,7 @@ describe('history index', () => {
         // Migration 118 (PM-1062) created them.
         'owner_accounts',
         'owner_invitations',
-        // Migration 120 (PM-1064) created it.
+        // Migration 122 (PM-1064) created it.
         'host_requests',
       ])
         old.exec(`DROP TABLE ${table}`);

@@ -17,7 +17,6 @@ import {
   MessageTools,
   AdmissionTools,
   WatcherTools,
-  OperatorQueueTools,
   SessionTools,
   ExternalTools,
   visibleTeamTools,
@@ -158,7 +157,6 @@ import { createPermissionBroker, engineIdOf, fullTestSandbox, StartHolds } from 
 import {
   ReleaseDeployments,
   ReleasePublishService,
-  ReleaseRoadmapNotices,
   ReleaseService,
   ReleaseWorkGate,
 } from './services/releases';
@@ -170,18 +168,16 @@ import { QuestionClosing } from './core/inbox';
 import { InvitationService, OwnerInvitationService } from './core/members';
 import { MemberProfiles, MemberService } from './core/members';
 import { MessageService, Messaging, RelationNotices } from './core/messages';
-import { MemberQueue, OperatorQueueFinisher } from './core/member-queue';
+import { MemberQueue } from './core/member-queue';
 import { MessageDelivery, MessageRouter, SessionMessages } from './runtime/delivery';
 import {
   MemberQueueWorker,
   decisionLane,
   messageLane,
-  operatorLane,
   screeningLane,
   signalLane,
   startLane,
   checklistLane,
-  OperatorQueueReminder,
   wireMemberQueue,
 } from './runtime/member-queue';
 import { PlanUsageMonitor } from './runtime/usage';
@@ -636,8 +632,6 @@ export function createDomain(opts: DomainOptions) {
     engines,
     attachmentDirectory,
   });
-  // The Operator ends its queue items here (`finish_queue_item`, and the hand-off of one it could not finish).
-  const operatorQueueFinisher = new OperatorQueueFinisher({ ctx, projects, queue: memberQueue, inbox });
   // `agentQuestions` is built once the team tools exist; the callback only runs during a session.
   const runnerModule = opts.createRunner(
     {
@@ -1066,20 +1060,8 @@ export function createDomain(opts: DomainOptions) {
         ? delivery.notice(session, 'projectman', text, null)
         : delivery.notice(session, item.from ?? SYSTEM_SENDER, text, item.taskKey),
   });
-  // The Operator's lane goes before the messages': it takes the AI and system action messages it applies to.
-  memberQueueDriver.register(
-    operatorLane({
-      ctx,
-      projects,
-      messages,
-      requests: operatorRequests,
-      sessions,
-      finisher: operatorQueueFinisher,
-    }),
-  );
   // What an AI member decides at its desk (PM-926): the lane never waits for a workspace, and the time to decide
-  // counts from the delivery. Each source tells what its request needs of the lane. It owns the lead's fix
-  // limit decisions only; the Operator's fix limit items (an inbox source) are the Operator lane's above.
+  // counts from the delivery. Each source tells what its request needs of the lane.
   const heldAtOf = (item: { source: { id: string } }): string =>
     item.source.id.slice(item.source.id.lastIndexOf('@') + 1);
   memberQueueDriver.register(
@@ -1117,22 +1099,6 @@ export function createDomain(opts: DomainOptions) {
       rebuild: (spec) => rebuildDeferredStart(spec),
     }),
   );
-  // An Operator turn that ends with its item open is reminded once, then the item goes to the owner.
-  const operatorQueueReminder = new OperatorQueueReminder({
-    ctx,
-    projects,
-    requests: operatorRequests,
-    delivery,
-    finisher: operatorQueueFinisher,
-  });
-  events.on('session_idle', (session) => {
-    operatorQueueReminder.turnEnded(session).catch((err: unknown) => {
-      opts.logger.warn(
-        { err, sessionId: session.id },
-        'reminding the Operator of its open queue item failed',
-      );
-    });
-  });
   messageRouter.registerWaker({
     wake: (projectKey, handle, workItem) => memberQueueDriver.wake(projectKey, handle, workItem),
     // A hold lifted by the messaging (a release, a resumed session) is no turn boundary of its own: the lane
@@ -1359,8 +1325,6 @@ export function createDomain(opts: DomainOptions) {
         },
       })
     : null;
-  const releaseRoadmapNotices = new ReleaseRoadmapNotices({ ctx, projects, messaging });
-  events.on('release_proposed', (event) => releaseRoadmapNotices.proposed(event));
   // The feedback processor is woken by a stored message and is "working" on its marks until its turn ends (PM-512).
   const feedbackNotices = new FeedbackNotices({ ctx, projects, messaging });
   events.on('feedback_needs_processor', (event) => feedbackNotices.needsProcessor(event));
@@ -1493,6 +1457,8 @@ export function createDomain(opts: DomainOptions) {
     activeOutageIds: (projectKey) => outages.activeIds(projectKey),
     releases,
     inbox,
+    startWaitingOf: (task) => tasks.startWaitingOf(task),
+    startAttempting: (task) => tasks.startAttempting(task),
     startHandled: (task) => !!startRound.holdOf(task) || !!startRound.startOfferOf(task),
   });
   messaging.registerSignals(operatorSignals);
@@ -1779,7 +1745,6 @@ export function createDomain(opts: DomainOptions) {
       messages: new MessageTools({ calls: toolCaller, ctx, messaging, operatorRequests, messageAttachments }),
       admission: new AdmissionTools({ calls: toolCaller, handoffs }),
       watchers: new WatcherTools({ calls: toolCaller, fixLimit }),
-      operatorQueue: new OperatorQueueTools({ projects, finisher: operatorQueueFinisher }),
       sessions: new SessionTools({ calls: toolCaller, ctx, sessions }),
       email: new EmailChannelTools({ calls: toolCaller, projects, email: emailChannel }),
       hostRequests: new HostRequestTools({ calls: toolCaller, hostRequests }),
@@ -2671,8 +2636,8 @@ export function createDomain(opts: DomainOptions) {
           run: async () => operatorApprovals.sweep(),
           onError: (err) => opts.logger.warn({ err }, 'operator approval sweep failed'),
         },
-        // An Operator that cannot process its queue any more leaves no one to look at its todos and held
-        // decisions: they go to the owners (PM-885). No timeout otherwise — the Operator's queue is the clock.
+        // Without an owner's live super key nobody connected works the integrator todos and held decisions:
+        // they go to the owners (PM-1045). No timeout otherwise.
         {
           name: 'integrator-todos',
           everyMs: 30_000,

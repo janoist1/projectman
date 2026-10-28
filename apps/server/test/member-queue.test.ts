@@ -179,11 +179,10 @@ describe('member queue', () => {
       expect(repos().db.prepare('SELECT * FROM member_queue_items ORDER BY id').all()).toEqual(before);
     });
 
-    it('queues an open integrator todo that has no item yet', async () => {
-      const todo = await openedTodo();
-      repos().db.prepare('DELETE FROM member_queue_items').run();
+    it('queues no item on the Operator for an open integrator todo (PM-1045)', async () => {
+      await openedTodo();
       await domain().memberQueue.recover();
-      expect(view('operator').items).toEqual([expect.objectContaining({ kind: 'todo', title: todo.title })]);
+      expect(view('operator').everQueued).toBe(false);
     });
   });
 
@@ -213,37 +212,19 @@ describe('member queue', () => {
   }
 
   describe('the Operator items', () => {
-    it('queues an integrator todo with a wake and closes it as resolved when the integrator answers', async () => {
+    it('queues nothing on the Operator for an integrator todo: it waits in the integrator queue (PM-1045)', async () => {
       const todo = await openedTodo();
-      expect(view('operator').items).toEqual([
-        expect.objectContaining({
-          kind: 'todo',
-          source: { type: 'inbox', inboxItemId: todo.id },
-          place: { type: 'general' },
-          wake: true,
-          from: null,
-        }),
-      ]);
+      expect(todo.payload).toMatchObject({ recipient: 'integrator' });
+      expect(view('operator').everQueued).toBe(false);
       await asSuperIntegrator(h, superSecret, (access) =>
         resolveIntegratorTodo(domain(), 'AR', todo.id, { optionId: 'todo_done' }, access),
       );
-      expect(view('operator').items).toHaveLength(0);
-      expect(view('operator').closed[0]).toMatchObject({ state: 'done', closeReason: 'resolved' });
+      expect(domain().inbox.get('AR', todo.id).state).toBe('resolved');
+      expect(view('operator').everQueued).toBe(false);
     });
 
-    it('closes the todo as cancelled when it goes to the owner after the deadline', async () => {
-      const todo = await openedTodo();
-      repos().inbox.updatePayload(
-        todo.id,
-        { ...todo.payload, recipient: 'owner', integratorEscalatedAt: START },
-        START,
-      );
-      expect(view('operator').items).toHaveLength(0);
-      expect(view('operator').closed[0]).toMatchObject({ state: 'cancelled', closeReason: 'source_closed' });
-    });
-
-    it('queues an integrator fix limit decision as a fix_limit item and closes it when the owner takes it', () => {
-      const item = domain().inbox.create({
+    it('queues nothing on the Operator for an integrator fix limit decision', () => {
+      domain().inbox.create({
         projectKey: 'AR',
         kind: 'decision',
         source: 'system',
@@ -267,21 +248,7 @@ describe('member queue', () => {
         },
         options: [{ id: 'another_round', label: 'another_round', style: 'primary' }],
       });
-      expect(view('operator').items).toEqual([
-        expect.objectContaining({
-          kind: 'fix_limit',
-          taskKey: 'AR-1',
-          wake: true,
-          source: { type: 'inbox', inboxItemId: item.id },
-        }),
-      ]);
-      repos().inbox.updatePayload(
-        item.id,
-        { ...item.payload, recipient: 'owner', integratorEscalatedAt: START },
-        START,
-      );
-      expect(view('operator').items).toHaveLength(0);
-      expect(view('operator').closed[0]).toMatchObject({ state: 'cancelled', closeReason: 'source_closed' });
+      expect(view('operator').everQueued).toBe(false);
     });
 
     it('queues nothing for an ordinary owner question', () => {
@@ -314,17 +281,10 @@ describe('member queue', () => {
   describe('API', () => {
     const get = (url: string, headers: Record<string, string> = { cookie }) => h.app.inject({ url, headers });
 
-    it('shows the Operator’s queue and limits the closed items by closedSince', async () => {
+    it('shows the Operator’s queue, which stays empty for new work (PM-1045)', async () => {
       await openedTodo();
       const view = MemberQueueView.parse((await get(routes.operatorQueue('AR'))).json());
-      expect(view.member).toBe('operator');
-      expect(view.items).toHaveLength(1);
-      const later = new Date(Date.parse(START) + 3_600_000).toISOString();
-      const recent = MemberQueueView.parse(
-        (await get(`${routes.operatorQueue('AR')}?closedSince=${encodeURIComponent(later)}`)).json(),
-      );
-      expect(recent.closed).toHaveLength(0);
-      expect(recent.everQueued).toBe(true);
+      expect(view).toMatchObject({ member: 'operator', items: [], closed: [], everQueued: false });
     });
 
     it('shows the project manager’s queue on its own route', async () => {

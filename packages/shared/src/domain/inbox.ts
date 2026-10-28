@@ -190,6 +190,8 @@ export const InboxResolutionRule = z.enum([
   'group_withdrawn',
   /** The obligation an integrator todo asked about was fulfilled or cancelled meanwhile (PM-806). */
   'obligation_closed',
+  /** The system signal a question was tied to (`signalId`) ended by itself (PM-455): nothing is left to answer. */
+  'signal_resolved',
 ]);
 export type InboxResolutionRule = z.infer<typeof InboxResolutionRule>;
 
@@ -203,6 +205,7 @@ export const QuestionCloseRule = InboxResolutionRule.extract([
   'group_withdrawn',
   'operator_moot',
   'obligation_closed',
+  'signal_resolved',
 ]);
 export type QuestionCloseRule = z.infer<typeof QuestionCloseRule>;
 
@@ -1014,6 +1017,8 @@ export const QuestionPayload = z.object({
   obligation: ObligationRef.optional(),
   /** Why the Operator gave this item to the owner (PM-885): its queue item, the reason and the action left for the owner. */
   operatorHandoff: OperatorHandoff.optional(),
+  /** The system signal this question was asked about (PM-455): the question closes when the signal's case ends. */
+  signalId: z.string().optional(),
 });
 export type QuestionPayload = z.infer<typeof QuestionPayload>;
 
@@ -1110,27 +1115,6 @@ export function isIntegratorTodo(item: InboxItem): boolean {
   );
 }
 
-/**
- * Whether the Operator may answer this integrator todo as the question of an AI member (PM-1009): an open
- * todo that a member asked (no system obligation, no external integrator question), not the Operator's own.
- * Whether the content is reserved to the owner (deletion, security, cost, direction) is the Operator's judgement.
- */
-export function isOperatorAnswerableTodo(
-  item: InboxItem,
-  facts: { operatorHandle: string; askerIsAi: boolean },
-): boolean {
-  const p = questionPayloadOf(item);
-  return (
-    item.state === 'open' &&
-    isIntegratorTodo(item) &&
-    !!p &&
-    !p.obligation &&
-    !p.externalQuestion &&
-    item.source !== facts.operatorHandle &&
-    facts.askerIsAi
-  );
-}
-
 export function questionRecipientOf(item: InboxItem): QuestionRecipient {
   return isIntegratorTodo(item) ? 'integrator' : 'owner';
 }
@@ -1204,11 +1188,6 @@ export function isIntegratorFixLimitDecision(item: InboxItem): boolean {
 /** An item the integrator is the recipient of: an integrator todo, or the narrow fix limit decision. */
 export function isIntegratorInboxItem(item: InboxItem): boolean {
   return isIntegratorTodo(item) || isIntegratorFixLimitDecision(item);
-}
-
-/** The Operator still owes this open integrator item: it has not handed it to the super side (PM-1003). */
-export function operatorOwesInboxItem(item: InboxItem): boolean {
-  return item.state === 'open' && isIntegratorInboxItem(item) && !('operatorHandoff' in item.payload);
 }
 
 /** Whether the item was ever opened to the integrator, whatever happened to it since (PM-714). */

@@ -46,8 +46,9 @@ commands:
                                      fill an empty machine with the package of \`npm run migrate -- hybrid package\`, then deploy
   pull-data --to <new dir> [--dry-run]
                                      copy the stopped board's data to a new directory on this computer
-  edge [--dry-run] [--rotate-engine-token] [--rotate-integrator-token]
-                                     set up Cloudflare: zone, edge settings, Access, service tokens, tunnel
+  edge [--dry-run] [--rotate-engine-token] [--rotate-integrator-token] [--rotate-owner-token <id>]
+                                     set up Cloudflare: zone, edge settings, Access, service tokens (the host's and each
+                                     access.owners entry's own pair), tunnel
                                      (access.boardMode: private = Access in front, public = the board's own login, only /engine guarded)
   publish [--feedback] [--dry-run]   point the hostname at the tunnel (after the checks); --feedback: the feedback hostname too
                                      (a public board is published only when the running board and the tunnel agree)
@@ -70,6 +71,7 @@ options:
   --rotate-keys                      replace the IAM access keys (the machine needs a deploy afterwards)
   --rotate-engine-token              replace the secret of the engine's service token (the engine needs the new file)
   --rotate-integrator-token          replace the secret of the integrator's service token
+  --rotate-owner-token <id>          replace both service token secrets of the owner <id> (access.owners; the owner needs new files)
 exit status: 0 done, 1 failed, 2 refused (a precondition is missing or the state is dangerous), 64 bad usage
 `;
 
@@ -82,7 +84,7 @@ type Flag =
   | 'update'
   | 'back'
   | 'all-platforms';
-type ValueOption = 'ref' | 'lines' | 'from' | 'to' | 'login-json' | 'out';
+type ValueOption = 'ref' | 'lines' | 'from' | 'to' | 'login-json' | 'out' | 'rotate-owner-token';
 
 interface Invocation {
   dryRun: boolean;
@@ -295,11 +297,13 @@ export const COMMANDS: Record<string, CommandSpec> = {
   edge: {
     summary: 'set up the Cloudflare side',
     flags: ['dry-run', 'rotate-engine-token', 'rotate-integrator-token'],
+    values: ['rotate-owner-token'],
     run: (context, invocation) =>
       runEdge(context, {
         dryRun: invocation.dryRun,
         rotateEngineToken: invocation.flags.has('rotate-engine-token'),
         rotateIntegratorToken: invocation.flags.has('rotate-integrator-token'),
+        rotateOwnerToken: invocation.values['rotate-owner-token'] ?? null,
       }),
   },
   publish: {

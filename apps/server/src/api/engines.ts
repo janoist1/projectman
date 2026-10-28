@@ -108,8 +108,11 @@ export function registerEngineRoutes(app: FastifyInstance, services: ApiServices
       if (!engineRegistry.ids().includes(id as EngineId)) throw conflict('engine_revoked', 'Engine revoked');
       const refresh = request.query.refresh === '1';
       const checkedAt = new Date().toISOString();
-      // The NanoGPT key is the host's: its login is shown to the host owner alone.
-      const providers = AgentProvider.options.filter((name) => name !== 'nanogpt' || owner.isHostOwner);
+      // The host's engine runs on the host's NanoGPT key: its login is shown to the host owner alone. Another
+      // owner's engine uses that owner's own key (PM-1068), and they see whether it has one.
+      const providers = AgentProvider.options.filter(
+        (name) => name !== 'nanogpt' || owner.isHostOwner || !engineRegistry.ownedByHost(id as EngineId),
+      );
       return {
         providers: await Promise.all(
           providers.map(

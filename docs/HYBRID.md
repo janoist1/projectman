@@ -282,6 +282,13 @@ On the Mac, with the engine ([ARCHITECTURE.md](ARCHITECTURE.md), "Cloud composit
    regular file, resolved against the working directory, and writes its real path into the engine's
    `engine.json`; without it a file set earlier stays, so there is no need to edit `engine.json` by
    hand.
+   Optional, for an engine whose owner pays for their own NanoGPT sessions (PM-1068):
+   `pbpaste | npm run engine -- nanogpt-key set` (the key goes in on standard input; restart the
+   engine to use it; `nanogpt-key clear` removes it). An engine with its own key always uses it and
+   never asks the hub for the host owner's key; without one, only the host owner's engines get the
+   hub's key, and another owner's engine waits with `nanogpt_key_missing`. An engine with a key
+   file announces it in its hello, which an older hub's strict hello check refuses, so update the
+   hub first.
 4. `npm run engine -- project set <KEY> <path>`, then `npm run engine -- start`. The web app's
    engine button turns to connected. The hub creates a project on an engine before the engine
    holds its folder (the folder check answers `not_held` for a path outside the engine's roots), so
@@ -289,6 +296,10 @@ On the Mac, with the engine ([ARCHITECTURE.md](ARCHITECTURE.md), "Cloud composit
    running engine learns of the new `project set` only after a restart: run
    `npm run engine -- service install` (it restarts the LaunchAgent) or stop and `start` it again.
    The project's sessions wait with `engine_offline` until then.
+
+A further owner of a multi-owner board (`access.owners`, AWS.md) does not create a token: `npm run cloud -- edge` on the host makes the owner's own engine token and writes
+`owners/<id>/engine-access-token.json` in the host's secrets store. The host hands that file to the owner outside projectman, and the owner's engine uses
+it as in step 2, with `--link-headers-file` pointing at the received file.
 
 The machine key and the service token are different secrets with different jobs: revoke either
 without the other (the key in Settings → Engines, the token in Cloudflare).

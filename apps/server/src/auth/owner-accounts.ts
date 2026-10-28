@@ -10,10 +10,13 @@ export interface OwnerAccountPorts {
   projectsFor(email: string): Promise<Me['projects']>;
   /** The access the e-mail address has to the project; null for none. */
   accessFor(projectKey: string, email: string): Promise<unknown | null>;
-  pauses: { pause(target: { scope: 'project'; projectKey: string }, by: PauseRequester): Promise<void> };
+  pauses: {
+    pause(target: { scope: 'project'; projectKey: string }, by: PauseRequester): Promise<void>;
+    isPaused(projectKey: string): boolean;
+  };
   /** The registry of engine keys; absent on a single-machine installation, where owner accounts have none. */
   engines?: {
-    listFor(viewer: { userId: string }): { id: string; revokedAt: string | null }[];
+    listFor(viewer: { userId: string }): { id: string; revokedAt: string | null; online: boolean }[];
     revoke(id: string, userId: string): unknown;
   };
 }
@@ -41,22 +44,40 @@ export class OwnerAccountService {
     if (!this.auth.isHostOwner(userId)) throw forbidden('owner_only', 'only the host owner may do this');
   }
 
-  list(host: { id: string }): OwnerAccountView[] {
+  /**
+   * The projects the account's revocation pauses: every project the user created (a fact the server wrote,
+   * whoever the configuration names a member since), and every other project they own where the host has no seat.
+   */
+  private async projectsOf(user: { id: string; email: string }, host: { email: string }): Promise<string[]> {
+    const keys = new Set(this.repos.projects.keysCreatedBy(user.id));
+    for (const project of await this.ports.projectsFor(user.email))
+      if (project.access === 'owner' && !(await this.ports.accessFor(project.key, host.email)))
+        keys.add(project.key);
+    return [...keys];
+  }
+
+  async list(host: { id: string; email: string }): Promise<OwnerAccountView[]> {
     this.assertHostOwner(host.id);
-    return this.repos.ownerAccounts.list().flatMap((account) => {
+    const accounts: OwnerAccountView[] = [];
+    for (const account of this.repos.ownerAccounts.list()) {
       const user = this.repos.users.get(account.userId);
-      return user
-        ? [
-            {
-              userId: user.id,
-              name: user.name,
-              email: user.email,
-              grantedAt: account.grantedAt,
-              revokedAt: account.revokedAt,
-            },
-          ]
-        : [];
-    });
+      if (!user) continue;
+      const projects = await this.projectsOf(user, host);
+      const engines = (this.ports.engines?.listFor({ userId: user.id }) ?? []).filter(
+        (engine) => !engine.revokedAt,
+      );
+      accounts.push({
+        userId: user.id,
+        name: user.name,
+        email: user.email,
+        grantedAt: account.grantedAt,
+        revokedAt: account.revokedAt,
+        projectCount: projects.length,
+        pausedProjectCount: projects.filter((key) => this.ports.pauses.isPaused(key)).length,
+        engines: { total: engines.length, online: engines.filter((engine) => engine.online).length },
+      });
+    }
+    return accounts;
   }
 
   async revoke(userId: string, host: { id: string; email: string }): Promise<OwnerAccountView> {
@@ -64,18 +85,12 @@ export class OwnerAccountService {
     const user = this.repos.users.get(userId);
     if (!user || !this.repos.ownerAccounts.get(userId)) throw notFound('owner account', userId);
     this.repos.ownerAccounts.revoke(userId, host.id, this.now().toISOString());
-    // The projects stay in the owner's hands, but their work stops now: every project the user created (a fact
-    // the server wrote, whoever the configuration names a member since), and every other project they own
-    // where the host has no seat.
-    const toPause = new Set(this.repos.projects.keysCreatedBy(userId));
-    for (const project of await this.ports.projectsFor(user.email))
-      if (project.access === 'owner' && !(await this.ports.accessFor(project.key, host.email)))
-        toPause.add(project.key);
-    for (const projectKey of toPause)
+    // The projects stay in the owner's hands, but their work stops now.
+    for (const projectKey of await this.projectsOf(user, host))
       await this.ports.pauses.pause({ scope: 'project', projectKey }, { userId: host.id, source: 'app' });
     for (const engine of this.ports.engines?.listFor({ userId }) ?? [])
       if (!engine.revokedAt) this.ports.engines?.revoke(engine.id, host.id);
     this.auth.revokeIntegratorAccessKeysOf(userId);
-    return this.list(host).find((account) => account.userId === userId)!;
+    return (await this.list(host)).find((account) => account.userId === userId)!;
   }
 }

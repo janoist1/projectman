@@ -2,20 +2,16 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { InboxItem, ProjectConfig, Session } from '@projectman/shared';
 import { TeamToolError } from '../src/contracts';
 import type { ToolContext } from '../src/contracts';
-import { waitFor } from '../src/runner/test-helpers';
 import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { rejection } from './helpers/errors';
-import { flush } from './helpers/fakes';
+import { seedOperatorRequest } from './helpers/operator-session';
 
 let h: DomainHarness;
 let now = new Date('2026-10-11T10:00:00.000Z');
 afterEach(async () => {
   await h?.cleanup();
 });
-
-const SIGNAL =
-  /(\d+) owner answers on cards since you last looked may be decisions: list_decision_candidates\./;
 
 function adjusted(opts: { docs: boolean; pm?: boolean }) {
   return (config: ProjectConfig): void => {
@@ -103,7 +99,8 @@ const setSince = (since: string) =>
 const config = () => h.domain.projects.config('AR');
 const candidates = async (limit?: number) => h.domain.decisionCandidates.list('AR', await config(), limit);
 
-async function ask(text: string, from = 'owner', to = 'operator') {
+/** A person writes to the PM; the Operator cannot be written to in the app (PM-1045). */
+async function ask(text: string, from = 'owner', to = 'pm') {
   const result = await h.domain.messaging.sendReporting('AR', from, { to: [to], text });
   // Delivery starts the session in the background; wait for this message, not event-loop turns.
   await vi.waitFor(() => {
@@ -128,15 +125,13 @@ const toolOf = (session: Session): ToolContext => ({
   sessionId: session.id,
   taskKey: null,
 });
-async function endTurn(): Promise<void> {
-  // The fake runner does not report working when it receives another message.
-  h.runner.setState(ownerSession().id, 'working');
-  h.runner.setState(ownerSession().id, 'idle');
-  await vi.waitFor(() => expect(h.repos.operatorRequests.openOfSession(ownerSession().id)).toHaveLength(0));
+/** The Operator's turn is over: its open requests close. */
+function endTurn(): void {
+  for (const request of h.repos.operatorRequests.openOfSession(ownerSession().id))
+    h.repos.operatorRequests.close(request.id, now.toISOString());
 }
 const requestOf = (session: Session) => h.repos.operatorRequests.openOfSession(session.id)[0]!;
 const refusal = async (promise: Promise<unknown>) => (await rejection(promise, TeamToolError)).message;
-const typedSince = (from: number) => h.runner.messages.slice(from).map((m) => m.text);
 
 describe('the decision candidates (PM-496)', () => {
   it('lists the owner’s answers to others’ questions, the earliest answer first, with what the owner said', async () => {
@@ -237,6 +232,13 @@ describe('the decision candidates (PM-496)', () => {
 
 describe('mark_decision_candidates (PM-496)', () => {
   async function ownerAsks(member = 'operator') {
+    if (member === 'operator') {
+      const { session, request } = seedOperatorRequest(h, 'AR', {
+        text: 'Look at the decisions',
+        at: now.toISOString(),
+      });
+      return { session, ctx: toolOf(session), requestId: request.id };
+    }
     await ask('Look at the decisions', 'owner', member);
     const session = sessions(member).find(
       (session) => session.workItem.type === 'general' && session.workItem.with === undefined,
@@ -327,14 +329,14 @@ describe('mark_decision_candidates (PM-496)', () => {
     answered('inb_1', '2026-10-11T09:00:00.000Z');
     const { ctx } = await ownerAsks();
     const items = [{ item_id: 'inb_1', verdict: 'declined' as const }];
-    await endTurn();
+    endTurn();
     expect(await refusal(mark(ctx, items))).toContain('operator_no_request');
     // Dana (no owner) talks with the Operator in a conversation of their own.
-    await ask('What is going on?', 'dana');
-    const guest = await waitFor(
-      () => sessions().find((s) => s.workItem.type === 'general' && s.workItem.with === 'dana'),
-      { what: 'the Operator conversation with dana' },
-    );
+    const { session: guest } = seedOperatorRequest(h, 'AR', {
+      from: 'dana',
+      with: 'dana',
+      at: now.toISOString(),
+    });
     expect(await refusal(mark(toolOf(guest), items))).toContain('operator_owner_only');
     const dev = { ...ctx, member: 'dev-1' };
     expect(await refusal(mark(dev, items))).toContain('operator_only');
@@ -349,7 +351,7 @@ describe('mark_decision_candidates (PM-496)', () => {
     await setup();
     answered('inb_1', '2026-10-11T09:00:00.000Z');
     const { ctx } = await ownerAsks();
-    await endTurn();
+    endTurn();
     const result = await h.domain.teamTools.listDecisionCandidates(ctx, { limit: 5 });
     expect(result.candidates.map((c) => c.item_id)).toEqual(['inb_1']);
   });
@@ -380,73 +382,31 @@ describe('mark_decision_candidates (PM-496)', () => {
   });
 });
 
-describe('the signal line in the Operator’s batch (PM-496)', () => {
-  /** The owner's second message, after the answers came: what is typed into the Operator's session. */
-  async function nextOwnerMessage(): Promise<string> {
-    const typed = h.runner.messages.length;
-    await ask('Anything new?');
-    return typedSince(typed).join('\n\n');
-  }
-  async function firstTurn(): Promise<void> {
-    await ask('Hello');
-    await endTurn();
-  }
+describe('the count of answers not yet looked at (PM-496)', () => {
+  const unseen = async () => h.domain.decisionCandidates.unseen('AR', await config());
 
-  it('is added to the owner’s message when answers came after the Operator last looked', async () => {
+  it('counts the owner’s answers after the last look, and not other people’s', async () => {
     await setup();
-    await firstTurn();
     answered('inb_1', '2026-10-11T10:00:01.000Z');
     answered('inb_2', '2026-10-11T10:00:02.000Z');
     answered('inb_dana', '2026-10-11T10:00:03.000Z', { by: 'dana' });
-    const text = await nextOwnerMessage();
-    expect(SIGNAL.exec(text)?.[1]).toBe('2');
-    expect(text.trimEnd().endsWith('list_decision_candidates.')).toBe(true);
-    expect(h.repos.messages.pending('AR', 'operator')).toHaveLength(0);
+    expect(await unseen()).toBe(2);
   });
 
-  it('is gone after the Operator listed the candidates, and returns for newer answers', async () => {
+  it('is zero after the candidates were listed, and counts newer answers again', async () => {
     await setup();
-    await firstTurn();
     answered('inb_1', '2026-10-11T10:00:01.000Z');
-    await endTurn();
-    expect(await nextOwnerMessage()).toMatch(SIGNAL);
     now = new Date('2026-10-11T10:05:00.000Z');
     await candidates();
-    await endTurn();
-    expect(await nextOwnerMessage()).not.toMatch(SIGNAL);
+    expect(await unseen()).toBe(0);
     answered('inb_2', '2026-10-11T10:06:00.000Z');
-    await endTurn();
-    const text = await nextOwnerMessage();
-    expect(SIGNAL.exec(text)?.[1]).toBe('1');
+    expect(await unseen()).toBe(1);
   });
 
   it('counts only answers after the project’s since', async () => {
     await setup();
-    await firstTurn();
     answered('inb_old', '2026-10-11T09:00:00.000Z');
     setSince('2026-10-11T09:30:00.000Z');
-    expect(await nextOwnerMessage()).not.toMatch(SIGNAL);
-  });
-
-  it('is left out without docs, and in a guest conversation', async () => {
-    await setup({ docs: false });
-    await firstTurn();
-    answered('inb_1', '2026-10-11T10:00:01.000Z');
-    expect(await nextOwnerMessage()).not.toMatch(SIGNAL);
-    await h.cleanup();
-
-    await setup();
-    answered('inb_1', '2026-10-11T10:00:01.000Z');
-    await ask('Hello', 'dana');
-    const guest = await waitFor(
-      () => sessions().find((s) => s.workItem.type === 'general' && s.workItem.with === 'dana'),
-      { what: 'the Operator conversation with dana' },
-    );
-    h.runner.setState(guest.id, 'idle');
-    await flush();
-    const typed = h.runner.messages.length;
-    await ask('And now?', 'dana');
-    expect(typedSince(typed).join('\n\n')).toContain('And now?');
-    expect(typedSince(typed).join('\n\n')).not.toMatch(SIGNAL);
+    expect(await unseen()).toBe(0);
   });
 });

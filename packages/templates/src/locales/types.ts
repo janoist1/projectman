@@ -202,7 +202,6 @@ export interface TemplateLocale {
   /** The fix round limit decision item the server makes (PM-714). */
   fixLimitItem: FixLimitItemText;
   /** What the owner's todo says when the Operator could not finish a queue item (PM-885). */
-  operatorQueue: { failedAction(title: string): string; failedSummary: string };
   /** The headings of a system feedback sent as a card or an issue (PM-472). */
   systemFeedback: SystemFeedbackTextLabels;
   /** Name of an approval label generated for a stage, e.g. "Merge: approved". */

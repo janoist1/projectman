@@ -31,8 +31,9 @@ export {
   isRequiredOperator,
   isSuperOperatorActor,
   superActorOf,
-  operatorConversationOf,
   operatorOf,
+  operatorRunsInApp,
+  runsInApp,
 } from './operator-member';
 
 /**

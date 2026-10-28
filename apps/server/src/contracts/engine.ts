@@ -476,6 +476,11 @@ export interface EngineDirectory {
   projectEngine(projectKey: string): EngineId | null;
   /** The engine of the host's own machine (machine view, orphan signals, the host's build). null: none. */
   hostEngine(): EngineId | null;
+  /**
+   * Whose NanoGPT key a session on this engine uses (PM-1091): the engine's own key file (its id) or the
+   * cloud's (`'host'`). Absent: `'host'`.
+   */
+  nanogptKeyHolder?(id: EngineId): 'host' | EngineId;
   onChange(listener: (id: EngineId, online: boolean) => void): () => void;
   /** Waits until the engine's link is up and its connect steps ran, at most waitMs (0: answers at once). */
   awaitConnected?(

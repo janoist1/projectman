@@ -11,6 +11,8 @@ export { createCheckBranchGit } from './check-branch';
 export type { CheckBranchGitOptions } from './check-branch';
 export { freeBytesOf } from './disk';
 export { userExcludesFile } from './git-excludes';
+export { createKeepAwake, spawnKeepAwakeProcess } from './keep-awake';
+export type { KeepAwake, KeepAwakeMode, KeepAwakeState } from './keep-awake';
 export { createLocalEngine } from './local-engine';
 export type { LocalEngineOptions } from './local-engine';
 export { createLocalEngineHost } from './local-host';

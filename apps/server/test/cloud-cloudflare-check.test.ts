@@ -1,4 +1,4 @@
-import { writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { runCloud } from '../../../scripts/cloud/commands';
@@ -173,6 +173,96 @@ describe('the engine doors', () => {
     rmSync(path.join(world.secretsDir, 'engine-access-token.json'));
     expect(await check()).toBe(2);
     expect(world.output).toContain('run "npm run cloud -- edge"');
+  });
+});
+
+/** PM-1065: each further owner's two tokens are tried at the two hostnames from the host's copy of the files. */
+describe('the doors of the further owners', () => {
+  const MACHINE = 'machine.example.com';
+  const ownerFile = (kind: 'engine' | 'integrator') => `owners/alpha/${kind}-access-token.json`;
+
+  /** Every door as it should be, by the kind of token in the `ids` (`<who>-<kind>.access`). */
+  function properDoors(): void {
+    const login = () =>
+      new Response('', {
+        status: 302,
+        headers: { location: 'https://janoist1.cloudflareaccess.com/cdn-cgi/access/login/x' },
+      });
+    world.doors = (url, init) => {
+      const id = new Headers(init.headers).get('cf-access-client-id');
+      if (id === null) return login();
+      const integrator = id.includes('integrator');
+      if (url.hostname === MACHINE) {
+        if (!integrator) return login();
+        return /^\/(api\/projects|mcp)$/.test(url.pathname)
+          ? new Response('', { status: 401 })
+          : new Response('', { status: 404 });
+      }
+      if (integrator) return login();
+      return String(url).includes('%65')
+        ? new Response('', { status: 404 })
+        : new Response('', { status: 401 });
+    };
+  }
+
+  function writeOwnerFile(name: string, id: string): void {
+    mkdirSync(path.join(world.secretsDir, 'owners', 'alpha'), { recursive: true, mode: 0o700 });
+    writeTokenFile(name, id, `secret-of-${id}-0123456789abcdef`);
+  }
+
+  beforeEach(() => {
+    world.writeConfig({
+      cloudflare: { zone: 'example.com', hostname: 'board.example.com', integratorHostname: MACHINE },
+      access: {
+        emails: ['owner@example.com'],
+        integratorServiceToken: true,
+        owners: [{ id: 'alpha', name: 'Alpha Ltd', email: 'alpha@example.com' }],
+      },
+    });
+    writeTokenFile('engine-access-token.json', 'host-engine.access', ENGINE_SECRET);
+    writeTokenFile('integrator-access-token.json', 'host-integrator.access', INTEGRATOR_SECRET);
+    writeOwnerFile(ownerFile('engine'), 'alpha-engine.access');
+    writeOwnerFile(ownerFile('integrator'), 'alpha-integrator.access');
+    properDoors();
+  });
+
+  it('passes when each token opens its own door only', async () => {
+    expect(await check()).toBe(0);
+    expect(world.output).toContain('ok owner-doors alpha');
+    expect(world.output).not.toContain('secret-of-alpha');
+    const used = new Set(world.doorCalls.map((call) => call.headers.get('cf-access-client-id')));
+    expect(used).toContain('alpha-engine.access');
+    expect(used).toContain('alpha-integrator.access');
+  });
+
+  it('fails when the owner’s engine token is let in at the integrator host', async () => {
+    const proper = world.doors;
+    world.doors = (url, init) =>
+      url.hostname === MACHINE &&
+      new Headers(init.headers).get('cf-access-client-id') === 'alpha-engine.access'
+        ? new Response('', { status: 401 })
+        : proper(url, init);
+    expect(await check()).toBe(1);
+    expect(world.output).toContain('the doors of owner alpha');
+    expect(world.output).toContain('accepts a missing or wrong service token');
+  });
+
+  it('fails when the owner’s integrator token opens the engine application', async () => {
+    const proper = world.doors;
+    world.doors = (url, init) =>
+      url.hostname !== MACHINE &&
+      new Headers(init.headers).get('cf-access-client-id') === 'alpha-integrator.access'
+        ? new Response('', { status: 401 })
+        : proper(url, init);
+    expect(await check()).toBe(1);
+    expect(world.output).toContain('the integrator service token opens the engine application');
+  });
+
+  it('skips the owner without failing when the host has no copy of a file', async () => {
+    rmSync(path.join(world.secretsDir, ownerFile('integrator')));
+    expect(await check()).toBe(0);
+    expect(world.output).toContain('skipped owner-doors alpha');
+    expect(world.output).toContain('integrator-access-token.json');
   });
 });
 

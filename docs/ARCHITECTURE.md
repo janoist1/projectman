@@ -5075,9 +5075,29 @@ signal authority for task movement, configuration, labels, approvals, stopping o
 The Operator keeps its existing agreement, settings, knowledge, waiver, document and approval rules.
 The historical Operator coordination paths described below are superseded by this section.
 
+`start_blocked` (PM-455, migration 120) speaks for a card whose start waits for `repo_required`,
+`workspace_dirty` or `workspace_fetch_failed`: one open signal per card and reason (`start_blocked:<card>:<reason>`),
+read from the card's start wait (`TaskService.startWaitingOf`, which also covers the raw scheduling cards the sweep
+reads). It closes by itself when the wait ends or changes reason; a wait that is silent only because the system is
+trying the start right now (`startAttempting`: the deferral is taken for the attempt, a fetch may take a minute)
+leaves the signal as it is. A `workspace_fetch_failed` signal is raised at once but not delivered before ten
+minutes have passed without it closing (the retries of the system may mend a network blip); one that mends sooner
+closes without ever reaching the project manager. Facts: reason, member, branch, repositories (for `repo_required`)
+and the card holding the branch (for `workspace_dirty`); never the git error text. Step targets at unblock/drive:
+`workspace_dirty` → `start_member` for the waiting member on the card that holds the branch (`heldBy`);
+`workspace_fetch_failed` → `start_member` for the deployment-duty AI members on the waiting card;
+`repo_required` → no step. The one repository exception of the project manager's prompt (set the card's
+repository on a `repo_required` signal) is prompt-level only: the server adds no restriction, as `update_task`
+with `repo` is open to every member and refused only for an unknown repository or a live session. A question
+about a signal is asked with `ask_human` and `signal_id`: only the coordinator the signal was delivered to may
+bind it, to an open signal of its own project; the question defaults to the signal's card, stores the id in its
+payload, and closes with the rule `signal_resolved` when the signal's case ends.
+
 This works on a remote engine: selection, storage and checks stay on the server; the existing engine
 link and session admission boundaries carry the same messages and starts. No machine-dependent part,
-engine protocol, login, sandbox or cloud AI is added.
+engine protocol, login, sandbox or cloud AI is added. For `start_blocked` the wait comes from the engine's
+refusal code (`workspace_dirty`, `workspace_fetch_failed` and their `branch` detail) as the deferred start already
+records it; the signal itself lives on the server, so no machine-dependent part is affected.
 
 ### The Operator (PM-447, PM-462, PM-463, PM-464)
 

@@ -160,6 +160,8 @@ export function waitingOf(
         waitDecidedBy?: string;
         /** `engine_offline`: the engine the start waits for; absent when there is no default engine. */
         engine?: EngineId;
+        /** `workspace_dirty` / `workspace_fetch_failed`: the checked-out branch, or the base branch. */
+        branch?: string | null;
       }
     | undefined;
   if (err.code === 'task_handoff_open')
@@ -187,6 +189,9 @@ export function waitingOf(
       ? { provider: details?.provider }
       : {}),
     ...(err.code === 'engine_offline' && details?.engine ? { engine: details.engine } : {}),
+    ...((err.code === 'workspace_dirty' || err.code === 'workspace_fetch_failed') && details?.branch
+      ? { branch: details.branch }
+      : {}),
     ...(err.code === 'prerequisite_open' ? { prerequisites: details?.prerequisites } : {}),
     ...(err.code === 'senior_busy'
       ? {

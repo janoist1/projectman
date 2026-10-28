@@ -915,6 +915,22 @@ describe('deferred starts', () => {
     expect(deferred.list().map((entry) => entry.start.key)).toEqual(['hand-over:AR-1']);
   });
 
+  it('reads a taken deferral as no wait but as an attempt under way, until it is kept again (PM-455)', () => {
+    const deferred = new DeferredStarts();
+    const reviewing = task('AR-1', { stageId: 'code_review' });
+    const automatic = start('hand-over:AR-1', { taskKey: 'AR-1' }).automatic;
+    const entry = { start: automatic, waiting: { reason: 'ai_disabled', since: AT } } as const;
+    deferred.keep(entry);
+    expect(deferred.attempting(reviewing)).toBe(false);
+    deferred.take(automatic.key);
+    expect(deferred.waitingFor(reviewing)).toBeUndefined();
+    expect(deferred.attempting(reviewing)).toBe(true);
+    expect(deferred.attempting(task('AR-2', { stageId: 'code_review' }))).toBe(false);
+    deferred.keep(entry);
+    expect(deferred.attempting(reviewing)).toBe(false);
+    expect(deferred.waitingFor(reviewing)).toMatchObject({ reason: 'ai_disabled' });
+  });
+
   describe('what holds the places of the member a card waits for (PM-297)', () => {
     const holder = { kind: 'general', working: false, startedAt: AT, lastActivityAt: AT } as const;
     const keepWaiting = (deferred: DeferredStarts, waiting: Omit<TaskStartWaiting, 'since'>) =>

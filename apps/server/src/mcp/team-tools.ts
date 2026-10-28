@@ -416,6 +416,7 @@ export class TeamToolsService implements TeamToolsHandler {
       /** The question asked again after the Operator screened it away (PM-558), and why a person must see it. */
       reaskOf?: string;
       reaskReason?: string;
+      signalId?: string;
       responsePurpose?: QuestionResponsePurpose;
       recipient?: QuestionRecipient;
     },

@@ -180,6 +180,8 @@ export const Hello = z.strictObject({
     .array(z.enum(ADMINISTRATION_CAPABILITIES))
     .max(ADMINISTRATION_CAPABILITIES.length)
     .optional(),
+  /** 'engine': NanoGPT sessions use the engine's own key file; absent: the cloud's key (or an older engine). */
+  nanogptKey: z.literal('engine').optional(),
 });
 export type Hello = z.infer<typeof Hello>;
 export const EngineErrorCode = z.enum([

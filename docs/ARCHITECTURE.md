@@ -2803,7 +2803,9 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   Existing inventory boundaries use these groups:
   - Session processes, trust, sandbox and terminal: `session.*`, `terminal.*`, `term`, runner events.
   - Codex project layer inspection: `session.assert_workspace_config`.
-  - NanoGPT secret delivery: `secret.nanogpt_key`; the secret store and HTTP usage remain in cloud.
+  - NanoGPT secret delivery: `secret.nanogpt_key`; the hub's secret store and HTTP usage remain in cloud.
+    An engine with its own key file (PM-1068) reads it locally, never asks for the hub's key, and announces
+    that with `nanogptKey: 'engine'` in its hello; the key value never crosses the link.
   - Dependencies and task/member workspaces: `worktree.*`, `workspace.*` (including uploaded bundles).
   - Session output folders: `folders.*`; canonical paths and preparation: `host.*`.
   - Screenshots, scenario paths and image lists: `screenshots.*`, `files.resolve_scenario`, `files.list_images`.
@@ -3289,8 +3291,15 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   adapter supplies the secret as trusted child environment and excludes it from CLI shell
   commands. Transcripts remain in that home; ChatGPT plan usage reads only the ordinary
   Codex home. **Remote engine (engine mode, PM-314: runs in the engine process):** use `session.start`,
-  `provider.status` and `secret.nanogpt_key` (PM-313); PM-1061: only an engine the host owner owns gets the key
-  (`nanogpt_key_not_for_engine` for the others); the CLI,
+  `provider.status` and `secret.nanogpt_key` (PM-313); PM-1061: only an engine the host owner owns gets the hub's key
+  (`nanogpt_key_not_for_engine` for the others). **Own key on the engine (PM-1068):** any engine may hold its
+  own key file (`nanogptKeyFile` in `engine.json`, set with `npm run engine -- nanogpt-key set|clear`, 0600, outside every
+  session root and on the engine's sandbox deny list). An engine with a key file always uses it, the host's engine
+  too: it re-reads the file at every start (`ownNanogptKey` in `engine-app.ts`), passes it as `nanogptKey` with
+  `nanogptKeyInCloud: false`, registers no `nanogptStart` handler and says `nanogptKey: 'engine'` in its hello.
+  The hub remembers that from `engines.last_hello` (`EngineRegistry.ownNanogptKey`), sets no key grant for such an
+  engine and does not override its provider status with the hub's key fact. An engine without a key file keeps the old
+  way (host's engine: hub key; another owner's engine: `nanogpt_key_missing`, the start waits). The CLI,
   home and transcripts belong on the engine; secret delivery requires an authenticated
   launch/resume boundary, never configuration, public status or logs. The current server and
   CLI share a machine and filesystem. A remote engine performs local version and auth-file
@@ -3395,7 +3404,9 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   (`EngineRegistry.ownedByHost`), never to another owner's engine, and says so with `nanogpt_key_not_for_engine`.
   The server stores the installation key under `PROJECTMAN_HOME/secrets/nanogpt.json`,
   with POSIX directory/file modes 0700/0600 and an atomic same-directory rename. Only an
-  owner of every project may change it. Save-time checking needs outbound HTTPS to NanoGPT.
+  host owner may change it (`canManageProviderKeys`, PM-1068; an owner of every project is not enough). It is the
+  host engine's fallback only: an engine's own key file (see above) takes precedence, and each owner pays for their
+  own engine. Save-time checking needs outbound HTTPS to NanoGPT.
   **Remote engine (engine mode, PM-314: runs in the engine process):** delivery uses `secret.nanogpt_key` (PM-313), with the starting-session guard in PM-315;
   storage and validation remain on the server; this card does not send
   the key to an engine. PM-329 must deliver it only to NanoGPT sessions over the authenticated
@@ -4205,7 +4216,8 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   `runner/providers/codex/{transcript,plan-usage}.ts` (`CodexTranscriptParser`),
   `runner/session.ts`, `runtime/usage` (`PlanUsageMonitor`) (PM-341; PM-286, PM-310).
   See **NanoGPT Codex home and key delivery** (PM-329): token usage is parsed as Codex,
-  but NanoGPT rollouts never feed the ChatGPT plan gauge.
+  but NanoGPT rollouts never feed the ChatGPT plan gauge. PM-1068: NanoGPT usage is billed to the key the
+  session was started with, i.e. the engine owner's own key when the engine has one.
   Token counts come from the running CLI's transcript/hook data. Claude plan usage probes
   the locally logged-in CLI without a conversation; Codex reads local rollout rate-limit
   events. These observe the local account, not an arbitrary remote sponsor.
@@ -5428,8 +5440,8 @@ deploy; decision 32). The runner's part is `SessionRunner.pause` / `forcePause` 
   it stops (point, tool, what it still waits for, `needs_restart`), so it survives a restart. `Session.pause`
   carries that row, `BoardView.pause` the open pauses of the project (`ProjectPauseView`; a client reads them like any member),
   `pause_changed` and `session_upserted` keep the app current. The rules are pure and in
-  `packages/shared/src/domain/pause.ts` (`isWorkPaused`, `pauseStateOf`; `canManageInstancePause` remains only
-  behind `canManageProviderKeys`, PM-1068).
+  `packages/shared/src/domain/pause.ts` (`isWorkPaused`, `pauseStateOf`). The old `canManageInstancePause`
+  rule is gone (PM-1068): `canManageProviderKeys` is the host owner's alone.
 - **Pausing.** Under the admission lock only the rows and the timeline event (`team_paused`; project-level,
   internal) are written; then every running session gets `runner.pause(id, { forceAfterMs })`. The pause is
   `pausing` until every session has a point, then `paused`. `force` writes the deadline as now and cuts the

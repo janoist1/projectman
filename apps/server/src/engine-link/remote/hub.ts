@@ -49,6 +49,8 @@ export interface RemoteHub {
   hostEngine(): EngineId | null;
   /** The engine's owner is the host owner, so the host's secrets may go to it (PM-1061). */
   ownedByHost(id: EngineId): boolean;
+  /** The engine holds its own NanoGPT key (its hello says so); the cloud's key never goes to it (PM-1068). */
+  ownNanogptKey(id: EngineId): boolean;
   /** The engine is the project's: its fallback engine, or a binding that is not revoked (PM-1061). */
   isBound(id: EngineId, projectKey: string): boolean;
   /** Throws `engine_not_bound` unless the engine is the project's (PM-1061); `call` does this for project methods. */
@@ -107,6 +109,8 @@ export interface HubRegistry extends GuardRegistry {
   onOnlineChange(listener: (id: EngineId, online: boolean) => void): () => void;
   /** The engine's owner is the host owner (the host's secrets may go to it). */
   ownedByHost(id: EngineId): boolean;
+  /** The engine's latest hello said it holds its own NanoGPT key (PM-1068). */
+  ownNanogptKey(id: EngineId): boolean;
 }
 
 interface RemoteHubOptions {
@@ -293,6 +297,7 @@ export function createRemoteHub(options: RemoteHubOptions): RemoteHub {
     defaultId: () => registry.defaultId(),
     hostEngine: () => registry.hostEngine(),
     ownedByHost: (id) => registry.ownedByHost(id),
+    ownNanogptKey: (id) => registry.ownNanogptKey(id),
     isBound: (id, projectKey) => registry.isBound(id, projectKey),
     assertBound: (id, projectKey) => guard.assertBound(id, projectKey),
     projectEngine: (projectKey) => registry.projectEngine(projectKey),

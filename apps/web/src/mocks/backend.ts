@@ -2185,12 +2185,11 @@ export class MockBackend {
     if ((path === '/api/providers' && method === 'GET') || path === '/api/providers/nanogpt/key') {
       if (path === '/api/providers' && this.providersFail)
         return error(503, 'internal_error', 'Providers unavailable');
-      const member = memberOf(this.config, this.viewerHandle);
       const canManageKeys =
-        this.canManageKeys ?? canManageProviderKeys([member?.kind === 'human' ? member.access : null]);
+        this.canManageKeys ?? canManageProviderKeys({ hostOwner: this.me().hostOwner === true });
       if (path === '/api/providers/nanogpt/key') {
         if (!canManageKeys)
-          return error(403, 'insufficient_access', 'Only an owner of every project may manage provider keys');
+          return error(403, 'insufficient_access', 'Only the host owner may manage provider keys');
         if (method === 'PUT') {
           const input = parseBody(SetProviderKeyRequest, body);
           if (!input) return error(400, 'invalid_request', 'Invalid key');

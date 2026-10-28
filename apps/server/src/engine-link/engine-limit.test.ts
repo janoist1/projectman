@@ -874,6 +874,13 @@ describe('engine local limit', () => {
       ).toBe(repo);
     });
 
+    it('keeps the own NanoGPT key file among the places a session may neither read nor change (PM-1068)', () => {
+      const nanogptKeyFile = path.join(home, 'nanogpt.key');
+      const limit = make({ nanogptKeyFile });
+      expect(limit.sensitiveRead()).toContain(nanogptKeyFile);
+      expect(make({}).sensitiveRead()).not.toContain(nanogptKeyFile);
+    });
+
     it('binds dependency preparation to the engine repository and exposes only copies of its read denials', async () => {
       const limit = make({ linkHeadersFile: path.join(home, 'link-headers.json') });
       const key = { project: projectConfig(), repoName: 'projectman', member: 'dev' };

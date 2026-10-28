@@ -1188,13 +1188,69 @@ describe('cloud mode remote parts', () => {
       expect(b.requests).toEqual([]);
     });
 
-    it('does not give the NanoGPT key to another owner’s engine, nor start a NanoGPT session on it', async () => {
+    it('does not give the cloud’s NanoGPT key to another owner’s engine, and a NanoGPT start there waits for its own key (PM-1068)', async () => {
       await expect(b.call('secret.nanogpt_key', { sessionId: 's1' })).rejects.toMatchObject({
         linkCode: 'secret_not_allowed',
       });
       await expect(
         remote.runner.start(spec({ provider: 'nanogpt', projectKey: 'PB', engineId: B as never })),
-      ).rejects.toMatchObject({ code: 'nanogpt_key_not_for_engine' });
+      ).rejects.toMatchObject({ code: 'nanogpt_key_missing', details: { provider: 'nanogpt' } });
+      expect(asked(b, 'session.start')).toHaveLength(0);
+    });
+
+    describe('an engine with its own NanoGPT key (PM-1068)', () => {
+      const C = 'eng_cccccccccccc';
+      const reported = (over: Record<string, unknown> = {}) => ({
+        provider: 'nanogpt' as const,
+        loggedIn: true,
+        method: 'api_key' as const,
+        checkedAt: '2026-10-19T10:00:00.000Z',
+        ...over,
+      });
+      let c: FakeEngine;
+      beforeEach(async () => {
+        cloud.registry.bindProject('PC', C as never);
+        cloud.registry.setForeign(C as never);
+        c = await online(C, { nanogptKey: 'engine' }, (engine) => {
+          engine.answer('machine.processes', () => null);
+          engine.answer('workspace.home', () => '/fictional/home');
+        });
+      });
+
+      it('starts a NanoGPT session without a key grant, and never gives it the cloud’s key', async () => {
+        let asked: unknown;
+        c.answer('session.start', async (params) => {
+          asked = await c.call('secret.nanogpt_key', { sessionId: params.sessionId }).catch((e) => e);
+          return running(params.sessionId);
+        });
+        await remote.runner.start(spec({ provider: 'nanogpt', projectKey: 'PC', engineId: C as never }));
+        expect(asked).toMatchObject({ linkCode: 'secret_not_allowed' });
+      });
+
+      it('shows the status the engine reported, whatever the cloud holds', async () => {
+        c.answer('provider.status', async () => reported());
+        nanogptKey = null;
+        await expect(
+          remote.runner.providerStatus!('nanogpt', { engineId: C as never, refresh: true }),
+        ).resolves.toMatchObject({ loggedIn: true });
+        c.answer('provider.status', async () => reported({ loggedIn: false, problem: 'no_key' }));
+        nanogptKey = 'key-from-store';
+        await expect(
+          remote.runner.providerStatus!('nanogpt', { engineId: C as never, refresh: true }),
+        ).resolves.toMatchObject({ loggedIn: false, problem: 'no_key' });
+      });
+
+      it('applies to the host’s engine as well', async () => {
+        const host = 'eng_host';
+        await online(host, { nanogptKey: 'engine' }, (engine) => {
+          engine.answer('machine.processes', () => null);
+          engine.answer('provider.status', async () => reported());
+        });
+        nanogptKey = null;
+        await expect(
+          remote.runner.providerStatus!('nanogpt', { engineId: host as never, refresh: true }),
+        ).resolves.toMatchObject({ loggedIn: true });
+      });
     });
 
     it('refuses a team tools relay and a permission request of a session of a project the engine is not bound to', async () => {

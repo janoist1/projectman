@@ -263,11 +263,13 @@ describe('owner accounts', () => {
         await connectProviders(asked);
         const { res, names } = await providersOf(guestCookie, guestEngine.engine.id);
         expect(res.statusCode, res.body).toBe(200);
-        expect(names).toEqual(['claude', 'codex', 'gemini']);
-        expect((res.json() as EngineProvidersView).providers.every((p) => p.loggedIn === true)).toBe(true);
-        expect(asked).toHaveLength(3);
+        expect(names).toEqual(['claude', 'codex', 'gemini', 'nanogpt']);
+        // NanoGPT's login is the key fact (the hub holds none in this test), so it is not the engine's answer.
+        const others = (res.json() as EngineProvidersView).providers.filter((p) => p.provider !== 'nanogpt');
+        expect(others.every((p) => p.loggedIn === true)).toBe(true);
+        expect(asked).toHaveLength(4);
         await providersOf(guestCookie, guestEngine.engine.id, '?refresh=1');
-        expect(asked.filter((params) => params.refresh === true)).toHaveLength(3);
+        expect(asked.filter((params) => params.refresh === true)).toHaveLength(4);
       });
 
       it('answers `loggedIn: null` for an engine that is not connected', async () => {
@@ -276,13 +278,16 @@ describe('owner accounts', () => {
           null,
           null,
           null,
+          null,
         ]);
       });
 
-      it('lists the NanoGPT login to the host owner only', async () => {
+      it('lists the NanoGPT login of an owner’s own engine as well as the host’s (PM-1068)', async () => {
         await connectProviders();
         expect((await providersOf(host, guestEngine.engine.id)).names).toContain('nanogpt');
-        expect((await providersOf(guestCookie, guestEngine.engine.id)).names).not.toContain('nanogpt');
+        expect((await providersOf(guestCookie, guestEngine.engine.id)).names).toContain('nanogpt');
+        const hostEngine = registry.create('Host Mac', hostId).engine;
+        expect((await providersOf(host, hostEngine.id)).names).toContain('nanogpt');
       });
 
       it('does not show another owner’s engine, and refuses a revoked one', async () => {

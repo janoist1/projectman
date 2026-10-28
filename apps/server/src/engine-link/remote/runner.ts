@@ -210,16 +210,21 @@ export function createRemoteRunner(options: RemoteRunnerOptions): RemoteRunner {
       const engineId = startEngine(spec);
       // A session of a project goes only to an engine bound to it, whoever named the engine (PM-1061).
       if (spec.projectKey) hub.assertBound(engineId, spec.projectKey);
-      if (spec.provider === 'nanogpt' && !hub.ownedByHost(engineId))
-        throw conflict('nanogpt_key_not_for_engine', `the NanoGPT key is not for engine ${engineId}`);
       if (!hub.available(engineId))
         throw conflict('engine_offline', `engine ${engineId} is not connected`, { engine: engineId });
+      // PM-1068: an engine with its own key file never asks the cloud for one. Without it only the host's
+      // engine may be given the cloud's key; any other engine's NanoGPT start waits until it has a key.
+      const ownKey = spec.provider === 'nanogpt' && hub.ownNanogptKey(engineId);
+      if (spec.provider === 'nanogpt' && !ownKey && !hub.ownedByHost(engineId))
+        throw conflict('nanogpt_key_missing', `engine ${engineId} has no NanoGPT key`, {
+          provider: 'nanogpt',
+        });
       owners.set(spec.sessionId, engineId);
       startingSessions.add(spec.sessionId);
-      // Only a NanoGPT start may fetch the key, and only until the engine answers the start.
+      // Only a NanoGPT start without an own key may fetch the cloud's, and only until the engine answers the start.
       const grants = keyGrants.get(engineId) ?? new Map<string, boolean>();
       keyGrants.set(engineId, grants);
-      if (spec.provider === 'nanogpt') grants.set(spec.sessionId, false);
+      if (spec.provider === 'nanogpt' && !ownKey) grants.set(spec.sessionId, false);
       try {
         const info = await hub.call(engineId, 'session.start', toEngineSpec(spec), {
           timeoutMs: START_TIMEOUT_MS,
@@ -387,9 +392,10 @@ export function createRemoteRunner(options: RemoteRunnerOptions): RemoteRunner {
       const cached = statuses.get(key);
       // The cache keeps the engine's own answer: the key fact is added on every read, so saving or
       // deleting the key shows at the next read.
-      // The key is the host's: an engine of another owner has none, so a NanoGPT start there waits (PM-1061).
+      // An engine with its own key file reports its own state (PM-1068). Otherwise the key is the host's: an
+      // engine of another owner has none, so a NanoGPT start there waits (PM-1061).
       const answer = async (status: ProviderStatus) =>
-        provider === 'nanogpt'
+        provider === 'nanogpt' && !hub.ownNanogptKey(engineId)
           ? withNanogptKeyFact(status, hub.ownedByHost(engineId) && (await keySet()))
           : status;
       if (cached && !opts?.refresh && now() - cached.at < PROVIDER_STATUS_TTL_MS)

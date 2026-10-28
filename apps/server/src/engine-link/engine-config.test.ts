@@ -236,6 +236,18 @@ describe('engine configuration', () => {
       );
     });
 
+    it('resolves the own NanoGPT key file and refuses it inside a workspace (PM-1068)', () => {
+      const workspace = path.join(dir, 'work');
+      mkdirSync(workspace);
+      const projects = [{ project: 'PM', workspacePath: workspace }];
+      const resolved = resolve(base({ nanogptKeyFile: path.join(dir, 'keys', 'nanogpt.key') }));
+      expect(resolved.nanogptKeyFile).toBe(path.join(dir, 'keys', 'nanogpt.key'));
+      expect(resolve(base()).nanogptKeyFile).toBeUndefined();
+      expect(() =>
+        resolve(base({ projects, nanogptKeyFile: path.join(workspace, 'nanogpt.key') })),
+      ).toThrowError(expect.objectContaining({ code: 'secret_in_root' }));
+    });
+
     it('refuses a key file or home inside the temporary directory, and inside the engine’s own worktrees', () => {
       const home = path.join(dir, 'home');
       mkdirSync(path.join(tmpdir(), 'x'), { recursive: true });

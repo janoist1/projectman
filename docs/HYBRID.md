@@ -282,6 +282,13 @@ On the Mac, with the engine ([ARCHITECTURE.md](ARCHITECTURE.md), "Cloud composit
    regular file, resolved against the working directory, and writes its real path into the engine's
    `engine.json`; without it a file set earlier stays, so there is no need to edit `engine.json` by
    hand.
+   Optional, for an engine whose owner pays for their own NanoGPT sessions (PM-1068):
+   `pbpaste | npm run engine -- nanogpt-key set` (the key goes in on standard input; restart the
+   engine to use it; `nanogpt-key clear` removes it). An engine with its own key always uses it and
+   never asks the hub for the host owner's key; without one, only the host owner's engines get the
+   hub's key, and another owner's engine waits with `nanogpt_key_missing`. An engine with a key
+   file announces it in its hello, which an older hub's strict hello check refuses, so update the
+   hub first.
 4. `npm run engine -- project set <KEY> <path>`, then `npm run engine -- start`. The web app's
    engine button turns to connected. The hub creates a project on an engine before the engine
    holds its folder (the folder check answers `not_held` for a path outside the engine's roots), so

@@ -408,13 +408,14 @@ describe('mock provider settings', () => {
       'mock-private-sentinel',
     );
     expect(backend.handle('PUT', path, { key: ' ' }).status).toBe(400);
-    backend.viewerHandle = 'kata';
+    const hostUser = backend.user;
+    backend.user = { ...hostUser, userId: 'usr_not_the_host' };
     expect(backend.handle('PUT', path, { key: 'replacement' }).status).toBe(403);
     expect(backend.handle('DELETE', path, undefined).status).toBe(403);
     expect(backend.handle('GET', '/api/providers', undefined)).toMatchObject({
       body: { canManageKeys: false },
     });
-    backend.viewerHandle = 'owner';
+    backend.user = hostUser;
     expect(backend.handle('DELETE', path, undefined)).toMatchObject({
       status: 200,
       body: { keys: { nanogpt: { set: false, setAt: null } } },

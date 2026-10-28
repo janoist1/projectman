@@ -1,5 +1,4 @@
 import { memberOf } from './lookup';
-import { isOperator } from './operator-member';
 import { isProjectManager } from './project-manager';
 import type { MemberConfig, ProjectConfig } from './schema';
 
@@ -24,12 +23,12 @@ export function hasMachineAccess(config: Pick<ProjectConfig, 'team'>, handle: st
 
 /**
  * Whether `issuer` may put a machine todo in the owners' queue: the system (an obligation handover,
- * PM-806), the Operator member (until its handovers go, PM-1003, PM-1076) or a member with machine access.
+ * PM-806) or a member with machine access.
  * The system issuer counts only while no member has that handle: `system` is a valid handle, and a member
  * with it must not borrow the system's standing.
  */
 export function machineTodoIssuerAllowed(config: Pick<ProjectConfig, 'team'>, issuer: string): boolean {
   const member = memberOf(config, issuer);
   if (member === undefined) return issuer === SYSTEM_ISSUER;
-  return isOperator(member) || machineAccessOf(member);
+  return machineAccessOf(member);
 }

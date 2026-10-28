@@ -4,7 +4,7 @@ import {
   effectiveRepo,
   filesByModule,
   LOCAL_ENGINE_ID,
-  operatorOf,
+  coordinationMemberOf,
   StructureMap,
   STRUCTURE_MAP_PATH,
   STRUCTURE_RECENT_DONE_DAYS,
@@ -203,8 +203,8 @@ export function createStructureService(deps: StructureDeps): StructureService {
       cards: [],
       readAt: new Date(now()).toISOString(),
     };
-    const operator = operatorOf(config);
-    const engine = operator ? deps.engines.engineFor(projectKey, operator.handle) : LOCAL_ENGINE_ID;
+    const coordinator = coordinationMemberOf(config);
+    const engine = coordinator ? deps.engines.engineFor(projectKey, coordinator.handle) : LOCAL_ENGINE_ID;
     const merger: BranchMerger | undefined = engine ? deps.engines.get(engine)?.merger : undefined;
     if (!merger) return view;
     let paths: Awaited<ReturnType<BranchMerger['listPaths']>>;

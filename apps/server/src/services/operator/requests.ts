@@ -22,7 +22,7 @@ import type { DomainContext } from '../../core/base';
 import { forbidden, newId } from '../../kernel';
 
 /** An owner's request to the Operator stays open this long at most; the end of its turn closes it sooner. */
-export const OPERATOR_REQUEST_TTL_MS = 30 * 60_000;
+const OPERATOR_REQUEST_TTL_MS = 30 * 60_000;
 /** The part of the owner's text a request quotes. */
 const OPERATOR_QUOTE_LENGTH = 280;
 /** How many requests the Operator's channel lists. */

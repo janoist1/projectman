@@ -1842,15 +1842,15 @@ describe('member initiated merge', () => {
       });
     });
 
-    it('lets the card merger, an owner and the Operator decide, and nobody else', async () => {
+    it('lets the card merger and an owner decide, and nobody else', async () => {
       const gate = await threeCards();
       await expect(prioritize('AR-3', aiActor('dev-2'))).rejects.toMatchObject({ code: 'merge_not_merger' });
       await expect(prioritize('AR-3', humanActor('guest'))).rejects.toMatchObject({
         code: 'merge_not_merger',
       });
       expect(prioritized('AR-3')).toHaveLength(0);
-      expect((await prioritize('AR-3', aiActor('operator'))).moved).toBe(true);
-      expect(prioritized('AR-3')).toMatchObject([{ actor: { handle: 'operator' } }]);
+      expect((await prioritize('AR-3', aiActor('dev-1'))).moved).toBe(true);
+      expect(prioritized('AR-3')).toMatchObject([{ actor: { handle: 'dev-1' } }]);
       expect((await prioritize('AR-2', OWNER_ACTOR)).moved).toBe(true);
       expect(prioritized('AR-2')).toMatchObject([{ actor: { handle: 'owner' } }]);
       gate.resolve({ ok: true, mergeCommit: 'first', changed: [] });

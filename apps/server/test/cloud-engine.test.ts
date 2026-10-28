@@ -345,7 +345,7 @@ describe('the link across drops, restarts and refusals', () => {
       expect(domain().engineCounters(engineId()).runningSessions).toBe(1);
     });
 
-    it('closes the live remote session when the cloud restarts, and a new message resumes it', async () => {
+    it('resumes interrupted remote work after a cloud restart without another start on a new message', async () => {
       const { key, session } = await startCard('The cloud restarts');
       await writeTranscript(session.id);
       const runner = world.fake!.runner;
@@ -355,17 +355,25 @@ describe('the link across drops, restarts and refusals', () => {
       // The restarted cloud remembers no live session (its team tool tokens were in memory), so it closes
       // the one the engine still reports: no session outlives a cloud restart seamlessly. The shutdown's own
       // stop cannot reach the engine, because the links close before the runner's shutdown runs; the
-      // reconciliation on reconnect is what ends it.
+      // reconciliation on reconnect is what ends it, before admission resumes the interrupted work.
       await vi.waitFor(() => expect(runner.stopped).toContain(session.id), { timeout: 15_000 });
-      await vi.waitFor(() => expect(domain().sessions.get('AR', session.id).state).toBe('exited'));
-      expect(runner.list()).toEqual([]);
-      expect(domain().engineCounters(engineId())).toMatchObject({ runningSessions: 0 });
-      await pause(500);
-      expect(runner.started).toHaveLength(1);
+      await vi.waitFor(() => expect(runner.started).toHaveLength(2), { timeout: 15_000 });
+      expect(runner.started[1]).toMatchObject({ sessionId: session.id, resume: true });
+      await vi.waitFor(() => expect(domain().sessions.isRunning(session.id)).toBe(true));
+      expect(runner.list()).toHaveLength(1);
+      expect(domain().engineCounters(engineId())).toMatchObject({ runningSessions: 1 });
 
       await message(key, 'The cloud is back');
-      await vi.waitFor(() => expect(runner.started).toHaveLength(2), { timeout: 15_000 });
-      expect(runner.started[1]).toMatchObject({ resume: true });
+      await vi.waitFor(
+        () =>
+          expect(runner.messages).toEqual(
+            expect.arrayContaining([
+              { sessionId: session.id, text: expect.stringContaining('The cloud is back') },
+            ]),
+          ),
+        { timeout: 10_000 },
+      );
+      expect(runner.started).toHaveLength(2);
     });
 
     it('refuses a hello of another protocol and keeps the link it did not replace', async () => {

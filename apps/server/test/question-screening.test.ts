@@ -37,7 +37,7 @@ function withPeople(config: ProjectConfig): void {
  * The Operator screens the questions of AI members before a person sees them (PM-558, PM-556): the five
  * outcomes, the fallback to the people, the re-ask and the endpoint.
  */
-describe('the Operator screens AI members’ questions', () => {
+describe('the project manager screens AI members’ questions', () => {
   let h: DomainHarness;
   let now: Date;
   let dev: ToolContext;
@@ -475,7 +475,7 @@ describe('the Operator screens AI members’ questions', () => {
     });
   });
 
-  describe('what the Operator may not do', () => {
+  describe('what the project manager may not do', () => {
     it('refuses a member who is not the Operator', async () => {
       const { inboxItemId } = await ask();
       const err = await refusal(
@@ -551,7 +551,7 @@ describe('the Operator screens AI members’ questions', () => {
     });
   });
 
-  describe('when the Operator does not settle it', () => {
+  describe('when the project manager does not settle it', () => {
     it('gives the question to the people when the ten minutes pass, and the Operator can still call it moot', async () => {
       const { inboxItemId } = await ask();
       now = new Date(START.getTime() + (QUESTION_SCREENING_MINUTES - 1) * 60_000);
@@ -698,7 +698,7 @@ describe('the Operator screens AI members’ questions', () => {
     });
   });
 
-  describe('when the Operator cannot take the question', () => {
+  describe('when the project manager cannot take the question', () => {
     async function askAtOnce() {
       const result = await h.domain.teamTools.askHuman(dev, { question: 'Which font?' });
       return { ...result, stored: item(result.inboxItemId) };

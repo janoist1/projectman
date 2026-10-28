@@ -1,5 +1,15 @@
 import { expect, it } from 'vitest';
-import { BoardView, Me, RoleView } from './dto';
+import { BoardView, Me, OperatorMemberChanges, RoleView, UpdateMemberRequest } from './dto';
+
+it.each([
+  ['a member update', UpdateMemberRequest],
+  ['an Operator member change', OperatorMemberChanges],
+] as const)('refuses a separate mailbox name in %s, naming the card (PM-1039)', (_name, schema) => {
+  const result = schema.safeParse({ email: { enabled: true, mailbox: 'builder' } });
+  expect(result.success).toBe(false);
+  expect(result.error?.issues.map((issue) => issue.message).join(' ')).toContain('PM-1039');
+  expect(schema.safeParse({ email: { enabled: true } }).success).toBe(true);
+});
 
 it.each([
   ['instance ownership', Me.pick({ instanceOwner: true }), { instanceOwner: false }],

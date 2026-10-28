@@ -40,7 +40,6 @@ const config = configWith([
   ai('pm-temp', { role: PROJECT_MANAGER_ROLE, temp: true }),
   ai('dev'),
   ai('dev-on', { machineAccess: true }),
-  ai('operator', { role: 'ai_operator' }),
 ]);
 
 describe('machineAccessOf', () => {
@@ -63,7 +62,7 @@ describe('machineAccessOf', () => {
 describe('machineTodoIssuerAllowed', () => {
   it.each([
     ['system', true],
-    ['operator', true],
+    ['operator', false],
     ['pm', true],
     ['dev-on', true],
     ['dev', false],

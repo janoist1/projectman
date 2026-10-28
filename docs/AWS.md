@@ -1226,7 +1226,7 @@ does not reach the queue: SES bounces such a mail. Replies are short text, so th
 can switch the rule to an S3 action and read the mail from the bucket if it proves too small.
 
 **Mail to a member (PM-989).** The same rule receives the mail written to an AI member's own address
-(`<mailbox>@<replyDomain>`, no new DNS, rule or queue). The 150 kB limit above counts the attachments of
+(`<handle>@<replyDomain>`, no new DNS, rule or queue). The 150 kB limit above counts the attachments of
 such a mail too. Members also send from their own address; the system sender remains available for login
 codes. After merging PM-1016, the owner runs `npm run cloud -- ses receive-configure --dry-run`, approves
 the IAM change, then runs `npm run cloud -- ses receive-configure` and `npm run cloud -- ses receive-check`.

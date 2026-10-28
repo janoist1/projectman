@@ -57,7 +57,7 @@ import {
   isTheme,
   LOCAL_ENGINE_ID,
   memberOf,
-  operatorOf,
+  coordinationMemberOf,
   operatorKnowledgeApprovalOf,
   operatorKnowledgeContinuationMessageId,
   pullSourceStage,
@@ -193,7 +193,7 @@ import { HandoffService } from './runtime/admission';
 import { PauseService } from './runtime/sessions';
 import { MachineMonitor } from './runtime/watchers';
 import { createMachineProbe } from './machine';
-import { createNewProjectEngines, LocalEngineDirectory } from './runtime/sessions';
+import { checklistEngineHolds, createNewProjectEngines, LocalEngineDirectory } from './runtime/sessions';
 import type { EngineRegistry } from './runtime/sessions';
 import { createCheckBranchGit, createLocalEngine } from './engine-host';
 import { createAdministrationService } from './administration';
@@ -469,9 +469,9 @@ export function createHistoryDocumentReader(deps: {
   now: () => Date;
 }): HistoryDocumentReader {
   const selection = (projectKey: string, config: ProjectConfig) => {
-    const operator = operatorOf(config);
-    return operator
-      ? deps.engines.engineFor(projectKey, operator.handle)
+    const coordinator = coordinationMemberOf(config);
+    return coordinator
+      ? deps.engines.engineFor(projectKey, coordinator.handle)
       : deps.engines.ids().includes(LOCAL_ENGINE_ID)
         ? LOCAL_ENGINE_ID
         : null;
@@ -676,7 +676,7 @@ export function createDomain(opts: DomainOptions) {
     store: opts.operatorKnowledge,
   });
   const operatorSteps = new OperatorSteps({ ctx });
-  const messages = new MessageService({ ctx, timeline, projects, operatorRequests, coordinationRequests });
+  const messages = new MessageService({ ctx, timeline, projects, coordinationRequests });
   const sharedOperatorKnowledge = new OperatorKnowledge({
     ctx,
     projects,
@@ -735,7 +735,13 @@ export function createDomain(opts: DomainOptions) {
     handoff: (input) => handoffs.begin(input),
   });
   const projectFocus = new ProjectFocusService({ ctx, projects, tasks, timeline });
-  const checklist = new ChecklistService({ ctx, projects, tasks, knowledge: opts.operatorKnowledge });
+  const checklist = new ChecklistService({
+    ctx,
+    projects,
+    tasks,
+    knowledge: opts.operatorKnowledge,
+    engineHolds: checklistEngineHolds(opts.engineRegistry),
+  });
   const attachments = new AttachmentService({
     ctx,
     projects,
@@ -866,7 +872,7 @@ export function createDomain(opts: DomainOptions) {
   events.on('session_idle', (session) => coordinationRequests.closeForSession(session.id));
   events.on('session_ended', (session) => coordinationRequests.closeForSession(session.id));
   const decisionCandidates = new DecisionCandidates({ ctx });
-  const delivery = new MessageDelivery({ ctx, sessions, messages, projects, decisionCandidates });
+  const delivery = new MessageDelivery({ ctx, sessions, messages, projects });
   const pmReplyRelay = new PmReplyRelay({ ctx, sessions, messages, projects, background });
   events.on('session_idle', (session) => pmReplyRelay.finish(session));
   events.on('session_ended', (session) => pmReplyRelay.finish(session));
@@ -1020,6 +1026,12 @@ export function createDomain(opts: DomainOptions) {
   // A card worked out is offered for starting by the next round; a collecting card that cannot start says so (PM-804).
   refinement.useNotify((task, recipient) => startRound.refined(task, recipient));
   const handOver = new StageHandOver({ projects, tasks, sessions, admission, delivery });
+  events.on('session_ended', (session) => {
+    background.run(
+      () => handOver.resumeInterrupted(session, session.previousState),
+      (err) => opts.logger.warn({ err, sessionId: session.id }, 'interrupted stage resume failed'),
+    );
+  });
   // A card at its fix round limit holds back its assignee's messages and hand-over notice (PM-262); the
   // hold needs the classes it binds to, which are built first.
   const fixLimit = new FixLimitWatch({
@@ -1531,8 +1543,7 @@ export function createDomain(opts: DomainOptions) {
     messaging,
   };
   const operatorActions = new OperatorActions(operatorDeps);
-  projects.useOperatorAuthorization(
-    operatorActions,
+  projects.useAgreementVersion(
     async (key) => (await opts.operatorKnowledge.readKnowledge(key)).agreement?.version ?? null,
   );
   const operatorApprovals = new OperatorApprovals({ ...operatorDeps, actions: operatorActions });
@@ -1683,7 +1694,7 @@ export function createDomain(opts: DomainOptions) {
   });
   const teamTools = new TeamToolsService({
     tools: {
-      history: new HistoryTools({ calls: toolCaller, ctx, projects, history }),
+      history: new HistoryTools({ calls: toolCaller, history }),
       projectDocs: new ProjectDocTools({
         calls: toolCaller,
         ctx,
@@ -1708,7 +1719,6 @@ export function createDomain(opts: DomainOptions) {
         obligations,
         messaging,
         projectState,
-        operatorActions,
         taskStarts,
         operatorSignals,
         loopTriages,
@@ -2523,30 +2533,6 @@ export function createDomain(opts: DomainOptions) {
       // What admission refused before the server stopped waits again and is retried now, as usual
       // (under admission, and not while its master switch is off)...
       if (restoredStarts > 0) retryDeferredStarts();
-      // Durable approved continuations survive a crash between inbox closure and wake-up.
-      for (const project of projects.summaries()) {
-        try {
-          const operator = operatorOf(await projects.config(project.key));
-          if (
-            operator &&
-            messages
-              .waiting(project.key, operator.handle, { type: 'general' })
-              .some((message) => message.origin?.kind === 'operator_knowledge_approval')
-          )
-            background.run(
-              () =>
-                messageRouter.wakeWaiting({
-                  projectKey: project.key,
-                  member: operator.handle,
-                  workItem: { type: 'general' },
-                }),
-              (err) =>
-                opts.logger.warn({ err, projectKey: project.key }, 'operator continuation wake failed'),
-            );
-        } catch (err) {
-          opts.logger.warn({ err, projectKey: project.key }, 'operator continuation wake failed');
-        }
-      }
       // ... and the pause that stopping the server made ends: its sessions start again (PM-219).
       // In the background: starting the sessions again must not hold the server back.
       background.run(

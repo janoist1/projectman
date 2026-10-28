@@ -247,29 +247,6 @@ exports[`team tool definitions > preserves the public tool definitions across mo
     "annotations": {
       "destructiveHint": false,
       "openWorldHint": false,
-      "readOnlyHint": true,
-      "title": "Check a release",
-    },
-    "description": "Only the Operator; it only reads. The preview of propose_release: it runs the same checks (a release already in progress, the merged cards between the last release and the commit) and answers either the commit and the cards a release would have, or the refusal propose_release would give now, with the same code and message. It records nothing. The release is proposed by the member with the deployment duty, not by the Operator: the result lists who that is. \`commit\` is a merge commit of a merged card; default: the head of the default branch. Explain the result to the owner in the project language.",
-    "inputSchema": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "additionalProperties": false,
-      "properties": {
-        "commit": {
-          "description": "A merge commit of a merged card; default: the head of the default branch.",
-          "pattern": "^[0-9a-f]{40}$",
-          "type": "string",
-        },
-      },
-      "type": "object",
-    },
-    "name": "check_release",
-    "title": "Check a release",
-  },
-  {
-    "annotations": {
-      "destructiveHint": false,
-      "openWorldHint": false,
       "readOnlyHint": false,
       "title": "Close a feedback mark",
     },
@@ -863,164 +840,6 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "destructiveHint": false,
       "openWorldHint": false,
       "readOnlyHint": true,
-      "title": "Read the private history search statistics",
-    },
-    "description": "Only the Operator, in the general conversation of a human owner or admin, during that person's own open message or answer request; every other call is refused with history_stats_forbidden. The private statistics of the history search of this project: how many searches each member made, how many found nothing, and the searches without a result (their text and filters). The period defaults to the last 30 days; the log is kept for 90 days. limit is 1–200 (default 50) zero-result searches per page; pass next_cursor as cursor for the next page. The numbers are for the person you are talking with in this conversation only: do not copy them into a task, a note, a team message or another conversation.",
-    "inputSchema": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "additionalProperties": false,
-      "properties": {
-        "cursor": {
-          "additionalProperties": false,
-          "description": "next_cursor of the previous page.",
-          "properties": {
-            "at": {
-              "format": "date-time",
-              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
-              "type": "string",
-            },
-            "id": {
-              "maxLength": 200,
-              "minLength": 1,
-              "type": "string",
-            },
-          },
-          "required": [
-            "at",
-            "id",
-          ],
-          "type": "object",
-        },
-        "limit": {
-          "description": "How many searches without a result, 1–200 (default 50).",
-          "maximum": 200,
-          "minimum": 1,
-          "type": "integer",
-        },
-        "member": {
-          "description": "Only the searches of this member.",
-          "pattern": "^[a-z0-9][a-z0-9-]{0,31}$",
-          "type": "string",
-        },
-        "since": {
-          "description": "The start of the period, ISO 8601 with a time zone offset.",
-          "format": "date-time",
-          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
-          "type": "string",
-        },
-        "until": {
-          "description": "The end of the period (default: now), ISO 8601 with a time zone offset.",
-          "format": "date-time",
-          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
-          "type": "string",
-        },
-      },
-      "type": "object",
-    },
-    "name": "get_history_search_stats",
-    "title": "Read the private history search statistics",
-  },
-  {
-    "annotations": {
-      "destructiveHint": false,
-      "openWorldHint": false,
-      "readOnlyHint": true,
-      "title": "Read the log of the machine",
-    },
-    "description": "Only the Operator, during an open owner request, with the owner’s machine grant (without it: operator_grant_inactive). The diagnostic log of the hub (target "hub") or of an engine linked to this project (target: the engine id): {entries}, oldest first. limit is 1–200 (default 50). source is "supervisor" (default) or "service" (the managed service’s log, secrets redacted); min_level (info, warn, error), since (ISO time) and contains (up to 100 characters) narrow it.",
-    "inputSchema": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "additionalProperties": false,
-      "properties": {
-        "contains": {
-          "maxLength": 100,
-          "minLength": 1,
-          "type": "string",
-        },
-        "limit": {
-          "maximum": 200,
-          "minimum": 1,
-          "type": "integer",
-        },
-        "min_level": {
-          "enum": [
-            "info",
-            "warn",
-            "error",
-          ],
-          "type": "string",
-        },
-        "since": {
-          "maxLength": 40,
-          "pattern": "^\\d{4}-\\d{2}-\\d{2}T[\\d:.]+Z$",
-          "type": "string",
-        },
-        "source": {
-          "enum": [
-            "supervisor",
-            "service",
-          ],
-          "type": "string",
-        },
-        "target": {
-          "anyOf": [
-            {
-              "const": "hub",
-              "type": "string",
-            },
-            {
-              "pattern": "^(local|eng_[a-z0-9]{12})$",
-              "type": "string",
-            },
-          ],
-        },
-      },
-      "required": [
-        "target",
-      ],
-      "type": "object",
-    },
-    "name": "get_machine_logs",
-    "title": "Read the log of the machine",
-  },
-  {
-    "annotations": {
-      "destructiveHint": false,
-      "openWorldHint": false,
-      "readOnlyHint": true,
-      "title": "Read the status of the machine",
-    },
-    "description": "Only the Operator, during an open owner request, with the owner’s machine grant (without it: operator_grant_inactive). The administration status of the hub (target "hub") or of an engine linked to this project (target: the engine id) and, when it offers the machine capability, its machine: {status, machine} with the load average, memory, swap and the ten largest processes (name, cpu, memory; no arguments). machine is null when the target cannot tell.",
-    "inputSchema": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "additionalProperties": false,
-      "properties": {
-        "target": {
-          "anyOf": [
-            {
-              "const": "hub",
-              "type": "string",
-            },
-            {
-              "pattern": "^(local|eng_[a-z0-9]{12})$",
-              "type": "string",
-            },
-          ],
-        },
-      },
-      "required": [
-        "target",
-      ],
-      "type": "object",
-    },
-    "name": "get_machine_status",
-    "title": "Read the status of the machine",
-  },
-  {
-    "annotations": {
-      "destructiveHint": false,
-      "openWorldHint": false,
-      "readOnlyHint": true,
       "title": "Read an operation",
     },
     "description": "Only the Operator or selected PM, in its own general conversation during an open owner request. One operation of this project and, once the adapter recorded it, its result: {operation, result}. A running operation is settled first, so ask again until its state is final.",
@@ -1151,7 +970,6 @@ exports[`team tool definitions > preserves the public tool definitions across mo
         "role": {
           "enum": [
             "operator",
-            "ai_operator",
             "product_owner",
             "project_manager",
             "business_analyst",
@@ -1404,7 +1222,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": true,
       "title": "List the owners’ answers that may be decisions",
     },
-    "description": "Only the selected project manager in its internal general conversation, or the transitional app Operator; never in guest conversations. Needs no open owner request. The questions an owner answered on cards since you last looked, which they have not given a verdict on yet, the earliest answer first. Offer them to the owner in your answer to their message; the call counts as a look, so the same answers come back only if you did not mark them. Refused with docs_not_configured when the project has no decision log. more true: there are further candidates, call again after marking these.",
+    "description": "Only the selected project manager in its internal general conversation; never in guest conversations. Needs no open owner request. The questions an owner answered on cards since you last looked, which they have not given a verdict on yet, the earliest answer first. Offer them to the owner in your answer to their message; the call counts as a look, so the same answers come back only if you did not mark them. Refused with docs_not_configured when the project has no decision log. more true: there are further candidates, call again after marking these.",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,
@@ -1622,7 +1440,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": false,
       "title": "Mark the offered decision candidates",
     },
-    "description": "Only the selected project manager in its internal general conversation, or the transitional app Operator, in the owner's own conversation, during an open owner request. Record what the owner said about the candidates you offered: recorded (they said yes and the entry is in the decision log; decision is its number, 1–10 characters), declined (they said no: never offer it again) or skipped (not a decision). All or nothing: one unknown item_id refuses the whole call with not_found. An item already marked can be marked again when the owner asks.",
+    "description": "Only the selected project manager in its internal general conversation, in the owner's own conversation, during an open owner request. Record what the owner said about the candidates you offered: recorded (they said yes and the entry is in the decision log; decision is its number, 1–10 characters), declined (they said no: never offer it again) or skipped (not a decision). All or nothing: one unknown item_id refuses the whole call with not_found. An item already marked can be marked again when the owner asks.",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,
@@ -2953,7 +2771,6 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                         "propertyNames": {
                           "enum": [
                             "operator",
-                            "ai_operator",
                             "product_owner",
                             "project_manager",
                             "business_analyst",
@@ -3176,10 +2993,6 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                         "properties": {
                           "enabled": {
                             "type": "boolean",
-                          },
-                          "mailbox": {
-                            "pattern": "^(?!r-)[a-z0-9][a-z0-9-]{0,31}$",
-                            "type": "string",
                           },
                           "sendWithoutApproval": {
                             "type": "boolean",
@@ -3738,7 +3551,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": true,
       "title": "Read a project document",
     },
-    "description": "Only the selected project manager in its internal general conversation, or the transitional app Operator; never in guest conversations. Needs no open owner request. Read the decision log (decisions), roadmap (roadmap) or lessons (lessons) as it is on the head of the project's default branch, fresh from the remote. Lessons may also be read from the Operator's own processing queue item. The answer names the commit it was read at: pass it as base_commit to write_project_docs. A long file is read in parts with from_line and line_count; total_lines says how long it is. exists false: the file is not in the repository yet (the first write creates it).",
+    "description": "Only the selected project manager in its internal general conversation; never in guest conversations. Needs no open owner request. Read the decision log (decisions), roadmap (roadmap) or lessons (lessons) as it is on the head of the project's default branch, fresh from the remote. Lessons may also be read from the project manager's own processing queue item. The answer names the commit it was read at: pass it as base_commit to write_project_docs. A long file is read in parts with from_line and line_count; total_lines says how long it is. exists false: the file is not in the repository yet (the first write creates it).",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,
@@ -4719,6 +4532,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                 "feedback_surface",
                 "agreement_approved",
                 "task_exists",
+                "engine_connected",
               ],
               "type": "string",
             },
@@ -5042,7 +4856,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": false,
       "title": "Write the project documents",
     },
-    "description": "Only the selected project manager in its internal general conversation, or the transitional app Operator. Lessons-only edits need no owner request or approval in your own internal conversation, including the Operator's own processing queue item; never in a guest conversation or approval continuation. Any decisions, roadmap or mixed edits require an open owner request in the owner's own conversation: show the owner the text first. Replace text in at most TWO document files as ONE commit on the default branch, pushed to its remote; use separate calls for three files. base_commit is the commit read_project_doc returned; edits are applied in order. Each edit replaces old_text, which must occur exactly once in the file, with new_text; an empty old_text appends new_text at the end of the file. The decision log is append-only: no existing line may change or go. Lessons and roadmap may be rewritten. Refused when a file changed since base_commit (docs_stale: read it again and retry lessons; show the owner changes to other documents), when an old_text is not found or is ambiguous, or when nothing changes. The write runs in the repository's merge slot: it may answer queued or running (not finished within 60 seconds); a system message reports its eventual result. message is the commit subject: one line, English.",
+    "description": "Only the selected project manager in its internal general conversation. Lessons-only edits need no owner request or approval in your own internal conversation, including the project manager's own processing queue item; never in a guest conversation or approval continuation. Any decisions, roadmap or mixed edits require an open owner request in the owner's own conversation: show the owner the text first. Replace text in at most TWO document files as ONE commit on the default branch, pushed to its remote; use separate calls for three files. base_commit is the commit read_project_doc returned; edits are applied in order. Each edit replaces old_text, which must occur exactly once in the file, with new_text; an empty old_text appends new_text at the end of the file. The decision log is append-only: no existing line may change or go. Lessons and roadmap may be rewritten. Refused when a file changed since base_commit (docs_stale: read it again and retry lessons; show the owner changes to other documents), when an old_text is not found or is ambiguous, or when nothing changes. The write runs in the repository's merge slot: it may answer queued or running (not finished within 60 seconds); a system message reports its eventual result. message is the commit subject: one line, English.",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,

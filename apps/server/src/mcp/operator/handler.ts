@@ -1,5 +1,4 @@
 import {
-  isOperator,
   isProjectManager,
   coordinationMemberOf,
   canonical,
@@ -48,7 +47,6 @@ import type { TaskStarts } from '../../runtime/admission';
 import { aiActor } from '../../kernel';
 import type {
   ProjectState,
-  OperatorActions,
   OperatorSignals,
   OperatorPreferences,
   OperatorKnowledge,
@@ -60,11 +58,15 @@ import { appRequestId } from '../../services/super-operator';
 import type { OperatorAppOperations, SuperAdministration } from '../../services/super-operator';
 import { toToolError, toMessageToolError, type ToolCaller } from '../caller';
 
-/** What the Operator's super-operation tools stand on (PM-888). */
+/** What the super-operation tools stand on (PM-888). */
 interface SuperPath {
   operations: OperatorAppOperations;
-  administration: Pick<SuperAdministration, 'status' | 'logs' | 'machine' | 'operation'>;
+  administration: Pick<SuperAdministration, 'operation'>;
 }
+
+/** The machine reads were the Operator's alone; with no Operator (decision 66, PM-1076) nobody holds them. */
+const machineReadRefused = () =>
+  new TeamToolError('forbidden', 'operator_only: no member may read the machine this way.');
 
 /** What the checklist tools stand on (PM-977): every write goes through the checklist service. */
 type OperatorToolsChecklist = Pick<
@@ -82,7 +84,6 @@ export class OperatorTools implements OperatorToolsHandler {
   private readonly obligations: Pick<ObligationsService, 'listOpen'>;
   private readonly messaging: Pick<Messaging, 'answer' | 'forwardQuestion' | 'sendReporting'>;
   private readonly projectState: ProjectState;
-  private readonly operatorActions: OperatorActions;
   private readonly taskStarts: TaskStarts;
   private readonly operatorSignals: Pick<OperatorSignals, 'dismissByOperator'>;
   private readonly operatorPreferences: OperatorPreferences;
@@ -102,7 +103,6 @@ export class OperatorTools implements OperatorToolsHandler {
     obligations: Pick<ObligationsService, 'listOpen'>;
     messaging: Pick<Messaging, 'answer' | 'forwardQuestion' | 'sendReporting'>;
     projectState: ProjectState;
-    operatorActions: OperatorActions;
     taskStarts: TaskStarts;
     operatorSignals: Pick<OperatorSignals, 'dismissByOperator'>;
     operatorPreferences: OperatorPreferences;
@@ -122,7 +122,6 @@ export class OperatorTools implements OperatorToolsHandler {
     this.obligations = deps.obligations;
     this.messaging = deps.messaging;
     this.projectState = deps.projectState;
-    this.operatorActions = deps.operatorActions;
     this.taskStarts = deps.taskStarts;
     this.operatorSignals = deps.operatorSignals;
     this.operatorPreferences = deps.operatorPreferences;
@@ -142,27 +141,9 @@ export class OperatorTools implements OperatorToolsHandler {
     });
   }
 
-  /** The caller's own internal general session: not a card's, and not a conversation with a guest. */
-  private ownInternalSession(ctx: ToolContext): boolean {
-    const session = this.ctx.repos.sessions.get(ctx.sessionId);
-    return (
-      !!session &&
-      session.projectKey === ctx.projectKey &&
-      session.member === ctx.member &&
-      session.workItem.type === 'general' &&
-      !session.workItem.with
-    );
-  }
-
-  /** The Operator's own internal session, or the selected project manager's (PM-1043). */
+  /** The selected project manager's own coordination session (PM-1043). */
   private assertChecklistSession(ctx: ToolContext, config: ProjectConfig): void {
-    if (isOperator(memberOf(config, ctx.member))) {
-      if (!this.ownInternalSession(ctx))
-        throw new TeamToolError(
-          'forbidden',
-          'operator_owner_only: the checklist requires your own internal conversation.',
-        );
-    } else this.calls.assertCoordinationSession(ctx, config);
+    this.calls.assertCoordinationSession(ctx, config);
   }
 
   async getChecklist(ctx: ToolContext): Promise<ChecklistToolView> {
@@ -179,10 +160,10 @@ export class OperatorTools implements OperatorToolsHandler {
   async updateChecklist(ctx: ToolContext, args: UpdateChecklistInput): Promise<UpdateChecklistResult> {
     return this.calls.guard(async () => {
       const config = await this.calls.caller(ctx, 'update_checklist');
-      if (!isOperator(memberOf(config, ctx.member)) && !isProjectManager(memberOf(config, ctx.member)))
+      if (!isProjectManager(memberOf(config, ctx.member)))
         throw new TeamToolError(
           'forbidden',
-          'operator_only: only the Operator or the project manager may change the checklist.',
+          'operator_only: only the project manager may change the checklist.',
         );
       this.assertChecklistSession(ctx, config);
       try {
@@ -281,12 +262,12 @@ export class OperatorTools implements OperatorToolsHandler {
   async proposeOperatorKnowledge(ctx: ToolContext, args: ProposeOperatorKnowledgeRequest) {
     const config = await this.projects.config(ctx.projectKey);
     const member = memberOf(config, ctx.member);
-    if (!isOperator(member) && !isProjectManager(member))
+    if (!isProjectManager(member))
       throw new TeamToolError(
         'forbidden',
-        'operator_only: only the Operator or the project manager may propose shared knowledge.',
+        'operator_only: only the project manager may propose shared knowledge.',
       );
-    if (!isOperator(member)) this.calls.assertCoordinationSession(ctx, config);
+    this.calls.assertCoordinationSession(ctx, config);
     await this.calls.callerWithRequest(ctx, 'propose_operator_knowledge');
     return this.operatorKnowledge.propose(ctx, args).catch((err: unknown) => {
       if (err instanceof DomainError)
@@ -311,8 +292,8 @@ export class OperatorTools implements OperatorToolsHandler {
   private async preferenceCall<T>(ctx: ToolContext, tool: string, run: () => Promise<T>): Promise<T> {
     const config = await this.projects.config(ctx.projectKey);
     const member = memberOf(config, ctx.member);
-    if (!isOperator(member) && !isProjectManager(member))
-      throw new TeamToolError('forbidden', 'operator_only: only the Operator or PM may use preferences.');
+    if (!isProjectManager(member))
+      throw new TeamToolError('forbidden', 'operator_only: only the PM may use preferences.');
     await this.calls.callerWithRequest(ctx, tool);
     try {
       return await run();
@@ -461,8 +442,7 @@ export class OperatorTools implements OperatorToolsHandler {
   async getProjectState(ctx: ToolContext, args: { taskKey?: string; messageId?: string }) {
     return this.calls.guard(async () => {
       const config = await this.calls.caller(ctx, 'get_project_state');
-      const member = memberOf(config, ctx.member);
-      if (!isOperator(member)) this.calls.assertCoordinationSession(ctx, config);
+      this.calls.assertCoordinationSession(ctx, config);
       if (args.messageId !== undefined) {
         if (args.taskKey !== undefined)
           throw new TeamToolError('invalid', 'Give either task_key or message_id, not both.');
@@ -520,35 +500,20 @@ export class OperatorTools implements OperatorToolsHandler {
         throw this.appFailure(err);
       }
     }
-    if (!isOperator(memberOf(config, ctx.member)))
-      throw new TeamToolError('forbidden', 'operator_only: only the Operator may operate.');
-    const caller = await this.calls.callerWithRequest(ctx, 'operate', undefined, undefined, args.operation);
-    return this.operatorActions
-      .run(ctx.projectKey, caller.request!.id, args.title, args.operation, args.plan)
-      .catch((err: unknown) => {
-        if (err instanceof DomainError)
-          throw new TeamToolError(
-            err.status === 403 ? 'forbidden' : 'invalid',
-            `${err.code}: ${err.message}`,
-          );
-        throw err;
-      });
+    throw new TeamToolError('forbidden', 'operator_only: only the selected PM may operate.');
   }
 
   /**
-   * The Operator's own call on the shared super-operation path (PM-888): the base Operator, in its own general
-   * conversation, during a direct internal owner request (a message or an answer) or a queue item (PM-885); not an
-   * approval continuation, a signal or a guest. Returns the caller whose request the credential of the call stands on.
+   * The selected PM's call on the shared super-operation path (PM-888): in its own general conversation, during a
+   * direct internal owner request (a message or an answer) or a queue item (PM-885); not an approval continuation,
+   * a signal or a guest. Returns the caller whose request the credential of the call stands on.
    */
   private async appCaller(ctx: ToolContext, tool: string) {
     const caller = await this.calls.callerWithRequest(ctx, tool);
-    if (
-      !isOperator(memberOf(caller.config, ctx.member)) &&
-      coordinationMemberOf(caller.config)?.handle !== ctx.member
-    )
+    if (coordinationMemberOf(caller.config)?.handle !== ctx.member)
       throw new TeamToolError(
         'forbidden',
-        'operator_only: only the Operator or selected PM may use the super operations.',
+        'operator_only: only the selected PM may use the super operations.',
       );
     const session = this.ctx.repos.sessions.get(ctx.sessionId);
     if (
@@ -580,15 +545,6 @@ export class OperatorTools implements OperatorToolsHandler {
   async executeOperation(ctx: ToolContext, args: Parameters<OperatorToolsHandler['executeOperation']>[1]) {
     try {
       const caller = await this.appCaller(ctx, 'execute_operation');
-      // `operate` and `member_update` have their own tool; the direct path takes the rest.
-      if (
-        isOperator(memberOf(caller.config, ctx.member)) &&
-        (args.command.kind === 'operate' || args.command.kind === 'member_update')
-      )
-        throw new TeamToolError(
-          'invalid',
-          `super_operation_unsupported: a ${args.command.kind} command is not run here; use operate.`,
-        );
       // Commands that need an owner's own message or answer are refused on the shared path (PM-935, PM-1010).
       const taskKey = args.taskKey ? this.calls.validTaskKey(ctx, args.taskKey) : undefined;
       const requestId = appRequestId(caller.request!.id, args.requestKey);
@@ -624,29 +580,22 @@ export class OperatorTools implements OperatorToolsHandler {
     }
   }
 
-  async getMachineStatus(ctx: ToolContext, args: { target: AdministrationTarget }) {
+  async getMachineStatus(ctx: ToolContext, _args: { target: AdministrationTarget }): Promise<never> {
     try {
-      const caller = await this.appCaller(ctx, 'get_machine_status');
-      if (!isOperator(memberOf(caller.config, ctx.member)))
-        throw new TeamToolError('forbidden', 'operator_only: machine reads require the Operator.');
-      const { administration } = this.superPath();
-      const status = await administration.status(ctx.projectKey, args.target);
-      const machine = status.capabilities.includes('machine')
-        ? await administration.machine(ctx.projectKey, args.target)
-        : null;
-      return { status, machine };
+      await this.appCaller(ctx, 'get_machine_status');
+      throw machineReadRefused();
     } catch (err) {
       throw this.appFailure(err);
     }
   }
 
-  async getMachineLogs(ctx: ToolContext, args: { target: AdministrationTarget } & AdministrationLogsOptions) {
+  async getMachineLogs(
+    ctx: ToolContext,
+    _args: { target: AdministrationTarget } & AdministrationLogsOptions,
+  ): Promise<never> {
     try {
-      const caller = await this.appCaller(ctx, 'get_machine_logs');
-      if (!isOperator(memberOf(caller.config, ctx.member)))
-        throw new TeamToolError('forbidden', 'operator_only: machine reads require the Operator.');
-      const { target, ...options } = args;
-      return await this.superPath().administration.logs(ctx.projectKey, target, options);
+      await this.appCaller(ctx, 'get_machine_logs');
+      throw machineReadRefused();
     } catch (err) {
       throw this.appFailure(err);
     }
@@ -887,8 +836,7 @@ export class OperatorTools implements OperatorToolsHandler {
               'invalid',
               `not_ai_member: ${args.member} is a person; ask them with ask_human.`,
             );
-          if (isOperator(member) || member.handle === ctx.member)
-            throw new TeamToolError('invalid', 'cannot_start_self');
+          if (member.handle === ctx.member) throw new TeamToolError('invalid', 'cannot_start_self');
           if (card && !recipientHasCardRole(this.ctx, config, card, member.handle))
             throw new TeamToolError(
               'invalid',

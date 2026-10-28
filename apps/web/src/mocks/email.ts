@@ -53,7 +53,7 @@ export class MockEmail {
   fromAddress: string | null = 'projectman@mail.example.com';
   /** The domain of the members' addresses. */
   memberDomain = 'mail.example.com';
-  /** The other projects of the server: their members' mailbox names count too. A test fills it. */
+  /** The other projects of the server: their members' handles count too. A test fills it. */
   otherProjects: ProjectConfig[] = [];
   /** Newest first, as the server returns it. */
   log: EmailLogEntry[] = [];

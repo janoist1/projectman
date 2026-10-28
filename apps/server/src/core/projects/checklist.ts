@@ -25,6 +25,7 @@ interface ChecklistFacts {
   config: ProjectConfig;
   agreementApproved: boolean;
   taskCount: number;
+  engineConnected: boolean;
 }
 
 export class ChecklistService {
@@ -34,12 +35,15 @@ export class ChecklistService {
     projects: ProjectService;
     tasks: TaskService;
     knowledge: OperatorKnowledgeStore;
+    /** The project's engine reported the project in its hello (PM-1069); the runtime implements it. */
+    engineHolds: (projectKey: string) => boolean;
   };
   constructor(deps: {
     ctx: DomainContext;
     projects: ProjectService;
     tasks: TaskService;
     knowledge: OperatorKnowledgeStore;
+    engineHolds: (projectKey: string) => boolean;
   }) {
     this.deps = deps;
     const { ctx } = deps;
@@ -75,6 +79,7 @@ export class ChecklistService {
       config,
       agreementApproved: knowledge.agreement !== null,
       taskCount: this.deps.tasks.list(key).filter((task) => task.status !== 'cancelled').length,
+      engineConnected: this.deps.engineHolds(key),
     };
   }
 
@@ -108,7 +113,12 @@ export class ChecklistService {
               source: 'base',
               templateId: null,
               conditionHolds: null,
-              state: base.id === 'code' || (base.id === 'providers' && providerReady) ? 'done' : 'open',
+              state:
+                base.id === 'code' ||
+                (base.id === 'engine' && facts.engineConnected) ||
+                (base.id === 'providers' && providerReady)
+                  ? 'done'
+                  : 'open',
               reason: null,
               reopened: null,
               updatedAt: at,

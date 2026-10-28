@@ -18,7 +18,6 @@ import {
   labelDefinition,
   labelHolders,
   operatorWatchOf,
-  operatorOf,
   releaseGateAccepts,
   validateProjectConfig,
 } from '@projectman/shared';
@@ -64,42 +63,32 @@ describe('ConfigStore (customization repository)', () => {
     expect((await store.load('AR')).config.team.operatorApprovalWaiver).toBe(enabled);
   });
 
-  it.each(['none', 'ai'] as const)(
-    'load and revert fix the legacy Operator approver %s',
-    async (approver) => {
-      await store.save('AR', testConfig(), { author, message: 'Create' });
-      const config = (await store.load('AR')).config;
-      Object.assign(operatorOf(config)!, { approver, permissionMode: 'plan', outboundNetwork: false });
-      const teamYaml = join(store.rootDir, 'projects/AR/team.yaml');
-      const { limits: _limits, ...team } = config.team;
-      writeFileSync(teamYaml, stringify(team));
-      const git = (...args: string[]) =>
-        execFileSync('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.com', ...args], {
-          cwd: store.rootDir,
-          encoding: 'utf8',
-        });
-      git('commit', '-q', '--no-verify', '-am', 'Legacy Operator approver');
-      const legacy = git('rev-parse', 'HEAD').trim();
-      const expected = { approver: 'human', permissionMode: 'plan', outboundNetwork: false };
-      expect(operatorOf((await store.load('AR')).config)).toMatchObject(expected);
-      expect(operatorOf((await store.load('AR')).config)).toMatchObject(expected);
-      expect(operatorOf(await store.loadVersion('AR', legacy))).toMatchObject(expected);
-      await store.save('AR', testConfig(), { author, message: 'Current values' });
-      await store.revertTo('AR', legacy, { author });
-      expect(operatorOf((await store.load('AR')).config)).toMatchObject(expected);
-    },
-  );
-
-  it('never tolerates an Operator merger on load, even without required merging', async () => {
-    const config = testConfig();
-    await store.save('AR', config, { author, message: 'Create' });
-    config.team.merger = { kind: 'member', handle: 'operator' };
+  it('load, a past version and revert drop a stored Operator member (decision 66)', async () => {
+    await store.save('AR', testConfig(), { author, message: 'Create' });
+    const config = (await store.load('AR')).config;
+    // The role no longer exists in the schema: written as the old file had it.
+    config.team.members.push({
+      kind: 'ai',
+      handle: 'operator',
+      displayName: 'Operator',
+      role: 'ai_operator',
+      sponsor: 'owner',
+    } as unknown as ProjectConfig['team']['members'][number]);
     const { limits: _limits, ...team } = config.team;
     writeFileSync(join(store.rootDir, 'projects/AR/team.yaml'), stringify(team));
-    const err = await expectConfigError(store.load('AR'), 'invalid_config');
-    expect(err.details).toMatchObject({
-      issues: expect.arrayContaining([expect.objectContaining({ code: 'operator_merger_forbidden' })]),
-    });
+    const git = (...args: string[]) =>
+      execFileSync('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.com', ...args], {
+        cwd: store.rootDir,
+        encoding: 'utf8',
+      });
+    git('commit', '-q', '--no-verify', '-am', 'Legacy Operator');
+    const legacy = git('rev-parse', 'HEAD').trim();
+    const handles = (c: ProjectConfig) => c.team.members.map((m) => m.handle);
+    expect(handles((await store.load('AR')).config)).not.toContain('operator');
+    expect(handles(await store.loadVersion('AR', legacy))).not.toContain('operator');
+    await store.save('AR', testConfig(), { author, message: 'Current values' });
+    await store.revertTo('AR', legacy, { author });
+    expect(handles((await store.load('AR')).config)).not.toContain('operator');
   });
 
   it.each(['report', 'unblock', 'drive'] as const)(
@@ -322,11 +311,6 @@ ${member('dev-2', ['permissionMode: bypassPermissions'])}
     handle: pm
     displayName: Project manager
     role: project_manager
-    sponsor: owner
-  - kind: ai
-    handle: operator
-    displayName: Operator
-    role: ai_operator
     sponsor: owner
 `;
     writeFileSync(path, legacy);

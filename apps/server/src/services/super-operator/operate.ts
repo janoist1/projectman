@@ -1,5 +1,5 @@
 import type { Actor, Session, SessionStop, TeamMessage } from '@projectman/shared';
-import { connectedOriginOf, operatorOf, prepareOperatorConfigPatch } from '@projectman/shared';
+import { connectedOriginOf, prepareOperatorConfigPatch } from '@projectman/shared';
 import { assertIntegratorAccess, forbidden, integratorExecution, invalid } from '../../kernel';
 import type { SuperCommandExecutor } from './handoffs';
 import { superJobIdentity } from './commands';
@@ -91,8 +91,8 @@ export function createOperateExecutor(deps: OperateExecutorDeps): SuperCommandEx
       }
       case 'session_stop': {
         const session = deps.sessions.get(projectKey, op.sessionId);
-        if (session.member === superActor.handle || session.member === operatorOf(job.config)?.handle)
-          throw forbidden('operator_never', 'the Operator cannot stop its own session');
+        if (session.member === superActor.handle)
+          throw forbidden('operator_never', 'the acting member cannot stop its own session');
         await deps.sessions.stop(projectKey, op.sessionId, { kind: 'manual', by: superActor });
         return;
       }

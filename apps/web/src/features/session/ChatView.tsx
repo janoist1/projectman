@@ -23,7 +23,7 @@ import {
   resolverName,
   shortCommand,
 } from '../../lib/inbox';
-import { actorLabel, recordActor, nameOf, namesOf, toneFor } from '../../lib/members';
+import { actorLabel, isOwnActor, recordActor, nameOf, namesOf, toneFor } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
 import type { PipelineIndex } from '../../lib/pipeline';
 import { InboxCard } from '../inbox/InboxCard';
@@ -74,7 +74,13 @@ function ChatActor({
 }) {
   const project = useContext(ProjectContext);
   return project ? (
-    <ActorName actor={actor} members={members} myHandle={myHandle} projectKey={project.key} />
+    <ActorName
+      actor={actor}
+      members={members}
+      myHandle={myHandle}
+      projectKey={project.key}
+      showApproval={false}
+    />
   ) : (
     <>{actorLabel(actor, members, myHandle)}</>
   );
@@ -282,7 +288,7 @@ function renderBlock(block: ChatBlock, props: ChatViewProps, awaitingId: string 
                 actor={item.actor}
                 member={sender}
                 handle={item.from}
-                isMe={item.from === myHandle && !item.via}
+                isMe={isOwnActor(recordActor(item), myHandle)}
                 via={item.via}
                 size="sm"
               />

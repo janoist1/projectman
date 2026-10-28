@@ -6,6 +6,10 @@ export const hu: TemplateLocale = {
     items: {
       goal: { title: 'A projekt célja', hint: 'Egyeztessétek a célt és a siker feltételeit.' },
       code: { title: 'Forráskód', hint: 'Kapcsold hozzá a projekt kódtárát.' },
+      engine: {
+        title: 'Motor',
+        hint: 'A projekt munkái a motoron futnak: legyen csatlakozva, és adja hozzá a projekt mappáját (`project set`).',
+      },
       providers: { title: 'AI-szolgáltatók', hint: 'Ellenőrizd a csapat előfizetéseit.' },
       team: { title: 'Csapat', hint: 'Válassz tagokat és felelősségeket.' },
       process: { title: 'Munkafolyamat', hint: 'Egyeztessétek a szakaszokat és az átnézés feltételeit.' },
@@ -208,15 +212,6 @@ export const hu: TemplateLocale = {
       notTheirJob: 'Nem végzi a napi feladatokat: irányítja a csapatot, nem helyettesíti.',
       whenToAsk:
         'Ha valami félrement, elakadt egy döntés, vagy olyan jóváhagyás kell, amit csak ő adhat meg.',
-    },
-    ai_operator: {
-      name: 'Operátor',
-      summary:
-        'Csak átmeneti azonosító: a tulajdonos csatlakoztatott kliensének (szuperkulcsos integrátor) lépései ezen a tagon jelennek meg. Az appban nem fut, nem indítható és nem írható neki üzenet.',
-      notTheirJob:
-        'Nem fejleszt, nem válaszol üzenetre és nem dönt a tulajdonos helyett. A gépi munka az integrátorhoz megy az open_integrator_todo-val.',
-      whenToAsk:
-        'Ne kérdezd: gépi munkához nyiss integrátor-teendőt, minden máshoz kérdezz embert az ask_human-nal.',
     },
     product_owner: {
       name: 'Terméktulajdonos',

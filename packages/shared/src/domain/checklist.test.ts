@@ -23,7 +23,9 @@ function config() {
 it.each(CHECKLIST_CONDITIONS)('checks both outcomes of %s', (condition) => {
   const c = config();
   c.team.merger = { kind: 'member', handle: 'missing' };
-  expect(checklistConditionHolds(condition, c, { agreementApproved: false, taskCount: 0 })).toBe(false);
+  expect(
+    checklistConditionHolds(condition, c, { agreementApproved: false, taskCount: 0, engineConnected: false }),
+  ).toBe(false);
   c.team.members.push(
     { kind: 'human', handle: 'client', displayName: 'Client', access: 'client', roles: [] },
     {
@@ -48,7 +50,9 @@ it.each(CHECKLIST_CONDITIONS)('checks both outcomes of %s', (condition) => {
     surfaces: [{ id: 'web', name: 'Web', origin: 'https://example.com' }],
     blockedMarkers: [],
   };
-  expect(checklistConditionHolds(condition, c, { agreementApproved: true, taskCount: 1 })).toBe(true);
+  expect(
+    checklistConditionHolds(condition, c, { agreementApproved: true, taskCount: 1, engineConnected: true }),
+  ).toBe(true);
 });
 
 it('counts done and not needed items as settled', () => {

@@ -43,7 +43,6 @@ import {
   memberOf,
   operatorApprovalOf,
   operatorKnowledgeApprovalOf,
-  operatorOf,
   structuralReviewOf,
   OPERATOR_DISMISS_OPTION,
   permissionDelegationOf,
@@ -87,7 +86,7 @@ import type {
   TaskStartWaiting,
   WorkItemRef,
 } from '@projectman/shared';
-import { fixLimitDeciders, ownerHandles } from '@projectman/shared';
+import { fixLimitDeciders, ownerHandles, RETIRED_OPERATOR_HANDLE } from '@projectman/shared';
 import { isoNow } from '../base';
 import type { DomainContext } from '../base';
 import { bodyForOwners, formatFixLimitItem } from './fix-limit-text';
@@ -544,7 +543,7 @@ export class InboxService {
     // queue item does not lend the owner's authority (PM-1010, decision 66).
     if (!hasBoundOrigin(scope.actor) || (hasConnectedOrigin(scope.actor) && scope.actor.kind !== 'human'))
       throw forbidden('owner_approval_required', 'an Operator or connected-Claude origin is required');
-    const refusal = this.reservedDecisionRefusal(item, scope.actor, config);
+    const refusal = this.reservedDecisionRefusal(item, scope.actor);
     if (refusal) throw forbidden(refusal, 'this item requires a person using their own login');
     return this.resolution(
       optionId,
@@ -556,24 +555,15 @@ export class InboxService {
 
   /**
    * Whether a decision stays reserved to the owner's own login. A connected step is the holder's in person, yet what
-   * the Operator asked or runs, and what the connected Claude asked itself (the holder's name is its source), stays
-   * reserved, as it was for the old super step.
+   * the connected Claude asked itself (the holder's name is its source) stays reserved, as it was for the old
+   * super step.
    */
-  private reservedDecisionRefusal(
-    item: InboxItem,
-    actor: Actor,
-    config: ProjectConfig,
-  ): 'owner_approval_required' | null {
+  private reservedDecisionRefusal(item: InboxItem, actor: Actor): 'owner_approval_required' | null {
     const sessionMember = item.sessionId ? this.ctx.repos.sessions.get(item.sessionId)?.member : null;
-    const handles = new Set([
-      actor.handle,
-      ...(hasConnectedOrigin(actor) ? [operatorOf(config)?.handle ?? actor.handle] : []),
-    ]);
-    for (const operatorHandle of handles) {
-      const refusal = superDecisionRefusal(item, { operatorHandle, sessionMember });
-      if (refusal) return refusal;
-    }
-    return null;
+    // What the retired Operator asked stays the owner's too (decision 66): its member is gone, its items remain.
+    if (item.source === RETIRED_OPERATOR_HANDLE || sessionMember === RETIRED_OPERATOR_HANDLE)
+      return 'owner_approval_required';
+    return superDecisionRefusal(item, { operatorHandle: actor.handle, sessionMember });
   }
 
   private resolution(
@@ -1073,7 +1063,7 @@ export class InboxService {
         }),
       ];
       for (const member of members) {
-        const refusal = this.reservedDecisionRefusal(member, by.superActor!, initialConfig);
+        const refusal = this.reservedDecisionRefusal(member, by.superActor!);
         const question = member.kind === 'question' ? member.payload : null;
         if (refusal || (question && externalQuestionAnswerRefusal(question, by)))
           throw forbidden('owner_approval_required', 'this item requires a person using their own login');

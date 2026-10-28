@@ -167,12 +167,11 @@ describe('mock team messaging and profiles', () => {
     expect(b.messages).toHaveLength(1);
     expect(b.messages[0]).toMatchObject({ from: 'kata', to: ['pm'] });
   });
-  it.each(['owner', 'kata'])('refuses a message to the Operator from %s (PM-1045)', (viewerHandle) => {
+  it('refuses a message to the retired Operator handle as an unknown member (decision 66)', () => {
     const b = backend();
-    b.viewerHandle = viewerHandle;
     expect(b.handle('POST', `${base}/messages`, { to: ['operator'], text: 'Acme request' })).toMatchObject({
-      status: 409,
-      body: { error: { code: 'operator_connected_only' } },
+      status: 404,
+      body: { error: { code: 'not_found' } },
     });
     expect(b.messages).toHaveLength(0);
   });

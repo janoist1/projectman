@@ -122,7 +122,7 @@ export function toolOutputText(output: string | ToolOutput): string {
 
 /** Session-list visibility only; handlers remain the authority for permission checks. */
 export interface ToolAudience {
-  roles?: readonly ('operator' | 'project_manager' | 'merger')[];
+  roles?: readonly ('project_manager' | 'merger')[];
   duties?: readonly DutyId[];
   /** Visible to a member who may use the channel (e-mail: the channel is on and the member may send). */
   channels?: readonly 'email'[];
@@ -131,15 +131,9 @@ export interface ToolAudience {
 }
 
 export function toolVisible(audience: ToolAudience | undefined, member: MemberAudience): boolean {
-  if (!audience || member.operator) return true;
+  if (!audience) return true;
   return (
-    (audience.roles?.some((role) =>
-      role === 'operator'
-        ? member.operator
-        : role === 'project_manager'
-          ? member.projectManager
-          : member.merger,
-    ) ??
+    (audience.roles?.some((role) => (role === 'project_manager' ? member.projectManager : member.merger)) ??
       false) ||
     (audience.duties?.some((duty) => member.duties.has(duty)) ?? false) ||
     (audience.channels?.some((channel) => channel === 'email' && member.email) ?? false) ||

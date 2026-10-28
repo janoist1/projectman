@@ -9,6 +9,7 @@ import {
   OWNER_ACTOR,
   type DomainHarness,
 } from '../../../test/helpers/domain-harness';
+import { addTwinEmailProject } from '../../../test/helpers/email-twin-project';
 
 const env = {
   region: 'eu-central-1',
@@ -226,14 +227,9 @@ describe('EmailChannelService', () => {
       expect(fromAddressOf(harness)).toBe('dev-1@reply.example.test');
     });
 
-    it('writes from the shared address when the mailbox is in conflict', async () => {
-      const { harness, emailChannel, sent } = await setup({
-        withoutApproval: true,
-        adjust(config) {
-          const member = config.team.members.find((candidate) => candidate.handle === 'dev-2');
-          if (member?.kind === 'ai') member.email = { enabled: true, mailbox: 'dev-1' };
-        },
-      });
+    it('writes from the shared address when the handle is in conflict', async () => {
+      const { harness, emailChannel, sent } = await setup({ withoutApproval: true });
+      await addTwinEmailProject(harness);
       await emailChannel.send('AR', 'dev-1', mail);
       expect(sent[0]).toMatchObject({ from: env.from, fromName: expect.stringContaining('·') });
       expect(fromAddressOf(harness)).toBe(env.from);
@@ -429,20 +425,15 @@ describe('EmailChannelService', () => {
       const { emailChannel } = await setup();
       expect(await emailChannel.view('AR')).toMatchObject({ memberDomain: 'reply.example.test' });
       expect(await senderOf(emailChannel)).toMatchObject({
-        mailbox: 'dev-1',
         address: 'dev-1@reply.example.test',
         addressConflict: false,
       });
     });
 
-    it('uses the renamed mailbox', async () => {
-      const { emailChannel, update } = await setup();
-      await update((config) => {
-        const member = config.team.members.find((candidate) => candidate.handle === 'dev-1');
-        if (member?.kind === 'ai') member.email = { enabled: true, mailbox: 'builder' };
-      });
-      expect(await senderOf(emailChannel)).toMatchObject({
-        mailbox: 'builder',
+    it('moves the address with a renamed handle', async () => {
+      const { harness, emailChannel } = await setup();
+      await harness.domain.members.rename('AR', 'dev-1', 'builder', { actor: OWNER_ACTOR, author: OWNER });
+      expect(await senderOf(emailChannel, 'builder')).toMatchObject({
         address: 'builder@reply.example.test',
       });
     });
@@ -455,14 +446,10 @@ describe('EmailChannelService', () => {
       expect(await senderOf(emailChannel)).toMatchObject({ address: null, addressConflict: false });
     });
 
-    it('gives no address to either member who shares a mailbox, and flags the conflict', async () => {
-      const { emailChannel, update } = await setup();
-      await update((config) => {
-        const member = config.team.members.find((candidate) => candidate.handle === 'dev-2');
-        if (member?.kind === 'ai') member.email = { enabled: true, mailbox: 'dev-1' };
-      });
+    it('gives no address to a member whose handle another project’s member shares, and flags the conflict', async () => {
+      const { harness, emailChannel } = await setup();
+      await addTwinEmailProject(harness);
       expect(await senderOf(emailChannel)).toMatchObject({ address: null, addressConflict: true });
-      expect(await senderOf(emailChannel, 'dev-2')).toMatchObject({ address: null, addressConflict: true });
     });
 
     it('has no member domain while the server has no e-mail channel', async () => {

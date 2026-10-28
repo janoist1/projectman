@@ -158,6 +158,31 @@ describe('Project manager checklist onboarding', () => {
     const section = text.split('\n\n').find((part) => part.startsWith('# Project onboarding checklist'));
     await expect(`${section}\n`).toMatchFileSnapshot('__snapshots__/pm-checklist.section.txt');
   });
+  it('adds the own-machine onboarding only when the host is outside the owners', async () => {
+    const own = packOf({ checklist });
+    expect(own.guide.role).not.toContain('ask_host');
+    expect(own.appendSystemPrompt).not.toContain('own-machine step');
+    const pack = packOf({ checklist, hostOutsideOwners: true });
+    expect(pack.guide.role).toContain('ask_host');
+    expect(pack.guide.role).toContain('engine item');
+    expect(pack.appendSystemPrompt).toContain('own-machine step');
+    const procedure = pack.guide.role!.slice(pack.guide.role!.indexOf('## Project onboarding'));
+    await expect(`${procedure}\n`).toMatchFileSnapshot(
+      '__snapshots__/pm-checklist.owner-account.procedure.txt',
+    );
+  });
+  it('leaves the integrator todo out of the own-machine onboarding without machine access', () => {
+    const source = input({ handle: 'pm' });
+    source.member.machineAccess = false;
+    const pack = packOf({
+      checklist,
+      hostOutsideOwners: true,
+      project: source.project,
+      member: source.member,
+    });
+    expect(pack.guide.role).toContain('ask_host');
+    expect(pack.guide.role).not.toContain('open_integrator_todo');
+  });
   it('routes checklist gaps to owners when PM machine access is disabled', () => {
     const source = input({ handle: 'pm' });
     source.member.machineAccess = false;
@@ -167,11 +192,6 @@ describe('Project manager checklist onboarding', () => {
     expect(pack.guide.role).not.toContain('open_integrator_todo');
   });
 
-  it('leaves the checklist to the project manager, not the Operator', () => {
-    const pack = packOf({ checklist, member: input({ handle: 'operator' }).member });
-    expect(pack.appendSystemPrompt).not.toContain('# Project onboarding checklist');
-    expect(pack.guide.role ?? '').not.toContain('apply_template');
-  });
   it.each(['missing', 'complete', 'other_member', 'guest'] as const)(
     'omits onboarding guidance when %s',
     (variant) => {
@@ -194,7 +214,7 @@ describe('Project manager checklist onboarding', () => {
 });
 
 it.each(
-  ['code-review', 'operator', 'pm', 'qa'].flatMap((handle) =>
+  ['code-review', 'pm', 'qa'].flatMap((handle) =>
     (['claude', 'codex', 'gemini', 'nanogpt', 'sandbox'] as const).map((provider) => ({
       handle,
       provider,
@@ -218,7 +238,7 @@ it.each(
   );
   expect(Object.keys(pack.guide).sort()).toEqual(topics.sort());
   expect(pack.guide.commands !== undefined).toBe(provider === 'claude' || provider === 'codex');
-  expect(pack.guide.role !== undefined).toBe(handle !== 'code-review' && handle !== 'operator');
+  expect(pack.guide.role !== undefined).toBe(handle !== 'code-review');
 });
 
 describe('operating agreement and conversation guidance (PM-690)', () => {
@@ -238,27 +258,26 @@ describe('operating agreement and conversation guidance (PM-690)', () => {
     builder.build(input({ handle, task: null, workItem: { type: 'general' }, ...overrides }))
       .appendSystemPrompt;
 
-  it('gives the project manager the approved agreement and the proposal procedure, not the Operator', () => {
-    const pack = (handle: string) =>
-      builder.build(
-        input({ handle, task: null, workItem: { type: 'general' }, operatorKnowledge: knowledge('minimal') }),
-      );
-    const pm = pack('pm');
+  it('gives the project manager the approved agreement and the proposal procedure', () => {
+    const pm = builder.build(
+      input({
+        handle: 'pm',
+        task: null,
+        workItem: { type: 'general' },
+        operatorKnowledge: knowledge('minimal'),
+      }),
+    );
     expect(pm.appendSystemPrompt).toContain('Agreed working style');
     expect(pm.appendSystemPrompt).toContain('propose_operator_knowledge');
     expect(pm.guide.role).toContain('## Operating agreement and principles');
-    expect(pack('operator').appendSystemPrompt).not.toContain('Agreed working style');
   });
 
-  it('gives the PM an operations guide generated from the schemas, and the Operator none', () => {
-    const pack = (handle: string) =>
-      builder.build(input({ handle, task: null, workItem: { type: 'general' } }));
-    const pm = pack('pm');
+  it('gives the PM an operations guide generated from the schemas', () => {
+    const pm = builder.build(input({ handle: 'pm', task: null, workItem: { type: 'general' } }));
     expect(pm.appendSystemPrompt).toContain('get_guide with topic `operations`');
     for (const tag of ['op=message_send', 'op=config_patch', 'kind=task_create', 'kind=workspace_release'])
       expect(pm.guide.operations).toContain(tag);
     expect(pm.guide.operations).toContain('"keyId"');
-    expect(pack('operator').guide.operations).toBeUndefined();
   });
 
   it.each(['every_step', 'minimal'] as const)(
@@ -1585,15 +1604,6 @@ describe('system prompt', () => {
       expect(owner.appendSystemPrompt).toContain('Private owner operations');
       expect(guest.guide.role ?? '').not.toContain('Private owner operations');
       expect(owner.guide.role).not.toContain('Private owner operations');
-    });
-
-    it('gives the Operator no in-app prompt or guide (PM-1045)', () => {
-      const operator = builder.build(input({ handle: 'operator' }));
-      for (const text of ['You are the Operator', 'finish_queue_item']) {
-        expect(operator.appendSystemPrompt).not.toContain(text);
-        expect(operator.guide.role ?? '').not.toContain(text);
-      }
-      expect(operator.guide.operations).toBeUndefined();
     });
 
     it('includes the system feedback path for screened todos', () => {

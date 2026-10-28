@@ -4,7 +4,6 @@ import type { BoardView, MemberProfile, MemberView } from '@projectman/shared';
 import { addHumanAndLogin, createAppHarness, createProject, inject, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 import { OWNER, OWNER_ACTOR } from './helpers/domain-harness';
-import { withoutOnboarding } from './helpers/onboarding';
 
 describe('memberships and member snapshots', () => {
   let h: AppHarness;
@@ -100,49 +99,15 @@ describe('memberships and member snapshots', () => {
     const on = await members.update('AR', 'dev-1', { email: { enabled: true } }, by);
     expect(on.email).toEqual({ enabled: true, sendWithoutApproval: false });
   });
-  describe('the mailbox name of an AI member (PM-989)', () => {
-    const emailOf = async (handle: string) => {
-      const member = (await h.app.projectman.domain.projects.config('AR')).team.members.find(
-        (candidate) => candidate.handle === handle,
-      );
-      return member?.kind === 'ai' ? member.email : undefined;
-    };
-
-    it('stores a free name and removes the field again when the name is the handle', async () => {
-      const members = h.app.projectman.domain.members;
-      await members.update('AR', 'dev-1', { email: { enabled: true, mailbox: 'builder' } }, by);
-      expect(await emailOf('dev-1')).toMatchObject({ enabled: true, mailbox: 'builder' });
-      await members.update('AR', 'dev-1', { email: { mailbox: 'dev-1' } }, by);
-      expect(await emailOf('dev-1')).toMatchObject({ enabled: true });
-      expect(await emailOf('dev-1')).not.toHaveProperty('mailbox');
+  it('refuses a mailbox name in a member update and leaves the configuration as it was (PM-1039)', async () => {
+    const { domain } = h.app.projectman;
+    const before = (await domain.projects.load('AR')).version;
+    const res = await inject(h.app, 'PATCH', routes.member('AR', 'dev-1'), cookie, {
+      email: { enabled: true, mailbox: 'builder' },
     });
-
-    it('keeps the name when only the switches change', async () => {
-      const members = h.app.projectman.domain.members;
-      await members.update('AR', 'dev-1', { email: { enabled: true, mailbox: 'builder' } }, by);
-      await members.update('AR', 'dev-1', { email: { enabled: false } }, by);
-      expect(await emailOf('dev-1')).toMatchObject({ enabled: false, mailbox: 'builder' });
-    });
-
-    it('refuses the name of another member of the project, whatever its switches', async () => {
-      await expect(
-        h.app.projectman.domain.members.update('AR', 'dev-1', { email: { mailbox: 'dev-2' } }, by),
-      ).rejects.toMatchObject({ code: 'email_mailbox_taken', details: { mailbox: 'dev-2' } });
-    });
-
-    it('refuses the name of a member of another project', async () => {
-      const { domain } = h.app.projectman;
-      await withoutOnboarding(domain, () =>
-        domain.projects.create(
-          { key: 'BR', name: 'beta', workspacePath: h.workspace, templateId: 'test' },
-          OWNER,
-        ),
-      );
-      await domain.members.update('BR', 'dev-1', { email: { mailbox: 'shared-name' } }, by);
-      await expect(
-        domain.members.update('AR', 'dev-1', { email: { mailbox: 'shared-name' } }, by),
-      ).rejects.toMatchObject({ code: 'email_mailbox_taken' });
-    });
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toContain('PM-1039');
+    expect((await domain.projects.load('AR')).version).toBe(before);
   });
   it('refuses AI email settings on a human member', async () => {
     await expect(

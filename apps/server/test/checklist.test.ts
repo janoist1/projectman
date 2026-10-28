@@ -10,14 +10,14 @@ afterEach(async () => {
 it.each([false, true])('initializes a base checklist with providerReady=%s', async (providerReady) => {
   h = await createDomainHarness();
   const checklist = await h.domain.checklist.get('AR');
-  expect(checklist?.items).toHaveLength(10);
+  expect(checklist?.items).toHaveLength(11);
   expect(checklist?.items.find((item) => item.id === 'code')?.state).toBe('done');
   h.repos.db.prepare('DELETE FROM project_checklist_items WHERE project_key = ?').run('AR');
   h.repos.db.prepare('DELETE FROM project_checklists WHERE project_key = ?').run('AR');
   await h.domain.ctx.events.emit('project_created', { projectKey: 'AR', providerReady });
   const items = (await h.domain.checklist.get('AR'))!.items;
   expect(items.filter((item) => item.state === 'done').map((item) => item.id)).toEqual(
-    providerReady ? ['code', 'providers'] : ['code'],
+    providerReady ? ['code', 'engine', 'providers'] : ['code', 'engine'],
   );
 });
 

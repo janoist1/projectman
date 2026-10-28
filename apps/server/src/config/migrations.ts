@@ -7,7 +7,6 @@ import {
   DEFAULT_PROJECT_LANGUAGE,
   defaultMerger,
   FALLBACK_PERMISSION_MODE,
-  isOperator,
   isProjectManager,
   LabelDefinition,
   MAX_COMPLEXITY,
@@ -18,13 +17,9 @@ import {
   releaseApprovalSetBy,
   releaseApprovers,
   releaseGateAccepts,
+  RETIRED_OPERATOR_ROLE,
 } from '@projectman/shared';
-import {
-  DAILY_WORKER_SCHEDULE,
-  migrateLegacyConfig,
-  operatorMember,
-  projectManagerMember,
-} from '@projectman/templates';
+import { DAILY_WORKER_SCHEDULE, migrateLegacyConfig, projectManagerMember } from '@projectman/templates';
 
 interface MigrationContext {
   projectKey: string;
@@ -84,6 +79,25 @@ function migrateSeniorLimit(raw: unknown, { projectKey, logger }: MigrationConte
       member.complexityLimit = MAX_COMPLEXITY;
     delete member.senior;
     logger.warn({ projectKey, member: member.handle }, 'Migrated the Senior mark to a complexity limit');
+  }
+  return raw;
+}
+
+/**
+ * The removed separate mailbox name (PM-1039): an AI member's address is `<handle>@<domain>`. A name
+ * that differed from the handle is gone with its address (the owner's decision); the log names the member.
+ */
+function dropEmailMailbox(raw: unknown, { projectKey, logger }: MigrationContext): unknown {
+  for (const member of rawAiMembers(raw)) {
+    const email = member.email;
+    if (!email || typeof email !== 'object' || !('mailbox' in email)) continue;
+    const mailbox = email.mailbox;
+    delete (email as Record<string, unknown>).mailbox;
+    if (mailbox !== member.handle)
+      logger.warn(
+        { projectKey, member: member.handle, mailbox },
+        'Dropped the removed mailbox name; the address is the handle',
+      );
   }
   return raw;
 }
@@ -252,71 +266,68 @@ function addCardMover(raw: unknown): unknown {
 }
 
 /**
- * A project without an Operator (PM-447) gets one, sponsored by the first human owner. Not on leave: it
- * works only on the owner's message, so it costs nothing while idle. Without a human owner nothing is
- * added, as for the project manager.
+ * The Operator member is gone (decision 66, PM-1076): a connected Claude replaces it. A member of the
+ * retired `ai_operator` role leaves the team like any retired member (the `reconcile` listener records it
+ * as retired, its handle is never reused and its old events keep showing the handle), together with the
+ * references to it: the contacts, the stage owners, the role override and the temp workers' role. Runs on
+ * every read, so an earlier version restored from history loses it as well and the removed `addOperator`
+ * and `fixOperator` cannot bring it back; a second run changes nothing.
  */
-function addOperator(raw: unknown, { projectKey, logger }: MigrationContext): unknown {
+function removeOperator(raw: unknown, { projectKey, logger }: MigrationContext): unknown {
   const config = asRecord(raw);
   const team = asRecord(config?.team);
   if (!config || !team || !Array.isArray(team.members)) return raw;
-  const members = team.members.map(asRecord).filter((m): m is Record<string, unknown> => m !== undefined);
-  if (members.some((m) => isOperator(m as unknown as MemberConfig))) return raw;
-  const owner = members.find((m) => m.kind === 'human' && m.access === 'owner');
-  if (typeof owner?.handle !== 'string') return raw;
-  const language = asRecord(config.project)?.language;
-  const member = operatorMember({
-    language: typeof language === 'string' ? language : DEFAULT_PROJECT_LANGUAGE,
-    sponsor: owner.handle,
-    taken: members.flatMap((m) => (typeof m.handle === 'string' ? [m.handle] : [])),
-  });
-  team.members.push(member);
-  logger.warn({ projectKey, member: member.handle }, 'Added the Operator');
-  return raw;
-}
-
-/**
- * The Operator is fixed (PM-473): on every Operator the leave and the schedule go, the capacity is 1
- * and the instructions are the built-in ones (none of its own); the `ai_operator` role override goes
- * and the temp workers are no longer hired for that role. The name, sponsor, model, provider, effort,
- * permission mode, approver and network stay as they are (and are fixed from now on, bar the model,
- * provider and effort): setting them back could loosen what the owner tightened. Runs on every read,
- * so an earlier version restored from history comes back fixed as well; a second run changes nothing.
- */
-function fixOperator(raw: unknown, { projectKey, logger }: MigrationContext): unknown {
-  const team = asRecord(asRecord(raw)?.team);
-  if (!team) return raw;
+  const gone = new Set<string>();
   for (const member of rawAiMembers(raw)) {
-    if (!isOperator(member as unknown as MemberConfig)) continue;
-    const fields: string[] = [];
-    if (member.approver === 'none' || member.approver === 'ai') {
-      member.approver = 'human';
-      fields.push('approver');
+    if (member.role === RETIRED_OPERATOR_ROLE && typeof member.handle === 'string') gone.add(member.handle);
+  }
+  if (gone.size) {
+    const remaining = team.members.filter(
+      (m) => !(asRecord(m)?.kind === 'ai' && gone.has(String(asRecord(m)?.handle))),
+    );
+    team.members = remaining;
+    if (Array.isArray(team.contacts)) team.contacts = team.contacts.filter((h) => !gone.has(String(h)));
+    const pipeline = asRecord(config.pipeline);
+    if (Array.isArray(pipeline?.stages)) {
+      for (const stage of pipeline.stages.map(asRecord)) {
+        if (stage && Array.isArray(stage.owners))
+          stage.owners = stage.owners.filter((h) => !gone.has(String(h)));
+      }
     }
-    // A stated `onLeave: false` is dropped silently: it is the default, nothing is put back.
-    if (member.onLeave === true) fields.push('onLeave');
-    delete member.onLeave;
-    if (member.schedule !== undefined) fields.push('schedule');
-    delete member.schedule;
-    if (member.capacity !== undefined && member.capacity !== 1) {
-      member.capacity = 1;
-      fields.push('capacity');
+    // A label the Operator could set by name: the other setters stay. A label nobody else could set falls to
+    // the owners in person (an empty `setBy` does not parse), or to the system when there is no owner: no
+    // narrower rule loads, and no one gains the right.
+    const owners = remaining.flatMap((m) => {
+      const member = asRecord(m);
+      return member?.kind === 'human' && member.access === 'owner' && typeof member.handle === 'string'
+        ? [member.handle]
+        : [];
+    });
+    if (Array.isArray(pipeline?.labels)) {
+      for (const label of pipeline.labels.map(asRecord)) {
+        const setBy = asRecord(label?.setBy);
+        if (!label || !setBy || !Array.isArray(setBy.members)) continue;
+        const members = setBy.members.filter((h) => !gone.has(String(h)));
+        if (members.length === setBy.members.length) continue;
+        if (members.length) setBy.members = members;
+        else if (Array.isArray(setBy.duties) && setBy.duties.length) delete setBy.members;
+        else label.setBy = owners.length ? { members: owners, humansOnly: true } : 'system';
+      }
     }
-    if (member.instructions !== undefined && member.instructions !== '') {
-      member.instructions = '';
-      fields.push('instructions');
-    }
-    if (fields.length) logger.warn({ projectKey, member: member.handle, fields }, 'Fixed the Operator');
+    // A merger naming the Operator was never valid; dropped, `addMerger` (next in the chain) derives the default.
+    const merger = asRecord(team.merger);
+    if (merger?.kind === 'member' && gone.has(String(merger.handle))) delete team.merger;
+    logger.warn({ projectKey, members: [...gone] }, 'Removed the retired Operator member');
   }
   const overrides = asRecord(team.roleOverrides);
-  if (overrides && overrides.ai_operator !== undefined) {
-    delete overrides.ai_operator;
-    logger.warn({ projectKey, fields: ['roleOverrides.ai_operator'] }, 'Fixed the Operator');
+  if (overrides && overrides[RETIRED_OPERATOR_ROLE] !== undefined) {
+    delete overrides[RETIRED_OPERATOR_ROLE];
+    logger.warn({ projectKey, fields: ['roleOverrides.ai_operator'] }, 'Removed the retired Operator role');
   }
   const tempWorkers = asRecord(asRecord(team.limits)?.tempWorkers);
-  if (tempWorkers && tempWorkers.role === 'ai_operator') {
+  if (tempWorkers && tempWorkers.role === RETIRED_OPERATOR_ROLE) {
     tempWorkers.role = 'developer';
-    logger.warn({ projectKey, fields: ['limits.tempWorkers.role'] }, 'Fixed the Operator');
+    logger.warn({ projectKey, fields: ['limits.tempWorkers.role'] }, 'Removed the retired Operator role');
   }
   return raw;
 }
@@ -362,14 +373,14 @@ function addFeedbackProcessing(raw: unknown, { projectKey, logger }: MigrationCo
  *     conditions with the labels they need (`migrateLegacyConfig`, @projectman/templates);
  *   - a label a release gate requires that more than the release approval duty's holders may set
  *     is narrowed to that duty (above), after the conversion of legacy gates;
+ *   - the removed separate mailbox name (`email.mailbox`, PM-1039) is dropped from every AI member (above);
  *   - the removed message storm threshold (`messageBurst`) is dropped (above);
  *   - a project without an AI project manager gets one, on leave (above);
  *   - a missing card mover becomes worker (above);
- *   - a project without an Operator gets one, at work (above);
- *   - the Operator is fixed: no leave, no schedule, capacity 1, no instructions of its own, no role
- *     override, and temp workers are not hired for its role (above);
+ *   - the retired Operator member (`ai_operator`) leaves the team, with its role override and its
+ *     references (above), and is never put back;
  *   - a missing merger becomes the code reviewer or the developer, by the pipeline (above), judged on
- *     the fixed configuration;
+ *     the configuration without the Operator;
  *   - an override of the project manager role gets the feedback processing duty (above), last.
  * Stage kinds from before decision 18 (review, deploy, …) are read by the pipeline schema
  * itself (packages/shared/src/domain/pipeline.ts).
@@ -377,29 +388,29 @@ function addFeedbackProcessing(raw: unknown, { projectKey, logger }: MigrationCo
 export function migrateProjectConfig(raw: unknown, context: MigrationContext): unknown {
   return addFeedbackProcessing(
     addMerger(
-      fixOperator(
-        addOperator(
-          addCardMover(
-            addProjectManager(
-              migrateReleaseApproval(
-                migrateLegacyConfig(
-                  migrateCodexBypass(
-                    migrateScheduledRole(
-                      dropMessageBurst(
-                        migrateSeniorLimit(migrateShadowingRoles(raw, context), context),
+      removeOperator(
+        addCardMover(
+          addProjectManager(
+            migrateReleaseApproval(
+              migrateLegacyConfig(
+                migrateCodexBypass(
+                  migrateScheduledRole(
+                    dropMessageBurst(
+                      migrateSeniorLimit(
+                        dropEmailMailbox(migrateShadowingRoles(raw, context), context),
                         context,
                       ),
                       context,
                     ),
                     context,
                   ),
+                  context,
                 ),
-                context,
               ),
               context,
             ),
+            context,
           ),
-          context,
         ),
         context,
       ),

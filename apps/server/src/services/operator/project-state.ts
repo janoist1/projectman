@@ -12,7 +12,6 @@ import {
   sessionWorkItemOf,
   stageOf,
   startBlock,
-  isOperator,
   isProjectManager,
   coordinationActorRefusal,
   LOCAL_ENGINE_ID,
@@ -133,25 +132,18 @@ export class ProjectState {
   private async diagnosticCaller(ctx: ToolContext): Promise<void> {
     const config = await this.deps.projects.config(ctx.projectKey);
     const member = memberOf(config, ctx.member);
-    if (!isOperator(member) && !isProjectManager(member))
-      throw forbidden('operator_only', 'only the Operator or selected project manager may read diagnostics');
-    const operator = isOperator(member);
+    if (!isProjectManager(member))
+      throw forbidden('operator_only', 'only the selected project manager may read diagnostics');
     const session = this.deps.ctx.repos.sessions.get(ctx.sessionId);
     if (
-      (!operator && coordinationActorRefusal(config, { kind: 'ai', handle: ctx.member })) ||
+      coordinationActorRefusal(config, { kind: 'ai', handle: ctx.member }) ||
       !session ||
       session.projectKey !== ctx.projectKey ||
       session.member !== ctx.member ||
       session.workItem.type !== 'general' ||
       session.workItem.with !== undefined
     )
-      throw forbidden(
-        operator ? 'operator_owner_only' : 'project_manager_only',
-        'diagnostics require your internal general session',
-      );
-    const request = this.deps.requests.openFor(ctx.sessionId);
-    if (operator && request && !ownerHandles(config).includes(request.fromHandle))
-      throw forbidden('operator_owner_only', 'guest requests cannot read diagnostics');
+      throw forbidden('project_manager_only', 'diagnostics require your internal general session');
   }
 
   async task(projectKey: string, taskKey: string): Promise<TaskStateReport> {

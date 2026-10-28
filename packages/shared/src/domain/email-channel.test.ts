@@ -11,8 +11,10 @@ import {
   emailMailboxOf,
   emailMailboxOwners,
   emailMailboxReserved,
+  emailMailboxState,
   emailMailboxTaken,
   emailMemberAddress,
+  emailOwnAddress,
   emailReplyAddress,
   emailReplySubject,
   EMAIL_SUBJECT_MAX,
@@ -285,9 +287,11 @@ describe('email member address', () => {
   ])('refuses address %#', (address) => {
     expect(parseEmailMemberAddress(address, domain)).toBeNull();
   });
-  it('uses the handle unless a mailbox is chosen', () => {
+  it('uses the handle as the address, and a stored mailbox key is ignored by the schema', () => {
     expect(emailMailboxOf(on('pm'))).toBe('pm');
-    expect(emailMailboxOf(on('pm', { enabled: true, mailbox: 'planner' }))).toBe('planner');
+    const legacy = on('pm', { enabled: true, mailbox: 'planner' });
+    expect(emailMailboxOf(legacy)).toBe('pm');
+    expect(legacy.email).toEqual({ enabled: true });
   });
   it('finds the live owner of a mailbox in any project', () => {
     const configs = [configOf('AR', [on('dev')]), configOf('BR', [on('pm')])];
@@ -309,20 +313,23 @@ describe('email member address', () => {
       { projectKey: 'AR', handle: 'haini' },
     ]);
   });
-  it('counts a member once when its mailbox is also its former handle', () => {
-    const renamed = AiMemberConfig.parse({
-      ...ai,
-      handle: 'haini',
-      formerHandles: ['dev'],
-      email: { enabled: true, mailbox: 'dev' },
-    });
-    expect(emailMailboxOwners([configOf('AR', [renamed])], 'dev')).toEqual([
-      { projectKey: 'AR', handle: 'haini' },
-    ]);
-  });
-  it('reports every owner when two members share a mailbox', () => {
+  it('reports every owner when two projects have a member with the same handle, and neither has an address', () => {
     const configs = [configOf('AR', [on('pm')]), configOf('BR', [on('pm')])];
     expect(emailMailboxOwners(configs, 'pm')).toHaveLength(2);
+    const member = on('pm');
+    expect(emailMailboxState(configs, 'AR', member, domain)).toEqual({
+      address: null,
+      addressConflict: true,
+    });
+    expect(emailOwnAddress(configs, 'BR', member, domain)).toBeNull();
+    expect(emailOwnAddress([configs[0]!], 'AR', member, domain)).toBe('pm@reply.example.org');
+  });
+  it('gives a name that used to be a different mailbox to nobody, and keeps it free', () => {
+    // After the PM-1039 migration `planner` is not anyone's handle, so a letter to it finds no owner.
+    const configs = [configOf('AR', [on('pm', { enabled: true, mailbox: 'planner' })])];
+    expect(emailMailboxOwners(configs, 'planner')).toEqual([]);
+    expect(emailMailboxTaken(configs, 'AR', 'dev', 'planner')).toBe(false);
+    expect(emailMailboxReserved(configs, 'AR', 'dev', 'planner')).toBe(false);
   });
   it.each([
     ['a member with the switch off', configOf('AR', [on('pm', { enabled: false })])],
@@ -344,19 +351,7 @@ describe('email member address', () => {
     expect(emailMailboxReserved(configs, 'AR', 'haini', 'dev')).toBe(false);
     expect(emailMailboxReserved(configs, 'BR', 'pm', 'free')).toBe(false);
   });
-  it('keeps the mailbox when the switches change', () => {
-    expect(applyMemberEmailChange({ enabled: true, mailbox: 'planner' }, { enabled: false })).toEqual({
-      enabled: false,
-      sendWithoutApproval: false,
-      mailbox: 'planner',
-    });
-  });
-  it('stores nothing for a mailbox equal to the handle', () => {
-    expect(applyMemberEmailChange({ enabled: true, mailbox: 'planner' }, { mailbox: 'pm' }, 'pm')).toEqual({
-      enabled: true,
-    });
-  });
-  it.each(['r-pm', '-pm', 'a'.repeat(33), 'Pm', 'p_m', ''])('refuses the mailbox name %j', (name) => {
+  it.each(['r-pm', '-pm', 'a'.repeat(33), 'Pm', 'p_m', ''])('refuses the local part %j', (name) => {
     expect(EmailMailbox.safeParse(name).success).toBe(false);
   });
 });

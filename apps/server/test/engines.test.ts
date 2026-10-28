@@ -419,6 +419,163 @@ describe('sessions on engines', () => {
   });
 
   describe('an engine that connects (PM-315)', () => {
+    async function loseProcess(session: Session, state: Session['state'] = 'working'): Promise<void> {
+      // The engine lost its process without delivering an exit event to the server.
+      h.runner.emit({ type: 'transcript_path', sessionId: session.id, path: `/tmp/${session.id}.jsonl` });
+      await h.runner.stop(session.id);
+      h.repos.sessions.update(session.id, { state, endedAt: null });
+    }
+
+    it.each([
+      { state: 'idle', reconciliation: 'startup' },
+      { state: 'idle', reconciliation: 'reconnect' },
+      { state: 'waiting_input', reconciliation: 'reconnect' },
+    ] as const)(
+      'keeps a $state turn stopped after $reconciliation reconciliation',
+      async ({ state, reconciliation }) => {
+        engines.placement.set('dev-1', REMOTE);
+        await h.domain.taskStarts.start('AR', 'AR-1', {
+          assignee: 'dev-1',
+          actor: OWNER_ACTOR,
+          author: OWNER,
+        });
+        const session = h.domain.sessions.findRunning('AR', 'dev-1', task)!;
+        await loseProcess(session, state);
+        engines.setOnline(REMOTE, false);
+        if (reconciliation === 'startup') await h.domain.sessions.reconcileAfterRestart();
+        else await h.domain.sessions.reconcileEngine(REMOTE, new Set(), () => false);
+        await settle();
+        engines.setOnline(REMOTE, true);
+        await h.domain.admission.retryDeferred();
+        await settle();
+
+        expect(h.runner.started).toHaveLength(1);
+        expect(h.domain.sessions.get('AR', session.id)).toMatchObject({
+          state: 'exited',
+          lastStop: { kind: 'server_restart' },
+        });
+        expect(h.domain.tasks.get('AR', 'AR-1').startWaiting).toBeUndefined();
+      },
+    );
+
+    async function interrupt(session: Session, reported: ReadonlySet<string> = new Set()): Promise<void> {
+      await loseProcess(session);
+      engines.setOnline(REMOTE, false);
+      await h.domain.sessions.reconcileEngine(REMOTE, reported, () => false);
+      await settle();
+    }
+
+    it('resumes interrupted local work during startup reconciliation', async () => {
+      await h.domain.taskStarts.start('AR', 'AR-1', {
+        assignee: 'dev-1',
+        actor: OWNER_ACTOR,
+        author: OWNER,
+      });
+      const session = h.domain.sessions.findRunning('AR', 'dev-1', task)!;
+      await loseProcess(session);
+      await h.domain.sessions.reconcileAfterRestart();
+      await waitFor(() => (h.runner.started.length === 2 ? true : undefined));
+      expect(h.runner.lastStarted()).toMatchObject({ sessionId: session.id, resume: true });
+    });
+
+    it.each(['dev', 'code_review', 'fix'])(
+      'resumes interrupted %s work after reconnecting',
+      async (stage) => {
+        engines.placement.set('dev-1', REMOTE);
+        engines.placement.set('cr', REMOTE);
+        await h.domain.taskStarts.start('AR', 'AR-1', {
+          assignee: 'dev-1',
+          actor: OWNER_ACTOR,
+          author: OWNER,
+        });
+        if (stage !== 'dev') {
+          await h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', OWNER_ACTOR);
+          await waitFor(() => h.domain.sessions.findRunning('AR', 'cr', task));
+          if (stage === 'fix') {
+            await h.domain.tasks.moveToStage('AR', 'AR-1', 'development', OWNER_ACTOR);
+            await settle();
+          }
+        }
+        const member = stage === 'code_review' ? 'cr' : 'dev-1';
+        const session = h.domain.sessions.findRunning('AR', member, task)!;
+        const starts = h.runner.started.length;
+        await interrupt(session);
+        expect(h.runner.started).toHaveLength(starts);
+        expect(h.domain.tasks.get('AR', 'AR-1').startWaiting).toMatchObject({
+          reason: 'engine_offline',
+          member,
+        });
+
+        engines.setOnline(REMOTE, true);
+        await waitFor(() => (h.runner.started.length > starts ? true : undefined));
+        expect(h.runner.lastStarted()).toMatchObject({
+          sessionId: session.id,
+          resume: true,
+          engineId: REMOTE,
+        });
+        await h.domain.sessions.reconcileEngine(REMOTE, new Set([session.id]), () => false);
+        await settle();
+        expect(h.runner.started).toHaveLength(starts + 1);
+      },
+    );
+
+    it('keeps an interrupted continuation waiting during a team pause', async () => {
+      engines.placement.set('dev-1', REMOTE);
+      await h.domain.taskStarts.start('AR', 'AR-1', {
+        assignee: 'dev-1',
+        actor: OWNER_ACTOR,
+        author: OWNER,
+      });
+      const session = h.domain.sessions.findRunning('AR', 'dev-1', task)!;
+      await interrupt(session);
+      const scope = { scope: 'project', projectKey: 'AR' } as const;
+      const by = { userId: null, source: 'system' } as const;
+      await h.domain.pauses.pause(scope, by);
+      engines.setOnline(REMOTE, true);
+      await h.domain.admission.retryDeferred();
+      expect(h.runner.started).toHaveLength(1);
+      expect(h.domain.tasks.get('AR', 'AR-1').startWaiting).toMatchObject({ reason: 'team_paused' });
+      await h.domain.pauses.resume(scope, by);
+      await waitFor(() => (h.runner.started.length === 2 ? true : undefined));
+      expect(h.runner.lastStarted()).toMatchObject({ sessionId: session.id, resume: true });
+    });
+
+    it('waits for member capacity before resuming interrupted work', async () => {
+      engines.placement.set('dev-1', REMOTE);
+      await h.domain.taskStarts.start('AR', 'AR-1', {
+        assignee: 'dev-1',
+        actor: OWNER_ACTOR,
+        author: OWNER,
+      });
+      const session = h.domain.sessions.findRunning('AR', 'dev-1', task)!;
+      await h.domain.tasks.create('AR', { title: 'Other work' }, OWNER_ACTOR);
+      const other = (await h.domain.sessions.ensureSession('AR', 'dev-1', { type: 'task', taskKey: 'AR-2' }))
+        .session;
+      await interrupt(session, new Set([other.id]));
+      engines.setOnline(REMOTE, true);
+      await h.domain.admission.retryDeferred();
+      expect(h.runner.started).toHaveLength(2);
+      expect(h.domain.tasks.get('AR', 'AR-1').startWaiting).toMatchObject({ reason: 'member_at_capacity' });
+      await h.domain.sessions.stop('AR', other.id);
+      await waitFor(() => (h.runner.started.length === 3 ? true : undefined));
+      expect(h.runner.lastStarted()).toMatchObject({ sessionId: session.id, resume: true });
+    });
+
+    it('discards a restart continuation when the card changes assignee', async () => {
+      engines.placement.set('dev-1', REMOTE);
+      await h.domain.taskStarts.start('AR', 'AR-1', {
+        assignee: 'dev-1',
+        actor: OWNER_ACTOR,
+        author: OWNER,
+      });
+      await interrupt(h.domain.sessions.findRunning('AR', 'dev-1', task)!);
+      h.domain.tasks.assign('AR', 'AR-1', 'dev-2', OWNER_ACTOR);
+      engines.setOnline(REMOTE, true);
+      await h.domain.admission.retryDeferred();
+      await settle();
+      expect(h.runner.started.filter((start) => start.member === 'dev-1')).toHaveLength(1);
+    });
+
     it('ends the sessions it does not report, keeps those it does and those still starting', async () => {
       engines.placement.set('dev-1', REMOTE);
       engines.placement.set('dev-2', REMOTE);

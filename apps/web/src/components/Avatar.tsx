@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { hasSuperOrigin } from '@projectman/shared';
+import { hasConnectedOrigin, hasSuperOrigin } from '@projectman/shared';
 import type { Actor, MemberStatus } from '@projectman/shared';
 import { t } from '../i18n/t';
 import { iconFor, initialsFor, toneFor } from '../lib/members';
@@ -45,15 +45,25 @@ export function Avatar({
   className,
 }: AvatarProps) {
   const superMode = hasSuperOrigin(actor);
-  const isAi = member?.kind === 'ai' || via === 'integrator';
+  // A connected Claude's step (decision 66) keeps the actor's own avatar; only the badge marks the key.
+  const connected = hasConnectedOrigin(actor);
+  const isAi = member?.kind === 'ai' || (via === 'integrator' && !connected);
   const tone = superMode
     ? 'operator'
-    : via
+    : via && !connected
       ? 'owner'
       : member
         ? toneFor(isMe && member.kind === 'human' ? { ...member, role: 'owner' } : member)
         : 'system';
   const showIcon = isAi && variant === 'icon';
+  const connectedName = t('connected.avatar', { name: label ?? member?.displayName ?? handle ?? '' });
+  const accessibleName = connected
+    ? connectedName
+    : superMode
+      ? t('superMode.avatar')
+      : via
+        ? t('involvement.integratorFull')
+        : label;
   const px = pixelSize[size];
   return (
     <span
@@ -67,18 +77,27 @@ export function Avatar({
       data-tone={tone}
       style={{ width: px, height: px }}
       role={label || via ? 'img' : undefined}
-      aria-label={superMode ? t('superMode.avatar') : via ? t('involvement.integratorFull') : label}
+      aria-label={accessibleName}
       aria-hidden={label || via ? undefined : true}
-      title={superMode ? t('superMode.avatar') : via ? t('involvement.integratorFull') : label}
+      title={accessibleName}
     >
       {showIcon ? (
-        <Icon name={via && !superMode ? 'terminal' : iconFor(member)} size={iconSize[size]} strokeWidth={2} />
+        <Icon
+          name={via && !superMode && !connected ? 'terminal' : iconFor(member)}
+          size={iconSize[size]}
+          strokeWidth={2}
+        />
       ) : (
         <span className={styles.initials}>{initialsFor(member, isMe, handle)}</span>
       )}
       {superMode ? (
         <span className={styles.superBadge}>
           <Icon name="terminal" size={10} />
+        </span>
+      ) : null}
+      {connected ? (
+        <span className={styles.connectedBadge}>
+          <Icon name="plug" size={10} />
         </span>
       ) : null}
       {status ? (

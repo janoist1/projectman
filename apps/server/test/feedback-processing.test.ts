@@ -191,9 +191,9 @@ describe('feedback processing', () => {
   });
 
   describe('the tools', () => {
-    it('refuses everyone who does not process feedback, the Operator included', async () => {
+    it('refuses everyone who does not process feedback', async () => {
       const id = await mark();
-      for (const member of ['dev-1', 'operator']) {
+      for (const member of ['dev-1', 'cr']) {
         const caller: ToolContext = { sessionId: 'ses_x', projectKey: 'AR', member, taskKey: null };
         const err = await toolError(
           h.domain.teamTools.getFeedbackList(caller, { status: 'todo', limit: 30 }),

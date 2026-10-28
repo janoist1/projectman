@@ -1,6 +1,7 @@
 import clsx from 'clsx';
 import { Fragment } from 'react';
 import { Link } from 'react-router';
+import { hasBoundOrigin } from '@projectman/shared';
 import type { MessageReceipt, TeamMessage } from '@projectman/shared';
 import { Button } from '../../components/Button';
 import { Avatar } from '../../components/Avatar';
@@ -8,7 +9,7 @@ import { ActorName } from '../../components/ActorName';
 import { Icon } from '../../components/Icon';
 import { formatDayHeading, formatStamp } from '../../i18n/format';
 import { joinNames, t } from '../../i18n/t';
-import { actorLabel, recordActor, nameOf, namesOf } from '../../lib/members';
+import { actorLabel, isOwnActor, recordActor, nameOf, namesOf } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
 import styles from './MessageList.module.css';
 import { attachmentPreview } from './conversations';
@@ -73,7 +74,7 @@ export function MessageList({
                   actor={actor}
                   member={members.get(message.from)}
                   handle={message.from}
-                  isMe={message.from === myHandle && !message.via}
+                  isMe={isOwnActor(actor, myHandle)}
                   via={message.via}
                   size="sm"
                 />
@@ -92,13 +93,14 @@ export function MessageList({
                   ))}
                 </span>
                 <span className={styles.names}>
-                  {message.actor?.operatorMode === 'super' ? (
+                  {hasBoundOrigin(message.actor) ? (
                     <>
                       <ActorName
-                        actor={actor}
+                        actor={message.actor}
                         members={members}
                         myHandle={myHandle}
                         projectKey={projectKey}
+                        showApproval={false}
                       />{' '}
                       → {to}
                     </>

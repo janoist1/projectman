@@ -1,6 +1,5 @@
 import type { HumanAccess } from '../domain/member';
 import { memberOf } from './lookup';
-import { runsInApp } from './operator-member';
 import { projectManagerOf } from './project-manager';
 import type { ProjectConfig } from './schema';
 
@@ -50,15 +49,13 @@ export function isContactRestrictedMember(
 }
 
 export type TeamMessageRecipientRefusal = {
-  code: 'recipient_not_contact' | 'insufficient_access' | 'operator_connected_only';
+  code: 'recipient_not_contact' | 'insufficient_access';
   /** The distinct recipients the sender may not write to. */
   recipients: string[];
 };
 
 /**
  * Whether a team message from `from` to `to` is refused for who the sender is (PM-985):
- * - the Operator runs no session in the app (PM-1045): a message to it is refused for every sender
- *   (`operator_connected_only`), before any access check;
  * - a contact-restricted sender writes only to contacts: one recipient who is none refuses the whole
  *   message (`recipient_not_contact`);
  * - a read-only viewer writes only to the project manager (`insufficient_access`);
@@ -72,8 +69,6 @@ export function teamMessageRecipientRefusal(
 ): TeamMessageRecipientRefusal | null {
   const access = accessOfHandle(config, from);
   const distinct = [...new Set(to)];
-  const operators = distinct.filter((handle) => !runsInApp(memberOf(config, handle)));
-  if (operators.length > 0) return { code: 'operator_connected_only', recipients: operators };
   if (isContactRestricted(access)) {
     const contacts = new Set(contactHandles(config));
     const refused = distinct.filter((handle) => !contacts.has(handle));

@@ -13,7 +13,7 @@ import {
   createFakeTeamToolsHandler,
   devContext,
   pmContext,
-  operatorAudience,
+  fullAudience,
   qaContext,
   type FakeTeamToolsHandler,
 } from './testing';
@@ -75,7 +75,7 @@ async function startServer(
   ]);
   const resolveCalls: string[] = [];
   createMcpModule({
-    audienceOf: () => operatorAudience,
+    audienceOf: () => fullAudience,
     handler,
     resolveContext: (token) => {
       resolveCalls.push(token);
@@ -107,7 +107,7 @@ async function startTools(
   const app = loggingApp(logs);
   const handler = options.handler ?? createFakeTeamToolsHandler();
   const server = createTeamMcpServer(ctx, {
-    audienceOf: () => operatorAudience,
+    audienceOf: () => fullAudience,
     handler,
     logger: app.log,
     toolTimeoutMs: options.toolTimeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS,

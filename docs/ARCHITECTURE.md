@@ -79,7 +79,7 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   and a `member_renamed {from, to, version}` event is appended. The timeline's earlier events keep
   the old handle; viewers and the agents' text resolve it through `formerHandles` (the **alias**: a
   message to the old handle reaches the member, the context pack lists "formerly `x`"). The e-mail
-  mailbox follows the new handle (see "E-mail"). Humans have an **access level** (`owner`, `admin`, `developer`, `client`,
+  address is always `<handle>@<domain>` and follows the new handle (see "E-mail"). Humans have an **access level** (`owner`, `admin`, `developer`, `client`,
   `viewer`) that governs what they may do in the app, and may hold several roles. An AI
   member holds exactly one role and has a provider (`claude` or `codex`), a model and effort,
   an optional **cheap subagent** (PM-179: a Claude Code member's sessions get a `reader-<model>`
@@ -297,10 +297,12 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   humans, save memories and work with attachments (list, read by local path, attach a file of
   their own working directory, delete their own; PM-113, see [SECURITY.md](SECURITY.md)). Text
   an agent writes in its own session reaches nobody.
-  Tool definitions may declare an optional audience of roles (Operator, project manager,
+  Tool definitions may declare an optional audience of roles (project manager,
   named merger) or duties (`mcp/kit.ts`, PM-973). `runtime/sessions` derives the member audience
   from the current project configuration for every stateless MCP request; registration keeps
-  tools with no audience or any matching role/duty. The Operator always sees all tools.
+  tools with no audience or any matching role/duty. Since decision 66 (PM-1076) there is no Operator
+  audience that sees everything; the tools that were the Operator's alone (`check_release`,
+  `get_history_search_stats`, `get_machine_status`, `get_machine_logs`) declare `roles: []`, so nobody sees them.
   This is list visibility only: handlers remain the permission authority. Tools whose access
   depends on a particular request, decision maker or conversation remain visible unless a role/duty
   is also a necessary condition; further session/request checks stay in the handler.
@@ -822,6 +824,18 @@ signals and the manager's queue; a person who is not an owner gets `readOnly` an
 queue view reads `routes.memberQueue` for the manager. The machine grant is shown on the machine panel and
 managed in Settings → Integrator. The Operator's own channel route is gone (PM-1045): the app has no Operator.
 
+**No Operator member (decision 66, PM-1076).** A project has no `ai_operator` role and no member that holds it, and
+a new project (template, `POST /projects`) gets none. The configuration migration `removeOperator`
+(`config/migrations.ts`) removes the stored Operator member with its contacts, stage owners, role override and
+temp-worker role (the temp role becomes `developer`), logs a warning and is idempotent; the old `addOperator` and
+`fixOperator` migrations are gone, so nothing puts it back. The handle `operator` stays taken
+(`RETIRED_OPERATOR_HANDLE`, `members.takenHandles`), because old events, messages and `operator_requests` /
+`operator_steps` rows still name it; the web shows such a name as the raw handle. A connected Claude acts as its
+key holder or as the issuer of an integrator queue item (PM-1074), and the project manager acts as the selected
+coordinator (`coordinatorSuperActorOf`, `isCoordinatorSuperActor` in `config/operator-member.ts`). The Operator
+tool surface (`operate`, knowledge, preferences, diagnostics) is the selected project manager's. The external MCP
+tool names (`super_operate`, ...), `integrator_keys` and the old rows are unchanged.
+
 Personal conversational style (PM-688) lives in `services/operator/preferences.ts`.
 `get_operator_preference` and `set_operator_preference` choose the person from the
 authenticated Operator session and its current human request, or the selected active PM's
@@ -996,11 +1010,11 @@ Every AI member has one durable queue of what is waiting for them: a message, an
   remember it. A message gets an item for each AI recipient it is pending for (a receipt without `deliveredAt`; the
   `team_message_pending` table is gone since migration 99); the item closes
   `done`/`delivered` on delivery and `cancelled`/`source_closed` when the receipt is settled any other way. Since
-  PM-1045 the Operator gets no item at all: it runs no session in the app (`operatorRunsInApp = false`,
-  `runsInApp`), so a message to it is refused (`operator_connected_only`) and an integrator todo or narrow fix
-  limit decision stays an open inbox item, which the connected client reads through the super-mode tools
-  (`open_integrator_todo`, `resolveIntegratorTodo`). Migration 121 cancelled the Operator rows that were open
-  (the inbox items stayed). Both reconcilers are idempotent and a failure is logged and never changes what the
+  PM-1045 the Operator gets no item at all, and since PM-1076 (decision 66) it is no member: a message to the
+  handle `operator` finds no member, and an integrator todo or narrow fix limit decision stays an open inbox item,
+  which the connected client reads through the super-mode tools (`open_integrator_todo`,
+  `resolveIntegratorTodo`). Migration 121 cancelled the Operator rows that were open (the inbox items stayed).
+  Both reconcilers are idempotent and a failure is logged and never changes what the
   source write does.
 - **Invariant**: the open message items are exactly the messages pending for an AI recipient. `recover()` runs at
   startup (after `messageAttachments.recover()`) and fills in what is missing or closes what is stale; running it again
@@ -1299,12 +1313,9 @@ and are typed in after the restart, which gets no continue message. Grants "for 
 `permissionGrantsLost` says so in the header. Each change is a `session_permission_changed`
 timeline event (the owner, `field`, `from`, `to`, `reset`, `restart`).
 
-The Operator's approver stays `human`, with source `member` (PM-691), even with a historical
-`none`/`ai` member setting or any session override. `SessionPermissionMember` preserves its identity
-for `isOperator`; ordinary and missing members retain their session settings. The shared
-`sessionApproverChangeRefusal` rejects Operator `none`/`ai` updates with 403 `operator_fixed` before
-any write, restart or event; `human`/`null` clears the override. Mixed mode/forbidden-approver patches
-are atomic. Starts, resumes, permission routing and the session header use the same effective rule.
+The Operator's fixed approver (PM-691, 403 `operator_fixed`, `sessionApproverChangeRefusal`) is gone with the
+Operator member (decision 66, PM-1076): every AI member keeps its session settings. Mixed mode/approver
+patches are atomic. Starts, resumes, permission routing and the session header use the same effective rule.
 
 ## Session policy migration (PM-87 / PM-127)
 
@@ -1961,6 +1972,17 @@ workers follow the machine's size.
   Core checks: `swift test --package-path deploy/mac/menubar`; fixture compatibility is checked
   by `apps/server/test/engine-menubar.test.ts`. **Module:** `deploy`, `scripts`.
 
+- **Interrupted card continuation (PM-1092)** — `runtime/sessions/sessions.ts` closes lost live
+  sessions with `server_restart` during startup or engine reconciliation; the internal `session_ended`
+  event carries the previous state: only `starting`, `working` and `waiting_permission` turns continue;
+  completed idle turns and `waiting_input` sessions awaiting an answer stay stopped. `runtime/admission/hand-over.ts`
+  resumes their current work-stage assignee or review-stage owner through normal admission. The
+  persisted `hand_over.resumeMember` keeps the same member while capacity, pauses or an offline engine
+  hold the continuation; a changed stage or assignment invalidates it. **Machine assumptions:** the
+  existing provider transcript on the session's engine supplies the resumed conversation. **Remote
+  engine:** the hub stores and retries the continuation; the existing session-start RPC runs the CLI
+  on the engine after it reconnects. No new transport or shared filesystem is required.
+
 - **Keep awake while working (PM-1086)** — `engine-host/keep-awake.ts` (`createKeepAwake`,
   `spawnKeepAwakeProcess`), wired in `engine-app.ts` to its 1 s poll; `engine-handlers.ts` `activeRuns()`
   counts the merge-check and screenshot runs; `engine.json` `keepAwake` and `npm run engine -- keep-awake
@@ -2577,17 +2599,20 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   `cloud.env` (read in `index.ts` only); the CLI runs on the owner's POSIX administration machine with AWS CLI
   v2 profiles and the Cloudflare DNS token, like the SES provisioning entry. **Does this work on a remote
   engine?** Yes: the reader runs on the hub only; an engine gets no queue, no key and no protocol change.
-  **Member addresses (PM-989):** the same receipt rule also takes mail to `<mailbox>@<reply domain>`, the
-  permanent address of an AI member (`services/email-channel/inbound.ts`, `receiveDirect`; the mailbox name
-  is the handle or `ai.email.mailbox`, unique server-wide). The mail lands in the member's conversation as a
+  **Member addresses (PM-989, PM-1039):** the same receipt rule also takes mail to `<handle>@<reply domain>`, the
+  address of an AI member (`services/email-channel/inbound.ts`, `receiveDirect`; the local part is always the
+  handle, there is no separate mailbox name: `ai.email.mailbox` was removed, the config migration
+  `dropEmailMailbox` and DB migration 123 delete it from old data, and a differing old name simply ceases,
+  with no alias; the handle is not globally unique, so two projects with the same handle and e-mail on
+  leave both without an address, `addressConflict`). The mail lands in the member's conversation as a
   reply linked by MIME headers when answering a member's mail (PM-1018), otherwise as a direct
   team message, and its attachments go through the message-attachments storage on the hub, so nothing new
-  crosses to an engine. **Rename (PM-1025):** a rename deletes `ai.email.mailbox`, so the address becomes
+  crosses to an engine. **Rename (PM-1025):** the address changes only by renaming the member, and becomes
   `<new handle>@<reply domain>` (it is refused with `email_mailbox_taken` when that mailbox is another
   member's). Mail to the old address still arrives: `emailMailboxOwners` also matches the `formerHandles`
   of an AI member, so the old name resolves to the same member; a live holder of the same name does not
   win over it but shares it, and the existing shared-name branch parks the mail. The old name stays reserved
-  in every project (`emailMailboxReserved`): no chosen mailbox, e-mail switch-on or rename may take it.
+  in every project (`emailMailboxReserved`): no e-mail switch-on or rename may take it.
   No new boundary: it is the same hub-only rule.
 
 - **Feedback widget public entrance and screenshot store (PM-506, PM-508)** —
@@ -3075,7 +3100,9 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   an event from the old one is no longer heard). A binding cannot be removed while the project has an
   open session on the engine (`engine_in_use`) or, for the default, while another binding stays
   (`engine_is_default`). The engine-side `hello.projects[]` is only the local contribution (it fills
-  `holdsProject` of the list); it never decides the binding.
+  `holdsProject` of the list); it never decides the binding. It also feeds the setup checklist's
+  `engine_connected` condition (PM-1069, `EngineRegistry.projectEngineHolds`): the hub reads the engine's
+  last hello without its online state, and the engine side does not change.
   **Does this work on a remote engine?** This entry is the cloud's side of the remote engine: nothing
   here starts a process on the cloud's host. Without a connected engine a project cannot be created
   (`isDirectory` answers `engine_offline`, HTTP 409; PM-1062: the engine is the one the creator chose, an
@@ -3096,7 +3123,8 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   unseen). **Cloud restart:** the runner's shutdown cannot reach the engine, because the websocket plugin
   closes the links before `app.ts`'s close hook runs; the session the engine keeps running is ended by
   the reconciliation when the engine reconnects (its team-tools token is gone with the cloud's memory),
-  and the next message resumes the conversation from its transcript. No session survives a cloud restart
+  and interrupted card work resumes automatically through admission from its transcript (PM-1092);
+  general conversations resume on their next message. No session survives a cloud restart
   seamlessly. A session may read its card's `attachments-cache/<project>/<task>` folder on the engine
   (a read-only sandbox root; never a working directory).
   **Module:** `engine-link`
@@ -3274,9 +3302,9 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   key holder in person (`kind: human`, `via: integrator`, `through: {holder, credential}`), or, with
   `queue_item_id` on `super_operate` / `execute_super_handoff`, as the member who issued that open integrator queue
   item (`kind: ai`, the same `through`; `queue_item_not_yours` / `issuer_without_machine_access` refuse it). After the
-  owner's own yes on a K3 question the step also carries `approvedBy`, set by the server only. The `operator`
-  member and the old `operatorMode: super` events stay readable; `superActorOf` serves only the in-app Operator
-  principal. The actor is created and stored on the hub (`actor_meta`); no machine-dependent part is added.
+  owner's own yes on a K3 question the step also carries `approvedBy`, set by the server only. The old
+  `operatorMode: super` events stay readable; `coordinatorSuperActorOf` serves only the selected coordinator's
+  in-app session (PM-1076: `superActorOf` and the Operator member are gone). The actor is created and stored on the hub (`actor_meta`); no machine-dependent part is added.
   **Two kinds of key holder (PM-1063):** a tool with `hostOnly: true` (`mcp/kit.ts`: `get_administration_status`,
   `get_administration_logs`, `get_machine_snapshot` and the two instance-knowledge tools; the host-request tools of
   PM-1064 take the same flag) is absent from `tools/list` of a further owner's key and answers `host_only` if called
@@ -5360,7 +5388,7 @@ listAnsweredQuestions`). `list_decision_candidates { limit? }` (1..50, default 2
   (`OperatorChannel.readOnly`). The Operator's sessions are seen by owners and admins only
   (`canSeeOperatorSessions`: REST, WebSocket events and terminal, the member profile). Capacity (1) counts the guest
   conversations only (`Admission.memberLoad`): the owner's never waits; a guest conversation closes after
-  `OPERATOR_GUEST_IDLE_CLOSE_MINUTES` (5) idle. No machine-dependent part is affected.
+  `GUEST_IDLE_CLOSE_MINUTES` (5; renamed by PM-1076) idle. No machine-dependent part is affected.
   (PM-1045: the app starts no Operator session any more, so these Operator guest conversations are history; the
   project manager's follow below. Old Operator sessions and events stay readable.)
   **The project manager has the same guest conversations (PM-1080, PM-1023 K3b).** One rule decides who has them,

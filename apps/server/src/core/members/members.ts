@@ -12,8 +12,6 @@ import {
   modelForProvider,
   canSeeOperatorSessions,
   holdersAllow,
-  isOperator,
-  isRequiredOperator,
   isRequiredProjectManager,
   isDeveloper,
   isComplexityPoints,
@@ -21,6 +19,7 @@ import {
   MemberHandle,
   memberStorageHandle,
   renameMemberInConfig,
+  RETIRED_OPERATOR_HANDLE,
   memberDuties,
   memberOf,
   memberRoles,
@@ -248,7 +247,8 @@ export class MemberService {
 
   /** Handles in use now or in the past (config, runtime state incl. retired, sessions). */
   takenHandles(projectKey: string, config: ProjectConfig): Set<string> {
-    const taken = new Set(config.team.members.map((m) => m.handle));
+    // The retired Operator's handle stays reserved: its old events and messages keep showing it (PM-1076).
+    const taken = new Set([RETIRED_OPERATOR_HANDLE, ...config.team.members.map((m) => m.handle)]);
     // A renamed member keeps its old handles (PM-1025); the events cover a rename whose configuration was reverted.
     for (const m of config.team.members)
       for (const former of m.kind === 'ai' ? (m.formerHandles ?? []) : []) taken.add(former);
@@ -399,9 +399,9 @@ export class MemberService {
   }
 
   /**
-   * 409 `email_mailbox_taken` when another AI member, in this or any other project, has this mailbox name
-   * (PM-989). `reserved` checks only the names other members were renamed from (PM-1025): a mailbox that
-   * becomes live under its default name (the handle) may share a live name, as before, but never a former one.
+   * 409 `email_mailbox_taken` when another AI member, in this or any other project, has this handle as its
+   * address (PM-989, PM-1039). `reserved` checks only the handles other members were renamed from (PM-1025):
+   * a member that switches its address on may share a live handle, as before, but never a former one.
    */
   private assertMailboxFree(
     draft: ProjectConfig,
@@ -415,7 +415,7 @@ export class MemberService {
       .flatMap((project) => this.projects.cachedConfig(project.key) ?? []);
     const taken = scope === 'any' ? emailMailboxTaken : emailMailboxReserved;
     if (taken([draft, ...others], draft.project.key, handle, mailbox))
-      throw conflict('email_mailbox_taken', `the mailbox name ${mailbox} is taken`, { mailbox });
+      throw conflict('email_mailbox_taken', `the address ${mailbox} is taken`, { mailbox });
   }
 
   /** Mutates only the in-memory draft; shared by execution and Operator previews. */
@@ -546,10 +546,9 @@ export class MemberService {
         fields.push('outbound network');
       }
       if (req.email !== undefined) {
-        if (req.email.mailbox !== undefined) this.assertMailboxFree(draft, handle, req.email.mailbox);
         const wasEnabled = member.email?.enabled === true;
-        member.email = applyMemberEmailChange(member.email, req.email, handle);
-        if (req.email.mailbox === undefined && !wasEnabled && member.email.enabled)
+        member.email = applyMemberEmailChange(member.email, req.email);
+        if (!wasEnabled && member.email.enabled)
           this.assertMailboxFree(draft, handle, emailMailboxOf(member), 'reserved');
         fields.push('email');
       }
@@ -606,9 +605,6 @@ export class MemberService {
         'project_manager_required',
         'the only AI project manager cannot be retired; hire another one first',
       );
-    }
-    if (isRequiredOperator(config, handle)) {
-      throw conflict('operator_required', 'the Operator cannot be retired');
     }
     const handoverTo = opts.handoverTo ?? null;
     if (handoverTo !== null) {
@@ -679,7 +675,6 @@ export class MemberService {
   /** Mutates only the draft; the commit rewrites the database and tells the listeners. */
   prepareRename(projectKey: string, draft: ProjectConfig, handle: string, to: string): void {
     const member = requireAiMember(draft, handle);
-    if (isOperator(member)) throw conflict('operator_fixed', 'the Operator cannot be renamed');
     if (!MemberHandle.safeParse(to).success) throw invalid('invalid_request', `invalid handle: ${to}`);
     if (to === handle || this.takenHandles(projectKey, draft).has(to))
       throw conflict('handle_taken', `handle already used: ${to}`);
@@ -718,16 +713,6 @@ export class MemberService {
       // Sponsors and explicit gate approvers must be reassigned before removal.
       for (const stage of draft.pipeline.stages) {
         if (stage.owners) stage.owners = stage.owners.filter((h) => h !== handle);
-      }
-      // The Operator is fixed (PM-473) and cannot be handed to anyone by the owner afterwards: its
-      // sponsor goes to the first owner left, in the same commit.
-      const sponsored = draft.team.members.filter(
-        (m): m is AiMemberConfig => isOperator(m) && m.kind === 'ai' && m.sponsor === handle,
-      );
-      const heir = draft.team.members.find((m) => m.kind === 'human' && m.access === 'owner');
-      if (sponsored.length && heir) {
-        for (const operator of sponsored) operator.sponsor = heir.handle;
-        return `Remove human member ${handle}; the Operator is now sponsored by ${heir.handle}`;
       }
       return `Remove human member ${handle}`;
     });

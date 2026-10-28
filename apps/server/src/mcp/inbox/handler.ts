@@ -73,6 +73,8 @@ export class InboxTools implements InboxToolsHandler {
       /** The question asked again after the Operator screened it away (PM-558), and why a person must see it. */
       reaskOf?: string;
       reaskReason?: string;
+      /** The open signal delivered to the asking coordinator that the question is about (PM-455). */
+      signalId?: string;
       responsePurpose?: QuestionResponsePurpose;
       recipient?: QuestionRecipient;
     },
@@ -84,7 +86,21 @@ export class InboxTools implements InboxToolsHandler {
   }> {
     return this.calls.guard(async () => {
       await this.calls.caller(ctx, 'ask_human');
-      const taskKey = this.calls.taskKeyFor(ctx, args.taskKey);
+      const signal = args.signalId ? this.ctx.repos.operatorSignals.get(args.signalId) : null;
+      // Signals are delivered only to the coordinator, so "delivered to the asker" is the coordinator check.
+      if (
+        args.signalId &&
+        (!signal ||
+          signal.projectKey !== ctx.projectKey ||
+          signal.deliveredTo !== ctx.member ||
+          signal.resolvedAt ||
+          !(signal.state === 'pending' || signal.state === 'open'))
+      )
+        throw new TeamToolError(
+          'invalid',
+          'signal_not_open: signal_id must name an open signal that was delivered to you.',
+        );
+      const taskKey = this.calls.taskKeyFor(ctx, args.taskKey ?? signal?.taskKey ?? undefined);
       return this.humanQuestions.ask(
         ctx.projectKey,
         { kind: 'member', member: ctx.member, sessionId: ctx.sessionId },

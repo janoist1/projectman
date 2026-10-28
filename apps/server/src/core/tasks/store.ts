@@ -106,7 +106,7 @@ export class TaskStore {
       handOn: ________,
       ...rest
     } = task;
-    const startWaiting = this.startWaiting.waitingFor(task) ?? this.repoWaiting(task);
+    const startWaiting = this.startWaitingOf(task);
     const outage = this.outageOf?.(task);
     const readyHold = this.readyHold?.(task);
     const startOffer = this.startOffer?.(task);
@@ -274,6 +274,11 @@ export class TaskStore {
       .list(task.projectKey, { taskKey: task.key, member: assignee.handle })
       .some((session) => LIVE_SESSION_STATES.includes(session.state));
     return running ? undefined : { reason: 'repo_required', member: assignee.handle, since: task.updatedAt };
+  }
+
+  /** Why the start of AI work on a raw card waits: a deferred start, else the missing repository choice (PM-455). */
+  startWaitingOf(task: Task): TaskStartWaiting | undefined {
+    return this.startWaiting.waitingFor(task) ?? this.repoWaiting(task);
   }
 
   list(projectKey: string): Task[] {

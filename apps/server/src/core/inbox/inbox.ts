@@ -1956,6 +1956,19 @@ export class InboxService {
   }
 
   /**
+   * The case of a system signal ended (PM-455): the pending questions asked about it (`payload.signalId`) close
+   * with the rule `signal_resolved`, nothing is left to answer. Works for any signal kind.
+   */
+  async closeQuestionsOfSignal(projectKey: string, signalId: string): Promise<void> {
+    for (const item of this.ctx.repos.inbox.list(projectKey, {
+      state: PENDING_INBOX_STATES,
+      kind: 'question',
+    }))
+      if ((item.payload as { signalId?: string }).signalId === signalId)
+        await this.closeQuestion(item.id, { rule: 'signal_resolved', by: 'system', note: null });
+  }
+
+  /**
    * The question leaves the Operator's screening for the people (PM-558): it opens, with the Operator's
    * outcome (`decision`: a person decides; `todo`: a person does something, the options become Done and
    * Cannot do it) or, with no outcome, because the system gave up waiting (`fallback`). Null when the item

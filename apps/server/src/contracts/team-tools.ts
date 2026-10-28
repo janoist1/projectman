@@ -765,6 +765,8 @@ export interface InboxToolsHandler {
       /** The earlier question the Operator settled, and why a person must see this one (PM-558); only together. */
       reaskOf?: string;
       reaskReason?: string;
+      /** The open system signal this question is about (PM-455); only the coordinator the signal was delivered to. */
+      signalId?: string;
       /** `information`: a simple fact the super-mode integrator may relay (PM-762); missing means an owner decision. */
       responsePurpose?: QuestionResponsePurpose;
       recipient?: QuestionRecipient;

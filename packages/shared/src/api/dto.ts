@@ -230,8 +230,33 @@ export const OperatorSignalKind = z.enum([
   'structural_pattern',
   'milestone_closed',
   'refinement_stalled',
+  'start_blocked',
 ]);
 export type OperatorSignalKind = z.infer<typeof OperatorSignalKind>;
+/** The start waits a `start_blocked` signal tells the project manager about (PM-455). */
+export const START_BLOCKED_REASONS = ['repo_required', 'workspace_dirty', 'workspace_fetch_failed'] as const;
+export type StartBlockedReason = (typeof START_BLOCKED_REASONS)[number];
+/** A `workspace_fetch_failed` start is only told after the system's own retries left it standing this long (PM-455). */
+export const OPERATOR_START_FETCH_FAILED_MINUTES = 10;
+/**
+ * The facts of a `start_blocked` signal (PM-455): why a card's start stands and who or what holds it. The git
+ * error text is left out on purpose (a remote URL may carry credentials); the server log has it.
+ */
+export const StartBlockedFacts = z.object({
+  reason: z.enum(START_BLOCKED_REASONS),
+  /** The member who waits; null on an unassigned `repo_required` card. */
+  member: MemberHandle.nullable(),
+  since: z.string().datetime(),
+  /** `repo_required`: the names of the configured repositories; otherwise empty. */
+  repos: z.array(z.string()),
+  /** `repo_required`: the repository of the parent card. */
+  parentRepo: z.string().nullable(),
+  /** `workspace_dirty`: the checked-out branch; `workspace_fetch_failed`: the base branch. */
+  branch: z.string().nullable(),
+  /** `workspace_dirty`: the open card whose `branch` link is that branch. */
+  heldBy: z.string().nullable(),
+});
+export type StartBlockedFacts = z.infer<typeof StartBlockedFacts>;
 /**
  * The facts of a `refinement_stalled` signal (PM-702): the recorded turn, the member's latest session and the
  * open question ids of the card; never a transcript or tool input.

@@ -1,4 +1,12 @@
-import { appendFileSync, existsSync, readFileSync, statSync } from 'node:fs';
+import {
+  appendFileSync,
+  chmodSync,
+  existsSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { runCloud } from '../../../scripts/cloud/commands';
 import { CF_ACCOUNT, CloudflareWorld } from './helpers/fake-cloudflare';
@@ -421,6 +429,230 @@ describe('the service tokens', () => {
     expect(cf.policy('projectman-cloud-integrator-service')).toBeUndefined();
     expect(existsSync(world.tokenPath('integrator-access-token.json'))).toBe(false);
     expect((cf.app('projectman-cloud')!.policies as unknown[]).length).toBe(1);
+  });
+});
+
+/** PM-1065: the further owners get their own tokens and policies; the host's objects never change. */
+describe('the further owners', () => {
+  const ownersConfig = (...ids: string[]) => ({
+    cloudflare: {
+      zone: 'example.com',
+      hostname: 'board.example.com',
+      integratorHostname: 'machine.example.com',
+    },
+    access: {
+      emails: ['owner@example.com'],
+      integratorServiceToken: true,
+      owners: ids.map((id) => ({ id, name: `Owner ${id}`, email: `${id}@example.com` })),
+    },
+  });
+  const ownerFile = (id: string, name: string) => world.tokenPath(`owners/${id}/${name}`);
+  const ownerSecret = (id: string, kind: 'engine' | 'integrator') =>
+    JSON.parse(readFileSync(ownerFile(id, `${kind}-access-token.json`), 'utf8'))['CF-Access-Client-Secret'];
+  const policyIds = (app: string) =>
+    (world.cf.app(app)!.policies as { id: string }[]).map((policy) => policy.id);
+  const hostSnapshot = () =>
+    JSON.stringify([
+      world.cf.token('projectman-cloud-engine'),
+      world.cf.token('projectman-cloud-integrator'),
+      world.cf.policy('projectman-cloud-engine-service'),
+      world.cf.policy('projectman-cloud-integrator-service'),
+      readFileSync(world.tokenPath('engine-access-token.json'), 'utf8'),
+      readFileSync(world.tokenPath('integrator-access-token.json'), 'utf8'),
+    ]);
+
+  it('gives each owner two tokens and two policies after the host’s, leaves the host’s alone, and then changes nothing', async () => {
+    world.writeConfig(ownersConfig());
+    expect(await edge()).toBe(0);
+    const before = hostSnapshot();
+    world.writeConfig(ownersConfig('beta', 'alpha'));
+    expect(await edge()).toBe(0);
+    const { cf } = world;
+
+    expect(cf.tokens.map((token) => token.name).sort()).toEqual([
+      'projectman-cloud-engine',
+      'projectman-cloud-integrator',
+      'projectman-cloud-owner-alpha-engine',
+      'projectman-cloud-owner-alpha-integrator',
+      'projectman-cloud-owner-beta-engine',
+      'projectman-cloud-owner-beta-integrator',
+    ]);
+    const ownService = (token: string) => ({
+      decision: 'non_identity',
+      include: [{ service_token: { token_id: cf.token(token)!.id } }],
+    });
+    expect(cf.policy('projectman-cloud-owner-alpha-engine-service')).toMatchObject(
+      ownService('projectman-cloud-owner-alpha-engine'),
+    );
+    expect(cf.policy('projectman-cloud-owner-beta-integrator-service')).toMatchObject(
+      ownService('projectman-cloud-owner-beta-integrator'),
+    );
+    const idOf = (name: string) => cf.policy(name)!.id;
+    expect(policyIds('projectman-cloud-engine')).toEqual([
+      idOf('projectman-cloud-engine-service'),
+      idOf('projectman-cloud-owner-alpha-engine-service'),
+      idOf('projectman-cloud-owner-beta-engine-service'),
+    ]);
+    expect(policyIds('projectman-cloud-integrator')).toEqual([
+      idOf('projectman-cloud-integrator-service'),
+      idOf('projectman-cloud-owner-alpha-integrator-service'),
+      idOf('projectman-cloud-owner-beta-integrator-service'),
+    ]);
+    expect(policyIds('projectman-cloud')).toEqual([idOf('projectman-cloud-allow-emails')]);
+    // Private board: the owners' own addresses may sign in to Access.
+    expect(cf.policy('projectman-cloud-allow-emails')!.include).toEqual([
+      { email: { email: 'owner@example.com' } },
+      { email: { email: 'alpha@example.com' } },
+      { email: { email: 'beta@example.com' } },
+    ]);
+
+    expect((statSync(world.tokenPath('owners')).mode & 0o777).toString(8)).toBe('700');
+    for (const id of ['alpha', 'beta']) {
+      expect((statSync(world.tokenPath(`owners/${id}`)).mode & 0o777).toString(8)).toBe('700');
+      for (const kind of ['engine', 'integrator'] as const) {
+        const file = ownerFile(id, `${kind}-access-token.json`);
+        expect((statSync(file).mode & 0o777).toString(8)).toBe('600');
+        const token = cf.token(`projectman-cloud-owner-${id}-${kind}`)!;
+        expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual({
+          'CF-Access-Client-Id': token.client_id,
+          'CF-Access-Client-Secret': cf.secrets.get(token.id),
+        });
+        expect(world.output).not.toContain(ownerSecret(id, kind));
+      }
+    }
+    expect(ownerSecret('alpha', 'engine')).not.toBe(ownerSecret('beta', 'engine'));
+    expect(hostSnapshot()).toBe(before);
+
+    world.lines.length = 0;
+    cf.calls.length = 0;
+    expect(await edge()).toBe(0);
+    expect(cf.mutations()).toEqual([]);
+  });
+
+  it('takes a removed owner off, in the order application, policy, token, files', async () => {
+    world.writeConfig(ownersConfig('alpha', 'beta'));
+    expect(await edge()).toBe(0);
+    const host = hostSnapshot();
+    const alpha = JSON.stringify([
+      world.cf.token('projectman-cloud-owner-alpha-engine'),
+      world.cf.policy('projectman-cloud-owner-alpha-engine-service'),
+      readFileSync(ownerFile('alpha', 'engine-access-token.json'), 'utf8'),
+    ]);
+    world.writeConfig(ownersConfig('alpha'));
+    world.cf.calls.length = 0;
+    expect(await edge()).toBe(0);
+    const { cf } = world;
+
+    expect(cf.tokens.map((token) => token.name).filter((name) => name.includes('-owner-'))).toEqual([
+      'projectman-cloud-owner-alpha-engine',
+      'projectman-cloud-owner-alpha-integrator',
+    ]);
+    expect(
+      cf.policies.map((policy) => policy.name as string).filter((name) => name.includes('beta')),
+    ).toEqual([]);
+    expect(policyIds('projectman-cloud-engine')).toHaveLength(2);
+    expect(policyIds('projectman-cloud-integrator')).toHaveLength(2);
+    expect(cf.policy('projectman-cloud-allow-emails')!.include).toEqual([
+      { email: { email: 'owner@example.com' } },
+      { email: { email: 'alpha@example.com' } },
+    ]);
+    expect(existsSync(world.tokenPath('owners/beta'))).toBe(false);
+    expect(existsSync(world.tokenPath('owners/alpha'))).toBe(true);
+    expect(hostSnapshot()).toBe(host);
+    expect(
+      JSON.stringify([
+        cf.token('projectman-cloud-owner-alpha-engine'),
+        cf.policy('projectman-cloud-owner-alpha-engine-service'),
+        readFileSync(ownerFile('alpha', 'engine-access-token.json'), 'utf8'),
+      ]),
+    ).toBe(alpha);
+
+    const order = cf
+      .mutations()
+      .map((call) => `${call.method} ${call.path.split('/').slice(3, 5).join('/')}`);
+    const firstApp = order.findIndex((entry) => entry.startsWith('PUT access/apps'));
+    const policyDeletes = order.flatMap((entry, index) =>
+      entry === 'DELETE access/policies' ? [index] : [],
+    );
+    const tokenDeletes = order.flatMap((entry, index) =>
+      entry === 'DELETE access/service_tokens' ? [index] : [],
+    );
+    expect(policyDeletes).toHaveLength(2);
+    expect(tokenDeletes).toHaveLength(2);
+    expect(firstApp).toBeGreaterThan(-1);
+    expect(Math.max(firstApp, ...policyDeletes)).toBeLessThan(Math.min(...tokenDeletes));
+    expect(Math.min(...policyDeletes)).toBeGreaterThan(firstApp);
+  });
+
+  it('leaves a folder with a foreign file in it, and says so', async () => {
+    world.writeConfig(ownersConfig('alpha'));
+    expect(await edge()).toBe(0);
+    writeFileSync(ownerFile('alpha', 'notes.txt'), 'mine', { mode: 0o600 });
+    world.writeConfig(ownersConfig());
+    world.lines.length = 0;
+    expect(await edge()).toBe(0);
+    expect(existsSync(ownerFile('alpha', 'engine-access-token.json'))).toBe(false);
+    expect(existsSync(ownerFile('alpha', 'notes.txt'))).toBe(true);
+    expect(world.output).toContain('kept owners/alpha');
+  });
+
+  it('only reads under --dry-run when adding and when taking off', async () => {
+    world.writeConfig(ownersConfig('alpha'));
+    expect(await edge('--dry-run')).toBe(0);
+    expect(world.cf.mutations()).toEqual([]);
+    expect(existsSync(world.tokenPath('owners'))).toBe(false);
+    expect(await edge()).toBe(0);
+
+    world.writeConfig(ownersConfig());
+    world.cf.calls.length = 0;
+    world.lines.length = 0;
+    expect(await edge('--dry-run')).toBe(0);
+    expect(world.cf.mutations()).toEqual([]);
+    expect(world.output).toContain('skipped owner-cleanup: dry-run: would delete');
+    expect(world.cf.token('projectman-cloud-owner-alpha-engine')).toBeDefined();
+    expect(existsSync(ownerFile('alpha', 'engine-access-token.json'))).toBe(true);
+  });
+
+  it('goes on without the host’s copy of an owner’s file, still takes another owner off, and rotates on request', async () => {
+    world.writeConfig(ownersConfig('alpha', 'beta'));
+    expect(await edge()).toBe(0);
+    rmSync(ownerFile('alpha', 'engine-access-token.json'));
+    const tokenId = world.cf.token('projectman-cloud-owner-alpha-engine')!.id;
+    const policy = JSON.stringify(world.cf.policy('projectman-cloud-owner-alpha-engine-service'));
+
+    world.writeConfig(ownersConfig('alpha'));
+    world.lines.length = 0;
+    expect(await edge()).toBe(0);
+    expect(world.output).toContain('skipped owner-token alpha-engine');
+    expect(world.output).toContain('--rotate-owner-token alpha');
+    expect(world.cf.token('projectman-cloud-owner-beta-engine')).toBeUndefined();
+    expect(world.cf.token('projectman-cloud-owner-alpha-engine')!.id).toBe(tokenId);
+    expect(JSON.stringify(world.cf.policy('projectman-cloud-owner-alpha-engine-service'))).toBe(policy);
+
+    const oldIntegrator = ownerSecret('alpha', 'integrator');
+    expect(await edge('--rotate-owner-token', 'alpha')).toBe(0);
+    expect(ownerSecret('alpha', 'engine')).toBe(world.cf.secrets.get(tokenId));
+    expect(ownerSecret('alpha', 'integrator')).not.toBe(oldIntegrator);
+    expect(world.output).not.toContain(ownerSecret('alpha', 'engine'));
+  });
+
+  it('refuses a rotation for an owner who is not listed, before it changes anything', async () => {
+    world.writeConfig(ownersConfig('alpha'));
+    expect(await edge()).toBe(0);
+    world.cf.calls.length = 0;
+    expect(await edge('--rotate-owner-token', 'nobody')).toBe(2);
+    expect(world.output).toContain('no owner nobody in access.owners');
+    expect(world.cf.calls).toEqual([]);
+  });
+
+  it('refuses an owner folder that is too open, before it creates anything', async () => {
+    world.writeConfig(ownersConfig('alpha'));
+    expect(await edge()).toBe(0);
+    chmodSync(world.tokenPath('owners/alpha'), 0o755);
+    world.cf.calls.length = 0;
+    expect(await edge()).toBe(2);
+    expect(world.output).toContain('must be 700');
+    expect(world.cf.mutations()).toEqual([]);
   });
 });
 

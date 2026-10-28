@@ -2409,6 +2409,13 @@ workers follow the machine's size.
   (by `deploy`), `guard-check` over the machine's SSH connection (it asks the container's own guard), and
   `engine-access-token.json`, which is the engine's `linkHeadersFile` content (HYBRID.md) and is put on an
   engine by the owner.
+  **Further owners (PM-1065):** each `access.owners` entry gets its own engine and integrator service
+  token and policies (`<tunnel>-owner-<id>-…`) and its own two files under `owners/<id>/` in the same
+  secrets store (folder 700, files 600; the host's token, policy and file never change). `edge` adds the
+  policies to the engine and integrator applications and removes only a left owner's objects (policies,
+  then tokens, then files). `check` tries each owner's pair from the host's copy of the files. Machine
+  assumption: the same host Mac and store. Remote engine: still nothing runs on it; an owner's engine
+  gets its file by hand from the host, outside projectman.
   **Separate machine entrance (PM-675):** optional explicit `cloudflare.integratorHostname`, required
   with a public integrator service token, has its own Service Auth application and audience on the same
   tunnel. Only literal `/api/...` and exact `/mcp` reach the hub on that host. `edge` writes

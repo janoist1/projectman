@@ -467,7 +467,9 @@ It holds paths and an origin, never a secret:
   path, query or fragment. A redirect is never followed, so the key never goes to another origin.
 - `keyFile` is the file of "Integrator access" above. `accessHeadersFile` (cloud only) is the
   integrator's service-token file made by `npm run cloud -- edge` (`CF-Access-Client-Id`,
-  `CF-Access-Client-Secret`). A relative path is relative to the configuration file's directory.
+  `CF-Access-Client-Secret`). A relative path is relative to the configuration file's directory. A
+  further owner's client points `accessHeadersFile` at the file `owners/<id>/integrator-access-token.json`
+  that the host made for them (PM-1065) and handed over outside projectman.
 - The configuration, the key file and the Access file must be regular files of your user with mode 600,
   in a directory of your user with mode 700, and none may be a symbolic link; otherwise the command
   stops with status 3 before it sends anything.

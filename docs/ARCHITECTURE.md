@@ -437,7 +437,11 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   removed (`task_prerequisite_removed`); the retry skips a start whose open prerequisites did not
   change. A person starts despite them with `despitePrerequisites` (`StartTaskRequest`, or
   `UpdateTaskRequest` on the move, carried as `StageChange.despitePrerequisites` into the
-  `work_start` spec): honored for human actors only, so a card an AI member moves waits. Cards in a
+  `work_start` spec): honored as `mayOverridePrerequisites` allows (PM-1099): a person, the
+  coordinator acting on the owner's request, or the project manager acting directly when
+  `team.prerequisiteOverride` is `people_and_project_manager` (default `people`); the project
+  manager's work-entry gate (`assertProjectManagerWorkEntry`) still stops without the flag, and a
+  card another AI member moves waits. Cards in a
   queue stage have no start, so a closing prerequisite starts nothing there. (A move that needs an
   approval first does not carry the flag past the approval: the card then waits.) Each closing writes
   `task_prerequisite_closed` on the timeline of every open dependent (`PrerequisiteClosures`). The

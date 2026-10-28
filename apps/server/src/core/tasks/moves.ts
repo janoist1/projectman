@@ -17,6 +17,7 @@ import {
   isOpenTask,
   isProjectManagerActor,
   isTheme,
+  mayOverridePrerequisites,
   noApproverReason,
   openPrerequisites,
   stageHandsOverForReview,
@@ -94,7 +95,7 @@ export interface StageChange {
   actor: Actor;
   eventId?: string;
   /**
-   * A person moved the card after the warning that a prerequisite is open (PM-204): the work start
+   * An override `mayOverridePrerequisites` allows (a person after the warning, PM-204): the work start
    * the move makes does not wait for the prerequisites.
    */
   despitePrerequisites?: boolean;
@@ -324,7 +325,9 @@ export class TaskMoves {
    * without an assignee needs a developer the start would pick (`senior_busy` or `no_free_member`
    * otherwise); an open prerequisite is refused with `prerequisite_open` and the open keys. The card
    * stays where it is. A person's move (after the warning, PM-204), and the system's and every other
-   * member's moves, are not affected; `start_task` (`viaStart`) chooses or waits by its own rules.
+   * member's moves, are not affected; `start_task` (`viaStart`) chooses or waits by its own rules. An
+   * explicit `despitePrerequisites` skips the prerequisite check when `mayOverridePrerequisites` allows it
+   * (PM-1099); the free-member check stays.
    */
   assertProjectManagerWorkEntry(
     config: ProjectConfig,
@@ -332,9 +335,11 @@ export class TaskMoves {
     target: Stage,
     actor: Actor,
     viaStart = false,
+    despitePrerequisites = false,
   ): void {
     if (target.kind !== 'work' || task.stageId === target.id || !isProjectManagerActor(config, actor)) return;
     if (!task.assignee && !viaStart) this.workEntryCheck?.assertMemberFree(config, task, target);
+    if (despitePrerequisites && mayOverridePrerequisites(config, actor)) return;
     const repo = this.store.ctx.repos.tasks;
     const reader = {
       readSchedulingTasks: (key: string, query: TaskSchedulingQuery) => repo.readScheduling(key, query),
@@ -468,7 +473,14 @@ export class TaskMoves {
       return { task, moved: false, pendingApproval: [] };
     // Every move path checks the project manager's configured stage-move rights.
     if (actorMoveRefusal(config, actor, task.stageId, target.id)) throw projectManagerMoveRefused();
-    this.assertProjectManagerWorkEntry(config, task, target, actor, opts.viaStart === true);
+    this.assertProjectManagerWorkEntry(
+      config,
+      task,
+      target,
+      actor,
+      opts.viaStart === true,
+      opts.despitePrerequisites === true,
+    );
     // A collecting card whose subtasks are all closed goes to the done stage without the gates (PM-647).
     const waiver = this.partsClosedOf(config, task, target.id);
     // The system's automatic close is valid only while the waiver holds: it never falls back to the gates.
@@ -514,7 +526,7 @@ export class TaskMoves {
     };
     const board: BoardPlace = { placement: opts.placement, reranked: [] };
     return {
-      // Only a person can accept the warning: an AI actor's flag is ignored.
+      // Only an actor `mayOverridePrerequisites` allows can accept the warning: any other flag is ignored.
       task: this.applyMove(
         config,
         task,
@@ -523,7 +535,7 @@ export class TaskMoves {
         extra,
         effects,
         head,
-        opts.despitePrerequisites === true && actor.kind === 'human',
+        opts.despitePrerequisites === true && mayOverridePrerequisites(config, actor),
         board,
       ),
       moved: true,

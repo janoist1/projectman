@@ -2560,6 +2560,13 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                         ],
                         "type": "object",
                       },
+                      "prerequisiteOverride": {
+                        "enum": [
+                          "people",
+                          "people_and_project_manager",
+                        ],
+                        "type": "string",
+                      },
                       "prioritySetters": {
                         "items": {
                           "enum": [
@@ -4452,7 +4459,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": false,
       "title": "Start work on a task",
     },
-    "description": "Only the selected PM in its internal general conversation, during its own open owner request. Start a task with an optional assignee; the PM stage-move rules apply. Also starts a stalled task already in its work stage without a running session. Gates and prerequisites still apply; despite_prerequisites does not grant the PM an override. A refused start waits for nothing; the error names why (for example member_on_leave, member_at_capacity, team_paused). With signal_id (an idle card the system signalled) and no owner request, and only when the project lets the coordinator act on signals, it starts the card's own assignee; it takes no assignee or despite_prerequisites then.",
+    "description": "Only the selected PM in its internal general conversation, during its own open owner request. Start a task with an optional assignee; the PM stage-move rules apply. Also starts a stalled task already in its work stage without a running session. Gates and prerequisites still apply; despite_prerequisites is honored only when the project settings let the PM override prerequisites (team.prerequisiteOverride). A refused start waits for nothing; the error names why (for example member_on_leave, member_at_capacity, team_paused). With signal_id (an idle card the system signalled) and no owner request, and only when the project lets the coordinator act on signals, it starts the card's own assignee; it takes no assignee or despite_prerequisites then.",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,
@@ -4763,6 +4770,10 @@ exports[`team tool definitions > preserves the public tool definitions across mo
           "maxLength": 20000,
           "minLength": 1,
           "type": "string",
+        },
+        "despite_prerequisites": {
+          "description": "Move into the work stage despite an open prerequisite. Honored only for a person, or for the project manager when the project settings allow it (team.prerequisiteOverride); otherwise the card's work start waits for its prerequisites.",
+          "type": "boolean",
         },
         "note": {
           "description": "Note for the timeline: findings, decisions, what changed; with labels, their comment.",

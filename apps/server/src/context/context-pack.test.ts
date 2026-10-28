@@ -2686,6 +2686,15 @@ describe('expected steps', () => {
     expect(pack.appendSystemPrompt).not.toContain('and priorities');
   });
 
+  it('tells the project manager about despite_prerequisites only when the project lets it override (PM-1099)', () => {
+    const project = buildProject();
+    addMember(project, 'pm', 'project_manager');
+    const guide = () => builder.build(input({ project, handle: 'pm' })).guide.role!;
+    expect(guide()).not.toContain('despite_prerequisites');
+    project.team.prerequisiteOverride = 'people_and_project_manager';
+    expect(guide()).toContain('despite_prerequisites');
+  });
+
   it('tells a member holding the prioritization duty that it may set a priority, when the setting allows it (PM-1096)', () => {
     const project = buildProject();
     addMember(project, 'pm', 'project_manager');

@@ -4237,6 +4237,10 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   (`usage.plan`, `provider.status`); the cloud keeps only the measurements, with the engine that sent them.
   PM-1059: `usage.plan` is asked of one named engine; the monitor and the cache key a value by
   `(engine, provider)` and a board reads the project's representative engine (see "Cloud composition").
+  PM-1091: the NanoGPT quota and rate hold (`ProviderQuotaHolds`, in memory on the hub) is per key: the
+  cloud's key is `'host'`, an engine with its own key file is held under its engine id
+  (`EngineDirectory.nanogptKeyHolder`). Only a `usage.plan` measurement on the engine that owns the key
+  lifts or moves its hold, so a friend's limit does not stop the host's members and the reverse.
   **Module:** `runtime/usage`
 - **Claude workspace trust** — `runner/providers/claude/trust.ts` (PM-341).
   The runner updates workspace trust in `~/.claude.json` (or the configured Claude config directory).

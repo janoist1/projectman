@@ -619,6 +619,7 @@ export function createRemoteEngineDirectory(options: RemoteDirectoryOptions): Re
     // comes from its binding (PM-1060); `hostEngine` is the machine-wide default, the host owner's machine.
     projectEngine: (projectKey: string) => hub.projectEngine(projectKey),
     hostEngine: () => hub.hostEngine(),
+    nanogptKeyHolder: (id: EngineId) => (hub.ownNanogptKey(id) ? id : 'host'),
     engineFor: (projectKey: string, _member: MemberHandle) => directory.projectEngine(projectKey),
     onChange: (listener) => hub.onChange(listener),
     awaitConnected: (id, waitMs, signal) => hub.awaitLink(id, waitMs, signal),

@@ -483,6 +483,12 @@ modules:
     summary: Az Operátor beszélgetése, jelzései és kérései.
     paths:
       - apps/web/src/features/operator/
+  - id: web/owner-onboarding
+    area: ui
+    name: Új tulajdonos indulása
+    summary: A tulajdonosi meghívó elfogadása, az első gép bekötése és az első projekt a saját gépen.
+    paths:
+      - apps/web/src/features/owner-onboarding/
   - id: web/pause
     area: ui
     name: Szüneteltetés

@@ -1,0 +1,235 @@
+.page {
+  display: grid;
+  gap: 16px;
+}
+.facts {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.facts li {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  color: var(--c-ink-2);
+}
+.facts svg {
+  flex-shrink: 0;
+  margin-top: 3px;
+  color: var(--c-ok);
+}
+.form {
+  display: grid;
+  gap: 14px;
+}
+.card {
+  padding: 16px;
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius-lg);
+  background: var(--c-surface);
+}
+.steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+.step {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 12px;
+  padding: 10px 0;
+}
+.step + .step {
+  border-top: 1px solid var(--c-line);
+}
+.num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1.5px solid var(--c-ink-4);
+  color: var(--c-ink-3);
+  font-size: 13px;
+  font-weight: 700;
+}
+.num[data-state='current'] {
+  border-color: var(--c-accent);
+  background: var(--c-accent);
+  color: var(--c-surface);
+}
+.num[data-state='done'] {
+  border-color: var(--c-ok);
+  background: var(--c-ok);
+  color: var(--c-surface);
+}
+.stepBody {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  align-content: start;
+}
+.stepBody > * {
+  margin: 0;
+}
+.stepTitle {
+  font-size: var(--text-md);
+  font-weight: 700;
+  line-height: 26px;
+}
+.step[data-state='todo'] .stepTitle {
+  color: var(--c-ink-4);
+  font-weight: 600;
+}
+.line {
+  color: var(--c-ink-3);
+  font-size: 13px;
+}
+.hint {
+  color: var(--c-ink-3);
+  font-size: 13px;
+}
+.sub {
+  font-size: 13px;
+  font-weight: 700;
+}
+.warn {
+  padding: 10px 12px;
+  border-radius: var(--radius-lg);
+  background: var(--c-needs-soft);
+  color: var(--c-needs-text);
+  font-size: 13px;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.actionsEnd {
+  justify-content: flex-end;
+}
+.linkButton {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--c-accent);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.linkButton:hover {
+  color: var(--c-accent-hover);
+  text-decoration: underline;
+}
+.live {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: var(--radius-lg);
+  background: var(--c-subtle);
+  color: var(--c-ink-2);
+  font-size: 13.5px;
+}
+.live[data-state='ok'] {
+  background: var(--c-ok-bg);
+}
+.live[data-state='error'] {
+  background: var(--c-needs-soft);
+  color: var(--c-needs-text);
+}
+.liveDot {
+  flex-shrink: 0;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--c-ink-4);
+}
+.live[data-state='waiting'] .liveDot {
+  background: var(--c-accent);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+.live[data-state='ok'] .liveDot {
+  background: var(--c-ok);
+}
+.live[data-state='error'] .liveDot {
+  background: var(--c-needs);
+}
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.35;
+    transform: scale(0.8);
+  }
+}
+.mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.stuck {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--c-ink-2);
+  font-size: 13px;
+}
+.providers {
+  display: grid;
+  gap: 4px;
+}
+.providerRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  align-items: baseline;
+  padding: 8px 0;
+  border-top: 1px solid var(--c-line);
+}
+.providerRow:first-child {
+  border-top: 0;
+}
+.providerName {
+  min-width: 90px;
+  font-weight: 700;
+}
+.providerState {
+  color: var(--c-ink-3);
+  font-size: 13px;
+}
+.providerState[data-tone='needs'] {
+  color: var(--c-needs-text);
+}
+.providerTodo {
+  flex-basis: 100%;
+  color: var(--c-ink-3);
+  font-size: 13px;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--c-accent-bg);
+  color: var(--c-accent-text);
+  font-size: 11px;
+  font-weight: 600;
+}
+.commands {
+  display: grid;
+  gap: 8px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .live[data-state='waiting'] .liveDot {
+    animation: none;
+  }
+}

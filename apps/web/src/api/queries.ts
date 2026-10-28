@@ -135,10 +135,12 @@ export function useLogout() {
   });
 }
 
-export function useProviders() {
+/** The host's own provider logins; `enabled` is off for an owner account, whose providers are its machine's. */
+export function useProviders(enabled = true) {
   return useQuery({
     queryKey: queryKeys.providers,
     queryFn: api.providers,
+    enabled,
     staleTime: 0,
     refetchInterval: 30_000,
   });
@@ -425,9 +427,49 @@ export function useEngineStatus() {
   });
 }
 
-/** The owner's list of engines with their hello data and counts (revoked ones too). */
-export function useEngines(enabled: boolean) {
-  return useQuery({ queryKey: queryKeys.engines, queryFn: api.engines, enabled, retry: false });
+/**
+ * The owner's list of engines with their hello data and counts (revoked ones too). `pollMs` re-asks while a
+ * page waits for a machine: an account without a project gets no `engine_changed` event (PM-1067).
+ */
+export function useEngines(enabled: boolean, pollMs?: number) {
+  return useQuery({
+    queryKey: queryKeys.engines,
+    queryFn: api.engines,
+    enabled,
+    retry: false,
+    refetchInterval: pollMs,
+  });
+}
+
+/** The provider logins on an engine's machine; `null` waits (no engine yet, or it is not connected). */
+export function useEngineProviders(engineId: string | null, pollMs?: number) {
+  return useQuery({
+    queryKey: queryKeys.engineProviders(engineId ?? ''),
+    queryFn: () => api.engineProviders(engineId!),
+    enabled: engineId !== null,
+    retry: false,
+    staleTime: 0,
+    refetchInterval: pollMs,
+  });
+}
+
+/** "Újraellenőrzés": asks the machine itself (`refresh=1`), then shows its answer. */
+export function useRecheckEngineProviders(engineId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.engineProviders(engineId, true),
+    onSuccess: (view) => client.setQueryData(queryKeys.engineProviders(engineId), view),
+  });
+}
+
+/** The project's engines with `holdsProject` (PM-1060); `pollMs` waits for the machine's hello. */
+export function useProjectEngines(projectKey: string, pollMs?: number) {
+  return useQuery({
+    queryKey: queryKeys.projectEngines(projectKey),
+    queryFn: () => api.projectEngines(projectKey),
+    retry: false,
+    refetchInterval: pollMs,
+  });
 }
 
 function refreshEngines(client: QueryClient) {
@@ -1035,6 +1077,25 @@ export function useAcceptInvite(token: string) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (body: AcceptInviteRequest) => api.acceptInvite(token, body),
+    onSuccess: (me) => {
+      client.clear();
+      client.setQueryData(queryKeys.me, me);
+    },
+  });
+}
+
+export function useOwnerInvite(token: string) {
+  return useQuery({
+    queryKey: queryKeys.ownerInvite(token),
+    queryFn: () => api.ownerInvite(token),
+    retry: false,
+    staleTime: 0,
+  });
+}
+export function useAcceptOwnerInvite(token: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (body: AcceptInviteRequest) => api.acceptOwnerInvite(token, body),
     onSuccess: (me) => {
       client.clear();
       client.setQueryData(queryKeys.me, me);

@@ -1,6 +1,5 @@
 import { useRef, useState } from 'react';
-import { AgentProvider } from '@projectman/shared';
-import { useProviders } from '../../api/queries';
+import { AgentProvider, type ProviderLoginStatus } from '@projectman/shared';
 import { Button } from '../../components/Button';
 import { t } from '../../i18n/t';
 import { NanogptKeyDialog } from '../settings/NanogptKeyDialog';
@@ -8,12 +7,21 @@ import { ProviderTodo, providerStatusText } from '../settings/ProviderStatus';
 import statusStyles from '../settings/sections/ProvidersSection.module.css';
 import styles from './CreateProjectPage.module.css';
 
+/** What the choice reads of a provider query: the host's logins (`useProviders`) or an engine's (`useEngineProviders`). */
+export interface ProviderQuery {
+  isPending: boolean;
+  isError: boolean;
+  isFetching: boolean;
+  data?: { providers: ProviderLoginStatus[]; canManageKeys?: boolean };
+  refetch: () => Promise<{ isError: boolean; data?: { providers: ProviderLoginStatus[] } }>;
+}
+
 export function ProviderChoice({
   query,
   value,
   onChange,
 }: {
-  query: ReturnType<typeof useProviders>;
+  query: ProviderQuery;
   value: AgentProvider;
   onChange: (provider: AgentProvider) => void;
 }) {

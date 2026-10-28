@@ -1,8 +1,17 @@
 import { useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import { useNavigate } from 'react-router';
+import { Link, useNavigate, useSearchParams } from 'react-router';
 import { starterProvider, type AgentProvider, type CreateProjectRequest } from '@projectman/shared';
-import { useCreateProject, useProjects, useProviders } from '../../api/queries';
+import {
+  useCreateProject,
+  useEngineProviders,
+  useEngineStatus,
+  useEngines,
+  useMe,
+  useProjects,
+  useProviders,
+  useRecheckEngineProviders,
+} from '../../api/queries';
 import { Button } from '../../components/Button';
 import { SelectField, TextField } from '../../components/Field';
 import { useToast } from '../../components/toastContext';
@@ -11,10 +20,15 @@ import { t } from '../../i18n/t';
 import { errorCode, errorMessage } from '../../lib/errors';
 import { useDocumentTitle } from '../../lib/hooks';
 import { AuthLayout } from '../auth/AuthLayout';
+import { defaultFirst } from '../engines/engineView';
+import { ownEngines } from '../owner-onboarding/welcomeState';
+import type { ProjectSetupState } from '../owner-onboarding/welcomeState';
 import { InstancePauseBar } from '../pause/PauseBanner';
+import { EnginePicker } from './EnginePicker';
 import { KEY_RE, newRepo, reposPayload, suggestKey, validateRepos } from './projectForm';
 import type { RepoErrors, RepoRow } from './projectForm';
 import { ProviderChoice } from './ProviderChoice';
+import type { ProviderQuery } from './ProviderChoice';
 import styles from './CreateProjectPage.module.css';
 
 interface Errors {
@@ -26,7 +40,43 @@ interface Errors {
 export function CreateProjectPage() {
   useDocumentTitle(t('projects.create.title'));
   const projects = useProjects();
-  const providers = useProviders();
+  const me = useMe();
+  const ownerAccount = me.data?.ownerAccount === true;
+  const engineStatus = useEngineStatus();
+  // An owner account always creates on a machine of its own; the host only once it has several of its own.
+  const pickerPossible = ownerAccount || (me.data?.hostOwner === true && engineStatus.data?.mode === 'cloud');
+  const engines = useEngines(pickerPossible);
+  const own = defaultFirst(ownEngines(engines.data ?? []));
+  const showPicker = pickerPossible && (ownerAccount || own.length >= 2);
+  const connected = own.filter((engine) => engine.online);
+  const [search] = useSearchParams();
+  const [chosenEngine, setChosenEngine] = useState<string | null>(null);
+  const wantedEngine = search.get('engine');
+  const selected = showPicker
+    ? (connected.find((engine) => engine.id === chosenEngine) ??
+      connected.find((engine) => engine.id === wantedEngine) ??
+      connected[0] ??
+      null)
+    : null;
+  const noMachine = ownerAccount && engines.isSuccess && connected.length === 0;
+  const hostProviders = useProviders(!ownerAccount);
+  const engineProviders = useEngineProviders(selected?.id ?? null);
+  const recheckProviders = useRecheckEngineProviders(selected?.id ?? '');
+  // The machine's own logins decide what it can run, so "Újraellenőrzés" asks the machine itself.
+  const engineQuery: ProviderQuery = {
+    isPending: engineProviders.isPending,
+    isError: engineProviders.isError,
+    isFetching: engineProviders.isFetching || recheckProviders.isPending,
+    data: engineProviders.data,
+    refetch: async () => {
+      try {
+        return { isError: false, data: await recheckProviders.mutateAsync() };
+      } catch {
+        return { isError: true };
+      }
+    },
+  };
+  const providers: ProviderQuery = selected ? engineQuery : hostProviders;
   const create = useCreateProject();
   const toast = useToast();
   const navigate = useNavigate();
@@ -44,6 +94,8 @@ export function CreateProjectPage() {
   const provider =
     chosenProvider ??
     (providers.isError ? 'claude' : (starterProvider(providers.data?.providers ?? []) ?? 'claude'));
+  // The submit waits for what it needs: the machines, and the logins of the machine it will run on.
+  const waiting = noMachine || (ownerAccount && engines.isPending) || providers.isPending;
   const effectiveKey = keyTouched ? key : suggestKey(name);
   const updateRepo = (id: number, patch: Partial<RepoRow>) =>
     setRepos((rows) => rows.map((row) => (row.id === id ? { ...row, ...patch } : row)));
@@ -56,7 +108,7 @@ export function CreateProjectPage() {
     });
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
-    if (providers.isPending || submitting.current) return;
+    if (waiting || submitting.current) return;
     const found: Errors = {};
     if (!name.trim()) found.name = t('projects.validation.nameRequired');
     if (!KEY_RE.test(effectiveKey)) found.key = t('projects.validation.keyInvalid');
@@ -74,19 +126,37 @@ export function CreateProjectPage() {
       workspacePath: workspace.trim(),
       language,
       provider,
+      ...(selected ? { engineId: selected.id } : {}),
       ...(reposPayload(repos).length ? { repos: reposPayload(repos) } : {}),
     };
     submitting.current = true;
     create.mutate(request, {
       onSuccess: () => {
         toast.show(t('projects.create.created', { name: name.trim() }));
+        if (selected) {
+          // The machine must still be told to hold the project's folder: that is the next page.
+          const state: ProjectSetupState = {
+            folder: workspace.trim(),
+            repos: reposPayload(repos).map(({ name: repoName, path }) => ({ name: repoName, path })),
+          };
+          navigate(`/welcome/${effectiveKey}`, { replace: true, state });
+          return;
+        }
         navigate(`/p/${effectiveKey}`, { replace: true, state: { operatorChecklist: true } });
       },
       onError: (error) => {
-        if (errorCode(error) === 'workspace_not_found') {
-          setErrors({ workspace: t('errors.codes.workspace_not_found') });
+        const code = errorCode(error);
+        if (code === 'workspace_not_found') {
+          setErrors({
+            workspace: selected
+              ? t('projects.create.workspaceNotOnEngine', { machine: selected.name })
+              : t('errors.codes.workspace_not_found'),
+          });
           focusError();
         }
+        // The machine went away or was revoked since the list was read.
+        if (code === 'engine_offline' || code === 'engine_revoked' || code === 'engine_not_found')
+          void engines.refetch();
       },
       onSettled: () => {
         submitting.current = false;
@@ -141,13 +211,27 @@ export function CreateProjectPage() {
           </section>
           <section className={styles.section} aria-labelledby="code-title">
             <h2 id="code-title">{t('projects.create.codeTitle')}</h2>
+            {showPicker && !noMachine ? (
+              <EnginePicker engines={own} value={selected?.id ?? null} onChange={setChosenEngine} />
+            ) : null}
+            {noMachine ? (
+              <p id="engine-none" className={styles.warning} role="note">
+                {t('projects.create.noEngine')}{' '}
+                <Link to="/welcome">{t('projects.create.connectEngine')}</Link>
+              </p>
+            ) : null}
             <TextField
               label={t('projects.create.workspace')}
-              hint={t('projects.create.workspaceHint')}
+              hint={
+                selected
+                  ? t('projects.create.workspaceHintOnEngine', { machine: selected.name })
+                  : t('projects.create.workspaceHint')
+              }
               placeholder={t('projects.create.workspacePlaceholder')}
               value={workspace}
               onChange={(event) => setWorkspace(event.target.value)}
               error={errors.workspace}
+              disabled={noMachine}
               spellCheck={false}
             />
             <details className={styles.repos} open={repos.length > 0}>
@@ -211,7 +295,9 @@ export function CreateProjectPage() {
               </Button>
             </details>
           </section>
-          <ProviderChoice query={providers} value={provider} onChange={setChosenProvider} />
+          {noMachine ? null : (
+            <ProviderChoice query={providers} value={provider} onChange={setChosenProvider} />
+          )}
           <div className={styles.bar}>
             {create.isError && errorCode(create.error) !== 'workspace_not_found' ? (
               <ErrorBanner>
@@ -229,13 +315,15 @@ export function CreateProjectPage() {
                 variant="primary"
                 size="md"
                 loading={create.isPending}
-                aria-disabled={providers.isPending || undefined}
-                aria-describedby={providers.isPending ? 'providers-pending' : undefined}
+                aria-disabled={waiting || undefined}
+                aria-describedby={
+                  noMachine ? 'engine-none' : providers.isPending ? 'providers-pending' : undefined
+                }
               >
                 {t(create.isPending ? 'projects.create.submitting' : 'projects.create.submit')}
               </Button>
             </div>
-            {providers.isPending ? (
+            {providers.isPending && !noMachine ? (
               <p id="providers-pending" className={styles.muted}>
                 {t('projects.create.providersPending')}
               </p>

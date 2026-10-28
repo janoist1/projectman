@@ -5,6 +5,7 @@ import {
   BuiltInRoleId,
   DEFAULT_AGENT_PROVIDER,
   DEFAULT_PROJECT_LANGUAGE,
+  DEFAULT_PROJECT_MANAGER_MOVES,
   DEFAULT_TEMP_MAX_POINTS,
   defaultMerger,
   FALLBACK_PERMISSION_MODE,
@@ -266,6 +267,14 @@ function addCardMover(raw: unknown): unknown {
   return raw;
 }
 
+/** Existing projects allow moves between queues as well as starting work (PM-1094). */
+function addProjectManagerMoves(raw: unknown): unknown {
+  const team = asRecord(asRecord(raw)?.team);
+  if (team && team.projectManagerMoves === undefined)
+    team.projectManagerMoves = DEFAULT_PROJECT_MANAGER_MOVES;
+  return raw;
+}
+
 /**
  * The Operator member is gone (decision 66, PM-1076): a connected Claude replaces it. A member of the
  * retired `ai_operator` role leaves the team like any retired member (the `reconcile` listener records it
@@ -389,6 +398,7 @@ function addTempMaxPoints(raw: unknown): unknown {
  *   - the removed message storm threshold (`messageBurst`) is dropped (above);
  *   - a project without an AI project manager gets one, on leave (above);
  *   - a missing card mover becomes worker (above);
+ *   - missing project manager moves allow queue moves and starting work (above);
  *   - the retired Operator member (`ai_operator`) leaves the team, with its role override and its
  *     references (above), and is never put back;
  *   - a missing merger becomes the code reviewer or the developer, by the pipeline (above), judged on
@@ -403,27 +413,29 @@ export function migrateProjectConfig(raw: unknown, context: MigrationContext): u
     addFeedbackProcessing(
       addMerger(
         removeOperator(
-          addCardMover(
-            addProjectManager(
-              migrateReleaseApproval(
-                migrateLegacyConfig(
-                  migrateCodexBypass(
-                    migrateScheduledRole(
-                      dropMessageBurst(
-                        migrateSeniorLimit(
-                          dropEmailMailbox(migrateShadowingRoles(raw, context), context),
+          addProjectManagerMoves(
+            addCardMover(
+              addProjectManager(
+                migrateReleaseApproval(
+                  migrateLegacyConfig(
+                    migrateCodexBypass(
+                      migrateScheduledRole(
+                        dropMessageBurst(
+                          migrateSeniorLimit(
+                            dropEmailMailbox(migrateShadowingRoles(raw, context), context),
+                            context,
+                          ),
                           context,
                         ),
                         context,
                       ),
                       context,
                     ),
-                    context,
                   ),
+                  context,
                 ),
                 context,
               ),
-              context,
             ),
           ),
           context,

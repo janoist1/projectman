@@ -8,15 +8,17 @@ import {
 } from '@projectman/shared';
 import { DAILY_WORKER_SCHEDULE } from '@projectman/templates';
 import { migrateProjectConfig } from '../src/config/migrations';
+import { mergeProjectFiles, parseYamlFile, splitProjectConfig } from '../src/config/layout';
 import { testConfig } from './helpers/test-template';
 
 /** The test configuration as a plain object, as it comes out of the YAML files (with its merger, as saved). */
 function raw(): {
-  team: { members: Array<Record<string, unknown>>; merger?: unknown };
+  team: { members: Array<Record<string, unknown>>; merger?: unknown; projectManagerMoves?: unknown };
   pipeline: { stages: Array<Record<string, unknown>>; labels: Array<{ id: string; setBy?: unknown }> };
 } {
   const config = JSON.parse(JSON.stringify(testConfig()));
   config.team.merger = { kind: 'code_reviewer' };
+  config.team.projectManagerMoves = 'queues_and_start';
   return config;
 }
 
@@ -27,6 +29,24 @@ function migrate(config: unknown) {
 }
 
 describe('project configuration migrations', () => {
+  it('defaults missing PM moves to queue moves and starting work', () => {
+    const legacy = raw();
+    delete legacy.team.projectManagerMoves;
+    expect(migrate(legacy).config.team.projectManagerMoves).toBe('queues_and_start');
+  });
+
+  it('preserves a saved start-only choice across configuration files and migration', () => {
+    const restricted = migrate(raw()).config;
+    restricted.team.projectManagerMoves = 'start_only';
+    const files = splitProjectConfig(restricted);
+    const reloaded = mergeProjectFiles({
+      'project.yaml': parseYamlFile('project.yaml', files['project.yaml']),
+      'team.yaml': parseYamlFile('team.yaml', files['team.yaml']),
+      'pipeline.yaml': parseYamlFile('pipeline.yaml', files['pipeline.yaml']),
+    });
+    expect(migrate(reloaded).config.team.projectManagerMoves).toBe('start_only');
+  });
+
   it('passes a current configuration through untouched', () => {
     const current = raw();
     const { migrated, warn } = migrate(current);

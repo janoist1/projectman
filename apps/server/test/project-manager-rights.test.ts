@@ -46,6 +46,26 @@ describe('the project manager’s rights on the server', () => {
   const timelineLength = () => h.domain.tasks.detail('AR', 'AR-1').timeline.length;
   const toolError = (promise: Promise<unknown>) => rejection(promise, TeamToolError);
 
+  it('keeps the destination label gate when the PM moves between queues', async () => {
+    await h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (config) => {
+      config.pipeline.stages.find((stage) => stage.id === 'ready')!.gate = {
+        conditions: [{ type: 'has_label', label: 'ready-ok' }],
+      };
+      return 'Gate the ready queue';
+    });
+    const blocked = await toolError(h.domain.teamTools.updateTask(pm, { taskKey: 'AR-1', stageId: 'ready' }));
+    expect(blocked.code).toBe('gate_blocked');
+    expect(card().stageId).toBe('backlog');
+    await h.domain.teamTools.updateTask(pm, {
+      taskKey: 'AR-1',
+      stageId: 'ready',
+      addLabels: ['ready-ok'],
+    });
+    expect(card().stageId).toBe('ready');
+    await h.domain.tasks.moveToStage('AR', 'AR-1', 'backlog', aiActor('pm'));
+    expect(card().stageId).toBe('backlog');
+  });
+
   describe('priority', () => {
     it('is set and cleared by the project manager under its own name', async () => {
       await h.domain.teamTools.updateTask(pm, { taskKey: 'AR-1', priority: 'urgent' });
@@ -161,8 +181,8 @@ describe('the project manager’s rights on the server', () => {
     });
 
     it('refuses every other move and records nothing of the same call', async () => {
-      // A step stage, back to the first stage, and back from the work stage afterwards.
-      for (const stageId of ['code_review', 'merge', 'done', 'backlog']) {
+      // Other stage kinds, and back from the work stage afterwards.
+      for (const stageId of ['code_review', 'merge', 'done']) {
         const before = timelineLength();
         const err = await toolError(
           h.domain.teamTools.updateTask(pm, {
@@ -174,7 +194,6 @@ describe('the project manager’s rights on the server', () => {
           }),
         );
         expect(err.code, stageId).toBe('forbidden');
-        expect(err.message).toContain('the project manager only starts cards');
         expect(card(), stageId).toMatchObject({ stageId: 'ready', priority: null, labels: [] });
         expect(timelineLength(), stageId).toBe(before);
       }
@@ -193,9 +212,9 @@ describe('the project manager’s rights on the server', () => {
       }
     });
 
-    it('refuses the move from the first stage, whichever way it is requested', async () => {
+    it('refuses starting work from the first stage, whichever way it is requested', async () => {
       await h.domain.tasks.create('AR', { title: 'Second card' }, OWNER_ACTOR);
-      for (const stageId of ['ready', 'development']) {
+      for (const stageId of ['development']) {
         await expect(
           h.domain.tasks.update('AR', 'AR-2', { stageId }, aiActor('pm')),
           stageId,

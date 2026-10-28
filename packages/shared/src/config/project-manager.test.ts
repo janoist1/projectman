@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { memberOf } from './lookup';
+import { applyConfigPatch, OperatorConfigPatch, prepareOperatorConfigPatch } from './edit';
 import {
   actorMoveRefusal,
   coordinationActorRefusal,
@@ -174,12 +175,30 @@ describe('projectManagerMoveRefusal', () => {
     expect(projectManagerMoveRefusal(config, 'ready', 'dev')).toBeNull();
   });
 
-  it('refuses the first stage, backward moves and moves into other kinds of stage', () => {
+  it.each([
+    ['ideas', 'ready'],
+    ['ready', 'ideas'],
+  ])('allows queue moves from %s to %s by default', (from, to) => {
+    expect(projectManagerMoveRefusal(config, from, to)).toBeNull();
+  });
+
+  it('restores start-only behavior through the PM configuration patch', () => {
+    const patch = prepareOperatorConfigPatch(
+      config,
+      'v1',
+      OperatorConfigPatch.parse({ projectManagerMoves: 'start_only' }),
+    );
+    const restricted = applyConfigPatch(config, patch);
+    expect(projectManagerMoveRefusal(restricted, 'ideas', 'ready')).toBe('project_manager_move_refused');
+    expect(projectManagerMoveRefusal(restricted, 'ready', 'ideas')).toBe('project_manager_move_refused');
+    expect(projectManagerMoveRefusal(restricted, 'ready', 'dev')).toBeNull();
+    expect(applyConfigPatch(restricted, { baseVersion: 'v2' }).team.projectManagerMoves).toBe('start_only');
+  });
+
+  it('refuses starting from the first stage and moves into other kinds of stage', () => {
     for (const [from, to] of [
-      ['ideas', 'ready'],
       ['ideas', 'dev'],
       ['dev', 'ready'],
-      ['ready', 'ideas'],
       ['ready', 'ready'],
       ['ready', 'review'],
       ['ready', 'done'],
@@ -201,7 +220,7 @@ describe('actorMoveRefusal', () => {
   const config = configWith([ai('pm'), ai('dev-1', { role: 'developer' })]);
 
   it('binds the AI project manager alone', () => {
-    expect(actorMoveRefusal(config, { kind: 'ai', handle: 'pm' }, 'ideas', 'ready')).toBe(
+    expect(actorMoveRefusal(config, { kind: 'ai', handle: 'pm' }, 'ideas', 'review')).toBe(
       'project_manager_move_refused',
     );
     expect(actorMoveRefusal(config, { kind: 'ai', handle: 'pm' }, 'ready', 'dev')).toBeNull();

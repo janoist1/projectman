@@ -442,14 +442,14 @@ describe('projectman CLI (PM-765)', () => {
       );
     });
 
-    it('reads the Operator queue and forwards closedSince with typed JSON output', async () => {
-      const view = { member: 'operator', items: [], closed: [], everQueued: false };
+    it('reads the project manager queue and forwards closedSince with typed JSON output', async () => {
+      const view = { member: 'pm', items: [], closed: [], everQueued: false };
       const result = await run(
         ['queue', '--project', 'PM', '--closed-since', '2026-10-20T00:00:00Z', '--json'],
         () => jsonResponse(view),
       );
       expect(result.code).toBe(0);
-      expect(result.requests[0]?.url.pathname).toBe('/api/projects/PM/operator/queue');
+      expect(result.requests[0]?.url.pathname).toBe('/api/projects/PM/project-manager/queue');
       expect(result.requests[0]?.url.searchParams.get('closedSince')).toBe('2026-10-20T00:00:00Z');
       expect(JSON.parse(result.stdout.join(''))).toEqual(view);
     });

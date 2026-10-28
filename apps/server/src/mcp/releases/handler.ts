@@ -1,4 +1,3 @@
-import { isOperator, memberOf } from '@projectman/shared';
 import { TeamToolError } from '../../contracts';
 import type {
   ToolContext,
@@ -14,12 +13,12 @@ import type { ToolCaller } from '../caller';
 
 export class ReleaseTools implements ReleaseToolsHandler {
   private readonly calls: ToolCaller;
-  private readonly releases: Pick<ReleaseService, 'preview' | 'propose' | 'check'>;
+  private readonly releases: Pick<ReleaseService, 'preview' | 'propose'>;
   private readonly publications: Pick<ReleasePublishService, 'preview' | 'publish'>;
 
   constructor(deps: {
     calls: ToolCaller;
-    releases: Pick<ReleaseService, 'preview' | 'propose' | 'check'>;
+    releases: Pick<ReleaseService, 'preview' | 'propose'>;
     publications: Pick<ReleasePublishService, 'preview' | 'publish'>;
   }) {
     this.calls = deps.calls;
@@ -82,13 +81,11 @@ export class ReleaseTools implements ReleaseToolsHandler {
     });
   }
 
-  async checkRelease(ctx: ToolContext, args: { commit?: string }): Promise<ReleaseCheckResult> {
+  /** The release check was the Operator's alone; with no Operator (decision 66, PM-1076) no member holds it. */
+  async checkRelease(ctx: ToolContext, _args: { commit?: string }): Promise<ReleaseCheckResult> {
     return this.calls.guard(async () => {
-      const config = await this.calls.caller(ctx, 'check_release');
-      const member = memberOf(config, ctx.member);
-      if (!member || !isOperator(member))
-        throw new TeamToolError('forbidden', 'operator_only: only the Operator may check a release.');
-      return this.releases.check(ctx.projectKey, args.commit);
+      await this.calls.caller(ctx, 'check_release');
+      throw new TeamToolError('forbidden', 'operator_only: no member may check a release this way.');
     });
   }
 }

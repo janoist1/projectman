@@ -8,8 +8,6 @@ const wake: WakeFacts = {
   fromHuman: false,
   fromAi: false,
   recipientHasRole: true,
-  recipientIsOperator: false,
-  fromOwnLogin: false,
   answersQuestion: false,
 };
 
@@ -123,56 +121,6 @@ describe('message validity and wake-up', () => {
 
     it('wakes even when the action message is stale', () => {
       expect(messageWakes(action, answering, 'stage_moved')).toBe(true);
-    });
-
-    it('does not change the Operator rule', () => {
-      const toOperator: WakeFacts = { ...answering, recipientIsOperator: true };
-      expect(messageWakes({}, toOperator, null)).toBe(false);
-      expect(messageWakeBlock({}, toOperator, null)).toBe('operator_owner_only');
-      const person: WakeFacts = { ...toOperator, fromHuman: true, fromOwnLogin: true };
-      expect(messageWakes({}, person, null)).toBe(true);
-    });
-  });
-
-  describe('the Operator wakes for a person’s own message (PM-447, PM-475)', () => {
-    const toOperator: WakeFacts = { ...wake, recipientIsOperator: true };
-    const personSender: WakeFacts = { ...toOperator, fromHuman: true, fromOwnLogin: true };
-
-    it('a person’s own message wakes it, an action or an info alike', () => {
-      for (const message of [{}, { kind: 'action' as const }, { kind: 'info' as const }]) {
-        expect(messageWakes(message, personSender, null)).toBe(true);
-        expect(messageWakeBlock(message, personSender, null)).toBeNull();
-      }
-    });
-
-    it.each([
-      ['a person through the integrator key', { ...toOperator, fromHuman: true, fromOwnLogin: false }],
-      ['an AI member that is not human', { ...toOperator, fromOwnLogin: true }],
-      ['an AI member with a role on the card', { ...toOperator, fromAi: true }],
-      ['an AI member without a role on the card', { ...toOperator, fromAi: true, recipientHasRole: false }],
-      ['the system', toOperator],
-    ])('a message from %s does not wake it and says why', (_who, facts) => {
-      expect(messageWakes({}, facts, null)).toBe(false);
-      expect(messageWakes({ kind: 'action' }, facts, null)).toBe(false);
-      expect(messageWakes({ kind: 'info' }, facts, null)).toBe(false);
-      expect(messageWakeBlock({}, facts, null)).toBe('operator_owner_only');
-    });
-
-    it('an info or a stale message is not blocked, it just starts nothing', () => {
-      const other: WakeFacts = { ...toOperator, fromAi: true };
-      expect(messageWakeBlock({ kind: 'info' }, other, null)).toBeNull();
-      expect(messageWakeBlock({}, other, 'stage_moved')).toBeNull();
-    });
-
-    it('a person through the integrator key does not wake it', () => {
-      const keyed: WakeFacts = { ...toOperator, fromHuman: true, fromOwnLogin: false };
-      expect(messageWakes({ kind: 'action' }, keyed, null)).toBe(false);
-      expect(messageWakeBlock({ kind: 'action' }, keyed, null)).toBe('operator_owner_only');
-    });
-
-    it('does not change who wakes the other members', () => {
-      expect(messageWakes({}, { ...wake, fromHuman: true, fromOwnLogin: false }, null)).toBe(true);
-      expect(messageWakes({}, { ...wake, fromOwnLogin: true }, null)).toBe(true);
     });
   });
 });

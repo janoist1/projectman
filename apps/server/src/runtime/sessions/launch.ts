@@ -7,7 +7,6 @@ import {
   isMergeFixer,
   guestOfConversation,
   handoffBlocksStart,
-  isOperator,
   isTheme,
   memberOf,
   memberStorageHandle,
@@ -333,12 +332,7 @@ export class SessionLauncher {
       }
     } else if (guestOf !== undefined) {
       // Its own empty directory: not the workspace, and its transcript is not the owner's conversation's.
-      cwd = guestSessionDir(
-        paths.home ?? path.join(paths.userHome, '.projectman'),
-        projectKey,
-        guestOf,
-        isOperator(member) ? 'operator' : 'manager',
-      );
+      cwd = guestSessionDir(paths.home ?? path.join(paths.userHome, '.projectman'), projectKey, guestOf);
       await engine.preparePortablePaths([cwd]);
     } else if (task && repoName && usesWorktree(member.role, config)) {
       // Code-changing roles work in the task's own worktree and branch; others in the workspace.

@@ -6,7 +6,6 @@ import {
   stageOwners,
   isCodeReviewStage,
   isOpenTask,
-  isOperatorActor,
   isConnectedOwnerActor,
 } from '@projectman/shared';
 import type {
@@ -344,13 +343,9 @@ export class Merges {
         row &&
         row.merger !== handle &&
         !(actor.kind === 'human' && ownerHandles(config).includes(handle)) &&
-        !isOperatorActor(config, actor) &&
         !isConnectedOwnerActor(config, actor)
       )
-        throw forbidden(
-          'merge_not_merger',
-          'only the card merger, an owner or the Operator may move a merge forward',
-        );
+        throw forbidden('merge_not_merger', 'only the card merger or an owner may move a merge forward');
       if (!row || row.state !== 'queued')
         throw conflict('merge_not_prioritizable', 'only a queued merge can be moved forward', {
           reason: !row ? 'no_merge' : row.state === 'running' ? 'running' : 'not_queued',
@@ -402,10 +397,9 @@ export class Merges {
     assertIntegratorAccess(config, 'write', actor);
     if (
       !(actor.kind === 'human' && ownerHandles(config).includes(actor.handle ?? '')) &&
-      !isOperatorActor(config, actor) &&
       !isConnectedOwnerActor(config, actor)
     )
-      throw forbidden('insufficient_access', 'only an owner or the Operator may order the merge queue');
+      throw forbidden('insufficient_access', 'only an owner may order the merge queue');
     if (!config.project.repos.some((repo) => repo.name === input.repo))
       throw conflict('merge_queue_conflict', 'the repository does not exist');
     const result = this.deps.ctx.unitOfWork(() => {

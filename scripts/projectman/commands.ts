@@ -423,7 +423,7 @@ export const COMMANDS: CommandSpec[] = [
   {
     name: 'queue',
     usage: 'queue --project KEY [--closed-since ISO]',
-    summary: 'Lists the Operator queue, followed by recently closed items',
+    summary: 'Lists the project manager queue, followed by recently closed items',
     options: { ...COMMON, project: { type: 'string' }, 'closed-since': { type: 'string' } },
     positionals: 0,
     write: false,
@@ -433,7 +433,7 @@ export const COMMANDS: CommandSpec[] = [
         throw new UsageError('--closed-since must be an ISO timestamp');
       const response = await ctx.api.send({
         method: 'GET',
-        path: `${routes.operatorQueue(projectOf(ctx))}${query({ closedSince })}`,
+        path: `${routes.projectManagerQueue(projectOf(ctx))}${query({ closedSince })}`,
         write: false,
       });
       return show(

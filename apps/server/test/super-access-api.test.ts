@@ -7,12 +7,12 @@ import {
   prepareOperatorConfigPatch,
   roleBundle,
   routes,
-  superActorOf,
+  coordinatorSuperActorOf,
   SuperOperateResponse,
 } from '@projectman/shared';
 import type { Actor } from '@projectman/shared';
 import type { IntegratorExecutionContext } from '../src/contracts';
-import { integratorExecution } from '../src/kernel';
+import { humanActor, integratorExecution } from '../src/kernel';
 import { createAppHarness, createForeignProject, createProject, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 
@@ -283,7 +283,6 @@ describe('credential REST and domain access (PM-759)', () => {
   });
 
   it.each([
-    { source: 'operator', payload: {} },
     { source: 'dev-1', payload: { superOperation: null } },
     { source: 'dev-1', payload: { operatorApproval: null } },
   ])('refuses an Operator decision on a protected item: $source $payload', async ({ source, payload }) => {
@@ -309,17 +308,17 @@ describe('credential REST and domain access (PM-759)', () => {
     expect(domain.inbox.get('AR', item.id).state).toBe('open');
   });
 
-  it('refuses the entire group when the Operator asked a pending member', async () => {
+  it('refuses the entire group when a protected approval is among its pending members', async () => {
     const { headers } = await credential('super');
     const { domain, repos } = h.app.projectman;
-    const items = ['dev-1', 'operator'].map((source) =>
+    const items = [{}, { operatorApproval: null }].map((extra) =>
       domain.inbox.create({
         projectKey: 'AR',
         kind: 'question',
-        source,
+        source: 'dev-1',
         assignees: ['owner'],
         title: 'Related question',
-        payload: { question: 'Which approach?', responsePurpose: 'owner_decision' },
+        payload: { question: 'Which approach?', responsePurpose: 'owner_decision', ...extra },
         options: [{ id: 'answer', label: 'answer', style: 'primary' }],
       }),
     );
@@ -346,10 +345,17 @@ describe('credential REST and domain access (PM-759)', () => {
   it('refuses an integrator-asked information question through the generic resolution endpoint', async () => {
     const { headers, context } = await credential('super');
     const { domain } = h.app.projectman;
-    const actor = superActorOf(await domain.projects.config('AR'), {
-      id: context!.principal.keyId,
-      prefix: context!.principal.prefix,
-    })!;
+    await domain.members.update(
+      'AR',
+      'pm',
+      { onLeave: false },
+      { actor: humanActor('owner'), author: { name: 'Owner', email: 'owner@example.com' } },
+    );
+    const actor = coordinatorSuperActorOf(
+      await domain.projects.config('AR'),
+      { id: context!.principal.keyId, prefix: context!.principal.prefix },
+      'pm',
+    )!;
     const item = domain.inbox.create({
       projectKey: 'AR',
       kind: 'question',

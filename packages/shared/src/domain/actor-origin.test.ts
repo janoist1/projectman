@@ -1,9 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  coordinatorSuperActorOf,
   isConnectedOwnerActor,
-  isOperatorActor,
-  isSuperOperatorActor,
-  superActorOf,
+  isCoordinatorSuperActor,
 } from '../config/operator-member';
 import {
   actorOriginMetaOf,
@@ -27,10 +26,10 @@ const superActor = {
   operatorMode: 'super',
   credential,
 } as const;
+const pmSuperActor = { ...superActor, handle: 'pm' };
 const config = {
   team: {
     members: [
-      { kind: 'ai', handle: 'operator', role: 'ai_operator' },
       { kind: 'ai', handle: 'other', role: 'developer' },
       { kind: 'ai', handle: 'pm', role: 'project_manager' },
     ],
@@ -115,8 +114,9 @@ describe('connected Claude actor origin (decision 66)', () => {
     expect(isConnectedOwnerActor(humanConfig, holder)).toBe(true);
     expect(isConnectedOwnerActor(humanConfig, connectedActorOf('helper', credential))).toBe(false);
     expect(isConnectedOwnerActor(humanConfig, issuerStep)).toBe(false);
-    // An old super actor keeps its own rule.
-    expect(isConnectedOwnerActor(config, superActor)).toBe(true);
+    // An old super actor keeps its own rule: the selected coordinator, not the retired Operator.
+    expect(isConnectedOwnerActor(config, pmSuperActor)).toBe(true);
+    expect(isConnectedOwnerActor(config, superActor)).toBe(false);
   });
 });
 
@@ -162,27 +162,26 @@ describe('super-mode actor origin (PM-757)', () => {
     expect(actorWithOriginMeta(direct, { operatorMode: 'super', credential })).toEqual(direct);
   });
 
-  it('computes the super actor from the configuration, with the Operator as handle', () => {
-    expect(superActorOf(config, credential)).toEqual(superActor);
-    expect(superActorOf({ team: { members: [], roles: [] } } as never, credential)).toBeNull();
+  it('computes the super actor from the configuration, with the selected coordinator as handle', () => {
+    expect(coordinatorSuperActorOf(config, credential, 'pm')).toEqual(pmSuperActor);
+    expect(
+      coordinatorSuperActorOf({ team: { members: [], roles: [] } } as never, credential, 'pm'),
+    ).toBeNull();
   });
 
-  it.each(['operator', 'pm'])('binds the app super actor to %s', (member) => {
-    expect(superActorOf(config, credential, member)).toEqual({ ...superActor, handle: member });
-    expect(isSuperOperatorActor(config, { ...superActor, handle: member })).toBe(true);
+  it('binds the app super actor to the selected coordinator only', () => {
+    expect(coordinatorSuperActorOf(config, credential, 'pm')).toEqual(pmSuperActor);
+    expect(coordinatorSuperActorOf(config, credential, 'other')).toBeNull();
+    expect(coordinatorSuperActorOf(config, credential, undefined)).toBeNull();
+    expect(coordinatorSuperActorOf(config, credential, 'operator')).toBeNull();
+    expect(isCoordinatorSuperActor(config, pmSuperActor)).toBe(true);
   });
 
-  it('refuses an app super actor outside the Operator and selected coordinator', () => {
-    expect(superActorOf(config, credential, 'other')).toBeNull();
-  });
-
-  it('recognises the super origin apart from the direct mode and grants nothing by itself', () => {
-    expect(isSuperOperatorActor(config, superActor)).toBe(true);
-    expect(isSuperOperatorActor(config, { kind: 'ai', handle: 'operator' })).toBe(false);
-    expect(isSuperOperatorActor(config, { ...superActor, handle: 'other' })).toBe(false);
-    // The direct base mode stays what it was; the super origin (it has `via`) is not mistaken for it.
-    expect(isOperatorActor(config, { kind: 'ai', handle: 'operator' })).toBe(true);
-    expect(isOperatorActor(config, superActor)).toBe(false);
+  it('recognises the super origin of the coordinator and grants nothing by itself', () => {
+    expect(isCoordinatorSuperActor(config, { kind: 'ai', handle: 'pm' })).toBe(false);
+    expect(isCoordinatorSuperActor(config, { ...pmSuperActor, handle: 'other' })).toBe(false);
+    // An old super row of the retired Operator names no member any more.
+    expect(isCoordinatorSuperActor(config, superActor)).toBe(false);
   });
 
   it('parses old and new messages', () => {

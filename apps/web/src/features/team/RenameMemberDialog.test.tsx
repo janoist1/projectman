@@ -101,9 +101,8 @@ describe('the member profile after a rename (PM-1026)', () => {
 
   it.each([
     ['qa', true],
-    ['operator', false],
     ['kata', false],
-  ])('offers the rename of %s: %s (owner, AI member, not the Operator)', async (handle, offered) => {
+  ])('offers the rename of %s: %s (owner, AI member only)', async (handle, offered) => {
     const project = mockProject();
     project.render(page, `/p/AC/team/${handle}`);
     const { displayName } = project.backend.findMember(handle)!;

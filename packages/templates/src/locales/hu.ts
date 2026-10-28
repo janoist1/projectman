@@ -213,15 +213,6 @@ export const hu: TemplateLocale = {
       whenToAsk:
         'Ha valami félrement, elakadt egy döntés, vagy olyan jóváhagyás kell, amit csak ő adhat meg.',
     },
-    ai_operator: {
-      name: 'Operátor',
-      summary:
-        'Csak átmeneti azonosító: a tulajdonos csatlakoztatott kliensének (szuperkulcsos integrátor) lépései ezen a tagon jelennek meg. Az appban nem fut, nem indítható és nem írható neki üzenet.',
-      notTheirJob:
-        'Nem fejleszt, nem válaszol üzenetre és nem dönt a tulajdonos helyett. A gépi munka az integrátorhoz megy az open_integrator_todo-val.',
-      whenToAsk:
-        'Ne kérdezd: gépi munkához nyiss integrátor-teendőt, minden máshoz kérdezz embert az ask_human-nal.',
-    },
     product_owner: {
       name: 'Terméktulajdonos',
       summary: 'Eldönti, mi készüljön és milyen sorrendben, és ő fogadja el a kész munkát.',

@@ -751,8 +751,6 @@ export function formatSentMessage(result: {
   /** Recipients that get it somewhere else than on the message's own card. */
   routed?: { handle: string; workItem: WorkItemRef }[];
   taskKey: string | null;
-  /** The sender is the Operator (PM-543): no line sends it to a person. */
-  operator?: boolean;
 }): string {
   const about = result.taskKey ? ` about ${result.taskKey}` : '';
   const missing = result.requested.filter((h) => !result.deliveredTo.includes(h));
@@ -762,15 +760,7 @@ export function formatSentMessage(result: {
       : `Message ${result.messageId}${about} was not delivered to anyone.`;
   const parts = [sent];
   if (missing.length > 0) parts.push(`Not delivered to: ${missing.join(', ')}.`);
-  const lines = result.recipients.map(
-    (r) => `\n- ${recipientLine(r, result.taskKey, result.operator === true)}`,
-  );
-  // The Operator can read the outcome of a start that was not decided yet (PM-543).
-  if (
-    result.operator &&
-    result.recipients.some((r) => r.start?.state === 'starting' || r.start?.state === 'waiting')
-  )
-    parts.push(`Read later what became of it with get_project_state message_id ${result.messageId}.`);
+  const lines = result.recipients.map((r) => `\n- ${recipientLine(r, result.taskKey)}`);
   const routed: string[] = [];
   for (const { handle, workItem } of result.routed ?? []) {
     if (workItem.type === 'general')
@@ -801,12 +791,12 @@ const staleExplanations: Record<StaleReason, string> = {
 
 /**
  * What happens to a sent message for one recipient, as the sender is told (PM-144, PM-543). `taskKey` is the
- * card it is about; `operator`: the sender is the Operator, who is never sent to a person for it.
+ * card it is about; `coordinator`: the sender is the coordinator, who is never sent to a person for it.
  */
 export function recipientLine(
   { handle, delivery, hold, waitingPermission, noWake, info, stale, start }: SentMessageRecipient,
   taskKey: string | null,
-  operator = false,
+  coordinator = false,
 ): string {
   if (waitingPermission)
     return `${handle}: waiting for a permission decision since ${formatTimestamp(waitingPermission.since)} (decides: ${waitingPermission.deciders.join(', ')}). Your message waits and reaches them in one input with the others when their turn ends after the decision; do not resend it or ask about it.`;
@@ -814,13 +804,9 @@ export function recipientLine(
   switch (delivery) {
     case 'next_input':
       if (noWake === 'no_card_role')
-        return operator
+        return coordinator
           ? `${handle}: not started: they have no role on ${card} (not its assignee or a reviewer, and they have not worked on it), so this starts nothing. They get it the next time they work on ${card}.`
           : `${handle}: not started: they have no role on ${card} (not its assignee or a reviewer, and they have not worked on it), and a message from an AI member starts only members with a role there. They get it the next time they work on ${card}. If they really must act now, ask a person to bring them in.`;
-      if (noWake === 'operator_owner_only')
-        return operator
-          ? `${handle}: not started: the Operator works only when the owner asks, and a message from anyone else starts nothing. They get it the next time the owner talks to them.`
-          : `${handle}: not started: the Operator works only when the owner asks, and a message from anyone else starts nothing. They get it the next time the owner talks to them. If it really must reach the owner, ask a person to relay it.`;
       if (stale)
         return `${handle}: not started: ${card} ${staleExplanations[stale]}, so this message is out of date and starts nothing. They get it with their next input.`;
       if (info)
@@ -1013,9 +999,9 @@ export function formatQuestionAsked(
   const approvalNote = approvalLabel
     ? `\nNote: an answer to this question does not put the label \`${approvalLabel}\` on the card. The app asks the label's holders for the approval in their inbox (a gate request); this question closes by itself once the label is on.`
     : '';
-  // The Operator looks first (PM-558): the asker is told so, and that no person is needed for it to move on.
+  // The project manager looks first (PM-558): the asker is told so, and that no person is needed for it to move on.
   const where = screening
-    ? `went to the Operator first, who answers it, passes it to a member or sends it on to the people${whose}. A person gets it within ${QUESTION_SCREENING_MINUTES} minutes at the latest, and the Operator's result arrives in this session as a team message. If the Operator settled it without a person and you still need a person's answer, ask again with reask_of and reask_reason`
+    ? `went to the project manager first, who answers it, passes it to a member or sends it on to the people${whose}. A person gets it within ${QUESTION_SCREENING_MINUTES} minutes at the latest, and the project manager's result arrives in this session as a team message. If the project manager settled it without a person and you still need a person's answer, ask again with reask_of and reask_reason`
     : `is waiting in the inbox${whose}`;
   return `Question ${inboxItemId} ${where}.${files}${hint ? `\nTip for your next question: ${hint}` : ''}${approvalNote}`;
 }

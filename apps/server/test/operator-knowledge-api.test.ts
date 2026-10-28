@@ -4,6 +4,7 @@ import { OperatorKnowledgeDocument, routes } from '@projectman/shared';
 import type { HumanAccess, OperatorKnowledgeChange } from '@projectman/shared';
 import { addHumanAndLogin, createAppHarness, createProject, inject, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
+import { OWNER_ACTOR } from './helpers/domain-harness';
 import { canSeeProjectEvent } from '../src/core/projects';
 
 let h: AppHarness;
@@ -29,7 +30,16 @@ it.each(['agreement', 'principle'] as const)(
       readers.push({ handle, access, cookie: await addHumanAndLogin(h.app, { handle, access }) });
     const key = await inject(h.app, 'POST', routes.integratorKeys(), owner, { mode: 'read' });
     const domain = h.app.projectman.domain;
-    const { session } = seedOperatorRequest(h.app.projectman, 'AR', { text: 'Propose shared knowledge' });
+    await domain.members.update(
+      'AR',
+      'pm',
+      { onLeave: false },
+      { actor: OWNER_ACTOR, author: { name: 'Owner', email: 'owner@example.com' } },
+    );
+    const { session } = seedOperatorRequest(h.app.projectman, 'AR', {
+      text: 'Propose shared knowledge',
+      member: 'pm',
+    });
     const change: OperatorKnowledgeChange =
       kind === 'agreement'
         ? {
@@ -50,7 +60,7 @@ it.each(['agreement', 'principle'] as const)(
             },
           };
     const proposal = await domain.teamTools.proposeOperatorKnowledge(
-      { projectKey: 'AR', member: 'operator', sessionId: session.id, taskKey: null },
+      { projectKey: 'AR', member: 'pm', sessionId: session.id, taskKey: null },
       {
         expected_revision: 0,
         title: 'PRIVATE_PROPOSAL_TITLE',

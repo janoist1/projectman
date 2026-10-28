@@ -1,4 +1,4 @@
-import { ERROR_CODES, isOperator, coordinationMemberOf, memberOf } from '@projectman/shared';
+import { ERROR_CODES, coordinationMemberOf } from '@projectman/shared';
 import { TeamToolError } from '../../contracts';
 import type { SystemFeedbackToolsHandler, ToolContext } from '../../contracts';
 import { DomainError } from '../../kernel';
@@ -39,10 +39,10 @@ export class SystemFeedbackTools implements SystemFeedbackToolsHandler {
 
   private async requireRecorder(ctx: ToolContext, tool: string): Promise<void> {
     const config = await this.projects.config(ctx.projectKey);
-    if (!isOperator(memberOf(config, ctx.member)) && coordinationMemberOf(config)?.handle !== ctx.member)
+    if (coordinationMemberOf(config)?.handle !== ctx.member)
       throw new TeamToolError(
         'forbidden',
-        `system_feedback_operator_only: only the Operator or the selected PM may use ${tool}.`,
+        `system_feedback_operator_only: only the selected PM may use ${tool}.`,
       );
   }
 

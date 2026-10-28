@@ -5,7 +5,6 @@ import type { ToolContext } from '../src/contracts';
 import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { rejection } from './helpers/errors';
-import { seedOperatorRequest } from './helpers/operator-session';
 
 let h: DomainHarness;
 let now = new Date('2026-10-11T10:00:00.000Z');
@@ -13,13 +12,11 @@ afterEach(async () => {
   await h?.cleanup();
 });
 
-function adjusted(opts: { docs: boolean; pm?: boolean }) {
+function adjusted(opts: { docs: boolean }) {
   return (config: ProjectConfig): void => {
     if (opts.docs) config.project.repos[0]!.docs = { decisions: 'docs/DECISIONS.md' };
-    if (opts.pm) {
-      const pm = config.team.members.find((member) => member.handle === 'pm');
-      if (pm?.kind === 'ai') pm.onLeave = false;
-    }
+    const pm = config.team.members.find((member) => member.handle === 'pm');
+    if (pm?.kind === 'ai') pm.onLeave = false;
     config.team.members.push({
       kind: 'human',
       handle: 'dana',
@@ -31,9 +28,9 @@ function adjusted(opts: { docs: boolean; pm?: boolean }) {
   };
 }
 
-async function setup(opts: { docs?: boolean; pm?: boolean } = {}): Promise<void> {
+async function setup(opts: { docs?: boolean } = {}): Promise<void> {
   now = new Date('2026-10-11T10:00:00.000Z');
-  h = await createDomainHarness({ now: () => now, adjust: adjusted({ ...opts, docs: opts.docs !== false }) });
+  h = await createDomainHarness({ now: () => now, adjust: adjusted({ docs: opts.docs !== false }) });
   await h.domain.tasks.create('AR', { title: 'Login page' }, OWNER_ACTOR);
 }
 
@@ -99,7 +96,7 @@ const setSince = (since: string) =>
 const config = () => h.domain.projects.config('AR');
 const candidates = async (limit?: number) => h.domain.decisionCandidates.list('AR', await config(), limit);
 
-/** A person writes to the PM; the Operator cannot be written to in the app (PM-1045). */
+/** A person writes to the PM. */
 async function ask(text: string, from = 'owner', to = 'pm') {
   const result = await h.domain.messaging.sendReporting('AR', from, { to: [to], text });
   // Delivery starts the session in the background; wait for this message, not event-loop turns.
@@ -116,7 +113,7 @@ async function ask(text: string, from = 'owner', to = 'pm') {
     }
   });
 }
-const sessions = (member = 'operator'): Session[] => h.domain.sessions.list('AR', { member });
+const sessions = (member = 'pm'): Session[] => h.domain.sessions.list('AR', { member });
 const ownerSession = (): Session =>
   sessions().find((s) => s.workItem.type === 'general' && s.workItem.with === undefined)!;
 const toolOf = (session: Session): ToolContext => ({
@@ -125,7 +122,7 @@ const toolOf = (session: Session): ToolContext => ({
   sessionId: session.id,
   taskKey: null,
 });
-/** The Operator's turn is over: its open requests close. */
+/** The PM's turn is over: its open requests close. */
 function endTurn(): void {
   for (const request of h.repos.operatorRequests.openOfSession(ownerSession().id))
     h.repos.operatorRequests.close(request.id, now.toISOString());
@@ -231,14 +228,7 @@ describe('the decision candidates (PM-496)', () => {
 });
 
 describe('mark_decision_candidates (PM-496)', () => {
-  async function ownerAsks(member = 'operator') {
-    if (member === 'operator') {
-      const { session, request } = seedOperatorRequest(h, 'AR', {
-        text: 'Look at the decisions',
-        at: now.toISOString(),
-      });
-      return { session, ctx: toolOf(session), requestId: request.id };
-    }
+  async function ownerAsks(member = 'pm') {
     await ask('Look at the decisions', 'owner', member);
     const session = sessions(member).find(
       (session) => session.workItem.type === 'general' && session.workItem.with === undefined,
@@ -250,12 +240,12 @@ describe('mark_decision_candidates (PM-496)', () => {
     items: Parameters<typeof h.domain.teamTools.markDecisionCandidates>[1]['items'],
   ) => h.domain.teamTools.markDecisionCandidates(ctx, { items });
 
-  it.each(['operator', 'pm'])('records verdicts and the request step for %s', async (member) => {
-    await setup({ pm: member === 'pm' });
+  it('records verdicts and the request step', async () => {
+    await setup();
     answered('inb_1', '2026-10-11T09:00:00.000Z');
     answered('inb_2', '2026-10-11T09:01:00.000Z');
     answered('inb_3', '2026-10-11T09:02:00.000Z');
-    const { ctx, requestId } = await ownerAsks(member);
+    const { ctx, requestId } = await ownerAsks();
     expect(
       await mark(ctx, [
         { item_id: 'inb_1', verdict: 'recorded', decision: '52' },
@@ -324,26 +314,16 @@ describe('mark_decision_candidates (PM-496)', () => {
     expect(h.repos.decisionOffers.get('AR', 'inb_1')).toBeNull();
   });
 
-  it('is refused without an open request, in a guest conversation, and for anyone but the Operator', async () => {
+  it('is refused without an open request, and for anyone but the project manager', async () => {
     await setup();
     answered('inb_1', '2026-10-11T09:00:00.000Z');
     const { ctx } = await ownerAsks();
     const items = [{ item_id: 'inb_1', verdict: 'declined' as const }];
     endTurn();
     expect(await refusal(mark(ctx, items))).toContain('operator_no_request');
-    // Dana (no owner) talks with the Operator in a conversation of their own.
-    const { session: guest } = seedOperatorRequest(h, 'AR', {
-      from: 'dana',
-      with: 'dana',
-      at: now.toISOString(),
-    });
-    expect(await refusal(mark(toolOf(guest), items))).toContain('operator_owner_only');
     const dev = { ...ctx, member: 'dev-1' };
     expect(await refusal(mark(dev, items))).toContain('operator_only');
     expect(await refusal(h.domain.teamTools.listDecisionCandidates(dev, {}))).toContain('operator_only');
-    expect(await refusal(h.domain.teamTools.listDecisionCandidates(toolOf(guest), {}))).toContain(
-      'operator_owner_only',
-    );
     expect(h.repos.decisionOffers.get('AR', 'inb_1')).toBeNull();
   });
 
@@ -357,9 +337,9 @@ describe('mark_decision_candidates (PM-496)', () => {
   });
 
   it('lets the PM list without an owner request but refuses marking', async () => {
-    await setup({ pm: true });
+    await setup();
     answered('inb_1', '2026-10-11T09:00:00.000Z');
-    const { ctx, requestId } = await ownerAsks('pm');
+    const { ctx, requestId } = await ownerAsks();
     h.repos.operatorRequests.close(requestId, now.toISOString());
     expect((await h.domain.teamTools.listDecisionCandidates(ctx, {})).candidates).toMatchObject([
       { item_id: 'inb_1' },
@@ -371,7 +351,7 @@ describe('mark_decision_candidates (PM-496)', () => {
   });
 
   it('refuses decision candidates in a PM guest conversation', async () => {
-    await setup({ pm: true });
+    await setup();
     const { session } = await h.domain.sessions.ensureSession('AR', 'pm', {
       type: 'general',
       with: 'dana',

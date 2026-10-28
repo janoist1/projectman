@@ -4,14 +4,11 @@ import {
   hasBoundOrigin,
   structuralReviewOf,
   structuralReviewContinuation,
-  isOperator,
   isProjectManager,
   isUnreadBy,
   memberOf,
   messageRoute,
   managerConversationOf,
-  operatorKnowledgeApprovalOf,
-  operatorKnowledgeContinuationOf,
   sameWorkItem,
   threadPeersOf,
 } from '@projectman/shared';
@@ -83,20 +80,17 @@ export class MessageService {
   private readonly timeline: TimelineService;
   private readonly projects: ProjectService;
 
-  private readonly operatorRequests: MessageRequests;
   private readonly coordinationRequests: MessageRequests;
 
   constructor(deps: {
     ctx: DomainContext;
     timeline: TimelineService;
     projects: ProjectService;
-    operatorRequests: MessageRequests;
     coordinationRequests: MessageRequests;
   }) {
     this.ctx = deps.ctx;
     this.timeline = deps.timeline;
     this.projects = deps.projects;
-    this.operatorRequests = deps.operatorRequests;
     this.coordinationRequests = deps.coordinationRequests;
   }
 
@@ -228,7 +222,6 @@ export class MessageService {
         ? before.receipts.find((r) => r.handle === handle)?.deliveredAt
         : before.deliveredAt);
       if (first) {
-        this.openOperatorRequest(message, handle);
         this.openCoordinationRequest(message, handle);
         this.recordAnswerDelivery(message, handle, { state: 'delivered', at });
       }
@@ -275,69 +268,6 @@ export class MessageService {
           ...(delivery.state === 'waiting' ? { reason: delivery.reason } : {}),
         },
       });
-  }
-
-  /**
-   * A person's message, or the owner's answer to the Operator's question, entered the Operator's session of
-   * their conversation: the Operator may act on it until its turn ends (PM-463); for a person who is not an
-   * owner it only reads and answers (PM-475). Anyone else's message (an AI member's, the system's) opens nothing.
-   */
-  private openOperatorRequest(message: TeamMessage, handle: string): void {
-    const config = this.projects.cachedConfig(message.projectKey);
-    if (!config || !isOperator(memberOf(config, handle))) return;
-    if (message.origin?.kind === 'operator_knowledge_approval') {
-      const item = this.ctx.repos.inbox.get(message.origin.inboxItemId);
-      const payload = item && operatorKnowledgeApprovalOf(item);
-      const owner = memberOf(config, message.from);
-      const session = this.ctx.repos.sessions.findByWorkItem(message.projectKey, handle, { type: 'general' });
-      if (!item || !payload || !session || !message.to.includes(handle)) return;
-      const approved = operatorKnowledgeContinuationOf(item, {
-        projectKey: message.projectKey,
-        operator: handle,
-        from: message.from,
-        messageId: message.id,
-        via: message.via,
-        owner: owner?.kind === 'human' && owner.access === 'owner',
-        approvedStep: this.ctx.repos.operatorRequests
-          .steps(payload.requestId)
-          .some(
-            (step) =>
-              step.id === payload.stepId &&
-              step.inboxItemId === item.id &&
-              step.status === 'approved' &&
-              step.action === 'knowledge_change',
-          ),
-      });
-      // A malformed approval origin must never fall back to a normal human-message request.
-      if (!approved) return;
-      this.operatorRequests.open({
-        projectKey: message.projectKey,
-        sessionId: session.id,
-        source: 'approval',
-        messageId: message.id,
-        inboxItemId: item.id,
-        from: message.from,
-        text: message.body,
-      });
-      return;
-    }
-    const facts = wakeFactsFor(this.ctx, config, message, handle);
-    if (!facts.fromHuman || !facts.fromOwnLogin) return;
-    const session = this.ctx.repos.sessions.findByWorkItem(
-      message.projectKey,
-      handle,
-      managerConversationOf(config, message.from),
-    );
-    if (!session) return;
-    this.operatorRequests.open({
-      projectKey: message.projectKey,
-      sessionId: session.id,
-      source: message.answer ? 'answer' : 'message',
-      messageId: message.id,
-      inboxItemId: message.answer?.inboxItemId ?? null,
-      from: message.from,
-      text: message.answer?.answer ?? message.body,
-    });
   }
 
   /** Only a delivered owner's own-login message or answer opens a PM request. Signal rounds never do. */

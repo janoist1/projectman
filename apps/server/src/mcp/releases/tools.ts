@@ -127,7 +127,7 @@ export const RELEASE_TOOL_GROUP: TeamToolGroup = {
     }),
     defineTool({
       name: 'check_release',
-      audience: { roles: ['operator'] },
+      audience: { roles: [] },
       title: 'Check a release',
       readOnly: true,
       description:

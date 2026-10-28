@@ -1,6 +1,6 @@
 import { wakesFor } from '../../core/messages';
 import { assertIntegratorAccess, assertSuperMutation } from '../../kernel';
-import { LIVE_SESSION_STATES, runsInApp, workMetadataAfterChat } from '@projectman/shared';
+import { LIVE_SESSION_STATES, workMetadataAfterChat } from '@projectman/shared';
 import type { EnsureSessionOptions, EnsureSessionResult } from '../../contracts';
 import {
   approverBlocker,
@@ -11,9 +11,7 @@ import {
   isMergeFixer,
   isMergeRunningFor,
   effectiveSessionPermissions,
-  sessionApproverChangeRefusal,
   isOnLeave,
-  isOperator,
   guestOfConversation,
   isTheme,
   roleBundle,
@@ -21,6 +19,7 @@ import {
   memberOf,
   memberStorageHandle,
   permissionDecidersNow,
+  RETIRED_OPERATOR_HANDLE,
   messageRoute,
   sameWorkItem,
   sessionWorkItemOf,
@@ -569,7 +568,6 @@ export class SessionOrchestrator {
     return config
       ? memberAudience(config, ctx.member, { hostOwnerEmail: this.deps.hostOwnerEmail() })
       : {
-          operator: false,
           projectManager: false,
           merger: false,
           email: false,
@@ -659,15 +657,21 @@ export class SessionOrchestrator {
   }
 
   /**
-   * Whether only the owner and the admin see the session: the Operator's (PM-475) and a project manager's
-   * conversation with someone who is not an owner (PM-1080), which holds that person's messages.
+   * Whether only the owner and the admin see the session: a conversation with someone who is not an owner
+   * (PM-475, PM-1080), which holds that person's messages, and every session of the retired Operator (decision
+   * 66, PM-1076), whose member is gone from the config and whose rows keep its internal owner conversations.
+   * Fails closed: a `with` conversation stays restricted whoever the member is now, and the session row does
+   * not store the role, so the retired handle stands for it.
    */
   isRestrictedSession(sessionId: string): boolean {
     const session = this.find(sessionId);
-    const config = session ? this.deps.projects.cachedConfig(session.projectKey) : null;
-    if (!session || !config) return false;
+    if (!session) return false;
+    if (session.member === RETIRED_OPERATOR_HANDLE) return true;
+    if (session.workItem.type === 'general' && session.workItem.with !== undefined) return true;
+    const config = this.deps.projects.cachedConfig(session.projectKey);
+    if (!config) return false;
     const member = memberOf(config, session.member);
-    return isOperator(member) || guestOfConversation(config, member, session.workItem) !== undefined;
+    return guestOfConversation(config, member, session.workItem) !== undefined;
   }
 
   isRunning(sessionId: string): boolean {
@@ -828,9 +832,6 @@ export class SessionOrchestrator {
     const requested = workItem;
     const config = await this.deps.projects.config(projectKey);
     const target = requireAiMember(config, handle);
-    // The Operator exists only when the owner's client connects (PM-1045): the app starts no session for it.
-    if (!runsInApp(target))
-      throw conflict('operator_connected_only', `${handle} runs only when the owner's client connects`);
     workItem = sessionWorkItemOf(target, workItem);
     const result = await this.locks.run(sessionLockKey(projectKey, handle, workItem), async () => {
       const config = await this.deps.projects.config(projectKey);
@@ -945,8 +946,6 @@ export class SessionOrchestrator {
       const config = await this.deps.projects.config(projectKey);
       const member = requireAiMember(config, found.member);
       assertIntegratorAccess(config, 'write', actor);
-      const refusal = sessionApproverChangeRefusal(member, req.approver);
-      if (refusal) throw forbidden(refusal, 'the Operator approver is fixed to human');
       if (req.approver) {
         const blocker = approverBlocker(config, member.handle, req.approver);
         if (blocker)
@@ -963,7 +962,7 @@ export class SessionOrchestrator {
       const from = effectiveSessionPermissions(member, before);
       let session = this.ctx.repos.sessions.update(sessionId, {
         ...(req.permissionMode !== undefined ? { permissionModeOverride: req.permissionMode } : {}),
-        ...(req.approver !== undefined ? { approverOverride: isOperator(member) ? null : req.approver } : {}),
+        ...(req.approver !== undefined ? { approverOverride: req.approver } : {}),
       })!;
       const to = effectiveSessionPermissions(member, session);
       const running = this.isRunning(sessionId);
@@ -1093,7 +1092,6 @@ export class SessionOrchestrator {
   private mayWorkNow(config: ProjectConfig, member: MemberConfig | undefined): member is AiMemberConfig {
     return (
       member?.kind === 'ai' &&
-      runsInApp(member) &&
       !isOnLeave(member) &&
       config.team.limits.aiEnabled &&
       !this.workPaused(config.project.key)

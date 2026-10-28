@@ -21,7 +21,6 @@ import {
   refinementTurn,
   turnStalled,
   memberQueueSourceId,
-  isOperator,
   coordinationMemberOf,
   projectManagersOf,
   OPERATOR_SIGNAL_STEP_GAP_MINUTES,
@@ -497,7 +496,7 @@ export class OperatorSignals {
     const startable = (handles: readonly string[]) =>
       handles.filter((handle) => {
         const member = memberOf(config, handle);
-        return member?.kind === 'ai' && !isOperator(member) && !isOnLeave(member);
+        return member?.kind === 'ai' && !isOnLeave(member);
       });
     const allowed: OperatorSignalStepTargets = { startTask: null, members: [], taskKey: null };
     const task = signal.taskKey ? ctx.repos.tasks.get(signal.taskKey) : null;

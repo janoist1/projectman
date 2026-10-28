@@ -198,15 +198,6 @@ export const en: TemplateLocale = {
       whenToAsk:
         'When something has gone off track, a decision is stuck, or work needs an approval only they can give.',
     },
-    ai_operator: {
-      name: 'Operator',
-      summary:
-        "A transitional identity only: the steps of the owner's connected client (an integrator with a super key) are recorded under this member. It does not run in the app and cannot be started or messaged.",
-      notTheirJob:
-        'Does not develop, does not answer messages and does not decide in the place of the owner. Machine work goes to the integrator with open_integrator_todo.',
-      whenToAsk:
-        'Do not ask it anything: for machine work open an integrator todo, for anything else ask a person with ask_human.',
-    },
     product_owner: {
       name: 'Product owner',
       summary: 'Decides what gets built and in what order, and accepts the finished work.',

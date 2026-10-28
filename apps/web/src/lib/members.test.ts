@@ -153,4 +153,8 @@ describe('nameOf', () => {
     expect(nameOf('system', indexMembers([]), 'owner')).toBe(t('common.system'));
     expect(nameOf(null, indexMembers([]), 'owner')).toBe(t('common.system'));
   });
+
+  it('names a handle that left the team by the handle itself, like the retired Operator (decision 66)', () => {
+    expect(nameOf('operator', indexMembers(fixtureMembers), 'owner')).toBe('operator');
+  });
 });

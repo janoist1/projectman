@@ -1,4 +1,4 @@
-import { hasConnectedOrigin, hasSuperOrigin, isOnLeave, isOperator, SYSTEM_SENDER } from '@projectman/shared';
+import { hasConnectedOrigin, hasSuperOrigin, isOnLeave, SYSTEM_SENDER } from '@projectman/shared';
 import type { Actor, InboxItem, MemberStatus, MemberView, PausedSession, RoleView } from '@projectman/shared';
 import type { IconName } from '../components/Icon';
 import { t } from '../i18n/t';
@@ -141,9 +141,9 @@ export function renamedTo(handle: string, index: MemberIndex): string | null {
   return member && member.handle !== handle ? member.handle : null;
 }
 
-/** Only the owner renames, and only an AI member other than the Operator (PM-1026). */
+/** Only the owner renames, and only an AI member (PM-1026). */
 export function canRenameMember(member: MemberView, isOwner: boolean): boolean {
-  return isOwner && member.kind === 'ai' && !isOperator(member);
+  return isOwner && member.kind === 'ai';
 }
 
 /** Display name, with "Te" for the current user. */

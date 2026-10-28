@@ -12,10 +12,8 @@ import { memberDuties, roleBundle } from './duties';
 import { isOwnerApprovalLabel, labelHolders } from './labels';
 import { canonical } from './canonical';
 import { integratorConfigRefusal } from './integrator';
-import { operatorConfigIssues } from './invariants';
 import { memberOf } from './lookup';
 import { cardMerger, mergeTargetOf, mergerOf } from './merger';
-import { OPERATOR_ROLE, isOperator } from './operator-member';
 import { ownerOnlyChanges } from './owner-only';
 import type { OwnerOnlyChange } from './owner-only';
 import { ownerReservedEffect } from './super-mutation';
@@ -24,17 +22,11 @@ import { approverOf, outboundNetworkOf } from './permission-level';
 import type { AiMemberConfig, MemberConfig, ProjectConfig } from './schema';
 
 export {
-  OPERATOR_GUEST_IDLE_CLOSE_MINUTES,
-  OPERATOR_ROLE,
-  isOperator,
-  isOperatorActor,
-  isRequiredOperator,
+  RETIRED_OPERATOR_HANDLE,
+  RETIRED_OPERATOR_ROLE,
+  coordinatorSuperActorOf,
   isConnectedOwnerActor,
-  isSuperOperatorActor,
-  superActorOf,
-  operatorOf,
-  operatorRunsInApp,
-  runsInApp,
+  isCoordinatorSuperActor,
 } from './operator-member';
 
 /**
@@ -121,112 +113,6 @@ export function operatorWaiverChanged(previous: ProjectConfig, next: ProjectConf
 /** An AI member's fields the Operator changes without approval, on any member but itself. */
 const NOW_MEMBER_FIELDS: readonly string[] = ['model', 'effort', 'capacity', 'onLeave', 'schedule'];
 
-/**
- * The only fields of the Operator's member anybody may change (PM-473): the model with its provider,
- * and the effort. Its name, instructions, capacity and schedule are fixed, it cannot be retired, sent
- * on leave or joined by a second one.
- */
-export const OPERATOR_SETTABLE_FIELDS = ['model', 'provider', 'effort'] as const;
-
-/** What kind of change to the Operator `operatorFixedChange` found. */
-export const OperatorFixedChange = z.object({
-  kind: z.enum(['retire', 'second', 'leave', 'field']),
-  handle: MemberHandle.nullable(),
-  field: z.string().nullable(),
-});
-export type OperatorFixedChange = z.infer<typeof OperatorFixedChange>;
-
-const SETTABLE: readonly string[] = OPERATOR_SETTABLE_FIELDS;
-
-/**
- * What `next` changes on the Operator that nobody may change; null when nothing. The first finding, in
- * this order:
- * - `retire`: none of the Operators of `previous` is one in `next` (retired, or its role changed).
- *   Retiring one of two is allowed: an older configuration may hold two;
- * - `second`: more than one `ai_operator` AI member in `next`, one of them new (a temp worker counts),
- *   or the temp workers' role became `ai_operator`;
- * - `leave`: an Operator of `next` is on leave;
- * - `field`: an Operator on both sides differs in a field other than the settable ones (compared as
- *   `memberRows` does, so a restated default is no change), or the `ai_operator` role override changed.
- *   The sponsor may change when the old one is no longer a human member and the new one is.
- */
-export function operatorFixedChange(
-  previous: Pick<ProjectConfig, 'team'> | null,
-  next: Pick<ProjectConfig, 'team'>,
-): OperatorFixedChange | null {
-  const wasOperators = previous?.team.members.filter((m) => isOperator(m)) ?? [];
-  if (wasOperators.length > 0 && !wasOperators.some((m) => isOperator(memberOf(next, m.handle)))) {
-    return { kind: 'retire', handle: wasOperators[0]!.handle, field: null };
-  }
-
-  const holdsRole = (m: MemberConfig) => m.kind === 'ai' && m.role === OPERATOR_ROLE;
-  const roleHolders = next.team.members.filter(holdsRole);
-  if (roleHolders.length > 1) {
-    const added = roleHolders.find((m) => {
-      const old = previous ? memberOf(previous, m.handle) : undefined;
-      return !old || !holdsRole(old);
-    });
-    if (added) return { kind: 'second', handle: added.handle, field: null };
-  }
-  if (
-    next.team.limits.tempWorkers.role === OPERATOR_ROLE &&
-    previous?.team.limits.tempWorkers.role !== OPERATOR_ROLE
-  ) {
-    return { kind: 'second', handle: null, field: 'limits.tempWorkers.role' };
-  }
-
-  const operators = next.team.members.filter((m) => isOperator(m));
-  const away = operators.find((m) => m.kind === 'ai' && m.onLeave === true);
-  if (away) return { kind: 'leave', handle: away.handle, field: 'onLeave' };
-
-  if (previous) {
-    for (const member of operators) {
-      const old = memberOf(previous, member.handle);
-      if (!old || !isOperator(old)) continue;
-      const field = fixedFieldChanged(old, member, next);
-      if (field) return { kind: 'field', handle: member.handle, field };
-    }
-    if (
-      canonical(previous.team.roleOverrides?.[OPERATOR_ROLE]) !==
-      canonical(next.team.roleOverrides?.[OPERATOR_ROLE])
-    ) {
-      return { kind: 'field', handle: null, field: `roleOverrides.${OPERATOR_ROLE}` };
-    }
-  }
-  return null;
-}
-
-/** The first (alphabetically) field of an Operator that differs, outside the settable ones; null when none. */
-function fixedFieldChanged(
-  before: MemberConfig,
-  after: MemberConfig,
-  next: Pick<ProjectConfig, 'team'>,
-): string | null {
-  const a = normalizedMember(before);
-  const b = normalizedMember(after);
-  const fields = [...new Set([...Object.keys(a), ...Object.keys(b)])].sort();
-  for (const field of fields) {
-    if (SETTABLE.includes(field) || canonical(a[field]) === canonical(b[field])) continue;
-    if (field === 'sponsor' && sponsorHandedOver(a[field], b[field], next)) continue;
-    return field;
-  }
-  return null;
-}
-
-/** The old sponsor is gone from the people of `next` and the new one is one of them: forced by a removal. */
-function sponsorHandedOver(
-  oldSponsor: unknown,
-  newSponsor: unknown,
-  next: Pick<ProjectConfig, 'team'>,
-): boolean {
-  return (
-    typeof oldSponsor === 'string' &&
-    typeof newSponsor === 'string' &&
-    memberOf(next, oldSponsor)?.kind !== 'human' &&
-    memberOf(next, newSponsor)?.kind === 'human'
-  );
-}
-
 type Entity = Record<string, unknown>;
 type InvitationBinding = NonNullable<
   NonNullable<Parameters<typeof ownerOnlyChanges>[2]>['invitationBinding']
@@ -240,23 +126,20 @@ type InvitationBinding = NonNullable<
  *
  * - never: any change to a person (a human member's field, adding or removing one), and what makes an
  *   owner or changes an admin or an account binding;
- * - never also: whatever makes the Operator other than fixed (`operatorFixedChange`): adding or
- *   removing an Operator, any field of its member but the settable ones, its role's override;
  * - now, only: an AI member's `model`, `effort`, `capacity`, `onLeave` and `schedule` (not the
- *   Operator's own member), a stage's `name`, a role's `instructions`;
+ *   acting member's own), a stage's `name`, a role's `instructions`;
  * - approval: everything else, so a field the rules do not name is closed by default. That covers
  *   what `integratorConfigRefusal` or `ownerOnlyChanges` names (apart from the model, effort,
  *   capacity and schedule of an AI member: the integrator may not touch members, but the owner asked
- *   for these to go straight through), the Operator's own model, provider and effort (it changes
- *   itself only with the owner's approval) and the instructions of its own role (it may not rewrite
- *   itself).
+ *   for these to go straight through), the acting member's own fields (it changes itself only with
+ *   the owner's approval) and the instructions of its own role (it may not rewrite itself).
  */
 export function operatorConfigVerdict(
   previous: ProjectConfig,
   next: ProjectConfig,
   opts: { operator: MemberHandle; invitationBinding?: InvitationBinding },
 ): OperatorConfigVerdict {
-  const ownRoles = new Set<string>([OPERATOR_ROLE]);
+  const ownRoles = new Set<string>();
   for (const config of [previous, next]) {
     const own = memberOf(config, opts.operator);
     if (own?.kind === 'ai') ownRoles.add(own.role);
@@ -276,14 +159,7 @@ export function operatorConfigVerdict(
   ];
 
   // Safety net: the rules below name what the comparison above should already have shown. Whatever
-  // they name and it did not is at least a closed change, and an owner, an account or a change to
-  // the fixed Operator is never.
-  if (
-    (operatorFixedChange(previous, next) || operatorConfigIssues(next).length) &&
-    highestLevel(changes) !== 'never'
-  ) {
-    changes.push(unnamed('member', 'operator_fixed', 'never'));
-  }
+  // they name and it did not is at least a closed change, and an owner or an account is never.
   const owner = ownerOnlyChanges(previous, next, { invitationBinding: opts.invitationBinding });
   const rank = () => LEVEL_RANK[highestLevel(changes)];
   for (const change of owner.filter((c) => c === 'owners' || c === 'admin_or_account')) {
@@ -324,7 +200,7 @@ export function operatorAutonomousLevel(
   operator: MemberHandle,
 ): OperatorLevel {
   if (verdict.level !== 'approval') return verdict.level;
-  const ownRoles = new Set<string>([OPERATOR_ROLE]);
+  const ownRoles = new Set<string>();
   for (const config of [previous, next]) {
     const own = memberOf(config, operator);
     if (own?.kind === 'ai') ownRoles.add(own.role);
@@ -532,8 +408,7 @@ function memberRows(previous: ProjectConfig, next: ProjectConfig, operator: Memb
   const before = new Map(previous.team.members.map((m) => [m.handle, m]));
   const after = new Map(next.team.members.map((m) => [m.handle, m]));
   const describe = (member: MemberConfig) => (member.kind === 'ai' ? member.role : member.access);
-  const presence = (member: MemberConfig): OperatorLevel =>
-    member.kind === 'human' || isOperator(member) ? 'never' : 'approval';
+  const presence = (member: MemberConfig): OperatorLevel => (member.kind === 'human' ? 'never' : 'approval');
   for (const [handle, member] of before)
     if (!after.has(handle))
       rows.push(presenceRow('member', handle, describe(member), null, presence(member)));
@@ -545,13 +420,8 @@ function memberRows(previous: ProjectConfig, next: ProjectConfig, operator: Memb
       continue;
     }
     const people = old.kind === 'human' || member.kind === 'human';
-    const fixed = isOperator(old);
     const levelOfField = (field: string): OperatorLevel =>
-      people || (fixed && !SETTABLE.includes(field))
-        ? 'never'
-        : !fixed && handle !== operator && NOW_MEMBER_FIELDS.includes(field)
-          ? 'now'
-          : 'approval';
+      people ? 'never' : handle !== operator && NOW_MEMBER_FIELDS.includes(field) ? 'now' : 'approval';
     rows.push(...fieldRows('member', handle, normalizedMember(old), normalizedMember(member), levelOfField));
   }
   // Duty-derived stage owners preserve roster order, so a reorder can change the selected merger.
@@ -569,7 +439,7 @@ function memberRows(previous: ProjectConfig, next: ProjectConfig, operator: Memb
   return rows;
 }
 
-/** Custom roles and the overrides of built-in ones. Instructions go through, except those of the Operator's own role. */
+/** Custom roles and the overrides of built-in ones. Instructions go through, except those of the acting member's own role. */
 function roleRows(
   previous: ProjectConfig,
   next: ProjectConfig,
@@ -596,7 +466,7 @@ function roleRows(
       (override) => override.id,
       (override, field) => instructionsLevel(override.id, field),
       { fieldPrefix: 'override.' },
-    ).map((row) => (row.target === OPERATOR_ROLE ? { ...row, level: 'never' as const } : row)),
+    ),
   ];
 }
 
@@ -811,8 +681,6 @@ function approvalWaivable(
     if (
       before?.kind === 'human' ||
       after?.kind === 'human' ||
-      isOperator(before) ||
-      isOperator(after) ||
       before?.handle === operator ||
       after?.handle === operator
     )
@@ -863,7 +731,7 @@ function approvalWaivable(
       overrides(previous),
       overrides(next),
       (r) => r.id,
-      (a, b) => a?.id !== OPERATOR_ROLE && b?.id !== OPERATOR_ROLE && fieldsWaivable(a, b, WAIVER_ROLE),
+      (a, b) => fieldsWaivable(a, b, WAIVER_ROLE),
     ) &&
     fieldsWaivable(previous.pipeline, next.pipeline, { stages: true, columns: true, labels: true }) &&
     listWaivable(

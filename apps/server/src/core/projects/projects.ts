@@ -5,7 +5,6 @@ export function createProjectService(deps: ConstructorParameters<typeof ProjectS
 import { isAbsolute } from 'node:path';
 import {
   canCreateProject,
-  hasPendingOperatorAgreement,
   hasOperatorWaiverField,
   operatorWaiverChanged,
   DEFAULT_PROJECT_LANGUAGE,
@@ -14,13 +13,9 @@ import {
   configSchemaIssues,
   isTheme,
   memberOf,
-  operatorFixedChange,
-  operatorConfigIssues,
-  isOperatorActor,
   isConnectedOwnerActor,
   hasBoundOrigin,
   operatorConfigVerdict,
-  operatorApprovalOf,
   renameMemberInConfig,
   canonical,
   ownerOnlyChanges,
@@ -43,7 +38,7 @@ import type {
   OperatorApprovalWaiverRequest,
 } from '@projectman/shared';
 import { ConfigStoreError } from '../../config';
-import type { ConfigStore, OperatorConfigAuthorization, WorkspaceState } from '../../contracts';
+import type { ConfigStore, WorkspaceState } from '../../contracts';
 import type { ProjectRecord } from '../../db';
 import { projectAccessFor } from '../members';
 import { isoNow } from '../base';
@@ -58,21 +53,6 @@ import {
   authorizeSuperMutation,
   integratorExecution,
 } from '../../kernel';
-
-/** The Operator is fixed (PM-473): nobody, whoever they are, changes it beyond its model, provider and effort. */
-function assertOperatorFixed(previous: ProjectConfig | null, next: ProjectConfig): void {
-  const issues = operatorConfigIssues(next);
-  if (issues.length)
-    throw invalid('invalid_config', 'configuration violates the Operator limits', { issues });
-  const fixed = operatorFixedChange(previous, next);
-  if (fixed) {
-    throw conflict(
-      'operator_fixed',
-      'the Operator is fixed: only its model, provider and effort can change',
-      fixed,
-    );
-  }
-}
 
 export interface LoadedProject {
   config: ProjectConfig;
@@ -243,15 +223,10 @@ export class ProjectService {
   private readonly engines: NewProjectEngines;
   private readonly cache = new Map<string, LoadedProject>();
   private readonly locks = new KeyedMutex();
-  private operatorAuthorization?: OperatorConfigAuthorization;
   private agreementVersion?: (key: string) => Promise<number | null>;
   private readonly waiverEdits = new WeakSet<ConfigChangeMeta>();
 
-  useOperatorAuthorization(
-    port: OperatorConfigAuthorization,
-    agreementVersion: (key: string) => Promise<number | null>,
-  ): void {
-    this.operatorAuthorization = port;
+  useAgreementVersion(agreementVersion: (key: string) => Promise<number | null>): void {
     this.agreementVersion = agreementVersion;
   }
 
@@ -417,7 +392,6 @@ export class ProjectService {
       if (validateProjectConfig(config).some((issue) => issue.code === 'duplicate_repo')) {
         throw invalid('duplicate_repo', 'repository names must be unique');
       }
-      assertOperatorFixed(null, config);
       if (projectAccessFor(config, creator.email)?.access !== 'owner') {
         throw new DomainError('invalid_config', 'template did not make the creator an owner', {
           status: 422,
@@ -539,8 +513,8 @@ export class ProjectService {
         .loadVersion(key, version)
         .catch(fromConfigError)
         .catch(asConfigEditError);
-      // The Operator's commits, and the super mode's (PM-757, audited), restore the version as a plain commit.
-      if (isOperatorActor(current.config, meta.actor) || hasBoundOrigin(meta.actor))
+      // The super mode's commits (PM-757, audited) restore the version as a plain commit.
+      if (hasBoundOrigin(meta.actor))
         return this.commitLocked(key, current, target, { ...meta, message: `Revert to ${version}` }).catch(
           asConfigEditError,
         );
@@ -652,74 +626,6 @@ export class ProjectService {
       )
         throw forbidden('insufficient_access', 'the super-mode step is not backed by a current owner');
       ProjectService.assertChangeAllowed(previous, next, owner.access, meta.invitationBinding);
-    } else if (isOperatorActor(previous, meta.actor)) {
-      const request = meta.author.operatorRequestId
-        ? this.ctx.repos.operatorRequests.get(meta.author.operatorRequestId)
-        : null;
-      if (
-        !request ||
-        request.projectKey !== key ||
-        meta.author.operator !== meta.actor.handle ||
-        meta.author.via
-      )
-        throw forbidden('operator_no_request', 'the Operator commit needs an owner request');
-      const verdict = operatorConfigVerdict(previous, next, { operator: meta.actor.handle! });
-      if (hasPendingOperatorAgreement(this.ctx.repos.inbox.listOpen('approval'), key, request.id))
-        throw conflict('operator_agreement_pending', 'the request has a pending agreement');
-      if (verdict.level === 'never')
-        throw forbidden('operator_never', 'the Operator cannot make this change');
-      const item = meta.author.operatorApprovalId
-        ? this.ctx.repos.inbox.get(meta.author.operatorApprovalId)
-        : null;
-      const approval = item ? operatorApprovalOf(item) : null;
-      const approver = memberOf(previous, meta.author.approvedBy);
-      if (
-        meta.author.operatorApprovalId &&
-        (!item ||
-          item.projectKey !== key ||
-          item.state !== 'open' ||
-          item.source !== meta.actor.handle ||
-          !approval ||
-          approval.stale ||
-          approval.requestId !== request.id ||
-          approver?.kind !== 'human' ||
-          approver.access !== 'owner' ||
-          canonical(approval.changes) !== canonical(verdict.changes))
-      )
-        throw conflict('operator_approval_stale', 'the approved configuration change no longer matches');
-      if (meta.author.operatorApprovalMode === 'waived') {
-        if (
-          !this.operatorAuthorization ||
-          !meta.author.operatorAgreementVersion ||
-          !meta.author.operatorStepId ||
-          !meta.author.operatorOperation
-        )
-          throw forbidden('owner_approval_required', 'the Operator change needs authorization');
-        const authorization = await this.operatorAuthorization.authorize({
-          projectKey: key,
-          operator: meta.actor.handle!,
-          requestId: request.id,
-          previous,
-          next,
-          expectedAgreementVersion: meta.author.operatorAgreementVersion,
-        });
-        if (
-          authorization.mode !== 'waived' ||
-          authorization.agreementVersion !== meta.author.operatorAgreementVersion
-        )
-          throw forbidden('owner_approval_required', 'the Operator change needs approval');
-      } else if (
-        verdict.level === 'approval' &&
-        !approval &&
-        !this.operatorAuthorization?.autonomousCommit({
-          projectKey: key,
-          operator: meta.actor.handle!,
-          requestId: request.id,
-          previous,
-          next,
-        })
-      )
-        throw forbidden('owner_approval_required', 'the Operator change needs approval');
     } else if (meta.actor.kind !== 'system') {
       if (meta.actor.kind !== 'human' || member?.kind !== 'human')
         throw forbidden('insufficient_access', 'only human members may change the configuration');
@@ -727,7 +633,6 @@ export class ProjectService {
     } else {
       ProjectService.assertChangeAllowed(previous, next, 'admin');
     }
-    assertOperatorFixed(previous, next);
     if (meta.actor.via === 'integrator' && !hasBoundOrigin(meta.actor))
       throw forbidden('insufficient_access', 'integrator configuration changes require super origin');
     const stageIds = new Set(next.pipeline.stages.map((stage) => stage.id));

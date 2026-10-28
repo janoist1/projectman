@@ -71,6 +71,8 @@ export const PatchConfigRequest = z
     projectManagerMoves: ProjectConfig.shape.team.shape.projectManagerMoves,
     /** Who besides people may set a card's priority (PM-1096): the whole list replaces the saved one, [] too. */
     prioritySetters: ProjectConfig.shape.team.shape.prioritySetters,
+    /** The duties whose holders may set complexity points (PM-1097): the whole list replaces the saved one, [] leaves the owners. */
+    complexitySetters: ProjectConfig.shape.team.shape.complexitySetters,
     merger: ProjectConfig.shape.team.shape.merger,
     /** The project's contacts (PM-985): the whole list replaces the saved one, [] clears it. */
     contacts: ContactHandles.optional(),
@@ -273,6 +275,7 @@ export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigReques
       ...(patch.cardMover !== undefined ? { cardMover: patch.cardMover } : {}),
       ...(patch.projectManagerMoves !== undefined ? { projectManagerMoves: patch.projectManagerMoves } : {}),
       ...(patch.prioritySetters !== undefined ? { prioritySetters: patch.prioritySetters } : {}),
+      ...(patch.complexitySetters !== undefined ? { complexitySetters: patch.complexitySetters } : {}),
       ...(patch.merger !== undefined ? { merger: patch.merger } : {}),
       ...(patch.contacts !== undefined ? { contacts: patch.contacts } : {}),
       ...(patch.viewerRecipients !== undefined ? { viewerRecipients: patch.viewerRecipients } : {}),

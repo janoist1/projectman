@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { AiMemberConfig, ProjectConfig } from './schema';
-import { canSetComplexity, complexityLimitOf, isDeveloper } from './complexity';
+import { canSetComplexity, complexityLimitOf, complexitySetterMembers, isDeveloper } from './complexity';
 import { complexityText, isComplexityPoints } from '../domain/complexity';
 
 const config = ProjectConfig.parse({
@@ -50,6 +50,20 @@ describe('complexity rules', () => {
     ['missing', false],
   ])('checks who may set complexity: %s', (handle, expected) => {
     expect(canSetComplexity(config, handle)).toBe(expected);
+  });
+
+  it.each([
+    [[], 'architect', false],
+    [[], 'owner', true],
+    [['implementation'], 'developer', true],
+    [['implementation'], 'architect', false],
+  ] as const)('follows team.complexitySetters %j: %s', (complexitySetters, handle, expected) => {
+    const custom = { team: { ...config.team, complexitySetters: [...complexitySetters] } };
+    expect(canSetComplexity(custom, handle)).toBe(expected);
+  });
+
+  it('lists the members who may set complexity in team order', () => {
+    expect(complexitySetterMembers(config).map((m) => m.handle)).toEqual(['owner', 'architect']);
   });
 
   it.each([

@@ -92,6 +92,18 @@ describe('project configuration migrations', () => {
     expect(warn).not.toHaveBeenCalled();
   });
 
+  it("gives a configuration without complexity setters today's two duties and keeps a set list (PM-1097)", () => {
+    const legacy = raw();
+    delete (legacy.team as { complexitySetters?: unknown }).complexitySetters;
+    expect(migrate(legacy).config.team.complexitySetters).toEqual([
+      'requirements_analysis',
+      'task_breakdown',
+    ]);
+    const set = raw();
+    (set.team as { complexitySetters?: unknown }).complexitySetters = [];
+    expect(migrate(set).config.team.complexitySetters).toEqual([]);
+  });
+
   it('drops the removed message storm threshold without carrying its value over (PM-261)', () => {
     const legacy = raw();
     Object.assign((legacy.team as { limits?: object }).limits ?? {}, {

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ComplexityPoints, DEFAULT_TEMP_MAX_POINTS } from '../domain/complexity';
+import { DutyId } from '../domain/duty';
 import { LabelId } from '../domain/label';
 import { AgentEffort, CheapSubagentModel } from '../domain/member';
 import {
@@ -47,6 +48,12 @@ export type PrioritySetters = z.infer<typeof PrioritySetters>;
 /** Whom a read-only viewer may write to (PM-1102): the project manager only, or the project's contacts. */
 export const ViewerRecipients = z.enum(['project_manager', 'contacts']);
 export type ViewerRecipients = z.infer<typeof ViewerRecipients>;
+
+/** The duties whose holders may set a card's complexity points (PM-1097); the project owners always may. */
+export const ComplexitySetters = z
+  .array(DutyId)
+  .refine((ids) => new Set(ids).size === ids.length, 'duplicate complexity setter duties');
+export type ComplexitySetters = z.infer<typeof ComplexitySetters>;
 
 /** Who merges a card's approved work into the repository's default branch (PM-448, decision 48). */
 export const Merger = z.discriminatedUnion('kind', [
@@ -414,6 +421,8 @@ export const ProjectConfig = z.object({
     projectManagerMoves: ProjectManagerMoves.optional(),
     /** Who besides people may set a card's priority (PM-1096); absent: DEFAULT_PRIORITY_SETTERS applies. */
     prioritySetters: PrioritySetters.optional(),
+    /** Duties whose holders may set complexity points; absent: `DEFAULT_COMPLEXITY_SETTERS`. */
+    complexitySetters: ComplexitySetters.optional(),
     /** Who merges approved work into the default branch. Absent: `defaultMerger` decides. */
     merger: Merger.optional(),
     members: z.array(MemberConfig).min(1),

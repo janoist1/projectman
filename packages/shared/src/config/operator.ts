@@ -719,6 +719,7 @@ function approvalWaivable(
         cardMover: { kind: true, handle: true },
         projectManagerMoves: true,
         prioritySetters: true,
+        complexitySetters: true,
       },
     ) &&
     fieldsWaivable(previous.team.limits, next.team.limits, WAIVER_LIMITS) &&

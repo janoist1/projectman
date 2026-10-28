@@ -4,6 +4,7 @@ import {
   BUILT_IN_ROLE_DUTIES,
   BuiltInRoleId,
   DEFAULT_AGENT_PROVIDER,
+  DEFAULT_COMPLEXITY_SETTERS,
   DEFAULT_PROJECT_LANGUAGE,
   DEFAULT_PRIORITY_SETTERS,
   DEFAULT_PROJECT_MANAGER_MOVES,
@@ -291,6 +292,13 @@ function addViewerRecipients(raw: unknown): unknown {
   return raw;
 }
 
+/** Existing projects keep today's complexity setters: requirements analysis and task breakdown (PM-1097). */
+function addComplexitySetters(raw: unknown): unknown {
+  const team = asRecord(asRecord(raw)?.team);
+  if (team && team.complexitySetters === undefined) team.complexitySetters = [...DEFAULT_COMPLEXITY_SETTERS];
+  return raw;
+}
+
 /**
  * The Operator member is gone (decision 66, PM-1076): a connected Claude replaces it. A member of the
  * retired `ai_operator` role leaves the team like any retired member (the `reconcile` listener records it
@@ -416,6 +424,7 @@ function addTempMaxPoints(raw: unknown): unknown {
  *   - a missing card mover becomes worker (above);
  *   - missing project manager moves allow queue moves and starting work (above);
  *   - a missing priority setting becomes the project managers (above);
+ *   - missing complexity setters become requirements analysis and task breakdown (above);
  *   - a missing viewer recipients setting becomes the project manager only (above);
  *   - the retired Operator member (`ai_operator`) leaves the team, with its role override and its
  *     references (above), and is never put back;
@@ -432,29 +441,31 @@ export function migrateProjectConfig(raw: unknown, context: MigrationContext): u
       addMerger(
         removeOperator(
           addViewerRecipients(
-            addPrioritySetters(
-              addProjectManagerMoves(
-                addCardMover(
-                  addProjectManager(
-                    migrateReleaseApproval(
-                      migrateLegacyConfig(
-                        migrateCodexBypass(
-                          migrateScheduledRole(
-                            dropMessageBurst(
-                              migrateSeniorLimit(
-                                dropEmailMailbox(migrateShadowingRoles(raw, context), context),
+            addComplexitySetters(
+              addPrioritySetters(
+                addProjectManagerMoves(
+                  addCardMover(
+                    addProjectManager(
+                      migrateReleaseApproval(
+                        migrateLegacyConfig(
+                          migrateCodexBypass(
+                            migrateScheduledRole(
+                              dropMessageBurst(
+                                migrateSeniorLimit(
+                                  dropEmailMailbox(migrateShadowingRoles(raw, context), context),
+                                  context,
+                                ),
                                 context,
                               ),
                               context,
                             ),
                             context,
                           ),
-                          context,
                         ),
+                        context,
                       ),
                       context,
                     ),
-                    context,
                   ),
                 ),
               ),

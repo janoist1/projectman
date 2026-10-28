@@ -4,6 +4,7 @@ import {
   emailChannelOn,
   emailSenderOf,
   approverOf,
+  canSetComplexity,
   cardMoverOf,
   checklistProgress,
   coordinationMemberOf,
@@ -695,6 +696,26 @@ const SUB_CARD_DUTIES: readonly DutyId[] = [
 const SUB_CARD_RULE =
   'A sub-card you create must stand on its own: its description holds only what that card needs (what, why, the affected parts, done when) and does not copy the parent\'s long description. Refer by name to each attachment it needs, in the form "PM-92: 06-rad-var-asztali.jpg" (the parent\'s key, a colon, the file name); the brief of the sub-card shows the referenced parent attachments first and only counts the others, so the assignee opens just those.';
 
+const COMPLEXITY_RULE =
+  'You may give a card complexity points (1, 2, 3, 5, 8, 13) with complexity_reason (create_task, update_task) when that helps; a card above 13 must be split.';
+const NO_COMPLEXITY_RULE =
+  'This project does not let you set complexity points (team.complexitySetters); leave complexity out of create_task and update_task.';
+
+/**
+ * The task breakdown duty text asks for complexity points; the project decides who may set them
+ * (`team.complexitySetters`, PM-1097). Say so when the member's duties and the rule disagree.
+ */
+function complexityRule(
+  project: ContextPackInput['project'],
+  member: ContextPackInput['member'],
+  duties: DutyId[],
+) {
+  const may = canSetComplexity(project, member.handle);
+  const told = duties.includes('task_breakdown');
+  if (may && !told) return [COMPLEXITY_RULE];
+  return !may && told ? [NO_COMPLEXITY_RULE] : [];
+}
+
 /** Shared working principles; each role retains its own server-enforced authority (PM-690). */
 const OPERATING_PRINCIPLES = [
   '1. Check current facts before referring to a card: read get_task and get_project_state, including session activity and actual waits; an intermediate alert alone does not mean the member is stuck. Use visible structured facts, never raw transcripts or secrets.',
@@ -999,6 +1020,7 @@ function roleSection(input: ContextPackInput, guide: ContextPack['guide']): stri
       : []),
     ...(bundle.duties.includes('implementation') ? [structuralDecisionRule(input)] : []),
     ...(!subCardsGuided && bundle.duties.some((id) => SUB_CARD_DUTIES.includes(id)) ? [SUB_CARD_RULE] : []),
+    ...complexityRule(project, member, bundle.duties),
     ...(isProjectManager(member)
       ? [
           projectManagerRule(

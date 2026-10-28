@@ -1557,6 +1557,28 @@ describe('system prompt', () => {
     });
   });
 
+  describe('who may set complexity (PM-1097)', () => {
+    const roleOf = (project: ProjectConfig, handle: string) =>
+      section(builder.build(input({ project, handle })).appendSystemPrompt, '# Your role instructions');
+
+    it('tells a member who holds task breakdown that the project does not let them set complexity', () => {
+      const project = buildProject();
+      addMember(project, 'arch', 'architect');
+      project.team.complexitySetters = [];
+      const role = roleOf(project, 'arch');
+      expect(role).toContain('team.complexitySetters');
+      project.team.complexitySetters = ['task_breakdown'];
+      expect(roleOf(project, 'arch')).not.toContain('team.complexitySetters');
+    });
+
+    it('tells a member who may set complexity without task breakdown how to', () => {
+      const project = buildProject();
+      expect(roleOf(project, 'fe-1')).not.toContain('complexity_reason');
+      project.team.complexitySetters = ['implementation'];
+      expect(roleOf(project, 'fe-1')).toContain('complexity_reason');
+    });
+  });
+
   describe('the Operator rule (PM-447)', () => {
     const roleOf = (prompt: string) => section(prompt, '# Your role instructions');
 

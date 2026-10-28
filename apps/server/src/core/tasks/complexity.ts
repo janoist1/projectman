@@ -30,7 +30,10 @@ export function planComplexity(
 ): ComplexityChange | null {
   const handle = actorHandle(actor);
   if (!canSetComplexity(config, handle))
-    throw forbidden('complexity_forbidden', 'only an owner or a planning member may set complexity');
+    throw forbidden(
+      'complexity_forbidden',
+      'only an owner or a member with a duty in team.complexitySetters may set complexity',
+    );
   if (task && isTheme(task)) throw themeRefused(task.key, 'have complexity points');
   if (task && !isOpenTask(task)) throw conflict('task_closed', `task ${task.key} is ${task.status}`);
   const points = request.points;

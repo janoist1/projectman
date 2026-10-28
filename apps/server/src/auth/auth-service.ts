@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { hash, verify } from '@node-rs/argon2';
-import { canHoldIntegratorKey, isOwnerAccount } from '@projectman/shared';
+import { canHoldIntegratorKey, integratorKeyCoversProject, isOwnerAccount } from '@projectman/shared';
 import type {
   CreateIntegratorAccessKeyRequest,
   IntegratorChannel,
@@ -87,16 +87,31 @@ export class AuthService {
   }
 
   /**
-   * Whether the account with this email has a live (not revoked, not expired) super key: the owner's connected
-   * client can work the integrator queue (PM-1045). False for an unknown email.
+   * Whether the account with this email has a live (not revoked, not expired) super key that reaches the
+   * project: the owner's connected client can work the project's integrator queue (PM-1045, PM-1063). False for
+   * an unknown email, and for a project another owner account created (`keyCoversProject`).
    */
-  hasActiveSuperKey(email: string): boolean {
+  hasActiveSuperKey(email: string, projectKey: string): boolean {
     const user = this.repos.users.findByEmail(email.trim());
     return (
       !!user &&
       this.keyHolderAllowed(user.id) &&
+      this.keyCoversProject(user.id, projectKey) &&
       this.repos.integratorKeys.hasActiveSuper(user.id, this.now().toISOString())
     );
+  }
+
+  /**
+   * Whether a key of this holder reaches the project (`integratorKeyCoversProject`, PM-1063): the creator
+   * of a project an owner account made is the only holder, whatever its editable team says.
+   */
+  keyCoversProject(userId: string, projectKey: string): boolean {
+    const createdBy = this.repos.projects.get(projectKey)?.createdBy ?? null;
+    return integratorKeyCoversProject({
+      createdBy,
+      creatorIsHost: createdBy !== null && this.isHostOwner(createdBy),
+      holder: userId,
+    });
   }
 
   /** Whether this account may hold an integrator key right now (`canHoldIntegratorKey`, PM-1063). */

@@ -79,6 +79,12 @@ export interface IntegratorCredentialAuthority {
   /** Whether the user is the host owner (PM-1061); absent: nobody is, so the host's operations are refused. */
   isHostOwner?(userId: string): boolean;
   /**
+   * Whether a key of this holder reaches the project at all (PM-1063): in a project an owner account created
+   * only the creator's key does, whoever the project's editable team lists as owner. Absent: no project is
+   * reached (fail closed).
+   */
+  keyCoversProject?(userId: string, projectKey: string): boolean;
+  /**
    * The live principal of a stored key (PM-784), for work that outlives the call that started it: a queued
    * document write. Null when the key is revoked, expired or no longer the one stored (id, owner, prefix);
    * the mode is the key's own. It records no use of the key.

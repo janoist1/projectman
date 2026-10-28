@@ -372,7 +372,29 @@ export async function createOwnerAccountWithProject(
   const user = repos.users.findByEmail(`${handle}@example.test`)!;
   repos.ownerAccounts.grant(user.id, repos.users.list()[0]!.id, new Date().toISOString());
   await createForeignProject(h, hostCookie, key, user.email);
+  // The owner account created the project (the host made it only to skip the engine setup): the key's reach follows it.
+  repos.db.prepare('UPDATE projects SET created_by = ? WHERE key = ?').run(user.id, key);
   return { userId: user.id, email: user.email, cookie };
+}
+
+/** What a project's creator can do to its editable team: list the host owner's e-mail as one more owner (PM-1063). */
+export async function addHostAsOwnerMember(h: HarnessBase, key: string): Promise<void> {
+  await h.app.projectman.domain.projects.update(
+    key,
+    { actor: humanActor('owner'), author: OWNER_LOGIN },
+    (draft) => {
+      for (const member of [...draft.team.members]) {
+        if (member.kind !== 'human' || member.access !== 'owner') continue;
+        draft.team.members.push({
+          ...structuredClone(member),
+          handle: 'host-copy',
+          email: OWNER_LOGIN.email,
+        });
+        break;
+      }
+      return 'List the host owner as an owner';
+    },
+  );
 }
 
 /**

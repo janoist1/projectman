@@ -56,17 +56,17 @@ describe('integrator key modes and lifecycle', () => {
   });
 
   it('reports a live super key by email: not a read key, an expired, a revoked or an unknown one (PM-1045)', () => {
-    expect(auth.hasActiveSuperKey('owner@example.com')).toBe(false);
+    expect(auth.hasActiveSuperKey('owner@example.com', 'AR')).toBe(false);
     create('read');
-    expect(auth.hasActiveSuperKey('owner@example.com')).toBe(false);
+    expect(auth.hasActiveSuperKey('owner@example.com', 'AR')).toBe(false);
     const key = create('super');
-    expect(auth.hasActiveSuperKey('owner@example.com')).toBe(true);
-    expect(auth.hasActiveSuperKey('nobody@example.com')).toBe(false);
+    expect(auth.hasActiveSuperKey('owner@example.com', 'AR')).toBe(true);
+    expect(auth.hasActiveSuperKey('nobody@example.com', 'AR')).toBe(false);
     advance(8 * 24 * 60 * 60_000);
-    expect(auth.hasActiveSuperKey('owner@example.com')).toBe(false);
+    expect(auth.hasActiveSuperKey('owner@example.com', 'AR')).toBe(false);
     advance(-8 * 24 * 60 * 60_000);
     auth.revokeIntegratorAccessKey('owner', key.key.id);
-    expect(auth.hasActiveSuperKey('owner@example.com')).toBe(false);
+    expect(auth.hasActiveSuperKey('owner@example.com', 'AR')).toBe(false);
   });
 
   it('enforces one unrevoked key per owner and mode in SQL', () => {

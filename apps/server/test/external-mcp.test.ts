@@ -10,6 +10,7 @@ import { TEAM_TOOL_NAMES } from '../src/mcp';
 import {
   addHumanAndLogin,
   createAppHarness,
+  addHostAsOwnerMember,
   createOwnerAccountWithProject,
   createProject,
   setupOwner,
@@ -438,6 +439,46 @@ describe('the bearer MCP endpoint (PM-760)', () => {
       option_id: 'todo_done',
     });
     expect(own.isError).not.toBe(true);
+  });
+
+  it('does not reach a further owner’s project with the host’s key, even when the project’s team lists the host (PM-1063)', async () => {
+    const tenant = await createOwnerAccountWithProject(h, cookie, 'BR');
+    await addHostAsOwnerMember(h, 'BR');
+    const hostKey = key('super').secret;
+    const todo = h.app.projectman.domain.inbox.create({
+      projectKey: 'BR',
+      kind: 'question',
+      source: 'dev-1',
+      assignees: ['owner'],
+      title: 'Tenant todo',
+      payload: {
+        question: 'Tenant todo',
+        recipient: 'integrator',
+        integratorOpenedAt: now.toISOString(),
+        screening: {
+          until: now.toISOString(),
+          outcome: 'todo',
+          todo: { what: 'Tenant todo', where: 'Machine', expected: 'Result', recipient: 'integrator' },
+        },
+      },
+      options: [{ id: 'todo_done', label: 'Done', style: 'primary' }],
+    });
+    const projects = await call(hostKey, 'list_projects');
+    expect(projects.structuredContent?.projects.map((p: { key: string }) => p.key)).not.toContain('BR');
+    expect((await call(hostKey, 'list_integrator_inbox')).structuredContent?.items).toEqual([]);
+    const resolved = await call(hostKey, 'resolve_integrator_todo', {
+      project_key: 'BR',
+      item_id: todo.id,
+      option_id: 'todo_done',
+    });
+    expect(resolved.structuredContent?.errorCode).toBe('insufficient_access');
+    // The creator's own key still reaches it.
+    const tenantKey = h.app.projectman.auth.createIntegratorAccessKey(tenant.userId, {
+      mode: 'super',
+      expiresInDays: 7,
+    }).secret;
+    const listed = await call(tenantKey, 'list_projects');
+    expect(listed.structuredContent?.projects.map((p: { key: string }) => p.key)).toEqual(['BR']);
   });
 
   it('initializes, lists, reads and writes with no session and no engine', async () => {

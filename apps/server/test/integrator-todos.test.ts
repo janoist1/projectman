@@ -11,6 +11,7 @@ import { projectAccessFor } from '../src/core/members';
 import type { ProjectAccess } from '../src/core/members';
 import { resolveIntegratorTodo } from '../src/services/super-operator';
 import {
+  addHostAsOwnerMember,
   createAppHarness,
   createOwnerAccountWithProject,
   createProject,
@@ -362,6 +363,17 @@ describe('integrator todo REST and durable lifecycle', () => {
     repos.ownerAccounts.revoke(tenant.userId, repos.users.list()[0]!.id, now.toISOString());
     await domain.inbox.sweepIntegratorTodos();
     expect(domain.inbox.get('BR', own.id).payload).toMatchObject({ recipient: 'owner' });
+  });
+
+  it('does not hand a further owner’s todos to the host’s key when their team lists the host as an owner (PM-1063)', async () => {
+    await createOwnerAccountWithProject(h, cookie, 'BR');
+    await addHostAsOwnerMember(h, 'BR');
+    expect((await opened({}, 'BR')).payload).toMatchObject({
+      recipient: 'owner',
+      screening: { recipientRefusal: 'integrator_unavailable' },
+    });
+    // The host's own project is unaffected.
+    expect((await opened()).payload).toMatchObject({ recipient: 'integrator' });
   });
 
   it('never delivers an integrator-origin item to other humans in REST or websocket projection', async () => {

@@ -3182,7 +3182,12 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   their own beside the host owner; the pure rule is `canHoldIntegratorKey` (`packages/shared/src/config/integrator.ts`),
   applied by `AuthService.keyHolderAllowed` at issuing, authentication, `assertActive` and `hasActiveSuperKey`.
   A key's scope is its holder's own projects (the existing owner-membership checks); revoking the owner account
-  makes the key `integrator_key_invalid` (401). Administration is the host's alone: `SuperRights.assertHost`
+  makes the key `integrator_key_invalid` (401). The team of a project is editable by its owners, so the reach
+  also rests on a fact the team cannot write (`integratorKeyCoversProject`, `AuthService.keyCoversProject`):
+  in a project an owner account created (`projects.created_by`, PM-1062) only the creator's key counts, even if
+  the team lists the host owner; a project the host registered stays with its owner members' keys. The check
+  sits in the scope's access check, `executeOwned`/`executeInstance`, `SuperRights.assertNow` and
+  `hasActiveSuperKey(email, projectKey)` (the queue). Administration is the host's alone: `SuperRights.assertHost`
   refuses every non-host key with `host_only` (403) for the status, log and machine reads of the facade, for
   every `super_operate` administration command (hub or engine restart, deploy, process cleanup) and for the
   operator grant gate, which stays the host's. Instance-level REST routes are not `host_only` (PM-1058).

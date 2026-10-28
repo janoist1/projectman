@@ -47,7 +47,8 @@ export function createSuperRights(deps: {
         const verdict = superAccessVerdict(config, {
           mode: principal.mode,
           operation,
-          ownerMembership: owner?.access === 'owner',
+          ownerMembership:
+            owner?.access === 'owner' && !!deps.credentials.keyCoversProject?.(principal.userId, key),
         });
         if (!verdict.allowed) throw forbidden(verdict.code, 'the credential cannot perform this operation');
       }

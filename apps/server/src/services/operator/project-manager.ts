@@ -3,9 +3,6 @@ import {
   isOnLeave,
   managerConversationOf,
   nominalMessagePlace,
-  OPERATOR_SIGNAL_ROUND_FROM,
-  operatorConversationOf,
-  operatorOf,
   ownerHandles,
   projectManagerOf,
   sessionWorkItemOf,
@@ -13,7 +10,6 @@ import {
 } from '@projectman/shared';
 import type {
   AiMemberConfig,
-  OperatorChannel,
   ProjectManagerChannel,
   ProjectManagerCorner,
   WorkItemRef,
@@ -58,24 +54,6 @@ export class ProjectManagerChannels {
         ? nominalMessagePlace(config, manager.handle, { type: 'general' }, viewer)
         : { type: 'general' },
       ownerHandles(config),
-    );
-  }
-
-  /**
-   * The viewer's conversation with the Operator, shaped like the corner (PM-463, PM-475). Until the Operator
-   * leaves the app (PM-1045).
-   */
-  async operatorView(projectKey: string, viewer: string): Promise<OperatorChannel> {
-    const config = await this.deps.projects.config(projectKey);
-    const conversation = operatorConversationOf(config, viewer);
-    return this.cornerOf(
-      projectKey,
-      viewer,
-      operatorOf(config),
-      conversation,
-      conversation,
-      // The owners' channel also lists the rounds of the Operator's own steps on signals (PM-545).
-      [...ownerHandles(config), OPERATOR_SIGNAL_ROUND_FROM],
     );
   }
 

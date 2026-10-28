@@ -293,9 +293,6 @@ export const ProjectManagerCorner = ProjectManagerChannel.extend({
   }),
 });
 export type ProjectManagerCorner = z.infer<typeof ProjectManagerCorner>;
-/** The corner's shape under its old name, until the Operator leaves the app (PM-1045). */
-export const OperatorChannel = ProjectManagerCorner;
-export type OperatorChannel = ProjectManagerCorner;
 
 /* ---------- auth ---------- */
 

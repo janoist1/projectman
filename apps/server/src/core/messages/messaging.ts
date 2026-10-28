@@ -22,6 +22,7 @@ import {
   messageWakes,
   managerConversationOf,
   routeFor,
+  runsInApp,
   sameWorkItem,
   sessionWorkItemOf,
   questionPayloadOf,
@@ -316,7 +317,6 @@ export class Messaging {
         );
       }
     }
-    if (!opts.origin) this.assertMayWriteToOperator(config, from, recipients, opts.actor);
     const sender = opts.actor ?? humanActor(from);
     // The files are checked before anything else is done for the message (a refusal leaves nothing behind)
     // and bound to it in its own unit of work below.
@@ -530,6 +530,7 @@ export class Messaging {
   }
 
   /**
+   * 409 `operator_connected_only` for a recipient that exists only when the owner's client connects (PM-1045), or
    * 403 `recipient_not_contact` (a contact-restricted sender) or `insufficient_access` (a viewer) with the refused
    * recipients in `details`, for the whole message (PM-985). The answer to a member's own question and an e-mail
    * contact's reply have their own rules: the origin is set by the server, never by a request.
@@ -543,6 +544,7 @@ export class Messaging {
     if (opts.origin?.kind === 'answer' || opts.email) return;
     const refusal = teamMessageRecipientRefusal(config, from, recipients);
     if (!refusal) return;
+    if (refusal.code === 'operator_connected_only') throw connectedOnlyRefusal(refusal.recipients);
     throw forbidden(
       refusal.code,
       refusal.code === 'recipient_not_contact'
@@ -571,7 +573,7 @@ export class Messaging {
     const body = text.trim();
     if (!body) throw invalid('invalid_request', 'the message text is empty', { field: 'text' });
     const config = await this.projects.config(projectKey);
-    this.assertMayWriteToOperator(config, from, [session.member], actor);
+    if (!runsInApp(memberOf(config, session.member))) throw connectedOnlyRefusal([session.member]);
     assertIntegratorAccess(config, 'write', actor);
     const recipient = memberOf(config, session.member);
     assertSuperMutation(
@@ -634,24 +636,6 @@ export class Messaging {
       // A message in the first input of a starting session waits until that input is typed (PM-189).
       delivered: false,
     });
-  }
-
-  /**
-   * A person writes to the Operator only with their own login (PM-463, PM-475): through the integrator key
-   * it is refused with 403 operator_owner_only. AI members and the system pass: their messages are stored and
-   * reach the Operator as information with the owner's next one, and wake nobody.
-   */
-  private assertMayWriteToOperator(
-    config: ProjectConfig,
-    from: string,
-    recipients: readonly string[],
-    actor?: Actor,
-  ): void {
-    if (!recipients.some((handle) => isOperator(memberOf(config, handle)))) return;
-    const sender = memberOf(config, from);
-    if (sender?.kind !== 'human') return;
-    if (actor?.via)
-      throw forbidden('operator_owner_only', "only a person's own login may write to the Operator");
   }
 
   /** Labels that notify the assignee (e.g. "QA: failed") reach them as a message from whoever set them. */
@@ -1019,6 +1003,19 @@ export class Messaging {
     const groups = cardBusyGroups({ working, joining });
     return groups.length > 0 ? { taskKey: task.key, groups } : null;
   }
+}
+
+/**
+ * The refusal of a message to a member that exists only when the owner's client connects (PM-1045): 409
+ * `operator_connected_only`, with the two ways on. It does not name the connected client by a role.
+ */
+function connectedOnlyRefusal(recipients: readonly string[]): DomainError {
+  return conflict(
+    'operator_connected_only',
+    'that recipient exists only when the owner connects their client, so a message cannot reach it. ' +
+      'For machine work open a todo with open_integrator_todo; for anything else ask a person with ask_human.',
+    { recipients: [...recipients] },
+  );
 }
 
 /** The actor a question's resolution is delivered as: the super origin when it has one (PM-757). */

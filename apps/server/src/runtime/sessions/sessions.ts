@@ -1,6 +1,6 @@
 import { wakesFor } from '../../core/messages';
 import { assertIntegratorAccess, assertSuperMutation } from '../../kernel';
-import { LIVE_SESSION_STATES, workMetadataAfterChat } from '@projectman/shared';
+import { LIVE_SESSION_STATES, runsInApp, workMetadataAfterChat } from '@projectman/shared';
 import type { EnsureSessionOptions, EnsureSessionResult } from '../../contracts';
 import {
   approverBlocker,
@@ -819,7 +819,11 @@ export class SessionOrchestrator {
   ): Promise<EnsureSessionResult> {
     const requested = workItem;
     const config = await this.deps.projects.config(projectKey);
-    workItem = sessionWorkItemOf(requireAiMember(config, handle), workItem);
+    const target = requireAiMember(config, handle);
+    // The Operator exists only when the owner's client connects (PM-1045): the app starts no session for it.
+    if (!runsInApp(target))
+      throw conflict('operator_connected_only', `${handle} runs only when the owner's client connects`);
+    workItem = sessionWorkItemOf(target, workItem);
     const result = await this.locks.run(sessionLockKey(projectKey, handle, workItem), async () => {
       const config = await this.deps.projects.config(projectKey);
       const member = requireAiMember(config, handle);

@@ -17,7 +17,6 @@ import { MESSAGE_TOOL_GROUP } from './messages';
 import { EMAIL_CHANNEL_TOOL_GROUP } from './email-channel';
 import { ADMISSION_TOOL_GROUP } from './admission';
 import { WATCHER_TOOL_GROUP } from './watchers';
-import { OPERATOR_QUEUE_TOOL_GROUP } from './operator-queue';
 import { SESSION_TOOL_GROUP } from './sessions';
 /**
  * Server-level instructions, sent once at initialization. Claude Code appends them to the
@@ -48,7 +47,6 @@ export const TEAM_TOOL_GROUPS: readonly TeamToolGroup[] = [
   EMAIL_CHANNEL_TOOL_GROUP,
   ADMISSION_TOOL_GROUP,
   WATCHER_TOOL_GROUP,
-  OPERATOR_QUEUE_TOOL_GROUP,
   SESSION_TOOL_GROUP,
 ];
 export const TEAM_TOOLS: readonly TeamTool[] = TEAM_TOOL_GROUPS.flatMap((group) => group.tools);

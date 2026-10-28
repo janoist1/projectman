@@ -820,7 +820,7 @@ The top right corner (PM-1042, decision 65) belongs to the project manager. `GET
 returns a `ProjectManagerCorner`: the manager's channel plus, for the viewer, the requests and steps, the
 signals and the manager's queue; a person who is not an owner gets `readOnly` and no signals or queue. The web
 queue view reads `routes.memberQueue` for the manager. The machine grant is shown on the machine panel and
-managed in Settings → Integrator. The Operator's own channel route stays until PM-1045.
+managed in Settings → Integrator. The Operator's own channel route is gone (PM-1045): the app has no Operator.
 
 Personal conversational style (PM-688) lives in `services/operator/preferences.ts`.
 `get_operator_preference` and `set_operator_preference` choose the person from the
@@ -995,13 +995,13 @@ Every AI member has one durable queue of what is waiting for them: a message, an
   every write (`messages.onPendingChange`, `inbox.onChange`), so a row commits with its source and no call site has to
   remember it. A message gets an item for each AI recipient it is pending for (a receipt without `deliveredAt`; the
   `team_message_pending` table is gone since migration 99); the item closes
-  `done`/`delivered` on delivery and `cancelled`/`source_closed` when the receipt is settled any other way. An open
-  inbox item still owed by the Operator (`operatorOwesInboxItem`: an integrator todo or narrow fix limit decision
-  without `operatorHandoff`) gets an Operator item with `wake: true`; it closes `done`/`resolved` when the integrator
-  answered, or with the Operator's planned outcome when handed off, else `cancelled`/`source_closed`.
-  A handoff to the super side keeps integrator addressing and sets `operatorHandoff`, so reconciliation closes
-  the Operator row and never queues the item again (PM-1003). Both reconcilers are idempotent and a failure is
-  logged and never changes what the source write does.
+  `done`/`delivered` on delivery and `cancelled`/`source_closed` when the receipt is settled any other way. Since
+  PM-1045 the Operator gets no item at all: it runs no session in the app (`operatorRunsInApp = false`,
+  `runsInApp`), so a message to it is refused (`operator_connected_only`) and an integrator todo or narrow fix
+  limit decision stays an open inbox item, which the connected client reads through the super-mode tools
+  (`open_integrator_todo`, `resolveIntegratorTodo`). Migration 120 cancelled the Operator rows that were open
+  (the inbox items stayed). Both reconcilers are idempotent and a failure is logged and never changes what the
+  source write does.
 - **Invariant**: the open message items are exactly the messages pending for an AI recipient. `recover()` runs at
   startup (after `messageAttachments.recover()`) and fills in what is missing or closes what is stale; running it again
   changes nothing. The pending counts, `get_project_state` and the diagnostics read the queue.
@@ -1019,7 +1019,7 @@ Every AI member has one durable queue of what is waiting for them: a message, an
   stopped. An old `message_wake` deferred-start row is read once (`ensure`) and deleted.
 - **API** (`apps/server/src/api/member-queue.ts`): `GET /api/projects/:key/operator/queue` only (PM-1030 deleted the
   per-member and all-members routes; nothing called them). Access: a person's own login (developer or more) or
-  an integrator read or super key. Legacy keys fail authentication with 401 (PM-1037). The Operator channel (`OperatorChannel.queue`) carries the open count and the item in work.
+  an integrator read or super key. Legacy keys fail authentication with 401 (PM-1037). The route stays for the old Operator rows and is empty for a project after migration 120.
 - **WebSocket**: `member_queue_changed {projectKey, member}`, once per member per unit of work. Clients do not see it.
 - **Remote engine**: no machine-dependent part is added. The queue, the driver and the sweep live on the hub with the
   database; only the session start crosses to an engine, as before. A member whose engine is offline waits with
@@ -1966,6 +1966,10 @@ workers follow the machine's size.
   needs another card. The hub decides from persisted session and queue state; the existing session
   RPC stops the process on its engine, whose workspace manager still refuses dirty checkouts.
   No new path, process or transport assumption is introduced.
+  **No Operator lane (PM-1045):** the Operator lane and its reminder are gone; the driver starts no session
+  for the Operator and the queue puts no item on it. Machine work waits as an open inbox item for the connected
+  client, with the PM-1003 sweep escalating it to the owner when no owner has a live super key
+  (`integratorSideAvailable`). Nothing new crosses the boundary.
 
 - **Startup sweep of crash leftovers (PM-837)** — when the engine host is created (the server in local mode,
   the engine process in hybrid mode) two one-shot background sweeps remove what a crash left behind, each
@@ -2123,7 +2127,9 @@ workers follow the machine's size.
   the shared operation path under the owner's authority; machine and other unlisted command kinds
   are refused with `command_not_for_project_manager` and handed off through `open_integrator_todo`.
   Owner-reserved effects still wait for the owner's own login. App principals stay on the server;
-  this adds no machine dependency or remote-engine boundary.
+  this adds no machine dependency or remote-engine boundary. Since PM-1045 the app principal has only the
+  project manager branch: the app's Operator session is gone, so nothing issues an Operator principal;
+  the super-key path (`superActorOf`) is unchanged.
   `services/super-operator/handoffs.ts` (`SuperHandoffService`), `db/super-handoffs.ts` (migration 83:
   `super_handoffs`, `super_operations`), `packages/shared/src/{api/super-handoff,config/super-command}.ts`,
   `core/inbox/inbox.ts` (the owner's-own-login rule, the relay), the Operator MCP tool `request_super_operation`
@@ -3147,6 +3153,9 @@ workers follow the machine's size.
   The host owner's own login manages explicit `super`/`read` keys with 1/7/30/365-day expiry
   or no expiry (`expiresInDays: null`, PM-825; default 7 days). The hub already stores a null
   `expires_at` and authenticates it until revocation; no migration or engine operation is needed.
+  PM-1045: `AuthService.hasActiveSuperKey(ownerEmail)` (repository `hasActiveSuper`) tells whether an owner has
+  a live (not revoked, not expired) super key; `integratorSideAvailable` reads it to decide where a machine todo
+  waits. It reads only the hub database; no machine assumption is added.
   Legacy keys are revoked with a lifecycle audit by migration 114 (PM-1037); the singular API is removed.
   Authentication rejects legacy rows, which remain readable in key lists and audit history. Before release,
   the owner must replace any active legacy credential on the integrator's machine with a super or read key.
@@ -3196,7 +3205,8 @@ workers follow the machine's size.
   engine. Machine assumptions: a local or HTTPS connection (`requestProtocol` trusts `X-Forwarded-Proto` only from a
   loopback peer, so the proxy or tunnel must run on the server's machine and keep Host and the protocol header) and a
   tunnel/proxy that refuses `/mcp/` and `/hooks` but passes `/mcp`. Remote engine: not affected; nothing of the endpoint
-  runs on or crosses to an engine.
+  runs on or crosses to an engine. Since PM-1045 this endpoint is the Operator's only door: the `operator` member
+  stays as a transitional identity (`superActorOf` maps a super-key step to it), the app starts no session for it.
   **The global Operator on the endpoint (PM-1046, PM-1023 K7):** in the super mode `get_operator_instance_knowledge`
   and `update_operator_instance_knowledge` (`expected_revision`, `agreement?`, `principles?`) read and write the
   Operator's own knowledge with no `project_key` (`services/super-operator/instance-knowledge.ts`); the write is
@@ -5140,7 +5150,7 @@ retired, `operator_required` 409; it cannot go on leave), `isOperatorActor` (an 
 - **Project manager documents (PM-495, PM-388, PM-1004, PM-1044).** Tools and their handler live in `mcp/project-docs/`.
   `read_project_doc`, `write_project_docs`, `list_decision_candidates` and `mark_decision_candidates` belong to the
   selected available project manager (`coordinationMemberOf`), only in its own internal general conversation.
-  The app Operator retains access until PM-1045 removes it. The PM uses its own `CoordinationRequests`;
+  The app has no Operator since PM-1045, so only the PM holds them. The PM uses its own `CoordinationRequests`;
   an Operator request, guest conversation, signal or approval continuation grants no document-writing authority.
   Document procedures and lessons guidance belong to the PM's prompt and role guide.
   `read_project_doc { doc, from_line?, line_count? }` is a read tool
@@ -5183,12 +5193,10 @@ retired, `operator_required` 409; it cannot go on leave), `isOperatorActor` (an 
   snapshot survives restart and remains searchable offline, with its status (owner, 2026-10-18). A configured
   custom decision-log path is not followed by this fixed-path copy. See the `merge.read_file` inventory above
   for the remote-engine boundary and the per-repository fetch queue.
-- **Roadmap check at a release proposal (PM-497).** `ReleaseService.propose` emits the domain event
-  `release_proposed`; `ReleaseRoadmapNotices` (`services/releases/roadmap-notices.ts`) then sends the Operator one
-  English `info` system message per release (only when a repository has a `docs.roadmap` path and the team has an
-  Operator; `MessageRepository.hasNote` looks for the release id in the Operator's earlier system messages). It wakes
-  nobody and arrives with the owner's next message; the `operatorRule` line tells the Operator to offer the roadmap
-  comparison then and to write (`write_project_docs`) only after the owner says yes. No machine-dependent part.
+- **Roadmap check at a release proposal (PM-497, removed by PM-1045).** `ReleaseService.propose` still emits the
+  domain event `release_proposed`, but nothing sends the Operator a roadmap notice any more: the Operator runs no
+  session in the app, and `ReleaseRoadmapNotices` (`services/releases/roadmap-notices.ts`) is deleted. The roadmap
+  comparison is the project manager's work on request. No machine-dependent part.
 - **Decision candidates (PM-496, PM-388).** `DecisionCandidates` (`services/project-docs/decision-candidates.ts`) finds the
   questions of the inbox that an owner answered (through the integrator too), that no rule closed, that someone but
   the Operator asked, answered after the project's `since`, and with no verdict yet (`InboxRepository.
@@ -5231,10 +5239,12 @@ listAnsweredQuestions`). `list_decision_candidates { limit? }` (1..50, default 2
   (`canSeeOperatorSessions`: REST, WebSocket events and terminal, the member profile). Capacity (1) counts the guest
   conversations only (`Admission.memberLoad`): the owner's never waits; a guest conversation closes after
   `OPERATOR_GUEST_IDLE_CLOSE_MINUTES` (5) idle. No machine-dependent part is affected.
+  (PM-1045: the app starts no Operator session any more, so these Operator guest conversations are history; the
+  project manager's follow below. Old Operator sessions and events stay readable.)
   **The project manager has the same guest conversations (PM-1080, PM-1023 K3b).** One rule decides who has them,
-  `hasGuestConversations(config, member)` in `packages/shared/src/config/project-manager.ts`: the Operator (until PM-1045)
-  or the selected project manager (`coordinationMemberOf`). The route (`nominalMessagePlace`, via
-  `managerConversationOf`; `operatorConversationOf` stays as an alias until PM-1045), the session start
+  `hasGuestConversations(config, member)` in `packages/shared/src/config/project-manager.ts`: the selected project
+  manager (`coordinationMemberOf`); the Operator lost it with PM-1045. The route (`nominalMessagePlace`, via
+  `managerConversationOf`; the `operatorConversationOf` alias is gone), the session start
   (`message-starts.ts`), the write guard (`prepareSessionChat`), the message wait and the prompt all ask it instead of
   `isOperator`. A `with` conversation of any project manager stays restricted even when it is no longer the selected one
   (`guestOfConversation`, fail closed): `ToolCaller.callerWithRequest` lets it call `OPERATOR_GUEST_TOOLS` only (no new

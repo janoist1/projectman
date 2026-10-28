@@ -5,7 +5,6 @@ import type {
   MessageToolsHandler,
   AdmissionToolsHandler,
   WatcherToolsHandler,
-  OperatorQueueToolsHandler,
   SessionToolsHandler,
   EmailToolsHandler,
   MemberToolsHandler,
@@ -115,7 +114,6 @@ export class TeamToolsService implements TeamToolsHandler {
     messages: MessageToolsHandler;
     admission: AdmissionToolsHandler;
     watchers: WatcherToolsHandler;
-    operatorQueue: OperatorQueueToolsHandler;
     sessions: SessionToolsHandler;
     email: EmailToolsHandler;
   };
@@ -164,9 +162,6 @@ export class TeamToolsService implements TeamToolsHandler {
   ) {
     return this.tools.watchers.decideFixLimit(ctx, args);
   }
-  async finishQueueItem(ctx: ToolContext, args: Parameters<OperatorQueueToolsHandler['finishQueueItem']>[1]) {
-    return this.tools.operatorQueue.finishQueueItem(ctx, args);
-  }
   async handOff(ctx: ToolContext, args: { taskKey: string; note: string }): Promise<{ recorded: true }> {
     return this.tools.admission.handOff(ctx, args);
   }
@@ -188,7 +183,6 @@ export class TeamToolsService implements TeamToolsHandler {
       messages: MessageToolsHandler;
       admission: AdmissionToolsHandler;
       watchers: WatcherToolsHandler;
-      operatorQueue: OperatorQueueToolsHandler;
       sessions: SessionToolsHandler;
       email: EmailToolsHandler;
     };

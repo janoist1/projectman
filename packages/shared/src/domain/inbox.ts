@@ -1099,27 +1099,6 @@ export function isIntegratorTodo(item: InboxItem): boolean {
   );
 }
 
-/**
- * Whether the Operator may answer this integrator todo as the question of an AI member (PM-1009): an open
- * todo that a member asked (no system obligation, no external integrator question), not the Operator's own.
- * Whether the content is reserved to the owner (deletion, security, cost, direction) is the Operator's judgement.
- */
-export function isOperatorAnswerableTodo(
-  item: InboxItem,
-  facts: { operatorHandle: string; askerIsAi: boolean },
-): boolean {
-  const p = questionPayloadOf(item);
-  return (
-    item.state === 'open' &&
-    isIntegratorTodo(item) &&
-    !!p &&
-    !p.obligation &&
-    !p.externalQuestion &&
-    item.source !== facts.operatorHandle &&
-    facts.askerIsAi
-  );
-}
-
 export function questionRecipientOf(item: InboxItem): QuestionRecipient {
   return isIntegratorTodo(item) ? 'integrator' : 'owner';
 }
@@ -1193,11 +1172,6 @@ export function isIntegratorFixLimitDecision(item: InboxItem): boolean {
 /** An item the integrator is the recipient of: an integrator todo, or the narrow fix limit decision. */
 export function isIntegratorInboxItem(item: InboxItem): boolean {
   return isIntegratorTodo(item) || isIntegratorFixLimitDecision(item);
-}
-
-/** The Operator still owes this open integrator item: it has not handed it to the super side (PM-1003). */
-export function operatorOwesInboxItem(item: InboxItem): boolean {
-  return item.state === 'open' && isIntegratorInboxItem(item) && !('operatorHandoff' in item.payload);
 }
 
 /** Whether the item was ever opened to the integrator, whatever happened to it since (PM-714). */

@@ -4,7 +4,7 @@ import { stageIndex } from './gates';
 import { cardMoverOf, isHandOnMove } from './card-mover';
 import { isOnLeave } from './leave';
 import { memberOf } from './lookup';
-import { isOperator, operatorConversationOf } from './operator-member';
+import { isOperator } from './operator-member';
 import type { AiMemberConfig, MemberConfig, ProjectConfig } from './schema';
 
 /** The built-in role of the project manager every project requires (PM-429). */
@@ -29,10 +29,12 @@ export function projectManagerOf(config: Pick<ProjectConfig, 'team'>): AiMemberC
 /**
  * Where the conversation with the project manager of `from` runs (PM-1042): the owners, the AI members and the
  * system share the one general conversation; every other person has their own, named by `with` (decision 59).
- * The same rule as the Operator's until that conversation leaves the app (PM-1045).
  */
 export function managerConversationOf(config: Pick<ProjectConfig, 'team'>, from: string): WorkItemRef {
-  return operatorConversationOf(config, from);
+  const sender = memberOf(config, from);
+  return sender?.kind === 'human' && sender.access !== 'owner'
+    ? { type: 'general', with: from }
+    : { type: 'general' };
 }
 
 /** The selected, available coordinator; an Operator never substitutes for a missing PM. */
@@ -43,18 +45,14 @@ export function coordinationMemberOf(config: Pick<ProjectConfig, 'team'>): AiMem
 
 /**
  * Whether people who are not owners talk to `member` in a conversation of their own, restricted to the
- * guest tools (PM-475, PM-1080): the Operator (until PM-1045 retires it) and the selected coordinator.
- * Where such a conversation runs is `managerConversationOf`; every guest condition asks this one rule.
+ * guest tools (PM-475, PM-1080): the selected coordinator. Where such a conversation runs is
+ * `managerConversationOf`; every guest condition asks this one rule.
  */
 export function hasGuestConversations(
   config: Pick<ProjectConfig, 'team'>,
   member: MemberConfig | null | undefined,
 ): boolean {
-  if (member?.kind !== 'ai') return false;
-  return (
-    isOperator(member) ||
-    (member.handle !== undefined && coordinationMemberOf(config)?.handle === member.handle)
-  );
+  return member?.kind === 'ai' && coordinationMemberOf(config)?.handle === member.handle;
 }
 
 /**

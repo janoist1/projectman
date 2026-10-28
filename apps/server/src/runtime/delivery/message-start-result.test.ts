@@ -8,6 +8,7 @@ import { formatProjectState, formatSentMessage } from '../../mcp/format';
 import { createDomainHarness, OWNER_ACTOR, waitForSession } from '../../../test/helpers/domain-harness';
 import type { DomainHarness } from '../../../test/helpers/domain-harness';
 import { flush } from '../../../test/helpers/fakes';
+import { seedOperatorRequest } from '../../../test/helpers/operator-session';
 
 let h: DomainHarness;
 afterEach(() => h?.cleanup());
@@ -23,17 +24,8 @@ function ai(config: ProjectConfig, handle: string): AiMemberConfig {
 async function setup(adjust?: (config: ProjectConfig) => void): Promise<void> {
   h = await createDomainHarness({ adjust });
   await h.domain.tasks.create('AR', { title: 'Login page' }, OWNER_ACTOR);
-  const sent = await h.domain.messaging.sendReporting('AR', 'owner', {
-    to: ['operator'],
-    text: 'Wake dev-1 up',
-  });
-  const session = await waitForSession(h.domain, { member: 'operator' });
-  // A session row exists before delivery opens the request authorizing the Operator's writes.
-  await vi.waitFor(() => {
-    expect(h.repos.operatorRequests.openOfSession(session.id)).toMatchObject([
-      { messageId: sent.message.id },
-    ]);
-  });
+  // The app starts no Operator (PM-1045): its session and the owner's request are seeded.
+  seedOperatorRequest(h, 'AR', { text: 'Wake dev-1 up' });
 }
 
 const operatorTool = async (): Promise<ToolContext> => ({
@@ -47,24 +39,6 @@ const stateOf = async (messageId: string): Promise<MessageStateReport> =>
   (await h.domain.teamTools.getProjectState(await operatorTool(), { messageId })) as MessageStateReport;
 
 describe('the Operator learns what became of its message (PM-543)', () => {
-  it('waits for the requested member when its session starts after the wait begins', async () => {
-    h = await createDomainHarness();
-    await h.domain.sessions.ensureSession('AR', 'dev-1', { type: 'general' });
-    let resolved = false;
-    const pending = waitForSession(h.domain, { member: 'operator' }).then((session) => {
-      resolved = true;
-      return session;
-    });
-    await flush();
-    expect(resolved).toBe(false);
-
-    await h.domain.messaging.sendReporting('AR', 'owner', { to: ['operator'], text: 'Check the team.' });
-    const session = await pending;
-    expect(session.member).toBe('operator');
-    expect(session.workItem).toEqual({ type: 'general' });
-    expect(h.domain.sessions.get('AR', session.id)).toMatchObject({ member: 'operator' });
-  });
-
   it('starts the general session of a member without one, and reports it', async () => {
     await setup();
     const result = await h.domain.teamTools.sendMessage(await operatorTool(), {

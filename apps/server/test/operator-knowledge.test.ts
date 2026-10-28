@@ -23,6 +23,7 @@ import {
 } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush, settle } from './helpers/fakes';
+import { seedOperatorRequest } from './helpers/operator-session';
 
 let h: DomainHarness;
 let ctx: ToolContext;
@@ -76,17 +77,10 @@ async function setup(persistent = false) {
         email: 'cleo@example.test',
       });
       // A client may message only the contacts.
-      config.team.contacts = ['operator'];
+      config.team.contacts = ['pm'];
     },
   });
-  await h.domain.messaging.sendReporting(
-    'AR',
-    'owner',
-    { to: ['operator'], text: 'Propose an agreement' },
-    { awaitWake: true },
-  );
-  await flush();
-  const session = await waitForSession(h.domain, { member: 'operator' });
+  const { session } = seedOperatorRequest(h, 'AR', { text: 'Propose an agreement' });
   ctx = { projectKey: 'AR', member: 'operator', sessionId: session.id, taskKey: null };
 }
 function propose(change = agreement, operations: OperatorOperation[] = [], revision = 0) {
@@ -543,39 +537,36 @@ describe('shared knowledge session boundaries', () => {
     expect(sent()).toHaveLength(1);
   });
 
-  it.each(['operator', 'pm'])(
-    'launches %s without shared knowledge when its file is corrupt',
-    async (handle) => {
-      h = await createDomainHarness({
-        adjust(config) {
-          const pm = config.team.members.find((member) => member.handle === 'pm')!;
-          if (pm.kind === 'ai') pm.onLeave = false;
-        },
-      });
-      const directory = join(h.dir, 'operator-data', 'AR');
-      const file = join(directory, 'knowledge.json');
-      await mkdir(directory, { recursive: true });
-      await writeFile(file, '{partial');
-      const { session } = await h.domain.sessions.ensureSession(
-        'AR',
-        handle,
-        { type: 'general' },
-        { cause: { kind: 'conversation', by: humanActor('owner') } },
-      );
-      expect(h.runner.started.some((start) => start.sessionId === session.id)).toBe(true);
-      const input = h.contextBuilder.inputs.at(-1)!;
-      expect(input).not.toHaveProperty('operatorKnowledge');
-      expect(createContextPackBuilder().build(input).appendSystemPrompt).not.toContain(
-        '# Approved shared Operator knowledge',
-      );
-      expect(h.log.warnings).toContainEqual([
-        { err: expect.objectContaining({ code: 'operator_knowledge_invalid' }), member: handle },
-        'could not read operator knowledge',
-      ]);
-      await expect(document()).rejects.toMatchObject({ code: 'operator_knowledge_invalid' });
-      expect(await readFile(file, 'utf8')).toBe('{partial');
-    },
-  );
+  it.each(['pm'])('launches %s without shared knowledge when its file is corrupt', async (handle) => {
+    h = await createDomainHarness({
+      adjust(config) {
+        const pm = config.team.members.find((member) => member.handle === 'pm')!;
+        if (pm.kind === 'ai') pm.onLeave = false;
+      },
+    });
+    const directory = join(h.dir, 'operator-data', 'AR');
+    const file = join(directory, 'knowledge.json');
+    await mkdir(directory, { recursive: true });
+    await writeFile(file, '{partial');
+    const { session } = await h.domain.sessions.ensureSession(
+      'AR',
+      handle,
+      { type: 'general' },
+      { cause: { kind: 'conversation', by: humanActor('owner') } },
+    );
+    expect(h.runner.started.some((start) => start.sessionId === session.id)).toBe(true);
+    const input = h.contextBuilder.inputs.at(-1)!;
+    expect(input).not.toHaveProperty('operatorKnowledge');
+    expect(createContextPackBuilder().build(input).appendSystemPrompt).not.toContain(
+      '# Approved shared Operator knowledge',
+    );
+    expect(h.log.warnings).toContainEqual([
+      { err: expect.objectContaining({ code: 'operator_knowledge_invalid' }), member: handle },
+      'could not read operator knowledge',
+    ]);
+    await expect(document()).rejects.toMatchObject({ code: 'operator_knowledge_invalid' });
+    expect(await readFile(file, 'utf8')).toBe('{partial');
+  });
 
   it('opens one scoped approval continuation and keeps protected operations behind a separate owner decision', async () => {
     await setup(true);
@@ -806,13 +797,13 @@ describe('shared knowledge session boundaries', () => {
     expect((await document()).revision).toBe(0);
   });
 
-  it('launches separate PM and Operator projections without markers and keeps private data out of guest contexts', async () => {
+  it('launches the PM projection without markers and keeps private data out of guest contexts', async () => {
     await setup();
     await resolve((await propose()).inbox_item_id);
     await h.domain.members.update('AR', 'pm', { onLeave: false }, { actor: OWNER_ACTOR, author: OWNER });
     await h.domain.sessions.stop('AR', ctx.sessionId);
     const builder = createContextPackBuilder();
-    for (const handle of ['operator', 'pm']) {
+    for (const handle of ['pm']) {
       expect(
         await h.domain.sharedOperatorKnowledge.forConversation(
           'AR',
@@ -849,17 +840,17 @@ describe('shared knowledge session boundaries', () => {
         'PRIVATE_AGREEMENT',
       );
     }
-    await h.domain.messaging.sendReporting(
+    await h.domain.sessions.ensureSession(
       'AR',
-      'cleo',
-      { to: ['operator'], text: 'Guest conversation' },
-      { awaitWake: true },
+      'pm',
+      { type: 'general', with: 'cleo' },
+      { cause: { kind: 'conversation', by: humanActor('cleo') } },
     );
     const guestInput = h.contextBuilder.inputs.at(-1)!;
     expect(guestInput.workItem).toMatchObject({ type: 'general', with: 'cleo' });
     expect(guestInput.operatorKnowledge).toBeUndefined();
     expect(builder.build(guestInput).appendSystemPrompt).not.toContain('PRIVATE_AGREEMENT');
-    for (const handle of ['operator', 'pm']) {
+    for (const handle of ['pm']) {
       expect(
         await h.domain.sharedOperatorKnowledge.forConversation(
           'AR',

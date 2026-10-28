@@ -1366,6 +1366,8 @@ export const hu = {
       operator_fixed:
         'Az Operátoron csak a modell, a szolgáltató és az erőfeszítés állítható. Nem küldhető szabadságra, nem bocsátható el, és második Operátor nem vehető fel.',
       operator_owner_only: 'Ezt csak a projekt tulajdonosa kérheti az Operátortól.',
+      operator_connected_only:
+        'Az Operátor csak akkor létezik, ha a tulajdonos kliense csatlakozik, ezért neki nem lehet üzenni. Gépi munkához nyiss integrátor-teendőt, minden máshoz kérdezz embert.',
       operator_no_request:
         'Az Operátor csak a tulajdonos nyitott kérésére írhat; most nincs ilyen (a köre véget ért, vagy lejárt).',
       operator_never:

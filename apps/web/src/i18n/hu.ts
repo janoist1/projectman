@@ -6536,6 +6536,26 @@ export const hu = {
           human: '{name}',
         },
       },
+      /** Who may set a card's complexity points (PM-1097). */
+      complexity: {
+        label: 'Komplexitás állítása',
+        help: 'A pont dönti el, melyik fejlesztő kapja a kártyát. A tulajdonos mindig állíthat pontot.',
+        duties: 'Feladatkörök: {duties}',
+        covers: 'Most állíthat: {names}',
+        ownerOnly: 'Most csak a tulajdonos állíthat pontot.',
+        unheld: 'Nincs viselője: {duties}.',
+        developerWarning:
+          'Fejlesztő is állíthat pontot ({names}). A pont dönti el, ki kapja a kártyát, így a saját kiosztását is befolyásolhatja.',
+        choose: 'Feladatkörök kiválasztása',
+        question: 'Mely feladatkörök viselői állíthatnak még pontot?',
+        holders: 'Most: {names}',
+        noHolder: 'Most senki nem viseli.',
+        readOnlyLabel: 'Ki állíthat komplexitás-pontot?',
+        value: {
+          ownerOnly: 'Csak a tulajdonos',
+          with: 'A tulajdonos, valamint ezek a feladatkörök: {duties}',
+        },
+      },
       merger: {
         label: 'Beolvasztó',
         help: 'Ő olvasztja be a jóváhagyott munkát a fő ágba. A rendszer magától nem olvaszt be.',

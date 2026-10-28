@@ -455,7 +455,9 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   route) starts setters.
   **The complexity limit** (PM-1007, replaces the Senior mark of PM-348): the automatic developer
   choice is `chooseDeveloper` in `packages/shared`. A card's points (`Task.complexity`, PM-1006) are
-  compared with each developer's `complexityLimit` (a temp worker's is always 5). Among the free
+  compared with each developer's `complexityLimit` (a temp worker's is always 5). Points are set by
+  the project owners and by the holders of the duties in `team.complexitySetters` (PM-1097,
+  `canSetComplexity`; default: requirements analysis and task breakdown). Among the free
   developers, optional `specialtyLabels` first restricts automatic assignment to cards carrying at
   least one matching label; explicit assignees remain unrestricted (PM-1038). Among matching free
   developers whose limit reaches the points the one with the smallest limit wins (then the least

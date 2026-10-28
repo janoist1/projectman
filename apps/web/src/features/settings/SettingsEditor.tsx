@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
+import { complexitySettersOf } from '@projectman/shared';
 import type { ProjectConfig, PatchConfigRequest, Pipeline } from '@projectman/shared';
 import { usePatchConfig } from '../../api/queries';
 import { isApiError } from '../../api/client';
@@ -89,6 +90,9 @@ function limitsBody(draft: ProjectConfig, saved: ProjectConfig, baseVersion: str
     draft.team.cardMover && JSON.stringify(draft.team.cardMover) !== JSON.stringify(saved.team.cardMover)
       ? draft.team.cardMover
       : null;
+  // The complexity setters go as the whole list when it differs from the saved one (PM-1097); [] is a value.
+  const complexitySetters = complexitySettersOf(draft);
+  const complexityChanged = JSON.stringify(complexitySetters) !== JSON.stringify(complexitySettersOf(saved));
   // The contacts go as the whole list when it changed, an empty one too: a missing field keeps the stored list.
   const contacts = draft.team.contacts ?? [];
   const contactsChanged = JSON.stringify(contacts) !== JSON.stringify(saved.team.contacts ?? []);
@@ -97,6 +101,7 @@ function limitsBody(draft: ProjectConfig, saved: ProjectConfig, baseVersion: str
     baseVersion,
     ...(merger ? { merger } : {}),
     ...(cardMover ? { cardMover } : {}),
+    ...(complexityChanged ? { complexitySetters: [...complexitySetters] } : {}),
     ...(contactsChanged ? { contacts } : {}),
     ...(repoMerge.length ? { repoMerge } : {}),
     limits: {

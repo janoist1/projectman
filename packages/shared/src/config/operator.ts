@@ -717,6 +717,7 @@ function approvalWaivable(
         roleOverrides: true,
         limits: true,
         cardMover: { kind: true, handle: true },
+        complexitySetters: true,
       },
     ) &&
     fieldsWaivable(previous.team.limits, next.team.limits, WAIVER_LIMITS) &&

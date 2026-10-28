@@ -4,6 +4,7 @@ import {
   BUILT_IN_ROLE_DUTIES,
   BuiltInRoleId,
   DEFAULT_AGENT_PROVIDER,
+  DEFAULT_COMPLEXITY_SETTERS,
   DEFAULT_PROJECT_LANGUAGE,
   defaultMerger,
   FALLBACK_PERMISSION_MODE,
@@ -265,6 +266,13 @@ function addCardMover(raw: unknown): unknown {
   return raw;
 }
 
+/** Existing projects keep today's complexity setters: requirements analysis and task breakdown (PM-1097). */
+function addComplexitySetters(raw: unknown): unknown {
+  const team = asRecord(asRecord(raw)?.team);
+  if (team && team.complexitySetters === undefined) team.complexitySetters = [...DEFAULT_COMPLEXITY_SETTERS];
+  return raw;
+}
+
 /**
  * The Operator member is gone (decision 66, PM-1076): a connected Claude replaces it. A member of the
  * retired `ai_operator` role leaves the team like any retired member (the `reconcile` listener records it
@@ -377,6 +385,7 @@ function addFeedbackProcessing(raw: unknown, { projectKey, logger }: MigrationCo
  *   - the removed message storm threshold (`messageBurst`) is dropped (above);
  *   - a project without an AI project manager gets one, on leave (above);
  *   - a missing card mover becomes worker (above);
+ *   - missing complexity setters become requirements analysis and task breakdown (above);
  *   - the retired Operator member (`ai_operator`) leaves the team, with its role override and its
  *     references (above), and is never put back;
  *   - a missing merger becomes the code reviewer or the developer, by the pipeline (above), judged on
@@ -389,27 +398,29 @@ export function migrateProjectConfig(raw: unknown, context: MigrationContext): u
   return addFeedbackProcessing(
     addMerger(
       removeOperator(
-        addCardMover(
-          addProjectManager(
-            migrateReleaseApproval(
-              migrateLegacyConfig(
-                migrateCodexBypass(
-                  migrateScheduledRole(
-                    dropMessageBurst(
-                      migrateSeniorLimit(
-                        dropEmailMailbox(migrateShadowingRoles(raw, context), context),
+        addComplexitySetters(
+          addCardMover(
+            addProjectManager(
+              migrateReleaseApproval(
+                migrateLegacyConfig(
+                  migrateCodexBypass(
+                    migrateScheduledRole(
+                      dropMessageBurst(
+                        migrateSeniorLimit(
+                          dropEmailMailbox(migrateShadowingRoles(raw, context), context),
+                          context,
+                        ),
                         context,
                       ),
                       context,
                     ),
                     context,
                   ),
-                  context,
                 ),
+                context,
               ),
               context,
             ),
-            context,
           ),
         ),
         context,

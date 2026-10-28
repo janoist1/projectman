@@ -248,6 +248,7 @@ describe('approval waiver eligibility (PM-691)', () => {
     ['timezone', (n) => (n.project.timezone = 'Europe/Budapest')],
     ['template', (n) => (n.project.templateId = 'custom')],
     ['card mover', (n) => (n.team.cardMover = { kind: 'project_manager' })],
+    ['complexity setters', (n) => (n.team.complexitySetters = ['implementation'])],
     ['display name', (n) => (ai(n, 'writer').displayName = 'Author')],
     ['specialty', (n) => (ai(n, 'writer').specialty = 'Documentation')],
     ['provider', (n) => (ai(n, 'writer').provider = 'codex')],

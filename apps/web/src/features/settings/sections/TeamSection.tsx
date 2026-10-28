@@ -4,11 +4,19 @@ import {
   cardMerger,
   cardMoverHandle,
   cardMoverOf,
+  complexitySetterMembers,
+  complexitySettersOf,
   contactHandles,
+  DUTIES,
+  DUTY_GROUPS,
+  DUTY_IDS,
+  dutyMembers,
   hasAccess,
+  isDeveloper,
   mergerOf,
 } from '@projectman/shared';
 import type { MemberConfig, ProjectConfig, RoleView } from '@projectman/shared';
+import { getLocale } from '@projectman/templates';
 import { isApiError } from '../../../api/client';
 import { useRoles } from '../../../api/queries';
 import { useProject, useProjectIndexes } from '../../../app/contexts';
@@ -244,6 +252,116 @@ function MoverControls({ config }: { config: ProjectConfig }) {
   );
 }
 
+/** The chosen duties' names in the fixed duty order, so a tick never reorders the sentence. */
+function complexityDutyNames(config: ProjectConfig): string[] {
+  const chosen = complexitySettersOf(config);
+  const { duties } = getLocale(config.project.language);
+  return DUTY_IDS.filter((id) => chosen.includes(id)).map((id) => duties[id].name);
+}
+
+/** Who may set complexity as a sentence, for those who may not change it. */
+function complexityValue(config: ProjectConfig): string {
+  const duties = complexityDutyNames(config);
+  return duties.length
+    ? t('settings.team.complexity.value.with', { duties: duties.join(', ') })
+    : t('settings.team.complexity.value.ownerOnly');
+}
+
+/**
+ * Which duties' holders may set a card's complexity points (PM-1097): a summary of who may now, and the
+ * duty list in a folded part, a tick per duty saved at once. The project owners may always.
+ */
+function ComplexityControls({ config }: { config: ProjectConfig }) {
+  const { key } = useProject();
+  const { shown, saving, commit, error, locked } = useInstantLimits(config);
+  const [open, setOpen] = useState(false);
+  const helpId = useId();
+  const chosen = complexitySettersOf(shown);
+  const { duties } = getLocale(shown.project.language);
+  const names = (list: readonly { displayName: string }[]) => list.map((m) => m.displayName).join(', ');
+  const dutyList = DUTY_IDS.filter((id) => chosen.includes(id)).map((id) => duties[id].name);
+  const setters = complexitySetterMembers(shown);
+  const unheld = DUTY_IDS.filter((id) => chosen.includes(id) && dutyMembers(shown, id).length === 0);
+  const developers = setters.filter((member) => isDeveloper(shown, member));
+  return (
+    <fieldset
+      className={shared.controls}
+      disabled={locked || saving}
+      aria-busy={saving}
+      aria-labelledby="settings-complexity-title"
+      aria-describedby={helpId}
+    >
+      <p id={helpId} className={shared.help}>
+        {t('settings.team.complexity.help')}
+      </p>
+      <p>
+        {dutyList.length
+          ? t('settings.team.complexity.duties', { duties: dutyList.join(', ') })
+          : t('settings.team.complexity.ownerOnly')}
+      </p>
+      <p className={shared.muted} aria-live="polite">
+        {t('settings.team.complexity.covers', { names: names(setters) })}
+      </p>
+      {unheld.length ? (
+        <p className={shared.muted}>
+          {t('settings.team.complexity.unheld', { duties: unheld.map((id) => duties[id].name).join(', ') })}{' '}
+          <Link to={`/p/${key}/settings/duties`}>{t('duties.title')}</Link>
+        </p>
+      ) : null}
+      {developers.length ? (
+        <p className={shared.warning}>
+          {t('settings.team.complexity.developerWarning', { names: names(developers) })}
+        </p>
+      ) : null}
+      <details open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
+        <summary>{t('settings.team.complexity.choose')}</summary>
+        <fieldset className={shared.controls} disabled={locked || saving} aria-busy={saving}>
+          <legend>{t('settings.team.complexity.question')}</legend>
+          {DUTY_GROUPS.map((group) => (
+            <div key={group} role="group" aria-labelledby={`settings-complexity-group-${group}`}>
+              <p id={`settings-complexity-group-${group}`} className={shared.groupTitle}>
+                {t(`duties.${group}`)}
+              </p>
+              {DUTY_IDS.filter((id) => DUTIES[id].group === group).map((id) => {
+                const holders = dutyMembers(shown, id);
+                return (
+                  <div key={id}>
+                    <label className={shared.contactRow}>
+                      <input
+                        type="checkbox"
+                        checked={chosen.includes(id)}
+                        aria-describedby={`settings-complexity-holders-${id}`}
+                        onChange={(event) =>
+                          commit((draft) => {
+                            const next = new Set(complexitySettersOf(draft));
+                            if (event.target.checked) next.add(id);
+                            else next.delete(id);
+                            draft.team.complexitySetters = DUTY_IDS.filter((duty) => next.has(duty));
+                          })
+                        }
+                      />
+                      <span>{duties[id].name}</span>
+                    </label>
+                    <p
+                      id={`settings-complexity-holders-${id}`}
+                      className={`${shared.help} ${shared.holders}`}
+                    >
+                      {holders.length
+                        ? t('settings.team.complexity.holders', { names: names(holders) })
+                        : t('settings.team.complexity.noHolder')}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+          {error ? <ErrorBanner>{errorMessage(error)}</ErrorBanner> : null}
+        </fieldset>
+      </details>
+    </fieldset>
+  );
+}
+
 /** The contacts as a sentence: their names, or that there are none. */
 function contactsValue(config: ProjectConfig): string {
   const names = contactHandles(config).map(
@@ -342,6 +460,24 @@ export function TeamSection({ config }: { config: ProjectConfig }) {
             </dl>
           )}
         </div>
+      </section>
+      <section aria-labelledby="settings-complexity-title">
+        <h3 id="settings-complexity-title" className={shared.groupTitle}>
+          {t('settings.team.complexity.label')}
+        </h3>
+        {can.manageTeam ? (
+          <ComplexityControls config={config} />
+        ) : (
+          <div className={shared.controls}>
+            <p className={shared.help}>{t('settings.team.complexity.help')}</p>
+            <dl className={shared.facts}>
+              <div>
+                <dt>{t('settings.team.complexity.readOnlyLabel')}</dt>
+                <dd>{complexityValue(config)}</dd>
+              </div>
+            </dl>
+          </div>
+        )}
       </section>
       <section aria-labelledby="settings-merger-title">
         <h3 id="settings-merger-title" className={shared.groupTitle}>

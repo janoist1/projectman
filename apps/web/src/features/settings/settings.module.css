@@ -279,6 +279,12 @@
   overflow-wrap: anywhere;
 }
 
+/* The members who hold a duty now, under its tick, indented past the checkbox. */
+.holders {
+  padding-left: 28px;
+  overflow-wrap: anywhere;
+}
+
 /* A named group of related controls inside a section ("Körbe futó munka"). */
 .groupTitle {
   margin: 8px 0 0;

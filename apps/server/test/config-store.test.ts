@@ -197,6 +197,19 @@ describe('ConfigStore (customization repository)', () => {
     expect(head.trim()).toBe('Owner Person <owner@example.com>|Create project AR');
   });
 
+  it.each([[['implementation']], [[]]] as const)(
+    'keeps the complexity setters %j in team.yaml (PM-1097)',
+    async (setters) => {
+      const config = testConfig();
+      config.team.complexitySetters = [...setters];
+      await store.save('AR', config, { author, message: 'Create project AR' });
+      expect(readFileSync(join(store.rootDir, 'projects/AR/team.yaml'), 'utf8')).toContain(
+        'complexitySetters:',
+      );
+      expect((await store.load('AR')).config.team.complexitySetters).toEqual(setters);
+    },
+  );
+
   it('keeps custom roles and human roles in team.yaml and loads files written before them', async () => {
     const config = testConfig();
     config.team.roles.push({

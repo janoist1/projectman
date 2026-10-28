@@ -372,6 +372,37 @@ describe('Refinement line', () => {
     expect(h.runner.started.at(-1)?.initialMessage).toContain('scope-ok');
   });
 
+  it('tells a member whose session still runs about its step with a stored message from the system (PM-82)', async () => {
+    await prepare();
+    // The designer already has a session on the card when its step comes.
+    const config = await h.domain.projects.config('AR');
+    const designer = config.team.members.find((m) => m.handle === 'des');
+    if (designer?.kind !== 'ai') throw new Error('Missing designer');
+    const { session: des } = await h.domain.admission.start({
+      config,
+      member: designer,
+      workItem: { type: 'task', taskKey: 'AR-1' },
+    });
+    endTurn('des');
+    await flush();
+    await label({ add: ['refine'] });
+    await vi.waitFor(() => expect(members()).toEqual(['ana', 'des']));
+    endTurn('ana');
+    await label({ add: ['scope-ok'] });
+    await vi.waitFor(() => expect(turn()?.data).toMatchObject({ label: 'design-ok', member: 'des' }));
+    await flush();
+
+    const stepMessages = h.repos.messages
+      .list('AR')
+      .filter((m) => m.from === 'system' && m.to.includes('des') && m.taskKey === 'AR-1');
+    expect(stepMessages).toHaveLength(1);
+    expect(stepMessages[0]).toMatchObject({ kind: 'action' });
+    expect(stepMessages[0]!.receipts?.find((r) => r.handle === 'des')?.deliveredAt).toBeTruthy();
+    expect(
+      h.runner.messages.filter((m) => m.sessionId === des.id && m.text.includes('design-ok')),
+    ).toHaveLength(1);
+  });
+
   it('alerts the people once for a step only they can do, and closes the alert when it is done', async () => {
     h = await createDomainHarness({
       persistent: true,

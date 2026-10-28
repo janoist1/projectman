@@ -1,7 +1,16 @@
-import { isOnLeave, isRefinementStage, memberOf, stageIndex, stageOf, stageOwners } from '@projectman/shared';
+import {
+  isOnLeave,
+  isRefinementStage,
+  memberOf,
+  stageIndex,
+  stageOf,
+  stageOwners,
+  SYSTEM_SENDER,
+} from '@projectman/shared';
 import type { AiMemberConfig, ProjectConfig, Session, SessionState, Stage, Task } from '@projectman/shared';
 import { conflict, SYSTEM_ACTOR } from '../../kernel';
 import type { MessageDelivery } from '../delivery';
+import type { Messaging } from '../../core/messages';
 import type { ProjectService } from '../../core/projects';
 import type { SessionOrchestrator } from '../sessions';
 import type { StageChange, TaskService } from '../../core/tasks';
@@ -25,6 +34,7 @@ export class StageHandOver {
   private readonly sessions: SessionOrchestrator;
   private readonly admission: Admission;
   private readonly delivery: MessageDelivery;
+  private readonly messaging: Pick<Messaging, 'send'>;
   private fixLimit: { heldFor(task: Task, config: ProjectConfig): boolean } | undefined;
   private fullTests: { holds(task: Task, config: ProjectConfig): boolean } | undefined;
 
@@ -34,12 +44,14 @@ export class StageHandOver {
     sessions: SessionOrchestrator;
     admission: Admission;
     delivery: MessageDelivery;
+    messaging: Pick<Messaging, 'send'>;
   }) {
     this.projects = deps.projects;
     this.tasks = deps.tasks;
     this.sessions = deps.sessions;
     this.admission = deps.admission;
     this.delivery = deps.delivery;
+    this.messaging = deps.messaging;
   }
 
   /** Binds the fix round limit (PM-262), which is built after the hand-over. */
@@ -180,7 +192,7 @@ export class StageHandOver {
             if (result.resumed) resumed = result.session;
             return result;
           });
-          if (resumed) this.notify(current, stage, resumed.member);
+          if (resumed) await this.notify(current, stage, resumed.member);
           return;
         }
         // The reviewers wait for the server's full test of the pinned commit (PM-217).
@@ -218,23 +230,33 @@ export class StageHandOver {
           },
         });
         // Resumed sessions get no brief, so tell them which stage the task is in now.
-        if (result.resumed) this.notify(current, stage, result.session.member);
+        if (result.resumed) await this.notify(current, stage, result.session.member);
       },
     };
   }
 
-  /** Tells a member's live task session that the task entered its stage, unless it moved it itself. */
-  private notify(change: StageChange, stage: Stage, handle: string): void {
+  /**
+   * Tells a member's live task session that the task entered its stage, unless it moved it itself. The
+   * notice is a stored message from the system (PM-82): the card's thread shows it, and the delivery
+   * types it into the session once, at idle or at the end of the round. It opens no obligation.
+   */
+  private async notify(change: StageChange, stage: Stage, handle: string): Promise<void> {
     if (change.actor.kind === 'ai' && change.actor.handle === handle) return;
     const { task } = change;
     const session = this.sessions.findRunning(task.projectKey, handle, { type: 'task', taskKey: task.key });
     if (!session) return;
-    this.delivery.notice(
-      session,
-      change.actor.handle ?? 'projectman',
-      `Task ${task.key} is now in stage ${stage.name} (\`${stage.id}\`). ` +
-        'You own this stage: do your part by its rules; get_task shows the latest state.',
-      task.key,
+    const movedBy = change.actor.handle ? `, moved by ${change.actor.handle}` : '';
+    await this.messaging.send(
+      task.projectKey,
+      SYSTEM_SENDER,
+      {
+        to: [handle],
+        taskKey: task.key,
+        text:
+          `Task ${task.key} is now in stage ${stage.name} (\`${stage.id}\`)${movedBy}. ` +
+          'You own this stage: do your part by its rules; get_task shows the latest state.',
+      },
+      { kind: 'action', actor: SYSTEM_ACTOR, ownCard: true },
     );
   }
 }

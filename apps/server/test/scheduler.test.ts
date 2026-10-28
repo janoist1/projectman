@@ -274,6 +274,8 @@ describe('scheduler', () => {
       initialMessage: 'Brief for AR-1: Login page',
     });
     // Back to the work stage: nothing starts, the developer's live session hears of it.
+    h.runner.setState(dev.session!.id, 'idle');
+    h.runner.setState(review.id, 'idle');
     await h.domain.tasks.moveToStage('AR', 'AR-1', 'development', OWNER_ACTOR);
     await waitFor(
       () => h.runner.messages.find((m) => m.sessionId === dev.session!.id && /Development/.test(m.text)),
@@ -288,10 +290,79 @@ describe('scheduler', () => {
       () => h.runner.messages.find((m) => m.sessionId === review.id && /Code review/.test(m.text)),
       { what: 'the reviewer notice' },
     );
-    expect(notice.text).toMatch(
-      /^\[team message from owner about AR-1\]\nTask AR-1 is now in stage Code review/,
-    );
+    expect(notice.text).toContain('[team message from system about AR-1]');
+    expect(notice.text).toContain('Task AR-1 is now in stage Code review');
+    expect(notice.text).toContain('moved by owner');
     expect(h.runner.started).toHaveLength(2);
+  });
+
+  describe('stage notice to a live session (PM-82)', () => {
+    const noticesTo = (member: string, taskKey = 'AR-1') =>
+      h.repos.messages
+        .list('AR')
+        .filter((m) => m.from === 'system' && m.to.includes(member) && m.taskKey === taskKey);
+    const typedCount = (sessionId: string) =>
+      h.runner.messages.filter((m) => m.sessionId === sessionId && /is now in stage/.test(m.text)).length;
+
+    async function withLiveReviewer() {
+      h = await createDomainHarness();
+      await h.domain.tasks.create('AR', { title: 'Login page' }, OWNER_ACTOR);
+      const dev = await start(h, 'AR-1');
+      await h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', OWNER_ACTOR);
+      const review = await waitFor(
+        () => h.domain.sessions.findRunning('AR', 'cr', { type: 'task', taskKey: 'AR-1' }),
+        { what: 'the reviewer session' },
+      );
+      await settle();
+      return { dev: dev.session!, review };
+    }
+
+    it('stores the notice as an action message from the system and types it in once', async () => {
+      const { review } = await withLiveReviewer();
+      h.runner.setState(review.id, 'idle');
+      await h.domain.tasks.moveToStage('AR', 'AR-1', 'development', OWNER_ACTOR);
+      await h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', OWNER_ACTOR);
+      await waitFor(() => typedCount(review.id) > 0, { what: 'the notice typed into the reviewer' });
+      await settle();
+
+      const [message, ...rest] = noticesTo('cr');
+      expect(rest).toEqual([]);
+      expect(message).toMatchObject({ from: 'system', to: ['cr'], taskKey: 'AR-1', kind: 'action' });
+      expect(message!.receipts?.find((r) => r.handle === 'cr')?.deliveredAt).toBeTruthy();
+      expect(typedCount(review.id)).toBe(1);
+      // It was delivered: a later session of the member does not take it as a waiting message.
+      expect(h.repos.messages.pending('AR', 'cr')).toEqual([]);
+    });
+
+    it('types the notice in at the end of the round when the session is in the middle of one', async () => {
+      const { review } = await withLiveReviewer();
+      h.runner.setState(review.id, 'idle');
+      await h.domain.tasks.moveToStage('AR', 'AR-1', 'development', OWNER_ACTOR);
+      h.runner.setState(review.id, 'working');
+      await h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', OWNER_ACTOR);
+      await settle();
+      expect(typedCount(review.id)).toBe(0);
+      expect(noticesTo('cr')).toHaveLength(1);
+
+      h.runner.setState(review.id, 'idle');
+      await waitFor(() => typedCount(review.id) === 1, { what: 'the notice at the end of the round' });
+      expect(typedCount(review.id)).toBe(1);
+    });
+
+    it('stores no notice for a member who moved the card itself or has no live session', async () => {
+      const { dev } = await withLiveReviewer();
+      h.runner.setState(dev.id, 'idle');
+      await h.domain.tasks.moveToStage('AR', 'AR-1', 'development', aiActor('dev-1'));
+      await settle();
+      expect(noticesTo('dev-1')).toEqual([]);
+
+      h.runner.emit({ type: 'exit', sessionId: dev.id, exitCode: 0, signal: null });
+      await settle();
+      await h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', OWNER_ACTOR);
+      await h.domain.tasks.moveToStage('AR', 'AR-1', 'development', OWNER_ACTOR);
+      await settle();
+      expect(noticesTo('dev-1')).toEqual([]);
+    });
   });
 
   it('tells a resumed stage owner session which stage the task is in now', async () => {
@@ -308,6 +379,8 @@ describe('scheduler', () => {
     h.runner.emit({ type: 'exit', sessionId: review.id, exitCode: 0, signal: null });
     await h.domain.tasks.moveToStage('AR', 'AR-1', 'development', OWNER_ACTOR);
     await h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', OWNER_ACTOR);
+    await settle();
+    h.runner.setState(review.id, 'idle');
 
     const notice = await waitFor(
       () => h.runner.messages.find((m) => m.sessionId === review.id && /Code review/.test(m.text)),

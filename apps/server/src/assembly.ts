@@ -1024,8 +1024,9 @@ export function createDomain(opts: DomainOptions) {
   });
   admission.useRound(startRound);
   // A card worked out is offered for starting by the next round; a collecting card that cannot start says so (PM-804).
+  refinement.useMessaging(messaging);
   refinement.useNotify((task, recipient) => startRound.refined(task, recipient));
-  const handOver = new StageHandOver({ projects, tasks, sessions, admission, delivery });
+  const handOver = new StageHandOver({ projects, tasks, sessions, admission, delivery, messaging });
   events.on('session_ended', (session) => {
     background.run(
       () => handOver.resumeInterrupted(session, session.previousState),

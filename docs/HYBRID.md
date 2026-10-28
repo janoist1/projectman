@@ -290,6 +290,10 @@ On the Mac, with the engine ([ARCHITECTURE.md](ARCHITECTURE.md), "Cloud composit
    `npm run engine -- service install` (it restarts the LaunchAgent) or stop and `start` it again.
    The project's sessions wait with `engine_offline` until then.
 
+A further owner of a multi-owner board (`access.owners`, AWS.md) does not create a token: `npm run cloud -- edge` on the host makes the owner's own engine token and writes
+`owners/<id>/engine-access-token.json` in the host's secrets store. The host hands that file to the owner outside projectman, and the owner's engine uses
+it as in step 2, with `--link-headers-file` pointing at the received file.
+
 The machine key and the service token are different secrets with different jobs: revoke either
 without the other (the key in Settings → Engines, the token in Cloudflare).
 

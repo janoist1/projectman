@@ -8,6 +8,7 @@ import { CloudflareApi, CloudflareError, readCloudflareToken, sameJson, type Jso
 import type { StepResult } from './report';
 import {
   checkSecretsDir,
+  ensureSecretsDir,
   readEnvFile,
   readSecret,
   removeEnvNames,
@@ -152,8 +153,44 @@ export function namesOf(config: CloudConfig): Names {
   };
 }
 
+/**
+ * The own objects of a further owner (PM-1065). The `-owner-` part keeps them apart from the host's names, and it
+ * is the projectman namespace: `edge` deletes an object of this shape whose owner left `access.owners`.
+ */
+function ownerNamesOf(config: CloudConfig, id: string) {
+  const prefix = `${config.cloudflare.tunnelName}-owner-${id}`;
+  return {
+    engineToken: `${prefix}-engine`,
+    integratorToken: `${prefix}-integrator`,
+    enginePolicy: `${prefix}-engine-service`,
+    integratorPolicy: `${prefix}-integrator-service`,
+  };
+}
+
+const OWNER_ID_PATTERN = '[a-z0-9][a-z0-9-]{0,31}';
+const OWNER_ID = new RegExp(`^${OWNER_ID_PATTERN}$`);
+
+/** The id of the owner an object name belongs to (`suffix` is what follows the kind), or null for any other name. */
+function ownerIdOfName(config: CloudConfig, name: string, suffix: '' | '-service'): string | null {
+  const escaped = config.cloudflare.tunnelName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = new RegExp(`^${escaped}-owner-(${OWNER_ID_PATTERN})-(?:engine|integrator)${suffix}$`).exec(
+    name,
+  );
+  return match ? match[1]! : null;
+}
+
 export const ENGINE_TOKEN_FILE = 'engine-access-token.json';
 export const INTEGRATOR_TOKEN_FILE = 'integrator-access-token.json';
+/** `<secretsDir>/owners/<id>/` holds the two token files of a further owner (PM-1065). */
+export const OWNERS_DIR = 'owners';
+
+export function ownersOf(config: CloudConfig): CloudConfig['access']['owners'] {
+  return [...config.access.owners].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+}
+
+export function ownerDir(secretsDir: string, id: string): string {
+  return path.join(secretsDir, OWNERS_DIR, id);
+}
 const TRANSFORM_PHASE = 'http_response_headers_transform';
 const TRANSFORM_REF = 'projectman_frame_headers';
 const AUTH_DOMAIN_SUFFIX = '.cloudflareaccess.com';
@@ -286,11 +323,17 @@ export function isPublicBoard(config: CloudConfig): boolean {
   return config.access.boardMode === 'public';
 }
 
+/** The addresses the private board lets in: `access.emails` and the further owners' own addresses (PM-1065). */
+function allowedEmails(config: CloudConfig): string[] {
+  const owners = ownersOf(config).flatMap((owner) => (owner.email ? [owner.email] : []));
+  return [...new Set([...config.access.emails, ...owners])];
+}
+
 function allowPolicySpec(config: CloudConfig, names: Names): PolicySpec {
   return {
     name: names.allowPolicy,
     decision: 'allow',
-    include: config.access.emails.map((email) => ({ email: { email } })),
+    include: allowedEmails(config).map((email) => ({ email: { email } })),
   };
 }
 
@@ -553,6 +596,13 @@ interface EdgeOptions {
   dryRun: boolean;
   rotateEngineToken: boolean;
   rotateIntegratorToken: boolean;
+  /** The id of a further owner whose two tokens are replaced (PM-1065). */
+  rotateOwnerToken: string | null;
+}
+
+interface OwnerIds {
+  engine: string | null;
+  integrator: string | null;
 }
 
 interface EdgeState {
@@ -572,6 +622,9 @@ interface EdgeState {
     integrator: string | null;
   };
   audTags: { app: string | null; engine: string | null; integrator: string | null };
+  /** The ids of the further owners' tokens and policies, by owner id. */
+  ownerTokenIds: Map<string, OwnerIds>;
+  ownerPolicyIds: Map<string, OwnerIds>;
 }
 
 const dry = (what: string): StepResult => ({ status: 'skipped', detail: `dry-run: would ${what}` });
@@ -585,6 +638,12 @@ export async function runEdge(context: CloudContext, options: EdgeOptions): Prom
     const problem = secretFileProblem(path.join(context.secretsDir, file));
     if (problem) throw refused(problem);
   }
+  checkOwnerSecrets(context.secretsDir);
+  if (
+    options.rotateOwnerToken !== null &&
+    !config.access.owners.some((o) => o.id === options.rotateOwnerToken)
+  )
+    throw refused(`no owner ${options.rotateOwnerToken} in access.owners`);
   const api = cloudflareApi(context, options.dryRun);
   const account = await report.guard('cloudflare-account', async () => {
     const found = await resolveAccount(api, config);
@@ -608,6 +667,8 @@ export async function runEdge(context: CloudContext, options: EdgeOptions): Prom
     tokenIds: { engine: null, integrator: null },
     policyIds: { allow: null, public: null, engine: null, integrator: null },
     audTags: { app: null, engine: null, integrator: null },
+    ownerTokenIds: new Map(),
+    ownerPolicyIds: new Map(),
   };
 
   await ensureZone(state);
@@ -616,9 +677,11 @@ export async function runEdge(context: CloudContext, options: EdgeOptions): Prom
   await ensureIdentityProvider(state);
   await ensureServiceToken(state, 'engine');
   if (config.access.integratorServiceToken) await ensureServiceToken(state, 'integrator');
+  await ensureOwnerTokens(state);
   await ensurePolicies(state);
   await ensureApps(state);
   await removeIntegrator(state);
+  await removeLeftOwners(state);
   await removePublicPolicy(state);
   const tunnel = await ensureTunnel(state);
   await ensureTunnelConfig(state, tunnel);
@@ -778,29 +841,90 @@ function expiryText(token: ServiceToken, now: Date): string {
   return `expires ${token.expires_at.slice(0, 10)} (in ${days} days)`;
 }
 
-async function ensureServiceToken(state: EdgeState, kind: 'engine' | 'integrator'): Promise<void> {
+/** One service token of `edge`: its name, where its secret file lives, and what a missing or foreign copy means. */
+interface TokenTarget {
+  step: string;
+  name: string;
+  /** The directory of the secret file and its name; `label` is the path the output shows. */
+  dir: string;
+  fileName: string;
+  label: string;
+  rotate: boolean;
+  flag: string;
+  remember(id: string): void;
+  /**
+   * A further owner's token (PM-1065): when the token exists but the host's copy is missing or foreign the run goes
+   * on (the token and its policy stay, the owner's file keeps working), so one owner's gap never blocks another's removal.
+   */
+  skipWithoutCopy: boolean;
+}
+
+function ensureServiceToken(state: EdgeState, kind: 'engine' | 'integrator'): Promise<void> {
+  const engine = kind === 'engine';
+  const fileName = engine ? ENGINE_TOKEN_FILE : INTEGRATOR_TOKEN_FILE;
+  return ensureToken(state, {
+    step: `service-token-${kind}`,
+    name: engine ? state.names.engineToken : state.names.integratorToken,
+    dir: state.context.secretsDir,
+    fileName,
+    label: fileName,
+    rotate: engine ? state.options.rotateEngineToken : state.options.rotateIntegratorToken,
+    flag: engine ? '--rotate-engine-token' : '--rotate-integrator-token',
+    remember: (id) => {
+      state.tokenIds[kind] = id;
+    },
+    skipWithoutCopy: false,
+  });
+}
+
+/** The two service tokens of each further owner, in id order. */
+async function ensureOwnerTokens(state: EdgeState): Promise<void> {
+  const { config, secretsDir } = state.context;
+  for (const owner of ownersOf(config)) {
+    const names = ownerNamesOf(config, owner.id);
+    const ids: OwnerIds = { engine: null, integrator: null };
+    state.ownerTokenIds.set(owner.id, ids);
+    const rotate = state.options.rotateOwnerToken === owner.id;
+    for (const kind of ['engine', 'integrator'] as const) {
+      const fileName = kind === 'engine' ? ENGINE_TOKEN_FILE : INTEGRATOR_TOKEN_FILE;
+      await ensureToken(state, {
+        step: `owner-token ${owner.id}-${kind}`,
+        name: kind === 'engine' ? names.engineToken : names.integratorToken,
+        dir: ownerDir(secretsDir, owner.id),
+        fileName,
+        label: `${OWNERS_DIR}/${owner.id}/${fileName}`,
+        rotate,
+        flag: `--rotate-owner-token ${owner.id}`,
+        remember: (id) => {
+          ids[kind] = id;
+        },
+        skipWithoutCopy: true,
+      });
+    }
+  }
+}
+
+async function ensureToken(state: EdgeState, target: TokenTarget): Promise<void> {
   const { context, api, accountId } = state;
-  const name = kind === 'engine' ? state.names.engineToken : state.names.integratorToken;
-  const fileName = kind === 'engine' ? ENGINE_TOKEN_FILE : INTEGRATOR_TOKEN_FILE;
-  const rotate = kind === 'engine' ? state.options.rotateEngineToken : state.options.rotateIntegratorToken;
-  const flag = kind === 'engine' ? '--rotate-engine-token' : '--rotate-integrator-token';
-  const file = path.join(context.secretsDir, fileName);
+  const { name, dir, fileName, label, rotate, flag } = target;
+  const file = path.join(dir, fileName);
   const collection = `/accounts/${accountId}/access/service_tokens`;
-  await runStep(state, `service-token-${kind}`, async () => {
+  await runStep(state, target.step, async () => {
     const existing = await withRight(RIGHT_TOKENS, () => findServiceToken(api, accountId, name));
     const save = (id: string, secret: string) => {
       context.report.protect(secret);
-      writeSecret(context.secretsDir, fileName, tokenFileText(id, secret));
+      if (target.skipWithoutCopy) ensureSecretsDir(path.join(context.secretsDir, OWNERS_DIR));
+      writeSecret(dir, fileName, tokenFileText(id, secret));
     };
     if (!existing) {
       if (state.options.dryRun)
-        return dry(`create the service token ${name} (${TOKEN_DURATION}) and write ${fileName}`);
+        return dry(`create the service token ${name} (${TOKEN_DURATION}) and write ${label}`);
       const created = shape(
         serviceTokenSchema,
         await withRight(RIGHT_TOKENS, () => api.post(collection, { name, duration: TOKEN_DURATION })),
         'service token',
       );
-      state.tokenIds[kind] = created.id;
+      target.remember(created.id);
       if (!created.client_id || !created.client_secret)
         throw new CloudError(
           `the new service token ${name} came back without its id and secret; delete it in the dashboard and run edge again`,
@@ -809,25 +933,32 @@ async function ensureServiceToken(state: EdgeState, kind: 'engine' | 'integrator
         save(created.client_id, created.client_secret);
       } catch (error) {
         throw new CloudError(
-          `the service token ${name} was created but ${fileName} could not be written (${(error as Error).message}); its secret is lost: run edge with ${flag}`,
+          `the service token ${name} was created but ${label} could not be written (${(error as Error).message}); its secret is lost: run edge with ${flag}`,
         );
       }
       return {
         status: 'created',
-        detail: `${name}, ${expiryText(created, context.deps.now())}; secret in ${fileName} (mode 600)`,
+        detail: `${name}, ${expiryText(created, context.deps.now())}; secret in ${label} (mode 600)`,
       };
     }
-    state.tokenIds[kind] = existing.id;
+    target.remember(existing.id);
     const stored = readTokenFile(file);
     const fileGood =
       stored !== null && (existing.client_id === undefined || stored.clientId === existing.client_id);
     if (fileGood && !rotate)
       return { status: 'unchanged', detail: `${name}, ${expiryText(existing, context.deps.now())}` };
-    if (!fileGood && !rotate)
+    if (!fileGood && !rotate) {
+      const why = stored === null ? 'missing or unreadable' : 'for another token';
+      if (target.skipWithoutCopy)
+        return {
+          status: 'skipped',
+          detail: `${name} exists but ${label} is ${why}: the secret is shown only when the token is made; its token and policy stay. Run edge with ${flag} to replace the secret (the owner then needs the new file)`,
+        };
       throw refused(
-        `the service token ${name} exists but ${fileName} is ${stored === null ? 'missing or unreadable' : 'for another token'}: the secret is shown only when the token is made. Run edge with ${flag} to replace the secret (whoever uses the old one then needs the new file)`,
+        `the service token ${name} exists but ${label} is ${why}: the secret is shown only when the token is made. Run edge with ${flag} to replace the secret (whoever uses the old one then needs the new file)`,
       );
-    if (state.options.dryRun) return dry(`rotate the secret of ${name} and write ${fileName}`);
+    }
+    if (state.options.dryRun) return dry(`rotate the secret of ${name} and write ${label}`);
     const rotated = shape(
       serviceTokenSchema,
       await withRight(RIGHT_TOKENS, () => api.post(`${collection}/${existing.id}/rotate`, {})),
@@ -839,7 +970,7 @@ async function ensureServiceToken(state: EdgeState, kind: 'engine' | 'integrator
     save(clientId, rotated.client_secret);
     return {
       status: 'updated',
-      detail: `${name} rotated, ${expiryText(rotated.expires_at ? rotated : existing, context.deps.now())}; secret in ${fileName} (mode 600)`,
+      detail: `${name} rotated, ${expiryText(rotated.expires_at ? rotated : existing, context.deps.now())}; secret in ${label} (mode 600)`,
     };
   });
 }
@@ -882,6 +1013,23 @@ async function ensurePolicies(state: EdgeState): Promise<void> {
     state.policyIds.integrator = state.tokenIds.integrator
       ? await ensurePolicy(state, servicePolicySpec(state.names.integratorPolicy, state.tokenIds.integrator))
       : await dryPolicy(state, state.names.integratorPolicy);
+  for (const owner of ownersOf(config)) {
+    const names = ownerNamesOf(config, owner.id);
+    const tokens = state.ownerTokenIds.get(owner.id)!;
+    const ids: OwnerIds = { engine: null, integrator: null };
+    state.ownerPolicyIds.set(owner.id, ids);
+    ids.engine = tokens.engine
+      ? await ensurePolicy(state, servicePolicySpec(names.enginePolicy, tokens.engine))
+      : await dryPolicy(state, names.enginePolicy);
+    ids.integrator = tokens.integrator
+      ? await ensurePolicy(state, servicePolicySpec(names.integratorPolicy, tokens.integrator))
+      : await dryPolicy(state, names.integratorPolicy);
+  }
+}
+
+/** The ids of the policies the engine and integrator applications carry: the host's, then each owner's by id. */
+function ownerPolicyList(state: EdgeState, kind: 'engine' | 'integrator'): (string | null)[] {
+  return ownersOf(state.context.config).map((owner) => state.ownerPolicyIds.get(owner.id)?.[kind] ?? null);
 }
 
 /** A policy of a token that does not exist yet (a dry run): the policy may exist, its content cannot be compared. */
@@ -985,14 +1133,14 @@ async function ensureApps(state: EdgeState): Promise<void> {
   state.audTags.engine = await ensureApp(state, {
     name: state.names.engineApp,
     domain: `${hostname}/engine`,
-    policyIds: [state.policyIds.engine],
+    policyIds: [state.policyIds.engine, ...ownerPolicyList(state, 'engine')],
     autoRedirect: true,
   });
   if (config.cloudflare.integratorHostname)
     state.audTags.integrator = await ensureApp(state, {
       name: state.names.integratorApp,
       domain: config.cloudflare.integratorHostname,
-      policyIds: [state.policyIds.integrator],
+      policyIds: [state.policyIds.integrator, ...ownerPolicyList(state, 'integrator')],
       autoRedirect: true,
     });
 }
@@ -1019,6 +1167,82 @@ async function removeIntegrator(state: EdgeState): Promise<void> {
       );
     if (hasFile) fs.rmSync(file, { force: true });
     return { status: 'updated', detail: 'the integrator policy, token and file are deleted' };
+  });
+}
+
+/** The names of the existing `owners/<id>` folders (the ones shaped like an owner id), sorted. */
+function ownerFolders(secretsDir: string): string[] {
+  const root = path.join(secretsDir, OWNERS_DIR);
+  if (!fs.existsSync(root)) return [];
+  return fs
+    .readdirSync(root)
+    .filter((name) => OWNER_ID.test(name))
+    .sort();
+}
+
+/** Before anything changes: the `owners` folder, each owner's folder and its two token files must be as safe as the store itself. */
+function checkOwnerSecrets(secretsDir: string): void {
+  checkSecretsDir(path.join(secretsDir, OWNERS_DIR));
+  for (const id of ownerFolders(secretsDir)) {
+    const dir = ownerDir(secretsDir, id);
+    checkSecretsDir(dir);
+    for (const file of [ENGINE_TOKEN_FILE, INTEGRATOR_TOKEN_FILE]) {
+      const problem = secretFileProblem(path.join(dir, file));
+      if (problem) throw refused(problem);
+    }
+  }
+}
+
+/**
+ * An owner who left `access.owners` loses the policies, then the tokens, then the files and the folder (PM-1065).
+ * The order is required: the applications already stopped using the policies (`ensureApps`), and Cloudflare does not
+ * delete a policy that an application still has, nor a token that a policy still names. Only objects whose names
+ * have the owner shape are touched.
+ */
+async function removeLeftOwners(state: EdgeState): Promise<void> {
+  const { config, secretsDir } = state.context;
+  const { api, accountId } = state;
+  const listed = new Set(config.access.owners.map((owner) => owner.id));
+  const left = (name: string, suffix: '' | '-service') => {
+    const id = ownerIdOfName(config, name, suffix);
+    return id !== null && !listed.has(id);
+  };
+  await runStep(state, 'owner-cleanup', async () => {
+    const policies = (await withRight(RIGHT_APPS, () => api.list(`/accounts/${accountId}/access/policies`)))
+      .map((item) => shape(policySchema, item, 'Access policy'))
+      .filter((policy) => left(policy.name, '-service'));
+    const tokens = (
+      await withRight(RIGHT_TOKENS, () => api.list(`/accounts/${accountId}/access/service_tokens`))
+    )
+      .map((item) => shape(serviceTokenSchema, item, 'service token'))
+      .filter((token) => left(token.name, ''));
+    const folders = ownerFolders(secretsDir).filter((id) => !listed.has(id));
+    if (policies.length + tokens.length + folders.length === 0)
+      return { status: 'unchanged', detail: 'no owner left the list' };
+    const names = [...policies, ...tokens].map((item) => item.name);
+    if (state.options.dryRun)
+      return dry(`delete ${[...names, ...folders.map((id) => `${OWNERS_DIR}/${id}`)].join(', ')}`);
+    for (const policy of policies)
+      await withRight(RIGHT_APPS, () => api.delete(`/accounts/${accountId}/access/policies/${policy.id}`));
+    for (const token of tokens)
+      await withRight(RIGHT_TOKENS, () =>
+        api.delete(`/accounts/${accountId}/access/service_tokens/${token.id}`),
+      );
+    const kept: string[] = [];
+    for (const id of folders) {
+      const dir = ownerDir(secretsDir, id);
+      for (const file of [ENGINE_TOKEN_FILE, INTEGRATOR_TOKEN_FILE])
+        fs.rmSync(path.join(dir, file), { force: true });
+      // `rmdir` removes an empty folder only: a file of the host's own in it stays.
+      if (fs.readdirSync(dir).length === 0) fs.rmdirSync(dir);
+      else kept.push(`${OWNERS_DIR}/${id}`);
+    }
+    const detail = [
+      `deleted ${names.length} object(s)${names.length ? `: ${names.join(', ')}` : ''}`,
+      `${folders.length - kept.length} folder(s)`,
+      ...(kept.length ? [`kept ${kept.join(', ')} (other files in it)`] : []),
+    ].join('; ');
+    return { status: 'updated', detail };
   });
 }
 
@@ -1216,6 +1440,18 @@ export async function verifyAccess(
   serviceCheck(policies.engine, names.enginePolicy, engineToken);
   if (config.access.integratorServiceToken)
     serviceCheck(policies.integrator, names.integratorPolicy, integratorToken);
+  // A further owner's policy is exactly that owner's own token (PM-1065).
+  const ownerPolicies = { engine: [] as (AccessPolicy | null)[], integrator: [] as (AccessPolicy | null)[] };
+  for (const owner of ownersOf(config)) {
+    const ownerNames = ownerNamesOf(config, owner.id);
+    for (const kind of ['engine', 'integrator'] as const) {
+      const policyName = kind === 'engine' ? ownerNames.enginePolicy : ownerNames.integratorPolicy;
+      const tokenName = kind === 'engine' ? ownerNames.engineToken : ownerNames.integratorToken;
+      const policy = await findPolicy(api, accountId, policyName);
+      serviceCheck(policy, policyName, await findServiceToken(api, accountId, tokenName));
+      ownerPolicies[kind].push(policy);
+    }
+  }
 
   const appCheck = async (name: string, domain: string, expected: (AccessPolicy | null)[]) => {
     const app = await findApp(api, accountId, name);
@@ -1243,9 +1479,15 @@ export async function verifyAccess(
             : []),
         ],
   );
-  await appCheck(names.engineApp, `${config.cloudflare.hostname}/engine`, [policies.engine]);
+  await appCheck(names.engineApp, `${config.cloudflare.hostname}/engine`, [
+    policies.engine,
+    ...ownerPolicies.engine,
+  ]);
   if (config.cloudflare.integratorHostname)
-    await appCheck(names.integratorApp, config.cloudflare.integratorHostname, [policies.integrator]);
+    await appCheck(names.integratorApp, config.cloudflare.integratorHostname, [
+      policies.integrator,
+      ...ownerPolicies.integrator,
+    ]);
   return problems;
 }
 

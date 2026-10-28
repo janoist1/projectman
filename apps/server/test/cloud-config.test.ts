@@ -50,6 +50,7 @@ describe('the defaults', () => {
       },
       access: {
         emails: ['owner@example.com'],
+        owners: [],
         sessionDuration: '24h',
         integratorServiceToken: false,
         boardMode: 'private',
@@ -395,6 +396,50 @@ describe('the validation', () => {
     expect(refusal(config((value) => (value.access.emails = ['a@example.com', 'A@EXAMPLE.com'])))).toContain(
       'access.emails.1: a@example.com is listed twice',
     );
+  });
+
+  describe('the further owners (PM-1065)', () => {
+    const withOwners = (owners: unknown[], patch: (value: Record<string, any>) => void = () => undefined) =>
+      config((value) => {
+        value.cloudflare.integratorHostname = 'machine.example.com';
+        value.access.integratorServiceToken = true;
+        value.access.owners = owners;
+        patch(value);
+      });
+    const alpha = { id: 'alpha', name: 'Alpha Ltd', email: 'Alpha@Example.com' };
+
+    it('takes an owner with an id, a name and a lowercased e-mail address', () => {
+      expect(parseConfig(withOwners([alpha]), HOME).access.owners).toEqual([
+        { id: 'alpha', name: 'Alpha Ltd', email: 'alpha@example.com' },
+      ]);
+    });
+
+    it.each([
+      [
+        'an id listed twice',
+        [alpha, { ...alpha, name: 'Other' }],
+        undefined,
+        'access.owners.1.id: alpha is listed twice',
+      ],
+      ['an id that is not a handle', [{ ...alpha, id: 'Alpha_1' }], undefined, 'access.owners.0.id'],
+      [
+        'a private board without the owner’s address',
+        [{ id: 'alpha', name: 'Alpha Ltd' }],
+        undefined,
+        'access.owners.0.email: required in private board mode',
+      ],
+      [
+        'no integrator hostname',
+        [alpha],
+        (value: Record<string, any>) => {
+          delete value.cloudflare.integratorHostname;
+          value.access.integratorServiceToken = false;
+        },
+        'cloudflare.integratorHostname: required with access.owners',
+      ],
+    ])('refuses %s', (_what, owners, patch, message) => {
+      expect(refusal(withOwners(owners, patch))).toContain(message);
+    });
   });
 
   it('takes the board mode (PM-672): private by default, public only with the ses block', () => {

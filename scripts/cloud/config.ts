@@ -97,17 +97,28 @@ const cloudflareSchema = z.strictObject({
   tunnelName: z.string().min(1).optional(),
 });
 
+const accessEmail = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .refine((value) => !value.includes('*'), 'an exact address, no wildcard')
+  .refine((value) => EMAIL.test(value), 'an e-mail address');
+
+/** A further owner's own Cloudflare service tokens (PM-1065); the id has the shape of a member handle. */
+const accessOwnerSchema = z.strictObject({
+  id: z.string().regex(/^[a-z0-9][a-z0-9-]{0,31}$/, 'lowercase letters, digits and hyphens, at most 32'),
+  /** Appears only in the output lines. */
+  name: z.string().trim().min(1).max(80),
+  email: accessEmail.optional(),
+});
+
 const accessSchema = z.strictObject({
-  emails: z
-    .array(
-      z
-        .string()
-        .trim()
-        .toLowerCase()
-        .refine((value) => !value.includes('*'), 'an exact address, no wildcard')
-        .refine((value) => EMAIL.test(value), 'an e-mail address'),
-    )
-    .min(1, 'at least one address'),
+  emails: z.array(accessEmail).min(1, 'at least one address'),
+  /**
+   * The further owners (PM-1065): each gets an engine and an integrator service token and its own policies on
+   * the `/engine` application and the integrator hostname; `edge` removes the ones that left the list.
+   */
+  owners: z.array(accessOwnerSchema).default([]),
   sessionDuration: z
     .string()
     .regex(/^[1-9]\d*[mh]$/, 'a duration such as 30m or 24h')
@@ -224,6 +235,15 @@ const configSchema = z
       if (seen.has(email)) issue(['access', 'emails', index], `${email} is listed twice`);
       seen.add(email);
     });
+    if (access.owners.length > 0 && !cloudflare.integratorHostname)
+      issue(['cloudflare', 'integratorHostname'], 'required with access.owners');
+    const seenOwners = new Set<string>();
+    access.owners.forEach((owner, index) => {
+      if (seenOwners.has(owner.id)) issue(['access', 'owners', index, 'id'], `${owner.id} is listed twice`);
+      seenOwners.add(owner.id);
+      if (access.boardMode === 'private' && owner.email === undefined)
+        issue(['access', 'owners', index, 'email'], 'required in private board mode');
+    });
   });
 
 export type ParsedCloudConfig = z.output<typeof configSchema>;
@@ -258,6 +278,7 @@ export interface CloudConfig {
   };
   access: {
     emails: string[];
+    owners: { id: string; name: string; email?: string }[];
     sessionDuration: string;
     integratorServiceToken: boolean;
     boardMode: 'private' | 'public';

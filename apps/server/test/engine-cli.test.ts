@@ -247,6 +247,36 @@ describe('engine commands', () => {
       expect(out.join('\n')).toContain('s1 working');
     });
 
+    it('reads a status file of an older engine without the keep-awake fields', async () => {
+      writeStatus();
+      running.add(4242);
+      expect(await run('status')).toBe(0);
+      expect(out.join('\n')).toContain('keep awake');
+    });
+
+    it('shows whether the engine holds the machine awake, and the work that runs', async () => {
+      writeStatus({
+        work: { sessions: 2, fullTests: 1, screenshots: 0 },
+        keepAwake: { mode: 'while_working', holding: true, since: '2026-10-09T09:55:00Z' },
+      });
+      running.add(4242);
+      await run('status');
+      expect(out.join('\n')).toMatch(
+        /keep awake: holding for 5m; work: 2 sessions, 1 merge checks, 0 screenshot/,
+      );
+    });
+
+    it.each([
+      ['off', { mode: 'off', holding: false }],
+      ['not supported', { mode: 'while_working', holding: false, unsupported: true }],
+      ['not needed', { mode: 'while_working', holding: false }],
+    ])('shows the keep-awake state: %s', async (expected, keepAwake) => {
+      writeStatus({ keepAwake });
+      running.add(4242);
+      await run('status');
+      expect(out.join('\n')).toContain(`keep awake: ${expected}`);
+    });
+
     it('exits 1 when the process is gone, even if the file still says connected', async () => {
       writeStatus();
       expect(await run('status')).toBe(1);
@@ -264,6 +294,28 @@ describe('engine commands', () => {
       expect(await run('status')).toBe(1);
       expect(out.join('\n')).toContain('link_refused');
     });
+  });
+
+  describe('keep-awake', () => {
+    beforeEach(async () => {
+      await init();
+      out.length = 0;
+    });
+
+    it('writes the mode to the configuration and says it takes effect after a restart', async () => {
+      expect(await run('keep-awake', 'off')).toBe(0);
+      expect(loadEngineConfig(home).keepAwake).toBe('off');
+      expect(out.join('\n')).toContain('restart');
+      expect(await run('keep-awake', 'on')).toBe(0);
+      expect(loadEngineConfig(home).keepAwake).toBe('while_working');
+    });
+
+    it.each([[['keep-awake']], [['keep-awake', 'maybe']], [['keep-awake', 'on', 'extra']]])(
+      'refuses %j',
+      async (argv) => {
+        expect(await run(...argv)).toBe(2);
+      },
+    );
   });
 
   describe('start', () => {

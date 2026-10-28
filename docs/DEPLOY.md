@@ -239,6 +239,15 @@ by any card: the owner installs it, after the first hybrid release has been rehe
 - **An engine that does not stop**: the coordinator waits 60 seconds and stops with a fixed code. It does not kill
   the process; find out why it does not exit.
 
+## Keeping the Mac awake while the engine works (PM-1086)
+
+The engine keeps the Mac from sleeping on its own while a session, a merge check or a screenshot run is
+active, and lets go two minutes after the last one ended. Running `caffeinate` by hand is no longer needed.
+It holds `/usr/bin/caffeinate -i -s` (idle and system sleep on mains power; the display may sleep, and a Mac
+on battery with the lid closed sleeps anyway). `npm run engine -- status` shows whether it holds and what
+runs. To turn it off (or on again): `npm run engine -- keep-awake off|on`; it takes effect when the engine
+is restarted.
+
 ## Separate work volume on a Mac (PM-846)
 
 macOS keeps a log of every file change in the `fseventsd` daemon. Task worktrees, member workspaces,

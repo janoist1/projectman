@@ -260,6 +260,7 @@ describe('screening contract (PM-556)', () => {
       'group_withdrawn',
       'operator_moot',
       'obligation_closed',
+      'signal_resolved',
     ]);
     expect(() => QuestionCloseRule.parse('operator_answered')).toThrow();
     for (const outcome of ['answered', 'forwarded', 'moot', 'decision', 'todo'])

@@ -348,13 +348,14 @@ Everything is in `~/.config/projectman/cloud/`. That directory is under `~/.conf
 which the AI sessions' sandboxes already deny. Nothing from it goes to the repository, a card or a
 message.
 
-| File                           | Content                                                                    | Written by                                        |
-| ------------------------------ | -------------------------------------------------------------------------- | ------------------------------------------------- |
-| `config.json`                  | the settings; no secret (`--config <file>` names another)                  | you (start from `deploy/aws/config.example.json`) |
-| `cloudflare-token`             | the Cloudflare API token (PM-536)                                          | you                                               |
-| `cloud.env`                    | the container's environment, docker env-file format                        | `npm run cloud` (below)                           |
-| `engine-access-token.json`     | the engine's Access service token (`linkHeadersFile` format)               | `npm run cloud -- edge`                           |
-| `integrator-access-token.json` | the integrator's service token (only with `access.integratorServiceToken`) | `npm run cloud -- edge`                           |
+| File                                                                               | Content                                                                    | Written by                                        |
+| ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------- | ------------------------------------------------- |
+| `config.json`                                                                      | the settings; no secret (`--config <file>` names another)                  | you (start from `deploy/aws/config.example.json`) |
+| `cloudflare-token`                                                                 | the Cloudflare API token (PM-536)                                          | you                                               |
+| `cloud.env`                                                                        | the container's environment, docker env-file format                        | `npm run cloud` (below)                           |
+| `engine-access-token.json`                                                         | the engine's Access service token (`linkHeadersFile` format)               | `npm run cloud -- edge`                           |
+| `integrator-access-token.json`                                                     | the integrator's service token (only with `access.integratorServiceToken`) | `npm run cloud -- edge`                           |
+| `owners/<id>/engine-access-token.json`, `owners/<id>/integrator-access-token.json` | a further owner's own two service tokens (`access.owners`, PM-1065)        | `npm run cloud -- edge`                           |
 
 `npm run` starts the command in the repository root, so give `--config` an absolute path (a relative one is resolved from the root).
 
@@ -663,7 +664,7 @@ at the first refused change, name the right they lack and change nothing further
 
 ### What `edge` does
 
-`npm run cloud -- edge [--dry-run] [--rotate-engine-token] [--rotate-integrator-token]`, in this order:
+`npm run cloud -- edge [--dry-run] [--rotate-engine-token] [--rotate-integrator-token] [--rotate-owner-token <id>]`, in this order:
 
 1. **The zone** `cloudflare.zone`: created (full setup, no automatic records) if the account has none.
    It prints the two name servers. The zone stays `pending` until the registrar uses them (PM-537);
@@ -690,6 +691,21 @@ at the first refused change, name the right they lack and change nothing further
    the integrator policy if there is one) and `<N>-engine` on `cloudflare.hostname/engine` (the engine
    policy only). Their policy lists must be exactly these: an extra policy is removed. With the
    integrator token switched off, its policy, token and file are deleted.
+
+   **Further owners (PM-1065).** Each entry of `access.owners` (`id`, `name`, and an `email` that private
+   board mode requires) gets its own pair of service tokens, `<N>-owner-<id>-engine` and
+   `<N>-owner-<id>-integrator`, its own two service policies `<N>-owner-<id>-engine-service` and
+   `<N>-owner-<id>-integrator-service`, and its own files `owners/<id>/engine-access-token.json` and
+   `owners/<id>/integrator-access-token.json` (folder 700, files 600). An owner needs
+   `cloudflare.integratorHostname`. The owner's policies are added after the host's on the engine
+   application and on the integrator application; the board application is unchanged, and in private
+   mode the owner's `email` joins the allow list. The host's token, policy and file never change. A
+   token that exists while the host's copy is missing or foreign is _skipped_ (exit 0, with a hint):
+   `--rotate-owner-token <id>` makes both of that owner's secrets anew and writes the files (an id that
+   is not in `access.owners` is refused). Removing an owner from `access.owners` deletes only that
+   owner's objects, in this order: policies, tokens, then the files and the folder (a folder that holds
+   other files stays). The file goes to the owner by hand, outside projectman.
+
 8. **The tunnel** `<N>` (managed from Cloudflare, `config_src: cloudflare`; a tunnel that is configured
    from a local file exits 2) and its **ingress**: `/hooks*` and `/mcp/*` answer 404 (the board's
    webhook and member MCP doors stay closed to the world; the bare `/mcp` is the integrator's bearer endpoint, PM-760), the board's name goes to `127.0.0.1:4700` with the
@@ -710,7 +726,8 @@ it has read the whole setup and found it right; any failed check exits 2 with no
 
 - the zone is `active` (the name servers of PM-537 are in use);
 - both Access applications exist with exactly their policies, the e-mail policy lists exactly
-  `access.emails` and the service policies exactly their token;
+  `access.emails` (and the owners' `email`s) and the service policies, the owners' included, exactly
+  their token;
 - the tunnel is `healthy`, that is, the machine's `cloudflared` is connected (`deploy` first).
 
 A name that already has an A record, a CNAME elsewhere, or several records exits 2 and is left alone;

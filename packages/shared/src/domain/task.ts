@@ -153,6 +153,8 @@ export const TaskStartWaiting = z.object({
   /** `label_missing`: the labels the start waits for; `member` is the one who sets them. */
   labels: z.array(LabelId).optional(),
   member: MemberHandle.optional(),
+  /** `workspace_dirty`: the branch checked out in the workspace; `workspace_fetch_failed`: the base branch (PM-455). */
+  branch: z.string().optional(),
   provider: AgentProvider.optional(),
   until: z.string().optional(),
   /** Admission threshold, rather than current usage. */

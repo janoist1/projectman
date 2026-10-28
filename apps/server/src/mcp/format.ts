@@ -263,6 +263,8 @@ function signalLine(signal: OperatorSignal): string {
       'An answer or request reached the assignee (subject: the message), but no work followed; report only, it has no step.',
     refinement_stalled:
       "A member's refinement turn ended without its label (subject: the label); report only, it has no step. Check the card first; close an intermediate or resolved case with dismiss_signal.",
+    start_blocked:
+      "A card's start waits for a repository choice or a stuck member workspace (subject: the reason; facts say who waits and what to do). It closes itself when the reason ends; a decision question about it carries this signal_id.",
   };
   return `- signal_${signal.kind}: ${explanations[signal.kind]} ${signal.id}, ${signal.state}, task ${signal.taskKey ?? 'none'}, subject ${signal.subject ?? 'none'}, since ${signal.raisedAt}; actionable ${signal.actionable}.`;
 }

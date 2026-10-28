@@ -28,6 +28,8 @@ export interface HumanQuestionInput {
   recipient?: QuestionRecipient;
   reaskOf?: string;
   reaskReason?: string;
+  /** The system signal the question is about (PM-455); the caller's tool has checked it. */
+  signalId?: string;
 }
 
 export interface AskedHuman {

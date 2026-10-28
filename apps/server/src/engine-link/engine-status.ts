@@ -18,6 +18,22 @@ export const EngineStatus = z.strictObject({
   pendingEvents: z.number().int().nonnegative(),
   droppedEvents: z.number().int().nonnegative(),
   running: z.array(z.strictObject({ sessionId: z.string(), state: z.string() })),
+  /** PM-1086: optional, since a newer CLI also reads the file of an older engine. */
+  work: z
+    .strictObject({
+      sessions: z.number().int().nonnegative(),
+      fullTests: z.number().int().nonnegative(),
+      screenshots: z.number().int().nonnegative(),
+    })
+    .optional(),
+  keepAwake: z
+    .strictObject({
+      mode: z.enum(['while_working', 'off']),
+      holding: z.boolean(),
+      since: z.string().optional(),
+      unsupported: z.boolean().optional(),
+    })
+    .optional(),
 });
 export type EngineStatus = z.infer<typeof EngineStatus>;
 

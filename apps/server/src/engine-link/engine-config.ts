@@ -71,6 +71,8 @@ export const EngineConfig = z.strictObject({
   ),
   maxPermissionMode: SelectablePermissionMode.default('auto'),
   allowRemoteTerminalInput: z.boolean().default(true),
+  /** PM-1086: keep the machine awake while work runs (macOS); absent: `while_working`. */
+  keepAwake: z.enum(['while_working', 'off']).optional(),
 });
 export type EngineConfig = z.infer<typeof EngineConfig>;
 

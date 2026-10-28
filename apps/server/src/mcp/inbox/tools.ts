@@ -135,6 +135,16 @@ export const INBOX_TOOL_GROUP: TeamToolGroup = {
           .max(1000)
           .optional()
           .describe('Why a person must see it after all. Needs reask_of.'),
+        signal_id: z
+          .string()
+          .trim()
+          .min(1)
+          .max(100)
+          .optional()
+          .describe(
+            'Only the project manager: the open system signal delivered to you that this question is about. ' +
+              "The question closes by itself when the signal's case ends; task_key defaults to the signal's card.",
+          ),
         recipient: QuestionRecipient.optional().describe(
           'Suggested todo recipient (default owner); screening decides. integrator reaches the machine queue only from a member with machine access.',
         ),
@@ -174,7 +184,7 @@ export const INBOX_TOOL_GROUP: TeamToolGroup = {
       external: {
         access: 'write',
         modes: ['super'],
-        omit: ['reask_of', 'reask_reason', 'recipient'],
+        omit: ['reask_of', 'reask_reason', 'recipient', 'signal_id'],
         description:
           'Ask the owners a question you cannot decide yourself. It goes to their inbox, unscreened: {inbox_item_id, state: "open", approval_label?, attachments}. Only an owner answers it, with their own login; you cannot answer it yourself, and no one wakes you when it is answered. Read the answer with get_super_question, and withdraw a moot question with withdraw_question. Write for a non-specialist who often reads on a phone: one plain sentence that names the decision, the options by what happens if one is picked, one recommended option with a one-sentence reason, technical background in details. response_purpose information marks a plain factual question whose answer is no decision; owner_decision (default) is a choice, an approval or anything with cost, deletion or security. options are required for an owner decision. `to` names existing humans (owners only for an owner decision); omit it to ask the current owners. task_key and attachments name a card and files of that card or its parent; there is no default card.',
         async run({ ctx, args, handler }) {
@@ -204,6 +214,7 @@ export const INBOX_TOOL_GROUP: TeamToolGroup = {
         const to = args.to ? unique(args.to) : undefined;
         const { inboxItemId, approvalLabel, attachments, screening } = await handler.askHuman(ctx, {
           question: args.question,
+          ...(args.signal_id ? { signalId: args.signal_id } : {}),
           ...(args.recipient ? { recipient: args.recipient } : {}),
           ...(args.options ? { options: args.options } : {}),
           ...(args.recommended ? { recommended: args.recommended } : {}),

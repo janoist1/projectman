@@ -162,6 +162,48 @@ describe('what stops publish', () => {
   });
 });
 
+/** PM-1065: the further owners' policies are part of what publish verifies. */
+describe('publish with further owners', () => {
+  const OWNERS = {
+    cloudflare: {
+      zone: 'example.com',
+      hostname: 'board.example.com',
+      integratorHostname: 'machine.example.com',
+    },
+    access: {
+      emails: ['owner@example.com'],
+      integratorServiceToken: true,
+      owners: [{ id: 'alpha', name: 'Alpha Ltd', email: 'alpha@example.com' }],
+    },
+  };
+
+  it('accepts the access setup when each owner policy is exactly its own token', async () => {
+    await published(OWNERS);
+    await publish();
+    expect(world.output).toContain('ok access: both applications have exactly their own policies');
+  });
+
+  it('stops when an owner policy is not exactly its own token', async () => {
+    await published(OWNERS);
+    const policy = world.cf.policy('projectman-cloud-owner-alpha-engine-service')!;
+    policy.include = [...policy.include, { everyone: {} }];
+    expect(await publish()).toBe(2);
+    expect(world.output).toContain(
+      'projectman-cloud-owner-alpha-engine-service is not exactly its service token',
+    );
+    expect(dnsMutations()).toEqual([]);
+  });
+
+  it('stops when an owner policy is missing from the engine application', async () => {
+    await published(OWNERS);
+    const app = world.cf.app('projectman-cloud-engine')!;
+    app.policies = app.policies.slice(0, 1);
+    expect(await publish()).toBe(2);
+    expect(world.output).toContain('projectman-cloud-engine does not have exactly its own policies');
+    expect(dnsMutations()).toEqual([]);
+  });
+});
+
 describe('publish --feedback', () => {
   it('refuses without a feedback hostname in the configuration', async () => {
     await published();

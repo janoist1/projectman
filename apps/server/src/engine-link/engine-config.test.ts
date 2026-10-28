@@ -39,6 +39,14 @@ describe('engine configuration', () => {
     });
   });
 
+  it('keeps the optional keepAwake mode, absent without it, and refuses an unknown one', () => {
+    saveEngineConfig(dir, base());
+    expect(loadEngineConfig(dir).keepAwake).toBeUndefined();
+    saveEngineConfig(dir, base({ keepAwake: 'off' }));
+    expect(loadEngineConfig(dir).keepAwake).toBe('off');
+    expect(() => base({ keepAwake: 'always' })).toThrow();
+  });
+
   it('refuses a file that is not JSON, or that has a field it does not know', () => {
     writeFileSync(path.join(dir, 'engine.json'), '{nope');
     expect(() => loadEngineConfig(dir)).toThrowError(expect.objectContaining({ code: 'config_invalid' }));

@@ -1953,6 +1953,16 @@ workers follow the machine's size.
 
 ## Machine-dependent parts (PM-341)
 
+- **Shared repository git settings (PM-413)** — `worktree/worktree-manager.ts`
+  (`ensureSharedRepoSettings`, called from `ensureWorktree` and `ensureMergeFix` under the
+  repository lock). The worktree manager writes `core.useReplaceRefs=false`, `gc.packRefs=false`
+  and `maintenance.pack-refs.enabled=false` into the managed repository's local git config, a
+  lasting change to that repository (member workspaces, which are independent clones, are not
+  touched). **Machine assumptions:** the repository lives on this machine and is writable by the
+  engine's user. **Remote engine:** the worktree manager runs on the engine that holds the
+  repository, so the write happens there and nothing crosses the server/engine boundary.
+  Related: the Codex `packed-refs.lock` grant of PM-411.
+
 - **Engine menu bar app (PM-1088)** — `deploy/mac/menubar/` (Swift 5.9 package, AppKit
   `NSStatusItem` / `NSMenu` and a SwiftUI details window), `scripts/engine/menubar.ts`,
   `deploy/mac/com.projectman.engine-menubar.plist`. `npm run engine -- app install|uninstall`

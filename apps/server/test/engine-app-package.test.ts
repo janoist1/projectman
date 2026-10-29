@@ -44,7 +44,6 @@ function writeCheckout(directory: string, archiveSha256: string): void {
   write('packages/shared/package.json', JSON.stringify({ name: '@projectman/shared' }));
   write('packages/shared/src/index.ts', 'export {};');
   write('deploy/mac/com.projectman.engine.plist', '<plist/>');
-  write('deploy/mac/com.projectman.engine-menubar.plist', '<plist/>');
   write('deploy/mac/com.projectman.administration.plist', '<plist/>');
   write(
     'deploy/mac/app/node.json',
@@ -180,7 +179,6 @@ describe('engine package build', () => {
       'apps/server/dist/index.js',
       'scripts/engine/cli.js',
       'deploy/mac/com.projectman.engine.plist',
-      'deploy/mac/com.projectman.engine-menubar.plist',
     ])
       expect(fs.existsSync(path.join(root, entry)), entry).toBe(true);
     expect(fs.existsSync(path.join(root, 'deploy/mac/com.projectman.administration.plist'))).toBe(false);

@@ -2,8 +2,9 @@ import AppKit
 import SwiftUI
 import EngineMenuCore
 
-/// How this Mac relates to the engine: the app installed it (`installed`), the app may install it (`offer`), or the
-/// engine is a checkout's business and the app only shows it (`showOnly`).
+/// How this Mac relates to the engine: its service is installed (`installed`; a checkout's engine is the admin's, which
+/// `service.manager` tells apart), the app may install it (`offer`), or the app has no engine to install and only
+/// shows (`showOnly`).
 enum EngineMode { case installed, offer, showOnly }
 
 private enum Entry { case fresh, activate(String), start(String) }
@@ -21,6 +22,7 @@ final class SetupFlow: NSObject, ObservableObject, NSWindowDelegate {
     private(set) var busy = false
     /// The version that is unpacked and waits for the wiring (e).
     private(set) var awaiting: String?
+    private var quiet = false
     private var steps = StepList(includeLegacy: false)
     private var window: NSWindow?
     private var approvalTimer: Timer?
@@ -31,9 +33,8 @@ final class SetupFlow: NSObject, ObservableObject, NSWindowDelegate {
     static func mode() -> EngineMode {
         let plist = Machine.home.appendingPathComponent(EngineLocator.servicePlist)
         if FileManager.default.fileExists(atPath: plist.path) { return .installed }
+        // Without a bundled engine (a build from a checkout) the app only shows what runs here.
         if !BundledEngine.isAvailable { return .showOnly }
-        // An engine that runs from a git checkout in a terminal is the admin's: the app only shows it.
-        if let location = try? EngineLocator.locate(), !location.isPackage, !Machine.legacy.isPresent { return .showOnly }
         return .offer
     }
 
@@ -94,8 +95,11 @@ final class SetupFlow: NSObject, ObservableObject, NSWindowDelegate {
         busy = true
         let installer = Machine.installer
         if case .fresh = entry { steps = StepList(includeLegacy: installer.legacy.isPresent) }
-        awaiting = nil
-        screen = .installing(steps); setOverlay(.installing)
+        // A quiet run is the retry of e: the screen stays as it is unless something new happens.
+        if !quiet {
+            awaiting = nil
+            screen = .installing(steps); setOverlay(.installing)
+        }
         let report: Installer.Progress = { [weak self] step, status in self?.later { self?.apply(step, status) } }
         work { [weak self] in
             do {
@@ -117,6 +121,7 @@ final class SetupFlow: NSObject, ObservableObject, NSWindowDelegate {
                 switch try installer.activate(version: version, progress: report) {
                 case .running: self?.later { self?.finishRunning() }
                 case .needsApproval: self?.later { self?.awaitApproval(version) }
+                case .awaitingSetup: self?.later { self?.finishAwaiting(version) }
                 }
             } catch let failure as InstallFailure {
                 self?.later { self?.finishFailed(failure) }
@@ -127,18 +132,21 @@ final class SetupFlow: NSObject, ObservableObject, NSWindowDelegate {
     }
     private func apply(_ step: InstallStep, _ status: StepStatus) {
         steps.apply(step, status)
-        if busy { screen = .installing(steps) }
+        if busy && !quiet { screen = .installing(steps) }
     }
     private func finishAwaiting(_ version: String) {
-        busy = false; awaiting = version; screen = .awaitingSetup; setOverlay(nil); onEngineChanged()
+        // A quiet retry that is still waiting must not ask for a fresh snapshot: that would retry again at once.
+        let retry = quiet
+        quiet = false; busy = false; awaiting = version; screen = .awaitingSetup; setOverlay(nil)
+        if !retry { onEngineChanged() }
     }
     private func finishRunning() {
-        busy = false; awaiting = nil; screen = .running; setOverlay(nil)
+        quiet = false; busy = false; awaiting = nil; screen = .running; setOverlay(nil)
         LoginItems.registerApp()
         onEngineChanged()
     }
     private func finishFailed(_ failure: InstallFailure) {
-        busy = false
+        quiet = false; busy = false; awaiting = nil
         steps.fail(failure.step)
         screen = .failed(steps, failure.message); setOverlay(nil)
         showWindow()
@@ -147,7 +155,7 @@ final class SetupFlow: NSObject, ObservableObject, NSWindowDelegate {
 
     /// c: the background item needs the user's approval in System Settings; the app polls every 2 s.
     private func awaitApproval(_ version: String) {
-        busy = false; screen = .approval; setOverlay(.needsApproval)
+        quiet = false; busy = false; awaiting = nil; screen = .approval; setOverlay(.needsApproval)
         showWindow()
         LoginItems.openSettings()
         watchApproval(version: version)
@@ -167,6 +175,7 @@ final class SetupFlow: NSObject, ObservableObject, NSWindowDelegate {
     /// but its background item is off.
     func observe(_ fetch: Fetch, mode: EngineMode) {
         if let version = awaiting, !busy, let snapshot = fetch.snapshot, snapshot.overall != "not_initialised" {
+            quiet = true
             run(.activate(version)); return
         }
         if mode == .installed, !busy, overlay == nil, approvalTimer == nil, LoginItems.status().blocksEngine {

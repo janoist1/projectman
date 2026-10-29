@@ -10,7 +10,11 @@ public enum PrepareOutcome: Equatable {
     /// Unpacked, but there is no `engine.json` or key yet (e): the service waits for the wiring.
     case awaitingSetup(String)
 }
-public enum ActivateOutcome: Equatable { case running, needsApproval }
+public enum ActivateOutcome: Equatable {
+    case running, needsApproval
+    /// `service install` refused with `key_missing`: `engine.json` exists but the engine key does not (e).
+    case awaitingSetup
+}
 
 public struct InstallFailure: Error, Equatable, CustomStringConvertible {
     public let step: InstallStep
@@ -124,7 +128,11 @@ public struct Installer {
         progress(.serviceInstall, .started)
         let path = PathResolver.resolve(shell: shell, home: userHome.path, runner: runner)
         let engine = location(version, path: path)
-        try run(.serviceInstall, engine, ["service", "install", "--path", path], timeout: 180, undo: backup)
+        do {
+            try run(.serviceInstall, engine, ["service", "install", "--path", path], timeout: 180, undo: backup)
+        } catch let failure as InstallFailure where failure.message.contains("[key_missing]") {
+            return .awaitingSetup
+        }
         progress(.serviceInstall, .done)
         progress(.backgroundItem, .started)
         if approval().blocksEngine { return .needsApproval }

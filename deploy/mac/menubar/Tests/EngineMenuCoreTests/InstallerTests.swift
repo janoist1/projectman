@@ -151,6 +151,15 @@ final class InstallerTests: XCTestCase {
         }
         XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.plist.path))
     }
+    func testMissingKeyWaitsForSetupInsteadOfFailing() throws {
+        let fixture = try InstallerFixture()
+        fixture.failing["install"] = "REFUSED [key_missing] The engine key does not exist."
+        let installer = fixture.installer()
+        _ = try installer.prepare(progress: { _, _ in })
+        XCTAssertEqual(try installer.activate(version: "1.2.3", progress: { _, _ in }), .awaitingSetup)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.plist.path))
+        XCTAssertTrue(fixture.calls(containing: "start").isEmpty)
+    }
     func testServiceInstallFailureRestoresThePreviousPlist() throws {
         let fixture = try InstallerFixture()
         try FileManager.default.createDirectory(at: fixture.plist.deletingLastPathComponent(), withIntermediateDirectories: true)

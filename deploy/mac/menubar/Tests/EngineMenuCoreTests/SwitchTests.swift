@@ -105,9 +105,18 @@ final class SwitchTests: XCTestCase {
         XCTAssertEqual(m.header.key, .appUpdateFailed); XCTAssertEqual(m.icon, .caution); XCTAssertEqual(m.count, 3)
         XCTAssertEqual(m.rows.compactMap(\.command).prefix(3), [.retryUpdate, .copyUpdateError, .downloadManually])
     }
-    func testFailedUpdateDoesNotHideAStoppedEngine() throws {
+    func testFailedUpdateDoesNotHideAStoppedEngineAndLeavesNoOrphanRows() throws {
         let m = model(try snapshot("stopped"), update: UpdateContext(app: .failed(UpdateFailure("x", "y")), canDownload: true))
-        XCTAssertEqual(m.header.key, .stopped); XCTAssertTrue(m.rows.contains { $0.command == .copyUpdateError })
+        XCTAssertEqual(m.header.key, .stopped)
+        XCTAssertFalse(m.rows.contains { [.retryUpdate, .copyUpdateError, .downloadManually].contains($0.command) })
+    }
+    func testOnlyTheWinningBannerBringsItsRows() throws {
+        let update = UpdateContext(app: .failed(UpdateFailure("x", "y")), canSelfUpdate: true, canDownload: true)
+        let m = model(try snapshot("rolled-back"), update: update)
+        XCTAssertEqual(m.header.key, .appUpdateFailed)
+        let commands = m.rows.compactMap(\.command)
+        XCTAssertEqual(commands.filter { $0 == .copyUpdateError }.count, 1)
+        XCTAssertFalse(commands.contains(.retrySwitch)); XCTAssertFalse(commands.contains(.copySwitchError))
     }
     func testFailedUpdateBeatsRolledBackBeatsUpdating() throws {
         let rolled = try snapshot("rolled-back")

@@ -163,10 +163,11 @@ public struct MenuModel {
         let state = snapshot.switchState
         let running = model.active
         var extra: [MenuRow] = []
-        var banner: (icon: IconKind, header: Localized, subtitle: Localized, count: Int?)?
+        var banner: (icon: IconKind, header: Localized, subtitle: Localized, count: Int?, rows: [MenuRow])?
         var overrides = false
-        func claim(_ icon: IconKind, _ header: Localized, _ subtitle: Localized, count: Int? = nil) {
-            if banner == nil { banner = (icon, header, subtitle, count) }
+        // The first claim wins the header; only its rows are shown, and only while the header is.
+        func claim(_ icon: IconKind, _ header: Localized, _ subtitle: Localized, count: Int? = nil, rows: [MenuRow] = []) {
+            if banner == nil { banner = (icon, header, subtitle, count, rows) }
         }
         if state?.kind == .recoveryRequired {
             // n: no retry, no start; the user needs a person. n and l hold the header even when the engine itself is down.
@@ -180,22 +181,23 @@ public struct MenuModel {
             model.rows = controlsDisabled(model.rows)
         } else {
             if case .failed = update.app {
-                claim(.caution, Localized(.appUpdateFailed), Localized(.appUpdateFailedReason))
-                extra += [separator, MenuRow(Localized(.retry), command: .retryUpdate), MenuRow(Localized(.copyError), command: .copyUpdateError)]
-                if update.canDownload { extra.append(MenuRow(Localized(.downloadManually), command: .downloadManually)) }
+                var rows = [separator, MenuRow(Localized(.retry), command: .retryUpdate), MenuRow(Localized(.copyError), command: .copyUpdateError)]
+                if update.canDownload { rows.append(MenuRow(Localized(.downloadManually), command: .downloadManually)) }
+                claim(.caution, Localized(.appUpdateFailed), Localized(.appUpdateFailedReason), rows: rows)
             }
             if let state, state.kind == .rolledBack, state.isRecent(now: now) {
                 let subtitle = state.previous.map { Localized(.rolledBackTo, $0.label) } ?? Localized(.rolledBackPrevious)
-                claim(.caution, Localized(.rolledBack), subtitle)
-                extra.append(separator)
-                if snapshot.service.manager == "app" { extra.append(MenuRow(Localized(.retry), command: .retrySwitch)) }
-                extra.append(MenuRow(Localized(.copyError), command: .copySwitchError))
+                var rows = [separator]
+                if snapshot.service.manager == "app" { rows.append(MenuRow(Localized(.retry), command: .retrySwitch)) }
+                rows.append(MenuRow(Localized(.copyError), command: .copySwitchError))
+                claim(.caution, Localized(.rolledBack), subtitle, rows: rows)
             }
             if update.app == .updating { claim(.busy, Localized(.appUpdating), Localized(.appUpdatingReason)) }
             if let offer = update.offer, state?.kind == nil || state?.kind == .rolledBack {
                 extra += [separator, MenuRow(Localized(.updateNow), secondary: L10n.text(.releaseOnly, offer.label), command: .updateNow),
                           MenuRow(Localized(.updateWhenIdle), enabled: false)]
             }
+            if running, let banner { extra = banner.rows + extra }
             model.rows = extra + model.rows
         }
         guard running || overrides, let banner else { return }

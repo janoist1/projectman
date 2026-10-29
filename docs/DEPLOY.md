@@ -92,6 +92,36 @@ that waits for one. Pipeline release gates remain the project's human approval g
 3. On request, a deployment duty holder calls `publish_release`, first with
    `preview: true`, then with the English release summary. This creates the annotated tag
    and public GitHub release; it does not deploy anything.
+4. On the release Mac, run
+   `npm run engine-app -- publish --tag <tag> --config <absolute-file>` to build the
+   engine and signed app from that remote tag and upload zip, DMG, then manifest.
+
+Before the first app publication, the owner needs Apple Developer Program membership,
+a Developer ID Application certificate in the administration Mac's login keychain, and
+`xcrun notarytool store-credentials <profile>`. Run the first publication from Terminal
+so keychain access prompts can be answered with Always Allow. Create an absolute-path
+JSON configuration file containing names only (no secrets):
+
+```json
+{
+  "version": 1,
+  "signingIdentity": "Developer ID Application: Example (ABCDE12345)",
+  "teamId": "ABCDE12345",
+  "notaryProfile": "projectman-release"
+}
+```
+
+Publication uses the release user's `gh` login, the same owner account used by
+`publish_release`. It requires the tag and GitHub release to exist. Both builders run
+under one machine heavy lock, with a 45-minute total limit. Scratch builds are removed
+after the command. A complete existing publication is downloaded and checked against
+its manifest, commit and Team ID without rebuilding. Incomplete publications skip
+assets whose SHA-256 matches the new build; different content under the same name
+is refused, never overwritten. Signed rebuilds may differ, so a partial publication
+can require owner investigation. The manifest is always uploaded last.
+Exit codes: 0 complete, 1 operational failure, 2 missing configuration/release or asset
+conflict (`REFUSED [app_release_not_configured|app_release_missing|app_asset_conflict]`),
+64 invalid arguments. Remote engine machines only download these assets.
 
 The owner's decision is the request to deploy and publish. No unused approval item is created.
 Historical releases and timeline events remain readable; migration 129 cancels open approvals

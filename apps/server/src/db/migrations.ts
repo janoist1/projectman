@@ -1,7 +1,7 @@
 import {
   V83_CHANGE_TRIGGER_TABLES,
   V92_CHANGE_TRIGGER_TABLES,
-  V129_CHANGE_TRIGGER_TABLES,
+  V130_CHANGE_TRIGGER_TABLES,
   V100_REBUILT_TRIGGER_TABLES,
   changeTriggerSql,
   changeTriggersSql,
@@ -2562,6 +2562,13 @@ migrations.push({
 });
 migrations.push({
   version: 129,
+  name: 'close approvals of the retired release watchers',
+  // PM-1113: historical releases and timeline events stay readable; no approval may wait for a retired watcher.
+  sql: `UPDATE inbox_items SET state = 'cancelled', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+    WHERE kind = 'release' AND state = 'open';`,
+});
+migrations.push({
+  version: 130,
   name: 'acceptance items of a card',
   // PM-1135: the conditions of a card as items, each marked with its evidence and confirmed by the owner of the
   // card's step. A card's items go with it (cascade); the change journal names the card when an item changes.
@@ -2585,6 +2592,6 @@ migrations.push({
       updated_at   TEXT NOT NULL
     );
     CREATE INDEX task_acceptance_items_task ON task_acceptance_items(task_id, position);
-    ${V129_CHANGE_TRIGGER_TABLES.map(changeTriggerSql).join('\n')}`,
+    ${V130_CHANGE_TRIGGER_TABLES.map(changeTriggerSql).join('\n')}`,
 });
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

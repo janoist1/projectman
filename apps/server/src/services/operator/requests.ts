@@ -51,7 +51,6 @@ export const OPERATOR_READ_TOOLS: ReadonlySet<string> = new Set([
   'get_screenshot_run',
   'get_project_state',
   'get_operator_diagnostics',
-  'check_release',
   'read_project_doc',
   'list_decision_candidates',
   'search_history',
@@ -91,13 +90,6 @@ export const PM_CARD_TOOLS: readonly string[] = ['reassign_task', 'cancel_task',
  * The team tools the Operator never calls, request or not: decisions of other members, handovers and
  * publishing outside the machine.
  */
-export const OPERATOR_NEVER_TOOLS: ReadonlySet<string> = new Set([
-  'decide_permission_request',
-  'decide_fix_limit',
-  'hand_off',
-  'merge_task',
-  'propose_release',
-]);
 
 /**
  * The team tools the Operator may call in a conversation with someone who is not an owner (PM-475):

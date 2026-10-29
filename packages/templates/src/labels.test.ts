@@ -31,7 +31,13 @@ function legacyConfig() {
   config.pipeline.labels = [];
   for (const stage of config.pipeline.stages) {
     if (!stage.gate) continue;
-    stage.gate.conditions = stage.gate.conditions.map((c: { label: string }) =>
+    // The acceptance gates (PM-1135) came later than the legacy conditions: a gate of only those goes.
+    const legacy = stage.gate.conditions.filter((c: { type: string }) => c.type !== 'lacks_label');
+    if (legacy.length === 0) {
+      delete stage.gate;
+      continue;
+    }
+    stage.gate.conditions = legacy.map((c: { label: string }) =>
       c.label === 'code-review-ok'
         ? { type: 'check_passed', check: 'code_review' }
         : c.label === 'qa-ok'

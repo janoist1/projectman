@@ -4,7 +4,7 @@ import { ControlUnreachable } from '../control/client';
 import type { LiveDeps, RunResult } from './deps';
 import { domainTarget, LiveError, plistFile } from './paths';
 
-/** The pieces the install and the watcher share: launchctl, the control socket and the checks that a server came up. */
+/** Service installation helpers: launchctl, the control socket and the checks that a server came up. */
 
 const POLL_MS = 2_000;
 const VERIFY_TIMEOUT_MS = 120_000;
@@ -60,7 +60,7 @@ export async function tryControl(deps: LiveDeps, request: ControlRequest): Promi
 }
 
 /** Polls until the check holds or the time is out; the clock and the waiting are the deps'. */
-export async function waitUntil(
+async function waitUntil(
   deps: Pick<LiveDeps, 'now' | 'sleep'>,
   timeoutMs: number,
   check: () => Promise<boolean>,

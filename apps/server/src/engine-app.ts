@@ -9,9 +9,6 @@ import { AgentProvider, routes } from '@projectman/shared';
 import { APP_DEFAULTS, loopbackBaseUrl } from './app';
 import { serializeRequest } from './http';
 import type {
-  AdministrationCapability,
-  AdministrationPort,
-  AdministrationTarget,
   FullTestExecutor,
   GithubActionsClient,
   MachineGithubService,
@@ -23,7 +20,6 @@ import type {
   WorkspaceDependencyInstaller,
 } from './contracts';
 import { SESSION_CONFIG_DIR } from './contracts';
-import { createSocketClient } from './administration';
 import { createLocalEngine, resolveWorkRoots } from './engine-host';
 import {
   createEngineAudit,
@@ -77,7 +73,6 @@ import {
 export const ENGINE_DEFAULT_PORT = 4801;
 const MAX_BODY_BYTES = 1024 * 1024;
 const HELLO_PROVIDER_WAIT_MS = 2_500;
-const ADMINISTRATION_HELLO_WAIT_MS = 3_000;
 const PENDING_INPUT_POLL_MS = 1000;
 const SHUTDOWN_PAUSE_CAP_MS = 20_000;
 const TOKEN = /^[A-Za-z0-9_-]{8,256}$/;
@@ -96,8 +91,6 @@ export interface EngineAppModules {
   createScreenshotExecutor?: (deps: { heavyLockDir: string }) => ScreenshotExecutor;
   createMachineProbe?: (deps: { runningPids: () => number[]; instanceTag: string }) => MachineProbe;
   createSocket?: LinkSocketFactory;
-  /** The client of this machine's administration supervisor (PM-763); tests supply a fake one. */
-  createAdministrationClient?: (socketPath: string) => AdministrationPort;
   fetch?: typeof fetch;
   random?: () => number;
   auditMaxBytes?: number;
@@ -129,8 +122,6 @@ export interface EngineAppOptions {
   sessionFoldersDir?: string;
   sessionTmpDir?: string;
   claudeTmpBase?: string;
-  /** The Unix socket of this machine's administration supervisor (PM-763); absent: no administration here. */
-  administrationSocket?: string;
   browsersDir?: string;
   heavyLockDir?: string;
   cloneDependencies?: boolean;
@@ -575,28 +566,7 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
   for (const entry of resolved.repos)
     workspaceDependencies.refreshCheckout({ project: entry.project, repo: entry.repo, repoPath: entry.path });
   mkdirSync(exportDir, { recursive: true, mode: 0o700 });
-  const administration: { port: AdministrationPort; target: AdministrationTarget } | undefined =
-    options.administrationSocket
-      ? {
-          port: (modules.createAdministrationClient ?? ((socketPath) => createSocketClient({ socketPath })))(
-            options.administrationSocket,
-          ),
-          target: { kind: 'engine', id: resolved.engineId },
-        }
-      : undefined;
-  /** What this machine's supervisor says it can do now; none when it is absent, down or answers wrongly. */
-  async function administrationCapabilities(): Promise<AdministrationCapability[] | undefined> {
-    if (!administration) return undefined;
-    try {
-      const status = await Promise.race([
-        administration.port.status(administration.target),
-        new Promise<null>((resolve) => setTimeout(() => resolve(null), ADMINISTRATION_HELLO_WAIT_MS).unref()),
-      ]);
-      return status && status.online ? status.capabilities : undefined;
-    } catch {
-      return undefined;
-    }
-  }
+
   handlers = createEngineHandlers({
     limit,
     audit,
@@ -616,14 +586,12 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
     terminals,
     exportDir,
     ...(ownNanogptKey ? {} : { nanogptStart }),
-    administration,
   });
 
   async function hello(): Promise<Omit<Hello, 't' | 'protocol' | 'nextSeq'>> {
     const paths = engine.paths();
-    // The provider probes and the supervisor's answer are waited for together: the hello takes the longest of
-    // them (3 s at most), well inside the cloud's hello timeout.
-    const [providers, administrationAdvertised] = await Promise.all([
+    // Probe providers together, bounded well inside the cloud's hello timeout.
+    const [providers] = await Promise.all([
       Promise.all(
         AgentProvider.options.map(async (provider) => {
           try {
@@ -641,7 +609,6 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
           }
         }),
       ),
-      administrationCapabilities(),
     ]);
     return {
       version: options.version,
@@ -673,7 +640,6 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
       pid: process.pid,
       uid,
       bootId,
-      ...(administrationAdvertised ? { administration: administrationAdvertised } : {}),
       ...(nanogptKeyFile ? { nanogptKey: 'engine' as const } : {}),
     };
   }

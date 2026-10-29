@@ -49,7 +49,6 @@ import type {
   ProjectStateReport,
   MessageStateReport,
   WakeStart,
-  ReleaseCheckResult,
   ReleaseStateReport,
 } from '../contracts';
 import { MESSAGE_IMAGE_MAX_SIDE } from '../contracts';
@@ -227,17 +226,6 @@ function releaseLines(release: ReleaseStateReport | null): string[] {
         `- ${m.taskKey} ${oneLine(m.title, 120)}: commit ${m.commit ? shortCommit(m.commit) : 'unknown'}, ${m.at ?? 'unknown time'}, by ${m.by ?? 'unknown'}`,
     ),
   ];
-}
-
-/** check_release: either the refusal propose_release would give, or the candidate; nothing was recorded. */
-export function formatReleaseCheck(check: ReleaseCheckResult): string {
-  const proposers = check.proposers.join(', ') || 'none';
-  if (check.refusal)
-    return `Release check: would be refused — ${check.refusal.code}: ${check.refusal.message}. Proposers (deployment duty): ${proposers}. Nothing was recorded.`;
-  const candidate = check.candidate;
-  if (!candidate) return 'Release check: no result. Nothing was recorded.';
-  const cards = candidate.tasks.map((task) => `${task.key} ${oneLine(task.title, 120)}`).join('; ');
-  return `Release check passed: commit ${candidate.commit}, base ${candidate.baseCommit ?? 'unknown'}, ${candidate.tasks.length} cards (${cards}); proposers: ${proposers}. Nothing was recorded.`;
 }
 
 function signalLine(signal: OperatorSignal): string {

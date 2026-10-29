@@ -3,6 +3,7 @@ import { applyConfigPatch, PatchConfigRequest, unknownPatchRepo } from './edit';
 import {
   cardMerger,
   defaultMerger,
+  mergeReadiness,
   mergeRepoOf,
   mergerOf,
   mergeTargetOf,
@@ -297,6 +298,28 @@ describe('moveMerge', () => {
     const missing = moveMerge(c, task, 'code_review', 'done');
     expect(missing).toMatchObject({ kind: 'after_gates', repo: { name: 'web' } });
     expect(moveMerge(c, { ...task, labels: ['code-review-ok'] }, 'code_review', 'done').kind).toBe('due');
+  });
+});
+
+describe('mergeReadiness with the acceptance gate (PM-1135)', () => {
+  const task = { repo: 'web', labels: [] as string[], assignee: null, links: [], stageId: 'code_review' };
+  const unconfirmed = { type: 'lacks_label', label: 'acceptance-unconfirmed' } as const;
+  const gatedRelease = { ...release, gate: { conditions: [...release.gate.conditions, unconfirmed] } };
+
+  it('holds the merge before a release stage while an item is unconfirmed, and ignores the release approval', () => {
+    const c = config({ stages: [queue, work, codeReview, gatedRelease, done] });
+    expect(mergeReadiness(c, { ...task, labels: ['acceptance-unconfirmed'] })).toEqual({
+      ready: false,
+      reason: 'gate',
+    });
+    expect(mergeReadiness(c, task)).toMatchObject({ ready: true, target: { id: 'release' } });
+  });
+
+  it('holds the merge into the done stage the same way', () => {
+    const gated = { ...done, gate: { conditions: [unconfirmed] } };
+    const c = config({ stages: [queue, work, codeReview, gated] });
+    expect(mergeReadiness(c, { ...task, labels: ['acceptance-unconfirmed'] }).ready).toBe(false);
+    expect(mergeReadiness(c, task).ready).toBe(true);
   });
 });
 

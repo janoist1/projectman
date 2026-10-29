@@ -292,11 +292,11 @@ describe('engine app command', () => {
 });
 
 describe('engine start command', () => {
-  it('runs the built server under the bundled node in a package, and the source with tsx in a checkout', () => {
+  it('runs the built server under the bundled node in a package and the CLI node in a checkout', () => {
     const dir = fs.mkdtempSync(path.join(world.root, 'start-'));
     expect(engineStartCommand(dir, '/usr/bin/node')).toEqual({
       command: '/usr/bin/node',
-      args: ['--import', 'tsx', path.join(dir, 'apps/server/src/index.ts')],
+      args: [path.join(dir, 'apps/server/dist/index.js')],
     });
     fs.writeFileSync(path.join(dir, 'engine-package.json'), '{}');
     expect(engineStartCommand(dir, '/usr/bin/node')).toEqual({

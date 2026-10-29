@@ -254,6 +254,7 @@ describe('project configuration migrations', () => {
     expect(gate('release')).toEqual([
       { type: 'has_label', label: 'pr-merged' },
       { type: 'has_label', label: 'release-approved' },
+      { type: 'lacks_label', label: 'acceptance-unconfirmed' },
     ]);
     expect(config.pipeline.labels.find((label) => label.id === 'approval-merge')).toMatchObject({
       setBy: { members: ['owner'], humansOnly: true },

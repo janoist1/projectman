@@ -9,7 +9,7 @@ import {
   SessionState,
   TokenUsage,
 } from '@projectman/shared';
-import { ADMINISTRATION_CAPABILITIES, TEAM_TOOL_TIMEOUT_MS } from '../contracts';
+import { TEAM_TOOL_TIMEOUT_MS } from '../contracts';
 import type { EnginePaths, PermissionRefusedInfo, RunnerEvent, RunningSessionInfo } from '../contracts';
 import type { PullRequestInfo, SessionCleanup } from '../contracts';
 
@@ -177,11 +177,8 @@ export const Hello = z.strictObject({
   pid: int.min(1),
   uid: int.nullable(),
   bootId: text.regex(/^[a-f0-9]{16}$/),
-  /** What this machine's administration supervisor can do (PM-763); absent: the engine has none (or is older). */
-  administration: z
-    .array(z.enum(ADMINISTRATION_CAPABILITIES))
-    .max(ADMINISTRATION_CAPABILITIES.length)
-    .optional(),
+  /** Legacy engines may advertise a retired supervisor; accepted but ignored (PM-1113). */
+  administration: z.array(z.string()).optional(),
   /** 'engine': NanoGPT sessions use the engine's own key file; absent: the cloud's key (or an older engine). */
   nanogptKey: z.literal('engine').optional(),
 });

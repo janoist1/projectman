@@ -12,7 +12,6 @@ export type { EngineRecord } from './engines';
 import { createProjectEngineRepository } from './project-engines';
 import { createIntegratorKeyRepository } from './integrator-keys';
 import { createIntegratorKeyAuditRepository } from './integrator-key-audit';
-import { createOperatorGrantRepository } from './operator-grants';
 import { createSuperAuditRepository } from './super-audit';
 import { createSuperHandoffRepository } from './super-handoffs';
 export type { StoredSuperHandoff, StoredSuperOperation } from './super-handoffs';
@@ -64,7 +63,6 @@ import { createOperatorSignalRepository } from './operator-signals';
 export type { OperatorSignalRecord } from './operator-signals';
 import { createPauseRepository } from './pauses';
 import { createProjectChangeEventRepository } from './project-change-events';
-import { createReleaseDeploymentRepository } from './release-deployments';
 import { createReleasePublicationRepository } from './release-publications';
 import { createReleaseRepository } from './releases';
 import { createReviewPinRepository } from './review-pins';
@@ -123,7 +121,6 @@ export function createRepositories(db: Db) {
     users: createUserRepository(db),
     integratorKeys: createIntegratorKeyRepository(db),
     integratorKeyAudit: createIntegratorKeyAuditRepository(db),
-    operatorGrants: createOperatorGrantRepository(db),
     superAudit: createSuperAuditRepository(db),
     superHandoffs: createSuperHandoffRepository(db),
     invitations: createInvitationRepository(db),
@@ -145,7 +142,6 @@ export function createRepositories(db: Db) {
     taskMerges: createTaskMergeRepository(db),
     mergeTrains: createMergeTrainRepository(db),
     releases: createReleaseRepository(db),
-    releaseDeployments: createReleaseDeploymentRepository(db),
     releasePublications: createReleasePublicationRepository(db),
     taskHandovers: createTaskHandoverRepository(db),
     taskCovers: createTaskCoverRepository(db),

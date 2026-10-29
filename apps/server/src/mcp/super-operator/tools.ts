@@ -1,9 +1,6 @@
 import {
   AnswerHostRequestRequest,
-  GetAdministrationLogsArgs,
   HostRequestState,
-  GetAdministrationStatusArgs,
-  GetMachineSnapshotArgs,
   GetProjectDocWriteInput,
   GetSuperOperationArgs,
   GetSuperQuestionInput,
@@ -87,7 +84,7 @@ export const EXTERNAL_ONLY_TOOLS: readonly ExternalRegisteredTool[] = [
     name: 'super_operate',
     title: 'Start a super command',
     description:
-      'Starts one command directly, without a handoff: {operation}. command is {kind: operate, operation} | {kind: task_create, request} | {kind: task_update, taskKey, request} | {kind: task_labels, taskKey, request} | {kind: task_start, taskKey, request} | {kind: task_cancel, taskKey, request} | {kind: inbox_resolve, itemId, request} | {kind: credential_revoke, keyId} | {kind: workspace_release, scopeId, reason} | {kind: member_update, handle, request} | {kind: invite_create, request} | {kind: merge, taskKey, request} | {kind: merge_order, repo, expectedRevision, taskKeys, reason} | {kind: administration, request}. K3 effects wait in waiting_owner for the owner’s own yes: member, credential, project or repository deletion; login, security, boundary authorization and the Operator’s model, provider or effort; paid cost. After yes, repeat the same request to resume; no cancels it. Login methods, key creation, approval waiver, NanoGPT key and super-rights changes remain owner-login-only and unsupported. operate supports config_patch, config_revert, member_hire, member_retire, member_update, project_pause, project_resume, session_stop and message_send. inbox_resolve runs as the connected Claude and keeps K3 decisions behind owner approval. Give a fresh request_id (UUID) and repeat it only to retry the same call. Give queue_item_id when you work on an open queue item: the step is then recorded under the name of the member who issued it. Follow it with get_super_operation.',
+      'Starts one command directly, without a handoff: {operation}. command is {kind: operate, operation} | {kind: task_create, request} | {kind: task_update, taskKey, request} | {kind: task_labels, taskKey, request} | {kind: task_start, taskKey, request} | {kind: task_cancel, taskKey, request} | {kind: inbox_resolve, itemId, request} | {kind: credential_revoke, keyId} | {kind: workspace_release, scopeId, reason} | {kind: member_update, handle, request} | {kind: invite_create, request} | {kind: merge, taskKey, request} | {kind: merge_order, repo, expectedRevision, taskKeys, reason}. K3 effects wait in waiting_owner for the owner’s own yes: member, credential, project or repository deletion; login, security, boundary authorization and the Operator’s model, provider or effort; paid cost. After yes, repeat the same request to resume; no cancels it. Login methods, key creation, approval waiver, NanoGPT key and super-rights changes remain owner-login-only and unsupported. operate supports config_patch, config_revert, member_hire, member_retire, member_update, project_pause, project_resume, session_stop and message_send. inbox_resolve runs as the connected Claude and keeps K3 decisions behind owner approval. Give a fresh request_id (UUID) and repeat it only to retry the same call. Give queue_item_id when you work on an open queue item: the step is then recorded under the name of the member who issued it. Follow it with get_super_operation.',
     access: 'write',
     modes: ['super'],
     input: withoutProject(SuperOperateArgs),
@@ -129,54 +126,6 @@ export const EXTERNAL_ONLY_TOOLS: readonly ExternalRegisteredTool[] = [
           ...(args.task_key ? { taskKey: args.task_key } : {}),
         }),
       };
-    },
-  }),
-  defineExternalTool({
-    name: 'get_administration_status',
-    title: 'Read the administration status',
-    description:
-      'The status of the hub (target "hub") or of an engine linked to this project (target: the engine id): {status}.',
-    access: 'read',
-    modes: ['super'],
-    hostOnly: true,
-    input: withoutProject(GetAdministrationStatusArgs),
-    async run({ ctx, args, handler }) {
-      return { structured: await handler.getAdministrationStatus(ctx, args.target) };
-    },
-  }),
-  defineExternalTool({
-    name: 'get_administration_logs',
-    title: 'Read the administration log',
-    description:
-      'The log of the hub (target "hub") or of an engine linked to this project (target: the engine id): {entries}, oldest first. limit is at most 200. source is "supervisor" (default, its own journal) or "service" (the managed service\'s log, secrets redacted); min_level (info, warn, error), since (ISO time) and contains (up to 100 characters) narrow it.',
-    access: 'read',
-    modes: ['super'],
-    hostOnly: true,
-    input: withoutProject(GetAdministrationLogsArgs),
-    async run({ ctx, args, handler }) {
-      return {
-        structured: await handler.getAdministrationLogs(ctx, {
-          target: args.target,
-          limit: args.limit ?? 50,
-          ...(args.source ? { source: args.source } : {}),
-          ...(args.min_level ? { minLevel: args.min_level } : {}),
-          ...(args.since ? { since: args.since } : {}),
-          ...(args.contains ? { contains: args.contains } : {}),
-        }),
-      };
-    },
-  }),
-  defineExternalTool({
-    name: 'get_machine_snapshot',
-    title: 'Read the machine snapshot',
-    description:
-      'The state of the machine of the hub (target "hub") or of an engine linked to this project (target: the engine id): {snapshot} with the load average, memory, swap and the ten largest processes of the supervisor user (name, cpu, memory; no arguments).',
-    access: 'read',
-    modes: ['super'],
-    hostOnly: true,
-    input: withoutProject(GetMachineSnapshotArgs),
-    async run({ ctx, args, handler }) {
-      return { structured: await handler.getMachineSnapshot(ctx, args.target) };
     },
   }),
   defineExternalTool({

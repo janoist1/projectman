@@ -1,6 +1,5 @@
 import { Effect, Exit, Scope } from 'effect';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { ReleaseWorkAdmission } from '../../contracts';
 import type { FullTestRunRecord } from '../../db';
 import { runFork, runPromise } from '../../kernel';
 import { makeFullTestQueue } from './queue';
@@ -8,25 +7,7 @@ import type { FullTestQueueEffects } from './queue';
 
 const turn = () => new Promise<void>((resolve) => setImmediate(resolve));
 
-/** A fence the test raises and lowers, with a count of the permits in hand. */
-function fenceOf() {
-  const state = { up: true, held: 0 };
-  const work: ReleaseWorkAdmission = {
-    isHeld: () => state.up,
-    tryAcquire: (kind, runId) => {
-      if (state.up) return null;
-      state.held++;
-      return { id: runId, kind, release: () => void state.held-- };
-    },
-    counts: () => ({ merges: 0, documentWrites: 0, fullTests: state.held, screenshots: 0 }),
-  };
-  return { state, work };
-}
-
-function setup(
-  step?: (run: FullTestRunRecord, signal: AbortSignal) => Promise<void>,
-  work?: ReleaseWorkAdmission,
-) {
+function setup(step?: (run: FullTestRunRecord, signal: AbortSignal) => Promise<void>) {
   const rows: FullTestRunRecord[] = [];
   const started: string[] = [];
   const held = new Map<string, { signal: AbortSignal; end(): void }>();
@@ -44,7 +25,6 @@ function setup(
           await new Promise<void>((resolve) => held.set(run.id, { signal, end: resolve }));
         },
         logger: { warn },
-        ...(work ? { work } : {}),
       }),
       scope,
     ),
@@ -82,27 +62,6 @@ describe('full test queue', () => {
     t.pump();
     expect(t.started).toEqual(['1', '2', '3', '4']);
     await t.finish('4');
-    await t.close();
-  });
-
-  it('starts nothing under the release fence, holds a permit for the running step and frees it after', async () => {
-    const fence = fenceOf();
-    const t = setup(undefined, fence.work);
-    t.enqueue('1', '2');
-    t.pump();
-    await turn();
-    expect(t.started).toEqual([]);
-    expect(fence.work.counts().fullTests).toBe(0);
-
-    fence.state.up = false;
-    t.pump();
-    expect(t.started).toEqual(['1']);
-    expect(fence.work.counts().fullTests).toBe(1);
-    // The fence comes up while the step runs: it finishes, the next one waits.
-    fence.state.up = true;
-    await t.finish('1');
-    expect(fence.work.counts().fullTests).toBe(0);
-    expect(t.started).toEqual(['1']);
     await t.close();
   });
 

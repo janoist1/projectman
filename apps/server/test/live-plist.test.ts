@@ -1,16 +1,14 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   buildServerPlist,
-  buildWatcherPlist,
   exitTimeoutSeconds,
   installedExitTimeout,
   installedProgramArguments,
   PASSED_VARIABLES,
   xmlEscape,
 } from '../../../scripts/live/plist';
-import type { ServerPlistInput, WatcherPlistInput } from '../../../scripts/live/plist';
+import type { ServerPlistInput } from '../../../scripts/live/plist';
 
 const server = (env: NodeJS.ProcessEnv = {}): ServerPlistInput => ({
   nodePath: '/opt/homebrew/bin/node',
@@ -18,20 +16,8 @@ const server = (env: NodeJS.ProcessEnv = {}): ServerPlistInput => ({
   home: '/Users/me/.projectman',
   userHome: '/Users/me',
   port: 4800,
-  target: 'PM/projectman',
   env: { PATH: '/opt/homebrew/bin:/usr/bin', ...env },
   logFile: '/Users/me/.projectman/logs/live.log',
-});
-
-const watcher = (env: NodeJS.ProcessEnv = {}): WatcherPlistInput => ({
-  nodePath: '/opt/homebrew/bin/node',
-  root: '/Users/me/projectman-live',
-  home: '/Users/me/.projectman',
-  userHome: '/Users/me',
-  port: 4800,
-  remote: 'git@github.com:owner/projectman.git',
-  env: { PATH: '/opt/homebrew/bin:/usr/bin', ...env },
-  logFile: '/Users/me/.projectman/logs/watcher.log',
 });
 
 describe('the server plist', () => {
@@ -44,7 +30,7 @@ describe('the server plist', () => {
     );
     expect(text).toMatch(/<key>KeepAlive<\/key>\s*<true\/>/);
     expect(text).toMatch(/<key>ExitTimeOut<\/key>\s*<integer>90<\/integer>/);
-    expect(text).toContain('<string>PM/projectman</string>');
+    expect(text).not.toContain('PROJECTMAN_RELEASE_TARGET');
     expect(text).not.toContain('npm');
   });
 
@@ -76,15 +62,7 @@ describe('the server plist', () => {
     };
     const { text, variables } = buildServerPlist(server(env));
     expect(variables.sort()).toEqual(
-      [
-        'CLAUDE_BIN',
-        'HOME',
-        'LOG_LEVEL',
-        'PATH',
-        'PORT',
-        'PROJECTMAN_HOME',
-        'PROJECTMAN_RELEASE_TARGET',
-      ].sort(),
+      ['CLAUDE_BIN', 'HOME', 'LOG_LEVEL', 'PATH', 'PORT', 'PROJECTMAN_HOME'].sort(),
     );
     for (const name of [
       'ANTHROPIC_API_KEY',
@@ -126,69 +104,5 @@ describe('the server plist', () => {
       expect(() => buildServerPlist(server({ PROJECTMAN_MODE: mode }))).toThrow(/single-mode/);
     expect(() => buildServerPlist(server({ PROJECTMAN_MODE: 'single' }))).not.toThrow();
     expect(() => buildServerPlist({ ...server(), env: {} })).toThrow(/PATH/);
-  });
-});
-
-describe('the watcher plist', () => {
-  it('starts the CLI every minute, without KeepAlive, with the paths it needs', () => {
-    const { text, variables } = buildWatcherPlist(watcher());
-    expect(text).toMatch(/<key>StartInterval<\/key>\s*<integer>60<\/integer>/);
-    expect(text).not.toContain('KeepAlive');
-    const args = [...text.matchAll(/<string>([^<]*)<\/string>/g)].map((m) => m[1]);
-    expect(args.slice(0, 13)).toEqual([
-      'com.projectman.live-watcher',
-      '/Users/me/projectman-live/scripts/live/bin/projectman-release-watcher',
-      '/opt/homebrew/bin/node',
-      '--import',
-      'tsx',
-      '/Users/me/projectman-live/scripts/live/cli.ts',
-      'watch',
-      '--root',
-      '/Users/me/projectman-live',
-      '--home',
-      '/Users/me/.projectman',
-      '--port',
-      '4800',
-    ]);
-    expect(args).toContain('git@github.com:owner/projectman.git');
-    expect(variables.sort()).toEqual(['HOME', 'PATH']);
-  });
-
-  it('passes the heavy-run lock directory when the shell has one', () => {
-    const { text, variables } = buildWatcherPlist(watcher({ PROJECTMAN_HEAVY_LOCK_DIR: '/var/heavy' }));
-    expect(variables).toContain('PROJECTMAN_HEAVY_LOCK_DIR');
-    expect(text).toContain('/var/heavy');
-  });
-
-  it('is named after its launcher, which runs node', () => {
-    const program = installedProgramArguments(buildWatcherPlist(watcher()).text);
-    expect(program?.slice(0, 2)).toEqual([
-      '/Users/me/projectman-live/scripts/live/bin/projectman-release-watcher',
-      '/opt/homebrew/bin/node',
-    ]);
-  });
-
-  it('carries no credential of the installing shell', () => {
-    const { text } = buildWatcherPlist(
-      watcher({ GH_TOKEN: 't', ANTHROPIC_API_KEY: 'x', SSH_AUTH_SOCK: '/s' }),
-    );
-    for (const name of ['GH_TOKEN', 'ANTHROPIC_API_KEY', 'SSH_AUTH_SOCK']) expect(text).not.toContain(name);
-  });
-});
-
-describe('the code the switch renames', () => {
-  it('loads everything it needs before the first step: no dynamic import in scripts/live', () => {
-    const directory = path.resolve(__dirname, '../../../scripts/live');
-    const files = readdirSync(directory).filter((name) => name.endsWith('.ts'));
-    expect(files.length).toBeGreaterThan(5);
-    for (const name of files) {
-      expect(statSync(path.join(directory, name)).isFile()).toBe(true);
-      const code = readFileSync(path.join(directory, name), 'utf8')
-        .split('\n')
-        .filter((line) => !line.trim().startsWith('*') && !line.trim().startsWith('//'))
-        .join('\n');
-      expect(code, name).not.toMatch(/\bimport\s*\(/);
-      expect(code, name).not.toMatch(/\brequire\s*\(/);
-    }
   });
 });

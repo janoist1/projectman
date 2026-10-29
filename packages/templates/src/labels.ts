@@ -137,17 +137,23 @@ interface GatedStage {
 
 /**
  * The stages with the acceptance gates: no open acceptance item may come out of the work stage (the first
- * stage after it), and none may be unconfirmed at the end (the done stage). A pipeline without a work stage,
- * or with nothing after it, keeps its stages. A gate that has the condition already is left as it is.
+ * stage after it), and none may be unconfirmed when the work is merged (the merge target: the first release
+ * stage, else the done stage, so the merge readiness reads that gate) or at the end (the done stage). A
+ * pipeline without a work stage, or with nothing after it, keeps its stages. A gate that has the condition
+ * already is left as it is.
  */
 export function withAcceptanceGates<S extends GatedStage>(stages: readonly S[]): S[] {
   const work = stages.findIndex((stage) => stage.kind === 'work');
   const gateOf = new Map<string, string>();
   if (work >= 0 && work + 1 < stages.length) gateOf.set(stages[work + 1]!.id, ACCEPTANCE_OPEN_LABEL);
-  const done = stages.findIndex((stage, index) => index > work && work >= 0 && stage.kind === 'done');
+  const after = (kind: string) =>
+    stages.findIndex((stage, index) => index > work && work >= 0 && stage.kind === kind);
+  const unconfirmed = new Set(
+    [after('release'), after('done')].filter((index) => index >= 0).map((index) => stages[index]!.id),
+  );
   const extra = (id: string): string[] => [
     ...(gateOf.get(id) ? [gateOf.get(id)!] : []),
-    ...(done >= 0 && stages[done]!.id === id ? [ACCEPTANCE_UNCONFIRMED_LABEL] : []),
+    ...(unconfirmed.has(id) ? [ACCEPTANCE_UNCONFIRMED_LABEL] : []),
   ];
   return stages.map((stage) => {
     const missing = extra(stage.id).filter(

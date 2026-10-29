@@ -1,13 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import type { ReleaseImageRef } from '@projectman/shared';
 import { forbiddenEntries } from '../migrate/hybrid-entries';
 import { expandHome } from './config';
 import type { CloudContext } from './context';
 import { CloudError, refused } from './errors';
 import type { HostSession, HostStatus } from './host';
-import { hostStatusSchema, readHostStatus, readUnitFile, withHost } from './host';
+import { readHostStatus, readUnitFile, withHost } from './host';
 import type { StepResult } from './report';
 import { readSecret } from './secrets';
 import { readEc2HostInstance } from './ec2-host';
@@ -136,41 +135,10 @@ function cloudEnvText(context: CloudContext): string {
     if (equals > 0 && /SECRET|PASSWORD|TOKEN/.test(line.slice(0, equals)))
       context.report.protect(line.slice(equals + 1));
   }
-  return withHybridTarget(withReleaseTarget(text, context.config.releaseTarget), context.config.hybrid);
-}
-
-const RELEASE_TARGET_ENV = 'PROJECTMAN_RELEASE_TARGET';
-const RELEASE_ENGINE_ENV = 'PROJECTMAN_RELEASE_ENGINE_ID';
-const RELEASE_TARGET_HASH_ENV = 'PROJECTMAN_RELEASE_TARGET_HASH';
-
-/**
- * The hybrid binding of the release (PM-752): the configured engine and target hash replace any such line of the
- * file, both together. Without one the text is left as it is. The server refuses a lone value at start.
- */
-function withHybridTarget(
-  text: string,
-  hybrid: { engineId: string; targetHash: string } | undefined,
-): string {
-  if (!hybrid) return text;
-  const kept = text
+  return text
     .split('\n')
-    .filter(
-      (line) => !line.startsWith(`${RELEASE_ENGINE_ENV}=`) && !line.startsWith(`${RELEASE_TARGET_HASH_ENV}=`),
-    );
-  const body = kept.join('\n').replace(/\n*$/, '\n');
-  return `${body}${RELEASE_ENGINE_ENV}=${hybrid.engineId}\n${RELEASE_TARGET_HASH_ENV}=${hybrid.targetHash}\n`;
-}
-
-/**
- * The cloud.env the machine gets (PM-749): the configured release target (`releaseTarget` of the
- * configuration, already validated) replaces any `PROJECTMAN_RELEASE_TARGET` line of the file. Without one the
- * text is left as it is, so a board that does not release behaves as before. The local file is not changed.
- */
-function withReleaseTarget(text: string, target: { projectKey: string; repo: string } | undefined): string {
-  if (!target) return text;
-  const kept = text.split('\n').filter((line) => !line.startsWith(`${RELEASE_TARGET_ENV}=`));
-  const body = kept.join('\n').replace(/\n*$/, '\n');
-  return `${body}${RELEASE_TARGET_ENV}=${target.projectKey}/${target.repo}\n`;
+    .filter((line) => !/^PROJECTMAN_RELEASE_(?:TARGET|ENGINE_ID|TARGET_HASH)=/.test(line))
+    .join('\n');
 }
 
 function formatBytes(bytes: number): string {
@@ -244,58 +212,6 @@ async function waitHealthy(
     if (attempt < HEALTH_ATTEMPTS - 1) await deps.sleep(HEALTH_INTERVAL_MS);
   }
   return { healthy: false, status: status! };
-}
-
-// ---- the pieces of the hybrid coordinator (PM-751) ----
-
-/** What `release-probe` answers: the machine's status and three facts about one immutable image. */
-const releaseImageProbeSchema = z.strictObject({
-  status: hostStatusSchema,
-  imagePresent: z.boolean(),
-  imageVerified: z.boolean(),
-  imageLockHeld: z.boolean(),
-  databaseSchemaVersion: z.number().int().nonnegative().nullable(),
-});
-type ReleaseImageProbe = z.output<typeof releaseImageProbeSchema>;
-
-/**
- * Starts an image that is already on the machine and verified there (the coordinator received it earlier).
- * Nothing else happens: no bootstrap, no apt, no cloud.env, no secret. The host's `start` checks the ID, the
- * revision, the version and the platform again. A lost answer is the caller's to reconcile with a probe.
- */
-export async function startPreparedImage(
-  context: CloudContext,
-  host: HostSession,
-  image: ReleaseImageRef,
-): Promise<void> {
-  void context;
-  await host.call('start', [image.commit, image.commit, image.imageId]);
-}
-
-/** Polls until the container of exactly this commit, image ID and platform is healthy, or the time is out. */
-export function waitImageHealthy(
-  context: CloudContext,
-  host: HostSession,
-  image: ReleaseImageRef,
-): Promise<HealthResult> {
-  return waitHealthy(context, host, image.commit, image.imageId, image.platform);
-}
-
-/** One read-only look at the image, the image lock and the schema (`release-probe`); it changes nothing. */
-export async function probeReleaseImage(
-  context: CloudContext,
-  host: HostSession,
-  image: ReleaseImageRef,
-): Promise<ReleaseImageProbe> {
-  void context;
-  const text = await host.call('release-probe', [image.commit, image.imageId, image.platform], {
-    timeoutMs: 120_000,
-  });
-  try {
-    return releaseImageProbeSchema.parse(JSON.parse(text));
-  } catch {
-    throw new CloudError('the machine answered release-probe in an unexpected shape');
-  }
 }
 
 /** The warning that goes with every return to an older image (the migration problem). */

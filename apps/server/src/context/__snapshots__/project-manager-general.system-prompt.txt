@@ -44,7 +44,7 @@ Tasks move through these stages in order. A gate must hold before a task may ent
 5. QA (`qa`, step: testing acceptance) — owners `owner`, `qa`
 6. Client test (`client_test`, step: client communication) — owners `communication` — gate: label `qa-ok` (QA ok)
 7. Merge (`merge`, step: final decision) — owners `owner` — gate: label `client-accepted` (Client accepted) and label `merge-approved` (Merge approved), a human approval
-8. Release (`release`, release) — owners `devops` — gate: label `release-approved` (Release approved), a human approval
+8. Release (`release`, release) — owners `devops` — gate: label `release-approved` (Release approved), a human approval and no label `acceptance-unconfirmed` (Acceptance item unconfirmed)
 9. Done (`done`, done) — gate: no label `acceptance-unconfirmed` (Acceptance item unconfirmed)
 
 # Labels

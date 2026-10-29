@@ -2,6 +2,8 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync }
 import os from 'node:os';
 import path from 'node:path';
 import { EngineConfigError } from '../../apps/server/src/engine-link/engine-config';
+import { ENGINE_PACKAGE_FILE, readEnginePackage } from '../../apps/server/src/engine-link/engine-package';
+import { engineStartCommand } from './start-command';
 
 /**
  * The engine as a macOS LaunchAgent (PM-318, `npm run engine -- service install|uninstall|status`). It
@@ -24,12 +26,14 @@ export interface LaunchctlResult {
 export interface ServiceOptions {
   /** The engine's home (`PROJECTMAN_HOME`); its `logs/` takes the service's output. */
   home: string;
-  /** The checkout the engine runs from (the repository root). */
+  /** The checkout or extracted package the engine runs from. */
   root: string;
   /** The absolute path of `node` (`process.execPath` at install time). */
   nodePath: string;
   /** The `PATH` the sessions' CLIs are found on (the installing shell's, written at install time). */
   pathEnv: string;
+  /** A switch carries the installed PATH unchanged, including any deliberate local customization. */
+  preservePathEnv?: boolean;
   /** `~/Library/LaunchAgents`. */
   agentsDir: string;
   /** The numeric user id: the domain is `gui/<uid>`. */
@@ -122,9 +126,12 @@ export function servicePaths(options: Pick<ServiceOptions, 'home' | 'agentsDir'>
 
 const domainTarget = (uid: number) => `gui/${uid}/${SERVICE_LABEL}`;
 
-/** The `PROJECTMAN_HOME` an installed plist names, or null. */
-function installedHome(plist: string): string | null {
-  const match = /<key>PROJECTMAN_HOME<\/key>\s*<string>([^<]*)<\/string>/.exec(plist);
+/** A string setting in the installed XML plist, with the template's entities decoded. */
+export function plistString(
+  plist: string,
+  key: 'PROJECTMAN_HOME' | 'WorkingDirectory' | 'PATH',
+): string | null {
+  const match = new RegExp(`<key>${key}</key>\\s*<string>([^<]*)</string>`).exec(plist);
   return match
     ? match[1]!
         .replace(/&quot;/g, '"')
@@ -132,6 +139,19 @@ function installedHome(plist: string): string | null {
         .replace(/&gt;/g, '>')
         .replace(/&amp;/g, '&')
     : null;
+}
+
+const installedHome = (plist: string) => plistString(plist, 'PROJECTMAN_HOME');
+
+export function serviceInstallation(plist: string) {
+  const root = plistString(plist, 'WorkingDirectory');
+  const manager =
+    root && existsSync(path.join(root, ENGINE_PACKAGE_FILE)) ? ('app' as const) : ('checkout' as const);
+  const manifest = root ? readEnginePackage(root) : null;
+  return {
+    manager,
+    package: manifest && root ? { version: manifest.version, tag: manifest.tag, root } : null,
+  };
 }
 
 /**
@@ -164,12 +184,18 @@ export async function installService(options: ServiceOptions): Promise<void> {
   requireMac(options);
   if (!path.isAbsolute(options.nodePath) || !path.isAbsolute(options.root) || !path.isAbsolute(options.home))
     throw new EngineConfigError('service_paths', 'The node, repository and home paths must be absolute.');
-  const pathEnv = servicePathEnv(options.pathEnv);
+  const pathEnv = options.preservePathEnv ? options.pathEnv : servicePathEnv(options.pathEnv);
   if (!pathEnv)
     throw new EngineConfigError('service_path_env', 'PATH is empty: the sessions could not find their CLIs.');
   const templateFile = path.join(options.root, PLIST_TEMPLATE);
   if (!existsSync(templateFile))
     throw new EngineConfigError('service_template', `The plist template ${templateFile} does not exist.`);
+  const bundle = path.join(options.root, 'apps/server/dist/index.js');
+  if (!existsSync(bundle))
+    throw new EngineConfigError(
+      'service_build_missing',
+      'The engine has no built server: run npm run build -w @projectman/server before installing the service.',
+    );
   const paths = servicePaths(options);
   if (existsSync(paths.plist)) {
     const other = installedHome(readFileSync(paths.plist, 'utf8'));
@@ -185,7 +211,7 @@ export async function installService(options: ServiceOptions): Promise<void> {
     paths.plist,
     renderPlist(readFileSync(templateFile, 'utf8'), {
       label: SERVICE_LABEL,
-      node: options.nodePath,
+      node: engineStartCommand(options.root, options.nodePath).command,
       root: options.root,
       path: pathEnv,
       home: options.home,

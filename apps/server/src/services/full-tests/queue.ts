@@ -1,8 +1,6 @@
 import { Cause, Data, Effect, Exit, Fiber, FiberHandle, FiberMap } from 'effect';
 import type { Scope } from 'effect';
 import type { FastifyBaseLogger } from 'fastify';
-import { OPEN_RELEASE_WORK_ADMISSION } from '../../contracts';
-import type { ReleaseWorkAdmission } from '../../contracts';
 import type { FullTestRunRecord } from '../../db';
 import { abortable } from '../../kernel';
 
@@ -11,8 +9,6 @@ interface FullTestQueueDeps {
   next(): FullTestRunRecord | undefined;
   step(run: FullTestRunRecord, signal: AbortSignal): Promise<void>;
   logger: Pick<FastifyBaseLogger, 'warn'>;
-  /** The release gate (PM-752): a run starts only with a permit; absent: never held. */
-  work?: ReleaseWorkAdmission;
 }
 
 export interface FullTestQueueEffects {
@@ -35,9 +31,6 @@ export const makeFullTestQueue = (
       for (;;) {
         const run = deps.next();
         if (!run) return;
-        // A hybrid release's maintenance fence (PM-752): the queued run waits until the fence is down.
-        const permit = (deps.work ?? OPEN_RELEASE_WORK_ADMISSION).tryAcquire('full_test', run.id);
-        if (!permit) return;
         const fiber = yield* FiberMap.run(
           steps,
           run.id,
@@ -46,7 +39,7 @@ export const makeFullTestQueue = (
             (cause) => new FullTestStepFailed({ cause }),
           ).pipe(Effect.orDie),
         );
-        const exit = yield* Fiber.await(fiber).pipe(Effect.ensuring(Effect.sync(() => permit.release())));
+        const exit = yield* Fiber.await(fiber);
         if (Exit.isFailure(exit) && !Cause.hasInterruptsOnly(exit.cause))
           deps.logger.warn({ err: Cause.squash(exit.cause) }, 'the full test queue failed');
       }

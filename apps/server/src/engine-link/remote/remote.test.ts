@@ -1240,17 +1240,6 @@ describe('cloud mode remote parts', () => {
       expect(asked(b, 'workspace.home')).toHaveLength(1);
     });
 
-    it('sends the machine and administration calls only to the host owner’s engine', async () => {
-      await remote.hub.call(A as never, 'machine.processes', {});
-      await expect(remote.hub.call(B as never, 'machine.processes', {})).rejects.toMatchObject({
-        code: 'engine_not_host',
-      });
-      await expect(remote.hub.call(B as never, 'admin.status', {} as never)).rejects.toMatchObject({
-        code: 'engine_not_host',
-      });
-      expect(b.requests).toEqual([]);
-    });
-
     it('does not give the cloud’s NanoGPT key to another owner’s engine, and a NanoGPT start there waits for its own key (PM-1068)', async () => {
       await expect(b.call('secret.nanogpt_key', { sessionId: 's1' })).rejects.toMatchObject({
         linkCode: 'secret_not_allowed',

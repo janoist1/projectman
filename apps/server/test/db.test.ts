@@ -30,8 +30,8 @@ describe('legacy task check migration', () => {
     db.exec('ALTER TABLE projects ADD COLUMN created_by TEXT');
     // And for migration 122 (PM-1064): the handle rename prepares an update of its table.
     db.exec('CREATE TABLE host_requests (opened_by TEXT, project_key TEXT)');
-    // And for migration 129 (PM-1135): the acceptance repository prepares its statements.
-    db.exec(migrations.find((item) => item.version === 129)!.sql);
+    // And for migration 130 (PM-1135): the acceptance repository prepares its statements.
+    db.exec(migrations.find((item) => item.version === 130)!.sql);
     const repos = createRepositories(db);
     repos.projects.insert({
       key: 'AR',

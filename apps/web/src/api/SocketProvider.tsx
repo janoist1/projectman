@@ -41,8 +41,6 @@ export function SocketProvider({
       void queryClient.invalidateQueries({ queryKey: ['project'] });
       void queryClient.invalidateQueries({ queryKey: ['engines'] });
       void queryClient.invalidateQueries({ queryKey: ['integrator-keys'] });
-      void queryClient.invalidateQueries({ queryKey: queryKeys.operatorGrant });
-      void queryClient.invalidateQueries({ queryKey: queryKeys.operatorGrantAudit });
     });
     // Whether this tab is on screen goes to the server on connect and on every change (PM-815).
     // A hidden tab's timers run late, so a connection that died meanwhile is dropped as the tab comes back.

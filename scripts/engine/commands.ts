@@ -32,6 +32,7 @@ import type { ServiceOptions } from './service';
 import { buildSnapshot } from './snapshot';
 import { installMenubar, uninstallMenubar } from './menubar';
 import type { MenubarMachine } from './menubar';
+import { assertNotSwitching, switchService } from './service-switch';
 
 /**
  * The commands of `npm run engine -- …` (PM-314). Kept apart from `cli.ts` so that tests drive them with
@@ -75,6 +76,8 @@ const USAGE = `usage:
   npm run engine -- keep-awake on|off   (keep the Mac awake while work runs; takes effect when the engine restarts)
   npm run engine -- start
   npm run engine -- service install|uninstall|status|start|stop|restart   (macOS LaunchAgent: the engine starts at login and restarts)
+  npm run engine -- service install [--path <PATH>]
+  npm run engine -- service switch [--to <package-root> | --clear]
   npm run engine -- move-work-root <absolute path>   (the engine is stopped; copies worktrees/ and workspaces/ to the work volume)
   (all:[--home <dir>]; the home is PROJECTMAN_HOME or ~/.projectman)`;
 
@@ -83,8 +86,18 @@ interface Parsed {
   flags: Map<string, string>;
 }
 
-const BOOLEAN_FLAGS = new Set(['force', 'json']);
-const VALUE_FLAGS = new Set(['cloud', 'id', 'name', 'home', 'full-test', 'link-headers-file', 'lines']);
+const BOOLEAN_FLAGS = new Set(['force', 'json', 'clear']);
+const VALUE_FLAGS = new Set([
+  'cloud',
+  'id',
+  'name',
+  'home',
+  'full-test',
+  'link-headers-file',
+  'lines',
+  'path',
+  'to',
+]);
 
 function parse(argv: string[]): Parsed {
   const positional: string[] = [];
@@ -392,19 +405,36 @@ export async function runEngineCli(argv: string[], io: EngineCliIo): Promise<num
       case 'service': {
         if (
           rest.length > 0 ||
-          !['install', 'uninstall', 'status', 'start', 'stop', 'restart'].includes(sub ?? '')
+          !['install', 'uninstall', 'status', 'start', 'stop', 'restart', 'switch'].includes(sub ?? '')
         )
-          throw new UsageError('service install, uninstall, status, start, stop or restart');
+          throw new UsageError('service install, uninstall, status, start, stop, restart or switch');
         const launchd = io.launchd;
         if (!launchd)
           throw new EngineConfigError('service_unsupported', 'The engine service is not available here.');
         const options = {
           ...launchd,
           home,
-          pathEnv: io.env.PATH ?? '',
+          pathEnv: flags.get('path') ?? io.env.PATH ?? '',
           out: io.out,
           isRunning: io.isRunning,
         };
+        if (
+          (flags.has('path') && sub !== 'install') ||
+          ((flags.has('to') || flags.has('clear')) && sub !== 'switch') ||
+          (flags.has('to') && flags.has('clear'))
+        )
+          throw new UsageError('--path is for install; --to or --clear is for switch');
+        if (sub === 'switch') {
+          await switchService(
+            { ...options, now: io.now },
+            {
+              ...(flags.has('to') ? { to: path.resolve(io.cwd, flags.get('to')!) } : {}),
+              clear: flags.has('clear'),
+            },
+          );
+          return 0;
+        }
+        if (sub !== 'status') assertNotSwitching(home);
         if (sub === 'install') {
           // The same preflight as "start": a service that would only crash and restart is not installed.
           const resolved = resolveEngineConfig(loadEngineConfig(home), home, resolveOptions);

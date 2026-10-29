@@ -10,7 +10,6 @@ import {
   EmailChannelView,
   EmailContact,
   EmailLogResponse,
-  OperatorGrantAuditPage,
   PushDeviceView,
   PushOverview,
   PushSettings,
@@ -26,7 +25,6 @@ import {
   OperatorKnowledgeDocument,
   OperatorPreferenceDocument,
   OperatorApprovalWaiverResponse,
-  OperatorGrantResponse,
   MemberQueueView,
   EmailLoginCodeRequested,
   CreateEngineResponse,
@@ -86,7 +84,6 @@ import type {
   AnswerHostRequestRequest,
   SetChecklistItemStateRequest,
   CreateIntegratorAccessKeyRequest,
-  OperatorGrantDuration,
   OperatorApprovalWaiverRequest,
   CloseFeedbackRequest,
   CreateTaskFromFeedbackRequest,
@@ -147,12 +144,7 @@ export const api = {
       schema: ProjectChecklistView,
     }),
   serverVersion: () => apiRequest(routes.serverVersion(), { schema: ServerVersionView }),
-  operatorGrantAudit: () => apiRequest(routes.operatorGrantAudit(), { schema: OperatorGrantAuditPage }),
-  createOperatorGrant: (duration: OperatorGrantDuration) =>
-    apiRequest(routes.operatorGrant(), { method: 'POST', body: { duration }, schema: OperatorGrantResponse }),
-  revokeOperatorGrant: () =>
-    apiRequest(routes.operatorGrant(), { method: 'DELETE', schema: OperatorGrantResponse }),
-  /** Web push (PM-815): the signed-in person's own devices and settings. */
+
   push: () => apiRequest(routes.push(), { schema: PushOverview }),
   savePushSettings: (body: PushSettings) =>
     apiRequest(routes.pushSettings(), { method: 'PUT', body, schema: PushSettings }),
@@ -394,7 +386,6 @@ export const api = {
       schema: MemberQueueView,
     }),
   /** The owner's grant of machine operations to the Operator, as the viewer may see it (PM-881). */
-  operatorGrant: () => apiRequest(routes.operatorGrant(), { schema: OperatorGrantResponse }),
   operatorKnowledge: (key: string) =>
     apiRequest(routes.operatorKnowledge(key), { schema: OperatorKnowledgeDocument }),
   operatorPreferenceMe: (key: string) =>

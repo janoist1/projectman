@@ -20,7 +20,6 @@ import {
   runStop,
 } from './machine';
 import { Report } from './report';
-import { runReleaseControl } from './release-control';
 import { runImageBuild, selectedImage } from './images';
 import { ENV_FILE_NAME, secretsDir } from './secrets';
 import { runSesCheck, runSesConfigure, runSesPlan, runSesRequestProduction } from './ses';
@@ -59,7 +58,6 @@ commands:
   ses receive-configure [--dry-run]  set up receiving: reply domain, MX, receipt rule, SNS, SQS, sender policy, cloud.env
   ses receive-check                  verify the receiving setup without sending mail
   up [--login-json <file>] [--dry-run] run preflight, aws, edge, deploy, publish, then check with a login file
-  release-control                    relay one control request (one JSON line on stdin) to the board's local control
                                      socket; the response is the only line on stdout (docs/AWS.md "Release control")
 options:
   --config <file>                    the configuration (default ~/.config/projectman/cloud/config.json)
@@ -129,11 +127,6 @@ async function preflight(context: CloudContext): Promise<void> {
 
 /** The command table: a later card adds a row and its module. */
 export const COMMANDS: Record<string, CommandSpec> = {
-  'release-control': {
-    summary: 'relay one control request to the board',
-    flags: [],
-    run: (context) => runReleaseControl(context),
-  },
   'image-build': {
     summary: 'build the image bundle',
     flags: ['dry-run'],
@@ -325,16 +318,17 @@ export async function runCloud(argv: readonly string[], deps: CloudDeps): Promis
     deps.out(USAGE.trimEnd());
     return 0;
   }
-  // `release-control` owns the standard output (one JSON response line): its report goes to the standard error.
-  let reportToStderr = false;
-  const report = new Report((line) => (reportToStderr ? deps.err(line) : deps.out(line)));
+  const report = new Report((line) => deps.out(line));
   try {
     const parsed = parse(argv);
-    reportToStderr = parsed.command === 'release-control';
     const configFile = parsed.config
       ? path.resolve(expandHome(parsed.config, deps.homeDir))
       : defaultConfigPath(deps.homeDir);
     const config = loadConfig(configFile, deps.homeDir);
+    if (config.releaseTarget !== undefined || config.hybrid !== undefined)
+      report.line(
+        'warning: releaseTarget and hybrid are retired and ignored; use cloud deploy and publish_release.',
+      );
     const dir = secretsDir(deps.homeDir);
     const context: CloudContext = {
       deps,

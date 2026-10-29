@@ -925,7 +925,7 @@ describe('context pack snapshots', () => {
       }),
     );
     // 11,000 B before the acceptance items' two labels and gates (PM-1135).
-    expect(Buffer.byteLength(`${pack.appendSystemPrompt}\n`)).toBeLessThanOrEqual(11_250);
+    expect(Buffer.byteLength(`${pack.appendSystemPrompt}\n`)).toBeLessThanOrEqual(11_300);
     await expect(`${pack.appendSystemPrompt}\n`).toMatchFileSnapshot(
       '__snapshots__/developer-dev.system-prompt.txt',
     );

@@ -163,7 +163,7 @@ export function SettingsPage() {
     location.hash === '#settings-problems' ? 'pipeline' : location.hash.replace(/^#settings-/, '');
   // An owner account holds no operator grant (that is the host's): its integrator section is its own client's key.
   const sectionLabel = (id: SettingsSectionId) =>
-    id === 'integrator' && me.hostOwner !== true ? t('operatorGrant.clientTitle') : t(`settings.nav.${id}`);
+    id === 'integrator' ? t('integratorKey.title') : t(`settings.nav.${id}`);
   useDocumentTitle(
     section ? sectionLabel(section) : null,
     t('settings.title'),

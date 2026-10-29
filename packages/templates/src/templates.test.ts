@@ -319,7 +319,7 @@ describe('web-client-project', () => {
         'release',
         'release',
         ['devops'],
-        [{ type: 'has_label', label: 'release-approved' }],
+        [{ type: 'has_label', label: 'release-approved' }, UNCONFIRMED_ITEMS],
         'awaiting_release',
       ],
       ['done', 'done', [], [UNCONFIRMED_ITEMS], 'done'],

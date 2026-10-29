@@ -1998,7 +1998,7 @@ workers follow the machine's size.
   by `apps/server/test/engine-menubar.test.ts`. **Module:** `deploy`, `scripts`.
 
 - **Engine app package (PM-1104, PM-1121)** — `scripts/engine-app/` (`npm run engine-app -- package
-  --commit <sha> --out <dir>`), `deploy/mac/app/node.json` (the pinned Node), the manifest contract
+--commit <sha> --out <dir>`), `deploy/mac/app/node.json` (the pinned Node), the manifest contract
   `apps/server/src/contracts/engine-package.ts`, its reader `engine-link/engine-package.ts`. One command builds a
   self-contained engine from one commit into `<dir>/<sha>/`: a clean checkout (`scripts/release/checkout.ts`), the
   pinned Node downloaded from nodejs.org and checked by its sha256, then `npm ci`, the server build, the engine
@@ -3733,7 +3733,9 @@ assumption or remote-engine RPC.
   A read-only Codex or NanoGPT sandbox names the folder in `PROJECTMAN_SESSION_DIR`, reads it and
   opens its images with `view_image`, but does not write it. **Remote engine:** `folders.make` and
   `files.materialize_into_session` do not depend on the provider; an older engine's Codex adapter
-  lacks the read-only `view_image` and the Gemini environment. A Codex session also gets its
+  lacks the read-only `view_image` and the Gemini environment. The server removes the folder on the
+  engine the session ran on (`Session.engineId`), not on every engine; a row without an engine asks
+  all of them (PM-1128). A Codex session also gets its
   own short temporary directory, `<realpath('/tmp')>/projectman-<uid>-tmp/<home hash>/<12 random hex>`
   (`defaultSessionTmpRoot`, `SessionFolders.allocateTmp`/`make`), its `TMPDIR` and a writable root,
   removed and swept with the folder; without a safe tmp root Codex gets no folder. The root is 0700

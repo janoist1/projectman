@@ -2016,6 +2016,25 @@ workers follow the machine's size.
   hello). Not in the package: the menu bar app's Swift sources and the plist template of the packaged service
   (PM-1124). **Module:** `scripts`, `deploy`, `contracts`, `engine-link`.
 
+- **Engine app release build (PM-1104, PM-1122)** — `scripts/engine-app/build.ts`,
+  `manifest.ts`, `deploy/mac/app/{Info.plist,node.entitlements}`. `npm run engine-app -- build`
+  assembles the PM-1121 package and the release Swift executable into `projectman motor.app`
+  (`com.projectman.engine-app`, distinct from the PM-1088 app). It signs every embedded Mach-O
+  before the bundle, with hardened runtime and Node JIT entitlements, notarizes and staples
+  the app, then produces `projectman-motor.zip`, a signed/notarized/stapled
+  `projectman-motor.dmg` (app plus Applications link), and the hashed `projectman-motor.json`.
+  The manifest schema also validates the fixture consumed by future Swift updater tests.
+  The CLI takes the machine's heavy-run queue. All scratch/cache files, tool temporary files
+  and diagnostics stay under `--out`; existing nonempty output is refused.
+  **Machine assumptions:** release Mac, full Xcode, arm64 target, macOS 13+ runtime,
+  `swift`, `ditto`, `codesign`, `xcrun notarytool/stapler`, `hdiutil`, `spctl`, a Developer ID
+  identity and a notary profile in the release user's keychain. Only their names and the public
+  Team ID are arguments. `--ad-hoc` skips notarization, DMG signing and Gatekeeper assessment;
+  its empty Team ID disables app updates. **Remote engine:** this build runs only on the
+  release machine; the resulting app/package runs on the engine Mac. Nothing new crosses the
+  server/engine boundary. Real signing/notarization is checked at the owner's first release
+  (PM-1123); automated checks use a fake process runner. **Module:** `scripts`, `deploy`.
+
 - **Interrupted card continuation (PM-1092)** — `runtime/sessions/sessions.ts` closes lost live
   sessions with `server_restart` during startup or engine reconciliation; the internal `session_ended`
   event carries the previous state: only `starting`, `working` and `waiting_permission` turns continue;

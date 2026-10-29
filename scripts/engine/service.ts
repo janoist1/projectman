@@ -37,8 +37,8 @@ export interface ServiceOptions {
   launchctl: (args: string[]) => LaunchctlResult;
   platform: NodeJS.Platform;
   out: (text: string) => void;
-  /** Waits between the retries of `bootstrap` (default: a blocking wait; tests pass a no-op). */
-  sleep?: (ms: number) => void;
+  /** Waits between the retries of `bootstrap` and the polls for an exiting engine (default: a timer; tests pass a no-op). */
+  sleep?: (ms: number) => Promise<void>;
   /** Whether a process is alive; `stop` waits for the engine's pid with it (default: `kill(pid, 0)`). */
   isRunning?: (pid: number) => boolean;
   /** How many times `bootstrap` is tried while launchd still tears the old job down (default 5; PM-751 waits longer). */
@@ -50,9 +50,7 @@ const BOOTSTRAP_BUSY = 5;
 const BOOTSTRAP_TRIES = 5;
 const BOOTSTRAP_WAIT_MS = 500;
 
-const blockingSleep = (ms: number): void => {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-};
+const timerSleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 const processAlive = (pid: number): boolean => {
   try {
@@ -157,8 +155,12 @@ function requireMac(options: ServiceOptions): void {
     );
 }
 
-/** Writes the LaunchAgent and loads it; an installed one for the same home is replaced. */
-export function installService(options: ServiceOptions): void {
+/**
+ * Writes the LaunchAgent and loads it; an installed one for the same home is replaced. The old engine is
+ * waited for between the unload and the load: it pauses its sessions first (`ExitTimeOut`), and a job loaded
+ * meanwhile would start a second engine on the same home or give up on launchd's busy answer.
+ */
+export async function installService(options: ServiceOptions): Promise<void> {
   requireMac(options);
   if (!path.isAbsolute(options.nodePath) || !path.isAbsolute(options.root) || !path.isAbsolute(options.home))
     throw new EngineConfigError('service_paths', 'The node, repository and home paths must be absolute.');
@@ -194,18 +196,25 @@ export function installService(options: ServiceOptions): void {
   );
   chmodSync(paths.plist, 0o644);
   // A loaded job is unloaded first, so that the new file is the one launchd reads (the result is not an error).
+  // launchd forgets the job at the bootout, so the engine to wait for is the pid read before it.
+  const { pid } = serviceState(options);
   options.launchctl(['bootout', domainTarget(options.uid)]);
-  bootstrapJob(options, paths.plist);
+  await waitForExit(options, pid);
+  await bootstrapJob(options, paths.plist);
   options.out(`engine service installed: ${paths.plist}`);
   options.out(`it starts now and at every login; logs: ${paths.logOut}, ${paths.logErr}`);
 }
 
 /** Loads the job; launchd's "busy" answer is retried while it still tears the old job down. */
-export function bootstrapJob(options: ServiceOptions, plist: string, errorCode = 'service_bootstrap'): void {
+export async function bootstrapJob(
+  options: ServiceOptions,
+  plist: string,
+  errorCode = 'service_bootstrap',
+): Promise<void> {
   let loaded = options.launchctl(['bootstrap', `gui/${options.uid}`, plist]);
   const tryLimit = options.bootstrapTries ?? BOOTSTRAP_TRIES;
   for (let tries = 1; loaded.status === BOOTSTRAP_BUSY && tries < tryLimit; tries += 1) {
-    (options.sleep ?? blockingSleep)(BOOTSTRAP_WAIT_MS);
+    await (options.sleep ?? timerSleep)(BOOTSTRAP_WAIT_MS);
     loaded = options.launchctl(['bootstrap', `gui/${options.uid}`, plist]);
   }
   if (loaded.status !== 0)
@@ -240,7 +249,7 @@ function requireInstalled(options: ServiceOptions): string {
 }
 
 /** Starts the installed agent: loads it when launchd does not know it, kicks it when it is loaded but idle. */
-export function startService(options: ServiceOptions): void {
+export async function startService(options: ServiceOptions): Promise<void> {
   const plist = requireInstalled(options);
   const state = serviceState(options);
   if (state.running) {
@@ -248,7 +257,7 @@ export function startService(options: ServiceOptions): void {
     return;
   }
   if (state.loaded) kickstart(options, false);
-  else bootstrapJob(options, plist);
+  else await bootstrapJob(options, plist);
   options.out('engine service started');
 }
 
@@ -256,10 +265,10 @@ export function startService(options: ServiceOptions): void {
  * Restarts the engine: `kickstart -k` kills the running process (the engine pauses its sessions first, which
  * the plist's `ExitTimeOut` leaves time for) and starts it again; an agent launchd does not know is started.
  */
-export function restartService(options: ServiceOptions): void {
+export async function restartService(options: ServiceOptions): Promise<void> {
   const plist = requireInstalled(options);
   if (!serviceState(options).loaded) {
-    bootstrapJob(options, plist);
+    await bootstrapJob(options, plist);
     options.out('engine service started');
     return;
   }
@@ -280,12 +289,26 @@ function kickstart(options: ServiceOptions, kill: boolean): void {
 const STOP_WAIT_MS = 100_000;
 const STOP_POLL_MS = 1000;
 
+/** Waits until the engine process `pid` (read before the unload; null: none) has left; it throws after `STOP_WAIT_MS`. */
+async function waitForExit(options: ServiceOptions, pid: number | null): Promise<void> {
+  const sleep = options.sleep ?? timerSleep;
+  const alive = options.isRunning ?? processAlive;
+  for (let waited = 0; pid !== null && alive(pid); waited += STOP_POLL_MS) {
+    if (waited >= STOP_WAIT_MS)
+      throw new EngineConfigError(
+        'service_stop_timeout',
+        `The engine did not leave within ${STOP_WAIT_MS / 1000} s.`,
+      );
+    await sleep(STOP_POLL_MS);
+  }
+}
+
 /**
  * Unloads the agent and waits until the engine process has left. launchd forgets the job at once at `bootout`,
  * so the wait is on the pid read before it, not on the job. The file stays, so the engine starts again at the
  * next login (`RunAtLoad`); `service uninstall` removes it.
  */
-export function stopService(options: ServiceOptions): void {
+export async function stopService(options: ServiceOptions): Promise<void> {
   requireMac(options);
   refuseOtherHome(options, servicePaths(options).plist);
   const { pid } = serviceState(options);
@@ -296,16 +319,7 @@ export function stopService(options: ServiceOptions): void {
       'service_bootout',
       `launchctl bootout failed (${unloaded.status}): ${(unloaded.stderr || unloaded.stdout).trim() || 'no output'}`,
     );
-  const sleep = options.sleep ?? blockingSleep;
-  const alive = options.isRunning ?? processAlive;
-  for (let waited = 0; pid !== null && alive(pid); waited += STOP_POLL_MS) {
-    if (waited >= STOP_WAIT_MS)
-      throw new EngineConfigError(
-        'service_stop_timeout',
-        `The engine did not leave within ${STOP_WAIT_MS / 1000} s.`,
-      );
-    sleep(STOP_POLL_MS);
-  }
+  await waitForExit(options, pid);
   options.out('engine service stopped; the running sessions were paused and continue when it starts again');
   options.out('the file stays: the engine starts again at the next login, or with "service start"');
 }

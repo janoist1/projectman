@@ -35,7 +35,7 @@ import type { ProjectService } from '../../core/projects';
 import type { TaskService } from '../../core/tasks';
 import type { TimelineService } from '../../core/timeline';
 import { aiActor, KeyedMutex, newId, SYSTEM_ACTOR } from '../../kernel';
-import { landedCards, landedCommit, landedMerges, resolveLandedCommit } from './landed-cards';
+import { landedBetween, landedCards, landedCommit, landedMerges, resolveLandedCommit } from './landed-cards';
 
 /** The project and repository that are the instance itself (`PROJECTMAN_RELEASE_TARGET`, `<project key>/<repository>`). */
 export interface ReleaseTarget {
@@ -237,8 +237,7 @@ export class ReleaseService {
       const id = this.landed(row);
       return id ? [{ taskKey: row.taskKey, commit: id, at: row.finishedAt ?? row.updatedAt }] : [];
     });
-    const at = landed.findLastIndex((entry) => entry.commit === base);
-    const left = at < 0 ? [] : landed.slice(at + 1);
+    const left = landedBetween(landed, base) ?? [];
     if (left.length === 0) return null;
     return {
       base,

@@ -177,7 +177,7 @@ describe('the engine port (PM-751)', () => {
       expect(text).toContain('<string>/opt/homebrew/bin/node</string>');
       expect(text).toContain('<string>/opt/homebrew/bin:/usr/bin</string>');
       expect(text).toContain(`<string>${engineHome}</string>`);
-      expect(syncCalls.map((call) => call[0])).toEqual(['bootout', 'bootstrap']);
+      expect(syncCalls.map((call) => call[0])).toEqual(['print', 'bootout', 'bootstrap']);
     });
 
     it('waits through the busy bootstrap of a job that is still torn down', async () => {

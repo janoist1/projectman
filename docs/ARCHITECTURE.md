@@ -755,7 +755,8 @@ The longest matching path wins; each declared path must exist and appear only on
 [dependencies.test.ts](../apps/server/test/architecture/dependencies.test.ts)
 enforces the layer rules against all production TypeScript source files.
 There are no dependency exceptions; new ones must not be added. Every module below
-the assembly layer is sealed: cross-module imports use its target `index.ts`.
+the assembly layer is sealed: cross-module imports use its target `index.ts` or an entry the
+module map declares (`kernel/pure.ts`, PM-1130).
 The guard test asserts both the empty exception list and complete sealing.
 
 The sealed modules are `contracts`, `db`, `config`, `logging`, `instance`, `kernel`,
@@ -1961,9 +1962,12 @@ workers follow the machine's size.
   and passes only PATH, HOME and a temporary directory to node. Polls are serialized (15 s only
   while the menu or the details window is open, 60 s otherwise even if sessions run, and a poll runs
   on every menu open; 2 s while awaiting an action's target, up to 120 s). Each poll starts a node
-  process, so `status` and `logs` stay cheap: `move-work-root` loads lazily, and the
-  `engine-config` import of the whole kernel barrel (`effect` included) remains the main cost
-  (PM-1110).
+  process, so `status` and `logs` stay cheap: `move-work-root` loads lazily, and the CLI imports
+  the kernel only through its light entry `kernel/pure.ts` (Node built-ins only), never the barrel
+  that loads `effect` (PM-1130). The bundled CLI (`scripts/engine/cli.js`, the path an app-managed
+  engine runs) takes about 0.17 s CPU per `status --json` instead of 0.29 s; a checkout engine
+  running through tsx still pays its transform cost. `lazy-packages.test.ts` pins the eagerly
+  loaded packages of the CLI bundle to `@projectman/shared`, `execa` and `zod`.
   **Remote engine:** the app and CLI both run on the engine's Mac; nothing crosses the
   server/engine boundary. Linux and Windows are unsupported. Existing inventory entry:
   “Engine service (launchd)” (its plist is read, not changed by the menu app).

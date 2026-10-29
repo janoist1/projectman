@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { hasMachineAccess, machineAccessOf, machineTodoIssuerAllowed } from './machine-access';
+import {
+  hasMachineAccess,
+  machineAccessOf,
+  machineTodoIssuerAllowed,
+  machineTodoIssuerOf,
+} from './machine-access';
 import { memberOf } from './lookup';
 import { PROJECT_MANAGER_ROLE } from './project-manager';
 import { ProjectConfig } from './schema';
@@ -74,5 +79,15 @@ describe('machineTodoIssuerAllowed', () => {
   it('does not lend the system standing to a member named system', () => {
     const named = configWith([ai('system')]);
     expect(machineTodoIssuerAllowed(named, 'system')).toBe(false);
+  });
+});
+
+describe('machineTodoIssuerOf', () => {
+  it.each([
+    ['dev', 'pm', 'pm'],
+    ['dev', undefined, 'dev'],
+    ['dev', 'system', 'dev'],
+  ])('takes %s screened by %s as issuer %s', (source, screenedBy, expected) => {
+    expect(machineTodoIssuerOf(source, screenedBy)).toBe(expected);
   });
 });

@@ -391,6 +391,14 @@ export const en: TemplateLocale = {
       name: 'PR merged',
       meaning: "The task's pull request is merged; set automatically from GitHub.",
     },
+    'acceptance-open': {
+      name: 'Acceptance item open',
+      meaning: 'The task still has an open acceptance item; managed by the system.',
+    },
+    'acceptance-unconfirmed': {
+      name: 'Acceptance item unconfirmed',
+      meaning: 'The task has an acceptance item that is open or not yet confirmed; managed by the system.',
+    },
     'merge-approved': {
       name: 'Merge approved',
       meaning: 'An authorized human approved the merge. Only humans may set it.',

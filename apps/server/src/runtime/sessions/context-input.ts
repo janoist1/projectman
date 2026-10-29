@@ -126,7 +126,8 @@ export class SessionContextInput {
       : [];
     const relations = task ? this.deps.tasks.relationsOf(projectKey, task.key) : [];
     const themeCard = task?.themeKey ? this.deps.tasks.find(projectKey, task.themeKey) : null;
-    return { cardWorkers, cardQuestions, relations, themeCard };
+    const acceptance = task ? this.ctx.repos.taskAcceptance.list(task.id) : [];
+    return { cardWorkers, cardQuestions, relations, themeCard, acceptance };
   }
 
   async build(
@@ -142,7 +143,7 @@ export class SessionContextInput {
   ): Promise<ContextPackInput> {
     const projectKey = config.project.key;
     const { stage, memory, attachments, parentAttachments, relatedSessions } = prepared;
-    const { cardWorkers, cardQuestions, relations, themeCard } = standing;
+    const { cardWorkers, cardQuestions, relations, themeCard, acceptance } = standing;
     const operatorKnowledge = await this.deps.operatorKnowledge
       .forConversation(projectKey, member.handle, workItem, cause)
       .catch((err: unknown) => {
@@ -193,6 +194,7 @@ export class SessionContextInput {
       ...(cardWorkers.length > 0 ? { cardWorkers } : {}),
       ...(cardQuestions.length > 0 ? { cardQuestions } : {}),
       ...(relations.length > 0 ? { relations } : {}),
+      ...(acceptance.length > 0 ? { acceptance } : {}),
       ...(themeCard
         ? {
             theme: {

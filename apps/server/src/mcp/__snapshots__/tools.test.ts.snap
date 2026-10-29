@@ -329,6 +329,16 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,
       "properties": {
+        "acceptance": {
+          "description": "The acceptance conditions of the card, one per item: each checkable on its own, so the assignee can mark it done with evidence and the reviewer confirm it.",
+          "items": {
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string",
+          },
+          "maxItems": 40,
+          "type": "array",
+        },
         "complexity": {
           "anyOf": [
             {
@@ -4773,11 +4783,72 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": false,
       "title": "Update a task",
     },
-    "description": "Record progress on a task: labels, a note, the title or description, the repository, relations, theme, priority, complexity and/or a move to another stage. One call is all or nothing: a refused label or a blocked stage gate records nothing. A move that needs a human approval records the rest and waits for the approval.",
+    "description": "Record progress on a task: labels, a note, the title or description, the repository, relations, theme, priority, complexity, acceptance items and/or a move to another stage. One call is all or nothing: a refused label or a blocked stage gate records nothing. A move that needs a human approval records the rest and waits for the approval.",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,
       "properties": {
+        "acceptance": {
+          "description": "Changes of the acceptance items (the conditions of "done") in order, all or nothing with the rest of the call. add (text); edit (item_id, text; an open item); remove (item_id); done (item_id, evidence) and not_needed (item_id, reason) and move (item_id, task_key: the item goes to that card as an open one): the assignee or a person marks them; reopen (item_id, note): the assignee or the owner of the current step sets an item open again; confirm (item_id): the owner of the current step, never the one who marked it nor the assignee. Item ids are in get_task.",
+          "items": {
+            "properties": {
+              "evidence": {
+                "description": "done: how it is met (the commit, the test, the file, the observed behavior).",
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string",
+              },
+              "item_id": {
+                "description": "The acc_… id from get_task; not for add.",
+                "maxLength": 40,
+                "minLength": 1,
+                "type": "string",
+              },
+              "note": {
+                "description": "reopen: what does not hold.",
+                "maxLength": 1000,
+                "minLength": 1,
+                "type": "string",
+              },
+              "op": {
+                "enum": [
+                  "add",
+                  "edit",
+                  "remove",
+                  "done",
+                  "not_needed",
+                  "move",
+                  "reopen",
+                  "confirm",
+                ],
+                "type": "string",
+              },
+              "reason": {
+                "description": "not_needed: why it does not apply.",
+                "maxLength": 1000,
+                "minLength": 1,
+                "type": "string",
+              },
+              "task_key": {
+                "description": "move: the open card that takes the item over.",
+                "pattern": "^[A-Z][A-Z0-9]{0,9}-\\d+$",
+                "type": "string",
+              },
+              "text": {
+                "description": "add, edit: the condition.",
+                "maxLength": 500,
+                "minLength": 1,
+                "type": "string",
+              },
+            },
+            "required": [
+              "op",
+            ],
+            "type": "object",
+          },
+          "maxItems": 20,
+          "type": "array",
+        },
         "add_labels": {
           "description": "Label ids to add. A label of a group replaces the other labels of that group.",
           "items": {

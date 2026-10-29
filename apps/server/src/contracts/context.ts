@@ -17,6 +17,7 @@ import type {
   SessionState,
   Stage,
   Task,
+  AcceptanceItem,
   TaskRelation,
   TimelineEvent,
   WorkDoing,
@@ -88,6 +89,11 @@ export interface ContextPackInput {
    * brief. Omitted (or empty) when it has none.
    */
   relations?: TaskRelation[];
+  /**
+   * The task's acceptance items (PM-1135), listed in the kick-off brief with the ids update_task names.
+   * Omitted (or empty) when it has none.
+   */
+  acceptance?: AcceptanceItem[];
   /**
    * The theme the task belongs to, its own or its parent's (PM-192), named in the kick-off brief. Omitted
    * when it has none.

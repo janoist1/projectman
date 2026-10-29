@@ -121,6 +121,22 @@ describe('project configuration migrations', () => {
     expect(warn).not.toHaveBeenCalled();
   });
 
+  it('gives a configuration without the acceptance gates the two gates and labels, once (PM-1135)', () => {
+    const legacy = raw();
+    for (const stage of legacy.pipeline.stages) {
+      const gate = stage.gate as { conditions: { label?: string }[] } | undefined;
+      if (gate) gate.conditions = gate.conditions.filter((c) => !c.label?.startsWith('acceptance-'));
+      if (gate?.conditions.length === 0) delete stage.gate;
+    }
+    legacy.pipeline.labels = legacy.pipeline.labels.filter((l) => !l.id.startsWith('acceptance-'));
+    const { migrated, config } = migrate(legacy);
+    const gate = (id: string) => config.pipeline.stages.find((s) => s.id === id)!.gate?.conditions ?? [];
+    expect(gate('code_review')).toContainEqual({ type: 'lacks_label', label: 'acceptance-open' });
+    expect(gate('done')).toContainEqual({ type: 'lacks_label', label: 'acceptance-unconfirmed' });
+    expect(config.pipeline.labels.filter((l) => l.id.startsWith('acceptance-'))).toHaveLength(2);
+    expect(migrate(migrated).migrated).toBe(migrated);
+  });
+
   it("gives a configuration without complexity setters today's two duties and keeps a set list (PM-1097)", () => {
     const legacy = raw();
     delete (legacy.team as { complexitySetters?: unknown }).complexitySetters;
@@ -238,6 +254,7 @@ describe('project configuration migrations', () => {
     expect(gate('release')).toEqual([
       { type: 'has_label', label: 'pr-merged' },
       { type: 'has_label', label: 'release-approved' },
+      { type: 'lacks_label', label: 'acceptance-unconfirmed' },
     ]);
     expect(config.pipeline.labels.find((label) => label.id === 'approval-merge')).toMatchObject({
       setBy: { members: ['owner'], humansOnly: true },

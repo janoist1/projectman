@@ -5559,6 +5559,33 @@ may change the setting (owner-only change `task_create_access`, never waivable b
 The web separates `can.newCards` (the "new card" buttons) from `can.createTasks` (moving, editing
 and starting cards, developer level). No machine-dependent part is affected.
 
+## Acceptance items (PM-1135, part of PM-1131)
+
+A card's acceptance conditions are items (`task_acceptance_items`, migration 130; id `acc_…`): each is
+`open`, `done` (evidence), `not_needed` (reason) or `moved` (to another open card). The assignee or a
+person marks them; the owner of the card's current step (an AI whose `stepResult` is not null) or a person
+confirms them item by item. The marker and the assignee never confirm (`own_work`); a new mark clears the
+confirmation, and `reopen` clears both. `moved` copies the item to the target card as an open one
+(`origin` = the first card and item), adds a `related` relation when there is none, and writes an
+`acceptance_item_changed` event on both cards.
+
+- **Rule.** `packages/shared/src/domain/acceptance.ts` owns it (`acceptanceRefusal`, `acceptanceLabels`,
+  `AcceptanceChange`); `item-state.ts` holds the states and `itemProgress`, which the checklist shares.
+  The server (`core/tasks/acceptance.ts`, called by `TaskService.create` and `update`), the web fake and the
+  MCP all use it.
+- **Gate.** Two system labels (`setBy: 'system'`, written by `SYSTEM_ACTOR` with reason `acceptance`, like
+  `pr-merged`): `acceptance-open` while an item is open, `acceptance-unconfirmed` while one is open or
+  unconfirmed. Templates and the config migration (`migrateAcceptanceGates`, once, while the project does not
+  define `acceptance-open`) put `lacks_label acceptance-open` on the first stage after the work stage and
+  `lacks_label acceptance-unconfirmed` on the merge target (the first release stage, else the done stage;
+  `mergeTargetOf`) and on the done stage, so the merge readiness reads them too. A card
+  without items has neither label and behaves as before. One `update_task` plans its acceptance changes
+  before the gate, so it may mark the last item and move on in the same call.
+- **Surfaces.** `update_task` / `create_task` `acceptance`, `get_task` (items with evidence, marker and
+  confirmer), the kick-off brief, `TaskDetail.acceptance`. The editing UI is PM-1137.
+
+No machine-dependent part is affected: server database and shared code only, so it works on a remote engine.
+
 ## Card mover and hand-on requests (PM-439)
 
 `team.cardMover` selects the worker (default), project manager, or a named human who moves

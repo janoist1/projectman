@@ -1035,8 +1035,9 @@ describe('context pack snapshots', () => {
         timeline: timeline.slice(0, 4),
       }),
     );
+    // The 300 B are the acceptance items' two labels and gates (PM-1135).
     expect(Buffer.byteLength(`${pack.appendSystemPrompt}\n`)).toBeLessThanOrEqual(
-      11000 + ROLE_PURPOSES.developer.length,
+      11000 + 300 + ROLE_PURPOSES.developer.length,
     );
     await expect(`${pack.appendSystemPrompt}\n`).toMatchFileSnapshot(
       '__snapshots__/developer-dev.system-prompt.txt',
@@ -4519,7 +4520,7 @@ describe('analyst role guide (PM-994)', () => {
     expect(Buffer.byteLength(`${pack.appendSystemPrompt}\n`)).toBeLessThanOrEqual(13_351);
     expect(
       Buffer.byteLength(`${section(pack.appendSystemPrompt, '# Your role instructions').trimEnd()}\n`),
-    ).toBeLessThanOrEqual(587 + ROLE_PURPOSES.business_analyst.length + 2);
+    ).toBeLessThanOrEqual(587 + 113 + ROLE_PURPOSES.business_analyst.length + 2); // 113: the acceptance items (PM-1135)
   });
 
   it('keeps clarification and the relation-check limit visible, serving the complete duty in the guide', () => {
@@ -4530,7 +4531,7 @@ describe('analyst role guide (PM-994)', () => {
     const role = section(pack.appendSystemPrompt, '# Your role instructions');
     for (const key of [
       'ask_human',
-      'description with update_task',
+      'acceptance item',
       'new-relation analyst check',
       'do not move or stop the card',
     ])

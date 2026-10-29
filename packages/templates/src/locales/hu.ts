@@ -405,6 +405,15 @@ export const hu: TemplateLocale = {
       name: 'PR merge-elve',
       meaning: 'A feladat pull requestje be van olvasztva; a GitHub alapján automatikusan kerül rá.',
     },
+    'acceptance-open': {
+      name: 'Nyitott elfogadási feltétel',
+      meaning: 'A feladatnak van még nyitott elfogadási feltétele; a rendszer automatikusan kezeli.',
+    },
+    'acceptance-unconfirmed': {
+      name: 'Megerősítetlen elfogadási feltétel',
+      meaning:
+        'A feladatnak van nyitott vagy még meg nem erősített elfogadási feltétele; a rendszer automatikusan kezeli.',
+    },
     'merge-approved': {
       name: 'Merge jóváhagyva',
       meaning: 'Egy arra jogosult ember jóváhagyta a beolvasztást. Csak ember teheti rá.',

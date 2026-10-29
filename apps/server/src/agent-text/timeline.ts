@@ -96,6 +96,23 @@ export function describeEvent(
       ];
       return parts.length > 0 ? parts.join('; ') : 'changed the labels';
     }
+    case 'acceptance_item_changed': {
+      const verbs: Record<string, string> = {
+        add: 'added the acceptance item',
+        edit: 'edited the acceptance item',
+        remove: 'removed the acceptance item',
+        done: 'marked the acceptance item done',
+        not_needed: 'marked the acceptance item not needed',
+        move: 'moved the acceptance item',
+        reopen: 'reopened the acceptance item',
+        confirm: 'confirmed the acceptance item',
+        moved_in: 'received the acceptance item',
+      };
+      const change = text('change') ?? '';
+      const where = text('taskKey') ? ` ${change === 'moved_in' ? 'from' : 'to'} ${text('taskKey')}` : '';
+      const note = text('note') ? ` — ${text('note')}` : '';
+      return `${verbs[change] ?? 'changed the acceptance item'} ${text('itemId') ?? '?'} "${text('text') ?? ''}"${where}${note}`;
+    }
     case 'task_check_changed':
       // Checks were replaced by labels; events recorded before that stay in the timeline.
       return `set the ${text('check') ?? '?'} check to ${text('to') ?? '?'}${text('from') ? ` (was ${text('from')})` : ''}`;

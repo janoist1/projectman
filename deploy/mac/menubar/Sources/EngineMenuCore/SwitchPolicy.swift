@@ -30,8 +30,11 @@ public enum SwitchDecision: Equatable {
 /// When the app moves the engine to the package it brought (o, p and the automatic switch). Only a package (`app`)
 /// engine switches; a checkout engine is updated by hand (`service install`), and `service switch` refuses it.
 public enum SwitchPolicy {
-    /// The bundled package differs from the one the service runs, and no switch is running or stuck.
+    /// The bundled package differs from the one the service runs, and no switch is running or stuck. A stopped engine
+    /// (or one still starting) is never a candidate: `service switch` waits for a running engine, and a switch would
+    /// start an engine the user stopped.
     public static func candidate(_ snapshot: Snapshot, bundled: BundledPackage?) -> SwitchOffer? {
+        guard ["running", "no_cloud"].contains(snapshot.overall) else { return nil }
         guard snapshot.service.manager == "app", snapshot.service.installed, let bundled, let running = snapshot.enginePackage,
               running.version != bundled.version else { return nil }
         if let kind = snapshot.switchState?.kind, kind != .rolledBack { return nil }

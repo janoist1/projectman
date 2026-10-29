@@ -158,6 +158,13 @@ final class SwitchTests: XCTestCase {
         XCTAssertEqual(SwitchPolicy.decide(s, bundled: bundled, failed: [], manual: true), .none)
         XCTAssertNil(SwitchPolicy.menuOffer(s, bundled: bundled, failed: []))
     }
+    func testStoppedEngineIsNeverSwitched() throws {
+        for overall in ["stopped", "not_initialised"] {
+            let s = try running { idle(&$0); $0["overall"] = overall }
+            XCTAssertEqual(SwitchPolicy.decide(s, bundled: bundled, failed: [], manual: false), .none)
+            XCTAssertEqual(SwitchPolicy.decide(s, bundled: bundled, failed: [], manual: true), .none)
+        }
+    }
     func testSameVersionAndMissingBundleDoNotSwitch() throws {
         let s = try running { idle(&$0) }
         let same = BundledPackage(version: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", tag: nil)

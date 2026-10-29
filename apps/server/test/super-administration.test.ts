@@ -771,7 +771,6 @@ describe('super mode: diagnostics, test, build and release preparation (PM-764)'
       await boot();
       const operation = await operate({ kind: 'merge', taskKey: 'AR-1', request: {} });
       expect(operation).toMatchObject({ state: 'failed', errorCode: 'merge_not_merger' });
-      expect(h.domain.superHandoffs.list('AR', { limit: 10 })).toEqual([]);
       expect(h.repos.superHandoffs.listOperations('AR', { limit: 10 })).toMatchObject([
         { id: operation.id, state: 'failed', errorCode: 'merge_not_merger' },
       ]);
@@ -887,24 +886,6 @@ describe('super mode: diagnostics, test, build and release preparation (PM-764)'
         errorCode: 'operator_grant_inactive',
       });
       expect(submitted).toHaveLength(1);
-    });
-
-    // An administration command has no owner-reserved effect, so it never waits for the owner's yes; the only
-    // later start is a handoff the Operator made earlier, and it goes through the same executor and gate.
-    it('refuses a handoff that is started after the grant was revoked, and submits nothing', async () => {
-      await boot();
-      ensureKey();
-      const handoff = await h.domain.superHandoffs.request(
-        'AR',
-        { kind: 'ai', handle: 'operator' },
-        { reason: 'A fictional reason', command: fullTest(), requestId: randomUUID(), taskKey: 'AR-1' },
-      );
-      h.auth.revokeOperatorGrant('user-1');
-      const started = await asIntegrator((access) =>
-        h.domain.superHandoffs.execute('AR', handoff.id, randomUUID(), access),
-      );
-      expect(started).toMatchObject({ state: 'failed', errorCode: 'operator_grant_inactive' });
-      expect(submitted).toEqual([]);
     });
 
     it('treats an expired grant like a revoked one', async () => {

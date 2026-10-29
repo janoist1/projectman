@@ -5,7 +5,6 @@ import type {
   ProposedRelease,
   PublishedRelease,
   PublishReleaseArgs,
-  ReleaseCheckResult,
 } from '../../contracts';
 import { DomainError } from '../../kernel';
 import type { ReleasePublishService, ReleaseService } from '../../services/releases';
@@ -78,14 +77,6 @@ export class ReleaseTools implements ReleaseToolsHandler {
           );
         throw err;
       }
-    });
-  }
-
-  /** The release check was the Operator's alone; with no Operator (decision 66, PM-1076) no member holds it. */
-  async checkRelease(ctx: ToolContext, _args: { commit?: string }): Promise<ReleaseCheckResult> {
-    return this.calls.guard(async () => {
-      await this.calls.caller(ctx, 'check_release');
-      throw new TeamToolError('forbidden', 'operator_only: no member may check a release this way.');
     });
   }
 }

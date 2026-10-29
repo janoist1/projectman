@@ -25,8 +25,6 @@ const EMAIL =
 const HOST_REQUEST =
   "it is the project manager's tool inside its own project; the host reads and answers requests with list_host_inbox and answer_host_request";
 const UNBOUND = 'it has no external binding yet';
-const PRIVATE_STATS =
-  "it reads the private search statistics, which only the Operator shows to an owner's or admin's own request";
 
 /**
  * Why each shared tool is not served here. It only words the refusal; the denial itself is the missing binding.
@@ -42,13 +40,10 @@ export const EXTERNAL_DENIED: Partial<Record<TeamToolName, string>> = {
   operate: OPERATOR,
   execute_operation: OPERATOR,
   get_operation: OPERATOR,
-  get_machine_status: OPERATOR,
-  get_machine_logs: OPERATOR,
   list_decision_candidates: OPERATOR,
   mark_decision_candidates: OPERATOR,
   list_system_feedback: OPERATOR,
   record_system_feedback: OPERATOR,
-  get_history_search_stats: PRIVATE_STATS,
   screen_question: OPERATOR,
   combine_questions: OPERATOR,
   dismiss_signal: OPERATOR,

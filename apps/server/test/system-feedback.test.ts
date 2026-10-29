@@ -5,11 +5,7 @@ import { TeamToolError } from '../src/contracts';
 import type { ToolContext } from '../src/contracts';
 import { DomainError, humanActor } from '../src/kernel';
 import { OperatorRequests } from '../src/services/operator';
-import {
-  OPERATOR_GUEST_TOOLS,
-  OPERATOR_NO_REQUEST_WRITE_TOOLS,
-  OPERATOR_READ_TOOLS,
-} from '../src/services/operator/requests';
+import { OPERATOR_GUEST_TOOLS, OPERATOR_READ_TOOLS } from '../src/services/operator/requests';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { rejection } from './helpers/errors';
@@ -392,8 +388,7 @@ describe('the project manager tools (PM-479)', () => {
     expect(feedback().list({ access: 'manage' }).items).toHaveLength(0);
   });
 
-  it('is a write that needs no request, outside the guest and approval allowances', () => {
-    expect(OPERATOR_NO_REQUEST_WRITE_TOOLS.has('record_system_feedback')).toBe(true);
+  it('is a write outside the read and guest allowances', () => {
     expect(OPERATOR_READ_TOOLS.has('record_system_feedback')).toBe(false);
     expect(OPERATOR_READ_TOOLS.has('list_system_feedback')).toBe(true);
     expect(OPERATOR_GUEST_TOOLS.has('record_system_feedback')).toBe(false);

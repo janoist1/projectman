@@ -2738,7 +2738,6 @@ export function createDomain(opts: DomainOptions) {
         docWrites,
         humanQuestions,
         structuralReviews,
-        superHandoffs,
         superAdministration,
         inbox,
         history,

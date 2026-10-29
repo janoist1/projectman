@@ -20,9 +20,7 @@ import {
   CreatedIntegratorAccessKey,
   IntegratorKeyAuditPage,
   SuperAuditPage,
-  ListSuperHandoffsResponse,
   SuperOperationDetail,
-  SuperHandoffDetail,
   OperatorKnowledgeDocument,
   OperatorPreferenceDocument,
   OperatorApprovalWaiverResponse,
@@ -165,8 +163,6 @@ export const api = {
     apiRequest(routes.pushDeviceTest(id), { method: 'POST', body: {}, schema: PushDeviceView }),
   unsubscribePush: (endpoint: string) =>
     apiRequest<null>(routes.pushUnsubscribe(), { method: 'POST', body: { endpoint } }),
-  superHandoff: (key: string, id: string) =>
-    apiRequest(routes.superHandoff(key, encodeURIComponent(id)), { schema: SuperHandoffDetail }),
   superOperation: (key: string, id: string) =>
     apiRequest(routes.superOperation(key, id), { schema: SuperOperationDetail }),
   integratorKeys: () => apiRequest(routes.integratorKeys(), { schema: IntegratorAccessKeysResponse }),
@@ -190,10 +186,6 @@ export const api = {
       `${routes.operatorSuperAudit(key)}?limit=50${prefix ? `&prefix=${encodeURIComponent(prefix)}` : ''}${before ? `&before=${encodeURIComponent(before)}` : ''}`,
       { schema: SuperAuditPage },
     ),
-  superHandoffs: (key: string, pending = false) =>
-    apiRequest(`${routes.superHandoffs(key)}?limit=50${pending ? '&state=pending' : ''}`, {
-      schema: ListSuperHandoffsResponse,
-    }),
   involvements: (key: string, query = '') =>
     apiRequest(routes.involvements(key) + query, { schema: InvolvementsResponse }),
   machine: (panel: boolean, signal?: AbortSignal) =>

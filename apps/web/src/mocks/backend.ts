@@ -40,8 +40,6 @@ import {
   CreateIntegratorAccessKeyRequest,
   IntegratorKeyAuditQuery,
   SuperAuditQuery,
-  ListSuperHandoffsQuery,
-  SUPER_OPEN_STATES,
   InvolvementQuery,
   canManageProviderKeys,
   SetProviderKeyRequest,
@@ -507,7 +505,6 @@ export class MockBackend {
   integratorKeys: import('@projectman/shared').IntegratorAccessKeyInfo[] = [];
   integratorKeyAudits: import('@projectman/shared').IntegratorKeyAuditEntry[] = [];
   superAudits: import('@projectman/shared').SuperOperationAudit[] = [];
-  superHandoffs: import('@projectman/shared').SuperHandoff[] = [];
   superOperations: import('@projectman/shared').SuperOperation[] = [];
   superResults = new Map<string, import('@projectman/shared').SuperAdministrationResult>();
   private viewerAccess(): import('@projectman/shared').HumanAccess {
@@ -2682,27 +2679,6 @@ export class MockBackend {
         entries: clone(entries),
         nextBefore: start + entries.length < all.length ? entries.at(-1)!.id : null,
       });
-    }
-    if (rest === '/operator-super/handoffs') {
-      if (this.viewerAccess() !== 'owner') return error(403, 'owner_only', 'Owner access required');
-      const input = ListSuperHandoffsQuery.safeParse(Object.fromEntries(query));
-      if (!input.success) return error(400, 'invalid_request', 'Invalid handoff query');
-      return ok({
-        handoffs: clone(
-          this.superHandoffs
-            .filter((entry) =>
-              input.data.state ? entry.state === input.data.state : SUPER_OPEN_STATES.includes(entry.state),
-            )
-            .slice(0, input.data.limit),
-        ),
-      });
-    }
-    if ((m = /^\/operator-super\/handoffs\/([^/]+)$/.exec(rest))) {
-      if (this.viewerAccess() !== 'owner') return error(403, 'insufficient_access', 'Owner access required');
-      const handoff = this.superHandoffs.find(
-        (entry) => entry.id === decodeURIComponent(m![1]!) && entry.projectKey === this.config.project.key,
-      );
-      return handoff ? ok({ handoff: clone(handoff) }) : error(404, 'not_found', 'Handoff not found');
     }
     if ((m = /^\/operator-super\/operations\/([^/]+)$/.exec(rest))) {
       if (this.viewerAccess() !== 'owner') return error(403, 'owner_only', 'Owner access required');

@@ -76,7 +76,7 @@ import {
   resolveIntegratorTodo,
   updateInstanceKnowledge,
 } from '../../services/super-operator';
-import type { SuperAdministration, SuperHandoffService, SuperOperator } from '../../services/super-operator';
+import type { SuperAdministration, SuperOperator } from '../../services/super-operator';
 
 /** Attachments get_task shows; the rest are paged with list_attachments. */
 const ATTACHMENTS_IN_TASK = 20;
@@ -102,7 +102,6 @@ interface ExternalToolsDeps {
   docWrites: Pick<DocWrites, 'read' | 'requestExternal' | 'externalState'>;
   humanQuestions: HumanQuestionsPort;
   structuralReviews: Pick<StructuralReviews, 'requestExternal'>;
-  superHandoffs: Pick<SuperHandoffService, 'list' | 'execute'>;
   superAdministration: SuperAdministration;
   inbox: Pick<
     InboxService,
@@ -464,24 +463,6 @@ export class ExternalTools implements ExternalToolsHandler {
 
   async checkRelease(ctx: ExternalToolContext, args: { commit?: string }) {
     return this.deps.releases.check(ctx.projectKey, args.commit);
-  }
-
-  async listSuperHandoffs(
-    ctx: ExternalToolContext,
-    query: Parameters<ExternalToolsHandler['listSuperHandoffs']>[1],
-  ) {
-    return { handoffs: this.deps.superHandoffs.list(ctx.projectKey, query) };
-  }
-
-  async executeSuperHandoff(ctx: ExternalToolContext, args: { handoffId: string; requestId: string }) {
-    return {
-      operation: await this.deps.superHandoffs.execute(
-        ctx.projectKey,
-        args.handoffId,
-        args.requestId,
-        this.access(ctx),
-      ),
-    };
   }
 
   async superOperate(ctx: ExternalToolContext, request: Parameters<ExternalToolsHandler['superOperate']>[1]) {

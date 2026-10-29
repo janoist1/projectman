@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { formatReleaseCheck } from '../format';
 import { defineTool, type TeamToolGroup } from '../kit';
 
 export const RELEASE_TOOL_GROUP: TeamToolGroup = {
@@ -123,41 +122,6 @@ export const RELEASE_TOOL_GROUP: TeamToolGroup = {
         const head = `repo=${result.repo} tag=${result.tag} commit=${result.commit} baseCommit=${result.baseCommit ?? 'none'}`;
         if (!result.url) return `preview (nothing recorded)\n${head}\n${cards}`;
         return `published tag=${result.tag} url=${result.url}\n${head}\n${cards}`;
-      },
-    }),
-    defineTool({
-      name: 'check_release',
-      audience: { roles: [] },
-      title: 'Check a release',
-      readOnly: true,
-      description:
-        'Only the Operator; it only reads. The preview of propose_release: it runs the same checks (a release already ' +
-        'in progress, the merged cards between the last release and the commit) and answers either the commit and ' +
-        'the cards a release would have, or the refusal propose_release would give now, with the same code and ' +
-        'message. It records nothing. The release is proposed by the member with the deployment duty, not by the ' +
-        'Operator: the result lists who that is. `commit` is a merge commit of a merged card; default: the head of ' +
-        'the default branch. Explain the result to the owner in the project language.',
-      input: {
-        commit: z
-          .string()
-          .regex(/^[0-9a-f]{40}$/)
-          .optional()
-          .describe('A merge commit of a merged card; default: the head of the default branch.'),
-      },
-      external: {
-        access: 'read',
-        description:
-          'It only reads. The preview of a release proposal: it runs the same checks (a release already in progress, the merged cards between the last release and the commit) and answers either the commit and the cards a release would have, or the refusal a proposal would get now, with the same code and message. It records nothing. `commit` is a merge commit of a merged card; default: the head of the default branch.',
-        async run({ ctx, args, handler }) {
-          return formatReleaseCheck(
-            await handler.checkRelease(ctx, args.commit ? { commit: args.commit } : {}),
-          );
-        },
-      },
-      async run({ ctx, args, handler }) {
-        return formatReleaseCheck(
-          await handler.checkRelease(ctx, args.commit ? { commit: args.commit } : {}),
-        );
       },
     }),
   ],

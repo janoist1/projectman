@@ -12,7 +12,6 @@ import {
 } from '@projectman/shared';
 import type { QuestionRecipient, QuestionRecipientRefusal } from '@projectman/shared';
 import type {
-  AdministrationTarget,
   OperatorOperation,
   BuiltInRoleId,
   RoleConfigurationRead,
@@ -27,7 +26,6 @@ import type {
 } from '@projectman/shared';
 import { TeamToolError } from '../../contracts';
 import type {
-  AdministrationLogsOptions,
   ChecklistToolView,
   OperatorToolsHandler,
   UpdateChecklistInput,
@@ -63,10 +61,6 @@ interface SuperPath {
   operations: OperatorAppOperations;
   administration: Pick<SuperAdministration, 'operation'>;
 }
-
-/** The machine reads were the Operator's alone; with no Operator (decision 66, PM-1076) nobody holds them. */
-const machineReadRefused = () =>
-  new TeamToolError('forbidden', 'operator_only: no member may read the machine this way.');
 
 /** What the checklist tools stand on (PM-977): every write goes through the checklist service. */
 type OperatorToolsChecklist = Pick<
@@ -591,27 +585,6 @@ export class OperatorTools implements OperatorToolsHandler {
     try {
       await this.appCaller(ctx, 'get_operation');
       return await this.superPath().administration.operation(ctx.projectKey, args.operationId);
-    } catch (err) {
-      throw this.appFailure(err);
-    }
-  }
-
-  async getMachineStatus(ctx: ToolContext, _args: { target: AdministrationTarget }): Promise<never> {
-    try {
-      await this.appCaller(ctx, 'get_machine_status');
-      throw machineReadRefused();
-    } catch (err) {
-      throw this.appFailure(err);
-    }
-  }
-
-  async getMachineLogs(
-    ctx: ToolContext,
-    _args: { target: AdministrationTarget } & AdministrationLogsOptions,
-  ): Promise<never> {
-    try {
-      await this.appCaller(ctx, 'get_machine_logs');
-      throw machineReadRefused();
     } catch (err) {
       throw this.appFailure(err);
     }

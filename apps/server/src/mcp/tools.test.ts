@@ -16,8 +16,6 @@ const developerAudience: MemberAudience = {
   hostRequests: false,
   duties: new Set(),
 };
-/** Tools nobody sees any more: they were the retired Operator's alone (decision 66). */
-const hiddenTools = TEAM_TOOLS.filter((tool) => tool.audience?.roles?.length === 0).map((tool) => tool.name);
 
 async function listToolsFor(audience: MemberAudience) {
   const app = Fastify();
@@ -82,14 +80,11 @@ describe('tool audience', () => {
     expect(toolVisible(audience, member)).toBe(visible);
   });
 
-  it('lists every tool but the retired Operator ones for a full audience and hides restricted tools from a developer', async () => {
+  it('lists every tool for a full audience and hides restricted tools from a developer', async () => {
     const before = await listToolsFor(fullAudience);
     const after = await listToolsFor(developerAudience);
-    expect(hiddenTools.length).toBeGreaterThan(0);
-    expect(before.tools.map((tool) => tool.name).sort()).toEqual(
-      TEAM_TOOL_NAMES.filter((name) => !hiddenTools.includes(name)).sort(),
-    );
-    expect(after.tools.map((tool) => tool.name)).not.toContain('check_release');
+    expect(before.tools.map((tool) => tool.name).sort()).toEqual([...TEAM_TOOL_NAMES].sort());
+    expect(after.tools.map((tool) => tool.name)).not.toContain('operate');
     expect(after.tools.map((tool) => tool.name)).toContain('get_guide');
     console.info('tools/list JSON bytes', {
       before: Buffer.byteLength(JSON.stringify(before)),
@@ -164,22 +159,22 @@ describe('tool audience', () => {
     {
       audience: { ...developerAudience, projectManager: true },
       present: 'operate',
-      absent: 'get_machine_logs',
+      absent: 'merge_task',
     },
     {
       audience: { ...developerAudience, projectManager: true },
       present: 'execute_operation',
-      absent: 'check_release',
+      absent: 'propose_release',
     },
     {
       audience: { ...developerAudience, projectManager: true },
       present: 'update_checklist',
-      absent: 'get_machine_status',
+      absent: 'send_email',
     },
     {
       audience: { ...developerAudience, projectManager: true },
       present: 'get_role_configuration',
-      absent: 'get_history_search_stats',
+      absent: 'ask_host',
     },
     {
       audience: { ...developerAudience, duties: new Set(['feedback_processing'] as const) },
@@ -250,8 +245,6 @@ describe('team tool registration', () => {
         'operate',
         'execute_operation',
         'get_operation',
-        'get_machine_status',
-        'get_machine_logs',
         'combine_questions',
         'screen_question',
         'dismiss_signal',
@@ -277,7 +270,7 @@ describe('team tool registration', () => {
       'runtime/watchers': ['decide_fix_limit'],
       'runtime/sessions': ['get_guide', 'set_current_work'],
       'core/members': ['list_members', 'save_memory'],
-      'services/releases': ['propose_release', 'publish_release', 'check_release'],
+      'services/releases': ['propose_release', 'publish_release'],
       'core/tasks': ['list_tasks', 'get_task', 'update_task', 'create_task'],
       'core/attachments': [
         'list_attachments',
@@ -292,7 +285,7 @@ describe('team tool registration', () => {
         'list_decision_candidates',
         'mark_decision_candidates',
       ],
-      'services/history': ['search_history', 'read_history_source', 'get_history_search_stats'],
+      'services/history': ['search_history', 'read_history_source'],
       'services/merges': ['merge_task', 'prioritize_merge', 'list_merge_checks'],
       'services/full-tests': ['take_screenshots', 'get_screenshot_run'],
     });

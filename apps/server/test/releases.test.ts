@@ -328,14 +328,6 @@ describe('the release flow', () => {
       vi.spyOn(h.domain.projects, 'config').mockRejectedValue(new Error('broken config'));
       await expect(h.domain.releases.check('AR')).rejects.toThrow('broken config');
     });
-
-    it('is closed to every member as a tool', async () => {
-      await setup();
-      await expect(h.domain.teamTools.checkRelease(devops, {})).rejects.toMatchObject({
-        code: 'forbidden',
-        message: expect.stringContaining('operator_only'),
-      });
-    });
   });
 
   describe('the overview for the Operator (PM-542)', () => {

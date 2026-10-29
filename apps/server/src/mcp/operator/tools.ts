@@ -8,8 +8,6 @@ import {
   OperatorPreferenceData,
   ProposeOperatorKnowledgeRequest,
   OperatorPlan,
-  GetAdministrationLogsArgs,
-  GetAdministrationStatusArgs,
   GetSuperOperationArgs,
   SuperCommand,
   TaskKey,
@@ -391,48 +389,6 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       input: { operation_id: GetSuperOperationArgs.shape.operation_id },
       async run({ ctx, args, handler }) {
         return JSON.stringify(await handler.getOperation(ctx, { operationId: args.operation_id }));
-      },
-    }),
-
-    defineTool({
-      name: 'get_machine_status',
-      audience: { roles: [] },
-      title: 'Read the status of the machine',
-      readOnly: true,
-      description:
-        'Only the Operator, during an open owner request, with the owner’s machine grant (without it: operator_grant_inactive). The administration status of the hub (target "hub") or of an engine linked to this project (target: the engine id) and, when it offers the machine capability, its machine: {status, machine} with the load average, memory, swap and the ten largest processes (name, cpu, memory; no arguments). machine is null when the target cannot tell.',
-      input: { target: GetAdministrationStatusArgs.shape.target },
-      async run({ ctx, args, handler }) {
-        return JSON.stringify(await handler.getMachineStatus(ctx, { target: args.target }));
-      },
-    }),
-
-    defineTool({
-      name: 'get_machine_logs',
-      audience: { roles: [] },
-      title: 'Read the log of the machine',
-      readOnly: true,
-      description:
-        'Only the Operator, during an open owner request, with the owner’s machine grant (without it: operator_grant_inactive). The diagnostic log of the hub (target "hub") or of an engine linked to this project (target: the engine id): {entries}, oldest first. limit is 1–200 (default 50). source is "supervisor" (default) or "service" (the managed service’s log, secrets redacted); min_level (info, warn, error), since (ISO time) and contains (up to 100 characters) narrow it.',
-      input: {
-        target: GetAdministrationLogsArgs.shape.target,
-        limit: GetAdministrationLogsArgs.shape.limit,
-        source: GetAdministrationLogsArgs.shape.source,
-        min_level: GetAdministrationLogsArgs.shape.min_level,
-        since: GetAdministrationLogsArgs.shape.since,
-        contains: GetAdministrationLogsArgs.shape.contains,
-      },
-      async run({ ctx, args, handler }) {
-        return JSON.stringify(
-          await handler.getMachineLogs(ctx, {
-            target: args.target,
-            limit: args.limit ?? 50,
-            ...(args.source ? { source: args.source } : {}),
-            ...(args.min_level ? { minLevel: args.min_level } : {}),
-            ...(args.since ? { since: args.since } : {}),
-            ...(args.contains ? { contains: args.contains } : {}),
-          }),
-        );
       },
     }),
 

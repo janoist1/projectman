@@ -317,18 +317,6 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
         tasks: [{ key: 'FAKE-1', title: 'A merged card' }],
       };
     },
-    async checkRelease(ctx, args) {
-      await enter('checkRelease', ctx, args);
-      return {
-        candidate: {
-          commit: args.commit ?? '0'.repeat(40),
-          baseCommit: null,
-          tasks: [{ key: 'FAKE-1', title: 'A merged card' }],
-        },
-        refusal: null,
-        proposers: ['devops'],
-      };
-    },
     async getRoleConfiguration(ctx, args) {
       await enter('getRoleConfiguration', ctx, args);
       return {
@@ -379,24 +367,6 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
         result: null,
       };
     },
-    async getMachineStatus(ctx, args) {
-      await enter('getMachineStatus', ctx, args);
-      return {
-        status: {
-          target: args.target,
-          online: true,
-          version: null,
-          bootId: null,
-          capabilities: ['status'],
-          activeOperationId: null,
-        },
-        machine: null,
-      };
-    },
-    async getMachineLogs(ctx, args) {
-      await enter('getMachineLogs', ctx, args);
-      return { entries: [] };
-    },
     async startTask(ctx, args) {
       await enter('startTask', ctx, args);
       return { task_key: args.taskKey, session_id: null, hired: null, assignee: args.assignee ?? null };
@@ -442,21 +412,6 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
         fromLine: args.fromLine ?? 1,
         totalLines: 0,
         text: '',
-      };
-    },
-    async getHistorySearchStats(ctx, args) {
-      await enter('getHistorySearchStats', ctx, args);
-      return {
-        since: args.since ?? '2026-09-01T00:00:00.000Z',
-        until: args.until ?? '2026-10-01T00:00:00.000Z',
-        retainedSince: '2026-07-03T00:00:00.000Z',
-        totalSearches: 0,
-        failedSearches: 0,
-        byMember: [],
-        zeroResultCount: 0,
-        zeroResultRate: 0,
-        zeroResults: [],
-        nextCursor: null,
       };
     },
     async writeProjectDocs(ctx, args) {

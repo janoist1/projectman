@@ -7,9 +7,7 @@ import {
   GetProjectDocWriteInput,
   GetSuperOperationArgs,
   GetSuperQuestionInput,
-  ListSuperHandoffsQuery,
   QuerySuperDiagnosticsArgs,
-  QueueItemIdArg,
   RelayOwnerAnswerRequest,
   ResolveIntegratorFixLimitRequest,
   ResolveIntegratorTodoRequest,
@@ -20,6 +18,7 @@ import {
   SuperOperateArgs,
 } from '@projectman/shared';
 import { z } from 'zod';
+import { formatReleaseCheck } from '../format';
 import {
   defineExternalTool,
   defineProjectlessTool,
@@ -51,43 +50,27 @@ export const EXTERNAL_ONLY_TOOLS: readonly ExternalRegisteredTool[] = [
     },
   }),
   defineExternalTool({
-    name: 'list_super_handoffs',
-    title: 'List the handoffs to the super mode',
+    name: 'check_release',
+    title: 'Check a release',
     description:
-      'The commands the Operator handed to the owner’s super-mode integrator, newest first: {handoffs: [...]}. Filter by state; limit is at most 100.',
+      'It only reads. The preview of a release proposal: it runs the same checks (a release already in progress, the merged cards between the last release and the commit) and answers either the commit and the cards a release would have, or the refusal a proposal would get now, with the same code and message. It records nothing. `commit` is a merge commit of a merged card; default: the head of the default branch.',
     access: 'read',
-    modes: ['super'],
-    input: ListSuperHandoffsQuery.shape,
-    async run({ ctx, args, handler }) {
-      return { structured: await handler.listSuperHandoffs(ctx, args) };
-    },
-  }),
-  defineExternalTool({
-    name: 'execute_super_handoff',
-    title: 'Execute a handoff',
-    description:
-      'Starts, or after the owner’s own yes resumes, the operation of one handoff: {operation}. An effect reserved for the owner waits for the owner’s own yes (owner_approval_required); give a fresh request_id (UUID) and repeat it only to retry the same call. Give queue_item_id when you work on an open queue item: the step is then recorded under the name of the member who issued it.',
-    access: 'write',
-    modes: ['super'],
     input: {
-      handoff_id: z.string().min(1).max(100),
-      request_id: z.uuid(),
-      queue_item_id: QueueItemIdArg.optional(),
+      commit: z
+        .string()
+        .regex(/^[0-9a-f]{40}$/)
+        .optional()
+        .describe('A merge commit of a merged card; default: the head of the default branch.'),
     },
     async run({ ctx, args, handler }) {
-      return {
-        structured: await handler.executeSuperHandoff(ctx, {
-          handoffId: args.handoff_id,
-          requestId: args.request_id,
-        }),
-      };
+      return formatReleaseCheck(await handler.checkRelease(ctx, args.commit ? { commit: args.commit } : {}));
     },
   }),
   defineExternalTool({
     name: 'super_operate',
     title: 'Start a super command',
     description:
-      'Starts one command directly, without a handoff: {operation}. command is {kind: operate, operation} | {kind: task_create, request} | {kind: task_update, taskKey, request} | {kind: task_labels, taskKey, request} | {kind: task_start, taskKey, request} | {kind: task_cancel, taskKey, request} | {kind: inbox_resolve, itemId, request} | {kind: credential_revoke, keyId} | {kind: workspace_release, scopeId, reason} | {kind: member_update, handle, request} | {kind: invite_create, request} | {kind: merge, taskKey, request} | {kind: merge_order, repo, expectedRevision, taskKeys, reason} | {kind: administration, request}. K3 effects wait in waiting_owner for the owner’s own yes: member, credential, project or repository deletion; login, security, boundary authorization and the Operator’s model, provider or effort; paid cost. After yes, repeat the same request to resume; no cancels it. Login methods, key creation, approval waiver, NanoGPT key and super-rights changes remain owner-login-only and unsupported. operate supports config_patch, config_revert, member_hire, member_retire, member_update, project_pause, project_resume, session_stop and message_send. inbox_resolve runs as the connected Claude and keeps K3 decisions behind owner approval. Give a fresh request_id (UUID) and repeat it only to retry the same call. Give queue_item_id when you work on an open queue item: the step is then recorded under the name of the member who issued it. Follow it with get_super_operation.',
+      'Starts one command directly: {operation}. command is {kind: operate, operation} | {kind: task_create, request} | {kind: task_update, taskKey, request} | {kind: task_labels, taskKey, request} | {kind: task_start, taskKey, request} | {kind: task_cancel, taskKey, request} | {kind: inbox_resolve, itemId, request} | {kind: credential_revoke, keyId} | {kind: workspace_release, scopeId, reason} | {kind: member_update, handle, request} | {kind: invite_create, request} | {kind: merge, taskKey, request} | {kind: merge_order, repo, expectedRevision, taskKeys, reason} | {kind: administration, request}. K3 effects wait in waiting_owner for the owner’s own yes: member, credential, project or repository deletion; login, security, boundary authorization and the Operator’s model, provider or effort; paid cost. After yes, repeat the same request to resume; no cancels it. Login methods, key creation, approval waiver, NanoGPT key and super-rights changes remain owner-login-only and unsupported. operate supports config_patch, config_revert, member_hire, member_retire, member_update, project_pause, project_resume, session_stop and message_send. inbox_resolve runs as the connected Claude and keeps K3 decisions behind owner approval. Give a fresh request_id (UUID) and repeat it only to retry the same call. Give queue_item_id when you work on an open queue item: the step is then recorded under the name of the member who issued it. Follow it with get_super_operation.',
     access: 'write',
     modes: ['super'],
     input: withoutProject(SuperOperateArgs),

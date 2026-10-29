@@ -5,11 +5,7 @@ import {
   HISTORY_SEARCH_DEFAULT_LIMIT,
   HISTORY_SEARCH_MAX_LIMIT,
   HISTORY_SOURCE_TYPES,
-  HISTORY_STATS_DEFAULT_DAYS,
-  HISTORY_STATS_DEFAULT_LIMIT,
-  HISTORY_STATS_MAX_LIMIT,
   HistorySourceType,
-  MemberHandle,
   TaskKey,
 } from '@projectman/shared';
 import { z } from 'zod';
@@ -33,12 +29,6 @@ const READ_DESCRIPTION =
   "Read one source a search_history hit named, in lines: pass the hit's source_id (a team message, a closed question or a project document; cards and notes are opened with get_task). " +
   'total_lines says how long the source is. For a document, pass the commit the hit named: when the stored copy is newer the call is refused with history_source_changed, and you search again. ' +
   'A source you may not read and one that does not exist both give not_found.';
-
-const STATS_DESCRIPTION =
-  "Only the Operator, in the general conversation of a human owner or admin, during that person's own open message or answer request; every other call is refused with history_stats_forbidden. " +
-  `The private statistics of the history search of this project: how many searches each member made, how many found nothing, and the searches without a result (their text and filters). The period defaults to the last ${HISTORY_STATS_DEFAULT_DAYS} days; ` +
-  `the log is kept for 90 days. limit is 1–${HISTORY_STATS_MAX_LIMIT} (default ${HISTORY_STATS_DEFAULT_LIMIT}) zero-result searches per page; pass next_cursor as cursor for the next page. ` +
-  'The numbers are for the person you are talking with in this conversation only: do not copy them into a task, a note, a team message or another conversation.';
 
 export const HISTORY_TOOL_GROUP: TeamToolGroup = {
   module: 'services/history',
@@ -157,46 +147,6 @@ export const HISTORY_TOOL_GROUP: TeamToolGroup = {
             }),
           );
         },
-      },
-    }),
-    defineTool({
-      name: 'get_history_search_stats',
-      audience: { roles: [] },
-      title: 'Read the private history search statistics',
-      readOnly: true,
-      description: STATS_DESCRIPTION,
-      input: {
-        since: time('The start of the period'),
-        until: time('The end of the period (default: now)'),
-        member: MemberHandle.optional().describe('Only the searches of this member.'),
-        limit: z
-          .number()
-          .int()
-          .min(1)
-          .max(HISTORY_STATS_MAX_LIMIT)
-          .optional()
-          .describe(
-            `How many searches without a result, 1–${HISTORY_STATS_MAX_LIMIT} (default ${HISTORY_STATS_DEFAULT_LIMIT}).`,
-          ),
-        cursor: z
-          .strictObject({ at: z.iso.datetime({ offset: true }), id: z.string().min(1).max(200) })
-          .optional()
-          .describe('next_cursor of the previous page.'),
-      },
-      check(args, issue) {
-        if (args.since && args.until && Date.parse(args.since) > Date.parse(args.until))
-          issue('since', 'since must not be after until');
-      },
-      async run({ ctx, args, handler }) {
-        return JSON.stringify(
-          await handler.getHistorySearchStats(ctx, {
-            ...(args.since ? { since: args.since } : {}),
-            ...(args.until ? { until: args.until } : {}),
-            ...(args.member ? { member: args.member } : {}),
-            ...(args.limit ? { limit: args.limit } : {}),
-            ...(args.cursor ? { cursor: args.cursor } : {}),
-          }),
-        );
       },
     }),
   ],

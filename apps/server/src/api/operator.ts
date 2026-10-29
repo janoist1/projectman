@@ -4,16 +4,9 @@ import {
   OperatorApprovalWaiverRequest,
   canReadOperatorKnowledge,
   SuperAuditQuery,
-  ListSuperHandoffsQuery,
   SuperOperateRequest,
 } from '@projectman/shared';
-import type {
-  ListSuperHandoffsResponse,
-  SuperHandoffDetail,
-  SuperAuditPage,
-  SuperOperateResponse,
-  SuperOperationDetail,
-} from '@projectman/shared';
+import type { SuperAuditPage, SuperOperateResponse, SuperOperationDetail } from '@projectman/shared';
 import type { ApiDomain } from './ports';
 import { forbidden } from '../kernel';
 import { requireAccess, actorOf, authorOf } from './context';
@@ -42,26 +35,6 @@ export function registerOperatorRoutes(app: FastifyInstance, deps: { domain: Api
       throw forbidden('insufficient_access', 'the audit is for the owner using their own login');
     return domain.superAudit.list(key, parseBody(SuperAuditQuery, request.query));
   });
-  /** The durable handoffs to the super-mode integrator (PM-762): the owner and the integrator's token read them. */
-  app.get<ProjectParams>(
-    routes.superHandoffs(':key'),
-    async (request): Promise<ListSuperHandoffsResponse> => {
-      const key = request.params.key;
-      await requireAccess(domain, request, key, { minimum: 'owner' });
-      const query = parseBody(ListSuperHandoffsQuery, request.query);
-      return { handoffs: domain.superHandoffs.list(key, query) };
-    },
-  );
-  /** Reads an individual handoff even after it leaves the bounded list. */
-  app.get<{ Params: { key: string; handoffId: string } }>(
-    routes.superHandoff(':key', ':handoffId'),
-    async (request): Promise<SuperHandoffDetail> => {
-      const { key, handoffId } = request.params;
-      await requireAccess(domain, request, key, { minimum: 'owner' });
-      return { handoff: domain.superHandoffs.handoff(key, handoffId) };
-    },
-  );
-
   /** The super mode's administration (PM-764): every call is bound to the project and to an engine linked to it. */
   app.post<ProjectParams>(
     routes.superOperations(':key'),

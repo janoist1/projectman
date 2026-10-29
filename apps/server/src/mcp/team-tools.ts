@@ -29,7 +29,6 @@ import type {
   ProposedRelease,
   PublishedRelease,
   PublishReleaseArgs,
-  ReleaseCheckResult,
   ScreenshotRun,
   MemberStartResult,
   TakeScreenshotsInput,
@@ -125,12 +124,6 @@ export class TeamToolsService implements TeamToolsHandler {
   }
   async readHistorySource(ctx: ToolContext, args: Parameters<HistoryToolsHandler['readHistorySource']>[1]) {
     return this.tools.history.readHistorySource(ctx, args);
-  }
-  async getHistorySearchStats(
-    ctx: ToolContext,
-    args: Parameters<HistoryToolsHandler['getHistorySearchStats']>[1],
-  ) {
-    return this.tools.history.getHistorySearchStats(ctx, args);
   }
 
   async getOperatorDiagnostics(ctx: ToolContext, args: { taskKey: string; limit?: number }) {
@@ -369,10 +362,6 @@ export class TeamToolsService implements TeamToolsHandler {
     return this.tools.releases.publishRelease(ctx, args);
   }
 
-  async checkRelease(ctx: ToolContext, args: { commit?: string }): Promise<ReleaseCheckResult> {
-    return this.tools.releases.checkRelease(ctx, args);
-  }
-
   async updateTask(
     ctx: ToolContext,
     args: {
@@ -516,14 +505,6 @@ export class TeamToolsService implements TeamToolsHandler {
 
   async getOperation(ctx: ToolContext, args: Parameters<OperatorToolsHandler['getOperation']>[1]) {
     return this.tools.operator.getOperation(ctx, args);
-  }
-
-  async getMachineStatus(ctx: ToolContext, args: Parameters<OperatorToolsHandler['getMachineStatus']>[1]) {
-    return this.tools.operator.getMachineStatus(ctx, args);
-  }
-
-  async getMachineLogs(ctx: ToolContext, args: Parameters<OperatorToolsHandler['getMachineLogs']>[1]) {
-    return this.tools.operator.getMachineLogs(ctx, args);
   }
 
   async readProjectDoc(

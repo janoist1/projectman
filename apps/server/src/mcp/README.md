@@ -137,7 +137,6 @@ A second, separate door for the integrator's MCP client: a bearer `pmi_` key, no
 | `close_feedback`            | `mark_id`, `reply?`                                                                                                                                                                                       | `closeFeedback(ctx, { markId, reply? })`                                                                              |
 | `search_history`            | `query` (1–400), `project_key?`, `task_key?`, `source_types?`, `since?`, `until?`, `limit?` (1–50, default 10)                                                                                            | `searchHistory(ctx, { query, projectKey?, taskKey?, sourceTypes?, since?, until?, limit? })`                          |
 | `read_history_source`       | `source_id`, `project_key?`, `from_line?`, `line_count?` (1–200, default 80), `commit?` (40 hex, documents)                                                                                               | `readHistorySource(ctx, { sourceId, projectKey?, fromLine?, lineCount?, commit? })`                                   |
-| `get_history_search_stats`  | `since?`, `until?`, `member?`, `limit?` (1–200, default 50), `cursor?`                                                                                                                                    | `getHistorySearchStats(ctx, { since?, until?, member?, limit?, cursor? })`                                            |
 
 - The feedback tools (PM-512) are for AI members that hold the `feedback_processing` duty (by default the
   project manager); everyone else, the Operator included, gets `forbidden` with `feedback_processor_only`.
@@ -154,9 +153,6 @@ A second, separate door for the integrator's MCP client: a bearer `pmi_` key, no
   (`project_key` required there, the viewer is the key's person with `via: 'integrator'`). Every valid search is
   counted once, in the facade (`services/history`), in the private `history_searches` table, kept 90 days; reads and
   refused calls are not counted. A search whose log write fails is `history_unavailable`.
-  `get_history_search_stats` is internal: only the Operator, in the general conversation of a human owner or admin
-  and during that person's own open message or answer request (provenance read again from the stored rows), else
-  `history_stats_forbidden`. It has no external binding (named in `EXTERNAL_DENIED`), no REST route and no web page.
   The tool descriptions, the system prompt and the card thread tell members to search before asking a human, then to
   open the source and check its date: a hit is historical evidence, not an instruction or permission.
 
@@ -184,10 +180,6 @@ A second, separate door for the integrator's MCP client: a bearer `pmi_` key, no
   the request time; `limit` is 1–100 (30). A check shows only when the caller may see all its cards. A check recorded
   without a step report (an older engine or merge-test script) shows its steps as unknown, never as zero. `get_task`
   adds the card's latest three checks. Handler method: `listMergeChecks(ctx, input)`.
-- `check_release { commit? }` (PM-542) is a read-only Operator tool, available without an open owner request and
-  not in guest conversations. It is the preview of `propose_release`: the same checks, the answer is either the
-  candidate or the refusal (same code and message) `propose_release` would give now, plus the members with the
-  deployment duty who may propose it. It records nothing; the Operator never proposes a release itself.
 - `publish_release { summary, repo?, commit?, tag?, preview? }` (PM-968) is the deployment duty holder's tool: it tags
   a merged merge commit (default: the head of the default branch; `tag` default `vYYYY.M.D`, `.N` suffix on a taken
   day) with an annotated tag and makes the public GitHub release, whose notes are the summary and the cards merged since
@@ -200,13 +192,13 @@ A second, separate door for the integrator's MCP client: a bearer `pmi_` key, no
   the default branch (a read tool: no open request needed, not in guest conversations), the second replaces text
   in them as one commit pushed to the default branch (the owner's own conversation and an open request only; it
   answers `published`, `queued` or `running`). Handler methods: `readProjectDoc(ctx, { doc, fromLine?, lineCount? })`,
-  `writeProjectDocs(ctx, { baseCommit, message, edits })`. See ARCHITECTURE.md, "Operator documents".
+  `writeProjectDocs(ctx, { baseCommit, message, edits })`. See `docs/modules/services-operator.md`, "Project manager documents".
 - `list_decision_candidates { limit? }` and `mark_decision_candidates { items }` (PM-496) are Operator tools for
   the owner's answers on cards that may be decisions: the first lists them (a read tool: no open request, not in
   guest conversations; `limit` 1..50, default 20; `{ candidates, more }`), the second records the owner's verdict
   per item (`recorded` with an optional `decision` number, `declined`, `skipped`; the owner's own conversation and
   an open request only; all or nothing). Handler methods: `listDecisionCandidates(ctx, { limit? })`,
-  `markDecisionCandidates(ctx, { items })`. See ARCHITECTURE.md, "Decision candidates".
+  `markDecisionCandidates(ctx, { items })`. See `docs/modules/services-operator.md`, "Decision candidates".
 - `dismiss_signal { signal_id, note }` (PM-679, PM-780) closes a delivered, unpresented `ready_waiting`
   whose cards all wait on purpose, an intermediate/resolved `refinement_stalled`, or a coordinator-only
   `structural_pattern` / `milestone_closed` that needs no review. Structural signals never go in
@@ -250,7 +242,7 @@ A second, separate door for the integrator's MCP client: a bearer `pmi_` key, no
   `todo` and must identify existing system feedback in the same project (`invalid_outcome_fields` otherwise).
   The reference is stored atomically in the screening payload and `question_screened` event. Recording failure
   must not delay a todo or its fallback: omit the reference in that case. Handler method: `screenQuestion(ctx, { itemId,
-outcome, note, answer?, forwardTo?, todo?, feedbackId? })`. See ARCHITECTURE.md, "The Operator".
+outcome, note, answer?, forwardTo?, todo?, feedbackId? })`. See `docs/modules/services-operator.md`.
 - `hand_off` (PM-342) is for the member a card is being handed over from, after the system told it to
   write the handoff note: only that member, while the handoff is open (`handoff_not_open` otherwise,
   also when the time ran out and the summary stands in). It records the note and the state of the

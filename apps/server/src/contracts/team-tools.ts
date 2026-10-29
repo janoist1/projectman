@@ -15,9 +15,7 @@ import type {
   FeedbackStatus,
   HistorySearchInput,
   HistorySearchResult,
-  HistorySearchStats,
   HistorySourceRead,
-  HistoryStatsInput,
   MemberHandle,
   MemberQueueItem,
   MergeCheckRun,
@@ -59,7 +57,6 @@ import type {
   ConfigChangeRow,
   ProjectDoc,
   SuperCommand,
-  SuperHandoff,
   ExternalAttachmentRead,
   ExternalDocWriteState,
   ExternalQuestionRead,
@@ -69,7 +66,6 @@ import type {
   Actor,
   AdministrationTarget,
   InboxItem,
-  ListSuperHandoffsQuery,
   HostRequestState,
   HostRequestListResponse,
   HostRequestView,
@@ -429,7 +425,7 @@ export interface PublishReleaseArgs {
 }
 
 /**
- * What check_release answers (PM-542): the rehearsal of propose_release. Either the candidate, or the refusal
+ * What the integrator's check_release answers (PM-542): the rehearsal of propose_release. Either the candidate, or the refusal
  * propose_release would give now. Nothing is recorded.
  */
 export interface ReleaseCheckResult {
@@ -657,8 +653,6 @@ export interface ReleaseToolsHandler {
    * approval; `preview` records nothing. Repeating a call finishes an interrupted publication.
    */
   publishRelease(ctx: ToolContext, args: PublishReleaseArgs): Promise<PublishedRelease>;
-  /** check_release (PM-542): only the Operator; the same checks as propose_release, nothing recorded. */
-  checkRelease(ctx: ToolContext, args: { commit?: string }): Promise<ReleaseCheckResult>;
 }
 
 /** The tools of services/email-channel (PM-941). */
@@ -759,12 +753,6 @@ export interface HistoryToolsHandler {
     ctx: ToolContext,
     args: HistorySourceReadArgs & { projectKey?: string },
   ): Promise<HistorySourceRead>;
-  /**
-   * get_history_search_stats: the private statistics of the search log. Only the Operator, in the general
-   * conversation of a human owner or admin, tied to their own open message or answer request; otherwise
-   * `history_stats_forbidden`.
-   */
-  getHistorySearchStats(ctx: ToolContext, args: HistoryStatsInput): Promise<HistorySearchStats>;
 }
 
 export interface InboxToolsHandler {
@@ -1064,16 +1052,6 @@ export interface OperatorToolsHandler {
   ): Promise<{ operation: SuperOperation }>;
   /** get_operation (PM-888): one operation of the project and, once recorded, its result. */
   getOperation(ctx: ToolContext, args: { operationId: string }): Promise<SuperOperationDetail>;
-  /** get_machine_status (PM-888): the administration status and, when the target has the capability, its machine. */
-  getMachineStatus(
-    ctx: ToolContext,
-    args: { target: AdministrationTarget },
-  ): Promise<{ status: AdministrationStatus; machine: AdministrationMachineSnapshot | null }>;
-  /** get_machine_logs (PM-888): the filtered diagnostic log of the hub or of an engine linked to the project. */
-  getMachineLogs(
-    ctx: ToolContext,
-    args: { target: AdministrationTarget } & AdministrationLogsOptions,
-  ): Promise<{ entries: DiagnosticLogEntry[] }>;
   startTask(
     ctx: ToolContext,
     args: { taskKey: string; assignee?: string; despitePrerequisites?: boolean; signalId?: string },
@@ -1227,14 +1205,6 @@ export interface ExternalToolsHandler {
     args: { taskKey: string; offset?: number; limit?: number },
   ): Promise<AttachmentPage>;
   checkRelease(ctx: ExternalToolContext, args: { commit?: string }): Promise<ReleaseCheckResult>;
-  listSuperHandoffs(
-    ctx: ExternalToolContext,
-    query: ListSuperHandoffsQuery,
-  ): Promise<{ handoffs: SuperHandoff[] }>;
-  executeSuperHandoff(
-    ctx: ExternalToolContext,
-    args: { handoffId: string; requestId: string },
-  ): Promise<{ operation: SuperOperation }>;
   superOperate(
     ctx: ExternalToolContext,
     request: SuperOperateRequest,

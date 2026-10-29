@@ -164,6 +164,27 @@ export function createMemberQueueRepository(db: Db) {
          session_id = NULL, started_at = NULL
        WHERE id = @id AND state = 'processing'`,
     ),
+    // A message item closed as delivered whose receipt says it was not: the victims of PM-1108.
+    untypedMessages: db.prepare(
+      `SELECT id FROM member_queue_items
+       WHERE source_type = 'message' AND state = 'done' AND close_reason = 'delivered' AND queued_at >= ?
+         AND EXISTS (
+           SELECT 1 FROM team_messages AS m,
+             json_each(CASE WHEN json_valid(m.receipts) THEN m.receipts ELSE '[]' END) AS r
+           WHERE m.id = member_queue_items.source_id
+             AND json_extract(r.value, '$.handle') = member_queue_items.member
+             AND json_extract(r.value, '$.kind') = 'ai'
+             AND json_extract(r.value, '$.deliveredAt') IS NULL)`,
+    ),
+    reopen: db.prepare(
+      `UPDATE member_queue_items SET state = 'queued', close_reason = NULL, closed_at = NULL,
+         session_id = NULL, started_at = NULL
+       WHERE id = @id AND state = 'done' AND close_reason = 'delivered'`,
+    ),
+    release: db.prepare(
+      `UPDATE member_queue_items SET state = 'queued', session_id = NULL, started_at = NULL
+       WHERE id = @id AND state = 'processing'`,
+    ),
     setWait: db.prepare(
       `UPDATE member_queue_items SET wait_code = @code, wait_at = @at, wait_details = @details
        WHERE id = @id AND state = 'queued'`,
@@ -324,6 +345,18 @@ export function createMemberQueueRepository(db: Db) {
     /** A processing item goes back to the queue, one attempt more (its session ended or got stuck). */
     requeue(id: string, at: string): boolean {
       return statements.requeue.run({ id, at }).changes > 0;
+    },
+    /** The ids of the message items queued since `since` that were closed as delivered while the receipt is still pending. */
+    listUntypedMessages(since: string): string[] {
+      return (statements.untypedMessages.all(since) as Array<{ id: string }>).map((row) => row.id);
+    },
+    /** Opens a closed item again (a message item that was closed as delivered without being typed). */
+    reopen(id: string): boolean {
+      return statements.reopen.run({ id }).changes > 0;
+    },
+    /** A processing item goes back to the queue without a try counted (it was claimed but never reached the session). */
+    release(id: string): boolean {
+      return statements.release.run({ id }).changes > 0;
     },
     /** Notes why the queued item has not been started, and since when it was last seen so. */
     setWait(id: string, code: string, at: string, details?: MemberQueueWaitDetails): boolean {

@@ -102,6 +102,26 @@ interface HeldNotice {
 /** Pauses before a message the session did not take is typed again (PM-571); the last one repeats no more. */
 const RETRY_DELAYS_MS = [10_000, 30_000, 60_000, 120_000, 300_000];
 
+/** How long the header of a message batch waits for the commit of the card's branch (PM-1108): a slow engine leaves it out. */
+const HEAD_WAIT_MS = 3_000;
+
+/** The head the read finds within `HEAD_WAIT_MS`, else null (a late or failed read is dropped). */
+function withinHeadWait<T>(read: Promise<T | null>): Promise<T | null> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(null), HEAD_WAIT_MS);
+    read.then(
+      (head) => {
+        clearTimeout(timer);
+        resolve(head);
+      },
+      () => {
+        clearTimeout(timer);
+        resolve(null);
+      },
+    );
+  });
+}
+
 function recipientKey(projectKey: string, handle: string, workItem: WorkItemRef): string {
   const wi = encodeWorkItem(workItem);
   return `${projectKey}:${handle}:${wi.type}:${wi.ref}`;
@@ -345,7 +365,9 @@ export const makeMessageDelivery = (deps: DeliveryDeps): Effect.Effect<DeliveryE
         const config = yield* Effect.promise(() => projects.config(projectKey));
         const taskKey = workItem.type === 'task' ? workItem.taskKey : null;
         const source = taskKey ? ctx.repos.tasks.get(taskKey) : null;
-        const head = source ? yield* Effect.promise(() => sessions.sourceHead(config, source)) : null;
+        const head = source
+          ? yield* Effect.promise(() => withinHeadWait(sessions.sourceHead(config, source)))
+          : null;
         const task = taskKey ? ctx.repos.tasks.get(taskKey) : null;
         const stage = task ? stageOf(config, task.stageId) : null;
         const card = task

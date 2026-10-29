@@ -88,6 +88,7 @@ export async function createDomainHarness(
     scheduleTimer?: ScheduleTimer;
     handOffRetryMs?: number;
     memberQueueSweepMs?: number;
+    retryDebounceMs?: number;
     /** True: the Operator screens AI members' questions first (PM-558); default false in tests. */
     screenQuestions?: boolean;
     doneTurnLimitMs?: number;
@@ -342,6 +343,8 @@ export async function createDomainHarness(
     obligationSweepMs: 3_600_000,
     // And the member queue's sweep: tests call `domain.memberQueueDriver.sweep()` after changing a limit.
     memberQueueSweepMs: opts.memberQueueSweepMs ?? 3_600_000,
+    // The events' retry runs at once in tests; the debounce has its own test.
+    retryDebounceMs: opts.retryDebounceMs ?? 0,
     ...(opts.integratorTodoAccess ? { integratorTodoAccess: opts.integratorTodoAccess } : {}),
     freeDiskBytes: opts.freeDiskBytes,
     heavyRunSessions: opts.heavyRunSessions,

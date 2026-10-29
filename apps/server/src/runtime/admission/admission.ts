@@ -47,7 +47,7 @@ import type { ProjectService } from '../../core/projects';
 import type { EnsureSessionResult, SessionOrchestrator, SessionStartCause } from '../sessions';
 import { prerequisiteCards } from '../../core/tasks';
 import type { TaskService } from '../../core/tasks';
-import { KeyedMutex } from '../../kernel';
+import { KeyedMutex, withoutIntegratorExecution } from '../../kernel';
 import type { AutomaticStart, DeferredStart, DeferredStarts, StartSpec } from './deferred-starts';
 import {
   assertAiEnabled,
@@ -79,6 +79,9 @@ interface AdmissionRequest {
   /** Why the session starts (PM-249): the card's other workers are told with it. */
   cause?: SessionStartCause;
 }
+
+/** How long an event's request for a retry waits for the others of its burst. */
+const RETRY_DEBOUNCE_MS = 750;
 
 /** What `retryDeferred` asks of the urgent pull (PM-436). */
 export interface UrgentPulling {
@@ -117,6 +120,9 @@ export class Admission {
   private round: StartRounding | undefined;
   private retrying: Promise<void> | null = null;
   private retryAgain = false;
+  private readonly retryDebounceMs: number;
+  private requestedRetry: ReturnType<typeof setTimeout> | undefined;
+  private disposed = false;
   private queueRetry: (() => Promise<void>) | undefined;
   private readonly onOutageRefusal?: (
     projectKey: string,
@@ -141,7 +147,10 @@ export class Admission {
     disk?: Pick<DiskGuard, 'assertRoom'>;
     /** The engines (PM-311): a member whose engine is not connected waits (`engine_offline`). */
     engines?: Pick<EngineDirectory, 'engineFor' | 'projectEngine' | 'get'>;
+    /** How long a requested retry waits to join the ones that follow it (default `RETRY_DEBOUNCE_MS`). */
+    retryDebounceMs?: number;
   }) {
+    this.retryDebounceMs = deps.retryDebounceMs ?? RETRY_DEBOUNCE_MS;
     this.disk = deps.disk;
     this.engines = deps.engines;
     this.ctx = deps.ctx;
@@ -593,6 +602,7 @@ export class Admission {
    * callers get the result of the last.
    */
   retryDeferred(): Promise<void> {
+    this.cancelRequestedRetry();
     if (this.retrying) {
       this.retryAgain = true;
       return this.retrying;
@@ -613,6 +623,42 @@ export class Admission {
       }
     })();
     return this.retrying;
+  }
+
+  /**
+   * What an event that could free a place, a limit or a hold asks for: a `retryDeferred` shortly after, the
+   * requests of one burst (a session's end moves a card, a label, an idle) joined into one. The timer and
+   * the callers that wait for the result call `retryDeferred` itself.
+   */
+  requestRetry(): void {
+    if (this.disposed || this.requestedRetry) return;
+    if (this.retryDebounceMs <= 0) {
+      this.runRequestedRetry();
+      return;
+    }
+    this.requestedRetry = setTimeout(() => this.runRequestedRetry(), this.retryDebounceMs);
+    this.requestedRetry.unref?.();
+  }
+
+  private runRequestedRetry(): void {
+    this.requestedRetry = undefined;
+    // Autonomous work keeps its own system authority, not that of the request that asked for it.
+    withoutIntegratorExecution(() => this.retryDeferred()).catch((err: unknown) => {
+      this.ctx.logger.warn({ err }, 'deferred start retry failed');
+    });
+  }
+
+  /** A retry that runs now covers the one asked for and not yet started. */
+  private cancelRequestedRetry(): void {
+    if (this.requestedRetry) clearTimeout(this.requestedRetry);
+    this.requestedRetry = undefined;
+  }
+
+  /** No retry is asked for any more (the server stops); resolves when the round that is running has ended. */
+  async dispose(): Promise<void> {
+    this.disposed = true;
+    this.cancelRequestedRetry();
+    await this.retrying?.catch(() => {});
   }
 
   private async retryRound(): Promise<void> {

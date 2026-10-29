@@ -334,6 +334,213 @@ describe('the member queue driver', () => {
     });
   });
 
+  describe('what a run delivers and when it retries (PM-1108)', () => {
+    const at = () => new Date().toISOString();
+    const todoLane: MemberQueueLane = {
+      kinds: ['todo'],
+      completion: 'delivery',
+      oneAtATime: false,
+      cause: () => ({ kind: 'message', by: { kind: 'system', handle: null } }),
+      render: (item) => `Please do: ${item.title}`,
+      stillOwed: () => true,
+      hold: async () => null,
+    };
+    const enqueueTodo = (id: string) =>
+      h.repos.memberQueue.insert({
+        id,
+        projectKey: 'AR',
+        member: 'dev-1',
+        kind: 'todo',
+        source: { type: 'inbox', id },
+        place: general,
+        taskKey: null,
+        wake: true,
+        title: id,
+        from: null,
+        queuedAt: at(),
+      });
+
+    describe('with a free slot', () => {
+      beforeEach(async () => {
+        h = await createDomainHarness();
+        driver().register(todoLane);
+      });
+
+      it('keeps a message queued when the first input of the started session carries only the other item', async () => {
+        h.runner.holdFirstInput = true;
+        enqueueTodo('probe-1');
+        // From a team member: a person's message is also typed by the session's own hooks, an AI's waits for its turn.
+        const message = record('dev-1', null, { from: 'dev-2' });
+        await driver().ensure('AR', 'dev-1');
+        const sessionId = h.runner.started[0]!.sessionId;
+        expect(h.runner.started[0]!.initialMessage).not.toContain('Fictional news.');
+
+        h.runner.emit({ type: 'first_input_sent', sessionId });
+        await vi.waitFor(() =>
+          expect(h.repos.memberQueue.get('probe-1')).toMatchObject({
+            state: 'done',
+            closeReason: 'delivered',
+          }),
+        );
+        expect(items().map((item) => item.kind)).toEqual(['message']);
+        expect(h.repos.messages.get(message.id)?.deliveredAt).toBeNull();
+
+        // The message is typed at the next turn boundary.
+        h.runner.setState(sessionId, 'idle');
+        await driver().ensure('AR', 'dev-1', { net: true });
+        await vi.waitFor(() => expect(h.repos.messages.get(message.id)?.deliveredAt).toBeTruthy());
+        expect(h.runner.messages.map((m) => m.text).join('\n')).toContain('Fictional news.');
+      });
+
+      it('does not hold the admission lock while the first input of a start is read from the engine', async () => {
+        await h.domain.tasks.create('AR', { title: 'Fictional card' }, OWNER_ACTOR);
+        let release: (head: null) => void = () => {};
+        const reading = new Promise<null>((resolve) => (release = resolve));
+        const read = vi.spyOn(h.domain.sessions, 'sourceHead').mockReturnValue(reading);
+        const message = record('dev-1', 'AR-1');
+        const run = driver().ensure('AR', 'dev-1');
+        await vi.waitFor(() => expect(read).toHaveBeenCalled());
+
+        expect(await h.domain.admission.exclusive(async () => 'free')).toBe('free');
+        release(null);
+        await run;
+        expect(h.repos.messages.get(message.id)?.deliveredAt).toBeTruthy();
+      });
+
+      it('releases an item whose typing failed without counting an attempt, and counts the session that ended with it', async () => {
+        driver().register({ ...todoLane, kinds: ['checklist'], completion: 'source', oneAtATime: true });
+        const chat = (await h.domain.sessions.ensureSession('AR', 'dev-1', general)).session;
+        h.runner.setState(chat.id, 'idle');
+        h.repos.memberQueue.insert({
+          id: 'probe-2',
+          projectKey: 'AR',
+          member: 'dev-1',
+          kind: 'checklist',
+          source: { type: 'inbox', id: 'probe-2' },
+          place: general,
+          taskKey: null,
+          wake: false,
+          title: 'probe-2',
+          from: null,
+          queuedAt: at(),
+        });
+        for (let failure = 0; failure < 2; failure++) {
+          h.runner.failNextSend = new Error('the CLI did not take it');
+          await driver().ensure('AR', 'dev-1');
+          expect(h.repos.memberQueue.get('probe-2')).toMatchObject({
+            state: 'queued',
+            attempts: 0,
+            sessionId: null,
+          });
+        }
+
+        h.runner.setState(chat.id, 'working');
+        expect(h.repos.memberQueue.claim('probe-2', 'ses-gone', at())).toBe(true);
+        await driver().ensure('AR', 'dev-1');
+        expect(h.repos.memberQueue.get('probe-2')).toMatchObject({ state: 'queued', attempts: 1 });
+      });
+    });
+
+    describe('with one slot', () => {
+      beforeEach(async () => {
+        h = await createDomainHarness({ adjust: oneAiSlot });
+        await h.domain.tasks.create('AR', { title: 'Fictional card' }, OWNER_ACTOR);
+      });
+
+      it('retries only the members whose queue holds a waiting item', async () => {
+        const busy = (await h.domain.sessions.ensureSession('AR', 'dev-2', general)).session;
+        h.runner.setState(busy.id, 'working');
+        const started = h.runner.started.length;
+        const message = record('dev-1', 'AR-1');
+        // dev-2 holds an item that waits for nothing: it is no business of the retry.
+        record('dev-2', 'AR-1', { from: 'dev-1' });
+        await driver().ensure('AR', 'dev-1');
+        expect(h.repos.memberQueue.listWaiting().map((item) => item.member)).toEqual(['dev-1']);
+
+        h.runner.setState(busy.id, 'idle');
+        const ensure = vi.spyOn(driver(), 'ensure');
+        await driver().retryWaiting();
+
+        // The start's own events ask the driver again, for the same member.
+        expect([...new Set(ensure.mock.calls.map(([, member]) => member))]).toEqual(['dev-1']);
+        expect(h.runner.started).toHaveLength(started + 1);
+        expect(h.repos.messages.get(message.id)?.deliveredAt).toBeTruthy();
+      });
+    });
+
+    describe('with a debounce', () => {
+      beforeEach(async () => {
+        h = await createDomainHarness({ retryDebounceMs: 30 });
+      });
+
+      it('runs one retry for a burst of requests, a moment later', async () => {
+        const retry = vi.spyOn(h.domain.admission, 'retryDeferred');
+        h.domain.admission.requestRetry();
+        h.domain.admission.requestRetry();
+        h.domain.admission.requestRetry();
+        expect(retry).not.toHaveBeenCalled();
+
+        await vi.waitFor(() => expect(retry).toHaveBeenCalledTimes(1));
+        await new Promise((resolve) => setTimeout(resolve, 80));
+        expect(retry).toHaveBeenCalledTimes(1);
+      });
+
+      it('asks for no retry after the stop and waits for the round that runs', async () => {
+        const retry = vi.spyOn(h.domain.admission, 'retryDeferred');
+        h.domain.admission.requestRetry();
+        const running = h.domain.admission.retryDeferred();
+        let ended = false;
+        void running.then(() => (ended = true));
+        retry.mockClear();
+
+        await h.domain.admission.dispose();
+        expect(ended).toBe(true);
+
+        h.domain.admission.requestRetry();
+        await new Promise((resolve) => setTimeout(resolve, 80));
+        expect(retry).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('after a restart', () => {
+      beforeEach(async () => {
+        h = await createDomainHarness({
+          adjust: (config) => void (config.team.limits.aiEnabled = false),
+        });
+        await h.domain.tasks.create('AR', { title: 'Fictional card' }, OWNER_ACTOR);
+      });
+
+      it('opens a message again that was closed as delivered without being typed', async () => {
+        const message = record('dev-1', 'AR-1');
+        h.repos.db
+          .prepare(
+            "UPDATE member_queue_items SET state = 'done', close_reason = 'delivered', closed_at = ? WHERE source_id = ?",
+          )
+          .run(at(), message.id);
+        expect(items()).toEqual([]);
+
+        await h.domain.memberQueue.recover();
+
+        expect(items()).toEqual([expect.objectContaining({ state: 'queued', closeReason: null })]);
+        expect(h.repos.messages.get(message.id)?.deliveredAt).toBeNull();
+      });
+
+      it('leaves a message closed as delivered alone once its receipt says it was typed', async () => {
+        const message = record('dev-1', 'AR-1');
+        h.domain.messages.markRecipientDelivered(message.id, 'dev-1');
+        h.repos.db
+          .prepare(
+            "UPDATE member_queue_items SET state = 'done', close_reason = 'delivered', closed_at = ? WHERE source_id = ?",
+          )
+          .run(at(), message.id);
+
+        await h.domain.memberQueue.recover();
+
+        expect(items()).toEqual([]);
+      });
+    });
+  });
+
   describe('a message that came from before the queue woke members (phase-out)', () => {
     beforeEach(async () => {
       h = await createDomainHarness({

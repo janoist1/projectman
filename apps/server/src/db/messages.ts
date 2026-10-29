@@ -127,6 +127,12 @@ export function createMessageRepository(db: Db) {
        AND EXISTS (SELECT 1 FROM json_each(to_handles) WHERE value = ?)
        AND instr(body, ?) > 0 LIMIT 1`,
     ),
+    hasEventNote: db.prepare(
+      `SELECT 1 FROM team_messages WHERE project_key = ? AND task_key = ? AND from_handle = ? AND body = ?
+       AND EXISTS (SELECT 1 FROM json_each(to_handles) WHERE value = ?)
+       AND CASE WHEN json_valid(origin) THEN json_extract(origin, '$.kind') ELSE NULL END = 'note'
+       AND CASE WHEN json_valid(origin) THEN json_extract(origin, '$.eventId') ELSE NULL END = ? LIMIT 1`,
+    ),
     insert: db.prepare(
       `INSERT INTO team_messages (id, project_key, from_handle, to_handles, task_key, body, created_at, delivered_at, receipts, answer, via, origin, kind, version, subject, relayed, operator_request, operator_signal, attachments, actor_meta, email, location, places)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -218,6 +224,14 @@ export function createMessageRepository(db: Db) {
         recipient,
         message.id,
       );
+    },
+    /** Whether the card already has this note (`origin: note`) of the event, from `from`, to `to`, with this text. */
+    hasEventNote(
+      projectKey: string,
+      taskKey: string,
+      note: { from: string; to: string; body: string; eventId: string },
+    ): boolean {
+      return !!statements.hasEventNote.get(projectKey, taskKey, note.from, note.body, note.to, note.eventId);
     },
     /** Whether `from` already sent `to` a message whose text holds `marker` (a once-only note's own key). */
     hasNote(projectKey: string, from: string, to: string, marker: string): boolean {

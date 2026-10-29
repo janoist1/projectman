@@ -83,16 +83,12 @@ export async function notifyMerge(
               : `Merge ${row.taskKey}'s approved commit into ${row.repo}/${row.base} before entering ${row.toStageId}. Call merge_task; never merge or push manually.`;
   if (
     event &&
-    deps.ctx.repos.messages
-      .list(row.projectKey, { taskKey: row.taskKey })
-      .some(
-        (message) =>
-          message.from === 'system' &&
-          message.to.includes(row.merger) &&
-          message.body === text &&
-          message.origin?.kind === 'note' &&
-          message.origin.eventId === event.id,
-      )
+    deps.ctx.repos.messages.hasEventNote(row.projectKey, row.taskKey, {
+      from: 'system',
+      to: row.merger,
+      body: text,
+      eventId: event.id,
+    })
   )
     return;
   await deps.messaging.send(

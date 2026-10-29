@@ -9,6 +9,9 @@ import type { ProjectService } from '../../core/projects';
 
 const GB = 1024 ** 3;
 
+/** How long a measurement of the free disk space serves the admission checks (the `disk` watcher measures afresh). */
+const FREE_DISK_CACHE_MS = 60_000;
+
 /**
  * Free disk space (PM-243). A full disk froze the owner's machine, so below the project's
  * `minFreeDiskGb` the owners get one `alert` (kept open while the space is short, and withdrawn once
@@ -24,6 +27,8 @@ export class DiskGuard {
   private readonly engines: EngineDirectory | undefined;
   /** Projects whose owners were warned of the shortage that lasts. */
   private readonly told = new Set<string>();
+  /** The last successful measurement per engine ('' for the unspecified one), for `assertRoom`. */
+  private readonly measured = new Map<string, { at: number; free: number }>();
 
   constructor(deps: {
     ctx: DomainContext;
@@ -62,9 +67,24 @@ export class DiskGuard {
     }
   }
 
-  /** Throws `disk_low` when the project's limit is not met; raises or withdraws the alert as it finds. */
+  /** The measurement `assertRoom` uses: at most `FREE_DISK_CACHE_MS` old, so a round of starts asks the engine once. */
+  private async freeCached(engineId?: EngineId): Promise<number | null> {
+    const key = engineId ?? '';
+    const known = this.measured.get(key);
+    if (known && Date.now() - known.at < FREE_DISK_CACHE_MS) return known.free;
+    const free = await this.free(engineId);
+    // A failed measurement is asked again at the next start, not remembered.
+    if (free === null) this.measured.delete(key);
+    else this.measured.set(key, { at: Date.now(), free });
+    return free;
+  }
+
+  /**
+   * Throws `disk_low` when the project's limit is not met; raises or withdraws the alert as it finds. The
+   * free space is the cached measurement (`FREE_DISK_CACHE_MS`): admission asks for every start.
+   */
   async assertRoom(config: ProjectConfig, engineId?: EngineId): Promise<void> {
-    const state = await this.evaluate(config, await this.free(engineId));
+    const state = await this.evaluate(config, await this.freeCached(engineId));
     if (state.low)
       throw conflict(
         'disk_low',
@@ -75,6 +95,8 @@ export class DiskGuard {
 
   /** Every project: one measurement, then the alert raised or withdrawn per project. */
   async check(): Promise<void> {
+    // The watcher's reading is newer than any cached one: the admission checks measure afresh after it.
+    this.measured.clear();
     const free = await this.free();
     for (const summary of this.projects.summaries()) {
       const config = this.projects.cachedConfig(summary.key);

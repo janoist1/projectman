@@ -424,8 +424,8 @@ export const api = {
       { schema: TeamMessagesView },
     ),
 
-  /** Every open item, never cut off: what waits for someone. */
-  inbox: (key: string) => apiRequest(`${routes.inbox(key)}?state=open`, { schema: InboxView }),
+  /** Every item that has not ended (open or screening, combined questions too), never cut off: what waits for someone. */
+  inbox: (key: string) => apiRequest(`${routes.inbox(key)}?state=active`, { schema: InboxView }),
   /** The newest closed items (resolved, expired, cancelled): the "recently decided" lists. */
   inboxHistory: (key: string, limit: number) =>
     apiRequest(`${routes.inbox(key)}?state=closed&limit=${limit}`, { schema: InboxView }),

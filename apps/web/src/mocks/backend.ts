@@ -3181,12 +3181,14 @@ export class MockBackend {
       this.sweepIntegratorTodos(nowIso());
       // Like the server: open items by default and never cut off; any other state is a history, the newest N.
       const wanted = query.get('state') ?? 'open';
-      const limit = Number(query.get('limit')) || (wanted === 'open' ? Infinity : 500);
+      const limit = Number(query.get('limit')) || (wanted === 'open' || wanted === 'active' ? Infinity : 500);
       const inState = (item: InboxItem) =>
         wanted === 'all' ||
         (wanted === 'closed'
           ? ['resolved', 'expired', 'cancelled'].includes(item.state)
-          : item.state === wanted);
+          : wanted === 'active'
+            ? ['open', 'screening'].includes(item.state)
+            : item.state === wanted);
       // Use the shared privacy rule, including private knowledge approvals.
       return ok({
         items: clone(

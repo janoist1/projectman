@@ -8,6 +8,7 @@ import {
   useBoard,
   useEngineStatus,
   useInbox,
+  useInboxHistory,
   useLabels,
   useResolveInbox,
   useSchedules,
@@ -23,7 +24,7 @@ import { t } from '../../i18n/t';
 import type { PlainMessageKey } from '../../i18n/t';
 import { errorCode, errorMessage } from '../../lib/errors';
 import { useDocumentTitle, useIsMobile, useMediaQuery } from '../../lib/hooks';
-import { openItemIds, openItemsFor } from '../../lib/inbox';
+import { openItemIds, openItemsFor, withHistory } from '../../lib/inbox';
 import { nameOf } from '../../lib/members';
 import { closureTexts, isLiveSession, sessionClosure } from '../../lib/sessions';
 import { deriveTaskState, groupOpenInboxByTask } from '../../lib/taskState';
@@ -93,9 +94,11 @@ function SessionView({ detail }: { detail: SessionDetail }) {
   useDocumentTitle(title);
 
   const items = inbox.data?.items;
+  // The decided permissions stay in the chat: they are in the closed history, not in the live list.
+  const history = useInboxHistory(key).data?.items;
   const sessionItems = useMemo(
-    () => (items ?? []).filter((item) => item.sessionId === session.id),
-    [items, session.id],
+    () => (withHistory(items, history) ?? []).filter((item) => item.sessionId === session.id),
+    [items, history, session.id],
   );
   const openItems = openItemsFor(sessionItems, myHandle);
   const resolvedPermissions = sessionItems.filter(

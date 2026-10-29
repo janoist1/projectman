@@ -806,7 +806,7 @@ export function useLogoutFeedbackMarker(key: string) {
 
 /* ---------- inbox ---------- */
 
-/** The open items: every one of them, however old (they are what waits for someone). */
+/** The items that have not ended (open, screening): every one of them, however old (they are what waits for someone). */
 export function useInbox(key: string) {
   return useQuery({ queryKey: queryKeys.inbox(key), queryFn: () => api.inbox(key) });
 }

@@ -24,12 +24,16 @@ type ItemParams = { Params: { key: string; itemId: string } };
 
 const HISTORY_LIMIT = 500;
 const CLOSED_STATES: readonly InboxState[] = ['resolved', 'expired', 'cancelled'];
+const ACTIVE_STATES: readonly InboxState[] = ['open', 'screening'];
 
 const InboxQuery = z.object({
-  /** Default "open"; "closed" is resolved, expired and cancelled together; "all" returns every state. */
-  state: z.union([InboxState, z.enum(['all', 'closed'])]).optional(),
+  /**
+   * Default "open". "active" is what has not ended: open and screening items, a question combined into
+   * another one included. "closed" is resolved, expired and cancelled together; "all" returns every state.
+   */
+  state: z.union([InboxState, z.enum(['all', 'active', 'closed'])]).optional(),
   kind: InboxKind.optional(),
-  /** The newest N items. Without it: every open item, and the newest 500 of any other state. */
+  /** The newest N items. Without it: every open or active item, and the newest 500 of any other state. */
   limit: z.coerce.number().int().min(1).max(HISTORY_LIMIT).optional(),
   /** "true" limits the list to items assigned to the current user. */
   mine: z.enum(['true', 'false', '1', '0']).optional(),
@@ -51,14 +55,23 @@ export function registerInboxRoutes(app: FastifyInstance, domain: ApiDomain): vo
     const access = await requireAccess(domain, request, key);
     const query = parseBody(InboxQuery, request.query);
     const requested = query.state ?? 'open';
-    const state = requested === 'all' ? undefined : requested === 'closed' ? CLOSED_STATES : requested;
+    const state =
+      requested === 'all'
+        ? undefined
+        : requested === 'closed'
+          ? CLOSED_STATES
+          : requested === 'active'
+            ? ACTIVE_STATES
+            : requested;
     const mine = query.mine === 'true' || query.mine === '1';
+    // The wide reads keep a question combined into another: the card's group marker reads it. A single state hides it.
+    const keepLinked = requested === 'all' || requested === 'active' || requested === 'closed';
     // What is open is never cut off (every open item is a person's to do); any other state is a history: the newest N.
-    const limit = query.limit ?? (requested === 'open' ? undefined : HISTORY_LIMIT);
+    const limit = query.limit ?? (requested === 'open' || requested === 'active' ? undefined : HISTORY_LIMIT);
     const items = domain.inbox
       .list(key, { state, kind: query.kind, limit })
       .filter((item) => canSeeInboxItem(access, item) && (!mine || humanInboxAssignment(item, access.handle)))
-      .filter((item) => requested === 'all' || requested === 'closed' || !isLinkedQuestion(item))
+      .filter((item) => keepLinked || !isLinkedQuestion(item))
       .map((item) => visibleQuestionItem(access, item, (taskKey) => !!domain.tasks.find(key, taskKey)));
     return { items: await domain.inbox.withAskerStart(key, items) };
   });

@@ -72,7 +72,7 @@ describe('inbox history', () => {
     project.render(<InboxPage />, '/p/AC/inbox');
     expect(await screen.findByText('npm test', { selector: 'code' })).toBeTruthy();
     const reads = project.requests.filter((request) => request.path.includes('/inbox?')).map((r) => r.path);
-    expect(reads).toContain('/api/projects/AC/inbox?state=open');
+    expect(reads).toContain('/api/projects/AC/inbox?state=active');
     expect(reads.some((path) => /state=closed&limit=\d+$/.test(path))).toBe(true);
     expect(reads.some((path) => path.includes('state=all'))).toBe(false);
   });

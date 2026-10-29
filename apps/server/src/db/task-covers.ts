@@ -34,6 +34,7 @@ const toRecord = (row: CoverRow): TaskCoverRecord => ({
 /** One cover choice per task: the next choice replaces it, deleting the pinned file removes it. */
 export function createTaskCoverRepository(db: Db) {
   const find = db.prepare('SELECT * FROM task_covers WHERE task_key = ?');
+  const findMany = db.prepare('SELECT * FROM task_covers WHERE task_key IN (SELECT value FROM json_each(?))');
   const put = db.prepare(
     `INSERT INTO task_covers (project_key, task_key, mode, attachment_id, set_at, set_by_kind, set_by_handle)
      VALUES (@projectKey, @taskKey, @mode, @attachmentId, @setAt, @setByKind, @setByHandle)
@@ -48,6 +49,14 @@ export function createTaskCoverRepository(db: Db) {
     get(taskKey: string): TaskCoverRecord | null {
       const row = find.get(taskKey) as CoverRow | undefined;
       return row ? toRecord(row) : null;
+    },
+    /** The choices of many tasks in one read: task key → choice, for the tasks that have one. */
+    choicesOf(taskKeys: readonly string[]): Map<string, TaskCoverChoice> {
+      const choices = new Map<string, TaskCoverChoice>();
+      if (taskKeys.length === 0) return choices;
+      for (const row of findMany.all(JSON.stringify(taskKeys)) as CoverRow[])
+        choices.set(row.task_key, toRecord(row).choice);
+      return choices;
     },
     save(record: TaskCoverRecord): void {
       put.run({

@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setFetchImplementation } from './client';
 import { mockProject } from '../test/mockProject';
 import { browserHash, browserSubscription, fakeBrowser, resetFakeBrowser } from '../test/pushBrowser';
-import { useBoard, useLogout, useTaskDetail, useUpdateTask } from './queries';
+import { useBoard, useCancelTask, useLogout, useReopenTask, useTaskDetail, useUpdateTask } from './queries';
 
 vi.mock('../lib/pushBrowser', async () => (await import('../test/pushBrowser')).pushBrowserModule);
 
@@ -73,6 +73,56 @@ describe('task edit', () => {
       expect.stringMatching(/\/board$/),
     );
   });
+});
+
+function LifecycleProbe() {
+  const board = useBoard('AC');
+  const detail = useTaskDetail('AC', 'AC-21');
+  const cancel = useCancelTask('AC');
+  const reopen = useReopenTask('AC');
+  return (
+    <>
+      <output>{board.data?.tasks.find((task) => task.key === 'AC-21')?.status}</output>
+      <button
+        type="button"
+        disabled={!detail.data}
+        onClick={() => cancel.mutate({ taskKey: 'AC-21', body: {} })}
+      >
+        cancel
+      </button>
+      <button type="button" disabled={!detail.data} onClick={() => reopen.mutate('AC-21')}>
+        reopen
+      </button>
+    </>
+  );
+}
+
+describe('task lifecycle', () => {
+  it.each(['cancel', 'reopen'])(
+    '%s reads back only the task detail, not the project (PM-1109)',
+    async (action) => {
+      const project = mockProject();
+      project.render(<LifecycleProbe />);
+      const cancel = await screen.findByRole('button', { name: 'cancel' });
+      await waitFor(() => expect((cancel as HTMLButtonElement).disabled).toBe(false));
+      if (action === 'reopen') {
+        fireEvent.click(cancel);
+        await screen.findByText('cancelled');
+        await waitFor(() =>
+          expect(project.requests.filter((r) => r.method === 'GET').length).toBeGreaterThan(0),
+        );
+      }
+      project.requests.length = 0;
+      fireEvent.click(screen.getByRole('button', { name: action }));
+      await waitFor(() => expect(project.requests.filter((r) => r.method === 'POST')).toHaveLength(1));
+      await waitFor(() =>
+        expect(project.requests.filter((r) => r.method === 'GET').length).toBeLessThanOrEqual(1),
+      );
+      expect(project.requests.filter((r) => r.method === 'GET').map((r) => r.path)).not.toContainEqual(
+        expect.stringMatching(/\/(board|project-manager)$/),
+      );
+    },
+  );
 });
 
 describe('logout', () => {

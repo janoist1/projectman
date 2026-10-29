@@ -13,7 +13,7 @@ import { encodeWorkItem } from '../../db';
 import type { DomainContext } from '../../core/base';
 import { runPromise } from '../../kernel';
 import type { MessageService } from '../../core/messages';
-import { senderResultLabelFor, staleReasonFor } from '../../core/messages';
+import { roundEventsOnce, senderResultLabelFor, staleReasonFor } from '../../core/messages';
 import type { ProjectService } from '../../core/projects';
 import { MAX_FIRST_INPUT_CHARS, MESSAGE_SEPARATOR } from '../sessions';
 import type { EnsureSessionResult, SessionOrchestrator } from '../sessions';
@@ -177,6 +177,7 @@ export const makeMessageDelivery = (deps: DeliveryDeps): Effect.Effect<DeliveryE
         if (!config || session.workItem.type !== 'task') return;
         const task: Task | null = ctx.repos.tasks.get(session.workItem.taskKey);
         if (!task || task.assignee !== session.member) return;
+        const roundEvents = roundEventsOnce(ctx);
         const fromReviewer = (message: TeamMessage) => {
           const sender = memberOf(config, message.from);
           return (
@@ -184,7 +185,7 @@ export const makeMessageDelivery = (deps: DeliveryDeps): Effect.Effect<DeliveryE
             (message.kind ?? 'action') === 'action' &&
             message.taskKey === task.key &&
             memberDuties(config, sender).some((duty) => REVIEW_DUTIES.includes(duty)) &&
-            staleReasonFor(ctx, config, message, session.member) === null
+            staleReasonFor(ctx, config, message, session.member, roundEvents) === null
           );
         };
         if (!batchMessages.some(fromReviewer)) return;
@@ -378,34 +379,34 @@ export const makeMessageDelivery = (deps: DeliveryDeps): Effect.Effect<DeliveryE
               labels: task.labels,
             }
           : null;
-        const batch: TeamMessage[] = [];
+        // Each message's facts are read once, and the card's history once for the whole batch (PM-1105):
+        // a send-back wakes the assignee with everything that waited during the review.
+        const roundEvents = roundEventsOnce(ctx);
+        const entryOf = (m: TeamMessage) => ({
+          from: m.from,
+          via: m.via,
+          actor: m.actor,
+          taskKey: m.taskKey,
+          body: m.body,
+          attachments: m.attachments,
+          email: m.email,
+          location: m.location,
+          kind: m.kind ?? 'action',
+          sentAt: m.createdAt,
+          version: m.version,
+          stale: staleReasonFor(ctx, config, m, handle, roundEvents) ?? undefined,
+          staleDetail: senderResultLabelFor(ctx, config, m, handle, roundEvents) ?? stage?.name,
+        });
+        const entries: ReturnType<typeof entryOf>[] = [];
         let text = '';
         for (const message of waiting) {
-          const next = [...batch, message];
-          const candidate = formatTeamMessageBatch(
-            taskKey,
-            card,
-            next.map((m) => ({
-              from: m.from,
-              via: m.via,
-              actor: m.actor,
-              taskKey: m.taskKey,
-              body: m.body,
-              attachments: m.attachments,
-              email: m.email,
-              location: m.location,
-              kind: m.kind ?? 'action',
-              sentAt: m.createdAt,
-              version: m.version,
-              stale: staleReasonFor(ctx, config, m, handle) ?? undefined,
-              staleDetail: senderResultLabelFor(ctx, config, m, handle) ?? stage?.name,
-            })),
-          );
+          const entry = entryOf(message);
+          const candidate = formatTeamMessageBatch(taskKey, card, [...entries, entry]);
           if (candidate.length + MESSAGE_SEPARATOR.length > MAX_FIRST_INPUT_CHARS) break;
-          batch.push(message);
+          entries.push(entry);
           text = candidate;
         }
-        return { text, messages: batch };
+        return { text, messages: waiting.slice(0, entries.length) };
       });
 
     /** Claims one snapshot of waiting messages and types it as a single input at idle. */

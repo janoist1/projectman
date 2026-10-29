@@ -4466,6 +4466,12 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   clean up descendants when the supervisor dies. **Remote engine:** the supervisor and guard
   run where the tests execute (GitHub Actions or the engine); only existing output and verdict
   data cross the boundary. No new server/engine contract.
+- **Child-guard cleanup permissions (PM-1132)** — `scripts/lib/child-guard.mjs` ignores
+  `ESRCH` and `EPERM` when signaling the child process group, preserving the child's exit
+  status when macOS denies cleanup after the group leader exits. Other signal errors still
+  fail the guard. **Machine assumption:** POSIX process groups; permission denial can leave
+  members beyond the guard's control. **Remote engine:** the guard runs beside its child on
+  the executing engine or CI runner; no new data crosses the server/engine boundary.
 - **Merge-test step cache (PM-845, PM-841)** — `scripts/merge-test/{steps,run}.ts`,
   `full-test/{index,sandbox,step-cache}.ts`, `app.ts`, `engine-app.ts` and `index.ts`.
   The executor stores passed command keys in the engine-local

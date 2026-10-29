@@ -11,9 +11,13 @@ const fileEventSchema = z.object({ phase: z.enum(['start', 'end']), id: z.string
 /**
  * Runs `npm <args>`: its output goes to this process's stdout and stderr as it arrives (the full test
  * executor reads the same stream) and the end of it is kept for the rerun rule. Rejects when the
- * child guard cannot start.
+ * child guard cannot start. Fixture tests disable forwarding to keep their deliberate failures
+ * and reporter events out of the enclosing merge report; captured output is still returned.
  */
-export function runNpm(args: string[], { fileTimeoutMs = 180_000 } = {}): Promise<StepRun> {
+export function runNpm(
+  args: string[],
+  { fileTimeoutMs = 180_000, forwardOutput = true } = {},
+): Promise<StepRun> {
   return new Promise((resolve, reject) => {
     const testing = args[0] === 'test';
     const command = testing
@@ -64,7 +68,7 @@ export function runNpm(args: string[], { fileTimeoutMs = 180_000 } = {}): Promis
             // A file timeout must not become green through the flaky-file rerun rule.
             `\n⎯⎯⎯ Unhandled Errors ⎯⎯⎯\nFile deadline exceeded (${fileTimeoutMs} ms): ${file}\n` +
             [...active.values()].map((entry) => ` FAIL  ${entry.file}\n`).join('');
-          process.stderr.write(output);
+          if (forwardOutput) process.stderr.write(output);
           kept.push(output);
           cleanup();
           child.kill('SIGTERM');
@@ -74,7 +78,7 @@ export function runNpm(args: string[], { fileTimeoutMs = 180_000 } = {}): Promis
     child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');
     child.stdout.on('data', (chunk: string) => {
-      process.stdout.write(chunk);
+      if (forwardOutput) process.stdout.write(chunk);
       kept.push(chunk);
       pending += chunk;
       let newline: number;
@@ -86,7 +90,7 @@ export function runNpm(args: string[], { fileTimeoutMs = 180_000 } = {}): Promis
       pending = pending.slice(-8192);
     });
     child.stderr.on('data', (chunk: string) => {
-      process.stderr.write(chunk);
+      if (forwardOutput) process.stderr.write(chunk);
       kept.push(chunk);
     });
     child.on('error', (error) => {

@@ -653,6 +653,11 @@ export class SessionOrchestrator {
     return this.ctx.repos.sessions.list(projectKey, filter);
   }
 
+  /** The sessions not closed yet, without their usage and pause; the history of closed ones is not read (PM-1120). */
+  listLive(projectKey: string, member?: string): Session[] {
+    return this.ctx.repos.sessions.listLive(projectKey, member);
+  }
+
   /**
    * Whether only the owner and the admin see the session: a conversation with someone who is not an owner
    * (PM-475, PM-1080), which holds that person's messages, and every session of the retired Operator (decision
@@ -2009,9 +2014,7 @@ export class SessionOrchestrator {
 
   /** An AI member's status follows its live sessions: waiting beats working beats idle. */
   private recomputeMemberState(projectKey: string, handle: string): void {
-    const live = this.ctx.repos.sessions
-      .list(projectKey, { member: handle })
-      .filter((s) => !ENDED.has(s.state));
+    const live = this.ctx.repos.sessions.listLive(projectKey, handle);
     const waiting = live.find((s) => s.state === 'waiting_permission' || s.state === 'waiting_input');
     const working = live.find((s) => s.state === 'working' || s.state === 'starting');
     let status: MemberStatus = 'idle';

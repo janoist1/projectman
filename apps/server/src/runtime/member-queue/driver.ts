@@ -617,7 +617,7 @@ export class MemberQueueWorker implements MemberQueueDriver {
     // The first input of the session the start made: the items count as delivered only when it was typed.
     const started: { firstInput?: Promise<boolean>; sessionId?: string } = {};
     try {
-      await admission.exclusive(async () => {
+      await admission.exclusive('queue-start', async () => {
         if (lane.start) {
           await lane.start({ config, member: member.handle, place, items, run });
           return;

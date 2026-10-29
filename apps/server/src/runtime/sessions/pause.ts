@@ -253,14 +253,27 @@ export class PauseService {
    * run with no pause row at all (the drain check of a release counts them).
    */
   unstoppedSessions(): number {
-    const { pauses, sessions } = this.ctx.repos;
-    let count = pauses
-      .openSessions()
-      .filter((row) => row.point === null && this.sessions.isRunning(row.sessionId)).length;
-    for (const project of this.projects.summaries())
-      for (const session of sessions.list(project.key))
-        if (this.sessions.isRunning(session.id) && !pauses.openSession(session.id)) count++;
+    const { pauses } = this.ctx.repos;
+    const held = pauses.openSessions();
+    let count = held.filter((row) => row.point === null && this.sessions.isRunning(row.sessionId)).length;
+    const projectKeys = new Set(this.projects.summaries().map((project) => project.key));
+    const paused = new Set(held.map((row) => row.sessionId));
+    for (const session of this.runningSessions(projectKeys)) if (!paused.has(session.id)) count++;
     return count;
+  }
+
+  /**
+   * The sessions of the projects that run now, read from the runner and not from the history of the sessions
+   * table (PM-1120).
+   */
+  private runningSessions(projectKeys: ReadonlySet<string>): Session[] {
+    return this.runner
+      .list()
+      .flatMap((info) => {
+        const session = this.ctx.repos.sessions.get(info.sessionId);
+        return session && projectKeys.has(session.projectKey) ? [session] : [];
+      })
+      .sort((a, b) => a.startedAt.localeCompare(b.startedAt) || a.id.localeCompare(b.id));
   }
 
   private async pauseCore(
@@ -275,7 +288,7 @@ export class PauseService {
     const projectKeys = this.coveredProjects(target);
     const actors = await this.actors(projectKeys, by);
     // Only the rows and the timeline are written under the admission lock: no start slips in between.
-    const caught = await this.admission.exclusive(async () => {
+    const caught = await this.admission.exclusive('pause', async () => {
       await this.assertCredential(target, by);
       by.check?.();
       if (pauses.findOpen(target.scope, keyOf(target))) {
@@ -302,23 +315,23 @@ export class PauseService {
         pauses.insert(record);
         owned?.(record.id);
         const held: SessionPauseRecord[] = [];
-        for (const projectKey of projectKeys)
-          for (const session of this.ctx.repos.sessions.list(projectKey)) {
-            if (!this.sessions.isRunning(session.id) || pauses.openSession(session.id)) continue;
-            const row = {
-              sessionId: session.id,
-              pauseId: record.id,
-              projectKey,
-              since: at,
-              point: null,
-              tool: null,
-              waitingFor: null,
-              pausedAt: null,
-              needsRestart: false,
-            };
-            pauses.insertSession(row);
-            held.push({ ...row, resumedAt: null });
-          }
+        const paused = new Set(pauses.openSessions().map((row) => row.sessionId));
+        for (const session of this.runningSessions(new Set(projectKeys))) {
+          if (paused.has(session.id)) continue;
+          const row = {
+            sessionId: session.id,
+            pauseId: record.id,
+            projectKey: session.projectKey,
+            since: at,
+            point: null,
+            tool: null,
+            waitingFor: null,
+            pausedAt: null,
+            needsRestart: false,
+          };
+          pauses.insertSession(row);
+          held.push({ ...row, resumedAt: null });
+        }
         for (const projectKey of projectKeys)
           this.record(kind, {
             projectKey,
@@ -537,7 +550,7 @@ export class PauseService {
     const { pauses } = this.ctx.repos;
     const projectKeys = this.coveredProjects(target);
     const actors = await this.actors(projectKeys, by);
-    const closed = await this.admission.exclusive(async () => {
+    const closed = await this.admission.exclusive('resume', async () => {
       await this.assertCredential(target, by);
       for (const projectKey of projectKeys) {
         const config = await this.projects.config(projectKey);

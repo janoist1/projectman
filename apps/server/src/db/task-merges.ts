@@ -186,6 +186,13 @@ export function createTaskMergeRepository(db: Db) {
         )[0] ?? null
       );
     },
+    /** The project's open merges, in any open state, in queue order (`task_merges_open` serves it; PM-1120). */
+    openOfProject(projectKey: string) {
+      return read(
+        `SELECT * FROM task_merges WHERE project_key = ? AND state IN ('requested','queued','running','failed','blocked','fixing') ORDER BY ${QUEUE_ORDER}`,
+        projectKey,
+      );
+    },
     /** The repository's open merges that wait or failed (not the running one), in queue order. */
     waitingOf(projectKey: string, repo: string) {
       return read(

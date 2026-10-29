@@ -9,7 +9,7 @@ import type {
 /** What the schedules need from admission (the real `Admission` satisfies it structurally). */
 export interface ScheduleAdmission {
   /** Runs `fn` alone among admission decisions and the starts they allow (`Admission.exclusive`). */
-  exclusive<T>(fn: () => Promise<T>): Promise<T>;
+  exclusive<T>(label: string, fn: () => Promise<T>): Promise<T>;
   /** The member's session for the schedule run (`Admission.start`). */
   start(request: {
     config: ProjectConfig;

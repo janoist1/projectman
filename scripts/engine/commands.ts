@@ -407,7 +407,7 @@ export async function runEngineCli(argv: string[], io: EngineCliIo): Promise<num
           rest.length > 0 ||
           !['install', 'uninstall', 'status', 'start', 'stop', 'restart', 'switch'].includes(sub ?? '')
         )
-          throw new UsageError('service install, uninstall, status, start, stop or restart');
+          throw new UsageError('service install, uninstall, status, start, stop, restart or switch');
         const launchd = io.launchd;
         if (!launchd)
           throw new EngineConfigError('service_unsupported', 'The engine service is not available here.');

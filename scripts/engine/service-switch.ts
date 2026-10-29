@@ -106,7 +106,6 @@ async function rollback(options: SwitchOptions, state: EngineSwitchState): Promi
   const paths = switchPaths(options.home);
   let phase: 'rolled_back' | 'recovery_required' = 'recovery_required';
   try {
-    if (!state.previous) throw new Error('The previous engine version is unknown.');
     // Read the backup before touching launchd: a missing backup cannot justify another destructive step.
     const previous = readFileSync(paths.previous);
     const oldBootId = readEngineStatus(engineFiles(options.home).status)?.bootId;
@@ -119,6 +118,7 @@ async function rollback(options: SwitchOptions, state: EngineSwitchState): Promi
     writeFileSync(`${target}.switch-tmp`, previous, { mode: 0o644 });
     renameSync(`${target}.switch-tmp`, target);
     await bootstrapJob(options, target);
+    if (!state.previous) throw new Error('The previous engine version is unknown.');
     // Rollback verifies the previous version; cloud availability must not prevent local recovery.
     await verify(options, state.previous.version, false, oldBootId);
     phase = 'rolled_back';
@@ -160,6 +160,11 @@ export async function switchService(
       return;
     }
     if (interrupted?.phase === 'switching') await rollback(options, interrupted);
+    if (interrupted?.phase === 'recovery_required')
+      throw new EngineConfigError(
+        'switch_recovery_required',
+        'Manual recovery is required. Inspect the saved plist and explicitly clear the state before another switch.',
+      );
     const plist = installedServiceFor(options.home, options.agentsDir);
     const bytes = plist ? readFileSync(plist) : null;
     const installed = bytes ? serviceInstallation(bytes.toString('utf8')) : null;
@@ -189,12 +194,11 @@ export async function switchService(
       updatedAt: at,
       error: null,
     };
-    // A previous failed attempt's backup must never be paired with this attempt's state.
-    rmSync(paths.previous, { force: true });
+    // Publish switching only after its exact backup exists. A failed preparation never stops the engine.
+    writeFileSync(`${paths.previous}.tmp`, bytes!, { mode: 0o600 });
+    renameSync(`${paths.previous}.tmp`, paths.previous);
     saveState(options.home, state);
     try {
-      writeFileSync(`${paths.previous}.tmp`, bytes!, { mode: 0o600 });
-      renameSync(`${paths.previous}.tmp`, paths.previous);
       await stopService(options);
       await installService({
         ...options,

@@ -137,6 +137,26 @@ function serviceOf(io: SnapshotIo): Pick<EngineLocalSnapshot, 'service' | 'packa
   return { service: { supported: true, ...state, manager: installed.manager }, package: installed.package };
 }
 
+/** Reporting remains available on corruption; mutation commands still use the strict reader. */
+function switchOf(home: string, at: string): EngineLocalSnapshot['switch'] {
+  try {
+    return readSwitchState(home);
+  } catch {
+    return {
+      schemaVersion: 1,
+      phase: 'recovery_required',
+      target: { version: 'unknown', tag: null },
+      previous: null,
+      startedAt: at,
+      updatedAt: at,
+      error: {
+        code: 'switch_state_invalid',
+        message: 'The engine switch state cannot be read; manual recovery is required.',
+      },
+    };
+  }
+}
+
 /**
  * An engine without a configuration is `not_initialised`. A configuration that cannot be read is an error (the
  * caller exits 1): nothing is guessed about a machine whose state is not known. A missing or unreadable status
@@ -163,9 +183,10 @@ export function buildSnapshot(io: SnapshotIo): EngineLocalSnapshot {
   const running = live?.running ?? [];
   const { logOut, logErr } = serviceLogPaths(io.home);
   const keepAwake = live?.keepAwake;
+  const at = io.now().toISOString();
   return {
     schemaVersion: 1,
-    at: io.now().toISOString(),
+    at,
     home: io.home,
     overall: overallState({
       initialised: config !== null,
@@ -180,7 +201,7 @@ export function buildSnapshot(io: SnapshotIo): EngineLocalSnapshot {
         }
       : null,
     ...serviceOf(io),
-    switch: readSwitchState(io.home),
+    switch: switchOf(io.home, at),
     process: {
       running: alive,
       pid: live?.pid ?? null,

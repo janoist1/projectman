@@ -232,6 +232,51 @@ describe('package service switch', () => {
     expect(snapshot().switch?.phase).toBe('recovery_required');
   });
 
+  it('preserves the recovery backup and state when another switch is requested', async () => {
+    writeFileSync(paths().previous, original);
+    const pending = JSON.stringify(state('recovery_required'));
+    writeFileSync(paths().state, pending);
+    writeFileSync(plistFile(), original.toString('utf8').replaceAll(options.root, next));
+    const current = readFileSync(plistFile());
+    await expect(switchService(options, { to: next })).rejects.toMatchObject({
+      code: 'switch_recovery_required',
+    });
+    expect(readFileSync(paths().previous)).toEqual(original);
+    expect(readFileSync(paths().state, 'utf8')).toBe(pending);
+    expect(readFileSync(plistFile())).toEqual(current);
+    expect(calls).toEqual([]);
+  });
+
+  it('leaves the engine and state untouched if preparing the backup fails', async () => {
+    mkdirSync(`${paths().previous}.tmp`);
+    await expect(switchService(options, { to: next })).rejects.toThrow();
+    expect(existsSync(paths().state)).toBe(false);
+    expect(readFileSync(plistFile())).toEqual(original);
+    expect(calls).toEqual([]);
+  });
+
+  it('restores the saved bytes even when the previous version is unknown', async () => {
+    interrupt();
+    writeFileSync(paths().state, JSON.stringify({ ...state(), previous: null }));
+    await expect(switchService(options, { to: next })).rejects.toMatchObject({
+      code: 'switch_recovery_required',
+    });
+    expect(readFileSync(plistFile())).toEqual(original);
+    expect(readSwitchState(options.home)?.phase).toBe('recovery_required');
+    expect(calls.some((call) => call[0] === 'bootstrap')).toBe(true);
+  });
+
+  it('reports corruption as a recovery snapshot without rewriting the damaged state', () => {
+    writeFileSync(paths().state, '{broken');
+    const result = EngineLocalSnapshot.parse(snapshot());
+    expect(result.service.manager).toBe('app');
+    expect(result.switch).toMatchObject({
+      phase: 'recovery_required',
+      error: { code: 'switch_state_invalid' },
+    });
+    expect(readFileSync(paths().state, 'utf8')).toBe('{broken');
+  });
+
   it('recovers an interrupted switch before looking at another target', async () => {
     interrupt();
     previousConnected = false;

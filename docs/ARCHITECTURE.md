@@ -4586,6 +4586,11 @@ assumption or remote-engine RPC.
   plist, then verifies the previous version; the durable result is `rolled_back` or
   `recovery_required`. An interrupted `switching` is recovered first on the next switch.
   Other service mutations refuse during `switching`; `switch --clear` clears terminal results.
+  A `recovery_required` result blocks a new switch until explicitly cleared, preserving its
+  backup. Preparation writes the backup before publishing `switching`; even an unknown
+  previous version permits byte restoration but cannot yield a verified rollback.
+  Corrupt state is exposed as a reporting-only `recovery_required`/`switch_state_invalid`
+  snapshot with unknown target, while the CLI's mutation reader remains strict.
   The additive snapshot fields are `service.manager`, `package` and `switch` (schema version 1).
   PM-1113 runs the compiled `apps/server/dist/index.js` under Node, without a TypeScript loader;
   build the engine checkout before installing or updating the service. The build and launchd

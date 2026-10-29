@@ -157,6 +157,11 @@ start, stop and restart refuse with `switch_in_progress`. Another switch refuses
 `switch_busy`. After inspecting a `rolled_back` or `recovery_required` result, use
 `service switch --clear` to remove its state and backup; an active/interrupted switch cannot
 be cleared. Keep the previous package on disk until the switch has succeeded.
+While `recovery_required` remains recorded, a new switch is refused and the saved plist is
+preserved. Complete manual recovery and explicitly clear the result before trying again.
+If the state file is unreadable or corrupt, status still reports the engine and exposes a
+`recovery_required` switch with `switch_state_invalid` and an unknown target. This is a
+report only; the damaged file is preserved and mutation commands continue to refuse it.
 
 `npm run engine -- service start|stop|restart` controls the installed LaunchAgent. `stop` keeps the file (the
 engine starts again at the next login) and waits until the engine has paused its running sessions and left,

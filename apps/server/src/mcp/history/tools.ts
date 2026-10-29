@@ -19,16 +19,13 @@ const time = (what: string) =>
   z.iso.datetime({ offset: true }).optional().describe(`${what}, ISO 8601 with a time zone offset.`);
 
 const SEARCH_DESCRIPTION =
-  'Search the history of the project you can read: cards, notes, closed questions, team messages and the two project documents (decisions, lessons). ' +
-  'query is plain words (at most 12 are searched, no search syntax). It finds the words (match_type text) and, when the local embedding is ready, sources that say the same in other words (match_type semantic: weaker evidence, listed after). ' +
-  'The answer lists the matches, the best first, each with an excerpt and the exact call that opens it (reference); has_more true means more matches than the limit. ' +
-  'documents says how fresh each project document copy is (stale, unavailable or missing: a document hit may be old). ' +
-  'Every valid search is counted privately for the owners.';
+  'Search the project history you can read: cards, notes, closed questions, team messages, decisions and lessons. ' +
+  'Matches come best first, with an excerpt and the call that opens them; semantic ones (other words) are weaker. ' +
+  'documents says how fresh each copy is. Searches are counted for the owners.';
 
 const READ_DESCRIPTION =
-  "Read one source a search_history hit named, in lines: pass the hit's source_id (a team message, a closed question or a project document; cards and notes are opened with get_task). " +
-  'total_lines says how long the source is. For a document, pass the commit the hit named: when the stored copy is newer the call is refused with history_source_changed, and you search again. ' +
-  'A source you may not read and one that does not exist both give not_found.';
+  'Read one source a search_history hit named (a team message, a closed question or a document; cards and notes: get_task), in lines. ' +
+  'A source you may not read gives not_found, like a missing one.';
 
 export const HISTORY_TOOL_GROUP: TeamToolGroup = {
   module: 'services/history',
@@ -44,7 +41,7 @@ export const HISTORY_TOOL_GROUP: TeamToolGroup = {
           .trim()
           .min(1)
           .max(HISTORY_QUERY_MAX_LENGTH)
-          .describe('What to look for, in plain words.'),
+          .describe('What to look for, in plain words: at most 12 are searched, no search syntax.'),
         project_key: projectKeyInput,
         task_key: TaskKey.optional().describe('Only the history of this card.'),
         source_types: z
@@ -121,7 +118,9 @@ export const HISTORY_TOOL_GROUP: TeamToolGroup = {
           .string()
           .regex(/^[0-9a-f]{40}$/, 'A full 40-character commit id, as the hit named it.')
           .optional()
-          .describe('A document only: the commit the hit named.'),
+          .describe(
+            'A document only: the commit the hit named. history_source_changed: the stored copy is newer, search again.',
+          ),
       },
       async run({ ctx, args, handler }) {
         return JSON.stringify(

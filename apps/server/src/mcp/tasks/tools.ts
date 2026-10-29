@@ -264,13 +264,9 @@ export const TASK_TOOL_GROUP: TeamToolGroup = {
       title: 'Get a task',
       readOnly: true,
       description:
-        'Get a task: title, description, stage, status, assignee, labels, links (pull requests, branches), ' +
-        'its relations to other cards, its theme (a theme shows its cards ' +
-        'and progress), its parent, subtasks, attachments (open one with read_attachment) and recent ' +
-        'timeline. The description is shown whole up to ' +
-        `${MAX_DESCRIPTION_CHARS} characters; a longer one is shown in parts, and the result says how to ` +
-        'read the rest. A long timeline note, question or answer is cut; with event_id (named on the cut ' +
-        'line) the call returns that one text whole instead of the task.',
+        'Get a task: description, stage, status, assignee, labels, links, relations, theme (with its cards), ' +
+        'parent, subtasks, attachments (open with read_attachment) and recent timeline. A long description ' +
+        'comes in parts and a long timeline text is cut; the result says how to read the rest.',
       input: {
         task_key: taskKeyInput,
         event_id: z
@@ -295,10 +291,9 @@ export const TASK_TOOL_GROUP: TeamToolGroup = {
       title: 'Update a task',
       readOnly: false,
       description:
-        'Record progress on a task: labels, a note, the title or description, the repository, relations, ' +
-        'theme, priority, complexity and/or a move to another stage. One call is all or nothing: a refused ' +
-        'label or a blocked stage gate records nothing. A move that needs a human approval records the rest ' +
-        'and waits for the approval.',
+        'Record progress on a task: labels, a note, title, description, repository, relations, theme, ' +
+        'priority, complexity and/or a stage move. All or nothing: a refused label or a blocked gate records ' +
+        'nothing. A move that needs a human approval records the rest and waits for it.',
       refused: DEVELOPER_LEVEL_REFUSED,
       input: {
         task_key: taskKeyInput,
@@ -402,11 +397,9 @@ export const TASK_TOOL_GROUP: TeamToolGroup = {
       title: 'Create a task',
       readOnly: false,
       description:
-        'Create a new task, for example a card for a bug you found, one part of a request you split, or ' +
-        'follow-up work. It starts unassigned in the first stage, where humans prioritise it; it does not ' +
-        'start any work. Give it a self-contained description. If it came from another task, note the new ' +
-        'key there with update_task. kind "theme" creates a theme instead: a card that groups other cards ' +
-        '(an epic), open or closed, in no stage, with no assignee and no work.',
+        'Create a task (a bug you found, a part of a split request, follow-up work). It starts unassigned in ' +
+        'the first stage and starts no work. Make the description self-contained; if it came from another ' +
+        'task, note the new key there with update_task. kind "theme" creates a theme (an epic).',
       input: {
         kind: z
           .enum(['task', 'theme'])

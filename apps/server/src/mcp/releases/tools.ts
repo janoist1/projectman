@@ -10,13 +10,9 @@ export const RELEASE_TOOL_GROUP: TeamToolGroup = {
       title: 'Propose a release',
       readOnly: false,
       description:
-        "Propose releasing this instance's default branch (or the merge commit `commit`) to the owners. Only a member " +
-        "with the deployment duty may call it. It makes a release card and an approval request in the owners' " +
-        'inbox; nothing is deployed until an owner approves, and the release watcher deploys it. The release has ' +
-        'the merged cards between the last release and the commit. Only one release is open at a time. With ' +
-        '`preview: true` nothing is recorded: the result lists the commit and the cards, so you can write the ' +
-        'summary. Without it your session ends after the call: the owner decides and the watcher continues, so ' +
-        'do nothing more afterwards.',
+        "Propose releasing this instance's default branch (or `commit`) to the owners: a release card and an " +
+        'approval request; nothing deploys until an owner approves, then the release watcher deploys. One ' +
+        'release is open at a time. Without `preview` your session ends with the call: do nothing more.',
       input: {
         title: z.string().min(1).max(200).describe('The release card title, e.g. "Release 2026.10.11".'),
         summary: z
@@ -34,7 +30,10 @@ export const RELEASE_TOOL_GROUP: TeamToolGroup = {
         preview: z
           .boolean()
           .optional()
-          .describe('Only list the commit and the cards of the release; record nothing (default false).'),
+          .describe(
+            'Only list the commit and the cards of the release (merged since the last release), to write the ' +
+              'summary; record nothing (default false).',
+          ),
       },
       external: {
         access: 'write',
@@ -70,13 +69,9 @@ export const RELEASE_TOOL_GROUP: TeamToolGroup = {
       title: 'Publish a repository release',
       readOnly: false,
       description:
-        'Tag a merged commit and make its public GitHub release. Only a member with the deployment duty may call ' +
-        'it. It deploys nothing and needs no approval: it pushes an annotated git tag and creates the GitHub ' +
-        'release, whose notes are your `summary` and the cards merged since the previous release. The release is ' +
-        'public and cannot be taken back quietly, so call it only when someone asked for a release. First call ' +
-        'it with `preview: true`: nothing is recorded or sent, and the result lists the tag, the commit and the ' +
-        'cards, so you can write the summary. If a call ends with release_publish_failed after the tag was ' +
-        'pushed, call it again with the same arguments: it finishes the publication.',
+        'Tag a merged commit and create its public GitHub release (your `summary` and the cards merged since ' +
+        'the previous release). Deploys nothing, needs no approval, cannot be taken back quietly: only when ' +
+        'someone asked for a release, first with `preview: true`. After release_publish_failed, call it again.',
       input: {
         summary: z
           .string()
@@ -108,7 +103,9 @@ export const RELEASE_TOOL_GROUP: TeamToolGroup = {
         preview: z
           .boolean()
           .optional()
-          .describe('Only show the tag, the commit and the cards; record and send nothing (default false).'),
+          .describe(
+            'Only show the tag, the commit and the cards, to write the summary; record and send nothing (default false).',
+          ),
       },
       async run({ ctx, args, handler }) {
         const result = await handler.publishRelease(ctx, {

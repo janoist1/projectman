@@ -8,6 +8,9 @@ import type { MemberAudience } from '../contracts';
 import { toolVisible, type ToolAudience } from './kit';
 import { TEAM_TOOL_GROUPS, TEAM_TOOL_NAMES, TEAM_TOOLS } from './tools';
 
+/** A description says what the tool does and when; the rules behind it live in the guides (PM-1114). */
+const TOOL_DESCRIPTION_MAX = 300;
+
 const developerAudience: MemberAudience = {
   projectManager: false,
   merger: false,
@@ -211,6 +214,13 @@ describe('team tool registration', () => {
     const names = TEAM_TOOLS.map((tool) => tool.name);
     expect(new Set(names).size).toBe(names.length);
     expect([...names].sort()).toEqual([...TEAM_TOOL_NAMES].sort());
+  });
+
+  it('keeps every description within the cap, so tools/list stays small', () => {
+    const long = TEAM_TOOLS.filter((tool) => tool.description.length > TOOL_DESCRIPTION_MAX).map(
+      (tool) => `${tool.name}: ${tool.description.length}`,
+    );
+    expect(long).toEqual([]);
   });
 
   it('collects distinct nonempty module groups', () => {

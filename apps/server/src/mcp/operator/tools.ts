@@ -78,7 +78,9 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       title: 'Read one built-in role configuration',
       readOnly: true,
       description:
-        'Only the Operator or selected PM in its own general conversation during an open owner request, never guests. Returns the configuration version, the stored override (null when absent), and the effective full role bundle. Read before editing a role; preserve its existing instructions and other bundle fields.',
+        "Read one built-in role's configuration version, stored override (null when absent) and effective full " +
+        'bundle, in your own general conversation during an open owner request. Read it before editing a ' +
+        'role; preserve its existing instructions and other bundle fields.',
       input: { role: BuiltInRoleId },
       external: {
         access: 'read',
@@ -99,8 +101,13 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       title: 'Request an occasional architecture review',
       readOnly: false,
       description:
-        'Selected PM internal general session only. Weigh a delivered structural_pattern or milestone_closed signal and give a short reason. Without your own open owner request this only proposes an owner approval; nobody starts before approval. On approval call this tool again with the same signal_id. The server selects a live technical_direction holder with capacity and uses start_member; do not create cards or refactor from this standing review.',
-      input: { signal_id: z.string().min(1), note: z.string().trim().min(1).max(2000) },
+        'Request an occasional architecture review on a delivered structural_pattern or milestone_closed ' +
+        'signal; the server starts a technical_direction holder. Without your own open owner request it only ' +
+        'proposes an owner approval: on approval call again with the same signal_id. Steps: role guide.',
+      input: {
+        signal_id: z.string().min(1),
+        note: z.string().trim().min(1).max(2000).describe('Your short reason, after weighing the signal.'),
+      },
       external: {
         access: 'write',
         modes: ['super'],
@@ -126,7 +133,9 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       title: 'Assess a suspected loop',
       readOnly: false,
       description:
-        'Only the selected PM in its internal general session, without an owner request. Read get_task and get_project_state, current work and review findings, commits and delivery receipts. Many messages alone do not prove a loop. Give progress to keep observing, or loop to ask the existing human deciders. This never stops work, lets it run, approves anything or resolves a human decision. Use only evidence ids from work, stage, label or check events of this card.',
+        'Assess a loop_suspected signal after reading the evidence (role guide): progress keeps observing, ' +
+        'loop asks the existing human deciders. Many messages alone do not prove a loop. It never stops ' +
+        'work, lets it run, approves anything or resolves a human decision.',
       input: {
         signal_id: z.string().min(1),
         outcome: z.enum(['progress', 'loop']),
@@ -135,7 +144,8 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
           .array(z.string())
           .max(20)
           .refine((ids) => new Set(ids).size === ids.length, 'Evidence ids must be unique.')
-          .default([]),
+          .default([])
+          .describe('Only ids of work, stage, label or check events of this card.'),
       },
       async run({ ctx, args, handler }) {
         const result = await handler.triageLoop(ctx, {
@@ -157,8 +167,13 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       title: 'Read filtered task diagnostics',
       readOnly: true,
       description:
-        'Only the Operator in its owner general conversation or the selected PM in its internal general session; never guests or customer conversations. Needs no owner request. Reads current task state, structured session activity, delivery receipts, check outcomes and available engine metrics. limit applies independently to each list, newest first. No transcripts, screens, raw errors, commands, environment or SQL. One reading suggests possible causes; it does not prove a cause. Recheck before concluding.',
-      input: { task_key: TaskKey, limit: z.number().int().min(1).max(20).default(10) },
+        "Read one card's current state, structured session activity, delivery receipts, check outcomes and " +
+        'engine metrics; no transcripts, screens, raw errors, commands, environment or SQL. One reading ' +
+        'suggests possible causes but proves none: recheck before concluding.',
+      input: {
+        task_key: TaskKey,
+        limit: z.number().int().min(1).max(20).default(10).describe('Per list, newest first.'),
+      },
       external: {
         access: 'read',
         description:
@@ -181,7 +196,9 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       title: 'Read the project startup checklist',
       readOnly: true,
       description:
-        'Only the Operator or the project manager in their internal general session, never a guest. Needs no owner request. Returns the startup checklist (items with state, reason, condition and whether the condition holds now; progress; the base template) and, for each template, the item ids it would add. When there is no list yet, the answer says so; create it with update_checklist op init.',
+        'Read the startup checklist (items with state, reason, condition and whether it holds now; progress; ' +
+        'the base template) and the item ids each template would add. Without a list the answer says so: ' +
+        'create it with update_checklist op init. Needs no owner request.',
       input: {},
       async run({ ctx, handler }) {
         const view = await handler.getChecklist(ctx);
@@ -196,18 +213,32 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       title: 'Change the project startup checklist',
       readOnly: false,
       description:
-        'Only the Operator or the selected project manager in their internal general session, never a guest; it is your own tool, so it needs no owner request. One operation per call. init: create the base list for a project that has none. add: a new item (title, optional hint and condition); the server gives it a custom_<n> id. edit: item_id with a new title and/or hint. set_condition: item_id and condition (null takes it off); a done item can get only a condition that holds. set_state: item_id and state open, done or not_needed; not_needed always needs a reason, and done is refused while the item condition does not hold (checklist_condition_unmet). apply_template: template_id adds the template items the list does not have yet and sets the base template; it deletes and overwrites nothing. Nothing is deleted: to override the owner, apply another template or set items to not_needed with a reason. The system, not you, keeps the rule that a conditional item is done only while its condition holds.',
+        'Change the startup checklist, one op per call; your own tool, so no owner request is needed. Nothing ' +
+        'is deleted: to override the owner, apply another template or set items to not_needed with a reason. ' +
+        'The system keeps a conditional item done only while its condition holds.',
       input: {
-        op: z.enum(['init', 'add', 'edit', 'set_condition', 'set_state', 'apply_template']),
+        op: z
+          .enum(['init', 'add', 'edit', 'set_condition', 'set_state', 'apply_template'])
+          .describe(
+            'init: the base list of a project that has none. add: a new item (title, optional hint and ' +
+              'condition; its id is custom_<n>). edit: item_id with a new title and/or hint. set_condition: ' +
+              'item_id and condition. set_state: item_id and state. apply_template: template_id adds the ' +
+              'template items the list lacks and sets the base template; it overwrites nothing.',
+          ),
         item_id: z
           .string()
           .regex(/^[a-z][a-z0-9_]{0,39}$/)
           .optional(),
         title: z.string().trim().min(1).max(120).optional(),
         hint: z.string().max(500).nullable().optional(),
-        condition: ChecklistCondition.nullable().optional(),
-        state: z.enum(CHECKLIST_ITEM_STATES).optional(),
-        reason: z.string().trim().min(1).max(500).optional(),
+        condition: ChecklistCondition.nullable()
+          .optional()
+          .describe('null takes it off; a done item can get only a condition that holds.'),
+        state: z
+          .enum(CHECKLIST_ITEM_STATES)
+          .optional()
+          .describe('done is refused while the item condition does not hold (checklist_condition_unmet).'),
+        reason: z.string().trim().min(1).max(500).optional().describe('Required with state not_needed.'),
         template_id: z.string().min(1).max(64).optional(),
       },
       check(args, issue) {
@@ -264,8 +295,16 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       title: 'Propose shared Operator knowledge',
       readOnly: false,
       description:
-        'The Operator, or the selected project manager in its internal general session, during an open owner message or answer. Propose an agreement replacement, principle put or removal with the current expected_revision. A null principle id gets a server id. Writes nothing until an owner approves in the inbox. Only the Operator’s agreement_replace accepts recommended operations (at most ten); even immediate operations must wait for this approval and protected configuration operations still require a separate approval. Never import principles automatically from memory or documents.',
-      input: ProposeOperatorKnowledgeRequest.shape,
+        'During an open owner message or answer, propose an agreement replacement or a principle put or ' +
+        'removal with the current expected_revision; a null principle id gets a server id. Writes nothing ' +
+        'until an owner approves in the inbox. Never import principles automatically from memory or documents.',
+      input: {
+        ...ProposeOperatorKnowledgeRequest.shape,
+        operations: ProposeOperatorKnowledgeRequest.shape.operations.describe(
+          'Recommended operations, only for the Operator’s agreement_replace (at most ten). Even immediate ' +
+            'ones wait for this approval; protected configuration operations still need a separate approval.',
+        ),
+      },
       check(args, issue) {
         if (args.change.kind !== 'agreement_replace' && args.operations.length)
           issue('operations', 'Only agreement proposals accept operations.');
@@ -279,7 +318,9 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       audience: { roles: ['project_manager'] },
       title: 'Read personal conversation preferences',
       description:
-        'The Operator in the current person’s general conversation, or the selected active PM with an open direct owner message/answer in its internal general session. Read their personal style and revision. The server chooses the person; no handle, project or path is accepted. These five style fields never authorize project changes.',
+        'Read the current person’s five personal style fields and revision (the Operator in their ' +
+        'conversation, or the PM on an open direct owner message or answer). The server chooses the person; ' +
+        'no handle, project or path is accepted. The fields never authorize project changes.',
       readOnly: true,
       input: {},
       async run({ ctx, handler }) {
@@ -291,9 +332,20 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       audience: { roles: ['project_manager'] },
       title: 'Set personal conversation preferences',
       description:
-        'The Operator for the person currently speaking in their own conversation, including guests, or the selected active PM with an open direct owner message/answer in its internal general session. Learn only from explicit style requests or corrections. Read get_operator_preference first and pass its revision as expected_revision. Changes only this person’s five style fields; grants no other write. Confirm the new style in one sentence in the project language. To reset, use brief/plain/offer/plain/minimal. On operator_knowledge_stale read again before retrying.',
+        'Change only the current person’s five style fields, learned only from their explicit style requests ' +
+        'or corrections; grants no other write. Confirm the new style in one sentence in the project ' +
+        'language. To reset, use brief/plain/offer/plain/minimal.',
       readOnly: false,
-      input: { expected_revision: z.number().int().nonnegative(), preference: OperatorPreferenceData },
+      input: {
+        expected_revision: z
+          .number()
+          .int()
+          .nonnegative()
+          .describe(
+            'The revision get_operator_preference returned; on operator_knowledge_stale read it again.',
+          ),
+        preference: OperatorPreferenceData,
+      },
       async run({ ctx, args, handler }) {
         return JSON.stringify(
           await handler.setOperatorPreference(ctx, {
@@ -308,7 +360,9 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       audience: { roles: ['project_manager'] },
       title: 'Read project state',
       description:
-        'Operator or selected PM, in their internal general conversation; unavailable in guest conversations. The source of facts about the running system: the running version and release, why a card is waiting, what became of a start or a message, or the project overview (stages, live and idle sessions, waiting starts, pauses and open owner inbox items). This read needs no open owner request. Explain the result to the owner in the project language.',
+        'The source of facts about the running system: running version and release, why a card waits, what ' +
+        'became of a start or a message, or the overview (stages, sessions, waiting starts, pauses, open owner ' +
+        'inbox items). Needs no owner request; explain the result in the project language.',
       readOnly: true,
       input: {
         task_key: TaskKey.optional().describe(
@@ -338,11 +392,13 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       title: 'Operate the project',
       readOnly: false,
       description:
-        'Only the Operator or selected PM, in its own general conversation during an open owner request. The PM uses the shared operation path in its own name; K3 effects wait for the owner. Propose a configuration, member, session, message or project pause operation. The server executes immediate changes, requests owner approval for restricted changes, and refuses forbidden changes. Before changing a built-in role, use get_role_configuration, preserve existing instructions and other bundle fields, and send only the affected role in config_patch.roleOverrides. Each supplied bundle replaces that role completely; omitted roles stay unchanged. Set a role to null to reset only that role to built-in defaults; an empty map changes no roles. To add or change one pipeline label (name, color, meaning) send only that label in config_patch.labels, keyed by label id, e.g. {"bug": {"color": "red"}}; omitted fields and all other labels, stages and columns stay unchanged, and null removes the color or meaning. session_stop and message_send require plan (why, impact, reversible). message_send is for non-owner humans, with the exact text the owner approves. Title describes the result in the project language (1–120 characters).',
+        'Propose a configuration, member, session, message or project pause operation, in your own general ' +
+        'conversation during an open owner request. The server runs immediate changes, asks ' +
+        `the owner for restricted ones and refuses forbidden ones. Rules and fields: ${OPERATIONS_GUIDE}.`,
       input: {
-        title: z.string().trim().min(1).max(120),
+        title: z.string().trim().min(1).max(120).describe('The result, in the project language.'),
         operation: kindInput('op', OperatorOperation.options, 'The operation'),
-        plan: OperatorPlan.optional(),
+        plan: OperatorPlan.optional().describe('Required for session_stop and message_send.'),
       },
       async run({ ctx, args, handler }) {
         const operation = parseFull(OperatorOperation, args.operation, 'operation');
@@ -356,14 +412,19 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       title: 'Execute one command as the Operator or PM',
       readOnly: false,
       description:
-        'Only the Operator or selected PM, in its own general conversation during an open owner message or answer. The PM may use task_create, task_update, task_labels, task_start, task_cancel, member_update, merge_order and operate. Every other kind, including administration, is refused with command_not_for_project_manager; with machine access enabled use open_integrator_todo for the integrator, otherwise ask the owners with ask_human. Starts ONE command on the shared operation path, logged as you: {operation}. command is {kind, ...fields of that kind}. workspace_release frees the workspace an unresolved process cleanup keeps reserved without proof that the processes stopped: only on the owner’s explicit request in that conversation, never on a signal by itself; reason is the owner’s stated reason. workspace_release, inbox_resolve, merge, merge_order and invite_create run only when the open request is an owner’s own message or answer; for a queue item or another member’s message the server refuses them (operator_owner_only), so ask the owners with ask_human. On a member’s request task_labels runs with your own label rights: approval and human-only labels are refused. Use operate for configuration, member, session, message and project-pause changes. For the Operator, kinds operate and member_update are refused here with super_operation_unsupported. A K3 effect (deletion, security, cost and permission decisions) is not run: the operation waits in waiting_owner and the owner answers with their own login; after the owner’s yes the server runs it by itself, so do not repeat the call. Only the Operator may request machine operations (administration), which need the owner’s grant: without one the call fails with operator_grant_inactive, and you hand the matter over to the owner. request_key (1–100 characters of A-Z a-z 0-9 . _ -) names this call within the request: the same key is the same operation and never runs twice; the same key with another command is refused (super_request_conflict). Follow it with get_operation until the state is final.',
+        'Start ONE command on the shared operation path, logged as you, during an open owner message or ' +
+        'answer; follow it with get_operation until final. A K3 effect waits for the owner and then runs by ' +
+        `itself: do not repeat it. Which kinds you may run, and their fields: ${OPERATIONS_GUIDE}.`,
       input: {
         request_key: z
           .string()
           .min(1)
           .max(100)
           .regex(/^[A-Za-z0-9._-]+$/)
-          .describe('Names this call within the open request; repeat it only to retry the same call.'),
+          .describe(
+            'Names this call within the open request: the same key is the same operation and never runs ' +
+              'twice; repeat it only to retry the same call (with another command: super_request_conflict).',
+          ),
         task_key: TaskKey.optional().describe('The card the command is about, when there is one.'),
         command: kindInput('kind', SuperCommand.options, 'The command'),
       },
@@ -398,7 +459,9 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       title: 'Combine equivalent owner questions',
       readOnly: false,
       description:
-        'Only the selected PM in its internal general conversation, without an owner request. Combine 2–10 distinct screened questions asking owners for the same decision. Establish semantic equivalence yourself; explain it in note. Options, recommendation, assignees and attachment sets must match. Never combine approvals, permissions, releases or todos. The oldest question represents the group. The owner answers once and every live asker receives that answer on their own card. Combining never extends the screening deadline.',
+        'Combine 2–10 screened questions that ask the owners for the same decision; explain the equivalence ' +
+        'in note. Never combine approvals, permissions, releases or todos. The oldest represents the group: ' +
+        'the owner answers once and every live asker gets the answer. Rules: role guide.',
       input: {
         item_ids: CombineQuestionsRequest.shape.itemIds,
         question: CombineQuestionsRequest.shape.question,
@@ -423,19 +486,28 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       title: 'Screen an AI member’s question',
       readOnly: false,
       description:
-        'Only the selected PM in its internal general conversation; needs no owner request. Settle a question an AI member asked a person, which waits for you in the inbox state screening (the notice lists them). Always give note, the reason or background (the owner and the timeline see it). Outcomes: answered (a fact you found on the card, in the decision log, the roadmap, the code or an earlier owner answer; needs answer, name the source in note; the member is told the answer is yours and may ask a person again), forwarded (answering is another AI member’s part of the work; needs forward_to, an AI member other than the asker and you; that member is woken), moot (the question is obsolete; also works on a question that already went to the people), decision (a person must decide: it opens in the inbox as asked), todo (an owner or external integrator step; needs what, where, expected and recipient: owner or integrator. Independently choose the actual recipient, explain changes in note. Use forwarded for AI teammate work and decision for approvals. The inbox shows Done / Cannot do it). Other fields than the outcome needs are refused (invalid_outcome_fields). After the ten minutes are over the question belongs to the people: question_not_screening, except moot.',
+        'Settle a question an AI member asked a person that waits for you in screening (the notice lists ' +
+        'them). When to choose which outcome: role guide. After the ten minutes the question belongs to the ' +
+        'people (question_not_screening), except for moot.',
       input: {
         item_id: z.string().min(1).max(100).describe('The question’s inbox item id from the notice.'),
-        outcome: z.enum(['answered', 'forwarded', 'moot', 'decision', 'todo']),
+        outcome: z
+          .enum(['answered', 'forwarded', 'moot', 'decision', 'todo'])
+          .describe(
+            'answered: a fact you found (needs answer; the member may ask a person again). forwarded: another ' +
+              'AI member’s work (needs forward_to). moot: obsolete, also after it went to the people. decision: ' +
+              'a person decides, as asked. todo: an owner or integrator step (needs todo). Fields another ' +
+              'outcome needs are refused (invalid_outcome_fields).',
+          ),
         note: z
           .string()
           .trim()
           .min(1)
           .max(2000)
-          .describe('Why, or the source of the answer. Always required.'),
+          .describe('Why, or the source of the answer; the owner and the timeline see it. Always required.'),
         answer: z.string().trim().min(1).max(10000).optional().describe('The answer; only with answered.'),
         forward_to: MemberHandle.optional().describe(
-          'The AI member to pass the question to; only with forwarded.',
+          'The AI member to pass the question to, not the asker or you; it is woken. Only with forwarded.',
         ),
         feedback_id: z
           .string()
@@ -488,7 +560,9 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       title: 'Dismiss a system signal',
       readOnly: false,
       description:
-        "Only the selected PM in its internal general conversation; needs no owner request. Close a ready_waiting, refinement_stalled, structural_pattern or milestone_closed system signal of your wake-up that needs nothing. Structural signals are for you only: never put them in signal_ids; close every one you do not propose a review on. Every card a ready_waiting signal names must wait on purpose; a refinement_stalled signal must be intermediate or resolved. It is a plain closing, not a human decision. Give the reason in note. A ready_waiting signal does not come back until another card becomes ready. A signal you already presented is the owners' to decide (operator_signal_closed).",
+        'Close a ready_waiting, refinement_stalled, structural_pattern or milestone_closed signal of your ' +
+        'wake-up that needs nothing, with the reason in note: a plain closing, not a human decision. When: ' +
+        "role guide. A signal you already presented is the owners' to decide (operator_signal_closed).",
       input: { signal_id: z.string().min(1).max(64), note: z.string().trim().min(1).max(1000) },
       async run({ ctx, args, handler }) {
         const result = await handler.dismissSignal(ctx, { signalId: args.signal_id, note: args.note });
@@ -502,9 +576,14 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       title: 'Open a todo for the integrator',
       readOnly: false,
       description:
-        "Only for a member with machine access (an owner switches it on); needs no owner request. Put machine work (an installation, a setting) in the owners' queue: what to do, where, and what is expected. The owner's connected Claude takes the todos from the queue one at a time; use this tool, not a message, for a step that needs its hands. Its answer (done, or handed to the owners with the reason) comes back to you as the asker. When the integrator is not available the owners get it and the result says so. For the project manager: when a stalled, silent, outage or nobody signal needs someone to act, open a todo instead of asking the owners; a card projectman already follows (an open or handed-over obligation) is refused with obligation_tracked, because projectman wakes the responsible and hands the step over itself. A decision only the owners make (cost, deletion, publishing, direction, approval) is not a todo: use ask_human.",
+        "Put machine work (an installation, a setting) in the owners' queue, without an owner request; use " +
+        "this, not a message, for a step that needs the owner's connected integrator. Its answer comes back " +
+        'to you; without an integrator the owners get it. An owner decision is not a todo: use ask_human.',
       input: {
-        task_key: TaskKey.optional(),
+        task_key: TaskKey.optional().describe(
+          'A card projectman already follows (an open or handed-over obligation) is refused with ' +
+            'obligation_tracked: projectman hands that step over itself.',
+        ),
         question: z.string().trim().min(1).max(2000),
         what: z.string().trim().min(1).max(2000),
         where: z.string().trim().min(1).max(500),
@@ -533,12 +612,25 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       title: 'Start work on a task',
       readOnly: false,
       description:
-        "Only the selected PM in its internal general conversation, during its own open owner request. Start a task with an optional assignee; the PM stage-move rules apply. Also starts a stalled task already in its work stage without a running session. Gates and prerequisites still apply; despite_prerequisites is honored only when the project settings let the PM override prerequisites (team.prerequisiteOverride). A refused start waits for nothing; the error names why (for example member_on_leave, member_at_capacity, team_paused). With signal_id (an idle card the system signalled) and no owner request, and only when the project lets the coordinator act on signals, it starts the card's own assignee; it takes no assignee or despite_prerequisites then.",
+        'Start a task, with an optional assignee, during your own open owner request or on a signal_id; also ' +
+        'restarts a stalled card in its work stage. Gates, prerequisites and the PM stage-move rules apply. A ' +
+        'refused start waits for nothing; the error names why (e.g. member_at_capacity, team_paused).',
       input: {
         task_key: TaskKey,
         assignee: MemberHandle.optional(),
-        despite_prerequisites: z.boolean().optional(),
-        signal_id: z.string().min(1).max(64).optional(),
+        despite_prerequisites: z
+          .boolean()
+          .optional()
+          .describe('Honored only when the project settings let the PM override prerequisites.'),
+        signal_id: z
+          .string()
+          .min(1)
+          .max(64)
+          .optional()
+          .describe(
+            "An idle card the system signalled, when the project lets you act on signals: starts the card's " +
+              'own assignee, without an owner request; no assignee or despite_prerequisites then.',
+          ),
       },
       async run({ ctx, args, handler }) {
         return JSON.stringify(
@@ -558,7 +650,9 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       title: 'Reassign a task',
       readOnly: false,
       description:
-        "Only the selected PM in its internal general conversation; needs no owner request. Change a card's assignee (null clears it) and give the reason: it is on the card's timeline under your name. On a started card the old assignee hands its work over (a note first), as for a person's reassignment. The member must exist and not be on leave; a closed card or a theme is refused. This does not start work: use start_task for that. Only when the project settings let the PM reassign cards (otherwise project_manager_lifecycle_refused).",
+        "Change a card's assignee (null clears it), with a reason on its timeline under your name; on a " +
+        'started card the old assignee hands over first. Closed cards, themes and members on leave are refused. ' +
+        'Starts no work (start_task). Only if the project settings let the PM reassign cards.',
       input: {
         task_key: TaskKey,
         assignee: MemberHandle.nullable(),
@@ -581,7 +675,9 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       title: 'Cancel a task',
       readOnly: false,
       description:
-        "Only the selected PM in its internal general conversation; needs no owner request. Close a card as cancelled (its sessions stop; assignee, stage and files stay) and give the reason: it is on the card's timeline under your name. A closed card or a theme is refused. Deleting a card stays with the owners. Only when the project settings let the PM cancel cards (otherwise project_manager_lifecycle_refused); the same right lets you mark a started card as a duplicate (duplicate_of).",
+        'Close a card as cancelled (sessions stop; assignee, stage and files stay), with a reason on its ' +
+        'timeline under your name. Closed cards and themes are refused; deleting stays with the owners. Only ' +
+        'if the project settings let the PM cancel cards; that also allows marking a duplicate (duplicate_of).',
       input: { task_key: TaskKey, reason: z.string().trim().min(1).max(500) },
       async run({ ctx, args, handler }) {
         return JSON.stringify(await handler.cancelTask(ctx, { taskKey: args.task_key, reason: args.reason }));
@@ -594,7 +690,9 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       title: 'Reopen a cancelled task',
       readOnly: false,
       description:
-        'Only the selected PM in its internal general conversation, and only when the project settings let it reopen cards (otherwise project_manager_lifecycle_refused). Reopens a cancelled card in its stage with no assignee; the reason is on the timeline under your name. A theme or an open card is refused. Starting work stays explicit: start_task.',
+        'Reopen a cancelled card in its stage with no assignee; the reason is on the timeline under your name. ' +
+        'Themes and open cards are refused; start work explicitly with start_task. Only if the project ' +
+        'settings let the PM reopen cards (otherwise project_manager_lifecycle_refused).',
       input: { task_key: TaskKey, reason: z.string().trim().min(1).max(500) },
       async run({ ctx, args, handler }) {
         return JSON.stringify(await handler.reopenTask(ctx, { taskKey: args.task_key, reason: args.reason }));
@@ -607,14 +705,30 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       title: 'Start a member on work without a card',
       readOnly: false,
       description:
-        'If the message would put a member to work on a card where a member of the same role already works, nothing is sent and the result names them; send again with despite_workers: true only if the parallel work is intended. ' +
-        "Only the selected PM in its internal general conversation, during its own open owner request. Starts an AI member on work that has no card: the text is their task, given to their general conversation (a running one gets it when its turn ends). It waits up to 5 seconds and says what became of the start: started, already running, starting, waiting with the reason, held, or failed. For work on a card use start_task. With task_key the text is about that card and the member needs a role on it (a card's merger or the owner of its step). With signal_id (and no owner request) and only when the project lets the coordinator act on signals, it starts the member the signal names.",
+        'Start an AI member on work without a card, during your own open owner request or on a signal_id: ' +
+        'the text goes to their general conversation (a running one gets it when its turn ends). Waits up to ' +
+        '5 seconds and says what became of the start. For work on a card use start_task.',
       input: {
         member: MemberHandle,
-        despite_workers: z.boolean().optional(),
+        despite_workers: z
+          .boolean()
+          .optional()
+          .describe(
+            'A start on a card where a member of the same role already works is not sent (the result names ' +
+              'them); true sends it anyway, only for intended parallel work.',
+          ),
         text: z.string().min(1).max(20000),
-        task_key: TaskKey.optional(),
-        signal_id: z.string().min(1).max(64).optional(),
+        task_key: TaskKey.optional().describe(
+          "The card the text is about; the member needs a role on it (the card's merger or its step owner).",
+        ),
+        signal_id: z
+          .string()
+          .min(1)
+          .max(64)
+          .optional()
+          .describe(
+            'Without an owner request, when the project lets you act on signals: starts the member the signal names.',
+          ),
       },
       async run({ ctx, args, handler }) {
         return formatMemberStart(

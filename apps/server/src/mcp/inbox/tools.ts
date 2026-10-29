@@ -30,24 +30,20 @@ export const INBOX_TOOL_GROUP: TeamToolGroup = {
       title: 'Ask a human',
       readOnly: false,
       description:
-        'Ask a human for a decision or information you cannot find or decide yourself (requirements, ' +
-        'priorities, access, trade-offs). Never ask for an approval label with it: an answer puts no label ' +
-        'on, the app asks the label holders itself. The answer arrives later in this session as a team ' +
-        'message. Do not wait or poll for it: continue with work that does not depend on the answer, or end ' +
-        'your turn. Ask one clear question. The human who answers is usually not a specialist and often ' +
-        'reads on a phone: start with one plain sentence that names the decision in everyday words, describe ' +
-        'each option by what happens if it is picked, and always recommend one option with a one-sentence ' +
-        'reason. Put code, file names and technical reasoning into details; the inbox shows it folded. Name ' +
-        'a file of the card or its parent in attachments instead of describing where to find it. The ' +
-        'Operator screens your question first (within 10 minutes) and tells you in a team message whether it ' +
-        'answered it, passed it to a member, closed it or sent it on to the people.',
+        'Ask a human for a decision or information you cannot find or decide yourself. The answer arrives ' +
+        'later as a team message: do not wait or poll; continue with independent work or end your turn. The ' +
+        'Operator screens it first (within 10 minutes) and tells you what became of it.',
       input: {
         question: z
           .string()
           .trim()
           .min(1)
           .max(MAX_QUESTION_CHARS)
-          .describe('The decision in one plain sentence, then only the context needed to choose.'),
+          .describe(
+            'One clear question. The answerer is usually no specialist and often on a phone: name the ' +
+              'decision in one plain sentence in everyday words, then only the context needed to choose. ' +
+              'Never ask for an approval label: an answer sets none, the app asks the label holders itself.',
+          ),
         options: z
           .array(
             z.union([
@@ -96,7 +92,7 @@ export const INBOX_TOOL_GROUP: TeamToolGroup = {
           .max(MAX_DETAILS_CHARS)
           .optional()
           .describe(
-            'Technical background as markdown, shown folded: the question must make sense without it.',
+            'Code, file names and technical reasoning as markdown, shown folded: the question must make sense without it.',
           ),
         task_key: TaskKey.optional().describe(
           'Task the question is about. Defaults to the task of your current session.',
@@ -116,7 +112,7 @@ export const INBOX_TOOL_GROUP: TeamToolGroup = {
           .optional()
           .describe(
             "Ids (att_…) of the files, on the question's card or its parent (list_attachments), the human " +
-              'needs to look at to answer. At most 6.',
+              'needs to look at to answer, instead of describing where to find them. At most 6.',
           ),
         reask_of: z
           .string()
@@ -280,11 +276,20 @@ export const INBOX_TOOL_GROUP: TeamToolGroup = {
       audience: { duties: ['boundary_authorization'] },
       readOnly: false,
       description:
-        "Answer a member's permission request that a team message handed to you as its decider: the tool call its CLI asks about, with its exact input. Read it completely first. allow only a routine step that plainly belongs to the task; deny what plainly does not; escalate everything else, which hands it to a person. Always escalate spending, new accounts, tokens or secrets, a lasting widening of what the host reaches, the live system, a release, publishing or main, a request that is cut off or unclear, and your own requests. The reason is required, short and without secrets: it is shown to the owner and the member. Only the decider of that request may answer, before its deadline; late answers are refused and never mean permission.",
+        "Answer a member's permission request a team message handed to you as its decider (a tool call with " +
+        'its exact input; read it completely). Your duty instructions say what to allow, deny or escalate. ' +
+        'Only the decider, before the deadline: late answers are refused and never mean permission.',
       input: {
         request_id: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/),
-        decision: z.enum(['allow', 'deny', 'escalate']),
-        reason: z.string().trim().min(1).max(MAX_REASON_CHARS),
+        decision: z
+          .enum(['allow', 'deny', 'escalate'])
+          .describe('escalate hands it to a person; always for anything not plainly routine or plainly out.'),
+        reason: z
+          .string()
+          .trim()
+          .min(1)
+          .max(MAX_REASON_CHARS)
+          .describe('Short, without secrets: the owner and the member see it.'),
       },
       async run({ ctx, args, handler }) {
         return JSON.stringify(

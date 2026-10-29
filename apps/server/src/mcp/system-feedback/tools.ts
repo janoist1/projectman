@@ -11,10 +11,9 @@ export const SYSTEM_FEEDBACK_TOOL_GROUP: TeamToolGroup = {
       title: 'List the recorded system feedback',
       readOnly: true,
       description:
-        "Only the Operator or the selected PM in its internal coordination session, never an approval continuation; needs no open owner request. The gaps in projectman itself that this project's team " +
-        'recorded earlier, in any state, the latest 50: id, state (new, forwarded, dismissed), title, how many times ' +
-        'it occurred and when it was last seen. Look here before record_system_feedback, so the same gap is not ' +
-        'recorded twice.',
+        "The gaps in projectman itself that this project's team recorded, the latest 50 in any state (id, " +
+        'state, title, occurrences, last seen). Look here before record_system_feedback so a gap is not ' +
+        'recorded twice. Your internal coordination session only, never an approval continuation.',
       input: {},
       async run({ ctx, handler }) {
         return JSON.stringify(await handler.listSystemFeedback(ctx));
@@ -26,13 +25,9 @@ export const SYSTEM_FEEDBACK_TOOL_GROUP: TeamToolGroup = {
       title: 'Record a gap in projectman',
       readOnly: false,
       description:
-        'Only the Operator or the selected PM in its internal coordination session, never an approval continuation; needs no open owner request. Record ONE gap in projectman itself (a missing tool, a ' +
-        'refusal that made no sense, a flow that could not do what the owner asked) that you had to work around. ' +
-        'The owner decides what happens to it. Write it in English, without secrets, passwords, tokens, file ' +
-        'paths, e-mail addresses or the names of people, projects or clients: describe the gap in general terms ' +
-        '(what is covered is replaced by a marker, and the owner reads the text before anything leaves the ' +
-        'installation). If list_system_feedback shows the same gap, pass its id as same_as instead: it only adds ' +
-        'an occurrence and the other fields are ignored. At most 10 new items per project in 24 hours.',
+        'Record ONE gap in projectman itself you had to work around (a missing tool, a senseless refusal, a ' +
+        'flow that could not do what was asked); the owner decides on it. English, general terms: no secrets, ' +
+        'paths, e-mail addresses or names of people, projects or clients. At most 10 new per project a day.',
       input: {
         title: z
           .string()
@@ -64,7 +59,10 @@ export const SYSTEM_FEEDBACK_TOOL_GROUP: TeamToolGroup = {
           .min(1)
           .max(64)
           .optional()
-          .describe('The id (fb_…) of an item of this project that this is another occurrence of.'),
+          .describe(
+            'The id (fb_…) of the same gap in list_system_feedback: it only adds an occurrence, the other ' +
+              'fields are ignored.',
+          ),
       },
       async run({ ctx, args, handler }) {
         const result = await handler.recordSystemFeedback(ctx, {

@@ -119,6 +119,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         }
         return false
     }
+    /// Opening the running app again (Finder, Dock, `open`) shows the details window, so the app stays reachable
+    /// when its menu bar icon is hidden (for example behind the notch).
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        guard status != nil else { return true }
+        openWindow()
+        return true
+    }
     func menuWillOpen(_ menu: NSMenu) { menuOpen = true; refresh() }
     func menuDidClose(_ menu: NSMenu) { menuOpen = false; scheduleRefresh() }
     func windowWillClose(_ notification: Notification) { window = nil; scheduleRefresh() }

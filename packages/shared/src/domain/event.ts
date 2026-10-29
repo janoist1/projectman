@@ -680,7 +680,8 @@ export interface TimelineEventData {
     changes: ConfigChangeRow[];
   };
   /**
-   * The project's focus changed (PM-427; the actor is the person who set it). Places are 1-based: a
+   * Historical (PM-427, removed with the project focus in PM-1107): kept so the stored events keep
+   * rendering. The project's focus changed (the actor is the person who set it). Places are 1-based: a
    * removed item has `position` null, an added one `previous` null. `added` and `removed` are recorded on
    * the item's own card or theme (`taskKey`); `moved` has no card and shows in the project's changes only.
    * `title` is the item's title when it was written.
@@ -703,8 +704,9 @@ export interface PartsClosed {
 }
 
 /**
- * Why a card was pulled into a stage ahead of its turn (PM-427): `urgent` it is urgent; `focus` the
- * project's focus put it there; `key` and `title` are the focus item that covers the card, `position` its place.
+ * Why a card was pulled into a stage ahead of its turn (PM-436): `urgent` it is urgent. `focus` is
+ * historical (the project focus was removed in PM-1107) and only stored events carry it: the project's focus
+ * put the card there; `key` and `title` are the focus item that covers the card, `position` its place.
  */
 export type StagePull =
   { reason: 'urgent' } | { reason: 'focus'; position: number; key: string; title: string };

@@ -5,11 +5,11 @@ import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
 
 /**
- * PM-436 (PM-427): deferred starts are retried urgent first, then by the focus's order, then as before; a free
- * developer takes a ready urgent card, else the next focus card, from the queue stage into development. `dev-2`
- * has the limit 13 and `dev-1` the default 5, both with capacity 1 (the test project's queue is `backlog`).
+ * PM-436: deferred starts are retried urgent first, then as before; a free developer takes a ready urgent
+ * card from the queue stage into development. `dev-2` has the limit 13 and `dev-1` the default 5, both with
+ * capacity 1 (the test project's queue is `backlog`).
  */
-describe('the order of deferred starts and the focus pull', () => {
+describe('the order of deferred starts and the urgent pull', () => {
   let h: DomainHarness;
   afterEach(() => h?.cleanup());
 
@@ -32,24 +32,19 @@ describe('the order of deferred starts and the focus pull', () => {
     h = await createDomainHarness({ adjust });
   };
 
-  const create = async (title: string, extra: { heavy?: boolean; themeKey?: string } = {}) =>
+  const create = async (title: string, extra: { heavy?: boolean } = {}) =>
     (
       await h.domain.tasks.create(
         'AR',
         {
           title,
-          ...(extra.themeKey ? { themeKey: extra.themeKey } : {}),
           ...(extra.heavy ? { complexity: { points: 8 as const, reason: 'the runner' } } : {}),
         },
         OWNER_ACTOR,
       )
     ).key;
-  const theme = async (title: string) =>
-    (await h.domain.tasks.create('AR', { title, kind: 'theme' }, OWNER_ACTOR)).key;
   const priority = (key: string, value: TaskPriority | null = 'urgent') =>
     h.domain.tasks.update('AR', key, { priority: value }, OWNER_ACTOR);
-  const focus = (key: string, position?: number) =>
-    h.domain.projectFocus.add('AR', key, OWNER_ACTOR, position);
   const move = (key: string, stage = 'development') =>
     h.domain.tasks.moveToStage('AR', key, stage, OWNER_ACTOR);
   const cancel = (key: string) =>
@@ -88,34 +83,24 @@ describe('the order of deferred starts and the focus pull', () => {
   };
 
   describe('the order of the deferred starts', () => {
-    it('starts an urgent card first, then the focus cards by place, then the others', async () => {
+    it('starts an urgent card first, then the others', async () => {
       await harness();
       const busy = await busySenior();
       const other = await deferred('Other');
-      const second = await deferred('Second in focus');
-      const first = await deferred('First in focus');
       const urgent = await deferred('Urgent');
-      await focus(second);
-      await focus(first, 1);
       await priority(urgent);
       await flush();
       expect(task(urgent).assignee).toBeNull();
 
       await cancel(busy);
       await waitFor(urgent, 'dev-2');
-      for (const key of [other, second, first]) expect(task(key).assignee).toBeNull();
+      expect(task(other).assignee).toBeNull();
 
       await cancel(urgent);
-      await waitFor(first, 'dev-2');
-      expect(task(second).assignee).toBeNull();
-      await cancel(first);
-      await waitFor(second, 'dev-2');
-      expect(task(other).assignee).toBeNull();
-      await cancel(second);
       await waitFor(other, 'dev-2');
     });
 
-    it('keeps the order of the store without focus or urgent cards', async () => {
+    it('keeps the order of the store without urgent cards', async () => {
       await harness();
       const busy = await busySenior();
       const early = await deferred('Early');
@@ -129,29 +114,20 @@ describe('the order of deferred starts and the focus pull', () => {
   });
 
   describe('the pull', () => {
-    it.each(['urgent', 'focus'] as const)(
-      'leaves a %s collector in the queue and starts its subtask',
-      async (mode) => {
-        await harness(oneDeveloper);
-        const parent = await create('Collecting card');
-        const child = (
-          await h.domain.tasks.create('AR', { title: 'Subtask', parentKey: parent }, OWNER_ACTOR)
-        ).key;
-        if (mode === 'urgent') await priority(parent);
-        await focus(parent);
-        await waitFor(child, 'dev-1');
-        await settle();
-        expect(task(parent)).toMatchObject({ stageId: 'backlog', assignee: null });
-        expect(stageChange(parent)).toEqual([]);
-        expect(sessionsOf(parent)).toEqual([]);
-        expect(pulledOf(child)).toEqual({
-          reason: 'focus',
-          position: 1,
-          key: parent,
-          title: 'Collecting card',
-        });
-      },
-    );
+    it('leaves an urgent collector in the queue and starts its urgent subtask', async () => {
+      await harness(oneDeveloper);
+      const parent = await create('Collecting card');
+      const child = (await h.domain.tasks.create('AR', { title: 'Subtask', parentKey: parent }, OWNER_ACTOR))
+        .key;
+      await priority(parent);
+      await priority(child);
+      await waitFor(child, 'dev-1');
+      await settle();
+      expect(task(parent)).toMatchObject({ stageId: 'backlog', assignee: null });
+      expect(stageChange(parent)).toEqual([]);
+      expect(sessionsOf(parent)).toEqual([]);
+      expect(pulledOf(child)).toEqual({ reason: 'urgent' });
+    });
 
     it('gives a ready urgent card to a free developer in the name of the system', async () => {
       await harness(oneDeveloper);
@@ -162,48 +138,6 @@ describe('the order of deferred starts and the focus pull', () => {
       expect(pulledOf(key)).toEqual({ reason: 'urgent' });
       expect(stageChange(key).at(-1)?.actor).toMatchObject({ kind: 'system' });
       await vi.waitFor(() => expect(sessionsOf(key)).toHaveLength(1));
-    });
-
-    it('gives the next focus card, with the place and the item that covers it', async () => {
-      await harness(oneDeveloper);
-      const busy = await busyDeveloper();
-      const second = await create('Second card');
-      const first = await create('First card');
-      await focus(second);
-      await focus(first, 1);
-      await cancel(busy);
-      await waitFor(first, 'dev-1');
-      expect(pulledOf(first)).toEqual({ reason: 'focus', position: 1, key: first, title: 'First card' });
-      // The developer is busy: the second card waits for its turn.
-      await settle();
-      expect(task(second).assignee).toBeNull();
-      expect(task(second).stageId).toBe('backlog');
-      await cancel(first);
-      await waitFor(second, 'dev-1');
-      expect(pulledOf(second)).toEqual({ reason: 'focus', position: 2, key: second, title: 'Second card' });
-    });
-
-    it('pulls the cards of a theme the focus covers, naming the theme', async () => {
-      await harness(oneDeveloper);
-      const parent = await theme('The theme');
-      const key = await create('Card of the theme', { themeKey: parent });
-      await focus(parent);
-      await waitFor(key, 'dev-1');
-      expect(pulledOf(key)).toEqual({ reason: 'focus', position: 1, key: parent, title: 'The theme' });
-      expect(task(parent).assignee).toBeNull();
-    });
-
-    it('takes an urgent card before a focus card', async () => {
-      await harness(oneDeveloper);
-      const busy = await busyDeveloper();
-      const next = await create('Next focus card');
-      const urgent = await create('Urgent card');
-      await focus(next);
-      await priority(urgent);
-      await cancel(busy);
-      await waitFor(urgent, 'dev-1');
-      expect(pulledOf(urgent)).toEqual({ reason: 'urgent' });
-      expect(task(next).stageId).toBe('backlog');
     });
 
     it('gives each free developer one card, and the rest waits for a developer to be freed', async () => {
@@ -248,17 +182,14 @@ describe('the order of deferred starts and the focus pull', () => {
       );
       const waiting = await create('Waits for an answer');
       await h.domain.tasks.update('AR', waiting, { addLabels: [WAITING] }, OWNER_ACTOR);
-      const parent = await theme('A theme');
       const senior = await create('Senior card', { heavy: true });
-      const plain = await create('Neither urgent nor in the focus');
+      const plain = await create('Not urgent');
       const assigned = await create('Somebody else has it');
       await h.domain.tasks.update('AR', assigned, { assignee: 'cr' }, OWNER_ACTOR);
       for (const key of [blocked, waiting, senior, assigned]) await priority(key);
-      await focus(parent);
       await settle();
       for (const key of [blocked, waiting, senior, plain, assigned, prerequisite])
         expect(task(key).stageId).toBe('backlog');
-      expect(task(parent).assignee).toBeNull();
       expect(h.runner.started).toHaveLength(0);
 
       // The same developer takes a plain urgent card, so that none of the above is left out by a fault of the setup.
@@ -297,7 +228,7 @@ describe('the order of deferred starts and the focus pull', () => {
         reads.push({ kind: query.kind, keys: rows.map((row) => row.key) });
         return rows;
       });
-      const pullReads = () => reads.filter((r) => ['pull', 'focus', 'open'].includes(r.kind));
+      const pullReads = () => reads.filter((r) => ['pull', 'open'].includes(r.kind));
 
       // The only developer is busy: the round stops before it reads a card.
       await settle();
@@ -358,21 +289,17 @@ describe('the order of deferred starts and the focus pull', () => {
       await waitFor(key, 'dev-1');
     });
 
-    it('pulls nothing once the priority is taken back or the card leaves the focus', async () => {
+    it('pulls nothing once the priority is taken back', async () => {
       await harness(oneDeveloper);
       const busy = await create('Busy');
       await priority(busy);
       await waitFor(busy, 'dev-1');
       const urgent = await create('Urgent, then not');
-      const covered = await create('Focus, then not');
       await priority(urgent);
-      await focus(covered);
       await priority(urgent, null);
-      await h.domain.projectFocus.remove('AR', covered, OWNER_ACTOR);
       await cancel(busy);
       await settle();
       expect(task(urgent).stageId).toBe('backlog');
-      expect(task(covered).stageId).toBe('backlog');
     });
 
     it('pulls a card at once when it reaches the queue stage, without waiting for the timer', async () => {

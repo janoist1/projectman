@@ -4,8 +4,6 @@ import {
   effectiveSessionPermissions,
   guestOfConversation,
   hostOutsideOwners,
-  isOpenTask,
-  isTheme,
   memberStorageHandle,
   stageOf,
 } from '@projectman/shared';
@@ -22,7 +20,6 @@ import type {
 import type {
   CardRelation,
   CardWorker,
-  ContextFocus,
   ContextPackInput,
   HandoffTakeover,
   RelatedSession,
@@ -128,8 +125,7 @@ export class SessionContextInput {
       : [];
     const relations = task ? this.deps.tasks.relationsOf(projectKey, task.key) : [];
     const themeCard = task?.themeKey ? this.deps.tasks.find(projectKey, task.themeKey) : null;
-    const focus = this.focusFor(projectKey, task);
-    return { cardWorkers, cardQuestions, relations, themeCard, focus };
+    return { cardWorkers, cardQuestions, relations, themeCard };
   }
 
   async build(
@@ -145,7 +141,7 @@ export class SessionContextInput {
   ): Promise<ContextPackInput> {
     const projectKey = config.project.key;
     const { stage, memory, attachments, parentAttachments, relatedSessions } = prepared;
-    const { cardWorkers, cardQuestions, relations, themeCard, focus } = standing;
+    const { cardWorkers, cardQuestions, relations, themeCard } = standing;
     const operatorKnowledge = await this.deps.operatorKnowledge
       .forConversation(projectKey, member.handle, workItem, cause)
       .catch((err: unknown) => {
@@ -197,7 +193,6 @@ export class SessionContextInput {
             },
           }
         : {}),
-      ...(focus ? { focus } : {}),
       ...(handoff ? { handoff } : {}),
     };
   }
@@ -218,31 +213,6 @@ export class SessionContextInput {
       uncommitted: row.uncommitted,
       summary: row.summary,
     };
-  }
-
-  /**
-   * The project's focus as the brief tells it (PM-437): the open items in order (closed ones keep
-   * their numbers) and the place of the session's card; undefined when no item is open.
-   */
-  private focusFor(projectKey: string, task: Task | null): ContextFocus | undefined {
-    const items = this.deps.projectFocus
-      .get(projectKey)
-      .items.flatMap<ContextFocus['items'][number]>((item, index) => {
-        const card = this.deps.tasks.find(projectKey, item.key);
-        return card && isOpenTask(card)
-          ? [
-              {
-                position: index + 1,
-                key: card.key,
-                title: card.title,
-                kind: isTheme(card) ? 'theme' : 'task',
-              },
-            ]
-          : [];
-      });
-    if (items.length === 0) return undefined;
-    const place = task ? (this.deps.projectFocus.places(projectKey).get(task.key) ?? null) : null;
-    return { items, place };
   }
 
   /**

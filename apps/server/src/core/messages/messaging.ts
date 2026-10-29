@@ -348,19 +348,21 @@ export class Messaging {
     ) {
       // An AI member's message asks a new round only of a recipient with a role on the card (PM-426).
       const fromAi = memberOf(config, from)?.kind === 'ai';
-      for (const handle of recipients)
-        if (!humans.includes(handle) && (!fromAi || recipientHasCardRole(this.ctx, config, task, handle)))
-          this.sessions.requestReviewRound(projectKey, task.key, handle);
       // The task's pinned commit follows the branch (PM-183) when it is the stage's reviewers or
       // testers who were asked: that is a new round, not a branch that moved behind their back.
+      // It comes first: an offline engine (`engine_offline`) refuses the request before any round starts.
       const stage = stageOf(config, task.stageId);
       if (stage && stageOwners(config, stage).some((handle) => recipients.includes(handle)))
         await this.tasks.repinReview(projectKey, task.key, from).catch((err: unknown) => {
+          if (err instanceof DomainError && err.code === 'engine_offline') throw err;
           this.ctx.logger.warn(
             { err, taskKey: task.key },
             'could not pin the commit of the new review round',
           );
         });
+      for (const handle of recipients)
+        if (!humans.includes(handle) && (!fromAi || recipientHasCardRole(this.ctx, config, task, handle)))
+          this.sessions.requestReviewRound(projectKey, task.key, handle);
       // A new commit pinned: its full test is queued before the reviewers get this message (PM-217).
       await this.ctx.events.emit('task_review_round', { projectKey, taskKey: task.key, from });
     }

@@ -167,7 +167,7 @@ export function createMemberQueueRepository(db: Db) {
     // A message item closed as delivered whose receipt says it was not: the victims of PM-1108.
     untypedMessages: db.prepare(
       `SELECT id FROM member_queue_items
-       WHERE source_type = 'message' AND state = 'done' AND close_reason = 'delivered' AND queued_at >= ?
+       WHERE source_type = 'message' AND state = 'done' AND close_reason = 'delivered'
          AND EXISTS (
            SELECT 1 FROM team_messages AS m,
              json_each(CASE WHEN json_valid(m.receipts) THEN m.receipts ELSE '[]' END) AS r
@@ -175,6 +175,10 @@ export function createMemberQueueRepository(db: Db) {
              AND json_extract(r.value, '$.handle') = member_queue_items.member
              AND json_extract(r.value, '$.kind') = 'ai'
              AND json_extract(r.value, '$.deliveredAt') IS NULL)`,
+    ),
+    untypedRepairMark: db.prepare("SELECT 1 FROM instance_meta WHERE key = 'untyped_message_repair'"),
+    untypedRepairSet: db.prepare(
+      "INSERT OR REPLACE INTO instance_meta (key, value) VALUES ('untyped_message_repair', @at)",
     ),
     reopen: db.prepare(
       `UPDATE member_queue_items SET state = 'queued', close_reason = NULL, closed_at = NULL,
@@ -338,9 +342,16 @@ export function createMemberQueueRepository(db: Db) {
     requeue(id: string, at: string): boolean {
       return statements.requeue.run({ id, at }).changes > 0;
     },
-    /** The ids of the message items queued since `since` that were closed as delivered while the receipt is still pending. */
-    listUntypedMessages(since: string): string[] {
-      return (statements.untypedMessages.all(since) as Array<{ id: string }>).map((row) => row.id);
+    /** The ids of the message items that were closed as delivered while the receipt is still pending (read-only). */
+    listUntypedMessages(): string[] {
+      return (statements.untypedMessages.all() as Array<{ id: string }>).map((row) => row.id);
+    },
+    /** True once the one-time repair of the untyped messages (PM-1108) has run on this database. */
+    untypedRepairDone(): boolean {
+      return statements.untypedRepairMark.get() !== undefined;
+    },
+    markUntypedRepairDone(at: string): void {
+      statements.untypedRepairSet.run({ at });
     },
     /** Opens a closed item again (a message item that was closed as delivered without being typed). */
     reopen(id: string): boolean {

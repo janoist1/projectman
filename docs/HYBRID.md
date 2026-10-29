@@ -491,8 +491,9 @@ with each other, not with the live container.
 ### What the RSS is made of (PM-1116)
 
 The RSS of the cloud server is far above its live JavaScript heap (the PM-773 profile read about 65 MB of
-live heap against about 650 MB of RSS): most of it is native memory (the SQLite page cache and the
-allocator's free arenas), not JavaScript objects. Before a smaller instance is considered, measure the
+live heap against about 650 MB of RSS), so most of the RSS is not live JavaScript objects. What it is
+made of (native allocations such as the SQLite page cache, allocator arenas, mapped code) is **not measured
+yet**; those are the suspects, not findings. Before a smaller instance is considered, measure the
 composition on the running machine, in this order:
 
 1. **`/proc/<pid>/smaps_rollup`** of the server process (`docker exec projectman-cloud sh -c 'cat

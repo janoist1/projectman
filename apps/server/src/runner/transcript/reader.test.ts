@@ -63,7 +63,7 @@ describe('transcript window (PM-1116)', () => {
       expect(await ids({ limit: 2 })).toEqual(await ids({}).then((all) => all.slice(-2)));
       const all = await ids({});
       expect(await ids({ limit: 2, before: all[3] })).toEqual(all.slice(1, 3));
-      expect(await ids({ limit: 2, before: 'unknown' })).toEqual(all.slice(-2));
+      expect(await ids({ limit: 2, before: 'unknown' })).toEqual([]);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

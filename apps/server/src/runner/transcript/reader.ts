@@ -32,7 +32,9 @@ export async function readTranscript(
       : usesCodexCli(provider)
         ? parseCodexTranscript(text, opts)
         : parseTranscript(text, opts);
-  return opts.limit === undefined ? items : chatWindow(items, { limit: opts.limit, before: opts.before }).items;
+  return opts.limit === undefined
+    ? items
+    : chatWindow(items, { limit: opts.limit, before: opts.before }).items;
 }
 
 /**
@@ -41,10 +43,7 @@ export async function readTranscript(
  */
 export async function readTranscriptText(path: string, confineTo?: string): Promise<string> {
   try {
-    if (!confineTo) {
-      if ((await stat(path)).size > MAX_CONFINED_TRANSCRIPT_BYTES) throw new Error('transcript too large');
-      return await readFile(path, 'utf8');
-    }
+    if (!confineTo) return await readFile(path, 'utf8');
     const handle = await openConfined(path, confineTo);
     try {
       if ((await handle.stat()).size > MAX_CONFINED_TRANSCRIPT_BYTES) throw new Error('transcript too large');

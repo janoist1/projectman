@@ -401,7 +401,7 @@ describe('synchronous structural evaluations (PM-783)', () => {
         evidence: vi.spyOn(h.repos.timeline, 'structuralEvidence'),
         list: vi.spyOn(h.repos.operatorSignals, 'list'),
         listOpen: vi.spyOn(h.repos.operatorSignals, 'listOpen'),
-        board: vi.spyOn(h.domain.operatorSignals as never, 'boardCases'),
+        board: vi.spyOn(h.domain.operatorSignals as never, 'boardRead'),
       };
       const changes = () => (h.repos.db.prepare('SELECT total_changes() AS n').get() as { n: number }).n;
       const before = changes();

@@ -5103,7 +5103,7 @@ Migration 125 drops the then empty table `project_focus_items`.
   a record or a ready gate. The assembly runs one stage-advance per card at a time; an event that comes meanwhile asks
   for one more round that reads the card afresh.
 - **Operator history reads (PM-771, PM-783).** The Operator's 60 second sweep (`OperatorSignals.sweep`) and the structural
-  report (`StructuralPatterns.report`) no longer walk a project's closed history. The board cases (`boardCases`, one
+  report (`StructuralPatterns.report`) no longer walk a project's closed history. The board cases (`boardRead`, one
   map per sweep, no cache kept between sweeps), the pending list and the step targets work from the `open` read;
   `TaskWaits.of` and `MemberService.rosterFor` read the open cards and only the cards the `prerequisite` links name
   (`keys`), which is the same answer because a closed prerequisite is not an open one. The 7-day evidence comes from
@@ -5490,7 +5490,7 @@ listAnsweredQuestions`). `list_decision_candidates { limit? }` (1..50, default 2
   Signal WS events reach owners only. This adds no machine-dependent part: observation, storage and
   admission stay on the server, and notice delivery uses the existing engine session boundary.
   Five board kinds (PM-547, migration 56) join the four, raised and closed by the same sweep from
-  `OperatorSignals.boardCases` (`pending()` rechecks a signal against it before waking the Operator):
+  `OperatorSignals.boardRead` (`pending()` rechecks a signal against it before waking the Operator):
   `idle` (`idle:<task>:<stage>`; a work or step card whose `TaskWaits` reason is `assignee`, or `queued`
   with an AI step owner, held by an AI member who is not on leave, with no activity for
   `OPERATOR_IDLE_MINUTES` = 30 since the later of `wait.since` and the card's latest session activity),

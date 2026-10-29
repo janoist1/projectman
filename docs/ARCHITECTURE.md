@@ -4762,6 +4762,9 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   **Module:** `scripts`
 
 - **Engine service (launchd)** — `scripts/engine/{service,snapshot,logs,commands,cli}.ts`,
+  PM-1113 runs the compiled `apps/server/dist/index.js` under Node, without a TypeScript loader;
+  build the engine checkout before installing or updating the service. The build and launchd
+  operations run on the engine machine; no compiled source crosses engine RPC.
   PM-674's [rollback runbook](CLOUD-CUTOVER.md) uninstalls KeepAlive before hybrid back.
   Updates are manual owner-approved steps in
   the engine's own checkout; neither credentials nor launchd operations cross engine RPC.

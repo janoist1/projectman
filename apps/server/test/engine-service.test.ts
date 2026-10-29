@@ -58,7 +58,8 @@ describe('the plist template', () => {
     expect(plist).not.toMatch(/\{\{/);
     expect(plist).toContain('<string>com.projectman.engine</string>');
     expect(plist).toContain('<string>/opt/homebrew/bin/node</string>');
-    expect(plist).toContain('<string>/Users/me/projectman-live/apps/server/src/index.ts</string>');
+    expect(plist).toContain('<string>/Users/me/projectman-live/apps/server/dist/index.js</string>');
+    expect(plist).not.toContain('<string>tsx</string>');
     expect(plist).toMatch(/<key>PROJECTMAN_MODE<\/key>\s*<string>engine<\/string>/);
     expect(plist).toMatch(/<key>PROJECTMAN_HOME<\/key>\s*<string>\/Users\/me\/\.projectman<\/string>/);
     expect(plist).toMatch(/<key>PATH<\/key>\s*<string>\/opt\/homebrew\/bin:\/usr\/bin<\/string>/);
@@ -132,7 +133,7 @@ describe('service install, uninstall and status', () => {
     expect(plist).toBe(path.join(base, 'LaunchAgents', 'com.projectman.engine.plist'));
     const text = readFileSync(plist, 'utf8');
     expect(text).toContain(`<string>${path.join(base, 'home')}</string>`);
-    expect(text).toContain(`<string>${ROOT}/apps/server/src/index.ts</string>`);
+    expect(text).toContain(`<string>${ROOT}/apps/server/dist/index.js</string>`);
     expect(calls).toEqual([
       ['bootout', 'gui/501/com.projectman.engine'],
       ['bootstrap', 'gui/501', plist],

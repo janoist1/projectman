@@ -715,7 +715,8 @@ The home's `instance.json` now says `engine`: a single-machine or cloud server r
 it, while the engine may (its `home_in_use` check allows the stale database of an `engine` home;
 sandboxes keep every session out of it). The engine, in turn, refuses a home that holds a database
 and is not marked `engine`. Then start the engine, in the foreground first: `npm run engine -- status`,
-`npm run engine -- start`, and let launchd keep it running.
+build with `npm run build -w @projectman/server`, run `npm run engine -- start`,
+and let launchd keep it running. Both foreground and service starts run the compiled server.
 
 The cloud's data never travels in a package that sits on the Mac: it holds the cookie key, the secrets
 and the whole database, and a session's sandbox only _denies_ named places (the home's own entries,
@@ -738,7 +739,9 @@ npm run engine -- service uninstall   # unloads it and removes the file; the log
 - `install` checks what `start` checks (configuration, key file, home role) and refuses another
   home's installed agent. The engine restarts after an exit, 30 s apart. Logs:
   `<home>/logs/engine-service.{out,err}.log`.
-- After a `git pull` in that checkout, restart it: `npm run engine -- service install` again.
+- The service runs `apps/server/dist/index.js` under Node. Build the checkout with
+  `npm run build -w @projectman/server` before installing it. After updating the checkout,
+  rebuild it and run `npm run engine -- service install` again.
 - `PATH` in the file is the installing shell's, without the `node_modules/.bin` folders that `npm run`
   puts in front of it. If a CLI of the sessions lives elsewhere, start `install` from a shell that
   finds it. A `bootstrap` that fails with "5: Input/output error" while launchd is still tearing the

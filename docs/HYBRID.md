@@ -213,7 +213,7 @@ one-writer pull guard and restore procedure are unchanged; see the EC2 live rehe
 Mac engine's outbound connection.
 
 The one-off `seed` (the first upload of the Mac's data) is retired (PM-1116): the cloud is already seeded.
-The commit before the retirement is tagged `retired-migrate-dns`. `pull-data` stays; see
+The commit before the retirement is `358bb7c7` on `main`, tagged `retired-migrate-dns`. `pull-data` stays; see
 [AWS.md](AWS.md#pull-data).
 
 1. Zero Trust → Networks → Tunnels → create a tunnel, choose Docker, and copy the **token** only
@@ -676,7 +676,7 @@ The tool is `npm run migrate -- …`. The engine's own commands are `npm run eng
 **The one-off move to the hybrid mode is done and its commands are retired (PM-1116):** `inventory`,
 `hybrid plan`, `hybrid package` and the cloud `seed` and `dns plan|import|verify|switch`. What stays is
 `verify`, `instance`, `hybrid back`, the cloud's `pull-data` and `dns status`. The last commit that still
-has the retired commands is tagged `retired-migrate-dns`; check it out in a separate worktree if a
+has the retired commands is `358bb7c7` on `main`, tagged `retired-migrate-dns`; check it out in a separate worktree if a
 move has to be done again. The sections below keep what the remaining commands rely on.
 
 For the data-preserving return from EC2 to Mac single,

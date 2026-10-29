@@ -1,6 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { FastifyBaseLogger } from 'fastify';
+import { chatWindow } from '@projectman/shared';
 import type { ChatItem, HandoffSummary, PlanUsage, SessionState, ProjectConfig } from '@projectman/shared';
 import type {
   ContextPack,
@@ -227,7 +228,10 @@ export function createFakeRunnerModule(): FakeRunnerModule {
         transcriptReads.push({ path, opts });
         const items = transcripts.get(path);
         if (!items) throw new Error(`no transcript at ${path}`);
-        return items;
+        // The window as the real reader cuts it, so callers are tested against its semantics.
+        return opts?.limit === undefined
+          ? items
+          : chatWindow(items, { limit: opts.limit, before: opts.before }).items;
       },
       async summary(path, opts) {
         summaryReads.push({ path, opts });

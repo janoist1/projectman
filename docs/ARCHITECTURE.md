@@ -1404,7 +1404,10 @@ A task that enters a step or release stage a reviewing or testing duty belongs t
 working directory with uncommitted work refuses the move for everybody (`handover_uncommitted`); otherwise the
 commit is pinned (`task_review_pins`, one row per task, shown as `Task.reviewPin` while the task is in that stage,
 named in the reviewer's brief and "Review round"). A task without a repository or a branch is neither checked nor
-pinned. A move completed by a human approval (`decide`) is handed over the same way: uncommitted work leaves the
+pinned. The hand-over read is strict (PM-1110): a card whose source the hub knows but whose engine is not
+connected is refused with `engine_offline` instead of being handed over with no pin, and the head read carries the
+stage and assignee the card had; `move` refuses (`board_stale`) a card that changed since. A message's version takes
+its commit from the recorded pin, and reads the branch only for a card with none. A move completed by a human approval (`decide`) is handed over the same way: uncommitted work leaves the
 task where it is (`gateBlocked.reason` `handover_uncommitted` on the timeline).
 
 `ReviewWatch` (every 30 s, `DomainOptions.reviewWatchMs`; a pull request's new commits check the task at once)
@@ -4111,7 +4114,8 @@ assumption or remote-engine RPC.
   remote task worktrees), read by the bounded `SessionRepository.latestSourceOfTask` query.
   If the card has no assignee, no work binding and no source session, and LOCAL is not registered, there is no engine source to read:
   `sourceHead` returns null without RPC. Single-machine assembly always registers LOCAL; a registered
-  but disconnected engine and a recorded developer workspace retain strict read failures. Remote git
+  but disconnected engine and a recorded developer workspace retain strict read failures (a stage
+  hand-over for review reads strictly since PM-1110: `engine_offline` refuses the move). Remote git
   still runs on the selected engine; no engine path is read by the hub and no RPC contract changes.
   **Remote engine (engine mode, PM-314: runs in the engine process):** use `worktree.*` and `workspace.*`, run this git query beside the worktrees and return the attributed branch head
   to the server for its version and input formatting; maintain repositories/worktrees and git metadata there;

@@ -5318,6 +5318,7 @@ export const hu = {
       question_screened_decision: 'Döntésként továbbengedte neked: {note}',
       question_screened_todo: 'Teendőként továbbengedte neked: {note}',
       question_screened_integrator: 'Teendőként az Operátor sorába tette: {note}',
+      question_screened_todo_decider: 'Gépi teendő, de integrátor nincs: {to} dönt róla. {note}',
       question_recipient_escalated:
         'Az Operátornak szóló teendő a tulajdonoshoz került: 24 óráig nem zárták le.',
       question_recipient_escalated_passed_on: 'Az Operátor a teendőt a tulajdonosnak adta tovább.{note}',

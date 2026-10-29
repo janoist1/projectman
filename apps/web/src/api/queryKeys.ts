@@ -65,6 +65,8 @@ export const queryKeys = {
   sessionDetails: (key: string) => ['project', key, 'session'] as const,
   /** The open items of the inbox. */
   inbox: (key: string) => ['project', key, 'inbox'] as const,
+  /** The sessions people were involved in: the prefix of the recent list and of each filtered, paged list. */
+  involvements: (key: string) => ['project', key, 'involvements'] as const,
   /** The newest closed items of the inbox. */
   inboxHistory: (key: string) => ['project', key, 'inbox-history'] as const,
   /** The Operator's screened questions of a day (PM-561); `since` is the start of the viewer's day. */

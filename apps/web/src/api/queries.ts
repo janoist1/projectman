@@ -983,10 +983,20 @@ export function useSaveRole(key: string) {
 export function useDeleteRole(key: string) {
   return useProjectMutation(key, (id: string) => api.deleteRole(key, id));
 }
+/**
+ * The server answers with the changed task: write it to the board and the card, and read the card's detail again
+ * (its timeline and rounds changed). The rest of the project follows by the socket events, not by a refetch.
+ */
 export function useUpdateTask(key: string) {
-  return useProjectMutation(key, ({ taskKey, body }: { taskKey: string; body: UpdateTaskRequest }) =>
-    api.updateTask(key, taskKey, body),
-  );
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ taskKey, body }: { taskKey: string; body: UpdateTaskRequest }) =>
+      api.updateTask(key, taskKey, body),
+    onSuccess: async (task) => {
+      writeTask(client, key, task);
+      await client.invalidateQueries({ queryKey: queryKeys.task(key, task.key) });
+    },
+  });
 }
 /** The server answers with the task's detail: write it instead of refetching the project. */
 export function useCreateTaskComment(key: string) {

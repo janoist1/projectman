@@ -79,6 +79,8 @@ export const PatchConfigRequest = z
     prioritySetters: ProjectConfig.shape.team.shape.prioritySetters,
     /** The duties whose holders may set complexity points (PM-1097): the whole list replaces the saved one, [] leaves the owners. */
     complexitySetters: ProjectConfig.shape.team.shape.complexitySetters,
+    /** Whether an AI member's named assignee has to fit the card (PM-1136). */
+    assigneeFit: ProjectConfig.shape.team.shape.assigneeFit,
     merger: ProjectConfig.shape.team.shape.merger,
     /** The project's contacts (PM-985): the whole list replaces the saved one, [] clears it. */
     contacts: ContactHandles.optional(),
@@ -289,6 +291,7 @@ export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigReques
         : {}),
       ...(patch.prioritySetters !== undefined ? { prioritySetters: patch.prioritySetters } : {}),
       ...(patch.complexitySetters !== undefined ? { complexitySetters: patch.complexitySetters } : {}),
+      ...(patch.assigneeFit !== undefined ? { assigneeFit: patch.assigneeFit } : {}),
       ...(patch.merger !== undefined ? { merger: patch.merger } : {}),
       ...(patch.contacts !== undefined ? { contacts: patch.contacts } : {}),
       ...(patch.viewerRecipients !== undefined ? { viewerRecipients: patch.viewerRecipients } : {}),

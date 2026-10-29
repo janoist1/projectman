@@ -247,6 +247,9 @@ export const ERROR_CODES = [
   // A card recommended for the Senior while every Senior is busy (PM-348): only the automatic start
   // gets it, and waits; a person's Start is answered with the waiting card instead.
   'senior_busy',
+  // The AI member's named assignee exceeds the card's complexity limit or misses its specialty
+  // (`team.assigneeFit`, PM-1136); details: member, reason, points, limit.
+  'assignee_unfit',
   'no_work_stage',
   'not_stage_owner',
   'member_not_scheduled',

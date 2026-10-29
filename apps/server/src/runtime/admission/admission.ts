@@ -45,7 +45,7 @@ import { conflict, DomainError } from '../../kernel';
 import type { PlanUsageCache } from '../usage';
 import type { ProjectService } from '../../core/projects';
 import type { EnsureSessionResult, SessionOrchestrator, SessionStartCause } from '../sessions';
-import { prerequisiteCards } from '../../core/tasks';
+import { prerequisiteCards, startContext } from '../../core/tasks';
 import type { TaskService } from '../../core/tasks';
 import { KeyedMutex, withoutIntegratorExecution } from '../../kernel';
 import type { AutomaticStart, DeferredStart, DeferredStarts, StartSpec } from './deferred-starts';
@@ -765,9 +765,18 @@ export class Admission {
    * taken by an older card that waits for any free developer (PM-348); then the order the store lists them in.
    */
   private retryOrder(): DeferredStart[] {
-    const ranked = this.deferred.list().map((entry) => ({
+    const entries = this.deferred.list().map((entry) => ({ entry, task: this.taskOf(entry.start) }));
+    // The parents and themes of the cards, read once per project: their priority counts (`effectivePriority`).
+    const contexts = new Map<string, Task[]>();
+    for (const projectKey of new Set(entries.map(({ entry }) => entry.start.projectKey))) {
+      const cards = entries.flatMap(({ entry, task }) =>
+        task && entry.start.projectKey === projectKey ? [task] : [],
+      );
+      contexts.set(projectKey, startContext(this.tasks, projectKey, cards));
+    }
+    const ranked = entries.map(({ entry, task }) => ({
       entry,
-      class: startClass(this.taskOf(entry.start)),
+      class: startClass(task, contexts.get(entry.start.projectKey)),
       senior: entry.waiting.reason === 'senior_busy',
     }));
     return ranked

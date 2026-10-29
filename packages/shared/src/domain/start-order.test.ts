@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { ProjectConfig } from '../config/schema';
-import { compareStartClass, pullCandidates, pullSourceStage, startClass, startableCards } from './start-order';
+import {
+  compareStartClass,
+  effectivePriority,
+  pullCandidates,
+  pullSourceStage,
+  startClass,
+  startableCards,
+} from './start-order';
 import type { Task } from './task';
 
 const task = (key: string, extra: Partial<Task> = {}): Task =>
@@ -54,6 +61,54 @@ describe('startClass', () => {
     expect(startClass(card('AC-1'))).toEqual({ kind: 'other' });
     expect(startClass(card('AC-1', { priority: 'urgent', status: 'done' }))).toEqual({ kind: 'other' });
     expect(startClass(null)).toEqual({ kind: 'other' });
+  });
+});
+
+describe('effectivePriority (PM-1136)', () => {
+  const theme = (extra: Partial<Task> = {}) => card('AC-100', { kind: 'theme', ...extra });
+  it.each([
+    ['the card own', card('AC-1', { priority: 'normal' }), [], 'normal'],
+    [
+      'the parent when higher',
+      card('AC-1', { parentKey: 'AC-2' }),
+      [card('AC-2', { priority: 'high' })],
+      'high',
+    ],
+    [
+      'the card own when higher than the parent',
+      card('AC-1', { priority: 'urgent', parentKey: 'AC-2' }),
+      [card('AC-2', { priority: 'low' })],
+      'urgent',
+    ],
+    ['the theme', card('AC-1', { themeKey: 'AC-100' }), [theme({ priority: 'urgent' })], 'urgent'],
+    [
+      'the theme of the parent for a subtask',
+      card('AC-1', { parentKey: 'AC-2' }),
+      [card('AC-2', { themeKey: 'AC-100' }), theme({ priority: 'high' })],
+      'high',
+    ],
+    [
+      'nothing for a closed theme',
+      card('AC-1', { themeKey: 'AC-100' }),
+      [theme({ priority: 'urgent', status: 'done' })],
+      null,
+    ],
+    [
+      'nothing for a closed parent',
+      card('AC-1', { parentKey: 'AC-2' }),
+      [card('AC-2', { priority: 'urgent', status: 'cancelled' })],
+      null,
+    ],
+  ])('is %s', (_name, subject, others, expected) => {
+    expect(effectivePriority(subject, others)).toBe(expected);
+  });
+});
+
+describe('startClass with a context (PM-1136)', () => {
+  it('is urgent for a card of an urgent theme', () => {
+    const context = [card('AC-100', { kind: 'theme', priority: 'urgent' })];
+    expect(startClass(card('AC-1', { themeKey: 'AC-100' }), context)).toEqual({ kind: 'urgent' });
+    expect(startClass(card('AC-1', { themeKey: 'AC-100' }))).toEqual({ kind: 'other' });
   });
 });
 
@@ -119,9 +174,17 @@ describe('pullCandidates', () => {
     expect(pulled(tasks)).toEqual([]);
   });
   it.each(['waiting', 'blocked'] as const)('leaves a collector whose subtask is %s', (status) => {
-    expect(pulled([card('AC-1', { priority: 'urgent' }), card('AC-2', { parentKey: 'AC-1', status })])).toEqual(
-      [],
-    );
+    expect(
+      pulled([card('AC-1', { priority: 'urgent' }), card('AC-2', { parentKey: 'AC-1', status })]),
+    ).toEqual([]);
+  });
+  it('pulls the cards of an urgent theme', () => {
+    const tasks = [
+      card('AC-100', { kind: 'theme', priority: 'urgent' }),
+      card('AC-1', { themeKey: 'AC-100' }),
+      card('AC-2'),
+    ];
+    expect(pulled(tasks)).toEqual(['AC-1']);
   });
   it('takes only the urgent cards, in board order', () => {
     const tasks = [

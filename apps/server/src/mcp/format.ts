@@ -1,4 +1,10 @@
-import { complexityText, isCardLink, isTheme, QUESTION_SCREENING_MINUTES } from '@projectman/shared';
+import {
+  complexityText,
+  isCardLink,
+  isTheme,
+  modelForProvider,
+  QUESTION_SCREENING_MINUTES,
+} from '@projectman/shared';
 import type {
   Attachment,
   MemberView,
@@ -281,9 +287,14 @@ export function formatMembers(members: MemberView[], self: string): string {
     const specialty = m.specialtyLabels?.length
       ? `; automatic assignment requires a label: ${m.specialtyLabels.join(', ')}`
       : '';
+    // Developers: the largest card they take and the model they run on, so a named assignee can be checked.
+    const limit =
+      m.complexityLimit !== undefined
+        ? `; complexity limit: ${m.complexityLimit} points; model: ${m.provider ?? 'claude'}/${modelForProvider(m.provider ?? 'claude', m.model)}`
+        : '';
     const status = m.activity ? `${m.status}: ${oneLine(m.activity, 80)}` : m.status;
     const tasks = m.currentTaskKeys.length > 0 ? ` · tasks: ${m.currentTaskKeys.join(', ')}` : '';
-    return `- ${who} — ${m.displayName} · ${role}${specialty} · ${status}${tasks}`;
+    return `- ${who} — ${m.displayName} · ${role}${limit}${specialty} · ${status}${tasks}`;
   });
   return [`Team (${members.length} members, address them by handle):`, ...lines].join('\n');
 }

@@ -176,7 +176,11 @@ function admissionFor(world: World = {}) {
           },
         }
       : {}),
-    tasks: { publish: (t: Task) => published.push(t.key) } as unknown as TaskService,
+    tasks: {
+      publish: (t: Task) => published.push(t.key),
+      // The retry order reads the parents and themes of the waiting cards (none in these worlds).
+      readSchedulingTasks: () => [],
+    } as unknown as TaskService,
     projects: {
       config: async () => {
         if (world.configFails) throw new Error('fictional: no configuration');

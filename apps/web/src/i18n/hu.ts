@@ -1672,6 +1672,8 @@ export const hu = {
       unknown_column: 'Ilyen oszlop nincs a táblán.',
       no_free_member: 'Most nincs szabad fejlesztő.',
       senior_busy: 'A kártya alkalmas fejlesztőre vár.',
+      assignee_unfit:
+        'A megnevezett tag nem illik a kártyához: meghaladja a komplexitás-keretét, vagy más a szakterülete.',
       inbox_item_closed: 'Ezt már elintézték.',
       release_not_configured: 'Ez a példány nincs kiadásra beállítva.',
       release_open: 'Már van egy folyamatban lévő kiadás.',

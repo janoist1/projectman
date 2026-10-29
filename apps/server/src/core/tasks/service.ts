@@ -85,6 +85,7 @@ import {
 } from '../../kernel';
 import { BoardOrder } from './board-order';
 import { BoardGroupMove } from './group-move';
+import { assertAssigneeFits } from './assignee-fit';
 import { planComplexity } from './complexity';
 import type { ComplexityChange } from './complexity';
 import { labelsChange, planLabelsOrThrow, TaskLabels } from './labels';
@@ -654,8 +655,6 @@ export class TaskService implements TaskSchedulingReader {
         throw themeRefused(task.key, 'have an assignee');
       if (change.repo !== undefined && change.repo !== null)
         throw themeRefused(task.key, 'have a repository');
-      if (change.priority !== undefined && change.priority !== null)
-        throw themeRefused(task.key, 'have a priority');
     }
     // Validate the whole change against the task as it will be.
     const patch: TaskPatch = {};
@@ -745,6 +744,19 @@ export class TaskService implements TaskSchedulingReader {
             target.provider ?? DEFAULT_AGENT_PROVIDER,
             target.handle,
           );
+        // An AI actor's choice has to fit the card's complexity limit and specialty when the project asks (PM-1136).
+        const workStage = config.pipeline.stages.find(
+          (stage) => stage.id === (change.stageId ?? task.stageId) && stage.kind === 'work',
+        );
+        if (change.assignee !== null && workStage)
+          assertAssigneeFits({
+            config,
+            actor,
+            task: { complexity: task.complexity, labels: task.labels },
+            workStage,
+            member: change.assignee,
+            anyDecided: this.ctx.repos.seniorWaits.open(task.projectKey, task.key)?.decision === 'any',
+          });
         patch.assignee = change.assignee;
       }
     }

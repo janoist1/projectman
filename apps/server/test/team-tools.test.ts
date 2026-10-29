@@ -445,6 +445,14 @@ describe('team tools', () => {
     expect((await toolError(h.domain.teamTools.getTask(dev, { taskKey: 'AR-99' }))).code).toBe('not_found');
   });
 
+  it('list_members shows the complexity limit of a developer and none for a person (PM-1136)', async () => {
+    const listMembers = TEAM_TOOLS.find((t) => t.name === 'list_members')!;
+    const out = toolOutputText(await listMembers.run({ ctx: dev, args: {}, handler: h.domain.teamTools }));
+    const line = (handle: string) => out.split('\n').find((l) => l.startsWith(`- ${handle}`))!;
+    expect(line('dev-2')).toContain('complexity limit');
+    expect(line('owner')).not.toContain('complexity limit');
+  });
+
   it('get_task shows a long note cut, and event_id returns the whole text (PM-191)', async () => {
     const reviewer: ToolContext = { ...dev, member: 'cr', sessionId: 'ses_cr' };
     const note = `Measured values:\n${'0123456789'.repeat(200)}`;

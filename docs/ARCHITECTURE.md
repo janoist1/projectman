@@ -4638,9 +4638,13 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   `core/tasks/tests/merges.test.ts` (`createCloudRemote`) and `engine-link/remote/remote.test.ts`; the engine half
   (schemas, limits, check checkout protection, a link lost during a full test) is
   `engine-link/engine-handlers.test.ts`, `engine-limit.test.ts` and `rpc.test.ts`; the real link, both real ends,
-  is `test/cloud-engine.test.ts` and `test/engine-link.test.ts`, which cover the hand-over and the session, not a
-  merge. No suite yet drives a merge (`merge.checkout_for_check`, the full test, `merge.release_check`) over the
-  real link end to end.
+  is `test/cloud-engine.test.ts` and `test/engine-link.test.ts`. `test/cloud-engine.test.ts` also drives a merge
+  check over the real link (PM-1130): the cloud's engine host (`app.projectman.engineDirectory`) calls
+  `merge.checkout_for_check`, the full test (`full_test.run`) and `merge.release_check`, the checkout and the
+  run are the engine's, and a checkout stays across a link drop until the call that releases it gets through.
+  The engine's `mergeBranch` and `fullTestCommand` come from the fixture (`mergeBranch` option); its executor
+  is a stand-in that records the spec and passes. The train, the push and the real full test command are
+  not covered over the real link.
   For a train (PM-660), the server calls the same build operation for every approved source
   and a final first-parent commit, then uses one `_merge/<trainId>` checkout and one strict
   full_test.run. The manifest, ordered locks and attribution stay on the server; all members

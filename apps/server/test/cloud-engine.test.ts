@@ -1,9 +1,11 @@
+import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { Readable } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { routes } from '@projectman/shared';
 import type { Task } from '@projectman/shared';
+import type { FullTestSpec } from '../src/contracts';
 import { pdfBytes } from './helpers/attachments';
 import { OWNER_ACTOR } from './helpers/domain-harness';
 import { addHumanAndLogin, inject } from './helpers/app-harness';
@@ -14,6 +16,7 @@ import {
   dropLinks,
   ENGINE_CORES,
   filesIn,
+  MERGE_TEST_COMMAND,
   rawHello,
   readEngineKey,
 } from './helpers/cloud-engine';
@@ -31,7 +34,7 @@ vi.setConfig({ testTimeout: 40_000, hookTimeout: 40_000 });
 
 let world: CloudEngineWorld;
 beforeEach(async () => {
-  world = await createCloudEngineWorld();
+  world = await createCloudEngineWorld({ mergeBranch: 'main' });
 });
 afterEach(async () => {
   await world.cleanup();
@@ -41,6 +44,7 @@ const cloud = () => world.cloud!;
 const domain = () => cloud().projectman.domain;
 const online = () => vi.waitFor(() => expect(world.engineOnline()).toBe(true), { timeout: 15_000 });
 const started = () => world.fake?.runner.started ?? [];
+const gitHead = (cwd: string) => execFileSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).trim();
 const sessionOf = (taskKey: string) =>
   domain()
     .sessions.list('AR')
@@ -158,6 +162,63 @@ describe('the cloud with its engine connected', () => {
     const machine = await inject(cloud(), 'GET', routes.machine(), world.cookie);
     expect(machine.statusCode).toBe(200);
     expect(machine.json()).toMatchObject({ summary: { cores: ENGINE_CORES } });
+  });
+
+  it('runs a merge check over the link: the checkout, the full test and its release all happen on the engine', async () => {
+    const engine = cloud().projectman.engineDirectory!.get(world.packaged.engine.id)!;
+    const ref = { projectKey: 'AR', repo: 'web' };
+    const mergeCommit = gitHead(world.src.workspace);
+    const mergeId = 'merge_linkcheck01';
+
+    const checkout = await engine.merger!.checkoutForCheck(ref, {
+      mergeId,
+      mergeCommit,
+      depsFrom: null,
+      allowDependencyInstall: true,
+    });
+    // The checkout is a worktree of the engine's repository; the cloud's home gained nothing.
+    expect(checkout.path.startsWith(world.src.home)).toBe(true);
+    expect(gitHead(checkout.path)).toBe(mergeCommit);
+
+    const spec: FullTestSpec = {
+      runId: 'full_linkcheck01',
+      cwd: checkout.path,
+      command: MERGE_TEST_COMMAND,
+      maxWorkers: 1,
+      timeoutMs: 60_000,
+      sandbox: { denyRead: [], allowRead: [] },
+    };
+    const result = await engine.fullTestExecutor!.run(spec, new AbortController().signal, () => {});
+    expect(result).toMatchObject({ outcome: 'passed', exitCode: 0 });
+    // The engine's executor ran in the checkout the first call made (the engine adds its own sandbox).
+    expect(world.fullTestSpecs).toEqual([
+      expect.objectContaining({ runId: spec.runId, cwd: checkout.path, command: MERGE_TEST_COMMAND }),
+    ]);
+
+    await engine.merger!.releaseCheck(ref, { mergeId });
+    expect(existsSync(checkout.path)).toBe(false);
+    expect(world.cloudWorktreeCalls).toEqual([]);
+  });
+
+  it('keeps a merge check checkout across a link drop, and releases it once the link is back', async () => {
+    const engine = cloud().projectman.engineDirectory!.get(world.packaged.engine.id)!;
+    const ref = { projectKey: 'AR', repo: 'web' };
+    const mergeId = 'merge_linkcheck02';
+    const checkout = await engine.merger!.checkoutForCheck(ref, {
+      mergeId,
+      mergeCommit: gitHead(world.src.workspace),
+      depsFrom: null,
+      allowDependencyInstall: true,
+    });
+
+    world.reconnectJitter = 1;
+    dropLinks(cloud());
+    await vi.waitFor(() => expect(cloud().websocketServer.clients.size).toBe(0));
+    expect(existsSync(checkout.path)).toBe(true);
+
+    // The engine is still the card's engine for a while; the call waits for its link instead of failing.
+    await engine.merger!.releaseCheck(ref, { mergeId });
+    expect(existsSync(checkout.path)).toBe(false);
   });
 
   it('relays the agent’s team tools over the real route, and refuses a token that is not the engine’s', async () => {

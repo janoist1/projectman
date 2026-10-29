@@ -2029,7 +2029,8 @@ workers follow the machine's size.
   **Machine assumptions:** release Mac, full Xcode, arm64 target, macOS 13+ runtime,
   `swift`, `ditto`, `codesign`, `xcrun notarytool/stapler`, `hdiutil`, `spctl`, a Developer ID
   identity and a notary profile in the release user's keychain. Only their names and the public
-  Team ID are arguments. `--ad-hoc` skips notarization, DMG signing and Gatekeeper assessment;
+  Team ID are arguments. `--ad-hoc` skips hardened runtime (native modules have no Team ID),
+  notarization, DMG signing and Gatekeeper assessment;
   its empty Team ID disables app updates. **Remote engine:** this build runs only on the
   release machine; the resulting app/package runs on the engine Mac. Nothing new crosses the
   server/engine boundary. Real signing/notarization is checked at the owner's first release

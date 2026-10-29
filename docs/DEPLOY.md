@@ -26,9 +26,11 @@ retaining diagnostics. Each notary submission has a 30-minute timeout.
 The identity and profile are keychain names; provision the Developer ID certificate,
 private key and notary credentials in the release machine's login keychain, with access
 for the background release process. No secrets belong in command arguments or the repo.
-The ad-hoc build skips notarization, DMG signing and Gatekeeper assessment and records an
-empty Team ID (the updater must remain disabled). Node receives JIT and unsigned executable
-memory entitlements; library validation remains enabled. Verify real Node/native module
+The ad-hoc build skips hardened runtime, notarization, DMG signing and Gatekeeper assessment
+and records an empty Team ID (the updater must remain disabled). Without hardened runtime,
+Node can load ad-hoc native modules that have no Team ID. Signing options cannot be combined
+with `--ad-hoc`. Node receives JIT and unsigned executable memory entitlements in both modes;
+signed release builds keep hardened runtime and library validation enabled. Verify real Node/native module
 execution and Gatekeeper on the owner's first signed release (PM-1123) before distribution.
 
 ## GitHub attribution

@@ -37,6 +37,11 @@ export async function runEngineAppCli(argv: string[], deps: EngineAppCliDeps): P
         if (!allowed.has(key) || !args[index + 1] || args[index + 1]!.startsWith('--')) throw badUsage(USAGE);
         index++;
       }
+      if (
+        seen.has('--ad-hoc') &&
+        ['--identity', '--team-id', '--notary-profile'].some((key) => seen.has(key))
+      )
+        throw badUsage('--ad-hoc cannot be combined with signing options');
       const packageDir = option(args, '--package');
       const outDir = option(args, '--out');
       if (!packageDir || !outDir || !deps.buildApp) throw badUsage(USAGE);

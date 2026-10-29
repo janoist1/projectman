@@ -112,9 +112,7 @@ export async function buildEngineApp(
   const sign = (file: string, entitlements?: string) =>
     checked('codesign', [
       '--force',
-      ...(request.adHoc ? [] : ['--timestamp']),
-      '--options',
-      'runtime',
+      ...(request.adHoc ? [] : ['--timestamp', '--options', 'runtime']),
       '--sign',
       request.adHoc ? '-' : request.identity!,
       ...(entitlements ? ['--entitlements', entitlements] : []),

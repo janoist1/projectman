@@ -153,6 +153,7 @@ it('ad-hoc builds have no team id, notarization, DMG signing or Gatekeeper asses
   expect(
     signs.every((c) => c.args[c.args.indexOf('--sign') + 1] === '-' && !c.args.includes('--timestamp')),
   ).toBe(true);
+  expect(calls.filter((c) => c.command === 'codesign').every((c) => !c.args.includes('runtime'))).toBe(true);
   expect(signs.some((c) => c.args.at(-1)!.endsWith('.dmg'))).toBe(false);
   expect(calls.some((c) => ['spctl', 'xcrun'].includes(c.command))).toBe(false);
   const manifest = JSON.parse(fs.readFileSync(path.join(out, 'projectman-motor.json'), 'utf8'));
@@ -266,4 +267,25 @@ it('routes build CLI options with resolved paths', async () => {
     expect.objectContaining({ packageDir: pkg, outDir: out, adHoc: true }),
   );
   expect(await runEngineAppCli(['build', '--package', '--out', 'out'], deps)).toBe(64);
+});
+
+it('refuses signing options combined with ad-hoc mode', async () => {
+  const buildApp = vi.fn();
+  const deps = {
+    originUrl: vi.fn(),
+    sourceRepo: repo,
+    cwd: root,
+    build: vi.fn(),
+    buildApp,
+    out: vi.fn(),
+    err: vi.fn(),
+  };
+  expect(
+    await runEngineAppCli(
+      ['build', '--package', 'package', '--out', 'out', '--ad-hoc', '--identity', 'Developer ID'],
+      deps,
+    ),
+  ).toBe(64);
+  expect(buildApp).not.toHaveBeenCalled();
+  expect(deps.originUrl).not.toHaveBeenCalled();
 });

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { HumanAccess } from './member';
+import { PROJECTMAN_REPOSITORY } from './upstream';
 
 /**
  * System feedback (PM-472): a gap in projectman the Operator found, recorded per installation. The host
@@ -15,7 +16,7 @@ export const SYSTEM_FEEDBACK_TEXT_MAX = 2000;
 export const SYSTEM_FEEDBACK_BODY_MAX = 7000;
 /** New items per project in a rolling 24 hours. */
 export const SYSTEM_FEEDBACK_NEW_PER_DAY = 10;
-export const SYSTEM_FEEDBACK_REPOSITORY = 'janoist1/projectman';
+export const SYSTEM_FEEDBACK_REPOSITORY = PROJECTMAN_REPOSITORY;
 /** The longest prefilled issue address the browser is sent to. */
 export const SYSTEM_FEEDBACK_PREFILL_URL_MAX = 8000;
 

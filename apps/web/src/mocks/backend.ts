@@ -480,7 +480,7 @@ function mockCommit(task: Pick<Task, 'key'>, salt: string): string {
  * real server would, so the UI runs through its normal data path.
  */
 export class MockBackend {
-  serverVersion: ServerVersionView = { version: 'dev', commit: null, tag: null };
+  serverVersion: ServerVersionView = { version: 'dev', commit: null, tag: null, latestReleaseTag: null };
   auth: MockAuthState;
   /** Cloud mode before the first setup (PM-317): the setup asks for this code; null is single-machine mode. */
   setupCode: string | null = null;

@@ -7,7 +7,10 @@ import { t } from '../../../i18n/t';
 import { createMockFetch, mockProject } from '../../../test/mockProject';
 import { ProjectEnginesCard } from './ProjectEnginesCard';
 
-afterEach(() => setFetchImplementation((input, init) => globalThis.fetch(input, init)));
+afterEach(() => {
+  setFetchImplementation((input, init) => globalThis.fetch(input, init));
+  window.localStorage.clear();
+});
 
 const SEEN = '2026-10-01T10:00:00.000Z';
 
@@ -72,6 +75,11 @@ describe('project engines card', () => {
     expect(command.textContent).toContain('project set AC');
     expect(command.textContent).toContain(t('projectEngines.folderPlaceholder'));
     expect(screen.getByText(t('projectEngines.folderHint'))).toBeTruthy();
+    expect(command.textContent).toContain('projectman-engine" project set');
+    fireEvent.click(screen.getByRole('radio', { name: t('engines.mode.checkout') }));
+    expect(screen.getByLabelText(t('projectEngines.commandAria')).textContent).toMatch(
+      /^npm run engine -- project set AC/,
+    );
   });
 
   it('binds another own machine and says so', async () => {

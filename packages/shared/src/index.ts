@@ -59,6 +59,7 @@ export * from './domain/handoff';
 export * from './domain/feedback';
 export * from './domain/feedback-rules';
 export * from './domain/system-feedback';
+export * from './domain/upstream';
 export * from './domain/start-order';
 export * from './domain/start-plan';
 export * from './domain/ready-hold';

@@ -8,7 +8,7 @@ struct SetupView: View {
     @ObservedObject var flow: SetupFlow
 
     private struct Action: Identifiable {
-        enum Kind { case plain, primary, cancel }
+        enum Kind { case plain, primary, cancel, leading }
         let id: String
         let title: String
         let kind: Kind
@@ -20,6 +20,8 @@ struct SetupView: View {
         var bullets: [String] = []
         var requirements: [String] = []
         var steps: [StepRow] = []
+        /// An active status line for a wait that is not an install step (tools, approval).
+        var waiting: String?
         var note: String?
         var error: String?
         var actions: [Action] = []
@@ -37,7 +39,9 @@ struct SetupView: View {
                          actions: [action(.notNow, .cancel) { flow.dismiss() }, action(.installButton, .primary) { flow.install() }])
         case .missingTools(let waiting):
             if waiting {
-                return Panel(title: L10n.text(.missingTitle), body: L10n.text(.waitingTools), note: L10n.text(.waitingToolsNote),
+                return Panel(title: L10n.text(.missingTitle), body: L10n.text(.missingIntro),
+                             requirements: [Prerequisite.commandLineTools.text], waiting: L10n.text(.waitingTools),
+                             note: L10n.text(.waitingToolsNote),
                              actions: [action(.notNow, .cancel) { flow.dismiss() }])
             }
             return Panel(title: L10n.text(.missingTitle), body: L10n.text(.missingIntro), requirements: [Prerequisite.commandLineTools.text],
@@ -51,11 +55,11 @@ struct SetupView: View {
                          actions: [action(.close, .cancel, close)])
         case .approval:
             return Panel(title: L10n.text(.approvalTitle), body: L10n.text(.approvalBody),
-                         note: L10n.text(.approvalWaiting) + " " + L10n.text(.approvalNote),
+                         waiting: L10n.text(.approvalWaiting), note: L10n.text(.approvalNote),
                          actions: [action(.later, .cancel, close), action(.openSettings, .primary) { flow.openLoginItems() }])
         case .failed(let list, let message):
             return Panel(title: L10n.text(.installFailedTitle), steps: list.reached, note: L10n.text(.installFailedNote), error: message,
-                         actions: [action(.copyError) { flow.copyError() }, action(.close, .cancel, close), action(.retry, .primary) { flow.install() }])
+                         actions: [action(.copyError, .leading) { flow.copyError() }, action(.close, .cancel, close), action(.retry, .primary) { flow.install() }])
         case .awaitingSetup:
             return Panel(title: L10n.text(.setupTitle), body: L10n.text(.setupBody), actions: [action(.close, .primary, close)])
         case .running:
@@ -65,7 +69,7 @@ struct SetupView: View {
                          actions: [action(.close, .cancel, close), action(.quit, .primary) { NSApp.terminate(nil) }])
         case .removalFailed(let message):
             return Panel(title: L10n.text(.removeFailedTitle), body: L10n.text(.removeFailedBody), error: message,
-                         actions: [action(.copyError) { flow.copyError() }, action(.close, .cancel, close), action(.retry, .primary) { flow.removeEngine() }])
+                         actions: [action(.copyError, .leading) { flow.copyError() }, action(.close, .cancel, close), action(.retry, .primary) { flow.removeEngine() }])
         }
     }
 
@@ -96,6 +100,7 @@ struct SetupView: View {
                 }
             }
             if !content.steps.isEmpty { stepList(content.steps) }
+            if let waiting = content.waiting { waitingLine(waiting) }
             if let error = content.error {
                 Text(error).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
                     .padding(8).frame(maxWidth: .infinity, alignment: .leading)
@@ -104,8 +109,9 @@ struct SetupView: View {
             }
             if let note = content.note { Text(note).font(.callout).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true) }
             HStack {
+                ForEach(content.actions.filter { $0.kind == .leading }) { item in button(item) }
                 Spacer()
-                ForEach(content.actions) { item in button(item) }
+                ForEach(content.actions.filter { $0.kind != .leading }) { item in button(item) }
             }
         }
         .padding(24).frame(width: 480).background(Color(nsColor: .windowBackgroundColor))
@@ -116,8 +122,19 @@ struct SetupView: View {
         switch item.kind {
         case .primary: Button(item.title, action: item.run).keyboardShortcut(.defaultAction)
         case .cancel: Button(item.title, action: item.run).keyboardShortcut(.cancelAction)
-        case .plain: Button(item.title, action: item.run)
+        case .plain, .leading: Button(item.title, action: item.run)
         }
+    }
+
+    /// The same look as an active step, announced as a live region.
+    private func waitingLine(_ text: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            mark(.active).accessibilityHidden(true)
+            Text(text).fontWeight(.semibold)
+            if let word = stateWord(.active) { Text(word).font(.caption).foregroundColor(.secondary) }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.updatesFrequently)
     }
 
     /// A live region: VoiceOver announces the step that changes.

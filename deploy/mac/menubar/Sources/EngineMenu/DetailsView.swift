@@ -68,10 +68,10 @@ struct DetailsView: View {
                     // s0: only an engine the app installed can be removed here; a checkout's engine is the admin's.
                     if snapshot.service.manager == "app" {
                         HStack {
-                            Spacer()
                             Button(L10n.text(.removeEngine), action: remove)
                                 .foregroundColor(Color(nsColor: .systemRed))
                                 .disabled(state.overlay == .uninstalling)
+                            Spacer()
                         }
                     }
                 }

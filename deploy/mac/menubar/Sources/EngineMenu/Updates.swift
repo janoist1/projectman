@@ -90,11 +90,11 @@ enum Updates {
     }
 
     /// The new copy starts after this one has quit; the engine keeps running throughout.
-    static func relaunch() {
+    static func relaunch() throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         process.arguments = ["-c", "sleep 1; /usr/bin/open \"$1\"", "sh", Bundle.main.bundleURL.path]
-        do { try process.run(); NSApp.terminate(nil) }
-        catch { NSLog("projectman motor: could not relaunch after the update: %@", String(describing: error)) }
+        try process.run()
+        NSApp.terminate(nil)
     }
 }

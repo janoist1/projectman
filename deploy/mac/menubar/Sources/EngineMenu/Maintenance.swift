@@ -50,7 +50,7 @@ final class Maintenance {
 
     func check() {
         guard identity.canSelfUpdate, !updating else { return }
-        guard !switching, idle() else { wanted = true; return }
+        guard !switching, state.fetch.snapshot?.switchState?.kind != .switching, idle() else { wanted = true; return }
         wanted = false; updating = true
         DispatchQueue.global(qos: .utility).async { [weak self] in
             let result: Result<UpdateOutcome, Error>
@@ -63,7 +63,10 @@ final class Maintenance {
                 guard let self else { return }
                 self.updating = false
                 switch result {
-                case .success(.replaced): self.state.update = .idle; Updates.relaunch()
+                case .success(.replaced):
+                    // The bundle is already replaced: a failed relaunch is shown, the old process keeps running.
+                    do { try Updates.relaunch(); self.state.update = .idle }
+                    catch { self.state.update = .failed(UpdateFailure("relaunch_failed", Installer.describe(error))) }
                 case .success: self.state.update = .idle
                 case .failure(let error):
                     self.state.update = .failed((error as? UpdateFailure) ?? UpdateFailure("update_failed", Installer.describe(error)))

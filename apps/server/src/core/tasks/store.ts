@@ -30,6 +30,7 @@ import type {
   TaskStartWaiting,
   TimelineEvent,
 } from '@projectman/shared';
+import type { TaskSchedulingQuery } from '../../contracts';
 import type { TaskPatch } from '../../db';
 import { mergeState, mergedState } from '../../db';
 import type { DomainContext } from '../base';
@@ -44,6 +45,8 @@ export interface StartWaitingReader {
   waitingFor(task: Task): TaskStartWaiting | undefined;
   /** Whether a deferred start of the task is under a new attempt (its wait is silent meanwhile). */
   attempting(task: Task): boolean;
+  /** Runs a synchronous read of many cards with the waits of the member queue loaded once for all of them. */
+  reading<T>(read: () => T): T;
 }
 
 /** Work that follows a committed unit of work: notifications and listeners. */
@@ -108,14 +111,16 @@ export class TaskStore {
       handOn: ________,
       ...rest
     } = task;
-    const startWaiting = this.startWaitingOf(task);
-    const outage = this.outageOf?.(task);
-    const readyHold = this.readyHold?.(task);
-    const startOffer = this.startOffer?.(task);
+    // A closed card has no work to wait for: only its cover and its merge are read.
+    const open = isOpenTask(task);
+    const startWaiting = open ? this.startWaitingOf(task) : undefined;
+    const outage = open ? this.outageOf?.(task) : undefined;
+    const readyHold = open ? this.readyHold?.(task) : undefined;
+    const startOffer = open ? this.startOffer?.(task) : undefined;
     const reviewPin = this.reviewPin(task);
     const cover = this.cover(task);
     const loop = this.loop(task);
-    const fixLimit = this.fixLimit?.(task);
+    const fixLimit = open ? this.fixLimit?.(task) : undefined;
     const handoffs = this.handoffs(task);
     const openMerge = this.ctx.repos.taskMerges.open(task.projectKey, task.key);
     const lastMerge = this.ctx.repos.taskMerges.latestMerged(task.projectKey, task.key);
@@ -288,8 +293,19 @@ export class TaskStore {
     return this.startWaiting.attempting(task);
   }
 
+  /** Every card of the project, closed ones too. */
   list(projectKey: string): Task[] {
-    return this.ctx.repos.tasks.list(projectKey).map((task) => this.view(task));
+    return this.views(this.ctx.repos.tasks.list(projectKey));
+  }
+
+  /** The cards a scheduling query selects (an open card read, a `list_tasks` page), as `get` shows them. */
+  listQuery(projectKey: string, query: TaskSchedulingQuery): Task[] {
+    return this.views(this.ctx.repos.tasks.readScheduling(projectKey, query));
+  }
+
+  /** The views of many cards, with the member queue's waits read once for all of them. */
+  private views(tasks: Task[]): Task[] {
+    return this.startWaiting.reading(() => tasks.map((task) => this.view(task)));
   }
 
   get(projectKey: string, taskKey: string): Task {

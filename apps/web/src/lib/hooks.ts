@@ -61,6 +61,19 @@ export function useDocumentTitle(...parts: Array<string | null | undefined>): vo
   }, [title]);
 }
 
+const typingTarget =
+  'textarea, select, [contenteditable]:not([contenteditable="false"]), input:not([type="checkbox"], [type="radio"], [type="button"], [type="submit"])';
+
+/**
+ * An Escape that is for the surrounding page (a drawer, a selection): no field or dialog took it, it is not
+ * typed into a field and it does not end an IME composition, so a draft is never discarded by it (PM-1109).
+ */
+export function isPageEscape(event: KeyboardEvent): boolean {
+  if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing) return false;
+  if (event.target instanceof Element && event.target.closest(typingTarget)) return false;
+  return !document.querySelector('dialog[open], [data-popover-open]');
+}
+
 /** Closes a popover on outside pointer-down and on Escape (focus returns to the trigger). */
 export function useDismiss(
   open: boolean,

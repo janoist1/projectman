@@ -144,10 +144,7 @@ export function registerSessionRoutes(app: FastifyInstance, domain: ApiDomain): 
   app.get<ProjectParams>(routes.teamThreads(':key'), async (request): Promise<TeamThreadsView> => {
     const key = request.params.key;
     const access = await requireAccess(domain, request, key);
-    return {
-      threads: domain.messages.threads(key, access.handle),
-      unreadCount: domain.messages.countUnread(key, access.handle),
-    };
+    return domain.messages.threads(key, access.handle);
   });
 
   app.get<ProjectParams>(routes.teamMessages(':key'), async (request): Promise<TeamMessagesView> => {

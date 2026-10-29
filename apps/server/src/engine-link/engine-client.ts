@@ -45,6 +45,11 @@ interface EngineClientOptions {
   register: (rpc: EngineRpc) => void;
   /** Called for a request refused before any handler (unknown method, invalid parameters). */
   onRefused: (request: { id: string; method: string; code: 'unknown_method' | 'invalid_params' }) => void;
+  /**
+   * Called when the cloud has welcomed the engine, before any request is handled. State that belongs to the
+   * previous link (the attached terminals: the cloud asks for them again) is dropped here.
+   */
+  onWelcome?: () => void;
   buffer: EventBuffer;
   status: EngineStatusWriter;
   logger: FastifyBaseLogger;
@@ -255,6 +260,7 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
           onFailed: (failure) => logger.warn(failure, 'engine link: a request failed'),
         });
         options.register(connection);
+        options.onWelcome?.();
         try {
           // Replay everything the cloud has not acknowledged, in order.
           buffer.connect(send, frame.ackedSeq);
@@ -314,13 +320,13 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
   return {
     start() {
       if (watchdog) return;
-      // The global WebSocket shows no ping or pong, so a link that went silent is noticed by the events
-      // it never acknowledges: if some are waiting and nothing came for `ENGINE_DEAD_AFTER_MS`, reconnect.
-      // It takes two ticks in a row: after a stalled event loop Node runs the timer before it reads the
-      // frames queued meanwhile, so one late tick alone does not prove the cloud went silent.
+      // The global WebSocket shows no ping or pong, so the cloud repeats its acknowledgement every
+      // `ENGINE_HEARTBEAT_MS` as an app-level heartbeat (idle links included): if no frame came for
+      // `ENGINE_DEAD_AFTER_MS`, reconnect. It takes two ticks in a row: after a stalled event loop Node runs
+      // the timer before it reads the frames queued meanwhile, so one late tick alone does not prove the
+      // cloud went silent.
       watchdog = setInterval(() => {
-        const silent =
-          !!socket && !!rpc && buffer.pending() > 0 && now() - lastFrameAt > ENGINE_DEAD_AFTER_MS;
+        const silent = !!socket && !!rpc && now() - lastFrameAt > ENGINE_DEAD_AFTER_MS;
         silentTicks = silent ? silentTicks + 1 : 0;
         if (silent && silentTicks >= 2 && socket) {
           silentTicks = 0;

@@ -4,6 +4,7 @@ import clsx from 'clsx';
 import { Link, useSearchParams } from 'react-router';
 import { api } from '../../api/endpoints';
 import { useBoard } from '../../api/queries';
+import { queryKeys } from '../../api/queryKeys';
 import { useProject, useProjectIndexes } from '../../app/contexts';
 import { Avatar } from '../../components/Avatar';
 import { ActorName } from '../../components/ActorName';
@@ -103,7 +104,7 @@ export function InvolvementRows({
 export function RecentInvolvements() {
   const { key } = useProject();
   const query = useQuery({
-    queryKey: ['involvements', key, 'recent'],
+    queryKey: [...queryKeys.involvements(key), 'recent'],
     queryFn: () => api.involvements(key, '?limit=5'),
   });
   if (!query.isError && !query.isPending && !query.data?.items.length) return null;
@@ -148,7 +149,7 @@ function Involvements() {
   }
   const filter = queryString.toString();
   const query = useInfiniteQuery({
-    queryKey: ['involvements', key, filter],
+    queryKey: [...queryKeys.involvements(key), filter],
     initialPageParam: '',
     queryFn: ({ pageParam }) =>
       api.involvements(key, `?${filter}${pageParam ? `&before=${encodeURIComponent(pageParam)}` : ''}`),

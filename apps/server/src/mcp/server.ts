@@ -1,8 +1,11 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import { toJsonSchemaCompat } from '@modelcontextprotocol/sdk/server/zod-json-schema-compat.js';
+import { ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js';
 import { AjvJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/ajv';
 import type { FastifyBaseLogger } from 'fastify';
 import {
+  TEAM_TOOL_TIMEOUT_MS,
   TeamToolError,
   type TeamToolsHandler,
   type ToolContext,
@@ -27,7 +30,7 @@ export function visibleTeamTools(audience: MemberAudience): TeamToolListing[] {
  * call cannot leave the Claude session waiting forever (Claude Code's own MCP tool timeout
  * is practically unlimited). The handler keeps running; a late outcome is only logged.
  */
-export const DEFAULT_TOOL_TIMEOUT_MS = 60_000;
+export const DEFAULT_TOOL_TIMEOUT_MS = TEAM_TOOL_TIMEOUT_MS;
 
 export interface TeamServerDeps {
   audienceOf(ctx: ToolContext): MemberAudience;
@@ -51,13 +54,39 @@ export class ToolTimeoutError extends Error {
 export const jsonSchemaValidator = new AjvJsonSchemaValidator();
 
 /**
+ * `tools/list` converts every zod schema to JSON Schema, which is the dearest part of a handshake. The schema
+ * of a tool never changes, so the listing is built once per set of visible tools (the audience's signature).
+ */
+const listings = new Map<string, Tool[]>();
+
+function toolListing(tools: readonly TeamTool[]): Tool[] {
+  const signature = tools.map((tool) => tool.name).join('\u0000');
+  let listing = listings.get(signature);
+  if (!listing) {
+    listing = tools.map((tool) => ({
+      name: tool.name,
+      title: tool.title,
+      description: tool.description,
+      inputSchema: toJsonSchemaCompat(tool.inputSchema, {
+        strictUnions: true,
+        pipeStrategy: 'input',
+      }) as Tool['inputSchema'],
+      annotations: tool.annotations,
+    }));
+    listings.set(signature, listing);
+  }
+  return listing;
+}
+
+/**
  * Builds an MCP server bound to one calling session. The endpoint is stateless: a fresh
  * server is created for every HTTP request, with the context resolved from its token.
  */
 export function createTeamMcpServer(ctx: ToolContext, deps: TeamServerDeps): McpServer {
   const server = new McpServer(SERVER_INFO, { instructions: TEAM_INSTRUCTIONS, jsonSchemaValidator });
   const audience = deps.audienceOf(ctx);
-  for (const tool of toolsFor(audience)) {
+  const visible = toolsFor(audience);
+  for (const tool of visible) {
     server.registerTool(
       tool.name,
       {
@@ -69,6 +98,9 @@ export function createTeamMcpServer(ctx: ToolContext, deps: TeamServerDeps): Mcp
       (args) => runTool(tool, ctx, args, deps),
     );
   }
+  // Replaces the SDK's own listing, which would convert every schema again for each request.
+  if (visible.length > 0)
+    server.server.setRequestHandler(ListToolsRequestSchema, () => ({ tools: toolListing(visible) }));
   server.server.onerror = (err) => deps.logger.debug({ err }, 'MCP protocol error');
   return server;
 }

@@ -43,6 +43,27 @@ describe('unit of work', () => {
     expect(repos.projects.get('AR')).not.toBeNull();
   });
 
+  it('runs an after-commit callback once the outermost unit commits, in order with the events, and drops it on a rollback', () => {
+    ctx.unitOfWork(() => {
+      ctx.unitOfWork(() => {
+        ctx.afterCommit(() => published.push('called'));
+        ctx.bus.publish(event('one'));
+      });
+      expect(published).toEqual([]);
+    });
+    expect(published).toEqual(['called', 'one']);
+
+    published.length = 0;
+    expect(() =>
+      ctx.unitOfWork(() => {
+        ctx.afterCommit(() => published.push('lost'));
+        throw new Error('refused');
+      }),
+    ).toThrow('refused');
+    ctx.afterCommit(() => published.push('now'));
+    expect(published).toEqual(['now']);
+  });
+
   it('rolls back the writes and drops the events when it fails', () => {
     expect(() =>
       ctx.unitOfWork(() => {

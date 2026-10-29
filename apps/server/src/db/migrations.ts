@@ -2522,4 +2522,34 @@ migrations.push({
   // change-journal triggers go with it. The `focus_changed` timeline events stay (append-only) and keep rendering.
   sql: `DROP TABLE IF EXISTS project_focus_items;`,
 });
+migrations.push({
+  version: 126,
+  name: 'index the open member queue items by source and the waiting ones',
+  // PM-1109: the open items of one source type and the queued items that wait for a code are read on every
+  // card view; both are served by a partial index over the few open rows instead of the whole queue history.
+  // The terms of the second index are the ones of the waiting read. No column is added.
+  sql: `CREATE INDEX member_queue_items_open_source ON member_queue_items(source_type)
+      WHERE state IN ('queued','processing');
+    CREATE INDEX member_queue_items_waiting ON member_queue_items(wait_at)
+      WHERE state = 'queued' AND wake = 1 AND wait_code IS NOT NULL;`,
+});
+migrations.push({
+  version: 127,
+  name: 'guard the history index triggers against updates that change nothing they index',
+  // PM-1128: `UPDATE OF title, body` fires whenever the column is in the SET list, even with the same value, and
+  // the upsert of a document whose date or path changed sets them all. The full text index was rewritten and the
+  // semantic revision raised without a new text. The triggers now fire only for a changed value. No column is added.
+  sql: `DROP TRIGGER history_documents_au;
+    CREATE TRIGGER history_documents_au AFTER UPDATE OF title, body ON history_documents
+    WHEN old.title IS NOT new.title OR old.body IS NOT new.body BEGIN
+      INSERT INTO history_fts(history_fts, rowid, title, body) VALUES ('delete', old.id, old.title, old.body);
+      INSERT INTO history_fts(rowid, title, body) VALUES (new.id, new.title, new.body);
+    END;
+    DROP TRIGGER history_semantic_dirty_au;
+    CREATE TRIGGER history_semantic_dirty_au AFTER UPDATE OF title, body, commit_sha ON history_documents
+    WHEN old.title IS NOT new.title OR old.body IS NOT new.body OR old.commit_sha IS NOT new.commit_sha BEGIN
+      INSERT INTO history_semantic_dirty (source_id) VALUES (new.source_id)
+      ON CONFLICT (source_id) DO UPDATE SET revision = revision + 1, attempts = 0, next_attempt_at = NULL;
+    END;`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

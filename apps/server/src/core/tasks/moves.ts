@@ -113,6 +113,9 @@ export interface WorkEntryCheck {
 /** The head of the developer's branch, read before a move that hands the task over for review or testing. */
 export interface Handover {
   head: SourceHead;
+  /** Whose head it is: the stage and assignee the task had when it was read. A move of a card that changed since is refused. */
+  stageId: string;
+  assignee: string | null;
 }
 
 /** What `prepareMove` read before the unit of work. */
@@ -376,7 +379,9 @@ export class TaskMoves {
 
   private async readHandover(config: ProjectConfig, task: Task, target: Stage): Promise<Handover | null> {
     if (!stageHandsOverForReview(config, target)) return null;
-    const head = await this.sourceHead(config, task);
+    // A card with no source here has no hand-over; a card whose engine cannot be reached is refused
+    // (`engine_offline`), not handed over with no pin that nothing could tell from "no source".
+    const head = await this.sourceHead(config, task, { strict: true });
     if (!head) return null;
     if (head.dirty)
       throw conflict(
@@ -390,7 +395,7 @@ export class TaskMoves {
           changes: head.changes,
         },
       );
-    return { head };
+    return { head, stageId: task.stageId, assignee: task.assignee ?? null };
   }
 
   /**
@@ -465,6 +470,13 @@ export class TaskMoves {
       );
     }
     if (task.stageId === target.id) return { task, moved: false, pendingApproval: [] };
+    // The head was read for the card as it stood before the unit of work: after a move or a new assignee
+    // it is another developer's branch, and pinning it would hand over work nobody reviews.
+    const handover = opts.handover;
+    if (handover && (task.stageId !== handover.stageId || (task.assignee ?? null) !== handover.assignee))
+      throw conflict('board_stale', `${task.key} changed while its hand-over was read`, {
+        taskKey: task.key,
+      });
     // A decision may have closed while this system move was preparing. Its human handler owns
     // the approval labels and move; do not open a replacement request during that async work.
     if (

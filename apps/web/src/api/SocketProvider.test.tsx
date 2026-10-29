@@ -10,6 +10,7 @@ function stubClient() {
     onEvent: vi.fn(() => () => {}),
     onReconnect: vi.fn(() => () => {}),
     reportVisibility: vi.fn(),
+    checkAlive: vi.fn(),
     start: vi.fn(),
     stop: vi.fn(),
   };
@@ -48,6 +49,16 @@ describe('SocketProvider visibility report', () => {
     setVisibility('visible');
     expect(client.reportVisibility).toHaveBeenLastCalledWith(true);
     expect(client.reportVisibility).toHaveBeenCalledTimes(3);
+  });
+
+  it('checks the connection whenever the page becomes visible, not when it hides', () => {
+    const client = stubClient();
+    mount(client);
+    client.checkAlive.mockClear();
+    setVisibility('hidden');
+    expect(client.checkAlive).not.toHaveBeenCalled();
+    setVisibility('visible');
+    expect(client.checkAlive).toHaveBeenCalledTimes(1);
   });
 
   it('stops listening when it unmounts', () => {

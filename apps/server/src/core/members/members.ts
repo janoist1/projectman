@@ -928,10 +928,9 @@ export class MemberProfiles {
       member,
       duties: memberDuties(config, original),
       tasks: this.tasks
-        .list(projectKey)
+        .listQuery(projectKey, { kind: 'open' })
         .filter(
           (t) =>
-            isOpenTask(t) &&
             !isTheme(t) &&
             (t.assignee === handle ||
               member.currentTaskKeys.includes(t.key) ||

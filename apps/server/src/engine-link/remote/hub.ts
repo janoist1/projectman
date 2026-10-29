@@ -195,10 +195,24 @@ export function createRemoteHub(options: RemoteHubOptions): RemoteHub {
       );
     link.onEvent(async (event) => {
       follow(id, event);
-      for (const listener of eventListeners) await listener(id, event);
+      // A listener that throws is logged and skipped: the rejection would close the link, and the replay of
+      // the same event would make it throw again and again.
+      for (const listener of eventListeners) {
+        try {
+          await listener(id, event);
+        } catch (err) {
+          logger.warn({ err, engineId: id, kind: event.kind }, 'an engine event listener failed');
+        }
+      }
     });
     link.onTerminal((sessionId, data) => {
-      for (const listener of terminalListeners) listener(id, sessionId, data);
+      for (const listener of terminalListeners) {
+        try {
+          listener(id, sessionId, data);
+        } catch (err) {
+          logger.warn({ err, engineId: id }, 'an engine terminal listener failed');
+        }
+      }
     });
     void (async () => {
       for (const hook of connectHooks) {

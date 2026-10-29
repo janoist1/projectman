@@ -439,6 +439,92 @@ describe('the member queue driver', () => {
         await driver().ensure('AR', 'dev-1');
         expect(h.repos.memberQueue.get('probe-2')).toMatchObject({ state: 'queued', attempts: 1 });
       });
+
+      it('gives a call that comes while a run works to the next run, not to the one that works', async () => {
+        const chat = (await h.domain.sessions.ensureSession('AR', 'dev-1', general)).session;
+        h.runner.setState(chat.id, 'idle');
+        let phase = 0;
+        const phases: number[] = [];
+        let release: () => void = () => {};
+        const blocked = new Promise<void>((resolve) => (release = resolve));
+        driver().register({
+          ...todoLane,
+          kinds: ['checklist'],
+          render: () => null,
+          hold: async () => {
+            if (++phase === 1) await blocked;
+            return null;
+          },
+          deliverLive: () => void phases.push(phase),
+        });
+        h.repos.memberQueue.insert({
+          id: 'probe-3',
+          projectKey: 'AR',
+          member: 'dev-1',
+          kind: 'checklist',
+          source: { type: 'inbox', id: 'probe-3' },
+          place: general,
+          taskKey: null,
+          wake: false,
+          title: 'probe-3',
+          from: null,
+          queuedAt: at(),
+        });
+
+        const first = driver().ensure('AR', 'dev-1', { deliver: false });
+        await vi.waitFor(() => expect(phase).toBe(1));
+        const second = driver().ensure('AR', 'dev-1', { net: true });
+        release();
+        await Promise.all([first, second]);
+
+        // The net the second call asked for was cast by its own run (the second hold), not by the first.
+        expect(phases).toEqual([2]);
+      });
+
+      it('answers a sender for the place it asked about, not for another place of the member', async () => {
+        enqueueTodo('probe-4');
+        await expect(driver().wake('AR', 'dev-1', task('AR-1'))).resolves.toEqual({
+          state: 'failed',
+          code: 'not_started',
+        });
+        await expect(driver().wake('AR', 'dev-1', general)).resolves.toMatchObject({ state: 'started' });
+      });
+
+      it('closes the items of a member who left the team', async () => {
+        h.repos.memberQueue.insert({
+          id: 'probe-5',
+          projectKey: 'AR',
+          member: 'gone-member',
+          kind: 'todo',
+          source: { type: 'inbox', id: 'probe-5' },
+          place: general,
+          taskKey: null,
+          wake: true,
+          title: 'probe-5',
+          from: null,
+          queuedAt: at(),
+        });
+
+        await driver().ensure('AR', 'gone-member');
+
+        expect(h.repos.memberQueue.get('probe-5')).toMatchObject({
+          state: 'cancelled',
+          closeReason: 'member_removed',
+        });
+      });
+
+      it('ends the session of a start that failed like any other, and tells the timeline', async () => {
+        enqueueTodo('probe-6');
+        h.runner.failNextStart = new Error('fictional spawn failure');
+
+        await driver().ensure('AR', 'dev-1');
+
+        const [session] = h.repos.sessions.list('AR').filter((s) => s.member === 'dev-1');
+        expect(session).toMatchObject({ state: 'failed', lastStop: { kind: 'failed' } });
+        expect(h.repos.timeline.ofProjectType('AR', 'session_ended', 10)).toEqual([
+          expect.objectContaining({ sessionId: session!.id }),
+        ]);
+      });
     });
 
     describe('with one slot', () => {

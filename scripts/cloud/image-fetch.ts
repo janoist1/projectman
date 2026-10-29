@@ -29,7 +29,7 @@ export const CLOUD_IMAGE_JOB = {
   timeoutMinutes: '60',
   outputs: ['bundle/manifest.json', 'bundle/linux-arm64.tar'],
   command:
-    'npm ci && docker buildx create --name projectman --driver docker-container --use && ' +
+    'npm ci && docker buildx create --name projectman --driver docker-container --bootstrap --use && ' +
     'npm run cloud -- image-build --ref "$PROJECTMAN_JOB_COMMIT" --out "$PROJECTMAN_JOB_OUT/bundle"',
 } as const;
 

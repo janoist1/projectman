@@ -23,14 +23,14 @@ the artifact `projectman-job-<run_id>` (7 days). The title of the run is
 The cloud image is the first job. Its values (the same ones that are in `CLOUD_IMAGE_JOB`,
 `scripts/cloud/image-fetch.ts`; after PM-1148 they live in the project settings):
 
-| Input             | Value                                                                                                                                                                                                                |
-| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `job`             | `cloud-image`                                                                                                                                                                                                        |
-| `runs_on`         | `ubuntu-24.04-arm`                                                                                                                                                                                                   |
-| `node`            | `22`                                                                                                                                                                                                                 |
-| `timeout_minutes` | `60`                                                                                                                                                                                                                 |
-| `outputs`         | `bundle/manifest.json bundle/linux-arm64.tar`                                                                                                                                                                        |
-| `command`         | `npm ci && docker buildx create --name projectman --driver docker-container --use && npm run cloud -- image-build --ref "$PROJECTMAN_JOB_COMMIT" --out "$PROJECTMAN_JOB_OUT/bundle"` (`image-build` needs no config) |
+| Input             | Value                                                                                                                                                                                                                            |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `job`             | `cloud-image`                                                                                                                                                                                                                    |
+| `runs_on`         | `ubuntu-24.04-arm`                                                                                                                                                                                                               |
+| `node`            | `22`                                                                                                                                                                                                                             |
+| `timeout_minutes` | `60`                                                                                                                                                                                                                             |
+| `outputs`         | `bundle/manifest.json bundle/linux-arm64.tar`                                                                                                                                                                                    |
+| `command`         | `npm ci && docker buildx create --name projectman --driver docker-container --bootstrap --use && npm run cloud -- image-build --ref "$PROJECTMAN_JOB_COMMIT" --out "$PROJECTMAN_JOB_OUT/bundle"` (`image-build` needs no config) |
 
 Start it for the accepted full SHA (the `run_id` is `manual-<first 8 of the SHA>-<time>`):
 
@@ -39,7 +39,7 @@ SHA=<SHA40>
 gh workflow run projectman-job.yml --ref main -f job=cloud-image -f run_id="manual-${SHA:0:8}-$(date -u +%Y%m%d%H%M%S)" \
   -f commit="$SHA" -f runs_on=ubuntu-24.04-arm -f node=22 -f timeout_minutes=60 \
   -f outputs='bundle/manifest.json bundle/linux-arm64.tar' \
-  -f command='npm ci && docker buildx create --name projectman --driver docker-container --use && npm run cloud -- image-build --ref "$PROJECTMAN_JOB_COMMIT" --out "$PROJECTMAN_JOB_OUT/bundle"'
+  -f command='npm ci && docker buildx create --name projectman --driver docker-container --bootstrap --use && npm run cloud -- image-build --ref "$PROJECTMAN_JOB_COMMIT" --out "$PROJECTMAN_JOB_OUT/bundle"'
 ```
 
 Then fetch and verify the bundle on the admin machine (needs `gh` logged in, with read access to the repository's

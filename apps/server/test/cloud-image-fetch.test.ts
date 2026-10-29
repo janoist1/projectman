@@ -268,6 +268,10 @@ describe('image-fetch', () => {
     const message = (error as Error).message;
     expect(message).toContain(cloudImageLaunchCommand(REPO, 'main', REF, new Date(clock)));
     expect(message).toContain(`-f commit=${REF} -f runs_on=${CLOUD_IMAGE_JOB.runsOn}`);
+    // Without --bootstrap the builder does not know linux/arm64 yet (the first run, 40971861471, failed so).
+    expect(CLOUD_IMAGE_JOB.command).toContain(
+      'docker buildx create --name projectman --driver docker-container --bootstrap',
+    );
     expect(ghCalls('workflow')).toEqual([]);
     expect(fs.existsSync(out())).toBe(false);
   });

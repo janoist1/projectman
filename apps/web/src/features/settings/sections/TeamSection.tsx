@@ -383,7 +383,7 @@ function AssigneeFitControls({ config, helpId }: { config: ProjectConfig; helpId
       aria-busy={saving}
       aria-describedby={helpId}
     >
-      <label className={shared.contactRow}>
+      <label className={`${shared.contactRow} ${shared.choiceRow}`}>
         <input
           type="checkbox"
           checked={shown.team.assigneeFit === 'automatic_and_ai'}

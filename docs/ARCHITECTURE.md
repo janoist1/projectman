@@ -3171,8 +3171,8 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   runs on or crosses to an engine. Since PM-1045 this endpoint is the Operator's only door: the app starts no
   session for it. **The connected Claude as an actor (PM-1074, decision 66):** a super-key step is recorded as the
   key holder in person (`kind: human`, `via: integrator`, `through: {holder, credential}`), or, with
-  `queue_item_id` on `super_operate` / `execute_super_handoff`, as the member who issued that open integrator queue
-  item (`kind: ai`, the same `through`; `queue_item_not_yours` / `issuer_without_machine_access` refuse it). After the
+  `queue_item_id` on `super_operate` / `execute_super_handoff`, as the member who put that open integrator queue
+  item there (the screening member of a screened question, otherwise its source; `kind: ai`, the same `through`; `queue_item_not_yours` / `issuer_without_machine_access` refuse it). After the
   owner's own yes on a K3 question the step also carries `approvedBy`, set by the server only. The old
   `operatorMode: super` events stay readable; `coordinatorSuperActorOf` serves only the selected coordinator's
   in-app session (PM-1076: `superActorOf` and the Operator member are gone). The actor is created and stored on the hub (`actor_meta`); no machine-dependent part is added.

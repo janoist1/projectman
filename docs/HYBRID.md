@@ -442,9 +442,13 @@ run on the loopback of a **disposable copy** of a home, with no network. The ima
   `idle-<minutes>` sample every 10 minutes, and `end` (snapshot); then SIGTERM, and SIGKILL after 60 s.
   RSS, peak and swap come from `/proc/<pid>/status` (`VmRSS`, `VmHWM`, `VmSwap`) on Linux, where the
   peak is reset after each snapshot; on macOS from `ps` (peak and swap are `null`).
-- `heap-summary.mjs <snapshot>` — prints `{ liveBytes, nodeCount, byType }` (the top 40 type and
-  constructor-name groups by self size). It reads the snapshot as a stream and never prints string
-  content. `liveHeapMb` of the report comes from it.
+- `heap-summary.mjs <snapshot>` — prints `{ liveBytes, nodeCount, byType, retainers }`: `byType` is the
+  top 40 type and constructor-name groups by self size; `retainers` (PM-1105) names what holds the memory,
+  the 20 objects with the largest retained size (from the dominator tree over the strong edges), each with
+  its shortest retaining path from the root as `<edge> -> <type> <name>` steps (`.property`, `[index]`; an
+  edge name that is not an identifier shows as `(name hidden)`). It reads the snapshot as a stream, keeps
+  the graph in typed arrays (about 60 bytes per node and 17 per edge, a few hundred MB for a snapshot near
+  a 256 MB heap; run it on a laptop, not on the cloud machine) and never prints string content. `liveHeapMb` of the report comes from it.
 
 The load (`--login-file`, JSON `{ "email": "...", "password": "..." }`) logs in once (the cookie lives
 in memory only), then `--rounds` times asks, for every project, the reads the web app makes

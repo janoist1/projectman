@@ -147,6 +147,7 @@ npx vitest run test/web-get-contracts.test.ts --configLoader runner  # in apps/s
 npx vitest related test/helpers/app-harness.ts --run --configLoader runner  # in apps/server after changing the app harness, covering every harness consumer
 npx vitest related ../../scripts/merge-test/scope.ts --run --configLoader runner  # in apps/server after changing merge-test scope, including CLI selection
 npx vitest run test/merge-test-watchdog.test.ts --configLoader runner  # in apps/server after changing merge-test execution or reporting
+npx vitest run test/start-offer.test.ts test/golden-path-small-team.test.ts --configLoader runner  # in apps/server after changing admission wake-ups or start timing
 npm run typecheck -w <workspace>  # type check only the workspaces you touched (no queue)
 ```
 

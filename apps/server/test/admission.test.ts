@@ -623,7 +623,61 @@ describe('admission checks', () => {
     expect(sessionFake.ensureSession).not.toHaveBeenCalled();
   });
 
-  it('warns once, with the holder, when the exclusive lock is held longer than the limit (PM-1120)', async () => {
+  it('warms a cold engine without holding the admission lock', async () => {
+    const { admission, sessionFake } = admissionFor();
+    let release!: () => void;
+    vi.spyOn(sessionFake, 'assertProviderReady').mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    );
+    const warming = admission.warm('AR', 'dev-1');
+    await Promise.resolve();
+    let entered = false;
+    await admission.exclusive('other-member', async () => {
+      entered = true;
+    });
+    expect(entered).toBe(true);
+    expect(sessionFake.ensureSession).not.toHaveBeenCalled();
+    release();
+    await warming;
+  });
+
+  it('leaves refusals to check after warming a logged-out provider', async () => {
+    const { admission, config, member } = admissionFor({ loggedOut: ['claude'] });
+    await expect(admission.warm('AR', 'dev-1')).resolves.toBeUndefined();
+    expect(await refusal(admission.check({ config, member: member('dev-1'), workItem: general }))).toBe(
+      'provider_not_logged_in',
+    );
+  });
+
+  it('names the slow engine check inside an admission attempt', async () => {
+    vi.useFakeTimers();
+    try {
+      const { admission, config, member, sessionFake, log } = admissionFor();
+      vi.spyOn(sessionFake, 'assertProviderReady').mockImplementationOnce(
+        () => new Promise<void>((resolve) => setTimeout(resolve, 1500)),
+      );
+      const check = admission.exclusive('queue-start', () =>
+        admission.start({ config, member: member('dev-1'), workItem: general }),
+      );
+      await vi.advanceTimersByTimeAsync(1500);
+      await check;
+      expect(log.warnings).toHaveLength(2);
+      expect(log.warnings[0]).toContainEqual({ step: 'provider-ready', ms: 1500 });
+      expect(log.warnings[1]).toContainEqual({
+        holder: 'queue-start',
+        member: 'dev-1',
+        heldMs: 1500,
+        phases: { 'provider-ready': 1500, 'plan-usage': 0, 'session-start': 0 },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('reports the holder while a lock is slow and its full duration after release', async () => {
     vi.useFakeTimers();
     try {
       const { admission, log } = admissionFor({});
@@ -637,8 +691,13 @@ describe('admission checks', () => {
       );
       await vi.advanceTimersByTimeAsync(ADMISSION_LOCK_WARN_MS + 1);
       await slow;
-      expect(log.warnings).toHaveLength(1);
+      expect(log.warnings).toHaveLength(2);
       expect(JSON.stringify(log.warnings[0])).toContain('slow-holder');
+      expect(log.warnings[1]).toContainEqual({
+        holder: 'slow-holder',
+        phases: {},
+        heldMs: ADMISSION_LOCK_WARN_MS + 1,
+      });
     } finally {
       vi.useRealTimers();
     }

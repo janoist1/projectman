@@ -390,6 +390,24 @@ describe('the member queue driver', () => {
         driver().register(todoLane);
       });
 
+      it('warms a queued start before acquiring the admission lock', async () => {
+        let release!: () => void;
+        const reading = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        const read = vi.spyOn(h.domain.sessions, 'assertProviderReady').mockReturnValueOnce(reading);
+        enqueueTodo('cold-start');
+        const run = driver().ensure('AR', 'dev-1');
+        try {
+          await vi.waitFor(() => expect(read).toHaveBeenCalled());
+          expect(await h.domain.admission.exclusive('other-member', async () => 'free')).toBe('free');
+        } finally {
+          release();
+        }
+        await run;
+        expect(h.runner.started).toHaveLength(1);
+      });
+
       it('does not hold the admission lock while the first input of a start is read from the engine', async () => {
         await h.domain.tasks.create('AR', { title: 'Fictional card' }, OWNER_ACTOR);
         let release: (head: null) => void = () => {};

@@ -61,6 +61,7 @@ export class MessageStarts {
 
   /** The member's general chat: the running one, else one admission allows now. */
   async startConversation(projectKey: string, handle: string, by?: Actor): Promise<Session> {
+    await this.admission.warm(projectKey, handle);
     return this.admission.exclusive('conversation-start', async () => {
       const config = await this.projects.config(projectKey);
       const member = requireAiMember(config, handle);

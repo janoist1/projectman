@@ -5,7 +5,9 @@ import type { SuperCommand } from '../api/super-handoff';
 import type { AiMemberConfig, ProjectConfig } from './schema';
 import { canonical } from './canonical';
 import { ownerHandles } from './lookup';
-import { boundaryDelegationChanged, ownerOnlyChanges, permissionsChanged } from './owner-only';
+import { boundaryDelegationChanged, ownerOnlyChanges } from './owner-only';
+import type { OwnerOnlyChange } from './owner-only';
+import { teamSettingValue } from './team-settings';
 import { dutyMembers, memberDuties, roleBundle } from './duties';
 import { labelHolders } from './labels';
 import { coordinationMemberOf } from './project-manager';
@@ -82,7 +84,7 @@ function approvalHolders(config: ProjectConfig): string {
 export function approvalStructureChanged(previous: ProjectConfig, next: ProjectConfig): boolean {
   return (
     canonical(previous.pipeline) !== canonical(next.pipeline) ||
-    (previous.team.releaseFourEyes ?? false) !== (next.team.releaseFourEyes ?? false) ||
+    teamSettingValue(previous, 'releaseFourEyes') !== teamSettingValue(next, 'releaseFourEyes') ||
     canonical(previous.team.merger ?? null) !== canonical(next.team.merger ?? null) ||
     approvalHolders(previous) !== approvalHolders(next)
   );
@@ -216,17 +218,23 @@ export function isPaidProvider(provider: AgentProvider): boolean {
   return PAID_PROVIDERS[provider];
 }
 
+/** The owner-only changes that are the owner's security settings in super mode. */
+const SECURITY_OWNER_ONLY_CHANGES: readonly OwnerOnlyChange[] = [
+  'operator_approval_waiver',
+  'permissions',
+  'machine_access',
+];
+
 /**
  * The owner's own login and security settings changed: a human's access level, login e-mail or a human turned
- * into another kind of member, a new owner, the Operator waiver, the AI members' permission settings and the
- * boundary delegation (the owner kept the last two on 2026-10-20, PM-862 inventory row 33).
+ * into another kind of member, a new owner, the Operator waiver, the AI members' machine access, their permission
+ * settings and the boundary delegation (the owner kept the last two on 2026-10-20, PM-862 inventory row 33).
  */
 function securityChanged(previous: ProjectConfig, next: ProjectConfig): boolean {
   if (superMemberChanges(previous, next).length) return true;
-  if ((previous.team.operatorApprovalWaiver ?? false) !== (next.team.operatorApprovalWaiver ?? false))
-    return true;
-  if (permissionsChanged(previous, next) || boundaryDelegationChanged(previous, next)) return true;
-  if (ownerOnlyChanges(previous, next).includes('machine_access')) return true;
+  const ownerOnly = ownerOnlyChanges(previous, next);
+  if (SECURITY_OWNER_ONLY_CHANGES.some((change) => ownerOnly.includes(change))) return true;
+  if (boundaryDelegationChanged(previous, next)) return true;
   // A human who is no longer a human under the same handle loses the login and the access level.
   if (
     previous.team.members.some(

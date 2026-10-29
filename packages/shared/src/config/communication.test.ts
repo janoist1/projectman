@@ -3,7 +3,6 @@ import {
   accessOfHandle,
   canCommentOnTask,
   contactHandles,
-  DEFAULT_VIEWER_RECIPIENTS,
   hasRecipientLimit,
   isContact,
   isContactRestricted,
@@ -14,6 +13,7 @@ import {
 import { applyConfigPatch, PatchConfigRequest } from './edit';
 import { validateProjectConfig } from './invariants';
 import { ProjectConfig, type ProjectConfigInput } from './schema';
+import { TEAM_SETTING_POLICY } from './team-settings';
 
 function configInput(): ProjectConfigInput {
   return {
@@ -124,7 +124,7 @@ describe('the project contacts', () => {
     });
     expect(viewerRecipientsOf(config)).toBe('contacts');
     expect(writableRecipientHandles(config, 'viewer')).toEqual(['op']);
-    expect(viewerRecipientsOf(withContacts())).toBe(DEFAULT_VIEWER_RECIPIENTS);
+    expect(viewerRecipientsOf(withContacts())).toBe(TEAM_SETTING_POLICY.viewerRecipients.default);
   });
 
   it('limits only the client and the viewer, without the configuration', () => {

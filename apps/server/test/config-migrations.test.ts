@@ -4,6 +4,7 @@ import {
   isToleratedOnLoad,
   ProjectConfig,
   projectManagersOf,
+  storedTeamDefaults,
   validateProjectConfig,
 } from '@projectman/shared';
 import { DAILY_WORKER_SCHEDULE } from '@projectman/templates';
@@ -13,25 +14,11 @@ import { testConfig } from './helpers/test-template';
 
 /** The test configuration as a plain object, as it comes out of the YAML files (with its merger, as saved). */
 function raw(): {
-  team: {
-    members: Array<Record<string, unknown>>;
-    merger?: unknown;
-    projectManagerMoves?: unknown;
-    prioritySetters?: unknown;
-    projectManagerLifecycle?: unknown;
-    prerequisiteOverride?: unknown;
-    taskCreateAccess?: unknown;
-    viewerRecipients?: unknown;
-  };
+  team: { members: Array<Record<string, unknown>>; merger?: unknown; [setting: string]: unknown };
   pipeline: { stages: Array<Record<string, unknown>>; labels: Array<{ id: string; setBy?: unknown }> };
 } {
   const config = JSON.parse(JSON.stringify(testConfig()));
   config.team.merger = { kind: 'code_reviewer' };
-  config.team.projectManagerMoves = 'queues_and_start';
-  config.team.prioritySetters = ['project_manager'];
-  config.team.projectManagerLifecycle = ['assign', 'cancel'];
-  config.team.taskCreateAccess = 'developer';
-  config.team.viewerRecipients = 'project_manager';
   return config;
 }
 
@@ -42,75 +29,33 @@ function migrate(config: unknown) {
 }
 
 describe('project configuration migrations', () => {
-  it('defaults missing PM moves to queue moves and starting work', () => {
+  it('gives a configuration without its stored team settings their defaults', () => {
     const legacy = raw();
-    delete legacy.team.projectManagerMoves;
-    expect(migrate(legacy).config.team.projectManagerMoves).toBe('queues_and_start');
+    for (const key of Object.keys(storedTeamDefaults())) delete legacy.team[key];
+    expect(migrate(legacy).config.team).toMatchObject(storedTeamDefaults());
   });
 
-  it('defaults a missing prerequisite override to people only and keeps a saved one (PM-1099)', () => {
-    const legacy = raw();
-    delete legacy.team.prerequisiteOverride;
-    expect(migrate(legacy).config.team.prerequisiteOverride).toBe('people');
-    const chosen = raw();
-    chosen.team.prerequisiteOverride = 'people_and_project_manager';
-    expect(migrate(chosen).config.team.prerequisiteOverride).toBe('people_and_project_manager');
-  });
-
-  it('defaults a missing priority setting to the project managers and keeps a saved one', () => {
-    const legacy = raw();
-    delete legacy.team.prioritySetters;
-    expect(migrate(legacy).config.team.prioritySetters).toEqual(['project_manager']);
-    const chosen = raw();
-    chosen.team.prioritySetters = [];
-    expect(migrate(chosen).config.team.prioritySetters).toEqual([]);
-  });
-
-  it('preserves the saved priority setters across configuration files and migration', () => {
+  it('keeps saved team settings across configuration files and migration', () => {
     const saved = migrate(raw()).config;
-    saved.team.prioritySetters = ['prioritization_duty'];
+    const chosen = {
+      cardMover: { kind: 'project_manager' },
+      projectManagerMoves: 'start_only',
+      projectManagerLifecycle: [],
+      prerequisiteOverride: 'people_and_project_manager',
+      prioritySetters: [],
+      complexitySetters: [],
+      viewerRecipients: 'contacts',
+      taskCreateAccess: 'client',
+    } as const satisfies Partial<ProjectConfig['team']>;
+    expect(Object.keys(chosen).sort()).toEqual(Object.keys(storedTeamDefaults()).sort());
+    Object.assign(saved.team, structuredClone(chosen));
     const files = splitProjectConfig(saved);
     const reloaded = mergeProjectFiles({
       'project.yaml': parseYamlFile('project.yaml', files['project.yaml']),
       'team.yaml': parseYamlFile('team.yaml', files['team.yaml']),
       'pipeline.yaml': parseYamlFile('pipeline.yaml', files['pipeline.yaml']),
     });
-    expect(migrate(reloaded).config.team.prioritySetters).toEqual(['prioritization_duty']);
-  });
-
-  it('defaults a missing viewer recipients setting to the project manager only (PM-1102)', () => {
-    const legacy = raw();
-    delete legacy.team.viewerRecipients;
-    expect(migrate(legacy).config.team.viewerRecipients).toBe('project_manager');
-  });
-
-  it('preserves a saved start-only choice across configuration files and migration', () => {
-    const restricted = migrate(raw()).config;
-    restricted.team.projectManagerMoves = 'start_only';
-    restricted.team.viewerRecipients = 'contacts';
-    const files = splitProjectConfig(restricted);
-    const reloaded = mergeProjectFiles({
-      'project.yaml': parseYamlFile('project.yaml', files['project.yaml']),
-      'team.yaml': parseYamlFile('team.yaml', files['team.yaml']),
-      'pipeline.yaml': parseYamlFile('pipeline.yaml', files['pipeline.yaml']),
-    });
-    expect(migrate(reloaded).config.team.projectManagerMoves).toBe('start_only');
-    expect(migrate(reloaded).config.team.viewerRecipients).toBe('contacts');
-  });
-
-  it('defaults a missing task create access to developer and keeps a saved one through the files (PM-1100)', () => {
-    const legacy = raw();
-    delete legacy.team.taskCreateAccess;
-    expect(migrate(legacy).config.team.taskCreateAccess).toBe('developer');
-    const saved = migrate(raw()).config;
-    saved.team.taskCreateAccess = 'client';
-    const files = splitProjectConfig(saved);
-    const reloaded = mergeProjectFiles({
-      'project.yaml': parseYamlFile('project.yaml', files['project.yaml']),
-      'team.yaml': parseYamlFile('team.yaml', files['team.yaml']),
-      'pipeline.yaml': parseYamlFile('pipeline.yaml', files['pipeline.yaml']),
-    });
-    expect(migrate(reloaded).config.team.taskCreateAccess).toBe('client');
+    expect(migrate(reloaded).config.team).toMatchObject(chosen);
   });
 
   it('passes a current configuration through untouched', () => {
@@ -119,27 +64,6 @@ describe('project configuration migrations', () => {
     expect(migrated).toBe(current);
     expect(migrated).toEqual(raw());
     expect(warn).not.toHaveBeenCalled();
-  });
-
-  it("gives a configuration without complexity setters today's two duties and keeps a set list (PM-1097)", () => {
-    const legacy = raw();
-    delete (legacy.team as { complexitySetters?: unknown }).complexitySetters;
-    expect(migrate(legacy).config.team.complexitySetters).toEqual([
-      'requirements_analysis',
-      'task_breakdown',
-    ]);
-    const set = raw();
-    (set.team as { complexitySetters?: unknown }).complexitySetters = [];
-    expect(migrate(set).config.team.complexitySetters).toEqual([]);
-  });
-
-  it("gives a configuration without lifecycle actions today's rights and keeps a set list (PM-1098)", () => {
-    const legacy = raw();
-    delete legacy.team.projectManagerLifecycle;
-    expect(migrate(legacy).config.team.projectManagerLifecycle).toEqual(['assign', 'cancel']);
-    const set = raw();
-    set.team.projectManagerLifecycle = [];
-    expect(migrate(set).config.team.projectManagerLifecycle).toEqual([]);
   });
 
   it('drops the removed message storm threshold without carrying its value over (PM-261)', () => {

@@ -1,11 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import {
-  DEFAULT_PROJECT_MANAGER_LIFECYCLE,
-  lifecycleAllowed,
-  projectManagerLifecycleOf,
-  projectManagerMayLifecycle,
-} from './lifecycle';
+import { lifecycleAllowed, projectManagerLifecycleOf, projectManagerMayLifecycle } from './lifecycle';
 import type { ProjectConfig, ProjectManagerLifecycleAction } from './schema';
+import { TEAM_SETTING_POLICY } from './team-settings';
 
 type Team = Pick<ProjectConfig, 'team'>;
 
@@ -25,7 +21,7 @@ const pm = { kind: 'ai', handle: 'pm' } as const;
 describe('the project manager lifecycle setting (PM-1098)', () => {
   it('defaults to reassigning and cancelling, not reopening', () => {
     const config = teamWith();
-    expect(projectManagerLifecycleOf(config)).toEqual(DEFAULT_PROJECT_MANAGER_LIFECYCLE);
+    expect(projectManagerLifecycleOf(config)).toEqual(TEAM_SETTING_POLICY.projectManagerLifecycle.default);
     expect(projectManagerMayLifecycle(config, pm, 'assign')).toBe(true);
     expect(projectManagerMayLifecycle(config, pm, 'cancel')).toBe(true);
     expect(projectManagerMayLifecycle(config, pm, 'reopen')).toBe(false);

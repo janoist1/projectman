@@ -87,7 +87,12 @@ import type {
   TaskStartWaiting,
   WorkItemRef,
 } from '@projectman/shared';
-import { fixLimitDeciders, ownerHandles, RETIRED_OPERATOR_HANDLE } from '@projectman/shared';
+import {
+  fixLimitDeciders,
+  ownerHandles,
+  RETIRED_OPERATOR_HANDLE,
+  TEAM_SETTING_POLICY,
+} from '@projectman/shared';
 import { isoNow } from '../base';
 import type { DomainContext } from '../base';
 import { bodyForOwners, formatFixLimitItem } from './fix-limit-text';
@@ -1402,8 +1407,9 @@ export class InboxService {
   private deliveredDeadline(item: InboxItem, deliveredAt: string): string {
     return deliveredLeadDeadline({
       deliveredAt,
-      leadTimeoutSeconds:
-        this.projects.cachedConfig(item.projectKey)?.team.boundary?.leadTimeoutSeconds ?? 120,
+      leadTimeoutSeconds: (
+        this.projects.cachedConfig(item.projectKey)?.team.boundary ?? TEAM_SETTING_POLICY.boundary.default
+      ).leadTimeoutSeconds,
       capAt: new Date(Date.parse(item.createdAt) + PERMISSION_LEAD_CAP_MS).toISOString(),
     });
   }

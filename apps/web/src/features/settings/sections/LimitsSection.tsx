@@ -16,8 +16,11 @@ import {
   maxFixRoundsOf,
   seniorWaitMinutesOf,
   tempMaxPointsOf,
+  TEAM_SETTING_POLICY,
 } from '@projectman/shared';
 import type { ProjectConfig } from '@projectman/shared';
+
+const BOUNDARY_DEFAULT = TEAM_SETTING_POLICY.boundary.default;
 import clsx from 'clsx';
 import { Link } from 'react-router';
 import { isApiError } from '../../../api/client';
@@ -273,7 +276,8 @@ function LimitsControls({ config }: { config: ProjectConfig }) {
           commit((draft) => {
             draft.team.boundary = {
               enabled,
-              leadTimeoutSeconds: draft.team.boundary?.leadTimeoutSeconds ?? 120,
+              leadTimeoutSeconds:
+                draft.team.boundary?.leadTimeoutSeconds ?? BOUNDARY_DEFAULT.leadTimeoutSeconds,
             };
           })
         }
@@ -284,12 +288,12 @@ function LimitsControls({ config }: { config: ProjectConfig }) {
           min={1}
           max={600}
           disabled={!isOwner}
-          value={shown.team.boundary?.leadTimeoutSeconds ?? 120}
+          value={shown.team.boundary?.leadTimeoutSeconds ?? BOUNDARY_DEFAULT.leadTimeoutSeconds}
           onCommit={(seconds) =>
             commit((draft) => {
               draft.team.boundary = {
-                enabled: draft.team.boundary?.enabled ?? false,
-                leadTimeoutSeconds: seconds ?? 120,
+                enabled: draft.team.boundary?.enabled ?? BOUNDARY_DEFAULT.enabled,
+                leadTimeoutSeconds: seconds ?? BOUNDARY_DEFAULT.leadTimeoutSeconds,
               };
             })
           }

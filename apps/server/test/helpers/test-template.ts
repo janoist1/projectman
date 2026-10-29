@@ -1,12 +1,4 @@
-import {
-  DEFAULT_PRIORITY_SETTERS,
-  DEFAULT_PREREQUISITE_OVERRIDE,
-  DEFAULT_PROJECT_MANAGER_LIFECYCLE,
-  DEFAULT_PROJECT_MANAGER_MOVES,
-  DEFAULT_TASK_CREATE_ACCESS,
-  DEFAULT_VIEWER_RECIPIENTS,
-  ProjectConfig,
-} from '@projectman/shared';
+import { ProjectConfig, storedTeamDefaults } from '@projectman/shared';
 import type { ProjectConfigInput } from '@projectman/shared';
 import type { BuildTemplateInput, ProjectTemplate } from '@projectman/templates';
 
@@ -28,15 +20,9 @@ function testConfigInput(input: BuildTemplateInput): ProjectConfigInput {
       templateId: 'test',
     },
     team: {
-      cardMover: input.cardMover ?? { kind: 'worker' },
-      projectManagerMoves: DEFAULT_PROJECT_MANAGER_MOVES,
-      projectManagerLifecycle: [...DEFAULT_PROJECT_MANAGER_LIFECYCLE],
-      prerequisiteOverride: DEFAULT_PREREQUISITE_OVERRIDE,
-      prioritySetters: [...DEFAULT_PRIORITY_SETTERS],
-      viewerRecipients: DEFAULT_VIEWER_RECIPIENTS,
-      taskCreateAccess: DEFAULT_TASK_CREATE_ACCESS,
-      // Stored explicitly, as the migration writes it (PM-1097).
-      complexitySetters: ['requirements_analysis', 'task_breakdown'],
+      // Stored explicitly, as the migration writes them.
+      ...storedTeamDefaults(),
+      ...(input.cardMover ? { cardMover: input.cardMover } : {}),
       // Stored explicitly, as the migration writes it; the developer, so that tests may drop the review stage.
       merger: input.merger ?? { kind: 'developer' },
       members: [

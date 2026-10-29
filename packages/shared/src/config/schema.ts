@@ -433,24 +433,24 @@ export const ProjectConfig = z.object({
     /** Owner-controlled approval waiver; absent means every approval still needs a click. */
     operatorApprovalWaiver: z.boolean().optional(),
     cardMover: CardMover.optional(),
-    /** Lowest human access that may open a new card (PM-1100); absent: DEFAULT_TASK_CREATE_ACCESS applies. */
+    /** Lowest human access that may open a new card (PM-1100); absent: its `TEAM_SETTING_POLICY` default. */
     taskCreateAccess: TaskCreateAccess.optional(),
-    /** Independent PM moves (PM-1094); absent: DEFAULT_PROJECT_MANAGER_MOVES applies. */
+    /** Independent PM moves (PM-1094); absent: its `TEAM_SETTING_POLICY` default. */
     projectManagerMoves: ProjectManagerMoves.optional(),
-    /** Lifecycle actions the PM may take on its own (PM-1098); absent: DEFAULT_PROJECT_MANAGER_LIFECYCLE. */
+    /** Lifecycle actions the PM may take on its own (PM-1098); absent: its `TEAM_SETTING_POLICY` default. */
     projectManagerLifecycle: ProjectManagerLifecycle.optional(),
-    /** PM-1099; absent: DEFAULT_PREREQUISITE_OVERRIDE applies. */
+    /** PM-1099; absent: its `TEAM_SETTING_POLICY` default. */
     prerequisiteOverride: PrerequisiteOverride.optional(),
-    /** Who besides people may set a card's priority (PM-1096); absent: DEFAULT_PRIORITY_SETTERS applies. */
+    /** Who besides people may set a card's priority (PM-1096); absent: its `TEAM_SETTING_POLICY` default. */
     prioritySetters: PrioritySetters.optional(),
-    /** Duties whose holders may set complexity points; absent: `DEFAULT_COMPLEXITY_SETTERS`. */
+    /** Duties whose holders may set complexity points; absent: its `TEAM_SETTING_POLICY` default. */
     complexitySetters: ComplexitySetters.optional(),
     /** Who merges approved work into the default branch. Absent: `defaultMerger` decides. */
     merger: Merger.optional(),
     members: z.array(MemberConfig).min(1),
     /** Who a contact-restricted member may write to (PM-985); absent in older configurations: nobody. */
     contacts: ContactHandles.default([]),
-    /** Whom a read-only viewer may write to (PM-1102); absent: DEFAULT_VIEWER_RECIPIENTS applies. */
+    /** Whom a read-only viewer may write to (PM-1102); absent: its `TEAM_SETTING_POLICY` default. */
     viewerRecipients: ViewerRecipients.optional(),
     /** Roles the team defined in addition to the built-in ones. */
     roles: z.array(CustomRoleDefinition).default([]),

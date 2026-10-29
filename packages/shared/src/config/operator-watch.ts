@@ -1,11 +1,11 @@
 import { z } from 'zod';
 import type { OperatorSignalKind } from '../api/dto';
 import type { ProjectConfig } from './schema';
+import { teamSettingOf } from './team-settings';
 
 export const OPERATOR_WATCH_LEVELS = ['report', 'unblock', 'drive'] as const;
 export const OperatorWatch = z.enum(OPERATOR_WATCH_LEVELS);
 export type OperatorWatch = z.infer<typeof OperatorWatch>;
-const DEFAULT_OPERATOR_WATCH: OperatorWatch = 'report';
 
 const COORDINATOR_ONLY_SIGNAL_KINDS: readonly OperatorSignalKind[] = [
   'structural_pattern',
@@ -24,7 +24,7 @@ export const OPERATOR_DISMISSIBLE_SIGNAL_KINDS: readonly OperatorSignalKind[] = 
 
 /** How much the coordinator does on its own on a system signal (PM-545); absent means report. */
 export function operatorWatchOf(config: Pick<ProjectConfig, 'team'>): OperatorWatch {
-  return config.team.operatorWatch ?? DEFAULT_OPERATOR_WATCH;
+  return teamSettingOf(config, 'operatorWatch');
 }
 
 /** How many own steps the coordinator may take on one signal at each level. */

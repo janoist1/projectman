@@ -5128,6 +5128,8 @@ export const hu = {
       moved_in: 'Elfogadási feltétel átvéve innen: {taskKey} – „{text}”',
       reopen: 'Elfogadási feltétel újra nyitva: „{text}”',
       confirm: 'Elfogadási feltétel megerősítve: „{text}”',
+      /** An event of a change this web app does not know. */
+      changed: 'Elfogadási feltétel megváltozott: „{text}”',
       note: ' – „{note}”',
     },
     relationAdded: 'Kapcsolat hozzáadva: {kind} · {ref}',

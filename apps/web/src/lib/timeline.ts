@@ -691,10 +691,10 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
         }),
       );
     case 'acceptance_item_changed': {
-      // An event of a change this web app does not know reads like a confirmation.
+      // An event of a change this web app does not know reads neutrally.
       const change = (ACCEPTANCE_CHANGES as readonly string[]).includes(str(d.change))
         ? (str(d.change) as (typeof ACCEPTANCE_CHANGES)[number])
-        : 'confirm';
+        : 'changed';
       return normal(
         t(`timeline.acceptanceItem.${change}`, { text: str(d.text), taskKey: str(d.taskKey) }) +
           (str(d.note).trim() ? t('timeline.acceptanceItem.note', { note: str(d.note).trim() }) : ''),

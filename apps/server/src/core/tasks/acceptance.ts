@@ -80,6 +80,11 @@ export class TaskAcceptance {
     return this.store.ctx.repos.taskAcceptance.list(task.id);
   }
 
+  /** How many items the steps planned so far move to the card: they count against its limit. */
+  private movedTo(steps: readonly AcceptanceStep[], target: Task): number {
+    return steps.filter((step) => step.change.op === 'move' && step.target?.key === target.key).length;
+  }
+
   /**
    * Plans `changes` for `task` in order; the first refusal throws and nothing is written. A theme has no
    * acceptance items (`themeRefused`).
@@ -101,7 +106,9 @@ export class TaskAcceptance {
       const target = change.op === 'move' ? this.store.ctx.repos.tasks.get(change.taskKey) : null;
       const refusal =
         acceptanceRefusal({ config, task, item, count: items.length, change, actor, target }) ??
-        (target && this.of(target).length >= MAX_ACCEPTANCE_ITEMS ? 'move_target' : null);
+        (target && this.of(target).length + this.movedTo(steps, target) >= MAX_ACCEPTANCE_ITEMS
+          ? 'move_target'
+          : null);
       if (refusal)
         throw conflict(
           'acceptance_item_refused',

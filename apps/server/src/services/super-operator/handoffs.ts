@@ -52,6 +52,7 @@ import {
   invalid,
   newId,
   notFound,
+  unavailable,
 } from '../../kernel';
 import { isAppOperation } from './app';
 
@@ -89,7 +90,7 @@ interface SuperExecutorPending {
 }
 
 /** What a settler found out about a detached operation. */
-export type SuperSettlement =
+type SuperSettlement =
   | { state: 'running' }
   | {
       state: 'succeeded' | 'failed' | 'unknown';
@@ -380,6 +381,8 @@ export class SuperHandoffService {
     const keyId = scope.principal.keyId;
     this.sweep();
     const handoff = this.handoffOf(projectKey, handoffId);
+    if (handoff.command.kind === 'administration')
+      throw unavailable('administration_unavailable', 'The administration supervisor has been retired.');
     await this.assertAppCommand(projectKey, handoff.command);
     const repo = this.ctx.repos.superHandoffs;
     const existing = repo.operationByRequest(projectKey, keyId, requestId);
@@ -592,6 +595,8 @@ export class SuperHandoffService {
     access: ProjectAccess,
     actor: BoundActor,
   ): Promise<SuperOperation> {
+    if (operation.command.kind === 'administration')
+      throw unavailable('administration_unavailable', 'The administration supervisor has been retired.');
     const loaded = await this.projects.load(operation.projectKey);
     const approver = this.approverOf(operation, loaded.config);
     if (!approver) return this.refuseStale(operation, actor, 'the owner has not approved this operation');
@@ -703,6 +708,8 @@ export class SuperHandoffService {
     const repo = this.ctx.repos.superHandoffs;
     const operation = repo.operation(projectKey, operationId);
     if (!operation) throw notFound('super operation', operationId);
+    if (operation.command.kind === 'administration')
+      throw unavailable('administration_unavailable', 'The administration supervisor has been retired.');
     const settler = this.settlers.get(operation.command.kind);
     if (operation.state !== 'running' || !settler || this.starting.has(operation.id))
       return publicOperation(operation);
@@ -746,6 +753,8 @@ export class SuperHandoffService {
   // --- checks ---------------------------------------------------------------------------------------------
 
   private executorFor(command: SuperCommand): SuperCommandExecutor {
+    if (command.kind === 'administration')
+      throw unavailable('administration_unavailable', 'The administration supervisor has been retired.');
     const executor = this.executors.get(command.kind);
     if (!executor)
       throw new DomainError(
@@ -873,11 +882,7 @@ export class SuperHandoffService {
       title: subject.reason,
       payload: {
         question: subject.reason,
-        details:
-          `Super operation ${operation.id} (${subject.command.kind}); owner-reserved: ${effects.join(', ')}` +
-          (subject.command.kind === 'administration' && subject.command.request.kind === 'owner_command'
-            ? `\n\n\`\`\`json\n${JSON.stringify({ ...subject.command.request, cwd: subject.command.request.cwd ?? '<supervisor user home>' }, null, 2)}\n\`\`\`\n\nOutput redaction is best-effort. Output is returned to the Operator and its model provider; avoid commands that print secrets.`
-            : ''),
+        details: `Super operation ${operation.id} (${subject.command.kind}); owner-reserved: ${effects.join(', ')}`,
         options: [SUPER_OWNER_YES, SUPER_OWNER_NO],
         // Only the owner's own login answers it; the server forces this whatever the asker says.
         responsePurpose: 'owner_decision',

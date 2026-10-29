@@ -102,7 +102,7 @@ describe('service install, uninstall and status', () => {
 
   const options = (overrides: Partial<ServiceOptions> = {}): ServiceOptions => ({
     home: path.join(base, 'home'),
-    root: ROOT,
+    root: path.join(base, 'checkout'),
     nodePath: '/opt/homebrew/bin/node',
     pathEnv: '/opt/homebrew/bin:/usr/bin',
     agentsDir: path.join(base, 'LaunchAgents'),
@@ -120,6 +120,11 @@ describe('service install, uninstall and status', () => {
   beforeEach(() => {
     base = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'engine-service-')));
     mkdirSync(path.join(base, 'home'));
+    const checkout = path.join(base, 'checkout');
+    mkdirSync(path.join(checkout, path.dirname(PLIST_TEMPLATE)), { recursive: true });
+    writeFileSync(path.join(checkout, PLIST_TEMPLATE), TEMPLATE);
+    mkdirSync(path.join(checkout, 'apps/server/dist'), { recursive: true });
+    writeFileSync(path.join(checkout, 'apps/server/dist/index.js'), '');
     calls = [];
     responses = {};
     output = [];
@@ -127,13 +132,20 @@ describe('service install, uninstall and status', () => {
   });
   afterEach(() => rmSync(base, { recursive: true, force: true }));
 
+  it('refuses an unbuilt checkout before changing launchd', () => {
+    rmSync(path.join(options().root, 'apps/server/dist/index.js'));
+    expect(() => installService(options())).toThrow(/no built server/);
+    expect(calls).toEqual([]);
+    expect(existsSync(servicePaths(options()).plist)).toBe(false);
+  });
+
   it('writes the agent into LaunchAgents and loads it into the gui domain', () => {
     installService(options());
     const { plist, logOut } = servicePaths(options());
     expect(plist).toBe(path.join(base, 'LaunchAgents', 'com.projectman.engine.plist'));
     const text = readFileSync(plist, 'utf8');
     expect(text).toContain(`<string>${path.join(base, 'home')}</string>`);
-    expect(text).toContain(`<string>${ROOT}/apps/server/dist/index.js</string>`);
+    expect(text).toContain(`<string>${options().root}/apps/server/dist/index.js</string>`);
     expect(calls).toEqual([
       ['bootout', 'gui/501/com.projectman.engine'],
       ['bootstrap', 'gui/501', plist],
@@ -374,7 +386,7 @@ describe('npm run engine -- service', () => {
       startEngine: async () => 0,
       isRunning: () => false,
       launchd: {
-        root: ROOT,
+        root: path.join(base, 'checkout'),
         nodePath: '/opt/homebrew/bin/node',
         agentsDir: path.join(base, 'LaunchAgents'),
         uid: 501,
@@ -390,6 +402,11 @@ describe('npm run engine -- service', () => {
 
   beforeEach(() => {
     base = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'engine-service-cli-')));
+    const checkout = path.join(base, 'checkout');
+    mkdirSync(path.join(checkout, path.dirname(PLIST_TEMPLATE)), { recursive: true });
+    writeFileSync(path.join(checkout, PLIST_TEMPLATE), TEMPLATE);
+    mkdirSync(path.join(checkout, 'apps/server/dist'), { recursive: true });
+    writeFileSync(path.join(checkout, 'apps/server/dist/index.js'), '');
     home = path.join(base, 'home');
     workspace = path.join(base, 'work');
     mkdirSync(workspace, { recursive: true });

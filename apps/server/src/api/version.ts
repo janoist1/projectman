@@ -6,6 +6,6 @@ import { authenticatedUser } from './context';
 export function registerVersionRoutes(app: FastifyInstance, domain: ApiDomain): void {
   app.get(routes.serverVersion(), async (request) => {
     authenticatedUser(request);
-    return domain.releases.runningVersion();
+    return domain.releasePublications.runningVersion();
   });
 }

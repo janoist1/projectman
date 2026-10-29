@@ -2,22 +2,18 @@ import path from 'node:path';
 import { runConfigCheck } from './config-check';
 import type { LiveDeps } from './deps';
 import { install, status, uninstall } from './install';
-import { DEFAULT_PORT, DEFAULT_TARGET, LiveError } from './paths';
-import { runReleaseTest } from './release-test';
-import { runWatch } from './watch';
+import { DEFAULT_PORT, LiveError } from './paths';
 
 const USAGE = `usage:
-  npm run live -- install [--root <dir>] [--home <dir>] [--port 4800] [--target PM/projectman] [--remote <url>]
+  npm run live -- install [--root <dir>] [--home <dir>] [--port 4800]
   npm run live -- uninstall | status [--home <dir>]
-  npm run live -- watch --root <dir> --home <dir> --port <port> --remote <url>   (launchd runs this)
   npm run live -- config-check --home <dir>
-  npm run release-test
 defaults: --root ~/projectman-live, --home ~/.projectman
 `;
 
-const COMMANDS = ['install', 'uninstall', 'status', 'watch', 'config-check', 'release-test'] as const;
+const COMMANDS = ['install', 'uninstall', 'status', 'config-check'] as const;
 type Command = (typeof COMMANDS)[number];
-const OPTIONS = ['root', 'home', 'port', 'target', 'remote'] as const;
+const OPTIONS = ['root', 'home', 'port'] as const;
 
 interface Parsed {
   command: Command;
@@ -71,27 +67,13 @@ export async function runLive(
           root: directory(options.root, '~/projectman-live', userHome),
           home,
           port: portOf(options.port),
-          target: options.target ?? DEFAULT_TARGET,
-          remote: options.remote ?? null,
         });
       case 'uninstall':
         return await uninstall(deps, { home });
       case 'status':
         return await status(deps, { home });
-      case 'watch': {
-        if (!options.root || !options.home || !options.remote)
-          throw new LiveError('watch needs --root, --home and --remote', 2);
-        return await runWatch(deps, {
-          root: directory(options.root, '', userHome),
-          home,
-          port: portOf(options.port),
-          remote: options.remote,
-        });
-      }
       case 'config-check':
         return await runConfigCheck(deps, home);
-      case 'release-test':
-        return await runReleaseTest(deps, directory(options.root, process.cwd(), userHome));
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

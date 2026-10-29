@@ -1,6 +1,5 @@
 import { Effect, Exit, Scope } from 'effect';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { ReleaseWorkAdmission } from '../../contracts';
 import type { MergeRecord } from '../../db';
 import { runFork, runPromise } from '../../kernel';
 import type { MergeRun } from './deps';
@@ -11,9 +10,7 @@ import type { MergeQueueDeps } from './queue';
 type Held = { run: MergeRun; open(): void };
 
 /** The queue over fake deps: a merge is a promise the test opens, and the table is an array. */
-function setup(
-  options: { peerBusy?: (projectKey: string, repo: string) => boolean; work?: ReleaseWorkAdmission } = {},
-) {
+function setup(options: { peerBusy?: (projectKey: string, repo: string) => boolean } = {}) {
   const rows: MergeRecord[] = [];
   const started: string[] = [];
   const released: string[] = [];
@@ -43,7 +40,6 @@ function setup(
     },
     peer: () => peer,
     stopped: () => state.stopped,
-    ...(options.work ? { work: options.work } : {}),
   };
   const scope = Effect.runSync(Scope.make());
   const queue = Effect.runSync(Scope.provide(makeMergeQueue(deps), scope));
@@ -78,36 +74,6 @@ describe('merge queue', () => {
     await t.finish('3');
     expect(t.queue.slot('PM', 'web')).toBeUndefined();
     expect(t.queue.slot('PM', 'api')).toBeUndefined();
-  });
-
-  it('starts nothing while the release fence is up, and holds a permit for each merge that runs', async () => {
-    const fence = { up: true };
-    const held = { merges: 0 };
-    const work: ReleaseWorkAdmission = {
-      isHeld: () => fence.up,
-      tryAcquire: (kind, runId) => {
-        if (fence.up) return null;
-        held.merges++;
-        return { id: runId, kind, release: () => void held.merges-- };
-      },
-      counts: () => ({ merges: held.merges, documentWrites: 0, fullTests: 0, screenshots: 0 }),
-    };
-    const t = setup({ work });
-    t.rows.push(t.row('1', 'web'), t.row('2', 'api'));
-    t.pump();
-    expect(t.started).toEqual([]);
-    expect(work.counts().merges).toBe(0);
-
-    fence.up = false;
-    t.pump();
-    expect(t.started).toEqual(['1', '2']);
-    expect(work.counts().merges).toBe(2);
-    // The fence can come up again while they run: they finish, nothing new starts.
-    fence.up = true;
-    await t.finish('1');
-    expect(work.counts().merges).toBe(1);
-    await t.finish('2');
-    expect(work.counts().merges).toBe(0);
   });
 
   it('skips a repository while its slot peer is busy and starts it after the next pump', () => {

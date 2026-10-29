@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -16,25 +16,33 @@ import {
 import type { SandboxedEnd, SandboxedRun } from '../../apps/server/src/full-test';
 import type { FullTestSpec } from '../../apps/server/src/contracts';
 import { fullTestSandbox } from '../../apps/server/src/runtime/sessions';
-import type { CloudContext } from '../cloud/context';
 import { CloudError, refused } from '../cloud/errors';
-import { assertCleanAt, checkoutExactCommit } from './checkout';
-import { DEFAULT_TIMEOUTS } from './config';
-import type { PrepareOptions, PreparedPaths } from './config';
-import { candidateMarkerFile, hashRegularFile, readCandidateMarker, writeCandidateMarker } from './receipt';
-import type { CandidateMarker } from './receipt';
+import { noSymlinks } from '../cloud/images';
+import { DEFAULT_TIMEOUTS } from './build-options';
+import type { BuildOptions } from './build-options';
+function hashRegularFile(file: string): string {
+  noSymlinks(file);
+  const fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+  try {
+    const before = fs.fstatSync(fd, { bigint: true });
+    if (!before.isFile()) throw refused('a hashed input must be a regular file');
+    const hash = createHash('sha256');
+    const buffer = Buffer.alloc(1024 * 1024);
+    for (;;) {
+      const count = fs.readSync(fd, buffer);
+      if (!count) break;
+      hash.update(buffer.subarray(0, count));
+    }
+    const after = fs.fstatSync(fd, { bigint: true });
+    if (before.size !== after.size || before.mtimeNs !== after.mtimeNs || before.ctimeNs !== after.ctimeNs)
+      throw refused('a hashed input changed while it was read');
+    return hash.digest('hex');
+  } finally {
+    fs.closeSync(fd);
+  }
+}
 
-/**
- * The engine candidate of a release (PM-750): a new checkout of the exact commit beside the running engine's
- * checkout, with its dependencies installed from the lockfile and its server built. Nothing here starts, stops
- * or reconfigures the running engine, and nothing reads its home.
- *
- * Every step that executes code from the checkout runs in the Anthropic Sandbox Runtime with the facade of the
- * full test: only the install may reach the network (registry.npmjs.org and nodejs.org), and each step writes
- * nothing but the candidate's own package trees or server bundle and a throwaway home. A sandbox that is
- * missing, refuses to start, times out or is interrupted ends the preparation: there is no fallback that runs
- * the same command on the host.
- */
+/** Sandboxed installation, build and import checks for an engine package. No host fallback is permitted. */
 
 const SHORT_TMP = process.platform === 'darwin' ? '/private/tmp' : '/tmp';
 const LOCAL_INSTALL_HOOKS = [
@@ -49,21 +57,6 @@ const LOCAL_INSTALL_HOOKS = [
 ] as const;
 const SERVER_BUNDLE = 'apps/server/dist/index.js';
 const NO_CONFIG = 'projectman engine: No engine configuration at';
-
-interface EngineCandidate {
-  root: string;
-  lockfileSha256: string;
-}
-
-export interface EngineRun {
-  context: CloudContext;
-  releaseId: string;
-  commit: string;
-  paths: PreparedPaths;
-  options: PrepareOptions;
-  signal: AbortSignal;
-  sandbox: (run: SandboxedRun) => Promise<SandboxedEnd>;
-}
 
 const lockSchema = z.object({ packages: z.record(z.string(), z.unknown()) });
 const manifestSchema = z.object({ scripts: z.record(z.string(), z.string()).optional() });
@@ -97,22 +90,6 @@ function installInputs(root: string): { lockfileSha256: string; nodeModules: str
   };
 }
 
-function fingerprints(root: string) {
-  return {
-    installedTreeSha256: hashRegularFile(path.join(root, 'node_modules', '.package-lock.json')),
-    serverBundleSha256: hashRegularFile(path.join(root, SERVER_BUNDLE)),
-  };
-}
-
-/** What the candidate's marker records, read from the tree as it stands now (the coordinator's last look, PM-751). */
-export function candidateFingerprints(root: string): {
-  lockfileSha256: string;
-  installedTreeSha256: string;
-  serverBundleSha256: string;
-} {
-  return { lockfileSha256: hashRegularFile(path.join(root, 'package-lock.json')), ...fingerprints(root) };
-}
-
 function outputTail(end: SandboxedEnd): string {
   const tail = end.output.trim().split('\n').slice(-5).join(' | ').slice(0, 500);
   return tail ? `: ${tail}` : '';
@@ -134,11 +111,11 @@ function sharedTmpRoots(env: NodeJS.ProcessEnv): string[] {
   ];
 }
 
-/** What `withSandboxRun` needs of a run; the engine candidate's `EngineRun` and the engine package's build both fit. */
+/** The isolated engine package build context. */
 export interface SandboxRunInput {
   context: { deps: { homeDir: string } };
   paths: { engineHome: string };
-  options: PrepareOptions;
+  options: BuildOptions;
   signal: AbortSignal;
   sandbox: (run: SandboxedRun) => Promise<SandboxedEnd>;
 }
@@ -289,7 +266,7 @@ export interface SandboxSteps {
 /** Native modules load and work, and the engine's entry points load far enough to ask for the missing configuration. */
 export async function importabilityChecks(
   steps: SandboxSteps,
-  entries: readonly string[] = ['--import tsx apps/server/src/index.ts', 'apps/server/dist/index.js'],
+  entries: readonly string[] = ['apps/server/dist/index.js'],
 ): Promise<void> {
   const database = path.join(steps.paths.tmp, 'engine-probe.sqlite');
   const fixtureHome = path.join(steps.paths.home, 'engine-fixture');
@@ -302,71 +279,4 @@ export async function importabilityChecks(
     await steps.check(
       `out="$(env PROJECTMAN_MODE=engine PROJECTMAN_HOME=${quoteShellWord(fixtureHome)} node ${entry} 2>&1)"; status=$?; case "$out" in *${quoteShellWord(NO_CONFIG)}*) [ "$status" -eq 1 ] ;; *) printf '%s\\n' "$out" | tail -n 20; exit 1 ;; esac`,
     );
-}
-
-async function verifyReusable(run: EngineRun, root: string): Promise<CandidateMarker> {
-  const stat = fs.lstatSync(root, { throwIfNoEntry: false });
-  const marker = stat ? readCandidateMarker(root) : undefined;
-  if (!stat?.isDirectory() || stat.isSymbolicLink() || !marker)
-    throw refused('the engine candidate directory exists but is not a finished candidate: remove it by hand');
-  if (marker.releaseId !== run.releaseId || marker.commit !== run.commit || marker.root !== root)
-    throw refused('the engine candidate belongs to another release');
-  await assertCleanAt(run.context, root, run.commit, run.signal, 'the engine candidate');
-  const now = { ...installInputs(root), ...fingerprints(root) };
-  if (
-    now.lockfileSha256 !== marker.lockfileSha256 ||
-    now.installedTreeSha256 !== marker.installedTreeSha256 ||
-    now.serverBundleSha256 !== marker.serverBundleSha256
-  )
-    throw refused('the engine candidate differs from its marker');
-  return marker;
-}
-
-/**
- * Builds (or, when a complete identical candidate already stands there, re-verifies) the engine candidate.
- * A foreign or partial directory is never reused and never overwritten.
- */
-export async function prepareEngineCandidate(run: EngineRun): Promise<EngineCandidate> {
-  const root = path.join(run.paths.engineReleasesDir, `${run.releaseId}-${run.commit}`);
-  const known =
-    fs.lstatSync(root, { throwIfNoEntry: false }) ??
-    fs.lstatSync(candidateMarkerFile(root), { throwIfNoEntry: false });
-  if (known) {
-    const marker = await verifyReusable(run, root);
-    await withSandboxRun(run, root, async (steps) => {
-      await steps.probe();
-      await importabilityChecks(steps);
-    });
-    return { root, lockfileSha256: marker.lockfileSha256 };
-  }
-  if (!fs.existsSync(run.paths.engineReleasesDir)) fs.mkdirSync(run.paths.engineReleasesDir, { mode: 0o700 });
-  await checkoutExactCommit(run.context, root, run.commit, run.signal);
-  const inputs = installInputs(root);
-  await withSandboxRun(run, root, async (steps) => {
-    await steps.probe();
-    await steps.install();
-    await steps.build();
-    await importabilityChecks(steps);
-  });
-  // The sandbox cannot write the checkout except the package trees and the bundle: HEAD and the lockfile stay.
-  await assertCleanAt(run.context, root, run.commit, run.signal, 'the engine candidate');
-  if (installInputs(root).lockfileSha256 !== inputs.lockfileSha256)
-    throw refused('the engine candidate lockfile changed during the preparation');
-  writeCandidateMarker({
-    version: 1,
-    releaseId: run.releaseId,
-    commit: run.commit,
-    root,
-    lockfileSha256: inputs.lockfileSha256,
-    ...fingerprints(root),
-    preparedAt: run.context.deps.now().toISOString(),
-  });
-  return { root, lockfileSha256: inputs.lockfileSha256 };
-}
-
-/** The last look before the receipt: the candidate still is what the marker says, at the commit, clean. */
-export async function reverifyEngineCandidate(run: EngineRun, expected: EngineCandidate): Promise<void> {
-  const marker = await verifyReusable(run, expected.root);
-  if (marker.lockfileSha256 !== expected.lockfileSha256)
-    throw refused('the engine candidate lockfile differs from the prepared one');
 }

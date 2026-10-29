@@ -1352,16 +1352,6 @@ export function useOperatorQueue(key: string, handle: string, closedSince: strin
   });
 }
 
-/** The grant of machine operations to the Operator (PM-881): whether it is active, until when, who manages it. */
-export function useOperatorGrant(enabled = true) {
-  return useQuery({
-    queryKey: queryKeys.operatorGrant,
-    queryFn: () => api.operatorGrant(),
-    select: (response) => response.grant,
-    enabled,
-  });
-}
-
 /** "Most ne": sets one signal aside; the channel is read again for its new state. */
 export function useDismissOperatorSignal(key: string) {
   const client = useQueryClient();

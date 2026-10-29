@@ -41,8 +41,7 @@ export function visibleSession(
 export type ProjectEvent = Exclude<
   ServerEvent,
   {
-    type:
-      'hello' | 'error' | 'terminal_data' | 'terminal_snapshot' | 'engine_changed' | 'operator_grant_changed';
+    type: 'hello' | 'error' | 'terminal_data' | 'terminal_snapshot' | 'engine_changed';
   }
 >;
 

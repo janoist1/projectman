@@ -8,10 +8,8 @@ import {
   OperatorPreferenceData,
   ProposeOperatorKnowledgeRequest,
   OperatorPlan,
-  GetAdministrationLogsArgs,
-  GetAdministrationStatusArgs,
   GetSuperOperationArgs,
-  SuperCommand,
+  NewSuperCommand,
   TaskKey,
 } from '@projectman/shared';
 import { z } from 'zod';
@@ -358,7 +356,7 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       title: 'Execute one command as the Operator or PM',
       readOnly: false,
       description:
-        'Only the Operator or selected PM, in its own general conversation during an open owner message or answer. The PM may use task_create, task_update, task_labels, task_start, task_cancel, member_update, merge_order and operate. Every other kind, including administration, is refused with command_not_for_project_manager; with machine access enabled use open_integrator_todo for the integrator, otherwise ask the owners with ask_human. Starts ONE command on the shared operation path, logged as you: {operation}. command is {kind, ...fields of that kind}. workspace_release frees the workspace an unresolved process cleanup keeps reserved without proof that the processes stopped: only on the owner’s explicit request in that conversation, never on a signal by itself; reason is the owner’s stated reason. workspace_release, inbox_resolve, merge, merge_order and invite_create run only when the open request is an owner’s own message or answer; for a queue item or another member’s message the server refuses them (operator_owner_only), so ask the owners with ask_human. On a member’s request task_labels runs with your own label rights: approval and human-only labels are refused. Use operate for configuration, member, session, message and project-pause changes. For the Operator, kinds operate and member_update are refused here with super_operation_unsupported. A K3 effect (deletion, security, cost and permission decisions) is not run: the operation waits in waiting_owner and the owner answers with their own login; after the owner’s yes the server runs it by itself, so do not repeat the call. Only the Operator may request machine operations (administration), which need the owner’s grant: without one the call fails with operator_grant_inactive, and you hand the matter over to the owner. request_key (1–100 characters of A-Z a-z 0-9 . _ -) names this call within the request: the same key is the same operation and never runs twice; the same key with another command is refused (super_request_conflict). Follow it with get_operation until the state is final.',
+        "Only the Operator or selected PM, in its own general conversation during an open owner message or answer. The PM may use task_create, task_update, task_labels, task_start, task_cancel, member_update, merge_order and operate. Every other kind is refused with command_not_for_project_manager; with machine access enabled use open_integrator_todo for the integrator, otherwise ask the owners with ask_human. Starts ONE command on the shared operation path, logged as you: {operation}. command is {kind, ...fields of that kind}. workspace_release frees the workspace an unresolved process cleanup keeps reserved without proof that the processes stopped: only on the owner’s explicit request in that conversation, never on a signal by itself; reason is the owner’s stated reason. workspace_release, inbox_resolve, merge, merge_order and invite_create run only when the open request is an owner’s own message or answer; for a queue item or another member’s message the server refuses them (operator_owner_only), so ask the owners with ask_human. On a member’s request task_labels runs with your own label rights: approval and human-only labels are refused. Use operate for configuration, member, session, message and project-pause changes. For the Operator, kinds operate and member_update are refused here with super_operation_unsupported. A K3 effect (deletion, security, cost and permission decisions) is not run: the operation waits in waiting_owner and the owner answers with their own login; after the owner’s yes the server runs it by itself, so do not repeat the call. Machine operations go through the integrator on the owner's request. request_key (1–100 characters of A-Z a-z 0-9 . _ -) names this call within the request: the same key is the same operation and never runs twice; the same key with another command is refused (super_request_conflict). Follow it with get_operation until the state is final.",
       input: {
         request_key: z
           .string()
@@ -367,10 +365,10 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
           .regex(/^[A-Za-z0-9._-]+$/)
           .describe('Names this call within the open request; repeat it only to retry the same call.'),
         task_key: TaskKey.optional().describe('The card the command is about, when there is one.'),
-        command: kindInput('kind', SuperCommand.options, 'The command'),
+        command: kindInput('kind', NewSuperCommand.options, 'The command'),
       },
       async run({ ctx, args, handler }) {
-        const command = parseFull(SuperCommand, args.command, 'command');
+        const command = parseFull(NewSuperCommand, args.command, 'command');
         return JSON.stringify(
           await handler.executeOperation(ctx, {
             requestKey: args.request_key,
@@ -391,48 +389,6 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       input: { operation_id: GetSuperOperationArgs.shape.operation_id },
       async run({ ctx, args, handler }) {
         return JSON.stringify(await handler.getOperation(ctx, { operationId: args.operation_id }));
-      },
-    }),
-
-    defineTool({
-      name: 'get_machine_status',
-      audience: { roles: [] },
-      title: 'Read the status of the machine',
-      readOnly: true,
-      description:
-        'Only the Operator, during an open owner request, with the owner’s machine grant (without it: operator_grant_inactive). The administration status of the hub (target "hub") or of an engine linked to this project (target: the engine id) and, when it offers the machine capability, its machine: {status, machine} with the load average, memory, swap and the ten largest processes (name, cpu, memory; no arguments). machine is null when the target cannot tell.',
-      input: { target: GetAdministrationStatusArgs.shape.target },
-      async run({ ctx, args, handler }) {
-        return JSON.stringify(await handler.getMachineStatus(ctx, { target: args.target }));
-      },
-    }),
-
-    defineTool({
-      name: 'get_machine_logs',
-      audience: { roles: [] },
-      title: 'Read the log of the machine',
-      readOnly: true,
-      description:
-        'Only the Operator, during an open owner request, with the owner’s machine grant (without it: operator_grant_inactive). The diagnostic log of the hub (target "hub") or of an engine linked to this project (target: the engine id): {entries}, oldest first. limit is 1–200 (default 50). source is "supervisor" (default) or "service" (the managed service’s log, secrets redacted); min_level (info, warn, error), since (ISO time) and contains (up to 100 characters) narrow it.',
-      input: {
-        target: GetAdministrationLogsArgs.shape.target,
-        limit: GetAdministrationLogsArgs.shape.limit,
-        source: GetAdministrationLogsArgs.shape.source,
-        min_level: GetAdministrationLogsArgs.shape.min_level,
-        since: GetAdministrationLogsArgs.shape.since,
-        contains: GetAdministrationLogsArgs.shape.contains,
-      },
-      async run({ ctx, args, handler }) {
-        return JSON.stringify(
-          await handler.getMachineLogs(ctx, {
-            target: args.target,
-            limit: args.limit ?? 50,
-            ...(args.source ? { source: args.source } : {}),
-            ...(args.min_level ? { minLevel: args.min_level } : {}),
-            ...(args.since ? { since: args.since } : {}),
-            ...(args.contains ? { contains: args.contains } : {}),
-          }),
-        );
       },
     }),
 

@@ -1,4 +1,4 @@
-import type { OperatorSessions, OperatorAdmission, OperatorReleases } from './ports';
+import type { OperatorSessions, OperatorAdmission } from './ports';
 import {
   ALERT_SEEN_OPTION,
   DEFAULT_AGENT_PROVIDER,
@@ -44,7 +44,6 @@ import {
   OPERATOR_READY_WAITING_MINUTES,
   OPERATOR_SILENT_WORK_MINUTES,
   OPERATOR_START_FETCH_FAILED_MINUTES,
-  OPERATOR_UNRELEASED_HOURS,
   START_BLOCKED_REASONS,
   StartBlockedFacts,
 } from '@projectman/shared';
@@ -227,7 +226,6 @@ export class OperatorSignals {
     wake: (projectKey: string, member: string) => Promise<void>;
     taskWaits: TaskWaits;
     activeOutageIds: (projectKey: string) => ReadonlySet<string> | null;
-    releases: Pick<OperatorReleases, 'unreleased'>;
     inbox: Pick<InboxService, 'create' | 'cancel' | 'list' | 'closeQuestionsOfSignal'>;
     startWaitingOf: (task: Task) => TaskStartWaiting | undefined;
     /** Whether a deferred start of the card is under a new attempt: its wait reads empty meanwhile. */
@@ -254,7 +252,6 @@ export class OperatorSignals {
     wake: (projectKey: string, member: string) => Promise<void>;
     taskWaits: TaskWaits;
     activeOutageIds: (projectKey: string) => ReadonlySet<string> | null;
-    releases: Pick<OperatorReleases, 'unreleased'>;
     /** The owners' `work_stalled` alert (PM-1082). */
     inbox: Pick<InboxService, 'create' | 'cancel' | 'list' | 'closeQuestionsOfSignal'>;
     /** Why the start of AI work on a stored card waits (PM-455): the scheduling reads carry no `startWaiting`. */
@@ -1151,7 +1148,7 @@ export class OperatorSignals {
     cards: readonly Task[],
     reads: BoardReads = this.readBoard(config, cards),
   ): BoardRead {
-    const { ctx, sessions, releases } = this.deps;
+    const { ctx, sessions } = this.deps;
     const projectKey = config.project.key;
     const now = ctx.now().getTime();
     const found = new Map<string, SignalInput>();
@@ -1233,15 +1230,6 @@ export class OperatorSignals {
           subject: row.failure?.reason ?? row.block?.reason ?? state,
         });
       }
-
-    const unreleased = releases.unreleased(projectKey);
-    if (unreleased && now - Date.parse(unreleased.oldestAt) >= OPERATOR_UNRELEASED_HOURS * 3_600_000)
-      add({
-        kind: 'unreleased',
-        caseKey: `unreleased:${unreleased.base}`,
-        taskKey: null,
-        subject: String(unreleased.taskKeys.length),
-      });
 
     const held = works && aiLimitReached(config, sessions.busyCount());
     const stall = works && !held ? this.readyStall(config, cards, waits) : null;

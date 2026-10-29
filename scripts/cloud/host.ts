@@ -30,9 +30,7 @@ export const HOST_SUBCOMMANDS = [
   'guard-check',
   'public-check',
   /** The board's control socket through the fixed client in the container (PM-749); never read-only, never repeated. */
-  'release-control',
   /** The read-only look at one immutable image, the lock and the schema (PM-751); never repeated by the transport. */
-  'release-probe',
 ] as const;
 export type HostSubcommand = (typeof HOST_SUBCOMMANDS)[number];
 
@@ -47,7 +45,6 @@ export const READ_ONLY_SUBCOMMANDS: ReadonlySet<HostSubcommand> = new Set([
   'send-data',
   'guard-check',
   'public-check',
-  'release-probe',
 ]);
 /** The only subcommand the transport may repeat after a lost connection; a new subcommand is not retried. */
 const RETRYABLE_READS: ReadonlySet<HostSubcommand> = new Set(['status']);
@@ -76,7 +73,7 @@ const deployEntrySchema = z.looseObject({
   // The history on the machine may still hold the retired amd64 platform; `recordedStart` refuses to start it.
   platform: z.string().optional(),
 });
-export const hostStatusSchema = z.looseObject({
+const hostStatusSchema = z.looseObject({
   unit: z.string(),
   container: z.string(),
   health: z.string(),

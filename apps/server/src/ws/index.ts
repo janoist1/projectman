@@ -131,11 +131,6 @@ export function registerWebsocket(
       .then(async () => {
         if (event.type === 'hello' || event.type === 'error') return;
         for (const client of clients) {
-          // Not bound to a project: every logged-in client reads the grant's state again.
-          if (event.type === 'operator_grant_changed') {
-            send(client, event);
-            continue;
-          }
           if (event.type === 'engine_changed') {
             // Only whom the engine concerns (PM-1061): the host owner, the engine's owner (a project or not),
             // a member of a project that uses it. A project–engine binding names its project (PM-1060).

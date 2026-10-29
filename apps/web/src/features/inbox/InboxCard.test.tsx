@@ -36,6 +36,32 @@ function renderCard(
 }
 
 describe('InboxCard', () => {
+  it('keeps a historical release readable without decision actions', () => {
+    const entry: InboxItem = {
+      ...item('inb_perm_push'),
+      kind: 'release',
+      title: 'Legacy release',
+      body: 'Historical summary',
+      payload: {
+        release: {
+          releaseId: 'rel_old',
+          commit: 'a'.repeat(40),
+          baseCommit: null,
+          tasks: [],
+          summary: 'Historical summary',
+        },
+      },
+      options: [
+        { id: 'approve', label: 'approve', style: 'primary' },
+        { id: 'reject', label: 'reject', style: 'danger' },
+      ],
+    };
+    const { card } = renderCard(entry);
+    expect(within(card).getByText('Historical summary')).toBeTruthy();
+    expect(within(card).queryByRole('button', { name: t('inbox.options.approve') })).toBeNull();
+    expect(within(card).queryByRole('button', { name: t('inbox.options.reject') })).toBeNull();
+  });
+
   it('shows a permission request with the command and resolves it with the built-in options', () => {
     const entry = item('inb_perm_push');
     const { onResolve, card } = renderCard(entry);

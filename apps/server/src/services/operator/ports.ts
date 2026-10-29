@@ -2,19 +2,16 @@ import type {
   AgentProvider,
   MemberHandle,
   TaskKey,
-  AiMemberConfig,
   ProjectConfig,
   ProjectPauseView,
   Session,
   SessionDetail,
-  SessionStartCause,
   SessionStop,
   Task,
   TaskStartWaiting,
   WorkItemRef,
   OperatorDiagnostics,
 } from '@projectman/shared';
-import type { EnsureSessionResult, ReleaseStateReport } from '../../contracts';
 
 /** Runtime owns the mutation and rechecks facts while holding its task lock. */
 export interface LoopTriageActions {
@@ -76,13 +73,6 @@ export interface WaitingStarts {
   }[];
   /** The member queue's wake-ups that wait for a code a start can wait for (PM-925). */
   queueWaits(): readonly { projectKey: string; taskKey: string | null; waiting: TaskStartWaiting }[];
-}
-/** Releases (services/releases). */
-export interface OperatorReleases {
-  unreleased(
-    projectKey: string,
-  ): { base: string; count: number; oldestAt: string; taskKeys: string[] } | null;
-  overview(projectKey: string): Promise<ReleaseStateReport | null>;
 }
 /** Who pauses or resumes a project through the Operator: a person's approval in the app. */
 export interface OperatorPauseRequester {

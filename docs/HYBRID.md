@@ -411,7 +411,10 @@ was lost: `UPDATE instance_meta SET value = lower(hex(randomblob(16))) WHERE key
 
 Build the new image and deploy it (`npm run cloud -- deploy` on EC2). The platform sends SIGTERM; the entrypoint stops
 the tunnel, the server (its own shutdown pause) and then Litestream, so the last writes are
-shipped, and the new container comes up on the same volume. The engine reconnects by itself.
+shipped, and the new container comes up on the same volume. The engine reconnects by itself. Update its checkout to the same approved commit, run
+`npm ci`, `npm run build -w @projectman/server`, then `npm run engine -- service install`.
+Publish the GitHub release on request with `publish_release` after its preview; see
+[DEPLOY.md](DEPLOY.md#release-pm-1113).
 A database migration of a newer build is refused by an older one: do not roll back across a
 migration, restore instead.
 
@@ -610,7 +613,7 @@ frame is a question for the architect and the owner.
 **What the image must have, and what this does not check by itself.** The model is a release asset: the
 Dockerfile runs `npm run prepare:history-model` before `npm run build`, which copies it to
 `dist/models/history` and the native ONNX Runtime and `sharp` binaries come from the image's own `npm ci` on the
-ARM64 build. The single-machine path and the live-watcher's build do not prepare the model, so a build made there
+ARM64 build. The single-machine recovery build does not prepare the model, so a build made there
 searches by text only. Before the run, confirm that the ARM64 image has `dist/models/history/manifest.json`, that
 `node -e "require('onnxruntime-node')"` and the `sqlite-vec` extension load on it, and write the image digest in
 `PROJECTMAN_IMAGE_DIGEST`. A model folder without a manifest is `model_unavailable`, not a pass.

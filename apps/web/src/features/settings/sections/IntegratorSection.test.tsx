@@ -5,8 +5,6 @@ import { t } from '../../../i18n/t';
 import { MockBackend } from '../../../mocks/backend';
 import { mockProject } from '../../../test/mockProject';
 import { IntegratorSection } from './IntegratorSection';
-import { OPERATOR_MACHINE_OPERATIONS } from '@projectman/shared';
-import { hu } from '../../../i18n/hu';
 import dialogStyles from '../../../components/Dialog.module.css';
 
 afterEach(() => {
@@ -14,104 +12,6 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 describe('integrator key settings', () => {
-  it('has a translation for every machine capability', () => {
-    for (const id of OPERATOR_MACHINE_OPERATIONS) expect(hu.operatorGrant.operations[id]).toBeTruthy();
-  });
-  it('grants and revokes machine access through separate confirmation dialogs', async () => {
-    const project = mockProject();
-    project.context.me.hostOwner = true;
-    project.render(<IntegratorSection />);
-    fireEvent.click(await screen.findByRole('button', { name: t('operatorGrant.grant') }));
-    expect((screen.getByLabelText(t('operatorGrant.duration')) as HTMLSelectElement).value).toBe(
-      'until_revoked',
-    );
-    fireEvent.change(screen.getByLabelText(t('operatorGrant.duration')), { target: { value: '12h' } });
-    fireEvent.click(
-      within(screen.getByRole('dialog')).getByRole('button', { name: t('operatorGrant.submit') }),
-    );
-    fireEvent.click(await screen.findByRole('button', { name: t('operatorGrant.revoke') }));
-    fireEvent.click(
-      within(screen.getByRole('dialog')).getByRole('button', { name: t('operatorGrant.revokeSubmit') }),
-    );
-    await screen.findByRole('button', { name: t('operatorGrant.grant') });
-    expect(
-      project.requests.find(
-        (request) => request.method === 'POST' && request.path.endsWith('/operator-grant'),
-      )?.body,
-    ).toEqual({ duration: '12h' });
-    expect(
-      project.requests.some(
-        (request) => request.method === 'DELETE' && request.path.endsWith('/operator-grant'),
-      ),
-    ).toBe(true);
-  });
-  it('extends a grant expiring today and combines its replacement audit into one row', async () => {
-    const project = mockProject();
-    project.context.me.hostOwner = true;
-    project.backend.operatorGrant = {
-      active: true,
-      grantId: 'g',
-      grantedAt: new Date().toISOString(),
-      grantedBy: 'Owner',
-      expiresAt: new Date(new Date().setHours(23, 59, 59, 999)).toISOString(),
-      lastUsedAt: null,
-      canManage: true,
-    };
-    project.render(<IntegratorSection />);
-    fireEvent.click(await screen.findByRole('button', { name: t('operatorGrant.extend') }));
-    fireEvent.click(
-      within(screen.getByRole('dialog')).getByRole('button', { name: t('operatorGrant.extendSubmit') }),
-    );
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-    expect(
-      await screen.findByText(
-        t('operatorGrant.auditExtended', {
-          expiry: t('operatorGrant.untilRevoked'),
-          by: project.backend.user.name,
-        }),
-        { exact: false },
-      ),
-    ).toBeTruthy();
-  });
-  it('keeps a failed write open and retries with the selected duration', async () => {
-    const project = mockProject();
-    project.context.me.hostOwner = true;
-    const original = project.backend.handle.bind(project.backend);
-    let fail = true;
-    vi.spyOn(project.backend, 'handle').mockImplementation((method, path, body, query) =>
-      method === 'POST' && path.endsWith('/operator-grant') && fail
-        ? { status: 403, body: { error: { code: 'operator_grant_owner_only', message: 'Refused' } } }
-        : original(method, path, body, query),
-    );
-    project.render(<IntegratorSection />);
-    fireEvent.click(await screen.findByRole('button', { name: t('operatorGrant.grant') }));
-    fireEvent.change(screen.getByLabelText(t('operatorGrant.duration')), { target: { value: '7d' } });
-    fireEvent.click(screen.getByRole('button', { name: t('operatorGrant.submit') }));
-    expect(await within(screen.getByRole('dialog')).findByRole('alert')).toBeTruthy();
-    expect((screen.getByLabelText(t('operatorGrant.duration')) as HTMLSelectElement).value).toBe('7d');
-    fail = false;
-    fireEvent.click(screen.getByRole('button', { name: t('operatorGrant.submit') }));
-    await screen.findByRole('button', { name: t('operatorGrant.revoke') });
-  });
-  it('shows the limited Claude Code credential state when the grant is absent', async () => {
-    const project = mockProject();
-    project.context.me.hostOwner = true;
-    project.backend.integratorKeys = [
-      {
-        id: 'k',
-        mode: 'super',
-        prefix: 'pmi_test',
-        state: 'active',
-        createdAt: new Date().toISOString(),
-        expiresAt: null,
-        revokedAt: null,
-        lastUsedAt: null,
-        lastUsedChannel: null,
-      },
-    ];
-    project.render(<IntegratorSection />);
-    expect(await screen.findByText(t('operatorGrant.clientInactive'))).toBeTruthy();
-  });
   it('shows an inactive empty state and compact past rows when all keys have expired', async () => {
     const project = mockProject();
     project.context.me.hostOwner = true;
@@ -289,7 +189,7 @@ describe('integrator key settings', () => {
     const project = mockProject();
     project.context.me.hostOwner = false;
     project.render(<IntegratorSection />);
-    expect(screen.queryByRole('heading', { name: t('operatorGrant.title') })).toBeNull();
+    expect(screen.queryByRole('heading', { name: t('integratorKey.title') })).toBeNull();
     expect(project.requests.some((request) => request.path.includes('/integrator-keys'))).toBe(false);
   });
   it('gives an owner account the key of its own projects, without the machine access grant', async () => {
@@ -301,12 +201,9 @@ describe('integrator key settings', () => {
     project.context.me.ownerAccount = true;
     project.render(<IntegratorSection />);
     expect(await screen.findByRole('button', { name: t('integratorKey.create') })).toBeTruthy();
-    expect(screen.queryByText(t('operatorGrant.intro'))).toBeNull();
-    expect(screen.queryByRole('button', { name: t('operatorGrant.grant') })).toBeNull();
     expect(project.requests.some((request) => request.path.includes('/operator-grant'))).toBe(false);
     // The operator grant is the host's: the owner account's section is titled by its own client.
-    expect(screen.getByRole('heading', { name: t('operatorGrant.clientTitle') })).toBeTruthy();
-    expect(screen.queryByRole('heading', { name: t('operatorGrant.title') })).toBeNull();
+    expect(screen.getByRole('heading', { name: t('integratorKey.title') })).toBeTruthy();
   });
   it('shows the assistant instruction under the new key, with the MCP address and without the key', async () => {
     const project = mockProject();
@@ -337,8 +234,6 @@ describe('integrator key settings', () => {
     project.render(<IntegratorSection />);
     expect(screen.getByText(t('integratorKey.ownerOnly'))).toBeTruthy();
     expect(screen.queryByRole('button', { name: t('integratorKey.create') })).toBeNull();
-    expect(await screen.findByText(t('operatorGrant.ownerOnly'))).toBeTruthy();
-    expect(screen.queryByRole('button', { name: t('operatorGrant.grant') })).toBeNull();
     expect(project.requests.some((request) => request.path.includes('/integrator-keys'))).toBe(false);
   });
   it('keeps mode and expiry after a failed create and uses the seven-day default', async () => {

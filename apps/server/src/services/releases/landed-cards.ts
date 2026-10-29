@@ -10,7 +10,7 @@ export interface LandedMerge {
 }
 
 /** The commit a merge left on the default branch: the merge commit, or the commit that was found merged. */
-export function landedCommit(row: MergeRecord): string | null {
+function landedCommit(row: MergeRecord): string | null {
   return (row.startedBy ? row.mergeCommit : row.commit) ?? null;
 }
 

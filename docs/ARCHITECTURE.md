@@ -1989,7 +1989,7 @@ workers follow the machine's size.
   hello). Not in the package: the menu bar app's Swift sources and the plist template of the packaged service
   (PM-1124). **Module:** `scripts`, `deploy`, `contracts`, `engine-link`.
 
-- **Engine app release build (PM-1104, PM-1122)** — `scripts/engine-app/build.ts`,
+- **Engine app release build (PM-1104, PM-1122, PM-1123)** — `scripts/engine-app/build.ts`,
   `manifest.ts`, `deploy/mac/app/{Info.plist,node.entitlements}`. `npm run engine-app -- build`
   assembles the PM-1121 package and the release Swift executable into `projectman motor.app`
   (`com.projectman.engine-app`, distinct from the PM-1088 app). It signs every embedded Mach-O
@@ -1997,6 +1997,14 @@ workers follow the machine's size.
   the app, then produces `projectman-motor.zip`, a signed/notarized/stapled
   `projectman-motor.dmg` (app plus Applications link), and the hashed `projectman-motor.json`.
   The manifest schema also validates the fixture consumed by future Swift updater tests.
+  `scripts/engine-app/{publish,release-config}.ts` adds `engine-app publish --tag --config`
+  after `publish_release`: resolves the remote tag, checks the GitHub release, builds both
+  artifacts under one heavy lock from that commit, and uploads zip, DMG, manifest in order.
+  The strict configuration contains only signing/keychain names and Team ID. The total
+  deadline is 45 minutes. Existing assets are downloaded and SHA-256 checked; conflicts
+  refuse replacement. A complete manifest-backed release is verified without rebuilding.
+  This runs on the release Mac with its owner's `gh` login; remote engines only download
+  the result, with no server/engine boundary change (PM-1126).
   The CLI takes the machine's heavy-run queue. All scratch/cache files, tool temporary files
   and diagnostics stay under `--out`; existing nonempty output is refused.
   **Machine assumptions:** release Mac, full Xcode, arm64 target, macOS 13+ runtime,

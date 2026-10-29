@@ -9,6 +9,8 @@ describe('releases migration', () => {
     const db = new Database(':memory:');
     try {
       migrate(db);
+      // Back to before migration 129; the later migration 130 (PM-1135) creates its table again, so drop it.
+      db.exec('DROP TABLE task_acceptance_items');
       db.pragma('user_version = 128');
       db.exec(
         "INSERT INTO projects (key, name, template_id, config_version, created_at, updated_at) VALUES ('AR', 'Example', NULL, 'v1', '2026-01-01', '2026-01-01')",

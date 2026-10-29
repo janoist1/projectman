@@ -8,7 +8,7 @@
 //   npm run engine -- logs [--lines N] [--json]   (PM-1087; the end of the service's output and error logs)
 //   npm run engine -- keep-awake on|off   (PM-1086; the Mac stays awake while work runs; after the engine restarts)
 //   npm run engine -- start
-//   npm run engine -- app install|uninstall   (PM-1088; native macOS menu bar app)
+//   npm run engine -- app uninstall   (PM-1088's menu bar app; `app install` is retired by PM-1125: the downloaded app installs itself)
 //   npm run engine -- service install|uninstall|status|start|stop|restart   (macOS LaunchAgent, PM-318, PM-1087; deploy/mac/com.projectman.engine.plist)
 //   npm run engine -- service install [--path <PATH>]
 //   npm run engine -- service switch [--to <package-root> | --clear]   (app-managed engine, PM-1124)
@@ -40,14 +40,6 @@ runEngineCli(process.argv.slice(2), {
     supportDir: path.join(homedir(), 'Library/Application Support/projectman'),
     buildDir: path.join(homedir(), 'Library/Caches/projectman/menubar-build'),
     osRelease: release(),
-    run: (command, args) => {
-      const result = spawnSync(command, args, { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
-      return {
-        status: result.status ?? 1,
-        stdout: result.stdout ?? '',
-        stderr: result.stderr ?? result.error?.message ?? '',
-      };
-    },
   },
   env: process.env,
   cwd: process.cwd(),

@@ -19,6 +19,7 @@ import { CardSizeToggle, useCardLink } from './cardSize';
 import { useDrawerBase } from './drawerBase';
 import type { CardSize } from './cardSize';
 import { TaskTitle } from './TaskEdit';
+import { TaskPrioritySelect } from './TaskPriority';
 import { cancelledIn, percentOf, progressOf, themeTree } from './themeModel';
 import type { BoardEntry } from './useBoardModel';
 import drawer from './drawer.module.css';
@@ -96,6 +97,7 @@ export function ThemeSummary({ task, tasks }: { task: Task; tasks: readonly Task
         <span className={styles.barDone} style={{ width: `${percent}%` }} />
       </div>
       {cancelled > 0 ? <p className={styles.note}>{t('theme.cancelledNote', { count: cancelled })}</p> : null}
+      <TaskPrioritySelect task={task} help={t('priority.themeHelp')} />
       <div className={styles.buttons}>
         <Button
           variant="secondary"

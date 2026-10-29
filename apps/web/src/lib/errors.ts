@@ -36,6 +36,11 @@ export function errorMessage(error: unknown): string {
           typeof reason === 'string' ? tDynamic(`errors.memberSessionLiveReason.${reason}`, '') : '';
         if (what) return t('errors.memberSessionLive', { reason: what });
       }
+      if (error.code === 'acceptance_item_refused' && error.details && typeof error.details === 'object') {
+        const { reason } = error.details as { reason?: unknown };
+        const why = typeof reason === 'string' ? tDynamic(`errors.acceptanceRefusal.${reason}`, '') : '';
+        if (why) return why;
+      }
       if (error.code === 'stage_in_use' && error.details && typeof error.details === 'object') {
         const details = error.details as { stageId?: unknown; tasks?: unknown };
         if (typeof details.stageId === 'string' && typeof details.tasks === 'number')

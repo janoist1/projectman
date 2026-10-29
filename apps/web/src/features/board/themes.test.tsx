@@ -330,6 +330,31 @@ describe("a theme's card", () => {
     expect(document.querySelector('a[href*="/map/"]')).toBeNull();
   });
 
+  it('sets its priority like a card’s, with the line on what it means for its cards', async () => {
+    const { project, backend, theme } = themed();
+    project.render(drawerRoutes, `/p/AC/tasks/${theme.key}`);
+    fireEvent.change(await screen.findByLabelText(t('priority.label')), { target: { value: 'high' } });
+    await waitFor(() => expect(backend.findTask(theme.key)!.priority).toBe('high'));
+    expect(project.requests).toContainEqual({
+      method: 'PATCH',
+      path: `/api/projects/AC/tasks/${theme.key}`,
+      body: { priority: 'high' },
+    });
+    expect(await screen.findByText(t('priority.themeHelp'))).toBeTruthy();
+  });
+
+  it('shows its priority read-only to a person who cannot edit, and no row when it has none', async () => {
+    const { project, backend, theme, other } = themed();
+    backend.updateTask(theme.key, { priority: 'low' });
+    const view = project.render(drawerRoutes, `/p/AC/tasks/${theme.key}`, { can: { createTasks: false } });
+    await screen.findByText(t('priority.levels.low'));
+    expect(screen.queryByRole('combobox')).toBeNull();
+    view.unmount();
+    project.render(drawerRoutes, `/p/AC/tasks/${other.key}`, { can: { createTasks: false } });
+    await screen.findByText(t('theme.progress', { done: 0, total: 0 }));
+    expect(screen.queryByText(t('priority.label'))).toBeNull();
+  });
+
   it('filters the board from its card', async () => {
     const { project, theme } = themed();
     project.render(boardRoutes, `/p/AC/tasks/${theme.key}`);

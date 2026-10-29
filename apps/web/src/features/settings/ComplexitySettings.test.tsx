@@ -36,6 +36,26 @@ describe('complexity setters in the settings (PM-1097)', () => {
     expect(lastConfigPatch(project.requests).complexitySetters).toEqual(expected);
   });
 
+  it('saves the assignee-fit switch at once, and only tells a member who may not manage the team', async () => {
+    const project = mockProject();
+    const view = project.render(<SettingsTestRoutes initialSection="team" />);
+    const section = within(await screen.findByRole('region', { name: t('settings.sections.team') }));
+    const group = within(await section.findByRole('region', { name: t('settings.team.assigneeFit.label') }));
+    fireEvent.click(group.getByRole('checkbox'));
+    await waitFor(() => expect(project.backend.config.team.assigneeFit).toBe('automatic_and_ai'));
+    expect(lastConfigPatch(project.requests).assigneeFit).toBe('automatic_and_ai');
+    view.unmount();
+    project.render(<SettingsTestRoutes initialSection="team" />, '/', { can: { manageTeam: false } });
+    const readOnly = within(
+      await within(await screen.findByRole('region', { name: t('settings.sections.team') })).findByRole(
+        'region',
+        { name: t('settings.team.assigneeFit.label') },
+      ),
+    );
+    expect(readOnly.queryByRole('checkbox')).toBeNull();
+    expect(readOnly.getByText(t('settings.team.assigneeFit.value.automaticAndAi'))).toBeTruthy();
+  });
+
   it('only tells a member who may not manage the team who may set complexity', async () => {
     const project = mockProject();
     project.render(<SettingsTestRoutes initialSection="team" />, '/', { can: { manageTeam: false } });

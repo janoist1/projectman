@@ -387,3 +387,55 @@ describe('the item on show', () => {
     },
   );
 });
+
+describe('the reasons of the rules (PM-1137)', () => {
+  const reasonKey = 'howWeWork.rules.assignee_fit.why';
+  const ruleRow = (id: string) => ruleRows().find((row) => row.getAttribute('data-show') === `rule:${id}`);
+
+  it('lists a setting-based rule only while it is on, with its reason and the way to edit it', async () => {
+    const off = mockProject();
+    const view = renderPage(off);
+    await screen.findByRole('region', { name: t('howWeWork.sections.rules') });
+    expect(ruleRow('assignee_fit')).toBeUndefined();
+    view.unmount();
+
+    const on = mockProject();
+    on.backend.config.team.assigneeFit = 'automatic_and_ai';
+    renderPage(on, '/?show=rule:assignee_fit');
+    const dialog = await screen.findByRole('dialog');
+    expect(ruleRow('assignee_fit')?.textContent).toContain(t(reasonKey));
+    const link = within(dialog).getByRole('link', { name: t('howWeWork.rules.editLink') });
+    expect(link.getAttribute('href')).toContain('#settings-assignee-fit-title');
+  });
+
+  it('shows the team’s own reason instead of the general one', async () => {
+    const project = mockProject();
+    project.backend.config.team.ruleReasons = { gates_in_order: 'Because we said so' };
+    renderPage(project);
+    await screen.findByRole('region', { name: t('howWeWork.sections.rules') });
+    expect(ruleRow('gates_in_order')?.textContent).toContain('Because we said so');
+    expect(ruleRow('gates_in_order')?.textContent).not.toContain(t('howWeWork.rules.gates_in_order.why'));
+  });
+
+  it('saves the reason from the rule panel as a settings change, for whoever manages the team', async () => {
+    const project = mockProject();
+    renderPage(project, '/?show=rule:gates_in_order');
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: t('howWeWork.rules.why.edit') }));
+    fireEvent.change(within(dialog).getByLabelText(t('howWeWork.rules.why.field')), {
+      target: { value: 'Our own reason' },
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: t('howWeWork.rules.why.save') }));
+    await waitFor(() =>
+      expect(project.backend.config.team.ruleReasons).toEqual({ gates_in_order: 'Our own reason' }),
+    );
+    const patch = project.requests.filter((request) => request.method === 'PATCH').at(-1);
+    expect(patch?.body).toMatchObject({ ruleReasons: { gates_in_order: 'Our own reason' } });
+  });
+
+  it('gives a person who cannot manage the team no way to edit the reason', async () => {
+    renderPage(mockProject(), '/?show=rule:gates_in_order', VIEWER);
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).queryByRole('button', { name: t('howWeWork.rules.why.edit') })).toBeNull();
+  });
+});

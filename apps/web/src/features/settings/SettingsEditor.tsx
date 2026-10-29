@@ -127,6 +127,11 @@ function limitsBody(draft: ProjectConfig, saved: ProjectConfig, baseVersion: str
   // The complexity setters go as the whole list when it differs from the saved one (PM-1097); [] is a value.
   const complexitySetters = complexitySettersOf(draft);
   const complexityChanged = JSON.stringify(complexitySetters) !== JSON.stringify(complexitySettersOf(saved));
+  // The assignee-fit choice goes only when it differs from the saved one (PM-1137); a missing value is the default.
+  const assigneeFit =
+    (draft.team.assigneeFit ?? 'automatic') !== (saved.team.assigneeFit ?? 'automatic')
+      ? (draft.team.assigneeFit ?? 'automatic')
+      : undefined;
   // The contacts go as the whole list when it changed, an empty one too: a missing field keeps the stored list.
   const contacts = draft.team.contacts ?? [];
   const contactsChanged = JSON.stringify(contacts) !== JSON.stringify(saved.team.contacts ?? []);
@@ -143,6 +148,7 @@ function limitsBody(draft: ProjectConfig, saved: ProjectConfig, baseVersion: str
     ...(complexityChanged ? { complexitySetters: [...complexitySetters] } : {}),
     ...(contactsChanged ? { contacts } : {}),
     ...(viewerRecipients ? { viewerRecipients } : {}),
+    ...(assigneeFit ? { assigneeFit } : {}),
     ...(repoMerge.length ? { repoMerge } : {}),
     limits: {
       ...draft.team.limits,

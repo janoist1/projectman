@@ -98,9 +98,13 @@ export function defaultTaskHandlers(backend: MockBackend): HttpHandler[] {
     handler('get', `${path}:taskKey`, z.undefined(), TaskDetail, ({ taskKey }) => detail(taskKey)),
     handler('patch', `${path}:taskKey`, UpdateTaskRequest, UpdateTaskResponse, ({ taskKey, body }) => {
       if (!backend.findTask(taskKey)) return apiFailure(404, 'not_found');
-      const { relations, despitePrerequisites, complexity, ...patch } = body;
+      const { relations, despitePrerequisites, complexity, acceptance, ...patch } = body;
       if (relations !== undefined || despitePrerequisites !== undefined)
         throw new Error('relations/despitePrerequisites: give the answer with onTaskUpdate');
+      if (acceptance !== undefined) {
+        const refused = backend.changeAcceptance(taskKey, acceptance);
+        if (refused) return refused as ApiFailure;
+      }
       if (complexity !== undefined) {
         const result = backend.setTaskComplexity(taskKey, complexity);
         if (result.status !== 200) return result as ApiFailure;

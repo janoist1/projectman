@@ -8,7 +8,8 @@ import type { ToolContext } from '../contracts';
 import { TeamToolError } from '../contracts';
 import { OPERATOR_GUEST_TOOLS, OPERATOR_READ_TOOLS } from '../services/operator';
 import { createMcpModule } from './index';
-import { createTeamMcpServer, DEFAULT_TOOL_TIMEOUT_MS } from './server';
+import { createTeamMcpServer, DEFAULT_TOOL_TIMEOUT_MS, toolListing } from './server';
+import { TEAM_TOOLS } from './tools';
 import {
   createFakeTeamToolsHandler,
   devContext,
@@ -1005,6 +1006,15 @@ describe('tool errors', () => {
     const logged = logs.find((l) => l.msg === 'team tool failed');
     expect(logged).toMatchObject({ level: 50, tool: 'list_members', member: 'fe-1', sessionId: 'ses_dev' });
     expect(JSON.stringify(logged)).toContain('database is locked');
+  });
+
+  it('converts the tool schemas once per set of visible tools, not for every request', () => {
+    const all = TEAM_TOOLS;
+    const fewer = TEAM_TOOLS.slice(1);
+    const first = toolListing(all);
+    expect(first).toHaveLength(all.length);
+    expect(toolListing([...all])).toBe(first);
+    expect(toolListing(fewer)).not.toBe(first);
   });
 
   it('answers a handler that does not settle with a timeout error', async () => {

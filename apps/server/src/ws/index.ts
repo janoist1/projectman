@@ -30,6 +30,8 @@ interface WsDomain {
 /** The part of the `ws` WebSocket API this module uses. */
 interface WsSocket {
   readonly readyState: number;
+  /** Bytes queued to send and not yet written to the network. */
+  readonly bufferedAmount: number;
   send(data: string): void;
   close(code?: number, reason?: string): void;
   terminate(): void;
@@ -45,6 +47,9 @@ const POLICY_VIOLATION = 1008;
 const LOGIN_CHECK_TTL_MS = 5_000;
 /** Commands a client may have waiting; a client that sends faster than they run is closed. */
 const MAX_PENDING_COMMANDS = 200;
+/** Output a client may have queued and unread; a slower reader is closed (it reconnects and reloads). */
+const MAX_BUFFERED_BYTES = 8 * 1024 * 1024;
+const TRY_AGAIN_LATER = 1013;
 
 /** A command's refusal: the error code is the message. */
 const errorEvent = (code: ErrorCode): ServerEvent => ({ type: 'error', message: code });
@@ -103,6 +108,10 @@ export function registerWebsocket(
   const send = (client: Client, event: ServerEvent) => {
     if (!authenticated(client)) return;
     if (client.socket.readyState !== OPEN) return;
+    if (client.socket.bufferedAmount > MAX_BUFFERED_BYTES) {
+      client.socket.close(TRY_AGAIN_LATER, 'slow consumer');
+      return;
+    }
     try {
       client.socket.send(JSON.stringify(event));
     } catch (err) {

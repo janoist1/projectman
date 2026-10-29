@@ -2680,7 +2680,7 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   supplied; packaged cloud and engine builds should set the same version explicitly.
   `resolveAppTag` (`engine-link/version.ts`, PM-541, PM-542) reads the release tag on the same checkout's HEAD
   (`git tag --points-at HEAD`, first tag matching `RELEASE_TAG_PATTERN`; `createAppTagReader` remembers only a found
-  tag, because the release watcher tags after the switch). It reads the installation's own git checkout, so it runs
+  tag, because publication may happen after deployment). It reads the installation's own git checkout, so it runs
   on the server's machine and never on a remote engine; without git, on a timeout (2 s) or with a
   `PROJECTMAN_VERSION` override (a cloud package has no checkout) the tag is null.
   PM-731: JSON turns a trailing `undefined` into `null`, so `workspace.findTaskBranch` accepts
@@ -2987,11 +2987,9 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   none may answer 2xx, and an unreachable probe fails. It needs bash and curl on the machine that
   runs it and calls the hub URL; the engine has nothing new to do. `http/errors.ts` answers unknown
   `/engine` paths with 404 instead of the web app's index.html (hub HTTP routing only).
-  PM-750's entry "Admin release preparation" runs that builder
-  from its own clean checkout and smokes each image by its image ID before the receipt exists.
   PM-674's [rollback runbook](CLOUD-CUTOVER.md) closes the public edge and stops the cloud
   before downloading final data for Mac single activation. Deployment and backup remain on EC2;
-  the single-Mac live watcher does not update either the cloud or the separate engine checkout.
+  the single-mode recovery service does not update either the cloud or the separate engine checkout.
   On AWS EC2 the same image runs under systemd on one Ubuntu machine, installed and operated by
   `npm run cloud` (the entry "The cloud machine and its operation (PM-535)").
   PM-775 (part of PM-772) adds to the same entry: `apps/server/src/logging/memory-log.ts`
@@ -3006,6 +3004,8 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   starts the server with `--report-on-fatalerror` and `--heapsnapshot-near-heap-limit=1`, both writing into
   `<home>/diagnostics` (created at the start, mode 700, excluded from the restic backup because a heap
   snapshot holds board data and secrets); only the newest earlier heap snapshot is kept at each start.
+  `heap-summary.mjs` reads such a snapshot on a laptop and names its biggest retainers (retained size from
+  the dominator tree, with the shortest path from the GC roots); it prints no string values.
   `start.ts` defaults `PROJECTMAN_HISTORY_SEMANTIC` to `off` in cloud mode. **Machine assumption:** the persistent volume has room for two
   snapshots of about the heap limit each, and the machine has memory for writing one near the limit.
   **Remote engine:** none; it concerns only the cloud server process.
@@ -3162,7 +3162,7 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   server's `instructions` describe the Operator's role (decision 65). Remote engine: not affected; the Operator
   reaches the hub over HTTPS with the key and the knowledge stays in the hub's home.
   **Operator tools on the endpoint (PM-784):** `read_project_doc`, `write_project_docs`, `get_project_doc_write`,
-  `get_role_configuration`, `propose_release`, `request_structural_review`, `ask_human`, `get_super_question`,
+  `get_role_configuration`, `request_structural_review`, `ask_human`, `get_super_question`,
   `withdraw_question` and `read_attachment` (`mcp/*/tools.ts` `external` bindings, `mcp/super-operator/handler.ts`,
   `core/inbox/human-questions.ts`, `services/project-docs/doc-writes.ts`). They run on the hub with no session or
   engine. The only engine traffic is the one a member's call already has: a document write's git work

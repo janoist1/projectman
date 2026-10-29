@@ -50,8 +50,25 @@ export async function resolveLandedCommit(input: {
 }
 
 /**
+ * The merges after `baseCommit` (null: from the first) up to `commit` (default: the last), by the recorded order
+ * of the default branch, which is linear as merges run one after the other per repository. It needs no git
+ * when the base is one of the recorded merges; null: it is not, and only git can tell where it stands.
+ */
+function landedBetween<T extends { commit: string }>(
+  landed: readonly T[],
+  baseCommit: string | null,
+  commit?: string,
+): T[] | null {
+  const end = commit === undefined ? landed.length : landed.findLastIndex((e) => e.commit === commit) + 1;
+  if (baseCommit === null) return landed.slice(0, end);
+  const at = landed.findLastIndex((entry) => entry.commit === baseCommit);
+  return at < 0 ? null : landed.slice(at + 1, end);
+}
+
+/**
  * The cards merged into `commit` and not into `baseCommit` (null: no base), in the order of their merges.
- * `release_empty` when there are none.
+ * `release_empty` when there are none. Git is asked only when the base is no recorded merge, and then from
+ * the newest merge backwards, up to the first one the base already holds.
  */
 export async function landedCards(input: {
   merger: BranchMerger;
@@ -61,14 +78,18 @@ export async function landedCards(input: {
   baseCommit: string | null;
 }): Promise<TaskKey[]> {
   const { merger, ref, commit, baseCommit } = input;
-  const keys: TaskKey[] = [];
-  for (const entry of input.landed) {
-    if (keys.includes(entry.taskKey)) continue;
-    if (!(await merger.isAncestor(ref, { ancestor: entry.commit, commit }))) continue;
-    if (baseCommit && (await merger.isAncestor(ref, { ancestor: entry.commit, commit: baseCommit })))
-      continue;
-    keys.push(entry.taskKey);
+  let between = landedBetween(input.landed, baseCommit, commit);
+  if (!between) {
+    const upTo = input.landed.slice(0, input.landed.findLastIndex((e) => e.commit === commit) + 1);
+    let from = upTo.length;
+    while (
+      from > 0 &&
+      !(await merger.isAncestor(ref, { ancestor: upTo[from - 1]!.commit, commit: baseCommit! }))
+    )
+      from--;
+    between = upTo.slice(from);
   }
+  const keys = [...new Set(between.map((entry) => entry.taskKey))];
   if (keys.length === 0) throw conflict('release_empty', 'there is nothing new to release');
   return keys;
 }

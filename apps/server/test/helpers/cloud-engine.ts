@@ -12,7 +12,8 @@ import type { HybridPackageResult } from '../../../../scripts/migrate/hybrid';
 import { engineHome } from '../../../../scripts/migrate/instance';
 import { buildApp } from '../../src/app';
 import { createTemplateRegistry } from '../../src/core/base';
-import type { WorktreeManager } from '../../src/contracts';
+import type { McpModuleOptions, WorktreeManager } from '../../src/contracts';
+import { createMcpModule } from '../../src/mcp';
 import { buildEngineApp } from '../../src/engine-app';
 import type { EngineApp, EngineAppOptions } from '../../src/engine-app';
 import { freePort } from '../../src/runner/test-helpers';
@@ -60,6 +61,8 @@ export interface CloudEngineWorld {
    * base (fast), 1 in the full base (a window of about a second in which the link is observably down).
    */
   reconnectJitter: number;
+  /** How long the cloud lets a team tool run before it answers with a timeout; null keeps the default. */
+  toolTimeoutMs: number | null;
   startCloud(): Promise<FastifyInstance>;
   stopCloud(): Promise<void>;
   startEngine(over?: Partial<EngineAppOptions>): Promise<EngineApp>;
@@ -129,6 +132,7 @@ export async function createCloudEngineWorld(options: CloudEngineOptions = {}): 
     cloudWorktreeCalls: world.cloudWorktreeCalls,
     cookie: '',
     reconnectJitter: 0,
+    toolTimeoutMs: null,
     async startCloud() {
       if (state.cloud) throw new Error('the cloud is running');
       const app = await buildApp({
@@ -149,6 +153,12 @@ export async function createCloudEngineWorld(options: CloudEngineOptions = {}): 
           memberMemory: new FakeMemoryStore(),
           worktrees: forbiddenWorktrees(world.cloudWorktreeCalls),
           templates: createTemplateRegistry([testTemplate]),
+          ...(state.toolTimeoutMs !== null
+            ? {
+                createMcpModule: (opts: McpModuleOptions) =>
+                  createMcpModule({ ...opts, toolTimeoutMs: state.toolTimeoutMs! }),
+              }
+            : {}),
         },
       });
       await app.listen({ host: '127.0.0.1', port: cloudPort });

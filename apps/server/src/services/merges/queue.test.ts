@@ -36,6 +36,7 @@ function setup(options: { peerBusy?: (projectKey: string, repo: string) => boole
         await new Promise<void>((resolve) => held.set(run.row.id, { run, open: resolve }));
       },
       release: async (r) => void released.push(r.id),
+      abandon: async () => {},
       engine: () => null,
     },
     peer: () => peer,
@@ -169,9 +170,10 @@ describe('merge queue', () => {
     expect(t.released).toEqual(['1']);
   });
 
-  it('logs a merge program that failed, frees the slot and releases', async () => {
+  it('logs a merge program that failed, blocks its row, frees the slot and releases', async () => {
     const t = setup();
     t.rows.push(t.row('1', 'web'));
+    const abandoned: string[] = [];
     const failing = vi.fn(async (run: MergeRun) => {
       t.started.push(run.row.id);
       throw new Error('boom');
@@ -185,7 +187,12 @@ describe('merge queue', () => {
             logger: { warn: (...args: unknown[]) => t.warnings.push(args) },
           } as unknown as MergeQueueDeps['ctx'],
           tasks: { find: () => null, readSchedulingTasks: () => [] },
-          steps: { run: failing, release: async (r) => void t.released.push(r.id), engine: () => null },
+          steps: {
+            run: failing,
+            release: async (r) => void t.released.push(r.id),
+            abandon: async (run) => void abandoned.push(run.row.id),
+            engine: () => null,
+          },
           peer: () => null,
           stopped: () => false,
         }),
@@ -196,6 +203,7 @@ describe('merge queue', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(failing).toHaveBeenCalled();
     expect(t.warnings.length).toBeGreaterThan(0);
+    expect(abandoned).toEqual(['1']);
     expect(t.released).toContain('1');
   });
 

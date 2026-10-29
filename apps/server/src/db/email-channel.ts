@@ -60,6 +60,7 @@ export interface EmailMessageRecord {
   updatedAt: string;
 }
 
+type MessagePatch = Partial<Omit<EmailMessageRecord, 'id' | 'projectKey' | 'createdAt'>>;
 const messageColumns = {
   id: 'id',
   projectKey: 'project_key',
@@ -105,6 +106,21 @@ export function createEmailChannelRepository(db: Db) {
       db.prepare(`SELECT ${messageSelect} FROM email_messages WHERE ${column} = ?`).get(value) as
         MessageRow | undefined,
     );
+  const patchMessage = (id: string, patch: MessagePatch, fromStatus?: string): number => {
+    const keys = (Object.keys(messageColumns) as (keyof typeof messageColumns)[])
+      .filter((key): key is keyof MessagePatch => key !== 'id' && key !== 'projectKey' && key !== 'createdAt')
+      .filter((key) => patch[key] !== undefined);
+    if (!keys.length) return 0;
+    const values = Object.fromEntries(
+      keys.map((key) => [key, key === 'attachmentNames' ? toJson(patch[key]) : patch[key]]),
+    );
+    return db
+      .prepare(
+        `UPDATE email_messages SET ${keys.map((key) => `${messageColumns[key]} = @${key}`).join(', ')}
+        WHERE id = @id${fromStatus ? ' AND status = @fromStatus' : ''}`,
+      )
+      .run({ ...values, id, ...(fromStatus ? { fromStatus } : {}) }).changes;
+  };
   return {
     contacts: {
       get(projectKey: string, handle: string): EmailContactRecord | null {
@@ -165,24 +181,13 @@ export function createEmailChannelRepository(db: Db) {
           )
           .get(projectKey, member, contact);
       },
-      update(
-        id: string,
-        patch: Partial<Omit<EmailMessageRecord, 'id' | 'projectKey' | 'createdAt'>>,
-      ): EmailMessageRecord | null {
-        const keys = (Object.keys(messageColumns) as (keyof typeof messageColumns)[])
-          .filter(
-            (key): key is keyof typeof patch => key !== 'id' && key !== 'projectKey' && key !== 'createdAt',
-          )
-          .filter((key) => patch[key] !== undefined);
-        if (keys.length) {
-          const values = Object.fromEntries(
-            keys.map((key) => [key, key === 'attachmentNames' ? toJson(patch[key]) : patch[key]]),
-          );
-          db.prepare(
-            `UPDATE email_messages SET ${keys.map((key) => `${messageColumns[key]} = @${key}`).join(', ')} WHERE id = @id`,
-          ).run({ ...values, id });
-        }
+      update(id: string, patch: MessagePatch): EmailMessageRecord | null {
+        patchMessage(id, patch);
         return getMessage('id', id);
+      },
+      /** Applies the patch only while the row still has this status; false when another decision got there first. */
+      transition(id: string, from: EmailOutboundStatus | EmailInboundStatus, patch: MessagePatch): boolean {
+        return patchMessage(id, patch, from) > 0;
       },
     },
     listOutbound(projectKey: string, status: EmailOutboundStatus): EmailMessageRecord[] {

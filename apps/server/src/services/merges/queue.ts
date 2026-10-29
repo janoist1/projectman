@@ -15,7 +15,7 @@ export type MergeQueueDeps = {
   tasks: TaskSchedulingReader & {
     find(projectKey: string, taskKey: string): Task | null | undefined;
   };
-  steps: Pick<MergeSteps, 'run' | 'release'> & {
+  steps: Pick<MergeSteps, 'run' | 'release' | 'abandon'> & {
     engine(task: Task): { merger?: BranchMerger } | null | undefined;
   };
   /** The other user of the repository's slot; null: none registered. */
@@ -70,9 +70,10 @@ export const makeMergeQueue = (deps: MergeQueueDeps): Effect.Effect<MergeQueueEf
         (cause) => new MergeRunFailed({ cause }),
       ).pipe(
         Effect.catchTag('MergeRunFailed', (failed) =>
-          Effect.sync(() =>
-            deps.ctx.logger.warn({ err: failed.cause, mergeId: run.row.id }, 'the merge run failed'),
-          ),
+          Effect.promise(async () => {
+            deps.ctx.logger.warn({ err: failed.cause, mergeId: run.row.id }, 'the merge run failed');
+            await deps.steps.abandon(run, failed.cause);
+          }),
         ),
         Effect.ensuring(Effect.promise(() => cleanup(run))),
       );

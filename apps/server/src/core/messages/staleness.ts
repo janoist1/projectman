@@ -11,8 +11,41 @@ import {
   stageOf,
   stageOwners,
 } from '@projectman/shared';
-import type { InboxItem, ProjectConfig, StaleReason, Task, TeamMessage, WakeFacts } from '@projectman/shared';
+import type {
+  InboxItem,
+  ProjectConfig,
+  StaleReason,
+  Task,
+  TeamMessage,
+  TimelineEvent,
+  WakeFacts,
+} from '@projectman/shared';
 import type { DomainContext } from '../../core/base';
+
+/** Reads a card's round events: its whole label and stage history. */
+export type RoundEventsOf = (projectKey: string, taskKey: string) => TimelineEvent[];
+
+const roundEventsFrom =
+  (ctx: DomainContext): RoundEventsOf =>
+  (projectKey, taskKey) =>
+    ctx.repos.timeline.roundEvents(projectKey, taskKey);
+
+/**
+ * Reads each card's round events once (PM-1105). A batch of messages waiting for a card's assignee
+ * (a send-back after review) shares one read of the card's whole history instead of one per message.
+ */
+export function roundEventsOnce(ctx: DomainContext): RoundEventsOf {
+  const read = new Map<string, TimelineEvent[]>();
+  return (projectKey, taskKey) => {
+    const key = `${projectKey}\n${taskKey}`;
+    let events = read.get(key);
+    if (!events) {
+      events = ctx.repos.timeline.roundEvents(projectKey, taskKey);
+      read.set(key, events);
+    }
+    return events;
+  };
+}
 
 /** Server facts for the shared message validity rule; no git lookup is needed at delivery. */
 export function staleReasonFor(
@@ -20,6 +53,7 @@ export function staleReasonFor(
   config: ProjectConfig,
   message: TeamMessage,
   recipient: string,
+  roundEvents: RoundEventsOf = roundEventsFrom(ctx),
 ): StaleReason | null {
   const task = message.taskKey ? ctx.repos.tasks.get(message.taskKey) : null;
   const stage = task ? stageOf(config, task.stageId) : null;
@@ -27,9 +61,7 @@ export function staleReasonFor(
   const subject = permission ? ctx.repos.inbox.get(permission.inboxItemId) : null;
   const delegation = subject ? permissionDelegationOf(subject) : null;
   const results = message.taskKey
-    ? ctx.repos.timeline
-        .roundEvents(message.projectKey, message.taskKey)
-        .filter((e) => e.type === 'task_labels_changed')
+    ? roundEvents(message.projectKey, message.taskKey).filter((e) => e.type === 'task_labels_changed')
     : [];
   return messageStaleReason(message, {
     fromHuman: memberOf(config, message.from)?.kind === 'human',
@@ -37,7 +69,7 @@ export function staleReasonFor(
     recipientOwnsStage:
       task?.assignee === recipient || !!(stage && stageOwners(config, stage).includes(recipient)),
     superseded: ctx.repos.messages.hasNewerAction(message, recipient),
-    senderResultLabel: senderResultLabelFor(ctx, config, message, recipient),
+    senderResultLabel: senderResultLabelFor(ctx, config, message, recipient, roundEvents),
     resultCommits: results
       .filter((e) => e.actor.handle === recipient && e.createdAt > message.createdAt)
       .flatMap((e) => (typeof e.data.resultCommit === 'string' ? [e.data.resultCommit] : [])),
@@ -74,10 +106,10 @@ export function senderResultLabelFor(
   config: ProjectConfig,
   message: TeamMessage,
   recipient: string,
+  roundEvents: RoundEventsOf = roundEventsFrom(ctx),
 ): string | null {
   if (!message.taskKey || ctx.repos.tasks.get(message.taskKey)?.assignee !== recipient) return null;
-  const labels = ctx.repos.timeline
-    .roundEvents(message.projectKey, message.taskKey)
+  const labels = roundEvents(message.projectKey, message.taskKey)
     .filter(
       (e) =>
         e.type === 'task_labels_changed' &&

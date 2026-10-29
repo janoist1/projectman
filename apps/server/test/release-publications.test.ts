@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { MemberConfig, RepoConfig } from '@projectman/shared';
+import { LOCAL_ENGINE_ID, MemberConfig, RepoConfig } from '@projectman/shared';
 import type { ProjectConfig } from '@projectman/shared';
 import { MergeError } from '../src/contracts';
 import type { BranchMerger, MergeBaseState } from '../src/contracts';
+import { LocalEngineDirectory } from '../src/runtime/sessions';
 import { OWNER_ACTOR, createDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 
@@ -44,8 +45,9 @@ describe('publish_release', () => {
   let h: DomainHarness;
   let git: ReturnType<typeof fakeMerger>;
 
-  async function setup(opts: { extraRepo?: boolean } = {}) {
-    git = fakeMerger(sha(3));
+  async function setup(opts: { extraRepo?: boolean; merged?: typeof MERGED } = {}) {
+    const merged = opts.merged ?? MERGED;
+    git = fakeMerger(merged.at(-1)!.commit);
     h = await createDomainHarness({
       merger: git.merger,
       adjust(config: ProjectConfig) {
@@ -62,7 +64,7 @@ describe('publish_release', () => {
         );
       },
     });
-    for (const [index, { key, commit }] of MERGED.entries()) {
+    for (const [index, { key, commit }] of merged.entries()) {
       await h.domain.tasks.create('AR', { title: `Card ${key}`, repo: 'web' }, OWNER_ACTOR);
       h.repos.taskMerges.save({
         id: `mrg_${index + 1}`,
@@ -87,6 +89,36 @@ describe('publish_release', () => {
         finishedAt: `2026-01-${String(index + 1).padStart(2, '0')}T00:00:00.000Z`,
       });
     }
+  }
+
+  function recordLiveRelease(commit: string) {
+    const at = '2026-01-05T00:00:00.000Z';
+    h.repos.releases.insert(
+      {
+        id: 'rel_1',
+        projectKey: 'AR',
+        repo: 'web',
+        taskKey: 'AR-1',
+        state: 'live',
+        commit,
+        baseCommit: null,
+        tasks: ['AR-1'],
+        summary: 'Summary',
+        proposedBy: 'dev-1',
+        proposedAt: at,
+        decidedBy: null,
+        decidedAt: null,
+        deployStartedAt: null,
+        previousCommit: null,
+        liveAt: at,
+        tag: null,
+        url: null,
+        publishedAt: null,
+        failure: null,
+        publishError: null,
+      },
+      at,
+    );
   }
 
   const publish = (over: { commit?: string; tag?: string; by?: string } = {}) =>
@@ -182,38 +214,64 @@ describe('publish_release', () => {
 
   it('starts from the latest live release of the instance when nothing was published yet', async () => {
     await setup();
-    const at = '2026-01-05T00:00:00.000Z';
-    h.repos.releases.insert(
-      {
-        id: 'rel_1',
-        projectKey: 'AR',
-        repo: 'web',
-        taskKey: 'AR-1',
-        state: 'live',
-        commit: sha(1),
-        baseCommit: null,
-        tasks: ['AR-1'],
-        summary: 'Summary',
-        proposedBy: 'dev-1',
-        proposedAt: at,
-        decidedBy: null,
-        decidedAt: null,
-        deployStartedAt: null,
-        previousCommit: null,
-        liveAt: at,
-        tag: null,
-        url: null,
-        publishedAt: null,
-        failure: null,
-        publishError: null,
-      },
-      at,
-    );
+    recordLiveRelease(sha(1));
 
     const result = await publish();
 
     expect(result.baseCommit).toBe(sha(1));
     expect(result.tasks.map((task) => task.key)).toEqual(['AR-2', 'AR-3']);
+  });
+
+  it('asks git nothing when the base is a recorded merge', async () => {
+    await setup();
+    await publish({ commit: sha(1) });
+    vi.mocked(git.merger.isAncestor).mockClear();
+
+    const result = await h.domain.releasePublications.preview('AR', 'devops', { summary: 'x' });
+
+    expect(result.tasks.map((task) => task.key)).toEqual(['AR-2', 'AR-3']);
+    expect(git.merger.isAncestor).not.toHaveBeenCalled();
+  });
+
+  it('asks git once per unreleased merge and once more when the base is not a recorded merge', async () => {
+    await setup({
+      merged: [
+        { key: 'AR-1', commit: sha(1) },
+        { key: 'AR-2', commit: sha(3) },
+        { key: 'AR-3', commit: sha(5) },
+        { key: 'AR-4', commit: sha(7) },
+      ],
+    });
+    recordLiveRelease(sha(2));
+
+    const result = await h.domain.releasePublications.preview('AR', 'devops', { summary: 'x' });
+
+    expect(result.tasks.map((task) => task.key)).toEqual(['AR-2', 'AR-3', 'AR-4']);
+    expect(vi.mocked(git.merger.isAncestor).mock.calls.map(([, input]) => input)).toEqual([
+      { ancestor: sha(7), commit: sha(2) },
+      { ancestor: sha(5), commit: sha(2) },
+      { ancestor: sha(3), commit: sha(2) },
+      { ancestor: sha(1), commit: sha(2) },
+    ]);
+  });
+
+  it('uses the publishing member’s registered engine instead of the local engine', async () => {
+    await setup();
+    const engineId = 'eng_aaaaaaaaaaaa';
+    const get = LocalEngineDirectory.prototype.get;
+    vi.spyOn(LocalEngineDirectory.prototype, 'engineFor').mockReturnValue(engineId);
+    vi.spyOn(LocalEngineDirectory.prototype, 'get').mockImplementation(function (
+      this: LocalEngineDirectory,
+      id: string,
+    ) {
+      return id === engineId ? get.call(this, LOCAL_ENGINE_ID) : null;
+    });
+
+    const result = await h.domain.releasePublications.preview('AR', 'devops', { summary: 'x' });
+
+    expect(result.tasks).toHaveLength(3);
+    expect(LocalEngineDirectory.prototype.engineFor).toHaveBeenCalledWith('AR', 'devops');
+    expect(git.merger.prepare).toHaveBeenCalled();
   });
 
   it('reuses a date tag that the remote already has on this commit', async () => {

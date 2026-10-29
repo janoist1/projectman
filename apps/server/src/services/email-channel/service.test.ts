@@ -476,6 +476,22 @@ describe('EmailChannelService', () => {
       expect(outbound()[0]).toMatchObject({ status: 'cancelled', note: 'not_wanted' });
     });
 
+    it('lets only one of a parallel approve and reject through, and sends nothing after a reject', async () => {
+      const { emailChannel, sent, outbound, pendingItem } = await setup();
+      await emailChannel.send('AR', 'dev-1', mail);
+      const item = pendingItem();
+      const by = { handle: 'owner', access: 'owner' } as const;
+      // The approve awaits the project config before it decides; the reject lands in that gap.
+      const [approval, rejection] = await Promise.allSettled([
+        emailChannel.decideApproval(item, by, 'approve', null),
+        emailChannel.decideApproval(item, by, 'reject', null),
+      ]);
+      expect(rejection.status).toBe('fulfilled');
+      expect(approval).toMatchObject({ status: 'rejected', reason: { code: 'email_unknown' } });
+      expect(sent).toEqual([]);
+      expect(outbound()[0]).toMatchObject({ status: 'rejected' });
+    });
+
     it('marks a failed send at approval and closes the item', async () => {
       const sender: EmailSender = {
         async send() {

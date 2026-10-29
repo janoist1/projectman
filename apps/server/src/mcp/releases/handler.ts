@@ -1,27 +1,15 @@
 import { TeamToolError } from '../../contracts';
-import type {
-  ToolContext,
-  ReleaseToolsHandler,
-  ProposedRelease,
-  PublishedRelease,
-  PublishReleaseArgs,
-} from '../../contracts';
+import type { ToolContext, ReleaseToolsHandler, PublishedRelease, PublishReleaseArgs } from '../../contracts';
 import { DomainError } from '../../kernel';
-import type { ReleasePublishService, ReleaseService } from '../../services/releases';
+import type { ReleasePublishService } from '../../services/releases';
 import type { ToolCaller } from '../caller';
 
 export class ReleaseTools implements ReleaseToolsHandler {
   private readonly calls: ToolCaller;
-  private readonly releases: Pick<ReleaseService, 'preview' | 'propose'>;
   private readonly publications: Pick<ReleasePublishService, 'preview' | 'publish'>;
 
-  constructor(deps: {
-    calls: ToolCaller;
-    releases: Pick<ReleaseService, 'preview' | 'propose'>;
-    publications: Pick<ReleasePublishService, 'preview' | 'publish'>;
-  }) {
+  constructor(deps: { calls: ToolCaller; publications: Pick<ReleasePublishService, 'preview' | 'publish'> }) {
     this.calls = deps.calls;
-    this.releases = deps.releases;
     this.publications = deps.publications;
   }
 
@@ -36,41 +24,6 @@ export class ReleaseTools implements ReleaseToolsHandler {
       } catch (err) {
         // The agent reads the code: it says what to do (the tag is taken, publish again to finish).
         if (err instanceof DomainError && (err.code.startsWith('release_') || err.code === 'engine_offline'))
-          throw new TeamToolError(
-            err.status === 403 ? 'forbidden' : 'invalid',
-            `${err.code}: ${err.message}`,
-          );
-        throw err;
-      }
-    });
-  }
-
-  async proposeRelease(
-    ctx: ToolContext,
-    args: { title: string; summary: string; commit?: string; preview?: boolean },
-  ): Promise<ProposedRelease> {
-    return this.calls.guard(async () => {
-      await this.calls.caller(ctx, 'propose_release');
-      try {
-        if (args.preview) {
-          const candidate = await this.releases.preview(ctx.projectKey, ctx.member, args.commit);
-          return { commit: candidate.commit, baseCommit: candidate.baseCommit, tasks: candidate.tasks };
-        }
-        const { release, candidate } = await this.releases.propose(ctx.projectKey, ctx.member, {
-          title: args.title,
-          summary: args.summary,
-          commit: args.commit,
-        });
-        return {
-          releaseId: release.id,
-          taskKey: release.taskKey,
-          commit: release.commit,
-          baseCommit: release.baseCommit,
-          tasks: candidate.tasks,
-        };
-      } catch (err) {
-        // The agent reads the code: it says what to do (wait for the open release, nothing to release).
-        if (err instanceof DomainError && err.code.startsWith('release_'))
           throw new TeamToolError(
             err.status === 403 ? 'forbidden' : 'invalid',
             `${err.code}: ${err.message}`,

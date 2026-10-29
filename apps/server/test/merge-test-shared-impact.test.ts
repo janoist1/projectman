@@ -37,17 +37,17 @@ describe('shared export impact', () => {
   it('assigns script consumers from both revisions to the server test workspace', () => {
     const before = [
       ...tree,
-      consumer('scripts/live/watch.ts', "import { A } from '@projectman/shared';"),
+      consumer('scripts/live/install.ts', "import { A } from '@projectman/shared';"),
       consumer('scripts/projectman/events.ts', "import { B } from '@projectman/shared';"),
     ];
     const after = [
       ...tree,
-      consumer('scripts/release/adapters.ts', "export { A } from '@projectman/shared';"),
+      consumer('scripts/engine-app/package.ts', "export { A } from '@projectman/shared';"),
     ];
     expect(impact(before, after)).toMatchObject({
       exports: ['A'],
       consumers: {
-        'apps/server': ['apps/server/src/a.ts', 'scripts/live/watch.ts', 'scripts/release/adapters.ts'],
+        'apps/server': ['apps/server/src/a.ts', 'scripts/engine-app/package.ts', 'scripts/live/install.ts'],
       },
     });
   });
@@ -258,8 +258,8 @@ describe('shared export impact', () => {
     for (const [changed, scripts, tests] of [
       [
         'packages/shared/src/domain/release.ts',
-        ['scripts/live/watch.ts', 'scripts/release/adapters.ts'],
-        ['apps/server/test/live-watch.test.ts', 'apps/server/test/release-adapters.test.ts'],
+        ['scripts/engine-app/package.ts'],
+        ['apps/server/test/engine-app-package.test.ts'],
       ],
       [
         'packages/shared/src/domain/project-change.ts',

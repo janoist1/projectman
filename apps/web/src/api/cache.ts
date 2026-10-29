@@ -353,12 +353,6 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       invalidate(queryKeys.operatorQueueAll(event.projectKey));
       return;
     }
-    case 'operator_grant_changed': {
-      // The grant was given, replaced, revoked or expired (PM-881): the Gép button's dot and the panel's row.
-      invalidate(queryKeys.operatorGrant);
-      invalidate(queryKeys.operatorGrantAudit);
-      return;
-    }
     case 'operator_signal': {
       // A signal opened or was decided or resolved: the corner's channel carries it (PM-476).
       invalidate(queryKeys.projectManager(event.projectKey));

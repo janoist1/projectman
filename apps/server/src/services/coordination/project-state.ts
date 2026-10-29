@@ -1,4 +1,4 @@
-import type { OperatorPauses, OperatorReleases, WaitingStarts, OperatorDiagnosticSources } from './ports';
+import type { OperatorPauses, WaitingStarts, OperatorDiagnosticSources } from './ports';
 import {
   conditionHolds,
   isOpenTask,
@@ -40,7 +40,6 @@ export class ProjectState {
     deferred: WaitingStarts;
     taskWaits: Pick<TaskWaits, 'ofCard'>;
     operatorSignals: Pick<OperatorSignals, 'active'>;
-    releases: Pick<OperatorReleases, 'overview'>;
     requests: Pick<OperatorRequests, 'openFor'>;
     diagnostics: OperatorDiagnosticSources;
   };
@@ -326,7 +325,7 @@ export class ProjectState {
         .list(projectKey, { state: 'open' })
         .filter((item) => item.assignees.some((handle) => owners.includes(handle)))
         .map((item) => ({ id: item.id, kind: item.kind, taskKey: item.taskKey, title: item.title })),
-      release: await this.deps.releases.overview(projectKey),
+      release: null,
       waitingMessages,
     };
   }

@@ -35,13 +35,13 @@ export function registerOperatorRoutes(app: FastifyInstance, deps: { domain: Api
       throw forbidden('insufficient_access', 'the audit is for the owner using their own login');
     return domain.superAudit.list(key, parseBody(SuperAuditQuery, request.query));
   });
-  /** The super mode's administration (PM-764): every call is bound to the project and to an engine linked to it. */
+  /** The super mode's direct application operations, bound to the project. */
   app.post<ProjectParams>(
     routes.superOperations(':key'),
     async (request, reply): Promise<SuperOperateResponse> => {
       const key = request.params.key;
       const access = await requireAccess(domain, request, key, { minimum: 'owner' });
-      const operation = await domain.superAdministration.operate(
+      const operation = await domain.superOperations.operate(
         key,
         parseBody(SuperOperateRequest, request.body),
         access,
@@ -55,7 +55,7 @@ export function registerOperatorRoutes(app: FastifyInstance, deps: { domain: Api
     async (request): Promise<SuperOperationDetail> => {
       const { key, operationId } = request.params;
       await requireAccess(domain, request, key, { minimum: 'owner' });
-      return domain.superAdministration.operation(key, operationId);
+      return domain.superOperations.operation(key, operationId);
     },
   );
   app.get<ProjectParams>(routes.operatorKnowledge(':key'), async (request) => {

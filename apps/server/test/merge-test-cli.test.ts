@@ -419,12 +419,30 @@ describe('merge test runner', () => {
         .map((args) => args[2]),
     ).toEqual(['packages/shared', 'apps/feedback-widget', 'apps/server', 'apps/web']);
   });
-  it('keeps the full run for own widget changes mixed with shared changes', async () => {
+  it('selects own widget changes even when the widget does not consume the changed shared export', async () => {
     const log = output();
-    mockTrees(['packages/shared/src/leaf.ts', 'apps/feedback-widget/src/a.ts'], sharedTree);
+    mockTrees(
+      ['packages/shared/src/leaf.ts', 'apps/feedback-widget/src/a.ts'],
+      [...sharedTree, ['apps/feedback-widget/src/a.ts', "import { Other } from '@projectman/shared';"]],
+    );
     expect(await run([])).toBe(0);
-    expect(npmCalls()).toHaveLength(10);
-    expect(log.mock.calls[0]?.[0]).toContain('fallback: apps/feedback-widget/src/a.ts');
+    expect(npmCalls()).toEqual([
+      ...sharedChecks,
+      ['test', '-w', 'packages/shared', '--if-present'],
+      ['test', '-w', 'apps/feedback-widget', '--if-present'],
+      [
+        'test',
+        '-w',
+        'apps/server',
+        '--if-present',
+        '--',
+        resolve('apps/server/src/logging/index.test.ts'),
+        resolve('apps/server/test/golden-path-example.test.ts'),
+      ],
+    ]);
+    expect(log.mock.calls[0]?.[0]).toBe(
+      'merge-test scope: shared (exports: 1); workspaces: packages/shared, apps/feedback-widget, apps/server; typecheck: all; fallback: none; selected tests: apps/server/src/logging/index.test.ts, apps/server/test/golden-path-example.test.ts',
+    );
   });
   it('runs own server changes even without a shared server consumer', async () => {
     output();
@@ -642,7 +660,6 @@ describe('merge test runner', () => {
         resolve('apps/server/test/release-'),
         resolve('apps/server/test/architecture'),
         resolve('apps/server/test/merge-test-'),
-        resolve('apps/server/test/control-relay.integration.test.ts'),
         resolve('apps/server/test/control-socket.integration.test.ts'),
       ],
     ]);

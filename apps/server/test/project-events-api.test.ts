@@ -16,9 +16,11 @@ describe('project change events API (PM-761)', () => {
   let h: AppHarness;
   let cookie: string;
   let now: Date;
+  let expectedErrors: RegExp[];
   beforeEach(async () => {
     now = new Date(AT);
-    h = await createAppHarness({ now: () => now });
+    expectedErrors = [];
+    h = await createAppHarness({ now: () => now, expectedErrors });
     cookie = await setupOwner(h.app);
     await createProject(h, cookie);
   });
@@ -287,6 +289,7 @@ describe('project change events API (PM-761)', () => {
   });
 
   it('does not hold the shutdown up with a waiting reader', async () => {
+    expectedErrors.push(/^request failed$/);
     const start = await page('waitMs=0');
     const waiting = events(`after=${start.nextCursor}&waitMs=25000`);
     await sleep(100);

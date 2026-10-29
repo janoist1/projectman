@@ -15,8 +15,6 @@ import type { Actor, HumanMemberConfig, ProjectConfig, SuperMutationInput } from
 
 export { SUPER_OWNER_YES, SuperHandoffService, createSuperHandoffService } from './handoffs';
 export type { SuperCommandExecutor, SuperExecutorJob } from './handoffs';
-export { createAdministrationExecutor, createAdministrationSettler } from './administration';
-export type { SuperAdministrationDeps } from './administration';
 export { createOperateExecutor } from './operate';
 export { createCommandExecutor } from './commands';
 export { createSuperDiagnostics } from './diagnostics';
@@ -27,13 +25,12 @@ export {
   createOperatorAppSessions,
 } from './app';
 export type { OperatorAppOperations } from './app';
-export { createSuperAdministration } from './facade';
-export type { SuperAdministration } from './facade';
+export { createSuperOperations } from './facade';
+export type { SuperOperations } from './facade';
 export { relayOwnerAnswer } from './relay';
 export { resolveIntegratorTodo } from './todo';
 export { INTEGRATOR_INBOX_LIMIT, listIntegratorInbox, resolveIntegratorFixLimit } from './fix-limit';
 export { updateInstanceKnowledge } from './instance-knowledge';
-export { createSuperRights } from './rights';
 
 /** The actor a step made with the principal is recorded as: the holder's, or the queue item issuer's (decision 66). */
 const principalActor = (

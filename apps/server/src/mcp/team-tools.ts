@@ -26,7 +26,6 @@ import type {
   LocatedAttachmentForTool,
   MergeCheckList,
   MessageAttachmentReading,
-  ProposedRelease,
   PublishedRelease,
   PublishReleaseArgs,
   ScreenshotRun,
@@ -349,13 +348,6 @@ export class TeamToolsService implements TeamToolsHandler {
 
   async listMergeChecks(ctx: ToolContext, args: ListMergeChecksInput): Promise<MergeCheckList> {
     return this.tools.merges.listMergeChecks(ctx, args);
-  }
-
-  async proposeRelease(
-    ctx: ToolContext,
-    args: { title: string; summary: string; commit?: string; preview?: boolean },
-  ): Promise<ProposedRelease> {
-    return this.tools.releases.proposeRelease(ctx, args);
   }
 
   async publishRelease(ctx: ToolContext, args: PublishReleaseArgs): Promise<PublishedRelease> {

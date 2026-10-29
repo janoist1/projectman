@@ -8,7 +8,6 @@ import {
   type ProjectChecklist,
   applyMemberEmailChange,
   emailMailboxTaken,
-  CreateOperatorGrantRequest,
   superAccessVerdict,
   superDecisionRefusal,
   externalQuestionAnswerRefusal,
@@ -190,7 +189,6 @@ import {
   mergeReadiness,
   moveMerge,
   mergeRequestOf,
-  releaseApprovalOf,
   ALERT_SEEN_OPTION,
   WorkOutageAlert,
   limitTokens,
@@ -252,7 +250,6 @@ import type {
   EmailApprovalPayload,
   EmailParkedAlert,
   MemberQueueItem,
-  OperatorGrantState,
   TaskDetail,
   PartsClosed,
   MessageAttachment,
@@ -484,7 +481,6 @@ function mockCommit(task: Pick<Task, 'key'>, salt: string): string {
  */
 export class MockBackend {
   serverVersion: ServerVersionView = { version: 'dev', commit: null, tag: null };
-  operatorGrantAudits: import('@projectman/shared').OperatorGrantAuditEntry[] = [];
   auth: MockAuthState;
   /** Cloud mode before the first setup (PM-317): the setup asks for this code; null is single-machine mode. */
   setupCode: string | null = null;
@@ -494,8 +490,6 @@ export class MockBackend {
   /** Whether some owner has a live super key (PM-1045); the integrator's todos go to the owners without one. */
   liveSuperKey = true;
   private readonly mergeOrders = new Map<string, { revision: number; taskKeys: string[] }>();
-  /** A release decision is refused with `owner_approval_required`, like an integrator key's (PM-491). */
-  refuseReleaseApproval = false;
   user = { ...fixtures.mockUser };
   config: ProjectConfig = fixtures.buildConfig();
   structure = clone(fixtures.structureFixture);
@@ -616,15 +610,6 @@ export class MockBackend {
   /** The member queues (PM-894), every AI member's items in one list; a test fills it, the views are computed from it. */
   queueItems: MemberQueueItem[] = [];
   /** The grant of machine operations the Operator works with (PM-890): off, and the viewer can manage it. */
-  operatorGrant: OperatorGrantState = {
-    active: false,
-    grantId: null,
-    grantedAt: null,
-    grantedBy: null,
-    expiresAt: null,
-    lastUsedAt: null,
-    canManage: true,
-  };
   memories: Record<string, string> = {
     'fe-1': 'Acme checkout uses fictional fixtures. Keep the cart usable on small screens.',
   };
@@ -1635,60 +1620,6 @@ export class MockBackend {
     return item;
   }
 
-  /**
-   * The Devops proposes a release (PM-491, PM-492): the release card (a theme), the approval item for
-   * the owners and the first `release_changed` row. Returns the item. The cards of the release are
-   * listed with their titles from the board; a key the board does not know keeps its key as title.
-   */
-  proposeRelease(input: {
-    commit: string;
-    baseCommit?: string | null;
-    summary: string;
-    taskKeys: readonly string[];
-    title?: string;
-    proposedBy?: string;
-  }): InboxItem {
-    const title = input.title ?? `Release ${input.commit.slice(0, 8)}`;
-    const card = this.createTask({ title, kind: 'theme' }).body as Task;
-    const proposedBy = input.proposedBy ?? 'fe-1';
-    const releaseId = mockId('rel');
-    const item: InboxItem = {
-      id: mockId('inb'),
-      projectKey: fixtures.PROJECT_KEY,
-      kind: 'release',
-      assignees: boundaryOwners(this.config),
-      source: proposedBy,
-      sessionId: null,
-      taskKey: card.key,
-      title,
-      body: input.summary,
-      payload: {
-        release: {
-          releaseId,
-          commit: input.commit,
-          baseCommit: input.baseCommit ?? null,
-          tasks: input.taskKeys.map((key) => ({ key, title: this.findTask(key)?.title ?? key })),
-          summary: input.summary,
-        },
-      },
-      options: [
-        { id: 'approve', label: 'approve', style: 'primary' },
-        { id: 'reject', label: 'reject', style: 'danger' },
-      ],
-      state: 'open',
-      resolution: null,
-      createdAt: nowIso(),
-    };
-    this.addTimeline(card.key, proposedBy, 'release_changed', {
-      releaseId,
-      state: 'proposed',
-      previousState: null,
-      commit: input.commit,
-    });
-    this.upsertInbox(item);
-    return item;
-  }
-
   /** A mail of an AI member waiting for the owners' approval (PM-942): the `approval` item for the owners. */
   proposeEmail(input: Partial<EmailApprovalPayload> = {}): InboxItem {
     const email: EmailApprovalPayload = {
@@ -2045,55 +1976,6 @@ export class MockBackend {
 
     if (path === '/api/me') return ok(this.me());
     if (method === 'GET' && path === '/api/version') return ok(this.serverVersion);
-    if (path === '/api/auth/operator-grant' || path === '/api/auth/operator-grant/audit') {
-      const canManage = this.operatorGrant.canManage && this.me().hostOwner === true && !this.integratorMode;
-      const at = nowIso();
-      const grant = this.operatorGrant;
-      const record = (action: import('@projectman/shared').OperatorGrantAuditEntry['action']) => {
-        this.operatorGrantAudits.unshift({
-          grantId: grant.grantId!,
-          action,
-          at,
-          expiresAt: grant.expiresAt,
-          by: this.user.name,
-        });
-      };
-      if (grant.active && grant.expiresAt && grant.expiresAt <= at) {
-        record('expired');
-        grant.active = false;
-      }
-      if (path.endsWith('/audit')) {
-        if (!canManage) return error(403, 'operator_grant_owner_only', 'Own owner login required');
-        return ok({ entries: clone(this.operatorGrantAudits) });
-      }
-      if (method !== 'GET' && !canManage)
-        return error(403, 'operator_grant_owner_only', 'Own owner login required');
-      if (method === 'POST') {
-        const input = CreateOperatorGrantRequest.safeParse(body);
-        if (!input.success) return error(400, 'invalid_request', 'Invalid grant duration');
-        if (grant.active) record('replaced');
-        Object.assign(grant, {
-          active: true,
-          grantId: `grant-${this.operatorGrantAudits.length + 1}`,
-          grantedAt: at,
-          grantedBy: this.user.name,
-          lastUsedAt: null,
-          expiresAt:
-            input.data.duration === 'until_revoked'
-              ? null
-              : new Date(
-                  Date.parse(at) + (input.data.duration === '12h' ? 43_200_000 : 604_800_000),
-                ).toISOString(),
-        });
-        record('granted');
-      }
-      if (method === 'DELETE') {
-        if (!grant.active) return error(404, 'not_found', 'Grant inactive');
-        record('revoked');
-        grant.active = false;
-      }
-      return ok({ grant: { ...clone(grant), canManage } });
-    }
     if (path === '/api/me/push' || path.startsWith('/api/me/push/'))
       return (
         this.push.handle(method, path.slice('/api/me/push'.length), body) ??
@@ -6819,13 +6701,8 @@ export class MockBackend {
       const started = this.startMerge(request.taskKey);
       if (started.status >= 400) return started;
     }
-    const release = releaseApprovalOf(item);
-    if (item.kind === 'release') {
-      if (!release || !item.taskKey) return error(404, 'not_found', 'Unknown release');
-      // The integrator's key is no approval: the server refuses it the same way.
-      if (this.refuseReleaseApproval)
-        return error(403, 'owner_approval_required', 'Only an owner decides a release');
-    }
+    if (item.kind === 'release')
+      return error(409, 'inbox_item_closed', 'Release approvals have been retired');
     const resolved: InboxItem = {
       ...item,
       state: 'resolved',
@@ -6844,24 +6721,6 @@ export class MockBackend {
       },
     };
     this.upsertInbox(resolved);
-    if (release && item.taskKey) {
-      const approved = input.optionId === 'approve';
-      this.addTimeline(
-        item.taskKey,
-        viewer.handle,
-        'release_changed',
-        {
-          releaseId: release.releaseId,
-          state: approved ? 'approved' : 'rejected',
-          previousState: 'proposed',
-          commit: release.commit,
-          ...(!approved && note ? { note } : {}),
-        },
-        null,
-        nowIso(),
-        resolved.resolution?.actor,
-      );
-    }
     const group = questionPayloadOf(item)?.group;
     const groupLive = group ? new Set(questionGroupLiveItemIds(group)) : null;
     if (!groupLive || groupLive.has(item.id)) this.afterResolve(resolved, attached as MessageAttachmentRef[]);

@@ -53,13 +53,13 @@ import type {
 } from '../../services/coordination';
 import type { ObligationsService } from '../../services/obligations';
 import { appRequestId } from '../../services/super-operator';
-import type { OperatorAppOperations, SuperAdministration } from '../../services/super-operator';
+import type { OperatorAppOperations, SuperOperations } from '../../services/super-operator';
 import { toToolError, toMessageToolError, type ToolCaller } from '../caller';
 
 /** What the super-operation tools stand on (PM-888). */
 interface SuperPath {
   operations: OperatorAppOperations;
-  administration: Pick<SuperAdministration, 'operation'>;
+  direct: Pick<SuperOperations, 'operation'>;
 }
 
 /** What the checklist tools stand on (PM-977): every write goes through the checklist service. */
@@ -584,7 +584,7 @@ export class OperatorTools implements OperatorToolsHandler {
   async getOperation(ctx: ToolContext, args: { operationId: string }) {
     try {
       await this.appCaller(ctx, 'get_operation');
-      return await this.superPath().administration.operation(ctx.projectKey, args.operationId);
+      return await this.superPath().direct.operation(ctx.projectKey, args.operationId);
     } catch (err) {
       throw this.appFailure(err);
     }

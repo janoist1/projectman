@@ -725,7 +725,7 @@ construction order; the factories return the existing classes without changing b
 | `context`                                         | Agent context packs, prompts and member memory through two factories.       |
 | `services/merges`                                 | Card merge orchestration, queue and locks.                                  |
 | `services/full-tests`                             | Full-test and screenshot-run orchestration.                                 |
-| `services/releases`                               | Release proposals, release roadmap notices and `publish_release` (PM-968).  |
+| `services/releases`                               | Release publication and the running version (PM-968, PM-969, PM-1113).      |
 | `services/structure`                              | Repository structure descriptors, module sizes and card file placement.     |
 | `services/github`                                 | GitHub synchronization, pull requests and publishing.                       |
 | `services/obligations`                            | Open-step deadlines, one reminder and one integrator todo (PM-806).         |
@@ -764,7 +764,7 @@ A module's detailed behaviour lives in its own file under [modules/](modules/), 
 - [`services/coordination`](modules/services-coordination.md) — the Operator and the project manager's coordination tools
 - [`services/super-operator`](modules/services-super-operator.md) — super mode: owner-bound operations, the
   external MCP endpoint, diagnostics
-- [`services/releases`](modules/services-releases.md) — release of the instance
+- [`services/releases`](modules/services-releases.md) — release publication and the running version
 - [`scripts`](modules/scripts.md) — the heavy-run queue (PM-332)
 
 Machine-dependent parts (local paths, processes, sockets, accounts, OS features) are inventoried in
@@ -813,7 +813,7 @@ The merge service supplies the facts for “done only after merging”; the rule
 decides which move requires a merge and when to check it (`moveMerge`, `mergeRepoOf`)
 stays in `packages/shared` and is applied by task moves.
 
-The inbox's `registerDecider(key, decide)` supplies merge, release, hand-on and Operator
+The inbox's `registerDecider(key, decide)` supplies merge, hand-on and Operator
 approval decisions; handlers that own the item close it themselves. `registerQuestionAnswer`
 supplies question delivery, and `registerAskerStarts` supplies visible asker-start previews.
 Messaging's `registerWaker` supplies recipient wake-ups, `registerSignals` records Operator
@@ -851,8 +851,8 @@ This module needs no Effect program: retries belong to admission, reply relay us
 The top right corner (PM-1042, decision 65) belongs to the project manager. `GET routes.projectManager`
 returns a `ProjectManagerCorner`: the manager's channel plus, for the viewer, the requests and steps, the
 signals and the manager's queue; a person who is not an owner gets `readOnly` and no signals or queue. The web
-queue view reads `routes.memberQueue` for the manager. The machine grant is shown on the machine panel and
-managed in Settings → Integrator. The Operator's own channel route is gone (PM-1045): the app has no Operator.
+queue view reads `routes.memberQueue` for the manager. The retired supervisor's grant is removed (PM-1113); Settings → Integrator manages only the
+connected client's credentials. The Operator's own channel route is gone (PM-1045): the app has no Operator.
 
 **No Operator member (decision 66, PM-1076).** A project has no `ai_operator` role and no member that holds it, and
 a new project (template, `POST /projects`) gets none. The configuration migration `removeOperator`
@@ -1247,8 +1247,8 @@ commit pinned at the hand-over, run by the server.
   waits or runs never produces a verdict (`branch_moved`, `checkout_dirty`).
 - **Tests.** The domain logic is tested with a fake executor (`test/full-tests.test.ts`); the real sandbox
   only in `test/full-test-sandbox.integration.test.ts` (macOS). It cannot start a nested sandbox,
-  so it is skipped when `PROJECTMAN_FULL_TEST_SANDBOX=1` and runs outside the sandbox before
-  every live deployment (PM-493, `release-test`).
+  so it is skipped when `PROJECTMAN_FULL_TEST_SANDBOX=1`; it requires a separate host run.
+  The retired release watcher no longer provides an automatic deployment-time run (PM-1113).
 
 When the executor is available and the task's repository sets `reviewTest`, `FullTestRuns.runsFor`
 sets `ContextPackInput.serverFullTest` in the session brief. Implementation and maintenance steps
@@ -1293,10 +1293,12 @@ Actions review result: its reuse is limited to `engine` runs, so the merge runs 
 that have been closed for 3 days (`CLOSED_WORKTREE_KEEP_MS`) and have no running session, and removes the worktree
 of each that is clean (`WorktreeManager.remove`, which keeps the branch; `ensureForTask` makes the worktree again if
 the card restarts). A worktree with uncommitted changes is never removed: the owners get one `worktree_kept` alert
-per closing of the card. What was removed and about how much space it freed goes to the server log only. The sweep reads
-the closed cards past the keep time in pages of 100 by number (`closed-worktrees`, PM-770), with the closing time of
-a round fixed at its start, instead of the project's whole card list; a card reopened between two pages is not on a
-later page, and the removal looks at the card again right before it.
+per closing of the card. What was removed and about how much space it freed goes to the server log only.
+Since PM-1115 the sweep lists existing task worktrees and snapshot task keys by engine and repository,
+skipping engines that do not hold the project. It reads only those cards, and checks the card and live sessions
+again after status, immediately before worktree removal. Snapshot and leftover incoming refs use the same
+three-day retention, skip active merges and are removed in batches of at most 100 task keys. No whole closed-card
+history is scanned, and task branches in durable member clones remain available after snapshot cleanup.
 
 `DiskGuard` (every minute, `DomainOptions.diskCheckMs`) measures the free space of `PROJECTMAN_HOME` with `statfs`.
 Below `team.limits.minFreeDiskGb` (default 10, 0 turns it off) the owners get one `disk_low` alert, withdrawn when
@@ -1562,7 +1564,8 @@ Migration 125 drops the then empty table `project_focus_items`.
   `TaskService` over `TaskRepository.readScheduling` in `db/tasks.ts`) returns stored rows with their own links, in
   ascending number, without the board view and the derived fields. The queries are `keys` (exact cards), `pull` (the
   open cards of the queue stage that are urgent), `queue` (all active cards of the queue stage), `children` (the open subtasks of cards), `open` (every
-  open card) and `closed-worktrees` (closed cards past a closing time, paged by number). The pure rules stay in
+  open card) and `listed` (a filtered `list_tasks` page). PM-1115 replaced `closed-worktrees` with engine-side
+  discovery of existing worktrees and snapshot refs. The pure rules stay in
   `packages/shared` (`pullCandidates`, `startableCards`, `openPrerequisites`, `startClass`, `canAutomaticallyStartTask`,
   `startBlock`, `stageAdvance`, `mergeReadiness`, `cardMerger`) and run over these rows; SQL only narrows the set they
   see, it copies none of them. `startContext` (`core/tasks/scheduling-context.ts`) adds all subtasks (with `includeClosed: true`) and

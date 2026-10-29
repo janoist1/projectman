@@ -62,9 +62,6 @@ export const routes = {
   integratorKeys: () => '/api/auth/integrator-keys',
   integratorAccessKey: (id: string) => `/api/auth/integrator-keys/${id}`,
   integratorKeyAudit: () => '/api/auth/integrator-keys/audit',
-  /** GET the state, POST grants, DELETE revokes the Operator's grant for machine operations (PM-881). */
-  operatorGrant: () => '/api/auth/operator-grant',
-  operatorGrantAudit: () => '/api/auth/operator-grant/audit',
   involvements: (key: string) => `/api/projects/${key}/involvements`,
   projectStructure: (key: string) => `/api/projects/${key}/structure`,
   /**

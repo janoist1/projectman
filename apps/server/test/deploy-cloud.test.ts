@@ -476,22 +476,6 @@ describe('deploy/cloud shell scripts', () => {
     expect(entrypoint).toContain('RUN_UID=10001');
   });
 
-  it('the image holds the compiled control relay the machine runs, and it is the entry the build makes (PM-749)', () => {
-    const build = read('apps/server/scripts/build.mjs');
-    expect(build).toContain("'dist/control/cli.js': 'src/control/cli.ts'");
-    expect(existsSync(join(root, 'apps/server/src/control/cli.ts'))).toBe(true);
-    // `npm run build` makes apps/server/dist, and the runtime stage takes the whole folder.
-    expect(withoutComments(dockerfile)).toMatch(/^RUN .*\bnpm run build\b/m);
-    expect(dockerfile).toContain('COPY --from=build /app/apps/server/dist ./apps/server/dist');
-    const hostScript = read('deploy/aws/host.sh');
-    const relay = shellFunction(hostScript, 'release_control');
-    // /app is the image's working directory; the relay is the file the build writes.
-    expect(relay).toContain('/usr/local/bin/node /app/apps/server/dist/control/cli.js /data/control.sock');
-    // The relay starts with a cleared environment (PM-754): env -i runs before Node.
-    expect(relay).toContain('/usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8');
-    expect(dockerfile).toContain('WORKDIR /app');
-  });
-
   it('the server environment holds no tunnel token, storage key or restic password (an environment filter only)', () => {
     const allowlist = entrypoint.split('\n').filter((line) => line.startsWith('load_env server_env'));
     expect(allowlist).toHaveLength(1);

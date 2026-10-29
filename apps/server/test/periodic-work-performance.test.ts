@@ -17,6 +17,7 @@ import { StructuralPatterns } from '../src/services/coordination/structural-patt
 import { conflict } from '../src/kernel';
 import * as kernel from '../src/kernel';
 import { TIMELINE_SQL } from '../src/db/timeline';
+import { instrumentSql } from './helpers/sql-meter';
 
 // PM-733: keep this generator and protocol unchanged across all three optimization slices.
 // Full measurements are opt-in, in the heavy queue, never part of the normal merge suite:
@@ -254,10 +255,6 @@ const emptyCounts = (): Counts => ({
 
 function instrument() {
   let counts: Counts | null = null;
-  const probe = new Database(':memory:');
-  const prototype = Object.getPrototypeOf(probe.prepare('SELECT 1')) as Database.Statement;
-  probe.close();
-  const descriptors = new Map<string, PropertyDescriptor>();
   const structuralDescriptors = new Map<string, PropertyDescriptor>();
   // These methods exist on both the baseline and optimized detector. Count actual computation,
   // rather than treating a cached evaluation.report() call as another window reconstruction.
@@ -277,32 +274,20 @@ function instrument() {
       },
     });
   }
-  // Wrap the shared native prototype once, with a constant number of wrappers. Retain neither
-  // statement instances nor per-call history during a long, query-heavy measurement.
-  for (const method of ['all', 'get', 'run'] as const) {
-    const descriptor = Object.getOwnPropertyDescriptor(prototype, method)!;
-    descriptors.set(method, descriptor);
-    const call = prototype[method];
-    Object.defineProperty(prototype, method, {
-      ...descriptor,
-      value: function (this: Database.Statement, ...args: unknown[]) {
-        const result: unknown = Reflect.apply(call, this, args);
-        if (!counts) return result;
-        counts.sql++;
-        if (this.source === TIMELINE_SQL.structuralEvidence) counts.windows++;
-        if (args.includes('task_merge_requested') && args.at(-1) === 1000) counts.requestReads++;
-        const rows = method === 'all' ? (result as unknown[]) : method === 'get' && result ? [result] : [];
-        for (const row of rows) {
-          if (!row || typeof row !== 'object') continue;
-          if ('from_handle' in row && 'body' in row) counts.messageRows++;
-          if ('stage_id' in row && 'description' in row) counts.taskRows++;
-          if ('task_id' in row && 'ref' in row) counts.linkRows++;
-          if ('actor_kind' in row && 'type' in row) counts.timelineRows++;
-        }
-        return result;
-      },
-    });
-  }
+  const sql = instrumentSql((statement, method, args, result) => {
+    if (!counts) return;
+    counts.sql++;
+    if (statement.source === TIMELINE_SQL.structuralEvidence) counts.windows++;
+    if (args.includes('task_merge_requested') && args.at(-1) === 1000) counts.requestReads++;
+    const rows = method === 'all' ? (result as unknown[]) : method === 'get' && result ? [result] : [];
+    for (const row of rows) {
+      if (!row || typeof row !== 'object') continue;
+      if ('from_handle' in row && 'body' in row) counts.messageRows++;
+      if ('stage_id' in row && 'description' in row) counts.taskRows++;
+      if ('task_id' in row && 'ref' in row) counts.linkRows++;
+      if ('actor_kind' in row && 'type' in row) counts.timelineRows++;
+    }
+  });
   const messageParse = MessageKind.safeParse;
   MessageKind.safeParse = (...args) => {
     if (counts) counts.decodedMessages++;
@@ -316,14 +301,16 @@ function instrument() {
   return {
     start() {
       counts = emptyCounts();
+      sql.start();
     },
     stop() {
+      sql.stop();
       const result = counts!;
       counts = null;
       return result;
     },
     restore() {
-      for (const [method, descriptor] of descriptors) Object.defineProperty(prototype, method, descriptor);
+      sql.restore();
       for (const [method, descriptor] of structuralDescriptors)
         Object.defineProperty(StructuralPatterns.prototype, method, descriptor);
       MessageKind.safeParse = messageParse;

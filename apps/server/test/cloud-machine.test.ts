@@ -7,9 +7,8 @@ import fs, {
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { createHash } from 'node:crypto';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { runCloud } from '../../../scripts/cloud/commands';
 import { parseTags } from '../../../scripts/cloud/machine';
 import { IMAGE_ID, SHA_NEW, SHA_NEWEST, SHA_OLD } from './helpers/fake-host';
@@ -125,38 +124,15 @@ describe('deploy', () => {
     expect(world.machine.envText).toBe(received.input);
   });
 
-  it('adds the configured release target to the cloud.env it sends, and leaves the local file alone (PM-749)', async () => {
+  it('ignores retired release settings and removes stale release environment variables', async () => {
     world.writeConfig({ releaseTarget: { projectKey: 'PM', repo: 'projectman' } });
     world.writeEnv('TUNNEL_TOKEN=tunnel-token-value-0123456789\nPROJECTMAN_RELEASE_TARGET=OLD/stale\n');
     const local = fs.readFileSync(world.envFile, 'utf8');
     expect(await run('deploy')).toBe(0);
     const sent = world.hostCalls.find((call) => call.subcommand === 'receive-env')!.input!;
-    expect(sent.match(/^PROJECTMAN_RELEASE_TARGET=.*$/gm)).toEqual([
-      'PROJECTMAN_RELEASE_TARGET=PM/projectman',
-    ]);
+    expect(sent).not.toContain('PROJECTMAN_RELEASE_TARGET');
+    expect(everything()).toContain('retired and ignored');
     expect(sent).toContain('LITESTREAM_SECRET_ACCESS_KEY=fakeSecretDb/');
-    expect(sent.endsWith('\n')).toBe(true);
-    expect(fs.readFileSync(world.envFile, 'utf8')).toBe(local);
-  });
-
-  it('adds the hybrid engine and target hash to the cloud.env it sends, replacing stale lines (PM-752)', async () => {
-    const hash = 'c'.repeat(64);
-    world.writeConfig({
-      releaseTarget: { projectKey: 'PM', repo: 'projectman' },
-      hybrid: { engineId: 'eng_abcdefghijkl', targetHash: hash },
-    });
-    world.writeEnv(
-      'TUNNEL_TOKEN=tunnel-token-value-0123456789\nPROJECTMAN_RELEASE_ENGINE_ID=eng_stale\nPROJECTMAN_RELEASE_TARGET_HASH=stale\n',
-    );
-    const local = fs.readFileSync(world.envFile, 'utf8');
-    expect(await run('deploy')).toBe(0);
-    const sent = world.hostCalls.find((call) => call.subcommand === 'receive-env')!.input!;
-    expect(sent.match(/^PROJECTMAN_RELEASE_ENGINE_ID=.*$/gm)).toEqual([
-      'PROJECTMAN_RELEASE_ENGINE_ID=eng_abcdefghijkl',
-    ]);
-    expect(sent.match(/^PROJECTMAN_RELEASE_TARGET_HASH=.*$/gm)).toEqual([
-      `PROJECTMAN_RELEASE_TARGET_HASH=${hash}`,
-    ]);
     expect(sent.endsWith('\n')).toBe(true);
     expect(fs.readFileSync(world.envFile, 'utf8')).toBe(local);
   });

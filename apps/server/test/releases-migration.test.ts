@@ -5,6 +5,32 @@ import { migrations } from '../src/db/migrations';
 
 /** PM-491: the release records arrive next to the data a database already holds. */
 describe('releases migration', () => {
+  it('cancels only open legacy release approvals and retains their payloads', () => {
+    const db = new Database(':memory:');
+    try {
+      migrate(db);
+      db.pragma('user_version = 128');
+      db.exec(
+        "INSERT INTO projects (key, name, template_id, config_version, created_at, updated_at) VALUES ('AR', 'Example', NULL, 'v1', '2026-01-01', '2026-01-01')",
+      );
+      const insert = db.prepare(`INSERT INTO inbox_items
+        (id, project_key, kind, assignees, source, title, payload, options, state, created_at, updated_at)
+        VALUES (?, 'AR', ?, '[]', 'devops', 'Historical release', ?, '[]', ?, '2026-01-01', '2026-01-01')`);
+      const payload = JSON.stringify({ release: { releaseId: 'rel_legacy' } });
+      insert.run('open-release', 'release', payload, 'open');
+      insert.run('closed-release', 'release', payload, 'resolved');
+      insert.run('open-question', 'question', '{}', 'open');
+      migrate(db);
+      expect(db.prepare('SELECT id, state, payload FROM inbox_items ORDER BY id').all()).toEqual([
+        { id: 'closed-release', state: 'resolved', payload },
+        { id: 'open-question', state: 'open', payload: '{}' },
+        { id: 'open-release', state: 'cancelled', payload },
+      ]);
+    } finally {
+      db.close();
+    }
+  });
+
   it('adds the table to an older database and keeps one open release for each project', () => {
     const db = new Database(':memory:');
     try {

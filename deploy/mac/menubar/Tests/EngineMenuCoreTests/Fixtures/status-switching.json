@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "at": "2026-10-29T12:00:00.000Z",
+  "home": "/fixture/engine",
+  "overall": "stopped",
+  "engine": {
+    "id": "eng_aaaaaaaaaaaa",
+    "name": "Fixture engine",
+    "cloudOrigin": "https://cloud.example.com"
+  },
+  "service": {
+    "supported": true,
+    "installed": true,
+    "loaded": false,
+    "running": false,
+    "pid": null,
+    "manager": "app"
+  },
+  "package": {
+    "version": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "tag": "v2026.10.28",
+    "root": "/fixture/versions/old"
+  },
+  "switch": {
+    "schemaVersion": 1,
+    "phase": "switching",
+    "target": { "version": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "tag": "v2026.10.29" },
+    "previous": { "version": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "tag": "v2026.10.28" },
+    "startedAt": "2026-10-29T12:00:00.000Z",
+    "updatedAt": "2026-10-29T12:00:00.000Z",
+    "error": null
+  },
+  "process": {
+    "running": false,
+    "pid": null,
+    "startedAt": null,
+    "version": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "releaseTag": "v2026.10.28"
+  },
+  "link": {
+    "state": "down",
+    "since": null,
+    "attempts": 0,
+    "lastError": null,
+    "pendingEvents": 0,
+    "droppedEvents": 0
+  },
+  "sessions": [],
+  "work": { "sessions": 0, "fullTests": 0, "screenshots": 0 },
+  "keepAwake": { "mode": "while_working", "holding": false, "since": null, "supported": true },
+  "machine": {
+    "diskPath": "/fixture",
+    "diskFreeBytes": 182000000000,
+    "diskTotalBytes": 994000000000,
+    "memTotalBytes": 32000000000,
+    "memFreeBytes": 9100000000,
+    "loadAverage1m": 2.4
+  },
+  "logs": { "out": "/fixture/engine/logs/out.log", "err": "/fixture/engine/logs/err.log" }
+}

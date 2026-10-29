@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
 import { connectedActorOf, TODO_CANNOT_OPTION, TODO_DONE_OPTION } from '@projectman/shared';
-import type { ConnectedActor, InboxOption, SuperCommand, SuperOperation } from '@projectman/shared';
+import type { ConnectedActor, InboxOption, NewSuperCommand, SuperOperation } from '@projectman/shared';
 import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
@@ -19,9 +19,9 @@ const HOUR = 60 * 60 * 1000;
 const SUPER_ACTOR: ConnectedActor = connectedActorOf('owner', { id: KEY.id, prefix: KEY.prefix });
 
 // The integrator starts them with the owner's token. Fictional commands only.
-const PAUSE: SuperCommand = { kind: 'operate', operation: { op: 'project_pause' } };
-const RESUME: SuperCommand = { kind: 'operate', operation: { op: 'project_resume' } };
-const RETIRE: SuperCommand = { kind: 'operate', operation: { op: 'member_retire', handle: 'dev-1' } };
+const PAUSE: NewSuperCommand = { kind: 'operate', operation: { op: 'project_pause' } };
+const RESUME: NewSuperCommand = { kind: 'operate', operation: { op: 'project_resume' } };
+const RETIRE: NewSuperCommand ={ kind: 'operate', operation: { op: 'member_retire', handle: 'dev-1' } };
 
 describe('super-mode operations (PM-762, PM-764)', () => {
   let h: DomainHarness;
@@ -107,7 +107,7 @@ describe('super-mode operations (PM-762, PM-764)', () => {
   };
 
   const operate = (
-    command: SuperCommand,
+    command: NewSuperCommand,
     requestId: string = randomUUID(),
     opts: Parameters<typeof asIntegrator>[1] = {},
   ) => asIntegrator((access) => h.domain.superHandoffs.operate('AR', { requestId, command }, access), opts);
@@ -237,7 +237,7 @@ describe('super-mode operations (PM-762, PM-764)', () => {
 
     describe('a change of who holds an approval (PM-1010)', () => {
       // The test template's `code-review-ok` is set by the code review duty.
-      const GIVE_DEVELOPERS_REVIEW: SuperCommand = {
+      const GIVE_DEVELOPERS_REVIEW: NewSuperCommand = {
         kind: 'operate',
         operation: {
           op: 'config_patch',

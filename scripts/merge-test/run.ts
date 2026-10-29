@@ -27,8 +27,7 @@ const CLOUD_TEST_FILTERS = [
   'apps/server/test/release-',
   'apps/server/test/architecture/',
   'apps/server/test/merge-test-',
-  // The real Unix socket boundary of the admin channel (PM-754): exact paths, never skipped in a merge.
-  'apps/server/test/control-relay.integration.test.ts',
+  // The real Unix control socket boundary (PM-754): never skipped in a merge.
   'apps/server/test/control-socket.integration.test.ts',
 ];
 

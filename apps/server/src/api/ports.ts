@@ -1,9 +1,9 @@
 import type { SessionMessages } from '../runtime/delivery';
-import type { ReleaseService } from '../services/releases';
+import type { ReleasePublishService } from '../services/releases';
 import type { AuthDomain } from '../auth';
 import type { WebPushService } from '../services/web-push';
 import type { HostRequestsService } from '../services/host-requests';
-import type { SuperAdministration, SuperHandoffService, SuperOperator } from '../services/super-operator';
+import type { SuperOperations, SuperHandoffService, SuperOperator } from '../services/super-operator';
 import type { StructureService } from '../services/structure';
 import type { RunnerModule } from '../contracts';
 import type { ChangeJournal } from '../core/base';
@@ -38,12 +38,12 @@ import type {
 
 export interface ApiDomain extends AuthDomain {
   readonly checklist: ChecklistService;
-  readonly releases: ReleaseService;
+  readonly releasePublications: ReleasePublishService;
   readonly webPush: WebPushService;
   readonly hostRequests: HostRequestsService;
   readonly superOperator: SuperOperator;
   readonly superHandoffs: SuperHandoffService;
-  readonly superAdministration: SuperAdministration;
+  readonly superOperations: SuperOperations;
   readonly structure: StructureService;
   readonly attachments: AttachmentService;
   readonly board: BoardService;

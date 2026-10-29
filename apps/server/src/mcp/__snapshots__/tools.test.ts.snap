@@ -669,7 +669,6 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                 "invite_create",
                 "merge",
                 "merge_order",
-                "administration",
                 "task_create",
                 "task_update",
                 "task_labels",
@@ -3470,49 +3469,6 @@ exports[`team tool definitions > preserves the public tool definitions across mo
     },
     "name": "propose_operator_knowledge",
     "title": "Propose shared Operator knowledge",
-  },
-  {
-    "annotations": {
-      "destructiveHint": false,
-      "openWorldHint": false,
-      "readOnlyHint": false,
-      "title": "Propose a release",
-    },
-    "description": "Propose releasing this instance's default branch (or \`commit\`) to the owners: a release card and an approval request; nothing deploys until an owner approves, then the release watcher deploys. One release is open at a time. Without \`preview\` your session ends with the call: do nothing more.",
-    "inputSchema": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "additionalProperties": false,
-      "properties": {
-        "commit": {
-          "description": "A merge commit of a merged card; default: the head of the default branch.",
-          "pattern": "^[0-9a-f]{40}$",
-          "type": "string",
-        },
-        "preview": {
-          "description": "Only list the commit and the cards of the release (merged since the last release), to write the summary; record nothing (default false).",
-          "type": "boolean",
-        },
-        "summary": {
-          "description": "English markdown: what the release changes, as short bullets with the card keys. It becomes the text of the GitHub release.",
-          "maxLength": 4000,
-          "minLength": 1,
-          "type": "string",
-        },
-        "title": {
-          "description": "The release card title, e.g. "Release 2026.10.11".",
-          "maxLength": 200,
-          "minLength": 1,
-          "type": "string",
-        },
-      },
-      "required": [
-        "title",
-        "summary",
-      ],
-      "type": "object",
-    },
-    "name": "propose_release",
-    "title": "Propose a release",
   },
   {
     "annotations": {

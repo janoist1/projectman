@@ -201,8 +201,6 @@ export const OPERATOR_SILENT_WORK_MINUTES = 30;
 export const OPERATOR_IDLE_MINUTES = 30;
 /** A merge the merger has not started for this long is waiting. */
 export const OPERATOR_MERGE_WAIT_MINUTES = 30;
-/** Work merged and not released for this long is waiting for a release. */
-export const OPERATOR_UNRELEASED_HOURS = 24;
 /** Startable cards and a free developer, with no developer starting, for this long without a break wake the Operator (PM-1082). */
 export const OPERATOR_READY_WAITING_MINUTES = 10;
 /** The Operator got no result for this much longer after waking: the owners get one `work_stalled` alert (PM-1082). */
@@ -389,42 +387,6 @@ export const IntegratorKeyAuditPage = z.object({
   nextBefore: z.number().int().positive().nullable(),
 });
 export type IntegratorKeyAuditPage = z.infer<typeof IntegratorKeyAuditPage>;
-
-/** How long the owner's grant for machine operations lasts (PM-881); `until_revoked` has no end. */
-export const OPERATOR_GRANT_DURATIONS = ['until_revoked', '12h', '7d'] as const;
-export const OperatorGrantDuration = z.enum(OPERATOR_GRANT_DURATIONS);
-export type OperatorGrantDuration = z.infer<typeof OperatorGrantDuration>;
-export const OperatorGrantState = z.object({
-  active: z.boolean(),
-  grantId: z.string().nullable(),
-  grantedAt: z.string().nullable(),
-  /** The name of the owner who granted it. */
-  grantedBy: z.string().nullable(),
-  /** Null: until revoked, or there is no active grant. */
-  expiresAt: z.string().nullable(),
-  lastUsedAt: z.string().nullable(),
-  /** The viewer is the host owner with their own login. */
-  canManage: z.boolean(),
-});
-export type OperatorGrantState = z.infer<typeof OperatorGrantState>;
-export const OperatorGrantResponse = z.object({ grant: OperatorGrantState });
-export type OperatorGrantResponse = z.infer<typeof OperatorGrantResponse>;
-export const CreateOperatorGrantRequest = z.object({
-  duration: OperatorGrantDuration.default('until_revoked'),
-});
-export type CreateOperatorGrantRequest = z.infer<typeof CreateOperatorGrantRequest>;
-export const OperatorGrantAuditEntry = z.object({
-  grantId: z.string(),
-  action: z.enum(['granted', 'revoked', 'replaced', 'expired']),
-  at: z.string(),
-  expiresAt: z.string().nullable(),
-  /** Who granted or revoked it; for `expired`, who granted it. */
-  by: z.string(),
-});
-export type OperatorGrantAuditEntry = z.infer<typeof OperatorGrantAuditEntry>;
-/** Newest first, at most 100. */
-export const OperatorGrantAuditPage = z.object({ entries: z.array(OperatorGrantAuditEntry) });
-export type OperatorGrantAuditPage = z.infer<typeof OperatorGrantAuditPage>;
 
 export const SetupRequest = z.object({
   name: z.string().min(1),

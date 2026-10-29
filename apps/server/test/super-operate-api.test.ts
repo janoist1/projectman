@@ -17,8 +17,10 @@ describe('super-mode operation, status and diagnostics routes (PM-764)', () => {
   let cookie: string;
   let secret: string;
   let ran: number;
+  let expectedErrors: RegExp[];
   beforeEach(async () => {
-    app = await createAppHarness();
+    expectedErrors = [];
+    app = await createAppHarness({ expectedErrors });
     cookie = await setupOwner(app.app);
     await createProject(app, cookie);
     const created = await app.app.inject({
@@ -90,13 +92,13 @@ describe('super-mode operation, status and diagnostics routes (PM-764)', () => {
     expect(ran).toBe(0);
   });
 
-  it('refuses the administration command here as unavailable when no executor is wired (503)', async () => {
+  it('rejects a new administration command at the HTTP boundary', async () => {
     const response = await post(routes.superOperations('AR'), {
       requestId: randomUUID(),
       command: { kind: 'administration', request: { kind: 'deploy', releaseId: 'rel_1' } },
     });
-    expect(response.statusCode).toBe(503);
-    expect(response.json().error.code).toBe('super_executor_unavailable');
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error.code).toBe('invalid_request');
   });
 });
 

@@ -336,6 +336,11 @@ export class FakeMemoryStore implements MemberMemoryStore {
 }
 
 export class FakeWorktreeManager implements WorktreeManager {
+  async listTaskWorktrees(args: Parameters<WorktreeManager['listTaskWorktrees']>[0]) {
+    return [...this.existing.entries()]
+      .filter(([key]) => key.startsWith(`${args.project.project.key}/`) && key.endsWith(`/${args.repoName}`))
+      .map(([key, info]) => ({ taskKey: key.split('/')[1]!, path: info.path }));
+  }
   readonly fixes = new Map<string, WorktreeInfo>();
   async ensureMergeFix(args: Parameters<WorktreeManager['ensureMergeFix']>[0]) {
     const key = `${args.project.project.key}/${args.taskKey}/${args.repoName}`;
@@ -419,6 +424,7 @@ export class FakeWorktreeManager implements WorktreeManager {
   }
   async remove(args: { path: string; force?: boolean }): Promise<void> {
     this.removed.push(args.path);
+    for (const [key, info] of this.existing) if (info.path === args.path) this.existing.delete(key);
   }
 }
 

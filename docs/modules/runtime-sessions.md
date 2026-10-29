@@ -62,12 +62,5 @@ deploy; decision 32). The runner's part is `SessionRunner.pause` / `forcePause` 
   no login: whoever may open the file may pause the team, like whoever may stop the service. A file nobody
   answers on is replaced; one somebody answers on is left alone and logged. The members' sessions may not touch it
   (`sensitivePaths`). `npm run control -- pause --wait | resume | force | status`
-  (`scripts/control`) is its client ([DEPLOY.md](../DEPLOY.md)). Since PM-491 it also takes `release_next`,
-  `release_claim` and `release_report`, the release watcher's operations (see [services/releases](services-releases.md)), and
-  since PM-749 `release_get` (one release in any state) and `engine_status` (the engine registry's id, online,
-  version and last seen; `[]` in single mode). `sendControlRequest(socketPath, request, options)`
-  (`control/client.ts`) is the shared one-request client (30 s, 64 KiB answers, never retried), and the packaged
-  `control/cli.js` is the cloud container's relay of the admin channel. Since PM-752 it takes
-  `release_deploy_get`, `release_deploy_begin` and `release_deploy_change` too (hybrid release, see below); a
-  request or an answer stays within the relay's 16 KiB / 64 KiB limits. An ordinary `resume` (control socket or
-  admin) refuses to end the pause a deployment owns (`release_pause_conflict`).
+  (`scripts/control`) is its client ([DEPLOY.md](../DEPLOY.md)). The socket accepts pause, resume, force and status only (PM-1113); every response may
+  include the running app version. The retired release relay and engine-status operations are removed.

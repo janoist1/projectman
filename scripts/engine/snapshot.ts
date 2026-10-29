@@ -1,4 +1,4 @@
-import { existsSync, statfsSync } from 'node:fs';
+import { existsSync, readFileSync, statfsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { z } from 'zod';
@@ -6,7 +6,8 @@ import { engineFiles, loadEngineConfig } from '../../apps/server/src/engine-link
 import type { EngineConfig } from '../../apps/server/src/engine-link/engine-config';
 import { readEngineStatus } from '../../apps/server/src/engine-link/engine-status';
 import type { EngineStatus } from '../../apps/server/src/engine-link/engine-status';
-import { installedServiceFor, serviceLogPaths, serviceState } from './service';
+import { installedServiceFor, serviceInstallation, serviceLogPaths, serviceState } from './service';
+import { EngineSwitchState, readSwitchState } from './switch-state';
 import type { ServiceOptions } from './service';
 
 /**
@@ -27,7 +28,10 @@ export const EngineLocalSnapshot = z.strictObject({
     loaded: z.boolean(),
     running: z.boolean(),
     pid: z.number().int().nullable(),
+    manager: z.enum(['app', 'checkout']).nullable(),
   }),
+  package: z.strictObject({ version: z.string(), tag: z.string().nullable(), root: z.string() }).nullable(),
+  switch: EngineSwitchState.nullable(),
   process: z.strictObject({
     running: z.boolean(),
     pid: z.number().int().nullable(),
@@ -120,14 +124,37 @@ const defaultMachine: NonNullable<SnapshotIo['machine']> = {
   loadavg1m: () => os.loadavg()[0] ?? 0,
 };
 
-function serviceOf(io: SnapshotIo): EngineLocalSnapshot['service'] {
-  const none = { installed: false, loaded: false, running: false, pid: null };
+function serviceOf(io: SnapshotIo): Pick<EngineLocalSnapshot, 'service' | 'package'> {
+  const none = { installed: false, loaded: false, running: false, pid: null, manager: null };
   const { launchd } = io;
-  if (!launchd || launchd.platform !== 'darwin') return { supported: false, ...none };
+  if (!launchd || launchd.platform !== 'darwin')
+    return { service: { supported: false, ...none }, package: null };
   // A LaunchAgent of another home is not this engine's service.
-  if (!installedServiceFor(io.home, launchd.agentsDir)) return { supported: true, ...none };
+  const plist = installedServiceFor(io.home, launchd.agentsDir);
+  if (!plist) return { service: { supported: true, ...none }, package: null };
   const state = serviceState({ ...launchd, home: io.home, pathEnv: io.pathEnv, out: () => undefined });
-  return { supported: true, ...state };
+  const installed = serviceInstallation(readFileSync(plist, 'utf8'));
+  return { service: { supported: true, ...state, manager: installed.manager }, package: installed.package };
+}
+
+/** Reporting remains available on corruption; mutation commands still use the strict reader. */
+function switchOf(home: string, at: string): EngineLocalSnapshot['switch'] {
+  try {
+    return readSwitchState(home);
+  } catch {
+    return {
+      schemaVersion: 1,
+      phase: 'recovery_required',
+      target: { version: 'unknown', tag: null },
+      previous: null,
+      startedAt: at,
+      updatedAt: at,
+      error: {
+        code: 'switch_state_invalid',
+        message: 'The engine switch state cannot be read; manual recovery is required.',
+      },
+    };
+  }
 }
 
 /**
@@ -156,9 +183,10 @@ export function buildSnapshot(io: SnapshotIo): EngineLocalSnapshot {
   const running = live?.running ?? [];
   const { logOut, logErr } = serviceLogPaths(io.home);
   const keepAwake = live?.keepAwake;
+  const at = io.now().toISOString();
   return {
     schemaVersion: 1,
-    at: io.now().toISOString(),
+    at,
     home: io.home,
     overall: overallState({
       initialised: config !== null,
@@ -172,7 +200,8 @@ export function buildSnapshot(io: SnapshotIo): EngineLocalSnapshot {
           cloudOrigin: new URL(config.cloudUrl).origin,
         }
       : null,
-    service: serviceOf(io),
+    ...serviceOf(io),
+    switch: switchOf(io.home, at),
     process: {
       running: alive,
       pid: live?.pid ?? null,

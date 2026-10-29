@@ -10,6 +10,8 @@
 //   npm run engine -- start
 //   npm run engine -- app install|uninstall   (PM-1088; native macOS menu bar app)
 //   npm run engine -- service install|uninstall|status|start|stop|restart   (macOS LaunchAgent, PM-318, PM-1087; deploy/mac/com.projectman.engine.plist)
+//   npm run engine -- service install [--path <PATH>]
+//   npm run engine -- service switch [--to <package-root> | --clear]   (app-managed engine, PM-1124)
 //   npm run engine -- move-work-root <absolute path>   (PM-846; the engine is stopped; docs/DEPLOY.md "Separate work volume")
 //   (all:[--home <dir>]; the home is PROJECTMAN_HOME or ~/.projectman)
 //

@@ -21,3 +21,4 @@ apps/server/models/history/
 .claude/worktrees/
 deploy/mac/menubar/.build/
 deploy/mac/menubar/.swiftpm/
+.node_modules.pm-*

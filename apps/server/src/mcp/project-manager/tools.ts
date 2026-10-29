@@ -9,7 +9,7 @@ import {
   ProposeOperatorKnowledgeRequest,
   OperatorPlan,
   GetSuperOperationArgs,
-  SuperCommand,
+  NewSuperCommand,
   TaskKey,
 } from '@projectman/shared';
 import { z } from 'zod';
@@ -426,10 +426,10 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
               'twice; repeat it only to retry the same call (with another command: super_request_conflict).',
           ),
         task_key: TaskKey.optional().describe('The card the command is about, when there is one.'),
-        command: kindInput('kind', SuperCommand.options, 'The command'),
+        command: kindInput('kind', NewSuperCommand.options, 'The command'),
       },
       async run({ ctx, args, handler }) {
-        const command = parseFull(SuperCommand, args.command, 'command');
+        const command = parseFull(NewSuperCommand, args.command, 'command');
         return JSON.stringify(
           await handler.executeOperation(ctx, {
             requestKey: args.request_key,

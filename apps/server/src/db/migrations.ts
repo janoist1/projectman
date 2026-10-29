@@ -2559,4 +2559,11 @@ migrations.push({
   // closed; the index lets them skip the history of closed ones. No column is added.
   sql: `CREATE INDEX sessions_live ON sessions(project_key, member, state);`,
 });
+migrations.push({
+  version: 129,
+  name: 'close approvals of the retired release watchers',
+  // PM-1113: historical releases and timeline events stay readable; no approval may wait for a retired watcher.
+  sql: `UPDATE inbox_items SET state = 'cancelled', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+    WHERE kind = 'release' AND state = 'open';`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

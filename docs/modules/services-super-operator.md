@@ -3,8 +3,8 @@
 ## Responsibility
 
 The super mode (PM-757): the owner-bound operations an integrator key or the in-app project manager starts, the owner's
-question for a reserved effect, the external MCP endpoint (`mcp/super-operator`), and the diagnostics, test and build
-the integrator prepares a release with.
+question for a reserved effect, the external MCP endpoint (`mcp/super-operator`), and the closed project diagnostics
+catalogue.
 
 ## Owner-bound super operations (PM-762, PM-764)
 
@@ -44,10 +44,10 @@ question the asker marked as plain information (`ask_human` `response_purpose: "
 ### In-app Operator on the shared path (PM-888, decision 55)
 
 The in-app Operator uses the same path as a super-mode key: `execute_operation {request_key, task_key?, command}`
-(not `operate` or `member_update`, which keep `operate`) and `get_operation` (coordination tools, in the Operator's own general conversation during an owner message or answer; guests and the other
-members are refused). They call `SuperAdministration`, `SuperOperator.execute` and `SuperHandoffService.operate`, so the
-rights check, the audit, the owner question for a K3 effect and the machine grant (`operator_grant_inactive`) are the
-key path's, not a copy.
+(not `operate` or `member_update`, which keep `operate`) and `get_operation` (PM-only application coordination).
+They call `SuperOperations`, `SuperOperator.execute` and `SuperHandoffService.operate`, so the
+rights check, audit and owner question for a K3 effect are shared with the key path.
+The supervisor's machine grant, tools and API were removed in PM-1113; its table and rows stay.
 
 - **Credential.** There is no stored key. `services/super-operator/app.ts` issues an `IntegratorPrincipal` with
   `source: 'app'`, `prefix: 'operator-app'` and `keyId` = the Operator session id, acting as the first owner (by
@@ -62,7 +62,7 @@ key path's, not a copy.
 - **Step log.** `OperatorAction` has `operation`; `operator_steps.operation_id` (migration 96) links the operation.
 
 **Does this work on a remote engine?** The whole path runs on the hub; a machine operation reaches an engine through the
-existing administration port. No new machine-dependent part.
+existing engine ports for application work. Machine administration uses the owner's integrator.
 
 ## The external MCP endpoint (PM-760, part of the super mode PM-757)
 
@@ -90,7 +90,7 @@ connection, `ToolContext` with a `sessionId`).
 - **Same right, same audit.** A call runs through `SuperOperator.execute` (`super` and `read` keys: the REST scope; `super`:
   the audit row `mcp_<tool>`). Legacy keys fail authentication with 401 (PM-1037). The super tools
   (`super_operate`, `get_super_operation`, `query_super_diagnostics`,
-  `get_administration_status`, `get_administration_logs`, `get_machine_snapshot`, `relay_owner_answer`) are `super` only and answer with structured
+  `relay_owner_answer`) are `super` only and answer with structured
   JSON plus the domain `errorCode`.
 - **Entrance.** The tunnel and proxy rules pass `/mcp` and refuse `/mcp/` and `/hooks` (`^/mcp/` in
   `scripts/cloud/cloudflare.ts` and `deploy/cloudflare/config.example.yml`); the root auth hook treats `/hooks/` and `/mcp/` as
@@ -98,39 +98,14 @@ connection, `ToolContext` with a `sessionId`).
 
 **Does this work on a remote engine?** The endpoint, the key check and the audit run on the server and nothing of them
 crosses to an engine: the tools call the same domain facades as the REST routes. A tool that needs an engine (the
-administration status and logs, a diagnostics run) uses the engine path the matching REST route uses; the key is never sent
+operation reads and a diagnostics run) uses the engine path the matching REST route uses; the key is never sent
 to an engine.
 
-## Super-mode diagnostics, test and build (PM-764, part of the super mode PM-757)
+## Super-mode operations and diagnostics (PM-1113)
 
-The integrator (a super token, an owner's access) reads and starts what it needs to prepare a release, every call
-bound to the project and to an engine linked to it. The MCP tools `get_administration_status` (`target=hub|<engineId>`)
-and `get_administration_logs` (`limit` at most 200) answer from the supervisor's sanitized view
-(503 `administration_unavailable` where the instance has no adapter, 403 `administration_target_mismatch` for an
-engine that is not linked); the REST routes were deleted in PM-1030, nothing called them. The `query_super_diagnostics` tool reads a closed
-catalogue by name (`tasks`, `sessions`, `merges`, `operations`), each with the fixed columns of
-`SUPER_DIAGNOSTIC_COLUMNS`: there is no SQL, no table or column argument, and no user, key, secret, inbox text or
-personal data in any column. `POST …/operator-super/operations {requestId, taskKey?, command}` starts a
-`SuperCommand` at once (202 `{operation}`), with the same checks, the same owner question and the same registered
-executor as `super_operate`; `GET …/operations/:id` answers `{operation, result}`.
-
-The `administration` executor re-checks everything directly before it starts anything: the key is still active, its
-owner still owns every affected project (a hub restart or a deploy needs every project of the instance), the engine
-is linked, the commit is one of the card's, and a deploy's release is the one a human owner approved (otherwise
-409 `release_state_conflict` / `release_target_mismatch`). A revoked key therefore starts nothing further and undoes
-nothing already done. It submits the strict command to the protected adapter and returns `{pending: true}`: the
-operation stays `running`, and a registered settler finishes it from the result the supervisor recorded (only
-`inspect`, never a second `submit`, so a restart or a second reader cannot run it twice; a record that cannot be
-found is `unknown`). A finished full test also lands on its card as `task_full_test` (outcome, run id, commit,
-duration, failed files; no output) and `super_operation_changed {operationId, state, resultKind}`; it writes no
-approval label and does not replace the merge's own mandatory test. A quick fix or a release keeps every human
-gate: the super actor can propose a release but not approve it. The common operation executors (PM-882,
-`services/super-operator/commands.ts` and `operate.ts`) call the task, admission, merge, configuration,
-member, invitation and credential domains as the bound Operator. A created card's key is recorded on the
-operation, and retries return that same result. Owner-reserved effects wait for the owner's own answer;
-an approved operation resumes only against its pinned configuration. Fixed Operator fields are refused
-before opening a question (`operator_fixed`), including role instructions; changes to its model, provider
-or effort require an owner answer. The final configuration commit applies the same shared projection to
-direct super writes. Login methods, key creation, the waiver, the NanoGPT key and super-rights management
-remain owner-login-only; `inbox_resolve` reserves its command shape for PM-883. The executors run on the hub;
-merge work uses the existing engine boundary.
+The connected integrator starts application commands through the shared operation path and
+queries the closed project diagnostics catalogue. `services/super-operator/facade.ts`
+exposes `SuperOperations`; machine actions stay with the owner's integrator.
+The uninstalled supervisor and its RPC/read tools have been retired. Historical
+`administration` commands remain parseable with an opaque request, but new command
+schemas reject them and execution/continuation returns `administration_unavailable`.

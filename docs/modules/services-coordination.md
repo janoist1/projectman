@@ -70,19 +70,8 @@ retired, `operator_required` 409; it cannot go on leave), `isOperatorActor` (an 
   its overview counts cards by stage (themes excluded), lists live and idle sessions with `lastActivityAt`,
   card starts still deferred and open inbox items assigned to project owners. Report interfaces live in
   `contracts/project-state.ts`; MCP formatting adds short English explanations for the Operator to translate.
-- **Release facts (PM-542).** The overview also carries `release` (`ReleaseService.overview`: the running version,
-  commit and tag, the latest live and the open release, the last ten merges of cards into the release repository,
-  newest first; null when the instance does not release the project), the deferred starts that have no card
-  (`taskKey` null, e.g. a wake-up for a message) and the undelivered team messages per AI member. The rehearsal of
-  `propose_release` (`ReleaseService.check`: the same checks in the same order, the candidate or the refusal, nothing
-  recorded) is the super-mode MCP tool `check_release`; no team member has it. On a remote engine the running
-  version and tag come from the server's own installation; the candidate's ancestry questions go to the engine that
-  holds the repository, and an offline engine gives the `engine_offline` refusal.
-  `TaskStateReport.wait` comes from `TaskWaits.ofCard` (PM-460, viewer null) and is worded first by
-  `describeTaskWait`. Task and overview reports include active system signals (PM-476) through
-  `OperatorSignals.active`: delivered, unresolved, pending or open, oldest first, using the public schema.
-  The tool uses the common Operator caller guard; guest conversations cannot read this internal report.
-  It neither starts work nor contacts an engine.
+- **Legacy release facts (PM-1113).** The project overview retains `release: null` for compatibility.
+  The running version is available through `/api/version`; there is no instance release proposal.
 - **Project manager documents (PM-495, PM-388, PM-1004, PM-1044).** Tools and their handler live in `mcp/project-docs/`.
   `read_project_doc`, `write_project_docs`, `list_decision_candidates` and `mark_decision_candidates` belong to the
   selected available project manager (`coordinationMemberOf`), only in its own internal general conversation.
@@ -129,10 +118,6 @@ retired, `operator_required` 409; it cannot go on leave), `isOperatorActor` (an 
   snapshot survives restart and remains searchable offline, with its status (owner, 2026-10-18). A configured
   custom decision-log path is not followed by this fixed-path copy. See the `merge.read_file` inventory above
   for the remote-engine boundary and the per-repository fetch queue.
-- **Roadmap check at a release proposal (PM-497, removed by PM-1045).** `ReleaseService.propose` still emits the
-  domain event `release_proposed`, but nothing sends the Operator a roadmap notice any more: the Operator runs no
-  session in the app, and `ReleaseRoadmapNotices` (`services/releases/roadmap-notices.ts`) is deleted. The roadmap
-  comparison is the project manager's work on request. No machine-dependent part.
 - **Decision candidates (PM-496, PM-388).** `DecisionCandidates` (`services/project-docs/decision-candidates.ts`) finds the
   questions of the inbox that an owner answered (through the integrator too), that no rule closed, that someone but
   the Operator asked, answered after the project's `since`, and with no verdict yet (`InboxRepository.
@@ -271,10 +256,8 @@ listAnsweredQuestions`). `list_decision_candidates { limit? }` (1..50, default 2
   `OPERATOR_IDLE_MINUTES` = 30 since the later of `wait.since` and the card's latest session activity),
   `merge_waiting` (`merge_waiting:<task>`; a `requested` merge an AI merger has not started for
   `OPERATOR_MERGE_WAIT_MINUTES` = 30), `merge_blocked` (`merge_blocked:<task>`; a `failed` or `blocked`
-  merge with an AI merger, at once; a person as merger gets the inbox item instead), `unreleased`
-  (`unreleased:<base>`; `ReleaseService.unreleased`, from the stored merges and the latest live release or
-  the running commit, without git or an engine; work merged for `OPERATOR_UNRELEASED_HOURS` = 24 and no
-  open release) and `ready_waiting` (`ready_waiting:<card keys>`; startable cards in later queue stages ready for a work stage
+  merge with an AI merger, at once; a person as merger gets the inbox item instead) and
+  `ready_waiting` (`ready_waiting:<card keys>`; startable cards in later queue stages ready for a work stage
   whose AI owner is free, with the parallel AI limit not reached; "free" is admission's `freeDevelopers`
   (not on leave, not temporary, under its capacity, provider not on hold, no start waiting for them) and a
   connected engine; raised at once, delivered only after the stall (the first sweep that found a case, or the

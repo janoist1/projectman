@@ -137,11 +137,6 @@ export const SCHEDULING_SQL = {
       AND (@stageId IS NULL OR (t.kind = 'task' AND t.stage_id = @stageId))
       AND (@assignee IS NULL OR t.assignee = @assignee)
     ORDER BY t.updated_at DESC, t.key LIMIT @limit`,
-  closed: `${TASK_SELECT} WHERE t.project_key = ? AND t.kind = 'task' AND t.status IN ('done', 'cancelled')
-      AND t.closed_at IS NOT NULL AND t.seq > ?
-      AND t.closed_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'
-      AND unixepoch(t.closed_at, 'subsec') <= unixepoch(?, 'subsec')
-    ORDER BY t.seq LIMIT ?`,
 } as const;
 
 function toLink(r: LinkRow): TaskLink {
@@ -225,7 +220,6 @@ export function createTaskRepository(db: Db) {
     ),
     schedulingListedOpen: db.prepare(SCHEDULING_SQL.listedOpen),
     schedulingListedStatus: db.prepare(SCHEDULING_SQL.listedStatus),
-    schedulingClosed: db.prepare(SCHEDULING_SQL.closed),
     // Uses the `task_links_ref` index: card relations are links with no repository.
     linking: db.prepare(
       `SELECT t.*, CASE WHEN t.parent_key IS NOT NULL THEN p.theme_key ELSE t.theme_key END AS effective_theme
@@ -351,23 +345,6 @@ export function createTaskRepository(db: Db) {
       ? []
       : (statements.schedulingKeys.all(projectKey, JSON.stringify([...new Set(keys)])) as TaskRow[]);
 
-  function closedRows(
-    projectKey: string,
-    query: Extract<TaskSchedulingQuery, { kind: 'closed-worktrees' }>,
-  ): TaskRow[] {
-    const { closedBefore, afterSeq = 0, limit = 100 } = query;
-    if (
-      !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/.test(closedBefore) ||
-      !Number.isFinite(Date.parse(closedBefore))
-    )
-      throw new RangeError(`closedBefore must be a UTC ISO time: ${closedBefore}`);
-    if (!Number.isSafeInteger(afterSeq) || afterSeq < 0)
-      throw new RangeError(`afterSeq must be a non-negative integer: ${afterSeq}`);
-    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 500)
-      throw new RangeError(`limit must be an integer from 1 to 500: ${limit}`);
-    return statements.schedulingClosed.all(projectKey, afterSeq, closedBefore, limit) as TaskRow[];
-  }
-
   /** Adds a link or refreshes its title/state; returns what happened. */
   function upsertLink(taskId: string, link: TaskLink, at: string): 'inserted' | 'updated' | 'unchanged' {
     const repo = link.repo ?? '';
@@ -477,8 +454,6 @@ export function createTaskRepository(db: Db) {
           const byKey = new Map(hydrate(rows).map((task) => [task.key, task]));
           return rows.map((row) => byKey.get(row.key)!);
         }
-        case 'closed-worktrees':
-          return hydrate(closedRows(projectKey, query));
       }
     },
 

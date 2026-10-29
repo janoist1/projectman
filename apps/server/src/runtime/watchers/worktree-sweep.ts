@@ -1,14 +1,6 @@
-import {
-  ALERT_SEEN_OPTION,
-  alertPayloadOf,
-  effectiveRepo,
-  isOpenTask,
-  isTheme,
-  LOCAL_ENGINE_ID,
-  taskSeq,
-} from '@projectman/shared';
+import { ALERT_SEEN_OPTION, alertPayloadOf, isOpenTask, isTheme } from '@projectman/shared';
 import type { ProjectConfig, Task, WorktreeKeptAlert } from '@projectman/shared';
-import type { EngineDirectory, WorktreeManager } from '../../contracts';
+import type { EngineDirectory, MemberWorkspaceManager, WorktreeManager } from '../../contracts';
 import { ownerHandles } from '@projectman/shared';
 import type { DomainContext } from '../../core/base';
 import type { DiskGuard } from './disk-guard';
@@ -22,8 +14,8 @@ const CLOSED_WORKTREE_KEEP_MS = 3 * 24 * 60 * 60 * 1000;
 
 const MB = 1024 ** 2;
 
-/** Closed cards read per page by a sweep. */
-const SWEEP_PAGE_SIZE = 100;
+/** Snapshot task keys per engine cleanup request. */
+const SNAPSHOT_BATCH_SIZE = 100;
 
 interface WorktreeSweepReport {
   removed: string[];
@@ -48,8 +40,7 @@ export class WorktreeSweep {
   private readonly ctx: DomainContext;
   private readonly projects: ProjectService;
   private readonly inbox: InboxService;
-  private readonly sessions: Pick<SessionOrchestrator, 'list' | 'isRunning'> &
-    Partial<Pick<SessionOrchestrator, 'cardEngineId'>>;
+  private readonly sessions: Pick<SessionOrchestrator, 'list' | 'isRunning'>;
   private readonly worktrees: WorktreeManager | undefined;
   private readonly engines: EngineDirectory | undefined;
   private readonly disk: Pick<DiskGuard, 'free'>;
@@ -60,9 +51,8 @@ export class WorktreeSweep {
     ctx: DomainContext;
     projects: ProjectService;
     inbox: InboxService;
-    /** `cardEngineId` names the engine a card's worktree is on (PM-311), with `engines`. */
-    sessions: Pick<SessionOrchestrator, 'list' | 'isRunning'> &
-      Partial<Pick<SessionOrchestrator, 'cardEngineId'>>;
+    /** Sessions are checked again immediately before cleanup. */
+    sessions: Pick<SessionOrchestrator, 'list' | 'isRunning'>;
     /** The worktrees of the one machine, when there are no engines. */
     worktrees?: WorktreeManager;
     /** The engines (PM-311): a card's worktree is swept through the engine it is on. */
@@ -81,30 +71,21 @@ export class WorktreeSweep {
     this.keepMs = deps.keepMs ?? CLOSED_WORKTREE_KEEP_MS;
   }
 
-  /** The worktrees of the card's engine; null: that engine is not connected (the card waits for the next sweep). */
-  private worktreesOf(task: Task): WorktreeManager | null {
-    if (!this.engines) return this.worktrees ?? null;
-    const engineId = this.sessions.cardEngineId?.(task.projectKey, task) ?? LOCAL_ENGINE_ID;
-    return this.engines.get(engineId)?.worktrees ?? null;
-  }
-
   async run(): Promise<WorktreeSweepReport> {
     const report: WorktreeSweepReport = { removed: [], kept: [], freedBytes: null };
     const before = await this.disk.free();
-    // Fixed at the start of the round: a card is due when it closed at or before this instant.
-    const closedBefore = new Date(this.ctx.now().getTime() - this.keepMs).toISOString();
     for (const summary of this.projects.summaries()) {
       const config = this.projects.cachedConfig(summary.key);
       if (!config) continue;
       const managers = this.engines
-        ? this.engines
-            .ids()
-            .map((id) => this.engines!.get(id)?.worktrees)
-            .filter((m): m is WorktreeManager => !!m)
+        ? this.engines.ids().flatMap((id) => {
+            const engine = this.engines!.get(id);
+            return engine && engine.workspacePath(summary.key) !== null ? [engine] : [];
+          })
         : this.worktrees
-          ? [this.worktrees]
+          ? [{ worktrees: this.worktrees, memberWorkspaces: undefined }]
           : [];
-      for (const manager of managers)
+      for (const { worktrees: manager, memberWorkspaces } of managers)
         for (const repo of config.project.repos) {
           try {
             for (const fix of await manager.listMergeFixes({ project: config, repoName: repo.name })) {
@@ -128,32 +109,31 @@ export class WorktreeSweep {
           } catch (err) {
             this.ctx.logger.warn({ err, repo: repo.name }, 'could not sweep merge-fix checkouts');
           }
-        }
-      // The closed cards past the keep time, a page at a time by number (PM-770): the project's whole card
-      // list is never read, and a page is released before the next. The cursor is the last number of the
-      // page; a card reopened meanwhile is simply not on a later page, and `sweepTask` looks again.
-      let afterSeq = 0;
-      for (;;) {
-        const page = this.ctx.repos.tasks.readScheduling(summary.key, {
-          kind: 'closed-worktrees',
-          closedBefore,
-          afterSeq,
-          limit: SWEEP_PAGE_SIZE,
-        });
-        for (const task of page) {
-          if (!this.due(task)) continue;
           try {
-            await this.sweepTask(config, task, report);
+            for (const entry of await manager.listTaskWorktrees({ project: config, repoName: repo.name })) {
+              const task = this.ctx.repos.tasks.get(entry.taskKey);
+              if (!task || task.projectKey !== summary.key || !this.due(task) || this.hasRunningSession(task))
+                continue;
+              try {
+                await this.sweepTask(config, task, entry.path, manager, report);
+              } catch (err) {
+                this.ctx.logger.warn(
+                  { err, taskKey: task.key },
+                  'could not clean up the worktree of a closed card',
+                );
+              }
+            }
           } catch (err) {
-            this.ctx.logger.warn(
-              { err, taskKey: task.key },
-              'could not clean up the worktree of a closed card',
-            );
+            this.ctx.logger.warn({ err, repo: repo.name }, 'could not list task worktrees');
+          }
+          if (memberWorkspaces) {
+            try {
+              await this.sweepSnapshots(config, repo.name, memberWorkspaces);
+            } catch (err) {
+              this.ctx.logger.warn({ err, repo: repo.name }, 'could not sweep closed card snapshots');
+            }
           }
         }
-        if (page.length < SWEEP_PAGE_SIZE) break;
-        afterSeq = taskSeq(page[page.length - 1]!.key);
-      }
     }
     const after = report.removed.length > 0 ? await this.disk.free() : null;
     if (before !== null && after !== null) report.freedBytes = Math.max(0, after - before);
@@ -176,24 +156,40 @@ export class WorktreeSweep {
     return this.ctx.now().getTime() - Date.parse(task.closedAt) >= this.keepMs;
   }
 
-  private async sweepTask(config: ProjectConfig, task: Task, report: WorktreeSweepReport): Promise<void> {
-    const repoName = effectiveRepo(config, task);
-    if (!repoName) return;
-    if (this.hasRunningSession(task)) return;
-    const worktrees = this.worktreesOf(task);
-    if (!worktrees) return;
-    const found = await worktrees.find({ project: config, repoName, taskKey: task.key });
-    if (!found) return;
-    const status = await worktrees.status(found.path);
+  private async sweepSnapshots(config: ProjectConfig, repoName: string, workspaces: MemberWorkspaceManager) {
+    const keys = await workspaces.listSnapshotTasks({ project: config, repoName });
+    for (let offset = 0; offset < keys.length; offset += SNAPSHOT_BATCH_SIZE) {
+      const taskKeys = keys.slice(offset, offset + SNAPSHOT_BATCH_SIZE).filter((key) => {
+        const task = this.ctx.repos.tasks.get(key);
+        return (
+          task &&
+          task.projectKey === config.project.key &&
+          this.due(task) &&
+          !this.hasRunningSession(task) &&
+          !this.ctx.repos.taskMerges.open(task.projectKey, task.key)
+        );
+      });
+      if (taskKeys.length) await workspaces.removeTaskSnapshots({ project: config, repoName, taskKeys });
+    }
+  }
+
+  private async sweepTask(
+    config: ProjectConfig,
+    task: Task,
+    path: string,
+    worktrees: WorktreeManager,
+    report: WorktreeSweepReport,
+  ): Promise<void> {
+    const status = await worktrees.status(path);
     // Looked at again right before the removal: the card may have been reopened meanwhile.
     const latest = this.ctx.repos.tasks.get(task.key);
     if (!latest || !this.due(latest) || this.hasRunningSession(latest)) return;
     if (status.dirty) {
       report.kept.push(task.key);
-      await this.tellOnce(config, task, found.path, worktrees);
+      await this.tellOnce(config, task, path, worktrees);
       return;
     }
-    await worktrees.remove({ path: found.path });
+    await worktrees.remove({ path });
     report.removed.push(task.key);
   }
 

@@ -96,18 +96,6 @@ export function approvalStructureChanged(previous: ProjectConfig, next: ProjectC
  * Operator may do with the super key, in its own name.
  */
 export type OwnerReservedEffect = 'deletion' | 'security' | 'cost';
-/** Machine capabilities shown with the owner's grant (PM-891). */
-export const OPERATOR_MACHINE_OPERATIONS = [
-  'deploy',
-  'restart',
-  'full_test',
-  'image_build',
-  'status',
-  'machine',
-  'logs',
-  'process_cleanup',
-  'owner_command',
-] as const;
 type SuperRoutineMutation =
   | 'task_write'
   | 'task_create'
@@ -132,7 +120,7 @@ type SuperRoutineMutation =
   | 'release_propose'
   | 'member_update';
 /** The protected administration commands that need no per-operation owner approval. */
-export const SUPER_ADMINISTRATION_COMMANDS = [
+const SUPER_ADMINISTRATION_COMMANDS = [
   'restart',
   'full_test',
   'image_build',

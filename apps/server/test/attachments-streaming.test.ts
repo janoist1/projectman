@@ -20,10 +20,12 @@ describe('attachment uploads over a real connection', () => {
   let owner: string;
   let developer: string;
   let url: string;
+  let expectedErrors: RegExp[];
 
   beforeEach(async () => {
     clock = new Date();
-    h = await createAppHarness({ now: () => clock });
+    expectedErrors = [];
+    h = await createAppHarness({ now: () => clock, expectedErrors });
     owner = await setupOwner(h.app);
     await createProject(h, owner);
     developer = await addHumanAndLogin(h.app, { handle: 'robin', access: 'developer' });
@@ -79,6 +81,7 @@ describe('attachment uploads over a real connection', () => {
   }, 30_000);
 
   it('cleans up after a client that goes away mid-upload', async () => {
+    expectedErrors.push(/^attachment content could not be written$/, /^request failed$/);
     const result = await chunkedPost(endpoint(), developer, fileBody(pngBytes(400_000)), {
       between: midUpload,
       abort: true,

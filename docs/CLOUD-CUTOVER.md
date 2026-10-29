@@ -42,15 +42,15 @@ Az owner előre elfogadott rollback-útja és konkrét határideje szerint; ezen
    régi Mac bejegyzések `pre-hybrid/<date>/` alatt. A confirm flag valódi leállítást
    állít; nem feloldó varázsszó. Nincs `--discard-cloud-data`, nincs régi DB visszamásolás.
 
-4. Csak most indíts single-t és watchert az owner által jóváhagyott, **az átvett DB
+4. Csak most indíts single-t az owner által jóváhagyott, **az átvett DB
    sémáját támogató** Mac buildből, annak checkoutjából:
 
    ```sh
-   npm run live -- install --root <LIVE_ROOT> --home <SOURCE_HOME> --port 4800 --remote <APPROVED_REPOSITORY_URL>
+   npm run live -- install --root <LIVE_ROOT> --home <SOURCE_HOME> --port 4800
    npm run live -- status --home <SOURCE_HOME>
    ```
 
-   Az install mindkét agentet elindítja és resume-ot végez; ezért csak activate és a
+   Az install a szerverszolgáltatást elindítja és resume-ot végez; ezért csak activate és a
    rollback-adatellenőrzés után fusson. A régi image vagy `cloud rollback` önmagában nem
    fordít vissza sémamigrációt. Ha régebbi build kell, az [AWS point-in-time recovery](AWS.md#restoring-the-database-to-a-point-in-time)
    útját előbb izolált másolaton igazold, és nevezd meg az elvesző DB/fájl időszakot,

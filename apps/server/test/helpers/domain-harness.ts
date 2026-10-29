@@ -163,11 +163,7 @@ export async function createDomainHarness(
     machineEngine?: DomainOptions['machineEngine'];
     merger?: BranchMerger | null;
     /** The project and repository that are the instance itself (PM-491); absent: releases are off. */
-    releaseTarget?: { projectKey: string; repo: string };
     /** The hybrid release binding and the engines' facts (PM-752); absent: the single-target release only. */
-    releaseHybrid?: DomainOptions['releaseHybrid'];
-    /** The protected administration adapter (PM-764); absent: the domain has none. */
-    administration?: DomainOptions['administration'];
     /** Whether an integrator can take todos (PM-806); absent: none can, so every todo goes to the owners. */
     integratorTodoAccess?: DomainOptions['integratorTodoAccess'];
     /** The commit the server runs (PM-491); default `dev`. */
@@ -248,7 +244,6 @@ export async function createDomainHarness(
         }
       : {}),
     integratorCredentials: auth,
-    operatorGrants: auth.operatorGrantGate,
     ...(opts.engines
       ? { engines: opts.engines }
       : opts.merger !== undefined
@@ -272,10 +267,7 @@ export async function createDomainHarness(
         : {}),
     engineName: opts.engineName,
     machineEngine: opts.machineEngine,
-    ...(opts.releaseTarget ? { releaseTarget: opts.releaseTarget } : {}),
-    ...(opts.releaseHybrid ? { releaseHybrid: opts.releaseHybrid } : {}),
     ...(opts.appTag ? { appTag: opts.appTag } : {}),
-    ...(opts.administration ? { administration: opts.administration } : {}),
     // Read when asked, so that a test can restart "the server" on another commit (`setAppVersion`).
     get appVersion() {
       return runningVersion.value;

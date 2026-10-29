@@ -507,6 +507,25 @@ describe('cloud mode remote parts', () => {
       });
     });
 
+    it('lists worktrees and snapshots and removes only the requested task refs through the engine', async () => {
+      const engine = await online();
+      const host = remote.directory.host('eng_a' as never)!;
+      const args = { project: testConfig(), repoName: testConfig().project.repos[0]!.name };
+      const entries = [{ taskKey: 'AR-1', path: '/engine/worktrees/AR/AR-1-web' }];
+      engine.answer('worktree.listTaskWorktrees', () => entries);
+      engine.answer('workspace.listSnapshotTasks', () => ['AR-1']);
+      engine.answer('workspace.removeTaskSnapshots', () => null);
+      expect(await host.worktrees.listTaskWorktrees(args)).toEqual(entries);
+      expect(await host.memberWorkspaces!.listSnapshotTasks(args)).toEqual(['AR-1']);
+      const removal = { ...args, taskKeys: ['AR-1'] };
+      await host.memberWorkspaces!.removeTaskSnapshots(removal);
+      expect(engine.requests.slice(-3)).toEqual([
+        { method: 'worktree.listTaskWorktrees', params: [args] },
+        { method: 'workspace.listSnapshotTasks', params: [args] },
+        { method: 'workspace.removeTaskSnapshots', params: [removal] },
+      ]);
+    });
+
     it('hands a task commit over on the engine, and asks for an update when the engine cannot (PM-739)', async () => {
       const engine = await online();
       const host = remote.directory.host('eng_a' as never)!;
@@ -1219,17 +1238,6 @@ describe('cloud mode remote parts', () => {
       await expect(homeCall(A, 'PB')).rejects.toMatchObject({ code: 'engine_not_bound' });
       expect(asked(a, 'workspace.home')).toHaveLength(1);
       expect(asked(b, 'workspace.home')).toHaveLength(1);
-    });
-
-    it('sends the machine and administration calls only to the host owner’s engine', async () => {
-      await remote.hub.call(A as never, 'machine.processes', {});
-      await expect(remote.hub.call(B as never, 'machine.processes', {})).rejects.toMatchObject({
-        code: 'engine_not_host',
-      });
-      await expect(remote.hub.call(B as never, 'admin.status', {} as never)).rejects.toMatchObject({
-        code: 'engine_not_host',
-      });
-      expect(b.requests).toEqual([]);
     });
 
     it('does not give the cloud’s NanoGPT key to another owner’s engine, and a NanoGPT start there waits for its own key (PM-1068)', async () => {

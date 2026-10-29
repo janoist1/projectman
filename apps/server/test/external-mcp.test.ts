@@ -662,9 +662,6 @@ describe('the bearer MCP endpoint (PM-760)', () => {
       'super_operate',
       'get_super_operation',
       'query_super_diagnostics',
-      'get_administration_status',
-      'get_administration_logs',
-      'get_machine_snapshot',
       'relay_owner_answer',
       'resolve_integrator_todo',
       'resolve_integrator_fix_limit',
@@ -686,7 +683,6 @@ describe('the bearer MCP endpoint (PM-760)', () => {
     // The Operator's tools the super mode got (PM-784): readers also in the read mode, writers super only,
     const superWriters = [
       'write_project_docs',
-      'propose_release',
       'request_structural_review',
       'ask_human',
       'withdraw_question',

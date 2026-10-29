@@ -5,12 +5,8 @@ import type {
   CreateIntegratorAccessKeyRequest,
   IntegratorChannel,
   IntegratorKeyAuditQuery,
-  OperatorGrantAuditEntry,
-  OperatorGrantAuditPage,
-  OperatorGrantDuration,
-  OperatorGrantState,
 } from '@projectman/shared';
-import type { IntegratorPrincipal, OperatorGrantGate, OperatorGrantRecord } from '../contracts';
+import type { IntegratorPrincipal } from '../contracts';
 import type { Repositories, UserRecord } from '../db';
 import { conflict, DomainError, forbidden } from '../kernel';
 import { newId } from '../kernel';
@@ -25,8 +21,6 @@ export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 /** Argon2id (algorithm 2): 19 MiB, two iterations, one lane. */
 const PASSWORD_OPTIONS = { algorithm: 2 as const, memoryCost: 19456, timeCost: 2, parallelism: 1 };
 const TOUCH_INTERVAL_MS = 5 * 60 * 1000;
-const DURATION_MS = { '12h': 12 * 3_600_000, '7d': 7 * 86_400_000 } as const;
-const AUDIT_LIMIT = 100;
 
 /** Hash of a password nobody knows: verifying against it keeps failed logins equally slow. */
 let dummyHash: Promise<string> | null = null;
@@ -222,90 +216,6 @@ export class AuthService {
         status: 401,
       });
     }
-  }
-
-  // --- the Operator's grant for machine operations (PM-881) ---------------------------------------------
-
-  private hostOwnerId(): string | null {
-    return this.repos.users.list()[0]?.id ?? null;
-  }
-
-  private activeGrantRow() {
-    const ownerId = this.hostOwnerId();
-    return ownerId ? this.repos.operatorGrants.active(ownerId, this.now().toISOString()) : null;
-  }
-
-  /** The gate every machine operation passes; a separate object, so it can never stand in for the key check above. */
-  readonly operatorGrantGate: OperatorGrantGate = {
-    active: () => {
-      const row = this.activeGrantRow();
-      return row
-        ? { id: row.id, userId: row.userId, grantedAt: row.grantedAt, expiresAt: row.expiresAt }
-        : null;
-    },
-    assertActive: () => {
-      const row = this.activeGrantRow();
-      if (!row)
-        throw forbidden('operator_grant_inactive', 'the Operator has no active grant for machine operations');
-      this.repos.operatorGrants.touch(row.id, this.now().toISOString());
-      return { id: row.id, userId: row.userId, grantedAt: row.grantedAt, expiresAt: row.expiresAt };
-    },
-  };
-
-  /** The grant's state as `canManage` (the viewer is the host owner with their own login) sees it. */
-  operatorGrantState(canManage: boolean): OperatorGrantState {
-    const row = this.activeGrantRow();
-    return {
-      active: row !== null,
-      grantId: row?.id ?? null,
-      grantedAt: row?.grantedAt ?? null,
-      grantedBy: row ? (this.user(row.userId)?.name ?? null) : null,
-      expiresAt: row?.expiresAt ?? null,
-      lastUsedAt: row?.lastUsedAt ?? null,
-      canManage,
-    };
-  }
-
-  /** Grants (or extends: the active grant becomes `replaced`) in one transaction. */
-  grantOperator(userId: string, duration: OperatorGrantDuration): OperatorGrantRecord {
-    const at = this.now();
-    const grant: OperatorGrantRecord = {
-      id: newId('ogr'),
-      userId,
-      grantedAt: at.toISOString(),
-      expiresAt:
-        duration === 'until_revoked' ? null : new Date(at.getTime() + DURATION_MS[duration]).toISOString(),
-    };
-    this.repos.transaction(() => {
-      this.repos.operatorGrants.closeActive(userId, grant.grantedAt, 'replaced');
-      this.repos.operatorGrants.insert(grant);
-    });
-    return grant;
-  }
-
-  /** Revokes the active grant; null when there was none. */
-  revokeOperatorGrant(userId: string): OperatorGrantRecord | null {
-    const closed = this.repos.operatorGrants.closeActive(userId, this.now().toISOString(), 'revoked');
-    return closed
-      ? { id: closed.id, userId: closed.userId, grantedAt: closed.grantedAt, expiresAt: closed.expiresAt }
-      : null;
-  }
-
-  /** The grant's history, newest first, computed from the rows. */
-  operatorGrantAudit(userId: string): OperatorGrantAuditPage {
-    const now = this.now().toISOString();
-    const by = this.user(userId)?.name ?? '';
-    const entries: OperatorGrantAuditEntry[] = [];
-    // Oldest row first, each row's steps in order; reversed below, so of one instant the later step comes first.
-    for (const row of this.repos.operatorGrants.recent(userId, AUDIT_LIMIT).reverse()) {
-      const entry = (action: OperatorGrantAuditEntry['action'], at: string) =>
-        entries.push({ grantId: row.id, action, at, expiresAt: row.expiresAt, by });
-      entry('granted', row.grantedAt);
-      if (row.revokedAt) entry(row.revokedReason === 'replaced' ? 'replaced' : 'revoked', row.revokedAt);
-      else if (row.expiresAt && row.expiresAt <= now) entry('expired', row.expiresAt);
-    }
-    entries.reverse().sort((a, b) => (a.at === b.at ? 0 : a.at < b.at ? 1 : -1));
-    return { entries: entries.slice(0, AUDIT_LIMIT) };
   }
 
   /**

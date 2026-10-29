@@ -12,7 +12,6 @@ describe('merge test scope', () => {
   });
   it.each([
     'packages/templates/src/x.ts',
-    'apps/feedback-widget/src/a.ts',
     'packages/shared/package.json',
     'packages/shared/src/vitest.config.ts',
     'scripts/a.sh',
@@ -60,8 +59,11 @@ describe('merge test scope', () => {
       sharedChanged: [],
     });
   });
-  it.each(['apps/server', 'apps/web'] as const)('selects only %s', (ws) => {
+  it.each(['apps/server', 'apps/web', 'apps/feedback-widget'] as const)('selects only %s', (ws) => {
     expect(mergeTestScope([`${ws}/src/a.ts`, 'docs/a.md'])).toEqual({ kind: 'workspaces', workspaces: [ws] });
+  });
+  it('leaves ignore and dead-code configuration to the dedicated checks', () => {
+    expect(mergeTestScope(['.gitignore', 'knip.json'])).toEqual({ kind: 'none' });
   });
   it('keeps the first full-scope reason', () => {
     expect(mergeTestScope(['scripts/a.sh', 'package.json'])).toEqual({ kind: 'all', reason: 'scripts/a.sh' });
@@ -106,7 +108,7 @@ describe('merge test scope', () => {
       'deploy/cloudflare/a.yml',
       'deploy/mac/a.plist',
       'deploy/other/a.yml',
-      'deploy/projectman-administration.service',
+      'deploy/projectman-other.service',
       'apps/server/test/helpers/cloud-fixture.ts',
       'apps/server/test/fixtures/cloud-fake.mjs',
       'apps/server/test/cloud-sub/a.test.ts',
@@ -148,11 +150,10 @@ describe('merge test scope', () => {
         'apps/server/test/architecture',
         'apps/server/test/merge-test-',
         // The real Unix socket boundary (PM-754): the exact files, so a cloud merge cannot skip them.
-        'apps/server/test/control-relay.integration.test.ts',
         'apps/server/test/control-socket.integration.test.ts',
       ]);
       expect(scopeLine(cloud)).toBe(
-        'merge-test scope: cloud; workspaces: apps/server; test filters: apps/server/test/cloud-, apps/server/test/deploy-, apps/server/test/release-, apps/server/test/architecture/, apps/server/test/merge-test-, apps/server/test/control-relay.integration.test.ts, apps/server/test/control-socket.integration.test.ts; fallback: none',
+        'merge-test scope: cloud; workspaces: apps/server; test filters: apps/server/test/cloud-, apps/server/test/deploy-, apps/server/test/release-, apps/server/test/architecture/, apps/server/test/merge-test-, apps/server/test/control-socket.integration.test.ts; fallback: none',
       );
     });
   });

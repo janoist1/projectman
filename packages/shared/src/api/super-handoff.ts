@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AdministrationCommandSchema, OwnerCommandText } from './administration';
+import { OwnerCommandText } from './administration';
 import { Actor } from '../domain/event';
 import { MemberHandle } from '../domain/member';
 import { TaskKey } from '../domain/task';
@@ -24,14 +24,13 @@ import {
 
 const SUPER_REASON_MAX = 2000;
 
-/** The closed, versioned set of commands an operation (and an old handoff) can carry. */
-export const SuperCommand = z.discriminatedUnion('kind', [
+/** The closed, versioned set of commands a new operation can carry. */
+export const NewSuperCommand = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('operate'), operation: OperatorOperation }),
   z.strictObject({ kind: z.literal('member_update'), handle: MemberHandle, request: UpdateMemberRequest }),
   z.strictObject({ kind: z.literal('invite_create'), request: CreateInviteRequest }),
   z.strictObject({ kind: z.literal('merge'), taskKey: TaskKey, request: StartMergeRequest }),
   z.strictObject({ kind: z.literal('merge_order'), ...OrderMergeQueueRequest.shape }),
-  z.strictObject({ kind: z.literal('administration'), request: AdministrationCommandSchema }),
   z.strictObject({ kind: z.literal('task_create'), request: CreateTaskRequest }),
   z.strictObject({ kind: z.literal('task_update'), taskKey: TaskKey, request: UpdateTaskRequest }),
   z.strictObject({ kind: z.literal('task_labels'), taskKey: TaskKey, request: ChangeTaskLabelsRequest }),
@@ -49,6 +48,12 @@ export const SuperCommand = z.discriminatedUnion('kind', [
     scopeId: z.string().min(1).max(200),
     reason: OwnerCommandText.trim().min(1).max(SUPER_REASON_MAX),
   }),
+]);
+/** Stored operations from the retired supervisor remain readable, never executable. */
+export type NewSuperCommand = z.infer<typeof NewSuperCommand>;
+export const SuperCommand = z.discriminatedUnion('kind', [
+  ...NewSuperCommand.options,
+  z.strictObject({ kind: z.literal('administration'), request: z.unknown() }),
 ]);
 export type SuperCommand = z.infer<typeof SuperCommand>;
 

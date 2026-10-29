@@ -40,7 +40,7 @@ export class GitCommandError extends Error {
  */
 export async function git(
   args: string[],
-  opts: { timeoutMs?: number; isolatedConfig?: boolean } = {},
+  opts: { timeoutMs?: number; isolatedConfig?: boolean; input?: string } = {},
 ): Promise<string> {
   const env: NodeJS.ProcessEnv = { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' };
   for (const name of REPOSITORY_OVERRIDES) delete env[name];
@@ -59,6 +59,7 @@ export async function git(
       env,
       timeoutMs: opts.timeoutMs ?? GIT_TIMEOUT_MS,
       maxOutputBytes: 32 * 1024 * 1024,
+      input: opts.input,
     });
     return stdout;
   } catch (error) {

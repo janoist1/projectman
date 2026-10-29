@@ -254,7 +254,7 @@ Use `--config <file>` on every command if it is outside the default store.
    reporting the existing unit/container state. Follow with `logs --lines 25` and `ssh`; exit the shell.
    Verify that no temporary key directory or correlated active SSM session remains.
 3. `deploy --ref <approved-sha>` updates the installed board with the bundle built at that SHA. The
-   first seeding of a host (`seed`) is retired (PM-1116; the tag `retired-migrate-dns` has it).
+   first seeding of a host (`seed`) is retired (PM-1116; commit `358bb7c7` on `main`, tagged `retired-migrate-dns`, has it).
 4. Verify `status`, `logs` and `rehearse` (requires `REHEARSAL PASSED`). In the approved downtime
    window, `stop`, `pull-data --to <new-directory>` and `start` verify one-writer behavior and the
    return stream. Keep the copy outside a git worktree; never copy a running database.
@@ -530,7 +530,7 @@ rule); it is described in the EC2 chapter above.
 ### `pull-data`
 
 The first move of the Mac's data to the machine (`seed`) is done and retired (PM-1116); the last commit
-that has it is tagged `retired-migrate-dns`. The machine keeps its data between deploys.
+that has it is `358bb7c7` on `main`, tagged `retired-migrate-dns`. The machine keeps its data between deploys.
 
 `pull-data --to <new folder>` is the way back (`npm run migrate -- hybrid back` takes the folder).
 The folder must not exist (its parent must), must not be inside a git work tree, and is created with
@@ -760,7 +760,7 @@ still connects outward to `/engine`, which is behind its own Access application 
 
 The zone moved to Cloudflare once, including mail (SES MX, DKIM and verification TXT) and site
 verification. The commands that did it (`dns plan`, `dns import`, `dns verify`, `dns switch [--back]`) are
-retired; the last commit that has them is tagged `retired-migrate-dns`. What stays is the read-only
+retired; the last commit that has them is `358bb7c7` on `main`, tagged `retired-migrate-dns`. What stays is the read-only
 `npm run cloud -- dns status`: it reads delegation and DS through Cloudflare and Google DoH, reports the
 registrar name servers, the DNSSEC key count, the registration expiry and auto-renew, and requests an
 activation check for a pending zone. Both public resolver answers are printed; allow cached delegation to

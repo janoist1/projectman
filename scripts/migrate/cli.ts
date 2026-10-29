@@ -7,7 +7,7 @@
 //   hybrid    back --home H --from DIR --confirm-source-retired        the cloud's data replaces the Mac's home (the old entries are kept)
 //
 // The one-off commands that moved a home to the cloud (`inventory`, `hybrid plan`, `hybrid package`) were
-// retired with the cutover (PM-1116); the last commit that has them is tagged `retired-migrate-dns`. Their
+// retired with the cutover (PM-1116); the last commit that has them is 358bb7c7 (tag `retired-migrate-dns`). Their
 // functions stay in hybrid.ts and inventory.ts: the tests build their cloud data with them.
 // Exit status: 0 done, 1 refused or a blocking finding, 2 wrong usage.
 import { hybridBack } from './hybrid';

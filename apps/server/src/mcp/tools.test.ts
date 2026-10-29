@@ -7,6 +7,7 @@ import { createFakeTeamToolsHandler, devContext, fullAudience } from './testing'
 import type { MemberAudience } from '../contracts';
 import { toolVisible, type ToolAudience } from './kit';
 import { TEAM_TOOL_GROUPS, TEAM_TOOL_NAMES, TEAM_TOOLS } from './tools';
+import { AI_BUILT_IN_ROLE_IDS, BUILT_IN_ROLE_DUTIES } from '@projectman/shared';
 
 const developerAudience: MemberAudience = {
   projectManager: false,
@@ -41,6 +42,37 @@ async function listToolsFor(audience: MemberAudience) {
 }
 
 describe('tool audience', () => {
+  it.each(AI_BUILT_IN_ROLE_IDS)('keeps the %s tools/list within its byte budget', async (role) => {
+    const result = await listToolsFor({
+      ...developerAudience,
+      projectManager: role === 'project_manager',
+      merger: role === 'developer',
+      duties: new Set(BUILT_IN_ROLE_DUTIES[role]),
+    });
+    const bytes = Buffer.byteLength(JSON.stringify(result));
+    const budgets = {
+      project_manager: 108_000,
+      business_analyst: 40_000,
+      architect: 40_000,
+      designer: 40_000,
+      developer: 42_000,
+      lead_developer: 42_000,
+      code_review: 40_000,
+      security_review: 40_000,
+      qa: 40_000,
+      devops: 44_000,
+      communication: 40_000,
+      support: 40_000,
+      researcher: 40_000,
+      maintainer: 40_000,
+      coach: 40_000,
+      watchdog: 40_000,
+      content: 40_000,
+      translator: 40_000,
+      docs: 40_000,
+    };
+    expect(bytes).toBeLessThanOrEqual(budgets[role]);
+  });
   it.each([fullAudience, developerAudience, { ...developerAudience, projectManager: true }])(
     'registers exactly the tools listed by the context preview for %o',
     async (audience) => {

@@ -10,6 +10,7 @@ describe('personal push API', () => {
   let h: AppHarness;
   let cookie: string;
   let fake: FakePushTransport;
+  let expectedErrors: RegExp[];
   const body = (id = 'one') => ({
     endpoint: `https://fcm.googleapis.com/${id}`,
     keys: { p256dh: 'a'.repeat(87), auth: 'b'.repeat(22) },
@@ -28,7 +29,9 @@ describe('personal push API', () => {
     });
   beforeEach(async () => {
     fake = new FakePushTransport();
+    expectedErrors = [];
     h = await createAppHarness({
+      expectedErrors,
       app: { webPushTransport: fake, webPush: { subject: 'https://project.example' } },
     });
     cookie = await setupOwner(h.app);
@@ -170,6 +173,7 @@ describe('personal push API', () => {
     expect(JSON.parse(fake.calls[0]!.payload)).toMatchObject({ kind: 'item', itemId: item.id });
   });
   it('reports unavailable and refuses registration when disabled', async () => {
+    expectedErrors.push(/^request failed$/);
     h.app = await h.relaunch({ webPush: { enabled: false } });
     expect((await inject(h.app, 'GET', routes.push(), cookie)).json()).toMatchObject({
       available: false,

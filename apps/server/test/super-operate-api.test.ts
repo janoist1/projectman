@@ -17,8 +17,10 @@ describe('super-mode operation, status and diagnostics routes (PM-764)', () => {
   let cookie: string;
   let secret: string;
   let ran: number;
+  let expectedErrors: RegExp[];
   beforeEach(async () => {
-    app = await createAppHarness();
+    expectedErrors = [];
+    app = await createAppHarness({ expectedErrors });
     cookie = await setupOwner(app.app);
     await createProject(app, cookie);
     const created = await app.app.inject({

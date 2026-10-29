@@ -12,7 +12,6 @@ describe('merge test scope', () => {
   });
   it.each([
     'packages/templates/src/x.ts',
-    'apps/feedback-widget/src/a.ts',
     'packages/shared/package.json',
     'packages/shared/src/vitest.config.ts',
     'scripts/a.sh',
@@ -60,8 +59,11 @@ describe('merge test scope', () => {
       sharedChanged: [],
     });
   });
-  it.each(['apps/server', 'apps/web'] as const)('selects only %s', (ws) => {
+  it.each(['apps/server', 'apps/web', 'apps/feedback-widget'] as const)('selects only %s', (ws) => {
     expect(mergeTestScope([`${ws}/src/a.ts`, 'docs/a.md'])).toEqual({ kind: 'workspaces', workspaces: [ws] });
+  });
+  it('leaves ignore and dead-code configuration to the dedicated checks', () => {
+    expect(mergeTestScope(['.gitignore', 'knip.json'])).toEqual({ kind: 'none' });
   });
   it('keeps the first full-scope reason', () => {
     expect(mergeTestScope(['scripts/a.sh', 'package.json'])).toEqual({ kind: 'all', reason: 'scripts/a.sh' });

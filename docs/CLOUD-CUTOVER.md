@@ -64,7 +64,7 @@ Az owner előre elfogadott rollback-útja és konkrét határideje szerint; ezen
    megszüntetésük külön jóváhagyott művelet.
 
 **DNS-delegáció visszaváltás nincs az eszközökben** (PM-1116). A `dns switch --back` kivezetésre került
-(az utolsó commit, amelyben megvolt: `retired-migrate-dns` tag), ezért az [AWS.md](AWS.md#dns-pm-537-one-off-move-retired-in-pm-1116)
+(az utolsó commit, amelyben megvolt: `358bb7c7` a `main`-en, `retired-migrate-dns` taggel), ezért az [AWS.md](AWS.md#dns-pm-537-one-off-move-retired-in-pm-1116)
 sem ír elő ilyen lépést. A régi Route 53 hosted zone az owner döntéséig megmarad; ha a delegációt mégis
 vissza kell állítani, az az owner kézi lépése a Route 53 Domains felületén, utána levél- és
 kézbesítés-ellenőrzéssel.

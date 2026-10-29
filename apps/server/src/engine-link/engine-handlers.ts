@@ -287,6 +287,16 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
     async 'worktree.listMergeFixes'([arg]) {
       return engine.worktrees.listMergeFixes(arg);
     },
+    async 'worktree.listTaskWorktrees'([arg]) {
+      return engine.worktrees.listTaskWorktrees(arg);
+    },
+    async 'workspace.listSnapshotTasks'([arg]) {
+      return memberWorkspaces().listSnapshotTasks(arg);
+    },
+    async 'workspace.removeTaskSnapshots'([arg]) {
+      await memberWorkspaces().removeTaskSnapshots(arg);
+      return null;
+    },
     async 'worktree.find'([arg]) {
       return engine.worktrees.find(arg);
     },

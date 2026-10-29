@@ -42,7 +42,7 @@ export interface WorkspaceAccess {
   /** Who owns the files at `path` (a workspace below a member's home, or null). */
   ownerOf(path: string): string | null;
   /** Runs git (with SAFE_GIT_SETTINGS in front of `args`) as the owner; rejects with GitCommandError. */
-  git(owner: string | null, args: string[], opts?: { timeoutMs?: number }): Promise<string>;
+  git(owner: string | null, args: string[], opts?: { timeoutMs?: number; input?: string }): Promise<string>;
   mkdir(owner: string | null, dir: string): Promise<void>;
   remove(owner: string | null, target: string): Promise<void>;
   rename(owner: string | null, from: string, to: string): Promise<void>;

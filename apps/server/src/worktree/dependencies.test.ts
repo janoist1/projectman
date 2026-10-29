@@ -20,7 +20,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import type { FastifyBaseLogger } from 'fastify';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cloneDependencies } from './dependencies';
+import { cleanupDependencyLeftovers, cloneDependencies } from './dependencies';
 import { hasApfsTemporaryFilesystem } from '../../test/helpers/apfs';
 
 /*
@@ -57,6 +57,20 @@ async function put(root: string, file: string, content: string): Promise<void> {
 }
 
 const LOCK = '{"name":"app","lockfileVersion":3}\n';
+
+it('sweeps expired clone leftovers in the root and workspaces, preserving active copies and unrelated files', async () => {
+  for (const dir of ['.node_modules.pm-deadbeef', 'apps/web/.node_modules.pm-deadbeef-old']) {
+    await put(target, `${dir}/partial`, 'old');
+    await utimes(path.join(target, dir), new Date(0), new Date(0));
+  }
+  await put(target, '.node_modules.pm-12345678/partial', 'active');
+  await put(target, '.node_modules.pm-user/keep', 'user');
+  await cleanupDependencyLeftovers(target);
+  expect(await readdir(target)).not.toContain('.node_modules.pm-deadbeef');
+  expect(await readdir(path.join(target, 'apps/web'))).not.toContain('.node_modules.pm-deadbeef-old');
+  expect(await readFile(path.join(target, '.node_modules.pm-12345678/partial'), 'utf8')).toBe('active');
+  expect(await readFile(path.join(target, '.node_modules.pm-user/keep'), 'utf8')).toBe('user');
+});
 
 /** The files committed in the repository: the root package with two workspaces. */
 async function seedRepository(root: string): Promise<void> {

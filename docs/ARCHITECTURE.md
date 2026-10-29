@@ -1989,6 +1989,26 @@ workers follow the machine's size.
   hello). Not in the package: the menu bar app's Swift sources and the plist template of the packaged service
   (PM-1124). **Module:** `scripts`, `deploy`, `contracts`, `engine-link`.
 
+- **Engine app release build (PM-1104, PM-1122)** — `scripts/engine-app/build.ts`,
+  `manifest.ts`, `deploy/mac/app/{Info.plist,node.entitlements}`. `npm run engine-app -- build`
+  assembles the PM-1121 package and the release Swift executable into `projectman motor.app`
+  (`com.projectman.engine-app`, distinct from the PM-1088 app). It signs every embedded Mach-O
+  before the bundle, with hardened runtime and Node JIT entitlements, notarizes and staples
+  the app, then produces `projectman-motor.zip`, a signed/notarized/stapled
+  `projectman-motor.dmg` (app plus Applications link), and the hashed `projectman-motor.json`.
+  The manifest schema also validates the fixture consumed by future Swift updater tests.
+  The CLI takes the machine's heavy-run queue. All scratch/cache files, tool temporary files
+  and diagnostics stay under `--out`; existing nonempty output is refused.
+  **Machine assumptions:** release Mac, full Xcode, arm64 target, macOS 13+ runtime,
+  `swift`, `ditto`, `codesign`, `xcrun notarytool/stapler`, `hdiutil`, `spctl`, a Developer ID
+  identity and a notary profile in the release user's keychain. Only their names and the public
+  Team ID are arguments. `--ad-hoc` skips hardened runtime (native modules have no Team ID),
+  notarization, DMG signing and Gatekeeper assessment;
+  its empty Team ID disables app updates. **Remote engine:** this build runs only on the
+  release machine; the resulting app/package runs on the engine Mac. Nothing new crosses the
+  server/engine boundary. Real signing/notarization is checked at the owner's first release
+  (PM-1123); automated checks use a fake process runner. **Module:** `scripts`, `deploy`.
+
 - **Interrupted card continuation (PM-1092)** — `runtime/sessions/sessions.ts` closes lost live
   sessions with `server_restart` during startup or engine reconciliation; the internal `session_ended`
   event carries the previous state: only `starting`, `working` and `waiting_permission` turns continue;
@@ -2192,7 +2212,7 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   PM-674's [rollback sheet](CLOUD-CUTOVER.md) preserves the final stopped-cloud data before
   Mac single activation. Credentials stay on the administration machine, outside member sessions.
   PM-1116 retired the one-off move commands (`seed` with its PM-717 integrity gate, `dns plan|import|verify|switch`);
-  the last commit that has them is tagged `retired-migrate-dns`. A tool the owner runs on their Mac
+  the last commit that has them is `358bb7c7` on `main`, tagged `retired-migrate-dns`. A tool the owner runs on their Mac
   that creates and maintains the cloud board on AWS EC2: `preflight` and `aws` (PM-534: the machine,
   the security group, the two S3 buckets, the two IAM users and their access keys), the machine part
   (PM-535, the next entry), Cloudflare (PM-536, the entry after it) and DNS (PM-537,
@@ -3401,6 +3421,11 @@ assumption or remote-engine RPC.
   Per-worktree serialization and directory backups protect replacements; a server-start lifetime registry
   restricts targets, failed lookups retry in 60 seconds and copying is bounded to 90 seconds. Provider hooks allow
   time for preparation (`runner/hook-forwarder.ts`, 120 seconds for Claude and Codex).
+  PM-1115: `no_lockfile` and `not_ignored` share that 60-second retry cache. Before the freshness check,
+  worktree status and removal, `dependencies.ts` removes clone temporary/backup directories matching
+  `.node_modules.pm-<8 hex digits>[-old]` older than five minutes, at the root and declared npm workspaces.
+  It shares the clone lock, preserves recent copies and never traverses linked workspace parents.
+  This is engine-local filesystem housekeeping; no paths or files cross the remote-engine boundary.
   No npm install runs outside a sandbox.
   Member clones may opt in through engine-local `repos[].workspaceSetup: {kind: 'npm_ci', timeoutMs?}`
   (PM-741, owner option 1). `full-test/workspace-dependencies.ts` runs fixed `npm ci` outside the
@@ -3886,9 +3911,10 @@ assumption or remote-engine RPC.
 - **Task worktrees and shared git storage** — `worktree/worktree-manager.ts`,
   `worktree/member-workspace-manager.ts`, `worktree/paths.ts`, `runtime/watchers` (`WorktreeSweep`),
   `index.ts` (PM-243; PM-311, PM-312; PM-770). With a work root (PM-846) the worktree and workspace
-  roots are `<workRoot>/worktrees` and `<workRoot>/workspaces`. The sweep picks its candidates from the server database
-  (paged `closed-worktrees` reads, no whole card list); the worktree itself is still found, checked and removed
-  on the card's engine. Task worktrees default to
+  roots are `<workRoot>/worktrees` and `<workRoot>/workspaces`. Since PM-1115 the sweep lists existing
+  task worktrees once per repository on every connected engine holding the project (`listTaskWorktrees`),
+  then checks only those cards in the server database. Status and removal run on the same engine that listed them.
+  Task worktrees default to
   `~/.projectman/worktrees/<project>/<task>-<repo>`; git links them to the main repository's
   common git directory. Canonical paths, branch ownership and cleanup are local filesystem
   operations. A member's workspace (`<workRoot>/workspaces/<project>/<member>/<repo>/repo`), its
@@ -3925,7 +3951,8 @@ assumption or remote-engine RPC.
   history and creates `refs/projectman/workspaces/<member>/<TASK-KEY>/<commit>` in the repository only
   if it is missing (`update-ref` with a null old value; an identical object id is accepted, another
   one is refused). Nothing else of the repository moves: no push, no remote, no branch write, and
-  snapshots are never removed. The cloud sends no path or ref; `engine-limit.ts` binds the repository
+  snapshots are retained while the card is open and for three days after closing (PM-1115).
+  The cloud sends no path or ref; `engine-limit.ts` binds the repository
   and checks the full object id. A review round pins `sourcePath/sourceRef/sourceCommit` to the
   snapshot; rounds pinned before keep their direct workspace path. A task branch can also be found
   through its snapshots (`findTaskBranch`); several distinct commits are chosen only by the exact
@@ -3933,6 +3960,16 @@ assumption or remote-engine RPC.
   `workspace_source_missing` (`details.reason: engine_update_required`). **Does this work on a remote
   engine?** Yes: the workspace, the repository and the transfer are all on the engine; only the
   request and the `{path, ref}` answer cross the link.
+  PM-1115: both managers share `withRepoLock` (`worktree/paths.ts`), keyed by the canonical repository path.
+  A workspace lock is always taken before that repository lock. `fetchBase` holds it for the origin fetch
+  and base selection, `publishTaskBranch` for receiving and writing refs, and `removeTaskSnapshots` for deletion.
+  `MemberWorkspaceManager.listSnapshotTasks` lists task keys from snapshot and incoming refs; the server filters
+  them by closing time, sessions and active merges, then sends batches of at most 100 keys to `removeTaskSnapshots`.
+  One `update-ref --no-deref --stdin` transaction deletes only the selected refs with their expected object ids;
+  branches stay intact. Reopening a task can publish its snapshot again from its durable member clone.
+  All git commands and locks live on the owning engine. The three additive RPCs
+  (`worktree.listTaskWorktrees`, `workspace.listSnapshotTasks`, `workspace.removeTaskSnapshots`) carry
+  project/repository identifiers, task keys and the listed worktree paths; the hub never reads engine paths.
   **Design review before stage hand-over (PM-828):** a member with `ux_design` and without
   `implementation` duties, who is not the assignee, uses a review copy whenever another member
   has a branch-bearing work binding on the card, in any stage. Planning without such a binding
@@ -4509,7 +4546,7 @@ assumption or remote-engine RPC.
   before activation. No second writer or
   automatic clearing of used targets is allowed; data transport is the owner's administration path.
   PM-1116 retired the one-off CLI commands `inventory`, `hybrid plan` and `hybrid package` (and the cloud
-  `seed`; the last commit that has them is tagged `retired-migrate-dns`); `hybrid back`, `instance` and
+  `seed`; the last commit that has them is `358bb7c7` on `main`, tagged `retired-migrate-dns`); `hybrid back`, `instance` and
   `verify` stay. Their library functions (`buildHybridPlan`, `createHybridPackage`, `buildInventory`) remain only because the
   test fixtures build a cloud's data with them. The cloud package was made on the Mac from a stopped source and held a closed list
   (`db.sqlite`, `secret`, `secrets`, `customization`, `attachments`, `message-attachments` (PM-666: the files of team messages, which the
@@ -4588,10 +4625,12 @@ this documentation change.
 that have been closed for 3 days (`CLOSED_WORKTREE_KEEP_MS`) and have no running session, and removes the worktree
 of each that is clean (`WorktreeManager.remove`, which keeps the branch; `ensureForTask` makes the worktree again if
 the card restarts). A worktree with uncommitted changes is never removed: the owners get one `worktree_kept` alert
-per closing of the card. What was removed and about how much space it freed goes to the server log only. The sweep reads
-the closed cards past the keep time in pages of 100 by number (`closed-worktrees`, PM-770), with the closing time of
-a round fixed at its start, instead of the project's whole card list; a card reopened between two pages is not on a
-later page, and the removal looks at the card again right before it.
+per closing of the card. What was removed and about how much space it freed goes to the server log only.
+Since PM-1115 the sweep lists existing task worktrees and snapshot task keys by engine and repository,
+skipping engines that do not hold the project. It reads only those cards, and checks the card and live sessions
+again after status, immediately before worktree removal. Snapshot and leftover incoming refs use the same
+three-day retention, skip active merges and are removed in batches of at most 100 task keys. No whole closed-card
+history is scanned, and task branches in durable member clones remain available after snapshot cleanup.
 
 `DiskGuard` (every minute, `DomainOptions.diskCheckMs`) measures the free space of `PROJECTMAN_HOME` with `statfs`.
 Below `team.limits.minFreeDiskGb` (default 10, 0 turns it off) the owners get one `disk_low` alert, withdrawn when
@@ -4857,7 +4896,8 @@ Migration 125 drops the then empty table `project_focus_items`.
   `TaskService` over `TaskRepository.readScheduling` in `db/tasks.ts`) returns stored rows with their own links, in
   ascending number, without the board view and the derived fields. The queries are `keys` (exact cards), `pull` (the
   open cards of the queue stage that are urgent), `queue` (all active cards of the queue stage), `children` (the open subtasks of cards), `open` (every
-  open card) and `closed-worktrees` (closed cards past a closing time, paged by number). The pure rules stay in
+  open card) and `listed` (a filtered `list_tasks` page). PM-1115 replaced `closed-worktrees` with engine-side
+  discovery of existing worktrees and snapshot refs. The pure rules stay in
   `packages/shared` (`pullCandidates`, `startableCards`, `openPrerequisites`, `startClass`, `canAutomaticallyStartTask`,
   `startBlock`, `stageAdvance`, `mergeReadiness`, `cardMerger`) and run over these rows; SQL only narrows the set they
   see, it copies none of them. `startContext` (`core/tasks/scheduling-context.ts`) adds all subtasks (with `includeClosed: true`) and

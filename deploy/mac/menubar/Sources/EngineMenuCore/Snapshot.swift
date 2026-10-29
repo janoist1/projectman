@@ -13,7 +13,9 @@ public struct Snapshot: Decodable {
     public let machine: Machine
     public let logs: LogPaths
     public struct Engine: Decodable { public let id: String; public let name: String?; public let cloudOrigin: String }
-    public struct Service: Decodable { public let installed: Bool }
+    /// `manager` (PM-1124; absent from an older engine's snapshot): `app` when the service runs an engine package
+    /// (the app installed it), `checkout` for a git checkout.
+    public struct Service: Decodable { public let installed: Bool; public let manager: String? }
     public struct EngineProcess: Decodable { public let pid: Int?; public let version: String?; public let releaseTag: String? }
     public struct Link: Decodable {
         public let state: String; public let since: String?; public let attempts: Int
@@ -34,7 +36,7 @@ public struct Snapshot: Decodable {
 }
 public struct Logs: Decodable { public let out: [String]; public let err: [String] }
 public enum Fetch {
-    case loading, ready(Snapshot), updateNeeded, unavailable(String)
+    case loading, ready(Snapshot), updateNeeded, unavailable(String), notInstalled
     public static func decode(_ data: Data) -> Fetch {
         struct Version: Decodable { let schemaVersion: Int }
         let decoder = JSONDecoder()

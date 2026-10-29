@@ -170,37 +170,46 @@ and `npm run engine -- logs [--lines N]` the end of the service's logs. The plis
 that a stop or restart does not kill the engine while it pauses the work: **on a machine where the service is
 already installed, run `npm run engine -- service install` once more** for the new setting to apply.
 
-## Engine menu bar app (macOS 13+, PM-1088)
+## Engine menu bar app (macOS 13+, PM-1088, PM-1125)
 
-On the engine's Mac, from its checkout, install Apple's Command Line Tools if needed
-(`xcode-select --install`), then run:
+The engine's Mac gets the engine from the downloaded app (`projectman motor.app`, the engine app
+package of PM-1104); nothing is built on the Mac any more. `npm run engine -- app install` is
+retired (`REFUSED [app_install_retired]`).
 
-```
-npm run engine -- app install
-```
+**First launch.** Open the downloaded app. It checks the machine first: Apple Silicon and macOS 13 or
+later are required (otherwise a window says so and nothing is installed), and the Xcode command line tools
+must be present (the window offers `xcode-select --install` and checks again every 5 seconds). The app then
+moves itself to `/Applications` (or `~/Applications` when that is not writable) and starts again from there;
+if neither works, an alert says so and the app quits.
 
-This builds a native Swift app, ad-hoc signs it and installs it as
-`~/Applications/projectman motor.app`. A LaunchAgent starts it now and at login; it restarts
-after a crash. Quit closes the menu app until the next login and leaves the engine running.
-The menu shows the engine's state, work count, keep-awake state and local details. Start,
-Stop and Restart control the engine's installed service. A terminal-started engine must be
-stopped in that terminal; a stopped engine without a service offers the service install command.
+**Install.** A window lists the steps: remove the PM-1088 app (only if it is there), unpack the engine into
+`~/Library/Application Support/projectman/engine/versions/<version>`, run `service install --path <PATH>`
+(the PATH comes from the user's login shell, with a fallback list), register the background item and start
+the engine. The layout is `engine/versions/<version>`, `engine/current` (a link to the running version) and
+`engine/bin/projectman-engine` (a shim). The running and the previous version are kept; `~/.projectman` is
+never touched. macOS asks for the background item to be allowed: the app opens System Settings, Login Items
+and waits (checking every 2 seconds). When a step fails, the app undoes the half-done parts and shows the
+`REFUSED [code]` line with a copy button; running the app again retries. When the engine is not set up yet
+(no `engine.json` or key), the app waits until it is wired and then installs the service itself.
 
-The app reads the engine LaunchAgent on each query, so a release's new checkout is picked up
-automatically. A release does not rebuild the menu app. To update it, run `app install` again;
-this is required when the status schema version changes. Build/sign failures preserve the
-existing app. All paths belong to the current macOS user. Build cache:
-`~/Library/Caches/projectman/menubar-build`; fallback CLI location:
-`~/Library/Application Support/projectman/menubar.json`. Engine data is not removed by:
+**Switching from PM-1088.** On launch the app removes the old `com.projectman.engine-menubar` agent, its
+plist, its app and `menubar.json`. When the engine is already installed this happens silently; a deletion
+that fails is logged and retried at the next launch. A Mac that runs the engine from a checkout (the admin
+Mac) only gets the menu: the app does not install, switch or uninstall there.
 
-```
-npm run engine -- app uninstall
-```
+**Menu.** The menu shows the engine's state, work count, keep-awake state and local details. Start, Stop
+and Restart control the engine's installed service. Quit closes the menu app until the next login and leaves
+the engine running. A terminal-started engine must be stopped in that terminal.
 
-Uninstall removes the app, its LaunchAgent, fallback location and build cache. If macOS disables
-the background item in Login Items, enable it there before reinstalling. Test the Swift core
-with `swift test --package-path deploy/mac/menubar`; the Node fixture guard checks the CLI
-contract. Native menu screenshots and VoiceOver checks require the logged-in Mac desktop.
+**Removing the engine.** If the service is app-managed, Details has "Motor eltávolítása…". It asks for
+confirmation, then runs `service uninstall`, deletes `engine/`, unregisters the background item and shows the
+result; `~/.projectman` stays. Afterwards drag the app to the Trash. Without the app:
+`npm run engine -- service uninstall`.
+
+`npm run engine -- app uninstall` still removes what PM-1088 left (app, agent, `menubar.json`, build cache)
+for a Mac where the old app is still installed. Test the Swift core with
+`swift test --package-path deploy/mac/menubar`; the Node fixture guard checks the CLI contract. Native
+screenshots, Login Items approval and VoiceOver checks require the logged-in Mac desktop.
 
 ## Separate work volume on a Mac (PM-846)
 

@@ -1945,28 +1945,37 @@ workers follow the machine's size.
   repository, so the write happens there and nothing crosses the server/engine boundary.
   Related: the Codex `packed-refs.lock` grant of PM-411.
 
-- **Engine menu bar app (PM-1088)** — `deploy/mac/menubar/` (Swift 5.9 package, AppKit
-  `NSStatusItem` / `NSMenu` and a SwiftUI details window), `scripts/engine/menubar.ts`,
-  `deploy/mac/com.projectman.engine-menubar.plist`. `npm run engine -- app install|uninstall`
-  builds locally with Command Line Tools, assembles and ad-hoc signs
-  `~/Applications/projectman motor.app`, and registers its Aqua LaunchAgent in
-  `~/Library/LaunchAgents`. `KeepAlive {SuccessfulExit:false}` restarts crashes; a clean Quit
-  leaves the engine running and the menu app closed until the next login. Installation state is
-  `~/Library/Application Support/projectman/menubar.json`; build files live in
-  `~/Library/Caches/projectman/menubar-build`. **Machine assumptions:** macOS 13+, Swift Command
-  Line Tools, `codesign`, `launchctl`, the logged-in user's Applications and Library folders.
-  The app re-reads the engine service's plist before every CLI call to follow release checkout
-  changes; only when that plist is absent does it use `menubar.json`. It calls the local
-  `scripts/engine/cli.ts`, takes `overall` from `status --json` without deriving engine state,
+- **Engine menu bar app (PM-1088, PM-1125)** — `deploy/mac/menubar/` (Swift 5.9 package, AppKit
+  `NSStatusItem` / `NSMenu` and SwiftUI details and setup windows; logic in `EngineMenuCore` behind
+  seams, UI in `EngineMenu`), `scripts/engine/menubar.ts`. PM-1125: the downloaded app
+  (`com.projectman.engine-app`) installs itself on first launch: it moves itself to `/Applications`
+  (fallback `~/Applications`), checks the prerequisites (Apple Silicon, macOS 13+, command line tools),
+  copies the bundled engine package (`ditto` to `.partial`, then rename) into
+  `~/Library/Application Support/projectman/engine/{versions/<ver>,current,bin/projectman-engine}`,
+  runs `service install --path <PATH>` (PATH from `$SHELL -l -i -c`, 10 s timeout, fallback list),
+  registers the background item (`SMAppService`, approval in System Settings, Login Items) and starts
+  the engine; a failed step is undone. The same launch removes the PM-1088 app (`launchctl bootout`
+  of `com.projectman.engine-menubar`, its plist, app and `menubar.json`). The app's Details window
+  uninstalls an app-managed engine (`service uninstall`, delete `engine/`, unregister); `~/.projectman`
+  stays. A checkout-managed (admin) Mac only shows the menu. `npm run engine -- app install` is
+  retired (`app_install_retired`); `app uninstall` removes the PM-1088 leftovers.
+  `KeepAlive {SuccessfulExit:false}` of PM-1088 no longer applies; the service is the engine's
+  LaunchAgent. **Machine assumptions:** macOS 13+ on Apple Silicon, Command Line Tools, `ditto`,
+  `launchctl`, the login shell, `SMAppService`, the logged-in user's Applications and Library folders.
+  The app re-reads the engine service's plist before every CLI call to follow release changes; then
+  the engine package root (`engine/current`), and only then `menubar.json` (legacy). A package
+  runs `<root>/bin/node <root>/scripts/engine/cli.js`, a checkout `node --import tsx cli.ts`.
+  It takes `overall` from `status --json` without deriving engine state,
   and passes only PATH, HOME and a temporary directory to node. Polls are serialized (15 s only
   while the menu or the details window is open, 60 s otherwise even if sessions run, and a poll runs
   on every menu open; 2 s while awaiting an action's target, up to 120 s). Each poll starts a node
   process, so `status` and `logs` stay cheap: `move-work-root` loads lazily, and the
   `engine-config` import of the whole kernel barrel (`effect` included) remains the main cost
   (PM-1110).
-  **Remote engine:** the app and CLI both run on the engine's Mac; nothing crosses the
-  server/engine boundary. Linux and Windows are unsupported. Existing inventory entry:
-  “Engine service (launchd)” (its plist is read, not changed by the menu app).
+  **Remote engine:** the app, the install, the removal and the CLI all run on the engine's Mac;
+  nothing crosses the server/engine boundary and there is no new cloud request. Linux and Windows
+  are unsupported. Existing inventory entries: “Engine service (launchd)” (the app runs its
+  `service install|uninstall`) and “Engine app package (PM-1104, PM-1121)” (the bundled engine).
   Core checks: `swift test --package-path deploy/mac/menubar`; fixture compatibility is checked
   by `apps/server/test/engine-menubar.test.ts`. **Module:** `deploy`, `scripts`.
 
@@ -4592,6 +4601,10 @@ assumption or remote-engine RPC.
   Corrupt state is exposed as a reporting-only `recovery_required`/`switch_state_invalid`
   snapshot with unknown target, while the CLI's mutation reader remains strict.
   The additive snapshot fields are `service.manager`, `package` and `switch` (schema version 1).
+  PM-1125: the downloaded app calls `service install --path <PATH>` on first launch and
+  `service uninstall` when the owner removes the engine; it decides "app-managed" from
+  `service.manager == 'app'`, so a checkout-managed engine is never installed over or removed by the
+  app. All of it runs on the engine's Mac; no new cloud request.
   PM-1113 runs the compiled `apps/server/dist/index.js` under Node, without a TypeScript loader;
   build the engine checkout before installing or updating the service. The build and launchd
   operations run on the engine machine; no compiled source crosses engine RPC.

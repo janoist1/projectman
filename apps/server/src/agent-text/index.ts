@@ -6,7 +6,6 @@
  */
 export { describeAttachment, formatBytes } from './attachments';
 export { cardQuestionLines, cardWorkerLines, stateText } from './card-thread';
-export { focusPlaceText } from './focus';
 export { describeLink, linkTarget } from './links';
 export { relationLines, relationPhrase } from './relations';
 export { relationNoticeText, type RelationNoticeRelation } from './relation-notice';

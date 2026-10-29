@@ -68,8 +68,6 @@ import {
   Me,
   MemberView,
   ProjectPauseView,
-  ProjectFocusChanges,
-  ProjectFocusView,
   ProjectSummary,
   ScheduleRun,
   SchedulesView,
@@ -442,25 +440,6 @@ export const api = {
   schedules: (key: string) => apiRequest(routes.schedules(key), { schema: SchedulesView }),
   runSchedule: (key: string, handle: string) =>
     apiRequest(routes.runSchedule(key, handle), { method: 'POST', schema: ScheduleRun }),
-
-  /** The project's focus (PM-427): every write answers with the whole view. */
-  projectFocus: (key: string) => apiRequest(routes.projectFocus(key), { schema: ProjectFocusView }),
-  addFocusItem: (key: string, taskKey: string, position?: number) =>
-    apiRequest(routes.projectFocusItems(key), {
-      method: 'POST',
-      body: { key: taskKey, ...(position !== undefined ? { position } : {}) },
-      schema: ProjectFocusView,
-    }),
-  moveFocusItem: (key: string, taskKey: string, position: number) =>
-    apiRequest(routes.projectFocusItem(key, taskKey), {
-      method: 'PATCH',
-      body: { position },
-      schema: ProjectFocusView,
-    }),
-  removeFocusItem: (key: string, taskKey: string) =>
-    apiRequest(routes.projectFocusItem(key, taskKey), { method: 'DELETE', schema: ProjectFocusView }),
-  projectFocusChanges: (key: string, limit = 50) =>
-    apiRequest(`${routes.projectFocusChanges(key)}?limit=${limit}`, { schema: ProjectFocusChanges }),
 
   /** The pause (PM-219): a project's view holds its own and the instance's; the POSTs take an empty body. */
   pauseProject: (key: string) =>

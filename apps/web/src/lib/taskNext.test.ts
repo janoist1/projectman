@@ -104,7 +104,6 @@ describe('deriveNext: the card row of "Miért áll?" (PM-461)', () => {
     'engine_offline',
     'no_free_member',
     'senior_busy',
-    'focus_order',
   ] as const)('shows the intentional ready wait %s', (reason) => {
     const next = deriveNext(
       task,

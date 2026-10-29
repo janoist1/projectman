@@ -92,7 +92,6 @@ export const UNREWRITTEN_HANDLE_COLUMNS: Readonly<Record<string, string>> = {
   'sessions.cwd': 'a storage path under the member storage handle',
   'sessions.transcript_path': 'a storage path under the member storage handle',
   'operator_signals.case_key': 'identifies a recorded case, historical',
-  'project_focus_items.added_by': 'a JSON actor, historical',
   'invitations.invited_by': 'the human who invited; an AI member does not invite',
   'system_feedback_items.forwarded_by': 'an owner decides; an AI member does not',
   'system_feedback_items.dismissed_by': 'an owner decides; an AI member does not',

@@ -444,19 +444,14 @@ describe('the start offer to the project manager', () => {
     });
   });
 
-  describe('urgent and focus cards', () => {
+  describe('urgent cards', () => {
     it('are not offered: the pull starts them', async () => {
       await harness();
       const hot = await create('Urgent card', { priority: 'urgent' });
-      const focused = await idea('Focus card');
-      await h.domain.projectFocus.add('AR', focused, OWNER_ACTOR);
-      await h.domain.tasks.moveToStage('AR', focused, 'ready', OWNER_ACTOR);
       await settle();
       await vi.waitFor(() => expect(task(hot).assignee).not.toBeNull());
-      await vi.waitFor(() => expect(task(focused).assignee).not.toBeNull());
       expect(offers()).toEqual([]);
       expect(startRows(hot)).toEqual([]);
-      expect(startRows(focused)).toEqual([]);
     });
 
     it('fulfil an open offer when the card turns urgent and the pull starts it', async () => {
@@ -474,7 +469,7 @@ describe('the start offer to the project manager', () => {
     });
   });
 
-  it('does not pull a non-urgent card outside the focus', async () => {
+  it('does not pull a non-urgent card', async () => {
     await harness();
     const key = await create('Plain card');
     await settle();

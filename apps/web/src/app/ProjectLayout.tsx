@@ -6,7 +6,6 @@ import { isApiError } from '../api/client';
 import { useBoard, useConfig, useInbox } from '../api/queries';
 import { useProjectSubscription } from '../api/socketHooks';
 import { AttachmentUploadsProvider } from '../features/board/attachmentUploads';
-import { FocusProvider } from '../features/focus/FocusContext';
 import { noBoardFilters } from '../features/board/boardFilters';
 import type { BoardFilters } from '../features/board/boardFilters';
 import { NewTaskDialog } from '../features/board/NewTaskDialog';
@@ -167,7 +166,7 @@ export function ProjectLayout() {
     <ProjectContext.Provider value={value}>
       {/* Above the board and the open card: a file dropped on a card goes on when the card is opened. */}
       <AttachmentUploadsProvider key={projectKey}>
-        <FocusProvider>
+        <>
           <div className={clsx(styles.shell, fixedBoard && styles.boardShell)}>
             <a href="#main" className={styles.skip}>
               {t('app.skipToContent')}
@@ -206,7 +205,7 @@ export function ProjectLayout() {
             onClose={() => setPauseOpen(false)}
             onRequested={setRequestedPauseId}
           />
-        </FocusProvider>
+        </>
       </AttachmentUploadsProvider>
     </ProjectContext.Provider>
   );

@@ -80,7 +80,6 @@ import { isoNow } from '../../core/base';
 import type { DomainContext } from '../../core/base';
 import { conflict, DomainError, forbidden, invalid, notFound } from '../../kernel';
 import type { MemberService } from '../../core/members';
-import type { ProjectFocusService } from '../../core/tasks';
 import type { ConfigChange, ProjectService } from '../../core/projects';
 import { RoundCompaction } from './compaction';
 import { DoneCleanup } from './done-cleanup';
@@ -152,8 +151,6 @@ export interface SessionOrchestratorDeps {
   ctx: DomainContext;
   projects: ProjectService;
   tasks: TaskService;
-  /** The project's focus (PM-437), named in the kick-off brief. */
-  projectFocus: Pick<ProjectFocusService, 'get' | 'places'>;
   members: MemberService;
   /** Members whose starts a handle rename holds back (PM-1025). */
   startHolds?: Pick<StartHolds, 'assertFree'>;

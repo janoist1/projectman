@@ -21,7 +21,7 @@ export * from './methods';
 export * from './rpc';
 export { createEngineEventBuffer } from './event-buffer';
 export { createCloudRemote } from './remote';
-export { createAppTagReader, resolveAppTag, resolveAppVersion } from './version';
+export { createAppTagReader,resolveAppTag, resolveAppVersion } from './version';
 export { createEngineAudit } from './engine-audit';
 export { createEngineClient } from './engine-client';
 export type { LinkSocketFactory } from './engine-client';

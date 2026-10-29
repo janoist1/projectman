@@ -1723,7 +1723,7 @@ describe('system prompt', () => {
         );
         expect(unblock).not.toContain('answer_stalled signal you may take');
         expect(unblock).toContain("with the signal's signal_id");
-        expect(unblock).toContain('Weigh it first: the focus, the priorities, and the check before a start.');
+        expect(unblock).toContain('Weigh it first: the priorities, and the check before a start.');
         expect(unblock).toContain('When you do not step, say why.');
         expect(unblock).toContain('It is one step per signal (steps_left).');
         expect(unblock).toContain('follow_up true');
@@ -2242,22 +2242,6 @@ describe('kick-off brief', () => {
     expect(builder.build(input({})).initialMessage ?? '').not.toContain('## Theme');
   });
 
-  it('lists the project focus and the place of the card, and has no section without one (PM-437)', () => {
-    const items = [
-      { position: 1, key: 'AR-30', title: 'The epic', kind: 'theme' as const },
-      { position: 3, key: 'AR-12', title: 'Fix login', kind: 'task' as const },
-    ];
-    const header =
-      '## Project focus\nWhat the team works on now, in this order. Urgent cards come first even outside it. Only people set it.\n1. AR-30 (theme) The epic\n3. AR-12 Fix login\n';
-    const via = builder.build(input({ focus: { items, place: { position: 1, via: 'AR-30' } } }));
-    expect(via.initialMessage ?? '').toContain(`${header}Your card is in the focus: place 1 (via AR-30).`);
-    const itself = builder.build(input({ focus: { items, place: { position: 3 } } }));
-    expect(itself.initialMessage ?? '').toContain(`${header}Your card is in the focus: place 3.`);
-    const outside = builder.build(input({ focus: { items, place: null } }));
-    expect(outside.initialMessage ?? '').toContain(`${header}Your card is not in the focus.`);
-    expect(builder.build(input({})).initialMessage ?? '').not.toContain('## Project focus');
-  });
-
   it('cuts very long descriptions', () => {
     const brief =
       builder.build(input({ task: makeTask({ description: 'z'.repeat(20_000) }) })).initialMessage ?? '';
@@ -2664,7 +2648,7 @@ describe('expected steps', () => {
     const pm = builder.build(input({ project, handle: 'pm' })).guide.role!;
     expect(pm).toContain('A system message that names cards that can start now is an action');
     expect(pm).toContain(
-      'in the order it gives (urgent, focus place, priority high, normal, low, none, then board order)',
+      'in the order it gives (urgent, priority high, normal, low, none, then board order)',
     );
     expect(pm).toContain('the system picks the developer, and you need no owner request');
     expect(pm).toContain('move it back to the first queue stage yourself');

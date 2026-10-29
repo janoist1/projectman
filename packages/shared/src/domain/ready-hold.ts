@@ -10,7 +10,6 @@ export const ReadyHoldReason = z.enum([
   'engine_offline',
   'no_free_member',
   'senior_busy',
-  'focus_order',
 ]);
 export type ReadyHoldReason = z.infer<typeof ReadyHoldReason>;
 

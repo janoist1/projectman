@@ -710,7 +710,7 @@ construction order; the factories return the existing classes without changing b
 | `agent-text`                                      | Text formatting for agent-facing context.                                   |
 | [`core/base`](modules/core-base.md)               | Domain context, units of work, domain events and the websocket event bus.   |
 | [`core/projects`](modules/core-projects.md)       | Projects, roles, stage reviewers and visibility.                            |
-| [`core/tasks`](modules/core-tasks.md)             | Tasks, PR records, board state, focus, involvement and card measures.       |
+| [`core/tasks`](modules/core-tasks.md)             | Tasks, PR records, board state, involvement and card measures.              |
 | [`core/members`](modules/core-members.md)         | Member access, invitations, presence and naming.                            |
 | [`core/timeline`](modules/core-timeline.md)       | Append-only task and project timeline access.                               |
 | [`core/messages`](modules/core-messages.md)       | Stored messages, sending/session-chat rules and runtime routing port.       |
@@ -1199,8 +1199,8 @@ at)`, index `(project_key, seq)` (migration 81). `seq` never goes back, also not
   time), never a rule and never content.
 - **Coverage matrix.** `CHANGE_TRIGGER_TABLES` lists the tables the card's read model is made of, with the
   statements that announce, the project and the entity: the card and its side tables (links, attachments,
-  covers, fix limits, hand-ons and hand-overs, review pins, loops, waits, deferred starts, full-test runs,
-  focus items) name the card key in kind `task` (a link names the card's project through the card, a
+  covers, fix limits, hand-ons and hand-overs, review pins, loops, waits, deferred starts, full-test runs)
+  name the card key in kind `task` (a link names the card's project through the card, a
   card removed by a cascade is announced by its own row); `timeline_events`, `team_messages`,
   `message_attachments`, the inbox and its question groups, `task_handoffs`, the operator requests and
   their steps (the step names its request and the request's project), the super-operation audit,
@@ -1989,6 +1989,25 @@ workers follow the machine's size.
   “Engine service (launchd)” (its plist is read, not changed by the menu app).
   Core checks: `swift test --package-path deploy/mac/menubar`; fixture compatibility is checked
   by `apps/server/test/engine-menubar.test.ts`. **Module:** `deploy`, `scripts`.
+
+- **Engine app package (PM-1104, PM-1121)** — `scripts/engine-app/` (`npm run engine-app -- package
+  --commit <sha> --out <dir>`), `deploy/mac/app/node.json` (the pinned Node), the manifest contract
+  `apps/server/src/contracts/engine-package.ts`, its reader `engine-link/engine-package.ts`. One command builds a
+  self-contained engine from one commit into `<dir>/<sha>/`: a clean checkout (`scripts/release/checkout.ts`), the
+  pinned Node downloaded from nodejs.org and checked by its sha256, then `npm ci`, the server build, the engine
+  CLI bundle (`scripts/engine/cli.js`) and `npm prune --omit=dev`, all in the Sandbox Runtime with the pinned Node
+  first on the PATH (only registry.npmjs.org and nodejs.org reachable, like the PM-750 candidate in
+  `scripts/release/engine.ts`), so the native modules (better-sqlite3, node-pty, sqlite-vec) fit the bundled
+  Node's ABI. Layout (the contract the packaged service and the app build on): `engine-package.json`, `bin/node`,
+  `package.json`, `package-lock.json`, `node_modules/`, `packages/`, `apps/server/{package.json,dist/}`,
+  `scripts/engine/cli.js`, `deploy/mac/com.projectman.engine*.plist`. A package has no git: `resolveAppVersion` and
+  `resolveAppTag` read `engine-package.json` first, and `engine start` (`scripts/engine/start-command.ts`) runs
+  `bin/node apps/server/dist/index.js` when the file exists (checkout mode is unchanged). **Machine assumptions:**
+  macOS arm64 only, the Sandbox Runtime, the machine's heavy-run queue, `tar`, network to nodejs.org and the npm
+  registry, Xcode Command Line Tools when a native module has no prebuilt binary. **Remote engine:** the package
+  runs on the engine's Mac; nothing crosses the server/engine boundary (`installDir` already travels in the
+  hello). Not in the package: the menu bar app's Swift sources and the plist template of the packaged service
+  (PM-1124). **Module:** `scripts`, `deploy`, `contracts`, `engine-link`.
 
 - **Interrupted card continuation (PM-1092)** — `runtime/sessions/sessions.ts` closes lost live
   sessions with `server_restart` during startup or engine reconciliation; the internal `session_ended`
@@ -3295,7 +3314,7 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   owner's decision of 2026-10-20): `deletion` (a member, repository, project or key removed), `security` (an
   access level or a new owner member, a human member's login e-mail or kind, an AI member's permission mode, approver and outbound network, the boundary delegation, the Operator approval waiver and the keys) and
   `cost` (the consumption-billed NanoGPT runtime); until PM-762 supplies an exact owner grant, these fail
-  closed. Everything else (deploy and publishing, focus, repository and workspace paths, the other
+  closed. Everything else (deploy and publishing, repository and workspace paths, the other
   deletions, approval labels the key owner holds, decisions) the Operator does in its own name with the
   super key: `labelRefusal` opens the approval and human-only labels to a super actor when the key owner
   holds the label (self-review stays refused), and `superAccessVerdict` allows `approval` for the super mode. The repository merge queue's revision and complete permutation
@@ -5043,38 +5062,25 @@ again through its `payload.obligation`. The system never merges, decides or sets
 whose start takes the engine path as any message; an engine that is offline is a `start_refused` pause of
 the clock, not an error. No machine-dependent part is added, so the inventory does not change.
 
-### Project focus (PM-427, PM-435)
+### Urgent start order and pull (PM-436, PM-1107)
 
-A project has one ordered focus list of at most `PROJECT_FOCUS_MAX_ITEMS` (20) themes or cards the team works on now.
-The contract and the pure rules are in `packages/shared/src/domain/project-focus.ts`: `projectFocusRefusal` (who may
-set it) and `projectFocusPlaces` (key -> `FocusPlace`, the 1-based place and the item that covers the card). The
-later parts of PM-427 (the order of deferred starts, the AI members' brief, the web) build on both.
+The project focus (PM-427, PM-435, PM-438) was removed by PM-1107: its table, service, MCP tools, web strip and the
+focus place in the start order are gone. The pure start-order rules are in `packages/shared/src/domain/start-order.ts`:
+`startClass` (urgent or other), `compareStartClass`, `pullSourceStage`, `pullCandidates` and `startableCards`.
+Stored `focus_changed` timeline events and the `{ reason: 'focus', ... }` form of `StagePull` stay in the shared event
+contract and the web timeline, because the timeline is append-only and old events must keep rendering.
+Migration 125 drops the then empty table `project_focus_items`.
 
-- **Storage.** Table `project_focus_items` (migration 43; `(project_key, task_key)` is the key, `position` the order,
-  `added_by` the actor as JSON), repository `repos.projectFocus` with `list(projectKey)` and `replace(projectKey, items)`.
-  `ProjectFocusService` (`core/tasks`) replaces the list and appends the timeline event in
-  one unit of work; the `project_focus_changed` WebSocket event leaves when that commits, then the `onChange` listeners
-  run. A write that leaves an item where it was writes nothing. The service takes nothing off by itself: a closed item
-  stays until a person removes it, covers nothing, and still counts in the numbering.
-- **Coverage.** A card covers itself and its subtasks; a theme covers itself and every card whose `themeKey` it is,
-  with their subtasks. A closed item covers nothing and a closed card has no place; the smallest place wins.
-- **Who sets it.** A person (`actor.kind === 'human'`, through the integrator too) who owns the project
-  (`ownerHandles`) or holds the `prioritization` duty (`dutyMembers`); no approval. An AI member or the system gets
-  `focus_humans_only`, any other person `focus_not_allowed`.
-- **Access.** There is no REST route for the focus list (PM-1030 deleted them; nothing called them): the MCP tools and
-  `ProjectFocusService` read and write it, and the domain refuses a write to anyone without the prioritization duty.
-- **Timeline.** `focus_changed` (`added`/`removed` on the item's own card or theme, `moved` without a card, so it shows
-  only in the project's changes). `task_stage_changed.data.pulled` (`StagePull`: `{ reason: 'urgent' }` or
-  `{ reason: 'focus', position, key, title }`) marks a card the system pulled into the work stage (below).
+- **Timeline.** `task_stage_changed.data.pulled` (`StagePull`: `{ reason: 'urgent' }`; old events may also carry
+  `{ reason: 'focus', ... }`) marks a card the system pulled into the work stage (below).
 - **Order of deferred starts (PM-436).** `Admission.retryDeferred` ranks the stored starts by `startClass` /
-  `compareStartClass` (shared): urgent (the card's priority is `urgent`), then focus by place, then the others; within
-  a class the `senior_busy` waits first, then the store order, so without focus or urgent cards the old order holds.
-  The places are read once per project and round. Rounds run one after the other: a start being retried is out of
+  `compareStartClass` (shared): urgent (the card's priority is `urgent`), then the others; within
+  a class the `senior_busy` waits first, then the store order, so without urgent cards the old order holds.
+  Rounds run one after the other: a start being retried is out of
   the store, so an overlapping round would not see it; a round asked for while one runs makes the running one go once more.
 - **Pull (PM-436).** At the end of every `retryDeferred` round (so on every event that retries the deferred starts) the
-  `FocusPull` (`admission/focus-pull.ts`) gives a free developer a ready (Indulhat) card from the queue stage before
-  the work stage (`pullSourceStage`): `pullCandidates` takes the urgent cards (board order), then the focus cards by
-  place. A candidate is an active card, not a theme or a collector with any subtasks (closed ones included, PM-818), with no assignee,
+  `UrgentPull` (`admission/urgent-pull.ts`) gives a free developer a ready (Indulhat) card from the queue stage before
+  the work stage (`pullSourceStage`): `pullCandidates` takes the urgent cards (board order). A candidate is an active card, not a theme or a collector with any subtasks (closed ones included, PM-818), with no assignee,
   no open prerequisite, no start block
   (`startBlock`, so no `waiting-answer`) and nothing more asked by the gates on the way: a card that would need
   `approvals` is left out, so a pull never requests one. The developer is picked as for any start (`chooseDeveloper`: a card
@@ -5088,7 +5094,7 @@ later parts of PM-427 (the order of deferred starts, the AI members' brief, the 
   Automatic work starts also leave themes and collectors with any subtasks unassigned (PM-586, PM-818), using
   `canAutomaticallyStartTask` (shared) before choosing a developer and again before assignment. A deferred
   work start is dropped on retry when its card gains a subtask. Explicit manual starts remain available.
-  A new round starts at once on a focus change (`ProjectFocusService.onChange`), on a priority set to `urgent` (the
+  A new round starts at once on a priority set to `urgent` (the
   internal `task_priority_changed` event) and on a card entering the queue stage, besides the freeing of a developer.
   The start round (`StartRound`) reads the whole active queue (`queue` read), assigned cards too (PM-879): an
   assigned card is offered to its own assignee when they are free and never pulled. The offer asks the pm for
@@ -5101,15 +5107,14 @@ later parts of PM-427 (the order of deferred starts, the AI members' brief, the 
 - **Targeted reads (PM-770).** The retry, the pull and the startup recovery do not read a project's whole card list.
   `TaskSchedulingReader.readSchedulingTasks(projectKey, query)` (`contracts/task-scheduling.ts`, implemented by
   `TaskService` over `TaskRepository.readScheduling` in `db/tasks.ts`) returns stored rows with their own links, in
-  ascending number, without the board view and the derived fields. The queries are `keys` (exact cards), `focus` (the
-  cards a project focus covers: the focused roots, the open cards of a focused theme, and their subtasks), `pull` (the
-  open cards of the queue stage that are urgent or focused), `children` (the open subtasks of cards), `open` (every
+  ascending number, without the board view and the derived fields. The queries are `keys` (exact cards), `pull` (the
+  open cards of the queue stage that are urgent), `queue` (all active cards of the queue stage), `children` (the open subtasks of cards), `open` (every
   open card) and `closed-worktrees` (closed cards past a closing time, paged by number). The pure rules stay in
   `packages/shared` (`pullCandidates`, `startableCards`, `openPrerequisites`, `startClass`, `canAutomaticallyStartTask`,
   `startBlock`, `stageAdvance`, `mergeReadiness`, `cardMerger`) and run over these rows; SQL only narrows the set they
   see, it copies none of them. `startContext` (`core/tasks/scheduling-context.ts`) adds all subtasks (with `includeClosed: true`) and
   prerequisite targets the rules look at to the candidates, and `prerequisiteCards` reads just the cards a card's
-  `prerequisite` links name. `FocusPull` looks for a free developer first: with none, no card is read. Migration 78
+  `prerequisite` links name. `UrgentPull` looks for a free developer first: with none, no card is read. Migration 78
   adds the partial indexes `tasks_scheduling_pull`, `tasks_scheduling_open` and `tasks_scheduling_closed`. The
   startup recovery (`AutoAdvance.sweep`, `Merges.reconcileProject`) reads the open cards, and for merges also the
   cards of the open merge records, a closed card too, so a record is still reconciled; `Merges.reconcileCard` decides
@@ -5144,8 +5149,6 @@ later parts of PM-427 (the order of deferred starts, the AI members' brief, the 
   milestones, repeated conflicts, shared/distinct original windows and signals held by budget/admission/engine
   refusal, preserving the PM-769/771 seed and scenarios. It records CPU user/system time, wall median/p95, hydrated
   rows and computation/read counts separately from startup and seeding.
-- **Clients.** A client sees the focus like a viewer (PM-79): the endpoints, `project_focus_changed`, `focus_changed` and
-  the `pulled` mark of a stage change; they cannot set it.
 
 **Remote engine:** the pull and the order are server-side domain rules over stored data and the existing start path; no
 new machine-dependent part (the start itself is the inventory's existing work start), so the inventory does not change.
@@ -5525,7 +5528,7 @@ listAnsweredQuestions`). `list_decision_candidates { limit? }` (1..50, default 2
   more, the owners get one `work_stalled` inbox alert per stall (cards, free members, and the not-free AI
   owners with `leave`, `provider_hold`, `engine_offline` or `busy`), withdrawn when the stall ends. `idle`, `merge_waiting` and `ready_waiting` do not exist while AI is off or the
   team is paused. All data comes from the server's database and configuration: no machine-dependent part.
-  `startableCards` shares the pull rules without the urgent or focus filter: no assignee, open prerequisite,
+  `startableCards` shares the pull rules without the urgent filter: no assignee, open prerequisite,
   holding label, refinement, open subtask or unmet gate. The subject lists all startable card keys in numeric
   order. The latest dismissed signal acknowledges its subject cards when their stage entry (or creation)
   is no later than its decision, even after resolution or capacity changes. No case exists when all are

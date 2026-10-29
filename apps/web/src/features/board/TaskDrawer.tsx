@@ -70,7 +70,6 @@ import { TaskAttachments } from './TaskAttachments';
 import { TaskTimeline } from './TimelineAttachment';
 import { TaskCommentComposer } from './TaskCommentComposer';
 import { TaskDescription } from './TaskEdit';
-import { FocusRow } from '../focus/FocusRow';
 import { TaskProperties } from './TaskProperties';
 import { TaskThread } from './TaskThread';
 import { TaskRounds, TaskUsage } from './TaskUsage';
@@ -610,12 +609,7 @@ export function TaskDrawer() {
         </div>
 
         {theme ? (
-          <>
-            <ThemeSummary task={task} tasks={cards} />
-            <section className={drawer.props}>
-              <FocusRow key={`focus:${task.key}`} task={task} />
-            </section>
-          </>
+          <ThemeSummary task={task} tasks={cards} />
         ) : (
           <TaskProperties
             task={task}

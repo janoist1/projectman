@@ -47,7 +47,7 @@ After two warmup rounds each path runs ten complete rounds, repeated five times:
 
 - `pending`: read each recipient's pending messages, then count messages waiting for the local
   engine. This intentionally includes both the delivery read and the settings/outage count.
-- `thirty`: deferred admission/focus pull, review watch, full-test recovery and outage checks.
+- `thirty`: deferred admission/urgent pull, review watch, full-test recovery and outage checks.
 - `sixty`: loop watch and Operator signal reconciliation, including structural patterns.
 - `combined`: the two periodic paths and the pending path in sequence.
 
@@ -118,7 +118,7 @@ The 30 second path (`thirty`, 10,000/100,000 messages): the original and PM-769 
 100k/20k run was lost, see above). PM-770 reads 33 SQL calls, 0 cards, 0 links and 0 messages
 at both scales and both scenarios (about 0.3–1 ms CPU), because the harness has no free
 developer: free developers are checked before any card is read. Starts with a free developer
-are covered by the read-counting tests in `focus-pull.test.ts` and `task-scheduling-reads.test.ts`.
+are covered by the read-counting tests in `urgent-pull.test.ts` and `task-scheduling-reads.test.ts`.
 
 ## Operator history reads (PM-771)
 

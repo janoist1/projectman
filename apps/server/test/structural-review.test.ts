@@ -3,9 +3,9 @@ import { PatternFacts, structuralReviewOf, coordinatorSuperActorOf } from '@proj
 import type { AiMemberConfig, TimelineEvent } from '@projectman/shared';
 import type { IntegratorExecutionScope, MemberStartResult } from '../src/contracts';
 import { forbidden, runIntegratorExecution } from '../src/kernel';
-import { StructuralPatterns, normalizedEvidencePath } from '../src/services/operator/structural-patterns';
-import { CoordinationRequests, StructuralReviews } from '../src/services/operator';
-import { OperatorTools } from '../src/mcp/operator/handler';
+import { StructuralPatterns, normalizedEvidencePath } from '../src/services/coordination/structural-patterns';
+import { CoordinationRequests, StructuralReviews } from '../src/services/coordination';
+import { OperatorTools } from '../src/mcp/project-manager/handler';
 import {
   createDomainHarness,
   OWNER_ACTOR,

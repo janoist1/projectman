@@ -3,27 +3,23 @@ import { isRepoFilePath } from '../config/project-docs';
 
 export const STRUCTURE_MAP_PATH = 'projectman.structure.yaml';
 export const STRUCTURE_RECENT_DONE_DAYS = 14;
-export const StructureId = z.string().regex(/^[a-z0-9][a-z0-9/_-]{0,63}$/);
-export type StructureId = z.infer<typeof StructureId>;
+const StructureId = z.string().regex(/^[a-z0-9][a-z0-9/_-]{0,63}$/);
+type StructureId = z.infer<typeof StructureId>;
 export function isStructurePath(path: string): boolean {
   return isRepoFilePath(path.endsWith('/') ? path.slice(0, -1) : path);
 }
-export const StructurePath = z
-  .string()
-  .min(1)
-  .max(201)
-  .refine(isStructurePath, 'Not a repository file or folder');
-export type StructurePath = z.infer<typeof StructurePath>;
+const StructurePath = z.string().min(1).max(201).refine(isStructurePath, 'Not a repository file or folder');
+type StructurePath = z.infer<typeof StructurePath>;
 export const STRUCTURE_MODULE_KINDS = ['module', 'core', 'store', 'external'] as const;
-export const StructureModuleKind = z.enum(STRUCTURE_MODULE_KINDS);
-export type StructureModuleKind = z.infer<typeof StructureModuleKind>;
-export const StructureArea = z.strictObject({
+const StructureModuleKind = z.enum(STRUCTURE_MODULE_KINDS);
+type StructureModuleKind = z.infer<typeof StructureModuleKind>;
+const StructureArea = z.strictObject({
   id: StructureId,
   name: z.string().trim().min(1).max(40),
   summary: z.string().trim().min(1).max(160).optional(),
 });
-export type StructureArea = z.infer<typeof StructureArea>;
-export const StructureModule = z.strictObject({
+type StructureArea = z.infer<typeof StructureArea>;
+const StructureModule = z.strictObject({
   id: StructureId,
   area: StructureId,
   kind: StructureModuleKind.default('module'),
@@ -31,7 +27,7 @@ export const StructureModule = z.strictObject({
   summary: z.string().trim().min(1).max(160),
   paths: z.array(StructurePath).max(50).default([]),
 });
-export type StructureModule = z.infer<typeof StructureModule>;
+type StructureModule = z.infer<typeof StructureModule>;
 /** From drives or uses to. */
 export const StructureLink = z.strictObject({
   from: StructureId,
@@ -131,8 +127,8 @@ export interface StructureCard {
   unmapped: string[];
   truncated: boolean;
 }
-export type StructureRepoStatus = 'ok' | 'missing' | 'invalid' | 'unavailable';
-export type StructureUnavailableReason = 'engine_offline' | 'not_allowed' | 'failed';
+type StructureRepoStatus = 'ok' | 'missing' | 'invalid' | 'unavailable';
+type StructureUnavailableReason = 'engine_offline' | 'not_allowed' | 'failed';
 export interface StructureRepoView {
   repo: string;
   status: StructureRepoStatus;

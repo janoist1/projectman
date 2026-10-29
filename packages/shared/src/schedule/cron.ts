@@ -1,4 +1,11 @@
-/** Numeric five-field cron. Restricted day-of-month and weekday fields use OR. */
+/** The longest month day of each month; February counts its leap day, which `nextCronRun`'s horizon reaches. */
+const MONTH_DAYS = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+/**
+ * Numeric five-field cron. Restricted day-of-month and weekday fields use OR. An expression whose
+ * month days exist in none of its months (`0 0 31 2 *`) never runs, so it is refused here rather than
+ * searched for over the whole horizon.
+ */
 export function parseCron(expression: string) {
   const fields = expression.trim().split(/\s+/);
   if (fields.length !== 5) throw new Error('Cron must have five fields');
@@ -26,7 +33,16 @@ export function parseCron(expression: string) {
     }
     return result;
   });
-  return { values, dayWildcard: fields[2]!.startsWith('*'), weekWildcard: fields[4]!.startsWith('*') };
+  const dayWildcard = fields[2]!.startsWith('*');
+  const weekWildcard = fields[4]!.startsWith('*');
+  // With OR the weekday alone can match; otherwise a month day has to exist in one of the months.
+  const [, , days, months] = values;
+  if (
+    (dayWildcard || weekWildcard) &&
+    ![...months!].some((month) => [...days!].some((day) => day <= MONTH_DAYS[month - 1]!))
+  )
+    throw new Error('Cron never matches a date');
+  return { values, dayWildcard, weekWildcard };
 }
 
 function formatter(timeZone: string) {

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { ErrorCode } from '../api/error-codes';
 import { EngineId } from './engine';
 import { AgentProvider } from './member';
 
@@ -12,7 +13,7 @@ export const ProviderOutageProblem = z.enum([
   'setup_incomplete',
 ]);
 export type ProviderOutageProblem = z.infer<typeof ProviderOutageProblem>;
-export const OutageEngine = z.object({ id: EngineId, name: z.string() });
+const OutageEngine = z.object({ id: EngineId, name: z.string() });
 export const WorkOutage = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('provider'),
@@ -33,7 +34,7 @@ export const OUTAGE_REFUSALS = [
   'nanogpt_setup_incomplete',
   'codex_setup_incomplete',
   'engine_offline',
-] as const;
+] as const satisfies readonly ErrorCode[];
 
 export function outageIdOf(
   target:

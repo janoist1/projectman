@@ -59,16 +59,6 @@ export const OPERATOR_READ_TOOLS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * The writes the Operator may make without an open request (PM-479): a finding about projectman itself is
- * recorded when it is found, not only while an owner is waiting. Under an approval continuation they stay
- * refused, and a guest conversation never reaches them (`OPERATOR_GUEST_TOOLS`).
- */
-export const OPERATOR_NO_REQUEST_WRITE_TOOLS: ReadonlySet<string> = new Set([
-  'record_system_feedback',
-  'update_checklist',
-]);
-
-/**
  * The PM's standing screening tools (legacy constant name), with no owner request or step logged:
  * question screening and signal triage are answered on their own records.
  * Never in a guest conversation.
@@ -87,17 +77,11 @@ export const OPERATOR_SCREENING_TOOLS: ReadonlySet<string> = new Set([
 export const PM_CARD_TOOLS: readonly string[] = ['reassign_task', 'cancel_task', 'reopen_task'];
 
 /**
- * The team tools the Operator never calls, request or not: decisions of other members, handovers and
- * publishing outside the machine.
- */
-
-/**
  * The team tools the Operator may call in a conversation with someone who is not an owner (PM-475):
  * it reads what that person can see, answers them (`send_message`, to them only), and changes only
  * their personal conversation style (PM-688).
  * `get_project_state` is left out on purpose: guest access needs a viewer filter in a separate task.
- * The history search reads with the guest's own view (PM-787). `get_history_search_stats` is here only so that
- * an admin's guest conversation reaches its own check; any other guest is refused `history_stats_forbidden`.
+ * The history search reads with the guest's own view (PM-787).
  */
 export const OPERATOR_GUEST_TOOLS: ReadonlySet<string> = new Set([
   'get_guide',
@@ -112,7 +96,6 @@ export const OPERATOR_GUEST_TOOLS: ReadonlySet<string> = new Set([
   'send_message',
   'search_history',
   'read_history_source',
-  'get_history_search_stats',
 ]);
 
 /**

@@ -20,9 +20,6 @@ export const ReleaseState = z.enum([
 ]);
 export type ReleaseState = z.infer<typeof ReleaseState>;
 
-/** The states that hold the project's one release slot: no second release is proposed while one is in them. */
-export const OPEN_RELEASE_STATES: readonly ReleaseState[] = ['proposed', 'approved', 'deploying'];
-
 /** The step of the deploy (or of the publishing) a release failed in. */
 export const ReleaseStep = z.enum([
   'fetch',

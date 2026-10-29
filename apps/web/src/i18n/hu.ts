@@ -382,7 +382,6 @@ export const hu = {
     avatar: 'Operátor, super jogosítvánnyal',
     credentialLead: 'Claude Code-ból · kulcs',
     activity: 'Mit tett az Operátor super jogosítvánnyal?',
-    handoffsTitle: 'Átadások',
     operationsTitle: 'Műveletek',
     emptyAll: 'Az Operátor még nem tett semmit super jogosítvánnyal.',
     operations: {
@@ -400,7 +399,6 @@ export const hu = {
     empty: 'Ezzel a kulccsal még nem történt semmi.',
     more: 'Továbbiak betöltése',
     handoff: '↑ az átadás',
-    handedOff: 'Az Operátor gépi munkát adott át: {operation}. Ok: {reason}',
     executed: 'végrehajtotta az átadást: {operation}',
     operation: 'Super művelet: {operation}',
     unknownHint: 'Nézd meg a naplót, mielőtt újra próbálod.',

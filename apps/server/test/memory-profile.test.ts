@@ -57,7 +57,7 @@ describe('image and guide', () => {
   it('the image does not carry the three tools, and the guide and the inventory name them', () => {
     const dockerfile = readFileSync(join(cloudDir, 'Dockerfile'), 'utf8');
     const guide = readFileSync(join(root, 'docs/HYBRID.md'), 'utf8');
-    const architecture = readFileSync(join(root, 'docs/ARCHITECTURE.md'), 'utf8');
+    const architecture = readFileSync(join(root, 'docs/MACHINE-DEPENDENT.md'), 'utf8');
     expect(dockerfile).not.toMatch(/^COPY .*\.mjs/m);
     for (const name of ['memory-probe.mjs', 'memory-profile.mjs', 'heap-summary.mjs']) {
       expect(guide).toContain(name);

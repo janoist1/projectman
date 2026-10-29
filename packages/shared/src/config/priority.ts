@@ -1,12 +1,11 @@
 import { memberDuties } from './duties';
 import { isProjectManager } from './project-manager';
 import type { AiMemberConfig, ProjectConfig, PrioritySetter } from './schema';
+import { teamSettingOf } from './team-settings';
 
-/** Today's circle (PM-433): the project managers; people and the connected owner always may. */
-export const DEFAULT_PRIORITY_SETTERS: readonly PrioritySetter[] = ['project_manager'];
-
+/** Who besides people and the connected owner may set a card's priority. */
 export function prioritySettersOf(config: Pick<ProjectConfig, 'team'>): readonly PrioritySetter[] {
-  return config.team.prioritySetters ?? DEFAULT_PRIORITY_SETTERS;
+  return teamSettingOf(config, 'prioritySetters');
 }
 
 /**

@@ -17,8 +17,7 @@ export const MAX_ACCEPTANCE_ITEMS = 40;
 /** Operations one update may carry. */
 export const MAX_ACCEPTANCE_CHANGES = 20;
 
-export const AcceptanceItemId = z.string().regex(/^acc_[a-z0-9]{10,32}$/);
-export type AcceptanceItemId = z.infer<typeof AcceptanceItemId>;
+const AcceptanceItemId = z.string().regex(/^acc_[a-z0-9]{10,32}$/);
 
 export const AcceptanceItem = z
   .object({

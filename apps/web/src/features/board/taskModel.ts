@@ -1,5 +1,5 @@
 import type { Session, Task } from '@projectman/shared';
-import { isLiveSession } from '../../lib/sessions';
+import { isLiveSession } from '@projectman/shared';
 
 /**
  * The session to open for a task: the newest live one (e.g. the reviewer's while the task is in

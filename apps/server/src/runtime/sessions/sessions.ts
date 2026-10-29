@@ -1,6 +1,11 @@
 import { wakesFor } from '../../core/messages';
 import { assertIntegratorAccess, assertSuperMutation } from '../../kernel';
-import { LIVE_SESSION_STATES, SESSION_CHAT_WINDOW, workMetadataAfterChat } from '@projectman/shared';
+import {
+  isLiveSessionState,
+  LIVE_SESSION_STATES,
+  SESSION_CHAT_WINDOW,
+  workMetadataAfterChat,
+} from '@projectman/shared';
 import type { EnsureSessionOptions, EnsureSessionResult } from '../../contracts';
 import {
   approverBlocker,
@@ -111,7 +116,6 @@ import { SessionContextInput } from './context-input';
 export { LIVE_SESSION_STATES } from '@projectman/shared';
 /** A turn is in progress: these count against `maxConcurrentAi`. */
 const BUSY_SESSION_STATES: SessionState[] = ['starting', 'working', 'waiting_permission'];
-const ENDED = new Set<SessionState>(['exited', 'failed']);
 
 export { MESSAGE_SEPARATOR } from './launch';
 export { COMPACT_MIN_CONTEXT_TOKENS } from './compaction';
@@ -1282,7 +1286,7 @@ export class SessionOrchestrator {
    */
   afterPause(session: Session): void {
     const current = this.find(session.id);
-    if (!current || ENDED.has(current.state) || !this.isRunning(current.id)) return;
+    if (!current || !isLiveSessionState(current.state) || !this.isRunning(current.id)) return;
     this.inputWaits.watch(current);
     this.wakeForNewRound(current);
     if (current.state !== 'idle') return;
@@ -1480,7 +1484,7 @@ export class SessionOrchestrator {
     }
     for (const sessionId of reported) {
       const session = this.ctx.repos.sessions.get(sessionId);
-      if (session && !ENDED.has(session.state)) continue;
+      if (session && isLiveSessionState(session.state)) continue;
       this.ctx.logger.warn(
         { engineId, sessionId },
         'stopping a session the engine runs that this server does not',
@@ -1505,7 +1509,12 @@ export class SessionOrchestrator {
    */
   setDoing(sessionId: string, doing: WorkDoing): boolean {
     const session = this.ctx.repos.sessions.get(sessionId);
-    if (!session || session.state === 'idle' || ENDED.has(session.state) || !this.isRunning(sessionId))
+    if (
+      !session ||
+      session.state === 'idle' ||
+      !isLiveSessionState(session.state) ||
+      !this.isRunning(sessionId)
+    )
       return false;
     this.publishSession(this.ctx.repos.sessions.update(sessionId, { doing })!);
     return true;
@@ -1694,7 +1703,7 @@ export class SessionOrchestrator {
     if (cleanup?.outcome !== 'failed') this.removeSessionFolderOf(sessionId);
     this.turns.ended(sessionId);
     this.inputWaits.ended(sessionId);
-    if (!session || ENDED.has(session.state)) return null;
+    if (!session || !isLiveSessionState(session.state)) return null;
     const at = isoNow(this.ctx);
     const state: SessionState = failed ? 'failed' : 'exited';
     const ended = this.ctx.repos.sessions.update(sessionId, {
@@ -1758,7 +1767,7 @@ export class SessionOrchestrator {
           return;
         }
         case 'state': {
-          if (ENDED.has(event.state)) {
+          if (!isLiveSessionState(event.state)) {
             // The owning runner still holds the scope until exit carries its cleanup result.
             if (this.deps.runner.list().some((info) => info.sessionId === session.id && info.scopeId)) {
               this.endingStates.set(session.id, { state: event.state, activity: event.activity });
@@ -1777,7 +1786,7 @@ export class SessionOrchestrator {
           // A state report never revives an ended row, running process or not: a new process starts only
           // after the launcher sets the row to `starting` and clears `endedAt`. A process that still runs
           // under an ended row (a late report after a server restart) is stopped by `reconcileEngine`.
-          if (ENDED.has(session.state)) {
+          if (!isLiveSessionState(session.state)) {
             this.ctx.logger.debug(
               { sessionId: session.id, state: event.state },
               'dropped a state report of an ended session',
@@ -1879,7 +1888,11 @@ export class SessionOrchestrator {
             this.timers.arm('cleanup', 'process-scopes', 60_000, () => {
               void this.lifecycle.run(() => this.retryScopeCleanup());
             });
-          if (event.cleanup.outcome === 'clean' && ENDED.has(session.state) && !this.isRunning(session.id))
+          if (
+            event.cleanup.outcome === 'clean' &&
+            !isLiveSessionState(session.state) &&
+            !this.isRunning(session.id)
+          )
             this.removeSessionFolderOf(session.id);
           if (event.cleanup.outcome === 'clean')
             void this.ctx.events.emit('session_cleanup_recovered', {

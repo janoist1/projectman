@@ -374,16 +374,10 @@ describe('deriveTaskState', () => {
 });
 
 describe('subtask card chips', () => {
-  it('shows the parent key even on a compact phone card', () => {
+  it('shows the parent key', () => {
     const task = { ...taskByKey('AC-20'), parentKey: 'AC-21' };
     renderUi(
-      <TaskCard
-        task={task}
-        state={deriveTaskState(task, ctx)}
-        pipeline={pipeline}
-        to="/p/AC/tasks/AC-20"
-        compact
-      />,
+      <TaskCard task={task} state={deriveTaskState(task, ctx)} pipeline={pipeline} to="/p/AC/tasks/AC-20" />,
     );
     expect(screen.getByText(t('task.parentChip', { key: 'AC-21' }))).toBeTruthy();
   });
@@ -422,16 +416,8 @@ describe('the prerequisite on the card (PM-203)', () => {
     const task = { ...taskByKey(key), ...patch };
     return { task, state: deriveTaskState(task, context) };
   };
-  const draw = (task: Task, state: ReturnType<typeof deriveTaskState>, compact = false) => {
-    renderUi(
-      <TaskCard
-        task={task}
-        state={state}
-        pipeline={pipeline}
-        to={`/p/AC/tasks/${task.key}`}
-        compact={compact}
-      />,
-    );
+  const draw = (task: Task, state: ReturnType<typeof deriveTaskState>) => {
+    renderUi(<TaskCard task={task} state={state} pipeline={pipeline} to={`/p/AC/tasks/${task.key}`} />);
     return screen.getByRole('link');
   };
   const closing = (key: string, status: Task['status']): TaskStateContext => ({
@@ -516,12 +502,6 @@ describe('the prerequisite on the card (PM-203)', () => {
     expect(chip.getAttribute('aria-label')).toContain('AC-17');
     expect(chip.getAttribute('title')).toContain('AC-19');
     expect(card.textContent?.split('AC-17')).toHaveLength(2);
-  });
-
-  it('shows the chip on the phone list card too', () => {
-    const { task, state } = on('AC-20', { links: links('AC-17') });
-    const card = draw(task, state, true);
-    expect(within(card).getByText(label('AC-17'))).toBeTruthy();
   });
 
   it('goes away when the prerequisite is closed, done or withdrawn', () => {

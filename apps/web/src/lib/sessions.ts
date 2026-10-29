@@ -1,14 +1,9 @@
-import { SESSION_IDLE_CLOSE_MINUTES, SessionStop } from '@projectman/shared';
+import { isLiveSession, SESSION_IDLE_CLOSE_MINUTES, SessionStop } from '@projectman/shared';
 import type { Session } from '@projectman/shared';
 import { t } from '../i18n/t';
 import { actorLabel, nameOf } from './members';
 import type { MemberIndex } from './members';
 import type { PipelineIndex } from './pipeline';
-
-/** A session that still runs (it may be idle between turns); exited and failed ones ended. */
-export function isLiveSession(session: Pick<Session, 'state'>): boolean {
-  return session.state !== 'exited' && session.state !== 'failed';
-}
 
 export type SessionStatus = 'needs_you' | 'working' | 'idle' | 'failed' | 'exited';
 

@@ -2,12 +2,10 @@ import type { Actor } from '../domain/event';
 import { isCoordinatorSuperActor } from './operator-member';
 import { isCoordinationActor } from './project-manager';
 import type { PrerequisiteOverride, ProjectConfig } from './schema';
-
-/** Today's rule (PM-204): only people override an open prerequisite. */
-export const DEFAULT_PREREQUISITE_OVERRIDE: PrerequisiteOverride = 'people';
+import { teamSettingOf } from './team-settings';
 
 export function prerequisiteOverrideOf(config: Pick<ProjectConfig, 'team'>): PrerequisiteOverride {
-  return config.team.prerequisiteOverride ?? DEFAULT_PREREQUISITE_OVERRIDE;
+  return teamSettingOf(config, 'prerequisiteOverride');
 }
 
 /**

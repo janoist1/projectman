@@ -40,11 +40,7 @@ export function isRepoFilePath(path: string): boolean {
   return segments[0] !== '.git';
 }
 
-export const RepoFilePath = z
-  .string()
-  .min(1)
-  .max(200)
-  .refine(isRepoFilePath, 'Not a path inside the repository');
+const RepoFilePath = z.string().min(1).max(200).refine(isRepoFilePath, 'Not a path inside the repository');
 
 /** Where a repository keeps the project documents. A document with no path is off. */
 export const RepoDocs = z

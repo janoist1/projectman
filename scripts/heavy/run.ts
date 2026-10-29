@@ -85,7 +85,7 @@ interface HeavyRun {
   stderr: (text: string) => void;
 }
 
-/** Runs the command at its turn and returns the exit status; see docs/ARCHITECTURE.md "Heavy-run queue". */
+/** Runs the command at its turn and returns the exit status; see docs/modules/scripts.md "Heavy-run queue". */
 export async function runHeavy(run: HeavyRun): Promise<number> {
   const parsed = parseHeavyArgs(run.argv);
   if ('error' in parsed) {

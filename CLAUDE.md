@@ -1,6 +1,6 @@
 # projectman — working rules
 
-Read `docs/ARCHITECTURE.md` first. Decisions and their reasons: `docs/DECISIONS.md`. What
+Read `docs/ARCHITECTURE.md` first (the overview; a module's details are in `docs/modules/`). Decisions and their reasons: `docs/DECISIONS.md`. What
 comes next and the owner's open questions: `docs/ROADMAP.md`. The lessons learned while
 building projectman are in `docs/LESSONS.md`, maintained by the project manager.
 `docs/DECISIONS.md` records the owner's decisions and `docs/ROADMAP.md` the plan. Only the
@@ -60,8 +60,8 @@ should confirm still goes to them as a question.
 These rules apply to every member, including Codex:
 
 - When adding or changing a machine-dependent part (local paths, processes, sockets,
-  accounts, OS features or a shared-host assumption), update the **Machine-dependent parts**
-  inventory in `docs/ARCHITECTURE.md` in the same change. Record what it does, its code
+  accounts, OS features or a shared-host assumption), update the machine-dependent
+  inventory in `docs/MACHINE-DEPENDENT.md` in the same change. Record what it does, its code
   location, the machine assumption, what a remote engine needs and the related task.
 - Every technical plan must answer **"Does this work on a remote engine?"** Refer to the
   affected inventory entries and state what must run on the engine, what must cross the
@@ -151,7 +151,7 @@ npx vitest run test/start-offer.test.ts test/golden-path-small-team.test.ts --co
 npm run typecheck -w <workspace>  # type check only the workspaces you touched (no queue)
 ```
 
-One heavy run goes at a time on the machine (PM-332, `docs/ARCHITECTURE.md` "Heavy-run
+One heavy run goes at a time on the machine (PM-332, `docs/modules/scripts.md` "Heavy-run
 queue"): the root `npm test`, `typecheck` and `shots` wait behind the other members' and the
 server's full test, and print who they wait for. Only Claude Code members run them in the
 background: Claude Code sends a completion notification. Codex, Gemini (agy) and NanoGPT

@@ -4,15 +4,8 @@ import {
   BUILT_IN_ROLE_DUTIES,
   BuiltInRoleId,
   DEFAULT_AGENT_PROVIDER,
-  DEFAULT_COMPLEXITY_SETTERS,
   DEFAULT_PROJECT_LANGUAGE,
-  DEFAULT_PRIORITY_SETTERS,
-  DEFAULT_PROJECT_MANAGER_LIFECYCLE,
-  DEFAULT_PREREQUISITE_OVERRIDE,
-  DEFAULT_PROJECT_MANAGER_MOVES,
-  DEFAULT_TASK_CREATE_ACCESS,
   DEFAULT_TEMP_MAX_POINTS,
-  DEFAULT_VIEWER_RECIPIENTS,
   defaultMerger,
   FALLBACK_PERMISSION_MODE,
   isProjectManager,
@@ -26,6 +19,7 @@ import {
   releaseApprovers,
   releaseGateAccepts,
   RETIRED_OPERATOR_ROLE,
+  storedTeamDefaults,
 } from '@projectman/shared';
 import {
   DAILY_WORKER_SCHEDULE,
@@ -271,55 +265,17 @@ function addProjectManager(raw: unknown, { projectKey, logger }: MigrationContex
   return raw;
 }
 
-/** Existing projects retain worker-driven handovers (PM-457). */
-function addCardMover(raw: unknown): unknown {
+/**
+ * Existing projects keep today's rules: every team setting `TEAM_SETTING_POLICY` marks `stored` gets its
+ * default when missing (card mover PM-457, project manager moves PM-1094, prerequisite override PM-1099,
+ * priority setters PM-1096, lifecycle PM-1098, viewer recipients PM-1102, complexity setters PM-1097,
+ * task create access PM-1100). A set value stays.
+ */
+function addTeamDefaults(raw: unknown): unknown {
   const team = asRecord(asRecord(raw)?.team);
-  if (team && team.cardMover === undefined) team.cardMover = { kind: 'worker' };
-  return raw;
-}
-
-/** Existing projects allow moves between queues as well as starting work (PM-1094). */
-function addProjectManagerMoves(raw: unknown): unknown {
-  const team = asRecord(asRecord(raw)?.team);
-  if (team && team.projectManagerMoves === undefined)
-    team.projectManagerMoves = DEFAULT_PROJECT_MANAGER_MOVES;
-  return raw;
-}
-
-/** Existing projects keep today's rule: only people override an open prerequisite (PM-1099). */
-function addPrerequisiteOverride(raw: unknown): unknown {
-  const team = asRecord(asRecord(raw)?.team);
-  if (team && team.prerequisiteOverride === undefined)
-    team.prerequisiteOverride = DEFAULT_PREREQUISITE_OVERRIDE;
-  return raw;
-}
-
-/** Existing projects keep today's circle: only the project managers may set a priority (PM-1096). */
-function addPrioritySetters(raw: unknown): unknown {
-  const team = asRecord(asRecord(raw)?.team);
-  if (team && team.prioritySetters === undefined) team.prioritySetters = [...DEFAULT_PRIORITY_SETTERS];
-  return raw;
-}
-
-/** Existing projects keep today's lifecycle rights: the project manager reassigns and cancels (PM-1098). */
-function addProjectManagerLifecycle(raw: unknown): unknown {
-  const team = asRecord(asRecord(raw)?.team);
-  if (team && team.projectManagerLifecycle === undefined)
-    team.projectManagerLifecycle = [...DEFAULT_PROJECT_MANAGER_LIFECYCLE];
-  return raw;
-}
-
-/** Existing projects keep a viewer writing to the project manager only (PM-1102). */
-function addViewerRecipients(raw: unknown): unknown {
-  const team = asRecord(asRecord(raw)?.team);
-  if (team && team.viewerRecipients === undefined) team.viewerRecipients = DEFAULT_VIEWER_RECIPIENTS;
-  return raw;
-}
-
-/** Existing projects keep today's complexity setters: requirements analysis and task breakdown (PM-1097). */
-function addComplexitySetters(raw: unknown): unknown {
-  const team = asRecord(asRecord(raw)?.team);
-  if (team && team.complexitySetters === undefined) team.complexitySetters = [...DEFAULT_COMPLEXITY_SETTERS];
+  if (!team) return raw;
+  for (const [key, value] of Object.entries(storedTeamDefaults()))
+    if (team[key] === undefined) team[key] = value;
   return raw;
 }
 
@@ -431,13 +387,6 @@ function addTempMaxPoints(raw: unknown): unknown {
   return raw;
 }
 
-/** Existing projects keep today's rule: a developer or above opens new cards (PM-1100). */
-function addTaskCreateAccess(raw: unknown): unknown {
-  const team = asRecord(asRecord(raw)?.team);
-  if (team && team.taskCreateAccess === undefined) team.taskCreateAccess = DEFAULT_TASK_CREATE_ACCESS;
-  return raw;
-}
-
 /**
  * Upgrades a merged, not yet validated project configuration of an older shape, in memory: the
  * customization files keep their content until the next save. Used wherever the store reads
@@ -454,71 +403,50 @@ function addTaskCreateAccess(raw: unknown): unknown {
  *   - the removed separate mailbox name (`email.mailbox`, PM-1039) is dropped from every AI member (above);
  *   - the removed message storm threshold (`messageBurst`) is dropped (above);
  *   - a project without an AI project manager gets one, on leave (above);
- *   - a missing card mover becomes worker (above);
- *   - missing project manager moves allow queue moves and starting work (above);
- *   - a missing prerequisite override becomes people only (above);
- *   - a missing priority setting becomes the project managers (above);
- *   - missing complexity setters become requirements analysis and task breakdown (above);
- *   - a missing viewer recipients setting becomes the project manager only (above);
- *   - a missing task create access becomes developer (above);
+ *   - a missing team setting with a stored default (`TEAM_SETTING_POLICY`) gets that default (above);
  *   - the retired Operator member (`ai_operator`) leaves the team, with its role override and its
  *     references (above), and is never put back;
  *   - a missing merger becomes the code reviewer or the developer, by the pipeline (above), judged on
  *     the configuration without the Operator;
  *   - an override of the project manager role gets the feedback processing duty (above);
- *   - a temp workers section without a card limit gets `DEFAULT_TEMP_MAX_POINTS` (above);
- *   - missing project manager lifecycle actions become reassigning and cancelling (above), last.
+ *   - a temp workers section without a card limit gets `DEFAULT_TEMP_MAX_POINTS` (above), last.
  * Stage kinds from before decision 18 (review, deploy, …) are read by the pipeline schema
  * itself (packages/shared/src/domain/pipeline.ts).
  */
 export function migrateProjectConfig(raw: unknown, context: MigrationContext): unknown {
-  return addProjectManagerLifecycle(
-    addTempMaxPoints(
-      addFeedbackProcessing(
-        addMerger(
-          removeOperator(
-            addTaskCreateAccess(
-              addViewerRecipients(
-                addComplexitySetters(
-                  addPrioritySetters(
-                    addPrerequisiteOverride(
-                      addProjectManagerMoves(
-                        addCardMover(
-                          addProjectManager(
-                            migrateReleaseApproval(
-                              migrateAcceptanceGates(
-                                migrateLegacyConfig(
-                                  migrateCodexBypass(
-                                    migrateScheduledRole(
-                                      dropMessageBurst(
-                                        migrateSeniorLimit(
-                                          dropEmailMailbox(migrateShadowingRoles(raw, context), context),
-                                          context,
-                                        ),
-                                        context,
-                                      ),
-                                      context,
-                                    ),
-                                    context,
-                                  ),
-                                ),
-                              ),
-                              context,
-                            ),
+  return addTempMaxPoints(
+    addFeedbackProcessing(
+      addMerger(
+        removeOperator(
+          addTeamDefaults(
+            addProjectManager(
+              migrateReleaseApproval(
+                migrateAcceptanceGates(
+                  migrateLegacyConfig(
+                    migrateCodexBypass(
+                      migrateScheduledRole(
+                        dropMessageBurst(
+                          migrateSeniorLimit(
+                            dropEmailMailbox(migrateShadowingRoles(raw, context), context),
                             context,
                           ),
+                          context,
                         ),
+                        context,
                       ),
+                      context,
                     ),
                   ),
                 ),
+                context,
               ),
+              context,
             ),
-            context,
           ),
+          context,
         ),
-        context,
       ),
+      context,
     ),
   );
 }

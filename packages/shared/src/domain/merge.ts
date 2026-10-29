@@ -40,7 +40,7 @@ export const MergeCheck = z.object({
   url: z.string().optional(),
 });
 export type MergeCheck = z.infer<typeof MergeCheck>;
-export const MergeState = z.enum(['requested', 'queued', 'running', 'failed', 'blocked', 'fixing']);
+const MergeState = z.enum(['requested', 'queued', 'running', 'failed', 'blocked', 'fixing']);
 export const MergeFailure = z.object({
   reason: z.enum(['conflict', 'check_failed']),
   at: z.string(),

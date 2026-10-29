@@ -12,7 +12,6 @@ import { OperatorKnowledgeChange } from '../domain/operator-knowledge';
 import {
   RedactionCounts,
   SYSTEM_FEEDBACK_BODY_MAX,
-  SYSTEM_FEEDBACK_REASON_MAX,
   SYSTEM_FEEDBACK_TITLE_MAX,
   SystemFeedbackAccess,
   SystemFeedbackForwardingMode,
@@ -105,7 +104,7 @@ export const CheckOutageResponse = z.object({
 });
 export type CheckOutageResponse = z.infer<typeof CheckOutageResponse>;
 
-export const ProjectManagerChannelState = z.enum([
+const ProjectManagerChannelState = z.enum([
   'available',
   'starting',
   'working',
@@ -113,7 +112,7 @@ export const ProjectManagerChannelState = z.enum([
   'on_leave',
   'missing',
 ]);
-export type ProjectManagerChannelState = z.infer<typeof ProjectManagerChannelState>;
+type ProjectManagerChannelState = z.infer<typeof ProjectManagerChannelState>;
 export const ProjectManagerChannel = z.object({
   /** Null when the project has no AI project manager (state missing). */
   member: z.object({ handle: MemberHandle, displayName: z.string(), onLeave: z.boolean() }).nullable(),
@@ -208,8 +207,6 @@ export const OPERATOR_SILENT_WORK_MINUTES = 30;
 export const OPERATOR_IDLE_MINUTES = 30;
 /** A merge the merger has not started for this long is waiting. */
 export const OPERATOR_MERGE_WAIT_MINUTES = 30;
-/** Work merged and not released for this long is waiting for a release. */
-export const OPERATOR_UNRELEASED_HOURS = 24;
 /** Startable cards and a free developer, with no developer starting, for this long without a break wake the Operator (PM-1082). */
 export const OPERATOR_READY_WAITING_MINUTES = 10;
 /** The Operator got no result for this much longer after waking: the owners get one `work_stalled` alert (PM-1082). */
@@ -283,8 +280,8 @@ export const AnswerStalledFacts = z.object({
   lastActionAt: z.string().datetime().nullable(),
 });
 export type AnswerStalledFacts = z.infer<typeof AnswerStalledFacts>;
-export const OperatorSignalState = z.enum(['pending', 'open', 'accepted', 'dismissed', 'resolved']);
-export type OperatorSignalState = z.infer<typeof OperatorSignalState>;
+const OperatorSignalState = z.enum(['pending', 'open', 'accepted', 'dismissed', 'resolved']);
+type OperatorSignalState = z.infer<typeof OperatorSignalState>;
 export const OperatorSignal = z.object({
   id: z.string(),
   deliveredTo: MemberHandle.nullable().optional(),
@@ -346,7 +343,7 @@ export const InvolvementsResponse = z.object({
 });
 export type InvolvementsResponse = z.infer<typeof InvolvementsResponse>;
 
-export const IntegratorKeyState = z.enum(['active', 'expired', 'revoked']);
+const IntegratorKeyState = z.enum(['active', 'expired', 'revoked']);
 export const IntegratorKeyInfo = z.object({
   prefix: z.string(),
   state: IntegratorKeyState,
@@ -499,8 +496,8 @@ export const ProviderLoginStatus = z.object({
   minCliVersion: z.string().optional(),
 });
 export type ProviderLoginStatus = z.infer<typeof ProviderLoginStatus>;
-export const ProviderKeyStatus = z.object({ set: z.boolean(), setAt: z.string().nullable() });
-export type ProviderKeyStatus = z.infer<typeof ProviderKeyStatus>;
+const ProviderKeyStatus = z.object({ set: z.boolean(), setAt: z.string().nullable() });
+type ProviderKeyStatus = z.infer<typeof ProviderKeyStatus>;
 export const ProvidersView = z.object({
   providers: z.array(ProviderLoginStatus),
   keys: z.object({ nanogpt: ProviderKeyStatus }),
@@ -869,7 +866,7 @@ export function operatorKnowledgeOperationIncluded(
   return parsed.success && payload.operations.some((entry) => canonical(entry) === canonical(parsed.data));
 }
 
-export const OPERATOR_CRITICAL_OPS = ['session_stop', 'message_send'] as const;
+const OPERATOR_CRITICAL_OPS = ['session_stop', 'message_send'] as const;
 export function operatorCriticalOp(op: OperatorOperation['op']): boolean {
   return OPERATOR_CRITICAL_OPS.some((critical) => critical === op);
 }
@@ -1556,9 +1553,9 @@ export type AcceptInviteRequest = z.infer<typeof AcceptInviteRequest>;
 
 /* ---------- system feedback (PM-472): the Operator's findings about projectman itself ---------- */
 
-export const SystemFeedbackOccurrence = z.object({ at: z.string(), version: z.string() });
-export type SystemFeedbackOccurrence = z.infer<typeof SystemFeedbackOccurrence>;
-export const SystemFeedbackForwarded = z.object({
+const SystemFeedbackOccurrence = z.object({ at: z.string(), version: z.string() });
+type SystemFeedbackOccurrence = z.infer<typeof SystemFeedbackOccurrence>;
+const SystemFeedbackForwarded = z.object({
   kind: z.enum(['card', 'issue']),
   projectKey: z.string().nullable(),
   taskKey: TaskKey.nullable(),
@@ -1567,7 +1564,7 @@ export const SystemFeedbackForwarded = z.object({
   by: z.string().nullable(),
   at: z.string(),
 });
-export type SystemFeedbackForwarded = z.infer<typeof SystemFeedbackForwarded>;
+type SystemFeedbackForwarded = z.infer<typeof SystemFeedbackForwarded>;
 export const SystemFeedbackItem = z.object({
   /** `fb_…` */
   id: z.string(),
@@ -1589,14 +1586,14 @@ export const SystemFeedbackItem = z.object({
   cardError: z.object({ code: z.string(), message: z.string(), at: z.string() }).nullable(),
 });
 export type SystemFeedbackItem = z.infer<typeof SystemFeedbackItem>;
-export const SystemFeedbackForwardingChange = z.object({
+const SystemFeedbackForwardingChange = z.object({
   mode: SystemFeedbackForwardingMode,
   projectKey: z.string().nullable(),
   /** The name of whoever changed it. */
   by: z.string(),
   at: z.string(),
 });
-export type SystemFeedbackForwardingChange = z.infer<typeof SystemFeedbackForwardingChange>;
+type SystemFeedbackForwardingChange = z.infer<typeof SystemFeedbackForwardingChange>;
 export const SystemFeedbackForwardingView = z.object({
   mode: SystemFeedbackForwardingMode,
   projectKey: z.string().nullable(),
@@ -1620,10 +1617,6 @@ export const SetSystemFeedbackForwardingRequest = z
   .object({ mode: SystemFeedbackForwardingMode, projectKey: z.string().optional() })
   .refine((request) => (request.mode === 'card') === (request.projectKey !== undefined));
 export type SetSystemFeedbackForwardingRequest = z.infer<typeof SetSystemFeedbackForwardingRequest>;
-export const DismissSystemFeedbackRequest = z.object({
-  reason: z.string().trim().min(1).max(SYSTEM_FEEDBACK_REASON_MAX),
-});
-export type DismissSystemFeedbackRequest = z.infer<typeof DismissSystemFeedbackRequest>;
 export const SystemFeedbackPreview = z.object({
   title: z.string(),
   body: z.string(),
@@ -1646,7 +1639,3 @@ export const SystemFeedbackPrepared = z.discriminatedUnion('result', [
   }),
 ]);
 export type SystemFeedbackPrepared = z.infer<typeof SystemFeedbackPrepared>;
-export const MarkSystemFeedbackForwardedRequest = z.object({
-  issueUrl: z.string().trim().min(1).optional(),
-});
-export type MarkSystemFeedbackForwardedRequest = z.infer<typeof MarkSystemFeedbackForwardedRequest>;

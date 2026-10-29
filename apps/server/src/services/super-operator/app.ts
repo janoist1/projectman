@@ -1,5 +1,10 @@
 import { createHash } from 'node:crypto';
-import { OPERATOR_APP_CREDENTIAL_PREFIX, appRequestOrigin, coordinationMemberOf } from '@projectman/shared';
+import {
+  OPERATOR_APP_CREDENTIAL_PREFIX,
+  appRequestOrigin,
+  coordinationMemberOf,
+  isLiveSessionState,
+} from '@projectman/shared';
 import type {
   HumanMemberConfig,
   ProjectConfig,
@@ -58,7 +63,7 @@ export function createOperatorAppSessions(deps: {
     active(principal) {
       if (principal.source !== 'app') return false;
       const session = deps.ctx.repos.sessions.get(principal.keyId);
-      if (!session || session.state === 'exited' || session.state === 'failed') return false;
+      if (!session || !isLiveSessionState(session.state)) return false;
       const config = deps.projects.cachedConfig(session.projectKey);
       return (
         !!config &&

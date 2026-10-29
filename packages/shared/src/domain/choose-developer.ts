@@ -92,7 +92,7 @@ export function canReplaceUnstartedAssignee(input: {
  * Whether the developer fits the card: its limit reaches the points (an unscored card fits anyone) and its
  * specialty matches the labels. The one rule behind the automatic choice and the check of a named assignee.
  */
-export function fitsCard(
+function fitsCard(
   developer: Pick<StageDeveloper, 'limit' | 'specialtyLabels'>,
   points: ComplexityPoints | null,
   labels: readonly string[],

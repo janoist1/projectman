@@ -406,21 +406,6 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
         text: '',
       };
     },
-    async getHistorySearchStats(ctx, args) {
-      await enter('getHistorySearchStats', ctx, args);
-      return {
-        since: args.since ?? '2026-09-01T00:00:00.000Z',
-        until: args.until ?? '2026-10-01T00:00:00.000Z',
-        retainedSince: '2026-07-03T00:00:00.000Z',
-        totalSearches: 0,
-        failedSearches: 0,
-        byMember: [],
-        zeroResultCount: 0,
-        zeroResultRate: 0,
-        zeroResults: [],
-        nextCursor: null,
-      };
-    },
     async writeProjectDocs(ctx, args) {
       await enter('writeProjectDocs', ctx, args);
       return { write_id: 'dw_fake', state: 'running' };

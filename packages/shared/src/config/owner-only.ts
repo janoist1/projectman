@@ -6,14 +6,13 @@ import {
 } from '../domain/member';
 import { BUILT_IN_ROLE_IDS } from '../domain/role';
 import { canonical } from './canonical';
-import { operatorWatchOf } from './operator-watch';
 import { dutyMembers, roleBundle } from './duties';
 import { stageApprovers } from './gates';
 import { labelDefinition, labelHolders } from './labels';
 import { machineAccessOf } from './machine-access';
 import { approverOf, outboundNetworkOf } from './permission-level';
 import type { AiMemberConfig, ProjectConfig } from './schema';
-import { taskCreateAccessOf } from './task-create';
+import { TEAM_SETTING_KEYS, TEAM_SETTING_POLICY, teamSettingValue } from './team-settings';
 
 /**
  * Configuration changes only an owner may make (checked on every configuration commit by a
@@ -38,55 +37,65 @@ import { taskCreateAccessOf } from './task-create';
  * - `task_create_access`: the lowest human access that may open a new card (PM-1100), by its effective value
  *   (`taskCreateAccessOf`).
  */
-export type OwnerOnlyChange =
-  | 'locations'
-  | 'admin_or_account'
-  | 'approval_policy'
-  | 'release_approvers'
-  | 'owners'
-  | 'permissions'
-  | 'review_test'
-  | 'operator_watch'
-  | 'operator_approval_waiver'
-  | 'email_send_policy'
-  | 'machine_access'
-  | 'task_create_access';
+const OWNER_ONLY_CHANGES = [
+  'locations',
+  'admin_or_account',
+  'approval_policy',
+  'release_approvers',
+  'owners',
+  'permissions',
+  'review_test',
+  'operator_watch',
+  'operator_approval_waiver',
+  'email_send_policy',
+  'machine_access',
+  'task_create_access',
+] as const;
+export type OwnerOnlyChange = (typeof OWNER_ONLY_CHANGES)[number];
 
-/** The owner-only changes from `previous` to `next`, in the order above; empty when there are none. */
+/**
+ * The owner-only changes from `previous` to `next`, in the order above; empty when there are none. A team
+ * setting counts by its effective value under the change `TEAM_SETTING_POLICY` names for it; the checks
+ * below cover what is not one setting.
+ */
 export function ownerOnlyChanges(
   previous: ProjectConfig,
   next: ProjectConfig,
   opts: { invitationBinding?: { handle: string; email: string } } = {},
 ): OwnerOnlyChange[] {
-  const changes: OwnerOnlyChange[] = [];
-  if (locationsSignature(previous) !== locationsSignature(next)) changes.push('locations');
-  if (adminOrAccountChanged(previous, next, opts.invitationBinding)) changes.push('admin_or_account');
-  if (approvalPolicyChanged(previous, next)) changes.push('approval_policy');
-  if (releaseApproversSignature(previous) !== releaseApproversSignature(next))
-    changes.push('release_approvers');
-  if (ownersSignature(previous) !== ownersSignature(next)) changes.push('owners');
-  if (permissionsChanged(previous, next)) changes.push('permissions');
-  if (reviewTestSignature(previous) !== reviewTestSignature(next)) changes.push('review_test');
-  if (operatorWatchOf(previous) !== operatorWatchOf(next)) changes.push('operator_watch');
-  if ((previous.team.operatorApprovalWaiver ?? false) !== (next.team.operatorApprovalWaiver ?? false))
-    changes.push('operator_approval_waiver');
+  const checks: Partial<Record<OwnerOnlyChange, () => boolean>> = {
+    locations: () => locationsSignature(previous) !== locationsSignature(next),
+    admin_or_account: () => adminOrAccountChanged(previous, next, opts.invitationBinding),
+    approval_policy: () => approvalPolicyChanged(previous, next),
+    release_approvers: () => releaseApproversSignature(previous) !== releaseApproversSignature(next),
+    owners: () => ownersSignature(previous) !== ownersSignature(next),
+    permissions: () => permissionsChanged(previous, next),
+    review_test: () => reviewTestSignature(previous) !== reviewTestSignature(next),
+    email_send_policy: () => emailSendPolicyChanged(previous, next),
+    machine_access: () => machineAccessChanged(previous, next),
+  };
+  return OWNER_ONLY_CHANGES.filter(
+    (change) =>
+      TEAM_SETTING_KEYS.some(
+        (key) =>
+          TEAM_SETTING_POLICY[key].ownerOnly === change &&
+          canonical(teamSettingValue(previous, key)) !== canonical(teamSettingValue(next, key)),
+      ) || checks[change]?.() === true,
+  );
+}
+
+/** An AI member's bypass of the email approval differs; switching sending on or off clears it with it (PM-956). */
+function emailSendPolicyChanged(previous: ProjectConfig, next: ProjectConfig): boolean {
   const policy = (member: ProjectConfig['team']['members'][number] | undefined) =>
     member?.kind === 'ai' && member.email?.sendWithoutApproval === true;
   const sending = (member: ProjectConfig['team']['members'][number] | undefined) =>
     member?.kind === 'ai' && member.email?.enabled === true;
-  if (
-    next.team.members.some((member) => {
-      if (member.kind !== 'ai') return false;
-      const old = previous.team.members.find((m) => m.handle === member.handle);
-      if (policy(member) === policy(old)) return false;
-      // Switching sending on or off clears the bypass with it (PM-956): not a policy decision.
-      return !(policy(old) && sending(old) !== sending(member));
-    })
-  )
-    changes.push('email_send_policy');
-  if (machineAccessChanged(previous, next)) changes.push('machine_access');
-  if (taskCreateAccessOf(previous) !== taskCreateAccessOf(next)) changes.push('task_create_access');
-  return changes;
+  return next.team.members.some((member) => {
+    if (member.kind !== 'ai') return false;
+    const old = previous.team.members.find((m) => m.handle === member.handle);
+    if (policy(member) === policy(old)) return false;
+    return !(policy(old) && sending(old) !== sending(member));
+  });
 }
 
 /**
@@ -119,7 +128,7 @@ function reviewTestSignature(config: ProjectConfig): string {
  * An existing AI member's mode, approver, or outbound network setting differs, or a new AI member does not start with the
  * default mode, approver, and outbound network setting. An absent approver counts as `human`, so restating it changes nothing.
  */
-export function permissionsChanged(previous: ProjectConfig, next: ProjectConfig): boolean {
+function permissionsChanged(previous: ProjectConfig, next: ProjectConfig): boolean {
   const signature = (member: AiMemberConfig | undefined) =>
     member
       ? `${member.permissionMode}:${approverOf(member)}:${outboundNetworkOf(member)}`
@@ -135,7 +144,7 @@ export function permissionsChanged(previous: ProjectConfig, next: ProjectConfig)
 export function boundaryDelegationChanged(previous: ProjectConfig, next: ProjectConfig): boolean {
   const signature = (config: ProjectConfig) =>
     JSON.stringify({
-      settings: config.team.boundary ?? { enabled: false, leadTimeoutSeconds: 120 },
+      settings: teamSettingValue(config, 'boundary'),
       holders: dutyMembers(config, 'boundary_authorization')
         .map((m) => m.handle)
         .sort(),
@@ -146,8 +155,11 @@ export function boundaryDelegationChanged(previous: ProjectConfig, next: Project
   return signature(previous) !== signature(next);
 }
 
-/** Stage and condition ordering do not alter the approval policy. Removal does. */
-export function approvalPolicyChanged(previous: ProjectConfig, next: ProjectConfig): boolean {
+/**
+ * Stage and condition ordering do not alter the approval policy. Removal does. The release four eyes and the
+ * boundary settings count through `TEAM_SETTING_POLICY`.
+ */
+function approvalPolicyChanged(previous: ProjectConfig, next: ProjectConfig): boolean {
   if (boundaryDelegationChanged(previous, next)) return true;
   // Approvals are gate labels only humans may set; their holders are part of the policy.
   const signature = (config: ProjectConfig) =>
@@ -171,7 +183,6 @@ export function approvalPolicyChanged(previous: ProjectConfig, next: ProjectConf
     );
   const releaseSignature = (config: ProjectConfig) =>
     JSON.stringify({
-      fourEyes: config.team.releaseFourEyes ?? false,
       holders: dutyMembers(config, 'release_approval')
         .map((m) => m.handle)
         .sort(),

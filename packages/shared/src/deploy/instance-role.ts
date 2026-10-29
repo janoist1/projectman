@@ -21,7 +21,7 @@ import { z } from 'zod';
  */
 export const INSTANCE_MARKER_FILE = 'instance.json';
 
-export const INSTANCE_ROLES = ['active', 'standby', 'retired', 'engine'] as const;
+const INSTANCE_ROLES = ['active', 'standby', 'retired', 'engine'] as const;
 export type InstanceRole = (typeof INSTANCE_ROLES)[number];
 
 export const InstanceMarker = z.strictObject({
@@ -37,9 +37,4 @@ export type InstanceMarker = z.infer<typeof InstanceMarker>;
 /** The role a marker (or its absence) gives a home. */
 export function instanceRoleOf(marker: InstanceMarker | null): InstanceRole {
   return marker ? marker.role : 'active';
-}
-
-/** What may a home in this role do? One answer, used by the server start and by the move tool. */
-export function instanceMayWork(role: InstanceRole): boolean {
-  return role === 'active';
 }

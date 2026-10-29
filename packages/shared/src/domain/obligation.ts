@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { ErrorCode } from '../api/error-codes';
 import type { TeamLimits } from '../config/schema';
 import { MemberHandle } from './member';
 import { TaskKey } from './task';
@@ -133,7 +134,7 @@ export const PAUSING_REFUSALS: readonly string[] = [
   'disk_low',
   'engine_offline',
   'member_on_leave',
-];
+] satisfies readonly ErrorCode[];
 
 export const DEFAULT_OBLIGATION_MINUTES = 30;
 

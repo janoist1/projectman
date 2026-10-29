@@ -3,17 +3,13 @@ import { hasAccess } from '../domain/member';
 import { memberOf } from './lookup';
 import { isCoordinationActor } from './project-manager';
 import type { ProjectConfig, ProjectManagerLifecycleAction } from './schema';
+import { teamSettingOf } from './team-settings';
 
-/** Today's rule (PM-1098): the PM reassigns and cancels cards on its own; reopening stays with the admins. */
-export const DEFAULT_PROJECT_MANAGER_LIFECYCLE: readonly ProjectManagerLifecycleAction[] = [
-  'assign',
-  'cancel',
-];
-
+/** The lifecycle actions the PM takes on its own (PM-1098). */
 export function projectManagerLifecycleOf(
   config: Pick<ProjectConfig, 'team'>,
 ): readonly ProjectManagerLifecycleAction[] {
-  return config.team.projectManagerLifecycle ?? DEFAULT_PROJECT_MANAGER_LIFECYCLE;
+  return teamSettingOf(config, 'projectManagerLifecycle');
 }
 
 /** The selected PM acting directly (no integrator) may take the action when the setting lists it. */

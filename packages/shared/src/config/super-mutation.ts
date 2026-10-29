@@ -1,16 +1,19 @@
 import type { Actor } from '../domain/event';
+import { DEFAULT_AGENT_PROVIDER } from '../domain/member';
 import type { AgentProvider, HumanAccess } from '../domain/member';
 import type { SuperCommand } from '../api/super-handoff';
 import type { AiMemberConfig, ProjectConfig } from './schema';
 import { canonical } from './canonical';
 import { ownerHandles } from './lookup';
-import { boundaryDelegationChanged, ownerOnlyChanges, permissionsChanged } from './owner-only';
+import { boundaryDelegationChanged, ownerOnlyChanges } from './owner-only';
+import type { OwnerOnlyChange } from './owner-only';
+import { teamSettingValue } from './team-settings';
 import { dutyMembers, memberDuties, roleBundle } from './duties';
 import { labelHolders } from './labels';
 import { coordinationMemberOf } from './project-manager';
 
 /** App project managers may execute only these command kinds; new kinds are refused by default. */
-export const PROJECT_MANAGER_SUPER_COMMANDS = [
+const PROJECT_MANAGER_SUPER_COMMANDS = [
   'task_create',
   'task_update',
   'task_labels',
@@ -81,7 +84,7 @@ function approvalHolders(config: ProjectConfig): string {
 export function approvalStructureChanged(previous: ProjectConfig, next: ProjectConfig): boolean {
   return (
     canonical(previous.pipeline) !== canonical(next.pipeline) ||
-    (previous.team.releaseFourEyes ?? false) !== (next.team.releaseFourEyes ?? false) ||
+    teamSettingValue(previous, 'releaseFourEyes') !== teamSettingValue(next, 'releaseFourEyes') ||
     canonical(previous.team.merger ?? null) !== canonical(next.team.merger ?? null) ||
     approvalHolders(previous) !== approvalHolders(next)
   );
@@ -93,7 +96,7 @@ export function approvalStructureChanged(previous: ProjectConfig, next: ProjectC
  * Operator may do with the super key, in its own name.
  */
 export type OwnerReservedEffect = 'deletion' | 'security' | 'cost';
-export type SuperRoutineMutation =
+type SuperRoutineMutation =
   | 'task_write'
   | 'task_create'
   | 'task_start'
@@ -117,14 +120,14 @@ export type SuperRoutineMutation =
   | 'release_propose'
   | 'member_update';
 /** The protected administration commands that need no per-operation owner approval. */
-export const SUPER_ADMINISTRATION_COMMANDS = [
+const SUPER_ADMINISTRATION_COMMANDS = [
   'restart',
   'full_test',
   'image_build',
   'deploy',
   'process_cleanup',
 ] as const;
-export type SuperAdministrationCommand = (typeof SUPER_ADMINISTRATION_COMMANDS)[number];
+type SuperAdministrationCommand = (typeof SUPER_ADMINISTRATION_COMMANDS)[number];
 export type SuperMutationCommand =
   | { kind: 'config_change'; next: ProjectConfig }
   | {
@@ -183,16 +186,43 @@ const routines = new Set<SuperRoutineMutation>([
 const DELETION_RESOURCES = new Set<string>(['member', 'repo', 'project', 'credential']);
 
 /**
+ * Whether a provider's sessions cost money beyond the subscriptions: NanoGPT bills per call (decision 34).
+ * A record over every provider, so a new provider does not classify until someone states its cost.
+ */
+const PAID_PROVIDERS: Readonly<Record<AgentProvider, boolean>> = {
+  claude: false,
+  codex: false,
+  gemini: false,
+  nanogpt: true,
+};
+
+/** A provider this classification knows (an unknown one is refused, never guessed free). */
+export function isKnownProvider(provider: string): provider is AgentProvider {
+  return Object.hasOwn(PAID_PROVIDERS, provider);
+}
+
+/** Starting this provider's sessions is a cost the owner reserved (`PAID_PROVIDERS`). */
+export function isPaidProvider(provider: AgentProvider): boolean {
+  return PAID_PROVIDERS[provider];
+}
+
+/** The owner-only changes that are the owner's security settings in super mode. */
+const SECURITY_OWNER_ONLY_CHANGES: readonly OwnerOnlyChange[] = [
+  'operator_approval_waiver',
+  'permissions',
+  'machine_access',
+];
+
+/**
  * The owner's own login and security settings changed: a human's access level, login e-mail or a human turned
- * into another kind of member, a new owner, the Operator waiver, the AI members' permission settings and the
- * boundary delegation (the owner kept the last two on 2026-10-20, PM-862 inventory row 33).
+ * into another kind of member, a new owner, the Operator waiver, the AI members' machine access, their permission
+ * settings and the boundary delegation (the owner kept the last two on 2026-10-20, PM-862 inventory row 33).
  */
 function securityChanged(previous: ProjectConfig, next: ProjectConfig): boolean {
   if (superMemberChanges(previous, next).length) return true;
-  if ((previous.team.operatorApprovalWaiver ?? false) !== (next.team.operatorApprovalWaiver ?? false))
-    return true;
-  if (permissionsChanged(previous, next) || boundaryDelegationChanged(previous, next)) return true;
-  if (ownerOnlyChanges(previous, next).includes('machine_access')) return true;
+  const ownerOnly = ownerOnlyChanges(previous, next);
+  if (SECURITY_OWNER_ONLY_CHANGES.some((change) => ownerOnly.includes(change))) return true;
+  if (boundaryDelegationChanged(previous, next)) return true;
   // A human who is no longer a human under the same handle loses the login and the access level.
   if (
     previous.team.members.some(
@@ -261,9 +291,8 @@ export function ownerReservedEffect(
     case 'owner_command':
       return 'security';
     case 'runtime_start':
-      if (command.providers.some((provider) => !['claude', 'codex', 'gemini', 'nanogpt'].includes(provider)))
-        throw new Error('unknown runtime provider');
-      return command.providers.includes('nanogpt') ? 'cost' : null;
+      if (!command.providers.every(isKnownProvider)) throw new Error('unknown runtime provider');
+      return command.providers.some(isPaidProvider) ? 'cost' : null;
     case 'routine':
       if (!routines.has(command.operation)) throw new Error('unknown super mutation');
       return null;
@@ -284,7 +313,7 @@ export function ownerReservedEffect(
         return 'deletion';
       if (securityChanged(previous, next)) return 'security';
       const paid = next.team.members.filter(
-        (m): m is AiMemberConfig => m.kind === 'ai' && m.provider === 'nanogpt',
+        (m): m is AiMemberConfig => m.kind === 'ai' && isPaidProvider(m.provider ?? DEFAULT_AGENT_PROVIDER),
       );
       const cap = (config: ProjectConfig) => config.team.limits.maxConcurrentAi ?? Infinity;
       if (
@@ -298,7 +327,7 @@ export function ownerReservedEffect(
           return (
             !before ||
             before.kind !== 'ai' ||
-            before.provider !== 'nanogpt' ||
+            (before.provider ?? DEFAULT_AGENT_PROVIDER) !== (member.provider ?? DEFAULT_AGENT_PROVIDER) ||
             before.model !== member.model ||
             before.capacity !== member.capacity ||
             canonical(before.schedule) !== canonical(member.schedule) ||

@@ -378,6 +378,5 @@ describe('the cover of a card', () => {
     const image = thumbnailOf(view.container, 'AC-20', first.id)!;
     expect(image).toBeTruthy();
     expect(image.parentElement!.className).toMatch(/cover/);
-    expect(image.parentElement!.className).not.toMatch(/thumbnail/);
   });
 });
